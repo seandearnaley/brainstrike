@@ -1,5 +1,5 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyManagedCacheBatch,
   parseManagedCacheBatchArgs,
@@ -208,6 +208,87 @@ describe('applyManagedCacheBatch', () => {
         ],
       })
     ).toThrow('Managed cache batch payload contains an invalid change record.');
+
+    expect(() =>
+      parseManagedCacheBatchArgs({
+        embeddingSetId: 'set-1',
+        changes: [
+          {
+            mode: 'replace',
+            record: null,
+          },
+        ],
+      })
+    ).toThrow('Managed cache batch payload contains an invalid change record.');
+
+    expect(() =>
+      parseManagedCacheBatchArgs({
+        embeddingSetId: 'set-1',
+        changes: [
+          {
+            mode: 'replace',
+            record: {
+              id: 'file-6',
+              name: 'bad-updated-at.ts',
+              path: 'src/bad-updated-at.ts',
+              size: 1,
+              sourceRootPath: '/workspace/root',
+              updatedAt: '',
+              processedAt: '2026-04-16T00:00:00.000Z',
+              content: 'export const value = 6;',
+              contentHash: 'hash-6',
+              tokenCount: 1,
+            },
+          },
+        ],
+      })
+    ).toThrow('Managed cache batch payload contains an invalid change record.');
+  });
+
+  it('returns immediately when a managed-cache batch is empty', async () => {
+    const transactionMock = vi.fn(db.transaction?.bind(db));
+    const transactionalDb = {
+      ...db,
+      transaction: transactionMock,
+    };
+
+    await applyManagedCacheBatch(transactionalDb as unknown as PGlite, {
+      embeddingSetId: 'set-1',
+      changes: [],
+    });
+
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects managed-cache batches when transactional database support is unavailable', async () => {
+    const nonTransactionalDb = {
+      ...db,
+      transaction: undefined,
+    };
+
+    await expect(
+      applyManagedCacheBatch(nonTransactionalDb as unknown as PGlite, {
+        embeddingSetId: 'set-1',
+        changes: [
+          {
+            mode: 'import',
+            record: {
+              id: 'file-transactionless',
+              name: 'file.ts',
+              path: 'src/file.ts',
+              size: 1,
+              sourceRootPath: '/workspace/root',
+              createdAt: '2026-04-16T00:00:00.000Z',
+              updatedAt: '2026-04-16T00:00:00.000Z',
+              processedAt: '2026-04-16T00:00:00.000Z',
+              content: 'export const value = true;',
+              contentHash: 'hash-transactionless',
+              tokenCount: 1,
+            },
+          },
+        ],
+      })
+    ).rejects.toThrow('Managed cache batch mutation requires transactional database support.');
   });
 
   it('rolls back replacement chunk deletion when a later import in the batch fails', async () => {
@@ -418,5 +499,40 @@ describe('applyManagedCacheBatch', () => {
         ],
       })
     ).rejects.toThrow('Managed cache batch contains duplicate file record id duplicate-id.');
+  });
+
+  it('applies import-only batches successfully', async () => {
+    const now = new Date().toISOString();
+
+    await applyManagedCacheBatch(db, {
+      embeddingSetId: 'set-1',
+      changes: [
+        {
+          mode: 'import',
+          record: {
+            id: 'import-only-file',
+            name: 'import-only.ts',
+            path: 'src/import-only.ts',
+            size: 12,
+            sourceRootPath: '/workspace/root',
+            createdAt: now,
+            updatedAt: now,
+            processedAt: now,
+            content: 'export const imported = true;',
+            contentHash: 'import-only-hash',
+            tokenCount: 4,
+          },
+        },
+      ],
+    });
+
+    const insertedRecord = await fileRecordRepository.findById('import-only-file');
+    expect(insertedRecord).toEqual(
+      expect.objectContaining({
+        id: 'import-only-file',
+        embeddingSetId: 'set-1',
+        contentHash: 'import-only-hash',
+      })
+    );
   });
 });

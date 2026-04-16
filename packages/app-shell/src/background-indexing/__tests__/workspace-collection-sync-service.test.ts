@@ -224,6 +224,54 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('propagates scan and content-processing progress through the status reporter', async () => {
+    readFullTreeWithOptionsMock.mockImplementationOnce(async (_adapter, _handle, options) => {
+      options?.updateProgress?.();
+      return [
+        {
+          name: 'index.ts',
+          path: '/workspace/root/src/index.ts',
+          type: 'file',
+          handle: { platform: 'electron', path: `${ROOT_PATH}/${FILE_PATH}` },
+          rootFolderId: ROOT_PATH,
+        },
+      ];
+    });
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async (requests, onProgress) => {
+          const firstRequest = requests[0];
+          if (!firstRequest) {
+            throw new Error('Expected one file request.');
+          }
+          onProgress({ key: firstRequest.compositeKey });
+          return {
+            [firstRequest.compositeKey]: 'export const value = 1;',
+          };
+        }),
+      },
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        currentFilePath: null,
+      })
+    );
+    expect(deps.setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        currentFilePath: FILE_PATH,
+      })
+    );
+  });
+
   it('does not treat legitimate file content containing error marker text as inaccessible', async () => {
     const deps = createDeps({
       fileContentProcessor: {
@@ -405,6 +453,27 @@ describe('WorkspaceCollectionSyncService', () => {
       ) ?? [];
     expect(importChanges).toHaveLength(2);
     expect(new Set(importChanges.map((change) => change.record.createdAt)).size).toBe(1);
+  });
+
+  it('swallows abort errors raised during the sync pass without reporting a failure', async () => {
+    const abortError = new Error('Synthetic abort');
+    abortError.name = 'AbortError';
+    readFullTreeWithOptionsMock.mockRejectedValueOnce(abortError);
+    const deps = createDeps();
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.setStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        state: 'error',
+      })
+    );
   });
 
   it('clears stale chunk metadata before replacing an indexed file', async () => {

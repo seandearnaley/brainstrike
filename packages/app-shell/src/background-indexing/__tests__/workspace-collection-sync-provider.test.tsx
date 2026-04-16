@@ -305,6 +305,31 @@ describe('WorkspaceCollectionSyncProvider', () => {
     );
   });
 
+  it('uses the electron managed-cache batch bridge when it is available', async () => {
+    const electronApplyManagedCacheBatch = vi.fn(async () => undefined);
+    Object.assign(window, {
+      electronAPI: {
+        db: {
+          applyManagedCacheBatch: electronApplyManagedCacheBatch,
+        },
+      },
+    });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(electronApplyManagedCacheBatch).toHaveBeenCalledTimes(1));
+      expect(applyManagedCacheBatchLocalMock).not.toHaveBeenCalled();
+    } finally {
+      Reflect.deleteProperty(window, 'electronAPI');
+    }
+  });
+
   it('surfaces sync failures instead of leaving rejected background promises unhandled', async () => {
     const syncSpy = vi
       .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
