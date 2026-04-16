@@ -155,8 +155,8 @@ export function parseManagedCacheBatchArgs(payload: unknown): ApplyManagedCacheB
   if (!isNonEmptyString(candidate['embeddingSetId'])) {
     throw new Error('Managed cache batch payload requires a non-empty embeddingSetId.');
   }
-  if (!Array.isArray(candidate['changes']) || candidate['changes'].length === 0) {
-    throw new Error('Managed cache batch payload requires at least one change.');
+  if (!Array.isArray(candidate['changes'])) {
+    throw new Error('Managed cache batch payload requires a changes array.');
   }
 
   const changes = candidate['changes'].map((change) => {

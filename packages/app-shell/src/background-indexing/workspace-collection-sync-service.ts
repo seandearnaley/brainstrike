@@ -1384,11 +1384,11 @@ export class WorkspaceCollectionSyncService {
       return null;
     }
 
-    if (!(collection?.modelKey && collection.modelId && collection.dimensions > 0)) {
+    if (!(collection.modelKey && collection.modelId && collection.dimensions > 0)) {
       this.setErrorStatus({
         activeRootPath: rootPath,
         managedCollectionId: request.managedCollectionId,
-        managedCollectionName: collection?.name ?? null,
+        managedCollectionName: collection.name ?? null,
         message: 'Managed collection metadata is invalid.',
       });
       return null;

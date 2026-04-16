@@ -61,8 +61,7 @@ const {
     if (
       typeof candidate.embeddingSetId !== 'string' ||
       candidate.embeddingSetId.length === 0 ||
-      !Array.isArray(candidate.changes) ||
-      candidate.changes.length === 0
+      !Array.isArray(candidate.changes)
     ) {
       throw new Error('Invalid managed cache batch payload.');
     }
@@ -400,12 +399,25 @@ describe('database IPC handlers', () => {
     await expect(
       handler?.({} as unknown, {
         embeddingSetId: '',
-        changes: [],
+        changes: 'invalid',
       })
     ).rejects.toThrow();
 
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(applyManagedCacheBatchMock).not.toHaveBeenCalled();
+  });
+
+  it('db:managed-cache:apply-batch accepts empty change arrays as a no-op payload', async () => {
+    const handler = handlers.get('db:managed-cache:apply-batch');
+    const payload = {
+      embeddingSetId: 'set-1',
+      changes: [],
+    };
+
+    await handler?.({} as unknown, payload);
+
+    expect(getDatabaseMock).toHaveBeenCalled();
+    expect(applyManagedCacheBatchMock).toHaveBeenCalledWith(mockDb, payload);
   });
 
   it('embedding-host:enqueue-backfill runs backfill in main and streams progress', async () => {

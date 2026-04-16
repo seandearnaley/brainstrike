@@ -6,6 +6,7 @@ test.describe('Desktop startup bridge contract', () => {
   test('fails fast with a startup contract error when critical preload bridges are missing', async ({
     electronHarness,
   }) => {
+    const previousDisabledBridges = process.env['BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES'];
     process.env['BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES'] = 'electronAPI,logging';
 
     try {
@@ -18,7 +19,11 @@ test.describe('Desktop startup bridge contract', () => {
       await expect(failure).toContainText(/window\.electronAPI/i);
       await expect(failure).toContainText(/window\.logging/i);
     } finally {
-      process.env['BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES'] = undefined;
+      if (previousDisabledBridges === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES');
+      } else {
+        process.env['BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES'] = previousDisabledBridges;
+      }
       await electronHarness.restart();
     }
   });

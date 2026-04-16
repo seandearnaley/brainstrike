@@ -116,6 +116,16 @@ describe('applyManagedCacheBatch', () => {
       ],
     });
 
+    expect(
+      parseManagedCacheBatchArgs({
+        embeddingSetId: 'set-1',
+        changes: [],
+      })
+    ).toEqual({
+      embeddingSetId: 'set-1',
+      changes: [],
+    });
+
     expect(() =>
       parseManagedCacheBatchArgs({
         embeddingSetId: 'set-1',
