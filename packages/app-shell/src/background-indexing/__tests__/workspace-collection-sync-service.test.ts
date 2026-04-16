@@ -353,6 +353,60 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('uses one createdAt timestamp for all imports in the same managed-cache batch', async () => {
+    const secondFilePath = 'src/utils.ts';
+    const secondCompositeKey = encodeFileSelection(ROOT_PATH, secondFilePath);
+    readFullTreeWithOptionsMock.mockResolvedValueOnce([
+      {
+        name: 'index.ts',
+        path: '/workspace/root/src/index.ts',
+        type: 'file',
+        handle: { platform: 'electron', path: `${ROOT_PATH}/${FILE_PATH}` },
+        rootFolderId: ROOT_PATH,
+      },
+      {
+        name: 'utils.ts',
+        path: '/workspace/root/src/utils.ts',
+        type: 'file',
+        handle: { platform: 'electron', path: `${ROOT_PATH}/${secondFilePath}` },
+        rootFolderId: ROOT_PATH,
+      },
+    ]);
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi
+          .fn()
+          .mockResolvedValueOnce({
+            [COMPOSITE_KEY]: 'export const indexValue = 1;',
+            [secondCompositeKey]: 'export const utilValue = 2;',
+          })
+          .mockResolvedValueOnce({
+            [COMPOSITE_KEY]: 'export const indexValue = 1;',
+            [secondCompositeKey]: 'export const utilValue = 2;',
+          }),
+      },
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.applyManagedCacheBatch).toHaveBeenCalledTimes(1);
+    const batchArgs = vi.mocked(deps.applyManagedCacheBatch).mock.calls[0]?.[0];
+    expect(batchArgs).toBeDefined();
+    const importChanges =
+      batchArgs?.changes.filter(
+        (change): change is Extract<(typeof batchArgs.changes)[number], { mode: 'import' }> =>
+          change.mode === 'import'
+      ) ?? [];
+    expect(importChanges).toHaveLength(2);
+    expect(new Set(importChanges.map((change) => change.record.createdAt)).size).toBe(1);
+  });
+
   it('clears stale chunk metadata before replacing an indexed file', async () => {
     const deps = createDeps({
       fileContentProcessor: {

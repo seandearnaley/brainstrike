@@ -184,6 +184,30 @@ describe('applyManagedCacheBatch', () => {
         ],
       })
     ).toThrow('Managed cache batch payload contains an invalid change record.');
+
+    expect(() =>
+      parseManagedCacheBatchArgs({
+        embeddingSetId: 'set-1',
+        changes: [
+          {
+            mode: 'import',
+            record: {
+              id: 'file-5',
+              name: 'bad-date.ts',
+              path: 'src/bad-date.ts',
+              size: 1,
+              sourceRootPath: '/workspace/root',
+              createdAt: 'not-a-date',
+              updatedAt: '2026-04-16T00:00:00.000Z',
+              processedAt: '2026-04-16T00:00:00.000Z',
+              content: 'export const value = 5;',
+              contentHash: 'hash-5',
+              tokenCount: 1,
+            },
+          },
+        ],
+      })
+    ).toThrow('Managed cache batch payload contains an invalid change record.');
   });
 
   it('rolls back replacement chunk deletion when a later import in the batch fails', async () => {

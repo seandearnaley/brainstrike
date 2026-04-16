@@ -52,6 +52,16 @@ function isFiniteNonNegativeInteger(value: unknown): value is number {
   return isFiniteNonNegativeNumber(value) && Number.isInteger(value);
 }
 
+function isIsoTimestampString(value: unknown): value is string {
+  if (!isNonEmptyString(value)) {
+    return false;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) {
+    return false;
+  }
+  return !Number.isNaN(Date.parse(value));
+}
+
 function parseManagedCacheRecordBase(record: unknown): ManagedCacheRecordBase | null {
   if (!(record && typeof record === 'object')) {
     return null;
@@ -65,8 +75,8 @@ function parseManagedCacheRecordBase(record: unknown): ManagedCacheRecordBase | 
       isNonEmptyString(candidate['path']) &&
       isFiniteNonNegativeInteger(candidate['size']) &&
       isNonEmptyString(candidate['sourceRootPath']) &&
-      isNonEmptyString(candidate['updatedAt']) &&
-      isNonEmptyString(candidate['processedAt']) &&
+      isIsoTimestampString(candidate['updatedAt']) &&
+      isIsoTimestampString(candidate['processedAt']) &&
       typeof candidate['content'] === 'string' &&
       isNonEmptyString(candidate['contentHash']) &&
       isFiniteNonNegativeInteger(candidate['tokenCount'])
@@ -96,7 +106,7 @@ function parseManagedCacheImportRecord(record: unknown): ManagedCacheImportRecor
     return null;
   }
   const candidate = record as Record<string, unknown>;
-  if (!isNonEmptyString(candidate['createdAt'])) {
+  if (!isIsoTimestampString(candidate['createdAt'])) {
     return null;
   }
   return {

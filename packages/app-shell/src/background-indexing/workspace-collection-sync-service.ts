@@ -685,6 +685,7 @@ async function buildBackgroundImportBatchMutations(args: {
   batchContents: Record<string, string>;
 }): Promise<BackgroundManagedCacheBatchMutation[]> {
   const mutations: BackgroundManagedCacheBatchMutation[] = [];
+  const batchCreatedAt = new Date().toISOString();
   for (const change of args.batch) {
     const content = args.batchContents[change.compositeKey];
     if (content === undefined) {
@@ -711,7 +712,7 @@ async function buildBackgroundImportBatchMutations(args: {
         mode: 'import',
         record: {
           ...mutableRecord,
-          createdAt: new Date().toISOString(),
+          createdAt: batchCreatedAt,
         },
       },
     });
