@@ -78,7 +78,12 @@ const {
       name: 'workspace',
       path: '/workspace/root',
       platform: 'electron',
-    },
+    } as {
+      kind: string;
+      name: string;
+      path: string;
+      platform: string;
+    } | null,
   },
   fileTreeContextState: {
     current: {
@@ -316,6 +321,34 @@ describe('WorkspaceCollectionSyncProvider', () => {
           expect.objectContaining({
             state: 'error',
             lastError: 'Synthetic sync failure',
+          })
+        )
+      );
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('surfaces non-Error sync failures with a null root path when no root handle exists', async () => {
+    fileSystemState.rootDirectoryHandle = null;
+
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockRejectedValueOnce('Synthetic string sync failure');
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+          expect.objectContaining({
+            state: 'error',
+            activeRootPath: null,
+            lastError: 'Synthetic string sync failure',
           })
         )
       );
@@ -723,6 +756,31 @@ describe('WorkspaceCollectionSyncProvider', () => {
         expect.objectContaining({
           state: 'error',
           lastError: 'Embedding runtime boot failed.',
+        })
+      )
+    );
+  });
+
+  it('falls back to the default runtime error message when startup fails without details', async () => {
+    ensureEmbeddingRuntimeStartedMock.mockResolvedValueOnce({
+      runtimeKind: 'embedding-host',
+      runtimeId: 'embedding-host:test',
+      state: 'error',
+      active: false,
+      lastError: null,
+    });
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+        expect.objectContaining({
+          state: 'error',
+          lastError: 'Embedding runtime is unavailable.',
         })
       )
     );
