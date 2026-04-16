@@ -15,6 +15,7 @@ import type {
 } from '@brainstrike/ui';
 import type { LogRecord } from '@brainstrike/utils/logger';
 import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
+import { DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL } from './db-shared';
 import type { EmbeddingHostBackfillRequest } from './embedding-host-shared';
 import type { LoggingSettingsPayload } from './logging-shared';
 
@@ -59,7 +60,6 @@ const LLM_HOST_CANCEL_CHANNEL = 'llm-host:cancel' as const;
 const LLM_HOST_WARMUP_CHANNEL = 'llm-host:warmup' as const;
 const LLM_HOST_GENERATE_CHANNEL = 'llm-host:generate' as const;
 const APP_LIFECYCLE_NOTE_RELOAD_INTENT_CHANNEL = 'app:lifecycle:note-reload-intent' as const;
-const DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL = 'db:managed-cache:apply-batch' as const;
 const DESKTOP_TEST_MODE =
   process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
 

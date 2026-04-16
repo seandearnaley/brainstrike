@@ -18,6 +18,7 @@ import {
   type GpuMemoryReclaimConfig,
   type GpuMemoryReclaimMode,
 } from './backfill-maintenance-coordinator';
+import { DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL } from './db-shared';
 import { enqueueEmbeddingBackfill } from './embedding-backfill';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import {
@@ -94,7 +95,6 @@ const LIVE_FLUSH_BACKGROUND_INTERVAL_MS = 2000;
 const LIVE_FLUSH_FOREGROUND_INTERVAL_MS = 200;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES = 4;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS = 250;
-const DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL = 'db:managed-cache:apply-batch' as const;
 interface EmbeddingBackfillInFlightState {
   progress: { current: number; total: number } | null;
   requestId: string;
