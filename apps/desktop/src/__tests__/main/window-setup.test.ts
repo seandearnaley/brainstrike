@@ -98,34 +98,42 @@ vi.mock('node:fs', () => ({
   },
 }));
 
-const isDevEnvMock = vi.fn();
-const createLoggerMock = vi.fn(() => ({
-  info: vi.fn(),
-  debug: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
+const {
+  applyLoggingPreferencesMock,
+  createDefaultLoggingPreferencesMock,
+  createLoggerMock,
+  initializeLoggingMock,
+  isDevEnvMock,
+} = vi.hoisted(() => ({
+  isDevEnvMock: vi.fn(),
+  createLoggerMock: vi.fn(() => ({
+    info: vi.fn(),
+    debug: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  })),
+  initializeLoggingMock: vi.fn(),
+  createDefaultLoggingPreferencesMock: vi.fn(() => ({
+    level: 'info',
+    consoleLevel: 'info',
+    includeTimestamp: false,
+    consoleEnabled: true,
+    redactPaths: [],
+    file: {
+      enabled: false,
+      destination: null,
+      level: 'info',
+      append: true,
+      mkdir: true,
+    },
+  })),
+  applyLoggingPreferencesMock: vi.fn(),
 }));
 
 const getLoggerInstance = (scope: string) => {
   const index = createLoggerMock.mock.calls.findIndex(([arg]) => arg === scope);
   return index === -1 ? undefined : createLoggerMock.mock.results[index]?.value;
 };
-const initializeLoggingMock = vi.fn();
-const createDefaultLoggingPreferencesMock = vi.fn(() => ({
-  level: 'info',
-  consoleLevel: 'info',
-  includeTimestamp: false,
-  consoleEnabled: true,
-  redactPaths: [],
-  file: {
-    enabled: false,
-    destination: null,
-    level: 'info',
-    append: true,
-    mkdir: true,
-  },
-}));
-const applyLoggingPreferencesMock = vi.fn();
 vi.mock('@brainstrike/utils', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
   return {

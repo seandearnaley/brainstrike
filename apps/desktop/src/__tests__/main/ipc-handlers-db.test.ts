@@ -395,6 +395,7 @@ describe('database IPC handlers', () => {
 
   it('db:managed-cache:apply-batch rejects invalid payloads before touching the database', async () => {
     const handler = handlers.get('db:managed-cache:apply-batch');
+    isCorruptionErrorMock.mockReturnValueOnce(true);
 
     await expect(
       handler?.({} as unknown, {
@@ -405,6 +406,8 @@ describe('database IPC handlers', () => {
 
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(applyManagedCacheBatchMock).not.toHaveBeenCalled();
+    expect(isCorruptionErrorMock).not.toHaveBeenCalled();
+    expect(handleRuntimeCorruptionMock).not.toHaveBeenCalled();
   });
 
   it('db:managed-cache:apply-batch accepts empty change arrays as a no-op payload', async () => {

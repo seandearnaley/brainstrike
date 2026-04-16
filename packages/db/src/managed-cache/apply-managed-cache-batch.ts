@@ -166,6 +166,7 @@ export function parseManagedCacheBatchArgs(payload: unknown): ApplyManagedCacheB
     }
     return parsedChange;
   });
+  assertTotalBatchWithinLimit(changes.length);
 
   return {
     embeddingSetId: candidate['embeddingSetId'],
@@ -207,6 +208,19 @@ const MAX_MANAGED_CACHE_IMPORTS_PER_BATCH = Math.floor(
 const MAX_MANAGED_CACHE_REPLACEMENTS_PER_BATCH = Math.floor(
   POSTGRES_PARAMETER_LIMIT / REPLACE_VALUE_COLUMNS.length
 );
+const MAX_MANAGED_CACHE_TOTAL_MUTATIONS_PER_BATCH =
+  MAX_MANAGED_CACHE_IMPORTS_PER_BATCH + MAX_MANAGED_CACHE_REPLACEMENTS_PER_BATCH;
+
+function assertTotalBatchWithinLimit(count: number): void {
+  if (count <= MAX_MANAGED_CACHE_TOTAL_MUTATIONS_PER_BATCH) {
+    return;
+  }
+  throw new Error(
+    'Managed cache batch exceeds the maximum supported total size. ' +
+      `Received ${count} changes; maximum supported batch size is ` +
+      `${MAX_MANAGED_CACHE_TOTAL_MUTATIONS_PER_BATCH}.`
+  );
+}
 
 function assertBatchWithinParameterLimit(
   count: number,
@@ -377,6 +391,7 @@ export async function applyManagedCacheBatch(
   if (!db.transaction) {
     throw new Error('Managed cache batch mutation requires transactional database support.');
   }
+  assertTotalBatchWithinLimit(args.changes.length);
   assertNoDuplicateMutationIds(args.changes);
 
   const imports = args.changes.flatMap((change) =>

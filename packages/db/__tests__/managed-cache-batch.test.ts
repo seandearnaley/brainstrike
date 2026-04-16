@@ -468,6 +468,32 @@ describe('applyManagedCacheBatch', () => {
     ).rejects.toThrow('Managed cache batch replace exceeds the PostgreSQL parameter limit.');
   });
 
+  it('rejects oversized total mutation counts before batching into SQL statements', async () => {
+    const now = new Date().toISOString();
+    const oversizedCombinedBatch = Array.from({ length: 12_015 }, (_, index) => ({
+      mode: 'replace' as const,
+      record: {
+        id: `replace-total-${index}`,
+        name: `file-${index}.ts`,
+        path: `src/file-${index}.ts`,
+        size: 10,
+        sourceRootPath: '/workspace/root',
+        updatedAt: now,
+        processedAt: now,
+        content: 'export const value = 2;',
+        contentHash: `replace-total-hash-${index}`,
+        tokenCount: 5,
+      },
+    }));
+
+    expect(() =>
+      parseManagedCacheBatchArgs({
+        embeddingSetId: 'set-1',
+        changes: oversizedCombinedBatch,
+      })
+    ).toThrow('Managed cache batch exceeds the maximum supported total size.');
+  });
+
   it('rejects duplicate file record ids in a single batch with a clear error', async () => {
     const now = new Date().toISOString();
 

@@ -1177,13 +1177,14 @@ export function registerIpcHandlers(
 
   registerHandler(
     DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL,
-    async (_event: IpcMainInvokeEvent, payload: unknown) =>
-      withCorruptionRecovery(async () => {
-        const parsedPayload = parseManagedCacheBatchArgs(payload);
+    async (_event: IpcMainInvokeEvent, payload: unknown) => {
+      const parsedPayload = parseManagedCacheBatchArgs(payload);
+      return withCorruptionRecovery(async () => {
         const { getDatabase } = await import('./db-main');
         const db = await getDatabase();
         await applyManagedCacheBatch(db, parsedPayload);
-      }, DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL)
+      }, DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL);
+    }
   );
 
   // Database test handler for full connection validation
