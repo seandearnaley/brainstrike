@@ -276,6 +276,9 @@ export function WorkspaceCollectionSyncProvider({
 
   useEffect(() => {
     setBackgroundWorkManualPause(paused);
+    return () => {
+      setBackgroundWorkManualPause(false);
+    };
   }, [paused]);
 
   useEffect(() => {

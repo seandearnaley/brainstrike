@@ -11,6 +11,7 @@ import {
   __resetBackgroundWorkArbiterForTests,
   acquireBackgroundWorkPauseReason,
   encodeFileSelection,
+  getBackgroundWorkArbiterSnapshot,
 } from '@brainstrike/utils';
 import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -601,6 +602,40 @@ describe('WorkspaceCollectionSyncProvider', () => {
     } finally {
       release();
     }
+  });
+
+  it('clears the manual arbiter pause when the provider unmounts', async () => {
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: '00000000-0000-0000-0000-000000000101',
+      mode: 'root-folder-cache',
+      hasHydrated: true,
+      paused: true,
+    });
+
+    const rendered = render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(getBackgroundWorkArbiterSnapshot()).toEqual(
+        expect.objectContaining({
+          backgroundIndexingPaused: true,
+          manualPause: true,
+        })
+      )
+    );
+
+    rendered.unmount();
+
+    expect(getBackgroundWorkArbiterSnapshot()).toEqual({
+      automaticPauseReasons: [],
+      backgroundIndexingPaused: false,
+      manualPause: false,
+    });
   });
 
   it('waits for folder restore access loading to finish before starting background indexing', async () => {
