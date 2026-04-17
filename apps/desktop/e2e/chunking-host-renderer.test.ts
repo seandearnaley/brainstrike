@@ -473,4 +473,71 @@ test.describe('Chunking Host Renderer', () => {
     const finalTimeOrigin = await window.evaluate(() => performance.timeOrigin);
     expect(finalTimeOrigin).toBe(initialTimeOrigin);
   });
+
+  test('oversized chunking requests skip at file level without poisoning the hidden chunking host', async ({
+    window,
+  }) => {
+    await waitForAppReadyInTest(window);
+    const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
+
+    const requestOutcome = await window.evaluate(async () => {
+      const api = (
+        globalThis.window as Window & {
+          chunkingHost?: {
+            chunkFile?: (request: {
+              fileRecordId: string;
+              content: string;
+              fileName: string;
+              filePath: string;
+              kind: 'chunk-file';
+              options: {
+                forceStrategy: boolean;
+                strategy: 'sentence';
+              };
+              requestId: string;
+            }) => Promise<{
+              chunks: unknown[];
+              skipReason?: string;
+              skipped: boolean;
+            }>;
+            getStatus?: () => Promise<ChunkingHostStatus>;
+          };
+        }
+      ).chunkingHost;
+      if (!(api?.chunkFile && api.getStatus)) {
+        throw new Error('Chunking host bridge is not available');
+      }
+
+      const oversizedContent = 'x'.repeat(600 * 1024);
+      const result = await api.chunkFile({
+        kind: 'chunk-file',
+        requestId: crypto.randomUUID(),
+        fileRecordId: 'chunking-host-oversized-request',
+        fileName: 'oversized-import.txt',
+        filePath: '/tmp/oversized-import.txt',
+        content: oversizedContent,
+        options: {
+          strategy: 'sentence',
+          forceStrategy: true,
+        },
+      });
+
+      return {
+        chunkCount: result.chunks.length,
+        skipped: result.skipped,
+        skipReason: result.skipReason ?? null,
+        status: await api.getStatus(),
+      };
+    });
+
+    expect(requestOutcome.skipped).toBe(true);
+    expect(requestOutcome.chunkCount).toBe(0);
+    expect(requestOutcome.skipReason).toContain('File too large');
+    expect(requestOutcome.status.state).toBe('running');
+    expect(requestOutcome.status.lastError).toBeNull();
+
+    await assertVisibleWindowResponsive(window);
+    const finalTimeOrigin = await window.evaluate(() => performance.timeOrigin);
+    expect(finalTimeOrigin).toBe(initialTimeOrigin);
+  });
 });

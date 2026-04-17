@@ -111,7 +111,7 @@ describe('chunking worker message validation', () => {
     ).toBe(false);
   });
 
-  it('accepts oversized chunk requests so runtime skip handling can decide the outcome', () => {
+  it('accepts oversized chunk requests structurally so the worker can return a file-level skip', () => {
     expect(
       isChunkRequest({
         type: 'chunk',
@@ -127,7 +127,7 @@ describe('chunking worker message validation', () => {
     ).toBe(true);
   });
 
-  it('accepts oversized chunk batch entries so runtime skip handling can decide the outcome', () => {
+  it('accepts oversized chunk-batch entries structurally so the worker can handle them per file', () => {
     expect(
       isChunkBatchRequest({
         type: 'chunk-batch',

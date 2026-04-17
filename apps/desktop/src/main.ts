@@ -20,6 +20,7 @@ import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow, noteNextWindowReload } from './create-window';
 import { closeDatabase, resetLocalDatabase } from './db-main';
+import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
@@ -49,6 +50,19 @@ const LOG_FILE_VERIFICATION_TIMEOUT_MS = 5000;
 
 function isElectronE2ETestMode(): boolean {
   return process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
+}
+
+function tryShowStartupErrorDialog(message: string): void {
+  try {
+    if (typeof dialog?.showErrorBox === 'function') {
+      dialog.showErrorBox('BrainStrike Desktop failed to start', message);
+    }
+  } catch (dialogError) {
+    logger.error('Failed to show startup error dialog', {
+      dialogError,
+      message,
+    });
+  }
 }
 
 // Defer getPath call until app is ready - calling at module load time fails
@@ -794,6 +808,13 @@ if (singleInstanceLockAcquired) {
     try {
       logger.debug('App ready, starting initialization...');
 
+      const launchMode = resolveDesktopRendererLaunchMode({
+        argv: process.argv,
+        isPackaged: app.isPackaged,
+        isTestMode: e2eTestMode,
+      });
+      logger.debug('Resolved desktop launch mode', { launchMode });
+
       // Keep macOS desktop E2E runs invisible while Playwright drives the hidden window.
       if (e2eTestMode && process.platform === 'darwin') {
         app.setActivationPolicy?.('accessory');
@@ -1169,6 +1190,8 @@ if (singleInstanceLockAcquired) {
       });
     } catch (error) {
       logger.error('Failed to initialize application:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      tryShowStartupErrorDialog(message);
       app.quit();
     }
   });

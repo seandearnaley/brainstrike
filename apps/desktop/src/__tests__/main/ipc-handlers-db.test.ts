@@ -19,6 +19,8 @@ function createWindowWithWebContents(sender: {
 const {
   handlers,
   mockDb,
+  applyManagedCacheBatchMock,
+  parseManagedCacheBatchArgsMock,
   getDatabaseMock,
   loggerWarn,
   loggerDebug,
@@ -43,6 +45,28 @@ const {
       incrementalQuery: vi.fn(),
     },
   };
+  const applyManagedCacheBatchMock = vi.fn(async () => undefined);
+  const parseManagedCacheBatchArgsMock = vi.fn((payload: unknown) => {
+    if (
+      !(
+        payload &&
+        typeof payload === 'object' &&
+        'embeddingSetId' in payload &&
+        'changes' in payload
+      )
+    ) {
+      throw new Error('Invalid managed cache batch payload.');
+    }
+    const candidate = payload as { changes?: unknown; embeddingSetId?: unknown };
+    if (
+      typeof candidate.embeddingSetId !== 'string' ||
+      candidate.embeddingSetId.length === 0 ||
+      !Array.isArray(candidate.changes)
+    ) {
+      throw new Error('Invalid managed cache batch payload.');
+    }
+    return payload;
+  });
   const getDatabaseMock = vi.fn(() => mockDb);
   const loggerWarn = vi.fn();
   const loggerDebug = vi.fn();
@@ -99,6 +123,8 @@ const {
   return {
     handlers,
     mockDb,
+    applyManagedCacheBatchMock,
+    parseManagedCacheBatchArgsMock,
     getDatabaseMock,
     loggerWarn,
     loggerDebug,
@@ -112,6 +138,15 @@ const {
     embeddingHostResetMock,
     embeddingHostStopMock,
     embeddingHostDestroyAndRestartMock,
+  };
+});
+
+vi.mock('@brainstrike/db', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/db')>('@brainstrike/db');
+  return {
+    ...actual,
+    applyManagedCacheBatch: applyManagedCacheBatchMock,
+    parseManagedCacheBatchArgs: parseManagedCacheBatchArgsMock,
   };
 });
 
@@ -327,6 +362,65 @@ describe('database IPC handlers', () => {
     mockDb.exec.mockRejectedValue(err);
 
     await expect(handler?.({} as unknown, 'BAD')).rejects.toThrow(err);
+  });
+
+  it('db:managed-cache:apply-batch validates payload and delegates to the shared batch helper', async () => {
+    const handler = handlers.get('db:managed-cache:apply-batch');
+    const payload = {
+      embeddingSetId: 'set-1',
+      changes: [
+        {
+          mode: 'replace',
+          record: {
+            id: 'file-1',
+            name: 'index.ts',
+            path: 'src/index.ts',
+            size: 10,
+            sourceRootPath: '/workspace/root',
+            updatedAt: '2026-04-15T00:00:00.000Z',
+            processedAt: '2026-04-15T00:00:00.000Z',
+            content: 'export const value = 2;',
+            contentHash: 'hash-2',
+            tokenCount: 5,
+          },
+        },
+      ],
+    };
+
+    await handler?.({} as unknown, payload);
+
+    expect(getDatabaseMock).toHaveBeenCalled();
+    expect(applyManagedCacheBatchMock).toHaveBeenCalledWith(mockDb, payload);
+  });
+
+  it('db:managed-cache:apply-batch rejects invalid payloads before touching the database', async () => {
+    const handler = handlers.get('db:managed-cache:apply-batch');
+    isCorruptionErrorMock.mockReturnValueOnce(true);
+
+    await expect(
+      handler?.({} as unknown, {
+        embeddingSetId: '',
+        changes: 'invalid',
+      })
+    ).rejects.toThrow();
+
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+    expect(applyManagedCacheBatchMock).not.toHaveBeenCalled();
+    expect(isCorruptionErrorMock).not.toHaveBeenCalled();
+    expect(handleRuntimeCorruptionMock).not.toHaveBeenCalled();
+  });
+
+  it('db:managed-cache:apply-batch accepts empty change arrays as a no-op payload', async () => {
+    const handler = handlers.get('db:managed-cache:apply-batch');
+    const payload = {
+      embeddingSetId: 'set-1',
+      changes: [],
+    };
+
+    await handler?.({} as unknown, payload);
+
+    expect(getDatabaseMock).toHaveBeenCalled();
+    expect(applyManagedCacheBatchMock).toHaveBeenCalledWith(mockDb, payload);
   });
 
   it('embedding-host:enqueue-backfill runs backfill in main and streams progress', async () => {

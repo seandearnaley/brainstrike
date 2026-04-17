@@ -22,7 +22,7 @@ const {
   readFullTreeWithOptionsMock,
   processFilesMock,
   listManagedCacheEntryMetadataMock,
-  createWithContentMock,
+  applyManagedCacheBatchLocalMock,
   updateMock,
   deleteByFileRecordIdMock,
   getByIdMock,
@@ -40,7 +40,15 @@ const {
   readFullTreeWithOptionsMock: vi.fn(),
   processFilesMock: vi.fn(),
   listManagedCacheEntryMetadataMock: vi.fn(),
-  createWithContentMock: vi.fn(),
+  applyManagedCacheBatchLocalMock: vi.fn(
+    async (db: {
+      transaction?: (
+        fn: (tx: { query: ReturnType<typeof vi.fn> }) => Promise<void>
+      ) => Promise<void>;
+    }) => {
+      await db.transaction?.(async () => undefined);
+    }
+  ),
   updateMock: vi.fn(),
   deleteByFileRecordIdMock: vi.fn(),
   getByIdMock: vi.fn(),
@@ -74,7 +82,12 @@ const {
       name: 'workspace',
       path: '/workspace/root',
       platform: 'electron',
-    },
+    } as {
+      kind: string;
+      name: string;
+      path: string;
+      platform: string;
+    } | null,
   },
   fileTreeContextState: {
     current: {
@@ -100,10 +113,10 @@ vi.mock('@brainstrike/db', () => ({
       requeueFailed: vi.fn(),
     };
   }),
+  applyManagedCacheBatch: applyManagedCacheBatchLocalMock,
   usePGliteDatabase: () => dbState.current,
   useFileRecordRepository: () => ({
     listManagedCacheEntryMetadata: listManagedCacheEntryMetadataMock,
-    createWithContent: createWithContentMock,
     update: updateMock,
   }),
   useFileChunkRepository: () => ({
@@ -285,7 +298,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
     await waitFor(() => expect(ensureEmbeddingRuntimeStartedMock).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(createWithContentMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(applyManagedCacheBatchLocalMock).toHaveBeenCalledTimes(1));
     expect(enqueueBackfillMock).toHaveBeenCalledWith(
       '00000000-0000-0000-0000-000000000101',
       expect.objectContaining({
@@ -295,6 +308,31 @@ describe('WorkspaceCollectionSyncProvider', () => {
     expect(useWorkspaceCollectionSyncStatusStore.getState().managedCollectionName).toBe(
       'Managed Cache'
     );
+  });
+
+  it('uses the electron managed-cache batch bridge when it is available', async () => {
+    const electronApplyManagedCacheBatch = vi.fn(async () => undefined);
+    Object.assign(window, {
+      electronAPI: {
+        db: {
+          applyManagedCacheBatch: electronApplyManagedCacheBatch,
+        },
+      },
+    });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(electronApplyManagedCacheBatch).toHaveBeenCalledTimes(1));
+      expect(applyManagedCacheBatchLocalMock).not.toHaveBeenCalled();
+    } finally {
+      Reflect.deleteProperty(window, 'electronAPI');
+    }
   });
 
   it('surfaces sync failures instead of leaving rejected background promises unhandled', async () => {
@@ -313,6 +351,34 @@ describe('WorkspaceCollectionSyncProvider', () => {
           expect.objectContaining({
             state: 'error',
             lastError: 'Synthetic sync failure',
+          })
+        )
+      );
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('surfaces non-Error sync failures with a null root path when no root handle exists', async () => {
+    fileSystemState.rootDirectoryHandle = null;
+
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockRejectedValueOnce('Synthetic string sync failure');
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+          expect.objectContaining({
+            state: 'error',
+            activeRootPath: null,
+            lastError: 'Synthetic string sync failure',
           })
         )
       );
@@ -371,6 +437,28 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
     await waitFor(() =>
       expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('disabled')
+    );
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+  });
+
+  it('clears a stale managed collection id when the collection no longer exists', async () => {
+    getByIdMock.mockResolvedValueOnce(null);
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBeNull()
+    );
+    expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+      expect.objectContaining({
+        state: 'error',
+        managedCollectionId: null,
+        lastError: 'No managed collection selected.',
+      })
     );
     expect(runEnhancedImportMock).not.toHaveBeenCalled();
   });
@@ -770,6 +858,31 @@ describe('WorkspaceCollectionSyncProvider', () => {
         expect.objectContaining({
           state: 'error',
           lastError: 'Embedding runtime boot failed.',
+        })
+      )
+    );
+  });
+
+  it('falls back to the default runtime error message when startup fails without details', async () => {
+    ensureEmbeddingRuntimeStartedMock.mockResolvedValueOnce({
+      runtimeKind: 'embedding-host',
+      runtimeId: 'embedding-host:test',
+      state: 'error',
+      active: false,
+      lastError: null,
+    });
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+        expect.objectContaining({
+          state: 'error',
+          lastError: 'Embedding runtime is unavailable.',
         })
       )
     );

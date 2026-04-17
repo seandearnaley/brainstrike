@@ -1,4 +1,5 @@
 import {
+  applyManagedCacheBatch as applyManagedCacheBatchLocally,
   useEmbeddingSetsRepository,
   useFileChunkRepository,
   useFileRecordRepository,
@@ -43,6 +44,9 @@ export function WorkspaceCollectionSyncProvider({
   const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
   const managedCollectionId = useBackgroundIndexingPreferencesStore(
     (state) => state.managedCollectionId
+  );
+  const setManagedCollectionId = useBackgroundIndexingPreferencesStore(
+    (state) => state.setManagedCollectionId
   );
   const indexingPolicyPreset = useBackgroundIndexingPreferencesStore(
     (state) => state.indexingPolicyPreset
@@ -113,6 +117,14 @@ export function WorkspaceCollectionSyncProvider({
       return null;
     }
     return new WorkspaceCollectionSyncService({
+      applyManagedCacheBatch: async (args) => {
+        const electronApplyManagedCacheBatch = window.electronAPI?.db?.applyManagedCacheBatch;
+        if (electronApplyManagedCacheBatch) {
+          await electronApplyManagedCacheBatch(args);
+          return;
+        }
+        await applyManagedCacheBatchLocally(db, args);
+      },
       cancelBackfill: async (embeddingSetId) => {
         await runtimeController.cancelBackfill(embeddingSetId);
       },
@@ -128,6 +140,14 @@ export function WorkspaceCollectionSyncProvider({
       fileRecordRepository,
       getBackfillsInFlight: async () => await runtimeController.getBackfillsInFlight(),
       log: logger,
+      onManagedCollectionMissing: (missingCollectionId) => {
+        if (
+          useBackgroundIndexingPreferencesStore.getState().managedCollectionId ===
+          missingCollectionId
+        ) {
+          setManagedCollectionId(null);
+        }
+      },
       setImporting: setIsImporting,
       setStatus: setSyncStatus,
       subscribeToBackfillProgress: (callback) => runtimeController.onBackfillProgress(callback),
@@ -142,6 +162,7 @@ export function WorkspaceCollectionSyncProvider({
     fileRecordRepository,
     fileSystemAdapter,
     runtimeController,
+    setManagedCollectionId,
     setIsImporting,
     setSyncStatus,
     validateHostedProviderAccess,
