@@ -11,6 +11,16 @@ import { calculateDynamicTotal } from './progress-utils';
 
 const logger = createLogger('useFileTree');
 
+function countSlashes(path: string): number {
+  let count = 0;
+  let idx = path.indexOf('/');
+  while (idx !== -1) {
+    count++;
+    idx = path.indexOf('/', idx + 1);
+  }
+  return count;
+}
+
 // Batch size for progress updates
 const PROGRESS_BATCH_SIZE = 25;
 // Default batch size for incremental directory loading
@@ -151,7 +161,7 @@ export function useFileTree(
       return {
         ...entry,
         path: finalPath,
-        depth: relativePath.split('/').length - 1,
+        depth: countSlashes(relativePath),
         selectionState: 'unchecked' as const,
         rootFolderId,
       };
@@ -170,7 +180,7 @@ export function useFileTree(
       return {
         ...entry,
         path: finalPath,
-        depth: relativePath.split('/').length - 1,
+        depth: countSlashes(relativePath),
         children: [],
         selectionState: 'unchecked' as const,
         rootFolderId,

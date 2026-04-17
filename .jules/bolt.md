@@ -37,3 +37,7 @@
 ## 2026-03-31 - [Optimize buildNodeFromPath]
 **Learning:** When calculating node depth and relative name inside high-frequency file-tree mapping functions, avoid using `path.replace().split('/').filter(Boolean)`. This creates a regex evaluation, intermediate array and multiple strings for every node processed, causing severe garbage collection overhead when traversing large repos.
 **Action:** Extract depth calculation by manually counting '/' character occurrences and last string segment slicing inside hot loops. Native character iteration and slicing are allocation-free beyond the final target string.
+
+## 2026-04-02 - Fast path depth calculation
+**Learning:** Counting path depth by creating arrays (`relativePath.split('/').length - 1`) creates excessive intermediate strings and arrays leading to high GC overhead in hot paths involving file tree traversal and loading.
+**Action:** Replace split-based path depth counting with a native string loop iterating over character occurrences (using `indexOf` in a `while` loop) to achieve near-zero allocations and significantly improve performance.
