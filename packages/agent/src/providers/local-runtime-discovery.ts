@@ -353,17 +353,19 @@ function toFailureState(
       message,
     };
   }
-  // On desktop, a renderer-side CORS rejection surfaces as a `TypeError`
-  // with no diagnostic detail. Attach a hint so the Settings UI can tell the
-  // user that Ollama's `OLLAMA_ORIGINS` may be rejecting the Electron
-  // renderer's origin — the fix is either to widen OLLAMA_ORIGINS or to
-  // probe from the main process where CORS doesn't apply.
+  // On desktop, any Chromium network failure (CORS rejection, connection
+  // refused, DNS, timeout) surfaces as a bare `TypeError: Failed to fetch`.
+  // We can't distinguish the cause from the error alone, so the hint must
+  // cover BOTH the common case (server not running) and the subtle
+  // Electron-specific case (renderer origin not in OLLAMA_ORIGINS). Telling
+  // users only about CORS would send "server isn't running" complaints down
+  // the wrong debugging path.
   if (surface === 'desktop' && looksLikeCorsFailure(message)) {
     return {
       state: 'unavailable',
       checkedAt,
       message,
-      hint: 'Fetch blocked by browser security (likely CORS). Set OLLAMA_ORIGINS to include the Electron renderer origin, or probe via the main process.',
+      hint: 'Network error — the server may not be running, or (if it is) the Electron renderer origin may not be listed in OLLAMA_ORIGINS. Probing via the main process bridge sidesteps CORS; start Ollama or widen OLLAMA_ORIGINS if this persists.',
     };
   }
   return {

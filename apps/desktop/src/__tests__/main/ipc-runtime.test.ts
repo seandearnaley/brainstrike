@@ -161,4 +161,35 @@ describe('ipc-runtime main-process probe bridge', () => {
       /modelId must be a string/
     );
   });
+
+  it('only forwards whitelisted option fields across the IPC trust boundary', async () => {
+    // Reviewer feedback: renderer → main IPC is a trust boundary. The old
+    // normaliser passed the raw object through after a `typeof === 'object'`
+    // check, so extra fields injected by a compromised renderer (or by a
+    // future version mismatch) would ride along into the service call.
+    // Contract: the forwarded options must contain ONLY the documented
+    // { force, endpoint: { apiToken, baseUrl } } fields.
+    const handler = getRegisteredHandler(RUNTIME_PROBE_CHANNEL);
+
+    await handler({} as IpcMainInvokeEvent, 'ollama', {
+      force: true,
+      endpoint: {
+        baseUrl: 'http://safe.lan:11434',
+        apiToken: 'tok',
+        __proto__: { evil: true },
+        extraField: 'should be dropped',
+      },
+      signal: 'not-a-real-abort-signal',
+      injectedAction: () => 'boom',
+    });
+
+    const [, forwardedOptions] = probeRuntimeMock.mock.calls[0] ?? [];
+    expect(forwardedOptions).toEqual({
+      force: true,
+      endpoint: {
+        baseUrl: 'http://safe.lan:11434',
+        apiToken: 'tok',
+      },
+    });
+  });
 });

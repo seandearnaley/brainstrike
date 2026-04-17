@@ -275,6 +275,37 @@ describe('assistant-preferences-store', () => {
     expect(probeSpy.mock.calls.some((call) => call[0] === 'ollama')).toBe(false);
   });
 
+  it('rejects malformed probe results from the main-process bridge at the trust boundary', async () => {
+    // Reviewer feedback: the store cast bridge results to
+    // LocalRuntimeAvailabilityState without runtime validation. A compromised
+    // main process or an Electron version mismatch could silently propagate
+    // an invalid shape through the rest of the system. Fail loudly at the
+    // boundary instead so root-cause shows up in logs with full context.
+    const bridgeProbe = vi.fn().mockResolvedValue({ not_a_state: 'oops' });
+    (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
+      probe: bridgeProbe,
+      listModels: vi.fn(),
+    };
+
+    try {
+      const secretTarget = window as Window & { secrets?: unknown };
+      secretTarget.secrets = {
+        list: vi.fn().mockResolvedValue([]),
+        saveKey: vi.fn(),
+        getKey: vi.fn(),
+        deleteKey: vi.fn(),
+        listStored: vi.fn(),
+        clearAll: vi.fn(),
+      };
+
+      await expect(
+        useAssistantPreferencesStore.getState().getLocalRuntimeStatuses({ force: true })
+      ).rejects.toThrow(/bridge|malformed|shape|state/i);
+    } finally {
+      Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'runtime');
+    }
+  });
+
   it('prefers window.runtime bridge over the in-renderer discovery service when available', async () => {
     // Simulates an Electron desktop renderer where the preload exposes
     // window.runtime. The renderer-side LocalRuntimeDiscoveryService would

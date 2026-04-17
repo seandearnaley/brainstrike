@@ -140,6 +140,32 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
     });
   });
 
+  it('hint does not assert CORS as the cause when the server may simply not be running', async () => {
+    // Reviewer feedback: Chromium throws the same `TypeError: Failed to fetch`
+    // for DNS resolution, connection refused, AND CORS rejections. A hint
+    // that tells the user to "set OLLAMA_ORIGINS" when the real problem is
+    // "Ollama isn't running" sends them down the wrong debugging path.
+    //
+    // Contract: the hint must acknowledge BOTH possibilities (not-running
+    // and origin/CORS) so the user can triage from the text alone.
+    const fetchMock = vi.fn<FetchMock>(() => Promise.reject(simulateCorsRejection()));
+
+    const service = new LocalRuntimeDiscoveryService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 3100,
+      logger: loggerMock,
+    });
+
+    const status = await service.probeRuntime('ollama', { surface: 'desktop' });
+
+    if (status.state !== 'unavailable') {
+      throw new Error(`Expected unavailable, got ${status.state}`);
+    }
+    // Must cover "server may not be running" — the most common cause — in
+    // addition to OLLAMA_ORIGINS / main-process-probe guidance.
+    expect(status.hint).toMatch(/not (be )?running|unreachable|start Ollama/i);
+  });
+
   it('exposes getCachedState even after a silent renderer-side probe failure', async () => {
     // User could also debug by inspecting the cached state. This test pins the
     // contract that a failed probe leaves a visible cached entry with a

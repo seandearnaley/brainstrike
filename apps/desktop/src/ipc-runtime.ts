@@ -81,16 +81,97 @@ interface SerializableVerifyOptions {
   readonly probeText?: string;
 }
 
-function normaliseOptions<T extends object>(value: unknown): T | undefined {
+/**
+ * Renderer → main IPC is a privilege-escalation boundary. Structured-clone
+ * will faithfully forward anything the renderer hands us — including stray
+ * fields or prototype-polluted shapes. Pick only the fields we document,
+ * ignoring the rest, so a compromised or mismatched renderer can't sneak
+ * extra state into the local-runtime services.
+ */
+function pickObject(value: unknown): Record<string, unknown> | undefined {
   if (value === undefined || value === null) {
     return;
   }
-  // IPC structured-clone preserves plain objects; reject anything else to
-  // fail loudly instead of letting a stray Error bubble in as options.
   if (typeof value !== 'object') {
     throw new Error(`Expected an options object, received ${typeof value}`);
   }
-  return value as T;
+  return value as Record<string, unknown>;
+}
+
+function normaliseEndpointConfig(
+  value: unknown
+): { apiToken?: string; baseUrl?: string } | undefined {
+  const raw = pickObject(value);
+  if (!raw) {
+    return;
+  }
+  const endpoint: { apiToken?: string; baseUrl?: string } = {};
+  if (typeof raw['baseUrl'] === 'string') {
+    endpoint.baseUrl = raw['baseUrl'];
+  }
+  if (typeof raw['apiToken'] === 'string') {
+    endpoint.apiToken = raw['apiToken'];
+  }
+  return endpoint;
+}
+
+function normaliseProbeOptions(value: unknown): SerializableProbeOptions {
+  const raw = pickObject(value);
+  if (!raw) {
+    return {};
+  }
+  const result: { endpoint?: { apiToken?: string; baseUrl?: string }; force?: boolean } = {};
+  if (typeof raw['force'] === 'boolean') {
+    result.force = raw['force'];
+  }
+  const endpoint = normaliseEndpointConfig(raw['endpoint']);
+  if (endpoint) {
+    result.endpoint = endpoint;
+  }
+  return result;
+}
+
+function normaliseListOptions(value: unknown): SerializableListOptions {
+  const raw = pickObject(value);
+  if (!raw) {
+    return {};
+  }
+  const result: {
+    endpoint?: { apiToken?: string; baseUrl?: string };
+    force?: boolean;
+    maxVerificationModels?: number;
+    verifyEmbeddingDimensions?: boolean;
+  } = {};
+  if (typeof raw['force'] === 'boolean') {
+    result.force = raw['force'];
+  }
+  if (typeof raw['verifyEmbeddingDimensions'] === 'boolean') {
+    result.verifyEmbeddingDimensions = raw['verifyEmbeddingDimensions'];
+  }
+  if (typeof raw['maxVerificationModels'] === 'number') {
+    result.maxVerificationModels = raw['maxVerificationModels'];
+  }
+  const endpoint = normaliseEndpointConfig(raw['endpoint']);
+  if (endpoint) {
+    result.endpoint = endpoint;
+  }
+  return result;
+}
+
+function normaliseVerifyOptions(value: unknown): SerializableVerifyOptions {
+  const raw = pickObject(value);
+  if (!raw) {
+    return {};
+  }
+  const result: { endpoint?: { apiToken?: string; baseUrl?: string }; probeText?: string } = {};
+  if (typeof raw['probeText'] === 'string') {
+    result.probeText = raw['probeText'];
+  }
+  const endpoint = normaliseEndpointConfig(raw['endpoint']);
+  if (endpoint) {
+    result.endpoint = endpoint;
+  }
+  return result;
 }
 
 export function registerRuntimeIpcHandlers(): void {
@@ -101,8 +182,7 @@ export function registerRuntimeIpcHandlers(): void {
       if (runtimeId !== 'ollama' && runtimeId !== 'lmstudio') {
         throw new Error(`Unsupported runtime id: ${String(runtimeId)}`);
       }
-      const options = normaliseOptions<SerializableProbeOptions>(rawOptions) ?? {};
-      return await bridge.probe(runtimeId, options);
+      return await bridge.probe(runtimeId, normaliseProbeOptions(rawOptions));
     }
   );
 
@@ -113,8 +193,7 @@ export function registerRuntimeIpcHandlers(): void {
       if (runtimeId !== 'ollama' && runtimeId !== 'lmstudio') {
         throw new Error(`Unsupported runtime id: ${String(runtimeId)}`);
       }
-      const options = normaliseOptions<SerializableListOptions>(rawOptions) ?? {};
-      return await bridge.listModels(runtimeId, options);
+      return await bridge.listModels(runtimeId, normaliseListOptions(rawOptions));
     }
   );
 
@@ -125,8 +204,7 @@ export function registerRuntimeIpcHandlers(): void {
       if (typeof modelId !== 'string') {
         throw new Error('modelId must be a string');
       }
-      const options = normaliseOptions<SerializableProbeOptions>(rawOptions) ?? {};
-      return await bridge.resolveOllamaCapabilities(modelId, options);
+      return await bridge.resolveOllamaCapabilities(modelId, normaliseProbeOptions(rawOptions));
     }
   );
 
@@ -145,8 +223,11 @@ export function registerRuntimeIpcHandlers(): void {
       if (typeof modelId !== 'string') {
         throw new Error('modelId must be a string');
       }
-      const options = normaliseOptions<SerializableVerifyOptions>(rawOptions) ?? {};
-      return await bridge.verifyEmbeddingDimensions(runtimeId, modelId, options);
+      return await bridge.verifyEmbeddingDimensions(
+        runtimeId,
+        modelId,
+        normaliseVerifyOptions(rawOptions)
+      );
     }
   );
 }

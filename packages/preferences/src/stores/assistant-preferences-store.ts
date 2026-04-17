@@ -167,6 +167,29 @@ function getRuntimeBridge(): RuntimeBridge | undefined {
   return bridge as RuntimeBridge;
 }
 
+/**
+ * Runtime shape guards for values crossing the renderer ↔ main IPC
+ * boundary. A compromised main process, an Electron version mismatch, or
+ * an accidental structured-clone drop of a field would otherwise let an
+ * invalid object propagate silently. Throwing at the boundary preserves
+ * the full diagnostic context in the call stack that produced it.
+ */
+function isAvailabilityState(value: unknown): value is LocalRuntimeAvailabilityState {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as { state?: unknown };
+  return typeof candidate.state === 'string';
+}
+
+function isCatalogState(value: unknown): value is LocalRuntimeModelCatalogState {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as { runtime?: unknown; state?: unknown };
+  return typeof candidate.state === 'string' && typeof candidate.runtime === 'string';
+}
+
 async function probeRuntimeViaBridgeOrService(
   runtimeId: LocalRuntimeId,
   options: {
@@ -176,7 +199,13 @@ async function probeRuntimeViaBridgeOrService(
 ): Promise<LocalRuntimeAvailabilityState> {
   const bridge = getRuntimeBridge();
   if (bridge) {
-    return (await bridge.probe(runtimeId, options)) as LocalRuntimeAvailabilityState;
+    const result = await bridge.probe(runtimeId, options);
+    if (!isAvailabilityState(result)) {
+      throw new Error(
+        `Unexpected probe result shape from main-process bridge for ${runtimeId}: ${JSON.stringify(result)}`
+      );
+    }
+    return result;
   }
   const { discoveryService } = getLocalRuntimeServices();
   return await discoveryService.probeRuntime(runtimeId, options);
@@ -193,7 +222,13 @@ async function listRuntimeModelsViaBridgeOrService(
 ): Promise<LocalRuntimeModelCatalogState> {
   const bridge = getRuntimeBridge();
   if (bridge) {
-    return (await bridge.listModels(runtimeId, options)) as LocalRuntimeModelCatalogState;
+    const result = await bridge.listModels(runtimeId, options);
+    if (!isCatalogState(result)) {
+      throw new Error(
+        `Unexpected catalog result shape from main-process bridge for ${runtimeId}: ${JSON.stringify(result)}`
+      );
+    }
+    return result;
   }
   const { modelCatalogService } = getLocalRuntimeServices();
   return await modelCatalogService.listRuntimeModels(runtimeId, options);
