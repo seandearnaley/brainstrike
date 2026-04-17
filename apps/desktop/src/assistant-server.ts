@@ -216,17 +216,27 @@ async function prepareAssistantPostRequest(
     return;
   }
 
-  const runtimeData: RuntimeData = data ? { ...data, provider } : { provider };
-  const isLocalProvider = provider === 'local';
-  const apiKey = isLocalProvider ? '' : await resolveProviderApiKey(provider);
+  // Providers that never require a bearer token: the in-browser Gemma runtime
+  // and the two local servers (Ollama/LM Studio). Local servers accept an
+  // optional token when the user has stored one via the secrets bridge, but
+  // the absence of a token is not an error — most setups don't have auth.
+  const providerAllowsMissingAuth =
+    provider === 'local' || provider === 'ollama' || provider === 'lmstudio';
+  const apiKey = provider === 'local' ? '' : await resolveProviderApiKey(provider);
+
+  const runtimeData: RuntimeData = await hydrateRuntimeDataWithLocalRuntimeToken(
+    data ? { ...data, provider } : { provider },
+    provider,
+    apiKey
+  );
 
   logger.info('Assistant request received', {
     messageCount: messages.length,
     provider,
-    hasApiKey: Boolean(apiKey) || isLocalProvider,
+    hasApiKey: Boolean(apiKey) || providerAllowsMissingAuth,
   });
 
-  if (!(apiKey || isLocalProvider)) {
+  if (!(apiKey || providerAllowsMissingAuth)) {
     respondJson(res, 400, {
       error: 'missing_api_key',
       message: `No API key configured for provider "${provider}".`,
@@ -411,6 +421,31 @@ function registerRequestAbort(req: http.IncomingMessage): {
       req.removeListener('close', onAbort);
       req.removeListener('aborted', onAbort);
     },
+  };
+}
+
+async function hydrateRuntimeDataWithLocalRuntimeToken(
+  runtimeData: RuntimeData,
+  provider: string,
+  fetchedApiKey: string | undefined
+): Promise<RuntimeData> {
+  // Only local-runtime providers need their `apiToken` injected into
+  // providerOptions so the OpenAI-compat factory can forward it as a bearer
+  // header. Hosted providers receive the key through the top-level `apiKey`.
+  if (!((provider === 'ollama' || provider === 'lmstudio') && fetchedApiKey)) {
+    return runtimeData;
+  }
+
+  const providerOptions = { ...(runtimeData.providerOptions ?? {}) };
+  const existing = providerOptions[provider];
+  providerOptions[provider] = {
+    ...(existing ?? {}),
+    apiToken: fetchedApiKey,
+  };
+
+  return {
+    ...runtimeData,
+    providerOptions,
   };
 }
 

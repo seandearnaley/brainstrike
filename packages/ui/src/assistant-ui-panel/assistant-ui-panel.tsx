@@ -151,11 +151,17 @@ export type OpenAiReasoningSummary = 'auto' | 'detailed';
 export type AnthropicEffort = 'low' | 'medium' | 'high';
 export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
 
+export type LocalRuntimeActivation = 'auto' | 'on' | 'off';
+
 export interface AssistantProviderSettings {
   anthropicEffort?: AnthropicEffort;
   anthropicThinkingBudgetTokens?: number;
   googleIncludeThoughts?: boolean;
   googleThinkingLevel?: GoogleThinkingLevel;
+  /** Origin override for local runtime providers. Unused for hosted providers. */
+  localRuntimeBaseUrl?: string;
+  /** Tri-state activation for local runtime providers. Defaults to `auto`. */
+  localRuntimeEnabled?: LocalRuntimeActivation;
   localThinkingEnabled?: boolean;
   maxOutputTokens?: number;
   reasoningEffort?: OpenAiReasoningEffort;
