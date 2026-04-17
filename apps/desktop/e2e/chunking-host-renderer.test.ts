@@ -270,7 +270,7 @@ test.describe('Chunking Host Renderer', () => {
     await waitForAppReadyInTest(window);
     const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
 
-    const oversizedContent = 'x'.repeat(512 * 1024);
+    const oversizedContent = 'x'.repeat(600 * 1024);
     const oversizedOutcome = await chunkSentenceFile(window, {
       kind: 'chunk-file',
       requestId: crypto.randomUUID(),

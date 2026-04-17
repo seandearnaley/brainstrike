@@ -1655,9 +1655,7 @@ export class WorkspaceCollectionSyncService {
         rootPath: args.rootPath,
         summary: args.summary,
       });
-      if (args.abortSignal.aborted) {
-        return;
-      }
+      throwIfAborted(args.abortSignal);
       await this.waitForBackfillToDrain({
         abortSignal: args.abortSignal,
         collectionId: args.collection.id,
@@ -1868,6 +1866,9 @@ export class WorkspaceCollectionSyncService {
           rootPath: args.context.rootPath,
           summary: prepared,
         });
+        if (this.isCancelled(args.runId) || args.abortSignal.aborted) {
+          return;
+        }
       }
       this.setIdleStatus({
         collection: args.context.collection,

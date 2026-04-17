@@ -261,6 +261,66 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('returns without transitioning to idle when the unchanged-files backfill path is cancelled after enqueueing', async () => {
+    const unchangedContent = 'export const value = 1;';
+    const unchangedHash = await generateContentHash(unchangedContent);
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: unchangedContent,
+        })),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            fileRecordId: 'file-1',
+            embeddingSetId: 'set-1',
+            sourceRootPath: ROOT_PATH,
+            relativePath: FILE_PATH,
+            contentHash: unchangedHash,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+      },
+      chunkRepository: {
+        deleteByFileRecordId: vi.fn(async () => undefined),
+        getCoverageForSet: vi.fn(async () => ({
+          totalChunks: 10,
+          chunksWithEmbeddingsForSet: 1,
+        })),
+        insertMany: vi.fn(async () => []),
+        update: vi.fn(async () => null),
+      },
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+    vi.mocked(deps.enqueueBackfill).mockImplementationOnce(async () => {
+      await service.cancel();
+      return { requestId: 'background-indexing-backfill:test' };
+    });
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.enqueueBackfill).toHaveBeenCalledWith(
+      'set-1',
+      expect.objectContaining({
+        source: 'background-indexing',
+      })
+    );
+    expect(deps.setStatus).not.toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'idle',
+      })
+    );
+  });
+
   it('tracks policy-filtered entries in the scan summary', async () => {
     readFullTreeWithOptionsMock.mockImplementationOnce(async (_adapter, _handle, options) => {
       options?.onEntrySkipped?.({
