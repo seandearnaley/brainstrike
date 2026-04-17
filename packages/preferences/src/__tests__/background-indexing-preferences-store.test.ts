@@ -23,21 +23,24 @@ describe('background-indexing-preferences-store', () => {
     expect(state.indexingPolicyPreset).toBe('balanced');
     expect(state.managedCollectionId).toBeNull();
     expect(state.mode).toBe('root-folder-cache');
+    expect(state.paused).toBe(false);
     expect(state.hasHydrated).toBe(false);
   });
 
-  it('updates enablement, policy, and managed collection independently', () => {
+  it('updates enablement, policy, managed collection, and pause independently', () => {
     const store = useBackgroundIndexingPreferencesStore.getState();
 
     store.setEnabled(true);
     store.setIndexingPolicyPreset('full-root');
     store.setManagedCollectionId('collection-123');
+    store.setPaused(true);
 
     expect(useBackgroundIndexingPreferencesStore.getState()).toMatchObject({
       enabled: true,
       indexingPolicyPreset: 'full-root',
       managedCollectionId: 'collection-123',
       mode: 'root-folder-cache',
+      paused: true,
     });
   });
 
@@ -47,6 +50,7 @@ describe('background-indexing-preferences-store', () => {
       indexingPolicyPreset: 'full-root',
       managedCollectionId: 'collection-123',
       mode: 'root-folder-cache',
+      paused: true,
       hasHydrated: true,
     });
 
@@ -57,6 +61,7 @@ describe('background-indexing-preferences-store', () => {
       indexingPolicyPreset: 'balanced',
       managedCollectionId: null,
       mode: 'root-folder-cache',
+      paused: false,
       hasHydrated: true,
     });
   });

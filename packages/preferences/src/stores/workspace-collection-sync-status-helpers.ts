@@ -114,33 +114,71 @@ export function getWorkspaceCollectionSyncMetricRows(
 export function getWorkspaceCollectionSyncCurrentActivity(
   status: Pick<
     WorkspaceCollectionSyncStatusData,
-    'chunkingProgress' | 'currentFilePath' | 'embeddingProgress' | 'importProgress' | 'state'
+    | 'chunkingProgress'
+    | 'currentFilePath'
+    | 'embeddingProgress'
+    | 'importProgress'
+    | 'pauseReasons'
+    | 'state'
   >
 ): { label: string; value: string } | null {
-  if (status.state === 'recovering') {
-    const value = status.embeddingProgress?.currentChunk ?? status.currentFilePath;
-    return value ? { label: 'Reattaching backfill', value } : null;
+  const pausedActivity = createPausedActivity(status.state, status.pauseReasons);
+  if (pausedActivity) {
+    return pausedActivity;
   }
 
-  if (status.state === 'scanning') {
-    const value = status.currentFilePath;
-    return value ? { label: 'Scanning', value } : null;
+  switch (status.state) {
+    case 'recovering': {
+      const value = status.embeddingProgress?.currentChunk ?? status.currentFilePath;
+      return value ? { label: 'Reattaching backfill', value } : null;
+    }
+    case 'scanning':
+      return status.currentFilePath ? { label: 'Scanning', value: status.currentFilePath } : null;
+    case 'importing': {
+      const value = status.importProgress?.current ?? status.currentFilePath;
+      return value ? { label: 'Importing file', value } : null;
+    }
+    case 'chunking': {
+      const value = status.chunkingProgress?.currentFile ?? status.currentFilePath;
+      return value ? { label: 'Chunking file', value } : null;
+    }
+    case 'embedding': {
+      const value = status.embeddingProgress?.currentChunk ?? status.currentFilePath;
+      return value ? { label: 'Embedding chunk', value } : null;
+    }
+    default:
+      return null;
   }
+}
 
-  if (status.state === 'importing') {
-    const value = status.importProgress?.current ?? status.currentFilePath;
-    return value ? { label: 'Importing file', value } : null;
+export function shouldShowWorkspaceCollectionSyncPauseControl(
+  state: WorkspaceCollectionSyncStatusData['state']
+): boolean {
+  return (
+    state === 'paused' ||
+    state === 'recovering' ||
+    state === 'scanning' ||
+    state === 'importing' ||
+    state === 'chunking' ||
+    state === 'embedding'
+  );
+}
+
+function createPausedActivity(
+  state: WorkspaceCollectionSyncStatusData['state'],
+  pauseReasons: readonly string[]
+): { label: string; value: string } | null {
+  if (state !== 'paused') {
+    return null;
   }
-
-  if (status.state === 'chunking') {
-    const value = status.chunkingProgress?.currentFile ?? status.currentFilePath;
-    return value ? { label: 'Chunking file', value } : null;
+  if (pauseReasons.length === 0) {
+    return {
+      label: 'Paused',
+      value: 'Background indexing is paused.',
+    };
   }
-
-  if (status.state === 'embedding') {
-    const value = status.embeddingProgress?.currentChunk ?? status.currentFilePath;
-    return value ? { label: 'Embedding chunk', value } : null;
-  }
-
-  return null;
+  return {
+    label: 'Paused by',
+    value: pauseReasons.join(' • '),
+  };
 }

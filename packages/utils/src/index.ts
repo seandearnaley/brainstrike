@@ -7,6 +7,7 @@ export * from '@brainstrike/utils/logger';
 export * from '@brainstrike/utils/logging-initializer';
 export * from '@brainstrike/utils/logging-preferences';
 export * from './background-indexing-policy';
+export * from './background-work-arbiter';
 export * from './bulk-operation-context';
 export * from './color-utils';
 export * from './console-guard';

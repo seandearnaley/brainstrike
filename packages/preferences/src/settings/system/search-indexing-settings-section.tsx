@@ -1,6 +1,7 @@
 import { useEmbeddingSetsRepository } from '@brainstrike/db';
 import {
   Badge,
+  Button,
   Card,
   CardContent,
   CardDescription,
@@ -25,6 +26,7 @@ import { useBackgroundIndexingPreferencesStore } from '../../stores/background-i
 import {
   getWorkspaceCollectionSyncCurrentActivity,
   getWorkspaceCollectionSyncMetricRows,
+  shouldShowWorkspaceCollectionSyncPauseControl,
 } from '../../stores/workspace-collection-sync-status-helpers';
 import { useWorkspaceCollectionSyncStatusStore } from '../../stores/workspace-collection-sync-status-store';
 
@@ -69,6 +71,13 @@ function getStatusBadge(
         icon: RefreshCw,
         variant: 'secondary' as const,
         iconClassName: 'size-3.5 animate-spin',
+      };
+    case 'paused':
+      return {
+        label: 'Paused',
+        icon: AlertTriangle,
+        variant: 'outline' as const,
+        iconClassName: 'size-3.5',
       };
     case 'importing':
       return {
@@ -131,12 +140,15 @@ export function SearchIndexingSettingsSection() {
   const setManagedCollectionId = useBackgroundIndexingPreferencesStore(
     (state) => state.setManagedCollectionId
   );
+  const paused = useBackgroundIndexingPreferencesStore((state) => state.paused);
+  const setPaused = useBackgroundIndexingPreferencesStore((state) => state.setPaused);
   const syncStatus = useWorkspaceCollectionSyncStatusStore((state) => ({
     state: state.state,
     backfillRequestId: state.backfillRequestId,
     managedCollectionName: state.managedCollectionName,
     currentFilePath: state.currentFilePath,
     lastError: state.lastError,
+    pauseReasons: state.pauseReasons,
     activeRootPath: state.activeRootPath,
     scanSummary: state.scanSummary,
     importProgress: state.importProgress,
@@ -226,6 +238,7 @@ export function SearchIndexingSettingsSection() {
   const StatusIcon = statusBadge.icon;
   const metricRows = getWorkspaceCollectionSyncMetricRows(syncStatus);
   const currentActivity = getWorkspaceCollectionSyncCurrentActivity(syncStatus);
+  const showPauseControl = shouldShowWorkspaceCollectionSyncPauseControl(syncStatus.state);
 
   return (
     <Card>
@@ -350,6 +363,13 @@ export function SearchIndexingSettingsSection() {
           {syncStatus.lastError ? (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-destructive text-sm">
               {syncStatus.lastError}
+            </div>
+          ) : null}
+          {showPauseControl ? (
+            <div className="flex justify-end">
+              <Button onClick={() => setPaused(!paused)} size="sm" type="button" variant="outline">
+                {paused ? 'Resume background indexing' : 'Pause background indexing'}
+              </Button>
             </div>
           ) : null}
         </div>

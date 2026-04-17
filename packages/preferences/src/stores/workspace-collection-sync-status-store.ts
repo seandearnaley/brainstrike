@@ -3,6 +3,7 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 export type WorkspaceCollectionSyncState =
   | 'disabled'
   | 'idle'
+  | 'paused'
   | 'recovering'
   | 'waiting'
   | 'scanning'
@@ -65,6 +66,7 @@ export interface WorkspaceCollectionSyncStatusData {
   lastError: string | null;
   managedCollectionId: string | null;
   managedCollectionName: string | null;
+  pauseReasons: string[];
   processedFiles: number;
   queuedFiles: number;
   queueProgress: WorkspaceCollectionSyncQueueProgress | null;
@@ -97,6 +99,7 @@ const DEFAULT_STATE: WorkspaceCollectionSyncStatusData = {
   processedFiles: 0,
   lastError: null,
   activeRootPath: null,
+  pauseReasons: [],
 };
 
 export const useWorkspaceCollectionSyncStatusStore = create<WorkspaceCollectionSyncStatusStore>()(

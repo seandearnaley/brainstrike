@@ -106,6 +106,7 @@ describe('workspace collection sync status helpers', () => {
       getWorkspaceCollectionSyncCurrentActivity({
         state: 'recovering',
         currentFilePath: '/workspace/src/fallback.ts',
+        pauseReasons: [],
         importProgress: null,
         chunkingProgress: null,
         embeddingProgress: {
@@ -121,6 +122,7 @@ describe('workspace collection sync status helpers', () => {
       getWorkspaceCollectionSyncCurrentActivity({
         state: 'scanning',
         currentFilePath: '/workspace/src/scan.ts',
+        pauseReasons: [],
         importProgress: null,
         chunkingProgress: null,
         embeddingProgress: null,
@@ -131,6 +133,7 @@ describe('workspace collection sync status helpers', () => {
       getWorkspaceCollectionSyncCurrentActivity({
         state: 'importing',
         currentFilePath: '/workspace/src/import.ts',
+        pauseReasons: [],
         importProgress: {
           completed: 1,
           current: '/workspace/src/current-import.ts',
@@ -146,6 +149,7 @@ describe('workspace collection sync status helpers', () => {
       getWorkspaceCollectionSyncCurrentActivity({
         state: 'chunking',
         currentFilePath: '/workspace/src/chunk.ts',
+        pauseReasons: [],
         importProgress: null,
         chunkingProgress: {
           chunksCreated: 4,
@@ -162,6 +166,7 @@ describe('workspace collection sync status helpers', () => {
       getWorkspaceCollectionSyncCurrentActivity({
         state: 'embedding',
         currentFilePath: '/workspace/src/embed.ts',
+        pauseReasons: [],
         importProgress: null,
         chunkingProgress: null,
         embeddingProgress: {
@@ -175,8 +180,20 @@ describe('workspace collection sync status helpers', () => {
 
     expect(
       getWorkspaceCollectionSyncCurrentActivity({
+        state: 'paused',
+        currentFilePath: null,
+        pauseReasons: ['Paused for local assistant'],
+        importProgress: null,
+        chunkingProgress: null,
+        embeddingProgress: null,
+      })
+    ).toEqual({ label: 'Paused by', value: 'Paused for local assistant' });
+
+    expect(
+      getWorkspaceCollectionSyncCurrentActivity({
         state: 'idle',
         currentFilePath: null,
+        pauseReasons: [],
         importProgress: null,
         chunkingProgress: null,
         embeddingProgress: null,

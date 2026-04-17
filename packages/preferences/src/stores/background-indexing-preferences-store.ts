@@ -11,6 +11,7 @@ interface BackgroundIndexingPreferencesData {
   indexingPolicyPreset: BackgroundIndexingPolicyPreset;
   managedCollectionId: string | null;
   mode: BackgroundIndexingMode;
+  paused: boolean;
 }
 
 interface BackgroundIndexingPreferencesActions {
@@ -18,6 +19,7 @@ interface BackgroundIndexingPreferencesActions {
   setEnabled: (enabled: boolean) => void;
   setIndexingPolicyPreset: (indexingPolicyPreset: BackgroundIndexingPolicyPreset) => void;
   setManagedCollectionId: (managedCollectionId: string | null) => void;
+  setPaused: (paused: boolean) => void;
 }
 
 export type BackgroundIndexingPreferencesStore = BackgroundIndexingPreferencesData &
@@ -72,6 +74,7 @@ const DEFAULT_STATE: BackgroundIndexingPreferencesData = {
   indexingPolicyPreset: 'balanced',
   managedCollectionId: null,
   mode: 'root-folder-cache',
+  paused: false,
 };
 
 export const useBackgroundIndexingPreferencesStore = create<BackgroundIndexingPreferencesStore>()(
@@ -82,24 +85,27 @@ export const useBackgroundIndexingPreferencesStore = create<BackgroundIndexingPr
       setIndexingPolicyPreset: (indexingPolicyPreset: BackgroundIndexingPolicyPreset) =>
         set({ indexingPolicyPreset }),
       setManagedCollectionId: (managedCollectionId: string | null) => set({ managedCollectionId }),
+      setPaused: (paused: boolean) => set({ paused }),
       reset: () =>
         set({
           enabled: DEFAULT_STATE.enabled,
           indexingPolicyPreset: DEFAULT_STATE.indexingPolicyPreset,
           managedCollectionId: DEFAULT_STATE.managedCollectionId,
           mode: DEFAULT_STATE.mode,
+          paused: DEFAULT_STATE.paused,
           hasHydrated: true,
         }),
     }),
     {
       name: STORE_NAME,
-      version: 2,
+      version: 3,
       storage,
       partialize: (state: BackgroundIndexingPreferencesStore) => ({
         enabled: state.enabled,
         indexingPolicyPreset: state.indexingPolicyPreset,
         managedCollectionId: state.managedCollectionId,
         mode: state.mode,
+        paused: state.paused,
       }),
       migrate: (persistedState: unknown) => {
         if (!(persistedState && typeof persistedState === 'object')) {
@@ -116,6 +122,7 @@ export const useBackgroundIndexingPreferencesStore = create<BackgroundIndexingPr
             candidate.indexingPolicyPreset ?? DEFAULT_STATE.indexingPolicyPreset,
           managedCollectionId: candidate.managedCollectionId ?? DEFAULT_STATE.managedCollectionId,
           mode: candidate.mode ?? DEFAULT_STATE.mode,
+          paused: candidate.paused ?? DEFAULT_STATE.paused,
         } satisfies BackgroundIndexingPreferencesData;
       },
       onRehydrateStorage: () => (_state, error) => {

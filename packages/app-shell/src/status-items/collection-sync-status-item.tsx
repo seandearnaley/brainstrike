@@ -2,9 +2,17 @@ import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/
 import {
   getWorkspaceCollectionSyncCurrentActivity,
   getWorkspaceCollectionSyncMetricRows,
+  shouldShowWorkspaceCollectionSyncPauseControl,
 } from '@brainstrike/preferences/stores/workspace-collection-sync-status-helpers';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
-import { Badge, Popover, PopoverContent, PopoverTrigger, StatusBarItem } from '@brainstrike/ui';
+import {
+  Badge,
+  Button,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  StatusBarItem,
+} from '@brainstrike/ui';
 import { getBackgroundIndexingPolicyOption } from '@brainstrike/utils';
 import { Database, Loader2, TriangleAlert } from 'lucide-react';
 
@@ -24,6 +32,7 @@ const selectCollectionSyncStatus = (
   managedCollectionName: state.managedCollectionName,
   currentFilePath: state.currentFilePath,
   lastError: state.lastError,
+  pauseReasons: state.pauseReasons,
   activeRootPath: state.activeRootPath,
   scanSummary: state.scanSummary,
   importProgress: state.importProgress,
@@ -40,6 +49,7 @@ function getStatusItemValue(
   | 'Chunking'
   | 'Embedding'
   | 'Importing'
+  | 'Paused'
   | 'Ready'
   | 'Recovering'
   | 'Scanning'
@@ -53,6 +63,9 @@ function getStatusItemValue(
   }
   if (state === 'recovering') {
     return 'Recovering';
+  }
+  if (state === 'paused') {
+    return 'Paused';
   }
   if (state === 'scanning') {
     return 'Scanning';
@@ -83,7 +96,15 @@ function getStatusItemState(
   return {
     isBusy,
     status:
-      state === 'error' ? 'warning' : isBusy ? 'loading' : enabled ? 'connected' : 'disconnected',
+      state === 'error'
+        ? 'warning'
+        : state === 'paused'
+          ? 'disconnected'
+          : isBusy
+            ? 'loading'
+            : enabled
+              ? 'connected'
+              : 'disconnected',
     value: getStatusItemValue(state, enabled),
   } as const;
 }
@@ -109,6 +130,8 @@ export function CollectionSyncStatusItem() {
   const indexingPolicyPreset = useBackgroundIndexingPreferencesStore(
     (state) => state.indexingPolicyPreset
   );
+  const paused = useBackgroundIndexingPreferencesStore((state) => state.paused);
+  const setPaused = useBackgroundIndexingPreferencesStore((state) => state.setPaused);
   const syncStatus = useWorkspaceCollectionSyncStatusStore(selectCollectionSyncStatus);
 
   if (!isStatusItemVisible({ enabled, managedCollectionId, syncStatus })) {
@@ -120,6 +143,7 @@ export function CollectionSyncStatusItem() {
   const selectedPolicy = getBackgroundIndexingPolicyOption(indexingPolicyPreset);
   const metricRows = getWorkspaceCollectionSyncMetricRows(syncStatus);
   const currentActivity = getWorkspaceCollectionSyncCurrentActivity(syncStatus);
+  const showPauseControl = shouldShowWorkspaceCollectionSyncPauseControl(syncStatus.state);
 
   return (
     <Popover>
@@ -183,6 +207,13 @@ export function CollectionSyncStatusItem() {
         {syncStatus.lastError ? (
           <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-destructive text-xs">
             {syncStatus.lastError}
+          </div>
+        ) : null}
+        {showPauseControl ? (
+          <div className="flex justify-end">
+            <Button onClick={() => setPaused(!paused)} size="sm" type="button" variant="outline">
+              {paused ? 'Resume background indexing' : 'Pause background indexing'}
+            </Button>
           </div>
         ) : null}
       </PopoverContent>
