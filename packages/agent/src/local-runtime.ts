@@ -13,6 +13,7 @@ export {
   type LocalRuntimeSurface,
   type LocalRuntimeUnavailableState,
   type ProbeLocalRuntimeOptions,
+  resolveRuntimeBaseUrl,
 } from './providers/local-runtime-discovery';
 export {
   isLoadedRuntimeModelCatalogState,
@@ -44,3 +45,9 @@ export {
   type LocalRuntimeOllamaCapabilitiesUnavailable,
   type OllamaModelCapability,
 } from './providers/local-runtime-model-catalog';
+export {
+  buildRuntimeAuthHeaders,
+  buildRuntimeEndpoint,
+  type LocalRuntimeEndpointConfig,
+  normalizeRuntimeBaseUrl,
+} from './providers/local-runtime-utils';

@@ -1,3 +1,17 @@
+export interface LocalRuntimeEndpointConfig {
+  /**
+   * Bearer token sent as `Authorization: Bearer <token>` on every request.
+   * Used for Ollama Turbo/Cloud or LM Studio 0.4.0+ token-authenticated servers.
+   */
+  readonly apiToken?: string;
+  /**
+   * Canonical origin without trailing slash or `/v1` suffix, e.g.
+   * `http://127.0.0.1:11434` or `https://my-gpu-box.lan:11434`. Empty or
+   * invalid values are treated as "use default".
+   */
+  readonly baseUrl?: string;
+}
+
 export interface FetchJsonResult {
   readonly latencyMs: number;
   readonly parseError: Error | null;
@@ -30,6 +44,72 @@ export function sanitizeDuration(value: number | undefined, fallback: number): n
     return fallback;
   }
   return Math.floor(value);
+}
+
+/**
+ * Normalize a user-supplied base URL into a canonical origin we can build paths
+ * off of. Accepts input with or without a scheme, trims whitespace, strips a
+ * trailing slash and a trailing `/v1` so callers can always append `/v1/models`
+ * or `/api/tags` without double-segments.
+ *
+ * Returns `null` when the input is empty or cannot be parsed into a URL.
+ */
+export function normalizeRuntimeBaseUrl(raw: string | undefined | null): string | null {
+  if (typeof raw !== 'string') {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(withScheme);
+  } catch {
+    return null;
+  }
+
+  let pathname = parsed.pathname;
+  while (pathname.endsWith('/')) {
+    pathname = pathname.slice(0, -1);
+  }
+  // Strip a trailing `/v1` so we always have a clean origin to join against.
+  // `/api/v1` is left alone — that is a real namespace segment.
+  if (pathname.toLowerCase() === '/v1') {
+    pathname = '';
+  }
+
+  return `${parsed.protocol}//${parsed.host}${pathname}`;
+}
+
+/**
+ * Join a normalized base URL with a runtime-relative path. `path` must begin
+ * with a forward slash; the base must already be canonicalized by
+ * `normalizeRuntimeBaseUrl`.
+ */
+export function buildRuntimeEndpoint(baseUrl: string, path: string): string {
+  if (!path.startsWith('/')) {
+    throw new Error(`path must be absolute, received: ${path}`);
+  }
+  return `${baseUrl}${path}`;
+}
+
+/**
+ * Compose request headers for a runtime endpoint, adding the bearer token when
+ * one is configured. Returns `undefined` when nothing needs to be added so the
+ * caller can omit the `headers` field entirely.
+ */
+export function buildRuntimeAuthHeaders(
+  config: LocalRuntimeEndpointConfig | undefined
+): Record<string, string> | undefined {
+  const token = config?.apiToken?.trim();
+  if (!token) {
+    return;
+  }
+  return { authorization: `Bearer ${token}` };
 }
 
 export async function fetchJsonWithTimeout(

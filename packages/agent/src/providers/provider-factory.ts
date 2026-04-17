@@ -5,12 +5,40 @@ import type { MastraModelConfig } from '@mastra/core/llm';
 import { createMastraAgentError } from '../mastra/mastra-agent-error';
 import type { RuntimeData } from '../types';
 import { createLocalLanguageModel } from './local';
+import { resolveRuntimeBaseUrl } from './local-runtime-discovery';
+import {
+  buildRuntimeEndpoint,
+  type LocalRuntimeEndpointConfig,
+  normalizeRuntimeBaseUrl,
+} from './local-runtime-utils';
 import {
   isSupportedProvider,
   listProviders,
   PROVIDER_DEFAULT_MODELS,
   type SupportedProvider,
 } from './types';
+
+function resolveLocalRuntimeBaseUrl(
+  runtime: 'ollama' | 'lmstudio',
+  override: string | undefined
+): string {
+  // The `createOpenAI` client expects a `/v1`-suffixed base URL; the shared
+  // resolver returns a canonical origin without `/v1`, so append it here.
+  const origin = resolveRuntimeBaseUrl(runtime, normalizeRuntimeBaseUrl(override));
+  return buildRuntimeEndpoint(origin, '/v1');
+}
+
+function pickApiKey(explicit: string | undefined, config: LocalRuntimeEndpointConfig | undefined) {
+  const trimmed = explicit?.trim();
+  if (trimmed && trimmed.length > 0) {
+    return trimmed;
+  }
+  const token = config?.apiToken?.trim();
+  if (token && token.length > 0) {
+    return token;
+  }
+  return;
+}
 
 /**
  * Create a language model instance for the specified provider
@@ -72,19 +100,29 @@ export function createProvider(
     }
 
     case 'ollama': {
-      // Ollama exposes OpenAI-compatible routes on localhost.
+      // Ollama exposes OpenAI-compatible routes. Defaults to 127.0.0.1:11434
+      // but users can override via `runtime.providerOptions.ollama.baseUrl`
+      // (to reach a LAN GPU box) and supply an `apiToken` for Ollama Turbo.
+      const ollamaOptions = runtime?.providerOptions?.ollama;
+      const baseURL = resolveLocalRuntimeBaseUrl('ollama', ollamaOptions?.baseUrl);
+      const resolvedKey = pickApiKey(apiKey, ollamaOptions);
       const ollamaProvider = createOpenAI({
-        baseURL: 'http://127.0.0.1:11434/v1',
-        ...(apiKey ? { apiKey } : {}),
+        baseURL,
+        ...(resolvedKey ? { apiKey: resolvedKey } : {}),
       });
       return ollamaProvider(modelName);
     }
 
     case 'lmstudio': {
-      // LM Studio exposes OpenAI-compatible routes on localhost.
+      // LM Studio exposes OpenAI-compatible routes. Defaults to 127.0.0.1:1234
+      // and supports an optional bearer token on 0.4.0+ servers that enabled
+      // `Require API clients to provide a valid API token` in Settings > Server.
+      const lmStudioOptions = runtime?.providerOptions?.lmstudio;
+      const baseURL = resolveLocalRuntimeBaseUrl('lmstudio', lmStudioOptions?.baseUrl);
+      const resolvedKey = pickApiKey(apiKey, lmStudioOptions);
       const lmStudioProvider = createOpenAI({
-        baseURL: 'http://localhost:1234/v1',
-        ...(apiKey ? { apiKey } : {}),
+        baseURL,
+        ...(resolvedKey ? { apiKey: resolvedKey } : {}),
       });
       return lmStudioProvider(modelName);
     }

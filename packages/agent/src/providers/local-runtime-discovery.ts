@@ -1,8 +1,12 @@
 import {
+  buildRuntimeAuthHeaders,
+  buildRuntimeEndpoint,
   extractErrorMessage,
   type FetchJsonResult,
   fetchJsonWithTimeout,
   isRecord,
+  type LocalRuntimeEndpointConfig,
+  normalizeRuntimeBaseUrl,
   sanitizeDuration,
 } from './local-runtime-utils';
 
@@ -73,12 +77,23 @@ type LocalRuntimeFailureState =
 
 type ProbeValidator = (payload: unknown) => boolean;
 
+interface RuntimeProbePath {
+  readonly path: string;
+  readonly validator: ProbeValidator;
+}
+
 interface RuntimeProbeDefinition {
   readonly endpoint: string;
   readonly validator: ProbeValidator;
 }
 
+const DEFAULT_RUNTIME_BASE_URLS: Record<LocalRuntimeId, string> = {
+  ollama: 'http://127.0.0.1:11434',
+  lmstudio: 'http://127.0.0.1:1234',
+};
+
 interface RuntimeCacheEntry {
+  readonly baseUrl: string;
   readonly consecutiveFailures: number;
   readonly lastSuccessfulAt: number | null;
   readonly lastSuccessfulEndpoint: string | null;
@@ -91,45 +106,43 @@ const DEFAULT_FAILURE_BASE_BACKOFF_MS = 2000;
 const DEFAULT_FAILURE_MAX_BACKOFF_MS = 30_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 2000;
 
-// Ollama defaults to 127.0.0.1 on its standard local port.
-const OLLAMA_PROBES: readonly RuntimeProbeDefinition[] = [
-  {
-    endpoint: 'http://127.0.0.1:11434/v1/models',
-    validator: isOpenAiModelsPayload,
-  },
-  {
-    endpoint: 'http://127.0.0.1:11434/api/version',
-    validator: isOllamaVersionPayload,
-  },
-  {
-    endpoint: 'http://127.0.0.1:11434/api/tags',
-    validator: isOllamaTagsPayload,
-  },
+// Ollama defaults to 127.0.0.1 on its standard local port; LM Studio binds to
+// IPv4 loopback by default and `localhost` can resolve to `::1`, so we always
+// probe `127.0.0.1` explicitly.
+const OLLAMA_PROBE_PATHS: readonly RuntimeProbePath[] = [
+  { path: '/v1/models', validator: isOpenAiModelsPayload },
+  { path: '/api/version', validator: isOllamaVersionPayload },
+  { path: '/api/tags', validator: isOllamaTagsPayload },
 ];
 
-// LM Studio documents localhost for its OpenAI-compatible server endpoint, but
-// binds only to IPv4 loopback by default. Probing `localhost` risks resolving
-// to `::1` on systems where IPv6 is preferred, which would miss the server;
-// always probe `127.0.0.1` explicitly.
-const LM_STUDIO_PROBES: readonly RuntimeProbeDefinition[] = [
-  {
-    endpoint: 'http://127.0.0.1:1234/v1/models',
-    validator: isOpenAiModelsPayload,
-  },
-  {
-    endpoint: 'http://127.0.0.1:1234/api/v1/models',
-    validator: isLmStudioRestModelsPayload,
-  },
-  {
-    endpoint: 'http://127.0.0.1:1234/api/v0/models',
-    validator: isLmStudioRestModelsPayload,
-  },
+const LM_STUDIO_PROBE_PATHS: readonly RuntimeProbePath[] = [
+  { path: '/v1/models', validator: isOpenAiModelsPayload },
+  { path: '/api/v1/models', validator: isLmStudioRestModelsPayload },
+  { path: '/api/v0/models', validator: isLmStudioRestModelsPayload },
 ];
 
-const DEFAULT_PROBES: Record<LocalRuntimeId, readonly RuntimeProbeDefinition[]> = {
-  ollama: OLLAMA_PROBES,
-  lmstudio: LM_STUDIO_PROBES,
+const DEFAULT_PROBE_PATHS: Record<LocalRuntimeId, readonly RuntimeProbePath[]> = {
+  ollama: OLLAMA_PROBE_PATHS,
+  lmstudio: LM_STUDIO_PROBE_PATHS,
 };
+
+export function resolveRuntimeBaseUrl(
+  runtime: LocalRuntimeId,
+  override: string | undefined | null
+): string {
+  return normalizeRuntimeBaseUrl(override) ?? DEFAULT_RUNTIME_BASE_URLS[runtime];
+}
+
+function buildProbeDefinitions(
+  runtime: LocalRuntimeId,
+  endpoint: LocalRuntimeEndpointConfig | undefined
+): readonly RuntimeProbeDefinition[] {
+  const baseUrl = resolveRuntimeBaseUrl(runtime, endpoint?.baseUrl);
+  return DEFAULT_PROBE_PATHS[runtime].map((probe) => ({
+    endpoint: buildRuntimeEndpoint(baseUrl, probe.path),
+    validator: probe.validator,
+  }));
+}
 
 export interface LocalRuntimeDiscoveryServiceOptions {
   /**
@@ -164,6 +177,13 @@ export interface LocalRuntimeDiscoveryServiceOptions {
 }
 
 export interface ProbeLocalRuntimeOptions {
+  /**
+   * Per-call override for the runtime's endpoint config. When provided, the
+   * probe list is rebuilt from the supplied `baseUrl` and the request carries
+   * the optional `apiToken` as a bearer header. `baseUrl` and `apiToken` are
+   * independent — setting one without the other is supported.
+   */
+  readonly endpoint?: LocalRuntimeEndpointConfig;
   readonly force?: boolean;
   readonly signal?: AbortSignal;
   readonly surface?: LocalRuntimeSurface;
@@ -426,22 +446,32 @@ export class LocalRuntimeDiscoveryService {
   ): Promise<LocalRuntimeAvailabilityState> {
     const now = this.now();
     const cached = this.cache.get(runtime);
+    const baseUrl = resolveRuntimeBaseUrl(runtime, options.endpoint?.baseUrl);
 
-    if (!(options.force ?? false) && cached && now < cached.nextProbeAt) {
+    // Invalidate the cache when the effective baseUrl changes so a user who
+    // points at a different host sees a fresh probe, not the last answer.
+    const cacheFresh =
+      cached !== undefined && cached.baseUrl === baseUrl && now < cached.nextProbeAt;
+    if (!(options.force ?? false) && cacheFresh && cached) {
       return cached.status;
     }
 
     const result = await this.executeProbe(runtime, {
       surface: options.surface ?? resolveRuntimeSurface(this.defaultSurface),
       ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.endpoint ? { endpoint: options.endpoint } : {}),
     });
 
-    const previousSuccessAt = cached?.lastSuccessfulAt ?? null;
-    const previousSuccessEndpoint = cached?.lastSuccessfulEndpoint ?? null;
-    const consecutiveFailures = cached?.consecutiveFailures ?? 0;
+    const previousSuccessAt =
+      cached && cached.baseUrl === baseUrl ? (cached.lastSuccessfulAt ?? null) : null;
+    const previousSuccessEndpoint =
+      cached && cached.baseUrl === baseUrl ? (cached.lastSuccessfulEndpoint ?? null) : null;
+    const consecutiveFailures =
+      cached && cached.baseUrl === baseUrl ? cached.consecutiveFailures : 0;
 
     if (result.state === 'available') {
       this.cache.set(runtime, {
+        baseUrl,
         status: result,
         nextProbeAt: now + this.successTtlMs,
         consecutiveFailures: 0,
@@ -460,6 +490,7 @@ export class LocalRuntimeDiscoveryService {
     );
 
     this.cache.set(runtime, {
+      baseUrl,
       status: nextStatus,
       nextProbeAt: now + backoffMs,
       consecutiveFailures: nextFailures,
@@ -493,7 +524,11 @@ export class LocalRuntimeDiscoveryService {
 
   private async executeProbe(
     runtime: LocalRuntimeId,
-    options: { readonly signal?: AbortSignal; readonly surface: LocalRuntimeSurface }
+    options: {
+      readonly endpoint?: LocalRuntimeEndpointConfig;
+      readonly signal?: AbortSignal;
+      readonly surface: LocalRuntimeSurface;
+    }
   ): Promise<LocalRuntimeAvailableState | LocalRuntimeFailureState> {
     if (!this.fetchImpl) {
       return {
@@ -503,7 +538,8 @@ export class LocalRuntimeDiscoveryService {
       };
     }
 
-    const probes = DEFAULT_PROBES[runtime];
+    const probes = buildProbeDefinitions(runtime, options.endpoint);
+    const authHeaders = buildRuntimeAuthHeaders(options.endpoint);
     const failures: ProbeAttemptFailure[] = [];
 
     for (const probe of probes) {
@@ -513,6 +549,7 @@ export class LocalRuntimeDiscoveryService {
           fetchImpl: this.fetchImpl,
           timeoutMs: this.requestTimeoutMs,
           ...(options.signal ? { signal: options.signal } : {}),
+          ...(authHeaders ? { headers: authHeaders } : {}),
         });
         const result = evaluateProbeResponse(checkedAt, probe, responseResult);
         if (result.state === 'available' || result.state === 'auth_required') {

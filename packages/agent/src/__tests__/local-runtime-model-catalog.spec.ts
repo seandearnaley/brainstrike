@@ -367,4 +367,72 @@ describe('local-runtime-model-catalog', () => {
     expect(result.message).toBe('modelId is required');
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('routes probes to the configured baseUrl and attaches bearer token', async () => {
+    const observedUrls: string[] = [];
+    const observedAuth: (string | null)[] = [];
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+      const url = getRequestUrl(input);
+      observedUrls.push(url);
+      const headers = new Headers(init?.headers as HeadersInit | undefined);
+      observedAuth.push(headers.get('authorization'));
+      if (url === 'https://gpu.lan:11434/api/tags') {
+        return jsonResponse({
+          models: [{ name: 'phi4:latest', details: { families: ['phi4'] } }],
+        });
+      }
+      return new Response('missing', { status: 404 });
+    });
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 10_000,
+    });
+
+    const result = await service.listRuntimeModels('ollama', {
+      surface: 'desktop',
+      force: true,
+      endpoint: {
+        baseUrl: 'https://gpu.lan:11434/v1/',
+        apiToken: 'tok_abc',
+      },
+    });
+
+    expect(result.state).toBe('loaded_non_empty');
+    if (result.state !== 'loaded_non_empty') {
+      throw new Error('Expected loaded_non_empty state');
+    }
+    expect(result.endpoint).toBe('https://gpu.lan:11434/api/tags');
+    // Every probe targeted the custom origin, none fell back to 127.0.0.1.
+    expect(observedUrls.every((url) => url.startsWith('https://gpu.lan:11434'))).toBe(true);
+    // Every probe carried the bearer token; no anonymous requests escape.
+    expect(observedAuth.every((value) => value === 'Bearer tok_abc')).toBe(true);
+  });
+
+  it('routes /api/show capability lookups to the configured baseUrl', async () => {
+    const fetchMock = vi.fn<FetchMock>(async (input) => {
+      const url = getRequestUrl(input);
+      if (url === 'https://gpu.lan:11434/api/show') {
+        return jsonResponse({ capabilities: ['completion', 'embedding'] });
+      }
+      return new Response('missing', { status: 404 });
+    });
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 11_000,
+    });
+
+    const result = await service.resolveOllamaCapabilities('bge-m3:latest', {
+      endpoint: { baseUrl: 'https://gpu.lan:11434', apiToken: 'tok_xyz' },
+    });
+
+    expect(result.state).toBe('resolved');
+    if (result.state !== 'resolved') {
+      throw new Error('Expected resolved state');
+    }
+    expect(result.endpoint).toBe('https://gpu.lan:11434/api/show');
+    expect(result.embedding).toBe(true);
+    expect(result.llm).toBe(true);
+  });
 });

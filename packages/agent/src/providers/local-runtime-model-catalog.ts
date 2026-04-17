@@ -5,12 +5,16 @@ import {
   type LocalRuntimeId,
   type LocalRuntimeSurface,
   type ProbeLocalRuntimeOptions,
+  resolveRuntimeBaseUrl,
 } from './local-runtime-discovery';
 
 import {
+  buildRuntimeAuthHeaders,
+  buildRuntimeEndpoint,
   extractErrorMessage,
   fetchJsonWithTimeout,
   isRecord,
+  type LocalRuntimeEndpointConfig,
   sanitizeDuration,
 } from './local-runtime-utils';
 
@@ -138,6 +142,12 @@ export function isLoadedRuntimeModelCatalogState(
 }
 
 export interface ListLocalRuntimeModelsOptions {
+  /**
+   * Per-call override for the runtime's endpoint config (baseUrl, bearer token).
+   * Propagated to both the discovery probe and the model-list / embedding-probe
+   * requests so all requests hit the same host.
+   */
+  readonly endpoint?: LocalRuntimeEndpointConfig;
   readonly force?: boolean;
   readonly maxVerificationModels?: number;
   readonly signal?: AbortSignal;
@@ -184,9 +194,15 @@ interface RuntimeModelEndpointDefinition {
   readonly source: LocalRuntimeModelSource;
 }
 
+interface RuntimeModelPathDefinition {
+  readonly parser: (payload: unknown) => readonly RuntimeModelCandidate[] | null;
+  readonly path: string;
+  readonly source: LocalRuntimeModelSource;
+}
+
 interface RuntimeModelAdapter {
-  readonly embeddingProbeEndpoints: readonly string[];
-  readonly modelEndpoints: readonly RuntimeModelEndpointDefinition[];
+  readonly embeddingProbePaths: readonly string[];
+  readonly modelPaths: readonly RuntimeModelPathDefinition[];
   readonly runtime: LocalRuntimeId;
 }
 
@@ -237,17 +253,9 @@ const CHAT_NAME_PATTERN =
 // which lets us infer embedding capability without a follow-up request. The
 // OpenAI-compatible `/v1/models` endpoint returns only `{id}` and is kept as a
 // compatibility fallback for older Ollama builds or non-default configurations.
-const OLLAMA_MODEL_ENDPOINTS: readonly RuntimeModelEndpointDefinition[] = [
-  {
-    endpoint: 'http://127.0.0.1:11434/api/tags',
-    source: 'ollama_api_tags',
-    parser: parseOllamaTagsPayload,
-  },
-  {
-    endpoint: 'http://127.0.0.1:11434/v1/models',
-    source: 'openai_v1_models',
-    parser: parseOpenAiModelsPayload,
-  },
+const OLLAMA_MODEL_PATHS: readonly RuntimeModelPathDefinition[] = [
+  { path: '/api/tags', source: 'ollama_api_tags', parser: parseOllamaTagsPayload },
+  { path: '/v1/models', source: 'openai_v1_models', parser: parseOpenAiModelsPayload },
 ];
 
 // Native `/api/v1/models` (LM Studio 0.4.0+) and `/api/v0/models` (legacy but
@@ -255,39 +263,48 @@ const OLLAMA_MODEL_ENDPOINTS: readonly RuntimeModelEndpointDefinition[] = [
 // the OpenAI-compatible `/v1/models` endpoint strips. Prefer them so the catalog
 // surfaces authoritative LLM/embedding/vision classifications; fall back to the
 // OpenAI shape for forward-compat if the native paths are ever disabled.
-const LM_STUDIO_MODEL_ENDPOINTS: readonly RuntimeModelEndpointDefinition[] = [
-  {
-    endpoint: 'http://127.0.0.1:1234/api/v1/models',
-    source: 'lmstudio_api_v1_models',
-    parser: parseLmStudioModelsPayload,
-  },
-  {
-    endpoint: 'http://127.0.0.1:1234/api/v0/models',
-    source: 'lmstudio_api_v0_models',
-    parser: parseLmStudioModelsPayload,
-  },
-  {
-    endpoint: 'http://127.0.0.1:1234/v1/models',
-    source: 'openai_v1_models',
-    parser: parseOpenAiModelsPayload,
-  },
+const LM_STUDIO_MODEL_PATHS: readonly RuntimeModelPathDefinition[] = [
+  { path: '/api/v1/models', source: 'lmstudio_api_v1_models', parser: parseLmStudioModelsPayload },
+  { path: '/api/v0/models', source: 'lmstudio_api_v0_models', parser: parseLmStudioModelsPayload },
+  { path: '/v1/models', source: 'openai_v1_models', parser: parseOpenAiModelsPayload },
 ];
 
 const RUNTIME_ADAPTERS: Record<LocalRuntimeId, RuntimeModelAdapter> = {
   ollama: {
     runtime: 'ollama',
-    modelEndpoints: OLLAMA_MODEL_ENDPOINTS,
-    embeddingProbeEndpoints: [
-      'http://127.0.0.1:11434/v1/embeddings',
-      'http://127.0.0.1:11434/api/embeddings',
-    ],
+    modelPaths: OLLAMA_MODEL_PATHS,
+    embeddingProbePaths: ['/v1/embeddings', '/api/embeddings'],
   },
   lmstudio: {
     runtime: 'lmstudio',
-    modelEndpoints: LM_STUDIO_MODEL_ENDPOINTS,
-    embeddingProbeEndpoints: ['http://127.0.0.1:1234/v1/embeddings'],
+    modelPaths: LM_STUDIO_MODEL_PATHS,
+    embeddingProbePaths: ['/v1/embeddings'],
   },
 };
+
+function buildRuntimeModelEndpoints(
+  runtime: LocalRuntimeId,
+  endpoint: LocalRuntimeEndpointConfig | undefined
+): readonly RuntimeModelEndpointDefinition[] {
+  const baseUrl = resolveRuntimeBaseUrl(runtime, endpoint?.baseUrl);
+  return RUNTIME_ADAPTERS[runtime].modelPaths.map((definition) => ({
+    endpoint: buildRuntimeEndpoint(baseUrl, definition.path),
+    source: definition.source,
+    parser: definition.parser,
+  }));
+}
+
+function buildRuntimeEmbeddingProbeEndpoints(
+  runtime: LocalRuntimeId,
+  endpoint: LocalRuntimeEndpointConfig | undefined
+): readonly string[] {
+  const baseUrl = resolveRuntimeBaseUrl(runtime, endpoint?.baseUrl);
+  return RUNTIME_ADAPTERS[runtime].embeddingProbePaths.map((path) =>
+    buildRuntimeEndpoint(baseUrl, path)
+  );
+}
+
+const OLLAMA_SHOW_PATH = '/api/show';
 
 function getOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
@@ -636,8 +653,6 @@ export type OllamaModelCapability =
   | 'tools'
   | 'vision';
 
-const OLLAMA_SHOW_ENDPOINT = 'http://127.0.0.1:11434/api/show';
-
 const OLLAMA_KNOWN_CAPABILITIES: ReadonlySet<OllamaModelCapability> = new Set([
   'completion',
   'embedding',
@@ -760,21 +775,31 @@ export class LocalRuntimeModelCatalogService {
    */
   public async resolveOllamaCapabilities(
     modelId: string,
-    options: { readonly force?: boolean; readonly signal?: AbortSignal } = {}
+    options: {
+      readonly endpoint?: LocalRuntimeEndpointConfig;
+      readonly force?: boolean;
+      readonly signal?: AbortSignal;
+    } = {}
   ): Promise<LocalRuntimeOllamaCapabilitiesResult> {
+    const baseUrl = resolveRuntimeBaseUrl('ollama', options.endpoint?.baseUrl);
+    const showEndpoint = buildRuntimeEndpoint(baseUrl, OLLAMA_SHOW_PATH);
     const trimmed = modelId.trim();
     if (trimmed.length === 0) {
       return {
         state: 'unavailable',
         modelId,
-        endpoint: OLLAMA_SHOW_ENDPOINT,
+        endpoint: showEndpoint,
         message: 'modelId is required',
         checkedAt: this.now(),
       };
     }
 
+    // Key the cache by `baseUrl::modelId` so switching hosts does not return a
+    // stale capability set from a different server that happened to ship the
+    // same model id.
+    const cacheKey = `${baseUrl}::${trimmed}`;
     if (!options.force) {
-      const cached = this.ollamaCapabilitiesCache.get(trimmed);
+      const cached = this.ollamaCapabilitiesCache.get(cacheKey);
       if (cached && this.now() < cached.expiresAt) {
         return cached.result;
       }
@@ -784,27 +809,29 @@ export class LocalRuntimeModelCatalogService {
       return {
         state: 'unavailable',
         modelId: trimmed,
-        endpoint: OLLAMA_SHOW_ENDPOINT,
+        endpoint: showEndpoint,
         message: 'Fetch implementation is not available',
         checkedAt: this.now(),
       };
     }
 
+    const authHeaders = buildRuntimeAuthHeaders(options.endpoint);
     const checkedAt = this.now();
     try {
-      const result = await fetchJsonWithTimeout(OLLAMA_SHOW_ENDPOINT, {
+      const result = await fetchJsonWithTimeout(showEndpoint, {
         fetchImpl: this.fetchImpl,
         timeoutMs: this.requestTimeoutMs,
         method: 'POST',
         body: JSON.stringify({ model: trimmed }),
         ...(options.signal ? { signal: options.signal } : {}),
+        ...(authHeaders ? { headers: authHeaders } : {}),
       });
 
       if (!result.response.ok) {
         return {
           state: 'unavailable',
           modelId: trimmed,
-          endpoint: OLLAMA_SHOW_ENDPOINT,
+          endpoint: showEndpoint,
           status: result.response.status,
           message: `Ollama /api/show responded with ${result.response.status}`,
           checkedAt,
@@ -815,7 +842,7 @@ export class LocalRuntimeModelCatalogService {
         return {
           state: 'unavailable',
           modelId: trimmed,
-          endpoint: OLLAMA_SHOW_ENDPOINT,
+          endpoint: showEndpoint,
           message: 'Ollama /api/show returned non-JSON payload',
           checkedAt,
         };
@@ -825,7 +852,7 @@ export class LocalRuntimeModelCatalogService {
       const resolved: LocalRuntimeOllamaCapabilitiesResolved = {
         state: 'resolved',
         modelId: trimmed,
-        endpoint: OLLAMA_SHOW_ENDPOINT,
+        endpoint: showEndpoint,
         checkedAt,
         capabilities,
         llm: capabilities.includes('completion'),
@@ -835,7 +862,7 @@ export class LocalRuntimeModelCatalogService {
         thinking: capabilities.includes('thinking'),
         insert: capabilities.includes('insert'),
       };
-      this.ollamaCapabilitiesCache.set(trimmed, {
+      this.ollamaCapabilitiesCache.set(cacheKey, {
         result: resolved,
         expiresAt: checkedAt + this.successTtlMs,
       });
@@ -847,7 +874,7 @@ export class LocalRuntimeModelCatalogService {
       return {
         state: 'unavailable',
         modelId: trimmed,
-        endpoint: OLLAMA_SHOW_ENDPOINT,
+        endpoint: showEndpoint,
         message: `Ollama /api/show request failed: ${extractErrorMessage(error)}`,
         checkedAt,
       };
@@ -883,6 +910,7 @@ export class LocalRuntimeModelCatalogService {
       ...(options.force ? { force: true } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
       ...(options.surface ? { surface: options.surface } : {}),
+      ...(options.endpoint ? { endpoint: options.endpoint } : {}),
     };
 
     const availability = await this.discoveryService.probeRuntime(runtime, probeOptions);
@@ -892,13 +920,14 @@ export class LocalRuntimeModelCatalogService {
       return this.persistFailure(runtime, checkedAt, availability, cached);
     }
 
-    const adapter = RUNTIME_ADAPTERS[runtime];
-    const endpoints = this.resolveEndpointOrder(adapter, availability);
+    const candidateEndpoints = buildRuntimeModelEndpoints(runtime, options.endpoint);
+    const endpoints = this.resolveEndpointOrder(candidateEndpoints, availability);
 
     const loaded = await this.fetchAndNormalizeModels(runtime, availability, endpoints, {
       ...(options.signal ? { signal: options.signal } : {}),
       verifyEmbeddingDimensions: options.verifyEmbeddingDimensions ?? false,
       maxVerificationModels: sanitizeVerificationLimit(options.maxVerificationModels),
+      ...(options.endpoint ? { endpoint: options.endpoint } : {}),
     });
 
     if (loaded.ok) {
@@ -938,8 +967,9 @@ export class LocalRuntimeModelCatalogService {
     runtime: LocalRuntimeId,
     modelId: string,
     options: {
-      readonly signal?: AbortSignal;
+      readonly endpoint?: LocalRuntimeEndpointConfig;
       readonly probeText?: string;
+      readonly signal?: AbortSignal;
     } = {}
   ): Promise<LocalRuntimeEmbeddingDimensionProbeResult> {
     if (!this.fetchImpl) {
@@ -950,7 +980,7 @@ export class LocalRuntimeModelCatalogService {
       };
     }
 
-    const adapter = RUNTIME_ADAPTERS[runtime];
+    const probeEndpoints = buildRuntimeEmbeddingProbeEndpoints(runtime, options.endpoint);
     const probePayload = JSON.stringify({
       model: modelId,
       input: options.probeText ?? DEFAULT_DIMENSION_PROBE_TEXT,
@@ -958,8 +988,11 @@ export class LocalRuntimeModelCatalogService {
 
     const unsupportedMessages: string[] = [];
 
-    for (const endpoint of adapter.embeddingProbeEndpoints) {
-      const outcome = await this.probeEmbeddingEndpoint(endpoint, probePayload, options.signal);
+    for (const endpoint of probeEndpoints) {
+      const outcome = await this.probeEmbeddingEndpoint(endpoint, probePayload, {
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.endpoint ? { endpoint: options.endpoint } : {}),
+      });
       if (outcome.kind === 'verified') {
         return outcome.result;
       }
@@ -970,7 +1003,7 @@ export class LocalRuntimeModelCatalogService {
     }
 
     if (unsupportedMessages.length > 0) {
-      return this.buildUnsupportedProbeResult(adapter.embeddingProbeEndpoints, unsupportedMessages);
+      return this.buildUnsupportedProbeResult(probeEndpoints, unsupportedMessages);
     }
 
     return {
@@ -983,7 +1016,10 @@ export class LocalRuntimeModelCatalogService {
   private async probeEmbeddingEndpoint(
     endpoint: string,
     payload: string,
-    signal?: AbortSignal
+    options: {
+      readonly endpoint?: LocalRuntimeEndpointConfig;
+      readonly signal?: AbortSignal;
+    }
   ): Promise<EmbeddingProbeOutcome> {
     if (!this.fetchImpl) {
       return {
@@ -996,12 +1032,15 @@ export class LocalRuntimeModelCatalogService {
       };
     }
 
+    const { signal } = options;
+    const authHeaders = buildRuntimeAuthHeaders(options.endpoint);
     const checkedAt = this.now();
     try {
       const result = await fetchJsonWithTimeout(endpoint, {
         fetchImpl: this.fetchImpl,
         timeoutMs: this.requestTimeoutMs,
         ...(signal ? { signal } : {}),
+        ...(authHeaders ? { headers: authHeaders } : {}),
         method: 'POST',
         body: payload,
       });
@@ -1131,22 +1170,20 @@ export class LocalRuntimeModelCatalogService {
   }
 
   private resolveEndpointOrder(
-    adapter: RuntimeModelAdapter,
+    endpoints: readonly RuntimeModelEndpointDefinition[],
     availability: LocalRuntimeAvailabilityState
   ): readonly RuntimeModelEndpointDefinition[] {
     if (!('endpoint' in availability && availability.endpoint)) {
-      return adapter.modelEndpoints;
+      return endpoints;
     }
 
-    const preferred = adapter.modelEndpoints.find(
-      (endpoint) => endpoint.endpoint === availability.endpoint
-    );
+    const preferred = endpoints.find((endpoint) => endpoint.endpoint === availability.endpoint);
 
     if (!preferred) {
-      return adapter.modelEndpoints;
+      return endpoints;
     }
 
-    return [preferred, ...adapter.modelEndpoints.filter((endpoint) => endpoint !== preferred)];
+    return [preferred, ...endpoints.filter((endpoint) => endpoint !== preferred)];
   }
 
   private async fetchAndNormalizeModels(
@@ -1154,9 +1191,10 @@ export class LocalRuntimeModelCatalogService {
     availability: LocalRuntimeAvailabilityState,
     endpoints: readonly RuntimeModelEndpointDefinition[],
     options: {
+      readonly endpoint?: LocalRuntimeEndpointConfig;
+      readonly maxVerificationModels: number;
       readonly signal?: AbortSignal;
       readonly verifyEmbeddingDimensions: boolean;
-      readonly maxVerificationModels: number;
     }
   ): Promise<
     | {
@@ -1200,9 +1238,10 @@ export class LocalRuntimeModelCatalogService {
     runtime: LocalRuntimeId,
     endpoint: RuntimeModelEndpointDefinition,
     options: {
+      readonly endpoint?: LocalRuntimeEndpointConfig;
+      readonly maxVerificationModels: number;
       readonly signal?: AbortSignal;
       readonly verifyEmbeddingDimensions: boolean;
-      readonly maxVerificationModels: number;
     }
   ): Promise<ModelEndpointAttemptOutcome> {
     if (!this.fetchImpl) {
@@ -1212,11 +1251,13 @@ export class LocalRuntimeModelCatalogService {
       };
     }
 
+    const authHeaders = buildRuntimeAuthHeaders(options.endpoint);
     try {
       const result = await fetchJsonWithTimeout(endpoint.endpoint, {
         fetchImpl: this.fetchImpl,
         timeoutMs: this.requestTimeoutMs,
         ...(options.signal ? { signal: options.signal } : {}),
+        ...(authHeaders ? { headers: authHeaders } : {}),
       });
 
       if (!result.response.ok) {
@@ -1247,6 +1288,7 @@ export class LocalRuntimeModelCatalogService {
       if (options.verifyEmbeddingDimensions) {
         normalized = await this.applyEmbeddingVerification(runtime, normalized, {
           ...(options.signal ? { signal: options.signal } : {}),
+          ...(options.endpoint ? { endpoint: options.endpoint } : {}),
           maxVerificationModels: options.maxVerificationModels,
         });
       }
@@ -1322,8 +1364,9 @@ export class LocalRuntimeModelCatalogService {
     runtime: LocalRuntimeId,
     models: readonly LocalRuntimeNormalizedModel[],
     options: {
-      readonly signal?: AbortSignal;
+      readonly endpoint?: LocalRuntimeEndpointConfig;
       readonly maxVerificationModels: number;
+      readonly signal?: AbortSignal;
     }
   ): Promise<readonly LocalRuntimeNormalizedModel[]> {
     const result: LocalRuntimeNormalizedModel[] = [];
@@ -1345,6 +1388,7 @@ export class LocalRuntimeModelCatalogService {
       remaining -= 1;
       const verification = await this.verifyEmbeddingDimensions(runtime, model.modelId, {
         ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.endpoint ? { endpoint: options.endpoint } : {}),
       });
 
       if (verification.state === 'verified') {

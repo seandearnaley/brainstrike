@@ -240,4 +240,61 @@ describe('local-runtime-discovery', () => {
     expect(statuses.ollama.state).toBe('available');
     expect(statuses.lmstudio.state).toBe('available');
   });
+
+  it('honors per-call baseUrl and bearer token overrides', async () => {
+    const observedUrls: string[] = [];
+    const observedAuth: (string | null)[] = [];
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+      const url = getRequestUrl(input);
+      observedUrls.push(url);
+      const headers = new Headers(init?.headers as HeadersInit | undefined);
+      observedAuth.push(headers.get('authorization'));
+      if (url.endsWith('/v1/models')) {
+        return jsonResponse({ data: [{ id: 'qwen3:latest' }] });
+      }
+      return new Response('missing', { status: 404 });
+    });
+
+    const service = new LocalRuntimeDiscoveryService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 50_000,
+    });
+
+    const status = await service.probeRuntime('ollama', {
+      surface: 'desktop',
+      endpoint: { baseUrl: 'https://gpu.lan:11434', apiToken: 'tok_abc' },
+    });
+
+    expect(status.state).toBe('available');
+    expect(observedUrls[0]).toBe('https://gpu.lan:11434/v1/models');
+    expect(observedAuth[0]).toBe('Bearer tok_abc');
+  });
+
+  it('invalidates cache when the baseUrl changes between probes', async () => {
+    const urls: string[] = [];
+    const fetchMock = vi.fn<FetchMock>(async (input) => {
+      const url = getRequestUrl(input);
+      urls.push(url);
+      if (url.endsWith('/v1/models')) {
+        return jsonResponse({ data: [{ id: 'qwen3:latest' }] });
+      }
+      return new Response('missing', { status: 404 });
+    });
+
+    const service = new LocalRuntimeDiscoveryService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 60_000,
+      successTtlMs: 60_000,
+    });
+
+    await service.probeRuntime('ollama', { surface: 'desktop' });
+    // Second call with a different baseUrl must bypass the fresh cache entry.
+    const second = await service.probeRuntime('ollama', {
+      surface: 'desktop',
+      endpoint: { baseUrl: 'http://remote.box:11434' },
+    });
+
+    expect(second.state).toBe('available');
+    expect(urls.some((url) => url.startsWith('http://remote.box:11434'))).toBe(true);
+  });
 });
