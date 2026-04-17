@@ -129,7 +129,7 @@ export async function mockAssistantApi(page: Page): Promise<void> {
         const url =
           typeof input === 'string' ? input : input instanceof Request ? input.url : input.href;
         if (url.includes('/api/assistant/status')) {
-          return new Response(JSON.stringify({ state: 'enabled' }), {
+          return new Response(JSON.stringify({ enabled: true }), {
             status: 200,
             headers: {
               'Content-Type': 'application/json',

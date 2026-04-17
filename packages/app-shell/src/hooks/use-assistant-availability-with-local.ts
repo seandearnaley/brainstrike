@@ -1,4 +1,5 @@
 import { LocalLlmBackend } from '@brainstrike/agent/local-llm';
+import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { hasEnabledLocalLlmModels } from '@brainstrike/preferences/models/local-model-utils';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useMemo } from 'react';
@@ -27,6 +28,8 @@ export function useAssistantAvailabilityWithLocal(
 
   const hasLocalModels = useMemo(() => hasEnabledLocalLlmModels(models), [models]);
   const canRunLocalGemma = useMemo(() => LocalLlmBackend.getBestDevice() === 'webgpu', []);
+  const shouldCheckLocalAvailability = serverStatus.state !== 'enabled' && canRunLocalGemma;
+  useEnsureModelRegistry({ enabled: shouldCheckLocalAvailability });
 
   // If server says enabled, use that immediately (hosted providers work)
   if (serverStatus.state === 'enabled') {
@@ -41,6 +44,11 @@ export function useAssistantAvailabilityWithLocal(
 
   // If server is still loading, show loading
   if (serverStatus.state === 'loading') {
+    return { state: 'loading' };
+  }
+
+  // Keep resolving local availability before treating a missing hosted key as a hard disable.
+  if (serverStatus.state === 'disabled' && shouldCheckLocalAvailability && !hasLoaded) {
     return { state: 'loading' };
   }
 
