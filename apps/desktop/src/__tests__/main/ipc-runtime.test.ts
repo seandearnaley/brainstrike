@@ -1,0 +1,164 @@
+/**
+ * Regression tests for the main-process runtime-probe IPC bridge. This bridge
+ * exists because Chromium in the renderer enforces CORS on fetches to
+ * `http://127.0.0.1:11434` (Ollama) and `http://127.0.0.1:1234` (LM Studio);
+ * the main process has no such restriction, so probes run here instead.
+ */
+
+import type { IpcMainInvokeEvent } from 'electron';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('electron', () => ({
+  ipcMain: {
+    handle: vi.fn(),
+  },
+}));
+
+// vi.mock is hoisted to the top of the file, so the mocks it references must
+// live inside vi.hoisted. Class-based stubs (rather than vi.fn-as-constructor)
+// give us reliable `new`-ability across vitest versions.
+const {
+  probeRuntimeMock,
+  listRuntimeModelsMock,
+  resolveOllamaCapabilitiesMock,
+  verifyEmbeddingDimensionsMock,
+} = vi.hoisted(() => ({
+  probeRuntimeMock: vi.fn().mockResolvedValue({
+    state: 'available',
+    checkedAt: 100,
+    endpoint: 'http://127.0.0.1:11434/api/tags',
+    latencyMs: 2,
+  }),
+  listRuntimeModelsMock: vi.fn().mockResolvedValue({
+    state: 'loaded_non_empty',
+    runtime: 'ollama',
+    models: [],
+  }),
+  resolveOllamaCapabilitiesMock: vi.fn().mockResolvedValue({
+    state: 'resolved',
+    modelId: 'qwen3:latest',
+    capabilities: ['completion'],
+  }),
+  verifyEmbeddingDimensionsMock: vi.fn().mockResolvedValue({
+    state: 'verified',
+    dimensions: 768,
+  }),
+}));
+
+vi.mock('@brainstrike/agent', () => {
+  class StubLocalRuntimeDiscoveryService {
+    probeRuntime = probeRuntimeMock;
+  }
+  class StubLocalRuntimeModelCatalogService {
+    listRuntimeModels = listRuntimeModelsMock;
+    resolveOllamaCapabilities = resolveOllamaCapabilitiesMock;
+    verifyEmbeddingDimensions = verifyEmbeddingDimensionsMock;
+  }
+  return {
+    LocalRuntimeDiscoveryService: StubLocalRuntimeDiscoveryService,
+    LocalRuntimeModelCatalogService: StubLocalRuntimeModelCatalogService,
+  };
+});
+
+import { ipcMain } from 'electron';
+import {
+  __resetRuntimeIpcBridgeForTests,
+  RUNTIME_LIST_MODELS_CHANNEL,
+  RUNTIME_PROBE_CHANNEL,
+  RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL,
+  RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL,
+  registerRuntimeIpcHandlers,
+} from '../../ipc-runtime';
+
+type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => Promise<unknown>;
+
+function getRegisteredHandler(channel: string): Handler {
+  const handleMock = ipcMain.handle as unknown as ReturnType<typeof vi.fn>;
+  const call = handleMock.mock.calls.find(([registeredChannel]) => registeredChannel === channel);
+  if (!call) {
+    throw new Error(`No IPC handler registered for channel ${channel}`);
+  }
+  return call[1] as Handler;
+}
+
+describe('ipc-runtime main-process probe bridge', () => {
+  beforeEach(() => {
+    (ipcMain.handle as unknown as ReturnType<typeof vi.fn>).mockClear();
+    probeRuntimeMock.mockClear();
+    listRuntimeModelsMock.mockClear();
+    resolveOllamaCapabilitiesMock.mockClear();
+    verifyEmbeddingDimensionsMock.mockClear();
+    __resetRuntimeIpcBridgeForTests();
+    registerRuntimeIpcHandlers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('registers handlers on the documented IPC channels', () => {
+    expect(ipcMain.handle).toHaveBeenCalledWith(RUNTIME_PROBE_CHANNEL, expect.any(Function));
+    expect(ipcMain.handle).toHaveBeenCalledWith(RUNTIME_LIST_MODELS_CHANNEL, expect.any(Function));
+    expect(ipcMain.handle).toHaveBeenCalledWith(
+      RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL,
+      expect.any(Function)
+    );
+    expect(ipcMain.handle).toHaveBeenCalledWith(
+      RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL,
+      expect.any(Function)
+    );
+  });
+
+  it('forwards probe calls to the discovery service and returns its result', async () => {
+    const handler = getRegisteredHandler(RUNTIME_PROBE_CHANNEL);
+
+    const result = await handler({} as IpcMainInvokeEvent, 'ollama', {
+      force: true,
+      endpoint: { baseUrl: 'http://gpu.lan:11434' },
+    });
+
+    expect(probeRuntimeMock).toHaveBeenCalledWith('ollama', {
+      force: true,
+      endpoint: { baseUrl: 'http://gpu.lan:11434' },
+    });
+    expect(result).toMatchObject({ state: 'available' });
+  });
+
+  it('rejects unsupported runtime ids with a clear error', async () => {
+    const handler = getRegisteredHandler(RUNTIME_PROBE_CHANNEL);
+
+    await expect(handler({} as IpcMainInvokeEvent, 'not-a-runtime', undefined)).rejects.toThrow(
+      /Unsupported runtime id/
+    );
+  });
+
+  it('forwards listModels calls and returns the catalog state', async () => {
+    const handler = getRegisteredHandler(RUNTIME_LIST_MODELS_CHANNEL);
+
+    const result = await handler({} as IpcMainInvokeEvent, 'lmstudio', {
+      verifyEmbeddingDimensions: true,
+    });
+
+    expect(listRuntimeModelsMock).toHaveBeenCalledWith('lmstudio', {
+      verifyEmbeddingDimensions: true,
+    });
+    expect(result).toMatchObject({ state: 'loaded_non_empty' });
+  });
+
+  it('forwards resolveOllamaCapabilities with the model id', async () => {
+    const handler = getRegisteredHandler(RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL);
+
+    const result = await handler({} as IpcMainInvokeEvent, 'qwen3:latest', {});
+
+    expect(resolveOllamaCapabilitiesMock).toHaveBeenCalledWith('qwen3:latest', {});
+    expect(result).toMatchObject({ state: 'resolved' });
+  });
+
+  it('rejects non-string modelIds for resolveOllamaCapabilities', async () => {
+    const handler = getRegisteredHandler(RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL);
+
+    await expect(handler({} as IpcMainInvokeEvent, 42, undefined)).rejects.toThrow(
+      /modelId must be a string/
+    );
+  });
+});

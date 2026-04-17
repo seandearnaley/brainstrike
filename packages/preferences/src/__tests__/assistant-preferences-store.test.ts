@@ -275,6 +275,46 @@ describe('assistant-preferences-store', () => {
     expect(probeSpy.mock.calls.some((call) => call[0] === 'ollama')).toBe(false);
   });
 
+  it('prefers window.runtime bridge over the in-renderer discovery service when available', async () => {
+    // Simulates an Electron desktop renderer where the preload exposes
+    // window.runtime. The renderer-side LocalRuntimeDiscoveryService would
+    // hit CORS (Ollama rejects `file://` / `app://` origins), so the store
+    // must delegate to the main-process bridge instead.
+    const discoverySpy = vi
+      .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')
+      .mockResolvedValue({ state: 'unavailable', checkedAt: 100, message: 'renderer CORS' });
+    const bridgeProbe = vi.fn().mockResolvedValue({
+      state: 'available',
+      checkedAt: 100,
+      endpoint: 'http://127.0.0.1:11434/api/tags',
+      latencyMs: 3,
+    });
+    (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
+      probe: bridgeProbe,
+      listModels: vi.fn(),
+    };
+
+    try {
+      const secretTarget = window as Window & { secrets?: unknown };
+      secretTarget.secrets = {
+        list: vi.fn().mockResolvedValue([]),
+        saveKey: vi.fn(),
+        getKey: vi.fn(),
+        deleteKey: vi.fn(),
+        listStored: vi.fn(),
+        clearAll: vi.fn(),
+      };
+
+      const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
+      expect(providers).toContain('ollama');
+      // The in-renderer discovery MUST NOT be invoked when the bridge is live.
+      expect(discoverySpy).not.toHaveBeenCalled();
+      expect(bridgeProbe).toHaveBeenCalled();
+    } finally {
+      Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'runtime');
+    }
+  });
+
   it('passes a configured baseUrl into the runtime probe when set', async () => {
     const probeSpy = vi
       .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')

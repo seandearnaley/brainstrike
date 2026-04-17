@@ -144,6 +144,61 @@ function getLocalRuntimeServices(): LocalRuntimeServices {
   return localRuntimeServices;
 }
 
+/**
+ * Main-process IPC bridge exposed by the Electron preload. When it exists,
+ * runtime probes execute in Node (no CORS) instead of the Chromium renderer
+ * (subject to Ollama's OLLAMA_ORIGINS allow-list which excludes
+ * `file://` / `app://` origins by default). The web build has no bridge,
+ * falling back to the in-renderer services.
+ */
+interface RuntimeBridge {
+  readonly listModels: (runtimeId: LocalRuntimeId, options?: unknown) => Promise<unknown>;
+  readonly probe: (runtimeId: LocalRuntimeId, options?: unknown) => Promise<unknown>;
+}
+
+function getRuntimeBridge(): RuntimeBridge | undefined {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const bridge = (window as Window & { runtime?: Partial<RuntimeBridge> }).runtime;
+  if (typeof bridge?.probe !== 'function' || typeof bridge?.listModels !== 'function') {
+    return;
+  }
+  return bridge as RuntimeBridge;
+}
+
+async function probeRuntimeViaBridgeOrService(
+  runtimeId: LocalRuntimeId,
+  options: {
+    readonly endpoint?: { readonly apiToken?: string; readonly baseUrl?: string };
+    readonly force?: boolean;
+  }
+): Promise<LocalRuntimeAvailabilityState> {
+  const bridge = getRuntimeBridge();
+  if (bridge) {
+    return (await bridge.probe(runtimeId, options)) as LocalRuntimeAvailabilityState;
+  }
+  const { discoveryService } = getLocalRuntimeServices();
+  return await discoveryService.probeRuntime(runtimeId, options);
+}
+
+async function listRuntimeModelsViaBridgeOrService(
+  runtimeId: LocalRuntimeId,
+  options: {
+    readonly endpoint?: { readonly apiToken?: string; readonly baseUrl?: string };
+    readonly force?: boolean;
+    readonly maxVerificationModels?: number;
+    readonly verifyEmbeddingDimensions?: boolean;
+  }
+): Promise<LocalRuntimeModelCatalogState> {
+  const bridge = getRuntimeBridge();
+  if (bridge) {
+    return (await bridge.listModels(runtimeId, options)) as LocalRuntimeModelCatalogState;
+  }
+  const { modelCatalogService } = getLocalRuntimeServices();
+  return await modelCatalogService.listRuntimeModels(runtimeId, options);
+}
+
 interface ParsedCompositeModelKey {
   compositeKey: string;
   model: string;
@@ -404,7 +459,6 @@ async function getDetectedRuntimeProviders(
   providerSettings: ProviderSettingsMap
 ): Promise<readonly SupportedProvider[]> {
   try {
-    const { discoveryService } = getLocalRuntimeServices();
     const detected: SupportedProvider[] = [];
 
     // `on` providers are included up-front so users can select a forced remote
@@ -434,6 +488,7 @@ async function getDetectedRuntimeProviders(
     // Probe only the `auto` runtimes. Each probe carries the user's stored
     // baseUrl and bearer token so "auto" against a remote token-protected
     // host (Ollama Turbo, LM Studio with auth) still surfaces as available.
+    // Prefer the main-process bridge on desktop to sidestep Chromium CORS.
     const probes = await Promise.all(
       autoRuntimes.map(async (runtimeId) => {
         const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
@@ -441,7 +496,7 @@ async function getDetectedRuntimeProviders(
           providerId,
           providerSettings[providerId]
         );
-        const status = await discoveryService.probeRuntime(runtimeId, {
+        const status = await probeRuntimeViaBridgeOrService(runtimeId, {
           ...(endpoint ? { endpoint } : {}),
         });
         return { providerId, status };
@@ -782,7 +837,6 @@ export const useAssistantPreferencesStore = create<Store>()(
       },
 
       getLocalRuntimeStatuses: async (options) => {
-        const { discoveryService } = getLocalRuntimeServices();
         const { providerSettings } = get();
         const runtimeIds = Object.keys(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME) as LocalRuntimeId[];
 
@@ -802,7 +856,7 @@ export const useAssistantPreferencesStore = create<Store>()(
               return [runtimeId, offStatus] as const;
             }
             const endpoint = await buildLocalRuntimeEndpointConfig(providerId, settings);
-            const status = await discoveryService.probeRuntime(runtimeId, {
+            const status = await probeRuntimeViaBridgeOrService(runtimeId, {
               ...(options?.force ? { force: true } : {}),
               ...(endpoint ? { endpoint } : {}),
             });
@@ -814,7 +868,6 @@ export const useAssistantPreferencesStore = create<Store>()(
       },
 
       getLocalRuntimeModels: async (options) => {
-        const { modelCatalogService } = getLocalRuntimeServices();
         const { providerSettings } = get();
         const runtimeIds = Object.keys(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME) as LocalRuntimeId[];
 
@@ -840,7 +893,7 @@ export const useAssistantPreferencesStore = create<Store>()(
               return [runtimeId, offState] as const;
             }
             const endpoint = await buildLocalRuntimeEndpointConfig(providerId, settings);
-            const catalogState = await modelCatalogService.listRuntimeModels(runtimeId, {
+            const catalogState = await listRuntimeModelsViaBridgeOrService(runtimeId, {
               ...(options?.force ? { force: true } : {}),
               ...(options?.verifyEmbeddingDimensions ? { verifyEmbeddingDimensions: true } : {}),
               ...(typeof options?.maxVerificationModels === 'number'
