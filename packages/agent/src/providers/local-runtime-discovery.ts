@@ -10,6 +10,25 @@ import {
   sanitizeDuration,
 } from './local-runtime-utils';
 
+/**
+ * Minimal structural interface for a logger. Matches the shape produced by
+ * `@brainstrike/utils/logger` without importing it, so tests can pass plain
+ * mocks and the service stays decoupled from the logging implementation.
+ */
+export interface LocalRuntimeLogger {
+  readonly debug: (message: string, meta?: unknown) => void;
+  readonly error: (message: string, meta?: unknown) => void;
+  readonly info: (message: string, meta?: unknown) => void;
+  readonly warn: (message: string, meta?: unknown) => void;
+}
+
+const noopLogger: LocalRuntimeLogger = {
+  debug: () => {},
+  error: () => {},
+  info: () => {},
+  warn: () => {},
+};
+
 export const LOCAL_RUNTIME_IDS = ['ollama', 'lmstudio'] as const;
 
 export type LocalRuntimeId = (typeof LOCAL_RUNTIME_IDS)[number];
@@ -31,6 +50,14 @@ export interface LocalRuntimeAvailableState extends BaseLocalRuntimeState {
 }
 
 export interface LocalRuntimeUnavailableState extends BaseLocalRuntimeState {
+  /**
+   * Human-readable diagnostic hint when we can guess the failure category
+   * (e.g. CORS rejection when a Chromium renderer fetch throws
+   * `TypeError: Failed to fetch`). Surfaces in the Settings → Local Runtimes
+   * card so users can tell "Ollama not running" from "Ollama running but
+   * refusing this origin".
+   */
+  readonly hint?: string;
   readonly message?: string;
   readonly state: 'unavailable';
 }
@@ -163,6 +190,12 @@ export interface LocalRuntimeDiscoveryServiceOptions {
    */
   readonly fetchImpl?: typeof fetch;
   /**
+   * Optional structured logger. When supplied, probe failures emit
+   * warn-level records with runtime id, endpoint, and error detail so the
+   * Settings → Local Runtimes "Unavailable" state is diagnosable.
+   */
+  readonly logger?: LocalRuntimeLogger;
+  /**
    * Optional time source override for deterministic tests.
    */
   readonly now?: () => number;
@@ -286,6 +319,26 @@ function isLikelyWebPolicyBlock(
   );
 }
 
+/**
+ * Patterns that match a Chromium CORS rejection or a Node `fetch` that hit
+ * the CORS preflight path. When the probe runs in an Electron renderer, the
+ * OS-side Ollama server may not list the renderer's origin (`file://`,
+ * `app://`, or a dev Vite URL) in `OLLAMA_ORIGINS`, so the renderer's
+ * Chromium blocks the response and we see a generic `TypeError: Failed to
+ * fetch` with no additional detail. We surface a hint so users can add
+ * `OLLAMA_ORIGINS=*` or rely on the main-process probe bridge.
+ */
+const CORS_LIKE_ERROR_PATTERNS: readonly RegExp[] = [
+  /failed to fetch/i,
+  /cors/i,
+  /cross-origin/i,
+  /networkerror when attempting to fetch resource/i,
+];
+
+function looksLikeCorsFailure(message: string): boolean {
+  return CORS_LIKE_ERROR_PATTERNS.some((pattern) => pattern.test(message));
+}
+
 function toFailureState(
   checkedAt: number,
   endpoint: string,
@@ -298,6 +351,19 @@ function toFailureState(
       state: 'blocked_web',
       checkedAt,
       message,
+    };
+  }
+  // On desktop, a renderer-side CORS rejection surfaces as a `TypeError`
+  // with no diagnostic detail. Attach a hint so the Settings UI can tell the
+  // user that Ollama's `OLLAMA_ORIGINS` may be rejecting the Electron
+  // renderer's origin — the fix is either to widen OLLAMA_ORIGINS or to
+  // probe from the main process where CORS doesn't apply.
+  if (surface === 'desktop' && looksLikeCorsFailure(message)) {
+    return {
+      state: 'unavailable',
+      checkedAt,
+      message,
+      hint: 'Fetch blocked by browser security (likely CORS). Set OLLAMA_ORIGINS to include the Electron renderer origin, or probe via the main process.',
     };
   }
   return {
@@ -392,6 +458,7 @@ export class LocalRuntimeDiscoveryService {
   private readonly requestTimeoutMs: number;
   private readonly defaultSurface: LocalRuntimeSurface | undefined;
   private readonly now: () => number;
+  private readonly logger: LocalRuntimeLogger;
   private readonly cache = new Map<LocalRuntimeId, RuntimeCacheEntry>();
 
   public constructor(options: LocalRuntimeDiscoveryServiceOptions = {}) {
@@ -408,6 +475,7 @@ export class LocalRuntimeDiscoveryService {
     this.requestTimeoutMs = sanitizeDuration(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS);
     this.defaultSurface = options.defaultSurface;
     this.now = options.now ?? (() => Date.now());
+    this.logger = options.logger ?? noopLogger;
   }
 
   public static checkingState(): LocalRuntimeCheckingState {
@@ -450,9 +518,12 @@ export class LocalRuntimeDiscoveryService {
 
     // Invalidate the cache when the effective baseUrl changes so a user who
     // points at a different host sees a fresh probe, not the last answer.
-    const cacheFresh =
-      cached !== undefined && cached.baseUrl === baseUrl && now < cached.nextProbeAt;
-    if (!(options.force ?? false) && cacheFresh && cached) {
+    if (
+      !(options.force ?? false) &&
+      cached &&
+      cached.baseUrl === baseUrl &&
+      now < cached.nextProbeAt
+    ) {
       return cached.status;
     }
 
@@ -478,8 +549,29 @@ export class LocalRuntimeDiscoveryService {
         lastSuccessfulAt: result.checkedAt,
         lastSuccessfulEndpoint: result.endpoint,
       });
+      this.logger.debug('local runtime probe succeeded', {
+        runtime,
+        endpoint: result.endpoint,
+        latencyMs: result.latencyMs,
+      });
       return result;
     }
+
+    // Surface every non-available result so Settings → Local Runtimes
+    // "Unavailable" is never silent. Users reported being unable to tell why
+    // a probe missed a running Ollama; this logs the exact failure shape
+    // (unavailable / auth_required / incompatible / blocked_web) with the
+    // endpoint and the underlying error message.
+    this.logger.warn('local runtime probe did not reach available state', {
+      runtime,
+      endpoint:
+        'endpoint' in result
+          ? result.endpoint
+          : buildRuntimeEndpoint(baseUrl, DEFAULT_PROBE_PATHS[runtime][0]?.path ?? '/'),
+      state: result.state,
+      message: 'message' in result ? result.message : undefined,
+      hint: 'hint' in result ? result.hint : undefined,
+    });
 
     const stale = this.toStaleState(result, previousSuccessAt, previousSuccessEndpoint);
     const nextStatus = stale ?? result;

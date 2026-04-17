@@ -3,6 +3,7 @@ import {
   type LocalRuntimeAvailabilityState,
   LocalRuntimeDiscoveryService,
   type LocalRuntimeId,
+  type LocalRuntimeLogger,
   type LocalRuntimeSurface,
   type ProbeLocalRuntimeOptions,
   resolveRuntimeBaseUrl,
@@ -165,6 +166,13 @@ export interface LocalRuntimeModelCatalogServiceOptions {
   readonly failureBaseBackoffMs?: number;
   readonly failureMaxBackoffMs?: number;
   readonly fetchImpl?: typeof fetch;
+  /**
+   * Optional structured logger for model-list failures. The catalog warns
+   * when no endpoint returns a usable model list, so Settings UI telemetry
+   * can surface the reason users see an empty model dropdown even when the
+   * runtime is otherwise reachable.
+   */
+  readonly logger?: LocalRuntimeLogger;
   readonly now?: () => number;
   readonly requestTimeoutMs?: number;
   readonly successTtlMs?: number;
@@ -690,6 +698,10 @@ export type LocalRuntimeOllamaCapabilitiesResult =
   | LocalRuntimeOllamaCapabilitiesResolved
   | LocalRuntimeOllamaCapabilitiesUnavailable;
 
+function isKnownOllamaCapability(value: string): value is OllamaModelCapability {
+  return OLLAMA_KNOWN_CAPABILITIES.has(value as OllamaModelCapability);
+}
+
 function parseOllamaCapabilityList(payload: unknown): readonly OllamaModelCapability[] {
   if (!(isRecord(payload) && Array.isArray(payload['capabilities']))) {
     return [];
@@ -700,8 +712,11 @@ function parseOllamaCapabilityList(payload: unknown): readonly OllamaModelCapabi
     if (typeof raw !== 'string') {
       continue;
     }
-    const normalized = raw.toLowerCase() as OllamaModelCapability;
-    if (OLLAMA_KNOWN_CAPABILITIES.has(normalized) && !seen.has(normalized)) {
+    // Type guard keeps the narrowing adjacent to the membership check so a
+    // future refactor can't let an arbitrary lowercased string masquerade as
+    // an `OllamaModelCapability` inside the loop body.
+    const normalized = raw.toLowerCase();
+    if (isKnownOllamaCapability(normalized) && !seen.has(normalized)) {
       seen.add(normalized);
       result.push(normalized);
     }
@@ -714,6 +729,13 @@ interface OllamaCapabilitiesCacheEntry {
   readonly result: LocalRuntimeOllamaCapabilitiesResolved;
 }
 
+const catalogNoopLogger: LocalRuntimeLogger = {
+  debug: () => {},
+  error: () => {},
+  info: () => {},
+  warn: () => {},
+};
+
 export class LocalRuntimeModelCatalogService {
   private readonly discoveryService: LocalRuntimeDiscoveryService;
   private readonly fetchImpl: typeof fetch | undefined;
@@ -722,6 +744,7 @@ export class LocalRuntimeModelCatalogService {
   private readonly failureMaxBackoffMs: number;
   private readonly requestTimeoutMs: number;
   private readonly now: () => number;
+  private readonly logger: LocalRuntimeLogger;
   private readonly cache = new Map<LocalRuntimeId, RuntimeModelCacheEntry>();
   // Per-model cache of resolved Ollama capabilities, keyed by model id. A short
   // TTL keeps answers fresh when users pull new model revisions locally.
@@ -740,6 +763,7 @@ export class LocalRuntimeModelCatalogService {
       DEFAULT_FAILURE_MAX_BACKOFF_MS
     );
     this.requestTimeoutMs = sanitizeDuration(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS);
+    this.logger = options.logger ?? catalogNoopLogger;
 
     if (options.discoveryService) {
       this.discoveryService = options.discoveryService;
@@ -747,6 +771,7 @@ export class LocalRuntimeModelCatalogService {
       this.discoveryService = new LocalRuntimeDiscoveryService({
         fetchImpl: this.fetchImpl,
         ...(options.defaultSurface ? { defaultSurface: options.defaultSurface } : {}),
+        ...(options.logger ? { logger: options.logger } : {}),
         now: this.now,
       });
     }
@@ -1166,6 +1191,28 @@ export class LocalRuntimeModelCatalogService {
       consecutiveFailures: nextFailures,
       lastSuccess: cached?.lastSuccess ?? null,
     });
+
+    // Surface catalog failures so "empty model dropdown while runtime is
+    // reachable" is diagnosable without DevTools. Demote to debug when the
+    // stale cache is still serving last-known models so repeated refreshes
+    // don't spam warnings after a transient outage.
+    if (nextStatus.state === 'stale_cached') {
+      this.logger.debug('local runtime model catalog stale', {
+        runtime,
+        state: nextStatus.state,
+        message: failureMessage,
+        availability: availability.state,
+        consecutiveFailures: nextFailures,
+      });
+    } else {
+      this.logger.warn('local runtime model catalog failed', {
+        runtime,
+        state: nextStatus.state,
+        message: failureMessage,
+        availability: availability.state,
+        consecutiveFailures: nextFailures,
+      });
+    }
 
     return nextStatus;
   }
