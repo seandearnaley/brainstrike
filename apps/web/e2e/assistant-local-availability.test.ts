@@ -17,8 +17,8 @@ test.describe('Assistant local availability (web)', () => {
                   description: 'Mock WebGPU adapter for assistant availability tests',
                 },
                 limits: {
-                  maxBufferSize: 1,
-                  maxStorageBufferBindingSize: 1,
+                  maxBufferSize: 1_073_741_824,
+                  maxStorageBufferBindingSize: 1_073_741_824,
                 },
               };
             },

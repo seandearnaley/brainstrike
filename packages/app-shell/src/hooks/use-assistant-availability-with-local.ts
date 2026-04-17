@@ -52,7 +52,8 @@ export function useAssistantAvailabilityWithLocal(
     return { state: 'loading' };
   }
 
-  // Server is disabled and either no local models or not loaded yet
-  // Show disabled status immediately - will reactively update if local models become available
+  // At this point hosted status is disabled and local inference is either unavailable
+  // on this device or fully resolved as unavailable in the registry, so preserve the
+  // original disabled reason from the hosted status check.
   return serverStatus;
 }
