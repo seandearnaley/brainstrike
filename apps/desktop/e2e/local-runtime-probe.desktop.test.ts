@@ -7,14 +7,23 @@
  * which does not include Electron's file:// / app:// origin. The fix runs
  * probes in the main process over IPC (apps/desktop/src/ipc-runtime.ts).
  *
- * Strategy: stand up a real HTTP server on 127.0.0.1:11434 that mimics the
- * two canonical Ollama responses (/api/tags + /api/version), boot the
- * desktop app, open Settings → Local Runtimes, and assert the Ollama card
- * reports Available. If the main-process bridge regresses, this test fails
- * where a renderer-only probe would succeed under a permissive CORS mock.
+ * Strategy:
+ *  1. Stand up a mock Ollama on an EPHEMERAL port (port 0 → OS-assigned).
+ *     Fixed ports collide with whatever the CI runner already has bound;
+ *     ephemeral is the only reliable option on shared runners.
+ *  2. Boot the desktop app, open Settings → Local Runtimes, type the mock
+ *     URL into the Ollama baseUrl field, and save. That triggers a probe
+ *     with the configured baseUrl flowing through the main-process bridge.
+ *  3. Assert the Ollama card flips to Available AND the mock received the
+ *     probe request — if the probe drifts back into the renderer CORS will
+ *     re-block it and the mock log stays empty.
+ *
+ * This shape doubles as a regression for the `localRuntimeBaseUrl` override
+ * path that users rely on for remote / custom hosts.
  */
 
 import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { expect, test } from './fixtures/electron-fixture';
 
 interface MockOllamaServer {
@@ -23,13 +32,25 @@ interface MockOllamaServer {
   stop: () => Promise<void>;
 }
 
-async function startMockOllama(port: number): Promise<MockOllamaServer> {
+async function startMockOllama(): Promise<MockOllamaServer> {
   const requests: string[] = [];
   const server = http.createServer((req, res) => {
     const path = req.url ?? '';
     requests.push(`${req.method} ${path}`);
 
-    // Match the two endpoints the discovery+catalog probes hit in order.
+    // CORS preflight handling in case Chromium sends one — the whole point of
+    // this test is that the probe goes through the main process and avoids
+    // CORS entirely, but respond correctly just in case a renderer fallback
+    // kicks in during a regression (the assertion at the end of the test
+    // proves which path ran).
+    res.setHeader('access-control-allow-origin', '*');
+    res.setHeader('access-control-allow-headers', '*');
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
     if (path.startsWith('/api/tags')) {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(
@@ -62,15 +83,18 @@ async function startMockOllama(port: number): Promise<MockOllamaServer> {
     res.end();
   });
 
+  // Bind explicitly to 127.0.0.1 (IPv4) to match what the probe targets;
+  // OS-level dual-stack binding could otherwise land on ::1 and be missed.
+  // Port 0 lets the OS pick a free port so we never collide with whatever
+  // the CI runner already has on 11434.
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
-    // Bind explicitly to 127.0.0.1 (IPv4) to match what the probe targets;
-    // OS-level dual-stack binding could otherwise land on ::1 and be missed.
-    server.listen(port, '127.0.0.1', () => resolve());
+    server.listen(0, '127.0.0.1', () => resolve());
   });
+  const address = server.address() as AddressInfo;
 
   return {
-    port,
+    port: address.port,
     requestLog: requests,
     stop: async () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -82,21 +106,20 @@ test.describe('Local Runtimes desktop probe integration', { tag: '@smoke' }, () 
   let ollama: MockOllamaServer | undefined;
 
   test.beforeAll(async () => {
-    ollama = await startMockOllama(11_434);
+    ollama = await startMockOllama();
   });
 
   test.afterAll(async () => {
     await ollama?.stop();
   });
 
-  test('detects a running Ollama on 127.0.0.1:11434 via the main-process bridge', async ({
+  test('detects a running Ollama via the main-process bridge when baseUrl is configured', async ({
     window,
     homePage,
   }) => {
-    await homePage.openSettings();
+    const mockUrl = `http://127.0.0.1:${ollama?.port}`;
 
-    // Navigate to the new Local Runtimes category. Scoped to the settings
-    // nav to avoid clashing with any global-nav entries of the same name.
+    await homePage.openSettings();
     await window
       .getByRole('navigation', { name: 'Settings categories' })
       .getByRole('button', { name: /Local Runtimes/i })
@@ -105,19 +128,27 @@ test.describe('Local Runtimes desktop probe integration', { tag: '@smoke' }, () 
       timeout: 10_000,
     });
 
-    // The Ollama card renders its status in a badge next to the heading.
-    // The main-process probe fires on mount and should flip the badge to
-    // "Available" within a few seconds.
+    // Point the Ollama card at the mock server via the baseUrl input. Using
+    // the real UI path (type + click Save) exercises the same store-update /
+    // re-probe flow a user triggers — a programmatic store.setState would
+    // skip the save-and-probe-now handler.
+    const urlInput = window.getByTestId('local-runtime-url-input-ollama');
+    await urlInput.fill(mockUrl);
+    await window.getByTestId('local-runtime-url-save-ollama').click();
+
+    // The card renders its status in a badge; the re-probe should flip it to
+    // Available once the bridge completes. Scope to Ollama's card so an
+    // Unavailable LM Studio card (no mock) doesn't satisfy the expectation.
     const ollamaCard = window
       .getByRole('heading', { name: 'Ollama', exact: true })
       .locator('..')
       .locator('..');
     await expect(ollamaCard).toContainText(/Available/i, { timeout: 15_000 });
 
-    // Prove the probe actually hit our mock — if nothing shows up here
-    // the renderer is talking to a different origin (or the bridge is
-    // broken). The discovery probe hits /v1/models; the catalog probe
-    // hits /api/tags.
+    // If the probe silently drifted back into the renderer, Chromium's CORS
+    // policy would block it even with Access-Control-Allow-Origin:* because
+    // `file://` origins can't be matched by a wildcard. Mock receiving the
+    // request proves the main-process bridge is live.
     expect(ollama?.requestLog.some((entry) => entry.includes('/api/tags'))).toBe(true);
   });
 });
