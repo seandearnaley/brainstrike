@@ -738,7 +738,19 @@ export const useAssistantPreferencesStore = create<Store>()(
         const entries = await Promise.all(
           runtimeIds.map(async (runtimeId) => {
             const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
-            const baseUrl = resolveLocalRuntimeBaseUrl(providerSettings[providerId]);
+            const settings = providerSettings[providerId];
+            // Respect the tri-state: `off` surfaces a synthetic "unavailable"
+            // status without probing, so the UI does not keep the server warm
+            // for a runtime the user explicitly disabled.
+            if (resolveLocalRuntimeActivation(settings) === 'off') {
+              const offStatus: LocalRuntimeAvailabilityState = {
+                state: 'unavailable',
+                checkedAt: Date.now(),
+                message: 'Disabled by settings',
+              };
+              return [runtimeId, offStatus] as const;
+            }
+            const baseUrl = resolveLocalRuntimeBaseUrl(settings);
             const status = await discoveryService.probeRuntime(runtimeId, {
               ...(options?.force ? { force: true } : {}),
               ...(baseUrl ? { endpoint: { baseUrl } } : {}),
