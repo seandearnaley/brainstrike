@@ -38,22 +38,31 @@ class BackgroundWorkArbiter {
     this.pauseReasonCounts.set(reason, (this.pauseReasonCounts.get(reason) ?? 0) + 1);
     this.emit();
 
-    return (hadAutomaticPause ? Promise.resolve() : this.pauseRegisteredHandlers()).then(() => {
-      let released = false;
-      return () => {
-        if (released) {
-          return;
-        }
-        released = true;
-        const nextCount = (this.pauseReasonCounts.get(reason) ?? 0) - 1;
-        if (nextCount > 0) {
-          this.pauseReasonCounts.set(reason, nextCount);
-        } else {
-          this.pauseReasonCounts.delete(reason);
-        }
-        this.emit();
-      };
-    });
+    const releasePauseReason = (): void => {
+      const nextCount = (this.pauseReasonCounts.get(reason) ?? 0) - 1;
+      if (nextCount > 0) {
+        this.pauseReasonCounts.set(reason, nextCount);
+      } else {
+        this.pauseReasonCounts.delete(reason);
+      }
+      this.emit();
+    };
+
+    return (hadAutomaticPause ? Promise.resolve() : this.pauseRegisteredHandlers())
+      .catch((error) => {
+        releasePauseReason();
+        throw error;
+      })
+      .then(() => {
+        let released = false;
+        return () => {
+          if (released) {
+            return;
+          }
+          released = true;
+          releasePauseReason();
+        };
+      });
   }
 
   getSnapshot(): BackgroundWorkArbiterSnapshot {

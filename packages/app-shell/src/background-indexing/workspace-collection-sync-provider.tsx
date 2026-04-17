@@ -198,9 +198,10 @@ export function WorkspaceCollectionSyncProvider({
         activeRootPath: rootDirectoryHandle?.path ?? null,
         currentFilePath: null,
         lastError: null,
-        pauseReasons: backgroundWorkSnapshot.manualPause
-          ? ['Paused manually']
-          : getBackgroundWorkPauseReasonLabels(backgroundWorkSnapshot.automaticPauseReasons),
+        pauseReasons: [
+          ...(backgroundWorkSnapshot.manualPause ? ['Paused manually'] : []),
+          ...getBackgroundWorkPauseReasonLabels(backgroundWorkSnapshot.automaticPauseReasons),
+        ],
       });
       return;
     }

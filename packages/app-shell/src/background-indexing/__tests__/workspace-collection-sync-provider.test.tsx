@@ -572,6 +572,37 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it('surfaces both manual and automatic pause reasons when they are active together', async () => {
+    const release = await acquireBackgroundWorkPauseReason('local-llm');
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: '00000000-0000-0000-0000-000000000101',
+      mode: 'root-folder-cache',
+      hasHydrated: true,
+      paused: true,
+    });
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+          expect.objectContaining({
+            state: 'paused',
+            pauseReasons: ['Paused manually', 'Paused for local assistant'],
+          })
+        )
+      );
+    } finally {
+      release();
+    }
+  });
+
   it('waits for folder restore access loading to finish before starting background indexing', async () => {
     fileSystemState.isAccessLoading = true;
 

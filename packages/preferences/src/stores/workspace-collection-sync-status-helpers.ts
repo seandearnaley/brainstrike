@@ -127,40 +127,28 @@ export function getWorkspaceCollectionSyncCurrentActivity(
     return pausedActivity;
   }
 
-  const stateActivity = {
-    recovering: {
-      label: 'Reattaching backfill',
-      value: status.embeddingProgress?.currentChunk ?? status.currentFilePath,
-    },
-    scanning: {
-      label: 'Scanning',
-      value: status.currentFilePath,
-    },
-    importing: {
-      label: 'Importing file',
-      value: status.importProgress?.current ?? status.currentFilePath,
-    },
-    chunking: {
-      label: 'Chunking file',
-      value: status.chunkingProgress?.currentFile ?? status.currentFilePath,
-    },
-    embedding: {
-      label: 'Embedding chunk',
-      value: status.embeddingProgress?.currentChunk ?? status.currentFilePath,
-    },
-  } as const;
-
-  const activity =
-    status.state in stateActivity
-      ? stateActivity[status.state as keyof typeof stateActivity]
-      : null;
-  if (!activity?.value) {
-    return null;
+  switch (status.state) {
+    case 'recovering': {
+      const value = status.embeddingProgress?.currentChunk ?? status.currentFilePath;
+      return value ? { label: 'Reattaching backfill', value } : null;
+    }
+    case 'scanning':
+      return status.currentFilePath ? { label: 'Scanning', value: status.currentFilePath } : null;
+    case 'importing': {
+      const value = status.importProgress?.current ?? status.currentFilePath;
+      return value ? { label: 'Importing file', value } : null;
+    }
+    case 'chunking': {
+      const value = status.chunkingProgress?.currentFile ?? status.currentFilePath;
+      return value ? { label: 'Chunking file', value } : null;
+    }
+    case 'embedding': {
+      const value = status.embeddingProgress?.currentChunk ?? status.currentFilePath;
+      return value ? { label: 'Embedding chunk', value } : null;
+    }
+    default:
+      return null;
   }
-  return {
-    label: activity.label,
-    value: activity.value,
-  };
 }
 
 export function shouldShowWorkspaceCollectionSyncPauseControl(

@@ -71,4 +71,19 @@ describe('background-work-arbiter', () => {
     releaseB();
     expect(getBackgroundWorkArbiterSnapshot().backgroundIndexingPaused).toBe(false);
   });
+
+  it('releases the acquired pause reason if a pause handler fails', async () => {
+    registerBackgroundWorkPauseHandler('background-indexing', {
+      pause: vi.fn(async () => {
+        throw new Error('pause failed');
+      }),
+    });
+
+    await expect(acquireBackgroundWorkPauseReason('local-llm')).rejects.toThrow('pause failed');
+    expect(getBackgroundWorkArbiterSnapshot()).toEqual({
+      automaticPauseReasons: [],
+      backgroundIndexingPaused: false,
+      manualPause: false,
+    });
+  });
 });
