@@ -6,11 +6,7 @@ import { createMastraAgentError } from '../mastra/mastra-agent-error';
 import type { RuntimeData } from '../types';
 import { createLocalLanguageModel } from './local';
 import { resolveRuntimeBaseUrl } from './local-runtime-discovery';
-import {
-  buildRuntimeEndpoint,
-  type LocalRuntimeEndpointConfig,
-  normalizeRuntimeBaseUrl,
-} from './local-runtime-utils';
+import { buildRuntimeEndpoint, type LocalRuntimeEndpointConfig } from './local-runtime-utils';
 import {
   isSupportedProvider,
   listProviders,
@@ -24,7 +20,9 @@ function resolveLocalRuntimeBaseUrl(
 ): string {
   // The `createOpenAI` client expects a `/v1`-suffixed base URL; the shared
   // resolver returns a canonical origin without `/v1`, so append it here.
-  const origin = resolveRuntimeBaseUrl(runtime, normalizeRuntimeBaseUrl(override));
+  // `resolveRuntimeBaseUrl` already normalizes the override internally, so we
+  // pass the raw input through without an extra normalization pass.
+  const origin = resolveRuntimeBaseUrl(runtime, override);
   return buildRuntimeEndpoint(origin, '/v1');
 }
 

@@ -214,6 +214,7 @@ interface RuntimeModelSuccessSnapshot {
 }
 
 interface RuntimeModelCacheEntry {
+  readonly baseUrl: string;
   readonly consecutiveFailures: number;
   readonly lastSuccess: RuntimeModelSuccessSnapshot | null;
   readonly nextRefreshAt: number;
@@ -901,8 +902,15 @@ export class LocalRuntimeModelCatalogService {
   ): Promise<LocalRuntimeModelCatalogState> {
     const now = this.now();
     const cached = this.cache.get(runtime);
+    const effectiveBaseUrl = resolveRuntimeBaseUrl(runtime, options.endpoint?.baseUrl);
 
-    if (!(options.force ?? false) && cached && now < cached.nextRefreshAt) {
+    // Cache is keyed by the resolved origin so switching hosts (auto → remote
+    // GPU box, or toggling the user-configured baseUrl) invalidates any stale
+    // entry from the previous target. Matching the discovery service's
+    // behaviour keeps the two caches coherent.
+    const cacheFresh =
+      cached !== undefined && cached.baseUrl === effectiveBaseUrl && now < cached.nextRefreshAt;
+    if (!(options.force ?? false) && cacheFresh && cached) {
       return cached.status;
     }
 
@@ -917,7 +925,14 @@ export class LocalRuntimeModelCatalogService {
     const checkedAt = this.now();
 
     if (!isReachableRuntimeState(availability.state)) {
-      return this.persistFailure(runtime, checkedAt, availability, cached);
+      return this.persistFailure(
+        runtime,
+        checkedAt,
+        availability,
+        cached,
+        undefined,
+        effectiveBaseUrl
+      );
     }
 
     const candidateEndpoints = buildRuntimeModelEndpoints(runtime, options.endpoint);
@@ -946,6 +961,7 @@ export class LocalRuntimeModelCatalogService {
           : { ...shared, state: 'loaded_empty' as const, models: [] as const };
 
       this.cache.set(runtime, {
+        baseUrl: effectiveBaseUrl,
         status: state,
         nextRefreshAt: now + this.successTtlMs,
         consecutiveFailures: 0,
@@ -960,7 +976,14 @@ export class LocalRuntimeModelCatalogService {
       return state;
     }
 
-    return this.persistFailure(runtime, checkedAt, availability, cached, loaded.message);
+    return this.persistFailure(
+      runtime,
+      checkedAt,
+      availability,
+      cached,
+      loaded.message,
+      effectiveBaseUrl
+    );
   }
 
   public async verifyEmbeddingDimensions(
@@ -991,7 +1014,7 @@ export class LocalRuntimeModelCatalogService {
     for (const endpoint of probeEndpoints) {
       const outcome = await this.probeEmbeddingEndpoint(endpoint, probePayload, {
         ...(options.signal ? { signal: options.signal } : {}),
-        ...(options.endpoint ? { endpoint: options.endpoint } : {}),
+        ...(options.endpoint ? { endpointConfig: options.endpoint } : {}),
       });
       if (outcome.kind === 'verified') {
         return outcome.result;
@@ -1017,7 +1040,7 @@ export class LocalRuntimeModelCatalogService {
     endpoint: string,
     payload: string,
     options: {
-      readonly endpoint?: LocalRuntimeEndpointConfig;
+      readonly endpointConfig?: LocalRuntimeEndpointConfig;
       readonly signal?: AbortSignal;
     }
   ): Promise<EmbeddingProbeOutcome> {
@@ -1033,7 +1056,7 @@ export class LocalRuntimeModelCatalogService {
     }
 
     const { signal } = options;
-    const authHeaders = buildRuntimeAuthHeaders(options.endpoint);
+    const authHeaders = buildRuntimeAuthHeaders(options.endpointConfig);
     const checkedAt = this.now();
     try {
       const result = await fetchJsonWithTimeout(endpoint, {
@@ -1115,7 +1138,8 @@ export class LocalRuntimeModelCatalogService {
     checkedAt: number,
     availability: LocalRuntimeAvailabilityState,
     cached: RuntimeModelCacheEntry | undefined,
-    message?: string
+    message?: string,
+    baseUrl?: string
   ): LocalRuntimeModelCatalogState {
     const failureMessage = message ?? buildRuntimeAvailabilityMessage(runtime, availability);
     const nextFailures = (cached?.consecutiveFailures ?? 0) + 1;
@@ -1133,7 +1157,10 @@ export class LocalRuntimeModelCatalogService {
       message: failureMessage,
     };
 
+    const effectiveBaseUrl =
+      baseUrl ?? cached?.baseUrl ?? resolveRuntimeBaseUrl(runtime, undefined);
     this.cache.set(runtime, {
+      baseUrl: effectiveBaseUrl,
       status: nextStatus,
       nextRefreshAt: this.now() + backoffMs,
       consecutiveFailures: nextFailures,

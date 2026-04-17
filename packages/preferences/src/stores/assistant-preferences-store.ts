@@ -331,6 +331,53 @@ function resolveLocalRuntimeBaseUrl(
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+/**
+ * Fetch the optional bearer token for a local runtime from the Electron
+ * `window.secrets` bridge. Web builds (no secrets bridge, no stored keys)
+ * and failures both fall through to `undefined` so detection proceeds
+ * anonymously instead of throwing.
+ */
+async function resolveLocalRuntimeApiToken(
+  providerId: SupportedProvider
+): Promise<string | undefined> {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const secrets = (
+    window as Window & { secrets?: { getKey?: (provider: string) => Promise<string | null> } }
+  ).secrets;
+  if (typeof secrets?.getKey !== 'function') {
+    return;
+  }
+  try {
+    const key = await secrets.getKey(providerId);
+    if (typeof key !== 'string') {
+      return;
+    }
+    const trimmed = key.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  } catch {
+    return;
+  }
+}
+
+async function buildLocalRuntimeEndpointConfig(
+  providerId: SupportedProvider,
+  settings: AssistantProviderSettings | undefined
+): Promise<{ apiToken?: string; baseUrl?: string } | undefined> {
+  const [baseUrl, apiToken] = await Promise.all([
+    Promise.resolve(resolveLocalRuntimeBaseUrl(settings)),
+    resolveLocalRuntimeApiToken(providerId),
+  ]);
+  if (!(baseUrl || apiToken)) {
+    return;
+  }
+  return {
+    ...(baseUrl ? { baseUrl } : {}),
+    ...(apiToken ? { apiToken } : {}),
+  };
+}
+
 async function getProvidersWithSavedKeys(): Promise<readonly SupportedProvider[]> {
   if (typeof window === 'undefined') {
     return [];
@@ -385,13 +432,17 @@ async function getDetectedRuntimeProviders(
     }
 
     // Probe only the `auto` runtimes. Each probe carries the user's stored
-    // baseUrl so "auto" against a remote host can still succeed.
+    // baseUrl and bearer token so "auto" against a remote token-protected
+    // host (Ollama Turbo, LM Studio with auth) still surfaces as available.
     const probes = await Promise.all(
       autoRuntimes.map(async (runtimeId) => {
         const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
-        const baseUrl = resolveLocalRuntimeBaseUrl(providerSettings[providerId]);
+        const endpoint = await buildLocalRuntimeEndpointConfig(
+          providerId,
+          providerSettings[providerId]
+        );
         const status = await discoveryService.probeRuntime(runtimeId, {
-          ...(baseUrl ? { endpoint: { baseUrl } } : {}),
+          ...(endpoint ? { endpoint } : {}),
         });
         return { providerId, status };
       })
@@ -750,10 +801,10 @@ export const useAssistantPreferencesStore = create<Store>()(
               };
               return [runtimeId, offStatus] as const;
             }
-            const baseUrl = resolveLocalRuntimeBaseUrl(settings);
+            const endpoint = await buildLocalRuntimeEndpointConfig(providerId, settings);
             const status = await discoveryService.probeRuntime(runtimeId, {
               ...(options?.force ? { force: true } : {}),
-              ...(baseUrl ? { endpoint: { baseUrl } } : {}),
+              ...(endpoint ? { endpoint } : {}),
             });
             return [runtimeId, status] as const;
           })
@@ -770,14 +821,32 @@ export const useAssistantPreferencesStore = create<Store>()(
         const entries = await Promise.all(
           runtimeIds.map(async (runtimeId) => {
             const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
-            const baseUrl = resolveLocalRuntimeBaseUrl(providerSettings[providerId]);
+            const settings = providerSettings[providerId];
+            // Mirror the `off` short-circuit from getLocalRuntimeStatuses so a
+            // disabled runtime isn't contacted every time the UI refreshes the
+            // model catalog (e.g., when a sibling runtime is reachable).
+            if (resolveLocalRuntimeActivation(settings) === 'off') {
+              const offState: LocalRuntimeModelCatalogState = {
+                state: 'failed',
+                runtime: runtimeId,
+                checkedAt: Date.now(),
+                availability: {
+                  state: 'unavailable',
+                  checkedAt: Date.now(),
+                  message: 'Disabled by settings',
+                },
+                message: 'Disabled by settings',
+              };
+              return [runtimeId, offState] as const;
+            }
+            const endpoint = await buildLocalRuntimeEndpointConfig(providerId, settings);
             const catalogState = await modelCatalogService.listRuntimeModels(runtimeId, {
               ...(options?.force ? { force: true } : {}),
               ...(options?.verifyEmbeddingDimensions ? { verifyEmbeddingDimensions: true } : {}),
               ...(typeof options?.maxVerificationModels === 'number'
                 ? { maxVerificationModels: options.maxVerificationModels }
                 : {}),
-              ...(baseUrl ? { endpoint: { baseUrl } } : {}),
+              ...(endpoint ? { endpoint } : {}),
             });
             return [runtimeId, catalogState] as const;
           })
