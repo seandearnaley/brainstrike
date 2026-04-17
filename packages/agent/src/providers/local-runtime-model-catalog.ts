@@ -16,6 +16,7 @@ import {
   fetchJsonWithTimeout,
   isRecord,
   type LocalRuntimeEndpointConfig,
+  noopLocalRuntimeLogger,
   sanitizeDuration,
 } from './local-runtime-utils';
 
@@ -340,10 +341,19 @@ function parseOpenAiModelsPayload(payload: unknown): readonly RuntimeModelCandid
   return models;
 }
 
+/**
+ * Canonical Ollama `details.families` → `embeddings` mapping. Keep this the
+ * single source of truth for "what counts as an embedding family" — when a
+ * new Ollama embedding architecture ships (e.g. `jina`, `gte`, or any future
+ * family), extend the predicate here and update the
+ * `local-runtime-model-catalog` tests to cover the new slug.
+ *
+ * The current predicate handles the three observed patterns as of April 2026:
+ *   - `bert` (raw BERT-style embedders)
+ *   - `*-bert` (derivatives like `nomic-bert`)
+ *   - anything containing `embed` (e.g. `nomic-embed-text`)
+ */
 function parseOllamaModelType(value: unknown): LocalRuntimeModelType | undefined {
-  // Ollama's `/api/tags` does not report a canonical type, but `details.families`
-  // reliably contains `bert` / `nomic-bert` for embedding families. Use that as
-  // a provider-reported hint when present.
   if (!Array.isArray(value)) {
     return;
   }
@@ -729,13 +739,6 @@ interface OllamaCapabilitiesCacheEntry {
   readonly result: LocalRuntimeOllamaCapabilitiesResolved;
 }
 
-const catalogNoopLogger: LocalRuntimeLogger = {
-  debug: () => {},
-  error: () => {},
-  info: () => {},
-  warn: () => {},
-};
-
 export class LocalRuntimeModelCatalogService {
   private readonly discoveryService: LocalRuntimeDiscoveryService;
   private readonly fetchImpl: typeof fetch | undefined;
@@ -763,7 +766,7 @@ export class LocalRuntimeModelCatalogService {
       DEFAULT_FAILURE_MAX_BACKOFF_MS
     );
     this.requestTimeoutMs = sanitizeDuration(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS);
-    this.logger = options.logger ?? catalogNoopLogger;
+    this.logger = options.logger ?? noopLocalRuntimeLogger;
 
     if (options.discoveryService) {
       this.discoveryService = options.discoveryService;

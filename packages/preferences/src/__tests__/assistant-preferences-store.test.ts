@@ -275,6 +275,36 @@ describe('assistant-preferences-store', () => {
     expect(probeSpy.mock.calls.some((call) => call[0] === 'ollama')).toBe(false);
   });
 
+  it('rejects results whose state is not one of the known discriminant values', async () => {
+    // Reviewer feedback (round 3): the previous shape guard accepted any
+    // object with a string `state`. A runtime mismatch that produces
+    // e.g. { state: 'busy' } — a value we never emit — should still fail
+    // loudly at the boundary rather than let an unknown state propagate.
+    const bridgeProbe = vi.fn().mockResolvedValue({ state: 'busy', checkedAt: 1 });
+    (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
+      probe: bridgeProbe,
+      listModels: vi.fn(),
+    };
+
+    try {
+      const secretTarget = window as Window & { secrets?: unknown };
+      secretTarget.secrets = {
+        list: vi.fn().mockResolvedValue([]),
+        saveKey: vi.fn(),
+        getKey: vi.fn(),
+        deleteKey: vi.fn(),
+        listStored: vi.fn(),
+        clearAll: vi.fn(),
+      };
+
+      await expect(
+        useAssistantPreferencesStore.getState().getLocalRuntimeStatuses({ force: true })
+      ).rejects.toThrow(/bridge|state|busy|unknown/i);
+    } finally {
+      Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'runtime');
+    }
+  });
+
   it('rejects malformed probe results from the main-process bridge at the trust boundary', async () => {
     // Reviewer feedback: the store cast bridge results to
     // LocalRuntimeAvailabilityState without runtime validation. A compromised

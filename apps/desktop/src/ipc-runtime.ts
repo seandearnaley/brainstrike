@@ -87,6 +87,12 @@ interface SerializableVerifyOptions {
  * fields or prototype-polluted shapes. Pick only the fields we document,
  * ignoring the rest, so a compromised or mismatched renderer can't sneak
  * extra state into the local-runtime services.
+ *
+ * WARNING: `pickObject` does NOT strip `__proto__` or other prototype-
+ * pollution keys — it returns the raw object. The caller-side normalisers
+ * (`normaliseProbeOptions` et al.) MUST pick fields explicitly via
+ * bracket-notation lookups and MUST NOT `Object.assign` / spread the raw
+ * result. The `picks only whitelisted fields` regression test pins this.
  */
 function pickObject(value: unknown): Record<string, unknown> | undefined {
   if (value === undefined || value === null) {

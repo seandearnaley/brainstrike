@@ -280,12 +280,14 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
     }
   }, [card.providerId]);
 
-  const secretsBridgeAvailable = useMemo(
-    () => Boolean(readSecretsBridge()?.saveKey),
-    // The bridge is attached synchronously at preload time and does not mutate
-    // after load, so a one-shot memo is sufficient.
-    []
-  );
+  // Intentionally computed once on mount — `window.secrets` is attached
+  // synchronously by the Electron preload script before any renderer code
+  // runs, and never mutates afterwards. A `[]` useMemo is correct here, not
+  // a stale-closure bug. If the component ever renders under HMR before the
+  // preload completes (dev-only edge case) the value will be stuck `false`
+  // until next mount; that is an acceptable trade-off for the web build
+  // where we want to avoid an every-render call to `readSecretsBridge()`.
+  const secretsBridgeAvailable = useMemo(() => Boolean(readSecretsBridge()?.saveKey), []);
 
   const descriptor = describeStatus(activation, status);
   const badgeVariant = toneToVariant(descriptor.tone);

@@ -1,3 +1,29 @@
+/**
+ * Minimal structural interface for a logger. Matches the shape produced by
+ * `@brainstrike/utils/logger` without importing it, so tests can pass plain
+ * mocks and the discovery/catalog services stay decoupled from the logging
+ * implementation.
+ */
+export interface LocalRuntimeLogger {
+  readonly debug: (message: string, meta?: unknown) => void;
+  readonly error: (message: string, meta?: unknown) => void;
+  readonly info: (message: string, meta?: unknown) => void;
+  readonly warn: (message: string, meta?: unknown) => void;
+}
+
+/**
+ * Shared no-op logger used as the default when a service is instantiated
+ * without a logger. Kept here so the same instance (and the same absence
+ * of behaviour) is used by every service — avoids the previous pattern
+ * of each service declaring its own private `noopLogger` constant.
+ */
+export const noopLocalRuntimeLogger: LocalRuntimeLogger = {
+  debug: () => {},
+  error: () => {},
+  info: () => {},
+  warn: () => {},
+};
+
 export interface LocalRuntimeEndpointConfig {
   /**
    * Bearer token sent as `Authorization: Bearer <token>` on every request.

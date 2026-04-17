@@ -6,28 +6,13 @@ import {
   fetchJsonWithTimeout,
   isRecord,
   type LocalRuntimeEndpointConfig,
+  type LocalRuntimeLogger,
+  noopLocalRuntimeLogger,
   normalizeRuntimeBaseUrl,
   sanitizeDuration,
 } from './local-runtime-utils';
 
-/**
- * Minimal structural interface for a logger. Matches the shape produced by
- * `@brainstrike/utils/logger` without importing it, so tests can pass plain
- * mocks and the service stays decoupled from the logging implementation.
- */
-export interface LocalRuntimeLogger {
-  readonly debug: (message: string, meta?: unknown) => void;
-  readonly error: (message: string, meta?: unknown) => void;
-  readonly info: (message: string, meta?: unknown) => void;
-  readonly warn: (message: string, meta?: unknown) => void;
-}
-
-const noopLogger: LocalRuntimeLogger = {
-  debug: () => {},
-  error: () => {},
-  info: () => {},
-  warn: () => {},
-};
+export type { LocalRuntimeLogger } from './local-runtime-utils';
 
 export const LOCAL_RUNTIME_IDS = ['ollama', 'lmstudio'] as const;
 
@@ -477,7 +462,7 @@ export class LocalRuntimeDiscoveryService {
     this.requestTimeoutMs = sanitizeDuration(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS);
     this.defaultSurface = options.defaultSurface;
     this.now = options.now ?? (() => Date.now());
-    this.logger = options.logger ?? noopLogger;
+    this.logger = options.logger ?? noopLocalRuntimeLogger;
   }
 
   public static checkingState(): LocalRuntimeCheckingState {

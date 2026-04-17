@@ -173,13 +173,38 @@ function getRuntimeBridge(): RuntimeBridge | undefined {
  * an accidental structured-clone drop of a field would otherwise let an
  * invalid object propagate silently. Throwing at the boundary preserves
  * the full diagnostic context in the call stack that produced it.
+ *
+ * `state` is validated against the exact discriminant union produced by
+ * the services — a truly malformed payload (e.g. `{state: 'busy'}` from a
+ * future version we haven't taught the renderer about) fails here rather
+ * than propagating an unknown discriminant into reducer-style UI code.
  */
+const KNOWN_AVAILABILITY_STATES: ReadonlySet<LocalRuntimeAvailabilityState['state']> = new Set([
+  'available',
+  'auth_required',
+  'blocked_web',
+  'checking',
+  'incompatible',
+  'stale',
+  'unavailable',
+]);
+
+const KNOWN_CATALOG_STATES: ReadonlySet<LocalRuntimeModelCatalogState['state']> = new Set([
+  'failed',
+  'loaded_empty',
+  'loaded_non_empty',
+  'stale_cached',
+]);
+
 function isAvailabilityState(value: unknown): value is LocalRuntimeAvailabilityState {
   if (typeof value !== 'object' || value === null) {
     return false;
   }
   const candidate = value as { state?: unknown };
-  return typeof candidate.state === 'string';
+  return (
+    typeof candidate.state === 'string' &&
+    KNOWN_AVAILABILITY_STATES.has(candidate.state as LocalRuntimeAvailabilityState['state'])
+  );
 }
 
 function isCatalogState(value: unknown): value is LocalRuntimeModelCatalogState {
@@ -187,7 +212,11 @@ function isCatalogState(value: unknown): value is LocalRuntimeModelCatalogState 
     return false;
   }
   const candidate = value as { runtime?: unknown; state?: unknown };
-  return typeof candidate.state === 'string' && typeof candidate.runtime === 'string';
+  return (
+    typeof candidate.runtime === 'string' &&
+    typeof candidate.state === 'string' &&
+    KNOWN_CATALOG_STATES.has(candidate.state as LocalRuntimeModelCatalogState['state'])
+  );
 }
 
 async function probeRuntimeViaBridgeOrService(
