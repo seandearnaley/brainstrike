@@ -29,13 +29,25 @@ describe('local-runtime-model-catalog', () => {
     vi.unstubAllGlobals();
   });
 
-  it('lists and normalizes Ollama models from /v1/models', async () => {
+  it('lists and normalizes Ollama models from /api/tags with family hints', async () => {
     const fetchMock = vi.fn<FetchMock>(async (input) => {
       const url = getRequestUrl(input);
-      if (url.endsWith('/v1/models')) {
+      if (url.endsWith('/api/tags')) {
         return jsonResponse({
-          data: [{ id: 'nomic-embed-text' }, { id: 'qwen2.5:latest' }],
+          models: [
+            {
+              name: 'nomic-embed-text:latest',
+              details: { families: ['nomic-bert'] },
+            },
+            {
+              name: 'qwen2.5:latest',
+              details: { families: ['qwen2'] },
+            },
+          ],
         });
+      }
+      if (url.endsWith('/v1/models')) {
+        return jsonResponse({ data: [] });
       }
       return jsonResponse({ models: [] });
     });
@@ -55,37 +67,37 @@ describe('local-runtime-model-catalog', () => {
       throw new Error('Expected loaded_non_empty state');
     }
 
-    expect(result.endpoint).toBe('http://127.0.0.1:11434/v1/models');
-    expect(result.source).toBe('openai_v1_models');
+    expect(result.endpoint).toBe('http://127.0.0.1:11434/api/tags');
+    expect(result.source).toBe('ollama_api_tags');
     expect(result.models.map((model) => model.modelKey)).toEqual([
-      'ollama::nomic-embed-text',
+      'ollama::nomic-embed-text:latest',
       'ollama::qwen2.5:latest',
     ]);
+    // `nomic-bert` family is an authoritative embedding hint; `qwen2` is not.
     expect(result.models[0]?.capabilities.embeddings).toBe('supported');
-    expect(result.models[0]?.dimensionsKnown.state).toBe('needs_verification');
+    expect(result.models[0]?.capabilitySource).toBe('provider_reported');
+    expect(result.models[0]?.modelType).toBe('embeddings');
     expect(result.models[1]?.capabilities.embeddings).toBe('unsupported');
+    expect(result.models[1]?.capabilitySource).toBe('inferred');
   });
 
-  it('falls back to Ollama /api/tags when /v1/models is unavailable', async () => {
+  it('falls back to Ollama /v1/models when /api/tags is unavailable', async () => {
     const fetchMock = vi.fn<FetchMock>(async (input) => {
       const url = getRequestUrl(input);
-      if (url.endsWith('/api/version')) {
-        return jsonResponse({ version: '0.6.0' });
-      }
       if (url.endsWith('/api/tags')) {
-        return jsonResponse({
-          models: [{ name: 'nomic-embed-text:v1.5' }, { model: 'qwen3:latest' }],
-        });
+        return new Response('not found', { status: 404 });
       }
       if (url.endsWith('/v1/models')) {
-        return new Response('missing', { status: 404 });
+        return jsonResponse({
+          data: [{ id: 'nomic-embed-text' }, { id: 'qwen2.5:latest' }],
+        });
       }
       return jsonResponse({});
     });
 
     const service = new LocalRuntimeModelCatalogService({
       fetchImpl: fetchMock as unknown as typeof fetch,
-      now: () => 2000,
+      now: () => 1500,
     });
 
     const result = await service.listRuntimeModels('ollama', {
@@ -98,19 +110,26 @@ describe('local-runtime-model-catalog', () => {
       throw new Error('Expected loaded_non_empty state');
     }
 
-    expect(result.endpoint).toBe('http://127.0.0.1:11434/api/tags');
-    expect(result.source).toBe('ollama_api_tags');
-    expect(result.models.map((model) => model.modelId)).toEqual([
-      'nomic-embed-text:v1.5',
-      'qwen3:latest',
-    ]);
+    expect(result.endpoint).toBe('http://127.0.0.1:11434/v1/models');
+    expect(result.source).toBe('openai_v1_models');
+    // Without a family hint, embedding classification falls back to name regex.
+    expect(result.models[0]?.capabilitySource).toBe('inferred');
   });
 
-  it('uses LM Studio /api/v1/models fallback and normalizes deterministic keys', async () => {
+  it('uses LM Studio native /api/v1/models with authoritative type discriminant', async () => {
     const fetchMock = vi.fn<FetchMock>(async (input) => {
       const url = getRequestUrl(input);
       if (url.endsWith('/api/v1/models')) {
-        return jsonResponse([{ id: 'text-embedding-nomic-embed-text-v1.5' }, { id: 'qwen2.5' }]);
+        return jsonResponse({
+          data: [
+            {
+              id: 'text-embedding-nomic-embed-text-v1.5',
+              type: 'embeddings',
+              state: 'loaded',
+            },
+            { id: 'qwen2.5', type: 'llm', state: 'not-loaded' },
+          ],
+        });
       }
       if (url.endsWith('/v1/models')) {
         return new Response('missing', { status: 404 });
@@ -134,10 +153,22 @@ describe('local-runtime-model-catalog', () => {
     }
 
     expect(result.source).toBe('lmstudio_api_v1_models');
+    expect(result.endpoint).toBe('http://127.0.0.1:1234/api/v1/models');
     expect(result.models.map((model) => model.modelKey)).toEqual([
       'lmstudio::qwen2.5',
       'lmstudio::text-embedding-nomic-embed-text-v1.5',
     ]);
+
+    const embeddingModel = result.models.find(
+      (model) => model.modelId === 'text-embedding-nomic-embed-text-v1.5'
+    );
+    expect(embeddingModel?.modelType).toBe('embeddings');
+    expect(embeddingModel?.capabilitySource).toBe('provider_reported');
+    expect(embeddingModel?.loaded).toBe(true);
+
+    const llmModel = result.models.find((model) => model.modelId === 'qwen2.5');
+    expect(llmModel?.modelType).toBe('llm');
+    expect(llmModel?.loaded).toBe(false);
   });
 
   it('returns stale_cached when model list probing fails after a prior success', async () => {
@@ -150,12 +181,19 @@ describe('local-runtime-model-catalog', () => {
       }
       if (url.endsWith('/api/tags')) {
         if (phase === 'ok') {
-          return jsonResponse({ models: [{ name: 'nomic-embed-text' }] });
+          return jsonResponse({
+            models: [{ name: 'nomic-embed-text', details: { families: ['nomic-bert'] } }],
+          });
         }
         return new Response('down', { status: 503 });
       }
       if (url.endsWith('/v1/models')) {
-        return new Response('missing', { status: 404 });
+        if (phase === 'ok') {
+          return new Response('missing', { status: 404 });
+        }
+        // In the failing phase, both catalog endpoints are down; mirror the
+        // realistic case so the stale fallback surfaces a useful error message.
+        return new Response('down', { status: 503 });
       }
       return jsonResponse({});
     });

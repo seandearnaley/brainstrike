@@ -107,14 +107,21 @@ const OLLAMA_PROBES: readonly RuntimeProbeDefinition[] = [
   },
 ];
 
-// LM Studio documents localhost for its OpenAI-compatible server endpoint.
+// LM Studio documents localhost for its OpenAI-compatible server endpoint, but
+// binds only to IPv4 loopback by default. Probing `localhost` risks resolving
+// to `::1` on systems where IPv6 is preferred, which would miss the server;
+// always probe `127.0.0.1` explicitly.
 const LM_STUDIO_PROBES: readonly RuntimeProbeDefinition[] = [
   {
-    endpoint: 'http://localhost:1234/v1/models',
+    endpoint: 'http://127.0.0.1:1234/v1/models',
     validator: isOpenAiModelsPayload,
   },
   {
-    endpoint: 'http://localhost:1234/api/v1/models',
+    endpoint: 'http://127.0.0.1:1234/api/v1/models',
+    validator: isLmStudioRestModelsPayload,
+  },
+  {
+    endpoint: 'http://127.0.0.1:1234/api/v0/models',
     validator: isLmStudioRestModelsPayload,
   },
 ];

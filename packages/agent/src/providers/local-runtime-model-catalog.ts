@@ -17,11 +17,20 @@ import {
 export type LocalRuntimeModelSource =
   | 'openai_v1_models'
   | 'ollama_api_tags'
+  | 'lmstudio_api_v0_models'
   | 'lmstudio_api_v1_models';
 
 export type LocalRuntimeModelFreshness = 'live' | 'stale_cached';
 
 export type LocalRuntimeEmbeddingCapability = 'supported' | 'unsupported' | 'needs_verification';
+
+/**
+ * Canonical LM Studio model type surfaced by `/api/v0/models` and `/api/v1/models`.
+ * The OpenAI-compatible `/v1/models` endpoint does not expose this.
+ */
+export type LocalRuntimeModelType = 'llm' | 'vlm' | 'embeddings';
+
+export type LocalRuntimeCapabilitySource = 'provider_reported' | 'inferred';
 
 export interface LocalRuntimeKnownDimensionsState {
   readonly endpoint: string;
@@ -48,12 +57,27 @@ export interface LocalRuntimeNormalizedModel {
     readonly llm: boolean;
     readonly embeddings: LocalRuntimeEmbeddingCapability;
   };
+  /**
+   * Whether capabilities were reported by the runtime (LM Studio `type`, Ollama
+   * `details.families`) or heuristically inferred from the model name.
+   */
+  readonly capabilitySource: LocalRuntimeCapabilitySource;
   readonly dimensionsKnown: LocalRuntimeDimensionsState;
   readonly displayName: string;
   readonly endpoint: string;
   readonly freshness: LocalRuntimeModelFreshness;
+  /**
+   * True when LM Studio reports the model is currently loaded in memory. Absent
+   * or undefined for endpoints that do not expose load state (Ollama, OpenAI-compat).
+   */
+  readonly loaded?: boolean;
   readonly modelId: string;
   readonly modelKey: string;
+  /**
+   * Canonical LM Studio model type when reported by the runtime. Absent for
+   * OpenAI-compat / Ollama shapes that do not expose a type discriminant.
+   */
+  readonly modelType?: LocalRuntimeModelType;
   readonly providerId: LocalRuntimeId;
   readonly runtime: LocalRuntimeId;
   readonly source: LocalRuntimeModelSource;
@@ -137,8 +161,21 @@ export interface LocalRuntimeModelCatalogServiceOptions {
 }
 
 interface RuntimeModelCandidate {
+  /**
+   * Ollama `details.families`, if present. Used as a capability hint when the
+   * catalog does not include a canonical `type` field.
+   */
+  readonly families?: readonly string[];
   readonly id: string;
   readonly label: string;
+  /**
+   * LM Studio runtime-reported load state (0.4.0+ native endpoints).
+   */
+  readonly loaded?: boolean;
+  /**
+   * Canonical model type when reported by the runtime (LM Studio native).
+   */
+  readonly modelType?: LocalRuntimeModelType;
 }
 
 interface RuntimeModelEndpointDefinition {
@@ -196,29 +233,43 @@ const EMBEDDING_NAME_PATTERN =
 const CHAT_NAME_PATTERN =
   /(chat|instruct|llama|qwen|mistral|gemma|phi|deepseek|gpt|claude|sonnet|haiku|opus|command-r|mixtral)/i;
 
+// `/api/tags` is listed first for Ollama because it includes `details.families`,
+// which lets us infer embedding capability without a follow-up request. The
+// OpenAI-compatible `/v1/models` endpoint returns only `{id}` and is kept as a
+// compatibility fallback for older Ollama builds or non-default configurations.
 const OLLAMA_MODEL_ENDPOINTS: readonly RuntimeModelEndpointDefinition[] = [
-  {
-    endpoint: 'http://127.0.0.1:11434/v1/models',
-    source: 'openai_v1_models',
-    parser: parseOpenAiModelsPayload,
-  },
   {
     endpoint: 'http://127.0.0.1:11434/api/tags',
     source: 'ollama_api_tags',
     parser: parseOllamaTagsPayload,
   },
-];
-
-const LM_STUDIO_MODEL_ENDPOINTS: readonly RuntimeModelEndpointDefinition[] = [
   {
-    endpoint: 'http://localhost:1234/v1/models',
+    endpoint: 'http://127.0.0.1:11434/v1/models',
     source: 'openai_v1_models',
     parser: parseOpenAiModelsPayload,
   },
+];
+
+// Native `/api/v1/models` (LM Studio 0.4.0+) and `/api/v0/models` (legacy but
+// still shipped) include `type`, `state`, `arch`, and `quantization` fields that
+// the OpenAI-compatible `/v1/models` endpoint strips. Prefer them so the catalog
+// surfaces authoritative LLM/embedding/vision classifications; fall back to the
+// OpenAI shape for forward-compat if the native paths are ever disabled.
+const LM_STUDIO_MODEL_ENDPOINTS: readonly RuntimeModelEndpointDefinition[] = [
   {
-    endpoint: 'http://localhost:1234/api/v1/models',
+    endpoint: 'http://127.0.0.1:1234/api/v1/models',
     source: 'lmstudio_api_v1_models',
     parser: parseLmStudioModelsPayload,
+  },
+  {
+    endpoint: 'http://127.0.0.1:1234/api/v0/models',
+    source: 'lmstudio_api_v0_models',
+    parser: parseLmStudioModelsPayload,
+  },
+  {
+    endpoint: 'http://127.0.0.1:1234/v1/models',
+    source: 'openai_v1_models',
+    parser: parseOpenAiModelsPayload,
   },
 ];
 
@@ -234,7 +285,7 @@ const RUNTIME_ADAPTERS: Record<LocalRuntimeId, RuntimeModelAdapter> = {
   lmstudio: {
     runtime: 'lmstudio',
     modelEndpoints: LM_STUDIO_MODEL_ENDPOINTS,
-    embeddingProbeEndpoints: ['http://localhost:1234/v1/embeddings'],
+    embeddingProbeEndpoints: ['http://127.0.0.1:1234/v1/embeddings'],
   },
 };
 
@@ -263,6 +314,25 @@ function parseOpenAiModelsPayload(payload: unknown): readonly RuntimeModelCandid
   return models;
 }
 
+function parseOllamaModelType(value: unknown): LocalRuntimeModelType | undefined {
+  // Ollama's `/api/tags` does not report a canonical type, but `details.families`
+  // reliably contains `bert` / `nomic-bert` for embedding families. Use that as
+  // a provider-reported hint when present.
+  if (!Array.isArray(value)) {
+    return;
+  }
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      continue;
+    }
+    const lower = entry.toLowerCase();
+    if (lower === 'bert' || lower.endsWith('-bert') || lower.includes('embed')) {
+      return 'embeddings';
+    }
+  }
+  return;
+}
+
 function parseOllamaTagsPayload(payload: unknown): readonly RuntimeModelCandidate[] | null {
   if (!(isRecord(payload) && Array.isArray(payload['models']))) {
     return null;
@@ -281,30 +351,107 @@ function parseOllamaTagsPayload(payload: unknown): readonly RuntimeModelCandidat
       continue;
     }
     const label = getOptionalString(item['name']) ?? id;
-    models.push({ id, label });
+
+    const details = item['details'];
+    const families =
+      isRecord(details) && Array.isArray(details['families'])
+        ? details['families'].filter((family): family is string => typeof family === 'string')
+        : undefined;
+    const inferredType = parseOllamaModelType(families);
+
+    models.push({
+      id,
+      label,
+      ...(families ? { families } : {}),
+      ...(inferredType ? { modelType: inferredType } : {}),
+    });
   }
 
   return models;
 }
 
+function parseLmStudioModelType(value: unknown): LocalRuntimeModelType | undefined {
+  if (typeof value !== 'string') {
+    return;
+  }
+  switch (value.toLowerCase()) {
+    case 'llm':
+      return 'llm';
+    case 'vlm':
+      return 'vlm';
+    case 'embeddings':
+    case 'embedding':
+      return 'embeddings';
+    default:
+      return;
+  }
+}
+
+function parseLmStudioLoadState(value: unknown): boolean | undefined {
+  // `/api/v1/models` returns `state: "loaded" | "not-loaded"`. Older builds may
+  // return booleans or omit the field entirely; leave `loaded` undefined when
+  // unknown so the UI does not confuse "not loaded" with "unreported".
+  if (typeof value === 'string') {
+    return value === 'loaded';
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  return;
+}
+
+function toLmStudioCandidate(item: Record<string, unknown>): RuntimeModelCandidate | null {
+  const id = getOptionalString(item['id']);
+  if (!id) {
+    return null;
+  }
+  const label = getOptionalString(item['name']) ?? id;
+  const modelType = parseLmStudioModelType(item['type']);
+  const loaded = parseLmStudioLoadState(item['state']);
+
+  return {
+    id,
+    label,
+    ...(modelType ? { modelType } : {}),
+    ...(typeof loaded === 'boolean' ? { loaded } : {}),
+  };
+}
+
 function parseLmStudioModelsPayload(payload: unknown): readonly RuntimeModelCandidate[] | null {
+  // LM Studio has shipped three shapes over its lifetime:
+  //   - `/api/v1/models`  -> `{ data: [...] }` (0.4.0+, preferred)
+  //   - `/api/v0/models`  -> `{ data: [...] }` (legacy native, still supported)
+  //   - very old builds   -> a bare `[...]` array
+  // Normalize all three into a single candidate list.
   if (Array.isArray(payload)) {
     const models: RuntimeModelCandidate[] = [];
     for (const item of payload) {
       if (!isRecord(item)) {
         continue;
       }
-      const id = getOptionalString(item['id']);
-      if (!id) {
-        continue;
+      const candidate = toLmStudioCandidate(item);
+      if (candidate) {
+        models.push(candidate);
       }
-      const label = getOptionalString(item['name']) ?? id;
-      models.push({ id, label });
     }
     return models;
   }
 
-  return parseOpenAiModelsPayload(payload);
+  if (isRecord(payload) && Array.isArray(payload['data'])) {
+    const models: RuntimeModelCandidate[] = [];
+    for (const item of payload['data']) {
+      if (!isRecord(item)) {
+        continue;
+      }
+      const candidate = toLmStudioCandidate(item);
+      if (candidate) {
+        models.push(candidate);
+      }
+    }
+    return models;
+  }
+
+  return null;
 }
 
 function sanitizeVerificationLimit(value: number | undefined): number {
@@ -342,14 +489,38 @@ function buildRuntimeAvailabilityMessage(
   }
 }
 
-function inferModelCapabilities(
-  modelId: string,
-  displayName: string
-): {
-  readonly llm: boolean;
-  readonly embeddings: LocalRuntimeEmbeddingCapability;
+interface ResolvedCapabilities {
+  readonly capabilitySource: LocalRuntimeCapabilitySource;
   readonly dimensionsKnown: LocalRuntimeDimensionsState;
-} {
+  readonly embeddings: LocalRuntimeEmbeddingCapability;
+  readonly llm: boolean;
+}
+
+function resolveReportedCapabilities(
+  modelType: LocalRuntimeModelType
+): ResolvedCapabilities | undefined {
+  switch (modelType) {
+    case 'embeddings':
+      // Dimensions still need a probe to confirm the exact vector size; the
+      // runtime tells us the model IS an embedding model but not its shape.
+      return {
+        llm: false,
+        embeddings: 'supported',
+        dimensionsKnown: { state: 'needs_verification' },
+        capabilitySource: 'provider_reported',
+      };
+    case 'llm':
+    case 'vlm':
+      return {
+        llm: true,
+        embeddings: 'unsupported',
+        dimensionsKnown: { state: 'not_applicable' },
+        capabilitySource: 'provider_reported',
+      };
+  }
+}
+
+function inferCapabilitiesFromName(modelId: string, displayName: string): ResolvedCapabilities {
   const searchable = `${modelId} ${displayName}`.toLowerCase();
   const hasEmbeddingHint = EMBEDDING_NAME_PATTERN.test(searchable);
   const hasChatHint = CHAT_NAME_PATTERN.test(searchable);
@@ -361,6 +532,7 @@ function inferModelCapabilities(
       llm: hasChatHint,
       embeddings: 'supported',
       dimensionsKnown: { state: 'needs_verification' },
+      capabilitySource: 'inferred',
     };
   }
 
@@ -369,6 +541,7 @@ function inferModelCapabilities(
       llm: true,
       embeddings: 'unsupported',
       dimensionsKnown: { state: 'not_applicable' },
+      capabilitySource: 'inferred',
     };
   }
 
@@ -378,7 +551,18 @@ function inferModelCapabilities(
     llm: true,
     embeddings: 'needs_verification',
     dimensionsKnown: { state: 'needs_verification' },
+    capabilitySource: 'inferred',
   };
+}
+
+function resolveCandidateCapabilities(candidate: RuntimeModelCandidate): ResolvedCapabilities {
+  if (candidate.modelType) {
+    const reported = resolveReportedCapabilities(candidate.modelType);
+    if (reported) {
+      return reported;
+    }
+  }
+  return inferCapabilitiesFromName(candidate.id, candidate.label);
 }
 
 function extractEmbeddingDimensions(payload: unknown): number | null {
@@ -911,6 +1095,7 @@ export class LocalRuntimeModelCatalogService {
         continue;
       }
       byId.set(id, {
+        ...candidate,
         id,
         label: candidate.label.trim().length > 0 ? candidate.label.trim() : id,
       });
@@ -925,7 +1110,7 @@ export class LocalRuntimeModelCatalogService {
     candidates: readonly RuntimeModelCandidate[]
   ): readonly LocalRuntimeNormalizedModel[] {
     const normalized = candidates.map((candidate) => {
-      const inferred = inferModelCapabilities(candidate.id, candidate.label);
+      const resolved = resolveCandidateCapabilities(candidate);
       return {
         runtime,
         providerId: runtime,
@@ -936,10 +1121,13 @@ export class LocalRuntimeModelCatalogService {
         source: endpoint.source,
         freshness: 'live' as const,
         capabilities: {
-          llm: inferred.llm,
-          embeddings: inferred.embeddings,
+          llm: resolved.llm,
+          embeddings: resolved.embeddings,
         },
-        dimensionsKnown: inferred.dimensionsKnown,
+        capabilitySource: resolved.capabilitySource,
+        dimensionsKnown: resolved.dimensionsKnown,
+        ...(candidate.modelType ? { modelType: candidate.modelType } : {}),
+        ...(typeof candidate.loaded === 'boolean' ? { loaded: candidate.loaded } : {}),
       } satisfies LocalRuntimeNormalizedModel;
     });
 

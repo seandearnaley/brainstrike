@@ -90,7 +90,7 @@ describe('local-runtime-discovery', () => {
 
     expect(status).toMatchObject({
       state: 'auth_required',
-      endpoint: 'http://localhost:1234/v1/models',
+      endpoint: 'http://127.0.0.1:1234/v1/models',
       status: 401,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -202,16 +202,19 @@ describe('local-runtime-discovery', () => {
 
     const first = await service.probeRuntime('lmstudio', { surface: 'desktop' });
     expect(first.state).toBe('unavailable');
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // Three probe endpoints: /v1/models, /api/v1/models (0.4.0+), /api/v0/models (legacy).
+    expect(fetchMock).toHaveBeenCalledTimes(3);
 
     nowMs = 31_000;
     const second = await service.probeRuntime('lmstudio', { surface: 'desktop' });
     expect(second.state).toBe('unavailable');
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // Within backoff window: no new probes issued, count unchanged at 3.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
 
     nowMs = 34_000;
     await service.probeRuntime('lmstudio', { surface: 'desktop' });
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    // Backoff elapsed: three additional probe calls fire (one per endpoint).
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   it('probes all runtimes and returns a typed status record', async () => {
