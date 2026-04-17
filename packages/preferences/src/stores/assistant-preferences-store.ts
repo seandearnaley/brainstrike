@@ -25,11 +25,34 @@ export type OpenAiReasoningSummary = 'auto' | 'detailed';
 export type AnthropicEffort = 'low' | 'medium' | 'high';
 export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
 
+/**
+ * Tri-state activation for local runtimes:
+ * - `auto`: follow detection — show the provider only when probing succeeds.
+ * - `on`:   force-enabled regardless of detection (useful for remote runtimes
+ *            behind a VPN/tunnel where local probes may be slow or flap).
+ * - `off`:  force-disabled — hide entirely even if the server is reachable.
+ *
+ * Defaults to `auto` when unset.
+ */
+export type LocalRuntimeActivation = 'auto' | 'on' | 'off';
+
 export interface AssistantProviderSettings {
   anthropicEffort?: AnthropicEffort;
   anthropicThinkingBudgetTokens?: number;
   googleIncludeThoughts?: boolean;
   googleThinkingLevel?: GoogleThinkingLevel;
+  /**
+   * Origin override for local runtime providers (ollama/lmstudio). Empty or
+   * undefined means "use the runtime's default (127.0.0.1 + standard port)".
+   * Stored raw — normalized at the boundary when read by probes or the factory.
+   * Unused for hosted providers.
+   */
+  localRuntimeBaseUrl?: string;
+  /**
+   * Tri-state activation for local runtime providers (ollama/lmstudio).
+   * Defaults to `auto` when unset. Unused for hosted providers.
+   */
+  localRuntimeEnabled?: LocalRuntimeActivation;
   localThinkingEnabled?: boolean;
   maxOutputTokens?: number;
   reasoningEffort?: OpenAiReasoningEffort;
@@ -80,7 +103,7 @@ interface AssistantPreferencesActions {
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
 
 const STORE_NAME = 'assistant-preferences.v1' as const;
-const STORE_VERSION = 4;
+const STORE_VERSION = 5;
 
 const SUPPORTED_PROVIDERS = listProviders().map(
   (provider: ProviderDefinition) => provider.id
@@ -291,6 +314,23 @@ function shouldIncludeLocalRuntimeProvider(status: LocalRuntimeAvailabilityState
   }
 }
 
+function resolveLocalRuntimeActivation(
+  settings: AssistantProviderSettings | undefined
+): LocalRuntimeActivation {
+  return settings?.localRuntimeEnabled ?? 'auto';
+}
+
+function resolveLocalRuntimeBaseUrl(
+  settings: AssistantProviderSettings | undefined
+): string | undefined {
+  const raw = settings?.localRuntimeBaseUrl;
+  if (typeof raw !== 'string') {
+    return;
+  }
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 async function getProvidersWithSavedKeys(): Promise<readonly SupportedProvider[]> {
   if (typeof window === 'undefined') {
     return [];
@@ -313,15 +353,52 @@ async function getProvidersWithSavedKeys(): Promise<readonly SupportedProvider[]
   }
 }
 
-async function getDetectedRuntimeProviders(): Promise<readonly SupportedProvider[]> {
+async function getDetectedRuntimeProviders(
+  providerSettings: ProviderSettingsMap
+): Promise<readonly SupportedProvider[]> {
   try {
     const { discoveryService } = getLocalRuntimeServices();
-    const runtimeStatuses = await discoveryService.probeAll();
     const detected: SupportedProvider[] = [];
 
-    for (const runtimeId of Object.keys(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME) as LocalRuntimeId[]) {
+    // `on` providers are included up-front so users can select a forced remote
+    // runtime even before (or without) a successful probe. `off` providers are
+    // skipped entirely — no probe, no result in the picker. `auto` is the
+    // default and follows the detection state.
+    const runtimeIds = Object.keys(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME) as LocalRuntimeId[];
+    const autoRuntimes: LocalRuntimeId[] = [];
+
+    for (const runtimeId of runtimeIds) {
       const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
-      if (shouldIncludeLocalRuntimeProvider(runtimeStatuses[runtimeId])) {
+      const activation = resolveLocalRuntimeActivation(providerSettings[providerId]);
+      if (activation === 'off') {
+        continue;
+      }
+      if (activation === 'on') {
+        detected.push(providerId);
+        continue;
+      }
+      autoRuntimes.push(runtimeId);
+    }
+
+    if (autoRuntimes.length === 0) {
+      return detected;
+    }
+
+    // Probe only the `auto` runtimes. Each probe carries the user's stored
+    // baseUrl so "auto" against a remote host can still succeed.
+    const probes = await Promise.all(
+      autoRuntimes.map(async (runtimeId) => {
+        const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
+        const baseUrl = resolveLocalRuntimeBaseUrl(providerSettings[providerId]);
+        const status = await discoveryService.probeRuntime(runtimeId, {
+          ...(baseUrl ? { endpoint: { baseUrl } } : {}),
+        });
+        return { providerId, status };
+      })
+    );
+
+    for (const { providerId, status } of probes) {
+      if (shouldIncludeLocalRuntimeProvider(status)) {
         detected.push(providerId);
       }
     }
@@ -636,9 +713,10 @@ export const useAssistantPreferencesStore = create<Store>()(
 
       getAvailableProviders: async () => {
         const combined = new Set<SupportedProvider>(STATIC_NO_KEY_PROVIDERS);
+        const { providerSettings } = get();
         const [providersWithSavedKeys, detectedRuntimeProviders] = await Promise.all([
           getProvidersWithSavedKeys(),
-          getDetectedRuntimeProviders(),
+          getDetectedRuntimeProviders(providerSettings),
         ]);
 
         for (const provider of providersWithSavedKeys) {
@@ -652,19 +730,49 @@ export const useAssistantPreferencesStore = create<Store>()(
         return orderProvidersByRegistry(combined);
       },
 
-      getLocalRuntimeStatuses: async (options) =>
-        getLocalRuntimeServices().discoveryService.probeAll({
-          ...(options?.force ? { force: true } : {}),
-        }),
+      getLocalRuntimeStatuses: async (options) => {
+        const { discoveryService } = getLocalRuntimeServices();
+        const { providerSettings } = get();
+        const runtimeIds = Object.keys(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME) as LocalRuntimeId[];
 
-      getLocalRuntimeModels: async (options) =>
-        getLocalRuntimeServices().modelCatalogService.listAllModels({
-          ...(options?.force ? { force: true } : {}),
-          ...(options?.verifyEmbeddingDimensions ? { verifyEmbeddingDimensions: true } : {}),
-          ...(typeof options?.maxVerificationModels === 'number'
-            ? { maxVerificationModels: options.maxVerificationModels }
-            : {}),
-        }),
+        const entries = await Promise.all(
+          runtimeIds.map(async (runtimeId) => {
+            const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
+            const baseUrl = resolveLocalRuntimeBaseUrl(providerSettings[providerId]);
+            const status = await discoveryService.probeRuntime(runtimeId, {
+              ...(options?.force ? { force: true } : {}),
+              ...(baseUrl ? { endpoint: { baseUrl } } : {}),
+            });
+            return [runtimeId, status] as const;
+          })
+        );
+
+        return Object.fromEntries(entries) as Record<LocalRuntimeId, LocalRuntimeAvailabilityState>;
+      },
+
+      getLocalRuntimeModels: async (options) => {
+        const { modelCatalogService } = getLocalRuntimeServices();
+        const { providerSettings } = get();
+        const runtimeIds = Object.keys(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME) as LocalRuntimeId[];
+
+        const entries = await Promise.all(
+          runtimeIds.map(async (runtimeId) => {
+            const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
+            const baseUrl = resolveLocalRuntimeBaseUrl(providerSettings[providerId]);
+            const catalogState = await modelCatalogService.listRuntimeModels(runtimeId, {
+              ...(options?.force ? { force: true } : {}),
+              ...(options?.verifyEmbeddingDimensions ? { verifyEmbeddingDimensions: true } : {}),
+              ...(typeof options?.maxVerificationModels === 'number'
+                ? { maxVerificationModels: options.maxVerificationModels }
+                : {}),
+              ...(baseUrl ? { endpoint: { baseUrl } } : {}),
+            });
+            return [runtimeId, catalogState] as const;
+          })
+        );
+
+        return Object.fromEntries(entries) as Record<LocalRuntimeId, LocalRuntimeModelCatalogState>;
+      },
 
       setProviderSettings: (provider, updates) =>
         set((state) => {

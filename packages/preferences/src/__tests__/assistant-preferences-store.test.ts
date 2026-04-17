@@ -140,15 +140,9 @@ describe('assistant-preferences-store', () => {
   });
 
   it('resolves available providers from secrets API', async () => {
-    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeAll').mockResolvedValue({
-      ollama: {
-        state: 'unavailable',
-        checkedAt: 123,
-      },
-      lmstudio: {
-        state: 'unavailable',
-        checkedAt: 123,
-      },
+    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockResolvedValue({
+      state: 'unavailable',
+      checkedAt: 123,
     });
 
     const secretTarget = window as Window & { secrets?: unknown };
@@ -168,15 +162,9 @@ describe('assistant-preferences-store', () => {
   });
 
   it('returns only no-key providers when secrets API fails', async () => {
-    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeAll').mockResolvedValue({
-      ollama: {
-        state: 'unavailable',
-        checkedAt: 123,
-      },
-      lmstudio: {
-        state: 'unavailable',
-        checkedAt: 123,
-      },
+    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockResolvedValue({
+      state: 'unavailable',
+      checkedAt: 123,
     });
 
     const secretTarget = window as Window & { secrets?: unknown };
@@ -195,21 +183,25 @@ describe('assistant-preferences-store', () => {
   });
 
   it('includes detected local runtime providers only for available and stale states', async () => {
-    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeAll').mockResolvedValue({
-      ollama: {
-        state: 'available',
-        checkedAt: 123,
-        endpoint: 'http://127.0.0.1:11434/v1/models',
-        latencyMs: 5,
-      },
-      lmstudio: {
-        state: 'stale',
-        checkedAt: 123,
-        endpoint: 'http://localhost:1234/v1/models',
-        lastSuccessfulAt: 122,
-        reason: 'unavailable',
-      },
-    });
+    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockImplementation(
+      async (runtimeId) => {
+        if (runtimeId === 'ollama') {
+          return {
+            state: 'available',
+            checkedAt: 123,
+            endpoint: 'http://127.0.0.1:11434/api/tags',
+            latencyMs: 5,
+          };
+        }
+        return {
+          state: 'stale',
+          checkedAt: 123,
+          endpoint: 'http://127.0.0.1:1234/api/v1/models',
+          lastSuccessfulAt: 122,
+          reason: 'unavailable',
+        };
+      }
+    );
 
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
@@ -228,20 +220,101 @@ describe('assistant-preferences-store', () => {
     expect(providers).toContain('lmstudio');
   });
 
-  it('excludes local runtime providers when runtime status is non-usable', async () => {
-    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeAll').mockResolvedValue({
-      ollama: {
-        state: 'blocked_web',
-        checkedAt: 200,
-        message: 'blocked',
-      },
-      lmstudio: {
-        state: 'auth_required',
-        checkedAt: 200,
-        endpoint: 'http://localhost:1234/v1/models',
-        status: 401,
-      },
+  it('hides local runtime providers when localRuntimeEnabled is off, even if reachable', async () => {
+    const probeSpy = vi
+      .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')
+      .mockResolvedValue({
+        state: 'available',
+        checkedAt: 100,
+        endpoint: 'http://127.0.0.1:11434/api/tags',
+        latencyMs: 1,
+      });
+
+    const secretTarget = window as Window & { secrets?: unknown };
+    secretTarget.secrets = {
+      list: vi.fn().mockResolvedValue([]),
+      saveKey: vi.fn(),
+      getKey: vi.fn(),
+      deleteKey: vi.fn(),
+      listStored: vi.fn(),
+      clearAll: vi.fn(),
+    };
+
+    const store = useAssistantPreferencesStore.getState();
+    store.setProviderSettings('ollama', { localRuntimeEnabled: 'off' });
+    store.setProviderSettings('lmstudio', { localRuntimeEnabled: 'off' });
+
+    const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
+    expect(providers).not.toContain('ollama');
+    expect(providers).not.toContain('lmstudio');
+    // No probes should have fired for runtimes explicitly turned off.
+    expect(probeSpy).not.toHaveBeenCalled();
+  });
+
+  it('force-includes local runtime providers when localRuntimeEnabled is on, skipping probes', async () => {
+    const probeSpy = vi
+      .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')
+      .mockResolvedValue({ state: 'unavailable', checkedAt: 100, message: 'oops' });
+
+    const secretTarget = window as Window & { secrets?: unknown };
+    secretTarget.secrets = {
+      list: vi.fn().mockResolvedValue([]),
+      saveKey: vi.fn(),
+      getKey: vi.fn(),
+      deleteKey: vi.fn(),
+      listStored: vi.fn(),
+      clearAll: vi.fn(),
+    };
+
+    const store = useAssistantPreferencesStore.getState();
+    store.setProviderSettings('ollama', { localRuntimeEnabled: 'on' });
+
+    const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
+    expect(providers).toContain('ollama');
+    // `on` short-circuits detection — no ollama probe should have fired.
+    expect(probeSpy.mock.calls.some((call) => call[0] === 'ollama')).toBe(false);
+  });
+
+  it('passes a configured baseUrl into the runtime probe when set', async () => {
+    const probeSpy = vi
+      .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')
+      .mockResolvedValue({ state: 'unavailable', checkedAt: 100, message: 'down' });
+
+    const secretTarget = window as Window & { secrets?: unknown };
+    secretTarget.secrets = {
+      list: vi.fn().mockResolvedValue([]),
+      saveKey: vi.fn(),
+      getKey: vi.fn(),
+      deleteKey: vi.fn(),
+      listStored: vi.fn(),
+      clearAll: vi.fn(),
+    };
+
+    const store = useAssistantPreferencesStore.getState();
+    store.setProviderSettings('ollama', {
+      localRuntimeEnabled: 'auto',
+      localRuntimeBaseUrl: 'http://gpu.lan:11434',
     });
+
+    await useAssistantPreferencesStore.getState().getAvailableProviders();
+    const ollamaCall = probeSpy.mock.calls.find((call) => call[0] === 'ollama');
+    expect(ollamaCall?.[1]?.endpoint).toEqual({ baseUrl: 'http://gpu.lan:11434' });
+  });
+
+  it('excludes local runtime providers when runtime status is non-usable', async () => {
+    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockImplementation(
+      async (runtimeId) => {
+        if (runtimeId === 'ollama') {
+          return { state: 'blocked_web', checkedAt: 200, message: 'blocked' };
+        }
+        return {
+          state: 'auth_required',
+          checkedAt: 200,
+          endpoint: 'http://127.0.0.1:1234/v1/models',
+          status: 401,
+        };
+      }
+    );
 
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
