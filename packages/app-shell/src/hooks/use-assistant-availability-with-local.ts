@@ -24,7 +24,7 @@ export function useAssistantAvailabilityWithLocal(
   fetcher?: AssistantStatusFetcher
 ): AssistantAvailabilityStatus {
   const serverStatus = useAssistantAvailability(fetcher);
-  const { models, hasLoaded } = useModelRegistryStore();
+  const { models, hasLoaded, error } = useModelRegistryStore();
 
   const hasLocalModels = useMemo(() => hasEnabledLocalLlmModels(models), [models]);
   const canRunLocalGemma = useMemo(() => LocalLlmBackend.getBestDevice() === 'webgpu', []);
@@ -48,7 +48,7 @@ export function useAssistantAvailabilityWithLocal(
   }
 
   // Keep resolving local availability before treating a missing hosted key as a hard disable.
-  if (serverStatus.state === 'disabled' && shouldCheckLocalAvailability && !hasLoaded) {
+  if (serverStatus.state === 'disabled' && shouldCheckLocalAvailability && !hasLoaded && !error) {
     return { state: 'loading' };
   }
 
