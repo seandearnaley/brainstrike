@@ -101,6 +101,31 @@ export function configureTransformersEnvironment(environment: TransformersEnviro
   environment.remotePathTemplate = resolveLocalArtifactRemotePathTemplate();
 }
 
+async function purgeStaleTransformersCache(): Promise<void> {
+  if (typeof caches === 'undefined') {
+    return;
+  }
+  let cache: Cache;
+  try {
+    cache = await caches.open('transformers-cache');
+  } catch {
+    return;
+  }
+  const keys = await cache.keys();
+  let purged = 0;
+  for (const request of keys) {
+    const response = await cache.match(request);
+    const contentType = response?.headers.get('content-type') ?? '';
+    if (contentType.includes('text/html')) {
+      await cache.delete(request);
+      purged += 1;
+    }
+  }
+  if (purged > 0) {
+    logger.info('Purged stale HTML entries from transformers-cache', { purged });
+  }
+}
+
 interface StreamerOptions {
   callbackFunction?: (text: string) => void;
   skipPrompt?: boolean;
@@ -371,6 +396,7 @@ function normalizeGemmaModel(value: unknown): GemmaModel {
 }
 
 async function getTransformersModule(): Promise<TransformersModule> {
+  await purgeStaleTransformersCache();
   const mod: unknown = await import(/* @vite-ignore */ '@huggingface/transformers');
   const candidate = getRecord(mod, 'Transformers.js module');
   const envCandidate = getOptionalProperty(candidate, 'env');

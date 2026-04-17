@@ -26,7 +26,7 @@ const GEMMA4_E2B_TEXT_ARTIFACTS = [
   'preprocessor_config.json',
   'tokenizer.json',
   'tokenizer_config.json',
-  'chat_template.json',
+  'chat_template.jinja',
   'onnx/embed_tokens_q4f16.onnx',
   'onnx/decoder_model_merged_q4f16.onnx',
 ] as const;

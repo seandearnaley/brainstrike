@@ -24,6 +24,13 @@ describe('local-model-specs', () => {
     expect(spec?.artifacts.audio).toBeUndefined();
   });
 
+  it('lists chat_template.jinja (not .json) in the artifact manifest', () => {
+    const spec = getLocalLlmModelSpec(GEMMA4_E2B_MODEL_ID);
+
+    expect(spec?.artifacts.text).toContain('chat_template.jinja');
+    expect(spec?.artifacts.text).not.toContain('chat_template.json');
+  });
+
   it('does not include removed legacy local LLMs', () => {
     expect(getLocalLlmModelSpec('LiquidAI/LFM2.5-1.2B-Instruct-ONNX')).toBeUndefined();
     expect(getLocalLlmModelSpec('onnx-community/Qwen3-0.6B-ONNX')).toBeUndefined();
