@@ -69,6 +69,35 @@ describe('local-runtime-utils', () => {
         authorization: 'Bearer tok_abc',
       });
     });
+    it('rejects tokens containing CR or LF (header injection hardening)', () => {
+      // A token pasted with a trailing newline or embedded CRLF can inject
+      // additional HTTP headers on clients that do not pre-validate header
+      // values. Reject at the boundary rather than letting it corrupt the
+      // request.
+      expect(() => buildRuntimeAuthHeaders({ apiToken: 'tok\nabc' })).toThrow(
+        /invalid character|control/i
+      );
+      expect(() => buildRuntimeAuthHeaders({ apiToken: 'tok\r\nInjected: yes' })).toThrow(
+        /invalid character|control/i
+      );
+    });
+  });
+
+  describe('normalizeRuntimeBaseUrl scheme validation', () => {
+    it('rejects non-http(s) schemes even if they parse as a URL', () => {
+      // Previously `ftp://host:11434`, `ws://host`, `file:///etc/passwd`
+      // would parse but silently fail at fetch time. Reject up-front so the
+      // Settings baseUrl input surfaces a recognisable "unsupported scheme"
+      // rather than an opaque network error.
+      expect(normalizeRuntimeBaseUrl('ftp://host:11434')).toBeNull();
+      expect(normalizeRuntimeBaseUrl('ws://host:11434')).toBeNull();
+      expect(normalizeRuntimeBaseUrl('file:///etc/passwd')).toBeNull();
+      expect(normalizeRuntimeBaseUrl('javascript:alert(1)')).toBeNull();
+    });
+    it('accepts http(s) schemes as before', () => {
+      expect(normalizeRuntimeBaseUrl('http://host:11434')).toBe('http://host:11434');
+      expect(normalizeRuntimeBaseUrl('https://host:11434')).toBe('https://host:11434');
+    });
   });
 
   it('adds JSON content-type when sending body and no content-type header is provided', async () => {

@@ -78,7 +78,11 @@ export function sanitizeDuration(value: number | undefined, fallback: number): n
  * trailing slash and a trailing `/v1` so callers can always append `/v1/models`
  * or `/api/tags` without double-segments.
  *
- * Returns `null` when the input is empty or cannot be parsed into a URL.
+ * Returns `null` when the input is empty, unparseable, or carries a scheme
+ * the services cannot use (e.g. `ftp://`, `ws://`, `file:///`). Silently
+ * accepting those would fail later at fetch time with an opaque network
+ * error; rejecting here surfaces a recognisable "unsupported URL" from the
+ * Settings baseUrl input.
  */
 export function normalizeRuntimeBaseUrl(raw: string | undefined | null): string | null {
   if (typeof raw !== 'string') {
@@ -89,12 +93,33 @@ export function normalizeRuntimeBaseUrl(raw: string | undefined | null): string 
     return null;
   }
 
-  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  // Detect a URI scheme prefix without confusing it for `host:port`
+  // shorthand. Two signals distinguish "scheme" from "port":
+  //   - `scheme://...` (e.g. `ftp://host` — the `//` is always present in
+  //     hierarchical schemes we care about).
+  //   - `scheme:opaque` with a non-digit, non-slash immediately after the
+  //     colon (e.g. `javascript:alert(1)`, `data:...`). `host:11434`
+  //     always has a digit after the colon, so it avoids this branch.
+  const hierarchicalSchemeMatch = /^([a-z][a-z0-9+.-]*):\/\//i.exec(trimmed);
+  const opaqueSchemeMatch = /^([a-z][a-z0-9+.-]*):(?![\d/])/i.exec(trimmed);
+  const schemeMatch = hierarchicalSchemeMatch ?? opaqueSchemeMatch;
+  if (schemeMatch) {
+    const lowered = (schemeMatch[1] ?? '').toLowerCase();
+    if (lowered !== 'http' && lowered !== 'https') {
+      return null;
+    }
+  }
+  const withScheme = hierarchicalSchemeMatch ? trimmed : `http://${trimmed}`;
 
   let parsed: URL;
   try {
     parsed = new URL(withScheme);
   } catch {
+    return null;
+  }
+
+  // Double-check after parsing — URL normalization can surprise.
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     return null;
   }
 
@@ -127,6 +152,12 @@ export function buildRuntimeEndpoint(baseUrl: string, path: string): string {
  * Compose request headers for a runtime endpoint, adding the bearer token when
  * one is configured. Returns `undefined` when nothing needs to be added so the
  * caller can omit the `headers` field entirely.
+ *
+ * Throws on tokens containing CR or LF — those characters can forge additional
+ * headers on HTTP clients that don't pre-validate values ("header injection").
+ * The common path here is a user accidentally pasting a token with a trailing
+ * newline, not an attack, but we validate regardless so the request stays
+ * well-formed.
  */
 export function buildRuntimeAuthHeaders(
   config: LocalRuntimeEndpointConfig | undefined
@@ -134,6 +165,9 @@ export function buildRuntimeAuthHeaders(
   const token = config?.apiToken?.trim();
   if (!token) {
     return;
+  }
+  if (/[\r\n]/.test(token)) {
+    throw new Error('API token contains invalid characters (CR/LF); remove newlines before saving');
   }
   return { authorization: `Bearer ${token}` };
 }

@@ -7,7 +7,7 @@ import { Badge, Button, Card, Input, Label } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { Loader2, RefreshCw } from 'lucide-react';
 import type { FC, ReactElement } from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AssistantProviderSettings,
   LocalRuntimeActivation,
@@ -204,6 +204,13 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
     setDraftBaseUrl(settings?.localRuntimeBaseUrl ?? '');
   }, [settings?.localRuntimeBaseUrl]);
 
+  // Hold `runProbe` in a ref so the mount/activation effect below can depend
+  // only on `activation` (a primitive) without re-firing when the Zustand
+  // selector returns a fresh function reference — which shouldn't happen
+  // today since actions are stable, but a future store refactor could
+  // destabilise it and silently create a probe loop. Keeping the ref current
+  // via a small effect is the same pattern React docs recommend for
+  // long-lived handlers consumed from effects.
   const runProbe = useCallback(
     async (options?: { force?: boolean }) => {
       setProbing(true);
@@ -218,13 +225,22 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
     },
     [card.runtimeId, getLocalRuntimeStatuses]
   );
+  const runProbeRef = useRef(runProbe);
+  useEffect(() => {
+    runProbeRef.current = runProbe;
+  }, [runProbe]);
 
   useEffect(() => {
     if (activation === 'off') {
       return;
     }
-    void runProbe();
-  }, [activation, runProbe]);
+    // Intentionally depend only on `activation`. Invoking the ref'd probe
+    // avoids a re-fire if the Zustand selector ever returns an unstable
+    // function reference — action references are stable today, but this
+    // keeps the mount-and-activation-change semantics decoupled from store
+    // internals.
+    void runProbeRef.current();
+  }, [activation]);
 
   const handleActivationChange = useCallback(
     (next: LocalRuntimeActivation) => {
