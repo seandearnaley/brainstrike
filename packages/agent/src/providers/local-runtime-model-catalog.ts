@@ -623,6 +623,81 @@ export type LocalRuntimeEmbeddingDimensionProbeResult =
   | LocalRuntimeEmbeddingDimensionUnsupported
   | LocalRuntimeEmbeddingDimensionFailed;
 
+/**
+ * Canonical capability strings returned by Ollama's `POST /api/show`. Ollama
+ * documents these in github.com/ollama/ollama/blob/main/docs/api.md and emits
+ * them as a `capabilities: string[]` array on the show response.
+ */
+export type OllamaModelCapability =
+  | 'completion'
+  | 'embedding'
+  | 'insert'
+  | 'thinking'
+  | 'tools'
+  | 'vision';
+
+const OLLAMA_SHOW_ENDPOINT = 'http://127.0.0.1:11434/api/show';
+
+const OLLAMA_KNOWN_CAPABILITIES: ReadonlySet<OllamaModelCapability> = new Set([
+  'completion',
+  'embedding',
+  'insert',
+  'thinking',
+  'tools',
+  'vision',
+]);
+
+export interface LocalRuntimeOllamaCapabilitiesResolved {
+  readonly capabilities: readonly OllamaModelCapability[];
+  readonly checkedAt: number;
+  readonly embedding: boolean;
+  readonly endpoint: string;
+  readonly insert: boolean;
+  readonly llm: boolean;
+  readonly modelId: string;
+  readonly state: 'resolved';
+  readonly thinking: boolean;
+  readonly tools: boolean;
+  readonly vision: boolean;
+}
+
+export interface LocalRuntimeOllamaCapabilitiesUnavailable {
+  readonly checkedAt: number;
+  readonly endpoint: string;
+  readonly message: string;
+  readonly modelId: string;
+  readonly state: 'unavailable';
+  readonly status?: number;
+}
+
+export type LocalRuntimeOllamaCapabilitiesResult =
+  | LocalRuntimeOllamaCapabilitiesResolved
+  | LocalRuntimeOllamaCapabilitiesUnavailable;
+
+function parseOllamaCapabilityList(payload: unknown): readonly OllamaModelCapability[] {
+  if (!(isRecord(payload) && Array.isArray(payload['capabilities']))) {
+    return [];
+  }
+  const seen = new Set<OllamaModelCapability>();
+  const result: OllamaModelCapability[] = [];
+  for (const raw of payload['capabilities']) {
+    if (typeof raw !== 'string') {
+      continue;
+    }
+    const normalized = raw.toLowerCase() as OllamaModelCapability;
+    if (OLLAMA_KNOWN_CAPABILITIES.has(normalized) && !seen.has(normalized)) {
+      seen.add(normalized);
+      result.push(normalized);
+    }
+  }
+  return result;
+}
+
+interface OllamaCapabilitiesCacheEntry {
+  readonly expiresAt: number;
+  readonly result: LocalRuntimeOllamaCapabilitiesResolved;
+}
+
 export class LocalRuntimeModelCatalogService {
   private readonly discoveryService: LocalRuntimeDiscoveryService;
   private readonly fetchImpl: typeof fetch | undefined;
@@ -632,6 +707,9 @@ export class LocalRuntimeModelCatalogService {
   private readonly requestTimeoutMs: number;
   private readonly now: () => number;
   private readonly cache = new Map<LocalRuntimeId, RuntimeModelCacheEntry>();
+  // Per-model cache of resolved Ollama capabilities, keyed by model id. A short
+  // TTL keeps answers fresh when users pull new model revisions locally.
+  private readonly ollamaCapabilitiesCache = new Map<string, OllamaCapabilitiesCacheEntry>();
 
   public constructor(options: LocalRuntimeModelCatalogServiceOptions = {}) {
     this.now = options.now ?? (() => Date.now());
@@ -664,10 +742,116 @@ export class LocalRuntimeModelCatalogService {
       return;
     }
     this.cache.clear();
+    this.ollamaCapabilitiesCache.clear();
   }
 
   public getCachedState(runtime: LocalRuntimeId): LocalRuntimeModelCatalogState | null {
     return this.cache.get(runtime)?.status ?? null;
+  }
+
+  /**
+   * Resolve a model's capability set by calling Ollama's `POST /api/show`.
+   *
+   * `/api/show` is Ollama's authoritative source for per-model capabilities —
+   * it returns an array like `["completion", "tools", "vision"]` directly, so
+   * this method avoids the regex-on-name heuristics used during bulk listing.
+   * Results are cached per model id using the catalog's `successTtlMs` budget
+   * so repeated lookups do not refetch on every render.
+   */
+  public async resolveOllamaCapabilities(
+    modelId: string,
+    options: { readonly force?: boolean; readonly signal?: AbortSignal } = {}
+  ): Promise<LocalRuntimeOllamaCapabilitiesResult> {
+    const trimmed = modelId.trim();
+    if (trimmed.length === 0) {
+      return {
+        state: 'unavailable',
+        modelId,
+        endpoint: OLLAMA_SHOW_ENDPOINT,
+        message: 'modelId is required',
+        checkedAt: this.now(),
+      };
+    }
+
+    if (!options.force) {
+      const cached = this.ollamaCapabilitiesCache.get(trimmed);
+      if (cached && this.now() < cached.expiresAt) {
+        return cached.result;
+      }
+    }
+
+    if (!this.fetchImpl) {
+      return {
+        state: 'unavailable',
+        modelId: trimmed,
+        endpoint: OLLAMA_SHOW_ENDPOINT,
+        message: 'Fetch implementation is not available',
+        checkedAt: this.now(),
+      };
+    }
+
+    const checkedAt = this.now();
+    try {
+      const result = await fetchJsonWithTimeout(OLLAMA_SHOW_ENDPOINT, {
+        fetchImpl: this.fetchImpl,
+        timeoutMs: this.requestTimeoutMs,
+        method: 'POST',
+        body: JSON.stringify({ model: trimmed }),
+        ...(options.signal ? { signal: options.signal } : {}),
+      });
+
+      if (!result.response.ok) {
+        return {
+          state: 'unavailable',
+          modelId: trimmed,
+          endpoint: OLLAMA_SHOW_ENDPOINT,
+          status: result.response.status,
+          message: `Ollama /api/show responded with ${result.response.status}`,
+          checkedAt,
+        };
+      }
+
+      if (result.parseError) {
+        return {
+          state: 'unavailable',
+          modelId: trimmed,
+          endpoint: OLLAMA_SHOW_ENDPOINT,
+          message: 'Ollama /api/show returned non-JSON payload',
+          checkedAt,
+        };
+      }
+
+      const capabilities = parseOllamaCapabilityList(result.payload);
+      const resolved: LocalRuntimeOllamaCapabilitiesResolved = {
+        state: 'resolved',
+        modelId: trimmed,
+        endpoint: OLLAMA_SHOW_ENDPOINT,
+        checkedAt,
+        capabilities,
+        llm: capabilities.includes('completion'),
+        embedding: capabilities.includes('embedding'),
+        tools: capabilities.includes('tools'),
+        vision: capabilities.includes('vision'),
+        thinking: capabilities.includes('thinking'),
+        insert: capabilities.includes('insert'),
+      };
+      this.ollamaCapabilitiesCache.set(trimmed, {
+        result: resolved,
+        expiresAt: checkedAt + this.successTtlMs,
+      });
+      return resolved;
+    } catch (error) {
+      if (options.signal?.aborted) {
+        throw error;
+      }
+      return {
+        state: 'unavailable',
+        modelId: trimmed,
+        endpoint: OLLAMA_SHOW_ENDPOINT,
+        message: `Ollama /api/show request failed: ${extractErrorMessage(error)}`,
+        checkedAt,
+      };
+    }
   }
 
   public async listAllModels(

@@ -294,4 +294,77 @@ describe('local-runtime-model-catalog', () => {
     }
     expect(result.message.toLowerCase()).toContain('econnrefused');
   });
+
+  it('resolves Ollama capabilities via POST /api/show', async () => {
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+      const url = getRequestUrl(input);
+      if (url.endsWith('/api/show') && init?.method === 'POST') {
+        expect(init.body).toBe(JSON.stringify({ model: 'qwen2.5:latest' }));
+        return jsonResponse({
+          capabilities: ['completion', 'tools', 'thinking', 'unknown-future'],
+        });
+      }
+      return new Response('missing', { status: 404 });
+    });
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 7000,
+    });
+
+    const result = await service.resolveOllamaCapabilities('qwen2.5:latest');
+
+    expect(result.state).toBe('resolved');
+    if (result.state !== 'resolved') {
+      throw new Error('Expected resolved state');
+    }
+    expect(result.capabilities).toEqual(['completion', 'tools', 'thinking']);
+    expect(result.llm).toBe(true);
+    expect(result.embedding).toBe(false);
+    expect(result.tools).toBe(true);
+    expect(result.thinking).toBe(true);
+    expect(result.vision).toBe(false);
+
+    // Second call within TTL should be served from the cache without re-fetching.
+    await service.resolveOllamaCapabilities('qwen2.5:latest');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces Ollama /api/show failures with status + message', async () => {
+    const fetchMock = vi
+      .fn<FetchMock>()
+      .mockResolvedValue(new Response('not found', { status: 404 }));
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 8000,
+    });
+
+    const result = await service.resolveOllamaCapabilities('does-not-exist');
+
+    expect(result.state).toBe('unavailable');
+    if (result.state !== 'unavailable') {
+      throw new Error('Expected unavailable state');
+    }
+    expect(result.status).toBe(404);
+    expect(result.message).toContain('404');
+  });
+
+  it('rejects empty Ollama modelId with a clear message and no network call', async () => {
+    const fetchMock = vi.fn<FetchMock>();
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 9000,
+    });
+
+    const result = await service.resolveOllamaCapabilities('   ');
+
+    expect(result.state).toBe('unavailable');
+    if (result.state !== 'unavailable') {
+      throw new Error('Expected unavailable state');
+    }
+    expect(result.message).toBe('modelId is required');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
