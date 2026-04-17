@@ -261,6 +261,59 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('clears stale embedding and queue progress when entering the pending embedding state', async () => {
+    const unchangedContent = 'export const value = 1;';
+    const unchangedHash = await generateContentHash(unchangedContent);
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: unchangedContent,
+        })),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            fileRecordId: 'file-1',
+            embeddingSetId: 'set-1',
+            sourceRootPath: ROOT_PATH,
+            relativePath: FILE_PATH,
+            contentHash: unchangedHash,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+      },
+      chunkRepository: {
+        deleteByFileRecordId: vi.fn(async () => undefined),
+        getCoverageForSet: vi.fn(async () => ({
+          totalChunks: 10,
+          chunksWithEmbeddingsForSet: 1,
+        })),
+        insertMany: vi.fn(async () => []),
+        update: vi.fn(async () => null),
+      },
+      subscribeToBackfillProgress: vi.fn(() => () => {}),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        state: 'embedding',
+        embeddingProgress: null,
+        queueProgress: null,
+      })
+    );
+  });
+
   it('returns without transitioning to idle when the unchanged-files backfill path is cancelled after enqueueing', async () => {
     const unchangedContent = 'export const value = 1;';
     const unchangedHash = await generateContentHash(unchangedContent);

@@ -1582,6 +1582,8 @@ export class WorkspaceCollectionSyncService {
       currentFilePath: null,
       scanSummary: this.createScanSummary(args.summary),
       chunkingProgress: args.chunkingProgress,
+      embeddingProgress: null,
+      queueProgress: null,
       lastError: null,
       pauseReasons: [],
       processedFiles: args.summary.totalFiles,
