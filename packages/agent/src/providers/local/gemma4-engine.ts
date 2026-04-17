@@ -101,10 +101,13 @@ export function configureTransformersEnvironment(environment: TransformersEnviro
   environment.remotePathTemplate = resolveLocalArtifactRemotePathTemplate();
 }
 
+let cachePurged = false;
+
 async function purgeStaleTransformersCache(): Promise<void> {
-  if (typeof caches === 'undefined') {
+  if (cachePurged || typeof caches === 'undefined') {
     return;
   }
+  cachePurged = true;
   let cache: Cache;
   try {
     cache = await caches.open('transformers-cache');

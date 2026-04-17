@@ -50,11 +50,12 @@ function createMockRequest(
   url: string,
   options?: { method?: string; headers?: Record<string, string> }
 ): http.IncomingMessage {
-  return {
+  const emitter = new EventEmitter();
+  return Object.assign(emitter, {
     url,
     method: options?.method ?? 'GET',
     headers: options?.headers ?? {},
-  } as http.IncomingMessage;
+  }) as unknown as http.IncomingMessage;
 }
 
 describe('hf dev proxy', () => {
@@ -96,6 +97,12 @@ describe('hf dev proxy', () => {
       expect(
         isAllowedHfDevPath('/onnx-community/gemma-4-E2B-it-ONNX/resolve/main/tokenizer_config.json')
       ).toBe(true);
+    });
+
+    it('rejects percent-encoded path traversal (%2e%2e)', () => {
+      expect(
+        isAllowedHfDevPath('/onnx-community/gemma-4-E2B-it-ONNX/resolve/main/%2e%2e/%2e%2e/secret')
+      ).toBe(false);
     });
 
     it('rejects empty path', () => {
@@ -326,6 +333,59 @@ describe('hf dev proxy', () => {
 
       expect(fetchMock).not.toHaveBeenCalled();
       expect(res.statusCode).toBe(403);
+    });
+
+    it('passes an AbortSignal with a timeout to the upstream fetch', async () => {
+      fetchMock.mockResolvedValue(new Response('ok', { status: 200 }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const req = createMockRequest(
+        '/api/hf/onnx-community/gemma-4-E2B-it-ONNX/resolve/30b3854c1ca3e0f08981e1a439de9fbd9245a3a9/config.json'
+      );
+      const res = new ResponseSink();
+      await handleHfProxyRequest(req, res as unknown as http.ServerResponse);
+
+      const [, options] = fetchMock.mock.calls[0] ?? [];
+      expect((options as { signal?: AbortSignal }).signal).toBeInstanceOf(AbortSignal);
+    });
+
+    it('waits for drain when res.write returns false (backpressure)', async () => {
+      const bodyContent = 'chunk-data';
+      fetchMock.mockResolvedValue(
+        new Response(bodyContent, {
+          status: 200,
+          headers: { 'content-type': 'application/octet-stream' },
+        })
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const req = createMockRequest(
+        '/api/hf/onnx-community/gemma-4-E2B-it-ONNX/resolve/30b3854c1ca3e0f08981e1a439de9fbd9245a3a9/config.json'
+      );
+      const res = new ResponseSink();
+      // Simulate backpressure: write returns false
+      let drainCallback: (() => void) | null = null;
+      res.write = (chunk: string | Buffer | Uint8Array) => {
+        if (typeof chunk === 'string') {
+          res.chunks.push(chunk);
+        } else {
+          res.chunks.push(new TextDecoder().decode(chunk));
+        }
+        // Resolve drain on next tick
+        setTimeout(() => drainCallback?.(), 0);
+        return false; // signal backpressure
+      };
+      res.once = ((event: string, cb: () => void) => {
+        if (event === 'drain') {
+          drainCallback = cb;
+        }
+        return res;
+      }) as typeof res.once;
+
+      await handleHfProxyRequest(req, res as unknown as http.ServerResponse);
+
+      expect(res.ended).toBe(true);
+      expect(res.body()).toBe(bodyContent);
     });
   });
 });

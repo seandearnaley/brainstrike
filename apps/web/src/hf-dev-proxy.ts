@@ -3,6 +3,7 @@ import type http from 'node:http';
 const HUGGING_FACE_BASE_URL = 'https://huggingface.co';
 const ALLOWED_MODEL_ID = 'onnx-community/gemma-4-E2B-it-ONNX';
 const ALLOWED_RESOLVE_PREFIX = `/${ALLOWED_MODEL_ID}/resolve/`;
+const UPSTREAM_TIMEOUT_MS = 30_000;
 
 const FORWARDED_REQUEST_HEADERS = [
   'accept',
@@ -26,8 +27,8 @@ export function isAllowedHfDevPath(path: string): boolean {
     return false;
   }
   const afterResolve = path.slice(ALLOWED_RESOLVE_PREFIX.length);
-  // Must have revision/filename, no traversal
-  return afterResolve.includes('/') && !afterResolve.includes('..');
+  const decoded = decodeURIComponent(afterResolve);
+  return decoded.includes('/') && !decoded.includes('..');
 }
 
 export function buildHfTargetUrl(path: string): string {
@@ -63,6 +64,15 @@ function buildResponseHeaders(upstream: Response): Record<string, string> {
   return headers;
 }
 
+function createAbortSignal(req: http.IncomingMessage): AbortSignal {
+  const controller = new AbortController();
+  const onClose = () => controller.abort();
+  req.on('close', onClose);
+  req.on('aborted', onClose);
+  AbortSignal.timeout(UPSTREAM_TIMEOUT_MS).addEventListener('abort', onClose);
+  return controller.signal;
+}
+
 export async function handleHfProxyRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse
@@ -77,12 +87,14 @@ export async function handleHfProxyRequest(
   }
 
   const targetUrl = buildHfTargetUrl(hfPath);
+  const signal = createAbortSignal(req);
 
   let upstream: Response;
   try {
     upstream = await fetch(targetUrl, {
       headers: buildUpstreamHeaders(req),
       method: req.method ?? 'GET',
+      signal,
     });
   } catch {
     res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
@@ -105,7 +117,10 @@ export async function handleHfProxyRequest(
       if (done) {
         break;
       }
-      res.write(value);
+      const ok = res.write(value);
+      if (!ok) {
+        await new Promise<void>((resolve) => res.once('drain', resolve));
+      }
     }
   } finally {
     reader.cancel().catch(() => {});
