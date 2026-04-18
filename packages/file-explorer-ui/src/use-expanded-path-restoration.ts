@@ -26,16 +26,55 @@ export function __resetRestorationLock(): void {
   restorationLock.folderId = null;
 }
 
+// Optimization: Avoid intermediate array allocations and joins in a hot path
+// by using indexOf and slice to extract ancestor directories directly.
+// Handles trailing and consecutive slashes appropriately to preserve behavior
+// parity with the previous split.filter(Boolean) implementation.
 function getAllAncestorDirectories(filePath: string): string[] {
-  const isAbsolute = filePath.startsWith('/');
-  const segments = filePath.split('/').filter(Boolean);
-  segments.pop();
-
+  const isAbsolute = filePath.charCodeAt(0) === 47; // "/"
+  const prefix = isAbsolute ? '/' : '';
   const ancestors: string[] = [];
-  for (let index = 1; index <= segments.length; index += 1) {
-    const prefix = isAbsolute ? '/' : '';
-    ancestors.push(prefix + segments.slice(0, index).join('/'));
+
+  let pathBuilder = prefix;
+  let startIdx = isAbsolute ? 1 : 0;
+
+  while (filePath.charCodeAt(startIdx) === 47) {
+    startIdx++;
   }
+
+  let endIdx = filePath.length;
+  while (endIdx > startIdx && filePath.charCodeAt(endIdx - 1) === 47) {
+    endIdx--;
+  }
+
+  let lastSlashIdx = filePath.lastIndexOf('/', endIdx - 1);
+  if (lastSlashIdx < startIdx) {
+    return ancestors;
+  }
+  while (lastSlashIdx >= startIdx && filePath.charCodeAt(lastSlashIdx - 1) === 47) {
+    lastSlashIdx--;
+  }
+
+  const effectiveEndIdx = lastSlashIdx;
+  let idx = filePath.indexOf('/', startIdx);
+
+  while (idx !== -1 && idx <= effectiveEndIdx) {
+    if (idx > startIdx) {
+      const segment = filePath.slice(startIdx, idx);
+      if (pathBuilder.length > 0 && pathBuilder !== '/') {
+        pathBuilder += `/${segment}`;
+      } else {
+        pathBuilder += segment;
+      }
+      ancestors.push(pathBuilder);
+    }
+    startIdx = idx + 1;
+    while (filePath.charCodeAt(startIdx) === 47) {
+      startIdx++;
+    }
+    idx = filePath.indexOf('/', startIdx);
+  }
+
   return ancestors;
 }
 
