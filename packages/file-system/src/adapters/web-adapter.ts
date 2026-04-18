@@ -351,7 +351,20 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     return await file.text();
   }
 
-  async readFileByPath(path: string): Promise<string> {
+  /**
+   * Walk the cached root `FileSystemDirectoryHandle` for `path` and return the
+   * leaf `FileSystemFileHandle`. Used by `readFileByPath` and by the background
+   * token indexer (web parity with the desktop synthetic-handle path) so that
+   * Select All can index files inside subfolders the user has not expanded.
+   *
+   * Resolved handles are cached via `WebHandleCache.storeFileHandle` on a
+   * best-effort basis so subsequent reads (e.g. `readFileByPath`) can skip the
+   * directory walk. Failures during the walk are propagated as typed errors
+   * (`AccessError` for missing roots / non-file paths, native browser errors
+   * for missing intermediate segments) so callers can park the path for retry
+   * rather than silently degrading.
+   */
+  async resolveFileHandleByPath(path: string): Promise<FileSystemFileHandle> {
     const rootFolderId = this.resolveRootFolderId(path);
     if (!rootFolderId) {
       throw new AccessError('Root directory handle is not available', path, 'read');
@@ -381,14 +394,35 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     }
 
     const fileHandle = await currentDirectoryHandle.getFileHandle(fileName);
+    this.cacheFileHandleForPath(path, fileHandle);
+    return fileHandle;
+  }
+
+  async readFileByPath(path: string): Promise<string> {
+    const fileHandle = await this.resolveFileHandleByPath(path);
+    const rootFolderId = this.resolveRootFolderId(path);
+    const fileName = fileHandle.name;
     return this.readFile({
       path,
       name: fileName,
       kind: 'file',
       platform: 'web',
-      rootFolderId,
+      ...(rootFolderId ? { rootFolderId } : {}),
       _internal: fileHandle,
     });
+  }
+
+  /**
+   * Web platform always returns a real `FileSystemFileHandle`, which is
+   * structured-clone-safe and can be transferred directly to the indexer
+   * worker. The thin wrapper exists so the FileSystemAdapter contract can stay
+   * uniform across platforms while in-memory adapters return `kind: 'content'`.
+   */
+  async resolveFileForIndexing(
+    path: string
+  ): Promise<{ kind: 'handle'; fileHandle: FileSystemFileHandle }> {
+    const fileHandle = await this.resolveFileHandleByPath(path);
+    return { kind: 'handle', fileHandle };
   }
 
   async exists(_path: string): Promise<boolean> {

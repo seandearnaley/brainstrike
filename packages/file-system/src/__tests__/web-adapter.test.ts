@@ -364,6 +364,179 @@ describe('WebFileSystemAdapter', () => {
     });
   });
 
+  describe('resolveFileHandleByPath', () => {
+    it('returns the leaf FileSystemFileHandle by walking the cached root handle', async () => {
+      const fileHandle = {
+        kind: 'file',
+        name: 'file.txt',
+        getFile: vi.fn(),
+      } as unknown as FileSystemFileHandle;
+      const nestedDirHandle = {
+        kind: 'directory',
+        name: 'nested',
+        getFileHandle: vi.fn().mockResolvedValue(fileHandle),
+      } as unknown as FileSystemDirectoryHandle;
+      const rootDirHandle = {
+        kind: 'directory',
+        name: 'root',
+        getDirectoryHandle: vi.fn().mockResolvedValue(nestedDirHandle),
+      } as unknown as FileSystemDirectoryHandle;
+
+      const handleCache = createHandleCache({
+        getRootHandle: vi.fn().mockResolvedValue(rootDirHandle),
+      });
+      const adapter = new WebFileSystemAdapter({ handleCache });
+
+      const resolved = await adapter.resolveFileHandleByPath('root/nested/file.txt');
+
+      expect(resolved).toBe(fileHandle);
+      expect(handleCache.getRootHandle).toHaveBeenCalledWith('root');
+      expect(rootDirHandle.getDirectoryHandle).toHaveBeenCalledWith('nested');
+      expect(nestedDirHandle.getFileHandle).toHaveBeenCalledWith('file.txt');
+      // Resolution alone must not call getFile() — keep main thread quiet.
+      expect(fileHandle.getFile).not.toHaveBeenCalled();
+    });
+
+    it('caches the resolved file handle so future readFileByPath skips the walk', async () => {
+      const fileHandle = {
+        kind: 'file',
+        name: 'file.txt',
+        getFile: vi.fn(),
+      } as unknown as FileSystemFileHandle;
+      const nestedDirHandle = {
+        kind: 'directory',
+        name: 'nested',
+        getFileHandle: vi.fn().mockResolvedValue(fileHandle),
+      } as unknown as FileSystemDirectoryHandle;
+      const rootDirHandle = {
+        kind: 'directory',
+        name: 'root',
+        getDirectoryHandle: vi.fn().mockResolvedValue(nestedDirHandle),
+      } as unknown as FileSystemDirectoryHandle;
+      const storeFileHandle = vi.fn().mockResolvedValue(undefined);
+      const handleCache = createHandleCache({
+        getRootHandle: vi.fn().mockResolvedValue(rootDirHandle),
+        storeFileHandle,
+      });
+      const adapter = new WebFileSystemAdapter({ handleCache });
+
+      await adapter.resolveFileHandleByPath('root/nested/file.txt');
+
+      expect(storeFileHandle).toHaveBeenCalledWith('root', 'root/nested/file.txt', fileHandle);
+    });
+
+    it('throws AccessError when the cached root handle is missing', async () => {
+      const handleCache = createHandleCache();
+      const adapter = new WebFileSystemAdapter({ handleCache });
+
+      await expect(adapter.resolveFileHandleByPath('root/nested/file.txt')).rejects.toMatchObject({
+        name: 'AccessError',
+        path: 'root/nested/file.txt',
+      });
+    });
+
+    it('throws AccessError when the path does not reference a file', async () => {
+      const rootDirHandle = {
+        kind: 'directory',
+        name: 'root',
+        getDirectoryHandle: vi.fn(),
+      } as unknown as FileSystemDirectoryHandle;
+      const handleCache = createHandleCache({
+        getRootHandle: vi.fn().mockResolvedValue(rootDirHandle),
+      });
+      const adapter = new WebFileSystemAdapter({ handleCache });
+
+      await expect(adapter.resolveFileHandleByPath('root')).rejects.toMatchObject({
+        name: 'AccessError',
+        path: 'root',
+      });
+      // No directory walk should have started for an empty relative path.
+      expect(rootDirHandle.getDirectoryHandle).not.toHaveBeenCalled();
+    });
+
+    it('propagates underlying browser errors when an intermediate segment is missing', async () => {
+      const rootDirHandle = {
+        kind: 'directory',
+        name: 'root',
+        getDirectoryHandle: vi.fn().mockRejectedValue(new Error('NotFoundError')),
+      } as unknown as FileSystemDirectoryHandle;
+      const handleCache = createHandleCache({
+        getRootHandle: vi.fn().mockResolvedValue(rootDirHandle),
+      });
+      const adapter = new WebFileSystemAdapter({ handleCache });
+
+      await expect(adapter.resolveFileHandleByPath('root/missing/file.txt')).rejects.toThrow(
+        'NotFoundError'
+      );
+    });
+
+    it('readFileByPath delegates to resolveFileHandleByPath and reads the resolved file', async () => {
+      const file = createFile('file.txt', 'hello world', 123);
+      const fileHandle = {
+        kind: 'file',
+        name: 'file.txt',
+        getFile: vi.fn().mockResolvedValue(file),
+      } as unknown as FileSystemFileHandle;
+      const nestedDirHandle = {
+        kind: 'directory',
+        name: 'nested',
+        getFileHandle: vi.fn().mockResolvedValue(fileHandle),
+      } as unknown as FileSystemDirectoryHandle;
+      const rootDirHandle = {
+        kind: 'directory',
+        name: 'root',
+        getDirectoryHandle: vi.fn().mockResolvedValue(nestedDirHandle),
+      } as unknown as FileSystemDirectoryHandle;
+
+      const handleCache = createHandleCache({
+        getRootHandle: vi.fn().mockResolvedValue(rootDirHandle),
+      });
+      const adapter = new WebFileSystemAdapter({ handleCache });
+
+      const resolveSpy = vi.spyOn(adapter, 'resolveFileHandleByPath');
+
+      await expect(adapter.readFileByPath('root/nested/file.txt')).resolves.toBe('hello world');
+      expect(resolveSpy).toHaveBeenCalledWith('root/nested/file.txt');
+      expect(fileHandle.getFile).toHaveBeenCalledOnce();
+    });
+
+    it('resolveFileForIndexing returns kind: handle wrapping the resolved FileSystemFileHandle', async () => {
+      // The web platform always has a real, structured-clone-safe handle, so
+      // the union-typed adapter contract collapses to `kind: 'handle'`. The
+      // background indexer integration uses this branch directly to hand
+      // bytes off to the worker without round-tripping through the main
+      // thread (the perf-critical fast path on Select All).
+      const file = createFile('file.txt', 'hello world', 11);
+      const fileHandle = {
+        kind: 'file',
+        name: 'file.txt',
+        getFile: vi.fn().mockResolvedValue(file),
+      } as unknown as FileSystemFileHandle;
+      const nestedDirHandle = {
+        kind: 'directory',
+        name: 'nested',
+        getFileHandle: vi.fn().mockResolvedValue(fileHandle),
+      } as unknown as FileSystemDirectoryHandle;
+      const rootDirHandle = {
+        kind: 'directory',
+        name: 'root',
+        getDirectoryHandle: vi.fn().mockResolvedValue(nestedDirHandle),
+      } as unknown as FileSystemDirectoryHandle;
+
+      const handleCache = createHandleCache({
+        getRootHandle: vi.fn().mockResolvedValue(rootDirHandle),
+      });
+      const adapter = new WebFileSystemAdapter({ handleCache });
+
+      const resolveSpy = vi.spyOn(adapter, 'resolveFileHandleByPath');
+
+      const resolution = await adapter.resolveFileForIndexing('root/nested/file.txt');
+
+      expect(resolution).toEqual({ kind: 'handle', fileHandle });
+      expect(resolveSpy).toHaveBeenCalledWith('root/nested/file.txt');
+    });
+  });
+
   describe('readFile', () => {
     it('reads file content', async () => {
       const file = createFile('a.txt', 'text');

@@ -54,6 +54,25 @@ function useEmbeddingActiveState(): boolean {
  */
 export type ElectronFileReader = (handle: ElectronFileHandle) => Promise<string>;
 
+/**
+ * Resolution returned by the web file resolver. The production web adapter
+ * returns `kind: 'handle'` so the indexer worker can read bytes off the main
+ * thread; in-memory adapters (e.g. dev-fixture) return `kind: 'content'` with
+ * pre-loaded UTF-8 bytes because their handles are not structured-clone-safe
+ * across the worker boundary.
+ */
+export type WebFileForIndexingResolution =
+  | { kind: 'handle'; fileHandle: FileSystemFileHandle }
+  | { kind: 'content'; content: string; fileSize: number };
+
+/**
+ * Function to resolve the bytes the indexer needs for a `${folderId}/${relativePath}`
+ * path. Mirrors the desktop `electronFileReader` fallback so unexpanded subfolder
+ * selections can be background-indexed without forcing the whole tree to expand on
+ * the main thread.
+ */
+export type WebFileHandleResolver = (absolutePath: string) => Promise<WebFileForIndexingResolution>;
+
 export interface UseBackgroundTokenIndexerIntegrationProps {
   /** File reader for Electron handles - required when using Electron file handles */
   electronFileReader?: ElectronFileReader;
@@ -63,6 +82,12 @@ export interface UseBackgroundTokenIndexerIntegrationProps {
   onTokenResolved?: (compositeKey: string, tokenCount: number) => void;
   /** Set of selected file composite keys (folderId::path format) */
   selectedFiles: Set<string>;
+  /**
+   * Web-only fallback to resolve a real `FileSystemFileHandle` for a selected file path
+   * when neither the FileTreeIndex nor the local handle map has a cached entry.
+   * Only relevant on the web platform; desktop uses `electronFileReader` instead.
+   */
+  webFileHandleResolver?: WebFileHandleResolver;
 }
 
 /** Diagnostic info for debugging indexing issues */
@@ -339,6 +364,7 @@ export function useBackgroundTokenIndexerIntegration({
   selectedFiles,
   onTokenResolved,
   electronFileReader,
+  webFileHandleResolver,
 }: UseBackgroundTokenIndexerIntegrationProps): UseBackgroundTokenIndexerIntegrationReturn {
   // Get the token cache context (may be null if not in provider)
   const tokenCache = useOptionalTokenCacheContext();
@@ -651,6 +677,13 @@ export function useBackgroundTokenIndexerIntegration({
   const electronFileReaderRef = useRef(electronFileReader);
   electronFileReaderRef.current = electronFileReader;
 
+  // Stable ref for webFileHandleResolver. Mirrors the electronFileReader pattern so the
+  // triggerIndexing callback can stay deps-stable while still calling the latest resolver.
+  // The resolver is only meaningful on the web platform; desktop leaves it undefined and
+  // continues using the synthetic-handle / IPC path.
+  const webFileHandleResolverRef = useRef(webFileHandleResolver);
+  webFileHandleResolverRef.current = webFileHandleResolver;
+
   /**
    * Queue files for indexing using the background worker.
    * For Electron files, reads content via IPC first (async, non-blocking).
@@ -680,6 +713,18 @@ export function useBackgroundTokenIndexerIntegration({
         filePath: string;
         fileSize: number | undefined;
         handle: ElectronFileHandle;
+      }> = [];
+      // Web parity with the desktop synthetic-handle path: paths that have no cached
+      // handle (e.g. files inside an unexpanded subfolder hit by Select All) get
+      // batch-resolved via the web FileSystemFileHandle resolver after the main
+      // classification loop. Resolved handles join the existing webFilesToIndex
+      // dispatch path; resolver failures land in pendingNoHandleRef for retry on
+      // the next indexVersion bump.
+      const webResolverQueue: Array<{
+        absolutePath: string;
+        compositeKey: string;
+        filePath: string;
+        folderId: string;
       }> = [];
       let skippedNoHandle = 0;
       let skippedBinary = 0;
@@ -756,6 +801,47 @@ export function useBackgroundTokenIndexerIntegration({
           if (syntheticElectronHandle) {
             handleInfo = syntheticElectronHandle;
           }
+        }
+        if (!handleInfo && webFileHandleResolverRef.current) {
+          // Web parity with the desktop synthetic-handle path. Pre-filter binary and
+          // oversize files using the same name/size signals the live-handle path uses,
+          // so we never spend a resolver round-trip on files the worker would skip
+          // anyway. Anything that survives gets queued for batched concurrent
+          // resolution after the main classification loop.
+          const resolverFileName = normalizedFilePath.split('/').at(-1) ?? '';
+          if (isBinaryFile(resolverFileName)) {
+            skippedBinary++;
+            indexedFilesRef.current.add(compositeKey);
+            pendingNoHandleRef.current.delete(compositeKey);
+            continue;
+          }
+          const cachedFileSize = cache.getFileSize(folderId, normalizedFilePath);
+          if (cachedFileSize !== undefined && cachedFileSize > MAX_INDEXABLE_FILE_SIZE) {
+            skippedTooLarge++;
+            // Cached size could be stale post-restart; keep retryable so a fresh
+            // FileTreeIndex entry can re-attempt with authoritative metadata.
+            pendingNoHandleRef.current.add(compositeKey);
+            continue;
+          }
+          // Web file paths are already root-prefixed (the WebFileSystemAdapter
+          // builds IFileNode.path as `${rootFolderId}/${...}`), and
+          // `normalizeFilePathForFolder` leaves non-absolute paths untouched —
+          // so `normalizedFilePath` is the canonical resolver key. Naively
+          // joining `folderId` would double the prefix and the resolver would
+          // walk into a nonexistent `${folderId}/${folderId}/...` directory.
+          const resolverPath = normalizedFilePath.startsWith(`${folderId}/`)
+            ? normalizedFilePath
+            : `${folderId}/${normalizedFilePath}`;
+          webResolverQueue.push({
+            absolutePath: resolverPath,
+            compositeKey,
+            filePath: normalizedFilePath,
+            folderId,
+          });
+          // Optimistically clear the pending mark; the resolver dispatcher will
+          // re-park the key only if its resolution rejects.
+          pendingNoHandleRef.current.delete(compositeKey);
+          continue;
         }
         if (!handleInfo) {
           skippedNoHandle++;
@@ -838,6 +924,111 @@ export function useBackgroundTokenIndexerIntegration({
         logger.error('triggerIndexing web batch dispatch failed', {
           error: error instanceof Error ? error.message : String(error),
         });
+      }
+
+      // Resolve missing-handle web files in concurrent windows that match the
+      // electron read concurrency (20 per batch). Each batch fires Promise.all
+      // so the resolver sees all 20 paths simultaneously, mirroring the existing
+      // electron `Promise.all` pattern; resolved handles are then dispatched
+      // through the same `dispatchBatches` path used by the live-handle web flow.
+      if (webResolverQueue.length > 0) {
+        const webResolver = webFileHandleResolverRef.current;
+        if (webResolver) {
+          const webResolverBatchSize = 20;
+          let webHandlesResolved = 0;
+          let webResolverFailures = 0;
+          for (let i = 0; i < webResolverQueue.length; i += webResolverBatchSize) {
+            if (isEmbeddingActiveRef.current) {
+              logger.info('Stopped web resolver indexing because embedding became active mid-run', {
+                webHandlesResolved,
+                webResolverFailures,
+                remainingFiles: webResolverQueue.length - i,
+              });
+              return;
+            }
+
+            const batch = webResolverQueue.slice(i, i + webResolverBatchSize);
+            const results = await Promise.all(
+              batch.map(async (item) => {
+                try {
+                  const resolution = await webResolver(item.absolutePath);
+                  return { ...item, resolution, error: null as Error | null };
+                } catch (error) {
+                  const wrapped = error instanceof Error ? error : new Error(String(error));
+                  return {
+                    ...item,
+                    resolution: null as WebFileForIndexingResolution | null,
+                    error: wrapped,
+                  };
+                }
+              })
+            );
+
+            const resolvedBatchToIndex: FileToIndex[] = [];
+            for (const result of results) {
+              if (result.error || !result.resolution) {
+                webResolverFailures += 1;
+                // Park failures for retry on the next FileTreeIndex version bump,
+                // mirroring the no-handle path.
+                pendingNoHandleRef.current.add(result.compositeKey);
+                logger.debug('Web file handle resolver failed; parked for retry', {
+                  absolutePath: result.absolutePath,
+                  compositeKey: result.compositeKey,
+                  error: result.error?.message,
+                });
+                continue;
+              }
+
+              webHandlesResolved += 1;
+              markInFlight(result.compositeKey);
+              // Branch on resolution kind: production web returns a real
+              // (structured-clone-safe) handle that the worker reads on its own
+              // thread; in-memory adapters return pre-loaded content because
+              // their synthetic handles cannot survive postMessage to a Worker.
+              if (result.resolution.kind === 'handle') {
+                resolvedBatchToIndex.push({
+                  compositeKey: result.compositeKey,
+                  fileHandle: result.resolution.fileHandle,
+                  filePath: result.filePath,
+                  folderId: result.folderId,
+                });
+              } else {
+                resolvedBatchToIndex.push({
+                  compositeKey: result.compositeKey,
+                  content: result.resolution.content,
+                  fileSize: result.resolution.fileSize,
+                  filePath: result.filePath,
+                  folderId: result.folderId,
+                });
+              }
+            }
+
+            if (resolvedBatchToIndex.length > 0) {
+              try {
+                await dispatchBatches(resolvedBatchToIndex);
+              } catch (error) {
+                logger.error('triggerIndexing web resolver batch dispatch failed', {
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              }
+            }
+          }
+
+          if (emitLargeSelectionDiagnostics) {
+            logger.info('Background token indexing dispatched web resolver batches', {
+              queuedFiles: webResolverQueue.length,
+              webHandlesResolved,
+              webResolverFailures,
+            });
+          }
+        } else {
+          // The queue is only populated when the resolver was present at classify
+          // time, but guard defensively in case the prop was unset between the
+          // classification loop and the dispatch (e.g. component unmount).
+          for (const queued of webResolverQueue) {
+            pendingNoHandleRef.current.add(queued.compositeKey);
+          }
+        }
       }
 
       // Read Electron file contents via IPC (async, non-blocking)
