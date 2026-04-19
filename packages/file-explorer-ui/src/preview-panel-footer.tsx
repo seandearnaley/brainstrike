@@ -18,6 +18,7 @@ import type { TokenCountingState } from './use-token-counting';
 
 const FOOTER_INSIGHT_HISTORY_LIMIT = 24;
 const SVG_ID_INVALID_CHARACTERS = /[^a-zA-Z0-9_-]/g;
+const noop = (): void => {};
 
 interface TokenUsageSparklineProps {
   budget: number;
@@ -653,7 +654,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
     return (
       <div className="@container flex flex-shrink-0 flex-col border-b bg-background/95 supports-[backdrop-filter]:bg-background/80">
         <div className="flex flex-wrap items-center justify-end gap-2 border-b bg-muted/20 px-3 py-2">
-          <FooterModeButtons mode={footerMode} onModeSelect={onFooterModeChange ?? (() => {})} />
+          <FooterModeButtons mode={footerMode} onModeSelect={onFooterModeChange ?? noop} />
         </div>
 
         <div className="flex flex-col gap-2.5 p-3">
