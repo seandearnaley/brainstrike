@@ -178,26 +178,24 @@ const NavigationControls = memo(function NavigationControls({
       {!isMiniDensity && (
         <Button
           aria-label="Go to first page"
-          className="h-7 w-7 p-0"
           disabled={isFirstPage}
           onClick={onGoToFirstPage}
-          size="sm"
+          size="icon-xs"
           title="Go to first page"
           variant="ghost"
         >
-          <ChevronsLeft aria-hidden="true" className="h-4 w-4" />
+          <ChevronsLeft aria-hidden="true" />
         </Button>
       )}
       <Button
         aria-label="Go to previous page"
-        className="h-7 w-7 p-0"
         disabled={isFirstPage}
         onClick={onGoToPreviousPage}
-        size="sm"
+        size="icon-xs"
         title="Go to previous page"
         variant="ghost"
       >
-        <ChevronLeft aria-hidden="true" className="h-4 w-4" />
+        <ChevronLeft aria-hidden="true" />
       </Button>
 
       <div className={cn('flex items-center gap-1 px-1', isMiniDensity && 'px-0.5')}>
@@ -229,26 +227,24 @@ const NavigationControls = memo(function NavigationControls({
 
       <Button
         aria-label="Go to next page"
-        className="h-7 w-7 p-0"
         disabled={isLastPage}
         onClick={onGoToNextPage}
-        size="sm"
+        size="icon-xs"
         title="Go to next page"
         variant="ghost"
       >
-        <ChevronRight aria-hidden="true" className="h-4 w-4" />
+        <ChevronRight aria-hidden="true" />
       </Button>
       {!isMiniDensity && (
         <Button
           aria-label="Go to last page"
-          className="h-7 w-7 p-0"
           disabled={isLastPage}
           onClick={onGoToLastPage}
-          size="sm"
+          size="icon-xs"
           title="Go to last page"
           variant="ghost"
         >
-          <ChevronsRight aria-hidden="true" className="h-4 w-4" />
+          <ChevronsRight aria-hidden="true" />
         </Button>
       )}
       <span className="sr-only">

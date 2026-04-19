@@ -148,23 +148,22 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
         <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
           <Button
             aria-label="Edit collection"
-            className="h-7 w-7"
             onClick={handleEdit}
-            size="icon"
+            size="icon-xs"
             title="Edit collection"
             variant="ghost"
           >
-            <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
+            <Pencil aria-hidden="true" />
           </Button>
           <Button
             aria-label="Delete collection"
-            className="h-7 w-7 text-destructive hover:text-destructive"
+            className="text-destructive hover:text-destructive"
             onClick={handleDelete}
-            size="icon"
+            size="icon-xs"
             title="Delete collection"
             variant="ghost"
           >
-            <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
+            <Trash2 aria-hidden="true" />
           </Button>
         </div>
       </div>
