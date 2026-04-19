@@ -594,9 +594,8 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
 
     const [usageHistory, setUsageHistory] = useState<number[]>([]);
     const usageHistoryRef = useRef<number[]>([]);
-    const effectiveMode = footerMode;
-    const isCompact = effectiveMode === 'compact';
-    const isExpanded = effectiveMode === 'expanded';
+    const isCompact = footerMode === 'compact';
+    const isExpanded = footerMode === 'expanded';
     const isExpandedRef = useRef(isExpanded);
     isExpandedRef.current = isExpanded;
     const usedTokensRef = useRef(tokenUsage.usedTokens);
@@ -654,7 +653,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
     return (
       <div className="@container flex flex-shrink-0 flex-col border-b bg-background/95 supports-[backdrop-filter]:bg-background/80">
         <div className="flex flex-wrap items-center justify-end gap-2 border-b bg-muted/20 px-3 py-2">
-          <FooterModeButtons mode={effectiveMode} onModeSelect={onFooterModeChange ?? (() => {})} />
+          <FooterModeButtons mode={footerMode} onModeSelect={onFooterModeChange ?? (() => {})} />
         </div>
 
         <div className="flex flex-col gap-2.5 p-3">
