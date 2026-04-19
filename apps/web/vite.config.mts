@@ -65,21 +65,8 @@ export default defineConfig({
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Content-Security-Policy': getDevCSP(),
     },
-    proxy: {
-      // Proxy Hugging Face requests to avoid CORS issues
-      '/api/hf': {
-        target: 'https://huggingface.co',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/hf/, ''),
-        configure: (proxy) => {
-          proxy.on('proxyReq', (proxyReq) => {
-            // Add headers to ensure we get JSON responses
-            proxyReq.setHeader('Accept', 'application/json');
-            proxyReq.setHeader('User-Agent', 'transformers.js');
-          });
-        },
-      },
-    },
+    // HuggingFace proxy is handled by devHfProxyPlugin() below instead of
+    // Vite's built-in http-proxy (which cannot follow 307 redirects from HF CDN).
   },
   define: {
     'process.env': {},
@@ -130,6 +117,7 @@ export default defineConfig({
       : []), // If no token, don't include the plugin config
     // Dev/preview middleware for /api/chat to support E2E and local dev
     devChatApiPlugin(),
+    devHfProxyPlugin(),
   ],
   assetsInclude: ['**/*.png'],
   build: {
@@ -393,6 +381,37 @@ function devChatApiPlugin() {
     },
     async configurePreviewServer(server: import('vite').ViteDevServer) {
       server.middlewares.use(await createApiMiddleware('preview'));
+    },
+  };
+}
+
+// Dev proxy for /api/hf/* – uses fetch() (which follows 307 redirects) instead
+// of Vite's built-in http-proxy (which passes redirects through to the browser,
+// causing SPA fallback to serve index.html instead of model files).
+function devHfProxyPlugin() {
+  return {
+    name: 'dev-hf-proxy',
+    async configureServer(server: import('vite').ViteDevServer) {
+      const { handleHfProxyRequest } = await import('./src/hf-dev-proxy.ts');
+      server.middlewares.use(
+        (
+          req: import('http').IncomingMessage,
+          res: import('http').ServerResponse,
+          next: () => void
+        ) => {
+          if (req.url?.startsWith('/api/hf/')) {
+            handleHfProxyRequest(req, res).catch((error) => {
+              viteLogger.error('[dev-hf-proxy] handler error', { error });
+              if (!res.headersSent) {
+                res.writeHead(500, { 'content-type': 'text/plain' });
+              }
+              res.end('Internal proxy error');
+            });
+            return;
+          }
+          next();
+        }
+      );
     },
   };
 }

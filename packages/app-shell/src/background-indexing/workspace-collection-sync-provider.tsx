@@ -11,9 +11,16 @@ import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-work
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+import {
+  getBackgroundWorkArbiterSnapshot,
+  getBackgroundWorkPauseReasonLabels,
+  registerBackgroundWorkPauseHandler,
+  setBackgroundWorkManualPause,
+  subscribeToBackgroundWorkArbiter,
+} from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useSharedEmbeddingRuntime } from '@brainstrike/vector-management';
-import { type ReactNode, useCallback, useEffect, useMemo } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { WorkspaceCollectionSyncService } from './workspace-collection-sync-service';
 
 const logger = createLogger('WorkspaceCollectionSyncProvider');
@@ -44,11 +51,17 @@ export function WorkspaceCollectionSyncProvider({
   const indexingPolicyPreset = useBackgroundIndexingPreferencesStore(
     (state) => state.indexingPolicyPreset
   );
+  const paused = useBackgroundIndexingPreferencesStore((state) => state.paused);
   const setIsImporting = useVectorStatusUIStore((state) => state.setIsImporting);
   const setSyncStatus = useWorkspaceCollectionSyncStatusStore((state) => state.setStatus);
   const resetSyncStatus = useWorkspaceCollectionSyncStatusStore((state) => state.reset);
   const { controller: runtimeController, service: vectorQueueService } =
     useSharedEmbeddingRuntime();
+  const backgroundWorkSnapshot = useSyncExternalStore(
+    subscribeToBackgroundWorkArbiter,
+    getBackgroundWorkArbiterSnapshot,
+    getBackgroundWorkArbiterSnapshot
+  );
 
   const reportAsyncError = useCallback(
     (operation: string, error: unknown): void => {
@@ -174,6 +187,25 @@ export function WorkspaceCollectionSyncProvider({
       return;
     }
 
+    if (backgroundWorkSnapshot.backgroundIndexingPaused) {
+      void service.cancel().catch((error) => {
+        reportAsyncError('cancel', error);
+      });
+      setSyncStatus({
+        state: 'paused',
+        managedCollectionId,
+        managedCollectionName: null,
+        activeRootPath: rootDirectoryHandle?.path ?? null,
+        currentFilePath: null,
+        lastError: null,
+        pauseReasons: [
+          ...(backgroundWorkSnapshot.manualPause ? ['Paused manually'] : []),
+          ...getBackgroundWorkPauseReasonLabels(backgroundWorkSnapshot.automaticPauseReasons),
+        ],
+      });
+      return;
+    }
+
     if (!(enabled && managedCollectionId && rootDirectoryHandle)) {
       void service
         .sync({
@@ -229,6 +261,7 @@ export function WorkspaceCollectionSyncProvider({
         reportAsyncError('sync', error);
       });
   }, [
+    backgroundWorkSnapshot,
     enabled,
     indexingPolicyPreset,
     isAccessLoading,
@@ -240,6 +273,24 @@ export function WorkspaceCollectionSyncProvider({
     service,
     setSyncStatus,
   ]);
+
+  useEffect(() => {
+    setBackgroundWorkManualPause(paused);
+    return () => {
+      setBackgroundWorkManualPause(false);
+    };
+  }, [paused]);
+
+  useEffect(() => {
+    if (!service) {
+      return;
+    }
+    return registerBackgroundWorkPauseHandler('background-indexing', {
+      pause: async () => {
+        await service.cancel();
+      },
+    });
+  }, [service]);
 
   useEffect(() => {
     triggerSync();

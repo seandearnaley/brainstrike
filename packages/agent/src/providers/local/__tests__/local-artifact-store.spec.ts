@@ -20,14 +20,15 @@ describe('local-artifact-store', () => {
     Reflect.deleteProperty(globalThis, 'window');
   });
 
-  it('uses the app hf proxy in browser http environments', () => {
+  it('uses the app hf proxy with full origin in browser http environments', () => {
     globalThis.window = {
       location: {
         protocol: 'http:',
+        origin: 'http://localhost:8080',
       },
     } as Window;
 
-    expect(resolveLocalArtifactRemoteHost()).toBe('/api/hf/');
+    expect(resolveLocalArtifactRemoteHost()).toBe('http://localhost:8080/api/hf/');
     expect(
       buildLocalArtifactUrl(
         'onnx-community/gemma-4-E2B-it-ONNX',
@@ -35,7 +36,7 @@ describe('local-artifact-store', () => {
         'onnx/decoder_model_merged_q4f16.onnx'
       )
     ).toBe(
-      '/api/hf/onnx-community/gemma-4-E2B-it-ONNX/resolve/main/onnx/decoder_model_merged_q4f16.onnx'
+      'http://localhost:8080/api/hf/onnx-community/gemma-4-E2B-it-ONNX/resolve/main/onnx/decoder_model_merged_q4f16.onnx'
     );
   });
 
@@ -91,6 +92,7 @@ describe('local-artifact-store', () => {
     globalThis.window = {
       location: {
         protocol: 'http:',
+        origin: 'http://localhost:8080',
       },
     } as Window;
 
@@ -103,7 +105,7 @@ describe('local-artifact-store', () => {
     configureTransformersEnvironment(environment);
 
     expect(environment.allowRemoteModels).toBe(true);
-    expect(environment.remoteHost).toBe('/api/hf/');
+    expect(environment.remoteHost).toBe('http://localhost:8080/api/hf/');
     expect(environment.remotePathTemplate).toBe(resolveLocalArtifactRemotePathTemplate());
   });
 

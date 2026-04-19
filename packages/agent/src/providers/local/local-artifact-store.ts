@@ -59,7 +59,9 @@ export function resolveLocalArtifactRemoteHost(): string {
   switch (window.location.protocol) {
     case 'http:':
     case 'https:':
-      return isElectronRendererWindow() ? HUGGING_FACE_REMOTE_HOST : '/api/hf/';
+      return isElectronRendererWindow()
+        ? HUGGING_FACE_REMOTE_HOST
+        : `${window.location.origin}/api/hf/`;
     default:
       return HUGGING_FACE_REMOTE_HOST;
   }

@@ -26,6 +26,7 @@ describe('workspace-collection-sync-status-store', () => {
       queuedFiles: 0,
       processedFiles: 0,
       lastError: null,
+      pauseReasons: [],
       activeRootPath: null,
     });
   });
@@ -52,6 +53,7 @@ describe('workspace-collection-sync-status-store', () => {
       state: 'recovering',
       backfillRequestId: 'background-indexing-backfill:test',
       processedFiles: 4,
+      pauseReasons: [],
       chunkingProgress: {
         filesProcessed: 7,
         totalFiles: 7,
@@ -82,6 +84,7 @@ describe('workspace-collection-sync-status-store', () => {
       queuedFiles: 12,
       processedFiles: 4,
       currentFilePath: 'src/index.ts',
+      pauseReasons: [],
       chunkingProgress: {
         filesProcessed: 7,
         totalFiles: 7,
@@ -119,6 +122,7 @@ describe('workspace-collection-sync-status-store', () => {
       queuedFiles: 99,
       processedFiles: 2,
       lastError: 'boom',
+      pauseReasons: ['Paused manually'],
       activeRootPath: '/workspace/a',
     });
 
@@ -138,6 +142,7 @@ describe('workspace-collection-sync-status-store', () => {
       queuedFiles: 0,
       processedFiles: 0,
       lastError: null,
+      pauseReasons: [],
       activeRootPath: null,
     });
   });
