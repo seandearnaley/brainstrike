@@ -1079,8 +1079,12 @@ export class LocalRuntimeModelCatalogService {
 
     const unsupportedMessages: string[] = [];
 
-    for (const endpoint of probeEndpoints) {
-      const outcome = await this.probeEmbeddingEndpoint(endpoint, probePayload, {
+    // Rename the loop variable from `endpoint` to `probeUrl` so it no longer
+    // shadows the surrounding `options.endpoint` (a `LocalRuntimeEndpointConfig`,
+    // not a URL string). Reviewer flagged this as bug-adjacent because both
+    // were named `endpoint` but carried completely different meanings.
+    for (const probeUrl of probeEndpoints) {
+      const outcome = await this.probeEmbeddingEndpoint(probeUrl, probePayload, {
         ...(options.signal ? { signal: options.signal } : {}),
         ...(options.endpoint ? { endpointConfig: options.endpoint } : {}),
       });
@@ -1105,7 +1109,7 @@ export class LocalRuntimeModelCatalogService {
   }
 
   private async probeEmbeddingEndpoint(
-    endpoint: string,
+    probeUrl: string,
     payload: string,
     options: {
       readonly endpointConfig?: LocalRuntimeEndpointConfig;
@@ -1127,7 +1131,7 @@ export class LocalRuntimeModelCatalogService {
     const authHeaders = buildRuntimeAuthHeaders(options.endpointConfig);
     const checkedAt = this.now();
     try {
-      const result = await fetchJsonWithTimeout(endpoint, {
+      const result = await fetchJsonWithTimeout(probeUrl, {
         fetchImpl: this.fetchImpl,
         timeoutMs: this.requestTimeoutMs,
         ...(signal ? { signal } : {}),
@@ -1140,7 +1144,7 @@ export class LocalRuntimeModelCatalogService {
         if ([400, 404, 405, 422, 501].includes(result.response.status)) {
           return {
             kind: 'unsupported',
-            message: `Embedding probe unsupported (${result.response.status}) at ${endpoint}`,
+            message: `Embedding probe unsupported (${result.response.status}) at ${probeUrl}`,
           };
         }
 
@@ -1149,7 +1153,7 @@ export class LocalRuntimeModelCatalogService {
           result: {
             state: 'failed',
             checkedAt,
-            message: `Embedding probe failed (${result.response.status}) at ${endpoint}`,
+            message: `Embedding probe failed (${result.response.status}) at ${probeUrl}`,
           },
         };
       }
@@ -1157,7 +1161,7 @@ export class LocalRuntimeModelCatalogService {
       if (result.parseError) {
         return {
           kind: 'unsupported',
-          message: `Embedding probe returned invalid JSON at ${endpoint}`,
+          message: `Embedding probe returned invalid JSON at ${probeUrl}`,
         };
       }
 
@@ -1168,7 +1172,7 @@ export class LocalRuntimeModelCatalogService {
           result: {
             state: 'verified',
             checkedAt,
-            endpoint,
+            endpoint: probeUrl,
             dimensions,
           },
         };
@@ -1176,7 +1180,7 @@ export class LocalRuntimeModelCatalogService {
 
       return {
         kind: 'unsupported',
-        message: `Embedding probe returned no embedding vector at ${endpoint}`,
+        message: `Embedding probe returned no embedding vector at ${probeUrl}`,
       };
     } catch (error) {
       if (signal?.aborted) {
@@ -1184,7 +1188,7 @@ export class LocalRuntimeModelCatalogService {
       }
       return {
         kind: 'unsupported',
-        message: `Embedding probe error at ${endpoint}: ${extractErrorMessage(error)}`,
+        message: `Embedding probe error at ${probeUrl}: ${extractErrorMessage(error)}`,
       };
     }
   }
