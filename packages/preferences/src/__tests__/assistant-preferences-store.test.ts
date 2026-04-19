@@ -418,6 +418,81 @@ describe('assistant-preferences-store', () => {
     }
   });
 
+  it('getLocalRuntimeStatus probes only the requested runtime, never its siblings', async () => {
+    // Reviewer feedback (PR #873): the per-card "Probe now" button used to
+    // call `getLocalRuntimeStatuses()` (plural) which fanned out to every
+    // registered runtime as a side effect of clicking on one card. The new
+    // singular `getLocalRuntimeStatus(runtimeId)` must only contact the
+    // runtime the caller asked for so a click on the Ollama card cannot
+    // touch LM Studio (and vice versa).
+    const probeSpy = vi
+      .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')
+      .mockResolvedValue({
+        state: 'available',
+        checkedAt: 100,
+        endpoint: 'http://127.0.0.1:11434/api/tags',
+        latencyMs: 1,
+      });
+
+    const secretTarget = window as Window & { secrets?: unknown };
+    secretTarget.secrets = {
+      list: vi.fn().mockResolvedValue([]),
+      saveKey: vi.fn(),
+      getKey: vi.fn(),
+      deleteKey: vi.fn(),
+      listStored: vi.fn(),
+      clearAll: vi.fn(),
+    };
+
+    const status = await useAssistantPreferencesStore
+      .getState()
+      .getLocalRuntimeStatus('ollama', { force: true });
+
+    expect(status.state).toBe('available');
+    const probedRuntimes = probeSpy.mock.calls.map((call) => call[0]);
+    expect(probedRuntimes).toEqual(['ollama']);
+    expect(probedRuntimes).not.toContain('lmstudio');
+  });
+
+  it('getLocalRuntimeStatus short-circuits to unavailable when activation is off', async () => {
+    // Mirror the `off` short-circuit from `getLocalRuntimeStatuses` — a
+    // disabled runtime must not be probed even when the singular API is
+    // called directly (e.g., from the per-card "Probe now" button on a
+    // card the user has explicitly toggled off).
+    const probeSpy = vi
+      .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')
+      .mockResolvedValue({
+        state: 'available',
+        checkedAt: 100,
+        endpoint: 'http://127.0.0.1:11434/api/tags',
+        latencyMs: 1,
+      });
+
+    const secretTarget = window as Window & { secrets?: unknown };
+    secretTarget.secrets = {
+      list: vi.fn().mockResolvedValue([]),
+      saveKey: vi.fn(),
+      getKey: vi.fn(),
+      deleteKey: vi.fn(),
+      listStored: vi.fn(),
+      clearAll: vi.fn(),
+    };
+
+    useAssistantPreferencesStore.getState().setProviderSettings('ollama', {
+      localRuntimeEnabled: 'off',
+    });
+
+    const status = await useAssistantPreferencesStore
+      .getState()
+      .getLocalRuntimeStatus('ollama', { force: true });
+
+    expect(status.state).toBe('unavailable');
+    if (status.state === 'unavailable') {
+      expect(status.message).toBe('Disabled by settings');
+    }
+    expect(probeSpy).not.toHaveBeenCalled();
+  });
+
   it('passes a configured baseUrl into the runtime probe when set', async () => {
     const probeSpy = vi
       .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')

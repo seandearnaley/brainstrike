@@ -65,6 +65,17 @@ interface AssistantPreferencesActions {
     verifyEmbeddingDimensions?: boolean;
     maxVerificationModels?: number;
   }) => Promise<Record<LocalRuntimeId, LocalRuntimeModelCatalogState>>;
+  /**
+   * Probe a single local runtime. The per-card "Probe now" button uses this
+   * so a click on the Ollama card doesn't fan out to LM Studio (and vice
+   * versa) — flagged by reviewers as the dominant source of unnecessary
+   * probe traffic on this PR. Reuses the same bridge / service stack as
+   * `getLocalRuntimeStatuses` and honors the same `off` short-circuit.
+   */
+  getLocalRuntimeStatus: (
+    runtimeId: LocalRuntimeId,
+    options?: { force?: boolean }
+  ) => Promise<LocalRuntimeAvailabilityState>;
   getLocalRuntimeStatuses: (options?: {
     force?: boolean;
   }) => Promise<Record<LocalRuntimeId, LocalRuntimeAvailabilityState>>;
@@ -964,6 +975,24 @@ export const useAssistantPreferencesStore = create<Store>()(
         );
 
         return Object.fromEntries(entries) as Record<LocalRuntimeId, LocalRuntimeAvailabilityState>;
+      },
+
+      getLocalRuntimeStatus: async (runtimeId, options) => {
+        const { providerSettings } = get();
+        const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
+        const settings = providerSettings[providerId];
+        if (resolveLocalRuntimeActivation(settings) === 'off') {
+          return {
+            state: 'unavailable',
+            checkedAt: Date.now(),
+            message: 'Disabled by settings',
+          };
+        }
+        const endpoint = await buildLocalRuntimeEndpointConfig(providerId, settings);
+        return probeRuntimeViaBridgeOrService(runtimeId, {
+          ...(options?.force ? { force: true } : {}),
+          ...(endpoint ? { endpoint } : {}),
+        });
       },
 
       getLocalRuntimeModels: async (options) => {

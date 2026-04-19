@@ -161,11 +161,17 @@ interface LocalRuntimeCardProps {
 const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
   const settings = useAssistantPreferencesStore((state) => state.providerSettings[card.providerId]);
   const setProviderSettings = useAssistantPreferencesStore((state) => state.setProviderSettings);
-  // `getLocalRuntimeStatuses` is an action, not reactive state — invoking it
+  // `getLocalRuntimeStatus` is an action, not reactive state — invoking it
   // via `useAssistantPreferencesStore.getState()` inside runProbe decouples
   // the callback from any selector-reference churn (Zustand actions are
   // stable today, but future store refactors could destabilise them and
   // inadvertently invalidate the memoised callback on every render).
+  //
+  // Singular `getLocalRuntimeStatus` (per-card) rather than plural
+  // `getLocalRuntimeStatuses`: the previous plural call probed every
+  // registered runtime as a side effect of clicking on one card —
+  // multiple reviewers flagged that as the dominant source of
+  // unnecessary localhost probe traffic from this surface.
 
   const activation: LocalRuntimeActivation = settings?.localRuntimeEnabled ?? 'auto';
   const [draftBaseUrl, setDraftBaseUrl] = useState(() => settings?.localRuntimeBaseUrl ?? '');
@@ -213,13 +219,15 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
     async (options?: { force?: boolean; isStale?: () => boolean }) => {
       setProbing(true);
       try {
-        const statuses = await useAssistantPreferencesStore.getState().getLocalRuntimeStatuses({
-          force: options?.force ?? false,
-        });
+        const nextStatus = await useAssistantPreferencesStore
+          .getState()
+          .getLocalRuntimeStatus(card.runtimeId, {
+            force: options?.force ?? false,
+          });
         if (options?.isStale?.() ?? false) {
           return;
         }
-        setStatus(statuses[card.runtimeId]);
+        setStatus(nextStatus);
       } catch (error) {
         if (options?.isStale?.() ?? false) {
           return;
