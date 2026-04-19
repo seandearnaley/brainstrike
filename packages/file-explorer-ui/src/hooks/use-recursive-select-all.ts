@@ -133,7 +133,7 @@ export function useRecursiveSelectAll(
       return (tree: IFileNode[]) =>
         applyFileFilters(tree, includeFilters, excludeFilters, useRegex);
     }
-    return undefined;
+    return;
   }, [applyFileFilters, excludeFilters, filterTreeFn, includeFilters, store, useRegex]);
 
   const [state, setState] = useState<RecursiveSelectAllState>(RESET_STATE);
@@ -150,11 +150,12 @@ export function useRecursiveSelectAll(
     setState(RESET_STATE);
   }, [cancelLoadOperations]);
 
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       cancelSelectAll();
-    };
-  }, [cancelSelectAll]);
+    },
+    [cancelSelectAll]
+  );
 
   const selectAllRecursively = useCallback(
     async (

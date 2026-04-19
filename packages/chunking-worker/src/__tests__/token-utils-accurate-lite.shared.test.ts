@@ -4,21 +4,19 @@ const retryState = vi.hoisted(() => ({
   shouldFail: false,
 }));
 
-const retryTiktokenFactory = vi.hoisted(() => {
-  return () => ({
-    encoding_for_model: () => {
-      if (retryState.shouldFail) {
-        retryState.shouldFail = false;
-        throw new Error('first init failed');
-      }
-      return {
-        encode: (text: string) => new Uint32Array(Math.ceil(text.length / 5)),
-        encode_ordinary: (text: string) => new Uint32Array(Math.ceil(text.length / 5)),
-      };
-    },
-    get_encoding: vi.fn(),
-  });
-});
+const retryTiktokenFactory = vi.hoisted(() => () => ({
+  encoding_for_model: () => {
+    if (retryState.shouldFail) {
+      retryState.shouldFail = false;
+      throw new Error('first init failed');
+    }
+    return {
+      encode: (text: string) => new Uint32Array(Math.ceil(text.length / 5)),
+      encode_ordinary: (text: string) => new Uint32Array(Math.ceil(text.length / 5)),
+    };
+  },
+  get_encoding: vi.fn(),
+}));
 
 describe('token-utils-accurate-lite shared behavior', () => {
   beforeEach(() => {

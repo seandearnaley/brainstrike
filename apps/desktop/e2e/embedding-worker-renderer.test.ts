@@ -746,9 +746,11 @@ test.describe('Embedding Host Renderer', () => {
       (_, index) => {
         const fileName = `stress-file-${String(index).padStart(4, '0')}.ts`;
         const path = `${options.rootPath}/${fileName}`;
-        const sentences = Array.from({ length: options.sentencesPerFile }, (_, sentenceIndex) => {
-          return `export const sentence_${sentenceIndex} = "stress-file-${index}-sentence-${sentenceIndex}.";`;
-        });
+        const sentences = Array.from(
+          { length: options.sentencesPerFile },
+          (_, sentenceIndex) =>
+            `export const sentence_${sentenceIndex} = "stress-file-${index}-sentence-${sentenceIndex}.";`
+        );
         fixture.fileContentsByPath[path] = sentences.join('\n');
 
         return {
@@ -797,11 +799,11 @@ test.describe('Embedding Host Renderer', () => {
   }
 
   async function getVisibleAlertTexts(page: Page): Promise<string[]> {
-    return await page.evaluate(() => {
-      return Array.from(document.querySelectorAll('[role="alert"], [role="status"]'))
+    return await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[role="alert"], [role="status"]'))
         .map((node) => node.textContent?.trim() ?? '')
-        .filter((text) => text.length > 0);
-    });
+        .filter((text) => text.length > 0)
+    );
   }
 
   async function getFileExplorerTestSnapshot(page: Page): Promise<FileExplorerTestSnapshot | null> {
@@ -976,9 +978,10 @@ test.describe('Embedding Host Renderer', () => {
 
       const runtimeMetrics = Array.isArray(payload['backgroundRuntimeMetrics'])
         ? payload['backgroundRuntimeMetrics']
-            .filter((metric): metric is Record<string, unknown> => {
-              return !!metric && typeof metric === 'object' && !Array.isArray(metric);
-            })
+            .filter(
+              (metric): metric is Record<string, unknown> =>
+                !!metric && typeof metric === 'object' && !Array.isArray(metric)
+            )
             .map((metric) => {
               const runtimeKind = metric['runtimeKind'];
               if (
@@ -1259,14 +1262,14 @@ test.describe('Embedding Host Renderer', () => {
 
     while (Date.now() - startedAt < timeoutMs) {
       try {
-        return await app.evaluate(({ app: electronApp }) => {
-          return electronApp.getAppMetrics().map((metric) => ({
+        return await app.evaluate(({ app: electronApp }) =>
+          electronApp.getAppMetrics().map((metric) => ({
             memoryKB: metric.memory?.workingSetSize ?? 0,
             name: metric.name ?? '',
             pid: metric.pid,
             type: metric.type,
-          }));
-        });
+          }))
+        );
       } catch (error) {
         if (!isDisposedElectronEvaluateError(error)) {
           throw error;
@@ -2573,8 +2576,8 @@ test.describe('Embedding Host Renderer', () => {
     const startedAt = Date.now();
 
     while (Date.now() - startedAt < timeoutMs) {
-      const state = await page.evaluate(() => {
-        return (
+      const state = await page.evaluate(
+        () =>
           (
             window as Window & {
               __e2eEmbeddingBackfillState?: {
@@ -2584,8 +2587,7 @@ test.describe('Embedding Host Renderer', () => {
               };
             }
           ).__e2eEmbeddingBackfillState ?? null
-        );
-      });
+      );
 
       if (state?.done) {
         if (state.error) {
@@ -2605,8 +2607,8 @@ test.describe('Embedding Host Renderer', () => {
     embeddingSetId: string;
     error: string | null;
   } | null> {
-    return await page.evaluate(() => {
-      return (
+    return await page.evaluate(
+      () =>
         (
           window as Window & {
             __e2eEmbeddingBackfillState?: {
@@ -2616,21 +2618,19 @@ test.describe('Embedding Host Renderer', () => {
             };
           }
         ).__e2eEmbeddingBackfillState ?? null
-      );
-    });
+    );
   }
 
   async function getRelevantElectronStderr(app: ElectronApplication): Promise<string[]> {
     const output = await getBufferedElectronOutputInTest(app);
-    return output.stderr.filter((line) => {
-      return (
+    return output.stderr.filter(
+      (line) =>
         line.includes('Embedding host stopped while backfill was in progress.') ||
         line.includes('Embedding backfill is already running for set') ||
         line.includes('Chunking host stopped while requests were in flight.') ||
         line.includes("Error occurred in handler for 'embedding-host:enqueue-backfill'") ||
         line.includes("Error occurred in handler for 'chunking-host:chunk-file'")
-      );
-    });
+    );
   }
 
   async function getRelevantElectronStderrSince(
@@ -5251,9 +5251,9 @@ test.describe('Embedding Host Renderer', () => {
         .catch(() => false);
       let expandedTreeNodeCount: number | null = null;
       if (collectionTreeVisibleAfterExpand) {
-        expandedTreeNodeCount = await collectionTreeRegion.evaluate((node) => {
-          return node.querySelectorAll('[aria-expanded="true"]').length;
-        });
+        expandedTreeNodeCount = await collectionTreeRegion.evaluate(
+          (node) => node.querySelectorAll('[aria-expanded="true"]').length
+        );
       } else {
         const [
           queueStatsAfterTreeLoss,

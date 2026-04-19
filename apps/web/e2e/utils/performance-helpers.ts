@@ -255,7 +255,7 @@ export const compareWithBaseline = async (
     });
 
     return comparisons;
-  } catch (_error) {
+  } catch {
     console.log(`No baseline found at ${baselinePath}, skipping comparison`);
     return currentMetrics.map((m) => ({ ...m, comparison: 'baseline', improvement: null }));
   }

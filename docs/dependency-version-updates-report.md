@@ -68,8 +68,8 @@ Workspaces follow root `package.json` `workspaces`: `apps/*`, `packages/*` (one 
 
 | Metric | Count |
 | --- | ---: |
-| Distinct direct dependencies checked (`pnpm outdated -r`) | 46 |
-| Outdated (current ≠ latest) or deprecated | 46 |
+| Distinct direct dependencies checked (`pnpm outdated -r`) | 45 |
+| Outdated (current ≠ latest) or deprecated | 45 |
 | Up to date (current === latest, not deprecated) | 0 |
 
 ## Outdated or deprecated packages
@@ -77,7 +77,6 @@ Workspaces follow root `package.json` `workspaces`: `apps/*`, `packages/*` (one 
 | Package | Current | Wanted | Latest | Bump | Type | Deprecated | Dependents |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `@assistant-ui/styles` | 0.3.7 | 0.3.7 | 0.3.7 | — | devDependencies | yes | @brainstrike/desktop, @brainstrike/web |
-| `@biomejs/biome` | 2.4.4 | 2.4.4 | 2.4.12 | patch | devDependencies | no | @brainstrike/web, brainstrike |
 | `@codecov/vite-plugin` | 1.9.1 | 1.9.1 | 2.0.1 | major | devDependencies | no | @brainstrike/web |
 | `@commitlint/cli` | 20.4.2 | 20.4.2 | 20.5.0 | minor | devDependencies | no | brainstrike |
 | `@commitlint/config-conventional` | 20.4.2 | 20.4.2 | 20.5.0 | minor | devDependencies | no | brainstrike |

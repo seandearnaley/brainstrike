@@ -38,9 +38,9 @@ export function ToolsPanel({
   const activeTab = useToolsPanelStore(toolsPanelSelectors.activeTab);
   const setActiveTab = useToolsPanelStore((state) => state.setActiveTab);
   const databaseTabPrefetchedRef = useRef<boolean>(false);
-  const [databaseTabMounted, setDatabaseTabMounted] = useState<boolean>(() => {
-    return preloadDatabaseTabOnMount || activeTab === 'database';
-  });
+  const [databaseTabMounted, setDatabaseTabMounted] = useState<boolean>(
+    () => preloadDatabaseTabOnMount || activeTab === 'database'
+  );
 
   const prefetchDatabaseTab = (): void => {
     if (databaseTabPrefetchedRef.current) {

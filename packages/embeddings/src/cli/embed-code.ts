@@ -195,7 +195,7 @@ export class CodeEmbeddingCLI {
         } else {
           this.log(`Skipping ${file}: file too large (${stats.size} bytes)`);
         }
-      } catch (_error) {
+      } catch {
         this.log(`Skipping ${file}: cannot read file stats`);
       }
     }
@@ -429,7 +429,7 @@ export class CodeEmbeddingCLI {
       if (modelConfig) {
         this.log(`Model used: ${modelConfig.name} (${modelConfig.dimensions}D)`);
       }
-    } catch (_error) {
+    } catch {
       process.exit(1);
     } finally {
       await this.service.dispose();

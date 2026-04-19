@@ -597,7 +597,7 @@ function buildNormalizedChunkingProgress(args: {
     };
   }
   if (!args.latestChunkingProgress) {
-    return undefined;
+    return;
   }
   return {
     ...args.latestChunkingProgress,

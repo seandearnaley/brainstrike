@@ -371,24 +371,22 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     }
 
     window.__brainstrikeFileExplorerTestHooks__ = {
-      getSnapshot: () => {
-        return {
-          currentFolderId,
-          rootDirectoryPath: rootDirectoryHandle?.path ?? null,
-          selectionMode: selectionModel.mode,
-          selectedFilePathCount: selectedFilePaths.size,
-          selectedFilePathSamples: Array.from(selectedFilePaths).slice(0, 5),
-          materializedPathCount: selectionModel.materializedPaths?.size ?? 0,
-          materializedPathSamples: Array.from(selectionModel.materializedPaths ?? []).slice(0, 5),
-          treeRootCount: stableFileTree.length,
-          treeSamples: stableFileTree.slice(0, 5).map((node) => ({
-            path: node.path,
-            type: node.type,
-            rootFolderId: node.rootFolderId ?? null,
-            childCount: node.children?.length ?? 0,
-          })),
-        };
-      },
+      getSnapshot: () => ({
+        currentFolderId,
+        rootDirectoryPath: rootDirectoryHandle?.path ?? null,
+        selectionMode: selectionModel.mode,
+        selectedFilePathCount: selectedFilePaths.size,
+        selectedFilePathSamples: Array.from(selectedFilePaths).slice(0, 5),
+        materializedPathCount: selectionModel.materializedPaths?.size ?? 0,
+        materializedPathSamples: Array.from(selectionModel.materializedPaths ?? []).slice(0, 5),
+        treeRootCount: stableFileTree.length,
+        treeSamples: stableFileTree.slice(0, 5).map((node) => ({
+          path: node.path,
+          type: node.type,
+          rootFolderId: node.rootFolderId ?? null,
+          childCount: node.children?.length ?? 0,
+        })),
+      }),
     };
 
     return () => {

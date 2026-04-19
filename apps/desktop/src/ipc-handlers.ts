@@ -1094,12 +1094,14 @@ export function registerIpcHandlers(
   registerHandler(
     EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
     async (event: IpcMainInvokeEvent, embeddingSetId: unknown) =>
-      withCorruptionRecovery(async () => {
-        return await runDesktopEmbeddingBackfill({
-          event,
-          ...resolveEmbeddingBackfillRequest(embeddingSetId, embeddingHostManager),
-        });
-      }, EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL)
+      withCorruptionRecovery(
+        async () =>
+          await runDesktopEmbeddingBackfill({
+            event,
+            ...resolveEmbeddingBackfillRequest(embeddingSetId, embeddingHostManager),
+          }),
+        EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL
+      )
   );
 
   // Expose in-flight backfill state so the renderer can re-attach to progress

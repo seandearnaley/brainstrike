@@ -185,14 +185,13 @@ export function RootLayoutContent({
   // creates new context → IdeLayout re-renders.
   const sizeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Clean up pending debounce on unmount to prevent stale setState calls.
-  useEffect(() => {
-    return () => {
-      if (sizeDebounceRef.current) {
-        clearTimeout(sizeDebounceRef.current);
-      }
-    };
+  const cleanupSizeDebounce = useCallback(() => {
+    if (sizeDebounceRef.current) {
+      clearTimeout(sizeDebounceRef.current);
+    }
   }, []);
+
+  useEffect(() => cleanupSizeDebounce, [cleanupSizeDebounce]);
 
   const handlePanelLayoutChange = useCallback(
     (state: PanelLayoutState) => {

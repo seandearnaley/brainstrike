@@ -469,13 +469,14 @@ function useSelectedDirectoryCounts(
     selectedDirectoryCountSnapshotRef.current = nextSnapshot;
   }, [nextSnapshot]);
 
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       selectedDirectoryCountSnapshotRef.current = createSelectedDirectoryCountSnapshot(
         selectedDirectoryCountSnapshotRef.current.folderId
       );
-    };
-  }, []);
+    },
+    []
+  );
 
   return selectionModel.mode === 'query'
     ? queryDirectoryCounts

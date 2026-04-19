@@ -947,8 +947,30 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   // Grouped mode keeps column definitions reactive to live selection/sort snapshots.
   // This favors correctness (no stale group summary/header state) over memo hit rate.
   // If profiling shows this as a hotspot, split static structure from reactive cell state.
-  const groupedColumns = useMemo<TreeTableColumn<PreviewTreeNodeData>[]>(() => {
-    return buildGroupedColumns({
+  const groupedColumns = useMemo<TreeTableColumn<PreviewTreeNodeData>[]>(
+    () =>
+      buildGroupedColumns({
+        columnVisibility,
+        groupedTreeColumnId,
+        handleGroupDeselectAllStable,
+        handleGroupSelectAllStable,
+        headerSelectionLabel,
+        headerSelectableFiles,
+        isHeaderSelectionComplete,
+        isGroupFullySelectedRef,
+        isGroupPartiallySelectedRef,
+        onDeselectAllStable,
+        onFileClickStable,
+        onSelectAllOnPageStable,
+        onSortStable,
+        onToggleSelectionStable,
+        previewSelectionsRef,
+        primaryGroupColumn,
+        renderGroupHeaderIfPrimary,
+        sortDirection,
+        sortField,
+      }),
+    [
       columnVisibility,
       groupedTreeColumnId,
       handleGroupDeselectAllStable,
@@ -956,37 +978,17 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
       headerSelectionLabel,
       headerSelectableFiles,
       isHeaderSelectionComplete,
-      isGroupFullySelectedRef,
-      isGroupPartiallySelectedRef,
       onDeselectAllStable,
       onFileClickStable,
       onSelectAllOnPageStable,
       onSortStable,
       onToggleSelectionStable,
-      previewSelectionsRef,
       primaryGroupColumn,
       renderGroupHeaderIfPrimary,
       sortDirection,
       sortField,
-    });
-  }, [
-    columnVisibility,
-    groupedTreeColumnId,
-    handleGroupDeselectAllStable,
-    handleGroupSelectAllStable,
-    headerSelectionLabel,
-    headerSelectableFiles,
-    isHeaderSelectionComplete,
-    onDeselectAllStable,
-    onFileClickStable,
-    onSelectAllOnPageStable,
-    onSortStable,
-    onToggleSelectionStable,
-    primaryGroupColumn,
-    renderGroupHeaderIfPrimary,
-    sortDirection,
-    sortField,
-  ]);
+    ]
+  );
 
   const rowClassName = useCallback((node: TreeNode<PreviewTreeNodeData>) => {
     if (node.data.kind === 'group') {

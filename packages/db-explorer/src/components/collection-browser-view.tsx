@@ -840,11 +840,12 @@ export function CollectionBrowserView({
     [setSelectedId, records, loadChunkDetail, onFileSelect, onChunkSelect]
   );
 
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       isMountedRef.current = false;
-    };
-  }, []);
+    },
+    []
+  );
 
   // Handle multi-select toggle — also toggles showCheckbox in sync
   const handleMultiSelectToggle = useCallback(

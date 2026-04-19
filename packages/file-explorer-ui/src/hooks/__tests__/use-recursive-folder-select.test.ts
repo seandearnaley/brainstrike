@@ -93,7 +93,7 @@ function findNodeByPath(node: IFileNode, path: string): IFileNode | undefined {
       return nested;
     }
   }
-  return undefined;
+  return;
 }
 
 function createMockAdapter(directoryMap: Record<string, IFileNode[]>): FileSystemAdapter {

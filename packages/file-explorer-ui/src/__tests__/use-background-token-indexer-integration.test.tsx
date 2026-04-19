@@ -1156,7 +1156,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       if (folderId === rootFolderId && path === 'src/deep/large-file.ts') {
         return 800_000;
       }
-      return undefined;
+      return;
     });
 
     mockFileTreeIndexContext = {
@@ -1196,7 +1196,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       if (folderId === rootFolderId && path === 'src/deep/large-file.ts') {
         return 800_000;
       }
-      return undefined;
+      return;
     });
 
     mockFileTreeIndexContext = {
@@ -1601,7 +1601,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         if (folderId === rootFolderId && path === 'src/deep/large.txt') {
           return 800_000;
         }
-        return undefined;
+        return;
       });
 
       mockFileTreeIndexContext = {

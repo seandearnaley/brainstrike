@@ -179,7 +179,7 @@ describe('local-artifact-store', () => {
             },
           });
         }
-        return undefined;
+        return;
       }),
       put: vi.fn(),
     } as unknown as Cache;
@@ -224,7 +224,7 @@ describe('local-artifact-store', () => {
             },
           });
         }
-        return undefined;
+        return;
       }),
       put: vi.fn(async (_url: string, response: Response) => {
         await response.arrayBuffer();
@@ -583,9 +583,11 @@ describe('local-artifact-store', () => {
     } as Window;
 
     const cache = {
-      match: vi.fn().mockImplementation(async (url: string) => {
-        return url.includes('vision_encoder') ? undefined : new Response('ok', { status: 200 });
-      }),
+      match: vi
+        .fn()
+        .mockImplementation(async (url: string) =>
+          url.includes('vision_encoder') ? undefined : new Response('ok', { status: 200 })
+        ),
       put: vi.fn(),
     } as unknown as Cache;
     vi.stubGlobal('caches', {

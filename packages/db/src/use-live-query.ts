@@ -474,9 +474,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     await refreshRef.current();
   }, []);
 
-  const rows = useMemo(() => {
-    return (select ? select(rawRows) : rawRows) as T[];
-  }, [select, rawRows]);
+  const rows = useMemo(() => (select ? select(rawRows) : rawRows) as T[], [select, rawRows]);
 
   return useMemo(
     () => ({

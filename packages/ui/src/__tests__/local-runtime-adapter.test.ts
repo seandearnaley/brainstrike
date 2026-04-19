@@ -292,9 +292,7 @@ describe('createLocalModelAdapter', () => {
   });
 
   it('lets an aborted warmup caller exit locally without cancelling shared warmup work', async () => {
-    const warmup = vi.fn().mockImplementation(async () => {
-      return await new Promise<void>(() => {});
-    });
+    const warmup = vi.fn().mockImplementation(async () => await new Promise<void>(() => {}));
     const cancel = vi.fn().mockResolvedValue(undefined);
     const generate = vi.fn();
 

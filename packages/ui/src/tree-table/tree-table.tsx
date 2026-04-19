@@ -56,7 +56,7 @@ function getAriaSortValue(
   sortState?: { columnId: string | null; direction: 'asc' | 'desc' | null }
 ): 'ascending' | 'descending' | 'none' | undefined {
   if (!sortState || sortState.columnId !== columnId) {
-    return undefined;
+    return;
   }
   if (sortState.direction === 'asc') {
     return 'ascending';

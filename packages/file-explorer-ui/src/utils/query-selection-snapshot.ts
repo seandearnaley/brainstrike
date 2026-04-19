@@ -15,11 +15,9 @@ interface QueryResultRow {
 
 function normalizeSnapshotRows(rows: unknown[]): string[] {
   return rows
+    .filter((row): row is Record<string, unknown> => !!row && typeof row === 'object')
     .map((row) => {
-      if (!(row && typeof row === 'object')) {
-        return undefined;
-      }
-      const filePath = (row as Record<string, unknown>)['file_path'];
+      const filePath = row['file_path'];
       return typeof filePath === 'string' ? filePath : (row as QueryResultRow).filePath;
     })
     .filter((value): value is string => typeof value === 'string')

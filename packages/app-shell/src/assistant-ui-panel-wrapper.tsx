@@ -645,21 +645,23 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     return false;
   }, [db, dbError, dbInitializing, registryError]);
 
-  const enabledModelIds = useMemo(() => {
-    return buildEnabledModelIdSet({
-      shouldFallbackToPreferences,
+  const enabledModelIds = useMemo(
+    () =>
+      buildEnabledModelIdSet({
+        shouldFallbackToPreferences,
+        configuredProviders,
+        enabledModelsByProvider,
+        registryEnabledModelIds,
+        localRuntimeModels,
+      }),
+    [
       configuredProviders,
       enabledModelsByProvider,
-      registryEnabledModelIds,
       localRuntimeModels,
-    });
-  }, [
-    configuredProviders,
-    enabledModelsByProvider,
-    localRuntimeModels,
-    registryEnabledModelIds,
-    shouldFallbackToPreferences,
-  ]);
+      registryEnabledModelIds,
+      shouldFallbackToPreferences,
+    ]
+  );
 
   const runtimeLlmModelsByProvider = useMemo<
     Partial<Record<LocalRuntimeProviderId, readonly LlmProviderModelDefinition[]>>
@@ -943,27 +945,29 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     };
   }, [handleSelectionUpdate]);
 
-  const nativeToolItems = useMemo<AssistantToolMenuItem[]>(() => {
-    return Object.entries(NATIVE_TOOL_DEFAULTS).map(([toolId, metadata]) => {
-      const category =
-        typeof (metadata as { category?: unknown }).category === 'string'
-          ? (metadata as { category: string }).category
-          : undefined;
-      const inputSchema = toLocalRuntimeInputSchema(toolId);
+  const nativeToolItems = useMemo<AssistantToolMenuItem[]>(
+    () =>
+      Object.entries(NATIVE_TOOL_DEFAULTS).map(([toolId, metadata]) => {
+        const category =
+          typeof (metadata as { category?: unknown }).category === 'string'
+            ? (metadata as { category: string }).category
+            : undefined;
+        const inputSchema = toLocalRuntimeInputSchema(toolId);
 
-      return {
-        id: toolId,
-        label: formatToolLabel(toolId),
-        enabled: typeof nativeToolStates[toolId] === 'boolean' ? nativeToolStates[toolId] : true,
-        source: 'native',
-        group: 'Native Tools',
-        description: getToolDescription(toolId),
-        ...(inputSchema ? { inputSchema } : {}),
-        isLocalRuntimeRunnable: true,
-        ...(category ? { category } : {}),
-      };
-    });
-  }, [nativeToolStates]);
+        return {
+          id: toolId,
+          label: formatToolLabel(toolId),
+          enabled: typeof nativeToolStates[toolId] === 'boolean' ? nativeToolStates[toolId] : true,
+          source: 'native',
+          group: 'Native Tools',
+          description: getToolDescription(toolId),
+          ...(inputSchema ? { inputSchema } : {}),
+          isLocalRuntimeRunnable: true,
+          ...(category ? { category } : {}),
+        };
+      }),
+    [nativeToolStates]
+  );
 
   const loadMcpTools = useCallback(async () => {
     if (typeof window === 'undefined' || !window.mcp?.listTools) {
