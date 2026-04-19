@@ -7,6 +7,7 @@ import {
   PartialRefreshError,
 } from './errors';
 
+export * from './assistant-provider-settings';
 export * from './electron-api';
 export * from './embedding-constants';
 // Export types from other files

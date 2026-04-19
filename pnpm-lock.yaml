@@ -1615,6 +1615,9 @@ importers:
       '@brainstrike/text-splitter':
         specifier: workspace:*
         version: link:../text-splitter
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
       '@brainstrike/ui':
         specifier: workspace:*
         version: link:../ui
@@ -1951,6 +1954,9 @@ importers:
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils

@@ -14,6 +14,15 @@ import {
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/agent/provider-metadata';
+import type {
+  AnthropicEffort,
+  AssistantProviderSettings,
+  AssistantProviderSettingsUpdate,
+  GoogleThinkingLevel,
+  LocalRuntimeActivation,
+  OpenAiReasoningEffort,
+  OpenAiReasoningSummary,
+} from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -23,47 +32,19 @@ const logger = createLogger('AssistantPreferencesStore');
 
 type EnabledModelsMap = Record<SupportedProvider, string[]>;
 
-export type OpenAiReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-export type OpenAiReasoningSummary = 'auto' | 'detailed';
-export type AnthropicEffort = 'low' | 'medium' | 'high';
-export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
-
-/**
- * Tri-state activation for local runtimes:
- * - `auto`: follow detection — show the provider only when probing succeeds.
- * - `on`:   force-enabled regardless of detection (useful for remote runtimes
- *            behind a VPN/tunnel where local probes may be slow or flap).
- * - `off`:  force-disabled — hide entirely even if the server is reachable.
- *
- * Defaults to `auto` when unset.
- */
-export type LocalRuntimeActivation = 'auto' | 'on' | 'off';
-
-export interface AssistantProviderSettings {
-  anthropicEffort?: AnthropicEffort;
-  anthropicThinkingBudgetTokens?: number;
-  googleIncludeThoughts?: boolean;
-  googleThinkingLevel?: GoogleThinkingLevel;
-  /**
-   * Origin override for local runtime providers (ollama/lmstudio). Empty or
-   * undefined means "use the runtime's default (127.0.0.1 + standard port)".
-   * Stored raw — normalized at the boundary when read by probes or the factory.
-   * Unused for hosted providers.
-   */
-  localRuntimeBaseUrl?: string;
-  /**
-   * Tri-state activation for local runtime providers (ollama/lmstudio).
-   * Defaults to `auto` when unset. Unused for hosted providers.
-   */
-  localRuntimeEnabled?: LocalRuntimeActivation;
-  localThinkingEnabled?: boolean;
-  maxOutputTokens?: number;
-  reasoningEffort?: OpenAiReasoningEffort;
-  reasoningSummary?: OpenAiReasoningSummary;
-}
-
-export type AssistantProviderSettingsUpdate = {
-  [Key in keyof AssistantProviderSettings]?: AssistantProviderSettings[Key] | undefined;
+// Provider-settings shapes are now hosted in `@brainstrike/types` so
+// `packages/ui` and `packages/preferences` share a single canonical
+// definition (reviewers flagged the duplication five times on PR #873).
+// Re-exported here so existing consumers that imported these types from
+// the preferences barrel keep working.
+export type {
+  AnthropicEffort,
+  AssistantProviderSettings,
+  AssistantProviderSettingsUpdate,
+  GoogleThinkingLevel,
+  LocalRuntimeActivation,
+  OpenAiReasoningEffort,
+  OpenAiReasoningSummary,
 };
 
 type ProviderSettingsMap = Record<SupportedProvider, AssistantProviderSettings>;

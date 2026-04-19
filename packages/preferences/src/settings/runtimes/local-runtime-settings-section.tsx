@@ -472,7 +472,8 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
   );
 };
 
-// AssistantProviderSettings is exported from the preferences barrel
-// (packages/preferences/src/index.ts → stores/assistant-preferences-store).
-// Consumers should import it from there rather than from this settings
-// section file, so no re-export lives here.
+// `AssistantProviderSettings` and friends are hosted in `@brainstrike/types`
+// and re-exported through the preferences barrel
+// (`packages/preferences/src/index.ts` → `stores/assistant-preferences-store`).
+// Consumers should import them from `@brainstrike/types` (or the preferences
+// barrel for back-compat). No re-export lives in this settings section file.
