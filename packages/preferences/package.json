@@ -11,7 +11,7 @@
     "@brainstrike/utils": "workspace:*",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.13.24",
-    "lucide-react": "^0.575.0"
+    "lucide-react": "^1.8.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
@@ -19,7 +19,7 @@
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
-    "jsdom": "28.1.0",
+    "jsdom": "29.0.2",
     "vitest": "^4.1.4",
     "zustand": "^5.0.12"
   },
