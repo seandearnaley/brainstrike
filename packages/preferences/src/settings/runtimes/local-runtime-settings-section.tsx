@@ -239,6 +239,17 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
   useEffect(() => {
     runProbeRef.current = runProbe;
   }, [runProbe]);
+  // Tracks whether the card is still mounted. `commitBaseUrl` and any other
+  // user-triggered probes pass an `isStale` that returns `!isMountedRef.current`
+  // so a probe in flight at unmount does not fire setState on an unmounted
+  // component (React 18 downgrades that to a warning; we still prefer clean).
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   // Generation counter used by the mount/activation effect to decide which
   // in-flight probe's result is still fresh. Bumped once per non-`off`
   // effect run; probes capture the value at start and skip state updates
@@ -279,9 +290,17 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
     // Ordering is explicit via await so a future refactor that switches
     // the probe to read from a React selector or local state can't race
     // ahead of the store update.
+    //
+    // Use `runProbeRef.current` (rather than the `runProbe` closure) so a
+    // future selector-reference change can't leave `commitBaseUrl` holding
+    // a stale callback. `isStale` gates the final `setState` on the
+    // still-mounted check so navigating away during a probe can't warn.
     setProviderSettings(card.providerId, { localRuntimeBaseUrl: next });
-    await runProbe({ force: true });
-  }, [card.providerId, draftBaseUrl, runProbe, setProviderSettings]);
+    await runProbeRef.current({
+      force: true,
+      isStale: () => !isMountedRef.current,
+    });
+  }, [card.providerId, draftBaseUrl, setProviderSettings]);
 
   const saveToken = useCallback(async () => {
     const bridge = readSecretsBridge();

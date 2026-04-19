@@ -350,7 +350,7 @@ function toFailureState(
       state: 'unavailable',
       checkedAt,
       message,
-      hint: 'Network error — the server may not be running, or (if it is) the Electron renderer origin may not be listed in OLLAMA_ORIGINS. Probing via the main process bridge sidesteps CORS; start Ollama or widen OLLAMA_ORIGINS if this persists.',
+      hint: 'Network error reaching the runtime. Most often this means the server is not running — start Ollama or LM Studio and try again. If the server is running but the probe still fails from the desktop app, set `OLLAMA_ORIGINS=*` (Ollama) or widen the origin allow-list in your local server so the app is accepted.',
     };
   }
   return {

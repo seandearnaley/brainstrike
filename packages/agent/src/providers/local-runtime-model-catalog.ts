@@ -852,6 +852,12 @@ export class LocalRuntimeModelCatalogService {
     if (!options.force) {
       const cached = this.ollamaCapabilitiesCache.get(cacheKey);
       if (cached && this.now() < cached.expiresAt) {
+        // Promote on hit so eviction is true LRU rather than FIFO. `Map`
+        // iterates in insertion order, so delete-then-set moves the entry
+        // to the back of the line and guarantees a frequently-used model
+        // survives pressure from one-off lookups at different baseUrls.
+        this.ollamaCapabilitiesCache.delete(cacheKey);
+        this.ollamaCapabilitiesCache.set(cacheKey, cached);
         return cached.result;
       }
     }
@@ -913,10 +919,12 @@ export class LocalRuntimeModelCatalogService {
         thinking: capabilities.includes('thinking'),
         insert: capabilities.includes('insert'),
       };
-      // Evict the oldest entry once we exceed the cap. `Map` iterates in
-      // insertion order so the first key is the oldest. Re-inserting a
-      // refreshed key (after `.set`) moves it to the back — hits naturally
-      // become "most-recently-used" without an explicit LRU structure.
+      // Evict the least-recently-used entry once we exceed the cap. Map
+      // iterates in insertion order, so the first key is the oldest — but
+      // cache hits promote entries via delete+reinsert (see the hit-path
+      // above) so the iteration-order truly tracks access order, not just
+      // insertion time. Refreshed entries also move to the back on this
+      // .set(), keeping the LRU semantics consistent across both paths.
       if (this.ollamaCapabilitiesCache.size >= OLLAMA_CAPABILITIES_CACHE_MAX_ENTRIES) {
         const oldestKey = this.ollamaCapabilitiesCache.keys().next().value;
         if (typeof oldestKey === 'string') {

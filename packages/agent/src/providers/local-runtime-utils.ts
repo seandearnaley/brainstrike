@@ -127,6 +127,15 @@ export function normalizeRuntimeBaseUrl(raw: string | undefined | null): string 
     return null;
   }
 
+  // Userinfo (`parsed.username` / `parsed.password`) is intentionally
+  // discarded by the `${protocol}//${host}${pathname}` reconstruction
+  // below — `URL#host` excludes it. Embedded credentials in a local-runtime
+  // URL are almost never what the user wants: bearer auth flows via the
+  // separate `apiToken` field, not via `user:pass@host`. A user pasting
+  // `http://secret@host/` gets back the canonical origin without `secret`;
+  // if they were relying on HTTP basic auth this is a visible change.
+  // Documented here so the silent drop is intentional, not an oversight.
+
   let pathname = parsed.pathname;
   while (pathname.endsWith('/')) {
     pathname = pathname.slice(0, -1);
