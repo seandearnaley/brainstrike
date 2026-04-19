@@ -48,8 +48,11 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "@biomejs/biome",
+      "@jacobwolf/biome-unnecessary-effect",
       "@swc/core",
       "@tailwindcss/oxide",
+      "core-js",
+      "core-js-pure",
       "electron",
       "electron-winstaller",
       "esbuild",
@@ -57,6 +60,7 @@
       "onnxruntime-node",
       "oxc-resolver",
       "protobufjs",
+      "puppeteer",
       "sharp"
     ],
     "overrides": {
