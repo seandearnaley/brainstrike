@@ -422,13 +422,16 @@ interface StreamResultLike {
   fullStream?: NodeReadableStream<unknown> | ReadableStream<unknown>;
 }
 
+type AgentStreamInput = Parameters<Agent['stream']>[0];
+type AgentStreamOptions = Exclude<
+  Extract<Parameters<Agent['stream']>, [unknown, unknown]>[1],
+  undefined
+>;
+
 const hasStreamLegacy = (
   agent: Agent
 ): agent is Agent & {
-  streamLegacy: (
-    input: Parameters<Agent['stream']>[0],
-    options?: Parameters<Agent['stream']>[1]
-  ) => Promise<unknown>;
+  streamLegacy: (input: AgentStreamInput, options?: AgentStreamOptions) => Promise<unknown>;
 } => typeof (agent as { streamLegacy?: unknown }).streamLegacy === 'function';
 
 const resolveFullStream = (
@@ -492,7 +495,9 @@ async function createStreamIteratorFromRuntime({
 
     if (useLegacyStream && hasStreamLegacy(runtime.agent)) {
       logger.info('using streamLegacy for V1 model', { code: 'mastra_agent_stream_legacy_start' });
-      streamResult = await runtime.agent.streamLegacy(streamInput, resolvedStreamOptions);
+      streamResult = resolvedStreamOptions
+        ? await runtime.agent.streamLegacy(streamInput, resolvedStreamOptions as AgentStreamOptions)
+        : await runtime.agent.streamLegacy(streamInput);
       logger.info('mastra legacy stream started', { code: 'mastra_agent_stream_legacy_started' });
     } else {
       if (useLegacyStream) {
@@ -500,7 +505,9 @@ async function createStreamIteratorFromRuntime({
           code: 'mastra_agent_stream_legacy_unavailable',
         });
       }
-      const result = await runtime.agent.stream(streamInput, resolvedStreamOptions);
+      const result = resolvedStreamOptions
+        ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
+        : await runtime.agent.stream(streamInput);
       logger.info('mastra stream started', { code: 'mastra_agent_stream_started' });
       streamResult = result;
     }

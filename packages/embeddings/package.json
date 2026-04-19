@@ -11,7 +11,7 @@
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@huggingface/transformers": "^4.0.1",
+    "@huggingface/transformers": "^4.1.0",
     "glob": "^13.0.6"
   },
   "devDependencies": {
