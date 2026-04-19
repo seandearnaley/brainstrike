@@ -8,6 +8,7 @@ import type {
 } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateReport, generateReportFromAdapter } from '../report-generator';
+import { extractPathSegments } from '../tree-operations';
 
 interface MockFileEntry {
   children?: Record<string, MockFileEntry>;
@@ -78,7 +79,7 @@ class MockFileSystemAdapter implements FileSystemAdapter {
     if (!path) {
       return this.mockFileSystem;
     }
-    const segments = path.split('/').filter(Boolean);
+    const segments = extractPathSegments(path);
     let current = this.mockFileSystem;
     for (const part of segments) {
       const entry = current[part];

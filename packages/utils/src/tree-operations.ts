@@ -339,6 +339,35 @@ export function resetDirectoryNode<T extends TreeNode>(node: T): T {
  * getPathDepth('/src'); // 1
  * ```
  */
+/**
+ * Fast method to extract path segments, bypassing intermediate arrays and regex splits.
+ *
+ * @param path - Path to split
+ * @returns Array of non-empty path segments
+ */
+export function extractPathSegments(path: string): string[] {
+  const segments: string[] = [];
+  let inSegment = false;
+  let segmentStart = 0;
+  for (let i = 0; i < path.length; i++) {
+    if (path.charCodeAt(i) === PATH_SEPARATOR_CODE) {
+      if (inSegment) {
+        segments.push(path.slice(segmentStart, i));
+        inSegment = false;
+      }
+    } else {
+      if (!inSegment) {
+        segmentStart = i;
+        inSegment = true;
+      }
+    }
+  }
+  if (inSegment) {
+    segments.push(path.slice(segmentStart));
+  }
+  return segments;
+}
+
 export function getPathDepth(path: string): number {
   let count = 0;
   let inSegment = false;

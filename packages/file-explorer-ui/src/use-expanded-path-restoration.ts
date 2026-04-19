@@ -27,15 +27,41 @@ export function __resetRestorationLock(): void {
 }
 
 function getAllAncestorDirectories(filePath: string): string[] {
-  const isAbsolute = filePath.startsWith('/');
-  const segments = filePath.split('/').filter(Boolean);
-  segments.pop();
-
+  const isAbsolute = filePath.charCodeAt(0) === 47; // '/'
   const ancestors: string[] = [];
-  for (let index = 1; index <= segments.length; index += 1) {
-    const prefix = isAbsolute ? '/' : '';
-    ancestors.push(prefix + segments.slice(0, index).join('/'));
+  let currentPath = isAbsolute ? '/' : '';
+
+  let startIdx = 0;
+  let nextSlash = filePath.indexOf('/', startIdx);
+  let pendingSegment: string | null = null;
+
+  while (nextSlash !== -1) {
+    if (nextSlash > startIdx) {
+      if (pendingSegment !== null) {
+        if (currentPath.length > 0 && currentPath !== '/') {
+          currentPath += '/' + pendingSegment;
+        } else {
+          currentPath += pendingSegment;
+        }
+        ancestors.push(currentPath);
+      }
+      pendingSegment = filePath.slice(startIdx, nextSlash);
+    }
+    startIdx = nextSlash + 1;
+    nextSlash = filePath.indexOf('/', startIdx);
   }
+
+  if (startIdx < filePath.length) {
+    if (pendingSegment !== null) {
+      if (currentPath.length > 0 && currentPath !== '/') {
+        currentPath += '/' + pendingSegment;
+      } else {
+        currentPath += pendingSegment;
+      }
+      ancestors.push(currentPath);
+    }
+  }
+
   return ancestors;
 }
 
