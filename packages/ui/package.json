@@ -4,9 +4,9 @@
   "version": "1.0.0",
   "author": "",
   "dependencies": {
-    "@assistant-ui/react": "^0.12.11",
-    "@assistant-ui/react-data-stream": "^0.12.4",
-    "@assistant-ui/react-markdown": "^0.12.4",
+    "@assistant-ui/react": "^0.12.25",
+    "@assistant-ui/react-data-stream": "^0.12.11",
+    "@assistant-ui/react-markdown": "^0.12.9",
     "@assistant-ui/styles": "^0.3.7",
     "@brainstrike/agent": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
@@ -28,17 +28,17 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@shikijs/langs": "^3.23.0",
     "@shikijs/themes": "^3.23.0",
-    "@tanstack/react-virtual": "^3.13.19",
+    "@tanstack/react-virtual": "^3.13.24",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "lucide-react": "^0.575.0",
     "react-resizable-panels": "^4.6.5",
-    "react-shiki": "^0.9.1",
+    "react-shiki": "^0.9.3",
     "remark-gfm": "^4.0.1",
     "shiki": "^3.23.0",
     "tailwind-merge": "^3.5.0",
-    "zustand": "^5"
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
@@ -50,9 +50,9 @@
     "@vitejs/plugin-react": "^6.0.1",
     "jsdom": "28.1.0",
     "react-router-dom": "^7.13.1",
-    "tailwindcss": "^4.2.1",
+    "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.4"
   },
   "engines": {
     "node": ">=22"

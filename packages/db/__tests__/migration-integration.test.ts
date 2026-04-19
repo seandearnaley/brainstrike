@@ -27,45 +27,43 @@ describe('Migration System Integration', () => {
   });
 
   describe('full migration workflow', () => {
-    it(
-      'should run all migrations and create working database schema',
-      { timeout: 30_000 },
-      async () => {
-        await runner.initialize();
-        await runner.up(migrations);
+    it('should run all migrations and create working database schema', {
+      timeout: 30_000,
+    }, async () => {
+      await runner.initialize();
+      await runner.up(migrations);
 
-        // Verify all migrations were applied (may include migration 4 if available)
-        const applied = await runner.getAppliedMigrations();
-        expect(applied.length).toBeGreaterThanOrEqual(3);
-        expect(applied).toEqual(expect.arrayContaining([1, 2, 3]));
+      // Verify all migrations were applied (may include migration 4 if available)
+      const applied = await runner.getAppliedMigrations();
+      expect(applied.length).toBeGreaterThanOrEqual(3);
+      expect(applied).toEqual(expect.arrayContaining([1, 2, 3]));
 
-        // Verify the final schema is correct
-        const schema = await db.query(`
+      // Verify the final schema is correct
+      const schema = await db.query(`
         SELECT tablename FROM pg_tables 
         WHERE schemaname = 'public' AND tablename != '_migrations'
         ORDER BY tablename
       `);
-        const tableNames = schema.rows.map((row) => (row as { tablename: string }).tablename);
-        expect(tableNames).toContain('file_records');
+      const tableNames = schema.rows.map((row) => (row as { tablename: string }).tablename);
+      expect(tableNames).toContain('file_records');
 
-        // Verify vector columns were added
-        const columns = await db.query(`
+      // Verify vector columns were added
+      const columns = await db.query(`
         SELECT column_name FROM information_schema.columns 
         WHERE table_name = 'file_records'
         ORDER BY ordinal_position
       `);
-        const columnNames = columns.rows.map((row) => (row as { column_name: string }).column_name);
-        expect(columnNames).toContain('content');
-        expect(columnNames).toContain('embedding');
+      const columnNames = columns.rows.map((row) => (row as { column_name: string }).column_name);
+      expect(columnNames).toContain('content');
+      expect(columnNames).toContain('embedding');
 
-        // Verify indexes were created
-        const indexes = await db.query(`
+      // Verify indexes were created
+      const indexes = await db.query(`
         SELECT indexname FROM pg_indexes 
         WHERE tablename = 'file_records'
       `);
-        expect(indexes.rows.length).toBeGreaterThan(0);
-      }
-    );
+      expect(indexes.rows.length).toBeGreaterThan(0);
+    });
 
     it('should work with repository after migrations', { timeout: TEST_TIMEOUT }, async () => {
       await runner.initialize();
@@ -160,48 +158,46 @@ describe('Migration System Integration', () => {
       expect(applied).toEqual([]);
     });
 
-    it(
-      'should maintain data integrity during failed migrations',
-      { timeout: TEST_TIMEOUT },
-      async () => {
-        await runner.initialize();
-        const firstMigration = migrations[0];
-        if (!firstMigration) {
-          throw new Error('No migrations available');
-        }
-        await runner.runMigration(firstMigration); // Initial schema
-
-        // Create test data
-        const repository = createFileRecordRepository(db);
-        const testRecord: FileRecord = {
-          id: 'integrity-test',
-          name: 'integrity.txt',
-          path: '/test/integrity.txt',
-          size: 256,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        await repository.create(testRecord);
-
-        // Create a bad migration that should fail
-        const badMigration = {
-          version: 99,
-          name: 'bad_migration',
-          up: 'ALTER TABLE file_records ADD COLUMN bad_column INVALID_TYPE;',
-          down: 'ALTER TABLE file_records DROP COLUMN bad_column;',
-        };
-
-        // Migration should fail
-        await expect(runner.runMigration(badMigration)).rejects.toThrow();
-
-        // But existing data should be intact
-        const found = await repository.findById('integrity-test');
-        expect(found).toEqual(testRecord);
-
-        // And migration should not be marked as applied
-        expect(await runner.isApplied(99)).toBe(false);
+    it('should maintain data integrity during failed migrations', {
+      timeout: TEST_TIMEOUT,
+    }, async () => {
+      await runner.initialize();
+      const firstMigration = migrations[0];
+      if (!firstMigration) {
+        throw new Error('No migrations available');
       }
-    );
+      await runner.runMigration(firstMigration); // Initial schema
+
+      // Create test data
+      const repository = createFileRecordRepository(db);
+      const testRecord: FileRecord = {
+        id: 'integrity-test',
+        name: 'integrity.txt',
+        path: '/test/integrity.txt',
+        size: 256,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await repository.create(testRecord);
+
+      // Create a bad migration that should fail
+      const badMigration = {
+        version: 99,
+        name: 'bad_migration',
+        up: 'ALTER TABLE file_records ADD COLUMN bad_column INVALID_TYPE;',
+        down: 'ALTER TABLE file_records DROP COLUMN bad_column;',
+      };
+
+      // Migration should fail
+      await expect(runner.runMigration(badMigration)).rejects.toThrow();
+
+      // But existing data should be intact
+      const found = await repository.findById('integrity-test');
+      expect(found).toEqual(testRecord);
+
+      // And migration should not be marked as applied
+      expect(await runner.isApplied(99)).toBe(false);
+    });
   });
 
   describe('performance and scalability', () => {
@@ -221,46 +217,42 @@ describe('Migration System Integration', () => {
       expect(await runner.getCurrentVersion()).toBeGreaterThanOrEqual(3);
     });
 
-    it(
-      'should handle verification of many migrations efficiently',
-      { timeout: TEST_TIMEOUT },
-      async () => {
-        await runner.initialize();
-        await runner.up(migrations);
+    it('should handle verification of many migrations efficiently', {
+      timeout: TEST_TIMEOUT,
+    }, async () => {
+      await runner.initialize();
+      await runner.up(migrations);
 
-        const startTime = Date.now();
-        const isValid = await runner.verify(migrations);
-        const duration = Date.now() - startTime;
+      const startTime = Date.now();
+      const isValid = await runner.verify(migrations);
+      const duration = Date.now() - startTime;
 
-        expect(isValid).toBe(true);
-        expect(duration).toBeLessThan(100); // Verification should be fast
-      }
-    );
+      expect(isValid).toBe(true);
+      expect(duration).toBeLessThan(100); // Verification should be fast
+    });
   });
 
   describe('checksum validation in real scenarios', () => {
-    it(
-      'should detect when migration files are modified after deployment',
-      { timeout: TEST_TIMEOUT },
-      async () => {
-        await runner.initialize();
-        await runner.up(migrations);
+    it('should detect when migration files are modified after deployment', {
+      timeout: TEST_TIMEOUT,
+    }, async () => {
+      await runner.initialize();
+      await runner.up(migrations);
 
-        // Simulate a modified migration file
-        const modifiedMigrations = migrations.map((migration, index) => {
-          if (index === 0) {
-            return {
-              ...migration,
-              up: `${migration.up} -- Modified`,
-            };
-          }
-          return migration;
-        });
+      // Simulate a modified migration file
+      const modifiedMigrations = migrations.map((migration, index) => {
+        if (index === 0) {
+          return {
+            ...migration,
+            up: `${migration.up} -- Modified`,
+          };
+        }
+        return migration;
+      });
 
-        const isValid = await runner.verify(modifiedMigrations);
-        expect(isValid).toBe(false);
-      }
-    );
+      const isValid = await runner.verify(modifiedMigrations);
+      expect(isValid).toBe(false);
+    });
 
     it('should pass validation for unchanged migrations', { timeout: TEST_TIMEOUT }, async () => {
       await runner.initialize();

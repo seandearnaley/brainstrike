@@ -79,7 +79,7 @@ export function formatPackedContext(
   return chunks
     .map((chunk, index) => {
       const location = chunk.filePath ?? chunk.fileName ?? 'Unknown file';
-      const chunkLabel = chunk.chunkIndex !== undefined ? ` (chunk ${chunk.chunkIndex})` : '';
+      const chunkLabel = chunk.chunkIndex === undefined ? '' : ` (chunk ${chunk.chunkIndex})`;
       return `Source ${index + 1}: ${location}${chunkLabel}\n${chunk.content}`;
     })
     .join('\n\n---\n\n');

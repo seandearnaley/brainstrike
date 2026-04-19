@@ -424,7 +424,7 @@ interface InitialLayoutApplicationConfig {
 }
 
 function applyInitialLayout(config: InitialLayoutApplicationConfig): void {
-  const startTime = typeof performance !== 'undefined' ? performance.now() : null;
+  const startTime = typeof performance === 'undefined' ? null : performance.now();
   try {
     if (config.horizontalGroupRef) {
       applyHorizontalLayout(

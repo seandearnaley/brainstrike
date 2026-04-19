@@ -7,8 +7,8 @@ const buildRow = (overrides: Partial<TableRowData>): TableRowData => ({
   path: overrides.path ?? 'file.ts',
   rootFolderId: overrides.rootFolderId ?? 'root',
   type: overrides.type ?? 'ts',
-  ...(overrides.size !== undefined ? { size: overrides.size } : {}),
-  ...(overrides.tokens !== undefined ? { tokens: overrides.tokens } : {}),
+  ...(overrides.size === undefined ? {} : { size: overrides.size }),
+  ...(overrides.tokens === undefined ? {} : { tokens: overrides.tokens }),
 });
 
 describe('GROUPING_CONFIGS sort comparators', () => {

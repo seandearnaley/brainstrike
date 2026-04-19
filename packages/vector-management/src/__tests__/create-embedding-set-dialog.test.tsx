@@ -124,63 +124,61 @@ describe('CreateEmbeddingSetDialog', () => {
     expect(screen.getByTestId('model-picker-select')).toBeDisabled();
   });
 
-  it(
-    'calls onSetCreated with correct data when form is submitted',
-    { timeout: 15_000 },
-    async () => {
-      const user = userEvent.setup({ delay: null }); // Disable delay for faster tests
-      (mockRepository.getOrCreateSet as Mock).mockResolvedValue({ id: 'new-set-id' });
+  it('calls onSetCreated with correct data when form is submitted', {
+    timeout: 15_000,
+  }, async () => {
+    const user = userEvent.setup({ delay: null }); // Disable delay for faster tests
+    (mockRepository.getOrCreateSet as Mock).mockResolvedValue({ id: 'new-set-id' });
 
-      render(
-        <>
-          <Toaster />
-          <CreateEmbeddingSetDialog
-            models={mockModels}
-            onOpenChange={mockOnOpenChange}
-            onSetCreated={mockOnSetCreated}
-            open={true}
-            providers={mockProviders}
-            repository={mockRepository}
-          />
-        </>
-      );
+    render(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          models={mockModels}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={mockProviders}
+          repository={mockRepository}
+        />
+      </>
+    );
 
-      // Wait for async initialization to complete (auto-fills name from model)
-      const nameInput = screen.getByLabelText(/Name/i);
-      await waitFor(() => {
-        expect(nameInput).toHaveValue('Text Embedding 3 Small');
-      });
+    // Wait for async initialization to complete (auto-fills name from model)
+    const nameInput = screen.getByLabelText(/Name/i);
+    await waitFor(() => {
+      expect(nameInput).toHaveValue('Text Embedding 3 Small');
+    });
 
-      // Clear auto-filled name and type custom name
-      await user.clear(nameInput);
-      await user.type(nameInput, 'My Collection');
+    // Clear auto-filled name and type custom name
+    await user.clear(nameInput);
+    await user.type(nameInput, 'My Collection');
 
-      // Select model (using our mock select)
-      await user.selectOptions(
-        screen.getByTestId('model-picker-select'),
-        'openai::text-embedding-3-small'
-      );
+    // Select model (using our mock select)
+    await user.selectOptions(
+      screen.getByTestId('model-picker-select'),
+      'openai::text-embedding-3-small'
+    );
 
-      // Submit
-      await user.click(screen.getByText('Create Collection'));
+    // Submit
+    await user.click(screen.getByText('Create Collection'));
 
-      // Verify repository call
-      expect(mockRepository.getOrCreateSet).toHaveBeenCalledWith(
-        'openai::text-embedding-3-small',
-        'text-embedding-3-small',
-        1536,
-        'cosine',
-        expect.objectContaining({
-          name: 'My Collection',
-        })
-      );
+    // Verify repository call
+    expect(mockRepository.getOrCreateSet).toHaveBeenCalledWith(
+      'openai::text-embedding-3-small',
+      'text-embedding-3-small',
+      1536,
+      'cosine',
+      expect.objectContaining({
+        name: 'My Collection',
+      })
+    );
 
-      // Verify callback
-      await waitFor(() => {
-        expect(mockOnSetCreated).toHaveBeenCalledWith('new-set-id');
-      });
-    }
-  );
+    // Verify callback
+    await waitFor(() => {
+      expect(mockOnSetCreated).toHaveBeenCalledWith('new-set-id');
+    });
+  });
 
   it('validates required fields', async () => {
     const user = userEvent.setup();

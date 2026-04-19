@@ -170,7 +170,7 @@ export function generateChunksCSV(chunks: FileChunk[]): string {
   const csvRows = [headers.map(escapeCSVValue).join(',')];
 
   for (const chunk of chunks) {
-    const contentPreview = chunk.content.substring(0, CHUNKING_CONFIG.csvContentPreviewLength);
+    const contentPreview = chunk.content.slice(0, CHUNKING_CONFIG.csvContentPreviewLength);
     const row = [
       escapeCSVValue(chunk.id),
       escapeCSVValue(chunk.fileRecordId),

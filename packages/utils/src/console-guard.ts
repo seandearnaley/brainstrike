@@ -25,7 +25,7 @@ export function installConsoleGuard(): void {
     return;
   }
 
-  const globalConsole = typeof console !== 'undefined' ? console : null;
+  const globalConsole = typeof console === 'undefined' ? null : console;
   if (!globalConsole) {
     return;
   }

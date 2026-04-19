@@ -1177,7 +1177,7 @@ export function CollectionBrowserView({
               treeWindowingStrategy="virtual"
               {...(sortState ? { sortState } : {})}
               {...(searchMode === 'semantic' ? { semanticResults: searchResults } : {})}
-              {...(groupBy !== 'none' ? { groupBy } : {})}
+              {...(groupBy === 'none' ? {} : { groupBy })}
             />
           </Panel>
 

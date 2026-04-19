@@ -478,7 +478,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   // Use prop if explicitly provided (different from default), otherwise persisted, otherwise default
   // This allows tests to override the page size while still supporting user persistence
   const effectivePageSize =
-    pageSize !== DEFAULT_PAGE_SIZE ? pageSize : (persistedPageSize ?? pageSize);
+    pageSize === DEFAULT_PAGE_SIZE ? (persistedPageSize ?? pageSize) : pageSize;
 
   // Use pagination hooks (table + tapestry)
   const tablePagination = usePagination({

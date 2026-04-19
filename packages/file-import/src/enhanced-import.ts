@@ -840,7 +840,7 @@ function buildChunkingOptions(
     ...(embeddingModelId ? { embeddingModelId } : {}),
     ...(embeddingModelKey ? { embeddingModelKey } : {}),
     ...(provider ? { provider } : {}),
-    ...(targetDimension !== undefined ? { targetDimension } : {}),
+    ...(targetDimension === undefined ? {} : { targetDimension }),
     ...(dimensionParameter ? { dimensionParameter } : {}),
   };
   attachQueueOptions(options, queueParams);
@@ -1090,7 +1090,7 @@ export async function runEnhancedImport<TFileNode = unknown>({
       ...(modelId ? { embeddingModelId: modelId } : {}),
       ...(modelKey ? { embeddingModelKey: modelKey } : {}),
       ...(provider ? { provider } : {}),
-      ...(targetDimension !== undefined ? { targetDimension } : {}),
+      ...(targetDimension === undefined ? {} : { targetDimension }),
       ...(dimensionParameter ? { dimensionParameter } : {}),
     };
 

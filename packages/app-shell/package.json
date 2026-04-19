@@ -7,8 +7,8 @@
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
-    "@brainstrike/file-system": "workspace:*",
     "@brainstrike/file-import": "workspace:*",
+    "@brainstrike/file-system": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/storage": "workspace:*",
@@ -26,9 +26,9 @@
     "@types/node": "^25.3.0",
     "@types/react": "^19.2.14",
     "jsdom": "28.1.0",
-    "react-dom": "^19.2.4",
-    "vitest": "^4.1.2",
-    "zustand": "^5"
+    "react-dom": "^19.2.5",
+    "vitest": "^4.1.4",
+    "zustand": "^5.0.12"
   },
   "engines": {
     "node": ">=22"

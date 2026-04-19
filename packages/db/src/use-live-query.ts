@@ -421,9 +421,9 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     const normalizedOptions: InternalLiveQueryOptions = {
       query: options.query,
       mode,
-      ...(currentParams !== undefined ? { params: currentParams } : {}),
-      ...(options.offset !== undefined ? { offset: options.offset } : {}),
-      ...(options.limit !== undefined ? { limit: options.limit } : {}),
+      ...(currentParams === undefined ? {} : { params: currentParams }),
+      ...(options.offset === undefined ? {} : { offset: options.offset }),
+      ...(options.limit === undefined ? {} : { limit: options.limit }),
       ...(options.key ? { key: options.key } : {}),
     };
 

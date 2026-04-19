@@ -10,7 +10,7 @@
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@tanstack/react-table": "^8.21.3",
-    "@tanstack/react-virtual": "^3.13.19",
+    "@tanstack/react-virtual": "^3.13.24",
     "lucide-react": "^0.575.0"
   },
   "devDependencies": {
@@ -20,8 +20,8 @@
     "@types/node": "^25.3.0",
     "@types/react": "^19.2.14",
     "jsdom": "28.1.0",
-    "vitest": "^4.1.2",
-    "zustand": "^5"
+    "vitest": "^4.1.4",
+    "zustand": "^5.0.12"
   },
   "engines": {
     "node": ">=22"

@@ -350,8 +350,8 @@ function createToolCallPart(
     toolName: toolCall.function.name,
     args: parsedArgs,
     argsText: toolCall.function.arguments,
-    ...(overrides?.result !== undefined ? { result: overrides.result } : {}),
-    ...(overrides?.isError !== undefined ? { isError: overrides.isError } : {}),
+    ...(overrides?.result === undefined ? {} : { result: overrides.result }),
+    ...(overrides?.isError === undefined ? {} : { isError: overrides.isError }),
   };
 }
 

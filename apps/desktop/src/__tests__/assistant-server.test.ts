@@ -206,10 +206,10 @@ describe('assistant-server', () => {
 
       expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
 
-      if (originalEnv !== undefined) {
-        process.env['BS_ASSISTANT_PORT'] = originalEnv;
-      } else {
+      if (originalEnv === undefined) {
         process.env['BS_ASSISTANT_PORT'] = undefined;
+      } else {
+        process.env['BS_ASSISTANT_PORT'] = originalEnv;
       }
     });
 

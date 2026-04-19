@@ -323,7 +323,7 @@ export function useEnhancedFileImportService(
               chunkId: detail.chunkId,
               status: detail.status,
               model: detail.model,
-              ...(detail.elapsedMs !== undefined ? { elapsedMs: detail.elapsedMs } : {}),
+              ...(detail.elapsedMs === undefined ? {} : { elapsedMs: detail.elapsedMs }),
               ...(detail.errorMessage ? { errorMessage: detail.errorMessage } : {}),
             },
           },

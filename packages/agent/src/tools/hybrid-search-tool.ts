@@ -213,10 +213,10 @@ async function runHybridSearch(
     ftsWeight,
   };
 
-  if (input.vectorThreshold !== undefined) {
-    searchOptions.vectorThreshold = input.vectorThreshold;
-  } else {
+  if (input.vectorThreshold === undefined) {
     searchOptions.vectorThreshold = DEFAULT_VECTOR_THRESHOLD;
+  } else {
+    searchOptions.vectorThreshold = input.vectorThreshold;
   }
 
   if (input.filePaths !== undefined) {

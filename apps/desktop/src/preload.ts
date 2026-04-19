@@ -561,7 +561,7 @@ contextBridge.exposeInMainWorld('llmHost', {
         ? payload
         : {
             modelId: payload.modelId,
-            ...(payload.requestId !== undefined ? { clientRequestId: payload.requestId } : {}),
+            ...(payload.requestId === undefined ? {} : { clientRequestId: payload.requestId }),
           }
     ),
   generate: (payload: {
@@ -572,10 +572,10 @@ contextBridge.exposeInMainWorld('llmHost', {
   }) =>
     ipcRenderer.invoke(LLM_HOST_GENERATE_CHANNEL, {
       kind: 'generate',
-      ...(payload.requestId !== undefined ? { clientRequestId: payload.requestId } : {}),
+      ...(payload.requestId === undefined ? {} : { clientRequestId: payload.requestId }),
       modelId: payload.modelId,
       messages: payload.messages,
-      ...(payload.options !== undefined ? { options: payload.options } : {}),
+      ...(payload.options === undefined ? {} : { options: payload.options }),
     }),
   reportStatus: (status: LlmHostStatus): void => {
     ipcRenderer.send(LLM_HOST_REPORT_STATUS_CHANNEL, status);

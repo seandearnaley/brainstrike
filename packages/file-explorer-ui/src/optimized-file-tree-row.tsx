@@ -667,5 +667,6 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
 );
 
 OptimizedFileTreeRow.displayName = 'OptimizedFileTreeRow';
+
 export { ROW_HEIGHT };
 export default OptimizedFileTreeRow;

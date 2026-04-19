@@ -92,7 +92,7 @@ function formatTypeCount(count: number, singular: string): string | null {
   if (count === 0) {
     return null;
   }
-  return `${count} ${singular}${count !== 1 ? 's' : ''}`;
+  return `${count} ${singular}${count === 1 ? '' : 's'}`;
 }
 
 /**

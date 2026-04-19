@@ -782,8 +782,8 @@ export function useBackgroundTokenIndexer({
             cachedHash,
             mode: currentMode,
             // Include pre-loaded content for Electron files
-            ...(file.content !== undefined ? { content: file.content } : {}),
-            ...(file.fileSize !== undefined ? { fileSize: file.fileSize } : {}),
+            ...(file.content === undefined ? {} : { content: file.content }),
+            ...(file.fileSize === undefined ? {} : { fileSize: file.fileSize }),
             // Include file handle for Web files
             ...(file.fileHandle ? { fileHandle: file.fileHandle } : {}),
           });

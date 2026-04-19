@@ -2653,7 +2653,7 @@ test.describe('Embedding Host Renderer', () => {
     logsSinceBaseline: readonly MainBufferedLogRecord[];
   }): number {
     const logCount = countPlannedMaintenanceLogs(options.logsSinceBaseline);
-    const runtimeRestartCycles = options.finalRuntimeId !== options.initialRuntimeId ? 1 : 0;
+    const runtimeRestartCycles = options.finalRuntimeId === options.initialRuntimeId ? 0 : 1;
     return Math.max(logCount, runtimeRestartCycles);
   }
 

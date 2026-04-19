@@ -179,7 +179,7 @@ function createDefaultConfig(): InternalLoggerConfig {
 }
 
 function parseEnvLogLevel(): LogLevel | undefined {
-  const envLevel = typeof process !== 'undefined' ? process.env?.['LOG_LEVEL'] : undefined;
+  const envLevel = typeof process === 'undefined' ? undefined : process.env?.['LOG_LEVEL'];
   if (!envLevel) {
     return;
   }
@@ -414,7 +414,7 @@ function createBrowserWrite(
   const consoleThreshold = config.console.level ?? resolveEffectiveLevel(config);
   const writeMethod = (level: LogMethodName | 'fatal') => {
     return (value: unknown) => {
-      const globalConsole = typeof console !== 'undefined' ? console : null;
+      const globalConsole = typeof console === 'undefined' ? null : console;
       const logLevel = level === 'fatal' ? LogLevel.FATAL : (level as LogLevel);
       if (
         !(

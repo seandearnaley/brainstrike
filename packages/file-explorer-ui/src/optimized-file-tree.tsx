@@ -1767,8 +1767,8 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         folderId,
         loadingFiles,
         ...(loadingPaths ? { loadingPaths } : {}),
-        ...(isLoadingForSelection !== undefined ? { isLoadingForSelection } : {}),
-        ...(loadingPathForSelection !== undefined ? { loadingPathForSelection } : {}),
+        ...(isLoadingForSelection === undefined ? {} : { isLoadingForSelection }),
+        ...(loadingPathForSelection === undefined ? {} : { loadingPathForSelection }),
       };
 
       if (normalizedTreeContext) {

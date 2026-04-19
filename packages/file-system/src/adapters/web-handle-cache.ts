@@ -227,11 +227,10 @@ export class WebHandleCache implements HandleCache {
   private evictOldest<K, V>(map: Map<K, V>, maxSize: number): void {
     while (map.size > maxSize) {
       const firstKey = map.keys().next().value;
-      if (firstKey !== undefined) {
-        map.delete(firstKey);
-      } else {
+      if (firstKey === undefined) {
         break;
       }
+      map.delete(firstKey);
     }
   }
 

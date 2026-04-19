@@ -3,21 +3,20 @@ import { HomePage } from './page-objects/home-page';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 test.describe('Electron App Launch', () => {
-  test(
-    'should launch successfully and show main window',
-    { tag: '@smoke' },
-    async ({ window, homePage }) => {
-      // Verify the app window is visible
-      expect(window).toBeTruthy();
+  test('should launch successfully and show main window', { tag: '@smoke' }, async ({
+    window,
+    homePage,
+  }) => {
+    // Verify the app window is visible
+    expect(window).toBeTruthy();
 
-      // Check window title
-      const title = await window.title();
-      expect(title).toContain('BrainStrike');
+    // Check window title
+    const title = await window.title();
+    expect(title).toContain('BrainStrike');
 
-      // Verify the main content is loaded
-      await homePage.shouldBeVisible();
-    }
-  );
+    // Verify the main content is loaded
+    await homePage.shouldBeVisible();
+  });
 
   test.setTimeout(90_000);
 

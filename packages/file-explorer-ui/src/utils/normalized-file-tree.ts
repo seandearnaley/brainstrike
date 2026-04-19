@@ -410,16 +410,16 @@ export function setNormalizedNodeLoadState(
   }
 
   const nextNodeByPath = new Map(state.nodeByPath);
-  if (loadError !== undefined) {
-    nextNodeByPath.set(path, {
-      ...currentNode,
-      loadError,
-      loadState,
-    });
-  } else {
+  if (loadError === undefined) {
     const { loadError: _existingLoadError, ...directoryNode } = currentNode;
     nextNodeByPath.set(path, {
       ...directoryNode,
+      loadState,
+    });
+  } else {
+    nextNodeByPath.set(path, {
+      ...currentNode,
+      loadError,
       loadState,
     });
   }
