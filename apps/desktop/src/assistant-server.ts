@@ -224,7 +224,7 @@ async function prepareAssistantPostRequest(
     provider === 'local' || provider === 'ollama' || provider === 'lmstudio';
   const apiKey = provider === 'local' ? '' : await resolveProviderApiKey(provider);
 
-  const runtimeData: RuntimeData = await hydrateRuntimeDataWithLocalRuntimeToken(
+  const runtimeData: RuntimeData = hydrateRuntimeDataWithLocalRuntimeToken(
     data ? { ...data, provider } : { provider },
     provider,
     apiKey
@@ -424,11 +424,11 @@ function registerRequestAbort(req: http.IncomingMessage): {
   };
 }
 
-async function hydrateRuntimeDataWithLocalRuntimeToken(
+function hydrateRuntimeDataWithLocalRuntimeToken(
   runtimeData: RuntimeData,
   provider: string,
   fetchedApiKey: string | undefined
-): Promise<RuntimeData> {
+): RuntimeData {
   // Only local-runtime providers need their `apiToken` injected into
   // providerOptions so the OpenAI-compat factory can forward it as a bearer
   // header. Hosted providers receive the key through the top-level `apiKey`.

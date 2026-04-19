@@ -7,7 +7,7 @@ import { Badge, Button, Card, Input, Label } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { Loader2, RefreshCw } from 'lucide-react';
 import type { FC, ReactElement } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LocalRuntimeActivation } from '../../stores/assistant-preferences-store';
 import { useAssistantPreferencesStore } from '../../stores/assistant-preferences-store';
 
@@ -308,14 +308,17 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
     }
   }, [card.providerId]);
 
-  // Intentionally computed once on mount — `window.secrets` is attached
+  // Resolve bridge availability once on mount. `window.secrets` is attached
   // synchronously by the Electron preload script before any renderer code
-  // runs, and never mutates afterwards. A `[]` useMemo is correct here, not
-  // a stale-closure bug. If the component ever renders under HMR before the
-  // preload completes (dev-only edge case) the value will be stuck `false`
-  // until next mount; that is an acceptable trade-off for the web build
-  // where we want to avoid an every-render call to `readSecretsBridge()`.
-  const secretsBridgeAvailable = useMemo(() => Boolean(readSecretsBridge()?.saveKey), []);
+  // runs in production — so the initial `false` is immediately replaced by
+  // the correct value on the first effect tick. Using a state + effect
+  // (instead of `useMemo([])`) adds a one-tick self-correction window that
+  // handles HMR and test environments where the bridge may attach between
+  // the first render and the first effect, at identical steady-state cost.
+  const [secretsBridgeAvailable, setSecretsBridgeAvailable] = useState(false);
+  useEffect(() => {
+    setSecretsBridgeAvailable(Boolean(readSecretsBridge()?.saveKey));
+  }, []);
 
   const descriptor = describeStatus(activation, status);
   const badgeVariant = toneToVariant(descriptor.tone);

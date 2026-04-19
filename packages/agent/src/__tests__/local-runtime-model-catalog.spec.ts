@@ -350,6 +350,35 @@ describe('local-runtime-model-catalog', () => {
     expect(result.message).toContain('404');
   });
 
+  it('caps the Ollama capabilities cache so it cannot grow unbounded across a long session', async () => {
+    // Reviewer feedback: ollamaCapabilitiesCache had no size bound. A user
+    // cycling through many models across multiple baseUrls could grow the
+    // Map monotonically until `clearCache()`. Contract: after inserting
+    // more than OLLAMA_CAPABILITIES_CACHE_MAX_ENTRIES (200) distinct keys,
+    // the cache evicts the oldest entry so size never exceeds the cap.
+    const fetchMock = vi.fn<FetchMock>(async () => jsonResponse({ capabilities: ['completion'] }));
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => Date.now(),
+    });
+
+    // Push 210 distinct modelIds through; the cap is 200.
+    for (let i = 0; i < 210; i += 1) {
+      await service.resolveOllamaCapabilities(`model-${i}:latest`);
+    }
+
+    // The very first key should have been evicted; a more recent one should
+    // still be cached. Inspect via getCachedState-equivalent by re-asking
+    // and checking the fetchMock call count is stable when hitting a recent
+    // key and grows when hitting the evicted key.
+    const callCountBeforeReAsk = fetchMock.mock.calls.length;
+    await service.resolveOllamaCapabilities('model-209:latest');
+    expect(fetchMock.mock.calls.length).toBe(callCountBeforeReAsk); // cache hit
+    await service.resolveOllamaCapabilities('model-0:latest');
+    expect(fetchMock.mock.calls.length).toBe(callCountBeforeReAsk + 1); // evicted, refetches
+  });
+
   it('rejects empty Ollama modelId with a clear message and no network call', async () => {
     const fetchMock = vi.fn<FetchMock>();
 

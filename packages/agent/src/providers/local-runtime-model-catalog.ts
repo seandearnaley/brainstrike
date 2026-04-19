@@ -253,6 +253,10 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 2500;
 // false positives that would otherwise fan out into many localhost probes.
 const DEFAULT_MAX_VERIFICATION_MODELS = 4;
 const DEFAULT_DIMENSION_PROBE_TEXT = 'brainstrike dimension probe';
+// Realistic workloads touch tens of models; 200 leaves ample headroom for
+// users cycling between local/remote runtimes and renaming models without
+// letting the Map grow unbounded across a long session.
+const OLLAMA_CAPABILITIES_CACHE_MAX_ENTRIES = 200;
 
 const EMBEDDING_NAME_PATTERN =
   /(embed|embedding|text-embedding|nomic-embed|jina-embeddings|bge|e5|gte|arctic-embed|voyage)/i;
@@ -757,8 +761,14 @@ export class LocalRuntimeModelCatalogService {
   private readonly now: () => number;
   private readonly logger: LocalRuntimeLogger;
   private readonly cache = new Map<LocalRuntimeId, RuntimeModelCacheEntry>();
-  // Per-model cache of resolved Ollama capabilities, keyed by model id. A short
-  // TTL keeps answers fresh when users pull new model revisions locally.
+  // Per-model cache of resolved Ollama capabilities, keyed by
+  // `${baseUrl}::${modelId}`. A short TTL keeps answers fresh when users
+  // pull new model revisions locally. Bounded at
+  // OLLAMA_CAPABILITIES_CACHE_MAX_ENTRIES because we also key on baseUrl —
+  // a user cycling through many remote hosts or renaming models could
+  // otherwise grow the map monotonically until `clearCache()`. We track
+  // insertion order via `Map`'s iteration contract and evict the oldest
+  // entry when we exceed the cap.
   private readonly ollamaCapabilitiesCache = new Map<string, OllamaCapabilitiesCacheEntry>();
 
   public constructor(options: LocalRuntimeModelCatalogServiceOptions = {}) {
@@ -899,6 +909,16 @@ export class LocalRuntimeModelCatalogService {
         thinking: capabilities.includes('thinking'),
         insert: capabilities.includes('insert'),
       };
+      // Evict the oldest entry once we exceed the cap. `Map` iterates in
+      // insertion order so the first key is the oldest. Re-inserting a
+      // refreshed key (after `.set`) moves it to the back — hits naturally
+      // become "most-recently-used" without an explicit LRU structure.
+      if (this.ollamaCapabilitiesCache.size >= OLLAMA_CAPABILITIES_CACHE_MAX_ENTRIES) {
+        const oldestKey = this.ollamaCapabilitiesCache.keys().next().value;
+        if (typeof oldestKey === 'string') {
+          this.ollamaCapabilitiesCache.delete(oldestKey);
+        }
+      }
       this.ollamaCapabilitiesCache.set(cacheKey, {
         result: resolved,
         expiresAt: checkedAt + this.successTtlMs,
