@@ -411,11 +411,33 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     [fileSystemAdapter]
   );
 
-  // This hook automatically indexes selected files when TokenCacheProvider is present
+  // Web file resolver - mirrors the desktop synthetic-handle path so the
+  // background indexer can index files inside lazy/unexpanded subfolders (e.g.
+  // after Select All) without forcing the whole tree to expand on the main
+  // thread. Only wired when the active adapter implements the optional
+  // resolveFileForIndexing capability (web today; electron leaves it undefined
+  // and continues using electronFileReader). The union return value lets
+  // production return a real `FileSystemFileHandle` (worker-side read) while
+  // in-memory adapters return pre-loaded `kind: 'content'` because their
+  // synthetic handles cannot survive structured clone to the worker.
+  const adapterResolveFileForIndexing = fileSystemAdapter.resolveFileForIndexing;
+  const webFileHandleResolver = useMemo(
+    () =>
+      adapterResolveFileForIndexing
+        ? (absolutePath: string) =>
+            adapterResolveFileForIndexing.call(fileSystemAdapter, absolutePath)
+        : undefined,
+    [adapterResolveFileForIndexing, fileSystemAdapter]
+  );
+
+  // This hook automatically indexes selected files when TokenCacheProvider is present.
+  // Only pass `webFileHandleResolver` when the active adapter advertises it so we don't
+  // trip `exactOptionalPropertyTypes` with an explicit-`undefined` value.
   useBackgroundTokenIndexerIntegration({
     fileTree: stableFileTree,
     selectedFiles: selectedFilePaths,
     electronFileReader,
+    ...(webFileHandleResolver ? { webFileHandleResolver } : {}),
   });
 
   const [quickFilter, setQuickFilter, clearQuickFilter] = useFileExplorerStoreSelector(

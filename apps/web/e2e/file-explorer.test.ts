@@ -642,4 +642,121 @@ test.describe('File Explorer', () => {
       });
     }
   });
+
+  test.describe('Select All across unexpanded subfolders', () => {
+    /**
+     * Pins token counting to deterministic heuristic mode (ceil(content.length / 4))
+     * so that the TokenSummaryBar totals are stable across runs / tokenizer revisions.
+     * Mirrors the persisted shape of the `useTokenPreferencesStore` zustand store.
+     */
+    async function pinHeuristicTokenCounting(page: Page): Promise<void> {
+      await page.addInitScript(() => {
+        try {
+          window.localStorage.setItem(
+            'token-preferences.v1',
+            JSON.stringify({ state: { accurateCounting: false }, version: 1 })
+          );
+        } catch {
+          // SafeStorage adapter swallows quota errors at runtime; tests do the
+          // same so that storage hardening cannot mask the real assertion below.
+        }
+      });
+    }
+
+    /**
+     * Heuristic token count used by both the indexer worker and the preview-panel
+     * fallback path. Kept inline so the expected fixture totals are obviously
+     * derivable from file content alone.
+     */
+    function heuristicTokens(content: string): number {
+      if (content.length === 0) {
+        return 0;
+      }
+      return Math.max(1, Math.ceil(content.length / 4));
+    }
+
+    test('counts tokens for files inside unexpanded subfolders after Select All (web parity with desktop)', async ({
+      page,
+    }) => {
+      const browserLogs: string[] = [];
+      page.on('console', (msg) => {
+        const text = `[${msg.type()}] ${msg.text()}`;
+        browserLogs.push(text);
+      });
+      page.on('pageerror', (err) => {
+        browserLogs.push(`[pageerror] ${err.message}`);
+      });
+      // Files live exclusively inside nested subfolders so the bug shows up as
+      // a stalled "0+ estimating…" total rather than partial credit from the
+      // top-level files. Content lengths are picked so heuristic token math
+      // stays trivially auditable. We use `.ts` extensions so the files match
+      // the default View Filter include set (which excludes plain text files);
+      // otherwise the recursive selection scan would skip them and we would be
+      // measuring filter behavior, not the indexer fix.
+      const shallowContent = 'abcdefgh'; // length 8 → 2 heuristic tokens
+      const deepContent = 'abcdefghijklmnop'; // length 16 → 4 heuristic tokens
+      const expectedTokens = heuristicTokens(shallowContent) + heuristicTokens(deepContent);
+      const expectedSelectedFiles = 2;
+
+      await pinHeuristicTokenCounting(page);
+
+      const explorer = await bootstrapFileExplorer(page, {
+        resetSettings: true,
+        tree: {
+          src: {
+            'shallow.ts': shallowContent,
+            inner: {
+              'deep.ts': deepContent,
+            },
+          },
+        },
+      });
+
+      await explorer.selectRoot();
+
+      // Sanity-check the bug surface: both subfolder rows are present but
+      // collapsed. We deliberately do NOT click any expand chevron — that is
+      // exactly the state where the web indexer used to skip nested files.
+      const srcRow = explorer.fileTree.getByRole('row', { name: /Expand Select src src/i });
+      await expect(srcRow.getByRole('button', { name: 'Expand' })).toBeVisible();
+      await expect(explorer.fileTree.getByText('shallow.ts')).toHaveCount(0);
+      await expect(explorer.fileTree.getByText('deep.ts')).toHaveCount(0);
+
+      await explorer.selectAllButton.click();
+
+      // SelectionCounter should reflect the full recursive selection regardless
+      // of UI expansion. This part already works on web today and acts as a
+      // control assertion: if it fails, the bug is no longer the indexer path.
+      await expect(page.getByTestId('selection-count')).toHaveText(String(expectedSelectedFiles));
+
+      // Wait on a real signal from the indexer rather than a wall-clock sleep:
+      // the TokenSummaryBar renders "<n>+ estimating…" only while
+      // selectedTokensPendingCount > 0, and switches to "<n> selected" once
+      // every selected file has been resolved by the background worker.
+      try {
+        await expect(page.getByText(/estimating…/)).toHaveCount(0, { timeout: 30_000 });
+      } catch (err) {
+        // Re-emit captured browser logs so failures surface their root cause.
+        console.log('--- captured browser logs ---');
+        for (const line of browserLogs.slice(-150)) {
+          console.log(line);
+        }
+        throw err;
+      }
+
+      // Expect the converged total to match the fixture's heuristic math.
+      // We assert against the "<n> source" badge specifically because
+      // `sourceSelectedTokens` is the always-rendered, mode-independent total
+      // (it represents tokens across complete selected files BEFORE any
+      // tapestry-range filtering, which is what we want to validate here).
+      // The "<n> selected" / "<n> output" wording flips with the
+      // useTapestryRanges flag and would couple this assertion to that
+      // setting's default. Without the indexer fix, this value would stall
+      // at 0 because no handle is ever resolved for files inside the
+      // unexpanded `src/` and `src/inner/` subfolders.
+      await expect(page.getByText(`${expectedTokens.toLocaleString()} source`)).toBeVisible({
+        timeout: 30_000,
+      });
+    });
+  });
 });
