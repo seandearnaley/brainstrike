@@ -28,7 +28,6 @@ import {
   usePreviewPanelPreferences,
 } from './hooks/use-preview-panel-preferences';
 import { ColumnVisibilityControls } from './preview-column-visibility-controls';
-import { getPreviewFooterModeHeight } from './preview-footer-layout';
 import { PreviewPanelFooter } from './preview-panel-footer';
 import { PreviewTable } from './preview-table';
 import { PreviewViewToolbar } from './preview-view-toolbar';
@@ -195,16 +194,12 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     setPageSize,
     setSortDirection,
     setSortField,
-    setFooterHeight,
     setFooterMode,
-    setFooterCollapsed,
     sortDirection,
     sortField,
     setUseTapestryRangesForContextOutput,
     useTapestryRangesForContextOutput,
     footerMode,
-    footerHeight,
-    footerCollapsed,
   } = usePreviewPanelPreferences({
     activeTab: 'table',
     groupingConfig: 'none',
@@ -213,7 +208,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     // Keep range-aware export on by default so context output follows the active tapestry selection model.
     useTapestryRangesForContextOutput: true,
     footerMode: 'default',
-    footerHeight: getPreviewFooterModeHeight('default'),
   });
 
   // Gate expensive Tapestry computations behind active tab.
@@ -824,25 +818,14 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   if (selectedFiles.size === 0) {
     return (
-      <div className="flex h-full flex-col">
-        <div className="flex-1">
-          <EmptyState
-            description="Select files from the explorer to include them in your project context"
-            icon={<FileText />}
-            title="No files selected"
-          />
-        </div>
+      <div className="@container flex h-full flex-col overflow-hidden bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
         <PreviewPanelFooter
           folderSummaryThreshold={folderSummaryThreshold ?? 5}
-          footerCollapsed={footerCollapsed}
-          footerHeight={footerHeight}
           footerMode={footerMode}
           includeProjectTree={includeProjectTree}
           onCopyContext={handleCopyContext}
           onDownloadContext={handleDownloadContext}
           onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
-          onFooterCollapsedChange={setFooterCollapsed}
-          onFooterHeightChange={setFooterHeight}
           onFooterModeChange={setFooterMode}
           onIncludeProjectTreeChange={onIncludeProjectTreeChange}
           onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
@@ -857,12 +840,41 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           treeLoading={projectTreeTokenCountLoading}
           useTapestryRanges={useTapestryRangesForContextOutput}
         />
+        <div className="flex-1">
+          <EmptyState
+            description="Select files from the explorer to include them in your project context"
+            icon={<FileText />}
+            title="No files selected"
+          />
+        </div>
       </div>
     );
   }
 
   return (
     <div className="@container flex h-full flex-col overflow-hidden bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
+      <PreviewPanelFooter
+        folderSummaryThreshold={folderSummaryThreshold ?? 5}
+        footerMode={footerMode}
+        includeProjectTree={includeProjectTree}
+        onCopyContext={handleCopyContext}
+        onDownloadContext={handleDownloadContext}
+        onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
+        onFooterModeChange={setFooterMode}
+        onIncludeProjectTreeChange={onIncludeProjectTreeChange}
+        onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
+        onTokenBudgetChange={onTokenBudgetChange}
+        onUseTapestryRangesChange={setUseTapestryRangesForContextOutput}
+        projectTreeUsesViewFilters={projectTreeUsesViewFilters}
+        selectedFilesCount={selectedFiles.size}
+        selectedTokensPendingCount={contextSelectedTokenSummary.outputPendingCount}
+        tokenCounting={tokenCounting}
+        tokenUsage={tokenUsage}
+        totalFiles={totalStats.totalFiles}
+        treeLoading={projectTreeTokenCountLoading}
+        useTapestryRanges={useTapestryRangesForContextOutput}
+      />
+
       <Tabs className="flex min-h-0 flex-1 flex-col" onValueChange={setActiveTab} value={activeTab}>
         <div className="flex flex-shrink-0 items-center justify-between border-b bg-muted/30 px-3">
           <TabsList className="h-9 gap-4 bg-transparent p-0">
@@ -1044,32 +1056,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           </FileExplorerErrorBoundary>
         </TabsContent>
       </Tabs>
-
-      <PreviewPanelFooter
-        folderSummaryThreshold={folderSummaryThreshold ?? 5}
-        footerCollapsed={footerCollapsed}
-        footerHeight={footerHeight}
-        footerMode={footerMode}
-        includeProjectTree={includeProjectTree}
-        onCopyContext={handleCopyContext}
-        onDownloadContext={handleDownloadContext}
-        onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
-        onFooterCollapsedChange={setFooterCollapsed}
-        onFooterHeightChange={setFooterHeight}
-        onFooterModeChange={setFooterMode}
-        onIncludeProjectTreeChange={onIncludeProjectTreeChange}
-        onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
-        onTokenBudgetChange={onTokenBudgetChange}
-        onUseTapestryRangesChange={setUseTapestryRangesForContextOutput}
-        projectTreeUsesViewFilters={projectTreeUsesViewFilters}
-        selectedFilesCount={selectedFiles.size}
-        selectedTokensPendingCount={contextSelectedTokenSummary.outputPendingCount}
-        tokenCounting={tokenCounting}
-        tokenUsage={tokenUsage}
-        totalFiles={totalStats.totalFiles}
-        treeLoading={projectTreeTokenCountLoading}
-        useTapestryRanges={useTapestryRangesForContextOutput}
-      />
     </div>
   );
 });
