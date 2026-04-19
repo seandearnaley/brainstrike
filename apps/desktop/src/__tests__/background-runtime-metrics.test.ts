@@ -35,6 +35,7 @@ describe('collectBackgroundRuntimeMetrics', () => {
             },
           ];
         case 'chunking-host':
+        case 'llm-host':
           return [];
         default:
           throw new Error(`Unexpected runtime role: ${role}`);
@@ -100,6 +101,7 @@ describe('collectBackgroundRuntimeMetrics', () => {
             },
           ];
         case 'chunking-host':
+        case 'llm-host':
           return [];
         default:
           throw new Error(`Unexpected runtime role: ${role}`);

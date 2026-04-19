@@ -18,6 +18,7 @@ import {
   createApiKeysSettingsCategory,
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
+  createSearchIndexingSettingsCategory,
   createTokenCountingSettingsCategoryWithRuntimeSupport,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
@@ -282,6 +283,7 @@ export default function SettingsPageContent() {
 
     return [
       createAppearanceSettingsCategory(),
+      createSearchIndexingSettingsCategory(),
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       createApiKeysSettingsCategory(),
       {

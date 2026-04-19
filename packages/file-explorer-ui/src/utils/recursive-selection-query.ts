@@ -143,14 +143,28 @@ function applyOptionalFilter(
   return filterTreeFn ? filterTreeFn(nodes) : nodes;
 }
 
-function recordMatchedFile(state: MutableQueryState, node: IFileNode, maxResults: number): boolean {
+function recordMatchedFile(args: {
+  hasKnownRemainingWork: boolean;
+  maxResults: number;
+  node: IFileNode;
+  state: MutableQueryState;
+}): boolean {
+  const { hasKnownRemainingWork, maxResults, node, state } = args;
   state.filesMatched++;
-  state.fileNodes.push(node);
-  if (state.fileNodes.length >= maxResults) {
-    state.limitReached = Number.isFinite(maxResults);
-    return true;
+  const hadCapacity = state.fileNodes.length < maxResults;
+  if (hadCapacity) {
+    state.fileNodes.push(node);
   }
-  return false;
+  if (state.fileNodes.length < maxResults) {
+    return false;
+  }
+
+  if (hadCapacity && !hasKnownRemainingWork) {
+    return false;
+  }
+
+  state.limitReached = Number.isFinite(maxResults);
+  return true;
 }
 
 function consumeNodes(args: {
@@ -163,7 +177,7 @@ function consumeNodes(args: {
 }): boolean {
   const { directoryTraversalState, matcher, maxResults, nextFrontier, nodes, state } = args;
 
-  for (const node of nodes) {
+  for (const [index, node] of nodes.entries()) {
     if (node.isVisible === false) {
       continue;
     }
@@ -172,7 +186,23 @@ function consumeNodes(args: {
 
     if (node.type === 'file') {
       state.filesVisited++;
-      if (matcher.shouldIncludeFile(node.path) && recordMatchedFile(state, node, maxResults)) {
+      const hasKnownRemainingWork =
+        index < nodes.length - 1 ||
+        nextFrontier.length > 0 ||
+        directoryTraversalState.queuedDirectoryPaths.size >
+          directoryTraversalState.scannedDirectoryPaths.size;
+      // Exact-cap fills should only report limitReached when traversal still has more work.
+      // Otherwise the final accepted file would look like a capped result even though the
+      // query completed naturally on the last available match.
+      if (
+        matcher.shouldIncludeFile(node.path) &&
+        recordMatchedFile({
+          hasKnownRemainingWork,
+          maxResults,
+          node,
+          state,
+        })
+      ) {
         return true;
       }
       continue;
@@ -275,6 +305,7 @@ function processFrontierNode(args: {
   abortSignal: AbortSignal | undefined;
   directoryTraversalState: DirectoryTraversalState;
   filterTreeFn: ((tree: IFileNode[]) => IFileNode[]) | undefined;
+  hasKnownRemainingWork: boolean;
   limit: number;
   matcher: PathFilterMatcher;
   nextFrontier: IFileNode[];
@@ -286,6 +317,7 @@ function processFrontierNode(args: {
     abortSignal,
     directoryTraversalState,
     filterTreeFn,
+    hasKnownRemainingWork,
     limit,
     matcher,
     nextFrontier,
@@ -303,7 +335,15 @@ function processFrontierNode(args: {
 
   if (node.type === 'file') {
     state.filesVisited++;
-    if (matcher.shouldIncludeFile(node.path) && recordMatchedFile(state, node, limit)) {
+    if (
+      matcher.shouldIncludeFile(node.path) &&
+      recordMatchedFile({
+        hasKnownRemainingWork,
+        maxResults: limit,
+        node,
+        state,
+      })
+    ) {
       return;
     }
     return;
@@ -790,11 +830,16 @@ export async function querySelectableFiles(
     const nextFrontier: IFileNode[] = [];
     const unloadedDirectories: IFileNode[] = [];
 
-    for (const node of frontier) {
+    for (const [index, node] of frontier.entries()) {
       processFrontierNode({
         abortSignal,
         directoryTraversalState,
         filterTreeFn,
+        hasKnownRemainingWork:
+          index < frontier.length - 1 ||
+          nextFrontier.length > 0 ||
+          directoryTraversalState.queuedDirectoryPaths.size >
+            directoryTraversalState.scannedDirectoryPaths.size,
         limit,
         matcher,
         nextFrontier,

@@ -36,7 +36,10 @@ function isOptionalStringArray(value: unknown): boolean {
 }
 
 function isContentString(value: unknown): boolean {
-  return typeof value === 'string' && value.length <= CHUNKING_CONFIG.maxChunkableSize;
+  // Structural validation only enforces "string-ness". Semantic size handling stays in the
+  // worker runtime so oversized files become per-file skips/errors instead of terminal
+  // "__init__" failures that poison the entire worker session.
+  return typeof value === 'string';
 }
 
 function isBoundedMetadataString(value: unknown): boolean {

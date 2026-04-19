@@ -1,9 +1,10 @@
 import { defineConfig } from 'tsup';
 
-export default defineConfig((options) => ({
+export default defineConfig((_options) => ({
   entry: [
     'src/index.ts',
     'src/client.ts',
+    'src/local-llm.ts',
     'src/browser-safe.ts',
     'src/tool-metadata.ts',
     'src/provider-metadata.ts',
@@ -15,6 +16,7 @@ export default defineConfig((options) => ({
     entry: [
       'src/index.ts',
       'src/client.ts',
+      'src/local-llm.ts',
       'src/browser-safe.ts',
       'src/tool-metadata.ts',
       'src/provider-metadata.ts',
@@ -26,9 +28,10 @@ export default defineConfig((options) => ({
     },
   },
   outDir: 'dist',
-  // Keep previous declarations available during watch rebuilds so project-reference
-  // consumers do not observe transient missing exports from @brainstrike/agent/client.
-  clean: !options.watch,
+  // Keep previous outputs available across rebuilds because multiple app prebuilds
+  // may invoke @brainstrike/agent builds concurrently. tsup's clean step is not
+  // concurrency-safe and can unlink sibling build outputs mid-run.
+  clean: false,
   sourcemap: false,
   splitting: false,
   external: ['@brainstrike/types', '@mastra/core', '@mastra/mcp'],

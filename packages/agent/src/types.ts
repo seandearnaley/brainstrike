@@ -128,6 +128,12 @@ export interface GoogleProviderOptions extends JSONObject {
   };
 }
 
+export interface LocalProviderOptions extends JSONObject {
+  thinking?: {
+    enabled?: boolean;
+  };
+}
+
 export interface RuntimeModelSettings {
   maxOutputTokens?: number;
 }
@@ -136,6 +142,7 @@ export type RuntimeProviderOptions = (SharedV2ProviderOptions | SharedV3Provider
   openai?: OpenAiProviderOptions & JSONObject;
   anthropic?: AnthropicProviderOptions & JSONObject;
   google?: GoogleProviderOptions & JSONObject;
+  local?: LocalProviderOptions & JSONObject;
 };
 
 export interface StreamChunkText {

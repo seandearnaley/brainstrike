@@ -40,7 +40,7 @@ describe('ToolFallback', () => {
       expect(screen.getByText(/Completed/)).toBeInTheDocument();
     });
 
-    it('shows expanded details with args and result by default', async () => {
+    it('keeps details hidden by default until expanded', async () => {
       const user = userEvent.setup();
       render(
         <ToolFallback
@@ -51,18 +51,16 @@ describe('ToolFallback', () => {
         />
       );
 
-      // Initially expanded (default state)
+      expect(screen.queryByText(/Arguments:/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Result:/)).not.toBeInTheDocument();
+
+      const expandButton = screen.getByRole('button', { name: /expand details/i });
+      await user.click(expandButton);
+
       expect(screen.getByText(/Arguments:/)).toBeInTheDocument();
       expect(screen.getByText(/"input":"test value"/)).toBeInTheDocument();
       expect(screen.getByText(/Result:/)).toBeInTheDocument();
       expect(screen.getByText(/result value/)).toBeInTheDocument();
-
-      // Click to collapse
-      const collapseButton = screen.getByRole('button', { name: /collapse details/i });
-      await user.click(collapseButton);
-
-      // Now details are hidden
-      expect(screen.queryByText(/Arguments:/)).not.toBeInTheDocument();
     });
 
     it('can expand details after collapsing', async () => {
@@ -76,18 +74,13 @@ describe('ToolFallback', () => {
         />
       );
 
-      // Start expanded
-      expect(screen.getByText(/Arguments:/)).toBeInTheDocument();
-
-      // Collapse
-      const collapseButton = screen.getByRole('button', { name: /collapse details/i });
-      await user.click(collapseButton);
-      expect(screen.queryByText(/Arguments:/)).not.toBeInTheDocument();
-
-      // Expand again
       const expandButton = screen.getByRole('button', { name: /expand details/i });
       await user.click(expandButton);
       expect(screen.getByText(/Arguments:/)).toBeInTheDocument();
+
+      const collapseButton = screen.getByRole('button', { name: /collapse details/i });
+      await user.click(collapseButton);
+      expect(screen.queryByText(/Arguments:/)).not.toBeInTheDocument();
     });
   });
 
@@ -172,7 +165,7 @@ describe('ToolFallback', () => {
       expect(errorContainer).toHaveClass('bg-destructive/5');
     });
 
-    it('shows args for error state (expanded by default)', async () => {
+    it('shows args for error state after expanding', async () => {
       const user = userEvent.setup();
       render(
         <ToolFallback
@@ -186,13 +179,15 @@ describe('ToolFallback', () => {
         />
       );
 
-      // Should be expanded by default
+      expect(screen.queryByText(/Arguments:/)).not.toBeInTheDocument();
+
+      const expandButton = screen.getByRole('button', { name: /expand details/i });
+      await user.click(expandButton);
+
       expect(screen.getByText(/Arguments:/)).toBeInTheDocument();
       expect(screen.getByText(/"param":"value"/)).toBeInTheDocument();
-      // Error result should not be shown in the result section
       expect(screen.queryByText(/Result:/)).not.toBeInTheDocument();
 
-      // Can collapse
       const collapseButton = screen.getByRole('button', { name: /collapse details/i });
       await user.click(collapseButton);
       expect(screen.queryByText(/Arguments:/)).not.toBeInTheDocument();
@@ -228,7 +223,8 @@ describe('ToolFallback', () => {
       expect(screen.queryByRole('button')).not.toBeInTheDocument(); // No expand button without result or args
     });
 
-    it('handles object result by stringifying (expanded by default)', async () => {
+    it('handles object result by stringifying after expanding', async () => {
+      const user = userEvent.setup();
       render(
         <ToolFallback
           {...mockBaseProps}
@@ -237,13 +233,14 @@ describe('ToolFallback', () => {
         />
       );
 
-      // Already expanded by default
+      await user.click(screen.getByRole('button', { name: /expand details/i }));
       expect(screen.getByText(/Result:/)).toBeInTheDocument();
       expect(screen.getByText(/complex/)).toBeInTheDocument();
       expect(screen.getByText(/nested/)).toBeInTheDocument();
     });
 
-    it('handles string result (expanded by default)', async () => {
+    it('handles string result after expanding', async () => {
+      const user = userEvent.setup();
       render(
         <ToolFallback
           {...mockBaseProps}
@@ -252,14 +249,14 @@ describe('ToolFallback', () => {
         />
       );
 
-      // Already expanded by default
+      await user.click(screen.getByRole('button', { name: /expand details/i }));
       expect(screen.getByText(/Result:/)).toBeInTheDocument();
       expect(screen.getByText('Simple string result')).toBeInTheDocument();
     });
   });
 
   describe('Accessibility', () => {
-    it('has proper ARIA labels for collapse button (starts expanded)', () => {
+    it('has proper ARIA labels for the initial expand button', () => {
       render(
         <ToolFallback
           {...mockBaseProps}
@@ -269,11 +266,11 @@ describe('ToolFallback', () => {
         />
       );
 
-      const button = screen.getByRole('button', { name: /collapse details/i });
-      expect(button).toHaveAttribute('aria-label', 'Collapse details');
+      const button = screen.getByRole('button', { name: /expand details/i });
+      expect(button).toHaveAttribute('aria-label', 'Expand details');
     });
 
-    it('updates ARIA label when expanding after collapse', async () => {
+    it('updates ARIA label after expanding', async () => {
       const user = userEvent.setup();
       render(
         <ToolFallback
@@ -284,13 +281,11 @@ describe('ToolFallback', () => {
         />
       );
 
-      // First collapse
-      const collapseButton = screen.getByRole('button', { name: /collapse details/i });
-      await user.click(collapseButton);
-
-      // Then check expand button label
       const expandButton = screen.getByRole('button', { name: /expand details/i });
-      expect(expandButton).toHaveAttribute('aria-label', 'Expand details');
+      await user.click(expandButton);
+
+      const collapseButton = screen.getByRole('button', { name: /collapse details/i });
+      expect(collapseButton).toHaveAttribute('aria-label', 'Collapse details');
     });
 
     it('has identifiable test id', () => {

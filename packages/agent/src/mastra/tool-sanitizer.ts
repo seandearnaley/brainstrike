@@ -16,6 +16,15 @@ function createStableHashSuffix(value: string): string {
   return Math.abs(hash).toString(36);
 }
 
+function createSanitizedToolName(
+  originalName: string,
+  usedNames: Set<string>
+): { originalName: string; sanitizedName: string } {
+  const baseName = sanitizeToolNameBase(originalName);
+  const sanitizedName = ensureUniqueSanitizedName(baseName, originalName, usedNames);
+  return { originalName, sanitizedName };
+}
+
 function ensureUniqueSanitizedName(
   baseName: string,
   originalName: string,
@@ -44,6 +53,18 @@ function ensureUniqueSanitizedName(
   }
 }
 
+export function createSanitizedToolNameMap(toolNames: Iterable<string>): Map<string, string> {
+  const sanitizedToOriginal = new Map<string, string>();
+  const usedNames = new Set<string>();
+
+  for (const toolName of toolNames) {
+    const { originalName, sanitizedName } = createSanitizedToolName(toolName, usedNames);
+    sanitizedToOriginal.set(sanitizedName, originalName);
+  }
+
+  return sanitizedToOriginal;
+}
+
 export function sanitizeTools(
   tools: ToolsInput | undefined,
   map: Map<string, string>
@@ -56,8 +77,7 @@ export function sanitizeTools(
   const usedNames = new Set<string>(map.keys());
 
   for (const [name, tool] of Object.entries(tools)) {
-    const baseName = sanitizeToolNameBase(name);
-    const uniqueName = ensureUniqueSanitizedName(baseName, name, usedNames);
+    const { sanitizedName: uniqueName } = createSanitizedToolName(name, usedNames);
 
     map.set(uniqueName, name);
 

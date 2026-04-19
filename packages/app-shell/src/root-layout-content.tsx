@@ -4,12 +4,14 @@ import {
   TabbedFileEditorPanel,
   useFileSystem,
 } from '@brainstrike/file-explorer-ui';
+import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
 import {
   type PanelTab,
   usePanelLayoutStore,
 } from '@brainstrike/preferences/stores/panel-layout-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { cn, IdeLayout, PanelLayoutProvider, type PanelLayoutState } from '@brainstrike/ui';
+import { EmbeddingRuntimeProvider } from '@brainstrike/vector-management';
 import {
   type ReactElement,
   type ReactNode,
@@ -22,6 +24,7 @@ import {
 import { shallow } from 'zustand/shallow';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
+import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
 import { ToolsPanel } from './tools-panel';
 import type { NavigationItem } from './types';
 
@@ -35,9 +38,23 @@ import type { NavigationItem } from './types';
  * which creates its own filterTreeFn. This wrapper just provides the shared
  * tree state without the filter function since it can't access the store context.
  */
-function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
+function FileTreeWrapper({
+  children,
+  chunkingMode,
+}: {
+  children: ReactNode;
+  chunkingMode: 'host-proxy' | 'local';
+}): ReactElement {
   const { rootDirectoryHandle } = useFileSystem();
-  return <FileTreeProvider rootDirectoryHandle={rootDirectoryHandle}>{children}</FileTreeProvider>;
+  return (
+    <ChunkingWorkerProvider autoStart={false} mode={chunkingMode}>
+      <EmbeddingRuntimeProvider>
+        <FileTreeProvider rootDirectoryHandle={rootDirectoryHandle}>
+          <WorkspaceCollectionSyncProvider>{children}</WorkspaceCollectionSyncProvider>
+        </FileTreeProvider>
+      </EmbeddingRuntimeProvider>
+    </ChunkingWorkerProvider>
+  );
 }
 
 export interface RootLayoutContentProps {
@@ -237,7 +254,7 @@ export function RootLayoutContent({
       >
         {/* FileTreeWrapper provides shared file tree state to all explorer panels.
             This ensures expand-all updates are seen by all panels for file content loading. */}
-        <FileTreeWrapper>
+        <FileTreeWrapper chunkingMode={databaseTabChunkingMode}>
           <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
             <IdeLayout
               consoleContent={consoleContent}

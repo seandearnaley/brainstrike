@@ -54,7 +54,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc && tsup",
+    "build": "tsc -b . && tsup",
     "clean": "rm -rf dist .tsbuildinfo",
     "dev": "tsup src/index.ts --format esm,cjs --watch",
     "lint": "pnpm run --dir=../.. lint",

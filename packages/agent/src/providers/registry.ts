@@ -1,4 +1,5 @@
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
+import { GEMMA4_E2B_MODEL_ID } from './local/local-model-specs';
 
 export const STANDARD_EMBEDDING_DIMENSION = DEFAULT_EMBEDDING_DIMENSION;
 
@@ -324,28 +325,12 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     },
     models: [
       {
-        // LFM2.5 is a general-purpose chat model - good default
-        id: 'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
-        label: 'LFM2.5 1.2B',
+        id: GEMMA4_E2B_MODEL_ID,
+        label: 'Gemma 4 E2B',
         type: 'llm',
         default: true,
         supportsStreaming: false,
       },
-      {
-        // FunctionGemma is for function/tool calling only, NOT general chat
-        id: 'onnx-community/functiongemma-270m-it-ONNX',
-        label: 'FunctionGemma 270M (Tool Calling)',
-        type: 'llm',
-        supportsStreaming: false,
-      },
-      {
-        id: 'onnx-community/Qwen3-0.6B-ONNX',
-        label: 'Qwen3 0.6B',
-        type: 'llm',
-        supportsStreaming: false,
-      },
-      // NOTE: Qwen3-1.7B removed - crashes due to WebGPU buffer size limits
-      // See: https://github.com/huggingface/transformers.js/issues/1469
     ],
   },
   {

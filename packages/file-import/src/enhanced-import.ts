@@ -28,6 +28,7 @@ import {
 } from '@brainstrike/utils';
 import { processChunking } from './chunking';
 import { processEmbeddings } from './embedding';
+import type { FileImportChunkRepository, FileImportFileRecordRepository } from './repository-ports';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 
 const logger = createLogger('FileImport:Enhanced');
@@ -156,6 +157,7 @@ export interface EmbeddingJobQueuePort {
     chunks: FileChunk[],
     fileRecordId: string,
     options?: {
+      signal?: AbortSignal | null;
       transaction?: IDatabase | null;
       model?: string | null;
       targetEmbeddingSetId?: string | null;
@@ -188,8 +190,8 @@ export type BaseImportRunner<TFileNode = unknown> = (
 ) => Promise<FileImportResult[]>;
 
 interface ChunkingDependencies {
-  chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null;
-  repository: ReturnType<typeof import('@brainstrike/db').useFileRecordRepository> | null;
+  chunkRepository: FileImportChunkRepository | null;
+  repository: FileImportFileRecordRepository | null;
 }
 
 interface ChunkingConfiguration {
@@ -208,7 +210,7 @@ interface ChunkingConfiguration {
 }
 
 interface EmbeddingConfiguration {
-  chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null;
+  chunkRepository: FileImportChunkRepository | null;
   enabled: boolean;
   model?: string;
   onResolvedTargetSetId?: (id: string) => void;
@@ -230,6 +232,7 @@ interface RunEnhancedImportPorts {
 }
 
 interface RunEnhancedImportParams<TFileNode = unknown> {
+  abortSignal?: AbortSignal;
   baseImportRunner: BaseImportRunner<TFileNode>;
   chunking: ChunkingConfiguration;
   embedding?: EmbeddingConfiguration;
@@ -242,6 +245,18 @@ interface RunEnhancedImportParams<TFileNode = unknown> {
     fileTree: TFileNode[];
     fileContents: Record<string, string>;
   };
+}
+
+function createAbortError(): Error {
+  const error = new Error('Enhanced import was aborted.');
+  error.name = 'AbortError';
+  return error;
+}
+
+function throwIfAborted(abortSignal?: AbortSignal): void {
+  if (abortSignal?.aborted) {
+    throw createAbortError();
+  }
 }
 
 function toEnhancedImportProgress(progress: ImportProgress): EnhancedImportProgress {
@@ -888,6 +903,7 @@ function attachQueueOptions(
 
   options.enqueueJobsForChunks = (chunks, fileRecordId) =>
     queuePort.enqueueBatch(chunks, fileRecordId, {
+      signal: options.abortSignal ?? null,
       model: embeddingModelKey ?? null,
       targetEmbeddingSetId: targetSetId ?? null,
       provider: provider ?? null,
@@ -900,6 +916,7 @@ function attachQueueOptions(
     options.enqueueJobsForChunksTx = (tx, chunks, fileRecordId) =>
       queuePort.enqueueBatch(chunks, fileRecordId, {
         transaction: tx,
+        signal: options.abortSignal ?? null,
         model: embeddingModelKey ?? null,
         targetEmbeddingSetId: targetSetId ?? null,
         provider: provider ?? null,
@@ -974,6 +991,7 @@ function createCompleteProgress(
 }
 
 export async function runEnhancedImport<TFileNode = unknown>({
+  abortSignal,
   request,
   baseImportRunner,
   chunking,
@@ -996,6 +1014,7 @@ export async function runEnhancedImport<TFileNode = unknown>({
   });
 
   try {
+    throwIfAborted(abortSignal);
     const baseResults = await baseImportRunner({
       selectedFilePaths,
       fileTree,
@@ -1013,6 +1032,7 @@ export async function runEnhancedImport<TFileNode = unknown>({
         emit?.(enhanced);
       },
     });
+    throwIfAborted(abortSignal);
 
     logger.info('Base import complete', {
       totalFiles: baseResults.length,
@@ -1077,6 +1097,9 @@ export async function runEnhancedImport<TFileNode = unknown>({
     logger.info('[DEBUG] Chunking config targetSetId', { targetSetId: chunkingConfig.targetSetId });
 
     const chunkingOptions = buildChunkingOptions(chunkingConfig);
+    if (abortSignal) {
+      chunkingOptions.abortSignal = abortSignal;
+    }
 
     logger.info('[DEBUG] Chunking options targetEmbeddingSetId', {
       targetEmbeddingSetId: chunkingOptions.targetEmbeddingSetId,
@@ -1089,6 +1112,7 @@ export async function runEnhancedImport<TFileNode = unknown>({
 
     let enhancedResults: EnhancedImportResult[];
     try {
+      throwIfAborted(abortSignal);
       enhancedResults = await processChunkingImpl(baseResults, chunking.deps, chunkingOptions);
     } finally {
       // Always exit bulk mode, even on error

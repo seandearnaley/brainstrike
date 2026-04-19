@@ -249,6 +249,27 @@ describe('MigrationRunner', () => {
         'Rollback of migration 88 failed:'
       );
     });
+
+    it('supports function-based rollback migrations', async () => {
+      const functionRollbackMigration: Migration = {
+        version: 77,
+        name: 'function_rollback',
+        up: 'CREATE TABLE function_rollback_table (id INTEGER PRIMARY KEY);',
+        down: async (transactionDb: PGlite) => {
+          await transactionDb.exec('DROP TABLE function_rollback_table;');
+        },
+      };
+
+      await runner.runMigration(functionRollbackMigration);
+      await runner.rollback(functionRollbackMigration);
+
+      expect(await runner.isApplied(77)).toBe(false);
+
+      const result = await db.query<{ count: number }>(
+        "SELECT COUNT(*) as count FROM information_schema.tables WHERE table_name = 'function_rollback_table'"
+      );
+      expect(Number(result.rows[0]?.count ?? 0)).toBe(0);
+    });
   });
 
   describe('checksum validation', () => {

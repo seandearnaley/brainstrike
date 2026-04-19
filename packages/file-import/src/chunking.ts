@@ -3,12 +3,14 @@ import type {
   FileChunk,
   FileImportResult,
   FileRecord,
+  FileRecordUpdate,
   IDatabase,
   ResolvedChunkingStrategy,
 } from '@brainstrike/db';
 import { CHUNKING_CONFIG } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getChunkingStrategy } from './chunking-strategy';
+import type { FileImportChunkRepository, FileImportFileRecordRepository } from './repository-ports';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 
 export { getChunkingStrategy } from './chunking-strategy';
@@ -16,11 +18,12 @@ export { getChunkingStrategy } from './chunking-strategy';
 const logger = createLogger('FileImport:Chunking');
 
 interface ChunkingDeps {
-  chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null;
-  repository: ReturnType<typeof import('@brainstrike/db').useFileRecordRepository> | null;
+  chunkRepository: FileImportChunkRepository | null;
+  repository: FileImportFileRecordRepository | null;
 }
 
 interface ChunkingOptions {
+  abortSignal?: AbortSignal;
   chunkingStrategy?: ChunkingStrategy;
   chunkingStrategyExplicit?: boolean;
   // Worker port for off-main-thread chunking
@@ -137,19 +140,42 @@ const CHUNKING_WORKER_READY_POLL_MS = 100;
 
 async function waitForChunkingWorkerReady(
   workerPort: NonNullable<ChunkingOptions['chunkingWorkerPort']>,
-  timeoutMs: number
+  timeoutMs: number,
+  abortSignal?: AbortSignal
 ): Promise<void> {
+  if (abortSignal?.aborted) {
+    const error = new Error('Chunking worker startup was aborted.');
+    error.name = 'AbortError';
+    throw error;
+  }
   if (workerPort.isReady()) {
     return;
   }
 
   const startWait = Date.now();
   while (!workerPort.isReady() && Date.now() - startWait < timeoutMs) {
+    if (abortSignal?.aborted) {
+      const error = new Error('Chunking worker startup was aborted.');
+      error.name = 'AbortError';
+      throw error;
+    }
     await new Promise((resolve) => setTimeout(resolve, CHUNKING_WORKER_READY_POLL_MS));
   }
 
   if (!workerPort.isReady()) {
     throw new Error(`Chunking worker failed to become ready within ${timeoutMs}ms`);
+  }
+}
+
+function createAbortError(): Error {
+  const error = new Error('Chunking was aborted.');
+  error.name = 'AbortError';
+  return error;
+}
+
+function throwIfAborted(abortSignal?: AbortSignal): void {
+  if (abortSignal?.aborted) {
+    throw createAbortError();
   }
 }
 
@@ -172,7 +198,7 @@ function hasTransactionalInsert(repo: unknown): repo is RepoWithTransactionalIns
 
 async function insertChunksWithTransaction(
   tx: IDatabase,
-  chunkRepository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileChunkRepository>>,
+  chunkRepository: NonNullable<FileImportChunkRepository>,
   chunks: FileChunk[]
 ): Promise<void> {
   if (hasTransactionalInsert(chunkRepository)) {
@@ -183,17 +209,18 @@ async function insertChunksWithTransaction(
 }
 
 async function updateFileRecordWithChunkInfo(
-  repository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileRecordRepository>>,
+  repository: NonNullable<FileImportFileRecordRepository>,
   fileId: string,
   chunksCount: number,
   strategy: ResolvedChunkingStrategy
 ): Promise<void> {
-  await repository.update(fileId, {
+  const update: FileRecordUpdate = {
     chunksProcessedAt: new Date().toISOString(),
     chunksCount,
     chunkingStrategy: strategy,
     updatedAt: new Date().toISOString(),
-  });
+  };
+  await repository.update(fileId, update);
 }
 
 interface ChunkingSkipResult {
@@ -241,6 +268,7 @@ async function prepareChunkingExecution(
   options: ChunkingOptions,
   preFetchedRecord?: FileRecord
 ): Promise<ChunkingPreparation> {
+  throwIfAborted(options.abortSignal);
   const repository = deps.repository;
   const chunkRepository = deps.chunkRepository;
   if (!(repository && chunkRepository)) {
@@ -274,6 +302,7 @@ async function prepareChunkingExecution(
   }
 
   const fileRecord = preFetchedRecord || (await repository.findById(result.id));
+  throwIfAborted(options.abortSignal);
   if (!fileRecord?.content) {
     logger.warn('File record not found or has no content', {
       fileId: result.id,
@@ -321,6 +350,7 @@ export async function processFileChunking(
   chunks?: FileChunk[];
   strategyUsed: ChunkingStrategy;
 }> {
+  throwIfAborted(options.abortSignal);
   const preparation = await prepareChunkingExecution(result, deps, options, preFetchedRecord);
   if (preparation.kind === 'skip') {
     return preparation.response;
@@ -337,6 +367,7 @@ export async function processFileChunking(
   }
 
   const { repository, chunkRepository, fileRecord, strategy, forceStrategy } = preparation;
+  throwIfAborted(options.abortSignal);
 
   logger.debug('Starting file chunking', {
     fileId: result.id,
@@ -388,6 +419,7 @@ export async function processFileChunking(
       );
     }
     logger.info('Using WORKER path for chunking', { fileId: result.id });
+    throwIfAborted(options.abortSignal);
     const workerResult = await processFileChunkingWorkerPath(
       options.chunkingWorkerPort,
       fileRecord.content,
@@ -401,6 +433,7 @@ export async function processFileChunking(
       forceStrategy,
       hasUserOverrides
     );
+    throwIfAborted(options.abortSignal);
     logger.info('File chunked successfully (worker)', {
       fileId: result.id,
       fileName: fileRecord.name,
@@ -452,6 +485,7 @@ async function processFileChunkingHostProxyPath(
   chunks?: FileChunk[];
   strategyUsed: ChunkingStrategy;
 }> {
+  throwIfAborted(options.abortSignal);
   const workerPort = options.chunkingWorkerPort;
   if (!(workerPort?.transportKind === 'host-proxy' && workerPort.chunkFileById)) {
     throw new Error('Host-proxy chunking requires chunkFileById support.');
@@ -479,6 +513,7 @@ async function processFileChunkingHostProxyPath(
   );
 
   const hasUserOverrides = options.chunkSize !== undefined || options.chunkOverlap !== undefined;
+  throwIfAborted(options.abortSignal);
   const workerResult = await workerPort.chunkFileById(preparation.fileRecordId, {
     ...(options.chunkingStrategy !== undefined
       ? { requestedStrategy: options.chunkingStrategy }
@@ -512,6 +547,7 @@ async function processFileChunkingHostProxyPath(
 
   const { toFileChunkInserts } = await import('./chunking-worker-port');
   const chunks = toFileChunkInserts(result.id, workerResult.chunks, options.targetEmbeddingSetId);
+  throwIfAborted(options.abortSignal);
   const shouldUseTransaction =
     options.embedQueueEnabled && options.runInTransaction && options.enqueueJobsForChunksTx;
 
@@ -519,11 +555,12 @@ async function processFileChunkingHostProxyPath(
     await options.runInTransaction(async (tx) => {
       await insertChunksWithTransaction(tx, preparation.chunkRepository, chunks);
       await options.enqueueJobsForChunksTx?.(tx, chunks, result.id);
-      return undefined as unknown as undefined;
+      return;
     });
   } else {
     await preparation.chunkRepository.insertMany(chunks);
     if (options.embedQueueEnabled && options.enqueueJobsForChunks) {
+      throwIfAborted(options.abortSignal);
       await options.enqueueJobsForChunks(chunks, result.id);
     }
   }
@@ -556,8 +593,8 @@ async function processFileChunkingWorkerPath(
   content: string,
   result: FileImportResult,
   strategy: ChunkingStrategy,
-  repository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileRecordRepository>>,
-  chunkRepository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileChunkRepository>>,
+  repository: NonNullable<FileImportFileRecordRepository>,
+  chunkRepository: NonNullable<FileImportChunkRepository>,
   fileName: string,
   filePath: string,
   options: ChunkingOptions,
@@ -569,6 +606,7 @@ async function processFileChunkingWorkerPath(
   chunks?: FileChunk[];
   strategyUsed: ChunkingStrategy;
 }> {
+  throwIfAborted(options.abortSignal);
   const { toFileChunkInserts } = await import('./chunking-worker-port');
 
   // Build worker options, only including defined properties
@@ -611,6 +649,7 @@ async function processFileChunkingWorkerPath(
 
   // Convert portable chunks to database inserts
   const chunks = toFileChunkInserts(result.id, workerResult.chunks, options.targetEmbeddingSetId);
+  throwIfAborted(options.abortSignal);
 
   // Insert chunks into database (on main thread)
   const shouldUseTransaction =
@@ -620,11 +659,12 @@ async function processFileChunkingWorkerPath(
     await options.runInTransaction(async (tx) => {
       await insertChunksWithTransaction(tx, chunkRepository, chunks);
       await options.enqueueJobsForChunksTx?.(tx, chunks, result.id);
-      return undefined as unknown as undefined;
+      return;
     });
   } else {
     await chunkRepository.insertMany(chunks);
     if (options.embedQueueEnabled && options.enqueueJobsForChunks) {
+      throwIfAborted(options.abortSignal);
       await options.enqueueJobsForChunks(chunks, result.id);
     }
   }
@@ -714,6 +754,7 @@ export async function processChunking(
   }
 
   const chunkingWorkerPort = options.chunkingWorkerPort;
+  throwIfAborted(options.abortSignal);
   if (!chunkingWorkerPort) {
     throw new Error(
       'Chunking worker is required for imports but was not provided. ' +
@@ -722,7 +763,11 @@ export async function processChunking(
   }
   if (!chunkingWorkerPort.isReady()) {
     logger.info('Waiting for chunking worker to be ready before starting chunking phase');
-    await waitForChunkingWorkerReady(chunkingWorkerPort, CHUNKING_WORKER_READY_TIMEOUT_MS);
+    await waitForChunkingWorkerReady(
+      chunkingWorkerPort,
+      CHUNKING_WORKER_READY_TIMEOUT_MS,
+      options.abortSignal
+    );
   }
 
   const isHostProxyTransport = chunkingWorkerPort.transportKind === 'host-proxy';
@@ -773,6 +818,7 @@ export async function processChunking(
     sliceStart < importResults.length;
     sliceStart += Math.max(prefetchWindowSize, 1)
   ) {
+    throwIfAborted(options.abortSignal);
     const sliceEnd = Math.min(sliceStart + Math.max(prefetchWindowSize, 1), importResults.length);
     const importResultsSlice = importResults.slice(sliceStart, sliceEnd);
     let recordsMap: Map<string, FileRecord> | undefined;
@@ -786,6 +832,7 @@ export async function processChunking(
       if (ids.length > 0) {
         const batchFetchStart = Date.now();
         const records = await repository.findByIds(ids);
+        throwIfAborted(options.abortSignal);
         const batchFetchDuration = Date.now() - batchFetchStart;
         recordsMap = new Map(records.map((record) => [record.id, record]));
         logger.debug('Window-fetched file records for chunking', {
@@ -802,6 +849,7 @@ export async function processChunking(
       importResultsSlice,
       ChunkingConcurrency,
       async (result, offset) => {
+        throwIfAborted(options.abortSignal);
         if (!result) {
           return null;
         }
@@ -819,6 +867,7 @@ export async function processChunking(
         );
 
         if (options.enableEmbedding && options.processEmbeddings && chunks && chunks.length > 0) {
+          throwIfAborted(options.abortSignal);
           await options.processEmbeddings(chunks, enhancedResult);
         }
 

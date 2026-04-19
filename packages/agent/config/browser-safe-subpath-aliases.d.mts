@@ -1,5 +1,6 @@
 type AgentBrowserSafeSpecifier =
   | '@brainstrike/agent/client'
+  | '@brainstrike/agent/local-llm'
   | '@brainstrike/agent/local-runtime'
   | '@brainstrike/agent/provider-metadata'
   | '@brainstrike/agent/tool-metadata';

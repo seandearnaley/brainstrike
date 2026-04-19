@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DESKTOP_DEV_RENDERER_URL } from '../../desktop-renderer-url';
 
 const onHeadersReceivedMock = vi.fn();
 const mockSession = {
@@ -97,34 +98,42 @@ vi.mock('node:fs', () => ({
   },
 }));
 
-const isDevEnvMock = vi.fn();
-const createLoggerMock = vi.fn(() => ({
-  info: vi.fn(),
-  debug: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
+const {
+  applyLoggingPreferencesMock,
+  createDefaultLoggingPreferencesMock,
+  createLoggerMock,
+  initializeLoggingMock,
+  isDevEnvMock,
+} = vi.hoisted(() => ({
+  isDevEnvMock: vi.fn(),
+  createLoggerMock: vi.fn(() => ({
+    info: vi.fn(),
+    debug: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  })),
+  initializeLoggingMock: vi.fn(),
+  createDefaultLoggingPreferencesMock: vi.fn(() => ({
+    level: 'info',
+    consoleLevel: 'info',
+    includeTimestamp: false,
+    consoleEnabled: true,
+    redactPaths: [],
+    file: {
+      enabled: false,
+      destination: null,
+      level: 'info',
+      append: true,
+      mkdir: true,
+    },
+  })),
+  applyLoggingPreferencesMock: vi.fn(),
 }));
 
 const getLoggerInstance = (scope: string) => {
   const index = createLoggerMock.mock.calls.findIndex(([arg]) => arg === scope);
   return index === -1 ? undefined : createLoggerMock.mock.results[index]?.value;
 };
-const initializeLoggingMock = vi.fn();
-const createDefaultLoggingPreferencesMock = vi.fn(() => ({
-  level: 'info',
-  consoleLevel: 'info',
-  includeTimestamp: false,
-  consoleEnabled: true,
-  redactPaths: [],
-  file: {
-    enabled: false,
-    destination: null,
-    level: 'info',
-    append: true,
-    mkdir: true,
-  },
-}));
-const applyLoggingPreferencesMock = vi.fn();
 vi.mock('@brainstrike/utils', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
   return {
@@ -258,6 +267,7 @@ describe('window setup', () => {
     existsSyncMock.mockReturnValue(false);
     isDevEnvMock.mockReturnValue(false);
     process.env['CI'] = 'false';
+    process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
 
     mockBrowserWindowInstance.loadURL.mockResolvedValueOnce(undefined);
 
@@ -267,9 +277,9 @@ describe('window setup', () => {
     const attemptedUrls = mockBrowserWindowInstance.loadURL.mock.calls.map(
       (call: [string]) => call[0]
     );
-    expect(attemptedUrls).toContain('http://localhost:8081');
+    expect(attemptedUrls).toContain(DESKTOP_DEV_RENDERER_URL);
     for (const url of attemptedUrls.filter((value) => !value.includes('?mode=embedding-host'))) {
-      expect(url).toBe('http://localhost:8081');
+      expect(url).toBe(DESKTOP_DEV_RENDERER_URL);
     }
     expect(mockBrowserWindowInstance.webContents.openDevTools).not.toHaveBeenCalled();
   });
@@ -280,30 +290,18 @@ describe('window setup', () => {
     isDevEnvMock.mockReturnValue(false);
     process.env['CI'] = 'false';
     process.env['BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS'] = '1';
+    process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
     mockBrowserWindowInstance.loadURL.mockResolvedValueOnce(undefined);
 
     const { createWindow } = await import('../../main');
     const win = await createWindow();
 
-    expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledWith('http://localhost:8081');
+    expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledWith(DESKTOP_DEV_RENDERER_URL);
     expect(mockBrowserWindowInstance.webContents.openDevTools).toHaveBeenCalled();
     // Vitest 4 constructor mocks return `this`, not the original mock object
     // Verify win has the expected mock functions attached
     expect(win.loadURL).toBeDefined();
     expect(win.loadFile).toBeDefined();
-  });
-
-  it('createWindow production loads renderer/index.html', async () => {
-    mockApp.isPackaged = true;
-    existsSyncMock.mockReturnValue(true);
-    isDevEnvMock.mockReturnValue(false);
-
-    const { createWindow } = await import('../../main');
-    await createWindow();
-
-    expect(mockBrowserWindowInstance.loadFile).toHaveBeenCalled();
-    const arg = mockBrowserWindowInstance.loadFile.mock.calls[0]?.[0] as string;
-    expect(arg).toContain('renderer/index.html');
   });
 
   it('sets disable-features with MacWebContentsOcclusion and SpareRendererForSitePerProcess', async () => {

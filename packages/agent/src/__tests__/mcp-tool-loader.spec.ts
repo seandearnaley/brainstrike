@@ -1,9 +1,14 @@
 import type { ToolsInput } from '@mastra/core/agent';
 import type { MCPClient } from '@mastra/mcp';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { collectCombinedTools } from '../mastra/mcp-tool-loader';
+import { toolRegistry as mcpToolRegistry } from '../mcp/tool-registry';
 
 describe('mcp-tool-loader', () => {
+  afterEach(() => {
+    mcpToolRegistry.clear();
+  });
+
   describe('collectCombinedTools', () => {
     it('returns only local tools when no MCP client', async () => {
       const localTools: ToolsInput = {
@@ -410,6 +415,45 @@ describe('mcp-tool-loader', () => {
       // When there's only one server, all tools are assumed to belong to that server
       expect(Object.keys(result)).toHaveLength(1);
       expect(result).toHaveProperty('other_tool');
+    });
+
+    it('applies persisted enabled state using original MCP ids after sanitization', async () => {
+      mcpToolRegistry.register('filesystem', {
+        'filesystem.read_file': { id: 'filesystem.read_file', description: 'read file' },
+        'filesystem.list_directory': { id: 'filesystem.list_directory', description: 'list dir' },
+      });
+      mcpToolRegistry.disableTools(['filesystem.read_file']);
+
+      const mockMcpTools: ToolsInput = {
+        'filesystem.read_file': { id: 'filesystem.read_file', description: 'read file' },
+        'filesystem.list_directory': { id: 'filesystem.list_directory', description: 'list dir' },
+      };
+
+      const mockMcpClient = {
+        listTools: vi.fn().mockResolvedValue(mockMcpTools),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'filesystem',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap: new Map(),
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(result).not.toHaveProperty('filesystem_read_file');
+      expect(result).toHaveProperty('filesystem_list_directory');
+      expect(mcpToolRegistry.getToolsForServer('filesystem')).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: 'filesystem.read_file' })])
+      );
     });
   });
 });

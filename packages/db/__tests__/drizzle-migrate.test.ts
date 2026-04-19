@@ -147,6 +147,7 @@ describe('Drizzle Migration Runner', () => {
       expect(columnNames).toContain('content');
       expect(columnNames).toContain('content_hash');
       expect(columnNames).toContain('embedding_set_id');
+      expect(columnNames).toContain('source_root_path');
     });
 
     it('should create file_chunks with vector column', async () => {
@@ -173,6 +174,20 @@ describe('Drizzle Migration Runner', () => {
 
       expect(fks.rows.length).toBeGreaterThan(0);
       expect(fks.rows[0]?.constraint_name).toContain('file_record_id');
+    });
+
+    it('creates the managed-cache identity unique index for file records', async () => {
+      await runMigrations(db);
+
+      const indexes = await db.query<{ indexname: string }>(`
+        SELECT indexname FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND tablename = 'file_records'
+          AND indexname = 'idx_file_records_cache_identity'
+      `);
+
+      expect(indexes.rows).toHaveLength(1);
+      expect(indexes.rows[0]?.indexname).toBe('idx_file_records_cache_identity');
     });
   });
 });

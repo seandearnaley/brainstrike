@@ -153,6 +153,7 @@ describe('useAvailableModels', () => {
     expect(result.current).toHaveLength(2);
     expect(result.current[0]).toEqual({
       id: 'openai::text-embedding-3-small',
+      modelId: 'text-embedding-3-small',
       providerId: 'openai',
       name: 'Text Embedding 3 Small',
       description: 'OpenAI model',
@@ -160,7 +161,8 @@ describe('useAvailableModels', () => {
       pricePer1MTokensInput: 0.02,
     });
     expect(result.current[1]).toEqual({
-      id: 'bge-m3', // local doesn't get prefix in this implementation
+      id: 'local::bge-m3',
+      modelId: 'bge-m3',
       providerId: 'local',
       name: 'BGE M3',
       description: 'Local model',
@@ -173,6 +175,7 @@ describe('useAvailableModels', () => {
 
     expect(result.current).toContainEqual({
       id: 'ollama::nomic-embed-text',
+      modelId: 'nomic-embed-text',
       providerId: 'ollama',
       name: 'nomic-embed-text',
       description: 'Nomic Embed Text • 768D • Local runtime',

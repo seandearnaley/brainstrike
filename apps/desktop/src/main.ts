@@ -20,15 +20,18 @@ import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow, noteNextWindowReload } from './create-window';
 import { closeDatabase, resetLocalDatabase } from './db-main';
+import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerIpcHandlers, setBackgrounded } from './ipc-handlers';
+import { registerLlmHostIpcHandlers } from './ipc-llm-host';
 import { registerMcpIpcHandlers } from './ipc-mcp';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerToolsIpcHandlers } from './ipc-tools';
+import { LlmHostManager } from './llm-host-manager';
 import {
   cloneLoggingPreferences,
   cloneLoggingSettingsPayload,
@@ -47,6 +50,19 @@ const LOG_FILE_VERIFICATION_TIMEOUT_MS = 5000;
 
 function isElectronE2ETestMode(): boolean {
   return process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
+}
+
+function tryShowStartupErrorDialog(message: string): void {
+  try {
+    if (typeof dialog?.showErrorBox === 'function') {
+      dialog.showErrorBox('BrainStrike Desktop failed to start', message);
+    }
+  } catch (dialogError) {
+    logger.error('Failed to show startup error dialog', {
+      dialogError,
+      message,
+    });
+  }
 }
 
 // Defer getPath call until app is ready - calling at module load time fails
@@ -510,6 +526,7 @@ let stopAssistantServer: null | (() => Promise<void>) = null;
 let unregisterMainIpcHandlers: null | (() => void) = null;
 let unregisterChunkingHostIpcHandlers: null | (() => void) = null;
 let unregisterEmbeddingHostIpcHandlers: null | (() => void) = null;
+let unregisterLlmHostIpcHandlers: null | (() => void) = null;
 let unregisterLoggingIpcHandlers: null | (() => void) = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
@@ -617,6 +634,13 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
       failures.push(embeddingFailure);
     }
 
+    const llmFailure = await runShutdownStep('llm-host', async () => {
+      await llmHostManager.dispose();
+    });
+    if (llmFailure) {
+      failures.push(llmFailure);
+    }
+
     const databaseFailure = await runShutdownStep('database', async () => {
       await closeDatabase();
     });
@@ -674,6 +698,7 @@ const fileSystem = new ElectronFileSystemAdapter();
 const storage = new ElectronStorageAdapter();
 const chunkingHostManager = new ChunkingHostManager();
 const embeddingHostManager = new EmbeddingHostManager();
+const llmHostManager = new LlmHostManager();
 
 unregisterLoggingIpcHandlers = registerLoggingIpcHandlers({
   getState: getLoggingSettingsPayload,
@@ -701,6 +726,7 @@ unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettings
 });
 unregisterChunkingHostIpcHandlers = registerChunkingHostIpcHandlers(chunkingHostManager);
 unregisterEmbeddingHostIpcHandlers = registerEmbeddingHostIpcHandlers(embeddingHostManager);
+unregisterLlmHostIpcHandlers = registerLlmHostIpcHandlers(llmHostManager);
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
@@ -759,7 +785,11 @@ if (singleInstanceLockAcquired) {
       const existingWindow =
         BrowserWindow.getAllWindows().find(
           (window) =>
-            !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
+            !(
+              embeddingHostManager.isHostWindow(window) ||
+              chunkingHostManager.isHostWindow(window) ||
+              llmHostManager.isHostWindow(window)
+            )
         ) ?? null;
       if (!existingWindow) {
         return;
@@ -777,6 +807,13 @@ if (singleInstanceLockAcquired) {
   app.whenReady().then(async () => {
     try {
       logger.debug('App ready, starting initialization...');
+
+      const launchMode = resolveDesktopRendererLaunchMode({
+        argv: process.argv,
+        isPackaged: app.isPackaged,
+        isTestMode: e2eTestMode,
+      });
+      logger.debug('Resolved desktop launch mode', { launchMode });
 
       // Keep macOS desktop E2E runs invisible while Playwright drives the hidden window.
       if (e2eTestMode && process.platform === 'darwin') {
@@ -1141,7 +1178,11 @@ if (singleInstanceLockAcquired) {
       app.on('activate', async () => {
         const hasVisibleWindow = BrowserWindow.getAllWindows().some(
           (window) =>
-            !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
+            !(
+              embeddingHostManager.isHostWindow(window) ||
+              chunkingHostManager.isHostWindow(window) ||
+              llmHostManager.isHostWindow(window)
+            )
         );
         if (!hasVisibleWindow) {
           await createMainWindow();
@@ -1149,6 +1190,8 @@ if (singleInstanceLockAcquired) {
       });
     } catch (error) {
       logger.error('Failed to initialize application:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      tryShowStartupErrorDialog(message);
       app.quit();
     }
   });
@@ -1194,6 +1237,10 @@ app.on('will-quit', () => {
   if (unregisterEmbeddingHostIpcHandlers) {
     unregisterEmbeddingHostIpcHandlers();
     unregisterEmbeddingHostIpcHandlers = null;
+  }
+  if (unregisterLlmHostIpcHandlers) {
+    unregisterLlmHostIpcHandlers();
+    unregisterLlmHostIpcHandlers = null;
   }
   if (unregisterChunkingHostIpcHandlers) {
     unregisterChunkingHostIpcHandlers();

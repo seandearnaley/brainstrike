@@ -8,13 +8,25 @@ import {
   type TreeTableColumn,
 } from '@brainstrike/ui';
 import { FolderOpen } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  type MutableRefObject,
+  memo,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+} from 'react';
 import { ExtensionBadge } from './extension-badge';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { PreviewTableRow } from './preview-table-row';
 import { formatTokenCount } from './use-preview-panel-state';
 import type { GroupedData, GroupKey, TableRowData } from './utils/grouping-configs';
-import { formatDirPathForDisplay, splitFilePath } from './utils/path-display';
+import {
+  formatDirPathForDisplay,
+  getRootFolderDisplayName,
+  splitFilePath,
+} from './utils/path-display';
 import { formatPreviewFileSize } from './utils/preview-formatters';
 
 interface PreviewTableProps {
@@ -56,6 +68,12 @@ interface ItemTreeNodeData {
 
 type PreviewTreeNodeData = GroupTreeNodeData | ItemTreeNodeData;
 
+const PREVIEW_CHECKBOX_COLUMN_WIDTH = 32;
+const PREVIEW_CHECKBOX_CELL_CLASS = 'w-8 px-0 py-2';
+const PREVIEW_CHECKBOX_HEADER_CLASS = 'h-10 w-8 bg-background px-0 py-2';
+const PREVIEW_STANDARD_HEADER_CLASS = 'h-10 px-4 py-2';
+const PREVIEW_TREE_HEADER_CLASS = 'h-10 pr-4 pl-[38px] py-2';
+
 function resolveCheckboxState(
   isFullySelected: boolean,
   isPartiallySelected: boolean
@@ -70,44 +88,37 @@ function resolveCheckboxState(
 }
 
 const DEFAULT_GROUP_COLUMN: GroupColumnId = 'path';
-const GROUP_COLUMN_ORDER: GroupColumnId[] = ['rootFolderId', 'path', 'type', 'tokens', 'size'];
+const GROUP_COLUMN_ORDER: GroupColumnId[] = ['path', 'rootFolderId', 'type', 'tokens', 'size'];
+const NON_FOLDER_GROUP_COLUMN_ORDER: GroupColumnId[] = [
+  'rootFolderId',
+  'path',
+  'type',
+  'tokens',
+  'size',
+];
 
 interface GroupHeaderSummaryProps {
   group: GroupedData<TableRowData>;
-  isFullySelected: boolean;
-  isPartiallySelected: boolean;
-  onSelectionChange: (checked: boolean) => void;
-  showInlineCheckbox: boolean;
 }
 
 const GroupHeaderSummary = memo<GroupHeaderSummaryProps>(function GroupHeaderSummaryComponent({
   group,
-  showInlineCheckbox,
-  isFullySelected,
-  isPartiallySelected,
-  onSelectionChange,
 }) {
-  const checkboxState = resolveCheckboxState(isFullySelected, isPartiallySelected);
-
   return (
-    <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-      {showInlineCheckbox && (
-        <Checkbox
-          aria-label={`Select all files in group ${group.groupLabel}`}
-          checked={checkboxState}
-          onCheckedChange={(checked) => onSelectionChange(checked === true)}
-          onClick={(event) => event.stopPropagation()}
-        />
-      )}
-      <div className="inline-flex min-w-0 items-center gap-1.5 rounded-sm px-1 py-0.5 font-medium text-sm">
+    <div className="flex w-full min-w-0 items-center gap-2">
+      <div className="inline-flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden rounded-sm px-1 py-0.5 font-medium text-sm">
         <FolderOpen className="size-4 flex-shrink-0 text-muted-foreground" />
         <span className="truncate">
           {group.groupLabel}
           <span className="sr-only">{` (${group.count} file${group.count === 1 ? '' : 's'})`}</span>
         </span>
       </div>
-      <span aria-hidden="true" className="text-muted-foreground text-xs">
-        {group.count} files
+      <span
+        aria-hidden="true"
+        className="inline-flex h-5 flex-shrink-0 items-center rounded-full border border-border/60 bg-muted/40 px-1.5 font-medium text-[11px] text-muted-foreground tabular-nums"
+        title={`${group.count} files`}
+      >
+        {group.count}
       </span>
     </div>
   );
@@ -297,8 +308,22 @@ function buildGroupedTreeNodes({
   };
 }
 
-function resolvePrimaryGroupColumn(columnVisibility: ColumnVisibility): GroupColumnId {
-  for (const column of GROUP_COLUMN_ORDER) {
+function getPreferredGroupColumnOrder(groupingConfig: string): readonly GroupColumnId[] {
+  if (
+    groupingConfig === 'fileType' ||
+    groupingConfig === 'sizeSteps' ||
+    groupingConfig === 'tokenSteps'
+  ) {
+    return NON_FOLDER_GROUP_COLUMN_ORDER;
+  }
+  return GROUP_COLUMN_ORDER;
+}
+
+function resolvePrimaryGroupColumn(
+  columnVisibility: ColumnVisibility,
+  groupingConfig: string
+): GroupColumnId {
+  for (const column of getPreferredGroupColumnOrder(groupingConfig)) {
     if (columnVisibility[column]) {
       return column;
     }
@@ -352,6 +377,445 @@ const SortHeaderButton = memo<SortHeaderButtonProps>(function SortHeaderButtonCo
 });
 SortHeaderButton.displayName = 'SortHeaderButton';
 
+interface GroupedColumnBuilderArgs {
+  columnVisibility: ColumnVisibility;
+  groupedTreeColumnId: GroupColumnId | null;
+  handleGroupDeselectAllStable: (group: GroupedData<TableRowData>) => void;
+  handleGroupSelectAllStable: (group: GroupedData<TableRowData>) => void;
+  headerSelectableFiles: TableRowData[];
+  headerSelectionLabel: string;
+  isGroupFullySelectedRef: MutableRefObject<(group: GroupedData<TableRowData>) => boolean>;
+  isGroupPartiallySelectedRef: MutableRefObject<(group: GroupedData<TableRowData>) => boolean>;
+  isHeaderSelectionComplete: boolean;
+  onDeselectAllStable: () => void;
+  onFileClickStable: (compositeKey: string) => void;
+  onSelectAllOnPageStable: (items: TableRowData[]) => void;
+  onSortStable: (field: keyof TableRowData) => void;
+  onToggleSelectionStable: (compositeKey: string, checked: boolean) => void;
+  previewSelectionsRef: MutableRefObject<Set<string>>;
+  primaryGroupColumn: GroupColumnId;
+  renderGroupHeaderIfPrimary: (
+    group: GroupedData<TableRowData>,
+    columnId: GroupColumnId
+  ) => ReactNode;
+  sortDirection: 'asc' | 'desc';
+  sortField: keyof TableRowData;
+}
+
+function resolveGroupedHeaderClassName(isTreeColumn: boolean, widthClassName?: string): string {
+  return cn(
+    isTreeColumn ? PREVIEW_TREE_HEADER_CLASS : PREVIEW_STANDARD_HEADER_CLASS,
+    widthClassName
+  );
+}
+
+function createGroupedCheckboxColumn({
+  handleGroupDeselectAllStable,
+  handleGroupSelectAllStable,
+  headerSelectionLabel,
+  headerSelectableFiles,
+  isHeaderSelectionComplete,
+  isGroupFullySelectedRef,
+  isGroupPartiallySelectedRef,
+  onDeselectAllStable,
+  onSelectAllOnPageStable,
+  onToggleSelectionStable,
+  previewSelectionsRef,
+}: Pick<
+  GroupedColumnBuilderArgs,
+  | 'handleGroupDeselectAllStable'
+  | 'handleGroupSelectAllStable'
+  | 'headerSelectionLabel'
+  | 'headerSelectableFiles'
+  | 'isHeaderSelectionComplete'
+  | 'isGroupFullySelectedRef'
+  | 'isGroupPartiallySelectedRef'
+  | 'onDeselectAllStable'
+  | 'onSelectAllOnPageStable'
+  | 'onToggleSelectionStable'
+  | 'previewSelectionsRef'
+>): TreeTableColumn<PreviewTreeNodeData> {
+  return {
+    id: 'checkbox',
+    isTreeColumn: false,
+    header: (
+      <div className="flex h-full items-center justify-center">
+        <Checkbox
+          aria-label={headerSelectionLabel}
+          checked={isHeaderSelectionComplete}
+          onCheckedChange={(checked) =>
+            checked ? onSelectAllOnPageStable(headerSelectableFiles) : onDeselectAllStable()
+          }
+          title={headerSelectionLabel}
+        />
+      </div>
+    ),
+    width: PREVIEW_CHECKBOX_COLUMN_WIDTH,
+    className: PREVIEW_CHECKBOX_CELL_CLASS,
+    headerClassName: PREVIEW_CHECKBOX_HEADER_CLASS,
+    headerContentClassName: 'w-full justify-center',
+    cell: ({ node }) => {
+      if (node.data.kind === 'group') {
+        const group = node.data.group;
+        const checkedState = resolveCheckboxState(
+          isGroupFullySelectedRef.current(group),
+          isGroupPartiallySelectedRef.current(group)
+        );
+
+        return (
+          <div className="flex h-full items-center justify-center">
+            <Checkbox
+              aria-label={`Select all files in group ${group.groupLabel}`}
+              checked={checkedState}
+              onCheckedChange={(checked) => {
+                if (checked) {
+                  handleGroupSelectAllStable(group);
+                  return;
+                }
+                handleGroupDeselectAllStable(group);
+              }}
+              onClick={(event) => event.stopPropagation()}
+            />
+          </div>
+        );
+      }
+
+      const item = node.data.item;
+      return (
+        <div className="flex h-full items-center justify-center">
+          <Checkbox
+            aria-label={`Select ${item.path}`}
+            checked={previewSelectionsRef.current.has(item.compositeKey)}
+            onCheckedChange={(checked) =>
+              onToggleSelectionStable(item.compositeKey, checked === true)
+            }
+            onClick={(event) => event.stopPropagation()}
+          />
+        </div>
+      );
+    },
+  };
+}
+
+function createGroupedRootFolderColumn({
+  columnVisibility,
+  groupedTreeColumnId,
+  onSortStable,
+  primaryGroupColumn,
+  renderGroupHeaderIfPrimary,
+  sortDirection,
+  sortField,
+}: Pick<
+  GroupedColumnBuilderArgs,
+  | 'columnVisibility'
+  | 'groupedTreeColumnId'
+  | 'onSortStable'
+  | 'primaryGroupColumn'
+  | 'renderGroupHeaderIfPrimary'
+  | 'sortDirection'
+  | 'sortField'
+>): TreeTableColumn<PreviewTreeNodeData> {
+  const isTreeColumn = groupedTreeColumnId === 'rootFolderId';
+  return {
+    id: 'rootFolderId',
+    indentWidth: 8,
+    isTreeColumn,
+    header: (
+      <SortHeaderButton
+        field="rootFolderId"
+        onSort={onSortStable}
+        sortDirection={sortDirection}
+        sortField={sortField}
+        title="Folder"
+      />
+    ),
+    width: 176,
+    className: isTreeColumn ? 'pr-4 pl-0 py-2' : 'px-4 py-2',
+    colSpan: ({ node }) =>
+      node.data.kind === 'group' && primaryGroupColumn === 'rootFolderId' && columnVisibility.path
+        ? 2
+        : 1,
+    headerClassName: resolveGroupedHeaderClassName(isTreeColumn, 'w-44'),
+    cell: ({ node }) => {
+      if (node.data.kind === 'group') {
+        return renderGroupHeaderIfPrimary(node.data.group, 'rootFolderId');
+      }
+
+      const item = node.data.item;
+      const displayRootFolder = getRootFolderDisplayName(item.rootFolderId);
+      return (
+        <div className="flex min-w-0 items-center gap-1.5">
+          <FolderOpen className="size-4 flex-shrink-0 text-muted-foreground" />
+          <span className="min-w-0 truncate font-mono text-sm" title={item.rootFolderId}>
+            {displayRootFolder}
+          </span>
+        </div>
+      );
+    },
+  };
+}
+
+function createGroupedPathColumn({
+  groupedTreeColumnId,
+  onFileClickStable,
+  onSortStable,
+  renderGroupHeaderIfPrimary,
+  sortDirection,
+  sortField,
+}: Pick<
+  GroupedColumnBuilderArgs,
+  | 'groupedTreeColumnId'
+  | 'onFileClickStable'
+  | 'onSortStable'
+  | 'renderGroupHeaderIfPrimary'
+  | 'sortDirection'
+  | 'sortField'
+>): TreeTableColumn<PreviewTreeNodeData> {
+  const isTreeColumn = groupedTreeColumnId === 'path';
+  return {
+    id: 'path',
+    indentWidth: 8,
+    isTreeColumn,
+    header: (
+      <SortHeaderButton
+        field="path"
+        onSort={onSortStable}
+        sortDirection={sortDirection}
+        sortField={sortField}
+        title="File Path"
+      />
+    ),
+    className: isTreeColumn ? 'pr-4 pl-0 py-2' : 'px-4 py-2',
+    headerClassName: resolveGroupedHeaderClassName(isTreeColumn),
+    cell: ({ node }) => {
+      if (node.data.kind === 'group') {
+        return renderGroupHeaderIfPrimary(node.data.group, 'path');
+      }
+
+      const item = node.data.item;
+      const { fileName, dirPath } = splitFilePath(item.path);
+      const displayDirPath = formatDirPathForDisplay({
+        dirPath,
+        rootFolderId: item.rootFolderId,
+      });
+
+      return (
+        <button
+          aria-label={fileName}
+          className="block w-full min-w-0 overflow-hidden text-left transition-colors hover:text-primary"
+          onClick={(event) => {
+            event.preventDefault();
+            onFileClickStable(item.compositeKey);
+          }}
+          title={item.path}
+          type="button"
+        >
+          <div className="truncate font-medium text-sm" title={fileName}>
+            {fileName}
+          </div>
+          {displayDirPath && (
+            <div className="truncate font-mono text-muted-foreground text-xs" title={dirPath}>
+              {displayDirPath}
+            </div>
+          )}
+        </button>
+      );
+    },
+  };
+}
+
+function createGroupedTypeColumn({
+  groupedTreeColumnId,
+  onSortStable,
+  renderGroupHeaderIfPrimary,
+  sortDirection,
+  sortField,
+}: Pick<
+  GroupedColumnBuilderArgs,
+  | 'groupedTreeColumnId'
+  | 'onSortStable'
+  | 'renderGroupHeaderIfPrimary'
+  | 'sortDirection'
+  | 'sortField'
+>): TreeTableColumn<PreviewTreeNodeData> {
+  const isTreeColumn = groupedTreeColumnId === 'type';
+  return {
+    id: 'type',
+    isTreeColumn,
+    header: (
+      <SortHeaderButton
+        field="type"
+        onSort={onSortStable}
+        sortDirection={sortDirection}
+        sortField={sortField}
+        title="Type"
+      />
+    ),
+    width: 96,
+    className: isTreeColumn ? 'w-24 pr-4 pl-0 py-2' : 'w-24 px-4 py-2',
+    headerClassName: resolveGroupedHeaderClassName(isTreeColumn, 'w-24'),
+    cell: ({ node }) => {
+      if (node.data.kind === 'group') {
+        return renderGroupHeaderIfPrimary(node.data.group, 'type');
+      }
+
+      return <ExtensionBadge extension={node.data.item.type} />;
+    },
+  };
+}
+
+function createGroupedTokensColumn({
+  groupedTreeColumnId,
+  onSortStable,
+  primaryGroupColumn,
+  renderGroupHeaderIfPrimary,
+  sortDirection,
+  sortField,
+}: Pick<
+  GroupedColumnBuilderArgs,
+  | 'groupedTreeColumnId'
+  | 'onSortStable'
+  | 'primaryGroupColumn'
+  | 'renderGroupHeaderIfPrimary'
+  | 'sortDirection'
+  | 'sortField'
+>): TreeTableColumn<PreviewTreeNodeData> {
+  const isTreeColumn = groupedTreeColumnId === 'tokens';
+  return {
+    id: 'tokens',
+    isTreeColumn,
+    header: (
+      <SortHeaderButton
+        field="tokens"
+        onSort={onSortStable}
+        sortDirection={sortDirection}
+        sortField={sortField}
+        title="Tokens"
+      />
+    ),
+    width: 96,
+    className: isTreeColumn
+      ? 'w-24 whitespace-nowrap pr-4 pl-0 py-2 text-right tabular-nums'
+      : 'w-24 whitespace-nowrap px-4 py-2 text-right tabular-nums',
+    headerClassName: resolveGroupedHeaderClassName(isTreeColumn, 'w-24'),
+    cell: ({ node }) => {
+      if (node.data.kind === 'group') {
+        if (primaryGroupColumn === 'tokens') {
+          return renderGroupHeaderIfPrimary(node.data.group, 'tokens');
+        }
+        const { totalTokens } = node.data.group;
+        if (!totalTokens) {
+          return null;
+        }
+        return (
+          <span className="whitespace-nowrap font-mono text-sm tabular-nums">
+            {formatTokenCount(totalTokens)}
+          </span>
+        );
+      }
+
+      const tokens = node.data.item.tokens;
+      if (!tokens) {
+        return <span className="text-muted-foreground text-sm">—</span>;
+      }
+      return (
+        <span className="whitespace-nowrap font-mono text-sm tabular-nums">
+          {formatTokenCount(tokens)}
+        </span>
+      );
+    },
+  };
+}
+
+function createGroupedSizeColumn({
+  groupedTreeColumnId,
+  onSortStable,
+  primaryGroupColumn,
+  renderGroupHeaderIfPrimary,
+  sortDirection,
+  sortField,
+}: Pick<
+  GroupedColumnBuilderArgs,
+  | 'groupedTreeColumnId'
+  | 'onSortStable'
+  | 'primaryGroupColumn'
+  | 'renderGroupHeaderIfPrimary'
+  | 'sortDirection'
+  | 'sortField'
+>): TreeTableColumn<PreviewTreeNodeData> {
+  const isTreeColumn = groupedTreeColumnId === 'size';
+  return {
+    id: 'size',
+    isTreeColumn,
+    header: (
+      <SortHeaderButton
+        field="size"
+        onSort={onSortStable}
+        sortDirection={sortDirection}
+        sortField={sortField}
+        title="Size"
+      />
+    ),
+    width: 96,
+    className: isTreeColumn
+      ? 'w-24 whitespace-nowrap pr-4 pl-0 py-2 text-right tabular-nums'
+      : 'w-24 whitespace-nowrap px-4 py-2 text-right tabular-nums',
+    headerClassName: resolveGroupedHeaderClassName(isTreeColumn, 'w-24'),
+    cell: ({ node }) => {
+      if (node.data.kind === 'group') {
+        if (primaryGroupColumn === 'size') {
+          return renderGroupHeaderIfPrimary(node.data.group, 'size');
+        }
+        return (
+          <span className="whitespace-nowrap font-mono text-sm tabular-nums">
+            {formatPreviewFileSize(node.data.group.totalSize)}
+          </span>
+        );
+      }
+
+      const size = node.data.item.size;
+      return (
+        <span
+          className={
+            size === undefined
+              ? 'text-muted-foreground text-sm'
+              : 'whitespace-nowrap font-mono text-sm tabular-nums'
+          }
+        >
+          {formatPreviewFileSize(size)}
+        </span>
+      );
+    },
+  };
+}
+
+function buildGroupedColumns(
+  args: GroupedColumnBuilderArgs
+): TreeTableColumn<PreviewTreeNodeData>[] {
+  const columns: TreeTableColumn<PreviewTreeNodeData>[] = [];
+
+  if (args.columnVisibility.checkbox) {
+    columns.push(createGroupedCheckboxColumn(args));
+  }
+  if (args.columnVisibility.rootFolderId) {
+    columns.push(createGroupedRootFolderColumn(args));
+  }
+  if (args.columnVisibility.path) {
+    columns.push(createGroupedPathColumn(args));
+  }
+  if (args.columnVisibility.type) {
+    columns.push(createGroupedTypeColumn(args));
+  }
+  if (args.columnVisibility.tokens) {
+    columns.push(createGroupedTokensColumn(args));
+  }
+  if (args.columnVisibility.size) {
+    columns.push(createGroupedSizeColumn(args));
+  }
+
+  return columns;
+}
+
 export const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(props) {
   const {
     columnVisibility,
@@ -402,11 +866,6 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   const isGroupPartiallySelectedRef = useRef(isGroupPartiallySelected);
   isGroupPartiallySelectedRef.current = isGroupPartiallySelected;
 
-  const isAllCurrentPageSelected = useMemo(
-    () => isAllSelected(visibleFilesOnPage),
-    [isAllSelected, visibleFilesOnPage]
-  );
-
   const groupedTree = useMemo(
     () =>
       buildGroupedTreeNodes({
@@ -433,8 +892,8 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   }, [stableExpandedGroupNodeIds]);
 
   const primaryGroupColumn = useMemo(
-    () => resolvePrimaryGroupColumn(columnVisibility),
-    [columnVisibility]
+    () => resolvePrimaryGroupColumn(columnVisibility, groupingConfig),
+    [columnVisibility, groupingConfig]
   );
 
   const renderGroupHeaderIfPrimary = useCallback(
@@ -442,28 +901,9 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
       if (primaryGroupColumn !== columnId) {
         return null;
       }
-      return (
-        <GroupHeaderSummary
-          group={group}
-          isFullySelected={isGroupFullySelectedRef.current(group)}
-          isPartiallySelected={isGroupPartiallySelectedRef.current(group)}
-          onSelectionChange={(checked) => {
-            if (checked) {
-              handleGroupSelectAllStable(group);
-              return;
-            }
-            handleGroupDeselectAllStable(group);
-          }}
-          showInlineCheckbox={!columnVisibility.checkbox}
-        />
-      );
+      return <GroupHeaderSummary group={group} />;
     },
-    [
-      primaryGroupColumn,
-      handleGroupSelectAllStable,
-      handleGroupDeselectAllStable,
-      columnVisibility.checkbox,
-    ]
+    [primaryGroupColumn]
   );
 
   const onGroupedTreeToggleExpand = useEventCallback((nodeId: string) => {
@@ -480,271 +920,63 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     toggleGroupCollapse(groupKey);
   });
 
+  const groupedTreeColumnId = useMemo<GroupColumnId | null>(() => {
+    for (const columnId of getPreferredGroupColumnOrder(groupingConfig)) {
+      if (columnVisibility[columnId]) {
+        return columnId;
+      }
+    }
+    return null;
+  }, [columnVisibility, groupingConfig]);
+
+  const allGroupedFiles = useMemo(() => groupedData.flatMap((group) => group.items), [groupedData]);
+
+  // Grouped mode intentionally promotes header select-all to the full grouped dataset.
+  // The compact header label distinguishes that behavior from ungrouped page-scoped selection.
+  const headerSelectableFiles = groupingConfig === 'none' ? visibleFilesOnPage : allGroupedFiles;
+  const headerSelectionLabel =
+    groupingConfig === 'none'
+      ? 'Select all files on current page'
+      : 'Select all files in grouped results';
+  const isHeaderSelectionComplete = useMemo(
+    () => isAllSelected(headerSelectableFiles),
+    [headerSelectableFiles, isAllSelected]
+  );
+
   // Keep this memo reactive to live selection/sort/group state so headers and cells stay synchronized.
   // Grouped mode keeps column definitions reactive to live selection/sort snapshots.
   // This favors correctness (no stale group summary/header state) over memo hit rate.
   // If profiling shows this as a hotspot, split static structure from reactive cell state.
   const groupedColumns = useMemo<TreeTableColumn<PreviewTreeNodeData>[]>(() => {
-    // Stable callback wrappers above keep parent callback identity churn out of this memo.
-    // Remaining dependencies are stateful render inputs for cells/headers.
-    const columns: TreeTableColumn<PreviewTreeNodeData>[] = [];
-
-    if (columnVisibility.checkbox) {
-      columns.push({
-        id: 'checkbox',
-        isTreeColumn: false,
-        header: (
-          <Checkbox
-            aria-label="Select all files on current page"
-            checked={isAllCurrentPageSelected}
-            onCheckedChange={(checked) =>
-              checked ? onSelectAllOnPageStable(visibleFilesOnPage) : onDeselectAllStable()
-            }
-            title="Select all files on current page"
-          />
-        ),
-        width: 48,
-        className: 'w-12 px-4 py-2',
-        cell: ({ node }) => {
-          if (node.data.kind === 'group') {
-            const group = node.data.group;
-            const checkedState = resolveCheckboxState(
-              isGroupFullySelectedRef.current(group),
-              isGroupPartiallySelectedRef.current(group)
-            );
-
-            return (
-              <Checkbox
-                aria-label={`Select all files in group ${group.groupLabel}`}
-                checked={checkedState}
-                onCheckedChange={(checked) => {
-                  if (checked) {
-                    handleGroupSelectAllStable(group);
-                    return;
-                  }
-                  handleGroupDeselectAllStable(group);
-                }}
-                onClick={(event) => event.stopPropagation()}
-              />
-            );
-          }
-
-          const item = node.data.item;
-          return (
-            <Checkbox
-              aria-label={`Select ${item.path}`}
-              checked={previewSelectionsRef.current.has(item.compositeKey)}
-              onCheckedChange={(checked) =>
-                onToggleSelectionStable(item.compositeKey, checked === true)
-              }
-              onClick={(event) => event.stopPropagation()}
-            />
-          );
-        },
-      });
-    }
-
-    if (columnVisibility.rootFolderId) {
-      columns.push({
-        id: 'rootFolderId',
-        header: (
-          <SortHeaderButton
-            field="rootFolderId"
-            onSort={onSortStable}
-            sortDirection={sortDirection}
-            sortField={sortField}
-            title="Folder"
-          />
-        ),
-        width: 176,
-        className: 'px-4 py-2',
-        headerClassName: 'w-44',
-        cell: ({ node }) => {
-          if (node.data.kind === 'group') {
-            return renderGroupHeaderIfPrimary(node.data.group, 'rootFolderId');
-          }
-
-          const item = node.data.item;
-          return (
-            <div className="flex min-w-0 items-center gap-1.5">
-              <FolderOpen className="size-4 flex-shrink-0 text-muted-foreground" />
-              <span className="min-w-0 truncate font-mono text-sm" title={item.rootFolderId}>
-                {item.rootFolderId}
-              </span>
-            </div>
-          );
-        },
-      });
-    }
-
-    if (columnVisibility.path) {
-      columns.push({
-        id: 'path',
-        header: (
-          <SortHeaderButton
-            field="path"
-            onSort={onSortStable}
-            sortDirection={sortDirection}
-            sortField={sortField}
-            title="File Path"
-          />
-        ),
-        className: 'px-4 py-2',
-        cell: ({ node }) => {
-          if (node.data.kind === 'group') {
-            return renderGroupHeaderIfPrimary(node.data.group, 'path');
-          }
-
-          const item = node.data.item;
-          const { fileName, dirPath } = splitFilePath(item.path);
-          const displayDirPath = formatDirPathForDisplay({
-            dirPath,
-            rootFolderId: item.rootFolderId,
-          });
-
-          return (
-            <button
-              aria-label={fileName}
-              className="block w-full min-w-0 overflow-hidden text-left transition-colors hover:text-primary"
-              onClick={(event) => {
-                event.preventDefault();
-                onFileClickStable(item.compositeKey);
-              }}
-              title={item.path}
-              type="button"
-            >
-              <div className="truncate font-medium text-sm" title={fileName}>
-                {fileName}
-              </div>
-              {displayDirPath && (
-                <div className="truncate font-mono text-muted-foreground text-xs" title={dirPath}>
-                  {displayDirPath}
-                </div>
-              )}
-            </button>
-          );
-        },
-      });
-    }
-
-    if (columnVisibility.type) {
-      columns.push({
-        id: 'type',
-        header: (
-          <SortHeaderButton
-            field="type"
-            onSort={onSortStable}
-            sortDirection={sortDirection}
-            sortField={sortField}
-            title="Type"
-          />
-        ),
-        width: 96,
-        className: 'w-24 px-4 py-2',
-        headerClassName: 'w-24',
-        cell: ({ node }) => {
-          if (node.data.kind === 'group') {
-            return renderGroupHeaderIfPrimary(node.data.group, 'type');
-          }
-
-          return <ExtensionBadge extension={node.data.item.type} />;
-        },
-      });
-    }
-
-    if (columnVisibility.tokens) {
-      columns.push({
-        id: 'tokens',
-        header: (
-          <SortHeaderButton
-            field="tokens"
-            onSort={onSortStable}
-            sortDirection={sortDirection}
-            sortField={sortField}
-            title="Tokens"
-          />
-        ),
-        width: 96,
-        className: 'w-24 whitespace-nowrap px-4 py-2 text-right tabular-nums',
-        headerClassName: 'w-24',
-        cell: ({ node }) => {
-          if (node.data.kind === 'group') {
-            if (primaryGroupColumn === 'tokens') {
-              return renderGroupHeaderIfPrimary(node.data.group, 'tokens');
-            }
-            const { totalTokens } = node.data.group;
-            if (!totalTokens) {
-              return null;
-            }
-            return (
-              <span className="whitespace-nowrap font-mono text-sm tabular-nums">
-                {formatTokenCount(totalTokens)}
-              </span>
-            );
-          }
-
-          const tokens = node.data.item.tokens;
-          if (!tokens) {
-            return <span className="text-muted-foreground text-sm">—</span>;
-          }
-          return (
-            <span className="whitespace-nowrap font-mono text-sm tabular-nums">
-              {formatTokenCount(tokens)}
-            </span>
-          );
-        },
-      });
-    }
-
-    if (columnVisibility.size) {
-      columns.push({
-        id: 'size',
-        header: (
-          <SortHeaderButton
-            field="size"
-            onSort={onSortStable}
-            sortDirection={sortDirection}
-            sortField={sortField}
-            title="Size"
-          />
-        ),
-        width: 96,
-        className: 'w-24 whitespace-nowrap px-4 py-2 text-right tabular-nums',
-        headerClassName: 'w-24',
-        cell: ({ node }) => {
-          if (node.data.kind === 'group') {
-            if (primaryGroupColumn === 'size') {
-              return renderGroupHeaderIfPrimary(node.data.group, 'size');
-            }
-            return (
-              <span className="whitespace-nowrap font-mono text-sm tabular-nums">
-                {formatPreviewFileSize(node.data.group.totalSize)}
-              </span>
-            );
-          }
-
-          const size = node.data.item.size;
-          return (
-            <span
-              className={
-                size === undefined
-                  ? 'text-muted-foreground text-sm'
-                  : 'whitespace-nowrap font-mono text-sm tabular-nums'
-              }
-            >
-              {formatPreviewFileSize(size)}
-            </span>
-          );
-        },
-      });
-    }
-
-    return columns;
+    return buildGroupedColumns({
+      columnVisibility,
+      groupedTreeColumnId,
+      handleGroupDeselectAllStable,
+      handleGroupSelectAllStable,
+      headerSelectionLabel,
+      headerSelectableFiles,
+      isHeaderSelectionComplete,
+      isGroupFullySelectedRef,
+      isGroupPartiallySelectedRef,
+      onDeselectAllStable,
+      onFileClickStable,
+      onSelectAllOnPageStable,
+      onSortStable,
+      onToggleSelectionStable,
+      previewSelectionsRef,
+      primaryGroupColumn,
+      renderGroupHeaderIfPrimary,
+      sortDirection,
+      sortField,
+    });
   }, [
     columnVisibility,
+    groupedTreeColumnId,
     handleGroupDeselectAllStable,
     handleGroupSelectAllStable,
-    isAllCurrentPageSelected,
+    headerSelectionLabel,
+    headerSelectableFiles,
+    isHeaderSelectionComplete,
     onDeselectAllStable,
     onFileClickStable,
     onSelectAllOnPageStable,
@@ -754,7 +986,6 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     renderGroupHeaderIfPrimary,
     sortDirection,
     sortField,
-    visibleFilesOnPage,
   ]);
 
   const rowClassName = useCallback((node: TreeNode<PreviewTreeNodeData>) => {
@@ -774,20 +1005,22 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
             <thead className="sticky top-0 z-10 border-b bg-background">
               <tr>
                 {columnVisibility.checkbox && (
-                  <th className="w-12 bg-background px-4 py-2" scope="col">
-                    <Checkbox
-                      aria-label="Select all files on current page"
-                      checked={isAllCurrentPageSelected}
-                      onCheckedChange={(checked) =>
-                        checked ? onSelectAllOnPage(visibleFilesOnPage) : onDeselectAll()
-                      }
-                      title="Select all files on current page"
-                    />
+                  <th className={PREVIEW_CHECKBOX_HEADER_CLASS} scope="col">
+                    <div className="flex h-full items-center justify-center">
+                      <Checkbox
+                        aria-label="Select all files on current page"
+                        checked={isHeaderSelectionComplete}
+                        onCheckedChange={(checked) =>
+                          checked ? onSelectAllOnPage(headerSelectableFiles) : onDeselectAll()
+                        }
+                        title="Select all files on current page"
+                      />
+                    </div>
                   </th>
                 )}
                 {columnVisibility.rootFolderId && (
                   <SortableTableHeader
-                    className="w-44"
+                    className="h-10 w-44"
                     field="rootFolderId"
                     onSort={onSort}
                     sortDirection={sortDirection}
@@ -797,6 +1030,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
                 )}
                 {columnVisibility.path && (
                   <SortableTableHeader
+                    className="h-10"
                     field="path"
                     onSort={onSort}
                     sortDirection={sortDirection}
@@ -806,7 +1040,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
                 )}
                 {columnVisibility.type && (
                   <SortableTableHeader
-                    className="w-24"
+                    className="h-10 w-24"
                     field="type"
                     onSort={onSort}
                     sortDirection={sortDirection}
@@ -816,7 +1050,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
                 )}
                 {columnVisibility.tokens && (
                   <SortableTableHeader
-                    className="w-24"
+                    className="h-10 w-24"
                     field="tokens"
                     onSort={onSort}
                     sortDirection={sortDirection}
@@ -826,7 +1060,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
                 )}
                 {columnVisibility.size && (
                   <SortableTableHeader
-                    className="w-24"
+                    className="h-10 w-24"
                     field="size"
                     onSort={onSort}
                     sortDirection={sortDirection}

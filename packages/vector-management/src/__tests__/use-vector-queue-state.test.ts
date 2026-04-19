@@ -155,6 +155,7 @@ vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => {
 
 interface MockController {
   readonly cancelAllBackfillsMock: ReturnType<typeof vi.fn>;
+  readonly cancelBackfillMock: ReturnType<typeof vi.fn>;
   readonly controller: EmbeddingRuntimeController;
   readonly emitBackfillProgress: (progress: EmbeddingRuntimeBackfillProgress) => void;
   readonly enqueueBackfillMock: ReturnType<typeof vi.fn>;
@@ -196,12 +197,17 @@ function createMockService(overrides: Partial<VectorQueueService> = {}): VectorQ
 
 function createMockController(): MockController {
   const progressListeners = new Set<(progress: EmbeddingRuntimeBackfillProgress) => void>();
+  const cancelBackfillMock = vi.fn(async () => {});
   const cancelAllBackfillsMock = vi.fn(async () => {});
-  const enqueueBackfillMock = vi.fn(async (_embeddingSetId: string) => {});
+  const enqueueBackfillMock = vi.fn(async (_embeddingSetId: string) => ({
+    requestId: 'embedding-backfill:test',
+  }));
 
   return {
+    cancelBackfillMock,
     cancelAllBackfillsMock,
     controller: {
+      cancelBackfill: cancelBackfillMock,
       cancelAllBackfills: cancelAllBackfillsMock,
       enqueueBackfill: enqueueBackfillMock,
       ensureStarted: vi.fn(async () => createRuntimeStatus('running')),
@@ -365,7 +371,12 @@ describe('useVectorQueueState', () => {
       await result.current.backfillActiveSet();
     });
 
-    expect(controller.enqueueBackfillMock).toHaveBeenCalledWith('set-1');
+    expect(controller.enqueueBackfillMock).toHaveBeenCalledWith(
+      'set-1',
+      expect.objectContaining({
+        source: 'manual',
+      })
+    );
     expect(vectorStatusUiStoreState.setActiveBackfill).toHaveBeenCalledWith(
       expect.objectContaining({
         embeddingSetId: 'set-1',

@@ -52,8 +52,9 @@ describe('CreateEmbeddingSetDialog', () => {
   const mockModels: ModelPickerModel[] = [
     {
       id: 'openai::text-embedding-3-small',
+      modelId: 'text-embedding-3-small',
       providerId: 'openai',
-      name: 'text-embedding-3-small',
+      name: 'Text Embedding 3 Small',
       description: 'Efficient embedding model',
       capabilities: {
         type: 'embedding',
@@ -61,13 +62,14 @@ describe('CreateEmbeddingSetDialog', () => {
       },
     },
     {
-      id: 'local::jina-embeddings-v2-base-en',
+      id: 'local::Xenova/all-MiniLM-L6-v2',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
       providerId: 'local',
-      name: 'jina-embeddings-v2-base-en',
+      name: 'all-MiniLM-L6-v2',
       description: 'Local embedding model',
       capabilities: {
         type: 'embedding',
-        defaultDimension: 768,
+        defaultDimension: 384,
       },
     },
   ];
@@ -101,7 +103,7 @@ describe('CreateEmbeddingSetDialog', () => {
     expect(screen.getByTestId('model-picker')).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/Name/i)).toHaveValue('text-embedding-3-small');
+      expect(screen.getByLabelText(/Name/i)).toHaveValue('Text Embedding 3 Small');
     });
   });
 
@@ -146,7 +148,7 @@ describe('CreateEmbeddingSetDialog', () => {
       // Wait for async initialization to complete (auto-fills name from model)
       const nameInput = screen.getByLabelText(/Name/i);
       await waitFor(() => {
-        expect(nameInput).toHaveValue('text-embedding-3-small');
+        expect(nameInput).toHaveValue('Text Embedding 3 Small');
       });
 
       // Clear auto-filled name and type custom name
@@ -200,7 +202,7 @@ describe('CreateEmbeddingSetDialog', () => {
     // Wait for async initialization to complete (auto-fills name from model)
     const nameInput = screen.getByLabelText(/Name/i);
     await waitFor(() => {
-      expect(nameInput).toHaveValue('text-embedding-3-small');
+      expect(nameInput).toHaveValue('Text Embedding 3 Small');
     });
 
     // Clear the auto-filled name to test validation
@@ -223,6 +225,7 @@ describe('CreateEmbeddingSetDialog', () => {
       getOrCreateSet: vi.fn(),
       findAll: vi.fn().mockResolvedValue([
         { name: 'text-embedding-3-small' }, // Same as first model's name
+        { name: 'Text Embedding 3 Small' }, // Same as first model's display name
       ]),
     } as unknown as IEmbeddingSetsRepository;
 
@@ -243,7 +246,7 @@ describe('CreateEmbeddingSetDialog', () => {
     // Wait for async initialization - should auto-fill with "(2)" suffix due to collision
     const nameInput = screen.getByLabelText(/Name/i);
     await waitFor(() => {
-      expect(nameInput).toHaveValue('text-embedding-3-small (2)');
+      expect(nameInput).toHaveValue('Text Embedding 3 Small (2)');
     });
   });
 
@@ -255,8 +258,9 @@ describe('CreateEmbeddingSetDialog', () => {
         .fn()
         .mockResolvedValue([
           { name: 'text-embedding-3-small' },
-          { name: 'text-embedding-3-small (2)' },
-          { name: 'text-embedding-3-small (3)' },
+          { name: 'Text Embedding 3 Small' },
+          { name: 'Text Embedding 3 Small (2)' },
+          { name: 'Text Embedding 3 Small (3)' },
         ]),
     } as unknown as IEmbeddingSetsRepository;
 
@@ -277,7 +281,46 @@ describe('CreateEmbeddingSetDialog', () => {
     // Wait for async initialization - should auto-fill with "(4)" suffix
     const nameInput = screen.getByLabelText(/Name/i);
     await waitFor(() => {
-      expect(nameInput).toHaveValue('text-embedding-3-small (4)');
+      expect(nameInput).toHaveValue('Text Embedding 3 Small (4)');
     });
+  });
+
+  it('persists the raw provider model id for local registry models', async () => {
+    const user = userEvent.setup({ delay: null });
+    (mockRepository.getOrCreateSet as Mock).mockResolvedValue({ id: 'new-local-set-id' });
+
+    render(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          models={mockModels}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={mockProviders}
+          repository={mockRepository}
+        />
+      </>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Name/i)).toHaveValue('Text Embedding 3 Small');
+    });
+
+    await user.selectOptions(
+      screen.getByTestId('model-picker-select'),
+      'local::Xenova/all-MiniLM-L6-v2'
+    );
+    await user.click(screen.getByText('Create Collection'));
+
+    expect(mockRepository.getOrCreateSet).toHaveBeenCalledWith(
+      'local::Xenova/all-MiniLM-L6-v2',
+      'Xenova/all-MiniLM-L6-v2',
+      384,
+      'cosine',
+      expect.objectContaining({
+        name: 'Text Embedding 3 Small',
+      })
+    );
   });
 });

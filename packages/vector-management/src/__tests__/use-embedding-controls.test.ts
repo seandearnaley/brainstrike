@@ -7,6 +7,7 @@ import type {
   ApiKeyValidationResult,
   TelemetryTrendPoint,
 } from '../vector-status/use-vector-queue-state';
+import type { VectorQueueService } from '../vector-status/vector-queue-service';
 
 const RUNNING_EMBEDDING_WORKER_STATUS: EmbeddingRuntimeStatus = {
   runtimeKind: 'embedding-worker',
@@ -23,6 +24,37 @@ const STOPPED_EMBEDDING_WORKER_STATUS: EmbeddingRuntimeStatus = {
   active: false,
   lastError: null,
 };
+
+function createMockVectorQueueService(): VectorQueueService {
+  return {
+    backfill: vi.fn(async () => ({
+      queued: 0,
+      running: 0,
+      failed: 0,
+      succeeded: 0,
+    })),
+    clearQueue: vi.fn(async () => undefined),
+    reembedSet: vi.fn(async () => ({
+      clearedCount: 0,
+      queueCounts: {
+        queued: 0,
+        running: 0,
+        failed: 0,
+        succeeded: 0,
+      },
+    })),
+    refresh: vi.fn(async () => ({
+      coverage: null,
+      lastError: null,
+      latency: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+      queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+      throughput: 0,
+    })),
+    retryFailed: vi.fn(async () => undefined),
+    validateApiKeyForSet: vi.fn(async () => ({ valid: true }) as const),
+    wipeQueue: vi.fn(async () => undefined),
+  };
+}
 
 /** Helper to create default queue state mock with required properties */
 function createQueueStateMock(
@@ -114,34 +146,34 @@ vi.mock('../vector-status/use-vector-queue-state', () => ({
   useVectorQueueState: vi.fn(() => createQueueStateMock()),
 }));
 
-vi.mock('../vector-status/vector-queue-service', () => ({
-  createVectorQueueService: vi.fn(() => ({})),
-}));
-
 vi.mock('../vector-status/backfill-utils', () => ({
   getBackfillDisabledState: vi.fn(() => ({ disabled: false, title: '' })),
 }));
 
-vi.mock('../vector-status/embedding-runtime-controller', () => ({
-  useEmbeddingRuntimeController: vi.fn(() => ({
-    cancelAllBackfills: vi.fn(async () => {}),
-    enqueueBackfill: vi.fn(async () => {}),
-    ensureStarted: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
-    getStatus: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
-    onBackfillProgress: vi.fn(() => () => {}),
-    onStatus: vi.fn(() => () => {}),
-    reset: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
-    start: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
-    stop: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+vi.mock('../embedding-runtime-provider', () => ({
+  useSharedEmbeddingRuntime: vi.fn(() => ({
+    controller: {
+      cancelAllBackfills: vi.fn(async () => {}),
+      cancelBackfill: vi.fn(async () => {}),
+      enqueueBackfill: vi.fn(async () => ({ requestId: 'embedding-backfill:test' })),
+      ensureStarted: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+      getBackfillsInFlight: vi.fn(async () => []),
+      getStatus: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+      onBackfillProgress: vi.fn(() => () => {}),
+      onStatus: vi.fn(() => () => {}),
+      reset: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+      start: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+      stop: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+    },
+    service: createMockVectorQueueService(),
   })),
 }));
 
 // Import mocked modules for manipulation
 import { usePGliteDatabase, useVectorEnabled } from '@brainstrike/db';
-import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
+import { useSharedEmbeddingRuntime } from '../embedding-runtime-provider';
 import { getBackfillDisabledState } from '../vector-status/backfill-utils';
-import { useEmbeddingRuntimeController } from '../vector-status/embedding-runtime-controller';
 import { useEmbeddingWorkerControls } from '../vector-status/use-embedding-worker-controls';
 import { useVectorQueueState } from '../vector-status/use-vector-queue-state';
 
@@ -166,11 +198,6 @@ describe('useEmbeddingControls', () => {
     vi.mocked(usePGliteDatabase).mockReturnValue({} as ReturnType<typeof usePGliteDatabase>);
     vi.mocked(useVectorEnabled).mockReturnValue(true);
 
-    vi.mocked(useVectorPreferencesStore).mockImplementation((selector) => {
-      const state = { devicePref: 'webgpu', reinitEveryN: 100 };
-      return selector(state as Parameters<typeof selector>[0]);
-    });
-
     vi.mocked(useVectorStatusUIStore).mockImplementation((selector) => {
       const state = {
         activeEmbeddingSetId: 'set-1',
@@ -193,17 +220,21 @@ describe('useEmbeddingControls', () => {
     vi.mocked(useVectorQueueState).mockReturnValue(createQueueStateMock());
 
     vi.mocked(getBackfillDisabledState).mockReturnValue({ disabled: false, title: '' });
-    vi.mocked(useEmbeddingRuntimeController).mockReturnValue({
-      cancelAllBackfills: vi.fn(async () => {}),
-      enqueueBackfill: vi.fn(async () => {}),
-      ensureStarted: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
-      getBackfillsInFlight: vi.fn(async () => []),
-      getStatus: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
-      onBackfillProgress: vi.fn(() => () => {}),
-      onStatus: vi.fn(() => () => {}),
-      reset: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
-      start: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
-      stop: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+    vi.mocked(useSharedEmbeddingRuntime).mockReturnValue({
+      controller: {
+        cancelAllBackfills: vi.fn(async () => {}),
+        cancelBackfill: vi.fn(async () => {}),
+        enqueueBackfill: vi.fn(async () => ({ requestId: 'embedding-backfill:test' })),
+        ensureStarted: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+        getBackfillsInFlight: vi.fn(async () => []),
+        getStatus: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+        onBackfillProgress: vi.fn(() => () => {}),
+        onStatus: vi.fn(() => () => {}),
+        reset: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+        start: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+        stop: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+      },
+      service: createMockVectorQueueService(),
     });
   });
 
@@ -567,8 +598,22 @@ describe('useEmbeddingControls', () => {
 
   describe('backfill handler', () => {
     it('shows toast when service is not available', async () => {
-      // Set db to null so service won't be created
-      vi.mocked(usePGliteDatabase).mockReturnValue(null);
+      vi.mocked(useSharedEmbeddingRuntime).mockReturnValue({
+        controller: {
+          cancelAllBackfills: vi.fn(async () => {}),
+          cancelBackfill: vi.fn(async () => {}),
+          enqueueBackfill: vi.fn(async () => ({ requestId: 'embedding-backfill:test' })),
+          ensureStarted: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+          getBackfillsInFlight: vi.fn(async () => []),
+          getStatus: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+          onBackfillProgress: vi.fn(() => () => {}),
+          onStatus: vi.fn(() => () => {}),
+          reset: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+          start: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+          stop: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+        },
+        service: null,
+      });
 
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
 

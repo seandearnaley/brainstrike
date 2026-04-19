@@ -48,7 +48,7 @@
   },
   "private": true,
   "scripts": {
-    "build": "tsc && tsup",
+    "build": "tsc -b . && tsup",
     "clean": "rimraf dist .tsbuildinfo",
     "dev": "tsup src/index.ts --format esm,cjs --watch",
     "lint": "pnpm run --dir=../.. lint",

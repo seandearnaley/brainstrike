@@ -440,8 +440,6 @@ async function loadToolPreferencesOnStartup(): Promise<void> {
     }
 
     const registeredIds = new Set(getFlattenedTools().map((t) => t.id));
-
-    // Filter to valid tool IDs only (prevents stale preferences)
     const validEnabled = preferences.enabledTools.filter((id: string) => registeredIds.has(id));
     const validDisabled = preferences.disabledTools.filter((id: string) => registeredIds.has(id));
 
@@ -452,10 +450,21 @@ async function loadToolPreferencesOnStartup(): Promise<void> {
       validDisabled.length;
 
     if (staleCount > 0) {
-      logger.info('Filtered stale tool preferences', {
+      logger.warn('Discarded stale MCP tool preference ids', {
         staleCount,
         registeredCount: registeredIds.size,
       });
+
+      try {
+        await saveToolPreferences(app.getPath('userData'), {
+          enabledTools: validEnabled,
+          disabledTools: validDisabled,
+          version: preferences.version,
+          lastUpdated: Date.now(),
+        });
+      } catch (saveError) {
+        logger.warn('Failed to persist cleaned tool preferences', { error: saveError });
+      }
     }
 
     // Apply valid preferences

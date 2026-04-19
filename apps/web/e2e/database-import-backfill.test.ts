@@ -293,11 +293,9 @@ async function selectFilesForImport(page: Page, expectedSelectedCount: number): 
 
   await expect(explorer.fileTree).toBeVisible({ timeout: 30_000 });
   if (expectedSelectedCount > 10) {
-    const counterButton = page.getByRole('button', {
-      name: /Click to edit maximum selection count/i,
-    });
-    await expect(counterButton).toBeVisible({ timeout: 15_000 });
-    await counterButton.click();
+    const settingsButton = page.getByRole('button', { name: /Selection settings/i });
+    await expect(settingsButton).toBeVisible({ timeout: 15_000 });
+    await settingsButton.click();
 
     const input = page.getByLabel('Maximum selection count input');
     await expect(input).toBeVisible({ timeout: 15_000 });

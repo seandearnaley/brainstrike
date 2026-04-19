@@ -26,18 +26,26 @@ vi.mock('../../mcp', () => ({
 
 import { isNativeTool } from '@brainstrike/agent/client';
 import { ipcMain } from 'electron';
+import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { callTool } from '../../mcp';
 import { executeNativeTool, isExecutableNativeTool } from '../../native-tool-executor';
+
+vi.mock('../../assistant-server/assistant-tools', () => ({
+  buildDesktopAssistantTools: vi.fn(),
+}));
 
 describe('ipc-tools', () => {
   let toolsExecuteHandler: (
     event: IpcMainInvokeEvent,
     toolId: unknown,
-    input: unknown
+    input: unknown,
+    runtimeData?: unknown
   ) => Promise<unknown>;
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    vi.mocked(buildDesktopAssistantTools).mockReset();
+    vi.mocked(buildDesktopAssistantTools).mockReturnValue({} as never);
 
     // Import and register handlers
     const { registerToolsIpcHandlers } = await import('../../ipc-tools');
@@ -142,6 +150,36 @@ describe('ipc-tools', () => {
       expect(result).toMatchObject({
         success: true,
         result: { mcpResult: 'success' },
+      });
+    });
+
+    it('executes assistant runtime native tools when runtime context is provided', async () => {
+      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
+      vi.mocked(isNativeTool).mockReturnValue(true);
+      vi.mocked(buildDesktopAssistantTools).mockReturnValue({
+        'brainstrike.readWorkspaceFile': {
+          execute: vi.fn().mockResolvedValue({ content: 'hello' }),
+        },
+      } as never);
+
+      const result = await toolsExecuteHandler(
+        mockEvent,
+        'brainstrike.readWorkspaceFile',
+        {
+          path: '/README.md',
+        },
+        {
+          workspaceRootPath: '/tmp/test-workspace',
+        }
+      );
+
+      expect(buildDesktopAssistantTools).toHaveBeenCalledWith({
+        workspaceRootPath: '/tmp/test-workspace',
+      });
+      expect(callTool).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        success: true,
+        result: { content: 'hello' },
       });
     });
 

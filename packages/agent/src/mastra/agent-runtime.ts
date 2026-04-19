@@ -98,10 +98,11 @@ function toMastraServerMap(config: McpConfig | undefined): MCPClientOptions['ser
 function instantiateLanguageModel(
   provider: string,
   apiKey: string | undefined,
-  modelName: string
+  modelName: string,
+  runtime: RuntimeData | undefined
 ): MastraModelConfig {
   try {
-    return createProvider(provider, apiKey, modelName);
+    return createProvider(provider, apiKey, modelName, runtime);
   } catch (error) {
     if (isMastraAgentError(error)) {
       throw error;
@@ -184,7 +185,12 @@ export async function createMastraAgentRuntime(
 
   // Create provider-specific model instance
   const modelName = model ?? getDefaultModel(normalizedProvider);
-  const languageModel = instantiateLanguageModel(normalizedProvider, apiKey, modelName);
+  const languageModel = instantiateLanguageModel(
+    normalizedProvider,
+    apiKey,
+    modelName,
+    sanitizedRuntime
+  );
 
   // Detect if model is AI SDK V1 (may require streamLegacy instead of stream)
   // V1 models have specificationVersion === 'v1', V2 models don't have this property

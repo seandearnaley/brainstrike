@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
+  createSearchIndexingSettingsCategory,
   type SettingsCategory,
   SettingsPageContent,
 } from '../settings-page-content';
@@ -20,6 +21,12 @@ vi.mock('@brainstrike/ui', () => {
 vi.mock('../settings/system/factory-reset-settings-section', () => ({
   FactoryResetSettingsSection: () => (
     <div data-testid="factory-reset-settings-section">Factory Reset Settings</div>
+  ),
+}));
+
+vi.mock('../settings/system/search-indexing-settings-section', () => ({
+  SearchIndexingSettingsSection: () => (
+    <div data-testid="search-indexing-settings-section">Search Indexing Settings</div>
   ),
 }));
 
@@ -212,5 +219,28 @@ describe('createFactoryResetSettingsCategory', () => {
       fireEvent.change(searchbox, { target: { value: keyword } });
       expect(screen.getByRole('button', { name: /Factory Reset/i })).toBeInTheDocument();
     }
+  });
+});
+
+describe('createSearchIndexingSettingsCategory', () => {
+  it('returns the managed search/indexing category metadata and content', () => {
+    const category = createSearchIndexingSettingsCategory();
+
+    expect(category.id).toBe('search-indexing');
+    expect(category.title).toBe('Search & Indexing');
+    expect(category.description).toMatch(/managed cache collection/i);
+    expect(category.keywords).toEqual([
+      'search',
+      'indexing',
+      'background',
+      'cache',
+      'collection',
+      'embeddings',
+    ]);
+
+    const { container } = render(category.content as React.ReactElement);
+    expect(
+      container.querySelector('[data-testid="search-indexing-settings-section"]')
+    ).toBeTruthy();
   });
 });

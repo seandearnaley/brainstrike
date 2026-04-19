@@ -513,6 +513,12 @@ vi.mock('@brainstrike/agent/client', () => {
   };
 });
 
+vi.mock('@brainstrike/agent/local-llm', () => ({
+  LocalLlmBackend: {
+    getBestDevice: vi.fn(() => 'webgpu'),
+  },
+}));
+
 // Mock the AssistantUiPanel component
 vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
   AssistantUiPanel: ({

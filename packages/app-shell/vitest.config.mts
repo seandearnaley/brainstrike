@@ -126,6 +126,10 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../file-import/src/index.ts'),
       },
       {
+        find: /^@brainstrike\/vector-management$/,
+        replacement: path.resolve(import.meta.dirname, '../vector-management/src/index.ts'),
+      },
+      {
         find: '@brainstrike/workers/report-generation-worker',
         replacement: path.resolve(import.meta.dirname, '../workers/report-generation-worker.ts'),
       },

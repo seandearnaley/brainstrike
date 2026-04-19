@@ -4,6 +4,7 @@ import type {
   EmbeddingRuntimeController,
   EmbeddingRuntimeStatus,
 } from './embedding-runtime-controller';
+import { dispatchQueueDrainedEvent } from './queue-events';
 
 export interface UseEmbeddingWorkerControlsParams {
   activeEmbeddingSetId: string | null;
@@ -20,17 +21,6 @@ export interface UseEmbeddingWorkerControlsResult {
   startWorkerError: string | null;
   stopWorker: () => Promise<void>;
   workerLocalRunning: boolean;
-}
-
-function dispatchQueueDrainedEvent(): void {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  try {
-    window.dispatchEvent(new CustomEvent('brainstrike:queue-drained'));
-  } catch {
-    // ignore dispatch failures
-  }
 }
 
 function applyHostStatus(

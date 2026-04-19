@@ -7,8 +7,12 @@ import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { FileTreeIndexContextValue } from '../file-tree-provider';
 import type { TokenCacheContextValue } from '../token-cache-context';
-import { useBackgroundTokenIndexerIntegration } from '../use-background-token-indexer-integration';
+import {
+  useBackgroundTokenIndexerIntegration,
+  type WebFileForIndexingResolution,
+} from '../use-background-token-indexer-integration';
 
 // Capture the onFileIndexed callback from useBackgroundTokenIndexer
 let capturedOnFileIndexed:
@@ -84,6 +88,12 @@ const tokenCacheContext: TokenCacheContextValue | null = createTokenCacheContext
 
 vi.mock('../token-cache-context', () => ({
   useOptionalTokenCacheContext: () => tokenCacheContext,
+}));
+
+let mockFileTreeIndexContext: FileTreeIndexContextValue | null = null;
+
+vi.mock('../file-tree-provider', () => ({
+  useOptionalFileTreeIndexContext: () => mockFileTreeIndexContext,
 }));
 
 // Simple web handle stub
@@ -195,6 +205,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     vi.useFakeTimers();
     __resetVectorStatusUIStoreForTests();
     mockBackgroundIndexer.isIndexing = false;
+    mockFileTreeIndexContext = null;
   });
 
   it('re-queues files when selection shrinks (stale cache is cleared)', () => {
@@ -933,7 +944,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
   });
 
   describe('P0 optimization: de-dupe warm-cache preloading', () => {
-    it('preloads folder only once when selection changes within the same folder', () => {
+    it('does not re-preload a folder when later selections stay within already covered paths', () => {
       const preloadSpy = tokenCacheContext.preloadFolder as unknown as ReturnType<typeof vi.fn>;
       preloadSpy.mockClear();
 
@@ -949,27 +960,27 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         }
       );
 
-      // First selection - should preload the 'root' folder
-      rerender(new Set([fileAKey]));
+      // Start with full coverage for the folder.
+      rerender(new Set([fileAKey, fileBKey]));
       flushTimers();
 
       expect(preloadSpy).toHaveBeenCalledTimes(1);
       expect(preloadSpy).toHaveBeenCalledWith('root');
       preloadSpy.mockClear();
 
-      // Add another file in the same folder - should NOT preload again (memoized)
-      rerender(new Set([fileAKey, fileBKey]));
+      // Shrink to a subset - should not preload again because the previous preload already covered it.
+      rerender(new Set([fileAKey]));
       flushTimers();
 
       expect(preloadSpy).not.toHaveBeenCalled();
 
-      // Remove a file (still in same folder) - should NOT preload again
+      // Switching to another covered subset still should not preload again.
       rerender(new Set([fileBKey]));
       flushTimers();
 
       expect(preloadSpy).not.toHaveBeenCalled();
 
-      // Add file back - should NOT preload again
+      // Returning to the original covered selection should also stay memoized.
       rerender(new Set([fileAKey, fileBKey]));
       flushTimers();
 
@@ -1047,7 +1058,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       expect(preloadSpy).toHaveBeenCalledWith('root');
     });
 
-    it('skips getBatch for folders already preloaded at current cache version', async () => {
+    it('re-hydrates a folder when the selection expands within the same folder', async () => {
       const preloadSpy = tokenCacheContext.preloadFolder as unknown as ReturnType<typeof vi.fn>;
       const getBatchSpy = storeMock.getBatch as unknown as ReturnType<typeof vi.fn>;
       preloadSpy.mockClear();
@@ -1077,15 +1088,798 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       expect(initialGetBatchCalls).toBeGreaterThan(0);
       getBatchSpy.mockClear();
 
-      // Update selection in same folder - should NOT call getBatch again (skipped)
+      // Update selection in same folder - should preload again because the folder coverage changed.
       rerender(new Set([fileAKey, fileBKey]));
 
       await act(async () => {
         await vi.runAllTimersAsync();
       });
 
-      // No additional getBatch calls since folder was already preloaded
-      expect(getBatchSpy).not.toHaveBeenCalled();
+      expect(preloadSpy).toHaveBeenCalledWith('root');
+      expect(getBatchSpy).toHaveBeenCalledTimes(1);
+      expect(getBatchSpy).toHaveBeenCalledWith('root', ['a.txt', 'b.txt']);
+    });
+  });
+
+  it('indexes selected desktop descendants even when the tree index has not materialized their handles', async () => {
+    const rootFolderId = '/repo';
+    const deepFileKey = encodeFileSelection(rootFolderId, 'src/deep/file.ts');
+    const electronFileReader = vi.fn(async () => 'export const value = 1;\n');
+
+    mockFileTreeIndexContext = {
+      getHandle: vi.fn(() => undefined),
+      getNode: vi.fn(() => undefined),
+      stats: {
+        totalDirectories: 0,
+        totalFiles: 0,
+        totalNodes: 0,
+      },
+      version: 1,
+    };
+
+    renderHook(() =>
+      useBackgroundTokenIndexerIntegration({
+        fileTree: [],
+        selectedFiles: new Set([deepFileKey]),
+        electronFileReader,
+        onTokenResolved: vi.fn(),
+      })
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(electronFileReader).toHaveBeenCalledTimes(1);
+    expect(electronFileReader).toHaveBeenCalledWith({
+      kind: 'file',
+      name: 'file.ts',
+      path: '/repo/src/deep/file.ts',
+      platform: 'electron',
+    });
+    expect(indexFilesMock).toHaveBeenCalledTimes(1);
+    expect(indexFilesMock).toHaveBeenCalledWith([
+      expect.objectContaining({
+        compositeKey: deepFileKey,
+        filePath: 'src/deep/file.ts',
+        folderId: rootFolderId,
+      }),
+    ]);
+  });
+
+  it('skips synthetic desktop handles when cached file size exceeds the indexing limit', async () => {
+    const rootFolderId = '/repo';
+    const deepFileKey = encodeFileSelection(rootFolderId, 'src/deep/large-file.ts');
+    const electronFileReader = vi.fn(async () => 'export const value = 1;\n');
+    const getFileSizeMock = tokenCacheContext.getFileSize as unknown as ReturnType<typeof vi.fn>;
+    getFileSizeMock.mockImplementation((folderId: string, path: string) => {
+      if (folderId === rootFolderId && path === 'src/deep/large-file.ts') {
+        return 800_000;
+      }
+      return undefined;
+    });
+
+    mockFileTreeIndexContext = {
+      getHandle: vi.fn(() => undefined),
+      getNode: vi.fn(() => undefined),
+      stats: {
+        totalDirectories: 0,
+        totalFiles: 0,
+        totalNodes: 0,
+      },
+      version: 1,
+    };
+
+    renderHook(() =>
+      useBackgroundTokenIndexerIntegration({
+        fileTree: [],
+        selectedFiles: new Set([deepFileKey]),
+        electronFileReader,
+        onTokenResolved: vi.fn(),
+      })
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(electronFileReader).not.toHaveBeenCalled();
+    expect(indexFilesMock).not.toHaveBeenCalled();
+  });
+
+  it('retries synthetic desktop handles with stale oversized cache metadata after index materializes', async () => {
+    const rootFolderId = '/repo';
+    const deepFileKey = encodeFileSelection(rootFolderId, 'src/deep/large-file.ts');
+    const electronFileReader = vi.fn(async () => 'export const value = 1;\n');
+    const getFileSizeMock = tokenCacheContext.getFileSize as unknown as ReturnType<typeof vi.fn>;
+    getFileSizeMock.mockImplementation((folderId: string, path: string) => {
+      if (folderId === rootFolderId && path === 'src/deep/large-file.ts') {
+        return 800_000;
+      }
+      return undefined;
+    });
+
+    mockFileTreeIndexContext = {
+      getHandle: vi.fn(() => undefined),
+      getNode: vi.fn(() => undefined),
+      stats: {
+        totalDirectories: 0,
+        totalFiles: 0,
+        totalNodes: 0,
+      },
+      version: 1,
+    };
+
+    const { rerender } = renderHook(
+      (selectedFiles: Set<string>) =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: [],
+          selectedFiles,
+          electronFileReader,
+          onTokenResolved: vi.fn(),
+        }),
+      {
+        initialProps: new Set([deepFileKey]),
+      }
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(electronFileReader).not.toHaveBeenCalled();
+    expect(indexFilesMock).not.toHaveBeenCalled();
+
+    indexFilesMock.mockClear();
+    getFileSizeMock.mockImplementation(() => undefined);
+    mockFileTreeIndexContext = {
+      getHandle: vi.fn(() => ({
+        electronHandle: {
+          kind: 'file' as const,
+          name: 'large-file.ts',
+          path: '/repo/src/deep/large-file.ts',
+          platform: 'electron' as const,
+        },
+        fileName: 'large-file.ts',
+        fileSize: 128,
+      })),
+      getNode: vi.fn(() => undefined),
+      stats: {
+        totalDirectories: 0,
+        totalFiles: 1,
+        totalNodes: 1,
+      },
+      version: 2,
+    };
+
+    rerender(new Set([deepFileKey]));
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(electronFileReader).toHaveBeenCalledWith({
+      kind: 'file',
+      name: 'large-file.ts',
+      path: '/repo/src/deep/large-file.ts',
+      platform: 'electron',
+    });
+    expect(indexFilesMock).toHaveBeenCalledWith([
+      expect.objectContaining({
+        compositeKey: deepFileKey,
+        filePath: 'src/deep/large-file.ts',
+        folderId: rootFolderId,
+      }),
+    ]);
+  });
+
+  it('normalizes absolute restored desktop selection paths before indexing', async () => {
+    const rootFolderId = '/repo';
+    const absoluteFilePath = '/repo/src/deep/file.ts';
+    const deepFileKey = encodeFileSelection(rootFolderId, absoluteFilePath);
+    const electronFileReader = vi.fn(async () => 'export const value = 1;\n');
+    const updateHotCacheSpy = tokenCacheContext.updateHotCache as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    const updateFileSizeCacheSpy = tokenCacheContext.updateFileSizeCache as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    updateHotCacheSpy.mockClear();
+    updateFileSizeCacheSpy.mockClear();
+
+    mockFileTreeIndexContext = {
+      getHandle: vi.fn(() => undefined),
+      getNode: vi.fn(() => undefined),
+      stats: {
+        totalDirectories: 0,
+        totalFiles: 0,
+        totalNodes: 0,
+      },
+      version: 1,
+    };
+
+    renderHook(() =>
+      useBackgroundTokenIndexerIntegration({
+        fileTree: [],
+        selectedFiles: new Set([deepFileKey]),
+        electronFileReader,
+        onTokenResolved: vi.fn(),
+      })
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(electronFileReader).toHaveBeenCalledWith({
+      kind: 'file',
+      name: 'file.ts',
+      path: '/repo/src/deep/file.ts',
+      platform: 'electron',
+    });
+    expect(indexFilesMock).toHaveBeenCalledWith([
+      expect.objectContaining({
+        compositeKey: deepFileKey,
+        filePath: 'src/deep/file.ts',
+        folderId: rootFolderId,
+      }),
+    ]);
+
+    act(() => {
+      capturedOnFileIndexed?.(deepFileKey, 42, 128);
+    });
+
+    expect(updateHotCacheSpy).toHaveBeenCalledWith(rootFolderId, 'src/deep/file.ts', 42);
+    expect(updateFileSizeCacheSpy).toHaveBeenCalledWith(rootFolderId, 'src/deep/file.ts', 128);
+  });
+
+  it('skips hot-cache writeback when indexed callbacks surface a folder-root path', async () => {
+    const rootFolderId = '/repo';
+    const folderRootKey = encodeFileSelection(rootFolderId, rootFolderId);
+    const updateHotCacheSpy = tokenCacheContext.updateHotCache as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    const updateFileSizeCacheSpy = tokenCacheContext.updateFileSizeCache as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    updateHotCacheSpy.mockClear();
+    updateFileSizeCacheSpy.mockClear();
+
+    renderHook(() =>
+      useBackgroundTokenIndexerIntegration({
+        fileTree: [],
+        selectedFiles: new Set(),
+        onTokenResolved: vi.fn(),
+      })
+    );
+
+    act(() => {
+      capturedOnFileIndexed?.(folderRootKey, 42, 128);
+    });
+
+    expect(updateHotCacheSpy).not.toHaveBeenCalled();
+    expect(updateFileSizeCacheSpy).not.toHaveBeenCalled();
+  });
+
+  describe('webFileHandleResolver fallback (web parity with desktop synthetic-handle path)', () => {
+    it('resolves missing web handles via webFileHandleResolver and queues the resolved handle for the worker', async () => {
+      const rootFolderId = 'root';
+      const deepFileKey = encodeFileSelection(rootFolderId, 'src/deep/file.ts');
+      const resolvedHandle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
+      const webFileHandleResolver = vi
+        .fn()
+        .mockResolvedValue({ kind: 'handle', fileHandle: resolvedHandle, fileSize: 256 });
+
+      mockFileTreeIndexContext = {
+        getHandle: vi.fn(() => undefined),
+        getNode: vi.fn(() => undefined),
+        stats: { totalDirectories: 0, totalFiles: 0, totalNodes: 0 },
+        version: 1,
+      };
+
+      renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: [],
+          selectedFiles: new Set([deepFileKey]),
+          webFileHandleResolver,
+          onTokenResolved: vi.fn(),
+        })
+      );
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(webFileHandleResolver).toHaveBeenCalledTimes(1);
+      expect(webFileHandleResolver).toHaveBeenCalledWith(`${rootFolderId}/src/deep/file.ts`);
+      expect(indexFilesMock).toHaveBeenCalledTimes(1);
+      expect(indexFilesMock).toHaveBeenCalledWith([
+        expect.objectContaining({
+          compositeKey: deepFileKey,
+          fileHandle: resolvedHandle,
+          filePath: 'src/deep/file.ts',
+          folderId: rootFolderId,
+        }),
+      ]);
+    });
+
+    it('queues pre-loaded content when the resolver returns kind: content (in-memory adapter parity)', async () => {
+      // Mirrors the dev-fixture / future in-memory adapter path: synthetic
+      // FileSystemFileHandles cannot survive structured clone to the indexer
+      // worker, so the resolver returns pre-loaded UTF-8 bytes and the worker
+      // hashes/counts off `request.content` (same code path as Electron).
+      const rootFolderId = 'root';
+      const deepFileKey = encodeFileSelection(rootFolderId, 'src/deep/file.ts');
+      const content = 'export const value = 1;\n';
+      const fileSize = new TextEncoder().encode(content).length;
+      const webFileHandleResolver = vi
+        .fn<(path: string) => Promise<WebFileForIndexingResolution>>()
+        .mockResolvedValue({ kind: 'content', content, fileSize });
+
+      mockFileTreeIndexContext = {
+        getHandle: vi.fn(() => undefined),
+        getNode: vi.fn(() => undefined),
+        stats: { totalDirectories: 0, totalFiles: 0, totalNodes: 0 },
+        version: 1,
+      };
+
+      renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: [],
+          selectedFiles: new Set([deepFileKey]),
+          webFileHandleResolver,
+          onTokenResolved: vi.fn(),
+        })
+      );
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(webFileHandleResolver).toHaveBeenCalledTimes(1);
+      expect(indexFilesMock).toHaveBeenCalledTimes(1);
+      const dispatched = indexFilesMock.mock.calls[0]?.[0]?.[0] as FileToIndex | undefined;
+      expect(dispatched).toMatchObject({
+        compositeKey: deepFileKey,
+        content,
+        fileSize,
+        filePath: 'src/deep/file.ts',
+        folderId: rootFolderId,
+      });
+      // Critically: no fileHandle should be attached -- the worker must read
+      // `request.content` directly to avoid the structured-clone failure that
+      // synthetic handles trigger when posted to a Worker.
+      expect(dispatched?.fileHandle).toBeUndefined();
+    });
+
+    it('writes both token count and file size to the cache when the resolved handle is indexed', async () => {
+      const rootFolderId = 'root';
+      const deepFileKey = encodeFileSelection(rootFolderId, 'src/deep/file.ts');
+      const resolvedHandle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
+      const webFileHandleResolver = vi
+        .fn()
+        .mockResolvedValue({ kind: 'handle', fileHandle: resolvedHandle, fileSize: 512 });
+
+      const updateHotCacheSpy = tokenCacheContext.updateHotCache as unknown as ReturnType<
+        typeof vi.fn
+      >;
+      const updateFileSizeCacheSpy = tokenCacheContext.updateFileSizeCache as unknown as ReturnType<
+        typeof vi.fn
+      >;
+      updateHotCacheSpy.mockClear();
+      updateFileSizeCacheSpy.mockClear();
+
+      mockFileTreeIndexContext = {
+        getHandle: vi.fn(() => undefined),
+        getNode: vi.fn(() => undefined),
+        stats: { totalDirectories: 0, totalFiles: 0, totalNodes: 0 },
+        version: 1,
+      };
+
+      renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: [],
+          selectedFiles: new Set([deepFileKey]),
+          webFileHandleResolver,
+          onTokenResolved: vi.fn(),
+        })
+      );
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      act(() => {
+        capturedOnFileIndexed?.(deepFileKey, 42, 256);
+      });
+
+      expect(updateHotCacheSpy).toHaveBeenCalledWith(rootFolderId, 'src/deep/file.ts', 42);
+      expect(updateFileSizeCacheSpy).toHaveBeenCalledWith(rootFolderId, 'src/deep/file.ts', 256);
+    });
+
+    it('parks resolver failures in pending and retries after an indexVersion bump', async () => {
+      const rootFolderId = 'root';
+      const deepFileKey = encodeFileSelection(rootFolderId, 'src/deep/file.ts');
+      const resolvedHandle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
+      const webFileHandleResolver = vi
+        .fn<(path: string) => Promise<WebFileForIndexingResolution>>()
+        .mockRejectedValueOnce(new Error('NotFoundError'));
+
+      mockFileTreeIndexContext = {
+        getHandle: vi.fn(() => undefined),
+        getNode: vi.fn(() => undefined),
+        stats: { totalDirectories: 0, totalFiles: 0, totalNodes: 0 },
+        version: 1,
+      };
+
+      const { rerender } = renderHook(
+        (selectedFiles: Set<string>) =>
+          useBackgroundTokenIndexerIntegration({
+            fileTree: [],
+            selectedFiles,
+            webFileHandleResolver,
+            onTokenResolved: vi.fn(),
+          }),
+        { initialProps: new Set([deepFileKey]) }
+      );
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(webFileHandleResolver).toHaveBeenCalledTimes(1);
+      expect(indexFilesMock).not.toHaveBeenCalled();
+
+      // Simulate the FileTreeIndex repopulating (e.g., user expanded a subfolder).
+      // The resolver now succeeds and the pending key should be retried automatically.
+      webFileHandleResolver.mockResolvedValue({
+        kind: 'handle',
+        fileHandle: resolvedHandle,
+        fileSize: 256,
+      });
+      mockFileTreeIndexContext = {
+        getHandle: vi.fn(() => undefined),
+        getNode: vi.fn(() => undefined),
+        stats: { totalDirectories: 0, totalFiles: 0, totalNodes: 0 },
+        version: 2,
+      };
+      rerender(new Set([deepFileKey]));
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(webFileHandleResolver).toHaveBeenCalledTimes(2);
+      expect(indexFilesMock).toHaveBeenCalledTimes(1);
+      expect(indexFilesMock).toHaveBeenCalledWith([
+        expect.objectContaining({
+          compositeKey: deepFileKey,
+          fileHandle: resolvedHandle,
+          filePath: 'src/deep/file.ts',
+          folderId: rootFolderId,
+        }),
+      ]);
+    });
+
+    it('does not invoke the resolver for binary files (parity with live-handle web path)', async () => {
+      const rootFolderId = 'root';
+      const binaryKey = encodeFileSelection(rootFolderId, 'assets/image.png');
+      const webFileHandleResolver =
+        vi.fn<(path: string) => Promise<WebFileForIndexingResolution>>();
+
+      mockFileTreeIndexContext = {
+        getHandle: vi.fn(() => undefined),
+        getNode: vi.fn(() => undefined),
+        stats: { totalDirectories: 0, totalFiles: 0, totalNodes: 0 },
+        version: 1,
+      };
+
+      renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: [],
+          selectedFiles: new Set([binaryKey]),
+          webFileHandleResolver,
+          onTokenResolved: vi.fn(),
+        })
+      );
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(webFileHandleResolver).not.toHaveBeenCalled();
+      expect(indexFilesMock).not.toHaveBeenCalled();
+    });
+
+    it('does not invoke the resolver when cached file size already exceeds the indexing limit', async () => {
+      const rootFolderId = 'root';
+      const largeKey = encodeFileSelection(rootFolderId, 'src/deep/large.txt');
+      const webFileHandleResolver =
+        vi.fn<(path: string) => Promise<WebFileForIndexingResolution>>();
+      const getFileSizeMock = tokenCacheContext.getFileSize as unknown as ReturnType<typeof vi.fn>;
+      getFileSizeMock.mockImplementation((folderId: string, path: string) => {
+        if (folderId === rootFolderId && path === 'src/deep/large.txt') {
+          return 800_000;
+        }
+        return undefined;
+      });
+
+      mockFileTreeIndexContext = {
+        getHandle: vi.fn(() => undefined),
+        getNode: vi.fn(() => undefined),
+        stats: { totalDirectories: 0, totalFiles: 0, totalNodes: 0 },
+        version: 1,
+      };
+
+      renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: [],
+          selectedFiles: new Set([largeKey]),
+          webFileHandleResolver,
+          onTokenResolved: vi.fn(),
+        })
+      );
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(webFileHandleResolver).not.toHaveBeenCalled();
+      expect(indexFilesMock).not.toHaveBeenCalled();
+    });
+
+    it('resolves web file handles in concurrent batches via Promise.all', async () => {
+      const rootFolderId = 'root';
+      const fileCount = 21;
+      const keys: string[] = [];
+      for (let i = 0; i < fileCount; i += 1) {
+        keys.push(encodeFileSelection(rootFolderId, `file-${i}.ts`));
+      }
+
+      const deferredResolves = new Map<string, DeferredValue<WebFileForIndexingResolution>>();
+      const webFileHandleResolver = vi.fn((absolutePath: string) => {
+        const deferred = createDeferredValue<WebFileForIndexingResolution>();
+        deferredResolves.set(absolutePath, deferred);
+        return deferred.promise;
+      });
+
+      mockFileTreeIndexContext = {
+        getHandle: vi.fn(() => undefined),
+        getNode: vi.fn(() => undefined),
+        stats: { totalDirectories: 0, totalFiles: 0, totalNodes: 0 },
+        version: 1,
+      };
+
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: [],
+          selectedFiles: new Set(keys),
+          webFileHandleResolver,
+          onTokenResolved: vi.fn(),
+        })
+      );
+
+      await act(async () => {
+        void result.current.triggerIndexing(keys);
+        await Promise.resolve();
+      });
+
+      // Asserts batched concurrency: the first batch should fire 20 concurrent resolver calls
+      // before any single one resolves, mirroring the existing electronBatchSize Promise.all.
+      expect(webFileHandleResolver).toHaveBeenCalledTimes(20);
+      expect(indexFilesMock).not.toHaveBeenCalled();
+
+      for (let i = 0; i < 20; i += 1) {
+        const handle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
+        deferredResolves
+          .get(`${rootFolderId}/file-${i}.ts`)
+          ?.resolve({ kind: 'handle', fileHandle: handle, fileSize: 128 });
+      }
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(indexFilesMock).toHaveBeenCalledTimes(1);
+      expect(indexFilesMock.mock.calls[0]?.[0]).toHaveLength(20);
+
+      // Now the 21st (overflow) file should be resolved in a follow-up batch.
+      const lastHandle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
+      deferredResolves
+        .get(`${rootFolderId}/file-20.ts`)
+        ?.resolve({ kind: 'handle', fileHandle: lastHandle, fileSize: 128 });
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(webFileHandleResolver).toHaveBeenCalledTimes(21);
+      expect(indexFilesMock).toHaveBeenCalledTimes(2);
+      expect(indexFilesMock.mock.calls[1]?.[0]).toHaveLength(1);
+    });
+
+    it('skips oversize handle resolutions after the resolver returns (post-resolution MAX_INDEXABLE_FILE_SIZE guard)', async () => {
+      // Regression coverage for the P2: files in unexpanded folders never had
+      // their size cached during the lazy tree walk, so the pre-resolution
+      // `cache.getFileSize` guard cannot catch them. The resolver returns the
+      // authoritative size from `getFile()` metadata; the dispatcher must
+      // honor the platform's MAX_INDEXABLE_FILE_SIZE contract uniformly or a
+      // Select All can send >750KB files to the worker and inflate token
+      // totals.
+      const rootFolderId = 'root';
+      const oversizeKey = encodeFileSelection(rootFolderId, 'src/deep/large.ts');
+      const oversizeHandle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
+      const webFileHandleResolver = vi
+        .fn<(path: string) => Promise<WebFileForIndexingResolution>>()
+        .mockResolvedValue({
+          kind: 'handle',
+          fileHandle: oversizeHandle,
+          fileSize: 800 * 1024, // > 750KB MAX_INDEXABLE_FILE_SIZE
+        });
+
+      mockFileTreeIndexContext = {
+        getHandle: vi.fn(() => undefined),
+        getNode: vi.fn(() => undefined),
+        stats: { totalDirectories: 0, totalFiles: 0, totalNodes: 0 },
+        version: 1,
+      };
+
+      renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: [],
+          selectedFiles: new Set([oversizeKey]),
+          webFileHandleResolver,
+          onTokenResolved: vi.fn(),
+        })
+      );
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(webFileHandleResolver).toHaveBeenCalledTimes(1);
+      // The resolver was invoked (size wasn't cached), but the post-resolution
+      // guard must drop the file before any worker dispatch.
+      expect(indexFilesMock).not.toHaveBeenCalled();
+    });
+
+    it('skips oversize content resolutions after the resolver returns (in-memory adapter parity)', async () => {
+      // Same MAX_INDEXABLE_FILE_SIZE contract for the `kind: 'content'` branch
+      // that in-memory adapters (dev-fixture, future remote adapters) take.
+      // The resolver pre-loads bytes on the main thread, so we already know
+      // the exact size — there's no excuse for letting an oversize payload
+      // reach the worker.
+      const rootFolderId = 'root';
+      const oversizeKey = encodeFileSelection(rootFolderId, 'src/deep/large.ts');
+      const oversizeContent = 'x'.repeat(800 * 1024);
+      const webFileHandleResolver = vi
+        .fn<(path: string) => Promise<WebFileForIndexingResolution>>()
+        .mockResolvedValue({
+          kind: 'content',
+          content: oversizeContent,
+          fileSize: oversizeContent.length,
+        });
+
+      mockFileTreeIndexContext = {
+        getHandle: vi.fn(() => undefined),
+        getNode: vi.fn(() => undefined),
+        stats: { totalDirectories: 0, totalFiles: 0, totalNodes: 0 },
+        version: 1,
+      };
+
+      renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: [],
+          selectedFiles: new Set([oversizeKey]),
+          webFileHandleResolver,
+          onTokenResolved: vi.fn(),
+        })
+      );
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(webFileHandleResolver).toHaveBeenCalledTimes(1);
+      expect(indexFilesMock).not.toHaveBeenCalled();
+    });
+
+    it('does not retry an oversize resolver result after a FileTreeIndex version bump (terminal skip)', async () => {
+      // The size came directly from the file system — re-attempting after an
+      // index bump would just hit the same guard and waste another resolver
+      // round-trip. Confirm the key is marked terminally indexed (not parked
+      // in `pendingNoHandleRef`).
+      const rootFolderId = 'root';
+      const oversizeKey = encodeFileSelection(rootFolderId, 'src/deep/large.ts');
+      const oversizeHandle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
+      const webFileHandleResolver = vi
+        .fn<(path: string) => Promise<WebFileForIndexingResolution>>()
+        .mockResolvedValue({
+          kind: 'handle',
+          fileHandle: oversizeHandle,
+          fileSize: 800 * 1024,
+        });
+
+      mockFileTreeIndexContext = {
+        getHandle: vi.fn(() => undefined),
+        getNode: vi.fn(() => undefined),
+        stats: { totalDirectories: 0, totalFiles: 0, totalNodes: 0 },
+        version: 1,
+      };
+
+      const { rerender } = renderHook(
+        (selectedFiles: Set<string>) =>
+          useBackgroundTokenIndexerIntegration({
+            fileTree: [],
+            selectedFiles,
+            webFileHandleResolver,
+            onTokenResolved: vi.fn(),
+          }),
+        { initialProps: new Set([oversizeKey]) }
+      );
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(webFileHandleResolver).toHaveBeenCalledTimes(1);
+
+      // Bump the FileTreeIndex version to trigger pending re-evaluation.
+      mockFileTreeIndexContext = {
+        getHandle: vi.fn(() => undefined),
+        getNode: vi.fn(() => undefined),
+        stats: { totalDirectories: 0, totalFiles: 0, totalNodes: 0 },
+        version: 2,
+      };
+      rerender(new Set([oversizeKey]));
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      // Resolver is NOT called again -- the key was marked terminally indexed
+      // by the post-resolution size guard.
+      expect(webFileHandleResolver).toHaveBeenCalledTimes(1);
+      expect(indexFilesMock).not.toHaveBeenCalled();
+    });
+  });
+
+  it('uses backslashes when synthesizing electron paths from mixed-separator windows roots', async () => {
+    const rootFolderId = 'C:\\Users/me/project';
+    const deepFileKey = encodeFileSelection(rootFolderId, 'src/deep/file.ts');
+    const electronFileReader = vi.fn(async () => 'export const value = 1;\n');
+
+    mockFileTreeIndexContext = {
+      getHandle: vi.fn(() => undefined),
+      getNode: vi.fn(() => undefined),
+      stats: {
+        totalDirectories: 0,
+        totalFiles: 0,
+        totalNodes: 0,
+      },
+      version: 1,
+    };
+
+    renderHook(() =>
+      useBackgroundTokenIndexerIntegration({
+        fileTree: [],
+        selectedFiles: new Set([deepFileKey]),
+        electronFileReader,
+        onTokenResolved: vi.fn(),
+      })
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(electronFileReader).toHaveBeenCalledWith({
+      kind: 'file',
+      name: 'file.ts',
+      path: 'C:\\Users/me/project\\src\\deep\\file.ts',
+      platform: 'electron',
     });
   });
 });
