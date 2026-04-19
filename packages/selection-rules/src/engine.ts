@@ -112,10 +112,9 @@ const GLOB_MATCH_OPTIONS = { dot: true } as const;
 const PATH_SEPARATOR_CODE = '/'.charCodeAt(0);
 
 /**
- * Keep this boundary logic in sync with
- * `packages/utils/src/tree-operations.ts:isDescendantPath`.
- * This leaf package duplicates the helper so it can support the
- * `path === root` case without taking a cross-package dependency.
+ * Local path-boundary check for selection rules.
+ * This package keeps its own helper so it can treat `path === root`
+ * as a match without adding a runtime dependency on shared tree utils.
  */
 function isEqualOrDescendantPath(path: string, root: string): boolean {
   return (
@@ -139,11 +138,6 @@ function countRelativeDepth(relativePath: string, maxDepth?: number): number {
   }
   return depth;
 }
-
-export const __selectionRulePathInternalsForTest = {
-  countRelativeDepth,
-  isEqualOrDescendantPath,
-};
 
 /**
  * Sort rules by type precedence, then by priority within type.
