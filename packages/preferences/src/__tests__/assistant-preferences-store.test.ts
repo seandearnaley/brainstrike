@@ -597,6 +597,110 @@ describe('assistant-preferences-store', () => {
     expect(providers).not.toContain('lmstudio');
   });
 
+  it('getLocalRuntimeModels short-circuits to a synthetic failure state when activation is "off"', async () => {
+    // The "off" tri-state must NOT contact the runtime — neither the
+    // bridge nor the in-renderer service. A catalog refresh while the user
+    // has explicitly disabled the runtime would otherwise keep the daemon
+    // warm and surface confusing "unreachable" errors after the user
+    // already opted out.
+    const bridgeListModels = vi.fn();
+    const bridgeProbe = vi.fn();
+    (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
+      probe: bridgeProbe,
+      listModels: bridgeListModels,
+    };
+    const inRendererSpy = vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime');
+
+    try {
+      const store = useAssistantPreferencesStore.getState();
+      store.setProviderSettings('ollama', { localRuntimeEnabled: 'off' });
+      store.setProviderSettings('lmstudio', { localRuntimeEnabled: 'off' });
+
+      const models = await useAssistantPreferencesStore.getState().getLocalRuntimeModels();
+
+      // The synthetic catalog state has all the correct discriminants — the
+      // UI must be able to read it without a separate "no entry" code path.
+      expect(models.ollama).toMatchObject({
+        state: 'failed',
+        runtime: 'ollama',
+        message: 'Disabled by settings',
+        availability: { state: 'unavailable', message: 'Disabled by settings' },
+      });
+      expect(models.lmstudio).toMatchObject({
+        state: 'failed',
+        runtime: 'lmstudio',
+      });
+
+      // Critical: zero contact with either path while disabled.
+      expect(bridgeListModels).not.toHaveBeenCalled();
+      expect(bridgeProbe).not.toHaveBeenCalled();
+      expect(inRendererSpy).not.toHaveBeenCalled();
+    } finally {
+      Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'runtime');
+    }
+  });
+
+  it('rejects malformed listModels results from the main-process bridge at the trust boundary', async () => {
+    // Same trust-boundary contract as the probe handler: the catalog bridge
+    // returns `unknown` from IPC, so a missing `runtime` discriminant or an
+    // unrecognised `state` must throw with diagnostic context rather than
+    // silently propagate. This locks in the listModels half of the
+    // shape-guard pair (the probe half is covered above).
+    // Both runtimes return malformed payloads so the assertion is robust
+    // against the order Promise.all happens to settle them in.
+    const bridgeListModels = vi
+      .fn()
+      .mockResolvedValue({ runtime: 'ollama', state: 'imaginary_state' });
+    (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
+      probe: vi.fn(),
+      listModels: bridgeListModels,
+    };
+
+    try {
+      await expect(
+        useAssistantPreferencesStore.getState().getLocalRuntimeModels({ force: true })
+      ).rejects.toThrow(/catalog|bridge|state|imaginary_state/i);
+    } finally {
+      Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'runtime');
+    }
+  });
+
+  it('falls back to "[unserializable …]" when the malformed bridge payload contains a circular reference', async () => {
+    // `summarizeBridgeResult` wraps `JSON.stringify` in a try/catch so a
+    // malformed payload containing a circular reference cannot crash the
+    // shape-guard error path — the user gets a typed-but-bounded fallback
+    // string in the error message instead. Without this guard, throwing
+    // inside the error builder would mask the original boundary violation.
+    interface Cyclic {
+      self?: Cyclic;
+      state?: string;
+    }
+    const cyclic: Cyclic = { state: 'not_a_real_state' };
+    cyclic.self = cyclic;
+
+    const bridgeProbe = vi.fn().mockResolvedValue(cyclic);
+    (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
+      probe: bridgeProbe,
+      listModels: vi.fn(),
+    };
+
+    try {
+      let captured = '';
+      await useAssistantPreferencesStore
+        .getState()
+        .getLocalRuntimeStatuses({ force: true })
+        .catch((error: unknown) => {
+          captured = error instanceof Error ? error.message : String(error);
+        });
+      expect(captured).toMatch(/unserializable/);
+      // The fallback must NOT contain `[object Object]` or any portion of
+      // the circular structure — otherwise the error builder is leaking.
+      expect(captured).not.toMatch(/\[object Object\]/);
+    } finally {
+      Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'runtime');
+    }
+  });
+
   it('updates model with composite key', () => {
     const store = useAssistantPreferencesStore.getState();
 
