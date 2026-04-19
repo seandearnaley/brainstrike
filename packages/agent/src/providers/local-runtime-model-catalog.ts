@@ -352,6 +352,14 @@ function parseOpenAiModelsPayload(payload: unknown): readonly RuntimeModelCandid
  *   - `bert` (raw BERT-style embedders)
  *   - `*-bert` (derivatives like `nomic-bert`)
  *   - anything containing `embed` (e.g. `nomic-embed-text`)
+ *
+ * IMPORTANT: `undefined` here means "not positively identified as an
+ * embedding family — defer to the name-regex heuristic in
+ * `inferCapabilitiesFromName`". It does NOT mean "unknown model type",
+ * which is why we do NOT return `'llm'` for non-matching families the way
+ * `parseLmStudioModelType` does for LM Studio's explicit discriminant.
+ * Ollama's families field is a hint only; the LLM/embedding classification
+ * for everything else falls through to the shared heuristic path.
  */
 function parseOllamaModelType(value: unknown): LocalRuntimeModelType | undefined {
   if (!Array.isArray(value)) {

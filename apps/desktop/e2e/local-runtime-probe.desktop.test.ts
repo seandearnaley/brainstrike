@@ -148,7 +148,18 @@ test.describe('Local Runtimes desktop probe integration', { tag: '@smoke' }, () 
     // If the probe silently drifted back into the renderer, Chromium's CORS
     // policy would block it even with Access-Control-Allow-Origin:* because
     // `file://` origins can't be matched by a wildcard. Mock receiving the
-    // request proves the main-process bridge is live.
-    expect(ollama?.requestLog.some((entry) => entry.includes('/api/tags'))).toBe(true);
+    // request at all proves the main-process bridge is live. Check any
+    // Ollama-shaped endpoint — the discovery probe fires `/v1/models` first
+    // (short-circuits on success), so matching on a specific path like
+    // `/api/tags` would only succeed if the catalog also ran, which the
+    // Settings card's Probe Now / Save flow does NOT currently trigger.
+    expect(
+      ollama?.requestLog.some(
+        (entry) =>
+          entry.includes('/v1/models') ||
+          entry.includes('/api/tags') ||
+          entry.includes('/api/version')
+      )
+    ).toBe(true);
   });
 });

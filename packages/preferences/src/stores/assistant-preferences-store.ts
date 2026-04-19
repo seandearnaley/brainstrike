@@ -14,9 +14,12 @@ import {
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/agent/provider-metadata';
+import { createLogger } from '@brainstrike/utils/logger';
 import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+
+const logger = createLogger('AssistantPreferencesStore');
 
 type EnabledModelsMap = Record<SupportedProvider, string[]>;
 
@@ -453,8 +456,12 @@ function resolveLocalRuntimeBaseUrl(
 /**
  * Fetch the optional bearer token for a local runtime from the Electron
  * `window.secrets` bridge. Web builds (no secrets bridge, no stored keys)
- * and failures both fall through to `undefined` so detection proceeds
- * anonymously instead of throwing.
+ * fall through to `undefined` silently — there is nothing useful to log
+ * there. Genuine bridge errors (e.g. Electron keychain locked, OS
+ * credential store corrupt) DO log at warn level so desktop users with a
+ * stored token who suddenly see \`auth_required\` probes can diagnose from
+ * the log stream. Detection always proceeds anonymously after a failure;
+ * throwing here would block every probe on a transient keychain hiccup.
  */
 async function resolveLocalRuntimeApiToken(
   providerId: SupportedProvider
@@ -475,7 +482,11 @@ async function resolveLocalRuntimeApiToken(
     }
     const trimmed = key.trim();
     return trimmed.length > 0 ? trimmed : undefined;
-  } catch {
+  } catch (error) {
+    logger.warn('Failed to read stored local runtime token', {
+      providerId,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return;
   }
 }
