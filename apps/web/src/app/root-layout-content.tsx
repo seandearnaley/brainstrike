@@ -4,23 +4,11 @@ import {
   type RootLayoutContentProps,
   RootLayoutContent as SharedRootLayoutContent,
 } from '@brainstrike/app-shell/root-layout-content';
-import {
-  toolsPanelSelectors,
-  useToolsPanelStore,
-} from '@brainstrike/app-shell/stores/tools-panel-store';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
-import {
-  lazy,
-  type ReactElement,
-  type ReactNode,
-  Suspense,
-  useCallback,
-  useEffect,
-  useRef,
-} from 'react';
+import { lazy, type ReactElement, type ReactNode, Suspense, useCallback, useEffect } from 'react';
 import HomePageContent from './home-page-content';
 import SettingsPageContent from './settings/page-content';
 
@@ -74,11 +62,7 @@ function useInitializeWebVectorDevicePreference(): void {
  */
 export default function RootLayoutContent() {
   useInitializeWebVectorDevicePreference();
-  const activeToolsTab = useToolsPanelStore(toolsPanelSelectors.activeTab);
-  const queueTrackerMountedRef = useRef(activeToolsTab === 'database');
-  if (activeToolsTab === 'database') {
-    queueTrackerMountedRef.current = true;
-  }
+  const db = usePGliteDatabase();
 
   const navigationConfig = navigationItems as NavigationItem[];
   const loadEmbeddingQueue = useCallback(
@@ -103,7 +87,7 @@ export default function RootLayoutContent() {
 
   return (
     <TokenCacheWrapper>
-      {queueTrackerMountedRef.current ? (
+      {db ? (
         <Suspense fallback={null}>
           <LazyEmbeddingJobQueueTracker />
         </Suspense>

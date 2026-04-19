@@ -2,10 +2,10 @@
 
 ## Current Issue
 
-The desktop app currently scans fixed ports (8081-8083) in `create-window.ts`:
+The desktop app previously scanned fixed ports in `create-window.ts`:
 
 ```typescript
-const devPorts = [8081, 8082, 8083]; // Port 8080 is reserved for the web app
+const devPorts = [38181, 38182, 38183]; // Dedicated desktop renderer range
 ```
 
 This approach is brittle when multiple local instances run, causing "address in use" errors.

@@ -13,5 +13,7 @@ export type {
 } from './chunking-worker-port';
 export * from './embedding';
 export * from './embedding-context';
+export * from './embedding-set-assignments';
 export * from './enhanced-import';
+export * from './repository-ports';
 export * from './types';

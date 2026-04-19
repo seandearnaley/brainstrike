@@ -192,6 +192,32 @@ describe('file-content-worker', () => {
     expect(adapter.maxActive).toBeLessThanOrEqual(2);
   });
 
+  it('aborts before scheduling additional queued reads', async () => {
+    class AbortableAdapter extends MockFileSystemAdapter {
+      override async readFile(handle: Parameters<MockFileSystemAdapter['readFile']>[0]) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return super.readFile(handle);
+      }
+    }
+
+    const adapter = new AbortableAdapter();
+    MockFileSystemAdapter.setMockFileContent('/1.txt', '1');
+    MockFileSystemAdapter.setMockFileContent('/2.txt', '2');
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter, concurrency: 1 });
+    const controller = new AbortController();
+
+    vi.useFakeTimers();
+    const promise = worker([createRequest('/1.txt'), createRequest('/2.txt')], undefined, {
+      abortSignal: controller.signal,
+    });
+    const rejection = expect(promise).rejects.toMatchObject({ name: 'AbortError' });
+    controller.abort();
+    await vi.runAllTimersAsync();
+    vi.useRealTimers();
+
+    await rejection;
+  });
+
   it('returns loading error when readFile rejects', async () => {
     const adapter = new MockFileSystemAdapter();
     const worker = createFileContentWorker({ fileSystemAdapter: adapter });

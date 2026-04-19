@@ -67,11 +67,9 @@ async function setFileExplorerMaxSelectionCount(
   page: Page,
   maxSelectionCount: number
 ): Promise<void> {
-  const selectionCounterButton = page.getByRole('button', {
-    name: 'Click to edit maximum selection count',
-  });
-  await expect(selectionCounterButton).toBeVisible({ timeout: 15_000 });
-  await selectionCounterButton.click({ timeout: 5000 });
+  const selectionSettingsButton = page.getByRole('button', { name: 'Selection settings' });
+  await expect(selectionSettingsButton).toBeVisible({ timeout: 15_000 });
+  await selectionSettingsButton.click({ timeout: 5000 });
 
   const selectionCountInput = page.getByLabel('Maximum selection count input');
   await expect(selectionCountInput).toBeVisible({ timeout: 15_000 });

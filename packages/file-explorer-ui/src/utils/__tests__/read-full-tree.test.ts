@@ -161,6 +161,11 @@ describe('readFullTreeWithOptions', () => {
     const updateProgress = vi.fn();
     const sortFileNodes = vi.fn();
     const onTreeSnapshot = vi.fn();
+    const entryPolicy = {
+      shouldIncludeFile: vi.fn(() => true),
+      shouldTraverseDirectory: vi.fn(() => true),
+    };
+    const onEntrySkipped = vi.fn();
 
     await readFullTreeWithOptions(mockFileSystemAdapter, mockDirectoryHandle, {
       concurrency: 5,
@@ -168,6 +173,8 @@ describe('readFullTreeWithOptions', () => {
       updateProgress,
       sortFileNodes,
       onTreeSnapshot,
+      entryPolicy,
+      onEntrySkipped,
       snapshotIntervalMs: 200,
     });
 
@@ -180,6 +187,8 @@ describe('readFullTreeWithOptions', () => {
         onProgress: updateProgress,
         sortFileNodes,
         onTreeSnapshot,
+        entryPolicy,
+        onEntrySkipped,
         snapshotIntervalMs: 200,
       }
     );
@@ -197,6 +206,8 @@ describe('readFullTreeWithOptions', () => {
         onProgress: undefined,
         sortFileNodes: undefined,
         onTreeSnapshot: undefined,
+        entryPolicy: undefined,
+        onEntrySkipped: undefined,
         snapshotIntervalMs: undefined,
       }
     );

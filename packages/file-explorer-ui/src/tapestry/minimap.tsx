@@ -2,6 +2,7 @@ import { Checkbox, cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstr
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ExtensionBadge } from '../extension-badge';
 import { formatTokenCount } from '../use-preview-panel-state';
+import { getRootFolderDisplayName } from '../utils/path-display';
 import { formatPreviewFileSize } from '../utils/preview-formatters';
 import type { FileTapestry, InteractionMode, TapestryRange } from './types';
 import { getTapestryRenderMetrics } from './utils';
@@ -17,6 +18,7 @@ interface MinimapProps {
   onToggleRange: (fileId: string, rangeId: string) => void;
   onToggleSelection: (compositeKey: string, checked: boolean) => void;
   scale: number;
+  showSelectionControls?: boolean;
   smartStart: (
     mode: InteractionMode,
     fileId: string,
@@ -395,6 +397,7 @@ export const Minimap = memo(
     isDragging,
     onToggleSelection,
     onRequestFileContent,
+    showSelectionControls = true,
   }: MinimapProps) => {
     const containerRef = useRef<HTMLButtonElement>(null);
     const [hoveredRangeId, setHoveredRangeId] = useState<string | null>(null);
@@ -449,6 +452,7 @@ export const Minimap = memo(
     );
 
     const isAnyHovered = !!hoveredRangeId;
+    const displayRootFolder = getRootFolderDisplayName(file.rootFolderId);
 
     // Memoize SVG rects to avoid recreating hundreds of React elements per render.
     const structureRects = useMemo(
@@ -482,13 +486,15 @@ export const Minimap = memo(
       >
         <div className="flex select-none flex-col gap-1 px-2 text-muted-foreground text-xs">
           <div className="flex min-w-0 items-start gap-2" title={file.path}>
-            <Checkbox
-              aria-label={`Select ${file.path}`}
-              checked={isSelected}
-              className="mt-0.5 h-4 w-4"
-              onCheckedChange={(checked) => onToggleSelection(file.compositeKey, !!checked)}
-              onClick={(event) => event.stopPropagation()}
-            />
+            {showSelectionControls ? (
+              <Checkbox
+                aria-label={`Select ${file.path}`}
+                checked={isSelected}
+                className="mt-0.5 h-4 w-4"
+                onCheckedChange={(checked) => onToggleSelection(file.compositeKey, !!checked)}
+                onClick={(event) => event.stopPropagation()}
+              />
+            ) : null}
             <div className="min-w-0 flex-1">
               <span className="line-clamp-2 block font-bold text-foreground leading-tight">
                 {file.name}
@@ -503,7 +509,7 @@ export const Minimap = memo(
                         : 'bg-muted-foreground/30'
                     )}
                   />
-                  <span className="truncate">{file.rootFolderId}</span>
+                  <span className="truncate">{displayRootFolder}</span>
                 </div>
                 <span className="font-mono text-[10px] opacity-70">{file.totalLines}L</span>
                 <ExtensionBadge extension={file.type} size="compact" />

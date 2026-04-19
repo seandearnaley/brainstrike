@@ -1,0 +1,234 @@
+import { getBaseFilename, isBinaryFile, isTextFile } from './file-utils';
+import { createPathFilterMatcher } from './filter-utils';
+
+export type BackgroundIndexingPolicyPreset = 'balanced' | 'full-root';
+
+export interface BackgroundIndexingPolicyOption {
+  description: string;
+  label: string;
+  recommended: boolean;
+  value: BackgroundIndexingPolicyPreset;
+}
+
+export interface BackgroundIndexingDirectoryInput {
+  directoryName: string;
+  relativePath: string;
+}
+
+export interface BackgroundIndexingFileInput {
+  fileName: string;
+  fileSize: number | undefined;
+  relativePath: string;
+}
+
+export interface BackgroundIndexingEntryPolicy {
+  description: string;
+  label: string;
+  preset: BackgroundIndexingPolicyPreset;
+  shouldIncludeFile: (input: BackgroundIndexingFileInput) => boolean;
+  shouldTraverseDirectory: (input: BackgroundIndexingDirectoryInput) => boolean;
+}
+
+export interface BackgroundIndexingPolicyConfig {
+  preset: BackgroundIndexingPolicyPreset;
+}
+
+export const DEFAULT_BACKGROUND_INDEXING_MAX_FILE_SIZE = 750 * 1024;
+
+export const BACKGROUND_INDEXING_POLICY_OPTIONS: readonly BackgroundIndexingPolicyOption[] = [
+  {
+    value: 'balanced',
+    label: 'Balanced',
+    description:
+      'Indexes source, docs, and useful text files while skipping common generated, cache, lock, and minified artifacts.',
+    recommended: true,
+  },
+  {
+    value: 'full-root',
+    label: 'Full root',
+    description:
+      'Indexes every non-binary text file under the selected root except hard safety limits like oversized files.',
+    recommended: false,
+  },
+] as const;
+
+const BALANCED_EXCLUDED_DIRECTORY_SEGMENTS = new Set([
+  '.git',
+  '.turbo',
+  '.cache',
+  '.next',
+  '.nuxt',
+  '.svelte-kit',
+  '.vercel',
+  '.parcel-cache',
+  '.vite',
+  'node_modules',
+  'coverage',
+  'dist',
+  'build',
+  'playwright-report',
+  'test-results',
+  'reports',
+  'storybook-static',
+  'tmp',
+  'temp',
+  'out',
+  'target',
+  'vendor',
+  'generated',
+  '__generated__',
+]);
+
+const BALANCED_EXCLUDED_FILE_NAMES = new Set([
+  'package-lock.json',
+  'pnpm-lock.yaml',
+  'yarn.lock',
+  'bun.lock',
+  'bun.lockb',
+  'cargo.lock',
+  'composer.lock',
+  'gemfile.lock',
+  'poetry.lock',
+  'uv.lock',
+  'podfile.lock',
+]);
+
+const BALANCED_EXCLUDED_SUFFIXES = ['.min.js', '.min.css', '.map', '.tsbuildinfo', '.log'];
+
+const SPECIAL_TEXT_BASENAMES = new Set([
+  'dockerfile',
+  'makefile',
+  'procfile',
+  'gemfile',
+  'rakefile',
+  'brewfile',
+  'justfile',
+  'readme',
+  'license',
+  'licence',
+  'copying',
+  'changelog',
+  'changes',
+]);
+
+const SPECIAL_TEXT_PREFIXES = [
+  '.env',
+  '.gitignore',
+  '.gitattributes',
+  '.npmrc',
+  '.yarnrc',
+  '.editorconfig',
+];
+
+const balancedPathMatcher = createPathFilterMatcher(
+  [],
+  Array.from(BALANCED_EXCLUDED_DIRECTORY_SEGMENTS).map((segment) => `${segment}/**`)
+);
+
+export function getBackgroundIndexingPolicyOption(
+  preset: BackgroundIndexingPolicyPreset
+): BackgroundIndexingPolicyOption {
+  const matchedOption = BACKGROUND_INDEXING_POLICY_OPTIONS.find(
+    (option) => option.value === preset
+  );
+  if (matchedOption) {
+    return matchedOption;
+  }
+  return BACKGROUND_INDEXING_POLICY_OPTIONS[0] as BackgroundIndexingPolicyOption;
+}
+
+function normalizePathSegments(relativePath: string): string[] {
+  return relativePath
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+}
+
+function isSpecialTextFilename(fileName: string): boolean {
+  const lowerName = fileName.toLowerCase();
+  if (
+    SPECIAL_TEXT_PREFIXES.some(
+      (prefix) => lowerName === prefix || lowerName.startsWith(`${prefix}.`)
+    )
+  ) {
+    return true;
+  }
+  return (
+    SPECIAL_TEXT_BASENAMES.has(getBaseFilename(lowerName)) || SPECIAL_TEXT_BASENAMES.has(lowerName)
+  );
+}
+
+function isWithinSizeLimit(fileSize: number | undefined): boolean {
+  if (typeof fileSize !== 'number') {
+    return true;
+  }
+  if (!Number.isFinite(fileSize) || fileSize < 0) {
+    return false;
+  }
+  return fileSize <= DEFAULT_BACKGROUND_INDEXING_MAX_FILE_SIZE;
+}
+
+function shouldSkipBalancedDirectory(relativePath: string): boolean {
+  const segments = normalizePathSegments(relativePath);
+  return segments.some((segment) =>
+    BALANCED_EXCLUDED_DIRECTORY_SEGMENTS.has(segment.toLowerCase())
+  );
+}
+
+function shouldSkipBalancedFile(input: BackgroundIndexingFileInput): boolean {
+  const lowerName = input.fileName.toLowerCase();
+  if (BALANCED_EXCLUDED_FILE_NAMES.has(lowerName)) {
+    return true;
+  }
+  if (BALANCED_EXCLUDED_SUFFIXES.some((suffix) => lowerName.endsWith(suffix))) {
+    return true;
+  }
+  return balancedPathMatcher.shouldIncludeFile(input.relativePath) === false;
+}
+
+function shouldIncludeBalancedFile(input: BackgroundIndexingFileInput): boolean {
+  if (!isWithinSizeLimit(input.fileSize)) {
+    return false;
+  }
+  if (isBinaryFile(input.fileName)) {
+    return false;
+  }
+  if (shouldSkipBalancedFile(input)) {
+    return false;
+  }
+  if (isSpecialTextFilename(input.fileName)) {
+    return true;
+  }
+  return isTextFile(input.fileName);
+}
+
+function shouldIncludeFullRootFile(input: BackgroundIndexingFileInput): boolean {
+  if (!isWithinSizeLimit(input.fileSize)) {
+    return false;
+  }
+  return !isBinaryFile(input.fileName);
+}
+
+export function createBackgroundIndexingEntryPolicy(
+  config: BackgroundIndexingPolicyConfig
+): BackgroundIndexingEntryPolicy {
+  const option = getBackgroundIndexingPolicyOption(config.preset);
+
+  if (config.preset === 'full-root') {
+    return {
+      preset: option.value,
+      label: option.label,
+      description: option.description,
+      shouldIncludeFile: shouldIncludeFullRootFile,
+      shouldTraverseDirectory: () => true,
+    };
+  }
+
+  return {
+    preset: option.value,
+    label: option.label,
+    description: option.description,
+    shouldIncludeFile: shouldIncludeBalancedFile,
+    shouldTraverseDirectory: ({ relativePath }) => !shouldSkipBalancedDirectory(relativePath),
+  };
+}

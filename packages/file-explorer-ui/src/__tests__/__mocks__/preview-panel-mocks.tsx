@@ -77,6 +77,11 @@ interface TabsContextValue {
   value?: string;
 }
 
+interface DropdownMenuRadioContextValue {
+  onValueChange: ((value: string) => void) | undefined;
+  value: string | undefined;
+}
+
 type TabsProps = MockComponentProps & {
   value?: string;
   defaultValue?: string;
@@ -95,6 +100,7 @@ type TabsContentProps = MockComponentProps & {
 };
 
 const TabsContext = React.createContext<TabsContextValue | null>(null);
+const DropdownMenuRadioContext = React.createContext<DropdownMenuRadioContextValue | null>(null);
 
 interface UsePaginationOptions {
   pageSize?: number;
@@ -372,6 +378,61 @@ export const createUiModuleMock = () => ({
       {children}
     </div>
   ),
+  DropdownMenu: ({ children, ...props }: MockComponentProps) => (
+    <div data-testid="dropdown-menu" {...props}>
+      {children}
+    </div>
+  ),
+  DropdownMenuTrigger: ({
+    children,
+    asChild: _asChild,
+    ...props
+  }: MockComponentProps & { asChild?: boolean }) => (
+    <div data-testid="dropdown-menu-trigger" {...props}>
+      {children}
+    </div>
+  ),
+  DropdownMenuContent: ({
+    children,
+    align,
+    className,
+    ...props
+  }: MockComponentProps & { align?: string; className?: string }) => (
+    <div className={className} data-align={align} data-testid="dropdown-menu-content" {...props}>
+      {children}
+    </div>
+  ),
+  DropdownMenuRadioGroup: ({
+    children,
+    onValueChange,
+    value,
+    ...props
+  }: MockComponentProps & { onValueChange?: (value: string) => void; value?: string }) => (
+    <DropdownMenuRadioContext.Provider value={{ onValueChange, value }}>
+      <div data-testid="dropdown-menu-radio-group" {...props}>
+        {children}
+      </div>
+    </DropdownMenuRadioContext.Provider>
+  ),
+  DropdownMenuRadioItem: ({
+    children,
+    value,
+    ...props
+  }: MockComponentProps & { value: string }) => {
+    const context = React.useContext(DropdownMenuRadioContext);
+    return (
+      <button
+        aria-checked={context?.value === value}
+        data-testid={`dropdown-menu-radio-item-${value}`}
+        onClick={() => context?.onValueChange?.(value)}
+        role="menuitemradio"
+        type="button"
+        {...props}
+      >
+        {children}
+      </button>
+    );
+  },
   SortableTableHeader: ({
     title,
     onSort,
@@ -753,6 +814,7 @@ export const createLucideModuleMock = () => ({
   FileText: () => <div data-testid="file-text" />,
   FileX2: () => <div data-testid="file-x2" />,
   FolderOpen: () => <div data-testid="folder-open" />,
+  Group: () => <div data-testid="group" />,
   Loader2: () => <div data-testid="loader" />,
   CheckCircle2: () => <div data-testid="check-circle" />,
   AlertTriangle: () => <div data-testid="alert" />,

@@ -346,6 +346,7 @@ describe('SettingsPageContent tool operations', () => {
 
     expect(mockState.renderedCategoryIds).toEqual([
       'appearance',
+      'search-indexing',
       'token-counting',
       'models',
       'logging',

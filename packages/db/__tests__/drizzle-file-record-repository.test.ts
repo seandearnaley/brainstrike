@@ -62,6 +62,7 @@ describe('DrizzleFileRecordRepository', () => {
         id: '00000000-0000-0000-0000-000000000002',
         name: 'content.ts',
         path: '/src/content.ts',
+        sourceRootPath: '/workspace/a',
         size: 100,
         createdAt: now,
         updatedAt: now,
@@ -78,6 +79,7 @@ describe('DrizzleFileRecordRepository', () => {
       expect(found?.contentHash).toBe('abc123hash');
       expect(found?.content).toBe('const hello = "world";');
       expect(found?.tokenCount).toBe(5);
+      expect(found?.sourceRootPath).toBe('/workspace/a');
     });
 
     it('should return null for non-existent id', async () => {
@@ -142,6 +144,122 @@ describe('DrizzleFileRecordRepository', () => {
       const withContent = await repository.findAllWithContent();
       expect(withContent).toHaveLength(1);
       expect(withContent[0]?.name).toBe('with-content.ts');
+    });
+  });
+
+  describe('managed cache identity', () => {
+    it('should find a managed cache entry by collection, root, and relative path', async () => {
+      const now = new Date().toISOString();
+
+      await repository.create({
+        id: '00000000-0000-0000-0000-000000000011',
+        name: 'index.ts',
+        path: 'src/index.ts',
+        sourceRootPath: '/workspace/a',
+        embeddingSetId: '00000000-0000-0000-0000-000000000101',
+        size: 100,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await repository.create({
+        id: '00000000-0000-0000-0000-000000000012',
+        name: 'index.ts',
+        path: 'src/index.ts',
+        sourceRootPath: '/workspace/b',
+        embeddingSetId: '00000000-0000-0000-0000-000000000101',
+        size: 100,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const found = await repository.findByManagedCacheIdentity(
+        '00000000-0000-0000-0000-000000000101',
+        '/workspace/a',
+        'src/index.ts'
+      );
+
+      expect(found?.id).toBe('00000000-0000-0000-0000-000000000011');
+      expect(found?.sourceRootPath).toBe('/workspace/a');
+    });
+
+    it('should list managed cache entries across roots for a collection', async () => {
+      const now = new Date().toISOString();
+
+      await repository.create({
+        id: '00000000-0000-0000-0000-000000000021',
+        name: 'index.ts',
+        path: 'src/index.ts',
+        sourceRootPath: '/workspace/a',
+        embeddingSetId: '00000000-0000-0000-0000-000000000101',
+        size: 100,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await repository.create({
+        id: '00000000-0000-0000-0000-000000000022',
+        name: 'index.ts',
+        path: 'src/index.ts',
+        sourceRootPath: '/workspace/b',
+        embeddingSetId: '00000000-0000-0000-0000-000000000101',
+        size: 100,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await repository.create({
+        id: '00000000-0000-0000-0000-000000000023',
+        name: 'index.ts',
+        path: 'src/index.ts',
+        sourceRootPath: '/workspace/c',
+        embeddingSetId: '00000000-0000-0000-0000-000000000202',
+        size: 100,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const entries = await repository.listManagedCacheEntries(
+        '00000000-0000-0000-0000-000000000101'
+      );
+
+      expect(entries.map((entry) => entry.id).sort()).toEqual([
+        '00000000-0000-0000-0000-000000000021',
+        '00000000-0000-0000-0000-000000000022',
+      ]);
+    });
+
+    it('should list managed cache metadata without selecting content', async () => {
+      const now = new Date().toISOString();
+
+      await repository.createWithContent({
+        id: '00000000-0000-0000-0000-000000000031',
+        name: 'index.ts',
+        path: 'src/index.ts',
+        sourceRootPath: '/workspace/a',
+        embeddingSetId: '00000000-0000-0000-0000-000000000101',
+        size: 100,
+        createdAt: now,
+        updatedAt: now,
+        content: 'export const value = 1;',
+        contentHash: 'hash-1',
+        tokenCount: 5,
+        processedAt: now,
+      });
+
+      const entries = await repository.listManagedCacheEntryMetadata(
+        '00000000-0000-0000-0000-000000000101'
+      );
+
+      expect(entries).toEqual([
+        expect.objectContaining({
+          fileRecordId: '00000000-0000-0000-0000-000000000031',
+          embeddingSetId: '00000000-0000-0000-0000-000000000101',
+          sourceRootPath: '/workspace/a',
+          relativePath: 'src/index.ts',
+          contentHash: 'hash-1',
+        }),
+      ]);
     });
   });
 

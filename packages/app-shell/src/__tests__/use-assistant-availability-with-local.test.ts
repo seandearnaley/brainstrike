@@ -13,6 +13,10 @@ vi.mock('../hooks/use-assistant-availability', () => ({
   useAssistantAvailability: vi.fn(),
 }));
 
+vi.mock('@brainstrike/preferences/hooks/use-model-registry', () => ({
+  useEnsureModelRegistry: vi.fn(),
+}));
+
 // Mock the model registry store
 vi.mock('@brainstrike/preferences/stores/model-registry-store', async (importOriginal) => {
   const real =
@@ -24,10 +28,12 @@ vi.mock('@brainstrike/preferences/stores/model-registry-store', async (importOri
 });
 
 import { LocalLlmBackend } from '@brainstrike/agent/local-llm';
+import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useAssistantAvailability } from '../hooks/use-assistant-availability';
 
 const useAssistantAvailabilityMock = vi.mocked(useAssistantAvailability);
+const useEnsureModelRegistryMock = vi.mocked(useEnsureModelRegistry);
 const useModelRegistryStoreMock = vi.mocked(useModelRegistryStore);
 const getBestDeviceMock = vi.mocked(LocalLlmBackend.getBestDevice);
 
@@ -35,11 +41,13 @@ describe('useAssistantAvailabilityWithLocal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getBestDeviceMock.mockReturnValue('webgpu');
+    useEnsureModelRegistryMock.mockReturnValue(null);
   });
 
   it('returns enabled when server says enabled (hosted provider)', () => {
     useAssistantAvailabilityMock.mockReturnValue({ state: 'enabled' });
     useModelRegistryStoreMock.mockReturnValue({
+      error: null,
       models: [],
       hasLoaded: false,
     } as ReturnType<typeof useModelRegistryStore>);
@@ -55,6 +63,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
       reason: 'missing_api_key',
     });
     useModelRegistryStoreMock.mockReturnValue({
+      error: null,
       models: [
         {
           id: 'test-model',
@@ -77,6 +86,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
       reason: 'missing_api_key',
     });
     useModelRegistryStoreMock.mockReturnValue({
+      error: null,
       models: [
         {
           id: 'test-model',
@@ -99,6 +109,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
       reason: 'missing_api_key',
     });
     useModelRegistryStoreMock.mockReturnValue({
+      error: null,
       models: [],
       hasLoaded: true,
     } as unknown as ReturnType<typeof useModelRegistryStore>);
@@ -115,6 +126,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
       reason: 'missing_api_key',
     });
     useModelRegistryStoreMock.mockReturnValue({
+      error: null,
       models: [
         {
           id: 'onnx-community/gemma-4-E2B-it-ONNX',
@@ -137,6 +149,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
       reason: 'missing_api_key',
     });
     useModelRegistryStoreMock.mockReturnValue({
+      error: null,
       models: [
         {
           id: 'test-model',
@@ -159,6 +172,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
       reason: 'missing_api_key',
     });
     useModelRegistryStoreMock.mockReturnValue({
+      error: null,
       models: [
         {
           id: 'test-model',
@@ -181,6 +195,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
       reason: 'missing_api_key',
     });
     useModelRegistryStoreMock.mockReturnValue({
+      error: null,
       models: [
         {
           id: 'malformed-model',
@@ -200,6 +215,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
   it('returns loading when server is loading', () => {
     useAssistantAvailabilityMock.mockReturnValue({ state: 'loading' });
     useModelRegistryStoreMock.mockReturnValue({
+      error: null,
       models: [],
       hasLoaded: false,
     } as unknown as ReturnType<typeof useModelRegistryStore>);
@@ -209,12 +225,13 @@ describe('useAssistantAvailabilityWithLocal', () => {
     expect(result.current).toEqual({ state: 'loading' });
   });
 
-  it('returns disabled when model registry not loaded yet', () => {
+  it('keeps loading while local model availability is still resolving', () => {
     useAssistantAvailabilityMock.mockReturnValue({
       state: 'disabled',
       reason: 'missing_api_key',
     });
     useModelRegistryStoreMock.mockReturnValue({
+      error: null,
       models: [
         {
           id: 'test-model',
@@ -228,8 +245,50 @@ describe('useAssistantAvailabilityWithLocal', () => {
 
     const { result } = renderHook(() => useAssistantAvailabilityWithLocal());
 
-    // Returns disabled because hasLoaded is false
+    expect(result.current).toEqual({ state: 'loading' });
+    expect(useEnsureModelRegistryMock).toHaveBeenCalledWith({ enabled: true });
+  });
+
+  it('returns the hosted disabled state when the local registry fails to load', () => {
+    useAssistantAvailabilityMock.mockReturnValue({
+      state: 'disabled',
+      reason: 'missing_api_key',
+    });
+    useModelRegistryStoreMock.mockReturnValue({
+      error: 'failed to load registry',
+      models: [],
+      hasLoaded: false,
+    } as unknown as ReturnType<typeof useModelRegistryStore>);
+
+    const { result } = renderHook(() => useAssistantAvailabilityWithLocal());
+
     expect(result.current).toEqual({ state: 'disabled', reason: 'missing_api_key' });
+    expect(useEnsureModelRegistryMock).toHaveBeenCalledWith({ enabled: true });
+  });
+
+  it('returns disabled immediately when built-in local inference cannot run', () => {
+    getBestDeviceMock.mockReturnValue(null);
+    useAssistantAvailabilityMock.mockReturnValue({
+      state: 'disabled',
+      reason: 'missing_api_key',
+    });
+    useModelRegistryStoreMock.mockReturnValue({
+      error: null,
+      models: [
+        {
+          id: 'onnx-community/gemma-4-E2B-it-ONNX',
+          providerId: 'local',
+          isEnabled: true,
+          capabilities: { type: 'llm' },
+        },
+      ],
+      hasLoaded: false,
+    } as unknown as ReturnType<typeof useModelRegistryStore>);
+
+    const { result } = renderHook(() => useAssistantAvailabilityWithLocal());
+
+    expect(result.current).toEqual({ state: 'disabled', reason: 'missing_api_key' });
+    expect(useEnsureModelRegistryMock).toHaveBeenCalledWith({ enabled: false });
   });
 
   it('returns error state from server', () => {
@@ -238,6 +297,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
       message: 'Network error',
     });
     useModelRegistryStoreMock.mockReturnValue({
+      error: null,
       models: [],
       hasLoaded: true,
     } as unknown as ReturnType<typeof useModelRegistryStore>);
@@ -255,6 +315,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
 
     // Start with no models
     useModelRegistryStoreMock.mockReturnValue({
+      error: null,
       models: [],
       hasLoaded: true,
     } as unknown as ReturnType<typeof useModelRegistryStore>);
@@ -265,6 +326,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
 
     // Now models become available
     useModelRegistryStoreMock.mockReturnValue({
+      error: null,
       models: [
         {
           id: 'test-model',

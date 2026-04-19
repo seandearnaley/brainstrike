@@ -22,6 +22,12 @@ export {
   hasPGliteRaw,
   runMigrations as runDrizzleMigrations,
 } from './drizzle/index.js';
+export {
+  type ApplyManagedCacheBatchArgs,
+  applyManagedCacheBatch,
+  type ManagedCacheBatchMutation,
+  parseManagedCacheBatchArgs,
+} from './managed-cache/apply-managed-cache-batch.js';
 // Legacy migration export
 export * from './migrations/bootstrap.js';
 export type { Migration } from './migrations/index.js';
@@ -43,7 +49,9 @@ export type {
   FileImportRequest,
   FileImportResult,
   FileRecord,
+  FileRecordUpdate,
   ImportProgress,
+  ManagedCacheEntryMetadata,
 } from './models/file-record.js';
 export type {
   CancelParams,

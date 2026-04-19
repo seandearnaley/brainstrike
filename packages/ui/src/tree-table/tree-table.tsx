@@ -236,7 +236,7 @@ function renderTableHeader<T>({
                 maxWidth: column.maxWidth,
               }}
             >
-              <div className="flex items-center gap-1">
+              <div className={cn('flex items-center gap-1', column.headerContentClassName)}>
                 {column.header ?? column.id}
                 {column.sortable && sortState?.columnId === column.id && (
                   <span aria-hidden="true" className="text-xs">

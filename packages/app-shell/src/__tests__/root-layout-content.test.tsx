@@ -1,6 +1,6 @@
+import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act, render, screen } from '@testing-library/react';
-
 import type React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RootLayoutContent } from '../root-layout-content';
@@ -28,11 +28,13 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
     <div data-testid="file-tree-provider">{children}</div>
   ),
   useFileSystem: () => ({
+    isAccessLoading: false,
     rootDirectoryHandle: null,
     selectRootDirectory: vi.fn(),
     isFileSystemAccessSupported: () => ({ supported: true, reason: '' }),
     clearRootDirectory: vi.fn(),
   }),
+  useOptionalFileTreeContext: () => null,
   // Mock workspace filter function - returns identity function for tests
   useWorkspaceFilterFn: () => (tree: unknown[]) => tree,
 }));
@@ -40,6 +42,12 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
 // Create a stable object to hold the mock function.
 const mockHandlers = {
   onNavigationClick: (_path: string) => {},
+  onPanelLayoutChange: (_state: {
+    showConsole: boolean;
+    showLeftPanel: boolean;
+    showRightPanel: boolean;
+    sizes?: number[];
+  }) => {},
 };
 
 vi.mock('../app-layout', () => ({
@@ -61,7 +69,21 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   return {
     ...original,
     // No-op provider for unit tests (avoids async persistence side effects)
-    PanelLayoutProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    PanelLayoutProvider: ({
+      children,
+      onChange,
+    }: {
+      children: React.ReactNode;
+      onChange: (state: {
+        showConsole: boolean;
+        showLeftPanel: boolean;
+        showRightPanel: boolean;
+        sizes?: number[];
+      }) => void;
+    }) => {
+      mockHandlers.onPanelLayoutChange = onChange;
+      return <>{children}</>;
+    },
     IdeLayout: ({
       children,
       leftPanelContent,
@@ -80,13 +102,34 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
+vi.mock('@brainstrike/vector-management', () => ({
+  EmbeddingRuntimeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
+vi.mock('../background-indexing/workspace-collection-sync-provider', () => ({
+  WorkspaceCollectionSyncProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
+vi.mock('../tools-panel', () => ({
+  ToolsPanel: () => <div data-testid="tools-panel" />,
+}));
+
 describe('RootLayoutContent', () => {
   beforeEach(() => {
     // Reset the mock function before each test
     mockHandlers.onNavigationClick = vi.fn();
+    mockHandlers.onPanelLayoutChange = vi.fn();
+    usePanelLayoutStore.setState({
+      activeTab: 'explorer',
+      showConsole: false,
+      showLeftPanel: true,
+      showRightPanel: false,
+      sizes: [25, 20, 20],
+    });
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.resetAllMocks();
   });
 
@@ -97,13 +140,18 @@ describe('RootLayoutContent', () => {
 
   const MockHomePage = () => <div data-testid="home-page">Home</div>;
   const MockSettingsPage = () => <div data-testid="settings-page">Settings</div>;
+  const MockPromptsPage = () => <div data-testid="prompts-page">Prompts</div>;
 
-  const renderComponent = () =>
+  const renderComponent = (
+    overrides: Partial<React.ComponentProps<typeof RootLayoutContent>> = {}
+  ) =>
     render(
       <RootLayoutContent
         homePageContent={<MockHomePage />}
         navigationItems={mockNavigationItems}
+        promptsPageContent={<MockPromptsPage />}
         settingsPageContent={<MockSettingsPage />}
+        {...overrides}
       />
     );
 
@@ -186,5 +234,110 @@ describe('RootLayoutContent', () => {
     renderComponent();
 
     expect(screen.getByTestId('file-explorer-left-panel')).toBeInTheDocument();
+  });
+
+  it('keeps the prompts page mounted after it has been opened once', () => {
+    renderComponent();
+
+    act(() => {
+      mockHandlers.onNavigationClick('/prompts');
+    });
+    expect(screen.getByTestId('prompts-page')).toBeInTheDocument();
+
+    act(() => {
+      mockHandlers.onNavigationClick('/');
+    });
+
+    expect(screen.getByTestId('prompts-page')).toBeInTheDocument();
+    expect(screen.getByTestId('prompts-section')).toHaveClass('hidden');
+  });
+
+  it('debounces size-only layout updates before committing them to the store', () => {
+    vi.useFakeTimers();
+    renderComponent();
+
+    act(() => {
+      mockHandlers.onPanelLayoutChange({
+        sizes: [30, 15, 25],
+        showConsole: false,
+        showLeftPanel: true,
+        showRightPanel: false,
+      });
+    });
+
+    expect(usePanelLayoutStore.getState().sizes).toEqual([25, 20, 20]);
+
+    act(() => {
+      vi.advanceTimersByTime(149);
+    });
+    expect(usePanelLayoutStore.getState().sizes).toEqual([25, 20, 20]);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(usePanelLayoutStore.getState().sizes).toEqual([30, 15, 25]);
+  });
+
+  it('commits boolean panel visibility changes immediately and clears any pending size debounce', () => {
+    vi.useFakeTimers();
+    renderComponent();
+
+    act(() => {
+      mockHandlers.onPanelLayoutChange({
+        sizes: [30, 15, 25],
+        showConsole: false,
+        showLeftPanel: true,
+        showRightPanel: false,
+      });
+    });
+
+    act(() => {
+      mockHandlers.onPanelLayoutChange({
+        sizes: [35, 18, 22],
+        showConsole: true,
+        showLeftPanel: true,
+        showRightPanel: false,
+      });
+    });
+
+    expect(usePanelLayoutStore.getState()).toEqual(
+      expect.objectContaining({
+        showConsole: true,
+        sizes: [35, 18, 22],
+      })
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    expect(usePanelLayoutStore.getState()).toEqual(
+      expect.objectContaining({
+        showConsole: true,
+        sizes: [35, 18, 22],
+      })
+    );
+  });
+
+  it('clears a pending debounced size update when the layout unmounts', () => {
+    vi.useFakeTimers();
+    const { unmount } = renderComponent();
+
+    act(() => {
+      mockHandlers.onPanelLayoutChange({
+        sizes: [40, 10, 20],
+        showConsole: false,
+        showLeftPanel: true,
+        showRightPanel: false,
+      });
+    });
+
+    unmount();
+
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    expect(usePanelLayoutStore.getState().sizes).toEqual([25, 20, 20]);
   });
 });

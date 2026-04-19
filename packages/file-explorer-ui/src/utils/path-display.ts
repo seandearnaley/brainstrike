@@ -10,11 +10,18 @@ interface DirPathDisplayOptions {
   tailSegments: number;
 }
 
+function normalizePathIdentity(inputPath: string): string {
+  return stripTrailingSlashes(normalizeSeparators(inputPath));
+}
+
 function normalizeSeparators(inputPath: string): string {
   return inputPath.replace(/\\/g, '/');
 }
 
 function stripTrailingSlashes(inputPath: string): string {
+  if (inputPath === '/' || /^[A-Za-z]:\/$/.test(inputPath)) {
+    return inputPath;
+  }
   return inputPath.replace(/\/+$/, '');
 }
 
@@ -41,6 +48,16 @@ function findSegmentIndex(segments: readonly string[], needle: string): number {
 
   const needleLower = needle.toLowerCase();
   return segments.findIndex((segment) => segment.toLowerCase() === needleLower);
+}
+
+function getRootFolderBasename(rootFolderId: string): string {
+  const normalized = normalizePathIdentity(rootFolderId);
+  if (!normalized) {
+    return '';
+  }
+
+  const segments = normalized.split('/').filter(Boolean);
+  return segments.at(-1) ?? normalized;
 }
 
 function shortenByChars(input: string, maxChars: number): string {
@@ -111,14 +128,49 @@ function getFolderRelativeSegments(args: { normalizedDirPath: string; rootFolder
   segments: string[];
   trimmedToFolderRoot: boolean;
 } {
+  const normalizedRootFolderId = normalizePathIdentity(args.rootFolderId);
   const absolute = isProbablyAbsolutePath(args.normalizedDirPath);
   const segments = args.normalizedDirPath.split('/').filter(Boolean);
 
-  if (!(absolute && args.rootFolderId)) {
+  if (absolute && normalizedRootFolderId && isProbablyAbsolutePath(normalizedRootFolderId)) {
+    const normalizedDirLower = args.normalizedDirPath.toLowerCase();
+    const normalizedRootLower = normalizedRootFolderId.toLowerCase();
+
+    if (normalizedDirLower === normalizedRootLower) {
+      return { segments: [], trimmedToFolderRoot: true };
+    }
+
+    if (normalizedRootFolderId === '/') {
+      return { segments, trimmedToFolderRoot: true };
+    }
+
+    const rootPrefix = normalizedRootFolderId.endsWith('/')
+      ? normalizedRootFolderId
+      : `${normalizedRootFolderId}/`;
+    const rootPrefixLower = normalizedRootLower.endsWith('/')
+      ? normalizedRootLower
+      : `${normalizedRootLower}/`;
+    if (normalizedDirLower.startsWith(rootPrefixLower)) {
+      return {
+        segments: args.normalizedDirPath.slice(rootPrefix.length).split('/').filter(Boolean),
+        trimmedToFolderRoot: true,
+      };
+    }
+  }
+
+  if (!normalizedRootFolderId) {
     return { segments, trimmedToFolderRoot: false };
   }
 
-  const idx = findSegmentIndex(segments, args.rootFolderId);
+  if (!absolute) {
+    return { segments, trimmedToFolderRoot: false };
+  }
+
+  if (isProbablyAbsolutePath(normalizedRootFolderId)) {
+    return { segments, trimmedToFolderRoot: false };
+  }
+
+  const idx = findSegmentIndex(segments, getRootFolderBasename(normalizedRootFolderId));
   if (idx === -1) {
     return { segments, trimmedToFolderRoot: false };
   }
@@ -197,6 +249,19 @@ export function formatDirPathForDisplay(args: {
   }
 
   return buildShortenedDirPath({ segments, options });
+}
+
+export function getRootFolderDisplayName(rootFolderId: string): string {
+  const normalized = normalizePathIdentity(rootFolderId);
+  if (!normalized) {
+    return '';
+  }
+
+  if (isProbablyAbsolutePath(normalized)) {
+    return normalized;
+  }
+
+  return getRootFolderBasename(normalized);
 }
 
 /**

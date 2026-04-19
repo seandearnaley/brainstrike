@@ -14,8 +14,43 @@ export interface FileRecord {
   path: string;
   processedAt?: string; // ISO date when file was processed/imported
   size: number;
+  sourceRootPath?: string; // Canonical root folder path for managed cache entries
   tokenCount?: number; // Number of tokens in content
   updatedAt: string; // ISO date string
+}
+
+type NullableFileRecordUpdateFields =
+  | 'chunksCount'
+  | 'chunksProcessedAt'
+  | 'chunkingStrategy'
+  | 'content'
+  | 'contentHash'
+  | 'embedding'
+  | 'embeddingSetId'
+  | 'processedAt'
+  | 'sourceRootPath'
+  | 'tokenCount';
+
+export type FileRecordUpdate = Omit<Partial<FileRecord>, NullableFileRecordUpdateFields> & {
+  chunksCount?: number | null;
+  chunksProcessedAt?: string | null;
+  chunkingStrategy?: ResolvedChunkingStrategy | null;
+  content?: string | null;
+  contentHash?: string | null;
+  embedding?: number[] | null;
+  embeddingSetId?: string | null;
+  processedAt?: string | null;
+  sourceRootPath?: string | null;
+  tokenCount?: number | null;
+};
+
+export interface ManagedCacheEntryMetadata {
+  contentHash: string;
+  embeddingSetId: string;
+  fileRecordId: string;
+  relativePath: string;
+  sourceRootPath: string;
+  updatedAt: string;
 }
 
 export interface FileImportRequest {
@@ -24,6 +59,7 @@ export interface FileImportRequest {
   name: string;
   path: string;
   size: number;
+  sourceRootPath?: string; // Canonical root folder path for managed cache entries
 }
 
 export interface FileImportResult {

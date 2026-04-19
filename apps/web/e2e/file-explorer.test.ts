@@ -9,14 +9,29 @@ import {
 import type { FileTree } from './utils/mock-fs';
 
 /**
- * Helper to open the selection counter popover and set the max selection count
+ * Helper to ensure the selection settings button is available in the current explorer state.
+ */
+async function openSelectionSettings(page: Page) {
+  const settingsButton = page.getByRole('button', { name: /Selection settings/i });
+  if (await settingsButton.isVisible().catch(() => false)) {
+    return settingsButton;
+  }
+
+  const selectRootButton = page.getByRole('button', { name: /^Select Root$/i });
+  if (await selectRootButton.isVisible().catch(() => false)) {
+    await selectRootButton.click();
+  }
+
+  await expect(settingsButton).toBeVisible();
+  return settingsButton;
+}
+
+/**
+ * Helper to open the selection settings popover and set the max selection count
  */
 async function setMaxSelectionCount(page: Page, value: number | string): Promise<void> {
-  // Click the selection counter button to open the popover
-  const counterButton = page.getByRole('button', {
-    name: /Click to edit maximum selection count/i,
-  });
-  await counterButton.click();
+  const settingsButton = await openSelectionSettings(page);
+  await settingsButton.click();
 
   // Wait for popover to be visible
   const input = page.getByLabel('Maximum selection count input');
@@ -75,6 +90,163 @@ test.describe('File Explorer', () => {
 
     test('should show selection counter with initial state', async ({ page }) => {
       await expect(page.getByText('0/10')).toBeVisible();
+    });
+
+    test('keeps footer controls usable when the explorer panel is narrowed', async ({ page }) => {
+      await explorer.selectRoot();
+
+      const leftPanel = page.locator('#explorer-panel');
+      const initialWidth = await leftPanel.evaluate(
+        (element) => element.getBoundingClientRect().width
+      );
+
+      const resizeHandle = page.locator('[data-separator]').first();
+      const handleBox = await resizeHandle.boundingBox();
+      if (!handleBox) {
+        throw new Error('Resize handle not found');
+      }
+
+      await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(handleBox.x - 120, handleBox.y + handleBox.height / 2);
+      await page.mouse.up();
+
+      await page.waitForTimeout(300);
+
+      const narrowedWidth = await leftPanel.evaluate(
+        (element) => element.getBoundingClientRect().width
+      );
+      expect(narrowedWidth).toBeLessThan(initialWidth);
+
+      await expect(page.getByRole('button', { name: 'Selection settings' })).toBeVisible();
+      await expect(page.getByTestId('selection-count')).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Select All' })).toBeVisible();
+      await expect(page.getByTestId('bulk-action-full-label')).not.toBeVisible();
+
+      await page.getByRole('button', { name: 'Selection settings' }).click();
+      await expect(page.getByRole('button', { name: '5K' })).toBeVisible();
+      await expect(page.getByRole('button', { name: '6K' })).toBeVisible();
+      await expect(page.getByRole('button', { name: '8K' })).toBeVisible();
+    });
+
+    test('shows the active root badge in the toolbar without rendering a separate current-directory row', async ({
+      page,
+    }) => {
+      await explorer.selectRoot();
+
+      const toolbar = page.getByTestId('file-explorer-toolbar');
+      await expect(toolbar).toContainText('test-root');
+      await expect(page.getByText(/current directory/i)).toHaveCount(0);
+    });
+
+    test('uses the same preview toolbar pattern across table and tapestry views', async ({
+      page,
+    }) => {
+      await explorer.selectRoot();
+
+      await explorer.fileTree.getByRole('checkbox', { name: 'Select test.ts' }).click({
+        force: true,
+      });
+      await explorer.fileTree.getByRole('checkbox', { name: 'Select test2.ts' }).click({
+        force: true,
+      });
+
+      const previewToolbar = page.getByTestId('preview-view-toolbar');
+      await expect(previewToolbar).toBeVisible();
+      await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
+      await expect(
+        previewToolbar.getByRole('button', { name: 'Toggle multi-select' })
+      ).toBeVisible();
+      await expect(previewToolbar.getByRole('button', { name: 'Group by' })).toBeVisible();
+      await expect(
+        previewToolbar.getByRole('button', { name: 'Select visible columns' })
+      ).toBeVisible();
+
+      await page.getByRole('tab', { name: 'Tapestry View' }).click();
+      await expect(
+        previewToolbar.getByRole('button', { name: 'Toggle multi-select' })
+      ).toBeVisible();
+      await expect(previewToolbar.getByRole('button', { name: 'Group by' })).toBeVisible();
+      await expect(
+        previewToolbar.getByRole('button', { name: 'Select visible columns' })
+      ).toHaveCount(0);
+      await expect(page.getByLabel('Select all files on current page')).toHaveCount(0);
+    });
+
+    test('hides grouped selection checkboxes when selection controls are toggled off', async ({
+      page,
+    }) => {
+      await explorer.selectRoot();
+
+      await explorer.fileTree.getByRole('checkbox', { name: 'Select test.ts' }).click({
+        force: true,
+      });
+      await explorer.fileTree.getByRole('checkbox', { name: 'Select test2.ts' }).click({
+        force: true,
+      });
+
+      const previewToolbar = page.getByTestId('preview-view-toolbar');
+      await expect(previewToolbar).toBeVisible();
+      await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
+      await previewToolbar.getByRole('button', { name: 'Group by' }).click();
+      await page.getByRole('menuitemradio', { name: 'By Directory' }).click();
+
+      const groupedSelectionCheckboxes = page.getByRole('checkbox', {
+        name: /^Select all files in group /i,
+      });
+      await expect(groupedSelectionCheckboxes).toHaveCount(0);
+      await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
+      await expect(groupedSelectionCheckboxes).toHaveCount(1);
+
+      await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
+
+      await expect(groupedSelectionCheckboxes).toHaveCount(0);
+      await expect(page.getByLabel('Select all files on current page')).toHaveCount(0);
+    });
+
+    test('renders non-folder group headers in the folder column for size grouping', async ({
+      page,
+    }) => {
+      explorer = await bootstrapFileExplorer(page, {
+        resetSettings: true,
+        tree: {
+          'tiny.json': '{}',
+          'medium.ts': `export const medium = "${'x'.repeat(1400)}";`,
+        },
+      });
+
+      await explorer.selectRoot();
+      await explorer.selectAllButton.click();
+
+      const previewToolbar = page.getByTestId('preview-view-toolbar');
+      await expect(previewToolbar).toBeVisible();
+      await previewToolbar.getByRole('button', { name: 'Group by' }).click();
+      await page.getByRole('menuitemradio', { name: 'By Size Range' }).click();
+
+      const contextTree = page.getByRole('treegrid', { name: 'Context explorer table' });
+      const groupRow = contextTree
+        .getByRole('row')
+        .filter({ has: page.getByRole('button', { name: 'Collapse' }) })
+        .first();
+      await expect(groupRow).toBeVisible();
+
+      const folderHeader = page.getByRole('button', { name: 'Sort by Folder' });
+      const pathHeader = page.getByRole('button', { name: 'Sort by File Path' });
+      const spanningFolderCell = groupRow.locator('[role="gridcell"][colspan="2"]').first();
+      await expect(spanningFolderCell).toContainText('Small');
+
+      const [folderBox, pathBox, spanningCellBox] = await Promise.all([
+        folderHeader.boundingBox(),
+        pathHeader.boundingBox(),
+        spanningFolderCell.boundingBox(),
+      ]);
+
+      if (!(folderBox && pathBox && spanningCellBox)) {
+        throw new Error('Expected grouped size row geometry to be measurable');
+      }
+
+      expect(spanningCellBox.x).toBeLessThan(pathBox.x);
+      expect(spanningCellBox.x).toBeLessThan(folderBox.x + folderBox.width);
     });
 
     test('should allow downloading context with multiple file selections', async ({ page }) => {
@@ -377,10 +549,8 @@ test.describe('File Explorer', () => {
         tree: { 'a.ts': null, 'b.ts': null },
         execute: async ({ page }) => {
           // Try to set invalid value (too low)
-          const counterButton = page.getByRole('button', {
-            name: /Click to edit maximum selection count/i,
-          });
-          await counterButton.click();
+          const settingsButton = await openSelectionSettings(page);
+          await settingsButton.click();
 
           const input = page.getByLabel('Maximum selection count input');
           await expect(input).toBeVisible();
@@ -392,7 +562,7 @@ test.describe('File Explorer', () => {
           await expect(page.getByText('Minimum selection count is 1')).toBeVisible();
 
           // Cancel and close popover
-          await page.getByRole('button', { name: 'Cancel' }).click();
+          await page.getByRole('button', { name: 'Close selection settings' }).click();
           await expect(input).not.toBeVisible();
 
           // Value should still be default (10)
@@ -400,7 +570,7 @@ test.describe('File Explorer', () => {
           expect(maxCount).toBe('10');
 
           // Try to set invalid value (too high)
-          await counterButton.click();
+          await settingsButton.click();
           await expect(input).toBeVisible();
 
           await input.fill('50000');
@@ -410,7 +580,7 @@ test.describe('File Explorer', () => {
           await expect(page.getByText('Maximum selection count is 10,000')).toBeVisible();
 
           // Cancel and close popover
-          await page.getByRole('button', { name: 'Cancel' }).click();
+          await page.getByRole('button', { name: 'Close selection settings' }).click();
           await expect(input).not.toBeVisible();
 
           // Value should still be 10
@@ -471,5 +641,122 @@ test.describe('File Explorer', () => {
         await scenario.execute({ page, explorer });
       });
     }
+  });
+
+  test.describe('Select All across unexpanded subfolders', () => {
+    /**
+     * Pins token counting to deterministic heuristic mode (ceil(content.length / 4))
+     * so that the TokenSummaryBar totals are stable across runs / tokenizer revisions.
+     * Mirrors the persisted shape of the `useTokenPreferencesStore` zustand store.
+     */
+    async function pinHeuristicTokenCounting(page: Page): Promise<void> {
+      await page.addInitScript(() => {
+        try {
+          window.localStorage.setItem(
+            'token-preferences.v1',
+            JSON.stringify({ state: { accurateCounting: false }, version: 1 })
+          );
+        } catch {
+          // SafeStorage adapter swallows quota errors at runtime; tests do the
+          // same so that storage hardening cannot mask the real assertion below.
+        }
+      });
+    }
+
+    /**
+     * Heuristic token count used by both the indexer worker and the preview-panel
+     * fallback path. Kept inline so the expected fixture totals are obviously
+     * derivable from file content alone.
+     */
+    function heuristicTokens(content: string): number {
+      if (content.length === 0) {
+        return 0;
+      }
+      return Math.max(1, Math.ceil(content.length / 4));
+    }
+
+    test('counts tokens for files inside unexpanded subfolders after Select All (web parity with desktop)', async ({
+      page,
+    }) => {
+      const browserLogs: string[] = [];
+      page.on('console', (msg) => {
+        const text = `[${msg.type()}] ${msg.text()}`;
+        browserLogs.push(text);
+      });
+      page.on('pageerror', (err) => {
+        browserLogs.push(`[pageerror] ${err.message}`);
+      });
+      // Files live exclusively inside nested subfolders so the bug shows up as
+      // a stalled "0+ estimating…" total rather than partial credit from the
+      // top-level files. Content lengths are picked so heuristic token math
+      // stays trivially auditable. We use `.ts` extensions so the files match
+      // the default View Filter include set (which excludes plain text files);
+      // otherwise the recursive selection scan would skip them and we would be
+      // measuring filter behavior, not the indexer fix.
+      const shallowContent = 'abcdefgh'; // length 8 → 2 heuristic tokens
+      const deepContent = 'abcdefghijklmnop'; // length 16 → 4 heuristic tokens
+      const expectedTokens = heuristicTokens(shallowContent) + heuristicTokens(deepContent);
+      const expectedSelectedFiles = 2;
+
+      await pinHeuristicTokenCounting(page);
+
+      const explorer = await bootstrapFileExplorer(page, {
+        resetSettings: true,
+        tree: {
+          src: {
+            'shallow.ts': shallowContent,
+            inner: {
+              'deep.ts': deepContent,
+            },
+          },
+        },
+      });
+
+      await explorer.selectRoot();
+
+      // Sanity-check the bug surface: both subfolder rows are present but
+      // collapsed. We deliberately do NOT click any expand chevron — that is
+      // exactly the state where the web indexer used to skip nested files.
+      const srcRow = explorer.fileTree.getByRole('row', { name: /Expand Select src src/i });
+      await expect(srcRow.getByRole('button', { name: 'Expand' })).toBeVisible();
+      await expect(explorer.fileTree.getByText('shallow.ts')).toHaveCount(0);
+      await expect(explorer.fileTree.getByText('deep.ts')).toHaveCount(0);
+
+      await explorer.selectAllButton.click();
+
+      // SelectionCounter should reflect the full recursive selection regardless
+      // of UI expansion. This part already works on web today and acts as a
+      // control assertion: if it fails, the bug is no longer the indexer path.
+      await expect(page.getByTestId('selection-count')).toHaveText(String(expectedSelectedFiles));
+
+      // Wait on a real signal from the indexer rather than a wall-clock sleep:
+      // the TokenSummaryBar renders "<n>+ estimating…" only while
+      // selectedTokensPendingCount > 0, and switches to "<n> selected" once
+      // every selected file has been resolved by the background worker.
+      try {
+        await expect(page.getByText(/estimating…/)).toHaveCount(0, { timeout: 30_000 });
+      } catch (err) {
+        // Re-emit captured browser logs so failures surface their root cause.
+        console.log('--- captured browser logs ---');
+        for (const line of browserLogs.slice(-150)) {
+          console.log(line);
+        }
+        throw err;
+      }
+
+      // Expect the converged total to match the fixture's heuristic math.
+      // We assert against the "<n> source" badge specifically because
+      // `sourceSelectedTokens` is the always-rendered, mode-independent total
+      // (it represents tokens across complete selected files BEFORE any
+      // tapestry-range filtering, which is what we want to validate here).
+      // The "<n> selected" / "<n> output" wording flips with the
+      // useTapestryRanges flag and would couple this assertion to that
+      // setting's default. Without the indexer fix, this value would stall
+      // at 0 because no handle is ever resolved for files inside the
+      // unexpanded `src/` and `src/inner/` subfolders.
+      await expect(page.getByText(`${expectedTokens.toLocaleString()} source`)).toBeVisible({
+        timeout: 30_000,
+      });
+    });
   });
 });
