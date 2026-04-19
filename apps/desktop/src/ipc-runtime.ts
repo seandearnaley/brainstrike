@@ -82,18 +82,23 @@ interface SerializableVerifyOptions {
 }
 
 /**
- * Renderer → main IPC is a privilege-escalation boundary. Structured-clone
- * will faithfully forward anything the renderer hands us — including stray
- * fields or prototype-polluted shapes. Pick only the fields we document,
- * ignoring the rest, so a compromised or mismatched renderer can't sneak
- * extra state into the local-runtime services.
+ * Renderer → main IPC is a privilege-escalation boundary — a COMPROMISED
+ * renderer (XSS, supply-chain attack, rogue preload injection) must not
+ * be able to reach the main process's file-system / Node / shell access
+ * via this channel. The hardening here is defense-in-depth for that
+ * threat model, not just "tidy up accidental extra fields."
  *
- * Safe-by-construction: `Object.fromEntries(Object.entries(value))` rebuilds
- * a plain object from own enumerable keys only, stripping any inherited
- * `__proto__` / `constructor` pollution that a future consumer might
- * accidentally spread into state. The per-field normalisers below still
- * pick explicitly as a second line of defense, but this keeps the guarantee
- * intact even if a future refactor violates that contract.
+ * Structured-clone faithfully forwards anything the renderer hands us,
+ * including stray fields or prototype-polluted shapes. Pick only the
+ * fields we document, ignoring the rest, so an attacker-controlled
+ * payload can't sneak extra state into the local-runtime services.
+ *
+ * Safe-by-construction: `Object.fromEntries(Object.entries(value))`
+ * rebuilds a plain object from own enumerable keys only, stripping any
+ * inherited `__proto__` / `constructor` pollution that a future consumer
+ * might accidentally spread into state. The per-field normalisers below
+ * still pick explicitly as a second line of defense, but this keeps the
+ * guarantee intact even if a future refactor violates that contract.
  */
 function pickObject(value: unknown): Record<string, unknown> | undefined {
   if (value === undefined || value === null) {

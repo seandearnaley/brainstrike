@@ -161,9 +161,11 @@ interface LocalRuntimeCardProps {
 const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
   const settings = useAssistantPreferencesStore((state) => state.providerSettings[card.providerId]);
   const setProviderSettings = useAssistantPreferencesStore((state) => state.setProviderSettings);
-  const getLocalRuntimeStatuses = useAssistantPreferencesStore(
-    (state) => state.getLocalRuntimeStatuses
-  );
+  // `getLocalRuntimeStatuses` is an action, not reactive state — invoking it
+  // via `useAssistantPreferencesStore.getState()` inside runProbe decouples
+  // the callback from any selector-reference churn (Zustand actions are
+  // stable today, but future store refactors could destabilise them and
+  // inadvertently invalidate the memoised callback on every render).
 
   const activation: LocalRuntimeActivation = settings?.localRuntimeEnabled ?? 'auto';
   const [draftBaseUrl, setDraftBaseUrl] = useState(() => settings?.localRuntimeBaseUrl ?? '');
@@ -211,7 +213,9 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
     async (options?: { force?: boolean; isStale?: () => boolean }) => {
       setProbing(true);
       try {
-        const statuses = await getLocalRuntimeStatuses({ force: options?.force ?? false });
+        const statuses = await useAssistantPreferencesStore.getState().getLocalRuntimeStatuses({
+          force: options?.force ?? false,
+        });
         if (options?.isStale?.() ?? false) {
           return;
         }
@@ -229,7 +233,7 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
         }
       }
     },
-    [card.runtimeId, getLocalRuntimeStatuses]
+    [card.runtimeId]
   );
   const runProbeRef = useRef(runProbe);
   useEffect(() => {

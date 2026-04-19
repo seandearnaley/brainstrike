@@ -841,10 +841,14 @@ export class LocalRuntimeModelCatalogService {
       };
     }
 
-    // Key the cache by `baseUrl::modelId` so switching hosts does not return a
-    // stale capability set from a different server that happened to ship the
-    // same model id.
-    const cacheKey = `${baseUrl}::${trimmed}`;
+    // Key the cache by `baseUrl + NUL + modelId` so switching hosts does not
+    // return a stale capability set from a different server that happened to
+    // ship the same model id. A null-byte separator avoids the theoretical
+    // collision where a baseUrl containing `::` or a modelId containing
+    // `::` could map to the same key as a different (baseUrl, modelId)
+    // pair. Real Ollama names use `:` but never `::` or NUL, so this is
+    // purely belt-and-braces — the collision has never been observed.
+    const cacheKey = `${baseUrl}\u0000${trimmed}`;
     if (!options.force) {
       const cached = this.ollamaCapabilitiesCache.get(cacheKey);
       if (cached && this.now() < cached.expiresAt) {

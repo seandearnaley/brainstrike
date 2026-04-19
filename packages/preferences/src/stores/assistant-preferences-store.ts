@@ -212,11 +212,20 @@ function isCatalogState(value: unknown): value is LocalRuntimeModelCatalogState 
  * documented result shapes carry these fields, but a malformed payload
  * could.
  */
+// Case-insensitive exact matches against lowercased field names. Bare
+// `key` is intentionally NOT in this set — we use `modelKey` / `cacheKey`
+// as legitimate non-secret diagnostic identifiers, and redacting those
+// would hide useful info. Sensitive variants are named explicitly
+// (`providerKey`, `accessKey`, `sessionKey`, etc.) so expanding this list
+// doesn't accidentally redact something we want to keep readable.
 const SENSITIVE_BRIDGE_FIELDS: ReadonlySet<string> = new Set([
   'apitoken',
   'authorization',
   'token',
   'apikey',
+  'providerkey',
+  'accesskey',
+  'sessionkey',
   'secret',
   'password',
   'bearer',
