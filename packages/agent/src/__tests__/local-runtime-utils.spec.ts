@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  assertSafeBearerToken,
   buildRuntimeAuthHeaders,
   buildRuntimeEndpoint,
   extractErrorMessage,
@@ -69,17 +70,39 @@ describe('local-runtime-utils', () => {
         authorization: 'Bearer tok_abc',
       });
     });
-    it('rejects tokens containing CR or LF (header injection hardening)', () => {
+    it('rejects tokens containing CR, LF, or NUL (header injection hardening)', () => {
       // A token pasted with a trailing newline or embedded CRLF can inject
       // additional HTTP headers on clients that do not pre-validate header
-      // values. Reject at the boundary rather than letting it corrupt the
-      // request.
+      // values. NUL is rejected because no compliant HTTP client will
+      // transmit it; a leading/trailing NUL almost always indicates a
+      // copy-paste corruption that the user wants to know about.
       expect(() => buildRuntimeAuthHeaders({ apiToken: 'tok\nabc' })).toThrow(
         /invalid character|control/i
       );
       expect(() => buildRuntimeAuthHeaders({ apiToken: 'tok\r\nInjected: yes' })).toThrow(
         /invalid character|control/i
       );
+      expect(() => buildRuntimeAuthHeaders({ apiToken: 'tok\0evil' })).toThrow(
+        /invalid character|control/i
+      );
+    });
+  });
+
+  describe('assertSafeBearerToken', () => {
+    it('returns the trimmed token when it is safe', () => {
+      expect(assertSafeBearerToken('  tok_abc  ')).toBe('tok_abc');
+    });
+    it('rejects CR, LF, and NUL in the trimmed value', () => {
+      expect(() => assertSafeBearerToken('a\rb')).toThrow(/CR\/LF\/NUL/);
+      expect(() => assertSafeBearerToken('a\nb')).toThrow(/CR\/LF\/NUL/);
+      expect(() => assertSafeBearerToken('a\0b')).toThrow(/CR\/LF\/NUL/);
+    });
+    it('preserves benign internal whitespace such as spaces or tabs', () => {
+      // Tabs and spaces are legal in HTTP `Authorization` header values
+      // (RFC 7230 §3.2). The validator only rejects characters that either
+      // forge headers (CR/LF) or no compliant HTTP client will transmit (NUL).
+      expect(assertSafeBearerToken('tok with space')).toBe('tok with space');
+      expect(assertSafeBearerToken('tok\twith\ttab')).toBe('tok\twith\ttab');
     });
   });
 

@@ -162,27 +162,45 @@ export function buildRuntimeEndpoint(baseUrl: string, path: string): string {
 }
 
 /**
- * Compose request headers for a runtime endpoint, adding the bearer token when
+ * Validate a bearer token can be safely placed in an HTTP `Authorization`
+ * header value. Rejects characters that either let the token forge additional
+ * headers (CR/LF — RFC 7230 §3.2.4 header injection) or that no compliant
+ * HTTP client will transmit anyway (NUL).
+ *
+ * Returns the trimmed token on success and throws on rejection so the caller
+ * surfaces a recognisable error rather than letting the malformed value flow
+ * into a network library that may truncate, throw opaque errors, or inject
+ * the trailing payload into a separate header.
+ *
+ * Centralised here so every consumer — header construction in
+ * `buildRuntimeAuthHeaders`, the OpenAI-compat `apiKey` plumbing in
+ * `provider-factory.ts`, and any future bearer-auth path — runs the same
+ * check.
+ */
+export function assertSafeBearerToken(token: string): string {
+  const trimmed = token.trim();
+  if (/[\r\n\0]/.test(trimmed)) {
+    throw new Error(
+      'API token contains invalid characters (CR/LF/NUL); remove control characters before saving'
+    );
+  }
+  return trimmed;
+}
+
+/**
+ * Build request headers for a runtime endpoint, adding the bearer token when
  * one is configured. Returns `undefined` when nothing needs to be added so the
  * caller can omit the `headers` field entirely.
- *
- * Throws on tokens containing CR or LF — those characters can forge additional
- * headers on HTTP clients that don't pre-validate values ("header injection").
- * The common path here is a user accidentally pasting a token with a trailing
- * newline, not an attack, but we validate regardless so the request stays
- * well-formed.
  */
 export function buildRuntimeAuthHeaders(
   config: LocalRuntimeEndpointConfig | undefined
 ): Record<string, string> | undefined {
-  const token = config?.apiToken?.trim();
-  if (!token) {
+  const raw = config?.apiToken?.trim();
+  if (!raw) {
     return;
   }
-  if (/[\r\n]/.test(token)) {
-    throw new Error('API token contains invalid characters (CR/LF); remove newlines before saving');
-  }
-  return { authorization: `Bearer ${token}` };
+  const safe = assertSafeBearerToken(raw);
+  return { authorization: `Bearer ${safe}` };
 }
 
 export async function fetchJsonWithTimeout(

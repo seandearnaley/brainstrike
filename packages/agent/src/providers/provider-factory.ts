@@ -6,7 +6,11 @@ import { createMastraAgentError } from '../mastra/mastra-agent-error';
 import type { RuntimeData } from '../types';
 import { createLocalLanguageModel } from './local';
 import { resolveRuntimeBaseUrl } from './local-runtime-discovery';
-import { buildRuntimeEndpoint, type LocalRuntimeEndpointConfig } from './local-runtime-utils';
+import {
+  assertSafeBearerToken,
+  buildRuntimeEndpoint,
+  type LocalRuntimeEndpointConfig,
+} from './local-runtime-utils';
 import {
   isSupportedProvider,
   listProviders,
@@ -26,14 +30,25 @@ function resolveLocalRuntimeBaseUrl(
   return buildRuntimeEndpoint(origin, '/v1');
 }
 
-function pickApiKey(explicit: string | undefined, config: LocalRuntimeEndpointConfig | undefined) {
-  const trimmed = explicit?.trim();
-  if (trimmed && trimmed.length > 0) {
-    return trimmed;
+/**
+ * Resolve the bearer token for an OpenAI-compatible local runtime client.
+ *
+ * Both the explicit `apiKey` argument and the runtime-options `apiToken` are
+ * routed through `assertSafeBearerToken` so a token containing CR/LF/NUL is
+ * rejected at this boundary rather than flowing into the OpenAI SDK's HTTP
+ * client (header-injection hardening — keeps parity with
+ * `buildRuntimeAuthHeaders`).
+ */
+function pickApiKey(
+  explicit: string | undefined,
+  config: LocalRuntimeEndpointConfig | undefined
+): string | undefined {
+  if (explicit && explicit.trim().length > 0) {
+    return assertSafeBearerToken(explicit);
   }
-  const token = config?.apiToken?.trim();
-  if (token && token.length > 0) {
-    return token;
+  const token = config?.apiToken;
+  if (token && token.trim().length > 0) {
+    return assertSafeBearerToken(token);
   }
   return;
 }
@@ -101,12 +116,21 @@ export function createProvider(
       // Ollama exposes OpenAI-compatible routes. Defaults to 127.0.0.1:11434
       // but users can override via `runtime.providerOptions.ollama.baseUrl`
       // (to reach a LAN GPU box) and supply an `apiToken` for Ollama Turbo.
+      //
+      // Always pass an explicit `apiKey`. When the user has not configured a
+      // token we substitute the conventional dummy value `'ollama'` so the
+      // OpenAI SDK does NOT fall back to `process.env.OPENAI_API_KEY`. Without
+      // this substitution a user with `OPENAI_API_KEY` set in their
+      // environment and a remote `baseUrl` (LAN GPU box, tunnel, etc.) would
+      // silently leak their OpenAI key as a `Bearer` header to that remote
+      // host. Ollama and LM Studio ignore the bearer value when auth is
+      // disabled, so the dummy is harmless on the wire.
       const ollamaOptions = runtime?.providerOptions?.ollama;
       const baseURL = resolveLocalRuntimeBaseUrl('ollama', ollamaOptions?.baseUrl);
       const resolvedKey = pickApiKey(apiKey, ollamaOptions);
       const ollamaProvider = createOpenAI({
         baseURL,
-        ...(resolvedKey ? { apiKey: resolvedKey } : {}),
+        apiKey: resolvedKey ?? 'ollama',
       });
       return ollamaProvider(modelName);
     }
@@ -115,12 +139,15 @@ export function createProvider(
       // LM Studio exposes OpenAI-compatible routes. Defaults to 127.0.0.1:1234
       // and supports an optional bearer token on 0.4.0+ servers that enabled
       // `Require API clients to provide a valid API token` in Settings > Server.
+      //
+      // See the `ollama` case above for why we always pass an explicit
+      // `apiKey` (preventing OPENAI_API_KEY env-var leakage to remote hosts).
       const lmStudioOptions = runtime?.providerOptions?.lmstudio;
       const baseURL = resolveLocalRuntimeBaseUrl('lmstudio', lmStudioOptions?.baseUrl);
       const resolvedKey = pickApiKey(apiKey, lmStudioOptions);
       const lmStudioProvider = createOpenAI({
         baseURL,
-        ...(resolvedKey ? { apiKey: resolvedKey } : {}),
+        apiKey: resolvedKey ?? 'lmstudio',
       });
       return lmStudioProvider(modelName);
     }
