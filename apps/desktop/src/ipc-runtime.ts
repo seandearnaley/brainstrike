@@ -88,11 +88,12 @@ interface SerializableVerifyOptions {
  * ignoring the rest, so a compromised or mismatched renderer can't sneak
  * extra state into the local-runtime services.
  *
- * WARNING: `pickObject` does NOT strip `__proto__` or other prototype-
- * pollution keys — it returns the raw object. The caller-side normalisers
- * (`normaliseProbeOptions` et al.) MUST pick fields explicitly via
- * bracket-notation lookups and MUST NOT `Object.assign` / spread the raw
- * result. The `picks only whitelisted fields` regression test pins this.
+ * Safe-by-construction: `Object.fromEntries(Object.entries(value))` rebuilds
+ * a plain object from own enumerable keys only, stripping any inherited
+ * `__proto__` / `constructor` pollution that a future consumer might
+ * accidentally spread into state. The per-field normalisers below still
+ * pick explicitly as a second line of defense, but this keeps the guarantee
+ * intact even if a future refactor violates that contract.
  */
 function pickObject(value: unknown): Record<string, unknown> | undefined {
   if (value === undefined || value === null) {
@@ -101,7 +102,7 @@ function pickObject(value: unknown): Record<string, unknown> | undefined {
   if (typeof value !== 'object') {
     throw new Error(`Expected an options object, received ${typeof value}`);
   }
-  return value as Record<string, unknown>;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>));
 }
 
 function normaliseEndpointConfig(

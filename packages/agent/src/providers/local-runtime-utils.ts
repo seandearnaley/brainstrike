@@ -31,9 +31,13 @@ export interface LocalRuntimeEndpointConfig {
    */
   readonly apiToken?: string;
   /**
-   * Canonical origin without trailing slash or `/v1` suffix, e.g.
-   * `http://127.0.0.1:11434` or `https://my-gpu-box.lan:11434`. Empty or
-   * invalid values are treated as "use default".
+   * Origin for the local runtime, e.g. `http://127.0.0.1:11434` or
+   * `https://my-gpu-box.lan:11434`. Callers MAY pass unnormalized values
+   * (trailing slash, `/v1` suffix, scheme omitted, etc.) — all entry points
+   * that consume this field run it through `normalizeRuntimeBaseUrl` before
+   * composing request URLs, so a buggy hand-constructed shape is repaired
+   * at the boundary rather than leaking a malformed URL into fetch calls.
+   * Empty or invalid values are treated as "use default".
    */
   readonly baseUrl?: string;
 }

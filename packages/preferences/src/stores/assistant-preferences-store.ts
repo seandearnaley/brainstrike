@@ -222,6 +222,40 @@ function isCatalogState(value: unknown): value is LocalRuntimeModelCatalogState 
   );
 }
 
+/**
+ * Field names whose values are redacted before serializing the result of a
+ * boundary-violation into an error message. If the main-process bridge ever
+ * echoes request options back (a buggy wrapper, or a serialization error
+ * that wraps the whole request), we don't want the bearer token leaking
+ * into console logs or telemetry. The redaction is defensive — none of the
+ * documented result shapes carry these fields, but a malformed payload
+ * could.
+ */
+const SENSITIVE_BRIDGE_FIELDS: ReadonlySet<string> = new Set([
+  'apitoken',
+  'authorization',
+  'token',
+  'apikey',
+  'secret',
+  'password',
+  'bearer',
+]);
+
+function summarizeBridgeResult(value: unknown): string {
+  try {
+    return JSON.stringify(value, (key, val) => {
+      if (typeof key === 'string' && SENSITIVE_BRIDGE_FIELDS.has(key.toLowerCase())) {
+        return '[redacted]';
+      }
+      return val;
+    });
+  } catch {
+    // Circular or non-serializable — fall back to the type tag without
+    // leaking content.
+    return `[unserializable ${typeof value}]`;
+  }
+}
+
 async function probeRuntimeViaBridgeOrService(
   runtimeId: LocalRuntimeId,
   options: {
@@ -234,7 +268,7 @@ async function probeRuntimeViaBridgeOrService(
     const result = await bridge.probe(runtimeId, options);
     if (!isAvailabilityState(result)) {
       throw new Error(
-        `Unexpected probe result shape from main-process bridge for ${runtimeId}: ${JSON.stringify(result)}`
+        `Unexpected probe result shape from main-process bridge for ${runtimeId}: ${summarizeBridgeResult(result)}`
       );
     }
     return result;
@@ -257,7 +291,7 @@ async function listRuntimeModelsViaBridgeOrService(
     const result = await bridge.listModels(runtimeId, options);
     if (!isCatalogState(result)) {
       throw new Error(
-        `Unexpected catalog result shape from main-process bridge for ${runtimeId}: ${JSON.stringify(result)}`
+        `Unexpected catalog result shape from main-process bridge for ${runtimeId}: ${summarizeBridgeResult(result)}`
       );
     }
     return result;

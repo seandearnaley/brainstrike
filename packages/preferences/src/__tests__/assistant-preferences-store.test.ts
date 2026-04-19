@@ -275,6 +275,48 @@ describe('assistant-preferences-store', () => {
     expect(probeSpy.mock.calls.some((call) => call[0] === 'ollama')).toBe(false);
   });
 
+  it("doesn't leak apiToken or sensitive fields into the boundary-violation error", async () => {
+    // Reviewer feedback: if the main-process bridge ever echoes request
+    // options back (e.g., a buggy wrapper that returns the request), the
+    // shape guard's JSON.stringify would log the bearer token to console /
+    // telemetry. Redact sensitive-looking fields before stringifying so a
+    // malformed result can't carry a secret into logs.
+    const bridgeProbe = vi.fn().mockResolvedValue({
+      not_a_state: 'oops',
+      apiToken: 'sk-supersecret-12345',
+      authorization: 'Bearer sk-also-secret',
+      endpoint: { apiToken: 'nested-secret', baseUrl: 'http://host:11434' },
+    });
+    (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
+      probe: bridgeProbe,
+      listModels: vi.fn(),
+    };
+
+    try {
+      const secretTarget = window as Window & { secrets?: unknown };
+      secretTarget.secrets = {
+        list: vi.fn().mockResolvedValue([]),
+        saveKey: vi.fn(),
+        getKey: vi.fn(),
+        deleteKey: vi.fn(),
+        listStored: vi.fn(),
+        clearAll: vi.fn(),
+      };
+
+      await useAssistantPreferencesStore
+        .getState()
+        .getLocalRuntimeStatuses({ force: true })
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          expect(message).not.toContain('sk-supersecret-12345');
+          expect(message).not.toContain('sk-also-secret');
+          expect(message).not.toContain('nested-secret');
+        });
+    } finally {
+      Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'runtime');
+    }
+  });
+
   it('rejects results whose state is not one of the known discriminant values', async () => {
     // Reviewer feedback (round 3): the previous shape guard accepted any
     // object with a string `state`. A runtime mismatch that produces

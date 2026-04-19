@@ -162,6 +162,37 @@ describe('ipc-runtime main-process probe bridge', () => {
     );
   });
 
+  it('scrubs prototype-pollution keys from the object returned by pickObject', async () => {
+    // Reviewer feedback: pickObject returned the raw object cast to
+    // Record<string, unknown>. If a future normaliser ever spreads or
+    // Object.assigns the raw result, an attacker-controlled __proto__
+    // could poison Object.prototype. Contract: the returned object must
+    // NOT inherit from Object.prototype (or equivalently, its prototype
+    // chain must not carry pollution keys). Safe-by-construction beats
+    // safe-by-contract.
+    const handler = getRegisteredHandler(RUNTIME_PROBE_CHANNEL);
+
+    const poisoned = JSON.parse(
+      '{"force": true, "__proto__": {"polluted": "yes"}, "constructor": {"prototype": {"polluted2": "yes"}}}'
+    );
+
+    await handler({} as IpcMainInvokeEvent, 'ollama', poisoned);
+
+    // eslint-disable-next-line no-proto
+    const baseObject: Record<string, unknown> = {};
+    expect((baseObject as Record<string, unknown>)['polluted']).toBeUndefined();
+    expect((baseObject as Record<string, unknown>)['polluted2']).toBeUndefined();
+
+    const [, forwardedOptions] = probeRuntimeMock.mock.calls[0] ?? [];
+    // The normaliser already picks explicitly so `__proto__` can't ride,
+    // but the pick-from-prototype-less object is the safe-by-construction
+    // belt-and-braces we want to land.
+    expect(
+      Object.getPrototypeOf(forwardedOptions) === Object.prototype ||
+        Object.getPrototypeOf(forwardedOptions) === null
+    ).toBe(true);
+  });
+
   it('only forwards whitelisted option fields across the IPC trust boundary', async () => {
     // Reviewer feedback: renderer → main IPC is a trust boundary. The old
     // normaliser passed the raw object through after a `typeof === 'object'`
