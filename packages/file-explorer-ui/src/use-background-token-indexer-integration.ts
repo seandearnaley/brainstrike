@@ -12,7 +12,7 @@ import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { FileToIndex } from '@brainstrike/token-cache/background-indexer';
 import { useBackgroundTokenIndexer } from '@brainstrike/token-cache/background-indexer';
-import type { IFileNode } from '@brainstrike/types';
+import type { FileForIndexingResolution, IFileNode } from '@brainstrike/types';
 import { isBinaryFile } from '@brainstrike/utils/file-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
@@ -60,10 +60,12 @@ export type ElectronFileReader = (handle: ElectronFileHandle) => Promise<string>
  * thread; in-memory adapters (e.g. dev-fixture) return `kind: 'content'` with
  * pre-loaded UTF-8 bytes because their handles are not structured-clone-safe
  * across the worker boundary.
+ *
+ * Re-exported from `@brainstrike/types` so the canonical adapter contract is
+ * the single source of truth and a future third variant cannot drift between
+ * the type package and the UI package.
  */
-export type WebFileForIndexingResolution =
-  | { kind: 'handle'; fileHandle: FileSystemFileHandle }
-  | { kind: 'content'; content: string; fileSize: number };
+export type WebFileForIndexingResolution = FileForIndexingResolution;
 
 /**
  * Function to resolve the bytes the indexer needs for a `${folderId}/${relativePath}`
@@ -937,6 +939,7 @@ export function useBackgroundTokenIndexerIntegration({
           const webResolverBatchSize = 20;
           let webHandlesResolved = 0;
           let webResolverFailures = 0;
+          let webResolverSkippedTooLarge = 0;
           for (let i = 0; i < webResolverQueue.length; i += webResolverBatchSize) {
             if (isEmbeddingActiveRef.current) {
               logger.info('Stopped web resolver indexing because embedding became active mid-run', {
@@ -976,6 +979,26 @@ export function useBackgroundTokenIndexerIntegration({
                   compositeKey: result.compositeKey,
                   error: result.error?.message,
                 });
+                continue;
+              }
+
+              // Authoritative size guard. Both resolution variants now carry
+              // `fileSize` (web `getFile()` metadata or pre-loaded content
+              // length), so this is the single point where the resolver path
+              // enforces MAX_INDEXABLE_FILE_SIZE. Files surfaced by Select All
+              // on unexpanded folders never had their size cached at tree-walk
+              // time; without this check an oversize file would slip past the
+              // pre-resolution `cache.getFileSize` guard above and reach the
+              // worker — inflating token totals and burning CPU on payloads
+              // the worker would otherwise never see.
+              //
+              // Mark the key as terminally indexed (not retryable): the size
+              // came directly from the file system, so a future re-attempt
+              // would hit the same guard and waste another resolver round-trip.
+              if (result.resolution.fileSize > MAX_INDEXABLE_FILE_SIZE) {
+                webResolverSkippedTooLarge += 1;
+                indexedFilesRef.current.add(result.compositeKey);
+                pendingNoHandleRef.current.delete(result.compositeKey);
                 continue;
               }
 
@@ -1019,6 +1042,7 @@ export function useBackgroundTokenIndexerIntegration({
               queuedFiles: webResolverQueue.length,
               webHandlesResolved,
               webResolverFailures,
+              webResolverSkippedTooLarge,
             });
           }
         } else {

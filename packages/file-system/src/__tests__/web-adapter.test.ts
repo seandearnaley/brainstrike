@@ -500,12 +500,17 @@ describe('WebFileSystemAdapter', () => {
       expect(fileHandle.getFile).toHaveBeenCalledOnce();
     });
 
-    it('resolveFileForIndexing returns kind: handle wrapping the resolved FileSystemFileHandle', async () => {
+    it('resolveFileForIndexing returns kind: handle wrapping the resolved FileSystemFileHandle plus authoritative fileSize', async () => {
       // The web platform always has a real, structured-clone-safe handle, so
       // the union-typed adapter contract collapses to `kind: 'handle'`. The
       // background indexer integration uses this branch directly to hand
       // bytes off to the worker without round-tripping through the main
       // thread (the perf-critical fast path on Select All).
+      //
+      // The resolver also returns `fileSize` from `getFile()` metadata so the
+      // dispatcher can enforce MAX_INDEXABLE_FILE_SIZE on resolver-surfaced
+      // files (whose parent folder may never have been expanded and therefore
+      // never had its size cached during the lazy tree walk).
       const file = createFile('file.txt', 'hello world', 11);
       const fileHandle = {
         kind: 'file',
@@ -532,8 +537,9 @@ describe('WebFileSystemAdapter', () => {
 
       const resolution = await adapter.resolveFileForIndexing('root/nested/file.txt');
 
-      expect(resolution).toEqual({ kind: 'handle', fileHandle });
+      expect(resolution).toEqual({ kind: 'handle', fileHandle, fileSize: 11 });
       expect(resolveSpy).toHaveBeenCalledWith('root/nested/file.txt');
+      expect(fileHandle.getFile).toHaveBeenCalledTimes(1);
     });
   });
 

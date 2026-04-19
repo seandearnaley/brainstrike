@@ -193,9 +193,14 @@ export interface FileSystemChange {
  *   thread and hands them to the worker as plain serializable data. Required
  *   for adapters whose handles are not structured-clone-safe (the dev-fixture
  *   adapter, future remote/in-memory adapters).
+ *
+ * Both variants carry an authoritative `fileSize` (in bytes) so the indexer
+ * dispatcher can enforce the platform max-file-size contract uniformly,
+ * regardless of whether the file's parent folder was ever expanded in the
+ * lazy file tree (and therefore had its size cached).
  */
 export type FileForIndexingResolution =
-  | { kind: 'handle'; fileHandle: FileSystemFileHandle }
+  | { kind: 'handle'; fileHandle: FileSystemFileHandle; fileSize: number }
   | { kind: 'content'; content: string; fileSize: number };
 
 /**

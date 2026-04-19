@@ -1368,7 +1368,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       const resolvedHandle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
       const webFileHandleResolver = vi
         .fn()
-        .mockResolvedValue({ kind: 'handle', fileHandle: resolvedHandle });
+        .mockResolvedValue({ kind: 'handle', fileHandle: resolvedHandle, fileSize: 256 });
 
       mockFileTreeIndexContext = {
         getHandle: vi.fn(() => undefined),
@@ -1458,7 +1458,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       const resolvedHandle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
       const webFileHandleResolver = vi
         .fn()
-        .mockResolvedValue({ kind: 'handle', fileHandle: resolvedHandle });
+        .mockResolvedValue({ kind: 'handle', fileHandle: resolvedHandle, fileSize: 512 });
 
       const updateHotCacheSpy = tokenCacheContext.updateHotCache as unknown as ReturnType<
         typeof vi.fn
@@ -1532,7 +1532,11 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
       // Simulate the FileTreeIndex repopulating (e.g., user expanded a subfolder).
       // The resolver now succeeds and the pending key should be retried automatically.
-      webFileHandleResolver.mockResolvedValue({ kind: 'handle', fileHandle: resolvedHandle });
+      webFileHandleResolver.mockResolvedValue({
+        kind: 'handle',
+        fileHandle: resolvedHandle,
+        fileSize: 256,
+      });
       mockFileTreeIndexContext = {
         getHandle: vi.fn(() => undefined),
         getNode: vi.fn(() => undefined),
@@ -1669,7 +1673,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         const handle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
         deferredResolves
           .get(`${rootFolderId}/file-${i}.ts`)
-          ?.resolve({ kind: 'handle', fileHandle: handle });
+          ?.resolve({ kind: 'handle', fileHandle: handle, fileSize: 128 });
       }
 
       await act(async () => {
@@ -1684,7 +1688,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       const lastHandle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
       deferredResolves
         .get(`${rootFolderId}/file-20.ts`)
-        ?.resolve({ kind: 'handle', fileHandle: lastHandle });
+        ?.resolve({ kind: 'handle', fileHandle: lastHandle, fileSize: 128 });
 
       await act(async () => {
         await Promise.resolve();
@@ -1694,6 +1698,151 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       expect(webFileHandleResolver).toHaveBeenCalledTimes(21);
       expect(indexFilesMock).toHaveBeenCalledTimes(2);
       expect(indexFilesMock.mock.calls[1]?.[0]).toHaveLength(1);
+    });
+
+    it('skips oversize handle resolutions after the resolver returns (post-resolution MAX_INDEXABLE_FILE_SIZE guard)', async () => {
+      // Regression coverage for the P2: files in unexpanded folders never had
+      // their size cached during the lazy tree walk, so the pre-resolution
+      // `cache.getFileSize` guard cannot catch them. The resolver returns the
+      // authoritative size from `getFile()` metadata; the dispatcher must
+      // honor the platform's MAX_INDEXABLE_FILE_SIZE contract uniformly or a
+      // Select All can send >750KB files to the worker and inflate token
+      // totals.
+      const rootFolderId = 'root';
+      const oversizeKey = encodeFileSelection(rootFolderId, 'src/deep/large.ts');
+      const oversizeHandle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
+      const webFileHandleResolver = vi
+        .fn<(path: string) => Promise<WebFileForIndexingResolution>>()
+        .mockResolvedValue({
+          kind: 'handle',
+          fileHandle: oversizeHandle,
+          fileSize: 800 * 1024, // > 750KB MAX_INDEXABLE_FILE_SIZE
+        });
+
+      mockFileTreeIndexContext = {
+        getHandle: vi.fn(() => undefined),
+        getNode: vi.fn(() => undefined),
+        stats: { totalDirectories: 0, totalFiles: 0, totalNodes: 0 },
+        version: 1,
+      };
+
+      renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: [],
+          selectedFiles: new Set([oversizeKey]),
+          webFileHandleResolver,
+          onTokenResolved: vi.fn(),
+        })
+      );
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(webFileHandleResolver).toHaveBeenCalledTimes(1);
+      // The resolver was invoked (size wasn't cached), but the post-resolution
+      // guard must drop the file before any worker dispatch.
+      expect(indexFilesMock).not.toHaveBeenCalled();
+    });
+
+    it('skips oversize content resolutions after the resolver returns (in-memory adapter parity)', async () => {
+      // Same MAX_INDEXABLE_FILE_SIZE contract for the `kind: 'content'` branch
+      // that in-memory adapters (dev-fixture, future remote adapters) take.
+      // The resolver pre-loads bytes on the main thread, so we already know
+      // the exact size — there's no excuse for letting an oversize payload
+      // reach the worker.
+      const rootFolderId = 'root';
+      const oversizeKey = encodeFileSelection(rootFolderId, 'src/deep/large.ts');
+      const oversizeContent = 'x'.repeat(800 * 1024);
+      const webFileHandleResolver = vi
+        .fn<(path: string) => Promise<WebFileForIndexingResolution>>()
+        .mockResolvedValue({
+          kind: 'content',
+          content: oversizeContent,
+          fileSize: oversizeContent.length,
+        });
+
+      mockFileTreeIndexContext = {
+        getHandle: vi.fn(() => undefined),
+        getNode: vi.fn(() => undefined),
+        stats: { totalDirectories: 0, totalFiles: 0, totalNodes: 0 },
+        version: 1,
+      };
+
+      renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: [],
+          selectedFiles: new Set([oversizeKey]),
+          webFileHandleResolver,
+          onTokenResolved: vi.fn(),
+        })
+      );
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(webFileHandleResolver).toHaveBeenCalledTimes(1);
+      expect(indexFilesMock).not.toHaveBeenCalled();
+    });
+
+    it('does not retry an oversize resolver result after a FileTreeIndex version bump (terminal skip)', async () => {
+      // The size came directly from the file system — re-attempting after an
+      // index bump would just hit the same guard and waste another resolver
+      // round-trip. Confirm the key is marked terminally indexed (not parked
+      // in `pendingNoHandleRef`).
+      const rootFolderId = 'root';
+      const oversizeKey = encodeFileSelection(rootFolderId, 'src/deep/large.ts');
+      const oversizeHandle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
+      const webFileHandleResolver = vi
+        .fn<(path: string) => Promise<WebFileForIndexingResolution>>()
+        .mockResolvedValue({
+          kind: 'handle',
+          fileHandle: oversizeHandle,
+          fileSize: 800 * 1024,
+        });
+
+      mockFileTreeIndexContext = {
+        getHandle: vi.fn(() => undefined),
+        getNode: vi.fn(() => undefined),
+        stats: { totalDirectories: 0, totalFiles: 0, totalNodes: 0 },
+        version: 1,
+      };
+
+      const { rerender } = renderHook(
+        (selectedFiles: Set<string>) =>
+          useBackgroundTokenIndexerIntegration({
+            fileTree: [],
+            selectedFiles,
+            webFileHandleResolver,
+            onTokenResolved: vi.fn(),
+          }),
+        { initialProps: new Set([oversizeKey]) }
+      );
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(webFileHandleResolver).toHaveBeenCalledTimes(1);
+
+      // Bump the FileTreeIndex version to trigger pending re-evaluation.
+      mockFileTreeIndexContext = {
+        getHandle: vi.fn(() => undefined),
+        getNode: vi.fn(() => undefined),
+        stats: { totalDirectories: 0, totalFiles: 0, totalNodes: 0 },
+        version: 2,
+      };
+      rerender(new Set([oversizeKey]));
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      // Resolver is NOT called again -- the key was marked terminally indexed
+      // by the post-resolution size guard.
+      expect(webFileHandleResolver).toHaveBeenCalledTimes(1);
+      expect(indexFilesMock).not.toHaveBeenCalled();
     });
   });
 
