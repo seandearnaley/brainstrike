@@ -140,6 +140,11 @@ function countRelativeDepth(relativePath: string, maxDepth?: number): number {
   return depth;
 }
 
+export const __selectionRulePathInternalsForTest = {
+  countRelativeDepth,
+  isEqualOrDescendantPath,
+};
+
 /**
  * Sort rules by type precedence, then by priority within type.
  */

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { isDescendantPath } from '../../../utils/src/tree-operations';
 import {
+  __selectionRulePathInternalsForTest,
   createSelectionRuleEngine,
   type FileNode,
   InMemoryTreeAdapter,
@@ -9,6 +11,8 @@ import type { SelectionRuleSet } from '../schema';
 import { createEmptyRuleSet } from '../schema';
 
 describe('engine', () => {
+  const { countRelativeDepth, isEqualOrDescendantPath } = __selectionRulePathInternalsForTest;
+
   // Sample tree structure for testing
   const sampleNodes: FileNode[] = [
     { path: 'src', isDirectory: true },
@@ -81,6 +85,30 @@ describe('engine', () => {
       ]);
 
       expect(Array.from(tree.getFilesUnderRoot('src'))).toEqual(['src/index.ts']);
+    });
+
+    it('keeps local path-boundary semantics aligned with shared tree helpers', () => {
+      const cases = [
+        { path: 'src', root: 'src' },
+        { path: 'src/index.ts', root: 'src' },
+        { path: 'src-generated/index.ts', root: 'src' },
+        { path: 'src/components/Button.tsx', root: 'src/components' },
+        { path: 'src/components-extra/Button.tsx', root: 'src/components' },
+        { path: 'package.json', root: 'src' },
+      ];
+
+      for (const { path, root } of cases) {
+        expect(isEqualOrDescendantPath(path, root)).toBe(
+          path === root || isDescendantPath(path, root)
+        );
+      }
+    });
+
+    it('counts relative depth without allocating path segments', () => {
+      expect(countRelativeDepth('index.ts')).toBe(0);
+      expect(countRelativeDepth('components/Button.tsx')).toBe(1);
+      expect(countRelativeDepth('components/forms/Button.tsx')).toBe(2);
+      expect(countRelativeDepth('components/forms/Button.tsx', 1)).toBe(2);
     });
 
     it('should return correct total file count', () => {
