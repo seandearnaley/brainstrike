@@ -235,23 +235,29 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
   useEffect(() => {
     runProbeRef.current = runProbe;
   }, [runProbe]);
+  // Generation counter used by the mount/activation effect to decide which
+  // in-flight probe's result is still fresh. Bumped once per non-`off`
+  // effect run; probes capture the value at start and skip state updates
+  // when it no longer matches, without any one probe having to fire a
+  // "cleared" side-effect.
+  const probeGenerationRef = useRef(0);
 
   useEffect(() => {
     if (activation === 'off') {
       return;
     }
-    // Cancellation: if the user rapidly toggles activation (off → auto →
-    // off → auto), each non-`off` transition fires a probe. The probe
-    // itself still runs to completion (no AbortSignal plumbs into the
-    // shared discovery service), but the `isStale` check below discards
-    // the resulting setStatus / setProbing calls when a newer effect has
-    // invalidated this one. Without this, an earlier probe that completes
-    // LATER would clobber the freshest result.
-    let cancelled = false;
-    void runProbeRef.current({ isStale: () => cancelled });
-    return () => {
-      cancelled = true;
-    };
+    // Staleness via a generation counter rather than a per-effect cancelled
+    // flag. Rapid off → auto → off → auto toggles can otherwise leave the
+    // spinner stuck: if every in-flight probe gets marked cancelled by the
+    // next effect but a later `off` transition prevents a fresh probe from
+    // clearing `probing`, nothing ever resets it. With a generation bump
+    // on each non-`off` activation, the LATEST probe's gen still matches
+    // at completion and runs its finally normally — clearing the spinner
+    // even under chaotic toggling.
+    const myGeneration = ++probeGenerationRef.current;
+    void runProbeRef.current({
+      isStale: () => myGeneration !== probeGenerationRef.current,
+    });
   }, [activation]);
 
   const handleActivationChange = useCallback(
@@ -261,11 +267,16 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
     [card.providerId, setProviderSettings]
   );
 
-  const commitBaseUrl = useCallback(() => {
+  const commitBaseUrl = useCallback(async () => {
     const normalized = draftBaseUrl.trim();
     const next = normalized.length > 0 ? normalized : undefined;
+    // Zustand `set()` is synchronous, so the probe below will read the
+    // updated providerSettings via `get()` inside getLocalRuntimeStatuses.
+    // Ordering is explicit via await so a future refactor that switches
+    // the probe to read from a React selector or local state can't race
+    // ahead of the store update.
     setProviderSettings(card.providerId, { localRuntimeBaseUrl: next });
-    void runProbe({ force: true });
+    await runProbe({ force: true });
   }, [card.providerId, draftBaseUrl, runProbe, setProviderSettings]);
 
   const saveToken = useCallback(async () => {
@@ -398,7 +409,9 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
           <Button
             data-testid={`local-runtime-url-save-${card.runtimeId}`}
             disabled={!isBaseUrlDirty}
-            onClick={commitBaseUrl}
+            onClick={() => {
+              void commitBaseUrl();
+            }}
             size="sm"
             variant="secondary"
           >

@@ -1425,10 +1425,16 @@ export class LocalRuntimeModelCatalogService {
       if (id.length === 0 || byId.has(id)) {
         continue;
       }
+      // Pick explicitly rather than spreading the candidate. Parsers build
+      // candidates from untrusted JSON bodies; a future Ollama or LM Studio
+      // response field would otherwise silently ride through into
+      // `LocalRuntimeNormalizedModel` via `normalizeModels`'s own spread.
       byId.set(id, {
-        ...candidate,
         id,
         label: candidate.label.trim().length > 0 ? candidate.label.trim() : id,
+        ...(candidate.families ? { families: candidate.families } : {}),
+        ...(candidate.modelType ? { modelType: candidate.modelType } : {}),
+        ...(typeof candidate.loaded === 'boolean' ? { loaded: candidate.loaded } : {}),
       });
     }
 

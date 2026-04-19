@@ -181,61 +181,56 @@ function normaliseVerifyOptions(value: unknown): SerializableVerifyOptions {
   return result;
 }
 
+/**
+ * Type guard that narrows an unknown IPC payload to a supported runtime id.
+ * Centralising the check so adding a future runtime means touching this
+ * function — the handlers automatically pick up the new variant via type
+ * narrowing.
+ */
+function validateRuntimeId(value: unknown): 'ollama' | 'lmstudio' {
+  if (value !== 'ollama' && value !== 'lmstudio') {
+    throw new Error(`Unsupported runtime id: ${String(value)}`);
+  }
+  return value;
+}
+
+function validateModelId(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new Error('modelId must be a string');
+  }
+  return value;
+}
+
 export function registerRuntimeIpcHandlers(): void {
   ipcMain.handle(
     RUNTIME_PROBE_CHANNEL,
-    async (_event: IpcMainInvokeEvent, runtimeId: unknown, rawOptions: unknown) => {
-      const bridge = getBridge();
-      if (runtimeId !== 'ollama' && runtimeId !== 'lmstudio') {
-        throw new Error(`Unsupported runtime id: ${String(runtimeId)}`);
-      }
-      return await bridge.probe(runtimeId, normaliseProbeOptions(rawOptions));
-    }
+    async (_event: IpcMainInvokeEvent, runtimeId: unknown, rawOptions: unknown) =>
+      await getBridge().probe(validateRuntimeId(runtimeId), normaliseProbeOptions(rawOptions))
   );
 
   ipcMain.handle(
     RUNTIME_LIST_MODELS_CHANNEL,
-    async (_event: IpcMainInvokeEvent, runtimeId: unknown, rawOptions: unknown) => {
-      const bridge = getBridge();
-      if (runtimeId !== 'ollama' && runtimeId !== 'lmstudio') {
-        throw new Error(`Unsupported runtime id: ${String(runtimeId)}`);
-      }
-      return await bridge.listModels(runtimeId, normaliseListOptions(rawOptions));
-    }
+    async (_event: IpcMainInvokeEvent, runtimeId: unknown, rawOptions: unknown) =>
+      await getBridge().listModels(validateRuntimeId(runtimeId), normaliseListOptions(rawOptions))
   );
 
   ipcMain.handle(
     RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL,
-    async (_event: IpcMainInvokeEvent, modelId: unknown, rawOptions: unknown) => {
-      const bridge = getBridge();
-      if (typeof modelId !== 'string') {
-        throw new Error('modelId must be a string');
-      }
-      return await bridge.resolveOllamaCapabilities(modelId, normaliseProbeOptions(rawOptions));
-    }
+    async (_event: IpcMainInvokeEvent, modelId: unknown, rawOptions: unknown) =>
+      await getBridge().resolveOllamaCapabilities(
+        validateModelId(modelId),
+        normaliseProbeOptions(rawOptions)
+      )
   );
 
   ipcMain.handle(
     RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL,
-    async (
-      _event: IpcMainInvokeEvent,
-      runtimeId: unknown,
-      modelId: unknown,
-      rawOptions: unknown
-    ) => {
-      const bridge = getBridge();
-      if (runtimeId !== 'ollama' && runtimeId !== 'lmstudio') {
-        throw new Error(`Unsupported runtime id: ${String(runtimeId)}`);
-      }
-      if (typeof modelId !== 'string') {
-        throw new Error('modelId must be a string');
-      }
-      return await bridge.verifyEmbeddingDimensions(
-        runtimeId,
-        modelId,
+    async (_event: IpcMainInvokeEvent, runtimeId: unknown, modelId: unknown, rawOptions: unknown) =>
+      await getBridge().verifyEmbeddingDimensions(
+        validateRuntimeId(runtimeId),
+        validateModelId(modelId),
         normaliseVerifyOptions(rawOptions)
-      );
-    }
+      )
   );
 }
 
