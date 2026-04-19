@@ -193,69 +193,29 @@ describe('PreviewPanel', () => {
       ).not.toBeInTheDocument();
     });
 
-    it('renders footer resize handle and mode controls', () => {
+    it('renders summary mode controls above the view tabs without footer resize affordances', () => {
       render(<PreviewPanel {...mockProps} />);
 
+      const compactButton = screen.getByRole('button', { name: /compact summary mode/i });
+      const balancedButton = screen.getByRole('button', { name: /balanced summary mode/i });
+      const insightsButton = screen.getByRole('button', { name: /insights summary mode/i });
+      const tabsList = screen.getByRole('tablist');
+
+      expect(compactButton).toBeInTheDocument();
+      expect(balancedButton).toBeInTheDocument();
+      expect(insightsButton).toBeInTheDocument();
       expect(
-        screen.getByRole('separator', { name: /resize context explorer footer/i })
-      ).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /compact footer mode/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /balanced footer mode/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /insights footer mode/i })).toBeInTheDocument();
+        screen.queryByRole('separator', { name: /resize context explorer footer/i })
+      ).toBeNull();
+      expect(screen.queryByRole('button', { name: /collapse footer/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /expand footer/i })).toBeNull();
+
+      expect(compactButton.compareDocumentPosition(tabsList)).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING
+      );
     });
 
-    it('supports keyboard resize via arrow keys', async () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      const separator = screen.getByRole('separator', {
-        name: /resize context explorer footer/i,
-      });
-
-      const initialHeight = Number(separator.getAttribute('aria-valuenow') ?? '0');
-      fireEvent.keyDown(separator, { key: 'ArrowUp' });
-
-      await waitFor(() => {
-        expect(Number(separator.getAttribute('aria-valuenow') ?? '0')).toBeGreaterThan(
-          initialHeight
-        );
-      });
-
-      const grownHeight = Number(separator.getAttribute('aria-valuenow') ?? '0');
-      fireEvent.keyDown(separator, { key: 'ArrowLeft' });
-
-      await waitFor(() => {
-        expect(Number(separator.getAttribute('aria-valuenow') ?? '0')).toBeLessThan(grownHeight);
-      });
-    });
-
-    it('snaps to canonical heights when toggling modes', async () => {
-      const user = userEvent.setup();
-      render(<PreviewPanel {...mockProps} />);
-
-      const separator = screen.getByRole('separator', {
-        name: /resize context explorer footer/i,
-      });
-
-      await user.click(screen.getByRole('button', { name: /balanced footer mode/i }));
-
-      await waitFor(() => {
-        expect(Number(separator.getAttribute('aria-valuenow') ?? '0')).toBe(228);
-      });
-
-      await user.click(screen.getByRole('button', { name: /insights footer mode/i }));
-
-      await waitFor(() => {
-        expect(Number(separator.getAttribute('aria-valuenow') ?? '0')).toBe(400);
-      });
-
-      await user.click(screen.getByRole('button', { name: /compact footer mode/i }));
-
-      await waitFor(() => {
-        expect(Number(separator.getAttribute('aria-valuenow') ?? '0')).toBe(160);
-      });
-    });
-
-    it('switches to compact footer mode and hides advanced toggles', async () => {
+    it('switches to compact summary mode and hides advanced toggles', async () => {
       const user = userEvent.setup();
       render(<PreviewPanel {...mockProps} />);
 
@@ -263,7 +223,7 @@ describe('PreviewPanel', () => {
         screen.getByRole('switch', { name: /use tapestry ranges in context output/i })
       ).toBeInTheDocument();
 
-      await user.click(screen.getByRole('button', { name: /compact footer mode/i }));
+      await user.click(screen.getByRole('button', { name: /compact summary mode/i }));
 
       expect(
         screen.queryByRole('switch', { name: /use tapestry ranges in context output/i })
