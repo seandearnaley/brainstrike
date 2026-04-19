@@ -173,6 +173,37 @@ test.describe('File Explorer', () => {
       await expect(page.getByLabel('Select all files on current page')).toHaveCount(0);
     });
 
+    test('renders the summary mode controls above the tabs without footer resize chrome', async ({
+      page,
+    }) => {
+      await explorer.selectRoot();
+
+      await explorer.fileTree.getByRole('checkbox', { name: 'Select test.ts' }).click({
+        force: true,
+      });
+
+      const compactModeButton = page.getByRole('button', { name: 'Compact summary mode' });
+      const tableTab = page.getByRole('tab', { name: 'Table View' });
+
+      await expect(compactModeButton).toBeVisible();
+      await expect(tableTab).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Balanced summary mode' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Insights summary mode' })).toBeVisible();
+      await expect(
+        page.getByRole('separator', { name: /resize context explorer footer/i })
+      ).toHaveCount(0);
+      await expect(page.getByRole('button', { name: /collapse footer/i })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: /expand footer/i })).toHaveCount(0);
+
+      const compactBox = await compactModeButton.boundingBox();
+      const tableTabBox = await tableTab.boundingBox();
+      expect(compactBox).not.toBeNull();
+      expect(tableTabBox).not.toBeNull();
+      expect((compactBox?.y ?? Number.POSITIVE_INFINITY) + (compactBox?.height ?? 0)).toBeLessThan(
+        tableTabBox?.y ?? Number.NEGATIVE_INFINITY
+      );
+    });
+
     test('hides grouped selection checkboxes when selection controls are toggled off', async ({
       page,
     }) => {
