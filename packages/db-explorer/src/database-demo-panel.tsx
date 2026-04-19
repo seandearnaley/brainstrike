@@ -13,6 +13,7 @@ import {
 } from '@brainstrike/embeddings/runtime-config';
 import { useLocalRuntimeEmbeddingModelCatalog } from '@brainstrike/preferences/hooks/use-local-runtime-embedding-model-catalog';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
+import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
@@ -53,7 +54,6 @@ import {
   SearchCollectionSelector,
   SettingsPanel,
 } from './components';
-import { SemanticSearchProvider, useSemanticSearch } from './contexts/semantic-search-context';
 import {
   createImportCompletionHandler,
   useAvailableModels,
@@ -62,8 +62,12 @@ import {
   useDatabaseErrorBoundary,
   useExportHandlers,
   useImportSettings,
-  useSemanticSearchExecutor,
 } from './hooks';
+import {
+  SemanticSearchProvider,
+  useSemanticSearch,
+  useSemanticSearchExecutor,
+} from './semantic-search';
 import { useDatabaseDemoStore } from './stores/database-demo-store';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 import { useDatabaseDemoData } from './use-database-demo-data';
@@ -170,6 +174,10 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const activeCollectionId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
   const setActiveCollectionId = useVectorStatusUIStore((s) => s.setActiveEmbeddingSetId);
   const setIsImporting = useVectorStatusUIStore((s) => s.setIsImporting);
+  const managedCollectionId = useBackgroundIndexingPreferencesStore((s) => s.managedCollectionId);
+  const isManagedCollection = Boolean(
+    activeCollectionId && activeCollectionId === managedCollectionId
+  );
 
   // Get embedding sets repository from DbProvider (Drizzle-based)
   const embeddingSetsRepository = useEmbeddingSetsRepository();
@@ -330,6 +338,12 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       getImportSnapshot: () => ({
         activeCollectionId,
         isImporting: importFlow.isImporting,
+        recordCount: records.length,
+        recordPagination: {
+          currentPage: recordPagination.currentPage,
+          pageSize: recordPagination.pageSize,
+          totalRecords: recordPagination.totalRecords,
+        },
         selectedFileCount: importFlow.selectedFileCount,
         progress: importFlow.progress
           ? {
@@ -354,6 +368,10 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     importFlow.isImporting,
     importFlow.progress,
     importFlow.selectedFileCount,
+    recordPagination.currentPage,
+    recordPagination.pageSize,
+    recordPagination.totalRecords,
+    records.length,
   ]);
 
   const handleClearDatabase = useCallback(async () => {
@@ -470,6 +488,12 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                 onDeleteCollection={collectionDialogs.handleDeleteCollection}
                 onEditCollection={collectionDialogs.handleEditCollection}
               />
+              {isManagedCollection ? (
+                <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-primary text-xs">
+                  This collection is managed by background indexing. Manual DB imports are disabled
+                  so the root-folder cache stays canonical.
+                </div>
+              ) : null}
             </div>
 
             {/* Import Progress Bar - above footer */}
@@ -571,7 +595,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                         disabled={
                           importFlow.isImporting ||
                           !activeCollectionId ||
-                          importFlow.selectedFileCount === 0
+                          importFlow.selectedFileCount === 0 ||
+                          isManagedCollection
                         }
                         onClick={importFlow.handleImportClick}
                         size="sm"
@@ -586,9 +611,11 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                     <TooltipContent side="top">
                       {importFlow.selectedFileCount === 0
                         ? 'Select files to import first'
-                        : activeCollectionId
-                          ? `Import ${importFlow.selectedFileCount} files to collection`
-                          : 'Select a collection first'}
+                        : isManagedCollection
+                          ? 'Background indexing manages imports for this collection'
+                          : activeCollectionId
+                            ? `Import ${importFlow.selectedFileCount} files to collection`
+                            : 'Select a collection first'}
                     </TooltipContent>
                   </Tooltip>
 

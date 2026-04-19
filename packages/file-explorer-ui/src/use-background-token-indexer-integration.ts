@@ -12,12 +12,12 @@ import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { FileToIndex } from '@brainstrike/token-cache/background-indexer';
 import { useBackgroundTokenIndexer } from '@brainstrike/token-cache/background-indexer';
-import type { IFileNode } from '@brainstrike/types';
+import type { FileForIndexingResolution, IFileNode } from '@brainstrike/types';
 import { isBinaryFile } from '@brainstrike/utils/file-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
-  normalizeFilePathForFolder,
-  validateRelativeFilePath,
+  normalizeSelectionPathForFolder,
+  WINDOWS_ABSOLUTE_PATH_REGEX,
 } from '@brainstrike/utils/relative-file-path';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -54,6 +54,27 @@ function useEmbeddingActiveState(): boolean {
  */
 export type ElectronFileReader = (handle: ElectronFileHandle) => Promise<string>;
 
+/**
+ * Resolution returned by the web file resolver. The production web adapter
+ * returns `kind: 'handle'` so the indexer worker can read bytes off the main
+ * thread; in-memory adapters (e.g. dev-fixture) return `kind: 'content'` with
+ * pre-loaded UTF-8 bytes because their handles are not structured-clone-safe
+ * across the worker boundary.
+ *
+ * Re-exported from `@brainstrike/types` so the canonical adapter contract is
+ * the single source of truth and a future third variant cannot drift between
+ * the type package and the UI package.
+ */
+export type WebFileForIndexingResolution = FileForIndexingResolution;
+
+/**
+ * Function to resolve the bytes the indexer needs for a `${folderId}/${relativePath}`
+ * path. Mirrors the desktop `electronFileReader` fallback so unexpanded subfolder
+ * selections can be background-indexed without forcing the whole tree to expand on
+ * the main thread.
+ */
+export type WebFileHandleResolver = (absolutePath: string) => Promise<WebFileForIndexingResolution>;
+
 export interface UseBackgroundTokenIndexerIntegrationProps {
   /** File reader for Electron handles - required when using Electron file handles */
   electronFileReader?: ElectronFileReader;
@@ -63,6 +84,12 @@ export interface UseBackgroundTokenIndexerIntegrationProps {
   onTokenResolved?: (compositeKey: string, tokenCount: number) => void;
   /** Set of selected file composite keys (folderId::path format) */
   selectedFiles: Set<string>;
+  /**
+   * Web-only fallback to resolve a real `FileSystemFileHandle` for a selected file path
+   * when neither the FileTreeIndex nor the local handle map has a cached entry.
+   * Only relevant on the web platform; desktop uses `electronFileReader` instead.
+   */
+  webFileHandleResolver?: WebFileHandleResolver;
 }
 
 /** Diagnostic info for debugging indexing issues */
@@ -94,6 +121,26 @@ export interface UseBackgroundTokenIndexerIntegrationReturn {
   progress: { completed: number; total: number; currentFile?: string } | null;
   /** Manually trigger indexing for specific files (async for Electron file reading) */
   triggerIndexing: (compositeKeys: string[]) => Promise<void>;
+}
+
+interface PreloadedFolderSnapshot {
+  cacheVersion: number;
+  normalizedPaths: readonly string[];
+}
+
+function doesPreloadedSnapshotCoverSelection(
+  snapshot: PreloadedFolderSnapshot | undefined,
+  cacheVersion: number,
+  normalizedPaths: readonly string[]
+): boolean {
+  if (!snapshot || snapshot.cacheVersion !== cacheVersion) {
+    return false;
+  }
+  if (snapshot.normalizedPaths.length < normalizedPaths.length) {
+    return false;
+  }
+  const preloadedPaths = new Set(snapshot.normalizedPaths);
+  return normalizedPaths.every((path) => preloadedPaths.has(path));
 }
 
 /**
@@ -142,7 +189,68 @@ interface HandleInfo {
   fileName: string;
   /** File size in bytes (if known) for large file filtering */
   fileSize: number | undefined;
+  /** Synthetic handles rely on cached metadata and should stay retryable. */
+  isSynthetic?: boolean;
   webHandle?: FileSystemFileHandle;
+}
+
+function isAbsoluteFolderPath(folderId: string): boolean {
+  return (
+    folderId.startsWith('/') ||
+    folderId.startsWith('\\\\') ||
+    folderId.startsWith('//') ||
+    WINDOWS_ABSOLUTE_PATH_REGEX.test(folderId)
+  );
+}
+
+function joinElectronAbsolutePath(rootPath: string, relativePath: string): string {
+  const prefersBackslashes =
+    WINDOWS_ABSOLUTE_PATH_REGEX.test(rootPath) ||
+    rootPath.startsWith('\\\\') ||
+    rootPath.includes('\\');
+  const separator = prefersBackslashes ? '\\' : '/';
+  const trimmedRootPath = rootPath.replace(/[\\/]+$/u, '');
+  const normalizedRelativePath = relativePath
+    .split('/')
+    .filter((segment) => segment.length > 0)
+    .join(separator);
+  if (normalizedRelativePath.length === 0) {
+    return trimmedRootPath;
+  }
+  return `${trimmedRootPath}${separator}${normalizedRelativePath}`;
+}
+
+function buildSyntheticElectronHandle(args: {
+  filePath: string;
+  fileSize: number | undefined;
+  folderId: string;
+}): HandleInfo | null {
+  if (!isAbsoluteFolderPath(args.folderId)) {
+    return null;
+  }
+
+  const fileName = args.filePath.split('/').at(-1);
+  if (!fileName) {
+    return null;
+  }
+
+  return {
+    electronHandle: {
+      kind: 'file',
+      name: fileName,
+      path: joinElectronAbsolutePath(args.folderId, args.filePath),
+      platform: 'electron',
+    },
+    fileName,
+    fileSize: args.fileSize,
+    isSynthetic: true,
+  };
+}
+
+function normalizeSelectionPathForTokenCache(folderId: string, selectionPath: string): string {
+  return normalizeSelectionPathForFolder(selectionPath, folderId, {
+    label: 'Token cache file path',
+  });
 }
 
 function shouldEmitLargeSelectionDiagnostics(params: {
@@ -258,6 +366,7 @@ export function useBackgroundTokenIndexerIntegration({
   selectedFiles,
   onTokenResolved,
   electronFileReader,
+  webFileHandleResolver,
 }: UseBackgroundTokenIndexerIntegrationProps): UseBackgroundTokenIndexerIntegrationReturn {
   // Get the token cache context (may be null if not in provider)
   const tokenCache = useOptionalTokenCacheContext();
@@ -305,10 +414,11 @@ export function useBackgroundTokenIndexerIntegration({
   // P0 optimization: Track previous selection size for 0→>0 transition detection
   const previousSelectionSizeForMapRef = useRef<number>(0);
 
-  // P0 optimization: Track which folders have been preloaded to avoid repeated DB reads.
-  // Map<folderId, cacheVersion> - folder is considered preloaded if memoized version matches current.
-  // When cacheVersion changes (e.g., hot cache updates), the folder entry becomes stale.
-  const preloadedFoldersRef = useRef<Map<string, number>>(new Map());
+  // P0 optimization: Track which folder selections have been preloaded to avoid repeated DB reads.
+  // A folder is only considered preloaded when both the cache version and the selected-path coverage
+  // match the current selection. This prevents shallow initial selections from suppressing later
+  // hydration when the same folder expands to include additional files.
+  const preloadedFoldersRef = useRef<Map<string, PreloadedFolderSnapshot>>(new Map());
   // Track previous persistence state to clear preload memo when persistence changes
   const previousPersistedStateRef = useRef<boolean | undefined>(undefined);
   const selectionSkipReasonRef = useRef<string | null>(null);
@@ -513,8 +623,20 @@ export function useBackgroundTokenIndexerIntegration({
       if (inFlightRef.current.size === 0) {
         bumpInFlightPulse((value) => value + 1);
       }
-      tokenCacheRef.current?.updateHotCache(folderId, path, tokenCount);
-      tokenCacheRef.current?.updateFileSizeCache(folderId, path, fileSize);
+      let normalizedPath: string;
+      try {
+        normalizedPath = normalizeSelectionPathForTokenCache(folderId, path);
+      } catch (error) {
+        logger.warn('Skipping hot-cache writeback for unsafe indexed path', {
+          compositeKey,
+          folderId,
+          path,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+      tokenCacheRef.current?.updateHotCache(folderId, normalizedPath, tokenCount);
+      tokenCacheRef.current?.updateFileSizeCache(folderId, normalizedPath, fileSize);
       indexedFilesRef.current.add(compositeKey);
       onTokenResolvedRef.current?.(compositeKey, tokenCount);
     },
@@ -557,6 +679,13 @@ export function useBackgroundTokenIndexerIntegration({
   const electronFileReaderRef = useRef(electronFileReader);
   electronFileReaderRef.current = electronFileReader;
 
+  // Stable ref for webFileHandleResolver. Mirrors the electronFileReader pattern so the
+  // triggerIndexing callback can stay deps-stable while still calling the latest resolver.
+  // The resolver is only meaningful on the web platform; desktop leaves it undefined and
+  // continues using the synthetic-handle / IPC path.
+  const webFileHandleResolverRef = useRef(webFileHandleResolver);
+  webFileHandleResolverRef.current = webFileHandleResolver;
+
   /**
    * Queue files for indexing using the background worker.
    * For Electron files, reads content via IPC first (async, non-blocking).
@@ -586,6 +715,18 @@ export function useBackgroundTokenIndexerIntegration({
         filePath: string;
         fileSize: number | undefined;
         handle: ElectronFileHandle;
+      }> = [];
+      // Web parity with the desktop synthetic-handle path: paths that have no cached
+      // handle (e.g. files inside an unexpanded subfolder hit by Select All) get
+      // batch-resolved via the web FileSystemFileHandle resolver after the main
+      // classification loop. Resolved handles join the existing webFilesToIndex
+      // dispatch path; resolver failures land in pendingNoHandleRef for retry on
+      // the next indexVersion bump.
+      const webResolverQueue: Array<{
+        absolutePath: string;
+        compositeKey: string;
+        filePath: string;
+        folderId: string;
       }> = [];
       let skippedNoHandle = 0;
       let skippedBinary = 0;
@@ -630,12 +771,7 @@ export function useBackgroundTokenIndexerIntegration({
         const { folderId, path: selectionPath } = decodeFileSelection(compositeKey);
         let normalizedFilePath: string;
         try {
-          normalizedFilePath = validateRelativeFilePath(
-            normalizeFilePathForFolder(selectionPath, folderId),
-            {
-              label: 'Token cache file path',
-            }
-          );
+          normalizedFilePath = normalizeSelectionPathForTokenCache(folderId, selectionPath);
         } catch (error) {
           skippedInvalidPath++;
           logger.warn('Skipping file with unsafe path for background indexing', {
@@ -655,6 +791,59 @@ export function useBackgroundTokenIndexerIntegration({
         if (!handleInfo) {
           // Fall back to local map
           handleInfo = fileHandleMapRef.current.get(compositeKey);
+        }
+        if (!handleInfo) {
+          const syntheticElectronHandle =
+            electronFileReaderRef.current &&
+            buildSyntheticElectronHandle({
+              filePath: normalizedFilePath,
+              fileSize: cache.getFileSize(folderId, normalizedFilePath),
+              folderId,
+            });
+          if (syntheticElectronHandle) {
+            handleInfo = syntheticElectronHandle;
+          }
+        }
+        if (!handleInfo && webFileHandleResolverRef.current) {
+          // Web parity with the desktop synthetic-handle path. Pre-filter binary and
+          // oversize files using the same name/size signals the live-handle path uses,
+          // so we never spend a resolver round-trip on files the worker would skip
+          // anyway. Anything that survives gets queued for batched concurrent
+          // resolution after the main classification loop.
+          const resolverFileName = normalizedFilePath.split('/').at(-1) ?? '';
+          if (isBinaryFile(resolverFileName)) {
+            skippedBinary++;
+            indexedFilesRef.current.add(compositeKey);
+            pendingNoHandleRef.current.delete(compositeKey);
+            continue;
+          }
+          const cachedFileSize = cache.getFileSize(folderId, normalizedFilePath);
+          if (cachedFileSize !== undefined && cachedFileSize > MAX_INDEXABLE_FILE_SIZE) {
+            skippedTooLarge++;
+            // Cached size could be stale post-restart; keep retryable so a fresh
+            // FileTreeIndex entry can re-attempt with authoritative metadata.
+            pendingNoHandleRef.current.add(compositeKey);
+            continue;
+          }
+          // Web file paths are already root-prefixed (the WebFileSystemAdapter
+          // builds IFileNode.path as `${rootFolderId}/${...}`), and
+          // `normalizeFilePathForFolder` leaves non-absolute paths untouched —
+          // so `normalizedFilePath` is the canonical resolver key. Naively
+          // joining `folderId` would double the prefix and the resolver would
+          // walk into a nonexistent `${folderId}/${folderId}/...` directory.
+          const resolverPath = normalizedFilePath.startsWith(`${folderId}/`)
+            ? normalizedFilePath
+            : `${folderId}/${normalizedFilePath}`;
+          webResolverQueue.push({
+            absolutePath: resolverPath,
+            compositeKey,
+            filePath: normalizedFilePath,
+            folderId,
+          });
+          // Optimistically clear the pending mark; the resolver dispatcher will
+          // re-park the key only if its resolution rejects.
+          pendingNoHandleRef.current.delete(compositeKey);
+          continue;
         }
         if (!handleInfo) {
           skippedNoHandle++;
@@ -678,6 +867,12 @@ export function useBackgroundTokenIndexerIntegration({
         // This avoids AccessError exceptions and IPC overhead
         if (handleInfo.fileSize !== undefined && handleInfo.fileSize > MAX_INDEXABLE_FILE_SIZE) {
           skippedTooLarge++;
+          if (handleInfo.isSynthetic) {
+            // Cached synthetic metadata can be stale across restarts. Keep the file retryable
+            // so authoritative tree/index metadata can re-attempt indexing later.
+            pendingNoHandleRef.current.add(compositeKey);
+            continue;
+          }
           // Mark as "indexed" to prevent re-queuing (it will never succeed)
           indexedFilesRef.current.add(compositeKey);
           continue;
@@ -731,6 +926,133 @@ export function useBackgroundTokenIndexerIntegration({
         logger.error('triggerIndexing web batch dispatch failed', {
           error: error instanceof Error ? error.message : String(error),
         });
+      }
+
+      // Resolve missing-handle web files in concurrent windows that match the
+      // electron read concurrency (20 per batch). Each batch fires Promise.all
+      // so the resolver sees all 20 paths simultaneously, mirroring the existing
+      // electron `Promise.all` pattern; resolved handles are then dispatched
+      // through the same `dispatchBatches` path used by the live-handle web flow.
+      if (webResolverQueue.length > 0) {
+        const webResolver = webFileHandleResolverRef.current;
+        if (webResolver) {
+          const webResolverBatchSize = 20;
+          let webHandlesResolved = 0;
+          let webResolverFailures = 0;
+          let webResolverSkippedTooLarge = 0;
+          for (let i = 0; i < webResolverQueue.length; i += webResolverBatchSize) {
+            if (isEmbeddingActiveRef.current) {
+              logger.info('Stopped web resolver indexing because embedding became active mid-run', {
+                webHandlesResolved,
+                webResolverFailures,
+                remainingFiles: webResolverQueue.length - i,
+              });
+              return;
+            }
+
+            const batch = webResolverQueue.slice(i, i + webResolverBatchSize);
+            const results = await Promise.all(
+              batch.map(async (item) => {
+                try {
+                  const resolution = await webResolver(item.absolutePath);
+                  return { ...item, resolution, error: null as Error | null };
+                } catch (error) {
+                  const wrapped = error instanceof Error ? error : new Error(String(error));
+                  return {
+                    ...item,
+                    resolution: null as WebFileForIndexingResolution | null,
+                    error: wrapped,
+                  };
+                }
+              })
+            );
+
+            const resolvedBatchToIndex: FileToIndex[] = [];
+            for (const result of results) {
+              if (result.error || !result.resolution) {
+                webResolverFailures += 1;
+                // Park failures for retry on the next FileTreeIndex version bump,
+                // mirroring the no-handle path.
+                pendingNoHandleRef.current.add(result.compositeKey);
+                logger.debug('Web file handle resolver failed; parked for retry', {
+                  absolutePath: result.absolutePath,
+                  compositeKey: result.compositeKey,
+                  error: result.error?.message,
+                });
+                continue;
+              }
+
+              // Authoritative size guard. Both resolution variants now carry
+              // `fileSize` (web `getFile()` metadata or pre-loaded content
+              // length), so this is the single point where the resolver path
+              // enforces MAX_INDEXABLE_FILE_SIZE. Files surfaced by Select All
+              // on unexpanded folders never had their size cached at tree-walk
+              // time; without this check an oversize file would slip past the
+              // pre-resolution `cache.getFileSize` guard above and reach the
+              // worker — inflating token totals and burning CPU on payloads
+              // the worker would otherwise never see.
+              //
+              // Mark the key as terminally indexed (not retryable): the size
+              // came directly from the file system, so a future re-attempt
+              // would hit the same guard and waste another resolver round-trip.
+              if (result.resolution.fileSize > MAX_INDEXABLE_FILE_SIZE) {
+                webResolverSkippedTooLarge += 1;
+                indexedFilesRef.current.add(result.compositeKey);
+                pendingNoHandleRef.current.delete(result.compositeKey);
+                continue;
+              }
+
+              webHandlesResolved += 1;
+              markInFlight(result.compositeKey);
+              // Branch on resolution kind: production web returns a real
+              // (structured-clone-safe) handle that the worker reads on its own
+              // thread; in-memory adapters return pre-loaded content because
+              // their synthetic handles cannot survive postMessage to a Worker.
+              if (result.resolution.kind === 'handle') {
+                resolvedBatchToIndex.push({
+                  compositeKey: result.compositeKey,
+                  fileHandle: result.resolution.fileHandle,
+                  filePath: result.filePath,
+                  folderId: result.folderId,
+                });
+              } else {
+                resolvedBatchToIndex.push({
+                  compositeKey: result.compositeKey,
+                  content: result.resolution.content,
+                  fileSize: result.resolution.fileSize,
+                  filePath: result.filePath,
+                  folderId: result.folderId,
+                });
+              }
+            }
+
+            if (resolvedBatchToIndex.length > 0) {
+              try {
+                await dispatchBatches(resolvedBatchToIndex);
+              } catch (error) {
+                logger.error('triggerIndexing web resolver batch dispatch failed', {
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              }
+            }
+          }
+
+          if (emitLargeSelectionDiagnostics) {
+            logger.info('Background token indexing dispatched web resolver batches', {
+              queuedFiles: webResolverQueue.length,
+              webHandlesResolved,
+              webResolverFailures,
+              webResolverSkippedTooLarge,
+            });
+          }
+        } else {
+          // The queue is only populated when the resolver was present at classify
+          // time, but guard defensively in case the prop was unset between the
+          // classification loop and the dispatch (e.g. component unmount).
+          for (const queued of webResolverQueue) {
+            pendingNoHandleRef.current.add(queued.compositeKey);
+          }
+        }
       }
 
       // Read Electron file contents via IPC (async, non-blocking)
@@ -1039,13 +1361,64 @@ export function useBackgroundTokenIndexerIntegration({
       keysByFolder.set(folderId, arr);
     }
 
+    const folderSelections = new Map<
+      string,
+      {
+        normalizedPaths: string[];
+        normalizedPathToCompositeKey: Map<string, string>;
+      }
+    >();
+    for (const folderId of folderIds) {
+      const keys = keysByFolder.get(folderId);
+      if (!keys) {
+        continue;
+      }
+
+      const normalizedPathToCompositeKey = new Map<string, string>();
+      const normalizedPaths: string[] = [];
+      for (const key of keys) {
+        const { path } = decodeFileSelection(key);
+        let normalizedPath: string;
+        try {
+          normalizedPath = normalizeSelectionPathForTokenCache(folderId, path);
+        } catch (error) {
+          logger.warn('Skipping warm-cache lookup for unsafe path', {
+            folderId,
+            path,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          continue;
+        }
+        if (!normalizedPathToCompositeKey.has(normalizedPath)) {
+          normalizedPathToCompositeKey.set(normalizedPath, key);
+          normalizedPaths.push(normalizedPath);
+        }
+      }
+
+      normalizedPaths.sort();
+      folderSelections.set(folderId, {
+        normalizedPaths,
+        normalizedPathToCompositeKey,
+      });
+    }
+
     // P0 optimization: Filter to only folders that need preloading.
-    // A folder is considered "preloaded" if it was preloaded at the current cacheVersion.
-    // This avoids repeated DB reads when selection changes but folders are the same.
+    // A folder is considered "preloaded" only when both the cache version and the exact selected
+    // file coverage match the current selection snapshot.
     const foldersToPreload: string[] = [];
     for (const folderId of folderIds) {
-      const memoizedVersion = preloadedFoldersRef.current.get(folderId);
-      if (memoizedVersion !== currentCacheVersion) {
+      const folderSelection = folderSelections.get(folderId);
+      if (!folderSelection || folderSelection.normalizedPaths.length === 0) {
+        continue;
+      }
+      const memoizedSnapshot = preloadedFoldersRef.current.get(folderId);
+      if (
+        !doesPreloadedSnapshotCoverSelection(
+          memoizedSnapshot,
+          currentCacheVersion,
+          folderSelection.normalizedPaths
+        )
+      ) {
         foldersToPreload.push(folderId);
       }
     }
@@ -1073,49 +1446,28 @@ export function useBackgroundTokenIndexerIntegration({
 
     // Only preload folders that haven't been preloaded at this cache version
     for (const folderId of foldersToPreload) {
+      const folderSelection = folderSelections.get(folderId);
+      if (!folderSelection) {
+        continue;
+      }
       void cache.preloadFolder(folderId);
-      // Mark as preloaded at this version
-      preloadedFoldersRef.current.set(folderId, currentCacheVersion);
+      preloadedFoldersRef.current.set(folderId, {
+        cacheVersion: currentCacheVersion,
+        normalizedPaths: [...folderSelection.normalizedPaths],
+      });
     }
 
     // After preload, ensure hot cache gets populated for any selected files that
     // were already stored but not yet marked indexed (prevents zero-count UI).
     // Only do this for folders that we actually preloaded (new folders or stale memo).
     for (const folderId of foldersToPreload) {
-      const keys = keysByFolder.get(folderId);
-      if (!keys) {
-        continue;
-      }
-
-      const normalizedPathToCompositeKey = new Map<string, string>();
-      const normalizedPaths: string[] = [];
-      for (const key of keys) {
-        const { path } = decodeFileSelection(key);
-        let normalizedPath: string;
-        try {
-          normalizedPath = validateRelativeFilePath(normalizeFilePathForFolder(path, folderId), {
-            label: 'Token cache file path',
-          });
-        } catch (error) {
-          logger.warn('Skipping warm-cache lookup for unsafe path', {
-            folderId,
-            path,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          continue;
-        }
-        if (!normalizedPathToCompositeKey.has(normalizedPath)) {
-          normalizedPathToCompositeKey.set(normalizedPath, key);
-          normalizedPaths.push(normalizedPath);
-        }
-      }
-
-      if (normalizedPaths.length === 0) {
+      const folderSelection = folderSelections.get(folderId);
+      if (!folderSelection) {
         continue;
       }
 
       void cache.store
-        .getBatch(folderId, normalizedPaths)
+        .getBatch(folderId, folderSelection.normalizedPaths)
         .then((entries) => {
           // Use ref to get latest cache instance in async callback
           const currentCache = tokenCacheRef.current;
@@ -1127,7 +1479,8 @@ export function useBackgroundTokenIndexerIntegration({
           let skipped = 0;
           for (const [path, entry] of entries.entries()) {
             const compositeKey =
-              normalizedPathToCompositeKey.get(path) ?? encodeFileSelection(folderId, path);
+              folderSelection.normalizedPathToCompositeKey.get(path) ??
+              encodeFileSelection(folderId, path);
             if (indexedFilesRef.current.has(compositeKey)) {
               skipped++;
             } else {
@@ -1139,7 +1492,7 @@ export function useBackgroundTokenIndexerIntegration({
           if (hydrated > 0 || entries.size > 0) {
             logger.debug('Warm cache: hydrated from store', {
               folderId,
-              requested: normalizedPaths.length,
+              requested: folderSelection.normalizedPaths.length,
               foundInStore: entries.size,
               hydrated,
               skippedAlreadyIndexed: skipped,

@@ -84,6 +84,50 @@ describe('ActionButtons', () => {
       render(<ActionButtons {...props} />);
       expect(screen.getByRole('button', { name: 'Deselect All' })).toBeInTheDocument();
     });
+
+    it('renders compact and full labels so the button can collapse in narrow panels', () => {
+      const props = getProps();
+      render(<ActionButtons {...props} />);
+
+      expect(screen.getByTestId('bulk-action-short-label')).toHaveTextContent('Select');
+      expect(screen.getByTestId('bulk-action-full-label')).toHaveTextContent('Select All');
+    });
+
+    it('updates compact and full labels when selections are active', () => {
+      const props = getProps({
+        selectedFilePaths: new Set(['test-folder:file1.txt']),
+      });
+      render(<ActionButtons {...props} />);
+
+      expect(screen.getByTestId('bulk-action-short-label')).toHaveTextContent('Clear');
+      expect(screen.getByTestId('bulk-action-full-label')).toHaveTextContent('Deselect All');
+    });
+
+    it('shows a tooltip for Select All', async () => {
+      const user = userEvent.setup();
+      const props = getProps();
+      render(<ActionButtons {...props} />);
+
+      await user.hover(screen.getByRole('button', { name: 'Select All' }));
+
+      expect(await screen.findByRole('tooltip')).toHaveTextContent(
+        'Select all files in the current explorer view'
+      );
+    });
+
+    it('shows a tooltip for Deselect All', async () => {
+      const user = userEvent.setup();
+      const props = getProps({
+        selectedFilePaths: new Set(['test-folder:file1.txt']),
+      });
+      render(<ActionButtons {...props} />);
+
+      await user.hover(screen.getByRole('button', { name: 'Deselect All' }));
+
+      expect(await screen.findByRole('tooltip')).toHaveTextContent(
+        'Clear the current file selection'
+      );
+    });
   });
 
   describe('Button Functionality', () => {

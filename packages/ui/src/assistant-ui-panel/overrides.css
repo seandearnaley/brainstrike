@@ -318,6 +318,67 @@
   font-size: 0.75rem;
 }
 
+@keyframes bs-chain-of-thought-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.assistant-ui-panel .bs-chain-of-thought-panel {
+  animation: bs-chain-of-thought-enter 180ms ease-out;
+}
+
+@keyframes bs-streaming-caret {
+  0%,
+  45% {
+    opacity: 0.2;
+  }
+
+  46%,
+  100% {
+    opacity: 0.85;
+  }
+}
+
+.assistant-ui-panel :where(.aui-md[data-status="running"]):empty::after,
+.assistant-ui-panel
+  :where(.aui-md[data-status="running"])
+  > :where(:not(ol):not(ul):not(pre)):last-child::after,
+.assistant-ui-panel :where(.aui-md[data-status="running"]) > pre:last-child code::after,
+.assistant-ui-panel
+  :where(.aui-md[data-status="running"])
+  > :where(:is(ol, ul):last-child)
+  > :where(li:last-child:not(:has(* > li)))::after,
+.assistant-ui-panel
+  :where(.aui-md[data-status="running"])
+  > :where(:is(ol, ul):last-child)
+  > :where(li:last-child)
+  > :where(:is(ol, ul):last-child)
+  > :where(li:last-child:not(:has(* > li)))::after,
+.assistant-ui-panel
+  :where(.aui-md[data-status="running"])
+  > :where(:is(ol, ul):last-child)
+  > :where(li:last-child)
+  > :where(:is(ol, ul):last-child)
+  > :where(li:last-child)
+  > :where(:is(ol, ul):last-child)
+  > :where(li:last-child)::after {
+  --aui-content: "|";
+  animation: bs-streaming-caret 1s step-end infinite;
+  color: hsl(var(--foreground) / 0.55);
+  content: var(--aui-content);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 500;
+  margin-left: 0.125rem;
+  margin-right: 0;
+}
+
 /**
  * SYNTAX HIGHLIGHTING THEME: Shiki dual theme support
  *

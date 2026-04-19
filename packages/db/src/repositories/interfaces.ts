@@ -4,7 +4,13 @@ import type {
   ViewFilterPreset,
 } from '@brainstrike/types';
 import type { EmbeddingDistance, EmbeddingSet } from '../models/embedding-set';
-import type { FileImportRequest, FileImportResult, FileRecord } from '../models/file-record';
+import type {
+  FileImportRequest,
+  FileImportResult,
+  FileRecord,
+  FileRecordUpdate,
+  ManagedCacheEntryMetadata,
+} from '../models/file-record';
 
 /**
  * Common interface for all embedding sets repositories
@@ -46,7 +52,14 @@ export interface IFileRecordRepository {
   findByContentHash(contentHash: string): Promise<FileRecord | null>;
   findById(id: string): Promise<FileRecord | null>;
   findByIds(ids: readonly string[]): Promise<FileRecord[]>;
-  update(id: string, updates: Partial<FileRecord>): Promise<void>;
+  findByManagedCacheIdentity(
+    embeddingSetId: string,
+    sourceRootPath: string,
+    relativePath: string
+  ): Promise<FileRecord | null>;
+  listManagedCacheEntries(embeddingSetId: string): Promise<FileRecord[]>;
+  listManagedCacheEntryMetadata(embeddingSetId: string): Promise<ManagedCacheEntryMetadata[]>;
+  update(id: string, updates: FileRecordUpdate): Promise<void>;
   updateContent(
     id: string,
     content: string,

@@ -294,14 +294,19 @@ describe('RootLayoutContent', () => {
     );
   });
 
-  it('does not mount the embedding queue tracker before the database tab is opened', () => {
+  it('does not mount the embedding queue tracker before the database is ready', () => {
     render(<RootLayoutContent />);
     expect(screen.queryByTestId('embedding-job-queue-tracker')).not.toBeInTheDocument();
   });
 
-  it('mounts the embedding queue tracker after the database tab becomes active', async () => {
-    activeToolsTab = 'database';
-    render(<RootLayoutContent />);
+  it('mounts the embedding queue tracker once the database becomes available', async () => {
+    const { rerender } = render(<RootLayoutContent />);
+
+    currentDb = {
+      query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
+    };
+
+    rerender(<RootLayoutContent />);
 
     await waitFor(() =>
       expect(screen.getByTestId('embedding-job-queue-tracker')).toBeInTheDocument()

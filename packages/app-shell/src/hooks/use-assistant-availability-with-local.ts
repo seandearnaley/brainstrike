@@ -1,3 +1,5 @@
+import { LocalLlmBackend } from '@brainstrike/agent/local-llm';
+import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { hasEnabledLocalLlmModels } from '@brainstrike/preferences/models/local-model-utils';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useMemo } from 'react';
@@ -22,9 +24,12 @@ export function useAssistantAvailabilityWithLocal(
   fetcher?: AssistantStatusFetcher
 ): AssistantAvailabilityStatus {
   const serverStatus = useAssistantAvailability(fetcher);
-  const { models, hasLoaded } = useModelRegistryStore();
+  const { models, hasLoaded, error } = useModelRegistryStore();
 
   const hasLocalModels = useMemo(() => hasEnabledLocalLlmModels(models), [models]);
+  const canRunLocalGemma = useMemo(() => LocalLlmBackend.getBestDevice() === 'webgpu', []);
+  const shouldCheckLocalAvailability = serverStatus.state !== 'enabled' && canRunLocalGemma;
+  useEnsureModelRegistry({ enabled: shouldCheckLocalAvailability });
 
   // If server says enabled, use that immediately (hosted providers work)
   if (serverStatus.state === 'enabled') {
@@ -33,7 +38,7 @@ export function useAssistantAvailabilityWithLocal(
 
   // If model registry has loaded and has local models, enable
   // This overrides a 'disabled' server status when browser-based models are available
-  if (hasLoaded && hasLocalModels) {
+  if (hasLoaded && hasLocalModels && canRunLocalGemma) {
     return { state: 'enabled' };
   }
 
@@ -42,7 +47,13 @@ export function useAssistantAvailabilityWithLocal(
     return { state: 'loading' };
   }
 
-  // Server is disabled and either no local models or not loaded yet
-  // Show disabled status immediately - will reactively update if local models become available
+  // Keep resolving local availability before treating a missing hosted key as a hard disable.
+  if (serverStatus.state === 'disabled' && shouldCheckLocalAvailability && !hasLoaded && !error) {
+    return { state: 'loading' };
+  }
+
+  // At this point hosted status is disabled and local inference is either unavailable
+  // on this device or fully resolved as unavailable in the registry, so preserve the
+  // original disabled reason from the hosted status check.
   return serverStatus;
 }

@@ -10,6 +10,10 @@ const APP_STATE_KEYS = [
   'collection-browser.v1',
   'database-demo.v2',
   'import-settings.v1',
+  'background-indexing-preferences.v1',
+  'vector-status-ui.v1',
+  'vector-preferences.v1',
+  'brainstrike.activeEmbeddingSetId',
   'token-preferences.v1',
 ] as const;
 

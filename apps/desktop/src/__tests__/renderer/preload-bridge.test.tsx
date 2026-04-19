@@ -15,4 +15,14 @@ describe('preload bridge APIs', () => {
     expect(window.agent).toBeDefined();
     expect(typeof window.agent.chat).toBe('function');
   });
+
+  it('exposes window.llmHost with lifecycle methods', () => {
+    expect(window.llmHost).toBeDefined();
+    expect(typeof window.llmHost.ensureStarted).toBe('function');
+    expect(typeof window.llmHost.getStatus).toBe('function');
+    expect(typeof window.llmHost.stop).toBe('function');
+    expect(typeof window.llmHost.reset).toBe('function');
+    expect(typeof window.llmHost.onProgress).toBe('function');
+    expect(typeof window.llmHost.reportProgress).toBe('function');
+  });
 });

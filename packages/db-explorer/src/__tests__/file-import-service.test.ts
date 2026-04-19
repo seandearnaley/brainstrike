@@ -8,6 +8,7 @@ import { FileImportError } from '../file-import/file-import-errors';
 const {
   mockBulkImport,
   mockReadFile,
+  mockGetFileHandle,
   mockDecodeFileSelection,
   mockFindNodeByPath,
   mockGetFileExtension,
@@ -18,6 +19,7 @@ const {
 } = vi.hoisted(() => ({
   mockBulkImport: vi.fn(),
   mockReadFile: vi.fn(),
+  mockGetFileHandle: vi.fn(),
   mockDecodeFileSelection: vi.fn(),
   mockFindNodeByPath: vi.fn(),
   mockGetFileExtension: vi.fn(),
@@ -49,6 +51,9 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
     fileSystemAdapter: {
       readFile: mockReadFile,
+      getHandleCache: () => ({
+        getFileHandle: mockGetFileHandle,
+      }),
     },
   }),
 }));
@@ -80,6 +85,8 @@ describe('useFileImportService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockBulkImport.mockResolvedValue([{ id: '1', imported: true, existed: false }]);
+    mockGetFileHandle.mockReset();
+    mockGetFileHandle.mockResolvedValue(null);
     mockDecodeFileSelection.mockReturnValue({
       folderId: 'test-folder',
       path: '/test/path',
@@ -374,6 +381,42 @@ describe('useFileImportService', () => {
           error: 'No valid files to import',
         },
       ]);
+    });
+
+    it('imports selected files through the adapter when the lazy tree has not materialized them', async () => {
+      mockFindNodeByPath.mockReturnValue(null);
+      const fileHandle = {
+        kind: 'file',
+        name: 'path',
+        getFile: vi.fn().mockResolvedValue({
+          name: 'path',
+          size: 'file content from cached handle'.length,
+          async text() {
+            return 'file content from cached handle';
+          },
+        } as unknown as File),
+      } as unknown as FileSystemFileHandle;
+      mockGetFileHandle.mockResolvedValue(fileHandle);
+      mockReadFile.mockResolvedValue('file content from cached handle');
+
+      const { result } = renderHook(() => useFileImportService());
+
+      await act(async () => {
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {});
+      });
+
+      expect(mockGetFileHandle).toHaveBeenCalledWith('test-folder', '/test/path');
+      expect(mockBulkImport).toHaveBeenCalledWith(
+        [
+          expect.objectContaining({
+            path: '/test/path',
+            name: 'path',
+            content: 'file content from cached handle',
+            size: 'file content from cached handle'.length,
+          }),
+        ],
+        expect.any(Function)
+      );
     });
   });
 });

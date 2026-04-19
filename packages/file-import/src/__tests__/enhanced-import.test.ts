@@ -445,4 +445,66 @@ describe('runEnhancedImport', () => {
       )
     ).toBe(false);
   });
+
+  it('rejects immediately when the import signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      runEnhancedImport({
+        abortSignal: controller.signal,
+        request: {
+          selectedFilePaths: new Set(['1']),
+          fileTree: [],
+          fileContents: {},
+        },
+        baseImportRunner: vi.fn(),
+        chunking: {
+          enabled: false,
+          deps: { repository: {} as never, chunkRepository: {} as never },
+        },
+        progressHandlers: {
+          update: (updater) => updater(null),
+        },
+      })
+    ).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('passes the abort signal into chunking options', async () => {
+    const controller = new AbortController();
+    const chunkingImpl = vi.fn().mockResolvedValue([
+      {
+        id: '1',
+        imported: true,
+        existed: false,
+        chunksCreated: 1,
+      } satisfies EnhancedImportResult,
+    ]);
+
+    await runEnhancedImport({
+      abortSignal: controller.signal,
+      request: {
+        selectedFilePaths: new Set(['1']),
+        fileTree: [],
+        fileContents: {},
+      },
+      baseImportRunner: createBaseRunner([
+        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+      ]),
+      chunking: {
+        enabled: true,
+        deps: { repository: {} as never, chunkRepository: {} as never },
+      },
+      progressHandlers: {
+        update: (updater) => updater(null),
+      },
+      processChunkingImpl: chunkingImpl,
+    });
+
+    expect(chunkingImpl.mock.calls[0]?.[2]).toEqual(
+      expect.objectContaining({
+        abortSignal: controller.signal,
+      })
+    );
+  });
 });

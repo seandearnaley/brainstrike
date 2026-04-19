@@ -19,6 +19,8 @@ function createWindowWithWebContents(sender: {
 const {
   handlers,
   mockDb,
+  applyManagedCacheBatchMock,
+  parseManagedCacheBatchArgsMock,
   getDatabaseMock,
   loggerWarn,
   loggerDebug,
@@ -43,6 +45,28 @@ const {
       incrementalQuery: vi.fn(),
     },
   };
+  const applyManagedCacheBatchMock = vi.fn(async () => undefined);
+  const parseManagedCacheBatchArgsMock = vi.fn((payload: unknown) => {
+    if (
+      !(
+        payload &&
+        typeof payload === 'object' &&
+        'embeddingSetId' in payload &&
+        'changes' in payload
+      )
+    ) {
+      throw new Error('Invalid managed cache batch payload.');
+    }
+    const candidate = payload as { changes?: unknown; embeddingSetId?: unknown };
+    if (
+      typeof candidate.embeddingSetId !== 'string' ||
+      candidate.embeddingSetId.length === 0 ||
+      !Array.isArray(candidate.changes)
+    ) {
+      throw new Error('Invalid managed cache batch payload.');
+    }
+    return payload;
+  });
   const getDatabaseMock = vi.fn(() => mockDb);
   const loggerWarn = vi.fn();
   const loggerDebug = vi.fn();
@@ -99,6 +123,8 @@ const {
   return {
     handlers,
     mockDb,
+    applyManagedCacheBatchMock,
+    parseManagedCacheBatchArgsMock,
     getDatabaseMock,
     loggerWarn,
     loggerDebug,
@@ -112,6 +138,15 @@ const {
     embeddingHostResetMock,
     embeddingHostStopMock,
     embeddingHostDestroyAndRestartMock,
+  };
+});
+
+vi.mock('@brainstrike/db', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/db')>('@brainstrike/db');
+  return {
+    ...actual,
+    applyManagedCacheBatch: applyManagedCacheBatchMock,
+    parseManagedCacheBatchArgs: parseManagedCacheBatchArgsMock,
   };
 });
 
@@ -249,8 +284,10 @@ vi.mock('electron-store', () => {
 import '../../main';
 
 describe('database IPC handlers', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    const { setBackgrounded } = await import('../../ipc-handlers');
+    setBackgrounded(false);
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_CHECK_INTERVAL_MS');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE');
@@ -327,6 +364,65 @@ describe('database IPC handlers', () => {
     await expect(handler?.({} as unknown, 'BAD')).rejects.toThrow(err);
   });
 
+  it('db:managed-cache:apply-batch validates payload and delegates to the shared batch helper', async () => {
+    const handler = handlers.get('db:managed-cache:apply-batch');
+    const payload = {
+      embeddingSetId: 'set-1',
+      changes: [
+        {
+          mode: 'replace',
+          record: {
+            id: 'file-1',
+            name: 'index.ts',
+            path: 'src/index.ts',
+            size: 10,
+            sourceRootPath: '/workspace/root',
+            updatedAt: '2026-04-15T00:00:00.000Z',
+            processedAt: '2026-04-15T00:00:00.000Z',
+            content: 'export const value = 2;',
+            contentHash: 'hash-2',
+            tokenCount: 5,
+          },
+        },
+      ],
+    };
+
+    await handler?.({} as unknown, payload);
+
+    expect(getDatabaseMock).toHaveBeenCalled();
+    expect(applyManagedCacheBatchMock).toHaveBeenCalledWith(mockDb, payload);
+  });
+
+  it('db:managed-cache:apply-batch rejects invalid payloads before touching the database', async () => {
+    const handler = handlers.get('db:managed-cache:apply-batch');
+    isCorruptionErrorMock.mockReturnValueOnce(true);
+
+    await expect(
+      handler?.({} as unknown, {
+        embeddingSetId: '',
+        changes: 'invalid',
+      })
+    ).rejects.toThrow();
+
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+    expect(applyManagedCacheBatchMock).not.toHaveBeenCalled();
+    expect(isCorruptionErrorMock).not.toHaveBeenCalled();
+    expect(handleRuntimeCorruptionMock).not.toHaveBeenCalled();
+  });
+
+  it('db:managed-cache:apply-batch accepts empty change arrays as a no-op payload', async () => {
+    const handler = handlers.get('db:managed-cache:apply-batch');
+    const payload = {
+      embeddingSetId: 'set-1',
+      changes: [],
+    };
+
+    await handler?.({} as unknown, payload);
+
+    expect(getDatabaseMock).toHaveBeenCalled();
+    expect(applyManagedCacheBatchMock).toHaveBeenCalledWith(mockDb, payload);
+  });
+
   it('embedding-host:enqueue-backfill runs backfill in main and streams progress', async () => {
     const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
     if (!handler) {
@@ -390,10 +486,7 @@ describe('database IPC handlers', () => {
       total: 450,
     });
     expect(result).toEqual({
-      queued: 450,
-      running: 0,
-      failed: 0,
-      succeeded: 0,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
   });
 
@@ -447,10 +540,7 @@ describe('database IPC handlers', () => {
     );
 
     await expect(handler({ sender } as unknown, 'set-123')).resolves.toEqual({
-      queued: 450,
-      running: 0,
-      failed: 0,
-      succeeded: 0,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
     expect(sender.send).not.toHaveBeenCalled();
   });
@@ -483,10 +573,7 @@ describe('database IPC handlers', () => {
     expect(embeddingHostStopMock).not.toHaveBeenCalled();
     expect(embeddingHostDestroyAndRestartMock).not.toHaveBeenCalled();
     expect(result).toEqual({
-      queued: 8,
-      running: 0,
-      failed: 0,
-      succeeded: 8,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
   });
 
@@ -602,10 +689,7 @@ describe('database IPC handlers', () => {
     });
 
     await expect(handler({ sender } as unknown, 'set-123')).resolves.toEqual({
-      queued: 1,
-      running: 0,
-      failed: 0,
-      succeeded: 1,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
   });
 
@@ -646,10 +730,7 @@ describe('database IPC handlers', () => {
     );
 
     await expect(handler({ sender } as unknown, 'set-123')).resolves.toEqual({
-      queued: 2,
-      running: 0,
-      failed: 0,
-      succeeded: 2,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
     expect(embeddingHostResetMock).toHaveBeenCalledTimes(1);
     expect(embeddingHostStopMock).not.toHaveBeenCalled();
@@ -688,10 +769,7 @@ describe('database IPC handlers', () => {
     );
 
     await expect(handler({ sender } as unknown, 'set-123')).resolves.toEqual({
-      queued: 1,
-      running: 0,
-      failed: 0,
-      succeeded: 1,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
     expect(embeddingHostResetMock).not.toHaveBeenCalled();
     expect(embeddingHostStopMock).not.toHaveBeenCalled();
@@ -735,12 +813,9 @@ describe('database IPC handlers', () => {
       }
     );
 
-    await expect(backfillHandler({ sender } as unknown, 'set-123')).resolves.toEqual({
-      queued: 0,
-      running: 0,
-      failed: 0,
-      succeeded: 0,
-    });
+    await expect(backfillHandler({ sender } as unknown, 'set-123')).rejects.toThrow(
+      'Embedding backfill was canceled.'
+    );
   });
 
   it('embedding-host:enqueue-backfill treats reset maintenance interruption as planned', async () => {
@@ -816,10 +891,7 @@ describe('database IPC handlers', () => {
     );
 
     await expect(handler({ sender } as unknown, 'set-123')).resolves.toEqual({
-      queued: 2,
-      running: 0,
-      failed: 0,
-      succeeded: 2,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
     expect(embeddingHostResetMock).toHaveBeenCalledTimes(1);
   });
@@ -907,10 +979,7 @@ describe('database IPC handlers', () => {
 
     expect(sender.send).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
-      queued: 450,
-      running: 0,
-      failed: 0,
-      succeeded: 0,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
   });
 
@@ -1009,17 +1078,11 @@ describe('database IPC handlers', () => {
     const second = handler({ sender } as unknown, 'set-b');
 
     await expect(second).resolves.toEqual({
-      failed: 0,
-      queued: 450,
-      running: 0,
-      succeeded: 0,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
     resolveFirstBackfill?.();
     await expect(first).resolves.toEqual({
-      failed: 0,
-      queued: 450,
-      running: 0,
-      succeeded: 0,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
   });
 

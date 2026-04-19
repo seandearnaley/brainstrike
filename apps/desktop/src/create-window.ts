@@ -2,6 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app, BrowserWindow } from 'electron';
+import {
+  type DesktopRendererLaunchMode,
+  resolveDesktopRendererLaunchMode,
+} from './desktop-launch-mode';
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import type { DesktopWindowState } from './store-schema';
 import { assignWindowRole, getWindowRole } from './window-role';
@@ -85,7 +89,7 @@ async function connectToDevServer(win: BrowserWindow) {
       const attemptStart = Date.now();
       // CRITICAL: Keep dev renderer URL deterministic.
       // Probing multiple ports caused hidden startup slowdowns and non-deterministic
-      // behavior when another process occupied 8081 and Vite auto-shifted ports.
+      // behavior when another local dev server occupied the expected renderer port.
       startupLogger.info(
         { attempt, url: DESKTOP_DEV_RENDERER_URL },
         'Attempting to connect desktop renderer'
@@ -127,12 +131,14 @@ export function noteNextWindowReload(win: BrowserWindow, metadata: WindowReloadM
  */
 interface LoadRendererOptions {
   isTestMode: boolean;
+  launchMode?: DesktopRendererLaunchMode;
 }
 
 async function loadRenderer(win: BrowserWindow, options: LoadRendererOptions) {
   const distRoot = resolveDistRoot();
   const rendererPath = path.join(distRoot, 'renderer/index.html');
   const hasBuiltRenderer = fs.existsSync(rendererPath);
+  const launchMode = options.launchMode ?? 'built';
 
   startupLogger.debug(
     {
@@ -144,7 +150,7 @@ async function loadRenderer(win: BrowserWindow, options: LoadRendererOptions) {
     'Loading renderer'
   );
 
-  if (app.isPackaged || options.isTestMode) {
+  if (launchMode === 'built' || launchMode === 'test-built') {
     if (!hasBuiltRenderer) {
       throw new Error(
         `Built renderer is required in packaged/test mode but was not found at ${rendererPath}`
@@ -154,6 +160,10 @@ async function loadRenderer(win: BrowserWindow, options: LoadRendererOptions) {
     startupLogger.debug('Loading built renderer file');
     loadProductionRenderer(win, rendererPath);
     return;
+  }
+
+  if (launchMode !== 'dev-server') {
+    throw new Error(`Unsupported renderer launch mode "${launchMode}".`);
   }
 
   try {
@@ -198,6 +208,11 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     );
   };
   const isTestMode = process.env['CI'] === 'true' || process.argv.includes('--test-mode');
+  const launchMode = resolveDesktopRendererLaunchMode({
+    argv: process.argv,
+    isPackaged: app.isPackaged,
+    isTestMode,
+  });
   const resolvedWindowState = ensureWindowBoundsVisible(
     resolveInitialWindowState(options.windowState)
   );
@@ -454,7 +469,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
 
   configureSecurity(win);
   logStartupPhase('loading-renderer');
-  await loadRenderer(win, { isTestMode });
+  await loadRenderer(win, { isTestMode, launchMode });
   logStartupPhase('renderer-load-invocation-returned');
 
   // Show only after the target renderer has loaded.

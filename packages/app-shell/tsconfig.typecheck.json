@@ -24,6 +24,12 @@
       "@brainstrike/db/*": [
         "../db/src/*"
       ],
+      "@brainstrike/agent": [
+        "../agent/src/index.ts"
+      ],
+      "@brainstrike/agent/*": [
+        "../agent/src/*"
+      ],
       "@brainstrike/embeddings": [
         "../embeddings/src/index.ts"
       ],
@@ -72,6 +78,12 @@
       "@brainstrike/file-explorer-ui": [
         "../file-explorer-ui/src/index.ts"
       ],
+      "@brainstrike/ui": [
+        "../ui/src/index.ts"
+      ],
+      "@brainstrike/ui/*": [
+        "../ui/src/*"
+      ],
       "@brainstrike/storage": [
         "../storage/src/index.ts"
       ],
@@ -100,10 +112,10 @@
         "../selection-rules/src/*"
       ],
       "@brainstrike/workers": [
-        "../workers/src/index.ts"
+        "../workers"
       ],
       "@brainstrike/workers/*": [
-        "../workers/src/*"
+        "../workers/*"
       ]
     },
     "types": [
@@ -114,6 +126,7 @@
   },
   "include": [
     "src/**/*",
+    "../ui/src/vite-env.d.ts",
     "../file-explorer-ui/src/types/**/*.d.ts",
     "../file-import/src/types/**/*.d.ts",
     "../token-cache/src/types/**/*.d.ts",

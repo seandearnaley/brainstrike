@@ -31,6 +31,12 @@ interface BrowserQueuePortOptions {
 const logger = createLogger('FileImport:BrowserQueuePort');
 const HASHER = 'sha256';
 
+function createAbortError(): Error {
+  const error = new Error('Embedding queue scheduling was aborted.');
+  error.name = 'AbortError';
+  return error;
+}
+
 interface ProgressTrackerState {
   failed: number;
   lastError: string | null;
@@ -158,6 +164,9 @@ export function createBrowserEmbeddingQueuePort({
       progressTracker.reset();
     },
     async enqueueBatch(chunks, _fileRecordId, options) {
+      if (options?.signal?.aborted) {
+        throw createAbortError();
+      }
       const model = options?.model ?? null;
       if (!model) {
         logger.warn('Embedding queue requested without a target model', {
@@ -194,6 +203,7 @@ export function createBrowserEmbeddingQueuePort({
         targetDimension,
         dimensionParameter,
         provider,
+        signal: options?.signal ?? null,
       });
     },
   };
@@ -357,6 +367,7 @@ interface ScheduleBatchContext {
   model: string;
   provider: EmbeddingProviderType | null;
   repository: ChunkRepository;
+  signal: AbortSignal | null;
   targetDimension: number;
   targetEmbeddingSetId: string | null;
 }
@@ -367,6 +378,9 @@ function scheduleChunksBatch(
   context: ScheduleBatchContext
 ): void {
   for (const chunk of chunks) {
+    if (context.signal?.aborted) {
+      throw createAbortError();
+    }
     const args: ScheduleChunkArgs = {
       chunk,
       model: context.model,

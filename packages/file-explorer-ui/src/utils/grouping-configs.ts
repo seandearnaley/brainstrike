@@ -1,5 +1,5 @@
 import { defaultCollator } from './file-node-collator';
-import { getDirPathForGrouping } from './path-display';
+import { getDirPathForGrouping, getRootFolderDisplayName } from './path-display';
 
 // Grouping system types
 export type GroupKey = string | number;
@@ -23,6 +23,7 @@ export const TOKEN_THRESHOLDS = {
 } as const;
 
 export interface GroupConfig<T = unknown> {
+  getGroupLabel?: (groupKey: GroupKey) => string;
   groupBy: GroupFunction<T> | GroupBandFunction<T>;
   id: string;
   label: string;
@@ -86,6 +87,7 @@ export const GROUPING_CONFIGS = {
     id: 'rootFolder',
     label: 'By Root Folder',
     groupBy: (item: TableRowData) => item.rootFolderId,
+    getGroupLabel: (groupKey: GroupKey) => getRootFolderDisplayName(String(groupKey)),
     sortGroups: (a: GroupKey, b: GroupKey) => groupingCollator.compare(String(a), String(b)),
   },
   fileType: {
@@ -194,7 +196,7 @@ export function groupData<T extends { tokens?: number; size?: number }>(
 
   const result: GroupedData<T>[] = Array.from(groups.entries()).map(([groupKey, items]) => ({
     groupKey,
-    groupLabel: String(groupKey),
+    groupLabel: config.getGroupLabel ? config.getGroupLabel(groupKey) : String(groupKey),
     items,
     count: items.length,
     totalTokens: items.reduce((sum, item) => sum + (item.tokens || 0), 0),

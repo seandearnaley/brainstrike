@@ -14,7 +14,10 @@ import {
 export interface FileContentProcessor {
   processFiles(
     requests: FileContentRequest[],
-    onProgress?: (event: { key: string; loaded: number; total: number }) => void
+    onProgress?: (event: { key: string; loaded: number; total: number }) => void,
+    options?: {
+      abortSignal?: AbortSignal;
+    }
   ): Promise<Record<string, string>>;
 }
 
@@ -43,6 +46,18 @@ function getConfiguredMaxFileSize(): number {
   return configuredMaxFileSize;
 }
 
+function createAbortError(): Error {
+  const error = new Error('The file content read was aborted.');
+  error.name = 'AbortError';
+  return error;
+}
+
+function throwIfAborted(abortSignal?: AbortSignal): void {
+  if (abortSignal?.aborted) {
+    throw createAbortError();
+  }
+}
+
 /**
  * Worker-based file content processor for production use
  */
@@ -58,15 +73,19 @@ export class WorkerFileContentProcessor implements FileContentProcessor {
 
   async processFiles(
     requests: FileContentRequest[],
-    onProgress?: (event: { key: string; loaded: number; total: number }) => void
+    onProgress?: (event: { key: string; loaded: number; total: number }) => void,
+    options?: {
+      abortSignal?: AbortSignal;
+    }
   ): Promise<Record<string, string>> {
+    throwIfAborted(options?.abortSignal);
     const fileReadRequests: FileReadRequest[] = requests.map((req) => ({
       compositeKey: req.compositeKey,
       handle: this.createFileHandle(req.fileNode, req.fileSystemAdapter),
       path: req.fileNode.path,
     }));
 
-    return this.worker(fileReadRequests, onProgress);
+    return this.worker(fileReadRequests, onProgress, options);
   }
 
   private createFileHandle(fileNode: IFileNode, fileSystemAdapter: FileSystemAdapter): FileHandle {
@@ -98,13 +117,17 @@ export class WorkerFileContentProcessor implements FileContentProcessor {
 export class DirectFileContentProcessor implements FileContentProcessor {
   async processFiles(
     requests: FileContentRequest[],
-    onProgress?: (event: { key: string; loaded: number; total: number }) => void
+    onProgress?: (event: { key: string; loaded: number; total: number }) => void,
+    options?: {
+      abortSignal?: AbortSignal;
+    }
   ): Promise<Record<string, string>> {
     const results: Record<string, string> = {};
     let completed = 0;
     const total = requests.length;
 
     for (const request of requests) {
+      throwIfAborted(options?.abortSignal);
       try {
         const content = await this.processFile(request);
         results[request.compositeKey] = content;
@@ -116,6 +139,8 @@ export class DirectFileContentProcessor implements FileContentProcessor {
       completed++;
       onProgress?.({ key: request.compositeKey, loaded: completed, total });
     }
+
+    throwIfAborted(options?.abortSignal);
 
     return results;
   }

@@ -17,16 +17,14 @@ const fsMocks = vi.hoisted(() => ({
   writeFileSync: vi.fn(),
 }));
 
-function applyFsMock() {
-  vi.doMock('node:fs', async (importOriginal) => {
-    const mod = await importOriginal<typeof import('node:fs')>();
-    return {
-      ...mod,
-      ...fsMocks,
-      default: { ...mod.default, ...fsMocks },
-    };
-  });
-}
+vi.mock('node:fs', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...mod,
+    ...fsMocks,
+    default: { ...mod.default, ...fsMocks },
+  };
+});
 
 vi.mock('electron', () => ({
   app: {
@@ -34,13 +32,9 @@ vi.mock('electron', () => ({
   },
 }));
 
-// Mock fs utils to avoid touching real filesystem
-applyFsMock();
-
 describe('db-main coverage helpers', () => {
   beforeEach(() => {
     vi.resetModules();
-    applyFsMock();
     fsMocks.existsSync.mockReturnValue(true);
     fsMocks.mkdirSync.mockReset();
     fsMocks.rmSync.mockReset();
@@ -57,7 +51,6 @@ describe('db-main coverage helpers', () => {
     });
     process.env['NODE_ENV'] = 'test';
     process.env['BRAINSTRIKE_DB_PROFILE'] = '';
-    vi.doMock('@electric-sql/pglite/vector', () => ({ vector: { name: 'vector' } }));
   });
 
   afterEach(() => {
@@ -66,15 +59,7 @@ describe('db-main coverage helpers', () => {
 
   it('fails fast when pgvector extension cannot be loaded', async () => {
     vi.doMock('@electric-sql/pglite/vector', () => {
-      const moduleRecord: Record<string, unknown> = {};
-      Object.defineProperty(moduleRecord, 'vector', {
-        configurable: true,
-        enumerable: true,
-        get() {
-          throw new Error('vector module missing');
-        },
-      });
-      return moduleRecord;
+      throw new Error('vector module missing');
     });
     const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
     await expect(initializeMainDatabase()).rejects.toThrow(/pgvector extension is required/i);

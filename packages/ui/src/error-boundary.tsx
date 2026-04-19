@@ -42,7 +42,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 
   protected handleReload = async () => {
-    const currentWindow = window as Window & {
+    const currentWindow = window as unknown as Window & {
       desktopLifecycle?: { noteReloadIntent: (reason: string) => Promise<void> };
     };
     await currentWindow.desktopLifecycle?.noteReloadIntent('error-boundary-reload');

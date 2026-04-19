@@ -1,3 +1,4 @@
+import type { DirectoryHandle } from '@brainstrike/file-system';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { screen } from '@testing-library/react';
@@ -14,9 +15,8 @@ const renderWithProviders = makeRenderWithProviders(Wrapper);
 function getProps(overrides: Partial<React.ComponentProps<typeof FileExplorerToolbar>> = {}) {
   return {
     onDirectorySelect: vi.fn().mockResolvedValue(undefined),
-    onFilterChange: vi.fn(),
-    filterError: null,
     isLoading: false,
+    rootDirectoryHandle: null,
     ...overrides,
   };
 }
@@ -46,5 +46,18 @@ describe('FileExplorerToolbar', () => {
     renderWithProviders(<FileExplorerToolbar {...props} />);
     await user.click(screen.getByRole('button', { name: FileExplorerStrings.selectRoot }));
     expect(props.onDirectorySelect).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the active folder badge in the toolbar when a root handle exists', () => {
+    const rootDirectoryHandle: DirectoryHandle = {
+      path: '/root',
+      name: 'root',
+      kind: 'directory',
+      platform: 'web',
+    };
+
+    renderWithProviders(<FileExplorerToolbar {...getProps({ rootDirectoryHandle })} />);
+
+    expect(screen.getByText('root')).toBeInTheDocument();
   });
 });

@@ -34,6 +34,26 @@ interface FileImportServiceReturn {
   progress: ImportProgress | null;
 }
 
+interface FileHandleLookup {
+  getFileHandle: (folderId: string, relativePath: string) => Promise<FileSystemFileHandle | null>;
+}
+
+interface AdapterWithHandleCache extends FileSystemAdapter {
+  getHandleCache: () => FileHandleLookup;
+}
+
+interface AdapterWithReadFileByPath extends FileSystemAdapter {
+  readFileByPath: (absolutePath: string) => Promise<string>;
+}
+
+function hasHandleCache(adapter: FileSystemAdapter): adapter is AdapterWithHandleCache {
+  return typeof (adapter as Partial<AdapterWithHandleCache>).getHandleCache === 'function';
+}
+
+function hasReadFileByPath(adapter: FileSystemAdapter): adapter is AdapterWithReadFileByPath {
+  return typeof (adapter as Partial<AdapterWithReadFileByPath>).readFileByPath === 'function';
+}
+
 function createFileSystemPort(adapter: FileSystemAdapter | null): FileSystemPort | null {
   if (!adapter) {
     return null;
@@ -49,6 +69,45 @@ function createFileSystemPort(adapter: FileSystemAdapter | null): FileSystemPort
         platform,
         _internal: node.handle,
       });
+    },
+    async readFileBySelection(folderId, path) {
+      const name = path.split('/').pop() ?? 'unknown';
+
+      if (hasReadFileByPath(adapter)) {
+        const content = await adapter.readFileByPath(path);
+        return {
+          content,
+          name,
+          path,
+          size: content.length,
+        };
+      }
+
+      if (!hasHandleCache(adapter)) {
+        return null;
+      }
+
+      const fileHandle = await adapter.getHandleCache().getFileHandle(folderId, path);
+      if (!fileHandle) {
+        return null;
+      }
+
+      const file = await fileHandle.getFile();
+      const content = await adapter.readFile({
+        path,
+        name,
+        kind: 'file',
+        platform: 'web',
+        rootFolderId: folderId,
+        _internal: fileHandle,
+      });
+
+      return {
+        content,
+        name,
+        path,
+        size: file.size,
+      };
     },
   };
 }

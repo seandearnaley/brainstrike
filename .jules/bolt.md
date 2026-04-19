@@ -33,3 +33,7 @@
 ## 2026-03-31 - GC optimization in recursive tree traversal
 **Learning:** Using array spread syntax (`[...ancestors, node.id]`) during deep or wide recursive tree traversal (e.g., in `filterTreeNodes`) creates excessive intermediate arrays, increasing GC pressure and slowing down performance significantly.
 **Action:** Replace spread syntax with mutable array operations (`ancestors.push(node.id)` and `ancestors.pop()`) when passing tracking arrays down a recursive stack to minimize allocations and improve traversal speed.
+
+## 2026-03-31 - [Optimize buildNodeFromPath]
+**Learning:** When calculating node depth and relative name inside high-frequency file-tree mapping functions, avoid using `path.replace().split('/').filter(Boolean)`. This creates a regex evaluation, intermediate array and multiple strings for every node processed, causing severe garbage collection overhead when traversing large repos.
+**Action:** Extract depth calculation by manually counting '/' character occurrences and last string segment slicing inside hot loops. Native character iteration and slicing are allocation-free beyond the final target string.

@@ -20,6 +20,58 @@ export interface ToolFilterConfig {
   enabledTools?: string[];
 }
 
+// Shared across ToolRegistry instances on purpose so repeated pattern matching reuses the
+// same compiled regexes, even though the app currently relies on the singleton export.
+const TOOL_PATTERN_CACHE = new Map<string, RegExp>();
+const TOOL_PATTERN_CACHE_LIMIT = 256;
+
+function matchToolPattern(toolId: string, pattern: string): boolean {
+  if (pattern === '*' || pattern === toolId) {
+    return true;
+  }
+
+  let regex = TOOL_PATTERN_CACHE.get(pattern);
+  if (!regex) {
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    const regexPattern = escaped.replace(/\*/g, '.*').replace(/\?/g, '.');
+    regex = new RegExp(`^${regexPattern}$`);
+    if (TOOL_PATTERN_CACHE.size >= TOOL_PATTERN_CACHE_LIMIT) {
+      const oldestPattern = TOOL_PATTERN_CACHE.keys().next().value;
+      if (oldestPattern !== undefined) {
+        TOOL_PATTERN_CACHE.delete(oldestPattern);
+      }
+    }
+    TOOL_PATTERN_CACHE.set(pattern, regex);
+  }
+
+  return regex.test(toolId);
+}
+
+export function isToolEnabledByFilterConfig(
+  toolId: string,
+  filterConfig?: ToolFilterConfig
+): boolean {
+  if (!filterConfig?.enabledTools) {
+    return true;
+  }
+
+  const { enabledTools } = filterConfig;
+
+  if (
+    enabledTools.some(
+      (pattern) => pattern.startsWith('!') && matchToolPattern(toolId, pattern.slice(1))
+    )
+  ) {
+    return false;
+  }
+
+  if (enabledTools.includes('*')) {
+    return true;
+  }
+
+  return enabledTools.some((pattern) => matchToolPattern(toolId, pattern));
+}
+
 /**
  * Registry for tracking MCP tools discovered from servers.
  * Manages tool metadata, enabled/disabled state, and filtering.
@@ -98,6 +150,10 @@ export class ToolRegistry {
     return Array.from(toolIds)
       .map((id) => this.tools.get(id))
       .filter((tool): tool is McpToolMetadata => tool !== undefined);
+  }
+
+  getTool(toolId: string): McpToolMetadata | undefined {
+    return this.tools.get(toolId);
   }
 
   /**
@@ -184,6 +240,7 @@ export class ToolRegistry {
   clear(): void {
     this.tools.clear();
     this.toolsByServer.clear();
+    TOOL_PATTERN_CACHE.clear();
     logger.info('registry cleared', { code: 'registry_cleared' });
     this.notifyListeners();
   }
@@ -229,49 +286,7 @@ export class ToolRegistry {
   }
 
   private isToolEnabledByDefault(toolId: string, filterConfig?: ToolFilterConfig): boolean {
-    if (!filterConfig?.enabledTools) {
-      return true; // All tools enabled by default
-    }
-
-    const { enabledTools } = filterConfig;
-
-    // Check for explicit exclusions first (higher priority)
-    if (
-      enabledTools.some(
-        (pattern) => pattern.startsWith('!') && this.matchPattern(toolId, pattern.slice(1))
-      )
-    ) {
-      return false;
-    }
-
-    // Check for explicit inclusions or wildcard
-    if (enabledTools.includes('*')) {
-      return true;
-    }
-
-    return enabledTools.some((pattern) => this.matchPattern(toolId, pattern));
-  }
-
-  private static readonly patternCache = new Map<string, RegExp>();
-
-  private matchPattern(toolId: string, pattern: string): boolean {
-    if (pattern === '*') {
-      return true;
-    }
-    if (pattern === toolId) {
-      return true;
-    }
-
-    let regex = ToolRegistry.patternCache.get(pattern);
-    if (!regex) {
-      // Escape regex metacharacters before converting glob wildcards
-      const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-      const regexPattern = escaped.replace(/\*/g, '.*').replace(/\?/g, '.');
-      regex = new RegExp(`^${regexPattern}$`);
-      ToolRegistry.patternCache.set(pattern, regex);
-    }
-
-    return regex.test(toolId);
+    return isToolEnabledByFilterConfig(toolId, filterConfig);
   }
 
   private notifyListeners(): void {

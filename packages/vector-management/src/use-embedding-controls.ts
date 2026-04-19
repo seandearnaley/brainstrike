@@ -1,16 +1,14 @@
-import { JobQueue, usePGliteDatabase, useVectorEnabled } from '@brainstrike/db';
-import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
+import { usePGliteDatabase, useVectorEnabled } from '@brainstrike/db';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 // Import types to ensure global Window augmentation is available
 import '@brainstrike/types';
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import type { EmbeddingActionsDropdownProps } from './embedding-actions-dropdown';
+import { useSharedEmbeddingRuntime } from './embedding-runtime-provider';
 import type { EmbeddingStatusBarProps } from './embedding-status-bar';
 import { getBackfillDisabledState } from './vector-status/backfill-utils';
-import { useEmbeddingRuntimeController } from './vector-status/embedding-runtime-controller';
 import { useEmbeddingWorkerControls } from './vector-status/use-embedding-worker-controls';
 import { useVectorQueueState } from './vector-status/use-vector-queue-state';
-import { createVectorQueueService } from './vector-status/vector-queue-service';
 
 export interface UseEmbeddingControlsOptions {
   /** Chunk repository with coverage methods */
@@ -95,7 +93,6 @@ function getWorkerStatus(
  * ```
  */
 export function useEmbeddingControls({
-  chunkRepository,
   toast,
 }: UseEmbeddingControlsOptions): UseEmbeddingControlsResult {
   const db = usePGliteDatabase();
@@ -105,29 +102,7 @@ export function useEmbeddingControls({
   const activeId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
   const isImporting = useVectorStatusUIStore((s) => s.isImporting);
   const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
-
-  // Get device preferences
-  const devicePref = useVectorPreferencesStore((s) => s.devicePref);
-  const reinitEveryN = useVectorPreferencesStore((s) => s.reinitEveryN);
-
-  // Create vector queue service
-  const service = useMemo(() => {
-    if (!(db && chunkRepository)) {
-      return null;
-    }
-    return createVectorQueueService({
-      db,
-      jobQueue: new JobQueue(db),
-      chunkRepository,
-    });
-  }, [db, chunkRepository]);
-
-  const runtimeController = useEmbeddingRuntimeController({
-    db,
-    devicePreference: devicePref,
-    reinitEveryN,
-    service,
-  });
+  const { controller: runtimeController, service } = useSharedEmbeddingRuntime();
 
   // Refs for backfill and validation callbacks
   const backfillRef = useRef<() => Promise<void>>(async () => {});

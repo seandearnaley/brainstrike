@@ -1,7 +1,15 @@
 import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
+import { createBrowserProject } from '../config/src/vitest-browser.ts';
+
+const browserProject = createBrowserProject({
+  testPattern: 'src/**/*.browser.test.{ts,tsx}',
+});
 
 export default defineConfig({
+  optimizeDeps: {
+    include: ['@testing-library/jest-dom/vitest'],
+  },
   resolve: {
     alias: [
       {
@@ -59,28 +67,43 @@ export default defineConfig({
     ],
   },
   test: {
-    // Standardize to happy-dom for unit/integration UI tests (2025 baseline)
-    environment: 'happy-dom',
-    globals: true,
-    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
-    include: ['src/__tests__/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.test.{ts,tsx}'],
-    exclude: ['node_modules', 'dist'],
-    pool: 'threads',
-    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
-    maxWorkers: process.env['CI'] ? '50%' : '100%',
-    coverage: {
-      // Only include actual source files (not type declarations or dist)
-      include: ['src/**/*.{ts,tsx}'],
-      // Exclude pure type-definition files and test infrastructure
-      // These contain only TypeScript types with no runtime code to test
-      exclude: [
-        '**/__tests__/**',
-        '**/*.d.ts',
-        '**/types.ts',
-        '**/types/**',
-        '**/dist/**',
-        '**/index.ts', // Re-export files have no logic to test
-      ],
-    },
+    projects: [
+      {
+        test: {
+          name: 'unit',
+          environment: 'happy-dom',
+          globals: true,
+          setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+          include: ['src/__tests__/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.test.{ts,tsx}'],
+          exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
+          pool: 'threads',
+          maxWorkers: process.env['CI'] ? '50%' : '100%',
+          sequence: {
+            groupOrder: 0,
+          },
+          coverage: {
+            include: ['src/**/*.{ts,tsx}'],
+            exclude: [
+              '**/__tests__/**',
+              '**/*.browser.test.{ts,tsx}',
+              '**/*.d.ts',
+              '**/types.ts',
+              '**/types/**',
+              '**/dist/**',
+              '**/index.ts',
+            ],
+          },
+        },
+      },
+      {
+        test: {
+          ...browserProject.test,
+          globals: true,
+          sequence: {
+            groupOrder: 1,
+          },
+        },
+      },
+    ],
   },
 });

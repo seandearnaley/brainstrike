@@ -33,6 +33,9 @@
       "@brainstrike/agent/client": [
         "../../packages/agent/dist/client.d.ts"
       ],
+      "@brainstrike/agent/local-llm": [
+        "../../packages/agent/dist/local-llm.d.ts"
+      ],
       "@brainstrike/storage/electron": [
         "../../packages/storage/dist/electron.d.ts"
       ],

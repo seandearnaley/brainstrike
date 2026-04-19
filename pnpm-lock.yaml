@@ -688,8 +688,8 @@ importers:
         specifier: workspace:*
         version: link:../utils
       '@huggingface/transformers':
-        specifier: ^3.8.1
-        version: 3.8.1
+        specifier: ^4.0.1
+        version: 4.0.1
       '@mastra/core':
         specifier: ^1.7.0
         version: 1.8.0(@cfworker/json-schema@4.1.1)(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@4.3.6))(zod@4.3.6))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@4.3.6))(zod@4.3.6))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod@4.3.6))(@types/json-schema@7.0.15)(openapi-types@12.1.3)(zod@4.3.6)
@@ -733,6 +733,9 @@ importers:
       '@brainstrike/db-explorer':
         specifier: workspace:*
         version: link:../db-explorer
+      '@brainstrike/embeddings':
+        specifier: workspace:*
+        version: link:../embeddings
       '@brainstrike/file-explorer-hooks':
         specifier: workspace:*
         version: link:../file-explorer-hooks
@@ -742,6 +745,9 @@ importers:
       '@brainstrike/file-import':
         specifier: workspace:*
         version: link:../file-import
+      '@brainstrike/file-system':
+        specifier: workspace:*
+        version: link:../file-system
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../preferences
@@ -1053,8 +1059,8 @@ importers:
         specifier: workspace:*
         version: link:../worker-runtime
       '@huggingface/transformers':
-        specifier: ^3.8.1
-        version: 3.8.1
+        specifier: ^4.0.1
+        version: 4.0.1
       workerpool:
         specifier: ^10.0.1
         version: 10.0.1
@@ -1099,8 +1105,8 @@ importers:
         specifier: workspace:*
         version: link:../utils
       '@huggingface/transformers':
-        specifier: ^3.8.1
-        version: 3.8.1
+        specifier: ^4.0.1
+        version: 4.0.1
       glob:
         specifier: ^13.0.6
         version: 13.0.6
@@ -5065,12 +5071,15 @@ packages:
     peerDependencies:
       hono: ^4
 
-  '@huggingface/jinja@0.5.3':
-    resolution: {integrity: sha512-asqfZ4GQS0hD876Uw4qiUb7Tr/V5Q+JZuo2L+BtdrD4U40QU58nIRq3ZSgAzJgT874VLjhGVacaYfrdpXtEvtA==}
+  '@huggingface/jinja@0.5.6':
+    resolution: {integrity: sha512-MyMWyLnjqo+KRJYSH7oWNbsOn5onuIvfXYPcc0WOGxU0eHUV7oAYUoQTl2BMdu7ml+ea/bu11UM+EshbeHwtIA==}
     engines: {node: '>=18'}
 
-  '@huggingface/transformers@3.8.1':
-    resolution: {integrity: sha512-tsTk4zVjImqdqjS8/AOZg2yNLd1z9S5v+7oUPpXaasDRwEDhB+xnglK1k5cad26lL5/ZIaeREgWWy0bs9y9pPA==}
+  '@huggingface/tokenizers@0.1.3':
+    resolution: {integrity: sha512-8rF/RRT10u+kn7YuUbUg0OF30K8rjTc78aHpxT+qJ1uWSqxT1MHi8+9ltwYfkFYJzT/oS+qw3JVfHtNMGAdqyA==}
+
+  '@huggingface/transformers@4.0.1':
+    resolution: {integrity: sha512-tAQYEy+cnW0ku/NxBSjFXCymi+DZa1/JkoGf4McxjzO36CZZIL/J4TF6X7i/tzs75yTjshUDgsvSz03s2xym2A==}
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -8506,6 +8515,10 @@ packages:
   address@1.2.2:
     resolution: {integrity: sha512-4B/qKCfeE/ODUaAUpSwfzazo5x29WD4r3vXiWsB7I2mSDAihwEqKO+g8GELZUQSSAo5e1XTYh3ZVfLyxBc12nA==}
     engines: {node: '>= 10.0.0'}
+
+  adm-zip@0.5.17:
+    resolution: {integrity: sha512-+Ut8d9LLqwEvHHJl1+PIHqoyDxFgVN847JTVM3Izi3xHDWPE4UtzzXysMZQs64DMcrJfBeS/uoEP4AD3HQHnQQ==}
+    engines: {node: '>=12.0'}
 
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
@@ -12615,18 +12628,18 @@ packages:
   oniguruma-to-es@4.3.4:
     resolution: {integrity: sha512-3VhUGN3w2eYxnTzHn+ikMI+fp/96KoRSVK9/kMTcFqj1NRDh2IhQCKvYxDnWePKRXY/AqH+Fuiyb7VHSzBjHfA==}
 
-  onnxruntime-common@1.21.0:
-    resolution: {integrity: sha512-Q632iLLrtCAVOTO65dh2+mNbQir/QNTVBG3h/QdZBpns7mZ0RYbLRBgGABPbpU9351AgYy7SJf1WaeVwMrBFPQ==}
+  onnxruntime-common@1.24.0-dev.20251116-b39e144322:
+    resolution: {integrity: sha512-BOoomdHYmNRL5r4iQ4bMvsl2t0/hzVQ3OM3PHD0gxeXu1PmggqBv3puZicEUVOA3AtHHYmqZtjMj9FOfGrATTw==}
 
-  onnxruntime-common@1.22.0-dev.20250409-89f8206ba4:
-    resolution: {integrity: sha512-vDJMkfCfb0b1A836rgHj+ORuZf4B4+cc2bASQtpeoJLueuFc5DuYwjIZUBrSvx/fO5IrLjLz+oTrB3pcGlhovQ==}
+  onnxruntime-common@1.24.3:
+    resolution: {integrity: sha512-GeuPZO6U/LBJXvwdaqHbuUmoXiEdeCjWi/EG7Y1HNnDwJYuk6WUbNXpF6luSUY8yASul3cmUlLGrCCL1ZgVXqA==}
 
-  onnxruntime-node@1.21.0:
-    resolution: {integrity: sha512-NeaCX6WW2L8cRCSqy3bInlo5ojjQqu2fD3D+9W5qb5irwxhEyWKXeH2vZ8W9r6VxaMPUan+4/7NDwZMtouZxEw==}
+  onnxruntime-node@1.24.3:
+    resolution: {integrity: sha512-JH7+czbc8ALA819vlTgcV+Q214/+VjGeBHDjX81+ZCD0PCVCIFGFNtT0V4sXG/1JXypKPgScQcB3ij/hk3YnTg==}
     os: [win32, darwin, linux]
 
-  onnxruntime-web@1.22.0-dev.20250409-89f8206ba4:
-    resolution: {integrity: sha512-0uS76OPgH0hWCPrFKlL8kYVV7ckM7t/36HfbgoFw6Nd0CZVVbQC4PkrR8mBX8LtNUFZO25IQBqV2Hx2ho3FlbQ==}
+  onnxruntime-web@1.25.0-dev.20260327-722743c0e2:
+    resolution: {integrity: sha512-8PXdZy4Ekhg10CLg+cFFt39b4tFDGMRJB6lGjnQL6eA+2boUQYDymZ0gtxiS+H6oIWoCjQp/ziyirvFbaFKfiw==}
 
   open-ask-ai@0.7.3:
     resolution: {integrity: sha512-UxV0HGds4TEUTKQ4B2Ip2uI0sE4UnKhE8Rj1rjfheOXKKWflpgAMsB+jBbiT648zzUfkuS6MHrMrrF5Ee8RiIA==}
@@ -19202,13 +19215,16 @@ snapshots:
     dependencies:
       hono: 4.12.2
 
-  '@huggingface/jinja@0.5.3': {}
+  '@huggingface/jinja@0.5.6': {}
 
-  '@huggingface/transformers@3.8.1':
+  '@huggingface/tokenizers@0.1.3': {}
+
+  '@huggingface/transformers@4.0.1':
     dependencies:
-      '@huggingface/jinja': 0.5.3
-      onnxruntime-node: 1.21.0
-      onnxruntime-web: 1.22.0-dev.20250409-89f8206ba4
+      '@huggingface/jinja': 0.5.6
+      '@huggingface/tokenizers': 0.1.3
+      onnxruntime-node: 1.24.3
+      onnxruntime-web: 1.25.0-dev.20260327-722743c0e2
       sharp: 0.34.5
 
   '@humanfs/core@0.19.1': {}
@@ -22754,7 +22770,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.15
       tinyrainbow: 3.1.0
-      vitest: 4.1.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.0)(@types/node@25.3.1)(@vitest/browser-playwright@4.1.2)(@vitest/ui@4.1.2)(happy-dom@20.7.0)(jsdom@28.1.0)(vite@8.0.3(@types/node@25.3.1)(esbuild@0.27.4)(jiti@2.6.1)(terser@5.46.0)(tsx@4.21.0))
+      vitest: 4.1.2(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.0)(@types/node@25.3.1)(@vitest/browser-playwright@4.1.2)(@vitest/ui@4.1.2)(happy-dom@20.7.0)(jsdom@28.1.0)(vite@8.0.3(@types/node@25.3.1)(esbuild@0.27.2)(jiti@1.21.7)(terser@5.46.0)(tsx@4.21.0))
 
   '@vitest/utils@4.1.2':
     dependencies:
@@ -22918,6 +22934,8 @@ snapshots:
   acorn@8.16.0: {}
 
   address@1.2.2: {}
+
+  adm-zip@0.5.17: {}
 
   agent-base@7.1.4: {}
 
@@ -27716,22 +27734,22 @@ snapshots:
       regex: 6.1.0
       regex-recursion: 6.0.2
 
-  onnxruntime-common@1.21.0: {}
+  onnxruntime-common@1.24.0-dev.20251116-b39e144322: {}
 
-  onnxruntime-common@1.22.0-dev.20250409-89f8206ba4: {}
+  onnxruntime-common@1.24.3: {}
 
-  onnxruntime-node@1.21.0:
+  onnxruntime-node@1.24.3:
     dependencies:
+      adm-zip: 0.5.17
       global-agent: 3.0.0
-      onnxruntime-common: 1.21.0
-      tar: 7.5.7
+      onnxruntime-common: 1.24.3
 
-  onnxruntime-web@1.22.0-dev.20250409-89f8206ba4:
+  onnxruntime-web@1.25.0-dev.20260327-722743c0e2:
     dependencies:
       flatbuffers: 25.9.23
       guid-typescript: 1.0.9
       long: 5.3.2
-      onnxruntime-common: 1.22.0-dev.20250409-89f8206ba4
+      onnxruntime-common: 1.24.0-dev.20251116-b39e144322
       platform: 1.3.6
       protobufjs: 7.5.4
 
@@ -29725,7 +29743,7 @@ snapshots:
     dependencies:
       '@img/colour': 1.0.0
       detect-libc: 2.1.2
-      semver: 7.7.3
+      semver: 7.7.4
     optionalDependencies:
       '@img/sharp-darwin-arm64': 0.34.5
       '@img/sharp-darwin-x64': 0.34.5

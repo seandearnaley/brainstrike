@@ -145,6 +145,39 @@ describe('TreeTable', () => {
       expect(screen.getByText('Size')).toBeInTheDocument();
     });
 
+    it('supports data-driven cell colSpan and skips covered columns', () => {
+      const columns: TreeTableColumn<TestData>[] = [
+        {
+          id: 'name',
+          header: 'Name',
+          cell: ({ node }) => <span>{node.data.name}</span>,
+          colSpan: ({ node }) => (node.id === '1' ? 2 : 1),
+        },
+        {
+          id: 'size',
+          header: 'Size',
+          cell: () => <span>Size cell</span>,
+        },
+      ];
+
+      render(
+        <TreeTable
+          columns={columns}
+          expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Spanning row'), createTestNode('2', 'Normal row')]}
+          onToggleExpand={() => {}}
+          windowingStrategy="none"
+        />
+      );
+
+      const spanningRow = screen.getByText('Spanning row').closest('tr');
+      const normalRow = screen.getByText('Normal row').closest('tr');
+
+      expect(spanningRow?.querySelectorAll('td')).toHaveLength(1);
+      expect(spanningRow?.querySelector('td')).toHaveAttribute('colspan', '2');
+      expect(normalRow?.querySelectorAll('td')).toHaveLength(2);
+    });
+
     it('applies treegrid role', () => {
       render(
         <TreeTable

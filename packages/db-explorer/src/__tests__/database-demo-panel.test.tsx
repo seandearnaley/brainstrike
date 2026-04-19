@@ -3,9 +3,11 @@ import {
   resetEmbeddingQueueFactory,
 } from '@brainstrike/embeddings/runtime-config';
 import {
+  __resetBackgroundIndexingPreferencesStoreForTests,
   __resetImportSettingsStoreForTests,
   __resetTokenPreferencesStoreForTests,
   __resetVectorStatusUIStoreForTests,
+  useBackgroundIndexingPreferencesStore,
   useVectorStatusUIStore,
 } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
@@ -380,6 +382,7 @@ vi.mock('react-resizable-panels', () => {
 describe('DatabaseDemoPanel', () => {
   beforeEach(() => {
     __resetDatabaseDemoStoreForTests();
+    __resetBackgroundIndexingPreferencesStoreForTests();
     __resetImportSettingsStoreForTests();
     __resetTokenPreferencesStoreForTests();
     __resetVectorStatusUIStoreForTests();
@@ -532,6 +535,24 @@ describe('DatabaseDemoPanel', () => {
   });
 
   describe('File Import', () => {
+    it('disables manual import when the active collection is managed by background indexing', async () => {
+      useBackgroundIndexingPreferencesStore.setState({
+        enabled: true,
+        managedCollectionId: TEST_COLLECTION_ID,
+        mode: 'root-folder-cache',
+        hasHydrated: true,
+      });
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
+      expect(screen.getByText(/manual db imports are disabled/i)).toBeInTheDocument();
+    });
+
     it('attempts to call import function when import button is clicked', async () => {
       const user = userEvent.setup();
       renderWithProviders(<DatabaseDemoPanel />);

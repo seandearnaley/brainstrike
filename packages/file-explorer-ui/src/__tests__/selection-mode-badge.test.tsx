@@ -98,8 +98,56 @@ describe('SelectionModeBadge', () => {
       fireEvent.click(badge);
 
       await waitFor(() => {
-        expect(screen.getByText('Selection Mode')).toBeInTheDocument();
+        expect(screen.getByText('Selection Settings')).toBeInTheDocument();
       });
+    });
+
+    it('schedules focus after opening the popover with requestAnimationFrame', async () => {
+      const requestAnimationFrameSpy = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation((callback: FrameRequestCallback) => {
+          callback(0);
+          return 1;
+        });
+
+      render(
+        <FileExplorerTestWrapper>
+          <SelectionModeBadge maxSelectionCount={100} />
+        </FileExplorerTestWrapper>
+      );
+
+      fireEvent.click(screen.getByTestId('selection-mode-badge'));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+      });
+
+      expect(requestAnimationFrameSpy).toHaveBeenCalled();
+      requestAnimationFrameSpy.mockRestore();
+    });
+
+    it('cancels a pending animation frame when unmounting after open', () => {
+      const cancelAnimationFrameSpy = vi
+        .spyOn(window, 'cancelAnimationFrame')
+        .mockImplementation(() => {});
+      const requestAnimationFrameSpy = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation(() => 42);
+
+      const { unmount } = render(
+        <FileExplorerTestWrapper>
+          <SelectionModeBadge maxSelectionCount={100} />
+        </FileExplorerTestWrapper>
+      );
+
+      fireEvent.click(screen.getByTestId('selection-mode-badge'));
+      unmount();
+
+      expect(requestAnimationFrameSpy).toHaveBeenCalled();
+      expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(42);
+
+      requestAnimationFrameSpy.mockRestore();
+      cancelAnimationFrameSpy.mockRestore();
     });
 
     it('shows Manual Selection and Rules-Based Selection options', async () => {
@@ -116,6 +164,45 @@ describe('SelectionModeBadge', () => {
         expect(screen.getByText('Manual Selection')).toBeInTheDocument();
         expect(screen.getByText('Rules-Based Selection')).toBeInTheDocument();
       });
+    });
+
+    it('renders a settings trigger variant for compact toolbars', () => {
+      render(
+        <FileExplorerTestWrapper>
+          <SelectionModeBadge triggerVariant="icon" />
+        </FileExplorerTestWrapper>
+      );
+
+      expect(screen.getByRole('button', { name: 'Selection settings' })).toBeInTheDocument();
+      expect(screen.queryByTestId('selection-mode-badge')).not.toBeInTheDocument();
+    });
+
+    it('shows max selection controls inside the settings popover', async () => {
+      const onMaxSelectionCountChange = vi.fn();
+
+      render(
+        <FileExplorerTestWrapper>
+          <SelectionModeBadge
+            maxSelectionCount={100}
+            onMaxSelectionCountChange={onMaxSelectionCountChange}
+            triggerVariant="icon"
+          />
+        </FileExplorerTestWrapper>
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Selection settings' }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: '5K' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '6K' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '8K' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: '6K' }));
+
+      expect(onMaxSelectionCountChange).toHaveBeenCalledWith(6000);
     });
 
     it('calls setSelectionMode when switching to rules mode', async () => {

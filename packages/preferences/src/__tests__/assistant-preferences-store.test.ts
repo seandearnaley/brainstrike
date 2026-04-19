@@ -306,7 +306,7 @@ describe('assistant-preferences-store', () => {
           anthropic: ['claude-3-5-sonnet-latest'],
           google: ['gemini-2.0-pro'],
           openrouter: ['openai/gpt-4o'],
-          local: [],
+          local: ['LiquidAI/LFM2.5-1.2B-Instruct-ONNX'],
           cohere: [],
           voyage: [],
         },
@@ -322,10 +322,15 @@ describe('assistant-preferences-store', () => {
     expect(store.modelsByProvider['anthropic']).toBe('claude-sonnet-4-5');
     expect(store.modelsByProvider['google']).toBe('gemini-3-pro-preview');
     expect(store.modelsByProvider['openrouter']).toBe('openai/gpt-5.2');
+    expect(store.modelsByProvider['local']).toBe('onnx-community/gemma-4-E2B-it-ONNX');
     expect(store.selectedModel).toBe('openai::gpt-5.2');
     expect(store.enabledModelsByProvider['openai']).toContain('gpt-5.2');
     expect(store.enabledModelsByProvider['openai']).toContain('gpt-5.2-chat-latest');
     expect(store.enabledModelsByProvider['openai']).not.toContain('gpt-4o');
+    expect(store.enabledModelsByProvider['local']).toContain('onnx-community/gemma-4-E2B-it-ONNX');
+    expect(store.enabledModelsByProvider['local']).not.toContain(
+      'LiquidAI/LFM2.5-1.2B-Instruct-ONNX'
+    );
   });
 
   it('switches between providers using composite keys', () => {

@@ -81,9 +81,63 @@ describe('App database path resolution', () => {
   it('uses Electron IPC for desktop app', async () => {
     // Mock window.electronAPI for this test
     Object.defineProperty(window, 'electronAPI', {
-      value: { db: { query: vi.fn(), exec: vi.fn(), test: vi.fn() } },
+      value: {
+        db: {
+          clearAll: vi.fn(),
+          diagnostics: vi.fn(),
+          exec: vi.fn(),
+          query: vi.fn(),
+          resetLocal: vi.fn(),
+          test: vi.fn(),
+        },
+        fileSystem: {
+          exists: vi.fn(),
+          readDirectory: vi.fn(),
+          readFile: vi.fn(),
+          requestDirectoryAccess: vi.fn(),
+          restoreLastFolder: vi.fn(),
+          saveLastFolder: vi.fn(),
+        },
+        storage: {
+          clear: vi.fn(),
+          getAllKeys: vi.fn(),
+          getItem: vi.fn(),
+          removeItem: vi.fn(),
+          setItem: vi.fn(),
+        },
+      },
       writable: true,
     });
+    window.logging = {
+      getBufferedLogs: vi.fn(),
+      getPreferences: vi.fn(async () => ({
+        capabilities: {
+          canSelectDestination: true,
+          defaultDestination: null,
+          fileLoggingSupported: true,
+          reason: null,
+        },
+        preferences: {
+          consoleEnabled: true,
+          consoleLevel: 'info',
+          file: {
+            append: true,
+            destination: null,
+            enabled: false,
+            level: 'info',
+            mkdir: true,
+          },
+          includeTimestamp: true,
+          level: 'info',
+          redactPaths: [],
+        },
+      })),
+      ingestBufferedRecord: vi.fn(),
+      onPreferencesUpdated: vi.fn(),
+      openDestination: vi.fn(),
+      selectDestination: vi.fn(),
+      setPreferences: vi.fn(),
+    } as never;
 
     await import('../../renderer/main.tsx');
     const element = mockRender.mock.calls.at(-1)?.[0];

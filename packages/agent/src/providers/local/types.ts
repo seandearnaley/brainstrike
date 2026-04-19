@@ -9,13 +9,24 @@ export interface LocalLlmToolDefinition {
   function: {
     name: string;
     description: string;
-    parameters: {
-      type: 'object';
-      properties: Record<string, { type: string; description?: string }>;
-      required?: string[];
-    };
+    parameters: LocalLlmJsonSchema & { type: 'object' };
   };
   type: 'function';
+}
+
+export interface LocalLlmJsonSchema {
+  additionalProperties?: boolean;
+  description?: string;
+  enum?: string[];
+  items?: LocalLlmJsonSchema;
+  properties?: Record<string, LocalLlmJsonSchema>;
+  required?: string[];
+  type: string;
+}
+
+export interface LocalLlmToolResponse {
+  name: string;
+  response: unknown;
 }
 
 /**
@@ -26,6 +37,8 @@ export interface LocalLlmMessage {
   name?: string;
   role: 'system' | 'user' | 'assistant' | 'developer' | 'tool';
   toolCallId?: string;
+  toolCalls?: LocalLlmToolCall[];
+  toolResponses?: LocalLlmToolResponse[];
 }
 
 /**
@@ -48,7 +61,15 @@ export interface LocalLlmGenerationOptions {
   maxNewTokens?: number;
   repetitionPenalty?: number;
   signal?: AbortSignal;
+  stream?: {
+    onReasoningSnapshot?: (text: string) => void;
+    onStageChange?: (stage: 'generating' | 'reasoning' | 'responding') => void;
+    onTextSnapshot?: (text: string) => void;
+  };
   temperature?: number;
+  thinking?: {
+    enabled?: boolean;
+  };
   tools?: LocalLlmToolDefinition[];
   topK?: number;
   topP?: number;
@@ -59,6 +80,7 @@ export interface LocalLlmGenerationOptions {
  */
 export interface LocalLlmGenerationResult {
   finishReason: 'stop' | 'length' | 'tool_calls';
+  reasoningText?: string;
   text: string;
   toolCalls?: LocalLlmToolCall[];
   usage: {
@@ -72,7 +94,7 @@ export interface LocalLlmGenerationResult {
  * Progress callback for model loading
  */
 export type LocalLlmProgressCallback = (progress: {
-  stage: 'downloading' | 'loading' | 'ready';
+  stage: 'downloading' | 'generating' | 'loading' | 'ready';
   progress: number;
   message: string;
   file?: string;

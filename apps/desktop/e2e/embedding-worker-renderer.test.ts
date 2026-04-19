@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
+import { DESKTOP_DEV_RENDERER_PORT, DESKTOP_DEV_RENDERER_URL } from '../src/desktop-renderer-url';
 import { expect, test } from './fixtures/electron-fixture';
 import { showDatabaseDemoPanel } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
@@ -171,6 +172,12 @@ interface DatabaseDemoImportTestSnapshot {
     phase: string;
     total: number;
   } | null;
+  recordCount: number;
+  recordPagination: {
+    currentPage: number;
+    pageSize: number;
+    totalRecords: number;
+  };
   selectedFileCount: number;
 }
 
@@ -898,11 +905,9 @@ test.describe('Embedding Host Renderer', () => {
     page: Page,
     maxSelectionCount: number
   ): Promise<void> {
-    const selectionCounterButton = page.getByRole('button', {
-      name: 'Click to edit maximum selection count',
-    });
-    await expect(selectionCounterButton).toBeVisible({ timeout: 15_000 });
-    await selectionCounterButton.click({ timeout: 5000 });
+    const selectionSettingsButton = page.getByRole('button', { name: 'Selection settings' });
+    await expect(selectionSettingsButton).toBeVisible({ timeout: 15_000 });
+    await selectionSettingsButton.click({ timeout: 5000 });
 
     const selectionCountInput = page.getByLabel('Maximum selection count input');
     await expect(selectionCountInput).toBeVisible({ timeout: 15_000 });
@@ -3557,19 +3562,35 @@ test.describe('Embedding Host Renderer', () => {
     const treegrid = activeWindow.getByRole('treegrid');
     const firstVisibleDataRow = treegrid.getByRole('row').nth(1);
     await expect(firstVisibleDataRow).toBeVisible({ timeout: 30_000 });
-    const firstPageFirstRowText = ((await firstVisibleDataRow.textContent()) ?? '').trim();
-    expect(firstPageFirstRowText.length).toBeGreaterThan(0);
+    expect(((await firstVisibleDataRow.textContent()) ?? '').trim().length).toBeGreaterThan(0);
 
     const pageNumberInput = activeWindow.getByRole('spinbutton', { name: 'Page number' });
     await expect(pageNumberInput).toHaveValue('1');
+    await expect
+      .poll(async () => {
+        const snapshot = await getDatabaseDemoImportSnapshot(activeWindow);
+        return snapshot?.recordPagination.currentPage ?? -1;
+      })
+      .toBe(0);
 
     await activeWindow.getByRole('button', { name: 'Go to next page' }).click({ timeout: 5000 });
 
     await expect(pageNumberInput).toHaveValue('2');
-    await expect(firstVisibleDataRow).toBeVisible({ timeout: 30_000 });
-    const secondPageFirstRowText = ((await firstVisibleDataRow.textContent()) ?? '').trim();
-    expect(secondPageFirstRowText.length).toBeGreaterThan(0);
-    expect(secondPageFirstRowText).not.toBe(firstPageFirstRowText);
+    await expect
+      .poll(
+        async () => {
+          const snapshot = await getDatabaseDemoImportSnapshot(activeWindow);
+          return JSON.stringify(snapshot?.recordPagination ?? null);
+        },
+        { timeout: 30_000 }
+      )
+      .toBe(
+        JSON.stringify({
+          currentPage: 1,
+          pageSize: 50,
+          totalRecords: fixture.fileCount,
+        })
+      );
 
     await forceRendererGarbageCollection(activeWindow);
     await forceRendererGarbageCollection(activeWindow);
@@ -5686,9 +5707,9 @@ test.describe('Embedding Host Renderer', () => {
     );
     test.setTimeout(900_000);
 
-    await waitForTcpPortOpen(8081, 5000).catch((error) => {
+    await waitForTcpPortOpen(DESKTOP_DEV_RENDERER_PORT, 5000).catch((error) => {
       throw new Error(
-        'Desktop dev renderer must already be running on http://localhost:8081 before this repro test starts.\n' +
+        `Desktop dev renderer must already be running on ${DESKTOP_DEV_RENDERER_URL} before this repro test starts.\n` +
           'Start it with `pnpm --filter @brainstrike/desktop dev:renderer` in a separate terminal.\n' +
           `error=${error instanceof Error ? error.message : String(error)}`
       );
@@ -5814,9 +5835,9 @@ test.describe('Embedding Host Renderer', () => {
     );
     test.setTimeout(900_000);
 
-    await waitForTcpPortOpen(8081, 5000).catch((error) => {
+    await waitForTcpPortOpen(DESKTOP_DEV_RENDERER_PORT, 5000).catch((error) => {
       throw new Error(
-        'Desktop dev renderer must already be running on http://localhost:8081 before this repro test starts.\n' +
+        `Desktop dev renderer must already be running on ${DESKTOP_DEV_RENDERER_URL} before this repro test starts.\n` +
           'Start it with `pnpm --filter @brainstrike/desktop dev:renderer` in a separate terminal.\n' +
           `error=${error instanceof Error ? error.message : String(error)}`
       );
@@ -6149,6 +6170,32 @@ test.describe('Embedding Host Renderer', () => {
     });
   }
 
+  async function getVisibleWindowPage(app: ElectronApplication): Promise<Page> {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < 15_000) {
+      const visiblePage = app.windows().find((page) => {
+        if (page.isClosed()) {
+          return false;
+        }
+
+        const url = page.url();
+        return !(url.includes('mode=embedding-host') || url.includes('mode=chunking-host'));
+      });
+
+      if (visiblePage) {
+        await visiblePage.waitForLoadState('domcontentloaded');
+        return visiblePage;
+      }
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 250);
+      });
+    }
+
+    throw new Error('Timed out waiting for the visible Electron page');
+  }
+
   async function broadcastPowerState(
     app: ElectronApplication,
     state: 'resume' | 'suspend'
@@ -6336,6 +6383,7 @@ test.describe('Embedding Host Renderer', () => {
     // Phase 3: Restore and focus the visible window
     await focusVisibleWindow(electronApp.app);
     await activeWindow.waitForTimeout(5000);
+    activeWindow = await getVisibleWindowPage(electronApp.app);
 
     // Assert renderer did not crash
     const postFocusTimeOrigin = await getRendererTimeOrigin(activeWindow);

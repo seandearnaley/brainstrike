@@ -11,6 +11,11 @@ import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import { ensureDimensionIndexExists } from '../../migrations/dimension-index-helpers.js';
 import type { EmbeddingDistance, EmbeddingSet } from '../../models/embedding-set.js';
 import { embeddingSets } from '../../schema/index.js';
+import {
+  normalizeEmbeddingSetInputMetadata,
+  repairPersistedEmbeddingSetMetadata,
+  tryResolveEmbeddingSetMetadata,
+} from '../embedding-set-metadata.js';
 
 type DrizzleDb = PgliteDatabase;
 
@@ -26,19 +31,24 @@ export class DrizzleEmbeddingSetsRepository {
     distance: EmbeddingDistance,
     metadata?: { name?: string; description?: string; tags?: string; category?: string }
   ): Promise<EmbeddingSet> {
+    const dbAdapter = this.createQueryAdapter();
+    const normalizedMetadata = await normalizeEmbeddingSetInputMetadata(dbAdapter, {
+      modelKey,
+      modelId,
+    });
     const id = generateUUID();
     const now = new Date();
 
     // Generate default name if not provided
-    const defaultName = `${modelKey} (${dimensions}D)`;
+    const defaultName = `${normalizedMetadata.modelId} (${dimensions}D)`;
     const name = metadata?.name ?? defaultName;
 
     const [insertedRow] = await this.db
       .insert(embeddingSets)
       .values({
         id,
-        modelKey,
-        modelId,
+        modelKey: normalizedMetadata.modelKey,
+        modelId: normalizedMetadata.modelId,
         dimensions,
         distance,
         createdAt: now,
@@ -50,22 +60,14 @@ export class DrizzleEmbeddingSetsRepository {
       .returning();
 
     if (!insertedRow) {
-      throw new Error(`Failed to create embedding set for ${modelKey}/${dimensions}/${distance}`);
+      throw new Error(
+        `Failed to create embedding set for ${normalizedMetadata.modelKey}/${dimensions}/${distance}`
+      );
     }
 
     // Ensure HNSW index exists for this dimension (idempotent, best-effort)
     try {
       // Note: This still uses raw SQL as index creation isn't supported by Drizzle query builder
-      // Create adapter that conforms to DimensionIndexDb interface
-      const dbAdapter = {
-        exec: async (sql: string) => {
-          await this.db.execute(sql);
-        },
-        query: async <T = unknown>(sql: string) => {
-          const result = await this.db.execute(sql);
-          return { rows: result.rows as T[] };
-        },
-      };
       await ensureDimensionIndexExists(dbAdapter, dimensions);
     } catch (error) {
       this.logger.warn('Failed to ensure dimension index exists', {
@@ -76,7 +78,7 @@ export class DrizzleEmbeddingSetsRepository {
 
     this.logger.info('Created new embedding set', {
       id,
-      modelKey,
+      modelKey: normalizedMetadata.modelKey,
       dimensions,
       distance,
       name,
@@ -88,16 +90,23 @@ export class DrizzleEmbeddingSetsRepository {
   async getById(id: string): Promise<EmbeddingSet | null> {
     const [row] = await this.db.select().from(embeddingSets).where(eq(embeddingSets.id, id));
 
-    return row ? this.fromRow(row) : null;
+    return row ? this.readEmbeddingSet(row) : null;
   }
 
   async getByModelKey(modelKey: string): Promise<EmbeddingSet[]> {
+    const normalizedLookupKey =
+      (
+        await tryResolveEmbeddingSetMetadata(this.createQueryAdapter(), {
+          modelKey,
+          modelId: '',
+        })
+      )?.modelKey ?? modelKey;
     const rows = await this.db
       .select()
       .from(embeddingSets)
-      .where(eq(embeddingSets.modelKey, modelKey));
+      .where(eq(embeddingSets.modelKey, normalizedLookupKey));
 
-    return rows.map((row) => this.fromRow(row));
+    return Promise.all(rows.map((row) => this.readEmbeddingSet(row)));
   }
 
   async updateMetadata(
@@ -135,7 +144,7 @@ export class DrizzleEmbeddingSetsRepository {
 
   async findAll(): Promise<EmbeddingSet[]> {
     const rows = await this.db.select().from(embeddingSets);
-    return rows.map((row) => this.fromRow(row));
+    return Promise.all(rows.map((row) => this.readEmbeddingSet(row)));
   }
 
   async delete(id: string): Promise<boolean> {
@@ -169,5 +178,52 @@ export class DrizzleEmbeddingSetsRepository {
     }
 
     return base;
+  }
+
+  private createQueryAdapter(): {
+    exec: (sql: string) => Promise<void>;
+    query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+  } {
+    const rawDb =
+      '$client' in this.db
+        ? (this.db.$client as {
+            exec: (sql: string) => Promise<unknown>;
+            query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+          })
+        : null;
+    return {
+      exec: async (sql: string) => {
+        if (rawDb) {
+          await rawDb.exec(sql);
+          return;
+        }
+        await this.db.execute(sql);
+      },
+      query: async <T = unknown>(sql: string, params?: unknown[]) => {
+        if (rawDb) {
+          const result = await rawDb.query<T>(sql, params);
+          return { rows: result.rows };
+        }
+        const result = await this.db.execute(sql);
+        return { rows: result.rows as T[] };
+      },
+    };
+  }
+
+  private async readEmbeddingSet(row: typeof embeddingSets.$inferSelect): Promise<EmbeddingSet> {
+    const embeddingSet = this.fromRow(row);
+    const repairedMetadata = await repairPersistedEmbeddingSetMetadata(this.createQueryAdapter(), {
+      id: embeddingSet.id,
+      modelKey: embeddingSet.modelKey,
+      modelId: embeddingSet.modelId,
+    });
+    if (!repairedMetadata) {
+      return embeddingSet;
+    }
+    return {
+      ...embeddingSet,
+      modelKey: repairedMetadata.modelKey,
+      modelId: repairedMetadata.modelId,
+    };
   }
 }

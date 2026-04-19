@@ -172,7 +172,7 @@ export class MigrationRunner {
     }
 
     const hasTx = MigrationRunner.isTransactionalDb(this.db);
-    const downSql = migration.down as string; // safe due to guard above
+    const downMigration = migration.down;
     const execWith = async (dbi: Pick<PGlite, 'exec' | 'query'>) => {
       const appliedResult = await dbi.query<{ count: number }>(
         `SELECT COUNT(*) as count FROM ${MigrationRunner.MIGRATION_TABLE} WHERE version = $1`,
@@ -186,7 +186,11 @@ export class MigrationRunner {
         return;
       }
 
-      await dbi.exec(downSql);
+      if (typeof downMigration === 'string') {
+        await dbi.exec(downMigration);
+      } else {
+        await downMigration(dbi as unknown as PGlite);
+      }
       await dbi.query(`DELETE FROM ${MigrationRunner.MIGRATION_TABLE} WHERE version = $1`, [
         migration.version,
       ]);

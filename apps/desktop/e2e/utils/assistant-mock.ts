@@ -130,10 +130,9 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
     return new Response(stream, {
       status: 200,
       headers: {
-        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Content-Type': 'text/plain; charset=utf-8',
         'Cache-Control': 'no-store',
-        connection: 'keep-alive',
-        'x-vercel-ai-ui-message-stream': 'v1',
+        'x-vercel-ai-data-stream': 'v1',
       },
     });
   }
@@ -173,43 +172,45 @@ function buildAssistantStreamChunks(options: Required<AssistantMockOptions>): Ar
   delayMs: number;
   payload: string;
 }> {
-  const createMessageId = (): string => `msg-${Date.now()}`;
-  const createTextId = (): string => `text-${Date.now()}`;
   const createToolCallId = (): string => `tool-${Date.now()}`;
 
   const chunks: Array<{ delayMs: number; payload: string }> = [];
 
-  const enqueueEvent = (payload: object, delayMs = 0): void => {
-    chunks.push({ delayMs, payload: `data: ${JSON.stringify(payload)}\n\n` });
+  const enqueueChunk = (code: string, value: unknown, delayMs = 0): void => {
+    chunks.push({ delayMs, payload: `${code}:${JSON.stringify(value)}\n` });
   };
 
   const writeAssistantText = (text: string): void => {
-    const textId = createTextId();
-    enqueueEvent({ type: 'text-start', id: textId });
-    enqueueEvent({ type: 'text-delta', id: textId, textDelta: text });
-    enqueueEvent({ type: 'text-end', id: textId });
+    enqueueChunk('0', text);
   };
 
   const writeFinish = (
     finishReason: 'stop' | 'error',
     usage: { completionTokens: number; promptTokens: number }
   ): void => {
-    enqueueEvent({
-      type: 'finish-step',
+    const dataStreamUsage = {
+      inputTokens: usage.promptTokens,
+      outputTokens: usage.completionTokens,
+    };
+
+    enqueueChunk('e', {
       finishReason,
-      usage,
+      usage: dataStreamUsage,
       isContinued: false,
     });
-    enqueueEvent({ type: 'finish', finishReason, usage });
-    chunks.push({ delayMs: 0, payload: 'data: [DONE]\n\n' });
+    enqueueChunk('d', {
+      finishReason,
+      usage: dataStreamUsage,
+      path: [],
+    });
   };
 
-  enqueueEvent({ type: 'start', messageId: createMessageId() });
+  enqueueChunk('f', { messageId: `msg-${Date.now()}`, path: [] });
 
   switch (options.variant) {
     case 'stream-error':
       writeAssistantText(options.errorMessage);
-      enqueueEvent({ type: 'error', errorText: options.errorMessage });
+      enqueueChunk('3', options.errorMessage);
       writeFinish('error', { promptTokens: 0, completionTokens: 0 });
       return chunks;
     case 'detailed':
@@ -218,19 +219,15 @@ function buildAssistantStreamChunks(options: Required<AssistantMockOptions>): Ar
       return chunks;
     case 'tool': {
       const toolCallId = createToolCallId();
-      enqueueEvent({
-        type: 'tool-call-start',
+      const args = { query: 'mock retrieval query', limit: 3 };
+      enqueueChunk('b', { toolCallId, toolName: 'brainstrike.retrieveContext' });
+      enqueueChunk('c', { toolCallId, argsTextDelta: JSON.stringify(args) });
+      enqueueChunk('9', {
         toolCallId,
         toolName: 'brainstrike.retrieveContext',
+        args,
       });
-      enqueueEvent({
-        type: 'tool-call-delta',
-        toolCallId,
-        argsText: JSON.stringify({ query: 'mock retrieval query', limit: 3 }),
-      });
-      enqueueEvent({ type: 'tool-call-end', toolCallId });
-      enqueueEvent({
-        type: 'tool-result',
+      enqueueChunk('a', {
         toolCallId,
         result: {
           context: 'File: src/app.ts\nconst answer = 42;',
@@ -243,21 +240,18 @@ function buildAssistantStreamChunks(options: Required<AssistantMockOptions>): Ar
     }
     case 'tool-error': {
       const toolCallId = createToolCallId();
-      enqueueEvent({
-        type: 'tool-call-start',
+      const args = { query: 'mock retrieval query', limit: 3 };
+      enqueueChunk('b', { toolCallId, toolName: 'brainstrike.retrieveContext' });
+      enqueueChunk('c', { toolCallId, argsTextDelta: JSON.stringify(args) });
+      enqueueChunk('9', {
         toolCallId,
         toolName: 'brainstrike.retrieveContext',
+        args,
       });
-      enqueueEvent({
-        type: 'tool-call-delta',
-        toolCallId,
-        argsText: JSON.stringify({ query: 'mock retrieval query', limit: 3 }),
-      });
-      enqueueEvent({ type: 'tool-call-end', toolCallId });
-      enqueueEvent({
-        type: 'tool-result',
+      enqueueChunk('a', {
         toolCallId,
         result: { error: options.errorMessage },
+        isError: true,
       });
       writeAssistantText(options.errorMessage);
       writeFinish('stop', { promptTokens: 5, completionTokens: 8 });
