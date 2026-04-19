@@ -1,6 +1,11 @@
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import { ensureDimensionIndexExists } from '../migrations/dimension-index-helpers.js';
 import type { EmbeddingDistance, EmbeddingSet } from '../models/embedding-set';
+import {
+  normalizeEmbeddingSetInputMetadata,
+  repairPersistedEmbeddingSetMetadata,
+  tryResolveEmbeddingSetMetadata,
+} from './embedding-set-metadata.js';
 
 interface EmbeddingSetsDb {
   exec(sql: string, params?: unknown): Promise<unknown>;
@@ -19,11 +24,15 @@ export class EmbeddingSetsRepository {
     distance: EmbeddingDistance,
     metadata?: { name?: string; description?: string; tags?: string; category?: string }
   ): Promise<EmbeddingSet> {
+    const normalizedMetadata = await normalizeEmbeddingSetInputMetadata(this.db, {
+      modelKey,
+      modelId,
+    });
     const id = generateUUID();
     const now = new Date().toISOString();
 
     // Generate default name if not provided
-    const defaultName = `${modelKey} (${dimensions}D)`;
+    const defaultName = `${normalizedMetadata.modelId} (${dimensions}D)`;
     const name = metadata?.name ?? defaultName;
 
     const insertResult = await this.db.query(
@@ -32,8 +41,8 @@ export class EmbeddingSetsRepository {
        RETURNING *`,
       [
         id,
-        modelKey,
-        modelId,
+        normalizedMetadata.modelKey,
+        normalizedMetadata.modelId,
         dimensions,
         distance,
         now,
@@ -45,7 +54,9 @@ export class EmbeddingSetsRepository {
     );
 
     if (insertResult.rows.length === 0) {
-      throw new Error(`Failed to create embedding set for ${modelKey}/${dimensions}/${distance}`);
+      throw new Error(
+        `Failed to create embedding set for ${normalizedMetadata.modelKey}/${dimensions}/${distance}`
+      );
     }
 
     // Ensure HNSW index exists for this dimension (idempotent, best-effort)
@@ -62,7 +73,7 @@ export class EmbeddingSetsRepository {
 
     this.logger.info('Created new embedding set', {
       id,
-      modelKey,
+      modelKey: normalizedMetadata.modelKey,
       dimensions,
       distance,
       name,
@@ -73,14 +84,21 @@ export class EmbeddingSetsRepository {
   async getById(id: string): Promise<EmbeddingSet | null> {
     const result = await this.db.query('SELECT * FROM embedding_sets WHERE id = $1', [id]);
     const row = result.rows[0];
-    return row ? this.fromRow(row as Record<string, unknown>) : null;
+    return row ? this.readEmbeddingSet(row as Record<string, unknown>) : null;
   }
 
   async getByModelKey(modelKey: string): Promise<EmbeddingSet[] | []> {
-    const result = await this.db.query('SELECT * FROM embedding_sets WHERE model_key = $1', [
+    const normalizedMetadata = await tryResolveEmbeddingSetMetadata(this.db, {
       modelKey,
+      modelId: '',
+    });
+    const lookupModelKey = normalizedMetadata?.modelKey ?? modelKey;
+    const result = await this.db.query('SELECT * FROM embedding_sets WHERE model_key = $1', [
+      lookupModelKey,
     ]);
-    return result.rows.map((row) => this.fromRow(row as Record<string, unknown>));
+    return Promise.all(
+      result.rows.map((row) => this.readEmbeddingSet(row as Record<string, unknown>))
+    );
   }
 
   /**
@@ -115,7 +133,9 @@ export class EmbeddingSetsRepository {
 
   async findAll(): Promise<EmbeddingSet[]> {
     const result = await this.db.query('SELECT * FROM embedding_sets ORDER BY created_at DESC');
-    return result.rows.map((row) => this.fromRow(row as Record<string, unknown>));
+    return Promise.all(
+      result.rows.map((row) => this.readEmbeddingSet(row as Record<string, unknown>))
+    );
   }
 
   async delete(id: string): Promise<boolean> {
@@ -151,5 +171,22 @@ export class EmbeddingSetsRepository {
     }
 
     return result;
+  }
+
+  private async readEmbeddingSet(row: Record<string, unknown>): Promise<EmbeddingSet> {
+    const embeddingSet = this.fromRow(row);
+    const repairedMetadata = await repairPersistedEmbeddingSetMetadata(this.db, {
+      id: embeddingSet.id,
+      modelKey: embeddingSet.modelKey,
+      modelId: embeddingSet.modelId,
+    });
+    if (!repairedMetadata) {
+      return embeddingSet;
+    }
+    return {
+      ...embeddingSet,
+      modelKey: repairedMetadata.modelKey,
+      modelId: repairedMetadata.modelId,
+    };
   }
 }

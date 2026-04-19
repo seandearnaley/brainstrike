@@ -2,7 +2,7 @@ import type { LocalRuntimeId, LocalRuntimeModelCatalogState } from '@brainstrike
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAssistantPreferencesStore } from '../stores/assistant-preferences-store';
 
-type LocalRuntimeModelCatalogMap = Record<LocalRuntimeId, LocalRuntimeModelCatalogState>;
+type LocalRuntimeModelCatalogMap = Partial<Record<LocalRuntimeId, LocalRuntimeModelCatalogState>>;
 
 export interface UseLocalRuntimeEmbeddingModelCatalogOptions {
   readonly enabled?: boolean;

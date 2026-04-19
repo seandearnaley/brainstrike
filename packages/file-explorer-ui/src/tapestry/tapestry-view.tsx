@@ -1,7 +1,6 @@
-import { Button, Checkbox, EmptyState, TablePagination, TooltipProvider } from '@brainstrike/ui';
-import { CheckSquare, ChevronDown, ChevronRight, FileX2 } from 'lucide-react';
+import { Checkbox, EmptyState, TablePagination, TooltipProvider } from '@brainstrike/ui';
+import { ChevronDown, ChevronRight, FileX2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PreviewGroupingControls } from '../preview-grouping-controls';
 import { formatTokenCount } from '../use-preview-panel-state';
 import type { GroupedData, GroupKey, TableRowData } from '../utils/grouping-configs';
 import { formatPreviewFileSize } from '../utils/preview-formatters';
@@ -175,24 +174,18 @@ interface TapestrySection {
 
 interface TapestryViewProps {
   activeRangesCount: number;
-  allFilesSelected: boolean;
-  groupedData: GroupedData<TableRowData>[];
   groupedSections: TapestrySection[];
   groupingConfig: string;
   isAllSelected: (items: TableRowData[]) => boolean;
   isEmpty: boolean;
   isGroupFullySelected: (group: GroupedData<TableRowData>) => boolean;
   isGroupPartiallySelected: (group: GroupedData<TableRowData>) => boolean;
-  onCollapseAllGroups: () => void;
   onDeselectAll: () => void;
-  onExpandAllGroups: () => void;
   onGroupDeselectAll: (group: GroupedData<TableRowData>) => void;
-  onGroupingChange: (value: string) => void;
   onGroupSelectAll: (group: GroupedData<TableRowData>) => void;
   onRangesChange: (fileId: string, ranges: TapestryRange[]) => void;
   onRequestFileContent?: (compositeKey: string) => void;
   onResetRanges: (fileIds: string[]) => void;
-  onSelectAllFiles: () => void;
   onSelectAllOnPage: (items: TableRowData[]) => void;
   onToggleGroupCollapse: (groupKey: GroupKey) => void;
   onToggleSelection: (compositeKey: string, checked: boolean) => void;
@@ -205,6 +198,7 @@ interface TapestryViewProps {
     pageSize?: number;
   };
   previewSelections: Set<string>;
+  showSelectionControls: boolean;
   totalFiles: number;
   totalLinesSelected: number;
   ungroupedFiles: FileTapestry[];
@@ -216,6 +210,7 @@ const TapestryGroupHeader = memo<{
   isCollapsed: boolean;
   isFullySelected: boolean;
   isPartiallySelected: boolean;
+  showSelectionControls: boolean;
   onToggleGroupCollapse: (groupKey: GroupKey) => void;
   onGroupSelectAll: (group: GroupedData<TableRowData>) => void;
   onGroupDeselectAll: (group: GroupedData<TableRowData>) => void;
@@ -225,6 +220,7 @@ const TapestryGroupHeader = memo<{
     isCollapsed,
     isFullySelected,
     isPartiallySelected,
+    showSelectionControls,
     onToggleGroupCollapse,
     onGroupSelectAll,
     onGroupDeselectAll,
@@ -233,20 +229,22 @@ const TapestryGroupHeader = memo<{
 
     return (
       <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm shadow-xs">
-        <Checkbox
-          aria-label={`Select all items in group ${group.groupLabel}`}
-          checked={checkboxState}
-          onCheckedChange={(checked) => {
-            if (typeof checked === 'boolean') {
-              if (checked) {
-                onGroupSelectAll(group);
-              } else {
-                onGroupDeselectAll(group);
+        {showSelectionControls ? (
+          <Checkbox
+            aria-label={`Select all items in group ${group.groupLabel}`}
+            checked={checkboxState}
+            onCheckedChange={(checked) => {
+              if (typeof checked === 'boolean') {
+                if (checked) {
+                  onGroupSelectAll(group);
+                } else {
+                  onGroupDeselectAll(group);
+                }
               }
-            }
-          }}
-          onClick={(event) => event.stopPropagation()}
-        />
+            }}
+            onClick={(event) => event.stopPropagation()}
+          />
+        ) : null}
         <button
           aria-expanded={!isCollapsed}
           aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} group ${group.groupLabel}`}
@@ -577,11 +575,7 @@ function useTapestryDrag(
 export const TapestryView = memo<TapestryViewProps>(function TapestryView({
   ungroupedFiles,
   groupedSections,
-  groupedData,
   groupingConfig,
-  onGroupingChange,
-  onExpandAllGroups,
-  onCollapseAllGroups,
   onToggleGroupCollapse,
   onGroupSelectAll,
   onGroupDeselectAll,
@@ -593,9 +587,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
   visibleFilesOnPage,
   onSelectAllOnPage,
   onDeselectAll,
-  onSelectAllFiles,
   isAllSelected,
-  allFilesSelected,
   totalFiles,
   isEmpty,
   onRangesChange,
@@ -603,6 +595,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
   activeRangesCount,
   totalLinesSelected,
   pagination,
+  showSelectionControls,
 }) {
   const [scale, setScale] = useState(4);
   const [allowOverlap, setAllowOverlap] = useState(false);
@@ -712,42 +705,6 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
   return (
     <TooltipProvider delayDuration={0}>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground">
-        <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-background p-3">
-          <PreviewGroupingControls
-            groupedData={groupedData}
-            groupingConfig={groupingConfig}
-            onCollapseAllGroups={onCollapseAllGroups}
-            onExpandAllGroups={onExpandAllGroups}
-            onGroupingChange={onGroupingChange}
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-2 rounded-md border border-input bg-background px-2 py-1 text-xs">
-              <Checkbox
-                aria-label="Select all files on current page"
-                checked={pageCheckboxState}
-                onCheckedChange={(checked) =>
-                  checked ? onSelectAllOnPage(visibleFilesOnPage) : onDeselectAll()
-                }
-                onClick={(event) => event.stopPropagation()}
-              />
-              <span className="text-muted-foreground">Page</span>
-            </div>
-            <Button
-              aria-label={`Select all ${totalFiles} files`}
-              className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
-              data-testid="select-all-button"
-              disabled={allFilesSelected}
-              onClick={onSelectAllFiles}
-              size="sm"
-              variant="outline"
-            >
-              <CheckSquare className="@[600px]:mr-2 size-3.5" />
-              <span className="@[750px]:inline hidden">Select All ({totalFiles})</span>
-              <span className="@[550px]:inline @[750px]:hidden hidden">Select All</span>
-            </Button>
-          </div>
-        </div>
-
         <TapestryControls
           activeRanges={activeRangesCount}
           allowOverlap={allowOverlap}
@@ -761,6 +718,21 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
 
         <div className="scrollbar-thin flex-1 overflow-y-auto p-6">
           <div className="mx-auto flex max-w-[1600px] flex-col gap-6">
+            {showSelectionControls ? (
+              <div className="flex justify-end">
+                <div className="flex items-center gap-2 rounded-md border border-input bg-background px-2 py-1 text-xs shadow-xs">
+                  <Checkbox
+                    aria-label="Select all files on current page"
+                    checked={pageCheckboxState}
+                    onCheckedChange={(checked) =>
+                      checked ? onSelectAllOnPage(visibleFilesOnPage) : onDeselectAll()
+                    }
+                    onClick={(event) => event.stopPropagation()}
+                  />
+                  <span className="text-muted-foreground">Page</span>
+                </div>
+              </div>
+            ) : null}
             {groupingConfig === 'none' ? (
               <div
                 className="grid items-start gap-6"
@@ -778,6 +750,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
                     onToggleRange={handleToggleRange}
                     onToggleSelection={onToggleSelection}
                     scale={scale}
+                    showSelectionControls={showSelectionControls}
                     smartStart={startDrag}
                     {...(onRequestFileContent ? { onRequestFileContent } : {})}
                   />
@@ -795,6 +768,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
                       onGroupDeselectAll={onGroupDeselectAll}
                       onGroupSelectAll={onGroupSelectAll}
                       onToggleGroupCollapse={onToggleGroupCollapse}
+                      showSelectionControls={showSelectionControls}
                     />
                   )}
                   {!section.isCollapsed && section.items.length > 0 && (
@@ -814,6 +788,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
                           onToggleRange={handleToggleRange}
                           onToggleSelection={onToggleSelection}
                           scale={scale}
+                          showSelectionControls={showSelectionControls}
                           smartStart={startDrag}
                           {...(onRequestFileContent ? { onRequestFileContent } : {})}
                         />

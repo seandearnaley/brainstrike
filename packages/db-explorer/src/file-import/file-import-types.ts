@@ -12,6 +12,15 @@ export interface FileImportRepositoryPort {
 
 export interface FileSystemPort {
   readFile(node: IFileNode): Promise<string>;
+  readFileBySelection?(
+    folderId: string,
+    path: string
+  ): Promise<{
+    content: string;
+    name: string;
+    path: string;
+    size: number;
+  } | null>;
 }
 
 export interface FileImportDependencies {

@@ -12,27 +12,6 @@ export {
   type ContextPackerResult,
   type PackedContextChunk,
 } from './context-packer';
-export type {
-  LocalLlmConfig,
-  LocalLlmGenerationOptions,
-  LocalLlmGenerationResult,
-  LocalLlmMessage,
-  LocalLlmModelCapabilities,
-  LocalLlmModelParameters,
-  LocalLlmProgressCallback,
-  LocalLlmProviderStatus,
-  LocalLlmToolCall,
-  LocalLlmToolDefinition,
-} from './providers/local';
-// Local LLM backend for browser-based inference with transformers.js
-export {
-  addAllowedModels,
-  getAllowedModels,
-  isModelAllowed,
-  LocalLlmBackend,
-  setModelChecksums,
-  verifyModelIntegrity,
-} from './providers/local';
 export {
   LOCAL_RUNTIME_IDS,
   type LocalRuntimeAuthRequiredState,
@@ -122,3 +101,4 @@ export {
   type ToolParameterDisplay,
   type ToolSchemaDisplay,
 } from './registry/tool-schemas-display';
+export type { LocalProviderOptions } from './types';

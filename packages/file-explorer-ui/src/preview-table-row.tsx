@@ -5,7 +5,11 @@ import { ExtensionBadge } from './extension-badge';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { formatTokenCount } from './use-preview-panel-state';
 import type { TableRowData } from './utils/grouping-configs';
-import { formatDirPathForDisplay, splitFilePath } from './utils/path-display';
+import {
+  formatDirPathForDisplay,
+  getRootFolderDisplayName,
+  splitFilePath,
+} from './utils/path-display';
 import { formatPreviewFileSize } from './utils/preview-formatters';
 
 interface PreviewTableRowProps {
@@ -25,6 +29,7 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
 }) {
   const { fileName, dirPath } = splitFilePath(item.path);
   const displayDirPath = formatDirPathForDisplay({ dirPath, rootFolderId: item.rootFolderId });
+  const displayRootFolder = getRootFolderDisplayName(item.rootFolderId);
 
   const handleCheckedChange = useCallback(
     (checked: boolean | 'indeterminate') => onToggleSelection(item.compositeKey, !!checked),
@@ -44,13 +49,15 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
   return (
     <tr className="border-b transition-colors hover:bg-muted/50">
       {columnVisibility.checkbox && (
-        <td className="w-12 px-4 py-2">
-          <Checkbox
-            aria-label={`Select ${item.path}`}
-            checked={isSelected}
-            onCheckedChange={handleCheckedChange}
-            onClick={handleCheckboxClick}
-          />
+        <td className="w-8 px-0 py-2">
+          <div className="flex h-full items-center justify-center">
+            <Checkbox
+              aria-label={`Select ${item.path}`}
+              checked={isSelected}
+              onCheckedChange={handleCheckedChange}
+              onClick={handleCheckboxClick}
+            />
+          </div>
         </td>
       )}
       {columnVisibility.rootFolderId && (
@@ -58,7 +65,7 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
           <div className="flex min-w-0 items-center gap-2">
             <FolderOpen className="size-4 flex-shrink-0 text-muted-foreground" />
             <span className="min-w-0 truncate font-mono text-sm" title={item.rootFolderId}>
-              {item.rootFolderId}
+              {displayRootFolder}
             </span>
           </div>
         </td>

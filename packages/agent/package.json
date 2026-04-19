@@ -9,7 +9,7 @@
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@huggingface/transformers": "^3.8.1",
+    "@huggingface/transformers": "^4.0.1",
     "@mastra/core": "^1.7.0",
     "@mastra/mcp": "^1.0.1",
     "@types/json-schema": "^7.0.15",
@@ -37,6 +37,11 @@
       "types": "./dist/client.d.ts",
       "import": "./dist/client.mjs",
       "require": "./dist/client.js"
+    },
+    "./local-llm": {
+      "types": "./dist/local-llm.d.ts",
+      "import": "./dist/local-llm.mjs",
+      "require": "./dist/local-llm.js"
     },
     "./browser-safe": {
       "types": "./dist/browser-safe.d.ts",

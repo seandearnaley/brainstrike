@@ -1,4 +1,4 @@
-const WINDOWS_ABSOLUTE_PATH_REGEX = /^[a-zA-Z]:[\\/]/;
+export const WINDOWS_ABSOLUTE_PATH_REGEX = /^[a-zA-Z]:[\\/]/;
 const WINDOWS_DRIVE_PREFIX_REGEX = /^[a-zA-Z]:\//;
 const LAST_ASCII_CONTROL_CHARACTER_CODE = 0x1f;
 const DELETE_CHARACTER_CODE = 0x7f;
@@ -44,6 +44,46 @@ function findFolderSegmentIndex(segments: readonly string[], folderId: string): 
   return -1;
 }
 
+function stripAbsoluteFolderPrefix(normalizedPath: string, folderId: string): string | null {
+  if (!folderId) {
+    return null;
+  }
+
+  const normalizedFolderId = folderId.replace(/\\/g, '/').replace(/\/+$/u, '');
+  if (!normalizedFolderId) {
+    return null;
+  }
+
+  const isAbsoluteFolderId =
+    normalizedFolderId.startsWith('/') || WINDOWS_DRIVE_PREFIX_REGEX.test(normalizedFolderId);
+  if (!isAbsoluteFolderId) {
+    return null;
+  }
+
+  const pathLower = normalizedPath.toLowerCase();
+  const folderLower = normalizedFolderId.toLowerCase();
+  if (pathLower === folderLower) {
+    return normalizedPath;
+  }
+  if (pathLower.startsWith(`${folderLower}/`)) {
+    return normalizedPath.slice(normalizedFolderId.length + 1);
+  }
+
+  return null;
+}
+
+function normalizeFolderId(folderId: string): string {
+  return folderId.replace(/\\/g, '/').replace(/\/+$/u, '');
+}
+
+export function isAbsoluteFileSystemPath(filePath: string): boolean {
+  return (
+    filePath.startsWith('/') ||
+    filePath.startsWith('\\') ||
+    WINDOWS_ABSOLUTE_PATH_REGEX.test(filePath)
+  );
+}
+
 /**
  * Best-effort normalization from absolute paths to folder-relative paths.
  * This keeps cache/storage keys stable when callers accidentally pass absolute
@@ -55,6 +95,11 @@ export function normalizeFilePathForFolder(filePath: string, folderId: string): 
     normalizedForChecks.startsWith('/') || WINDOWS_DRIVE_PREFIX_REGEX.test(normalizedForChecks);
   if (!isAbsolutePath) {
     return filePath;
+  }
+
+  const strippedAbsolutePrefix = stripAbsoluteFolderPrefix(normalizedForChecks, folderId);
+  if (strippedAbsolutePrefix !== null) {
+    return strippedAbsolutePrefix;
   }
 
   const segments = normalizedForChecks.split('/').filter((segment) => segment.length > 0);
@@ -83,6 +128,24 @@ export function normalizeFilePathForFolder(filePath: string, folderId: string): 
   return normalizedForChecks.replace(/^\/+/, '');
 }
 
+export function normalizeSelectionPathForFolder(
+  filePath: string,
+  folderId: string,
+  options: RelativeFilePathValidationOptions = {}
+): string {
+  const normalizedPath = normalizeFilePathForFolder(filePath, folderId);
+  const normalizedFolderId = normalizeFolderId(folderId);
+  if (
+    normalizedFolderId.length > 0 &&
+    isAbsoluteFileSystemPath(normalizedPath) &&
+    normalizedPath.toLowerCase() === normalizedFolderId.toLowerCase()
+  ) {
+    const pathLabel = options.label?.trim().length ? options.label : DEFAULT_PATH_LABEL;
+    throw new Error(`${pathLabel} must reference a file within the selected folder`);
+  }
+  return validateRelativeFilePath(normalizedPath, options);
+}
+
 /**
  * Validate a cache/storage file path and ensure it is relative and traversal-safe.
  * The original path is returned unchanged so callers can preserve key identity.
@@ -105,11 +168,7 @@ export function validateRelativeFilePath(
     throw new Error(`${pathLabel} must not contain control characters`);
   }
 
-  const isAbsolutePath =
-    filePath.startsWith('/') ||
-    // Reject Windows rooted and UNC-style paths before segment checks for clearer errors.
-    filePath.startsWith('\\') ||
-    WINDOWS_ABSOLUTE_PATH_REGEX.test(filePath);
+  const isAbsolutePath = isAbsoluteFileSystemPath(filePath);
   if (isAbsolutePath) {
     throw new Error(`${pathLabel} must be relative`);
   }

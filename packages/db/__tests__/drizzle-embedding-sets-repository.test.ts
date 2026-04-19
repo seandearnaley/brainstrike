@@ -37,7 +37,7 @@ describe('DrizzleEmbeddingSetsRepository', () => {
   describe('getOrCreateSet', () => {
     it('should create a new embedding set', async () => {
       const result = await repository.getOrCreateSet(
-        'openai',
+        'openai::text-embedding-3-small',
         'text-embedding-3-small',
         1536,
         'cosine'
@@ -45,20 +45,26 @@ describe('DrizzleEmbeddingSetsRepository', () => {
 
       expect(result).toBeDefined();
       expect(result.id).toBeDefined();
-      expect(result.modelKey).toBe('openai');
+      expect(result.modelKey).toBe('openai::text-embedding-3-small');
       expect(result.modelId).toBe('text-embedding-3-small');
       expect(result.dimensions).toBe(1536);
       expect(result.distance).toBe('cosine');
-      expect(result.name).toBe('openai (1536D)');
+      expect(result.name).toBe('text-embedding-3-small (1536D)');
     });
 
     it('should create with custom metadata', async () => {
-      const result = await repository.getOrCreateSet('voyage', 'voyage-2', 1024, 'cosine', {
-        name: 'My Custom Set',
-        description: 'Test description',
-        tags: 'test,voyage',
-        category: 'testing',
-      });
+      const result = await repository.getOrCreateSet(
+        'voyage::voyage-2',
+        'voyage-2',
+        1024,
+        'cosine',
+        {
+          name: 'My Custom Set',
+          description: 'Test description',
+          tags: 'test,voyage',
+          category: 'testing',
+        }
+      );
 
       expect(result.name).toBe('My Custom Set');
       expect(result.description).toBe('Test description');
@@ -68,13 +74,13 @@ describe('DrizzleEmbeddingSetsRepository', () => {
 
     it('should always create a new set (no dedupe)', async () => {
       const first = await repository.getOrCreateSet(
-        'openai',
+        'openai::text-embedding-3-small',
         'text-embedding-3-small',
         1536,
         'cosine'
       );
       const second = await repository.getOrCreateSet(
-        'openai',
+        'openai::text-embedding-3-small',
         'text-embedding-3-small',
         1536,
         'cosine'
@@ -87,7 +93,7 @@ describe('DrizzleEmbeddingSetsRepository', () => {
   describe('getById', () => {
     it('should find set by id', async () => {
       const created = await repository.getOrCreateSet(
-        'openai',
+        'openai::text-embedding-3-small',
         'text-embedding-3-small',
         1536,
         'cosine'
@@ -97,7 +103,7 @@ describe('DrizzleEmbeddingSetsRepository', () => {
 
       expect(found).toBeDefined();
       expect(found?.id).toBe(created.id);
-      expect(found?.modelKey).toBe('openai');
+      expect(found?.modelKey).toBe('openai::text-embedding-3-small');
     });
 
     it('should return null for non-existent id', async () => {
@@ -109,14 +115,24 @@ describe('DrizzleEmbeddingSetsRepository', () => {
 
   describe('getByModelKey', () => {
     it('should find sets by model key', async () => {
-      await repository.getOrCreateSet('openai', 'text-embedding-3-small', 1536, 'cosine');
-      await repository.getOrCreateSet('openai', 'text-embedding-3-large', 3072, 'cosine');
-      await repository.getOrCreateSet('voyage', 'voyage-2', 1024, 'cosine');
+      await repository.getOrCreateSet(
+        'openai::text-embedding-3-small',
+        'text-embedding-3-small',
+        1536,
+        'cosine'
+      );
+      await repository.getOrCreateSet(
+        'openai::text-embedding-3-large',
+        'text-embedding-3-large',
+        3072,
+        'cosine'
+      );
+      await repository.getOrCreateSet('voyage::voyage-2', 'voyage-2', 1024, 'cosine');
 
-      const openaiSets = await repository.getByModelKey('openai');
+      const openaiSets = await repository.getByModelKey('openai::text-embedding-3-small');
 
-      expect(openaiSets).toHaveLength(2);
-      expect(openaiSets.every((s) => s.modelKey === 'openai')).toBe(true);
+      expect(openaiSets).toHaveLength(1);
+      expect(openaiSets.every((s) => s.modelKey === 'openai::text-embedding-3-small')).toBe(true);
     });
 
     it('should return empty array for unknown model key', async () => {
@@ -129,7 +145,7 @@ describe('DrizzleEmbeddingSetsRepository', () => {
   describe('updateMetadata', () => {
     it('should update metadata fields', async () => {
       const created = await repository.getOrCreateSet(
-        'openai',
+        'openai::text-embedding-3-small',
         'text-embedding-3-small',
         1536,
         'cosine'
@@ -156,8 +172,13 @@ describe('DrizzleEmbeddingSetsRepository', () => {
 
   describe('findAll', () => {
     it('should return all embedding sets', async () => {
-      await repository.getOrCreateSet('openai', 'text-embedding-3-small', 1536, 'cosine');
-      await repository.getOrCreateSet('voyage', 'voyage-2', 1024, 'cosine');
+      await repository.getOrCreateSet(
+        'openai::text-embedding-3-small',
+        'text-embedding-3-small',
+        1536,
+        'cosine'
+      );
+      await repository.getOrCreateSet('voyage::voyage-2', 'voyage-2', 1024, 'cosine');
 
       const all = await repository.findAll();
 
@@ -168,7 +189,7 @@ describe('DrizzleEmbeddingSetsRepository', () => {
   describe('delete', () => {
     it('should delete set by id', async () => {
       const created = await repository.getOrCreateSet(
-        'openai',
+        'openai::text-embedding-3-small',
         'text-embedding-3-small',
         1536,
         'cosine'
@@ -186,6 +207,41 @@ describe('DrizzleEmbeddingSetsRepository', () => {
       const deleted = await repository.delete('00000000-0000-0000-0000-000000000000');
 
       expect(deleted).toBe(false);
+    });
+
+    it('repairs legacy malformed metadata using the model registry', async () => {
+      await client.query(
+        `CREATE TABLE IF NOT EXISTS models (
+          id TEXT PRIMARY KEY,
+          provider_id TEXT NOT NULL,
+          name TEXT NOT NULL
+        )`
+      );
+      await client.query(
+        `INSERT INTO models (id, provider_id, name)
+         VALUES ('Xenova/all-MiniLM-L6-v2', 'local', 'all-MiniLM-L6-v2')`
+      );
+      await client.query(
+        `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+         VALUES ('00000000-0000-0000-0000-000000000999', 'Xenova/all-MiniLM-L6-v2', 'all-MiniLM-L6-v2', 384, 'cosine', CURRENT_TIMESTAMP)`
+      );
+
+      const found = await repository.getById('00000000-0000-0000-0000-000000000999');
+
+      expect(found).toMatchObject({
+        id: '00000000-0000-0000-0000-000000000999',
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+      });
+
+      const repaired = await client.query<{ model_id: string; model_key: string }>(
+        'SELECT model_key, model_id FROM embedding_sets WHERE id = $1',
+        ['00000000-0000-0000-0000-000000000999']
+      );
+      expect(repaired.rows[0]).toEqual({
+        model_key: 'local::Xenova/all-MiniLM-L6-v2',
+        model_id: 'Xenova/all-MiniLM-L6-v2',
+      });
     });
   });
 });

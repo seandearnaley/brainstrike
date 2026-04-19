@@ -117,6 +117,29 @@ describe('LocalLanguageModel', () => {
       expect(result).toHaveProperty('usage');
     });
 
+    it('includes hidden reasoning as a separate content part when present', async () => {
+      mockGenerate.mockResolvedValueOnce({
+        ...mockGenerateResult,
+        reasoningText: 'Analyze the request first.',
+      } satisfies LocalLlmGenerationResult);
+      const model = new LocalLanguageModel('test-model');
+
+      const result = await model.doGenerate({
+        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+      });
+
+      expect(result.content).toEqual([
+        {
+          type: 'reasoning',
+          text: 'Analyze the request first.',
+        },
+        {
+          type: 'text',
+          text: 'Test response',
+        },
+      ]);
+    });
+
     it('handles tool result messages', async () => {
       const model = new LocalLanguageModel('test-model');
       const options = {
@@ -289,6 +312,42 @@ describe('LocalLanguageModel', () => {
       const finishPart = parts.find((p: unknown) => (p as { type: string }).type === 'finish');
       expect(finishPart).toBeDefined();
       expect((finishPart as { finishReason: string }).finishReason).toBe('stop');
+    });
+
+    it('streams reasoning parts when reasoning content is present', async () => {
+      mockGenerate.mockResolvedValueOnce({
+        ...mockGenerateResult,
+        reasoningText: 'Analyze first.',
+      } satisfies LocalLlmGenerationResult);
+      const model = new LocalLanguageModel('test-model');
+
+      const result = await model.doStream({
+        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+      });
+      const reader = result.stream.getReader();
+      const parts: unknown[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        parts.push(value);
+      }
+
+      expect(
+        parts.find((part: unknown) => (part as { type?: string }).type === 'reasoning-start')
+      ).toBeDefined();
+      expect(
+        parts.find((part: unknown) => (part as { type?: string }).type === 'reasoning-delta')
+      ).toEqual(
+        expect.objectContaining({
+          delta: 'Analyze first.',
+        })
+      );
+      expect(
+        parts.find((part: unknown) => (part as { type?: string }).type === 'reasoning-end')
+      ).toBeDefined();
     });
 
     it('preserves compact text part IDs while using secure randomness', async () => {

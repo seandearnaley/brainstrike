@@ -213,6 +213,57 @@ describe('SearchModeBar', () => {
     expect(screen.getByRole('button', { name: 'Toggle search settings' })).toBeInTheDocument();
   });
 
+  it('uses aria-pressed to reflect filter panel visibility', () => {
+    render(<SearchModeBar {...createProps({ isFilterVisible: true })} />);
+
+    expect(screen.getByRole('button', { name: 'Toggle filters' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+  });
+
+  it('uses aria-pressed to reflect search settings expansion', () => {
+    render(<SearchModeBar {...createProps({ isConfigExpanded: true })} />);
+
+    expect(screen.getByRole('button', { name: 'Toggle search settings' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+  });
+
+  it('defaults filter and settings toggles to aria-pressed false', () => {
+    render(<SearchModeBar {...createProps()} />);
+
+    expect(screen.getByRole('button', { name: 'Toggle filters' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+    expect(screen.getByRole('button', { name: 'Toggle search settings' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+  });
+
+  it('keeps the filter toggle unpressed when filters are active but the panel is closed', () => {
+    render(
+      <SearchModeBar
+        {...createProps({
+          filters: {
+            embeddingStatus: 'all',
+            nodeTypes: new Set(['collection', 'file', 'chunk']),
+            searchMatchesOnly: false,
+            searchQuery: '',
+          },
+          isFilterVisible: false,
+        })}
+      />
+    );
+
+    const filterToggle = screen.getByRole('button', { name: 'Toggle filters (active)' });
+    expect(filterToggle).toHaveAttribute('aria-pressed', 'false');
+    expect(filterToggle).toHaveClass('bg-accent');
+  });
+
   it('renders multi-select toggle when onMultiSelectToggle is provided', () => {
     const onMultiSelectToggle = vi.fn();
     render(<SearchModeBar {...createProps({ onMultiSelectToggle })} />);
@@ -240,6 +291,7 @@ describe('SearchModeBar', () => {
     render(<SearchModeBar {...createProps({ multiSelectEnabled: true, onMultiSelectToggle })} />);
 
     const toggle = screen.getByRole('button', { name: 'Toggle multi-select' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
     expect(toggle.className).toContain('bg-accent');
   });
 

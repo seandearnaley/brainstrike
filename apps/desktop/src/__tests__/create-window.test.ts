@@ -2,6 +2,7 @@ import { addLogListener } from '@brainstrike/utils';
 import { app, BrowserWindow } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWindow, noteNextWindowReload } from '../create-window';
+import { DESKTOP_DEV_RENDERER_URL } from '../desktop-renderer-url';
 import type { DesktopWindowState } from '../store-schema';
 
 // Hoist mocks for Vitest 4 compatibility
@@ -44,7 +45,7 @@ describe('createWindow', () => {
     process.argv = [...baseArgv];
 
     mockWebContents = {
-      getURL: vi.fn(() => 'http://localhost:8081/'),
+      getURL: vi.fn(() => `${DESKTOP_DEV_RENDERER_URL}/`),
       setWindowOpenHandler: vi.fn(),
       on: vi.fn(),
       openDevTools: vi.fn(),
@@ -446,7 +447,12 @@ describe('createWindow', () => {
         expect(didStartLoadingHandler).toBeDefined();
 
         didFinishLoadHandler?.();
-        didStartNavigationHandler?.({}, 'http://localhost:8081/#settings/database', false, true);
+        didStartNavigationHandler?.(
+          {},
+          `${DESKTOP_DEV_RENDERER_URL}/#settings/database`,
+          false,
+          true
+        );
         didStartLoadingHandler?.();
 
         const record = [...captured]
@@ -461,7 +467,7 @@ describe('createWindow', () => {
           expect.objectContaining({
             reloadReason: 'top-level-navigation',
             reloadSource: 'unknown',
-            url: 'http://localhost:8081/#settings/database',
+            url: `${DESKTOP_DEV_RENDERER_URL}/#settings/database`,
             windowRole: 'visible-ui',
           })
         );
@@ -617,27 +623,40 @@ describe('createWindow', () => {
       expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
     });
 
-    it('should load development renderer when built files exist in dev mode', async () => {
+    it('should load built renderer by default when unpackaged', async () => {
       existsSyncMock.mockReturnValue(true);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
-      mockBrowserWindow.loadURL.mockResolvedValue(undefined);
 
       await createWindow();
 
-      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith('http://localhost:8081');
+      expect(mockBrowserWindow.loadFile).toHaveBeenCalledWith(
+        expect.stringContaining('renderer/index.html')
+      );
+      expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
+    });
+
+    it('should connect to dev server only when dev-server mode is explicit', async () => {
+      existsSyncMock.mockReturnValue(false);
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      mockBrowserWindow.loadURL.mockResolvedValue(undefined);
+      process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
+
+      await createWindow();
+
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith(DESKTOP_DEV_RENDERER_URL);
       expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
       expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
     });
 
-    it('should connect to dev server when not packaged and no built files', async () => {
+    it('should throw when built renderer is missing in default built mode', async () => {
       existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
-      mockBrowserWindow.loadURL.mockResolvedValue(undefined);
 
-      await createWindow();
+      await expect(createWindow()).rejects.toThrow(
+        'Built renderer is required in packaged/test mode but was not found'
+      );
 
-      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith('http://localhost:8081');
-      expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
+      expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
       expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
     });
 
@@ -672,9 +691,10 @@ describe('createWindow', () => {
       existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
       process.env['BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS'] = '1';
+      process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
       await createWindow();
 
-      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith('http://localhost:8081');
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith(DESKTOP_DEV_RENDERER_URL);
       expect(mockWebContents.openDevTools).toHaveBeenCalledTimes(1);
     });
 
@@ -682,15 +702,16 @@ describe('createWindow', () => {
       existsSyncMock.mockReturnValue(true);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
       mockBrowserWindow.loadURL.mockRejectedValue(new Error('Dev server unavailable'));
+      process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
 
       await expect(createWindow()).rejects.toThrow(
         'Dev renderer unavailable in non-packaged mode; refusing production fallback'
       );
       expect(mockBrowserWindow.loadURL).toHaveBeenCalled();
-      expect(mockBrowserWindow.loadURL).toHaveBeenNthCalledWith(1, 'http://localhost:8081');
+      expect(mockBrowserWindow.loadURL).toHaveBeenNthCalledWith(1, DESKTOP_DEV_RENDERER_URL);
       const attemptedUrls = mockBrowserWindow.loadURL.mock.calls.map((call: [string]) => call[0]);
       for (const url of attemptedUrls) {
-        expect(url).toBe('http://localhost:8081');
+        expect(url).toBe(DESKTOP_DEV_RENDERER_URL);
       }
       expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
       expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
@@ -699,18 +720,20 @@ describe('createWindow', () => {
     it('should attempt the deterministic dev server URL in test runtime', async () => {
       existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
 
       mockBrowserWindow.loadURL.mockResolvedValueOnce(undefined);
 
       await createWindow();
 
       expect(mockBrowserWindow.loadURL).toHaveBeenCalledTimes(1);
-      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith('http://localhost:8081');
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith(DESKTOP_DEV_RENDERER_URL);
     });
 
     it('should throw error if deterministic dev renderer URL fails repeatedly', async () => {
       existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
 
       const error = new Error('All ports unavailable');
       mockBrowserWindow.loadURL.mockRejectedValue(error);
@@ -721,7 +744,7 @@ describe('createWindow', () => {
       expect(mockBrowserWindow.loadURL).toHaveBeenCalled();
       const attemptedUrls = mockBrowserWindow.loadURL.mock.calls.map((call: [string]) => call[0]);
       for (const url of attemptedUrls) {
-        expect(url).toBe('http://localhost:8081');
+        expect(url).toBe(DESKTOP_DEV_RENDERER_URL);
       }
       expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
     });

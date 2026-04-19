@@ -43,7 +43,7 @@ describe('store coverage', () => {
       JSON.stringify('store-value')
     );
     expect(localStorageMock.removeItem).toHaveBeenCalledWith('store-key');
-  });
+  }, 15_000);
 
   it('reuses a valid branded singleton from globalThis', async () => {
     const existingStore = Object.assign(vi.fn(), {

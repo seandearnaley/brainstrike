@@ -267,6 +267,34 @@ describe('DirectFileContentProcessor', () => {
     expect(firstCall).toBeDefined();
     expect(firstCall?.size).toBeUndefined();
   });
+
+  it('should abort direct processing before reading the next file', async () => {
+    const processor = new DirectFileContentProcessor();
+    const controller = new AbortController();
+    const mockReadFile = vi.mocked(mockFileSystemAdapter.readFile);
+    mockReadFile.mockClear();
+    mockReadFile.mockImplementation(async (handle) => {
+      controller.abort();
+      return `content-${handle.name}`;
+    });
+    vi.mocked(fileExplorer.getFileExtension).mockReturnValue('txt');
+    vi.mocked(fileContent.isBinaryExtension).mockReturnValue(false);
+    vi.mocked(fileContent.isTextExtension).mockReturnValue(true);
+    vi.mocked(fileContent.isTextContent).mockReturnValue(true);
+
+    const secondRequest = {
+      ...mockRequest,
+      compositeKey: 'root1|@|/second.txt',
+      fileNode: { ...mockFileNode, name: 'second.txt', path: '/second.txt' },
+    };
+
+    await expect(
+      processor.processFiles([mockRequest, secondRequest], undefined, {
+        abortSignal: controller.signal,
+      })
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(mockReadFile).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('WorkerFileContentProcessor', () => {
@@ -296,6 +324,7 @@ describe('WorkerFileContentProcessor', () => {
           }),
         }),
       ],
+      undefined,
       undefined
     );
     expect(results).toEqual({ key1: 'result1' });
@@ -311,7 +340,7 @@ describe('WorkerFileContentProcessor', () => {
 
     await processor.processFiles([mockRequest], onProgress);
 
-    expect(mockWorker).toHaveBeenCalledWith(expect.any(Array), onProgress);
+    expect(mockWorker).toHaveBeenCalledWith(expect.any(Array), onProgress, undefined);
   });
 
   it('should omit non-finite size metadata from worker handles', async () => {
@@ -334,6 +363,20 @@ describe('WorkerFileContentProcessor', () => {
       handle?: { size?: number };
     };
     expect(workerRequest?.handle?.size).toBeUndefined();
+  });
+
+  it('should pass abort options through to the worker', async () => {
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi.fn().mockResolvedValue({});
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+    const controller = new AbortController();
+
+    const processor = new WorkerFileContentProcessor(mockFileSystemAdapter);
+    await processor.processFiles([mockRequest], undefined, { abortSignal: controller.signal });
+
+    expect(mockWorker).toHaveBeenCalledWith(expect.any(Array), undefined, {
+      abortSignal: controller.signal,
+    });
   });
 });
 

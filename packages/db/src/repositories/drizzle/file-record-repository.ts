@@ -9,7 +9,13 @@ import type { ResolvedChunkingStrategy } from '@brainstrike/text-splitter';
 import { createLogger, generateContentHash, generateUUID } from '@brainstrike/utils';
 import { count, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
-import type { FileImportRequest, FileImportResult, FileRecord } from '../../models/file-record.js';
+import type {
+  FileImportRequest,
+  FileImportResult,
+  FileRecord,
+  FileRecordUpdate,
+  ManagedCacheEntryMetadata,
+} from '../../models/file-record.js';
 import { fileRecords } from '../../schema/index.js';
 
 type DrizzleDb = PgliteDatabase;
@@ -23,6 +29,7 @@ const ALLOWED_UPDATE_FIELDS: readonly (keyof FileRecord)[] = [
   'name',
   'path',
   'size',
+  'sourceRootPath',
   'createdAt',
   'updatedAt',
   'content',
@@ -110,6 +117,7 @@ export class DrizzleFileRecordRepository {
       name: record.name,
       path: record.path,
       size: record.size,
+      sourceRootPath: record.sourceRootPath ?? null,
       createdAt: new Date(record.createdAt),
       updatedAt: new Date(record.updatedAt),
       embeddingSetId: record.embeddingSetId ?? null,
@@ -122,6 +130,7 @@ export class DrizzleFileRecordRepository {
       name: record.name,
       path: record.path,
       size: record.size,
+      sourceRootPath: record.sourceRootPath ?? null,
       createdAt: new Date(record.createdAt),
       updatedAt: new Date(record.updatedAt),
       content: record.content ?? null,
@@ -184,7 +193,77 @@ export class DrizzleFileRecordRepository {
     return rows.map((row) => this.fromRow(row));
   }
 
-  async update(id: string, updates: Partial<FileRecord>): Promise<void> {
+  async findByManagedCacheIdentity(
+    embeddingSetId: string,
+    sourceRootPath: string,
+    relativePath: string
+  ): Promise<FileRecord | null> {
+    const [row] = await this.db
+      .select()
+      .from(fileRecords)
+      .where(
+        sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.sourceRootPath} = ${sourceRootPath} AND ${fileRecords.path} = ${relativePath}`
+      )
+      .orderBy(sql`${fileRecords.updatedAt} DESC`)
+      .limit(1);
+
+    return row ? this.fromRow(row) : null;
+  }
+
+  async listManagedCacheEntries(embeddingSetId: string): Promise<FileRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(fileRecords)
+      .where(
+        sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.sourceRootPath} IS NOT NULL`
+      )
+      .orderBy(sql`${fileRecords.updatedAt} DESC`);
+
+    return rows.map((row) => this.fromRow(row));
+  }
+
+  async listManagedCacheEntryMetadata(
+    embeddingSetId: string
+  ): Promise<ManagedCacheEntryMetadata[]> {
+    const rows = await this.db
+      .select({
+        fileRecordId: fileRecords.id,
+        embeddingSetId: fileRecords.embeddingSetId,
+        sourceRootPath: fileRecords.sourceRootPath,
+        relativePath: fileRecords.path,
+        contentHash: fileRecords.contentHash,
+        updatedAt: fileRecords.updatedAt,
+      })
+      .from(fileRecords)
+      .where(
+        sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.sourceRootPath} IS NOT NULL`
+      )
+      .orderBy(sql`${fileRecords.updatedAt} DESC`);
+
+    return rows.flatMap((row) => {
+      if (
+        typeof row.fileRecordId !== 'string' ||
+        typeof row.embeddingSetId !== 'string' ||
+        typeof row.sourceRootPath !== 'string' ||
+        typeof row.relativePath !== 'string' ||
+        !(typeof row.contentHash === 'string' || row.contentHash === null)
+      ) {
+        return [];
+      }
+      return [
+        {
+          fileRecordId: row.fileRecordId,
+          embeddingSetId: row.embeddingSetId,
+          sourceRootPath: row.sourceRootPath,
+          relativePath: row.relativePath,
+          contentHash: row.contentHash ?? '',
+          updatedAt: row.updatedAt.toISOString(),
+        } satisfies ManagedCacheEntryMetadata,
+      ];
+    });
+  }
+
+  async update(id: string, updates: FileRecordUpdate): Promise<void> {
     const fields = Object.keys(updates).filter((k): k is keyof FileRecord =>
       ALLOWED_UPDATE_FIELDS.includes(k as keyof FileRecord)
     );
@@ -203,7 +282,7 @@ export class DrizzleFileRecordRepository {
    */
   private buildUpdateData(
     fields: (keyof FileRecord)[],
-    updates: Partial<FileRecord>
+    updates: FileRecordUpdate
   ): Partial<typeof fileRecords.$inferInsert> {
     const updateData: Partial<typeof fileRecords.$inferInsert> = {};
 
@@ -233,6 +312,9 @@ export class DrizzleFileRecordRepository {
         break;
       case 'size':
         updateData.size = validateSize(value);
+        break;
+      case 'sourceRootPath':
+        updateData.sourceRootPath = validateNullableString(value, 'sourceRootPath');
         break;
       case 'createdAt':
         updateData.createdAt = validateDateString(value, 'createdAt');
@@ -420,6 +502,7 @@ export class DrizzleFileRecordRepository {
         name: request.name,
         path: request.path,
         size: request.size,
+        sourceRootPath: request.sourceRootPath ?? null,
         createdAt: now,
         updatedAt: now,
         content: request.content,
@@ -440,6 +523,7 @@ export class DrizzleFileRecordRepository {
         createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
         contentHash: hash,
+        ...(request.sourceRootPath ? { sourceRootPath: request.sourceRootPath } : {}),
       });
 
       results[index] = {
@@ -522,6 +606,10 @@ export class DrizzleFileRecordRepository {
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
+
+    if (row.sourceRootPath !== null && row.sourceRootPath !== undefined) {
+      record.sourceRootPath = row.sourceRootPath;
+    }
 
     // Add optional fields if they exist
     if (row.content !== null && row.content !== undefined) {

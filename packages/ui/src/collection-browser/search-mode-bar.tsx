@@ -109,6 +109,7 @@ export const SearchModeBar = React.memo(function SearchModeBar({
       filters.embeddingStatus !== 'all'
     );
   }, [filters]);
+  const filterToggleLabel = hasActiveFilters ? 'Toggle filters (active)' : 'Toggle filters';
 
   return (
     <div className={cn('bg-background', className)}>
@@ -190,7 +191,8 @@ export const SearchModeBar = React.memo(function SearchModeBar({
 
             <div className="relative">
               <Button
-                aria-label="Toggle filters"
+                aria-label={filterToggleLabel}
+                aria-pressed={isFilterVisible ? 'true' : 'false'}
                 className={cn(
                   'h-9 w-9 p-0',
                   (isFilterVisible || hasActiveFilters) && 'bg-accent text-accent-foreground'
@@ -209,6 +211,7 @@ export const SearchModeBar = React.memo(function SearchModeBar({
 
             <Button
               aria-label="Toggle search settings"
+              aria-pressed={isConfigExpanded ? 'true' : 'false'}
               className={cn('h-9 w-9 p-0', isConfigExpanded && 'bg-accent text-accent-foreground')}
               onClick={() => onConfigExpandedChange(!isConfigExpanded)}
               size="sm"
@@ -223,6 +226,7 @@ export const SearchModeBar = React.memo(function SearchModeBar({
                 <div className="mx-0.5 h-5 w-px bg-border" />
                 <Button
                   aria-label="Toggle multi-select"
+                  aria-pressed={multiSelectEnabled ? 'true' : 'false'}
                   className={cn(
                     'h-9 w-9 p-0',
                     multiSelectEnabled && 'bg-accent text-accent-foreground'

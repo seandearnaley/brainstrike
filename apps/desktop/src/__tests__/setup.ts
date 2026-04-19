@@ -103,6 +103,24 @@ Object.defineProperty(window, 'agent', {
   writable: true,
 });
 
+Object.defineProperty(window, 'llmHost', {
+  value: {
+    ensureStarted: vi.fn().mockResolvedValue({ state: 'running', active: false, lastError: null }),
+    stop: vi.fn().mockResolvedValue({ state: 'stopped', active: false, lastError: null }),
+    reset: vi.fn().mockResolvedValue({ state: 'running', active: false, lastError: null }),
+    getStatus: vi.fn().mockResolvedValue({ state: 'running', active: false, lastError: null }),
+    warmup: vi.fn().mockResolvedValue(undefined),
+    generate: vi.fn().mockResolvedValue(null),
+    reportStatus: vi.fn(),
+    reportProgress: vi.fn(),
+    reportResponse: vi.fn(),
+    onStatus: vi.fn(() => () => {}),
+    onProgress: vi.fn(() => () => {}),
+    onRequest: vi.fn(() => () => {}),
+  },
+  writable: true,
+});
+
 process.env['BRAINSTRIKE_AGENT_TEST_MODE'] = '1';
 
 const mockProviderDefinitions = [
@@ -278,6 +296,39 @@ vi.mock('@brainstrike/agent/client', async (importOriginal) => {
     generateExampleInput: actual.generateExampleInput,
   };
 });
+
+vi.mock('@brainstrike/agent/local-llm', () => ({
+  LocalLlmBackend: class MockLocalLlmBackend {
+    static getBestDevice(): 'webgpu' {
+      return 'webgpu';
+    }
+
+    static async hasDownloadedModel(): Promise<boolean> {
+      return false;
+    }
+
+    static async downloadModel(): Promise<void> {}
+
+    async dispose(): Promise<void> {}
+
+    async generate(): Promise<Record<string, unknown>> {
+      return {
+        text: '',
+        rawText: '',
+        promptText: '',
+        toolCalls: [],
+        finishReason: 'stop',
+        usage: {
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+        },
+      };
+    }
+
+    async initialize(): Promise<void> {}
+  },
+}));
 
 // Mock react-router-dom for components that use it
 vi.mock('react-router-dom', async () => {

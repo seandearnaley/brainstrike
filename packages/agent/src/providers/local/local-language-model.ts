@@ -16,12 +16,14 @@ import type {
   LanguageModelV2Usage,
 } from '@ai-sdk/provider';
 import { generateUUID } from '@brainstrike/utils';
+import type { LocalProviderOptions } from '../../types';
 import { LocalLlmBackend } from './local-llm-backend';
 import type { LocalLlmMessage, LocalLlmToolDefinition } from './types';
 
 interface LocalLanguageModelSettings {
   maxNewTokens?: number;
   temperature?: number;
+  thinking?: LocalProviderOptions['thinking'];
   topK?: number;
   topP?: number;
 }
@@ -59,10 +61,20 @@ function parseToolResultMessage(content: unknown): LocalLlmMessage[] {
     }
     const toolMsg: LocalLlmMessage = {
       role: 'tool',
-      content: typeof part.result === 'string' ? part.result : JSON.stringify(part.result),
+      content: '',
     };
     if (typeof part.toolCallId === 'string') {
       toolMsg.toolCallId = part.toolCallId;
+    }
+    if (typeof part.toolName === 'string' && part.toolName.trim().length > 0) {
+      toolMsg.toolResponses = [
+        {
+          name: part.toolName,
+          response: part.result,
+        },
+      ];
+    } else {
+      toolMsg.content = typeof part.result === 'string' ? part.result : JSON.stringify(part.result);
     }
     results.push(toolMsg);
   }
@@ -165,6 +177,37 @@ function generateId(): string {
   return generateUUID().replace(/-/g, '').slice(0, 9);
 }
 
+function segmentTextForStream(text: string): string[] {
+  const normalized = text.trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const chunks: string[] = [];
+  let current = '';
+  const segments = normalized.split(/(\s+)/);
+  for (const segment of segments) {
+    const next = `${current}${segment}`;
+    if (current.length >= 48 && /\s/.test(segment)) {
+      chunks.push(current);
+      current = segment;
+      continue;
+    }
+    if (next.length >= 72 && current.length > 0) {
+      chunks.push(current);
+      current = segment;
+      continue;
+    }
+    current = next;
+  }
+
+  if (current) {
+    chunks.push(current);
+  }
+
+  return chunks.length > 0 ? chunks : [normalized];
+}
+
 /**
  * AI SDK v2 compatible language model for local inference
  */
@@ -222,6 +265,9 @@ export class LocalLanguageModel implements LanguageModelV2 {
       temperature?: number;
       topP?: number;
       topK?: number;
+      thinking?: {
+        enabled?: boolean;
+      };
       tools?: LocalLlmToolDefinition[];
       signal?: AbortSignal;
     } = {
@@ -247,6 +293,10 @@ export class LocalLanguageModel implements LanguageModelV2 {
       generateOptions.tools = tools;
     }
 
+    if (this.settings.thinking !== undefined) {
+      generateOptions.thinking = this.settings.thinking;
+    }
+
     if (options.abortSignal !== undefined) {
       generateOptions.signal = options.abortSignal;
     }
@@ -255,6 +305,13 @@ export class LocalLanguageModel implements LanguageModelV2 {
 
     // Build content array (V2 format)
     const content: LanguageModelV2Content[] = [];
+
+    if (result.reasoningText) {
+      content.push({
+        type: 'reasoning',
+        text: result.reasoningText,
+      } as LanguageModelV2Content);
+    }
 
     // Add text content if present
     if (result.text) {
@@ -345,10 +402,19 @@ export class LocalLanguageModel implements LanguageModelV2 {
 
     // Stream text content if present
     for (const item of result.content) {
-      if (item.type === 'text') {
+      if (item.type === 'reasoning') {
+        const reasoningId = generateId();
+        parts.push({ type: 'reasoning-start', id: reasoningId });
+        for (const delta of segmentTextForStream(item.text)) {
+          parts.push({ type: 'reasoning-delta', id: reasoningId, delta });
+        }
+        parts.push({ type: 'reasoning-end', id: reasoningId });
+      } else if (item.type === 'text') {
         const textId = generateId();
         parts.push({ type: 'text-start', id: textId });
-        parts.push({ type: 'text-delta', id: textId, delta: item.text });
+        for (const delta of segmentTextForStream(item.text)) {
+          parts.push({ type: 'text-delta', id: textId, delta });
+        }
         parts.push({ type: 'text-end', id: textId });
       } else if (item.type === 'tool-call') {
         // For tool calls, we emit the complete tool call

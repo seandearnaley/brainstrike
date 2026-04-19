@@ -28,6 +28,7 @@ import {
   type FileSystemHandle,
   toWorkerFileNodes,
 } from '../utils/worker-node-conversion';
+import { buildNodeFromPath } from './build-node-from-path';
 
 const logger = createLogger('FileTreeWorker');
 
@@ -47,30 +48,6 @@ function sortFileNodes(nodes: IFileNode[]): IFileNode[] {
 }
 
 /**
- * Build minimal node info from a path and root info.
- */
-function buildNodeFromPath(
-  path: string,
-  rootPath: string,
-  rootFolderId: string,
-  handle: FileSystemHandle
-): IFileNode {
-  const pathSegments = path.replace(rootPath, '').split('/').filter(Boolean);
-  const name = pathSegments.at(-1) ?? '';
-  const depth = pathSegments.length - 1;
-
-  return {
-    name,
-    path,
-    type: 'directory',
-    depth,
-    rootFolderId,
-    handle: handle as FileSystemDirectoryHandle,
-    selectionState: 'unchecked',
-  };
-}
-
-/**
  * Load a single directory for worker request.
  */
 async function loadSingleDirectory(
@@ -86,7 +63,7 @@ async function loadSingleDirectory(
     return { path, error: 'Handle not found' };
   }
 
-  const node = buildNodeFromPath(path, rootPath, rootFolderId, handle);
+  const node = buildNodeFromPath(path, rootPath, rootFolderId, handle as FileSystemDirectoryHandle);
 
   try {
     const children = await loadDirectoryChildren(fileSystemAdapter, node, {

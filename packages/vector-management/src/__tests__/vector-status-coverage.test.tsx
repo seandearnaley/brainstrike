@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { VectorStatus, VectorStatusWithDb } from '../vector-status';
+import type { VectorQueueService } from '../vector-status/vector-queue-service';
 
 // ─── Mutable mock state ──────────────────────────────────────────────────────
 
@@ -49,6 +50,37 @@ const mockQueueState = {
   wipeQueue: vi.fn().mockResolvedValue(undefined),
   validateApiKey: vi.fn().mockResolvedValue({ valid: true }),
 };
+
+function createMockVectorQueueService(): VectorQueueService {
+  return {
+    backfill: vi.fn(async () => ({
+      queued: 0,
+      running: 0,
+      failed: 0,
+      succeeded: 0,
+    })),
+    clearQueue: vi.fn(async () => undefined),
+    reembedSet: vi.fn(async () => ({
+      clearedCount: 0,
+      queueCounts: {
+        queued: 0,
+        running: 0,
+        failed: 0,
+        succeeded: 0,
+      },
+    })),
+    refresh: vi.fn(async () => ({
+      coverage: null,
+      lastError: null,
+      latency: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+      queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+      throughput: 0,
+    })),
+    retryFailed: vi.fn(async () => undefined),
+    validateApiKeyForSet: vi.fn(async () => ({ valid: true }) as const),
+    wipeQueue: vi.fn(async () => undefined),
+  };
+}
 
 // ─── Module mocks ────────────────────────────────────────────────────────────
 
@@ -139,11 +171,52 @@ vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => ({
     }),
 }));
 
-vi.mock('../vector-status/embedding-runtime-controller', () => ({
-  useEmbeddingRuntimeController: () => ({
-    isInitialized: true,
-    isInitializing: false,
-    error: null,
+vi.mock('../embedding-runtime-provider', () => ({
+  useSharedEmbeddingRuntime: () => ({
+    controller: {
+      cancelAllBackfills: vi.fn(async () => {}),
+      cancelBackfill: vi.fn(async () => {}),
+      enqueueBackfill: vi.fn(async () => ({ requestId: 'embedding-backfill:test' })),
+      ensureStarted: vi.fn(async () => ({
+        runtimeKind: 'embedding-worker',
+        runtimeId: 'embedding-worker:test',
+        state: 'running',
+        active: false,
+        lastError: null,
+      })),
+      getBackfillsInFlight: vi.fn(async () => []),
+      getStatus: vi.fn(async () => ({
+        runtimeKind: 'embedding-worker',
+        runtimeId: 'embedding-worker:test',
+        state: 'running',
+        active: false,
+        lastError: null,
+      })),
+      onBackfillProgress: vi.fn(() => () => {}),
+      onStatus: vi.fn(() => () => {}),
+      reset: vi.fn(async () => ({
+        runtimeKind: 'embedding-worker',
+        runtimeId: 'embedding-worker:test',
+        state: 'stopped',
+        active: false,
+        lastError: null,
+      })),
+      start: vi.fn(async () => ({
+        runtimeKind: 'embedding-worker',
+        runtimeId: 'embedding-worker:test',
+        state: 'running',
+        active: false,
+        lastError: null,
+      })),
+      stop: vi.fn(async () => ({
+        runtimeKind: 'embedding-worker',
+        runtimeId: 'embedding-worker:test',
+        state: 'stopped',
+        active: false,
+        lastError: null,
+      })),
+    },
+    service: createMockVectorQueueService(),
   }),
 }));
 
@@ -173,10 +246,6 @@ vi.mock('../vector-status/use-embedding-worker-controls', () => ({
 
 vi.mock('../vector-status/use-vector-queue-state', () => ({
   useVectorQueueState: () => mockQueueState,
-}));
-
-vi.mock('../vector-status/vector-queue-service', () => ({
-  createVectorQueueService: vi.fn(() => ({ service: 'mock' })),
 }));
 
 vi.mock('@brainstrike/utils/logger', async () => {

@@ -37,7 +37,7 @@ import type { DbModel, DbProvider } from '../stores/model-registry-store';
 import { useModelRegistryStore } from '../stores/model-registry-store';
 
 type HostedEmbeddingProviderId = HostedProviderType;
-type LocalRuntimeModelCatalogMap = Record<LocalRuntimeId, LocalRuntimeModelCatalogState>;
+type LocalRuntimeModelCatalogMap = Partial<Record<LocalRuntimeId, LocalRuntimeModelCatalogState>>;
 
 interface ModelPreset {
   readonly badge: string;

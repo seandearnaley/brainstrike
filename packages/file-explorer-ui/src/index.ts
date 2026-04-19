@@ -51,5 +51,5 @@ export * from './utils/file-content-worker';
 export * from './utils/file-node-cache';
 export { processDirectoryEntry } from './utils/process-directory-entry';
 export { processFileEntry } from './utils/process-file-entry';
-export { readFullTree } from './utils/read-full-tree';
+export { readFullTree, readFullTreeWithOptions } from './utils/read-full-tree';
 export * from './view-filter-preset-dropdown';

@@ -8,7 +8,7 @@ describe('Desktop CSP Utils', () => {
 
       expect(devCSP).toContain("default-src 'self' http://localhost:* ws://localhost:*");
       expect(devCSP).toContain(
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:* https://cdn.jsdelivr.net"
+        "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval' http://localhost:* https://cdn.jsdelivr.net"
       );
       expect(devCSP).toContain("worker-src 'self' blob:");
       expect(devCSP).toContain("style-src 'self' 'unsafe-inline' http://localhost:*");
@@ -34,7 +34,7 @@ describe('Desktop CSP Utils', () => {
       const prodCSP = getCSP('production');
 
       expect(prodCSP).toContain("default-src 'self'");
-      expect(prodCSP).toContain("script-src 'self' 'unsafe-eval' https://cdn.jsdelivr.net");
+      expect(prodCSP).toContain("script-src 'self' blob: 'unsafe-eval' https://cdn.jsdelivr.net");
       expect(prodCSP).toContain("worker-src 'self' blob:");
       expect(prodCSP).toContain("style-src 'self' 'unsafe-inline'");
       expect(prodCSP).toContain("img-src 'self' data: blob:");
@@ -122,6 +122,14 @@ describe('Desktop CSP Utils', () => {
 
       expect(devCSP).toContain("worker-src 'self' blob:");
       expect(prodCSP).toContain("worker-src 'self' blob:");
+    });
+
+    it('supports blob: script modules for ORT and transformers runtime loading', () => {
+      const devCSP = getCSP('development');
+      const prodCSP = getCSP('production');
+
+      expect(devCSP).toContain("script-src 'self' blob:");
+      expect(prodCSP).toContain("script-src 'self' blob:");
     });
 
     it('supports data: URIs for assets', () => {

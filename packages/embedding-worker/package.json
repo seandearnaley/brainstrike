@@ -5,7 +5,7 @@
   "dependencies": {
     "@brainstrike/types": "workspace:*",
     "@brainstrike/worker-runtime": "workspace:*",
-    "@huggingface/transformers": "^3.8.1",
+    "@huggingface/transformers": "^4.0.1",
     "workerpool": "^10.0.1"
   },
   "devDependencies": {

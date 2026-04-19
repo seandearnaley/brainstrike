@@ -93,6 +93,11 @@ export interface ElectronFileSystemAPI {
  */
 export interface ElectronDatabaseAPI {
   /**
+   * Apply a managed cache import/replace batch atomically.
+   */
+  applyManagedCacheBatch?: (payload: unknown) => Promise<void>;
+
+  /**
    * Clear all stored data (desktop only)
    */
   clearAll?: (confirmationToken?: string) => Promise<{

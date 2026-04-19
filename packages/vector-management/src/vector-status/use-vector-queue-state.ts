@@ -7,6 +7,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEmbeddingQueueSafe } from '../embedding-queue-provider';
 import type { EmbeddingRuntimeController } from './embedding-runtime-controller';
+import { dispatchQueueDrainedEvent } from './queue-events';
 import {
   calculateLatency,
   EMBEDDINGS_QUEUE,
@@ -167,17 +168,6 @@ interface CoverageRow {
   totalChunks: number | string | null;
 }
 
-function dispatchQueueDrainedEvent(embeddingSetId: string): void {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  window.dispatchEvent(
-    new CustomEvent('brainstrike:queue-drained', {
-      detail: { embeddingSetId, queue: EMBEDDINGS_QUEUE },
-    })
-  );
-}
-
 // Default metrics when EmbeddingQueueProvider is not available
 const DEFAULT_METRICS = {
   windowErrorCount: 0,
@@ -261,7 +251,7 @@ async function reconcileBackfillStateAfterReload({
     return;
   }
 
-  if (!inFlight.includes(activeEmbeddingSetId)) {
+  if (!inFlight.some((backfill) => backfill.embeddingSetId === activeEmbeddingSetId)) {
     const currentState = useVectorStatusUIStore.getState();
     if (
       shouldClearRecoveredBackfillState(
@@ -693,7 +683,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     );
     try {
       logger.info('backfillActiveSet: starting backfill', { activeEmbeddingSetId });
-      await controller.enqueueBackfill(activeEmbeddingSetId);
+      await controller.enqueueBackfill(activeEmbeddingSetId, { source: 'manual' });
       dispatchQueueDrainedEvent(activeEmbeddingSetId);
       logger.info('backfillActiveSet: backfill completed', { activeEmbeddingSetId });
     } catch (error) {

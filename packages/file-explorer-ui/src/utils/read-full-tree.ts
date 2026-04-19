@@ -15,6 +15,10 @@ export interface ReadFullTreeOptions {
   abortSignal?: AbortSignal | undefined;
   /** Maximum number of concurrent directory reads (default: 10) */
   concurrency?: number | undefined;
+  /** Optional entry policy for pruning directories and files during traversal */
+  entryPolicy?: ParallelWalkerOptions['entryPolicy'];
+  /** Callback when a file or directory entry is skipped during traversal */
+  onEntrySkipped?: ParallelWalkerOptions['onEntrySkipped'];
   /** Callback for streaming tree snapshots */
   onTreeSnapshot?: ((tree: IFileNode[], meta: StreamMeta) => void) | undefined;
   /** Snapshot interval in ms (default: 100) */
@@ -76,6 +80,8 @@ export async function readFullTreeWithOptions(
   const {
     concurrency,
     abortSignal,
+    entryPolicy,
+    onEntrySkipped,
     updateProgress,
     sortFileNodes,
     onTreeSnapshot,
@@ -85,6 +91,8 @@ export async function readFullTreeWithOptions(
   return walkDirectoryParallel(fileSystemAdapter, rootHandle, {
     concurrency,
     abortSignal,
+    entryPolicy,
+    onEntrySkipped,
     onProgress: updateProgress,
     sortFileNodes,
     onTreeSnapshot,

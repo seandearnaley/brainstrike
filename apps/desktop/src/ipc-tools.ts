@@ -5,10 +5,12 @@
  * tool execution in the main process.
  */
 
+import type { RuntimeData } from '@brainstrike/agent';
 import { isNativeTool } from '@brainstrike/agent/client';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
+import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import { callTool } from './mcp';
 import { executeNativeTool, isExecutableNativeTool } from './native-tool-executor';
 
@@ -116,6 +118,49 @@ function sanitizeMcpInput(
   return { ok: true, value: input as Record<string, JsonValue> };
 }
 
+function sanitizeRuntimeData(input: unknown): Partial<RuntimeData> | undefined {
+  if (!isPlainObject(input)) {
+    return;
+  }
+
+  const runtimeData: Partial<RuntimeData> = {};
+
+  if (typeof input['workspaceRootPath'] === 'string') {
+    runtimeData.workspaceRootPath = input['workspaceRootPath'];
+  }
+  if (typeof input['selectionFolderId'] === 'string') {
+    runtimeData.selectionFolderId = input['selectionFolderId'];
+  }
+  if (Array.isArray(input['selectionFilePaths'])) {
+    const selectionFilePaths = input['selectionFilePaths'].filter(
+      (value): value is string => typeof value === 'string'
+    );
+    if (selectionFilePaths.length > 0) {
+      runtimeData.selectionFilePaths = selectionFilePaths;
+    }
+  }
+  if (typeof input['embeddingSetId'] === 'string') {
+    runtimeData.embeddingSetId = input['embeddingSetId'];
+  }
+  if (typeof input['tokenBudget'] === 'number' && Number.isFinite(input['tokenBudget'])) {
+    runtimeData.tokenBudget = input['tokenBudget'];
+  }
+  if (typeof input['includeFileReport'] === 'boolean') {
+    runtimeData.includeFileReport = input['includeFileReport'];
+  }
+  if (typeof input['includeProjectTree'] === 'boolean') {
+    runtimeData.includeProjectTree = input['includeProjectTree'];
+  }
+  if (
+    typeof input['contextTokenCount'] === 'number' &&
+    Number.isFinite(input['contextTokenCount'])
+  ) {
+    runtimeData.contextTokenCount = input['contextTokenCount'];
+  }
+
+  return Object.keys(runtimeData).length > 0 ? runtimeData : undefined;
+}
+
 /**
  * Result of executing a tool via IPC.
  */
@@ -131,6 +176,88 @@ type ToolExecutionResult<T = unknown> =
       durationMs: number;
     };
 
+function buildDuration(startTime: number): number {
+  return Math.round(performance.now() - startTime);
+}
+
+function buildFailureResult(startTime: number, error: string): ToolExecutionResult {
+  return {
+    success: false,
+    error,
+    durationMs: buildDuration(startTime),
+  };
+}
+
+function sanitizeToolInput(
+  startTime: number,
+  toolId: string,
+  input: unknown,
+  logScope: 'assistant-runtime' | 'mcp' | 'native'
+): { ok: true; value: Record<string, JsonValue> } | { ok: false; result: ToolExecutionResult } {
+  const sanitizedInput = sanitizeMcpInput(input);
+  if (sanitizedInput.ok) {
+    return sanitizedInput;
+  }
+
+  logger.warn(`Rejected ${logScope} tool input`, {
+    toolId,
+    error: sanitizedInput.error,
+  });
+  return {
+    ok: false,
+    result: buildFailureResult(startTime, sanitizedInput.error),
+  };
+}
+
+async function tryExecuteAssistantRuntimeTool(
+  startTime: number,
+  toolId: string,
+  input: unknown,
+  runtimeData: Partial<RuntimeData> | undefined
+): Promise<ToolExecutionResult | null> {
+  const assistantTool = buildDesktopAssistantTools(runtimeData)[toolId];
+  if (!assistantTool?.execute) {
+    return null;
+  }
+
+  const sanitizedInput = sanitizeToolInput(startTime, toolId, input, 'assistant-runtime');
+  if (!sanitizedInput.ok) {
+    return sanitizedInput.result;
+  }
+
+  const result = await assistantTool.execute(sanitizedInput.value, undefined);
+  return {
+    success: true,
+    result,
+    durationMs: buildDuration(startTime),
+  };
+}
+
+async function executeMcpTool(
+  startTime: number,
+  toolId: string,
+  input: unknown
+): Promise<ToolExecutionResult> {
+  const sanitizedInput = sanitizeToolInput(startTime, toolId, input, 'mcp');
+  if (!sanitizedInput.ok) {
+    return sanitizedInput.result;
+  }
+
+  const result = await callTool(toolId, sanitizedInput.value);
+  const durationMs = buildDuration(startTime);
+  logger.info('Tool executed', {
+    toolId,
+    durationMs,
+    source: 'mcp',
+  });
+
+  return {
+    success: true,
+    result,
+    durationMs,
+  };
+}
+
 /**
  * Register IPC handlers for tool execution.
  */
@@ -142,83 +269,48 @@ export function registerToolsIpcHandlers(): void {
     async (
       _event: IpcMainInvokeEvent,
       toolId: unknown,
-      input: unknown
+      input: unknown,
+      runtimeDataInput?: unknown
     ): Promise<ToolExecutionResult> => {
       const startTime = performance.now();
       const normalizedToolId = typeof toolId === 'string' ? toolId.trim() : '';
       if (!normalizedToolId) {
-        return {
-          success: false,
-          error: 'Invalid tool ID.',
-          durationMs: Math.round(performance.now() - startTime),
-        };
+        return buildFailureResult(startTime, 'Invalid tool ID.');
       }
       logger.debug('Executing tool', { toolId: normalizedToolId });
+      const runtimeData = sanitizeRuntimeData(runtimeDataInput);
 
       try {
-        // Check if it's an executable native tool (currently none are exposed in playground)
         if (isExecutableNativeTool(normalizedToolId)) {
-          const sanitizedInput = sanitizeMcpInput(input);
+          const sanitizedInput = sanitizeToolInput(startTime, normalizedToolId, input, 'native');
           if (!sanitizedInput.ok) {
-            logger.warn('Rejected native tool input', {
-              toolId: normalizedToolId,
-              error: sanitizedInput.error,
-            });
-            return {
-              success: false,
-              error: sanitizedInput.error,
-              durationMs: Math.round(performance.now() - startTime),
-            };
+            return sanitizedInput.result;
           }
           return await executeNativeTool(normalizedToolId, sanitizedInput.value);
         }
 
-        // Check if it's a native tool that requires workspace/database context (brainstrike.*)
-        // These can't be executed in the playground - they need the full runtime
         if (isNativeTool(normalizedToolId)) {
-          return {
-            success: false,
-            error: `Tool "${normalizedToolId}" requires database access and cannot be tested in the playground. This tool works during actual assistant conversations.`,
-            durationMs: Math.round(performance.now() - startTime),
-          };
+          const assistantRuntimeResult = await tryExecuteAssistantRuntimeTool(
+            startTime,
+            normalizedToolId,
+            input,
+            runtimeData
+          );
+          if (assistantRuntimeResult) {
+            return assistantRuntimeResult;
+          }
+
+          return buildFailureResult(
+            startTime,
+            `Tool "${normalizedToolId}" requires database access and cannot be tested in the playground. This tool works during actual assistant conversations.`
+          );
         }
 
-        // Try MCP tool execution (for tools from MCP servers)
-        const sanitizedInput = sanitizeMcpInput(input);
-        if (!sanitizedInput.ok) {
-          logger.warn('Rejected tool input', {
-            toolId: normalizedToolId,
-            error: sanitizedInput.error,
-          });
-          return {
-            success: false,
-            error: sanitizedInput.error,
-            durationMs: Math.round(performance.now() - startTime),
-          };
-        }
-
-        const result = await callTool(normalizedToolId, sanitizedInput.value);
-        const durationMs = Math.round(performance.now() - startTime);
-        logger.info('Tool executed', {
-          toolId: normalizedToolId,
-          durationMs,
-          source: 'mcp',
-        });
-
-        return {
-          success: true,
-          result,
-          durationMs,
-        };
+        return await executeMcpTool(startTime, normalizedToolId, input);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Tool execution failed';
         logger.error('Tool execution failed', { toolId: normalizedToolId, error: errorMessage });
-
-        return {
-          success: false,
-          error: errorMessage,
-          durationMs: Math.round(performance.now() - startTime),
-        };
+        return buildFailureResult(startTime, errorMessage);
       }
     }
   );

@@ -218,4 +218,28 @@ describe('createBrowserEmbeddingQueuePort', () => {
       failed: 0,
     });
   });
+
+  it('rejects when queue scheduling is aborted before enqueue', async () => {
+    const queue = createAdapter();
+    const chunkRepository = {
+      update: vi.fn().mockResolvedValue(null),
+    };
+    const controller = new AbortController();
+    controller.abort();
+
+    const port = createBrowserEmbeddingQueuePort({
+      queue,
+      chunkRepository,
+      deviceHint: 'wasm',
+    });
+
+    await expect(
+      port.enqueueBatch([chunk as never], 'file-1', {
+        model: 'test-model',
+        targetEmbeddingSetId: 'set-1',
+        signal: controller.signal,
+      })
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(queue.add).not.toHaveBeenCalled();
+  });
 });

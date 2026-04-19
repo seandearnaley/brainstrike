@@ -223,6 +223,11 @@ vi.mock('@brainstrike/preferences/settings-page-content', async (importOriginal)
     await importOriginal<typeof import('@brainstrike/preferences/settings-page-content')>();
   return {
     ...actual,
+    createSearchIndexingSettingsCategory: vi.fn(() => ({
+      content: <div data-testid="search-indexing-settings-mock" />,
+      id: 'search-indexing',
+      title: 'Search & Indexing',
+    })),
     createTokenCountingSettingsCategoryWithRuntimeSupport: vi.fn(() => ({
       content: <div data-testid="token-counting-settings-mock" />,
       id: 'token-counting',

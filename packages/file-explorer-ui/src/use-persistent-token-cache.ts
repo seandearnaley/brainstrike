@@ -13,9 +13,10 @@
  */
 
 import { createLogger } from '@brainstrike/utils/logger';
+import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import type { MutableRefObject } from 'react';
 import { useCallback, useRef } from 'react';
-import { useOptionalTokenCacheContext } from './token-cache-context';
+import { type TokenCacheContextValue, useOptionalTokenCacheContext } from './token-cache-context';
 import type { TokenCountingState } from './use-token-counting';
 
 const logger = createLogger('PersistentTokenCache');
@@ -24,6 +25,31 @@ const FAILED_REQUEST_RETRY_COOLDOWN_MS = 5000;
 interface FailedRequestState {
   failedAt: number;
   stateKey: string;
+}
+
+interface CachedSelectionStats {
+  cachedFileCount: number;
+  tokenCounts: ReadonlyMap<string, number>;
+  totalTokens: number;
+}
+
+function normalizeSelectionPath(folderId: string, filePath: string): string {
+  return normalizeSelectionPathForFolder(filePath, folderId, {
+    label: 'Token cache file path',
+  });
+}
+
+function tryNormalizeSelectionPath(folderId: string, filePath: string): string | null {
+  try {
+    return normalizeSelectionPath(folderId, filePath);
+  } catch (error) {
+    logger.warn('Rejected unsafe token cache file path before persistent cache access', {
+      filePath,
+      folderId,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
 }
 
 /**
@@ -49,6 +75,12 @@ export interface UsePersistentTokenCacheReturn {
    * Use as a dependency in useMemo/useEffect to trigger re-renders.
    */
   cacheVersion: number;
+
+  /**
+   * Get cached token counts for files in a selection.
+   * Returns only files already present in cache/store; uncached files are excluded.
+   */
+  getCachedSelectionStats: (compositeKeys: Iterable<string>) => Promise<CachedSelectionStats>;
 
   /**
    * Get file size from persistent cache.
@@ -109,6 +141,77 @@ function shouldDelayRetry(
   return false;
 }
 
+function buildCompositeKeysByFolder(
+  compositeKeys: Iterable<string>,
+  decodeFileSelection: (compositeKey: string) => { folderId: string; path: string }
+): Map<string, Map<string, string>> {
+  const compositeKeysByFolder = new Map<string, Map<string, string>>();
+
+  for (const compositeKey of compositeKeys) {
+    const { folderId, path } = decodeFileSelection(compositeKey);
+    const normalizedPath = tryNormalizeSelectionPath(folderId, path);
+    if (!normalizedPath) {
+      continue;
+    }
+    const folderCompositeKeys = compositeKeysByFolder.get(folderId) ?? new Map<string, string>();
+    folderCompositeKeys.set(normalizedPath, compositeKey);
+    compositeKeysByFolder.set(folderId, folderCompositeKeys);
+  }
+
+  return compositeKeysByFolder;
+}
+
+async function readPersistentSelectionStats(
+  folderSelections: Map<string, Map<string, string>>,
+  store: NonNullable<TokenCacheContextValue['store']>
+): Promise<CachedSelectionStats> {
+  const folderResults = await Promise.all(
+    Array.from(folderSelections, async ([folderId, folderCompositeKeys]) => ({
+      entries: await store.getBatch(folderId, Array.from(folderCompositeKeys.keys())),
+      folderCompositeKeys,
+    }))
+  );
+
+  let cachedFileCount = 0;
+  const tokenCounts = new Map<string, number>();
+  let totalTokens = 0;
+
+  for (const { entries, folderCompositeKeys } of folderResults) {
+    cachedFileCount += entries.size;
+    for (const [filePath, entry] of entries) {
+      const compositeKey = folderCompositeKeys.get(filePath);
+      if (compositeKey === undefined) {
+        continue;
+      }
+      tokenCounts.set(compositeKey, entry.tokenCount);
+      totalTokens += entry.tokenCount;
+    }
+  }
+
+  return { cachedFileCount, tokenCounts, totalTokens };
+}
+
+function readInMemorySelectionStats(
+  compositeKeys: Iterable<string>,
+  tokenCache: ReadonlyMap<string, number>
+): CachedSelectionStats {
+  let cachedFileCount = 0;
+  const tokenCounts = new Map<string, number>();
+  let totalTokens = 0;
+
+  for (const compositeKey of compositeKeys) {
+    const cached = tokenCache.get(compositeKey);
+    if (typeof cached !== 'number') {
+      continue;
+    }
+    tokenCounts.set(compositeKey, cached);
+    cachedFileCount += 1;
+    totalTokens += cached;
+  }
+
+  return { cachedFileCount, tokenCounts, totalTokens };
+}
+
 /**
  * Hook that provides persistent token caching with a strict in-memory request/cache layer.
  *
@@ -156,10 +259,15 @@ export function usePersistentTokenCache({
           return;
         }
 
+        const normalizedPath = tryNormalizeSelectionPath(folderId, path);
+        if (!normalizedPath) {
+          return;
+        }
+
         // Try to get from hot cache first (no content needed!)
         // Pass undefined for content to check cache only
         const content = fileContents[compositeKey];
-        const count = persistentCache.getTokenCount(folderId, path, content);
+        const count = persistentCache.getTokenCount(folderId, normalizedPath, content);
 
         if (count !== null) {
           return count;
@@ -229,7 +337,11 @@ export function usePersistentTokenCache({
 
       // Use persistent cache if available
       if (persistentCache?.isOperational) {
-        return persistentCache.getFileSize(folderId, path);
+        const normalizedPath = tryNormalizeSelectionPath(folderId, path);
+        if (!normalizedPath) {
+          return undefined;
+        }
+        return persistentCache.getFileSize(folderId, normalizedPath);
       }
 
       // No fallback for file size in in-memory mode
@@ -238,9 +350,24 @@ export function usePersistentTokenCache({
     [persistentCache, decodeFileSelection]
   );
 
+  const getCachedSelectionStats = useCallback(
+    async (compositeKeys: Iterable<string>): Promise<CachedSelectionStats> => {
+      if (persistentCache?.isOperational) {
+        return await readPersistentSelectionStats(
+          buildCompositeKeysByFolder(compositeKeys, decodeFileSelection),
+          persistentCache.store
+        );
+      }
+
+      return readInMemorySelectionStats(compositeKeys, tokenCacheRef.current);
+    },
+    [decodeFileSelection, persistentCache]
+  );
+
   return {
     getTokenCount,
     getFileSize,
+    getCachedSelectionStats,
     isAnyLoading: persistentCache?.isAnyLoading ?? pendingRequestsRef.current.size > 0,
     pendingRequestsRef,
     tokenCacheRef,

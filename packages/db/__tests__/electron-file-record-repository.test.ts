@@ -124,6 +124,34 @@ describe('ElectronFileRecordRepository', () => {
     );
   });
 
+  it('createWithContent preserves empty string content for chunking-host reads', async () => {
+    const record = createTestRecord({
+      content: '',
+      contentHash: 'hash-empty',
+      processedAt: '2026-04-14T00:00:00.000Z',
+      tokenCount: 0,
+    });
+
+    await repo.createWithContent(record);
+
+    expect(query).toHaveBeenCalledWith(
+      'INSERT INTO file_records (id, name, path, size, source_root_path, created_at, updated_at, content, content_hash, token_count, processed_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
+      [
+        record.id,
+        record.name,
+        record.path,
+        record.size,
+        null,
+        record.createdAt,
+        record.updatedAt,
+        '',
+        'hash-empty',
+        0,
+        '2026-04-14T00:00:00.000Z',
+      ]
+    );
+  });
+
   it('delete uses correct SQL', async () => {
     await repo.delete('abc');
     expect(query).toHaveBeenCalledWith('DELETE FROM file_records WHERE id = $1', ['abc']);
@@ -134,5 +162,32 @@ describe('ElectronFileRecordRepository', () => {
     const result = await repo.count();
     expect(query).toHaveBeenCalledWith('SELECT COUNT(*) as count FROM file_records');
     expect(result).toBe(2);
+  });
+
+  it('findByManagedCacheIdentity uses cache identity SQL', async () => {
+    await repo.findByManagedCacheIdentity('set-1', '/workspace/a', 'src/index.ts');
+
+    expect(query).toHaveBeenCalledWith(
+      'SELECT * FROM file_records WHERE embedding_set_id = $1 AND source_root_path = $2 AND path = $3 ORDER BY updated_at DESC LIMIT 1',
+      ['set-1', '/workspace/a', 'src/index.ts']
+    );
+  });
+
+  it('listManagedCacheEntries filters by embedding set and source root metadata', async () => {
+    await repo.listManagedCacheEntries('set-1');
+
+    expect(query).toHaveBeenCalledWith(
+      'SELECT * FROM file_records WHERE embedding_set_id = $1 AND source_root_path IS NOT NULL ORDER BY updated_at DESC',
+      ['set-1']
+    );
+  });
+
+  it('listManagedCacheEntryMetadata uses metadata-only SQL', async () => {
+    await repo.listManagedCacheEntryMetadata('set-1');
+
+    expect(query).toHaveBeenCalledWith(
+      'SELECT id, embedding_set_id, source_root_path, path, content_hash, updated_at FROM file_records WHERE embedding_set_id = $1 AND source_root_path IS NOT NULL ORDER BY updated_at DESC',
+      ['set-1']
+    );
   });
 });

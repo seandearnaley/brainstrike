@@ -1,5 +1,11 @@
 import { createLogger, generateContentHash, generateUUID } from '@brainstrike/utils';
-import type { FileImportRequest, FileImportResult, FileRecord } from '../models/file-record.js';
+import type {
+  FileImportRequest,
+  FileImportResult,
+  FileRecord,
+  FileRecordUpdate,
+  ManagedCacheEntryMetadata,
+} from '../models/file-record.js';
 import type { IDatabase, IFileRecordRepository } from './interfaces.js';
 
 const logger = createLogger('DB:FileRecordRepository');
@@ -11,6 +17,7 @@ const ALLOWED_UPDATE_FIELDS: readonly (keyof FileRecord)[] = [
   'name',
   'path',
   'size',
+  'sourceRootPath',
   'createdAt',
   'updatedAt',
   'content',
@@ -49,6 +56,11 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       values.push(record.embeddingSetId);
     }
 
+    if (record.sourceRootPath) {
+      fields.push('source_root_path');
+      values.push(record.sourceRootPath);
+    }
+
     const placeholders = fields.map((_, i) => `$${i + 1}`).join(', ');
     const sql = `INSERT INTO ${this.tableName} (${fields.join(', ')}) VALUES (${placeholders})`;
 
@@ -61,6 +73,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       'name',
       'path',
       'size',
+      'source_root_path',
       'created_at',
       'updated_at',
       'content',
@@ -73,9 +86,10 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       record.name,
       record.path,
       record.size,
+      record.sourceRootPath || null,
       record.createdAt,
       record.updatedAt,
-      record.content || null,
+      record.content ?? null,
       record.contentHash || null,
       record.tokenCount || 0,
       record.processedAt || null,
@@ -163,7 +177,82 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       .map((row) => this.fromRow(row));
   }
 
-  async update(id: string, updates: Partial<FileRecord>): Promise<void> {
+  async findByManagedCacheIdentity(
+    embeddingSetId: string,
+    sourceRootPath: string,
+    relativePath: string
+  ): Promise<FileRecord | null> {
+    const sql = `SELECT * FROM ${this.tableName} WHERE embedding_set_id = $1 AND source_root_path = $2 AND path = $3 ORDER BY updated_at DESC LIMIT 1`;
+    const result = await this.db.query<Record<string, unknown>>(sql, [
+      embeddingSetId,
+      sourceRootPath,
+      relativePath,
+    ]);
+    const row = result.rows[0];
+
+    if (!row || typeof row !== 'object' || row === null) {
+      return null;
+    }
+
+    return this.fromRow(row);
+  }
+
+  async listManagedCacheEntries(embeddingSetId: string): Promise<FileRecord[]> {
+    const sql = `SELECT * FROM ${this.tableName} WHERE embedding_set_id = $1 AND source_root_path IS NOT NULL ORDER BY updated_at DESC`;
+    const result = await this.db.query<Record<string, unknown>>(sql, [embeddingSetId]);
+
+    if (!Array.isArray(result.rows)) {
+      return [];
+    }
+
+    return result.rows
+      .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
+      .map((row) => this.fromRow(row));
+  }
+
+  async listManagedCacheEntryMetadata(
+    embeddingSetId: string
+  ): Promise<ManagedCacheEntryMetadata[]> {
+    const sql = `SELECT id, embedding_set_id, source_root_path, path, content_hash, updated_at FROM ${this.tableName} WHERE embedding_set_id = $1 AND source_root_path IS NOT NULL ORDER BY updated_at DESC`;
+    const result = await this.db.query<Record<string, unknown>>(sql, [embeddingSetId]);
+
+    if (!Array.isArray(result.rows)) {
+      return [];
+    }
+
+    return result.rows
+      .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
+      .flatMap((row) => {
+        const fileRecordId = row['id'];
+        const rowEmbeddingSetId = row['embedding_set_id'];
+        const sourceRootPath = row['source_root_path'];
+        const relativePath = row['path'];
+        const contentHash = row['content_hash'];
+        const updatedAt = row['updated_at'];
+        if (
+          typeof fileRecordId !== 'string' ||
+          typeof rowEmbeddingSetId !== 'string' ||
+          typeof sourceRootPath !== 'string' ||
+          typeof relativePath !== 'string' ||
+          !(typeof contentHash === 'string' || contentHash === null) ||
+          !(updatedAt instanceof Date || typeof updatedAt === 'string')
+        ) {
+          return [];
+        }
+        return [
+          {
+            fileRecordId,
+            embeddingSetId: rowEmbeddingSetId,
+            sourceRootPath,
+            relativePath,
+            contentHash: contentHash ?? '',
+            updatedAt: updatedAt instanceof Date ? updatedAt.toISOString() : updatedAt,
+          } satisfies ManagedCacheEntryMetadata,
+        ];
+      });
+  }
+
+  async update(id: string, updates: FileRecordUpdate): Promise<void> {
     const fields = Object.keys(updates).filter((k): k is keyof FileRecord =>
       ALLOWED_UPDATE_FIELDS.includes(k as keyof FileRecord)
     );
@@ -351,6 +440,9 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
         tokenCount,
         processedAt: now,
       };
+      if (request.sourceRootPath) {
+        record.sourceRootPath = request.sourceRootPath;
+      }
 
       // Add embedding_set_id if present on request
       if ('embeddingSetId' in request && request.embeddingSetId) {
@@ -427,6 +519,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       'name',
       'path',
       'size',
+      'source_root_path',
       'created_at',
       'updated_at',
       'content',
@@ -455,6 +548,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
         record.name,
         record.path,
         record.size,
+        record.sourceRootPath ?? null,
         record.createdAt,
         record.updatedAt,
         record.content,
@@ -512,6 +606,10 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       updatedAt: String(row['updated_at']),
     };
 
+    if (row['source_root_path'] !== null && row['source_root_path'] !== undefined) {
+      record.sourceRootPath = String(row['source_root_path']);
+    }
+
     // Add optional fields if they exist (check for both null and undefined)
     if (row['content'] !== null && row['content'] !== undefined) {
       record.content = String(row['content']);
@@ -563,6 +661,8 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
         return 'created_at';
       case 'updatedAt':
         return 'updated_at';
+      case 'sourceRootPath':
+        return 'source_root_path';
       case 'contentHash':
         return 'content_hash';
       case 'tokenCount':

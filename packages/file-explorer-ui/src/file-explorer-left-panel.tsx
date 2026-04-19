@@ -10,6 +10,7 @@ import { shallow } from 'zustand/shallow';
 import type { UseBoundStoreWithEqualityFn } from 'zustand/traditional';
 
 const logger = createLogger('FileExplorerLeftPanel');
+const FILE_EXPLORER_REFRESH_EVENT = 'brainstrike:file-explorer-refreshed';
 
 /**
  * Type for Zustand store with persist middleware.
@@ -43,7 +44,7 @@ import {
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
 import FileExplorerSidebar from './file-explorer-sidebar';
-import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
+import { FilterStatus } from './file-explorer-status-components';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { FileFilterBar } from './file-filter-bar';
 import { useRuleMaterialization } from './hooks/use-rule-materialization';
@@ -410,11 +411,33 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     [fileSystemAdapter]
   );
 
-  // This hook automatically indexes selected files when TokenCacheProvider is present
+  // Web file resolver - mirrors the desktop synthetic-handle path so the
+  // background indexer can index files inside lazy/unexpanded subfolders (e.g.
+  // after Select All) without forcing the whole tree to expand on the main
+  // thread. Only wired when the active adapter implements the optional
+  // resolveFileForIndexing capability (web today; electron leaves it undefined
+  // and continues using electronFileReader). The union return value lets
+  // production return a real `FileSystemFileHandle` (worker-side read) while
+  // in-memory adapters return pre-loaded `kind: 'content'` because their
+  // synthetic handles cannot survive structured clone to the worker.
+  const adapterResolveFileForIndexing = fileSystemAdapter.resolveFileForIndexing;
+  const webFileHandleResolver = useMemo(
+    () =>
+      adapterResolveFileForIndexing
+        ? (absolutePath: string) =>
+            adapterResolveFileForIndexing.call(fileSystemAdapter, absolutePath)
+        : undefined,
+    [adapterResolveFileForIndexing, fileSystemAdapter]
+  );
+
+  // This hook automatically indexes selected files when TokenCacheProvider is present.
+  // Only pass `webFileHandleResolver` when the active adapter advertises it so we don't
+  // trip `exactOptionalPropertyTypes` with an explicit-`undefined` value.
   useBackgroundTokenIndexerIntegration({
     fileTree: stableFileTree,
     selectedFiles: selectedFilePaths,
     electronFileReader,
+    ...(webFileHandleResolver ? { webFileHandleResolver } : {}),
   });
 
   const [quickFilter, setQuickFilter, clearQuickFilter] = useFileExplorerStoreSelector(
@@ -539,6 +562,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     setIsRefreshing(true);
     try {
       await refreshFileExplorer();
+      window.dispatchEvent(new CustomEvent(FILE_EXPLORER_REFRESH_EVENT));
       showToast({
         title: FileExplorerStrings.success.title,
         description: FileExplorerStrings.success.refreshSuccess,
@@ -720,14 +744,16 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
       <div className="grid h-full grid-rows-[auto_1fr_auto]">
         {/* Fixed Header - Toolbar and filter controls */}
         <div className="shrink-0">
-          <FileExplorerToolbar isLoading={isLoading} onDirectorySelect={handleDirectorySelect} />
+          <FileExplorerToolbar
+            isLoading={isLoading}
+            onDirectorySelect={handleDirectorySelect}
+            rootDirectoryHandle={rootDirectoryHandle}
+          />
           {/* Restoration indicator - shown when restoring expanded directories from persisted state */}
           <RestorationStatus
             isRestoring={isRestoringExpandedPaths}
             progress={restorationProgress}
           />
-          {/* Current directory indicator */}
-          <DirectoryStatus rootDirectoryHandle={rootDirectoryHandle} />
           {/* Filter section: Collapsible view filters + Quick filter input */}
           {rootDirectoryHandle && (
             <div className="border-b">
@@ -833,7 +859,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         {/* Fixed Footer - Action buttons */}
         <div className="shrink-0 border-t bg-gradient-to-t from-muted/20 to-transparent">
           {/* Action buttons row */}
-          <div className="flex items-center justify-between gap-2 px-4 py-3">
+          <div className="@container/footer flex flex-wrap items-center justify-between gap-2 @[360px]:px-4 px-2 @[360px]:py-3 py-2">
             <ActionButtons
               addMultipleSelectedFiles={addMultipleSelectedFiles}
               cancelSelectAll={cancelSelectAll}
@@ -852,15 +878,18 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               visibleFilePaths={visibleFilePaths}
             />
             {/* Selection controls - mode toggle and count */}
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-1.5">
               <SelectionModeBadge
+                maxSelectionCount={maxSelectionCount}
+                onMaxSelectionCountChange={handleMaxSelectionCountChange}
                 onOpenRulesEditor={() => setIsRulesEditorOpen(true)}
                 rulesEditorAvailable={true}
                 show={!!rootDirectoryHandle}
+                triggerVariant="icon"
               />
               <SelectionCounter
+                compact
                 maxSelectionCount={maxSelectionCount}
-                onMaxSelectionCountChange={handleMaxSelectionCountChange}
                 selectedCount={selectedCount}
               />
             </div>

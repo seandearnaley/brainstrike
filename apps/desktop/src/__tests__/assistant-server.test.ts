@@ -7,6 +7,9 @@ import {
   handleAssistantRequest,
   startAssistantServer,
 } from '../assistant-server';
+import { DESKTOP_DEV_RENDERER_URL } from '../desktop-renderer-url';
+
+const desktopRendererOrigin = new URL(DESKTOP_DEV_RENDERER_URL).origin;
 
 // Mock dependencies
 vi.mock('../assistant-server/http', async () => {
@@ -227,11 +230,11 @@ describe('assistant-server', () => {
       const response = await runRequest({
         method: 'GET',
         url: '/assistant/status',
-        headers: { origin: 'http://localhost:8081' },
+        headers: { origin: desktopRendererOrigin },
       });
 
       expect(response.status).toBe(200);
-      expect(response.headers['access-control-allow-origin']).toBe('http://localhost:8081');
+      expect(response.headers['access-control-allow-origin']).toBe(desktopRendererOrigin);
       expect(response.headers['access-control-allow-methods']).toContain('OPTIONS');
       expect(response.headers['access-control-allow-credentials']).toBe('true');
       const data = JSON.parse(response.body) as { enabled: boolean; providers: string[] };
@@ -243,11 +246,11 @@ describe('assistant-server', () => {
       const response = await runRequest({
         method: 'GET',
         url: '/assistant/status?source=healthcheck',
-        headers: { origin: 'http://localhost:8081' },
+        headers: { origin: desktopRendererOrigin },
       });
 
       expect(response.status).toBe(200);
-      expect(response.headers['access-control-allow-origin']).toBe('http://localhost:8081');
+      expect(response.headers['access-control-allow-origin']).toBe(desktopRendererOrigin);
     });
 
     it('should handle CORS preflight for assistant routes', async () => {
@@ -255,14 +258,14 @@ describe('assistant-server', () => {
         method: 'OPTIONS',
         url: '/assistant/status?source=test',
         headers: {
-          origin: 'http://localhost:8081',
+          origin: desktopRendererOrigin,
           'access-control-request-method': 'POST',
         },
       });
 
       expect(response.status).toBe(204);
       expect(response.body).toBe('');
-      expect(response.headers['access-control-allow-origin']).toBe('http://localhost:8081');
+      expect(response.headers['access-control-allow-origin']).toBe(desktopRendererOrigin);
       expect(response.headers['access-control-allow-headers']).toContain('Content-Type');
       expect(response.headers['access-control-allow-methods']).toContain('POST');
       expect(response.headers['access-control-allow-credentials']).toBe('true');
@@ -273,7 +276,7 @@ describe('assistant-server', () => {
         method: 'OPTIONS',
         url: '/unknown?source=test',
         headers: {
-          origin: 'http://localhost:8081',
+          origin: desktopRendererOrigin,
           'access-control-request-method': 'POST',
         },
       });
@@ -303,7 +306,7 @@ describe('assistant-server', () => {
       const response = await runRequest({
         method: 'OPTIONS',
         url: '/assistant/status',
-        headers: { origin: 'http://localhost:8081' },
+        headers: { origin: desktopRendererOrigin },
       });
 
       expect(response.status).toBe(404);
@@ -384,7 +387,7 @@ describe('assistant-server', () => {
       const response = await runRequest({
         method: 'GET',
         url: '/assistant/status',
-        headers: { origin: 'http://localhost:8081, https://evil.example' },
+        headers: { origin: `${desktopRendererOrigin}, https://evil.example` },
       });
 
       expect(response.status).toBe(403);
@@ -397,7 +400,7 @@ describe('assistant-server', () => {
       const response = await runRequest({
         method: 'GET',
         url: '/assistant/status',
-        headers: { origin: 'https://localhost:8081' },
+        headers: { origin: `https://localhost:${new URL(DESKTOP_DEV_RENDERER_URL).port}` },
       });
 
       expect(response.status).toBe(403);

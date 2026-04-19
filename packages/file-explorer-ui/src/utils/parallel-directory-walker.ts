@@ -49,6 +49,29 @@ export interface ParallelWalkerOptions {
   abortSignal?: AbortSignal | undefined;
   /** Maximum number of concurrent directory reads (default: 10) */
   concurrency?: number | undefined;
+  /** Optional entry policy for pruning directories and files during traversal */
+  entryPolicy?:
+    | {
+        shouldIncludeFile?:
+          | ((input: {
+              fileName: string;
+              fileSize: number | undefined;
+              relativePath: string;
+            }) => boolean)
+          | undefined;
+        shouldTraverseDirectory?:
+          | ((input: { directoryName: string; relativePath: string }) => boolean)
+          | undefined;
+      }
+    | undefined;
+  /** Callback when an entry is skipped during traversal */
+  onEntrySkipped?:
+    | ((entry: {
+        entryType: 'directory' | 'file';
+        reason: 'default-ignore' | 'entry-policy';
+        relativePath: string;
+      }) => void)
+    | undefined;
   /** Callback for progress updates (path and depth) */
   onProgress?: ((path: string, depth: number) => void) | undefined;
   /** Callback for streaming tree snapshots */
@@ -64,6 +87,11 @@ interface WorkItem {
   handle: DirectoryHandle;
   parentNode: IFileNode | null;
   parentPath: string;
+}
+
+interface EntrySkipDecision {
+  entryType: 'directory' | 'file';
+  reason: 'default-ignore' | 'entry-policy';
 }
 
 /**
@@ -115,6 +143,8 @@ export async function walkDirectoryParallel(
   const {
     concurrency = DEFAULT_CONCURRENCY,
     abortSignal,
+    entryPolicy,
+    onEntrySkipped,
     onProgress,
     sortFileNodes = defaultSortFileNodes,
     onTreeSnapshot,
@@ -209,6 +239,61 @@ export async function walkDirectoryParallel(
     if (abortSignal?.aborted) {
       throw new DOMException('Operation was cancelled', 'AbortError');
     }
+  }
+
+  function getEntrySkipDecision(entry: IFileNode, relativePath: string): EntrySkipDecision | null {
+    if (fileFilter.shouldIgnorePath(relativePath)) {
+      if (entry.type === 'file' || entry.type === 'directory') {
+        return {
+          entryType: entry.type,
+          reason: 'default-ignore',
+        };
+      }
+      return null;
+    }
+
+    if (
+      entry.type === 'directory' &&
+      entryPolicy?.shouldTraverseDirectory &&
+      !entryPolicy.shouldTraverseDirectory({
+        directoryName: entry.name,
+        relativePath,
+      })
+    ) {
+      return {
+        entryType: 'directory',
+        reason: 'entry-policy',
+      };
+    }
+
+    if (
+      entry.type === 'file' &&
+      entryPolicy?.shouldIncludeFile &&
+      !entryPolicy.shouldIncludeFile({
+        fileName: entry.name,
+        fileSize: entry.size,
+        relativePath,
+      })
+    ) {
+      return {
+        entryType: 'file',
+        reason: 'entry-policy',
+      };
+    }
+
+    return null;
+  }
+
+  function maybeSkipEntry(entry: IFileNode, relativePath: string): boolean {
+    const skipDecision = getEntrySkipDecision(entry, relativePath);
+    if (!skipDecision) {
+      return false;
+    }
+    onEntrySkipped?.({
+      ...skipDecision,
+      relativePath,
+    });
+    return true;
   }
 
   /**
@@ -347,7 +432,7 @@ export async function walkDirectoryParallel(
       for (const entry of entries) {
         checkAbort();
         const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
-        if (fileFilter.shouldIgnorePath(relativePath)) {
+        if (maybeSkipEntry(entry, relativePath)) {
           continue;
         }
         onProgress?.(relativePath, depth);
