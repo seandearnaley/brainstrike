@@ -166,6 +166,37 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
     expect(status.hint).toMatch(/not (be )?running|unreachable|start Ollama/i);
   });
 
+  it('tailors the desktop CORS hint to the runtime being probed', async () => {
+    // Reviewer feedback (#71): a single shared hint that mentions both
+    // "Ollama or LM Studio" and only `OLLAMA_ORIGINS` is confusing when
+    // the user is probing LM Studio — they get advice for the wrong
+    // product. We tailor the hint per-runtime so each probe surfaces
+    // guidance for the daemon the user is actually configuring.
+    const fetchMock = vi.fn<FetchMock>(() => Promise.reject(simulateCorsRejection()));
+
+    const service = new LocalRuntimeDiscoveryService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 3200,
+      logger: loggerMock,
+    });
+
+    const ollamaStatus = await service.probeRuntime('ollama', { surface: 'desktop' });
+    if (ollamaStatus.state !== 'unavailable') {
+      throw new Error(`Expected unavailable, got ${ollamaStatus.state}`);
+    }
+    expect(ollamaStatus.hint).toMatch(/Ollama/);
+    expect(ollamaStatus.hint).toMatch(/OLLAMA_ORIGINS/);
+    expect(ollamaStatus.hint).not.toMatch(/LM Studio/);
+
+    const lmStudioStatus = await service.probeRuntime('lmstudio', { surface: 'desktop' });
+    if (lmStudioStatus.state !== 'unavailable') {
+      throw new Error(`Expected unavailable, got ${lmStudioStatus.state}`);
+    }
+    expect(lmStudioStatus.hint).toMatch(/LM Studio/);
+    // The Ollama-specific env-var name should not appear in an LM Studio hint.
+    expect(lmStudioStatus.hint).not.toMatch(/OLLAMA_ORIGINS/);
+  });
+
   it('exposes getCachedState even after a silent renderer-side probe failure', async () => {
     // User could also debug by inspecting the cached state. This test pins the
     // contract that a failed probe leaves a visible cached entry with a

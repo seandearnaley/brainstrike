@@ -324,7 +324,29 @@ function looksLikeCorsFailure(message: string): boolean {
   return CORS_LIKE_ERROR_PATTERNS.some((pattern) => pattern.test(message));
 }
 
+/** Human-friendly product names for the desktop CORS hint. */
+const RUNTIME_DISPLAY_NAMES: Readonly<Record<LocalRuntimeId, string>> = {
+  ollama: 'Ollama',
+  lmstudio: 'LM Studio',
+};
+
+function buildDesktopCorsHint(runtime: LocalRuntimeId): string {
+  const displayName = RUNTIME_DISPLAY_NAMES[runtime];
+  // The hint must cover BOTH the common case (server not running) and the
+  // subtle Electron-specific case (renderer origin not in OLLAMA_ORIGINS),
+  // because Chromium gives the same opaque `TypeError: Failed to fetch` in
+  // both. Pointing only at CORS would send "server isn't running"
+  // complaints down the wrong debugging path. Per-runtime guidance avoids
+  // the previous wording that mentioned both products in a single hint
+  // even when only one was being probed.
+  if (runtime === 'ollama') {
+    return `Network error reaching ${displayName}. Most often this means the ${displayName} server is not running — start it and try again. If the server is running but the probe still fails from the desktop app, set \`OLLAMA_ORIGINS=*\` so the app's origin is accepted.`;
+  }
+  return `Network error reaching ${displayName}. Most often this means the ${displayName} server is not running — start it from Settings > Server and try again. If the server is running but the probe still fails from the desktop app, widen the origin allow-list in ${displayName}'s server settings so the app's origin is accepted.`;
+}
+
 function toFailureState(
+  runtime: LocalRuntimeId,
   checkedAt: number,
   endpoint: string,
   error: unknown,
@@ -338,19 +360,12 @@ function toFailureState(
       message,
     };
   }
-  // On desktop, any Chromium network failure (CORS rejection, connection
-  // refused, DNS, timeout) surfaces as a bare `TypeError: Failed to fetch`.
-  // We can't distinguish the cause from the error alone, so the hint must
-  // cover BOTH the common case (server not running) and the subtle
-  // Electron-specific case (renderer origin not in OLLAMA_ORIGINS). Telling
-  // users only about CORS would send "server isn't running" complaints down
-  // the wrong debugging path.
   if (surface === 'desktop' && looksLikeCorsFailure(message)) {
     return {
       state: 'unavailable',
       checkedAt,
       message,
-      hint: 'Network error reaching the runtime. Most often this means the server is not running — start Ollama or LM Studio and try again. If the server is running but the probe still fails from the desktop app, set `OLLAMA_ORIGINS=*` (Ollama) or widen the origin allow-list in your local server so the app is accepted.',
+      hint: buildDesktopCorsHint(runtime),
     };
   }
   return {
@@ -639,7 +654,7 @@ export class LocalRuntimeDiscoveryService {
         if (options.signal?.aborted) {
           throw error;
         }
-        const failure = toFailureState(checkedAt, probe.endpoint, error, options.surface);
+        const failure = toFailureState(runtime, checkedAt, probe.endpoint, error, options.surface);
         failures.push({ state: failure });
         if (failure.state === 'blocked_web') {
           break;
