@@ -8,10 +8,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { Loader2, RefreshCw } from 'lucide-react';
 import type { FC, ReactElement } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type {
-  AssistantProviderSettings,
-  LocalRuntimeActivation,
-} from '../../stores/assistant-preferences-store';
+import type { LocalRuntimeActivation } from '../../stores/assistant-preferences-store';
 import { useAssistantPreferencesStore } from '../../stores/assistant-preferences-store';
 
 const logger = createLogger('LocalRuntimeSettings');
@@ -208,19 +205,28 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
   // only on `activation` (a primitive) without re-firing when the Zustand
   // selector returns a fresh function reference — which shouldn't happen
   // today since actions are stable, but a future store refactor could
-  // destabilise it and silently create a probe loop. Keeping the ref current
-  // via a small effect is the same pattern React docs recommend for
-  // long-lived handlers consumed from effects.
+  // destabilise it and silently create a probe loop. The ref pattern is
+  // what React docs recommend for long-lived handlers consumed from effects.
   const runProbe = useCallback(
-    async (options?: { force?: boolean }) => {
+    async (options?: { force?: boolean; isStale?: () => boolean }) => {
       setProbing(true);
       try {
         const statuses = await getLocalRuntimeStatuses({ force: options?.force ?? false });
+        if (options?.isStale?.() ?? false) {
+          return;
+        }
         setStatus(statuses[card.runtimeId]);
       } catch (error) {
+        if (options?.isStale?.() ?? false) {
+          return;
+        }
         logger.error('Local runtime probe failed', { runtimeId: card.runtimeId, error });
       } finally {
-        setProbing(false);
+        // Guard the probing indicator too so a stale probe doesn't clear the
+        // spinner a newer probe has already turned on.
+        if (!(options?.isStale?.() ?? false)) {
+          setProbing(false);
+        }
       }
     },
     [card.runtimeId, getLocalRuntimeStatuses]
@@ -234,12 +240,18 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
     if (activation === 'off') {
       return;
     }
-    // Intentionally depend only on `activation`. Invoking the ref'd probe
-    // avoids a re-fire if the Zustand selector ever returns an unstable
-    // function reference — action references are stable today, but this
-    // keeps the mount-and-activation-change semantics decoupled from store
-    // internals.
-    void runProbeRef.current();
+    // Cancellation: if the user rapidly toggles activation (off → auto →
+    // off → auto), each non-`off` transition fires a probe. The probe
+    // itself still runs to completion (no AbortSignal plumbs into the
+    // shared discovery service), but the `isStale` check below discards
+    // the resulting setStatus / setProbing calls when a newer effect has
+    // invalidated this one. Without this, an earlier probe that completes
+    // LATER would clobber the freshest result.
+    let cancelled = false;
+    void runProbeRef.current({ isStale: () => cancelled });
+    return () => {
+      cancelled = true;
+    };
   }, [activation]);
 
   const handleActivationChange = useCallback(
@@ -444,4 +456,7 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
   );
 };
 
-export type { AssistantProviderSettings };
+// AssistantProviderSettings is exported from the preferences barrel
+// (packages/preferences/src/index.ts → stores/assistant-preferences-store).
+// Consumers should import it from there rather than from this settings
+// section file, so no re-export lives here.
