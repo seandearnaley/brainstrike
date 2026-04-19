@@ -9,6 +9,7 @@ export * from './hooks/use-model-registry';
 export * from './models/local-model-utils';
 export * from './settings/models/model-registry-settings-section';
 export * from './settings/models/model-selection-page';
+export * from './settings/runtimes/local-runtime-settings-section';
 export * from './settings/secrets/api-keys-settings';
 export * from './settings/system/clear-stored-folders-panel';
 export * from './settings/system/factory-reset-helpers';

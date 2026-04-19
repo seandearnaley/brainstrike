@@ -107,6 +107,7 @@ const runtimeCatalog: {
           llm: false,
           embeddings: 'supported',
         },
+        capabilitySource: 'inferred',
         dimensionsKnown: {
           state: 'known',
           values: [768],
@@ -127,6 +128,7 @@ const runtimeCatalog: {
           llm: true,
           embeddings: 'needs_verification',
         },
+        capabilitySource: 'inferred',
         dimensionsKnown: {
           state: 'needs_verification',
         },

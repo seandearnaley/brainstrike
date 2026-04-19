@@ -90,7 +90,7 @@ describe('local-runtime-discovery', () => {
 
     expect(status).toMatchObject({
       state: 'auth_required',
-      endpoint: 'http://localhost:1234/v1/models',
+      endpoint: 'http://127.0.0.1:1234/v1/models',
       status: 401,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -202,16 +202,19 @@ describe('local-runtime-discovery', () => {
 
     const first = await service.probeRuntime('lmstudio', { surface: 'desktop' });
     expect(first.state).toBe('unavailable');
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // Three probe endpoints: /v1/models, /api/v1/models (0.4.0+), /api/v0/models (legacy).
+    expect(fetchMock).toHaveBeenCalledTimes(3);
 
     nowMs = 31_000;
     const second = await service.probeRuntime('lmstudio', { surface: 'desktop' });
     expect(second.state).toBe('unavailable');
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // Within backoff window: no new probes issued, count unchanged at 3.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
 
     nowMs = 34_000;
     await service.probeRuntime('lmstudio', { surface: 'desktop' });
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    // Backoff elapsed: three additional probe calls fire (one per endpoint).
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   it('probes all runtimes and returns a typed status record', async () => {
@@ -236,5 +239,62 @@ describe('local-runtime-discovery', () => {
 
     expect(statuses.ollama.state).toBe('available');
     expect(statuses.lmstudio.state).toBe('available');
+  });
+
+  it('honors per-call baseUrl and bearer token overrides', async () => {
+    const observedUrls: string[] = [];
+    const observedAuth: (string | null)[] = [];
+    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+      const url = getRequestUrl(input);
+      observedUrls.push(url);
+      const headers = new Headers(init?.headers as HeadersInit | undefined);
+      observedAuth.push(headers.get('authorization'));
+      if (url.endsWith('/v1/models')) {
+        return jsonResponse({ data: [{ id: 'qwen3:latest' }] });
+      }
+      return new Response('missing', { status: 404 });
+    });
+
+    const service = new LocalRuntimeDiscoveryService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 50_000,
+    });
+
+    const status = await service.probeRuntime('ollama', {
+      surface: 'desktop',
+      endpoint: { baseUrl: 'https://gpu.lan:11434', apiToken: 'tok_abc' },
+    });
+
+    expect(status.state).toBe('available');
+    expect(observedUrls[0]).toBe('https://gpu.lan:11434/v1/models');
+    expect(observedAuth[0]).toBe('Bearer tok_abc');
+  });
+
+  it('invalidates cache when the baseUrl changes between probes', async () => {
+    const urls: string[] = [];
+    const fetchMock = vi.fn<FetchMock>(async (input) => {
+      const url = getRequestUrl(input);
+      urls.push(url);
+      if (url.endsWith('/v1/models')) {
+        return jsonResponse({ data: [{ id: 'qwen3:latest' }] });
+      }
+      return new Response('missing', { status: 404 });
+    });
+
+    const service = new LocalRuntimeDiscoveryService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 60_000,
+      successTtlMs: 60_000,
+    });
+
+    await service.probeRuntime('ollama', { surface: 'desktop' });
+    // Second call with a different baseUrl must bypass the fresh cache entry.
+    const second = await service.probeRuntime('ollama', {
+      surface: 'desktop',
+      endpoint: { baseUrl: 'http://remote.box:11434' },
+    });
+
+    expect(second.state).toBe('available');
+    expect(urls.some((url) => url.startsWith('http://remote.box:11434'))).toBe(true);
   });
 });
