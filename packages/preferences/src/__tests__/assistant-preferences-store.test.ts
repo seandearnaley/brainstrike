@@ -317,6 +317,52 @@ describe('assistant-preferences-store', () => {
     }
   });
 
+  it('caps the boundary-violation error message length to bound log/telemetry blast radius', async () => {
+    // Reviewer feedback: a malformed bridge payload containing a very large
+    // array or deeply nested object could otherwise produce a multi-MB error
+    // string that flows into console logs and crash reports. Cap the
+    // serialized summary so the diagnostic is useful but bounded.
+    const huge = 'x'.repeat(10_000);
+    const bridgeProbe = vi.fn().mockResolvedValue({
+      not_a_state: 'oops',
+      filler: huge,
+    });
+    (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
+      probe: bridgeProbe,
+      listModels: vi.fn(),
+    };
+
+    try {
+      const secretTarget = window as Window & { secrets?: unknown };
+      secretTarget.secrets = {
+        list: vi.fn().mockResolvedValue([]),
+        saveKey: vi.fn(),
+        getKey: vi.fn(),
+        deleteKey: vi.fn(),
+        listStored: vi.fn(),
+        clearAll: vi.fn(),
+      };
+
+      let observedLength = 0;
+      let observedMessage = '';
+      await useAssistantPreferencesStore
+        .getState()
+        .getLocalRuntimeStatuses({ force: true })
+        .catch((error: unknown) => {
+          observedMessage = error instanceof Error ? error.message : String(error);
+          observedLength = observedMessage.length;
+        });
+      // Generous upper bound — the cap is 4 KiB plus a small "Unexpected …
+      // for ollama:" prefix and a "[truncated …]" suffix. Fail well before
+      // the original ~10K filler would inflate the message.
+      expect(observedLength).toBeGreaterThan(0);
+      expect(observedLength).toBeLessThan(5000);
+      expect(observedMessage).toMatch(/truncated/);
+    } finally {
+      Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'runtime');
+    }
+  });
+
   it('rejects results whose state is not one of the known discriminant values', async () => {
     // Reviewer feedback (round 3): the previous shape guard accepted any
     // object with a string `state`. A runtime mismatch that produces

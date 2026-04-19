@@ -242,9 +242,21 @@ const SENSITIVE_BRIDGE_FIELDS: ReadonlySet<string> = new Set([
   'bearer',
 ]);
 
+/**
+ * Hard cap on the serialized size of a bridge-result summary that ends up in
+ * an `Error` message. A malformed payload (very large array, deeply nested
+ * object, or worst-case an attacker-controlled echo from a compromised main
+ * process) could otherwise produce a multi-megabyte error string that flows
+ * into console logs, telemetry, and crash reports. 4 KiB is enough to capture
+ * the discriminant + a few fields for triage and small enough to bound any
+ * downstream cost.
+ */
+const SUMMARY_MAX_LENGTH = 4096;
+
 function summarizeBridgeResult(value: unknown): string {
+  let serialized: string;
   try {
-    return JSON.stringify(value, (key, val) => {
+    serialized = JSON.stringify(value, (key, val) => {
       if (typeof key === 'string' && SENSITIVE_BRIDGE_FIELDS.has(key.toLowerCase())) {
         return '[redacted]';
       }
@@ -255,6 +267,10 @@ function summarizeBridgeResult(value: unknown): string {
     // leaking content.
     return `[unserializable ${typeof value}]`;
   }
+  if (serialized.length > SUMMARY_MAX_LENGTH) {
+    return `${serialized.slice(0, SUMMARY_MAX_LENGTH)}…[truncated ${serialized.length - SUMMARY_MAX_LENGTH} chars]`;
+  }
+  return serialized;
 }
 
 async function probeRuntimeViaBridgeOrService(
