@@ -26,10 +26,8 @@ export function __resetRestorationLock(): void {
   restorationLock.folderId = null;
 }
 
-// Optimization: Avoid intermediate array allocations and joins in a hot path
-// by using indexOf and slice to extract ancestor directories directly.
-// Handles trailing and consecutive slashes appropriately to preserve behavior
-// parity with the previous split.filter(Boolean) implementation.
+// Single-pass ancestor extraction using indexOf/slice to avoid
+// intermediate array allocations in this high-frequency code path.
 function getAllAncestorDirectories(filePath: string): string[] {
   const isAbsolute = filePath.charCodeAt(0) === 47; // "/"
   const prefix = isAbsolute ? '/' : '';
