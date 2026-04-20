@@ -10,9 +10,7 @@ import * as wasmLoaderModule from '../src/wasm-loader';
 // Mocks (not real PGlite) so jsdom doesn't hit PGlite 0.4's browser-only
 // Worker/Blob paths. Real open/close is covered by `*.browser.test.ts`.
 
-type QueryMock = Mock<
-  (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] } | undefined>
->;
+type QueryMock = Mock<(sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>>;
 type ExecMock = Mock<(sql: string) => Promise<unknown>>;
 type CloseMock = Mock<() => Promise<void>>;
 
