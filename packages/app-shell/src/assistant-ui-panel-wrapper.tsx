@@ -487,6 +487,20 @@ function buildLocalOptions(settings: AssistantProviderSettings): LocalProviderOp
   };
 }
 
+function buildLocalRuntimeOptions(
+  settings: AssistantProviderSettings | undefined
+): { baseUrl?: string } | undefined {
+  const raw = settings?.localRuntimeBaseUrl;
+  if (typeof raw !== 'string') {
+    return;
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return;
+  }
+  return { baseUrl: trimmed };
+}
+
 function buildProviderOptions(
   providerId: SupportedProvider | null,
   modelName: string | undefined,
@@ -513,6 +527,18 @@ function buildProviderOptions(
     case 'local': {
       const local = buildLocalOptions(settings);
       return local ? { local } : undefined;
+    }
+    case 'ollama': {
+      // Forward the user's configured origin to the main-process factory. The
+      // optional bearer token is not set here — the main process reads it from
+      // the encrypted secrets bridge just like other providers so it never
+      // crosses the renderer/server boundary in the request body.
+      const ollama = buildLocalRuntimeOptions(settings);
+      return ollama ? { ollama } : undefined;
+    }
+    case 'lmstudio': {
+      const lmstudio = buildLocalRuntimeOptions(settings);
+      return lmstudio ? { lmstudio } : undefined;
     }
     default:
       return;

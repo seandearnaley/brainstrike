@@ -1,10 +1,18 @@
 import {
+  buildRuntimeAuthHeaders,
+  buildRuntimeEndpoint,
   extractErrorMessage,
   type FetchJsonResult,
   fetchJsonWithTimeout,
   isRecord,
+  type LocalRuntimeEndpointConfig,
+  type LocalRuntimeLogger,
+  noopLocalRuntimeLogger,
+  normalizeRuntimeBaseUrl,
   sanitizeDuration,
 } from './local-runtime-utils';
+
+export type { LocalRuntimeLogger } from './local-runtime-utils';
 
 export const LOCAL_RUNTIME_IDS = ['ollama', 'lmstudio'] as const;
 
@@ -27,6 +35,14 @@ export interface LocalRuntimeAvailableState extends BaseLocalRuntimeState {
 }
 
 export interface LocalRuntimeUnavailableState extends BaseLocalRuntimeState {
+  /**
+   * Human-readable diagnostic hint when we can guess the failure category
+   * (e.g. CORS rejection when a Chromium renderer fetch throws
+   * `TypeError: Failed to fetch`). Surfaces in the Settings → Local Runtimes
+   * card so users can tell "Ollama not running" from "Ollama running but
+   * refusing this origin".
+   */
+  readonly hint?: string;
   readonly message?: string;
   readonly state: 'unavailable';
 }
@@ -73,12 +89,23 @@ type LocalRuntimeFailureState =
 
 type ProbeValidator = (payload: unknown) => boolean;
 
+interface RuntimeProbePath {
+  readonly path: string;
+  readonly validator: ProbeValidator;
+}
+
 interface RuntimeProbeDefinition {
   readonly endpoint: string;
   readonly validator: ProbeValidator;
 }
 
+const DEFAULT_RUNTIME_BASE_URLS: Record<LocalRuntimeId, string> = {
+  ollama: 'http://127.0.0.1:11434',
+  lmstudio: 'http://127.0.0.1:1234',
+};
+
 interface RuntimeCacheEntry {
+  readonly baseUrl: string;
   readonly consecutiveFailures: number;
   readonly lastSuccessfulAt: number | null;
   readonly lastSuccessfulEndpoint: string | null;
@@ -91,38 +118,43 @@ const DEFAULT_FAILURE_BASE_BACKOFF_MS = 2000;
 const DEFAULT_FAILURE_MAX_BACKOFF_MS = 30_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 2000;
 
-// Ollama defaults to 127.0.0.1 on its standard local port.
-const OLLAMA_PROBES: readonly RuntimeProbeDefinition[] = [
-  {
-    endpoint: 'http://127.0.0.1:11434/v1/models',
-    validator: isOpenAiModelsPayload,
-  },
-  {
-    endpoint: 'http://127.0.0.1:11434/api/version',
-    validator: isOllamaVersionPayload,
-  },
-  {
-    endpoint: 'http://127.0.0.1:11434/api/tags',
-    validator: isOllamaTagsPayload,
-  },
+// Ollama defaults to 127.0.0.1 on its standard local port; LM Studio binds to
+// IPv4 loopback by default and `localhost` can resolve to `::1`, so we always
+// probe `127.0.0.1` explicitly.
+const OLLAMA_PROBE_PATHS: readonly RuntimeProbePath[] = [
+  { path: '/v1/models', validator: isOpenAiModelsPayload },
+  { path: '/api/version', validator: isOllamaVersionPayload },
+  { path: '/api/tags', validator: isOllamaTagsPayload },
 ];
 
-// LM Studio documents localhost for its OpenAI-compatible server endpoint.
-const LM_STUDIO_PROBES: readonly RuntimeProbeDefinition[] = [
-  {
-    endpoint: 'http://localhost:1234/v1/models',
-    validator: isOpenAiModelsPayload,
-  },
-  {
-    endpoint: 'http://localhost:1234/api/v1/models',
-    validator: isLmStudioRestModelsPayload,
-  },
+const LM_STUDIO_PROBE_PATHS: readonly RuntimeProbePath[] = [
+  { path: '/v1/models', validator: isOpenAiModelsPayload },
+  { path: '/api/v1/models', validator: isLmStudioRestModelsPayload },
+  { path: '/api/v0/models', validator: isLmStudioRestModelsPayload },
 ];
 
-const DEFAULT_PROBES: Record<LocalRuntimeId, readonly RuntimeProbeDefinition[]> = {
-  ollama: OLLAMA_PROBES,
-  lmstudio: LM_STUDIO_PROBES,
+const DEFAULT_PROBE_PATHS: Record<LocalRuntimeId, readonly RuntimeProbePath[]> = {
+  ollama: OLLAMA_PROBE_PATHS,
+  lmstudio: LM_STUDIO_PROBE_PATHS,
 };
+
+export function resolveRuntimeBaseUrl(
+  runtime: LocalRuntimeId,
+  override: string | undefined | null
+): string {
+  return normalizeRuntimeBaseUrl(override) ?? DEFAULT_RUNTIME_BASE_URLS[runtime];
+}
+
+function buildProbeDefinitions(
+  runtime: LocalRuntimeId,
+  endpoint: LocalRuntimeEndpointConfig | undefined
+): readonly RuntimeProbeDefinition[] {
+  const baseUrl = resolveRuntimeBaseUrl(runtime, endpoint?.baseUrl);
+  return DEFAULT_PROBE_PATHS[runtime].map((probe) => ({
+    endpoint: buildRuntimeEndpoint(baseUrl, probe.path),
+    validator: probe.validator,
+  }));
+}
 
 export interface LocalRuntimeDiscoveryServiceOptions {
   /**
@@ -143,6 +175,12 @@ export interface LocalRuntimeDiscoveryServiceOptions {
    */
   readonly fetchImpl?: typeof fetch;
   /**
+   * Optional structured logger. When supplied, probe failures emit
+   * warn-level records with runtime id, endpoint, and error detail so the
+   * Settings → Local Runtimes "Unavailable" state is diagnosable.
+   */
+  readonly logger?: LocalRuntimeLogger;
+  /**
    * Optional time source override for deterministic tests.
    */
   readonly now?: () => number;
@@ -157,6 +195,13 @@ export interface LocalRuntimeDiscoveryServiceOptions {
 }
 
 export interface ProbeLocalRuntimeOptions {
+  /**
+   * Per-call override for the runtime's endpoint config. When provided, the
+   * probe list is rebuilt from the supplied `baseUrl` and the request carries
+   * the optional `apiToken` as a bearer header. `baseUrl` and `apiToken` are
+   * independent — setting one without the other is supported.
+   */
+  readonly endpoint?: LocalRuntimeEndpointConfig;
   readonly force?: boolean;
   readonly signal?: AbortSignal;
   readonly surface?: LocalRuntimeSurface;
@@ -259,7 +304,49 @@ function isLikelyWebPolicyBlock(
   );
 }
 
+/**
+ * Patterns that match a Chromium CORS rejection or a Node `fetch` that hit
+ * the CORS preflight path. When the probe runs in an Electron renderer, the
+ * OS-side Ollama server may not list the renderer's origin (`file://`,
+ * `app://`, or a dev Vite URL) in `OLLAMA_ORIGINS`, so the renderer's
+ * Chromium blocks the response and we see a generic `TypeError: Failed to
+ * fetch` with no additional detail. We surface a hint so users can add
+ * `OLLAMA_ORIGINS=*` or rely on the main-process probe bridge.
+ */
+const CORS_LIKE_ERROR_PATTERNS: readonly RegExp[] = [
+  /failed to fetch/i,
+  /cors/i,
+  /cross-origin/i,
+  /networkerror when attempting to fetch resource/i,
+];
+
+function looksLikeCorsFailure(message: string): boolean {
+  return CORS_LIKE_ERROR_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+/** Human-friendly product names for the desktop CORS hint. */
+const RUNTIME_DISPLAY_NAMES: Readonly<Record<LocalRuntimeId, string>> = {
+  ollama: 'Ollama',
+  lmstudio: 'LM Studio',
+};
+
+function buildDesktopCorsHint(runtime: LocalRuntimeId): string {
+  const displayName = RUNTIME_DISPLAY_NAMES[runtime];
+  // The hint must cover BOTH the common case (server not running) and the
+  // subtle Electron-specific case (renderer origin not in OLLAMA_ORIGINS),
+  // because Chromium gives the same opaque `TypeError: Failed to fetch` in
+  // both. Pointing only at CORS would send "server isn't running"
+  // complaints down the wrong debugging path. Per-runtime guidance avoids
+  // the previous wording that mentioned both products in a single hint
+  // even when only one was being probed.
+  if (runtime === 'ollama') {
+    return `Network error reaching ${displayName}. Most often this means the ${displayName} server is not running — start it and try again. If the server is running but the probe still fails from the desktop app, set \`OLLAMA_ORIGINS=*\` so the app's origin is accepted.`;
+  }
+  return `Network error reaching ${displayName}. Most often this means the ${displayName} server is not running — start it from Settings > Server and try again. If the server is running but the probe still fails from the desktop app, widen the origin allow-list in ${displayName}'s server settings so the app's origin is accepted.`;
+}
+
 function toFailureState(
+  runtime: LocalRuntimeId,
   checkedAt: number,
   endpoint: string,
   error: unknown,
@@ -271,6 +358,14 @@ function toFailureState(
       state: 'blocked_web',
       checkedAt,
       message,
+    };
+  }
+  if (surface === 'desktop' && looksLikeCorsFailure(message)) {
+    return {
+      state: 'unavailable',
+      checkedAt,
+      message,
+      hint: buildDesktopCorsHint(runtime),
     };
   }
   return {
@@ -365,6 +460,7 @@ export class LocalRuntimeDiscoveryService {
   private readonly requestTimeoutMs: number;
   private readonly defaultSurface: LocalRuntimeSurface | undefined;
   private readonly now: () => number;
+  private readonly logger: LocalRuntimeLogger;
   private readonly cache = new Map<LocalRuntimeId, RuntimeCacheEntry>();
 
   public constructor(options: LocalRuntimeDiscoveryServiceOptions = {}) {
@@ -381,6 +477,7 @@ export class LocalRuntimeDiscoveryService {
     this.requestTimeoutMs = sanitizeDuration(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS);
     this.defaultSurface = options.defaultSurface;
     this.now = options.now ?? (() => Date.now());
+    this.logger = options.logger ?? noopLocalRuntimeLogger;
   }
 
   public static checkingState(): LocalRuntimeCheckingState {
@@ -419,30 +516,64 @@ export class LocalRuntimeDiscoveryService {
   ): Promise<LocalRuntimeAvailabilityState> {
     const now = this.now();
     const cached = this.cache.get(runtime);
+    const baseUrl = resolveRuntimeBaseUrl(runtime, options.endpoint?.baseUrl);
 
-    if (!(options.force ?? false) && cached && now < cached.nextProbeAt) {
+    // Invalidate the cache when the effective baseUrl changes so a user who
+    // points at a different host sees a fresh probe, not the last answer.
+    if (
+      !(options.force ?? false) &&
+      cached &&
+      cached.baseUrl === baseUrl &&
+      now < cached.nextProbeAt
+    ) {
       return cached.status;
     }
 
     const result = await this.executeProbe(runtime, {
       surface: options.surface ?? resolveRuntimeSurface(this.defaultSurface),
       ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.endpoint ? { endpoint: options.endpoint } : {}),
     });
 
-    const previousSuccessAt = cached?.lastSuccessfulAt ?? null;
-    const previousSuccessEndpoint = cached?.lastSuccessfulEndpoint ?? null;
-    const consecutiveFailures = cached?.consecutiveFailures ?? 0;
+    const previousSuccessAt =
+      cached && cached.baseUrl === baseUrl ? (cached.lastSuccessfulAt ?? null) : null;
+    const previousSuccessEndpoint =
+      cached && cached.baseUrl === baseUrl ? (cached.lastSuccessfulEndpoint ?? null) : null;
+    const consecutiveFailures =
+      cached && cached.baseUrl === baseUrl ? cached.consecutiveFailures : 0;
 
     if (result.state === 'available') {
       this.cache.set(runtime, {
+        baseUrl,
         status: result,
         nextProbeAt: now + this.successTtlMs,
         consecutiveFailures: 0,
         lastSuccessfulAt: result.checkedAt,
         lastSuccessfulEndpoint: result.endpoint,
       });
+      this.logger.debug('local runtime probe succeeded', {
+        runtime,
+        endpoint: result.endpoint,
+        latencyMs: result.latencyMs,
+      });
       return result;
     }
+
+    // Surface every non-available result so Settings → Local Runtimes
+    // "Unavailable" is never silent. Users reported being unable to tell why
+    // a probe missed a running Ollama; this logs the exact failure shape
+    // (unavailable / auth_required / incompatible / blocked_web) with the
+    // endpoint and the underlying error message.
+    this.logger.warn('local runtime probe did not reach available state', {
+      runtime,
+      endpoint:
+        'endpoint' in result
+          ? result.endpoint
+          : buildRuntimeEndpoint(baseUrl, DEFAULT_PROBE_PATHS[runtime][0]?.path ?? '/'),
+      state: result.state,
+      message: 'message' in result ? result.message : undefined,
+      hint: 'hint' in result ? result.hint : undefined,
+    });
 
     const stale = this.toStaleState(result, previousSuccessAt, previousSuccessEndpoint);
     const nextStatus = stale ?? result;
@@ -453,6 +584,7 @@ export class LocalRuntimeDiscoveryService {
     );
 
     this.cache.set(runtime, {
+      baseUrl,
       status: nextStatus,
       nextProbeAt: now + backoffMs,
       consecutiveFailures: nextFailures,
@@ -486,7 +618,11 @@ export class LocalRuntimeDiscoveryService {
 
   private async executeProbe(
     runtime: LocalRuntimeId,
-    options: { readonly signal?: AbortSignal; readonly surface: LocalRuntimeSurface }
+    options: {
+      readonly endpoint?: LocalRuntimeEndpointConfig;
+      readonly signal?: AbortSignal;
+      readonly surface: LocalRuntimeSurface;
+    }
   ): Promise<LocalRuntimeAvailableState | LocalRuntimeFailureState> {
     if (!this.fetchImpl) {
       return {
@@ -496,7 +632,8 @@ export class LocalRuntimeDiscoveryService {
       };
     }
 
-    const probes = DEFAULT_PROBES[runtime];
+    const probes = buildProbeDefinitions(runtime, options.endpoint);
+    const authHeaders = buildRuntimeAuthHeaders(options.endpoint);
     const failures: ProbeAttemptFailure[] = [];
 
     for (const probe of probes) {
@@ -506,6 +643,7 @@ export class LocalRuntimeDiscoveryService {
           fetchImpl: this.fetchImpl,
           timeoutMs: this.requestTimeoutMs,
           ...(options.signal ? { signal: options.signal } : {}),
+          ...(authHeaders ? { headers: authHeaders } : {}),
         });
         const result = evaluateProbeResponse(checkedAt, probe, responseResult);
         if (result.state === 'available' || result.state === 'auth_required') {
@@ -516,7 +654,7 @@ export class LocalRuntimeDiscoveryService {
         if (options.signal?.aborted) {
           throw error;
         }
-        const failure = toFailureState(checkedAt, probe.endpoint, error, options.surface);
+        const failure = toFailureState(runtime, checkedAt, probe.endpoint, error, options.surface);
         failures.push({ state: failure });
         if (failure.state === 'blocked_web') {
           break;

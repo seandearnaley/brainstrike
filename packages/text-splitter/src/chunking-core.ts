@@ -116,6 +116,31 @@ export const DEFAULT_LARGE_STRUCTURED_PATTERNS = [
   /\.log$/i,
 ] as const;
 
+const CHAR_CR = 13;
+
+function forEachLine(text: string, visitLine: (line: string) => void): void {
+  let lineStart = 0;
+
+  while (lineStart <= text.length) {
+    const nextNewline = text.indexOf('\n', lineStart);
+    const hasLineFeed = nextNewline !== -1;
+    const lineFeedIndex = hasLineFeed ? nextNewline : text.length;
+    let lineEnd = lineFeedIndex;
+
+    if (hasLineFeed && lineEnd > lineStart && text.charCodeAt(lineEnd - 1) === CHAR_CR) {
+      lineEnd -= 1;
+    }
+
+    visitLine(text.slice(lineStart, lineEnd));
+
+    if (!hasLineFeed) {
+      return;
+    }
+
+    lineStart = lineFeedIndex + 1;
+  }
+}
+
 export function detectCodeLanguage<TLanguage extends string = SharedCodeLanguage>(
   fileName: string,
   patterns?: ReadonlyArray<{ readonly language: TLanguage; readonly pattern: RegExp }>
@@ -138,24 +163,11 @@ export function detectCodeLanguage<TLanguage extends string = SharedCodeLanguage
 function countUniqueLines(content: string): { totalLines: number; uniqueLines: number } {
   const uniqueLines = new Set<string>();
   let totalLines = 0;
-  let lineStart = 0;
 
-  while (lineStart <= content.length) {
-    // Use `indexOf` to find the next newline without manual character scanning.
-    let nextNewline = content.indexOf('\n', lineStart);
-    if (nextNewline === -1) {
-      nextNewline = content.length;
-    }
-
-    let lineEnd = nextNewline;
-    if (lineEnd > lineStart && content.charCodeAt(lineEnd - 1) === 13) {
-      lineEnd -= 1;
-    }
-
-    uniqueLines.add(content.slice(lineStart, lineEnd));
+  forEachLine(content, (line: string) => {
+    uniqueLines.add(line);
     totalLines += 1;
-    lineStart = nextNewline + 1;
-  }
+  });
 
   return { totalLines, uniqueLines: uniqueLines.size };
 }
@@ -533,18 +545,17 @@ export async function splitCodeByFunctionRanges(
 export function splitByBlankLines(text: string): string[] {
   const parts: string[] = [];
   let buffer: string[] = [];
-  const lines = text.split(/\r?\n/);
 
-  for (const line of lines) {
+  forEachLine(text, (line: string) => {
     if (line.trim() === '') {
       if (buffer.length > 0) {
         parts.push(buffer.join('\n'));
         buffer = [];
       }
-      continue;
+    } else {
+      buffer.push(line);
     }
-    buffer.push(line);
-  }
+  });
 
   if (buffer.length > 0) {
     parts.push(buffer.join('\n'));
@@ -633,7 +644,11 @@ function captureParagraph(lines: readonly (string | undefined)[], start: number)
 
 export function splitMarkdownIntoBlocks(content: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = [];
-  const lines = content.split(/\r?\n/);
+  const lines: string[] = [];
+  forEachLine(content, (line: string) => {
+    lines.push(line);
+  });
+
   let index = 0;
 
   while (index < lines.length) {

@@ -52,18 +52,20 @@ function GroupHeaderCell<T>({ node, isExpanded, onExpandClick, columns }: GroupH
 
         {/* Expand/Collapse toggle */}
         <Button
+          aria-expanded={isExpanded}
           aria-label={isExpanded ? 'Collapse group' : 'Expand group'}
-          className="h-6 w-6 flex-shrink-0 p-0"
+          className="flex-shrink-0"
+          disabled={node.isLoading}
           onClick={onExpandClick}
-          size="sm"
+          size="icon-xs"
           variant="ghost"
         >
           {node.isLoading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <Loader2 className="size-3 animate-spin" />
           ) : isExpanded ? (
-            <ChevronDown className="h-3.5 w-3.5" />
+            <ChevronDown className="size-3" />
           ) : (
-            <ChevronRight className="h-3.5 w-3.5" />
+            <ChevronRight className="size-3" />
           )}
         </Button>
 
@@ -296,19 +298,20 @@ function TreeExpandControl({
 }: TreeExpandControlProps): React.ReactElement {
   return (
     <Button
+      aria-expanded={isExpanded}
       aria-label={isExpanded ? 'Collapse' : 'Expand'}
-      className="h-6 w-6 flex-shrink-0 p-0"
+      className="flex-shrink-0"
       disabled={isLoading}
       onClick={onExpandClick}
-      size="sm"
+      size="icon-xs"
       variant="ghost"
     >
       {isLoading ? (
-        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        <Loader2 className="size-3 animate-spin" />
       ) : isExpanded ? (
-        <ChevronDown className="h-3.5 w-3.5" />
+        <ChevronDown className="size-3" />
       ) : (
-        <ChevronRight className="h-3.5 w-3.5" />
+        <ChevronRight className="size-3" />
       )}
     </Button>
   );
@@ -358,7 +361,7 @@ function TreeTableCellComponent<T>({
               onExpandClick={onExpandClick}
             />
           ) : shouldReserveToggleSpace ? (
-            <span className="h-6 w-6 flex-shrink-0" />
+            <span className="h-7 w-7 flex-shrink-0" />
           ) : null}
 
           {/* Checkbox for multi-select */}

@@ -146,27 +146,31 @@ export interface AssistantContextMenuConfig {
   tokenBudget?: number;
 }
 
-export type OpenAiReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-export type OpenAiReasoningSummary = 'auto' | 'detailed';
-export type AnthropicEffort = 'low' | 'medium' | 'high';
-export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
+// Provider-settings types live in `@brainstrike/types` so `packages/ui` and
+// `packages/preferences` share a single canonical definition. They are
+// re-exported here to keep the existing public surface of the
+// `@brainstrike/ui/assistant-ui-panel` entry point stable for consumers that
+// still import them from this module.
+export type {
+  AnthropicEffort,
+  AssistantProviderSettings,
+  AssistantProviderSettingsMap,
+  AssistantProviderSettingsUpdate,
+  GoogleThinkingLevel,
+  LocalRuntimeActivation,
+  OpenAiReasoningEffort,
+  OpenAiReasoningSummary,
+} from '@brainstrike/types';
 
-export interface AssistantProviderSettings {
-  anthropicEffort?: AnthropicEffort;
-  anthropicThinkingBudgetTokens?: number;
-  googleIncludeThoughts?: boolean;
-  googleThinkingLevel?: GoogleThinkingLevel;
-  localThinkingEnabled?: boolean;
-  maxOutputTokens?: number;
-  reasoningEffort?: OpenAiReasoningEffort;
-  reasoningSummary?: OpenAiReasoningSummary;
-}
-
-export type AssistantProviderSettingsUpdate = {
-  [Key in keyof AssistantProviderSettings]?: AssistantProviderSettings[Key] | undefined;
-};
-
-export type AssistantProviderSettingsMap = Record<string, AssistantProviderSettings>;
+import type {
+  AnthropicEffort,
+  AssistantProviderSettings,
+  AssistantProviderSettingsMap,
+  AssistantProviderSettingsUpdate,
+  GoogleThinkingLevel,
+  OpenAiReasoningEffort,
+  OpenAiReasoningSummary,
+} from '@brainstrike/types';
 
 export interface AssistantUiPanelProps {
   className?: string;

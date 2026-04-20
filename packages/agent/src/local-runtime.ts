@@ -13,11 +13,13 @@ export {
   type LocalRuntimeSurface,
   type LocalRuntimeUnavailableState,
   type ProbeLocalRuntimeOptions,
+  resolveRuntimeBaseUrl,
 } from './providers/local-runtime-discovery';
 export {
   isLoadedRuntimeModelCatalogState,
   type ListLocalRuntimeModelsOptions,
   type LoadedRuntimeModelCatalogState,
+  type LocalRuntimeCapabilitySource,
   type LocalRuntimeDimensionsState,
   type LocalRuntimeEmbeddingCapability,
   type LocalRuntimeEmbeddingDimensionFailed,
@@ -34,7 +36,18 @@ export {
   type LocalRuntimeModelsLoadedEmptyState,
   type LocalRuntimeModelsLoadedNonEmptyState,
   type LocalRuntimeModelsStaleCachedState,
+  type LocalRuntimeModelType,
   type LocalRuntimeNeedsVerificationDimensionsState,
   type LocalRuntimeNormalizedModel,
   type LocalRuntimeNotApplicableDimensionsState,
+  type LocalRuntimeOllamaCapabilitiesResolved,
+  type LocalRuntimeOllamaCapabilitiesResult,
+  type LocalRuntimeOllamaCapabilitiesUnavailable,
+  type OllamaModelCapability,
 } from './providers/local-runtime-model-catalog';
+export {
+  buildRuntimeAuthHeaders,
+  buildRuntimeEndpoint,
+  type LocalRuntimeEndpointConfig,
+  normalizeRuntimeBaseUrl,
+} from './providers/local-runtime-utils';

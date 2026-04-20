@@ -431,6 +431,25 @@ contextBridge.exposeInMainWorld('assistant', {
   getUrl: () => ipcRenderer.invoke('assistant:get-url'),
 });
 
+// Main-process bridge for local-runtime probes. See ipc-runtime.ts for the
+// rationale: Chromium's CORS enforcement inside the renderer blocks fetches
+// to Ollama/LM Studio by default (the daemons' OLLAMA_ORIGINS / CORS config
+// doesn't list an Electron renderer origin). The main process isn't subject
+// to that policy, so we run probe + catalog fetch there and pass the
+// typed result back over IPC.
+if (shouldExposeBridge('runtime')) {
+  contextBridge.exposeInMainWorld('runtime', {
+    probe: (runtimeId: string, options: unknown) =>
+      ipcRenderer.invoke('runtime:probe', runtimeId, options),
+    listModels: (runtimeId: string, options: unknown) =>
+      ipcRenderer.invoke('runtime:listModels', runtimeId, options),
+    resolveOllamaCapabilities: (modelId: string, options: unknown) =>
+      ipcRenderer.invoke('runtime:resolveOllamaCapabilities', modelId, options),
+    verifyEmbeddingDimensions: (runtimeId: string, modelId: string, options: unknown) =>
+      ipcRenderer.invoke('runtime:verifyEmbeddingDimensions', runtimeId, modelId, options),
+  });
+}
+
 if (shouldExposeBridge('logging')) {
   contextBridge.exposeInMainWorld('logging', {
     getPreferences: (): Promise<LoggingSettingsPayload> =>

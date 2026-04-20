@@ -3,25 +3,40 @@ import {
   type LocalRuntimeAvailabilityState,
   LocalRuntimeDiscoveryService,
   type LocalRuntimeId,
+  type LocalRuntimeLogger,
   type LocalRuntimeSurface,
   type ProbeLocalRuntimeOptions,
+  resolveRuntimeBaseUrl,
 } from './local-runtime-discovery';
 
 import {
+  buildRuntimeAuthHeaders,
+  buildRuntimeEndpoint,
   extractErrorMessage,
   fetchJsonWithTimeout,
   isRecord,
+  type LocalRuntimeEndpointConfig,
+  noopLocalRuntimeLogger,
   sanitizeDuration,
 } from './local-runtime-utils';
 
 export type LocalRuntimeModelSource =
   | 'openai_v1_models'
   | 'ollama_api_tags'
+  | 'lmstudio_api_v0_models'
   | 'lmstudio_api_v1_models';
 
 export type LocalRuntimeModelFreshness = 'live' | 'stale_cached';
 
 export type LocalRuntimeEmbeddingCapability = 'supported' | 'unsupported' | 'needs_verification';
+
+/**
+ * Canonical LM Studio model type surfaced by `/api/v0/models` and `/api/v1/models`.
+ * The OpenAI-compatible `/v1/models` endpoint does not expose this.
+ */
+export type LocalRuntimeModelType = 'llm' | 'vlm' | 'embeddings';
+
+export type LocalRuntimeCapabilitySource = 'provider_reported' | 'inferred';
 
 export interface LocalRuntimeKnownDimensionsState {
   readonly endpoint: string;
@@ -48,12 +63,27 @@ export interface LocalRuntimeNormalizedModel {
     readonly llm: boolean;
     readonly embeddings: LocalRuntimeEmbeddingCapability;
   };
+  /**
+   * Whether capabilities were reported by the runtime (LM Studio `type`, Ollama
+   * `details.families`) or heuristically inferred from the model name.
+   */
+  readonly capabilitySource: LocalRuntimeCapabilitySource;
   readonly dimensionsKnown: LocalRuntimeDimensionsState;
   readonly displayName: string;
   readonly endpoint: string;
   readonly freshness: LocalRuntimeModelFreshness;
+  /**
+   * True when LM Studio reports the model is currently loaded in memory. Absent
+   * or undefined for endpoints that do not expose load state (Ollama, OpenAI-compat).
+   */
+  readonly loaded?: boolean;
   readonly modelId: string;
   readonly modelKey: string;
+  /**
+   * Canonical LM Studio model type when reported by the runtime. Absent for
+   * OpenAI-compat / Ollama shapes that do not expose a type discriminant.
+   */
+  readonly modelType?: LocalRuntimeModelType;
   readonly providerId: LocalRuntimeId;
   readonly runtime: LocalRuntimeId;
   readonly source: LocalRuntimeModelSource;
@@ -114,6 +144,12 @@ export function isLoadedRuntimeModelCatalogState(
 }
 
 export interface ListLocalRuntimeModelsOptions {
+  /**
+   * Per-call override for the runtime's endpoint config (baseUrl, bearer token).
+   * Propagated to both the discovery probe and the model-list / embedding-probe
+   * requests so all requests hit the same host.
+   */
+  readonly endpoint?: LocalRuntimeEndpointConfig;
   readonly force?: boolean;
   readonly maxVerificationModels?: number;
   readonly signal?: AbortSignal;
@@ -131,14 +167,34 @@ export interface LocalRuntimeModelCatalogServiceOptions {
   readonly failureBaseBackoffMs?: number;
   readonly failureMaxBackoffMs?: number;
   readonly fetchImpl?: typeof fetch;
+  /**
+   * Optional structured logger for model-list failures. The catalog warns
+   * when no endpoint returns a usable model list, so Settings UI telemetry
+   * can surface the reason users see an empty model dropdown even when the
+   * runtime is otherwise reachable.
+   */
+  readonly logger?: LocalRuntimeLogger;
   readonly now?: () => number;
   readonly requestTimeoutMs?: number;
   readonly successTtlMs?: number;
 }
 
 interface RuntimeModelCandidate {
+  /**
+   * Ollama `details.families`, if present. Used as a capability hint when the
+   * catalog does not include a canonical `type` field.
+   */
+  readonly families?: readonly string[];
   readonly id: string;
   readonly label: string;
+  /**
+   * LM Studio runtime-reported load state (0.4.0+ native endpoints).
+   */
+  readonly loaded?: boolean;
+  /**
+   * Canonical model type when reported by the runtime (LM Studio native).
+   */
+  readonly modelType?: LocalRuntimeModelType;
 }
 
 interface RuntimeModelEndpointDefinition {
@@ -147,9 +203,15 @@ interface RuntimeModelEndpointDefinition {
   readonly source: LocalRuntimeModelSource;
 }
 
+interface RuntimeModelPathDefinition {
+  readonly parser: (payload: unknown) => readonly RuntimeModelCandidate[] | null;
+  readonly path: string;
+  readonly source: LocalRuntimeModelSource;
+}
+
 interface RuntimeModelAdapter {
-  readonly embeddingProbeEndpoints: readonly string[];
-  readonly modelEndpoints: readonly RuntimeModelEndpointDefinition[];
+  readonly embeddingProbePaths: readonly string[];
+  readonly modelPaths: readonly RuntimeModelPathDefinition[];
   readonly runtime: LocalRuntimeId;
 }
 
@@ -161,6 +223,7 @@ interface RuntimeModelSuccessSnapshot {
 }
 
 interface RuntimeModelCacheEntry {
+  readonly baseUrl: string;
   readonly consecutiveFailures: number;
   readonly lastSuccess: RuntimeModelSuccessSnapshot | null;
   readonly nextRefreshAt: number;
@@ -190,53 +253,72 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 2500;
 // false positives that would otherwise fan out into many localhost probes.
 const DEFAULT_MAX_VERIFICATION_MODELS = 4;
 const DEFAULT_DIMENSION_PROBE_TEXT = 'brainstrike dimension probe';
+// Realistic workloads touch tens of models; 200 leaves ample headroom for
+// users cycling between local/remote runtimes and renaming models without
+// letting the Map grow unbounded across a long session.
+const OLLAMA_CAPABILITIES_CACHE_MAX_ENTRIES = 200;
 
 const EMBEDDING_NAME_PATTERN =
   /(embed|embedding|text-embedding|nomic-embed|jina-embeddings|bge|e5|gte|arctic-embed|voyage)/i;
 const CHAT_NAME_PATTERN =
   /(chat|instruct|llama|qwen|mistral|gemma|phi|deepseek|gpt|claude|sonnet|haiku|opus|command-r|mixtral)/i;
 
-const OLLAMA_MODEL_ENDPOINTS: readonly RuntimeModelEndpointDefinition[] = [
-  {
-    endpoint: 'http://127.0.0.1:11434/v1/models',
-    source: 'openai_v1_models',
-    parser: parseOpenAiModelsPayload,
-  },
-  {
-    endpoint: 'http://127.0.0.1:11434/api/tags',
-    source: 'ollama_api_tags',
-    parser: parseOllamaTagsPayload,
-  },
+// `/api/tags` is listed first for Ollama because it includes `details.families`,
+// which lets us infer embedding capability without a follow-up request. The
+// OpenAI-compatible `/v1/models` endpoint returns only `{id}` and is kept as a
+// compatibility fallback for older Ollama builds or non-default configurations.
+const OLLAMA_MODEL_PATHS: readonly RuntimeModelPathDefinition[] = [
+  { path: '/api/tags', source: 'ollama_api_tags', parser: parseOllamaTagsPayload },
+  { path: '/v1/models', source: 'openai_v1_models', parser: parseOpenAiModelsPayload },
 ];
 
-const LM_STUDIO_MODEL_ENDPOINTS: readonly RuntimeModelEndpointDefinition[] = [
-  {
-    endpoint: 'http://localhost:1234/v1/models',
-    source: 'openai_v1_models',
-    parser: parseOpenAiModelsPayload,
-  },
-  {
-    endpoint: 'http://localhost:1234/api/v1/models',
-    source: 'lmstudio_api_v1_models',
-    parser: parseLmStudioModelsPayload,
-  },
+// Native `/api/v1/models` (LM Studio 0.4.0+) and `/api/v0/models` (legacy but
+// still shipped) include `type`, `state`, `arch`, and `quantization` fields that
+// the OpenAI-compatible `/v1/models` endpoint strips. Prefer them so the catalog
+// surfaces authoritative LLM/embedding/vision classifications; fall back to the
+// OpenAI shape for forward-compat if the native paths are ever disabled.
+const LM_STUDIO_MODEL_PATHS: readonly RuntimeModelPathDefinition[] = [
+  { path: '/api/v1/models', source: 'lmstudio_api_v1_models', parser: parseLmStudioModelsPayload },
+  { path: '/api/v0/models', source: 'lmstudio_api_v0_models', parser: parseLmStudioModelsPayload },
+  { path: '/v1/models', source: 'openai_v1_models', parser: parseOpenAiModelsPayload },
 ];
 
 const RUNTIME_ADAPTERS: Record<LocalRuntimeId, RuntimeModelAdapter> = {
   ollama: {
     runtime: 'ollama',
-    modelEndpoints: OLLAMA_MODEL_ENDPOINTS,
-    embeddingProbeEndpoints: [
-      'http://127.0.0.1:11434/v1/embeddings',
-      'http://127.0.0.1:11434/api/embeddings',
-    ],
+    modelPaths: OLLAMA_MODEL_PATHS,
+    embeddingProbePaths: ['/v1/embeddings', '/api/embeddings'],
   },
   lmstudio: {
     runtime: 'lmstudio',
-    modelEndpoints: LM_STUDIO_MODEL_ENDPOINTS,
-    embeddingProbeEndpoints: ['http://localhost:1234/v1/embeddings'],
+    modelPaths: LM_STUDIO_MODEL_PATHS,
+    embeddingProbePaths: ['/v1/embeddings'],
   },
 };
+
+function buildRuntimeModelEndpoints(
+  runtime: LocalRuntimeId,
+  endpoint: LocalRuntimeEndpointConfig | undefined
+): readonly RuntimeModelEndpointDefinition[] {
+  const baseUrl = resolveRuntimeBaseUrl(runtime, endpoint?.baseUrl);
+  return RUNTIME_ADAPTERS[runtime].modelPaths.map((definition) => ({
+    endpoint: buildRuntimeEndpoint(baseUrl, definition.path),
+    source: definition.source,
+    parser: definition.parser,
+  }));
+}
+
+function buildRuntimeEmbeddingProbeEndpoints(
+  runtime: LocalRuntimeId,
+  endpoint: LocalRuntimeEndpointConfig | undefined
+): readonly string[] {
+  const baseUrl = resolveRuntimeBaseUrl(runtime, endpoint?.baseUrl);
+  return RUNTIME_ADAPTERS[runtime].embeddingProbePaths.map((path) =>
+    buildRuntimeEndpoint(baseUrl, path)
+  );
+}
+
+const OLLAMA_SHOW_PATH = '/api/show';
 
 function getOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
@@ -263,6 +345,42 @@ function parseOpenAiModelsPayload(payload: unknown): readonly RuntimeModelCandid
   return models;
 }
 
+/**
+ * Canonical Ollama `details.families` → `embeddings` mapping. Keep this the
+ * single source of truth for "what counts as an embedding family" — when a
+ * new Ollama embedding architecture ships (e.g. `jina`, `gte`, or any future
+ * family), extend the predicate here and update the
+ * `local-runtime-model-catalog` tests to cover the new slug.
+ *
+ * The current predicate handles the three observed patterns as of April 2026:
+ *   - `bert` (raw BERT-style embedders)
+ *   - `*-bert` (derivatives like `nomic-bert`)
+ *   - anything containing `embed` (e.g. `nomic-embed-text`)
+ *
+ * IMPORTANT: `undefined` here means "not positively identified as an
+ * embedding family — defer to the name-regex heuristic in
+ * `inferCapabilitiesFromName`". It does NOT mean "unknown model type",
+ * which is why we do NOT return `'llm'` for non-matching families the way
+ * `parseLmStudioModelType` does for LM Studio's explicit discriminant.
+ * Ollama's families field is a hint only; the LLM/embedding classification
+ * for everything else falls through to the shared heuristic path.
+ */
+function parseOllamaModelType(value: unknown): LocalRuntimeModelType | undefined {
+  if (!Array.isArray(value)) {
+    return;
+  }
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      continue;
+    }
+    const lower = entry.toLowerCase();
+    if (lower === 'bert' || lower.endsWith('-bert') || lower.includes('embed')) {
+      return 'embeddings';
+    }
+  }
+  return;
+}
+
 function parseOllamaTagsPayload(payload: unknown): readonly RuntimeModelCandidate[] | null {
   if (!(isRecord(payload) && Array.isArray(payload['models']))) {
     return null;
@@ -281,30 +399,107 @@ function parseOllamaTagsPayload(payload: unknown): readonly RuntimeModelCandidat
       continue;
     }
     const label = getOptionalString(item['name']) ?? id;
-    models.push({ id, label });
+
+    const details = item['details'];
+    const families =
+      isRecord(details) && Array.isArray(details['families'])
+        ? details['families'].filter((family): family is string => typeof family === 'string')
+        : undefined;
+    const inferredType = parseOllamaModelType(families);
+
+    models.push({
+      id,
+      label,
+      ...(families ? { families } : {}),
+      ...(inferredType ? { modelType: inferredType } : {}),
+    });
   }
 
   return models;
 }
 
+function parseLmStudioModelType(value: unknown): LocalRuntimeModelType | undefined {
+  if (typeof value !== 'string') {
+    return;
+  }
+  switch (value.toLowerCase()) {
+    case 'llm':
+      return 'llm';
+    case 'vlm':
+      return 'vlm';
+    case 'embeddings':
+    case 'embedding':
+      return 'embeddings';
+    default:
+      return;
+  }
+}
+
+function parseLmStudioLoadState(value: unknown): boolean | undefined {
+  // `/api/v1/models` returns `state: "loaded" | "not-loaded"`. Older builds may
+  // return booleans or omit the field entirely; leave `loaded` undefined when
+  // unknown so the UI does not confuse "not loaded" with "unreported".
+  if (typeof value === 'string') {
+    return value === 'loaded';
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  return;
+}
+
+function toLmStudioCandidate(item: Record<string, unknown>): RuntimeModelCandidate | null {
+  const id = getOptionalString(item['id']);
+  if (!id) {
+    return null;
+  }
+  const label = getOptionalString(item['name']) ?? id;
+  const modelType = parseLmStudioModelType(item['type']);
+  const loaded = parseLmStudioLoadState(item['state']);
+
+  return {
+    id,
+    label,
+    ...(modelType ? { modelType } : {}),
+    ...(typeof loaded === 'boolean' ? { loaded } : {}),
+  };
+}
+
 function parseLmStudioModelsPayload(payload: unknown): readonly RuntimeModelCandidate[] | null {
+  // LM Studio has shipped three shapes over its lifetime:
+  //   - `/api/v1/models`  -> `{ data: [...] }` (0.4.0+, preferred)
+  //   - `/api/v0/models`  -> `{ data: [...] }` (legacy native, still supported)
+  //   - very old builds   -> a bare `[...]` array
+  // Normalize all three into a single candidate list.
   if (Array.isArray(payload)) {
     const models: RuntimeModelCandidate[] = [];
     for (const item of payload) {
       if (!isRecord(item)) {
         continue;
       }
-      const id = getOptionalString(item['id']);
-      if (!id) {
-        continue;
+      const candidate = toLmStudioCandidate(item);
+      if (candidate) {
+        models.push(candidate);
       }
-      const label = getOptionalString(item['name']) ?? id;
-      models.push({ id, label });
     }
     return models;
   }
 
-  return parseOpenAiModelsPayload(payload);
+  if (isRecord(payload) && Array.isArray(payload['data'])) {
+    const models: RuntimeModelCandidate[] = [];
+    for (const item of payload['data']) {
+      if (!isRecord(item)) {
+        continue;
+      }
+      const candidate = toLmStudioCandidate(item);
+      if (candidate) {
+        models.push(candidate);
+      }
+    }
+    return models;
+  }
+
+  return null;
 }
 
 function sanitizeVerificationLimit(value: number | undefined): number {
@@ -342,14 +537,38 @@ function buildRuntimeAvailabilityMessage(
   }
 }
 
-function inferModelCapabilities(
-  modelId: string,
-  displayName: string
-): {
-  readonly llm: boolean;
-  readonly embeddings: LocalRuntimeEmbeddingCapability;
+interface ResolvedCapabilities {
+  readonly capabilitySource: LocalRuntimeCapabilitySource;
   readonly dimensionsKnown: LocalRuntimeDimensionsState;
-} {
+  readonly embeddings: LocalRuntimeEmbeddingCapability;
+  readonly llm: boolean;
+}
+
+function resolveReportedCapabilities(
+  modelType: LocalRuntimeModelType
+): ResolvedCapabilities | undefined {
+  switch (modelType) {
+    case 'embeddings':
+      // Dimensions still need a probe to confirm the exact vector size; the
+      // runtime tells us the model IS an embedding model but not its shape.
+      return {
+        llm: false,
+        embeddings: 'supported',
+        dimensionsKnown: { state: 'needs_verification' },
+        capabilitySource: 'provider_reported',
+      };
+    case 'llm':
+    case 'vlm':
+      return {
+        llm: true,
+        embeddings: 'unsupported',
+        dimensionsKnown: { state: 'not_applicable' },
+        capabilitySource: 'provider_reported',
+      };
+  }
+}
+
+function inferCapabilitiesFromName(modelId: string, displayName: string): ResolvedCapabilities {
   const searchable = `${modelId} ${displayName}`.toLowerCase();
   const hasEmbeddingHint = EMBEDDING_NAME_PATTERN.test(searchable);
   const hasChatHint = CHAT_NAME_PATTERN.test(searchable);
@@ -361,6 +580,7 @@ function inferModelCapabilities(
       llm: hasChatHint,
       embeddings: 'supported',
       dimensionsKnown: { state: 'needs_verification' },
+      capabilitySource: 'inferred',
     };
   }
 
@@ -369,6 +589,7 @@ function inferModelCapabilities(
       llm: true,
       embeddings: 'unsupported',
       dimensionsKnown: { state: 'not_applicable' },
+      capabilitySource: 'inferred',
     };
   }
 
@@ -378,7 +599,18 @@ function inferModelCapabilities(
     llm: true,
     embeddings: 'needs_verification',
     dimensionsKnown: { state: 'needs_verification' },
+    capabilitySource: 'inferred',
   };
+}
+
+function resolveCandidateCapabilities(candidate: RuntimeModelCandidate): ResolvedCapabilities {
+  if (candidate.modelType) {
+    const reported = resolveReportedCapabilities(candidate.modelType);
+    if (reported) {
+      return reported;
+    }
+  }
+  return inferCapabilitiesFromName(candidate.id, candidate.label);
 }
 
 function extractEmbeddingDimensions(payload: unknown): number | null {
@@ -439,6 +671,86 @@ export type LocalRuntimeEmbeddingDimensionProbeResult =
   | LocalRuntimeEmbeddingDimensionUnsupported
   | LocalRuntimeEmbeddingDimensionFailed;
 
+/**
+ * Canonical capability strings returned by Ollama's `POST /api/show`. Ollama
+ * documents these in github.com/ollama/ollama/blob/main/docs/api.md and emits
+ * them as a `capabilities: string[]` array on the show response.
+ */
+export type OllamaModelCapability =
+  | 'completion'
+  | 'embedding'
+  | 'insert'
+  | 'thinking'
+  | 'tools'
+  | 'vision';
+
+const OLLAMA_KNOWN_CAPABILITIES: ReadonlySet<OllamaModelCapability> = new Set([
+  'completion',
+  'embedding',
+  'insert',
+  'thinking',
+  'tools',
+  'vision',
+]);
+
+export interface LocalRuntimeOllamaCapabilitiesResolved {
+  readonly capabilities: readonly OllamaModelCapability[];
+  readonly checkedAt: number;
+  readonly embedding: boolean;
+  readonly endpoint: string;
+  readonly insert: boolean;
+  readonly llm: boolean;
+  readonly modelId: string;
+  readonly state: 'resolved';
+  readonly thinking: boolean;
+  readonly tools: boolean;
+  readonly vision: boolean;
+}
+
+export interface LocalRuntimeOllamaCapabilitiesUnavailable {
+  readonly checkedAt: number;
+  readonly endpoint: string;
+  readonly message: string;
+  readonly modelId: string;
+  readonly state: 'unavailable';
+  readonly status?: number;
+}
+
+export type LocalRuntimeOllamaCapabilitiesResult =
+  | LocalRuntimeOllamaCapabilitiesResolved
+  | LocalRuntimeOllamaCapabilitiesUnavailable;
+
+function isKnownOllamaCapability(value: string): value is OllamaModelCapability {
+  return OLLAMA_KNOWN_CAPABILITIES.has(value as OllamaModelCapability);
+}
+
+function parseOllamaCapabilityList(payload: unknown): readonly OllamaModelCapability[] {
+  if (!(isRecord(payload) && Array.isArray(payload['capabilities']))) {
+    return [];
+  }
+  const seen = new Set<OllamaModelCapability>();
+  const result: OllamaModelCapability[] = [];
+  for (const raw of payload['capabilities']) {
+    if (typeof raw !== 'string') {
+      continue;
+    }
+    // Type guard keeps the narrowing adjacent to the membership check so a
+    // future refactor can't let an arbitrary lowercased string masquerade as
+    // an `OllamaModelCapability` inside the loop body.
+    const normalized = raw.toLowerCase();
+    if (isKnownOllamaCapability(normalized) && !seen.has(normalized)) {
+      seen.add(normalized);
+      result.push(normalized);
+    }
+  }
+  return result;
+}
+
+interface OllamaCapabilitiesCacheEntry {
+  readonly expiresAt: number;
+  readonly result: LocalRuntimeOllamaCapabilitiesResolved;
+}
+
 export class LocalRuntimeModelCatalogService {
   private readonly discoveryService: LocalRuntimeDiscoveryService;
   private readonly fetchImpl: typeof fetch | undefined;
@@ -447,7 +759,17 @@ export class LocalRuntimeModelCatalogService {
   private readonly failureMaxBackoffMs: number;
   private readonly requestTimeoutMs: number;
   private readonly now: () => number;
+  private readonly logger: LocalRuntimeLogger;
   private readonly cache = new Map<LocalRuntimeId, RuntimeModelCacheEntry>();
+  // Per-model cache of resolved Ollama capabilities, keyed by
+  // `${baseUrl}::${modelId}`. A short TTL keeps answers fresh when users
+  // pull new model revisions locally. Bounded at
+  // OLLAMA_CAPABILITIES_CACHE_MAX_ENTRIES because we also key on baseUrl —
+  // a user cycling through many remote hosts or renaming models could
+  // otherwise grow the map monotonically until `clearCache()`. We track
+  // insertion order via `Map`'s iteration contract and evict the oldest
+  // entry when we exceed the cap.
+  private readonly ollamaCapabilitiesCache = new Map<string, OllamaCapabilitiesCacheEntry>();
 
   public constructor(options: LocalRuntimeModelCatalogServiceOptions = {}) {
     this.now = options.now ?? (() => Date.now());
@@ -462,6 +784,7 @@ export class LocalRuntimeModelCatalogService {
       DEFAULT_FAILURE_MAX_BACKOFF_MS
     );
     this.requestTimeoutMs = sanitizeDuration(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS);
+    this.logger = options.logger ?? noopLocalRuntimeLogger;
 
     if (options.discoveryService) {
       this.discoveryService = options.discoveryService;
@@ -469,6 +792,7 @@ export class LocalRuntimeModelCatalogService {
       this.discoveryService = new LocalRuntimeDiscoveryService({
         fetchImpl: this.fetchImpl,
         ...(options.defaultSurface ? { defaultSurface: options.defaultSurface } : {}),
+        ...(options.logger ? { logger: options.logger } : {}),
         now: this.now,
       });
     }
@@ -480,10 +804,150 @@ export class LocalRuntimeModelCatalogService {
       return;
     }
     this.cache.clear();
+    this.ollamaCapabilitiesCache.clear();
   }
 
   public getCachedState(runtime: LocalRuntimeId): LocalRuntimeModelCatalogState | null {
     return this.cache.get(runtime)?.status ?? null;
+  }
+
+  /**
+   * Resolve a model's capability set by calling Ollama's `POST /api/show`.
+   *
+   * `/api/show` is Ollama's authoritative source for per-model capabilities —
+   * it returns an array like `["completion", "tools", "vision"]` directly, so
+   * this method avoids the regex-on-name heuristics used during bulk listing.
+   * Results are cached per model id using the catalog's `successTtlMs` budget
+   * so repeated lookups do not refetch on every render.
+   */
+  public async resolveOllamaCapabilities(
+    modelId: string,
+    options: {
+      readonly endpoint?: LocalRuntimeEndpointConfig;
+      readonly force?: boolean;
+      readonly signal?: AbortSignal;
+    } = {}
+  ): Promise<LocalRuntimeOllamaCapabilitiesResult> {
+    const baseUrl = resolveRuntimeBaseUrl('ollama', options.endpoint?.baseUrl);
+    const showEndpoint = buildRuntimeEndpoint(baseUrl, OLLAMA_SHOW_PATH);
+    const trimmed = modelId.trim();
+    if (trimmed.length === 0) {
+      return {
+        state: 'unavailable',
+        modelId,
+        endpoint: showEndpoint,
+        message: 'modelId is required',
+        checkedAt: this.now(),
+      };
+    }
+
+    // Key the cache by `baseUrl + NUL + modelId` so switching hosts does not
+    // return a stale capability set from a different server that happened to
+    // ship the same model id. A null-byte separator avoids the theoretical
+    // collision where a baseUrl containing `::` or a modelId containing
+    // `::` could map to the same key as a different (baseUrl, modelId)
+    // pair. Real Ollama names use `:` but never `::` or NUL, so this is
+    // purely belt-and-braces — the collision has never been observed.
+    const cacheKey = `${baseUrl}\u0000${trimmed}`;
+    if (!options.force) {
+      const cached = this.ollamaCapabilitiesCache.get(cacheKey);
+      if (cached && this.now() < cached.expiresAt) {
+        // Promote on hit so eviction is true LRU rather than FIFO. `Map`
+        // iterates in insertion order, so delete-then-set moves the entry
+        // to the back of the line and guarantees a frequently-used model
+        // survives pressure from one-off lookups at different baseUrls.
+        this.ollamaCapabilitiesCache.delete(cacheKey);
+        this.ollamaCapabilitiesCache.set(cacheKey, cached);
+        return cached.result;
+      }
+    }
+
+    if (!this.fetchImpl) {
+      return {
+        state: 'unavailable',
+        modelId: trimmed,
+        endpoint: showEndpoint,
+        message: 'Fetch implementation is not available',
+        checkedAt: this.now(),
+      };
+    }
+
+    const authHeaders = buildRuntimeAuthHeaders(options.endpoint);
+    const checkedAt = this.now();
+    try {
+      const result = await fetchJsonWithTimeout(showEndpoint, {
+        fetchImpl: this.fetchImpl,
+        timeoutMs: this.requestTimeoutMs,
+        method: 'POST',
+        body: JSON.stringify({ model: trimmed }),
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(authHeaders ? { headers: authHeaders } : {}),
+      });
+
+      if (!result.response.ok) {
+        return {
+          state: 'unavailable',
+          modelId: trimmed,
+          endpoint: showEndpoint,
+          status: result.response.status,
+          message: `Ollama /api/show responded with ${result.response.status}`,
+          checkedAt,
+        };
+      }
+
+      if (result.parseError) {
+        return {
+          state: 'unavailable',
+          modelId: trimmed,
+          endpoint: showEndpoint,
+          message: 'Ollama /api/show returned non-JSON payload',
+          checkedAt,
+        };
+      }
+
+      const capabilities = parseOllamaCapabilityList(result.payload);
+      const resolved: LocalRuntimeOllamaCapabilitiesResolved = {
+        state: 'resolved',
+        modelId: trimmed,
+        endpoint: showEndpoint,
+        checkedAt,
+        capabilities,
+        llm: capabilities.includes('completion'),
+        embedding: capabilities.includes('embedding'),
+        tools: capabilities.includes('tools'),
+        vision: capabilities.includes('vision'),
+        thinking: capabilities.includes('thinking'),
+        insert: capabilities.includes('insert'),
+      };
+      // Evict the least-recently-used entry once we exceed the cap. Map
+      // iterates in insertion order, so the first key is the oldest — but
+      // cache hits promote entries via delete+reinsert (see the hit-path
+      // above) so the iteration-order truly tracks access order, not just
+      // insertion time. Refreshed entries also move to the back on this
+      // .set(), keeping the LRU semantics consistent across both paths.
+      if (this.ollamaCapabilitiesCache.size >= OLLAMA_CAPABILITIES_CACHE_MAX_ENTRIES) {
+        const oldestKey = this.ollamaCapabilitiesCache.keys().next().value;
+        if (typeof oldestKey === 'string') {
+          this.ollamaCapabilitiesCache.delete(oldestKey);
+        }
+      }
+      this.ollamaCapabilitiesCache.set(cacheKey, {
+        result: resolved,
+        expiresAt: checkedAt + this.successTtlMs,
+      });
+      return resolved;
+    } catch (error) {
+      if (options.signal?.aborted) {
+        throw error;
+      }
+      return {
+        state: 'unavailable',
+        modelId: trimmed,
+        endpoint: showEndpoint,
+        message: `Ollama /api/show request failed: ${extractErrorMessage(error)}`,
+        checkedAt,
+      };
+    }
   }
 
   public async listAllModels(
@@ -506,8 +970,15 @@ export class LocalRuntimeModelCatalogService {
   ): Promise<LocalRuntimeModelCatalogState> {
     const now = this.now();
     const cached = this.cache.get(runtime);
+    const effectiveBaseUrl = resolveRuntimeBaseUrl(runtime, options.endpoint?.baseUrl);
 
-    if (!(options.force ?? false) && cached && now < cached.nextRefreshAt) {
+    // Cache is keyed by the resolved origin so switching hosts (auto → remote
+    // GPU box, or toggling the user-configured baseUrl) invalidates any stale
+    // entry from the previous target. Matching the discovery service's
+    // behaviour keeps the two caches coherent.
+    const cacheFresh =
+      cached !== undefined && cached.baseUrl === effectiveBaseUrl && now < cached.nextRefreshAt;
+    if (!(options.force ?? false) && cacheFresh && cached) {
       return cached.status;
     }
 
@@ -515,22 +986,31 @@ export class LocalRuntimeModelCatalogService {
       ...(options.force ? { force: true } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
       ...(options.surface ? { surface: options.surface } : {}),
+      ...(options.endpoint ? { endpoint: options.endpoint } : {}),
     };
 
     const availability = await this.discoveryService.probeRuntime(runtime, probeOptions);
     const checkedAt = this.now();
 
     if (!isReachableRuntimeState(availability.state)) {
-      return this.persistFailure(runtime, checkedAt, availability, cached);
+      return this.persistFailure(
+        runtime,
+        checkedAt,
+        availability,
+        cached,
+        undefined,
+        effectiveBaseUrl
+      );
     }
 
-    const adapter = RUNTIME_ADAPTERS[runtime];
-    const endpoints = this.resolveEndpointOrder(adapter, availability);
+    const candidateEndpoints = buildRuntimeModelEndpoints(runtime, options.endpoint);
+    const endpoints = this.resolveEndpointOrder(candidateEndpoints, availability);
 
     const loaded = await this.fetchAndNormalizeModels(runtime, availability, endpoints, {
       ...(options.signal ? { signal: options.signal } : {}),
       verifyEmbeddingDimensions: options.verifyEmbeddingDimensions ?? false,
       maxVerificationModels: sanitizeVerificationLimit(options.maxVerificationModels),
+      ...(options.endpoint ? { endpoint: options.endpoint } : {}),
     });
 
     if (loaded.ok) {
@@ -549,6 +1029,7 @@ export class LocalRuntimeModelCatalogService {
           : { ...shared, state: 'loaded_empty' as const, models: [] as const };
 
       this.cache.set(runtime, {
+        baseUrl: effectiveBaseUrl,
         status: state,
         nextRefreshAt: now + this.successTtlMs,
         consecutiveFailures: 0,
@@ -563,15 +1044,23 @@ export class LocalRuntimeModelCatalogService {
       return state;
     }
 
-    return this.persistFailure(runtime, checkedAt, availability, cached, loaded.message);
+    return this.persistFailure(
+      runtime,
+      checkedAt,
+      availability,
+      cached,
+      loaded.message,
+      effectiveBaseUrl
+    );
   }
 
   public async verifyEmbeddingDimensions(
     runtime: LocalRuntimeId,
     modelId: string,
     options: {
-      readonly signal?: AbortSignal;
+      readonly endpoint?: LocalRuntimeEndpointConfig;
       readonly probeText?: string;
+      readonly signal?: AbortSignal;
     } = {}
   ): Promise<LocalRuntimeEmbeddingDimensionProbeResult> {
     if (!this.fetchImpl) {
@@ -582,7 +1071,7 @@ export class LocalRuntimeModelCatalogService {
       };
     }
 
-    const adapter = RUNTIME_ADAPTERS[runtime];
+    const probeEndpoints = buildRuntimeEmbeddingProbeEndpoints(runtime, options.endpoint);
     const probePayload = JSON.stringify({
       model: modelId,
       input: options.probeText ?? DEFAULT_DIMENSION_PROBE_TEXT,
@@ -590,8 +1079,15 @@ export class LocalRuntimeModelCatalogService {
 
     const unsupportedMessages: string[] = [];
 
-    for (const endpoint of adapter.embeddingProbeEndpoints) {
-      const outcome = await this.probeEmbeddingEndpoint(endpoint, probePayload, options.signal);
+    // Rename the loop variable from `endpoint` to `probeUrl` so it no longer
+    // shadows the surrounding `options.endpoint` (a `LocalRuntimeEndpointConfig`,
+    // not a URL string). Reviewer flagged this as bug-adjacent because both
+    // were named `endpoint` but carried completely different meanings.
+    for (const probeUrl of probeEndpoints) {
+      const outcome = await this.probeEmbeddingEndpoint(probeUrl, probePayload, {
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.endpoint ? { endpointConfig: options.endpoint } : {}),
+      });
       if (outcome.kind === 'verified') {
         return outcome.result;
       }
@@ -602,7 +1098,7 @@ export class LocalRuntimeModelCatalogService {
     }
 
     if (unsupportedMessages.length > 0) {
-      return this.buildUnsupportedProbeResult(adapter.embeddingProbeEndpoints, unsupportedMessages);
+      return this.buildUnsupportedProbeResult(probeEndpoints, unsupportedMessages);
     }
 
     return {
@@ -613,9 +1109,12 @@ export class LocalRuntimeModelCatalogService {
   }
 
   private async probeEmbeddingEndpoint(
-    endpoint: string,
+    probeUrl: string,
     payload: string,
-    signal?: AbortSignal
+    options: {
+      readonly endpointConfig?: LocalRuntimeEndpointConfig;
+      readonly signal?: AbortSignal;
+    }
   ): Promise<EmbeddingProbeOutcome> {
     if (!this.fetchImpl) {
       return {
@@ -628,12 +1127,15 @@ export class LocalRuntimeModelCatalogService {
       };
     }
 
+    const { signal } = options;
+    const authHeaders = buildRuntimeAuthHeaders(options.endpointConfig);
     const checkedAt = this.now();
     try {
-      const result = await fetchJsonWithTimeout(endpoint, {
+      const result = await fetchJsonWithTimeout(probeUrl, {
         fetchImpl: this.fetchImpl,
         timeoutMs: this.requestTimeoutMs,
         ...(signal ? { signal } : {}),
+        ...(authHeaders ? { headers: authHeaders } : {}),
         method: 'POST',
         body: payload,
       });
@@ -642,7 +1144,7 @@ export class LocalRuntimeModelCatalogService {
         if ([400, 404, 405, 422, 501].includes(result.response.status)) {
           return {
             kind: 'unsupported',
-            message: `Embedding probe unsupported (${result.response.status}) at ${endpoint}`,
+            message: `Embedding probe unsupported (${result.response.status}) at ${probeUrl}`,
           };
         }
 
@@ -651,7 +1153,7 @@ export class LocalRuntimeModelCatalogService {
           result: {
             state: 'failed',
             checkedAt,
-            message: `Embedding probe failed (${result.response.status}) at ${endpoint}`,
+            message: `Embedding probe failed (${result.response.status}) at ${probeUrl}`,
           },
         };
       }
@@ -659,7 +1161,7 @@ export class LocalRuntimeModelCatalogService {
       if (result.parseError) {
         return {
           kind: 'unsupported',
-          message: `Embedding probe returned invalid JSON at ${endpoint}`,
+          message: `Embedding probe returned invalid JSON at ${probeUrl}`,
         };
       }
 
@@ -670,7 +1172,7 @@ export class LocalRuntimeModelCatalogService {
           result: {
             state: 'verified',
             checkedAt,
-            endpoint,
+            endpoint: probeUrl,
             dimensions,
           },
         };
@@ -678,7 +1180,7 @@ export class LocalRuntimeModelCatalogService {
 
       return {
         kind: 'unsupported',
-        message: `Embedding probe returned no embedding vector at ${endpoint}`,
+        message: `Embedding probe returned no embedding vector at ${probeUrl}`,
       };
     } catch (error) {
       if (signal?.aborted) {
@@ -686,7 +1188,7 @@ export class LocalRuntimeModelCatalogService {
       }
       return {
         kind: 'unsupported',
-        message: `Embedding probe error at ${endpoint}: ${extractErrorMessage(error)}`,
+        message: `Embedding probe error at ${probeUrl}: ${extractErrorMessage(error)}`,
       };
     }
   }
@@ -708,7 +1210,8 @@ export class LocalRuntimeModelCatalogService {
     checkedAt: number,
     availability: LocalRuntimeAvailabilityState,
     cached: RuntimeModelCacheEntry | undefined,
-    message?: string
+    message?: string,
+    baseUrl?: string
   ): LocalRuntimeModelCatalogState {
     const failureMessage = message ?? buildRuntimeAvailabilityMessage(runtime, availability);
     const nextFailures = (cached?.consecutiveFailures ?? 0) + 1;
@@ -726,12 +1229,37 @@ export class LocalRuntimeModelCatalogService {
       message: failureMessage,
     };
 
+    const effectiveBaseUrl =
+      baseUrl ?? cached?.baseUrl ?? resolveRuntimeBaseUrl(runtime, undefined);
     this.cache.set(runtime, {
+      baseUrl: effectiveBaseUrl,
       status: nextStatus,
       nextRefreshAt: this.now() + backoffMs,
       consecutiveFailures: nextFailures,
       lastSuccess: cached?.lastSuccess ?? null,
     });
+
+    // Surface catalog failures so "empty model dropdown while runtime is
+    // reachable" is diagnosable without DevTools. Demote to debug when the
+    // stale cache is still serving last-known models so repeated refreshes
+    // don't spam warnings after a transient outage.
+    if (nextStatus.state === 'stale_cached') {
+      this.logger.debug('local runtime model catalog stale', {
+        runtime,
+        state: nextStatus.state,
+        message: failureMessage,
+        availability: availability.state,
+        consecutiveFailures: nextFailures,
+      });
+    } else {
+      this.logger.warn('local runtime model catalog failed', {
+        runtime,
+        state: nextStatus.state,
+        message: failureMessage,
+        availability: availability.state,
+        consecutiveFailures: nextFailures,
+      });
+    }
 
     return nextStatus;
   }
@@ -763,22 +1291,20 @@ export class LocalRuntimeModelCatalogService {
   }
 
   private resolveEndpointOrder(
-    adapter: RuntimeModelAdapter,
+    endpoints: readonly RuntimeModelEndpointDefinition[],
     availability: LocalRuntimeAvailabilityState
   ): readonly RuntimeModelEndpointDefinition[] {
     if (!('endpoint' in availability && availability.endpoint)) {
-      return adapter.modelEndpoints;
+      return endpoints;
     }
 
-    const preferred = adapter.modelEndpoints.find(
-      (endpoint) => endpoint.endpoint === availability.endpoint
-    );
+    const preferred = endpoints.find((endpoint) => endpoint.endpoint === availability.endpoint);
 
     if (!preferred) {
-      return adapter.modelEndpoints;
+      return endpoints;
     }
 
-    return [preferred, ...adapter.modelEndpoints.filter((endpoint) => endpoint !== preferred)];
+    return [preferred, ...endpoints.filter((endpoint) => endpoint !== preferred)];
   }
 
   private async fetchAndNormalizeModels(
@@ -786,9 +1312,10 @@ export class LocalRuntimeModelCatalogService {
     availability: LocalRuntimeAvailabilityState,
     endpoints: readonly RuntimeModelEndpointDefinition[],
     options: {
+      readonly endpoint?: LocalRuntimeEndpointConfig;
+      readonly maxVerificationModels: number;
       readonly signal?: AbortSignal;
       readonly verifyEmbeddingDimensions: boolean;
-      readonly maxVerificationModels: number;
     }
   ): Promise<
     | {
@@ -832,9 +1359,10 @@ export class LocalRuntimeModelCatalogService {
     runtime: LocalRuntimeId,
     endpoint: RuntimeModelEndpointDefinition,
     options: {
+      readonly endpoint?: LocalRuntimeEndpointConfig;
+      readonly maxVerificationModels: number;
       readonly signal?: AbortSignal;
       readonly verifyEmbeddingDimensions: boolean;
-      readonly maxVerificationModels: number;
     }
   ): Promise<ModelEndpointAttemptOutcome> {
     if (!this.fetchImpl) {
@@ -844,11 +1372,13 @@ export class LocalRuntimeModelCatalogService {
       };
     }
 
+    const authHeaders = buildRuntimeAuthHeaders(options.endpoint);
     try {
       const result = await fetchJsonWithTimeout(endpoint.endpoint, {
         fetchImpl: this.fetchImpl,
         timeoutMs: this.requestTimeoutMs,
         ...(options.signal ? { signal: options.signal } : {}),
+        ...(authHeaders ? { headers: authHeaders } : {}),
       });
 
       if (!result.response.ok) {
@@ -879,6 +1409,7 @@ export class LocalRuntimeModelCatalogService {
       if (options.verifyEmbeddingDimensions) {
         normalized = await this.applyEmbeddingVerification(runtime, normalized, {
           ...(options.signal ? { signal: options.signal } : {}),
+          ...(options.endpoint ? { endpoint: options.endpoint } : {}),
           maxVerificationModels: options.maxVerificationModels,
         });
       }
@@ -910,9 +1441,16 @@ export class LocalRuntimeModelCatalogService {
       if (id.length === 0 || byId.has(id)) {
         continue;
       }
+      // Pick explicitly rather than spreading the candidate. Parsers build
+      // candidates from untrusted JSON bodies; a future Ollama or LM Studio
+      // response field would otherwise silently ride through into
+      // `LocalRuntimeNormalizedModel` via `normalizeModels`'s own spread.
       byId.set(id, {
         id,
         label: candidate.label.trim().length > 0 ? candidate.label.trim() : id,
+        ...(candidate.families ? { families: candidate.families } : {}),
+        ...(candidate.modelType ? { modelType: candidate.modelType } : {}),
+        ...(typeof candidate.loaded === 'boolean' ? { loaded: candidate.loaded } : {}),
       });
     }
 
@@ -925,7 +1463,7 @@ export class LocalRuntimeModelCatalogService {
     candidates: readonly RuntimeModelCandidate[]
   ): readonly LocalRuntimeNormalizedModel[] {
     const normalized = candidates.map((candidate) => {
-      const inferred = inferModelCapabilities(candidate.id, candidate.label);
+      const resolved = resolveCandidateCapabilities(candidate);
       return {
         runtime,
         providerId: runtime,
@@ -936,10 +1474,13 @@ export class LocalRuntimeModelCatalogService {
         source: endpoint.source,
         freshness: 'live' as const,
         capabilities: {
-          llm: inferred.llm,
-          embeddings: inferred.embeddings,
+          llm: resolved.llm,
+          embeddings: resolved.embeddings,
         },
-        dimensionsKnown: inferred.dimensionsKnown,
+        capabilitySource: resolved.capabilitySource,
+        dimensionsKnown: resolved.dimensionsKnown,
+        ...(candidate.modelType ? { modelType: candidate.modelType } : {}),
+        ...(typeof candidate.loaded === 'boolean' ? { loaded: candidate.loaded } : {}),
       } satisfies LocalRuntimeNormalizedModel;
     });
 
@@ -950,8 +1491,9 @@ export class LocalRuntimeModelCatalogService {
     runtime: LocalRuntimeId,
     models: readonly LocalRuntimeNormalizedModel[],
     options: {
-      readonly signal?: AbortSignal;
+      readonly endpoint?: LocalRuntimeEndpointConfig;
       readonly maxVerificationModels: number;
+      readonly signal?: AbortSignal;
     }
   ): Promise<readonly LocalRuntimeNormalizedModel[]> {
     const result: LocalRuntimeNormalizedModel[] = [];
@@ -973,6 +1515,7 @@ export class LocalRuntimeModelCatalogService {
       remaining -= 1;
       const verification = await this.verifyEmbeddingDimensions(runtime, model.modelId, {
         ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.endpoint ? { endpoint: options.endpoint } : {}),
       });
 
       if (verification.state === 'verified') {

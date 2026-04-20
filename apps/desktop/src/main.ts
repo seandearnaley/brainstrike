@@ -29,6 +29,7 @@ import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerIpcHandlers, setBackgrounded } from './ipc-handlers';
 import { registerLlmHostIpcHandlers } from './ipc-llm-host';
 import { registerMcpIpcHandlers } from './ipc-mcp';
+import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerToolsIpcHandlers } from './ipc-tools';
 import { LlmHostManager } from './llm-host-manager';
@@ -854,6 +855,7 @@ if (singleInstanceLockAcquired) {
       registerAgentIpcHandlers();
       registerMcpIpcHandlers();
       registerToolsIpcHandlers();
+      registerRuntimeIpcHandlers();
       logger.debug('Ready-dependent IPC handlers registered successfully');
 
       // Setup security before creating windows
