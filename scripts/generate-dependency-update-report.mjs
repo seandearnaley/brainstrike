@@ -4,17 +4,12 @@
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import semver from 'semver';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
-
-const semverRequire = createRequire(
-  path.join(root, 'node_modules', '.pnpm', 'node_modules', 'semver', 'package.json')
-);
-const semver = semverRequire('semver');
 
 function runOutdatedJson() {
   const result = spawnSync('pnpm', ['outdated', '-r', '--json'], {
@@ -22,13 +17,17 @@ function runOutdatedJson() {
     encoding: 'utf8',
     maxBuffer: 50 * 1024 * 1024,
   });
-  const raw = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+  // `pnpm outdated` exits non-zero when packages are outdated (status 1) AND on real failures.
+  // Distinguish "found outdated packages" (stdout has JSON) from "command failed" (no JSON, e.g. registry/auth/network).
+  const stdout = result.stdout ?? '';
   // pnpm may print WARN lines to stdout before JSON; those lines can contain `{` inside engine JSON.
-  const start = raw.indexOf('{\n  "') === -1 ? raw.indexOf('{"') : raw.indexOf('{\n  "');
+  const start = stdout.indexOf('{\n  "') === -1 ? stdout.indexOf('{"') : stdout.indexOf('{\n  "');
   if (start === -1) {
-    throw new Error('pnpm outdated did not return JSON');
+    const stderr = (result.stderr ?? '').trim();
+    const reason = stderr || `exit ${result.status ?? 'unknown'}`;
+    throw new Error(`pnpm outdated did not return JSON (${reason})`);
   }
-  return JSON.parse(raw.slice(start));
+  return JSON.parse(stdout.slice(start));
 }
 
 function workspacePackages() {

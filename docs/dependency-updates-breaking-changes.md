@@ -267,6 +267,21 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 
 ---
 
+## Deferred or pinned dependencies
+
+Tracked decisions where we intentionally hold a dependency below its latest version, with the issue that owns the unpin.
+
+| Package | Pinned at | Reason | Tracking |
+| --- | --- | --- | --- |
+| `webpack` (root `pnpm.overrides`) | `5.105.1` (exact) | webpack `5.106.0` tightened the `ProgressPlugin` options schema; `webpackbar` (used transitively by Docusaurus) emits options the new schema rejects, so `pnpm --filter @brainstrike/docs build` fails. Upstream: [facebook/docusaurus#11923](https://github.com/facebook/docusaurus/issues/11923). | [BST-511](https://linear.app/brainstrike/issue/BST-511) |
+| `@electric-sql/pglite` | `^0.3.15` | 0.4.x changes worker defaults and default user/db, causing db tests to hang. Re-evaluate alongside the upstream 0.4 upgrade guide. | (covered in PGlite section above) |
+| `typescript` | `^5.9.3` | 6.0.x stricter DOM types break `FileSystemDirectoryHandle` test mocks in `packages/utils`. Needs a coordinated TS 6 migration across the workspace. | (covered in TypeScript section above) |
+| `react-helmet-async` | `^2.0.5` | 3.x adds an `exports` field that breaks vite's resolution of `react-fast-compare` under `preserveSymlinks: true`. | (covered in react-helmet-async section above) |
+
+> When unpinning, follow the acceptance criteria in the linked Linear issue (or the section above), regenerate `dependency-version-updates-report.md`, and run the full `pnpm check:full` pipeline before merging.
+
+---
+
 ## What this document does *not* cover
 
 - **Transitive dependencies:** `pnpm outdated -r` focuses on direct dependencies. Majors inside nested packages may still require `pnpm why <pkg>` investigations.
