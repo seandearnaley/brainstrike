@@ -6,14 +6,16 @@
 import type { ParserPlugin } from '@babel/parser';
 import {
   countTokensHeuristic,
-  isMarkdownBlockBoundaryLine,
-  MARKDOWN_CODE_FENCE_PATTERN,
   RecursiveTextSplitter,
   type ResolvedChunkingStrategy,
   resolveChunkingStrategyForFile,
   resolveEffectiveChunkingStrategy,
   splitTextByStrategy,
 } from '@brainstrike/text-splitter';
+import {
+  splitByBlankLines,
+  splitMarkdownIntoBlocks,
+} from '@brainstrike/text-splitter/chunking-core';
 import { CHUNKING_CONFIG, type CodeLanguage } from './chunking-config';
 import type { ChunkingRequestOptions, ChunkType, PortableChunk } from './shared';
 
@@ -533,7 +535,7 @@ async function splitCodeByFunctions(
       return;
     }
     const subPieces = await recursiveChunker.splitText(trimmed);
-    pieces.push(...subPieces.map((p) => p.trim()).filter(Boolean));
+    pieces.push(...subPieces.map((piece: string) => piece.trim()).filter(Boolean));
   };
 
   const appendRange = async (startIndex: number, endIndex: number) => {
@@ -561,124 +563,6 @@ async function splitCodeByFunctions(
   }
 
   return pieces;
-}
-
-// Markdown helpers
-function splitByBlankLines(text: string): string[] {
-  const parts: string[] = [];
-  let buf: string[] = [];
-  const lines = text.split(/\r?\n/);
-  for (const line of lines) {
-    if (line.trim() === '') {
-      if (buf.length) {
-        parts.push(buf.join('\n'));
-        buf = [];
-      }
-    } else {
-      buf.push(line);
-    }
-  }
-  if (buf.length) {
-    parts.push(buf.join('\n'));
-  }
-  return parts;
-}
-
-interface MarkdownBlock {
-  meta: { isFence?: boolean; heading?: string };
-  text: string;
-}
-
-function captureFence(
-  lines: (string | undefined)[],
-  start: number
-): { consumed: number; block?: { text: string; meta: { isFence: true } } } {
-  const line = lines[start] ?? '';
-  const openMatch = MARKDOWN_CODE_FENCE_PATTERN.exec(line);
-  if (!openMatch) {
-    return { consumed: start };
-  }
-  // Track the fence character and minimum length for closing
-  const fenceChar = openMatch[1]?.[0] ?? '`';
-  const fenceLen = openMatch[1]?.length ?? 3;
-  const closingPattern = new RegExp(`^\\s*${fenceChar}{${fenceLen},}\\s*$`);
-
-  const buf: string[] = [line];
-  let i = start + 1;
-  while (i < lines.length) {
-    const cur = lines[i] ?? '';
-    if (closingPattern.test(cur)) {
-      break;
-    }
-    buf.push(cur);
-    i++;
-  }
-  if (i < lines.length) {
-    buf.push(lines[i] ?? '');
-    i++;
-  }
-  return { consumed: i, block: { text: buf.join('\n'), meta: { isFence: true } } };
-}
-
-function captureHeading(lines: (string | undefined)[], start: number) {
-  const raw = lines[start] ?? '';
-  const m = raw.match(/^(#{1,6})\s+(.*)$/);
-  if (!m) {
-    return { consumed: start } as const;
-  }
-  const headingText: string = m[2] ?? '';
-  return { consumed: start + 1, heading: { text: raw, meta: { heading: headingText } } } as const;
-}
-
-function captureParagraph(lines: (string | undefined)[], start: number) {
-  const buf: string[] = [];
-  let i = start;
-  while (i < lines.length) {
-    const cur = lines[i] ?? '';
-    if (isMarkdownBlockBoundaryLine(cur)) {
-      break;
-    }
-    buf.push(cur);
-    i++;
-  }
-  if (buf.length === 0) {
-    while (i < lines.length && (lines[i] ?? '').trim() === '') {
-      i++;
-    }
-    return { consumed: i } as const;
-  }
-  while (i < lines.length && (lines[i] ?? '').trim() === '') {
-    i++;
-  }
-  return { consumed: i, paragraph: { text: buf.join('\n'), meta: {} as const } } as const;
-}
-
-function splitMarkdownIntoBlocks(content: string): MarkdownBlock[] {
-  const blocks: MarkdownBlock[] = [];
-  const lines = content.split(/\r?\n/);
-  let i = 0;
-  while (i < lines.length) {
-    const fence = captureFence(lines, i);
-    if (fence.block) {
-      blocks.push(fence.block);
-      i = fence.consumed;
-      continue;
-    }
-
-    const head = captureHeading(lines, i);
-    if (head.heading) {
-      blocks.push(head.heading);
-      i = head.consumed;
-      continue;
-    }
-
-    const para = captureParagraph(lines, i);
-    if (para.paragraph) {
-      blocks.push(para.paragraph);
-    }
-    i = para.consumed;
-  }
-  return blocks;
 }
 
 /**
