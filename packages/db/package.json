@@ -7,7 +7,7 @@
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@electric-sql/pglite": "^0.3.15",
+    "@electric-sql/pglite": "^0.4.4",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
