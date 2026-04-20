@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatDirPathForDisplay,
+  formatFilePathSubtitle,
   getDirPathForGrouping,
   getRootFolderDisplayName,
   splitFilePath,
@@ -195,6 +196,32 @@ describe('formatDirPathForDisplay', () => {
     // Result should be at least 15 chars or less if the path itself is shorter
     expect(result.length).toBeLessThanOrEqual(15);
     expect(result).toContain('…');
+  });
+});
+
+describe('formatFilePathSubtitle', () => {
+  it('shows the root folder name for desktop root files', () => {
+    const result = formatFilePathSubtitle({
+      filePath: '/Users/me/BrainStrike/README.md',
+      rootFolderId: '/Users/me/BrainStrike',
+    });
+    expect(result).toBe('BrainStrike');
+  });
+
+  it('prefixes nested desktop file paths with the root folder name', () => {
+    const result = formatFilePathSubtitle({
+      filePath: '/Users/me/BrainStrike/source/index.ts',
+      rootFolderId: '/Users/me/BrainStrike',
+    });
+    expect(result).toBe('BrainStrike/source');
+  });
+
+  it('preserves the existing web-style root-prefixed path when already present', () => {
+    const result = formatFilePathSubtitle({
+      filePath: 'BrainStrike/source/index.ts',
+      rootFolderId: 'BrainStrike',
+    });
+    expect(result).toBe('BrainStrike/source');
   });
 });
 

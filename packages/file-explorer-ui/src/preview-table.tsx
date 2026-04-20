@@ -23,7 +23,7 @@ import { PreviewTableRow } from './preview-table-row';
 import { formatTokenCount } from './use-preview-panel-state';
 import type { GroupedData, GroupKey, TableRowData } from './utils/grouping-configs';
 import {
-  formatDirPathForDisplay,
+  formatFilePathSubtitle,
   getRootFolderDisplayName,
   splitFilePath,
 } from './utils/path-display';
@@ -593,9 +593,9 @@ function createGroupedPathColumn({
       }
 
       const item = node.data.item;
-      const { fileName, dirPath } = splitFilePath(item.path);
-      const displayDirPath = formatDirPathForDisplay({
-        dirPath,
+      const { fileName } = splitFilePath(item.path);
+      const displayDirPath = formatFilePathSubtitle({
+        filePath: item.path,
         rootFolderId: item.rootFolderId,
       });
 
@@ -614,7 +614,7 @@ function createGroupedPathColumn({
             {fileName}
           </div>
           {displayDirPath && (
-            <div className="truncate font-mono text-muted-foreground text-xs" title={dirPath}>
+            <div className="truncate font-mono text-muted-foreground text-xs" title={item.path}>
               {displayDirPath}
             </div>
           )}

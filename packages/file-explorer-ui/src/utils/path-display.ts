@@ -251,6 +251,50 @@ export function formatDirPathForDisplay(args: {
   return buildShortenedDirPath({ segments, options });
 }
 
+function getRootFolderPathLabel(rootFolderId: string): string {
+  const normalized = normalizePathIdentity(rootFolderId);
+  if (!normalized) {
+    return '';
+  }
+
+  if (normalized === '/') {
+    return '/';
+  }
+
+  return getRootFolderBasename(normalized);
+}
+
+function joinRootFolderPath(rootLabel: string, displayDirPath: string): string {
+  if (!displayDirPath || displayDirPath === '.') {
+    return rootLabel;
+  }
+
+  if (rootLabel === '/') {
+    return displayDirPath.startsWith('/') ? displayDirPath : `/${displayDirPath}`;
+  }
+
+  if (displayDirPath === rootLabel || displayDirPath.startsWith(`${rootLabel}/`)) {
+    return displayDirPath;
+  }
+
+  return `${rootLabel}/${displayDirPath}`;
+}
+
+export function formatFilePathSubtitle(args: { filePath: string; rootFolderId: string }): string {
+  const { dirPath } = splitFilePath(args.filePath);
+  const displayDirPath = formatDirPathForDisplay({
+    dirPath,
+    rootFolderId: args.rootFolderId,
+  });
+  const rootLabel = getRootFolderPathLabel(args.rootFolderId);
+
+  if (!rootLabel) {
+    return displayDirPath;
+  }
+
+  return joinRootFolderPath(rootLabel, displayDirPath);
+}
+
 export function getRootFolderDisplayName(rootFolderId: string): string {
   const normalized = normalizePathIdentity(rootFolderId);
   if (!normalized) {
