@@ -86,6 +86,26 @@ function renderGroupedPreviewTable(overrides: PreviewTableTestOverrides = {}) {
   return props;
 }
 
+const DESKTOP_ROOT_FILE: TableRowData = {
+  id: 'desktop-root',
+  rootFolderId: '/Users/me/BrainStrike',
+  path: '/Users/me/BrainStrike/README.md',
+  type: 'md',
+  tokens: 10,
+  size: 256,
+  compositeKey: '/Users/me/BrainStrike:/Users/me/BrainStrike/README.md',
+};
+
+const DESKTOP_NESTED_FILE: TableRowData = {
+  id: 'desktop-nested',
+  rootFolderId: '/Users/me/BrainStrike',
+  path: '/Users/me/BrainStrike/source/index.ts',
+  type: 'ts',
+  tokens: 20,
+  size: 512,
+  compositeKey: '/Users/me/BrainStrike:/Users/me/BrainStrike/source/index.ts',
+};
+
 function renderUngroupedPreviewTable(overrides: Partial<PreviewTableTestOverrides> = {}) {
   const props = {
     columnVisibility: overrides.columnVisibility ?? DEFAULT_COLUMN_VISIBILITY,
@@ -673,6 +693,72 @@ describe('PreviewTable grouped mode', () => {
     expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
     expect(screen.getByText('trailing-file.tsx')).toBeInTheDocument();
     expect(screen.queryByText('large-file-0.ts')).not.toBeInTheDocument();
+  });
+});
+
+describe('PreviewTable file path display', () => {
+  it('shows the root folder name instead of "." for desktop root files', () => {
+    render(
+      <PreviewTable
+        collapsedGroups={new Set<string>()}
+        columnVisibility={DEFAULT_COLUMN_VISIBILITY}
+        currentPageData={[DESKTOP_ROOT_FILE]}
+        groupedData={[]}
+        groupingConfig="none"
+        handleGroupDeselectAll={vi.fn()}
+        handleGroupSelectAll={vi.fn()}
+        isAllSelected={() => false}
+        isGroupFullySelected={() => false}
+        isGroupPartiallySelected={() => false}
+        onDeselectAll={vi.fn()}
+        onFileClick={vi.fn()}
+        onSelectAllOnPage={vi.fn()}
+        onSort={vi.fn()}
+        onToggleSelection={vi.fn()}
+        pagination={{ startIndex: 0, endIndex: 20 }}
+        previewSelections={new Set<string>()}
+        sortDirection="asc"
+        sortField="path"
+        toggleGroupCollapse={vi.fn()}
+        visibleFilesOnPage={[DESKTOP_ROOT_FILE]}
+      />
+    );
+
+    expect(screen.getByText('README.md')).toBeInTheDocument();
+    expect(screen.getByText('BrainStrike')).toBeInTheDocument();
+    expect(screen.queryByText('.')).not.toBeInTheDocument();
+  });
+
+  it('prefixes nested desktop file paths with the root folder name', () => {
+    render(
+      <PreviewTable
+        collapsedGroups={new Set<string>()}
+        columnVisibility={DEFAULT_COLUMN_VISIBILITY}
+        currentPageData={[DESKTOP_NESTED_FILE]}
+        groupedData={[]}
+        groupingConfig="none"
+        handleGroupDeselectAll={vi.fn()}
+        handleGroupSelectAll={vi.fn()}
+        isAllSelected={() => false}
+        isGroupFullySelected={() => false}
+        isGroupPartiallySelected={() => false}
+        onDeselectAll={vi.fn()}
+        onFileClick={vi.fn()}
+        onSelectAllOnPage={vi.fn()}
+        onSort={vi.fn()}
+        onToggleSelection={vi.fn()}
+        pagination={{ startIndex: 0, endIndex: 20 }}
+        previewSelections={new Set<string>()}
+        sortDirection="asc"
+        sortField="path"
+        toggleGroupCollapse={vi.fn()}
+        visibleFilesOnPage={[DESKTOP_NESTED_FILE]}
+      />
+    );
+
+    expect(screen.getByText('index.ts')).toBeInTheDocument();
+    expect(screen.getByText('BrainStrike/source')).toBeInTheDocument();
+    expect(screen.queryByText('source')).not.toBeInTheDocument();
   });
 });
 
