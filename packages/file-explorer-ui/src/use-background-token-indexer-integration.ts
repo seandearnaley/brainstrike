@@ -341,6 +341,22 @@ interface ShrinkReconcileResult {
   removedCount: number;
 }
 
+/**
+ * Reconcile the in-flight and pending-no-handle tracking Sets against the
+ * current selection during a shrink.
+ *
+ * **Side effect:** mutates `inFlight` and `pendingNoHandle` in place,
+ * deleting any key that is not present in `selectedFiles`. The parameter
+ * types are `Set<string>` (not `ReadonlySet<string>`) specifically to
+ * signal this contract -- the caller relies on the shared ref's Set being
+ * updated so subsequent renders see the reconciled state.
+ *
+ * Returns a summary of what changed so the caller can decide between
+ * hard-cancelling the worker batch, pulsing for a UI re-render, or doing
+ * nothing. `removedCount` reflects user-facing deselections (kept separate
+ * from `inFlightRemoved` so the log describes selection intent rather than
+ * internal tracking churn).
+ */
 function reconcileInFlightOnShrink(params: {
   previousSelectedFiles: ReadonlySet<string>;
   selectedFiles: ReadonlySet<string>;
