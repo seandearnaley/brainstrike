@@ -9,7 +9,6 @@
  */
 
 import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { FileToIndex } from '@brainstrike/token-cache/background-indexer';
 import { useBackgroundTokenIndexer } from '@brainstrike/token-cache/background-indexer';
 import type { FileForIndexingResolution, IFileNode } from '@brainstrike/types';
@@ -35,18 +34,6 @@ const logger = createLogger('BackgroundTokenIndexerIntegration');
 const MAX_INDEXABLE_FILE_SIZE = DEFAULT_MAX_FILE_SIZE;
 const LARGE_SELECTION_DIAGNOSTIC_FILE_THRESHOLD = 250;
 const LARGE_SELECTION_DIAGNOSTIC_BYTES_THRESHOLD = 25 * 1024 * 1024;
-
-/**
- * Helper hook to check if file import is in progress.
- * When true, background token indexing should be paused to avoid database contention.
- */
-function useFileImportingState(): boolean {
-  return useVectorStatusUIStore((s) => s.isImporting);
-}
-
-function useEmbeddingActiveState(): boolean {
-  return useVectorStatusUIStore((s) => s.isEmbeddingActive);
-}
 
 /**
  * Function to read file content for Electron handles via IPC.
@@ -538,34 +525,27 @@ function lookupSelectedFileSize(params: {
   return { folderId, normalizedPath, fileSize: handleInfo.fileSize };
 }
 
+// Foreground selection-driven dispatch is intentionally NOT gated on
+// `isImporting` or `isEmbeddingActive`. The tokenizer worker is CPU-only and
+// does not contend with the collection sync for WebGPU; PGLite serializes
+// cache writes internally so concurrent `TokenCacheStore.set` calls from the
+// foreground and background paths cannot corrupt data. The WebGPU priority
+// contract (local LLM > background sync) lives in `background-work-arbiter`
+// and is enforced at the collection-sync layer, not here. See
+// packages/utils/src/background-work-arbiter.ts and
+// packages/app-shell/src/background-indexing/workspace-collection-sync-provider.tsx
+// for the full priority story.
 function getSelectionSkipState(params: {
   hasHandleSource: boolean;
-  isEmbeddingActive: boolean;
-  isFileImporting: boolean;
   selectedCount: number;
-}): {
-  reason: 'embedding-active' | 'file-import' | 'no-files' | 'no-handles' | null;
-  message: string | null;
-} {
-  if (params.isFileImporting) {
-    return {
-      reason: 'file-import',
-      message: 'Selection effect skipped - file import in progress',
-    };
-  }
-  if (params.isEmbeddingActive) {
-    return {
-      reason: 'embedding-active',
-      message: 'Selection effect skipped - embedding active',
-    };
-  }
+}): 'no-files' | 'no-handles' | null {
   if (params.selectedCount === 0) {
-    return { reason: 'no-files', message: null };
+    return 'no-files';
   }
   if (!params.hasHandleSource) {
-    return { reason: 'no-handles', message: null };
+    return 'no-handles';
   }
-  return { reason: null, message: null };
+  return null;
 }
 
 /**
@@ -589,11 +569,6 @@ export function useBackgroundTokenIndexerIntegration({
   const indexGetHandle = fileTreeIndex?.getHandle;
   // Track FileTreeIndex version for retry logic - when index fills, retry pending files
   const indexVersion = fileTreeIndex?.version ?? 0;
-
-  // Check if file import is in progress - skip background indexing to avoid database contention
-  // Import the store dynamically to get isImporting state
-  const isFileImporting = useFileImportingState();
-  const isEmbeddingActive = useEmbeddingActiveState();
 
   // Track which files we've already queued for indexing
   const indexedFilesRef = useRef<Set<string>>(new Set());
@@ -827,8 +802,6 @@ export function useBackgroundTokenIndexerIntegration({
   // Stable ref for onTokenResolved to avoid callback instability
   const onTokenResolvedRef = useRef(onTokenResolved);
   onTokenResolvedRef.current = onTokenResolved;
-  const isEmbeddingActiveRef = useRef(isEmbeddingActive);
-  isEmbeddingActiveRef.current = isEmbeddingActive;
 
   /**
    * Callback when background indexer resolves a token count.
@@ -952,15 +925,6 @@ export function useBackgroundTokenIndexerIntegration({
       let skippedTooLarge = 0;
       let skippedInvalidPath = 0;
       let estimatedElectronBytes = 0;
-
-      if (isEmbeddingActiveRef.current) {
-        logger.info('Background token indexing blocked because embedding is active', {
-          requestedFiles: compositeKeys.length,
-          indexedCount: indexedFilesRef.current.size,
-          inFlightCount: inFlightRef.current.size,
-        });
-        return;
-      }
 
       /** Mark a file as in-flight and bump the pulse counter when transitioning from empty. */
       const markInFlight = (key: string): void => {
@@ -1160,15 +1124,6 @@ export function useBackgroundTokenIndexerIntegration({
           let webResolverFailures = 0;
           let webResolverSkippedTooLarge = 0;
           for (let i = 0; i < webResolverQueue.length; i += webResolverBatchSize) {
-            if (isEmbeddingActiveRef.current) {
-              logger.info('Stopped web resolver indexing because embedding became active mid-run', {
-                webHandlesResolved,
-                webResolverFailures,
-                remainingFiles: webResolverQueue.length - i,
-              });
-              return;
-            }
-
             const batch = webResolverQueue.slice(i, i + webResolverBatchSize);
             const results = await Promise.all(
               batch.map(async (item) => {
@@ -1289,15 +1244,6 @@ export function useBackgroundTokenIndexerIntegration({
         let electronFilesRead = 0;
         let electronBytesRead = 0;
         for (let i = 0; i < electronFilesToRead.length; i += electronBatchSize) {
-          if (isEmbeddingActiveRef.current) {
-            logger.info('Stopped Electron token indexing because embedding became active mid-run', {
-              electronBytesRead,
-              electronFilesRead,
-              remainingFiles: electronFilesToRead.length - i,
-            });
-            return;
-          }
-
           const batch = electronFilesToRead.slice(i, i + electronBatchSize);
           const results = await Promise.all(
             batch.map(async ({ compositeKey, folderId, filePath, fileSize, handle }) => {
@@ -1465,29 +1411,17 @@ export function useBackgroundTokenIndexerIntegration({
     // During startup, selection may be restored from storage before file tree has handles.
     // When FileTreeIndex is available, skip the local map size check since we use index lookups.
     const hasHandleSource = indexGetHandleRef.current || fileHandleMapRef.current.size > 0;
-    const skipState = getSelectionSkipState({
-      isFileImporting,
-      isEmbeddingActive,
+    const skipReason = getSelectionSkipState({
       selectedCount: selectedFiles.size,
       hasHandleSource: Boolean(hasHandleSource),
     });
-    if (skipState.reason) {
-      if (selectionSkipReasonRef.current !== skipState.reason) {
-        selectionSkipReasonRef.current = skipState.reason;
-        if (skipState.message) {
-          logger.debug(skipState.message);
-        }
-        if (
-          skipState.reason === 'embedding-active' &&
-          selectedFiles.size >= LARGE_SELECTION_DIAGNOSTIC_FILE_THRESHOLD
-        ) {
-          logger.info('Selection effect skipped while embedding is active', {
-            indexedCount: indexedFilesRef.current.size,
-            inFlightCount: inFlightRef.current.size,
-            selectedCount: selectedFiles.size,
-          });
-        }
-      }
+    if (skipReason) {
+      // Track the last skip reason to avoid log thrash when the skip persists
+      // across rerenders. The remaining skip reasons ("no-files", "no-handles")
+      // are quiet states that do not require user-visible logging; they happen
+      // routinely during startup (selection restored before handles are ready)
+      // and when the user deselects everything.
+      selectionSkipReasonRef.current = skipReason;
       return;
     }
 
@@ -1518,15 +1452,7 @@ export function useBackgroundTokenIndexerIntegration({
     }, debounceMs);
 
     return () => clearTimeout(timeoutId);
-  }, [
-    selectedFiles,
-    triggerIndexing,
-    tokenCacheIsOperational,
-    fileHandleMapSize,
-    isFileImporting,
-    isEmbeddingActive,
-    indexGetHandle,
-  ]);
+  }, [selectedFiles, triggerIndexing, tokenCacheIsOperational, fileHandleMapSize, indexGetHandle]);
 
   // Clear indexed files cache when file tree changes significantly
   // biome-ignore lint/plugin: Intentional effect to reset cache when folder is cleared - not an event handler
@@ -1555,11 +1481,6 @@ export function useBackgroundTokenIndexerIntegration({
       return;
     }
 
-    // Skip during file import
-    if (isFileImporting) {
-      return;
-    }
-
     // Filter pending files to only those still in selection
     const pendingInSelection = Array.from(pendingNoHandleRef.current).filter((key) =>
       selectedFiles.has(key)
@@ -1582,7 +1503,7 @@ export function useBackgroundTokenIndexerIntegration({
     }, 100);
 
     return () => clearTimeout(timeoutId);
-  }, [indexVersion, selectedFiles, triggerIndexing, isFileImporting]);
+  }, [indexVersion, selectedFiles, triggerIndexing]);
 
   // Warm hot cache from persistent store so repeat selections show existing counts immediately.
   // Uses tokenCacheRef to avoid re-render loops when cacheVersion changes.
@@ -1597,14 +1518,12 @@ export function useBackgroundTokenIndexerIntegration({
       return;
     }
 
-    // Skip during file import to avoid database contention
-    if (isFileImporting) {
-      if (warmCacheSkipReasonRef.current !== 'file-import') {
-        warmCacheSkipReasonRef.current = 'file-import';
-        logger.debug('Warm cache effect skipped - file import in progress');
-      }
-      return;
-    }
+    // NOTE: Warm-cache hydration is intentionally not gated on `isImporting`.
+    // This is a READ from PGLite and does not contend with the collection
+    // sync's writes (PGLite serializes internally). Gating it here would
+    // strand already-persisted token counts for the entire duration of a
+    // background scan, which is the opposite of what the persistent cache
+    // exists to provide.
 
     // P0 optimization: Clear preload memo when persistence state changes.
     // This ensures we re-preload from DB when persistence becomes available.
@@ -1776,7 +1695,7 @@ export function useBackgroundTokenIndexerIntegration({
     // NOTE: tokenCacheIsPersisted is included to re-run when persistence becomes available.
     // This handles the case where isOperational=true (worker ready) but DB isn't ready yet.
     // When the DB initializes later, isPersisted changes → effect re-runs → preloads from store.
-  }, [selectedFiles, tokenCacheIsOperational, tokenCacheIsPersisted, isFileImporting]);
+  }, [selectedFiles, tokenCacheIsOperational, tokenCacheIsPersisted]);
 
   // Diagnostic function to force re-indexing by clearing the tracked files
   const clearIndexedCache = useCallback(() => {
