@@ -1,3 +1,5 @@
+import { extractPathSegments } from '@brainstrike/utils/path-utils';
+
 interface SplitFilePathResult {
   dirPath: string;
   fileName: string;
@@ -56,7 +58,7 @@ function getRootFolderBasename(rootFolderId: string): string {
     return '';
   }
 
-  const segments = normalized.split('/').filter(Boolean);
+  const segments = extractPathSegments(normalized);
   return segments.at(-1) ?? normalized;
 }
 
@@ -130,7 +132,7 @@ function getFolderRelativeSegments(args: { normalizedDirPath: string; rootFolder
 } {
   const normalizedRootFolderId = normalizePathIdentity(args.rootFolderId);
   const absolute = isProbablyAbsolutePath(args.normalizedDirPath);
-  const segments = args.normalizedDirPath.split('/').filter(Boolean);
+  const segments = extractPathSegments(args.normalizedDirPath);
 
   if (absolute && normalizedRootFolderId && isProbablyAbsolutePath(normalizedRootFolderId)) {
     const normalizedDirLower = args.normalizedDirPath.toLowerCase();
@@ -152,7 +154,7 @@ function getFolderRelativeSegments(args: { normalizedDirPath: string; rootFolder
       : `${normalizedRootLower}/`;
     if (normalizedDirLower.startsWith(rootPrefixLower)) {
       return {
-        segments: args.normalizedDirPath.slice(rootPrefix.length).split('/').filter(Boolean),
+        segments: extractPathSegments(args.normalizedDirPath.slice(rootPrefix.length)),
         trimmedToFolderRoot: true,
       };
     }

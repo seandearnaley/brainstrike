@@ -1,5 +1,6 @@
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
+import { extractPathSegments } from '@brainstrike/utils/path-utils';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { getPathDepth } from '@brainstrike/utils/tree-operations';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
@@ -28,7 +29,7 @@ export function __resetRestorationLock(): void {
 
 function getAllAncestorDirectories(filePath: string): string[] {
   const isAbsolute = filePath.startsWith('/');
-  const segments = filePath.split('/').filter(Boolean);
+  const segments = extractPathSegments(filePath);
   segments.pop();
 
   const ancestors: string[] = [];

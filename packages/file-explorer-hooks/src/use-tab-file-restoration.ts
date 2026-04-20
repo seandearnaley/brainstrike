@@ -1,3 +1,4 @@
+import { extractPathSegments } from '@brainstrike/utils/path-utils';
 /**
  * Hook for restoring file handles for persisted editor tabs (BST-307)
  *
@@ -199,7 +200,7 @@ function safeJoinPath(rootPath: string, relativePath: string): string | null {
   const joined = `${normalizedRoot}/${normalizedRelative}`;
 
   // Normalize: collapse multiple slashes and resolve . segments
-  const segments = joined.split('/').filter((s) => s !== '' && s !== '.');
+  const segments = extractPathSegments(joined).filter((s) => s !== '.');
 
   // Final validation: ensure no '..' segments remain (should have been caught by isPathSafe)
   if (segments.some((s) => s === '..')) {
