@@ -60,7 +60,7 @@ function findNodeByPath(nodes: IFileNode[], path: string): IFileNode | undefined
       return found;
     }
   }
-  return undefined;
+  return;
 }
 
 describe('useExpandAll', () => {

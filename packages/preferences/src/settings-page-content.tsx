@@ -1,9 +1,10 @@
 import { cn, Input, ThemeSettings } from '@brainstrike/ui';
 import type { LucideIcon } from 'lucide-react';
-import { ChevronRight, Key, Palette, Search, Settings, Sigma } from 'lucide-react';
+import { ChevronRight, Cpu, Key, Palette, Search, Settings, Sigma } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ModelSelectionPage } from './settings/models/model-selection-page';
+import { LocalRuntimeSettingsSection } from './settings/runtimes/local-runtime-settings-section';
 import { ApiKeysSettings } from './settings/secrets/api-keys-settings';
 import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
 import { SearchIndexingSettingsSection } from './settings/system/search-indexing-settings-section';
@@ -458,5 +459,26 @@ export function createSearchIndexingSettingsCategory(): SettingsCategory {
     keywords: ['search', 'indexing', 'background', 'cache', 'collection', 'embeddings'],
     icon: Search,
     content: <SearchIndexingSettingsSection />,
+  };
+}
+
+export function createLocalRuntimeSettingsCategory(): SettingsCategory {
+  return {
+    id: 'local-runtimes',
+    title: 'Local Runtimes',
+    description:
+      'Detect and configure local LLM servers (Ollama, LM Studio) for chat and embeddings.',
+    keywords: [
+      'ollama',
+      'lm studio',
+      'lmstudio',
+      'local',
+      'runtime',
+      'localhost',
+      'gpu',
+      'self-hosted',
+    ],
+    icon: Cpu,
+    content: <LocalRuntimeSettingsSection />,
   };
 }

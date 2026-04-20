@@ -125,7 +125,7 @@ function assertRequiredRequestId(value: unknown, message: string): string {
 
 function assertOptionalString(value: unknown, message: string): string | undefined {
   if (value === undefined) {
-    return undefined;
+    return;
   }
   return assertNonEmptyString(value, message);
 }
@@ -204,7 +204,7 @@ function assertMessageRole(value: unknown, index: number): LocalLlmMessage['role
 
 function assertMessageToolCalls(value: unknown, index: number): LocalLlmToolCall[] | undefined {
   if (value === undefined) {
-    return undefined;
+    return;
   }
   if (!Array.isArray(value)) {
     throw new Error(
@@ -219,7 +219,7 @@ function assertMessageToolResponses(
   index: number
 ): LocalLlmToolResponse[] | undefined {
   if (value === undefined) {
-    return undefined;
+    return;
   }
   if (!Array.isArray(value)) {
     throw new Error(

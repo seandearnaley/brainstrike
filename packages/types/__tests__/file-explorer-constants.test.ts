@@ -379,7 +379,7 @@ describe('file-explorer-constants', () => {
   describe('practical usage', () => {
     it('should allow checking if a file is text', () => {
       const isText = (filename: string) => {
-        const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
+        const ext = filename.slice(filename.lastIndexOf('.')).toLowerCase();
         return TEXT_FILE_EXTENSIONS.includes(ext);
       };
 
@@ -390,7 +390,7 @@ describe('file-explorer-constants', () => {
 
     it('should allow checking if a file is binary', () => {
       const isBinary = (filename: string) => {
-        const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
+        const ext = filename.slice(filename.lastIndexOf('.')).toLowerCase();
         return BINARY_FILE_EXTENSIONS.includes(ext);
       };
 

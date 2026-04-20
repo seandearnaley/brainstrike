@@ -336,37 +336,52 @@ function processMastraStreamPart(
       return evt ? { chunks: [evt], finished: false } : { chunks: [], finished: false };
     }
     case 'error': {
-      return {
-        chunks: [
-          {
-            type: 'tool-event',
-            name: 'agent',
-            status: 'error',
-            payload: {
-              error: p.error ?? p.payload?.error ?? 'agent_stream_error',
-            },
-          },
-        ],
-        finished: false,
-      };
+      // Top-level provider errors (e.g. Ollama returning HTTP 400 because the
+      // selected model does not support tool calling) arrive as `'error'`
+      // chunks. Throwing here propagates them to the data-stream session's
+      // `handleError` which emits a real `error` data-stream chunk + finish
+      // message to the client. Previously we tried to map this to a synthetic
+      // `tool-event` with `name: 'agent'` and no `toolCallId`, which the
+      // data-stream mapper silently drops -- producing the "stream finished
+      // with no output" failure mode reported for local Ollama models that
+      // can't satisfy the registered tool set.
+      throw createMastraAgentError('mastra_agent_stream_failure', {
+        detail: extractErrorMessage(p.error ?? p.payload?.error) ?? 'agent_stream_error',
+      });
     }
     case 'tripwire': {
-      const reason = readTripwireReason(part);
-      return {
-        chunks: [
-          {
-            type: 'tool-event',
-            name: 'agent',
-            status: 'error',
-            payload: { error: reason ?? 'tripwire' },
-          },
-          makeFinishChunk(part),
-        ],
-        finished: true,
-      };
+      // Same rationale as `'error'`: the previous tool-event mapping was
+      // silently dropped. Surface tripwires (content policy violations, etc.)
+      // as real errors so the user sees the reason.
+      throw createMastraAgentError('mastra_agent_stream_failure', {
+        detail: readTripwireReason(part) ?? 'tripwire',
+      });
     }
     default:
       return { chunks: [], finished: false };
+  }
+}
+
+function extractErrorMessage(value: unknown): string | undefined {
+  if (value === undefined || value === null) {
+    return;
+  }
+  if (typeof value === 'string') {
+    return value.length > 0 ? value : undefined;
+  }
+  if (value instanceof Error) {
+    return value.message || value.name;
+  }
+  if (typeof value === 'object') {
+    const message = (value as { message?: unknown }).message;
+    if (typeof message === 'string' && message.length > 0) {
+      return message;
+    }
+  }
+  try {
+    return String(value);
+  } catch {
+    return;
   }
 }
 
@@ -385,8 +400,17 @@ async function initializeMastraRuntime(
       runtime: runtimeResolution.runtime,
       resolved: runtimeResolution,
     });
+    const resolvedModel =
+      options.model && options.model.length > 0
+        ? options.model
+        : (getDefaultModel(runtimeResolution.provider) ?? '');
     logger.info('mastra runtime initialized', {
       code: 'mastra_agent_runtime_initialized',
+      provider: runtimeResolution.provider,
+      // Empty string means the caller did not specify a model AND the
+      // provider has no static default (e.g. local runtimes whose models are
+      // discovered dynamically). This is a real failure mode worth logging.
+      model: resolvedModel.length > 0 ? resolvedModel : '<unset>',
       toolCount: Object.keys(options.tools ?? {}).length,
     });
     return { runtime: instance, sanitizedNameMap: instance.toolNameMap };
@@ -422,13 +446,22 @@ interface StreamResultLike {
   fullStream?: NodeReadableStream<unknown> | ReadableStream<unknown>;
 }
 
+type AgentStreamInput = Parameters<Agent['stream']>[0];
+// Derived from Agent.stream's 2-arg overload (introduced in @mastra/core 1.25 -- the
+// 1-arg overload now refuses `undefined` as the second arg, so callers must either
+// omit the second arg or pass real options). If a future Mastra bump exposes a
+// stable public StreamOptions type, prefer importing that directly over deriving it
+// from Parameters<>; the `as AgentStreamOptions` cast at the call sites is what
+// keeps this file from reaching across the overload boundary.
+type AgentStreamOptions = Exclude<
+  Extract<Parameters<Agent['stream']>, [unknown, unknown]>[1],
+  undefined
+>;
+
 const hasStreamLegacy = (
   agent: Agent
 ): agent is Agent & {
-  streamLegacy: (
-    input: Parameters<Agent['stream']>[0],
-    options?: Parameters<Agent['stream']>[1]
-  ) => Promise<unknown>;
+  streamLegacy: (input: AgentStreamInput, options?: AgentStreamOptions) => Promise<unknown>;
 } => typeof (agent as { streamLegacy?: unknown }).streamLegacy === 'function';
 
 const resolveFullStream = (
@@ -492,7 +525,9 @@ async function createStreamIteratorFromRuntime({
 
     if (useLegacyStream && hasStreamLegacy(runtime.agent)) {
       logger.info('using streamLegacy for V1 model', { code: 'mastra_agent_stream_legacy_start' });
-      streamResult = await runtime.agent.streamLegacy(streamInput, resolvedStreamOptions);
+      streamResult = resolvedStreamOptions
+        ? await runtime.agent.streamLegacy(streamInput, resolvedStreamOptions as AgentStreamOptions)
+        : await runtime.agent.streamLegacy(streamInput);
       logger.info('mastra legacy stream started', { code: 'mastra_agent_stream_legacy_started' });
     } else {
       if (useLegacyStream) {
@@ -500,7 +535,9 @@ async function createStreamIteratorFromRuntime({
           code: 'mastra_agent_stream_legacy_unavailable',
         });
       }
-      const result = await runtime.agent.stream(streamInput, resolvedStreamOptions);
+      const result = resolvedStreamOptions
+        ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
+        : await runtime.agent.stream(streamInput);
       logger.info('mastra stream started', { code: 'mastra_agent_stream_started' });
       streamResult = result;
     }

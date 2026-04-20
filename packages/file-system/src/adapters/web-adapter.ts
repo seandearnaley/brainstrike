@@ -351,7 +351,20 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     return await file.text();
   }
 
-  async readFileByPath(path: string): Promise<string> {
+  /**
+   * Walk the cached root `FileSystemDirectoryHandle` for `path` and return the
+   * leaf `FileSystemFileHandle`. Used by `readFileByPath` and by the background
+   * token indexer (web parity with the desktop synthetic-handle path) so that
+   * Select All can index files inside subfolders the user has not expanded.
+   *
+   * Resolved handles are cached via `WebHandleCache.storeFileHandle` on a
+   * best-effort basis so subsequent reads (e.g. `readFileByPath`) can skip the
+   * directory walk. Failures during the walk are propagated as typed errors
+   * (`AccessError` for missing roots / non-file paths, native browser errors
+   * for missing intermediate segments) so callers can park the path for retry
+   * rather than silently degrading.
+   */
+  async resolveFileHandleByPath(path: string): Promise<FileSystemFileHandle> {
     const rootFolderId = this.resolveRootFolderId(path);
     if (!rootFolderId) {
       throw new AccessError('Root directory handle is not available', path, 'read');
@@ -381,14 +394,47 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     }
 
     const fileHandle = await currentDirectoryHandle.getFileHandle(fileName);
+    this.cacheFileHandleForPath(path, fileHandle);
+    return fileHandle;
+  }
+
+  async readFileByPath(path: string): Promise<string> {
+    const fileHandle = await this.resolveFileHandleByPath(path);
+    // resolveFileHandleByPath already validated the root and threw on missing
+    // handles, so by this line `resolveRootFolderId(path)` cannot be undefined.
+    // The non-null assertion replaces a redundant second tree walk that the
+    // previous implementation did via a conditional spread.
+    const rootFolderId = this.resolveRootFolderId(path) as string;
     return this.readFile({
       path,
-      name: fileName,
+      name: fileHandle.name,
       kind: 'file',
       platform: 'web',
       rootFolderId,
       _internal: fileHandle,
     });
+  }
+
+  /**
+   * Web platform always returns a real `FileSystemFileHandle`, which is
+   * structured-clone-safe and can be transferred directly to the indexer
+   * worker. The thin wrapper exists so the FileSystemAdapter contract can stay
+   * uniform across platforms while in-memory adapters return `kind: 'content'`.
+   *
+   * The resolver also queries the `File` metadata to surface an authoritative
+   * `fileSize` alongside the handle. The indexer dispatcher needs the size to
+   * enforce the platform's max-file-size contract uniformly — files surfaced
+   * by `Select All` on unexpanded folders never had their size cached during
+   * the lazy tree walk, so without this metadata round-trip an oversize file
+   * would slip past the dispatch-time guard and reach the worker. `getFile()`
+   * is a metadata fetch (no content read), so the cost is bounded.
+   */
+  async resolveFileForIndexing(
+    path: string
+  ): Promise<{ kind: 'handle'; fileHandle: FileSystemFileHandle; fileSize: number }> {
+    const fileHandle = await this.resolveFileHandleByPath(path);
+    const file = await fileHandle.getFile();
+    return { kind: 'handle', fileHandle, fileSize: file.size };
   }
 
   async exists(_path: string): Promise<boolean> {

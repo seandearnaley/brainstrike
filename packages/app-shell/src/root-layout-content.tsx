@@ -185,14 +185,19 @@ export function RootLayoutContent({
   // creates new context → IdeLayout re-renders.
   const sizeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Clean up pending debounce on unmount to prevent stale setState calls.
-  useEffect(() => {
-    return () => {
-      if (sizeDebounceRef.current) {
-        clearTimeout(sizeDebounceRef.current);
-      }
-    };
+  // The useCallback + named cleanup-ref pattern is intentional: the more obvious
+  // `useEffect(() => () => clearTimeout(...), [])` form gets auto-collapsed by
+  // ultracite into a concise arrow that then trips the biome plugin rule
+  // `noStateAsHandler` ("Avoid using state as an event handler"). Keeping the
+  // cleanup as a stable named function avoids that lint false-positive without
+  // any runtime cost (`useCallback([])` returns a singleton).
+  const cleanupSizeDebounce = useCallback(() => {
+    if (sizeDebounceRef.current) {
+      clearTimeout(sizeDebounceRef.current);
+    }
   }, []);
+
+  useEffect(() => cleanupSizeDebounce, [cleanupSizeDebounce]);
 
   const handlePanelLayoutChange = useCallback(
     (state: PanelLayoutState) => {

@@ -24,9 +24,8 @@ describe('EmbeddingActionsDropdown', () => {
     queueCounts: { queued: 0, running: 0 },
   };
 
-  const renderDropdown = (props: Partial<EmbeddingActionsDropdownProps> = {}) => {
-    return render(<EmbeddingActionsDropdown {...defaultProps} {...props} />);
-  };
+  const renderDropdown = (props: Partial<EmbeddingActionsDropdownProps> = {}) =>
+    render(<EmbeddingActionsDropdown {...defaultProps} {...props} />);
 
   describe('Primary backfill button', () => {
     it('renders backfill button', () => {

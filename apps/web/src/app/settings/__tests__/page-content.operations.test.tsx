@@ -117,13 +117,11 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
       devInlineFixtureEnabled: mockState.devInlineFixtureEnabled,
       setDevInlineFixtureEnabled: mockState.setDevInlineFixtureEnabledMock,
     }),
-  useFileExplorerStoreContext: () => {
-    return (selector: (state: Record<string, unknown>) => unknown) =>
-      selector({
-        devInlineFixtureEnabled: mockState.devInlineFixtureEnabled,
-        setDevInlineFixtureEnabled: mockState.setDevInlineFixtureEnabledMock,
-      });
-  },
+  useFileExplorerStoreContext: () => (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      devInlineFixtureEnabled: mockState.devInlineFixtureEnabled,
+      setDevInlineFixtureEnabled: mockState.setDevInlineFixtureEnabledMock,
+    }),
   useOptionalTokenCacheContext: () => null,
 }));
 
@@ -348,6 +346,7 @@ describe('SettingsPageContent tool operations', () => {
       'appearance',
       'search-indexing',
       'token-counting',
+      'local-runtimes',
       'models',
       'logging',
       'ai-tools',

@@ -131,9 +131,8 @@ export function WorkspaceCollectionSyncProvider({
       chunkRepository,
       db,
       embeddingSetsRepository,
-      enqueueBackfill: async (embeddingSetId, options) => {
-        return await runtimeController.enqueueBackfill(embeddingSetId, options);
-      },
+      enqueueBackfill: async (embeddingSetId, options) =>
+        await runtimeController.enqueueBackfill(embeddingSetId, options),
       ensureChunkingWorker,
       ensureEmbeddingRuntimeStarted,
       fileSystemAdapter,

@@ -144,7 +144,7 @@ function materializeDirectoryNode(
 ): IFileNode | undefined {
   const node = state.nodeByPath.get(path);
   if (!(node && node.type === 'directory')) {
-    return undefined;
+    return;
   }
 
   const childPaths = state.childPathsByPath.get(path) ?? [];
@@ -228,7 +228,7 @@ export function materializeNormalizedNode(
 ): IFileNode | undefined {
   const node = state.nodeByPath.get(path);
   if (!node) {
-    return undefined;
+    return;
   }
   return { ...node };
 }
@@ -256,7 +256,7 @@ export function materializeNormalizedShallowNode(
 ): IFileNode | undefined {
   const node = state.nodeByPath.get(path);
   if (!node) {
-    return undefined;
+    return;
   }
   if (node.type !== 'directory') {
     return { ...node };
@@ -410,16 +410,16 @@ export function setNormalizedNodeLoadState(
   }
 
   const nextNodeByPath = new Map(state.nodeByPath);
-  if (loadError !== undefined) {
-    nextNodeByPath.set(path, {
-      ...currentNode,
-      loadError,
-      loadState,
-    });
-  } else {
+  if (loadError === undefined) {
     const { loadError: _existingLoadError, ...directoryNode } = currentNode;
     nextNodeByPath.set(path, {
       ...directoryNode,
+      loadState,
+    });
+  } else {
+    nextNodeByPath.set(path, {
+      ...currentNode,
+      loadError,
       loadState,
     });
   }

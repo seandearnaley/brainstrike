@@ -706,7 +706,7 @@ export class UnifiedToolRegistry {
 
   private extractInputSchema(tool: unknown): ToolInputSchema | undefined {
     if (!isRecord(tool)) {
-      return undefined;
+      return;
     }
     return this.resolveInputSchema(tool['inputSchema']);
   }
@@ -715,7 +715,7 @@ export class UnifiedToolRegistry {
     if (isZodSchema(inputSchema) || isJSONSchema(inputSchema)) {
       return inputSchema;
     }
-    return undefined;
+    return;
   }
 
   private static readonly patternCache = new Map<string, RegExp>();

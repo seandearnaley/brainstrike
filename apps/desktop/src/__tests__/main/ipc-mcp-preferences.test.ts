@@ -107,7 +107,7 @@ const {
     if (serverName === 'mock-server') {
       return discoveryClient;
     }
-    return undefined;
+    return;
   });
   const disposeClients = vi.fn();
 

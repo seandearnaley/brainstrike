@@ -140,15 +140,9 @@ describe('assistant-preferences-store', () => {
   });
 
   it('resolves available providers from secrets API', async () => {
-    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeAll').mockResolvedValue({
-      ollama: {
-        state: 'unavailable',
-        checkedAt: 123,
-      },
-      lmstudio: {
-        state: 'unavailable',
-        checkedAt: 123,
-      },
+    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockResolvedValue({
+      state: 'unavailable',
+      checkedAt: 123,
     });
 
     const secretTarget = window as Window & { secrets?: unknown };
@@ -168,15 +162,9 @@ describe('assistant-preferences-store', () => {
   });
 
   it('returns only no-key providers when secrets API fails', async () => {
-    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeAll').mockResolvedValue({
-      ollama: {
-        state: 'unavailable',
-        checkedAt: 123,
-      },
-      lmstudio: {
-        state: 'unavailable',
-        checkedAt: 123,
-      },
+    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockResolvedValue({
+      state: 'unavailable',
+      checkedAt: 123,
     });
 
     const secretTarget = window as Window & { secrets?: unknown };
@@ -195,21 +183,25 @@ describe('assistant-preferences-store', () => {
   });
 
   it('includes detected local runtime providers only for available and stale states', async () => {
-    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeAll').mockResolvedValue({
-      ollama: {
-        state: 'available',
-        checkedAt: 123,
-        endpoint: 'http://127.0.0.1:11434/v1/models',
-        latencyMs: 5,
-      },
-      lmstudio: {
-        state: 'stale',
-        checkedAt: 123,
-        endpoint: 'http://localhost:1234/v1/models',
-        lastSuccessfulAt: 122,
-        reason: 'unavailable',
-      },
-    });
+    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockImplementation(
+      async (runtimeId) => {
+        if (runtimeId === 'ollama') {
+          return {
+            state: 'available',
+            checkedAt: 123,
+            endpoint: 'http://127.0.0.1:11434/api/tags',
+            latencyMs: 5,
+          };
+        }
+        return {
+          state: 'stale',
+          checkedAt: 123,
+          endpoint: 'http://127.0.0.1:1234/api/v1/models',
+          lastSuccessfulAt: 122,
+          reason: 'unavailable',
+        };
+      }
+    );
 
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
@@ -228,20 +220,365 @@ describe('assistant-preferences-store', () => {
     expect(providers).toContain('lmstudio');
   });
 
-  it('excludes local runtime providers when runtime status is non-usable', async () => {
-    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeAll').mockResolvedValue({
-      ollama: {
-        state: 'blocked_web',
-        checkedAt: 200,
-        message: 'blocked',
-      },
-      lmstudio: {
-        state: 'auth_required',
-        checkedAt: 200,
-        endpoint: 'http://localhost:1234/v1/models',
-        status: 401,
-      },
+  it('hides local runtime providers when localRuntimeEnabled is off, even if reachable', async () => {
+    const probeSpy = vi
+      .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')
+      .mockResolvedValue({
+        state: 'available',
+        checkedAt: 100,
+        endpoint: 'http://127.0.0.1:11434/api/tags',
+        latencyMs: 1,
+      });
+
+    const secretTarget = window as Window & { secrets?: unknown };
+    secretTarget.secrets = {
+      list: vi.fn().mockResolvedValue([]),
+      saveKey: vi.fn(),
+      getKey: vi.fn(),
+      deleteKey: vi.fn(),
+      listStored: vi.fn(),
+      clearAll: vi.fn(),
+    };
+
+    const store = useAssistantPreferencesStore.getState();
+    store.setProviderSettings('ollama', { localRuntimeEnabled: 'off' });
+    store.setProviderSettings('lmstudio', { localRuntimeEnabled: 'off' });
+
+    const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
+    expect(providers).not.toContain('ollama');
+    expect(providers).not.toContain('lmstudio');
+    // No probes should have fired for runtimes explicitly turned off.
+    expect(probeSpy).not.toHaveBeenCalled();
+  });
+
+  it('force-includes local runtime providers when localRuntimeEnabled is on, skipping probes', async () => {
+    const probeSpy = vi
+      .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')
+      .mockResolvedValue({ state: 'unavailable', checkedAt: 100, message: 'oops' });
+
+    const secretTarget = window as Window & { secrets?: unknown };
+    secretTarget.secrets = {
+      list: vi.fn().mockResolvedValue([]),
+      saveKey: vi.fn(),
+      getKey: vi.fn(),
+      deleteKey: vi.fn(),
+      listStored: vi.fn(),
+      clearAll: vi.fn(),
+    };
+
+    const store = useAssistantPreferencesStore.getState();
+    store.setProviderSettings('ollama', { localRuntimeEnabled: 'on' });
+
+    const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
+    expect(providers).toContain('ollama');
+    // `on` short-circuits detection — no ollama probe should have fired.
+    expect(probeSpy.mock.calls.some((call) => call[0] === 'ollama')).toBe(false);
+  });
+
+  it("doesn't leak apiToken or sensitive fields into the boundary-violation error", async () => {
+    // Reviewer feedback: if the main-process bridge ever echoes request
+    // options back (e.g., a buggy wrapper that returns the request), the
+    // shape guard's JSON.stringify would log the bearer token to console /
+    // telemetry. Redact sensitive-looking fields before stringifying so a
+    // malformed result can't carry a secret into logs.
+    const bridgeProbe = vi.fn().mockResolvedValue({
+      not_a_state: 'oops',
+      apiToken: 'sk-supersecret-12345',
+      authorization: 'Bearer sk-also-secret',
+      endpoint: { apiToken: 'nested-secret', baseUrl: 'http://host:11434' },
     });
+    (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
+      probe: bridgeProbe,
+      listModels: vi.fn(),
+    };
+
+    try {
+      const secretTarget = window as Window & { secrets?: unknown };
+      secretTarget.secrets = {
+        list: vi.fn().mockResolvedValue([]),
+        saveKey: vi.fn(),
+        getKey: vi.fn(),
+        deleteKey: vi.fn(),
+        listStored: vi.fn(),
+        clearAll: vi.fn(),
+      };
+
+      await useAssistantPreferencesStore
+        .getState()
+        .getLocalRuntimeStatuses({ force: true })
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          expect(message).not.toContain('sk-supersecret-12345');
+          expect(message).not.toContain('sk-also-secret');
+          expect(message).not.toContain('nested-secret');
+        });
+    } finally {
+      Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'runtime');
+    }
+  });
+
+  it('caps the boundary-violation error message length to bound log/telemetry blast radius', async () => {
+    // Reviewer feedback: a malformed bridge payload containing a very large
+    // array or deeply nested object could otherwise produce a multi-MB error
+    // string that flows into console logs and crash reports. Cap the
+    // serialized summary so the diagnostic is useful but bounded.
+    const huge = 'x'.repeat(10_000);
+    const bridgeProbe = vi.fn().mockResolvedValue({
+      not_a_state: 'oops',
+      filler: huge,
+    });
+    (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
+      probe: bridgeProbe,
+      listModels: vi.fn(),
+    };
+
+    try {
+      const secretTarget = window as Window & { secrets?: unknown };
+      secretTarget.secrets = {
+        list: vi.fn().mockResolvedValue([]),
+        saveKey: vi.fn(),
+        getKey: vi.fn(),
+        deleteKey: vi.fn(),
+        listStored: vi.fn(),
+        clearAll: vi.fn(),
+      };
+
+      let observedLength = 0;
+      let observedMessage = '';
+      await useAssistantPreferencesStore
+        .getState()
+        .getLocalRuntimeStatuses({ force: true })
+        .catch((error: unknown) => {
+          observedMessage = error instanceof Error ? error.message : String(error);
+          observedLength = observedMessage.length;
+        });
+      // Generous upper bound — the cap is 4 KiB plus a small "Unexpected …
+      // for ollama:" prefix and a "[truncated …]" suffix. Fail well before
+      // the original ~10K filler would inflate the message.
+      expect(observedLength).toBeGreaterThan(0);
+      expect(observedLength).toBeLessThan(5000);
+      expect(observedMessage).toMatch(/truncated/);
+    } finally {
+      Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'runtime');
+    }
+  });
+
+  it('rejects results whose state is not one of the known discriminant values', async () => {
+    // Reviewer feedback (round 3): the previous shape guard accepted any
+    // object with a string `state`. A runtime mismatch that produces
+    // e.g. { state: 'busy' } — a value we never emit — should still fail
+    // loudly at the boundary rather than let an unknown state propagate.
+    const bridgeProbe = vi.fn().mockResolvedValue({ state: 'busy', checkedAt: 1 });
+    (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
+      probe: bridgeProbe,
+      listModels: vi.fn(),
+    };
+
+    try {
+      const secretTarget = window as Window & { secrets?: unknown };
+      secretTarget.secrets = {
+        list: vi.fn().mockResolvedValue([]),
+        saveKey: vi.fn(),
+        getKey: vi.fn(),
+        deleteKey: vi.fn(),
+        listStored: vi.fn(),
+        clearAll: vi.fn(),
+      };
+
+      await expect(
+        useAssistantPreferencesStore.getState().getLocalRuntimeStatuses({ force: true })
+      ).rejects.toThrow(/bridge|state|busy|unknown/i);
+    } finally {
+      Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'runtime');
+    }
+  });
+
+  it('rejects malformed probe results from the main-process bridge at the trust boundary', async () => {
+    // Reviewer feedback: the store cast bridge results to
+    // LocalRuntimeAvailabilityState without runtime validation. A compromised
+    // main process or an Electron version mismatch could silently propagate
+    // an invalid shape through the rest of the system. Fail loudly at the
+    // boundary instead so root-cause shows up in logs with full context.
+    const bridgeProbe = vi.fn().mockResolvedValue({ not_a_state: 'oops' });
+    (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
+      probe: bridgeProbe,
+      listModels: vi.fn(),
+    };
+
+    try {
+      const secretTarget = window as Window & { secrets?: unknown };
+      secretTarget.secrets = {
+        list: vi.fn().mockResolvedValue([]),
+        saveKey: vi.fn(),
+        getKey: vi.fn(),
+        deleteKey: vi.fn(),
+        listStored: vi.fn(),
+        clearAll: vi.fn(),
+      };
+
+      await expect(
+        useAssistantPreferencesStore.getState().getLocalRuntimeStatuses({ force: true })
+      ).rejects.toThrow(/bridge|malformed|shape|state/i);
+    } finally {
+      Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'runtime');
+    }
+  });
+
+  it('prefers window.runtime bridge over the in-renderer discovery service when available', async () => {
+    // Simulates an Electron desktop renderer where the preload exposes
+    // window.runtime. The renderer-side LocalRuntimeDiscoveryService would
+    // hit CORS (Ollama rejects `file://` / `app://` origins), so the store
+    // must delegate to the main-process bridge instead.
+    const discoverySpy = vi
+      .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')
+      .mockResolvedValue({ state: 'unavailable', checkedAt: 100, message: 'renderer CORS' });
+    const bridgeProbe = vi.fn().mockResolvedValue({
+      state: 'available',
+      checkedAt: 100,
+      endpoint: 'http://127.0.0.1:11434/api/tags',
+      latencyMs: 3,
+    });
+    (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
+      probe: bridgeProbe,
+      listModels: vi.fn(),
+    };
+
+    try {
+      const secretTarget = window as Window & { secrets?: unknown };
+      secretTarget.secrets = {
+        list: vi.fn().mockResolvedValue([]),
+        saveKey: vi.fn(),
+        getKey: vi.fn(),
+        deleteKey: vi.fn(),
+        listStored: vi.fn(),
+        clearAll: vi.fn(),
+      };
+
+      const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
+      expect(providers).toContain('ollama');
+      // The in-renderer discovery MUST NOT be invoked when the bridge is live.
+      expect(discoverySpy).not.toHaveBeenCalled();
+      expect(bridgeProbe).toHaveBeenCalled();
+    } finally {
+      Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'runtime');
+    }
+  });
+
+  it('getLocalRuntimeStatus probes only the requested runtime, never its siblings', async () => {
+    // Reviewer feedback (PR #873): the per-card "Probe now" button used to
+    // call `getLocalRuntimeStatuses()` (plural) which fanned out to every
+    // registered runtime as a side effect of clicking on one card. The new
+    // singular `getLocalRuntimeStatus(runtimeId)` must only contact the
+    // runtime the caller asked for so a click on the Ollama card cannot
+    // touch LM Studio (and vice versa).
+    const probeSpy = vi
+      .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')
+      .mockResolvedValue({
+        state: 'available',
+        checkedAt: 100,
+        endpoint: 'http://127.0.0.1:11434/api/tags',
+        latencyMs: 1,
+      });
+
+    const secretTarget = window as Window & { secrets?: unknown };
+    secretTarget.secrets = {
+      list: vi.fn().mockResolvedValue([]),
+      saveKey: vi.fn(),
+      getKey: vi.fn(),
+      deleteKey: vi.fn(),
+      listStored: vi.fn(),
+      clearAll: vi.fn(),
+    };
+
+    const status = await useAssistantPreferencesStore
+      .getState()
+      .getLocalRuntimeStatus('ollama', { force: true });
+
+    expect(status.state).toBe('available');
+    const probedRuntimes = probeSpy.mock.calls.map((call) => call[0]);
+    expect(probedRuntimes).toEqual(['ollama']);
+    expect(probedRuntimes).not.toContain('lmstudio');
+  });
+
+  it('getLocalRuntimeStatus short-circuits to unavailable when activation is off', async () => {
+    // Mirror the `off` short-circuit from `getLocalRuntimeStatuses` — a
+    // disabled runtime must not be probed even when the singular API is
+    // called directly (e.g., from the per-card "Probe now" button on a
+    // card the user has explicitly toggled off).
+    const probeSpy = vi
+      .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')
+      .mockResolvedValue({
+        state: 'available',
+        checkedAt: 100,
+        endpoint: 'http://127.0.0.1:11434/api/tags',
+        latencyMs: 1,
+      });
+
+    const secretTarget = window as Window & { secrets?: unknown };
+    secretTarget.secrets = {
+      list: vi.fn().mockResolvedValue([]),
+      saveKey: vi.fn(),
+      getKey: vi.fn(),
+      deleteKey: vi.fn(),
+      listStored: vi.fn(),
+      clearAll: vi.fn(),
+    };
+
+    useAssistantPreferencesStore.getState().setProviderSettings('ollama', {
+      localRuntimeEnabled: 'off',
+    });
+
+    const status = await useAssistantPreferencesStore
+      .getState()
+      .getLocalRuntimeStatus('ollama', { force: true });
+
+    expect(status.state).toBe('unavailable');
+    if (status.state === 'unavailable') {
+      expect(status.message).toBe('Disabled by settings');
+    }
+    expect(probeSpy).not.toHaveBeenCalled();
+  });
+
+  it('passes a configured baseUrl into the runtime probe when set', async () => {
+    const probeSpy = vi
+      .spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime')
+      .mockResolvedValue({ state: 'unavailable', checkedAt: 100, message: 'down' });
+
+    const secretTarget = window as Window & { secrets?: unknown };
+    secretTarget.secrets = {
+      list: vi.fn().mockResolvedValue([]),
+      saveKey: vi.fn(),
+      getKey: vi.fn(),
+      deleteKey: vi.fn(),
+      listStored: vi.fn(),
+      clearAll: vi.fn(),
+    };
+
+    const store = useAssistantPreferencesStore.getState();
+    store.setProviderSettings('ollama', {
+      localRuntimeEnabled: 'auto',
+      localRuntimeBaseUrl: 'http://gpu.lan:11434',
+    });
+
+    await useAssistantPreferencesStore.getState().getAvailableProviders();
+    const ollamaCall = probeSpy.mock.calls.find((call) => call[0] === 'ollama');
+    expect(ollamaCall?.[1]?.endpoint).toEqual({ baseUrl: 'http://gpu.lan:11434' });
+  });
+
+  it('excludes local runtime providers when runtime status is non-usable', async () => {
+    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockImplementation(
+      async (runtimeId) => {
+        if (runtimeId === 'ollama') {
+          return { state: 'blocked_web', checkedAt: 200, message: 'blocked' };
+        }
+        return {
+          state: 'auth_required',
+          checkedAt: 200,
+          endpoint: 'http://127.0.0.1:1234/v1/models',
+          status: 401,
+        };
+      }
+    );
 
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
@@ -258,6 +595,110 @@ describe('assistant-preferences-store', () => {
     expect(providers).toContain('local');
     expect(providers).not.toContain('ollama');
     expect(providers).not.toContain('lmstudio');
+  });
+
+  it('getLocalRuntimeModels short-circuits to a synthetic failure state when activation is "off"', async () => {
+    // The "off" tri-state must NOT contact the runtime — neither the
+    // bridge nor the in-renderer service. A catalog refresh while the user
+    // has explicitly disabled the runtime would otherwise keep the daemon
+    // warm and surface confusing "unreachable" errors after the user
+    // already opted out.
+    const bridgeListModels = vi.fn();
+    const bridgeProbe = vi.fn();
+    (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
+      probe: bridgeProbe,
+      listModels: bridgeListModels,
+    };
+    const inRendererSpy = vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime');
+
+    try {
+      const store = useAssistantPreferencesStore.getState();
+      store.setProviderSettings('ollama', { localRuntimeEnabled: 'off' });
+      store.setProviderSettings('lmstudio', { localRuntimeEnabled: 'off' });
+
+      const models = await useAssistantPreferencesStore.getState().getLocalRuntimeModels();
+
+      // The synthetic catalog state has all the correct discriminants — the
+      // UI must be able to read it without a separate "no entry" code path.
+      expect(models.ollama).toMatchObject({
+        state: 'failed',
+        runtime: 'ollama',
+        message: 'Disabled by settings',
+        availability: { state: 'unavailable', message: 'Disabled by settings' },
+      });
+      expect(models.lmstudio).toMatchObject({
+        state: 'failed',
+        runtime: 'lmstudio',
+      });
+
+      // Critical: zero contact with either path while disabled.
+      expect(bridgeListModels).not.toHaveBeenCalled();
+      expect(bridgeProbe).not.toHaveBeenCalled();
+      expect(inRendererSpy).not.toHaveBeenCalled();
+    } finally {
+      Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'runtime');
+    }
+  });
+
+  it('rejects malformed listModels results from the main-process bridge at the trust boundary', async () => {
+    // Same trust-boundary contract as the probe handler: the catalog bridge
+    // returns `unknown` from IPC, so a missing `runtime` discriminant or an
+    // unrecognised `state` must throw with diagnostic context rather than
+    // silently propagate. This locks in the listModels half of the
+    // shape-guard pair (the probe half is covered above).
+    // Both runtimes return malformed payloads so the assertion is robust
+    // against the order Promise.all happens to settle them in.
+    const bridgeListModels = vi
+      .fn()
+      .mockResolvedValue({ runtime: 'ollama', state: 'imaginary_state' });
+    (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
+      probe: vi.fn(),
+      listModels: bridgeListModels,
+    };
+
+    try {
+      await expect(
+        useAssistantPreferencesStore.getState().getLocalRuntimeModels({ force: true })
+      ).rejects.toThrow(/catalog|bridge|state|imaginary_state/i);
+    } finally {
+      Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'runtime');
+    }
+  });
+
+  it('falls back to "[unserializable …]" when the malformed bridge payload contains a circular reference', async () => {
+    // `summarizeBridgeResult` wraps `JSON.stringify` in a try/catch so a
+    // malformed payload containing a circular reference cannot crash the
+    // shape-guard error path — the user gets a typed-but-bounded fallback
+    // string in the error message instead. Without this guard, throwing
+    // inside the error builder would mask the original boundary violation.
+    interface Cyclic {
+      self?: Cyclic;
+      state?: string;
+    }
+    const cyclic: Cyclic = { state: 'not_a_real_state' };
+    cyclic.self = cyclic;
+
+    const bridgeProbe = vi.fn().mockResolvedValue(cyclic);
+    (window as unknown as { runtime: { listModels: unknown; probe: unknown } }).runtime = {
+      probe: bridgeProbe,
+      listModels: vi.fn(),
+    };
+
+    try {
+      let captured = '';
+      await useAssistantPreferencesStore
+        .getState()
+        .getLocalRuntimeStatuses({ force: true })
+        .catch((error: unknown) => {
+          captured = error instanceof Error ? error.message : String(error);
+        });
+      expect(captured).toMatch(/unserializable/);
+      // The fallback must NOT contain `[object Object]` or any portion of
+      // the circular structure — otherwise the error builder is leaking.
+      expect(captured).not.toMatch(/\[object Object\]/);
+    } finally {
+      Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'runtime');
+    }
   });
 
   it('updates model with composite key', () => {

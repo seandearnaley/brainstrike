@@ -19,14 +19,13 @@ describe('gemma local llm migration', () => {
     await db.close();
   });
 
-  it(
-    'restores legacy built-in local models when rolling back migration 028',
-    { timeout: 60_000 },
-    async () => {
-      await runner.initialize();
-      await runner.up(migrations);
+  it('restores legacy built-in local models when rolling back migration 028', {
+    timeout: 60_000,
+  }, async () => {
+    await runner.initialize();
+    await runner.up(migrations);
 
-      const beforeRollback = await db.query(`
+    const beforeRollback = await db.query(`
         SELECT id
         FROM models
         WHERE id IN (
@@ -37,15 +36,15 @@ describe('gemma local llm migration', () => {
         )
         ORDER BY id
       `);
-      const beforeIds = beforeRollback.rows.map((row) => (row as { id: string }).id);
-      expect(beforeIds).toContain('onnx-community/gemma-4-E2B-it-ONNX');
-      expect(beforeIds).not.toContain('onnx-community/functiongemma-270m-it-ONNX');
-      expect(beforeIds).not.toContain('LiquidAI/LFM2.5-1.2B-Instruct-ONNX');
-      expect(beforeIds).not.toContain('onnx-community/Qwen3-0.6B-ONNX');
+    const beforeIds = beforeRollback.rows.map((row) => (row as { id: string }).id);
+    expect(beforeIds).toContain('onnx-community/gemma-4-E2B-it-ONNX');
+    expect(beforeIds).not.toContain('onnx-community/functiongemma-270m-it-ONNX');
+    expect(beforeIds).not.toContain('LiquidAI/LFM2.5-1.2B-Instruct-ONNX');
+    expect(beforeIds).not.toContain('onnx-community/Qwen3-0.6B-ONNX');
 
-      await runner.down(migrations, 27);
+    await runner.down(migrations, 27);
 
-      const afterRollback = await db.query(`
+    const afterRollback = await db.query(`
         SELECT id
         FROM models
         WHERE id IN (
@@ -56,25 +55,23 @@ describe('gemma local llm migration', () => {
         )
         ORDER BY id
       `);
-      const afterIds = afterRollback.rows.map((row) => (row as { id: string }).id);
-      expect(afterIds).not.toContain('onnx-community/gemma-4-E2B-it-ONNX');
-      expect(afterIds).toContain('onnx-community/functiongemma-270m-it-ONNX');
-      expect(afterIds).toContain('LiquidAI/LFM2.5-1.2B-Instruct-ONNX');
-      expect(afterIds).toContain('onnx-community/Qwen3-0.6B-ONNX');
-    }
-  );
+    const afterIds = afterRollback.rows.map((row) => (row as { id: string }).id);
+    expect(afterIds).not.toContain('onnx-community/gemma-4-E2B-it-ONNX');
+    expect(afterIds).toContain('onnx-community/functiongemma-270m-it-ONNX');
+    expect(afterIds).toContain('LiquidAI/LFM2.5-1.2B-Instruct-ONNX');
+    expect(afterIds).toContain('onnx-community/Qwen3-0.6B-ONNX');
+  });
 
-  it(
-    'has no inbound foreign keys to models(id) before deleting legacy built-in model rows',
-    { timeout: 60_000 },
-    async () => {
-      await runner.initialize();
-      await runner.up(migrations.slice(0, 28));
+  it('has no inbound foreign keys to models(id) before deleting legacy built-in model rows', {
+    timeout: 60_000,
+  }, async () => {
+    await runner.initialize();
+    await runner.up(migrations.slice(0, 28));
 
-      const constraints = await db.query<{
-        constraint_name: string;
-        source_table: string;
-      }>(`
+    const constraints = await db.query<{
+      constraint_name: string;
+      source_table: string;
+    }>(`
         SELECT
           conname AS constraint_name,
           conrelid::regclass::text AS source_table
@@ -84,7 +81,6 @@ describe('gemma local llm migration', () => {
         ORDER BY conname
       `);
 
-      expect(constraints.rows).toEqual([]);
-    }
-  );
+    expect(constraints.rows).toEqual([]);
+  });
 });

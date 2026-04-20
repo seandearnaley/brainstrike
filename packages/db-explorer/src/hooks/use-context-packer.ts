@@ -79,7 +79,7 @@ export function useContextPacker({
     () => ({
       budgetTokens,
       estimateTokens,
-      ...(maxChunks !== undefined ? { maxChunks } : {}),
+      ...(maxChunks === undefined ? {} : { maxChunks }),
     }),
     [budgetTokens, maxChunks, estimateTokens]
   );
@@ -145,7 +145,7 @@ export function packSearchResults(
   const packerOptions: ContextPackerOptions = {
     budgetTokens,
     estimateTokens,
-    ...(maxChunks !== undefined ? { maxChunks } : {}),
+    ...(maxChunks === undefined ? {} : { maxChunks }),
   };
 
   const packer = new ContextPacker(packerOptions);

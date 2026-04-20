@@ -52,7 +52,7 @@ function isQueueEnabled(): boolean {
     if (typeof window !== 'undefined') {
       return true;
     }
-    const env = typeof process !== 'undefined' ? process.env : undefined;
+    const env = typeof process === 'undefined' ? undefined : process.env;
     const v = env?.['EMBED_QUEUE_ENABLED'];
     return String(v ?? 'false').toLowerCase() === 'true';
   } catch {

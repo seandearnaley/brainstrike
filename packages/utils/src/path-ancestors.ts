@@ -74,7 +74,7 @@ export function accumulateAncestorDirectoryCounts(
   const delta = options.delta ?? 1;
   const ancestorPathOptions: AncestorPathOptions = {
     ...(options.cache ? { cache: options.cache } : {}),
-    ...(options.includeRoot !== undefined ? { includeRoot: options.includeRoot } : {}),
+    ...(options.includeRoot === undefined ? {} : { includeRoot: options.includeRoot }),
   };
 
   for (const filePath of filePaths) {

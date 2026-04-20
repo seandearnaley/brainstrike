@@ -219,10 +219,10 @@ async function getModelConfigFromDb(db: IDatabase, modelId: string): Promise<Mod
       description: row.description ?? '',
       tags: [row.provider_id, capabilities?.type ?? 'embedding'].filter(Boolean),
       origin: row.provider_id,
-      ...(parameters?.size !== undefined ? { size: parameters.size } : {}),
-      ...(parameters?.contextWindow !== undefined
-        ? { contextWindow: parameters.contextWindow }
-        : {}),
+      ...(parameters?.size === undefined ? {} : { size: parameters.size }),
+      ...(parameters?.contextWindow === undefined
+        ? {}
+        : { contextWindow: parameters.contextWindow }),
     };
 
     dbModelConfigCache.set(modelId, modelConfig);
@@ -1117,7 +1117,7 @@ export async function startEmbeddingWorker(
     return {
       modelId: cfg.id,
       ...(options.device ? { device: options.device } : {}),
-      ...(cfg.quantized !== undefined ? { quantized: cfg.quantized } : {}),
+      ...(cfg.quantized === undefined ? {} : { quantized: cfg.quantized }),
       ...(options.cacheDir ? { cacheDir: options.cacheDir } : {}),
     };
   }
@@ -1531,7 +1531,7 @@ export async function startEmbeddingWorker(
       jobs: jobs.map((j) => ({ id: j.id, leaseToken: j.lease_token })),
       error: truncated,
       terminal: isTerminal,
-      ...(backoffMs !== undefined ? { backoffMs } : {}),
+      ...(backoffMs === undefined ? {} : { backoffMs }),
     });
 
     metrics.jobsFailed += jobs.length;

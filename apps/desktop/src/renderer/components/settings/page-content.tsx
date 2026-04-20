@@ -18,6 +18,7 @@ import {
   createApiKeysSettingsCategory,
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
+  createLocalRuntimeSettingsCategory,
   createSearchIndexingSettingsCategory,
   createTokenCountingSettingsCategoryWithRuntimeSupport,
   type SettingsCategory,
@@ -285,6 +286,7 @@ export default function SettingsPageContent() {
       createAppearanceSettingsCategory(),
       createSearchIndexingSettingsCategory(),
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
+      createLocalRuntimeSettingsCategory(),
       createApiKeysSettingsCategory(),
       {
         id: 'embedding-models',

@@ -294,15 +294,15 @@ export function toWorkerRequest(payload: TaskPayload): EmbedWorkerRequest {
 
   const withOptionalFields: EmbedWorkerRequest = {
     ...baseRequest,
-    ...(payload.truncateDim !== undefined ? { truncateDim: payload.truncateDim } : {}),
-    ...(payload.dtype !== undefined ? { dtype: payload.dtype } : {}),
+    ...(payload.truncateDim === undefined ? {} : { truncateDim: payload.truncateDim }),
+    ...(payload.dtype === undefined ? {} : { dtype: payload.dtype }),
     deviceHint: payload.deviceHint,
-    ...(payload.maxBatchSize !== undefined ? { maxBatchSize: payload.maxBatchSize } : {}),
-    ...(payload.provider !== undefined ? { provider: payload.provider } : {}),
-    ...(payload.targetDimension !== undefined ? { targetDimension: payload.targetDimension } : {}),
-    ...(payload.dimensionParameter !== undefined
-      ? { dimensionParameter: payload.dimensionParameter }
-      : {}),
+    ...(payload.maxBatchSize === undefined ? {} : { maxBatchSize: payload.maxBatchSize }),
+    ...(payload.provider === undefined ? {} : { provider: payload.provider }),
+    ...(payload.targetDimension === undefined ? {} : { targetDimension: payload.targetDimension }),
+    ...(payload.dimensionParameter === undefined
+      ? {}
+      : { dimensionParameter: payload.dimensionParameter }),
   };
   return withOptionalFields;
 }

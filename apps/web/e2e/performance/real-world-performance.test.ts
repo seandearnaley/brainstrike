@@ -121,7 +121,7 @@ test.describe('Real-World Performance Validation', () => {
         try {
           await clickableElements.nth(i).click({ timeout: 1000 });
           await page.waitForTimeout(100);
-        } catch (_e) {}
+        } catch {}
       }
 
       const interactionTime = performance.now() - startTime;
@@ -248,7 +248,7 @@ test.describe('Real-World Performance Validation', () => {
           memoryReadings.push(memory);
           console.log(`💾 Memory after interaction ${i}: ${memory.usedMB}MB`);
         }
-      } catch (_e) {}
+      } catch {}
     }
 
     const finalMemory = await getMemoryUsage();
@@ -368,7 +368,7 @@ test.describe('Real-World Performance Validation', () => {
         interactionTimes.push(interactionTime);
 
         console.log(`🖱️  Button ${i} interaction time: ${interactionTime.toFixed(2)}ms`);
-      } catch (_e) {
+      } catch {
         console.log(`⚠️  Button ${i} could not be clicked`);
       }
     }

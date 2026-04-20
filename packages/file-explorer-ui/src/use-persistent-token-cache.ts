@@ -339,13 +339,13 @@ export function usePersistentTokenCache({
       if (persistentCache?.isOperational) {
         const normalizedPath = tryNormalizeSelectionPath(folderId, path);
         if (!normalizedPath) {
-          return undefined;
+          return;
         }
         return persistentCache.getFileSize(folderId, normalizedPath);
       }
 
       // No fallback for file size in in-memory mode
-      return undefined;
+      return;
     },
     [persistentCache, decodeFileSelection]
   );

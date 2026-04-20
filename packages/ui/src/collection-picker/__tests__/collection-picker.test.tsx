@@ -126,4 +126,17 @@ describe('CollectionPicker', () => {
     fireEvent.keyDown(listbox, { key: ' ' });
     expect(defaultProps.onSelect).toHaveBeenCalledWith('2');
   });
+
+  it('uses the icon-xs size token for collection action buttons', () => {
+    render(<CollectionPicker {...defaultProps} />);
+
+    expect(screen.getAllByRole('button', { name: 'Edit collection' })[0]).toHaveAttribute(
+      'data-size',
+      'icon-xs'
+    );
+    expect(screen.getAllByRole('button', { name: 'Delete collection' })[0]).toHaveAttribute(
+      'data-size',
+      'icon-xs'
+    );
+  });
 });

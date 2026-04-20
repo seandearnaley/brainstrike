@@ -278,7 +278,7 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
       console.log('⏳ Waiting for database to finish loading...');
       await loadingIndicator.waitFor({ state: 'hidden', timeout: 30_000 });
     }
-  } catch (_error) {
+  } catch {
     // Loading indicator might not appear if database loads quickly
     console.log('⚡ Database loaded quickly or loading indicator not found');
   }
@@ -292,7 +292,7 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
         loadingTabFallback.waitFor({ state: 'hidden', timeout: 20_000 }),
       ]);
     }
-  } catch (_error) {
+  } catch {
     console.log('⚡ Database tab chunk loaded quickly or fallback not found');
   }
 
@@ -310,7 +310,7 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
       refreshButton.waitFor({ state: 'visible', timeout: 20_000 }),
       errorPanel.waitFor({ state: 'visible', timeout: 20_000 }),
     ]);
-  } catch (_error) {
+  } catch {
     const bodyText = await activePage
       .locator('body')
       .textContent()
@@ -333,7 +333,7 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
         refreshButton.waitFor({ state: 'visible', timeout: 20_000 }),
         errorPanel.waitFor({ state: 'visible', timeout: 20_000 }),
       ]);
-    } catch (_error) {
+    } catch {
       const bodyText = await activePage
         .locator('body')
         .textContent()
@@ -358,7 +358,7 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
   try {
     await refreshButton.waitFor({ state: 'visible', timeout: 5000 });
     verboseLog('✅ Database panel is ready and interactive');
-  } catch (_error) {
+  } catch {
     console.warn('⚠️ Refresh button not found, database panel might not be fully loaded');
   }
 
@@ -385,7 +385,7 @@ export async function resolveRefreshButton(
 
   try {
     return { page: activePage, button: await waitForButton() };
-  } catch (_error) {
+  } catch {
     if (await errorPanel.isVisible().catch(() => false)) {
       return { page: activePage, button: resolveButton() };
     }
@@ -394,7 +394,7 @@ export async function resolveRefreshButton(
       if (await loadingTabFallback.isVisible({ timeout: 1000 })) {
         await loadingTabFallback.waitFor({ state: 'hidden', timeout: timeoutMs });
       }
-    } catch (_fallbackError) {
+    } catch {
       // ignore and proceed to the loading indicator
     }
 
@@ -402,13 +402,13 @@ export async function resolveRefreshButton(
       if (await loadingIndicator.isVisible({ timeout: 1000 })) {
         await loadingIndicator.waitFor({ state: 'hidden', timeout: timeoutMs });
       }
-    } catch (_loadingError) {
+    } catch {
       // ignore and proceed
     }
 
     try {
       return { page: activePage, button: await waitForButton() };
-    } catch (_retryError) {
+    } catch {
       console.warn('⚠️ Refresh button not visible, reopening database panel...');
       const reopened = await showDatabaseDemoPanel(activePage);
       activePage = await waitForDatabaseReady(reopened);
@@ -513,7 +513,7 @@ async function clearDatabaseRecordsViaUI(page: Page): Promise<Page> {
     if (!activePage.isClosed()) {
       await activePage.waitForTimeout(800);
     }
-  } catch (_clickError) {
+  } catch {
     console.warn('⚠️ Refresh click failed; reinitializing panel...');
     refresh = await resolveRefreshButton(activePage);
     activePage = refresh.page;
@@ -574,7 +574,7 @@ async function clearDatabaseRecordsViaUI(page: Page): Promise<Page> {
           state: 'visible',
           timeout: 2000,
         });
-      } catch (_pageError) {
+      } catch {
         console.error('❌ App appears to have crashed during UI cleanup');
         throw new Error('Application crashed during database record cleanup');
       }
@@ -595,7 +595,7 @@ async function resolveActivePage(page: Page): Promise<Page> {
     try {
       await page.waitForLoadState('domcontentloaded', { timeout: 10_000 });
       return page;
-    } catch (_error) {
+    } catch {
       if (!page.isClosed()) {
         // Ignore load state errors when the page is still alive; it may already be ready.
         return page;
@@ -634,7 +634,7 @@ async function waitForReplacementPage(
         }
         try {
           await candidate.waitForLoadState('domcontentloaded', { timeout: 5000 });
-        } catch (_error) {
+        } catch {
           // Ignore load-state errors; page may already be interactive.
         }
         return candidate;

@@ -135,7 +135,7 @@ function unwrapPersistedState(
   }
 
   const stateToProcess =
-    wrapper.state !== undefined ? wrapper.state : (rawPersistedState as SerializedState);
+    wrapper.state === undefined ? (rawPersistedState as SerializedState) : wrapper.state;
 
   if (stateToProcess === null || stateToProcess === undefined) {
     if (shouldLog) {

@@ -117,8 +117,8 @@ export function createBrowserProject(config?: BrowserTestConfig) {
   };
 }
 
+export type { PlaywrightProviderOptions };
 /**
  * Re-export playwright provider for direct use
  */
 export { playwright };
-export type { PlaywrightProviderOptions };

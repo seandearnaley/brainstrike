@@ -161,7 +161,7 @@ export function DesktopLoggingSettings() {
         mapPayload(result);
         return result.preferences;
       }
-      return undefined;
+      return;
     },
     [mapPayload, toast]
   );

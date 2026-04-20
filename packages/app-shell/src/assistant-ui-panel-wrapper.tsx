@@ -487,6 +487,20 @@ function buildLocalOptions(settings: AssistantProviderSettings): LocalProviderOp
   };
 }
 
+function buildLocalRuntimeOptions(
+  settings: AssistantProviderSettings | undefined
+): { baseUrl?: string } | undefined {
+  const raw = settings?.localRuntimeBaseUrl;
+  if (typeof raw !== 'string') {
+    return;
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return;
+  }
+  return { baseUrl: trimmed };
+}
+
 function buildProviderOptions(
   providerId: SupportedProvider | null,
   modelName: string | undefined,
@@ -513,6 +527,18 @@ function buildProviderOptions(
     case 'local': {
       const local = buildLocalOptions(settings);
       return local ? { local } : undefined;
+    }
+    case 'ollama': {
+      // Forward the user's configured origin to the main-process factory. The
+      // optional bearer token is not set here — the main process reads it from
+      // the encrypted secrets bridge just like other providers so it never
+      // crosses the renderer/server boundary in the request body.
+      const ollama = buildLocalRuntimeOptions(settings);
+      return ollama ? { ollama } : undefined;
+    }
+    case 'lmstudio': {
+      const lmstudio = buildLocalRuntimeOptions(settings);
+      return lmstudio ? { lmstudio } : undefined;
     }
     default:
       return;
@@ -645,21 +671,23 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     return false;
   }, [db, dbError, dbInitializing, registryError]);
 
-  const enabledModelIds = useMemo(() => {
-    return buildEnabledModelIdSet({
-      shouldFallbackToPreferences,
+  const enabledModelIds = useMemo(
+    () =>
+      buildEnabledModelIdSet({
+        shouldFallbackToPreferences,
+        configuredProviders,
+        enabledModelsByProvider,
+        registryEnabledModelIds,
+        localRuntimeModels,
+      }),
+    [
       configuredProviders,
       enabledModelsByProvider,
-      registryEnabledModelIds,
       localRuntimeModels,
-    });
-  }, [
-    configuredProviders,
-    enabledModelsByProvider,
-    localRuntimeModels,
-    registryEnabledModelIds,
-    shouldFallbackToPreferences,
-  ]);
+      registryEnabledModelIds,
+      shouldFallbackToPreferences,
+    ]
+  );
 
   const runtimeLlmModelsByProvider = useMemo<
     Partial<Record<LocalRuntimeProviderId, readonly LlmProviderModelDefinition[]>>
@@ -943,27 +971,29 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     };
   }, [handleSelectionUpdate]);
 
-  const nativeToolItems = useMemo<AssistantToolMenuItem[]>(() => {
-    return Object.entries(NATIVE_TOOL_DEFAULTS).map(([toolId, metadata]) => {
-      const category =
-        typeof (metadata as { category?: unknown }).category === 'string'
-          ? (metadata as { category: string }).category
-          : undefined;
-      const inputSchema = toLocalRuntimeInputSchema(toolId);
+  const nativeToolItems = useMemo<AssistantToolMenuItem[]>(
+    () =>
+      Object.entries(NATIVE_TOOL_DEFAULTS).map(([toolId, metadata]) => {
+        const category =
+          typeof (metadata as { category?: unknown }).category === 'string'
+            ? (metadata as { category: string }).category
+            : undefined;
+        const inputSchema = toLocalRuntimeInputSchema(toolId);
 
-      return {
-        id: toolId,
-        label: formatToolLabel(toolId),
-        enabled: typeof nativeToolStates[toolId] === 'boolean' ? nativeToolStates[toolId] : true,
-        source: 'native',
-        group: 'Native Tools',
-        description: getToolDescription(toolId),
-        ...(inputSchema ? { inputSchema } : {}),
-        isLocalRuntimeRunnable: true,
-        ...(category ? { category } : {}),
-      };
-    });
-  }, [nativeToolStates]);
+        return {
+          id: toolId,
+          label: formatToolLabel(toolId),
+          enabled: typeof nativeToolStates[toolId] === 'boolean' ? nativeToolStates[toolId] : true,
+          source: 'native',
+          group: 'Native Tools',
+          description: getToolDescription(toolId),
+          ...(inputSchema ? { inputSchema } : {}),
+          isLocalRuntimeRunnable: true,
+          ...(category ? { category } : {}),
+        };
+      }),
+    [nativeToolStates]
+  );
 
   const loadMcpTools = useCallback(async () => {
     if (typeof window === 'undefined' || !window.mcp?.listTools) {

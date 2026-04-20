@@ -66,9 +66,9 @@ export type DesktopBridgeValidationResult =
 export function validateDesktopBridgeContract(
   candidate: DesktopBridgeLike
 ): DesktopBridgeValidationResult {
-  const missing = REQUIRED_VISIBLE_UI_BRIDGE_PATHS.filter((segments) => {
-    return !hasCallablePath(candidate, segments);
-  }).map((segments) => `window.${segments.join('.')}`);
+  const missing = REQUIRED_VISIBLE_UI_BRIDGE_PATHS.filter(
+    (segments) => !hasCallablePath(candidate, segments)
+  ).map((segments) => `window.${segments.join('.')}`);
 
   if (missing.length === 0) {
     return { ok: true };

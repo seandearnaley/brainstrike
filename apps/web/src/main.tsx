@@ -53,14 +53,14 @@ initializeLogging({
 });
 
 const removeRendererErrorHooks =
-  typeof window !== 'undefined'
-    ? installRendererErrorHooks({
+  typeof window === 'undefined'
+    ? () => {}
+    : installRendererErrorHooks({
         scope: 'WebRenderer',
         onError: () => {
           flushQueueTelemetry?.();
         },
-      })
-    : () => {};
+      });
 
 const loggingStore = useLoggingPreferencesStore.getState();
 if (!loggingStore.hasHydrated) {

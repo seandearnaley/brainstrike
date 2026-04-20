@@ -59,7 +59,7 @@ describe('DbProvider error handling', () => {
           if (db && typeof db.close === 'function') {
             await db.close();
           }
-        } catch (_error) {
+        } catch {
           // Ignore close errors in cleanup - database might already be closed
         }
       })

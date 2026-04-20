@@ -7,6 +7,7 @@ import {
   PartialRefreshError,
 } from './errors';
 
+export * from './assistant-provider-settings';
 export * from './electron-api';
 export * from './embedding-constants';
 // Export types from other files
@@ -21,11 +22,11 @@ export * from './workspace-path-utils';
 
 // Explicitly re-export the classes as values
 export {
-  PartialRefreshError,
+  ConcurrentLoadingError,
   // FSInitializationError, // Removed
   // GitOperationError, // Removed
   FileContentError,
-  ConcurrentLoadingError,
+  PartialRefreshError,
 };
 
 // Local type definition

@@ -19,11 +19,11 @@ import {
 
 export type SupportedProvider = ProviderId;
 export type {
-  ProviderRuntime,
+  ProviderCapabilities,
   ProviderDefinition,
   ProviderModelDefinition,
   ProviderModelType,
-  ProviderCapabilities,
+  ProviderRuntime,
 };
 export { STANDARD_EMBEDDING_DIMENSION };
 

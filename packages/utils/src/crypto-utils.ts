@@ -81,7 +81,7 @@ function generateFallbackHash(content: string): string {
 
   // Extend to make it look more like a real hash (for consistency with existing data)
   // Repeat the pattern to create a longer hash while maintaining determinism
-  const extended = (hex + hex + hex + hex).substring(0, 32);
+  const extended = (hex + hex + hex + hex).slice(0, 32);
 
   return extended;
 }

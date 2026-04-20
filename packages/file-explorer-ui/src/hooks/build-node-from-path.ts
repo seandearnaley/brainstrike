@@ -35,9 +35,9 @@ export function buildNodeFromPath(
 
   const lastSlashIndex = end === 0 ? -1 : relativePath.lastIndexOf('/', end - 1);
   const name =
-    lastSlashIndex !== -1
-      ? relativePath.slice(lastSlashIndex + 1, end)
-      : relativePath.slice(0, end);
+    lastSlashIndex === -1
+      ? relativePath.slice(0, end)
+      : relativePath.slice(lastSlashIndex + 1, end);
 
   let depth = 0;
   const start = relativePath.length > 0 && relativePath.charCodeAt(0) === SLASH ? 1 : 0;

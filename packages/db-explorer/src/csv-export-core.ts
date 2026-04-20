@@ -82,7 +82,7 @@ export function truncateContent(content: string | undefined, maxLength: number):
   if (!content) {
     return '';
   }
-  return content.length > maxLength ? `${content.substring(0, maxLength)}...` : content;
+  return content.length > maxLength ? `${content.slice(0, maxLength)}...` : content;
 }
 
 /**

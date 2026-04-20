@@ -89,6 +89,29 @@ describe('TablePagination', () => {
     expect(screen.getByRole('button', { name: 'Go to last page' })).toBeDisabled();
   });
 
+  it('uses the icon-xs size token for navigation buttons', () => {
+    render(
+      <TablePagination currentPage={1} onPageChange={vi.fn()} totalItems={30} totalPages={3} />
+    );
+
+    expect(screen.getByRole('button', { name: 'Go to first page' })).toHaveAttribute(
+      'data-size',
+      'icon-xs'
+    );
+    expect(screen.getByRole('button', { name: 'Go to previous page' })).toHaveAttribute(
+      'data-size',
+      'icon-xs'
+    );
+    expect(screen.getByRole('button', { name: 'Go to next page' })).toHaveAttribute(
+      'data-size',
+      'icon-xs'
+    );
+    expect(screen.getByRole('button', { name: 'Go to last page' })).toHaveAttribute(
+      'data-size',
+      'icon-xs'
+    );
+  });
+
   it('does not render when only one page and no page size change', () => {
     const { container } = render(
       <TablePagination currentPage={0} onPageChange={vi.fn()} totalItems={10} totalPages={1} />

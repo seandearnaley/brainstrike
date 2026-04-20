@@ -115,7 +115,7 @@ export function useRecursiveFolderSelect(
       return (tree: IFileNode[]) =>
         applyFileFilters(tree, includeFilters, excludeFilters, useRegex);
     }
-    return undefined;
+    return;
   }, [applyFileFilters, excludeFilters, filterTreeFn, includeFilters, store, useRegex]);
 
   const [state, setState] = useState<RecursiveFolderSelectState>(RESET_STATE);
@@ -132,11 +132,12 @@ export function useRecursiveFolderSelect(
     setState(RESET_STATE);
   }, [cancelLoadOperations]);
 
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       cancelRecursiveSelect();
-    };
-  }, [cancelRecursiveSelect]);
+    },
+    [cancelRecursiveSelect]
+  );
 
   const selectFolderRecursively = useCallback(
     async (

@@ -71,7 +71,7 @@ describe('useSharedFileContentLoading - caching', () => {
               if (progressCallback) {
                 progressCallback({ key: req.compositeKey });
               }
-            } catch (_error) {
+            } catch {
               results[req.compositeKey] = 'Error accessing file';
             }
           }
@@ -140,7 +140,7 @@ describe('useSharedFileContentLoading - caching', () => {
               if (progressCallback) {
                 progressCallback({ key: req.compositeKey });
               }
-            } catch (_error) {
+            } catch {
               results[req.compositeKey] = 'Error accessing file';
             }
           }
@@ -260,7 +260,7 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
           progressCallback({ key: req.compositeKey });
         }
         return content;
-      } catch (_error) {
+      } catch {
         if (progressCallback) {
           progressCallback({ key: req.compositeKey });
         }

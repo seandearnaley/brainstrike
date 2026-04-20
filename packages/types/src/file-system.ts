@@ -185,6 +185,25 @@ export interface FileSystemChange {
 }
 
 /**
+ * Resolution shape returned by `FileSystemAdapter.resolveFileForIndexing`.
+ *
+ * - `kind: 'handle'` — the adapter has a real `FileSystemFileHandle` that the
+ *   indexer worker can consume directly via structured clone (production web).
+ * - `kind: 'content'` — the adapter pre-loaded the file bytes on the main
+ *   thread and hands them to the worker as plain serializable data. Required
+ *   for adapters whose handles are not structured-clone-safe (the dev-fixture
+ *   adapter, future remote/in-memory adapters).
+ *
+ * Both variants carry an authoritative `fileSize` (in bytes) so the indexer
+ * dispatcher can enforce the platform max-file-size contract uniformly,
+ * regardless of whether the file's parent folder was ever expanded in the
+ * lazy file tree (and therefore had its size cached).
+ */
+export type FileForIndexingResolution =
+  | { kind: 'handle'; fileHandle: FileSystemFileHandle; fileSize: number }
+  | { kind: 'content'; content: string; fileSize: number };
+
+/**
  * Platform-agnostic adapter contract implemented by web/electron shims.
  */
 export interface FileSystemAdapter {
@@ -235,6 +254,43 @@ export interface FileSystemAdapter {
    */
   readFileByPath?(absolutePath: string): Promise<string>;
   requestDirectoryAccess(): Promise<DirectoryHandle>;
+  /**
+   * Resolve the bytes the background token indexer needs for a given absolute
+   * path. Returns either a real `FileSystemFileHandle` (preferred fast path on
+   * the production web platform — the worker reads the handle in its own
+   * thread) or pre-loaded UTF-8 content with byte size (used by adapters that
+   * cannot produce a structured-clone-safe `FileSystemFileHandle`, e.g. the
+   * in-memory dev-fixture adapter).
+   *
+   * Returning content keeps the worker boundary clean: the resolver does the
+   * one read on the main thread and the worker hashes/counts off the
+   * already-decoded string, mirroring how the Electron path pre-loads via IPC.
+   *
+   * Adapters that cannot serve files at all simply leave this undefined.
+   * Implementations should throw on lookup failures so the indexer can park
+   * the key for a later retry.
+   */
+  resolveFileForIndexing?(absolutePath: string): Promise<FileForIndexingResolution>;
+  /**
+   * Resolve a real `FileSystemFileHandle` for a given absolute path on web
+   * platforms. Mirrors the segment-walk used by `readFileByPath` so callers
+   * (e.g. the background token indexer) can hand a live handle off to a worker
+   * without forcing the entire UI tree to expand on the main thread.
+   *
+   * Implementations are expected to throw a typed error (e.g. `AccessError`)
+   * when the root handle is missing, the path does not point to a file, or the
+   * underlying browser API rejects an intermediate segment. Callers must not
+   * silently swallow these errors -- the indexer parks the failed key for a
+   * later retry instead.
+   *
+   * Only meaningful for adapters whose handle type is the web
+   * `FileSystemFileHandle`. Electron adapters intentionally leave this
+   * undefined and continue using their synthetic-handle / IPC reader path.
+   *
+   * @param absolutePath - The absolute path (`${rootFolderId}/${relativePath}`)
+   * @returns The resolved leaf `FileSystemFileHandle`
+   */
+  resolveFileHandleByPath?(absolutePath: string): Promise<FileSystemFileHandle>;
   restoreLastFolder?(): Promise<DirectoryHandle | null>;
   watchDirectory?(
     handle: DirectoryHandle,

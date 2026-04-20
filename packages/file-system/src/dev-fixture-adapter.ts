@@ -1,4 +1,4 @@
-import type { IFileNode } from '@brainstrike/types';
+import type { FileForIndexingResolution, IFileNode } from '@brainstrike/types';
 import { createLogger, fileNodeCollator } from '@brainstrike/utils';
 import type { FixtureDefinition, FixtureLoadOptions, FixtureTree } from './dev-fixture-types';
 import { DEV_INLINE_FIXTURE } from './fixtures/dev-inline-fixture';
@@ -210,6 +210,11 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   const originalReadFileByPath = (
     adapter as { readFileByPath?: ((path: string) => Promise<string>) | undefined }
   ).readFileByPath?.bind(adapter);
+  const originalResolveFileForIndexing = (
+    adapter as {
+      resolveFileForIndexing?: ((path: string) => Promise<FileForIndexingResolution>) | undefined;
+    }
+  ).resolveFileForIndexing?.bind(adapter);
   const originalRestoreLastFolder = adapter.restoreLastFolder?.bind(adapter);
   const originalReadDirectoryStreaming = adapter.readDirectoryStreaming?.bind(adapter);
 
@@ -274,6 +279,27 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
       throw new Error('Direct path reads are not supported by this adapter');
     }
     return originalReadFileByPath(path);
+  }
+
+  // Mirrors WebFileSystemAdapter.resolveFileForIndexing for the in-memory
+  // fixture. We deliberately return `kind: 'content'` instead of fabricating a
+  // synthetic FileSystemFileHandle: only the browser's real handles have
+  // structured-clone support, so a custom handle's methods would be stripped
+  // when posted to the indexer worker (`async()=>... could not be cloned`).
+  // Returning pre-loaded bytes keeps the worker boundary serializable and
+  // exercises the same FileToIndex.content code path that Electron uses.
+  async function resolveFileForIndexing(path: string): Promise<FileForIndexingResolution> {
+    if (fixtureState) {
+      const record = fixtureState.fileContents.get(path);
+      if (!record) {
+        throw new Error(`File not found in fixture: ${path}`);
+      }
+      return { kind: 'content', content: record.content, fileSize: record.size };
+    }
+    if (!originalResolveFileForIndexing) {
+      throw new Error('resolveFileForIndexing is not supported by this adapter');
+    }
+    return originalResolveFileForIndexing(path);
   }
 
   async function readDirectoryStreaming(
@@ -346,6 +372,16 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
       }
     ).readFileByPath = readFileByPath;
   }
+  // Always wire `resolveFileForIndexing` so fixture-driven e2e tests can serve
+  // file bytes for unexpanded-subfolder selections. When no fixture is loaded
+  // we forward to the underlying adapter (which on web returns a real handle).
+  // The fixture branch returns pre-loaded `kind: 'content'` so the worker
+  // never tries to call `.getFile()` on a structured-clone-stripped handle.
+  (
+    decorated as T & {
+      resolveFileForIndexing?: (path: string) => Promise<FileForIndexingResolution>;
+    }
+  ).resolveFileForIndexing = resolveFileForIndexing;
   if (adapter.restoreLastFolder) {
     decorated.restoreLastFolder = restoreLastFolder;
   }

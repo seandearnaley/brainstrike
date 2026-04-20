@@ -295,11 +295,9 @@ vi.mock('@brainstrike/preferences', async () => {
   };
 });
 
-vi.mock('@brainstrike/preferences/hooks/use-model-registry', async () => {
-  return {
-    useEnsureModelRegistry: vi.fn(),
-  };
-});
+vi.mock('@brainstrike/preferences/hooks/use-model-registry', async () => ({
+  useEnsureModelRegistry: vi.fn(),
+}));
 
 vi.mock('@brainstrike/preferences/stores/assistant-preferences-store', async () => {
   const preferences = await import('@brainstrike/preferences');
@@ -865,6 +863,7 @@ describe('AssistantUiPanelWrapper', () => {
               source: 'openai_v1_models',
               freshness: 'live',
               capabilities: { llm: true, embeddings: 'supported' },
+              capabilitySource: 'inferred',
               dimensionsKnown: { state: 'known', values: [768], verifiedAt: 10, endpoint: '' },
             },
           ],
@@ -946,6 +945,7 @@ describe('AssistantUiPanelWrapper', () => {
               source: 'openai_v1_models',
               freshness: 'live',
               capabilities: { llm: true, embeddings: 'unsupported' },
+              capabilitySource: 'inferred',
               dimensionsKnown: { state: 'not_applicable' },
             },
             {
@@ -958,6 +958,7 @@ describe('AssistantUiPanelWrapper', () => {
               source: 'openai_v1_models',
               freshness: 'live',
               capabilities: { llm: false, embeddings: 'supported' },
+              capabilitySource: 'inferred',
               dimensionsKnown: { state: 'known', values: [768], verifiedAt: 20, endpoint: '' },
             },
           ],

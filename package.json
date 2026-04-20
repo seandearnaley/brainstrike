@@ -5,38 +5,39 @@
   "author": "",
   "dependencies": {
     "@tanstack/react-table": "^8.21.3",
-    "@tanstack/react-virtual": "^3.13.19"
+    "@tanstack/react-virtual": "^3.13.24"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.4",
-    "@commitlint/cli": "^20.4.2",
-    "@commitlint/config-conventional": "^20.4.2",
-    "@commitlint/types": "^20.4.0",
+    "@biomejs/biome": "2.4.12",
+    "@commitlint/cli": "^20.5.0",
+    "@commitlint/config-conventional": "^20.5.0",
+    "@commitlint/types": "^20.5.0",
     "@jacobwolf/biome-unnecessary-effect": "^0.1.1",
     "@mermaid-js/mermaid-cli": "^11.12.0",
-    "@playwright/test": "^1.58.2",
-    "@types/node": "^25.3.0",
-    "@typescript-eslint/parser": "^8.56.1",
-    "@vitest/browser-playwright": "^4.1.2",
-    "@vitest/coverage-v8": "^4.1.2",
+    "@playwright/test": "^1.59.1",
+    "@types/node": "^25.6.0",
+    "@typescript-eslint/parser": "^8.58.2",
+    "@vitest/browser-playwright": "^4.1.4",
+    "@vitest/coverage-v8": "^4.1.4",
     "babel-plugin-react-compiler": "1.0.0",
-    "eslint": "^10.0.2",
-    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint": "^10.2.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "glob": "^13.0.6",
-    "happy-dom": "^20.7.0",
+    "happy-dom": "^20.9.0",
     "knip": "^5.85.0",
-    "lefthook": "^2.1.1",
-    "mermaid": "^11.12.3",
+    "lefthook": "^2.1.6",
+    "mermaid": "^11.14.0",
     "nyc": "^18.0.0",
-    "playwright": "^1.58.2",
-    "syncpack": "^14.0.0",
+    "playwright": "^1.59.1",
+    "semver": "^7.7.4",
+    "syncpack": "^14.3.0",
     "tsup": "^8.5.1",
-    "turbo": "2.8.17",
+    "turbo": "2.9.6",
     "typescript": "^5.9.3",
-    "ultracite": "7.2.3",
+    "ultracite": "7.6.0",
     "vercel": "^50.23.2",
-    "vite": "^8.0.3",
-    "vitest": "^4.1.2"
+    "vite": "^8.0.8",
+    "vitest": "^4.1.4"
   },
   "engines": {
     "node": "22.x"
@@ -48,8 +49,11 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "@biomejs/biome",
+      "@jacobwolf/biome-unnecessary-effect",
       "@swc/core",
       "@tailwindcss/oxide",
+      "core-js",
+      "core-js-pure",
       "electron",
       "electron-winstaller",
       "esbuild",
@@ -57,13 +61,15 @@
       "onnxruntime-node",
       "oxc-resolver",
       "protobufjs",
+      "puppeteer",
       "sharp"
     ],
     "overrides": {
       "react": "^19.2.4",
       "react-dom": "^19.2.4",
       "react-helmet-async>react": "^19.0.0",
-      "react-helmet-async>react-dom": "^19.0.0"
+      "react-helmet-async>react-dom": "^19.0.0",
+      "webpack": "5.105.1"
     }
   },
   "scripts": {
