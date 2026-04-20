@@ -370,16 +370,13 @@ test.describe('Embedding Host Renderer', () => {
   }
 
   async function assertToolsPanelResponsive(page: Page): Promise<void> {
-    const assistantTab = page.getByRole('tab', { name: /assistant/i });
-    const databaseTab = page.getByRole('tab', { name: /database/i });
+    const assistantShell = page.getByTestId('assistant-chat-card');
+    const databaseToggle = page
+      .getByTestId('show-database-panel')
+      .or(page.getByTestId('hide-database-panel'));
 
-    await expect(assistantTab).toBeVisible({ timeout: 10_000 });
-    await assistantTab.click({ timeout: 5000 });
-    await expect(assistantTab).toHaveAttribute('data-state', 'active');
-
-    await expect(databaseTab).toBeVisible({ timeout: 10_000 });
-    await databaseTab.click({ timeout: 5000 });
-    await expect(databaseTab).toHaveAttribute('data-state', 'active');
+    await expect(assistantShell).toBeVisible({ timeout: 10_000 });
+    await expect(databaseToggle.first()).toBeVisible({ timeout: 10_000 });
   }
 
   async function getEmbeddingHostStatus(page: Page): Promise<EmbeddingHostStatus> {
@@ -3645,13 +3642,12 @@ test.describe('Embedding Host Renderer', () => {
     const createdOption = activeWindow.getByRole('option', { name: new RegExp(collectionName) });
     await expect(createdOption).toBeVisible({ timeout: 15_000 });
     await expect(createdOption).toHaveAttribute('aria-selected', 'true');
-    await expect(activeWindow.getByRole('tab', { name: /database/i })).toHaveAttribute(
-      'data-state',
-      'active'
-    );
+    await expect(activeWindow.locator('[data-testid="database-demo-panel"]')).toBeVisible({
+      timeout: 15_000,
+    });
   });
 
-  test('preserves backfill progress on the database button across tab switches', async ({
+  test('preserves backfill progress on the database button across drawer toggles', async ({
     electronHarness,
     window,
   }) => {
@@ -3698,17 +3694,13 @@ test.describe('Embedding Host Renderer', () => {
     );
     expect(initialProgress.total).toBe(fixture.totalChunks);
 
-    await activeWindow.getByRole('tab', { name: /assistant/i }).click({ timeout: 5000 });
-    await expect(activeWindow.getByRole('tab', { name: /assistant/i })).toHaveAttribute(
-      'data-state',
-      'active'
-    );
+    const hideDatabaseButton = activeWindow.getByTestId('hide-database-panel');
+    await expect(hideDatabaseButton).toBeVisible({ timeout: 10_000 });
+    await hideDatabaseButton.click({ timeout: 5000 });
+    await expect(activeWindow.getByTestId('assistant-chat-card')).toBeVisible({ timeout: 10_000 });
+    await expect(activeWindow.getByTestId('show-database-panel')).toBeVisible({ timeout: 10_000 });
 
-    await activeWindow.getByRole('tab', { name: /database/i }).click({ timeout: 5000 });
-    await expect(activeWindow.getByRole('tab', { name: /database/i })).toHaveAttribute(
-      'data-state',
-      'active'
-    );
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
 
     const remountedDatabasePanel = activeWindow.locator('[data-testid="database-demo-panel"]');
     const remountedBackfillButton = remountedDatabasePanel
@@ -6075,9 +6067,15 @@ test.describe('Embedding Host Renderer', () => {
     const before = await createTestBackfillJob(activeWindow);
     expect(await getJobStatus(activeWindow, before.jobId)).not.toBeNull();
 
-    const assistantTab = activeWindow.getByRole('tab', { name: /assistant/i });
-    await assistantTab.click({ timeout: 5000 });
-    await expect(assistantTab).toHaveAttribute('data-state', 'active');
+    const promptsNav = activeWindow
+      .getByRole('button', { name: /prompts/i })
+      .or(activeWindow.getByRole('link', { name: /prompts/i }))
+      .first();
+    await expect(promptsNav).toBeVisible({ timeout: 10_000 });
+    await promptsNav.click();
+    await expect(activeWindow.getByRole('heading', { name: /prompt library/i })).toBeVisible({
+      timeout: 15_000,
+    });
 
     activeWindow = await showDatabaseDemoPanel(activeWindow);
 

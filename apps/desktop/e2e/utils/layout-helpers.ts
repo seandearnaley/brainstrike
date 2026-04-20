@@ -135,37 +135,12 @@ export async function showDatabaseDemoPanel(
       }
     }
 
-    // Now navigate to the database tab within the tools panel
-    verboseLog('🗂️ Clicking database tab...');
-    const tabScope = rightPanel.locator('[role="tablist"]').first();
-    const databaseTab = tabScope
-      .locator('button[value="database"]')
-      .or(tabScope.locator('[data-value="database"]'))
-      .or(tabScope.getByRole('tab', { name: /db|database/i }))
-      .or(rightPanel.locator('button[value="database"]'));
-
-    await databaseTab
-      .first()
+    verboseLog('🗂️ Waiting for database drawer...');
+    await rightPanel
+      .locator('[data-testid="database-drawer"]')
       .waitFor({ state: 'visible', timeout: tabTimeoutMs })
       .catch(() => {
-        console.warn('⚠️ Database tab not visible yet; proceeding with click attempt.');
-      });
-    await databaseTab
-      .first()
-      .click()
-      .catch((clickError) => {
-        console.warn('⚠️ Failed to click database tab:', clickError);
-      });
-    const activeDatabaseTab = rightPanel
-      .locator('[role="tablist"] [role="tab"][data-state="active"]')
-      .filter({ hasText: /db|database/i })
-      .or(rightPanel.locator('button[value="database"][data-state="active"]'))
-      .or(rightPanel.locator('[data-value="database"][data-state="active"]'));
-    await activeDatabaseTab
-      .first()
-      .waitFor({ state: 'visible', timeout: tabTimeoutMs })
-      .catch(() => {
-        console.warn('⚠️ Database tab did not become active after click.');
+        console.warn('⚠️ Database drawer did not become visible after showing the right panel.');
       });
 
     // Wait for either the database demo panel OR the database error to be visible
