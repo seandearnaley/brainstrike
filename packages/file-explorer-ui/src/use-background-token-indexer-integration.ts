@@ -381,14 +381,17 @@ function reconcileInFlightOnShrink(params: {
   // but iterating only {A,C} would never touch B). Without this drain, the
   // worker keeps token-counting B even though the user has nothing
   // selected, wasting CPU and delaying UI recovery.
+  // ECMA-262 Set iteration is delete-safe during `for...of`, so we don't
+  // need to snapshot into an array first. Iterate the live Sets directly
+  // and drop any key that is no longer selected.
   let inFlightRemoved = 0;
-  for (const key of [...inFlight]) {
+  for (const key of inFlight) {
     if (!selectedFiles.has(key)) {
       inFlight.delete(key);
       inFlightRemoved++;
     }
   }
-  for (const key of [...pendingNoHandle]) {
+  for (const key of pendingNoHandle) {
     if (!selectedFiles.has(key)) {
       pendingNoHandle.delete(key);
     }
