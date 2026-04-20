@@ -16,6 +16,8 @@ interface DirectoryGroupIdentity {
   rootFolderId: string;
 }
 
+const DIRECTORY_GROUP_KEY_PREFIX = 'dg1';
+
 function normalizePathIdentity(inputPath: string): string {
   return stripTrailingSlashes(normalizeSeparators(inputPath));
 }
@@ -301,7 +303,7 @@ function joinRootFolderPath(args: {
 
 function getDirectoryGroupLabelFromIdentity(args: {
   identity: DirectoryGroupIdentity;
-  useCanonicalRootLabel?: boolean;
+  useCanonicalRootLabel?: boolean | undefined;
 }): string {
   const rootLabel = args.useCanonicalRootLabel
     ? getRootFolderDisplayName(args.identity.rootFolderId)
@@ -319,10 +321,42 @@ function getDirectoryGroupLabelFromIdentity(args: {
 }
 
 function serializeDirectoryGroupIdentity(identity: DirectoryGroupIdentity): string {
-  return JSON.stringify(identity);
+  return [
+    DIRECTORY_GROUP_KEY_PREFIX,
+    identity.allowExistingRootPrefix ? '1' : '0',
+    encodeURIComponent(identity.rootFolderId),
+    encodeURIComponent(identity.relativeDirPath),
+  ].join('|');
+}
+
+function parseEncodedDirectoryGroupIdentity(groupKey: string): DirectoryGroupIdentity | null {
+  const [prefix, allowExistingRootPrefix, rootFolderId, relativeDirPath] = groupKey.split('|');
+  if (
+    prefix !== DIRECTORY_GROUP_KEY_PREFIX ||
+    (allowExistingRootPrefix !== '0' && allowExistingRootPrefix !== '1') ||
+    rootFolderId === undefined ||
+    relativeDirPath === undefined
+  ) {
+    return null;
+  }
+
+  try {
+    return {
+      allowExistingRootPrefix: allowExistingRootPrefix === '1',
+      rootFolderId: decodeURIComponent(rootFolderId),
+      relativeDirPath: decodeURIComponent(relativeDirPath),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function parseDirectoryGroupIdentity(groupKey: string): DirectoryGroupIdentity {
+  const encodedIdentity = parseEncodedDirectoryGroupIdentity(groupKey);
+  if (encodedIdentity) {
+    return encodedIdentity;
+  }
+
   try {
     const parsed = JSON.parse(groupKey) as Partial<DirectoryGroupIdentity>;
     return {
@@ -400,12 +434,6 @@ export interface DirectoryGroupDisplayNameOptions {
 }
 
 export function getDirectoryGroupDisplayName(args: DirectoryGroupDisplayNameOptions): string {
-  if (args.useCanonicalRootLabel === undefined) {
-    return getDirectoryGroupLabelFromIdentity({
-      identity: parseDirectoryGroupIdentity(args.groupKey),
-    });
-  }
-
   return getDirectoryGroupLabelFromIdentity({
     identity: parseDirectoryGroupIdentity(args.groupKey),
     useCanonicalRootLabel: args.useCanonicalRootLabel,
