@@ -30,6 +30,26 @@ describe('FileRow', () => {
     expect(onDetail).toHaveBeenCalled();
   });
 
+  it('renders "0" (not N/A) when tokens is zero for an indexed empty file', () => {
+    // Regression for the falsy-zero bug: `item.tokens ? ... : 'N/A'` treated
+    // `0` as missing. An empty file that has been accurately tokenized should
+    // display "0", not "N/A". Use a distinct size format so getByText('0') is
+    // unambiguous (the size span would otherwise also render "0").
+    render(
+      <FileRow
+        formatFileSize={() => '0 B'}
+        isLoading={false}
+        isSelected={false}
+        item={{ ...baseItem, tokens: 0 }}
+        onRemove={() => {}}
+        onShowDetail={() => {}}
+        onToggleSelection={() => {}}
+      />
+    );
+    expect(screen.getByText('0')).toBeInTheDocument();
+    expect(screen.queryByText('N/A')).not.toBeInTheDocument();
+  });
+
   it('shows loading spinner when isLoading', () => {
     render(
       <FileRow

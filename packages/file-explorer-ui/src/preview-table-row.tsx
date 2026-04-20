@@ -97,12 +97,12 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
       )}
       {columnVisibility.tokens && (
         <td className="w-24 whitespace-nowrap px-4 py-2 text-right tabular-nums">
-          {item.tokens ? (
+          {item.tokens === undefined ? (
+            <span className="text-muted-foreground text-sm">—</span>
+          ) : (
             <span className="whitespace-nowrap font-mono text-sm tabular-nums">
               {formatTokenCount(item.tokens)}
             </span>
-          ) : (
-            <span className="text-muted-foreground text-sm">—</span>
           )}
         </td>
       )}
