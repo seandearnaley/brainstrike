@@ -172,6 +172,31 @@ describe('PreviewTableRow', () => {
     expect(cells.length).toBeGreaterThan(0);
   });
 
+  it('renders "0" (not em dash) when tokens are zero for an indexed empty file', () => {
+    // Empty files legitimately count to 0 tokens once indexed; rendering em
+    // dash here falsely suggests the count is still pending. See the
+    // context-explorer responsiveness fix that made the token cell use an
+    // explicit `undefined` check instead of a falsy check.
+    const emptyFileItem: TableRowData = { ...mockItem, tokens: 0 };
+
+    render(
+      <table>
+        <tbody>
+          <PreviewTableRow
+            columnVisibility={defaultColumnVisibility}
+            isSelected={false}
+            item={emptyFileItem}
+            onFileClick={mockOnFileClick}
+            onToggleSelection={mockOnToggleSelection}
+          />
+        </tbody>
+      </table>
+    );
+
+    expect(screen.getByText('0')).toBeInTheDocument();
+    expect(screen.queryByText('—')).not.toBeInTheDocument();
+  });
+
   it('renders em dash when size is undefined', () => {
     const { size: _size, ...rest } = mockItem;
     const itemWithoutSize = rest as TableRowData;
