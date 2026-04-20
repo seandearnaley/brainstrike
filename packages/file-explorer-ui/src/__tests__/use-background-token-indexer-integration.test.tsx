@@ -237,6 +237,46 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     expect(cancelIndexingMock).not.toHaveBeenCalled();
   });
 
+  it('still detects shrinks when an upstream caller mutates the selection Set in place', () => {
+    // Defensive hardening: `previousSelectedFilesRef` shallow-clones the
+    // incoming Set so reconcileInFlightOnShrink does not silently compare a
+    // Set against itself. Without the clone, if React's selection state were
+    // ever mutated in place (non-standard but possible via upstream bugs or
+    // future refactors), the ref and the prop would point to the same object,
+    // the diff loop would find zero removed keys, and the cancel/narrow path
+    // would never fire on a real shrink.
+    const mutableSelection = new Set([fileAKey, fileBKey]);
+    const { rerender } = renderHook(
+      (selectedFiles: Set<string>) =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: fileTreeRootA,
+          selectedFiles,
+          onTokenResolved: vi.fn(),
+        }),
+      {
+        initialProps: mutableSelection,
+      }
+    );
+
+    flushTimers();
+    expect(indexFilesMock).toHaveBeenCalledTimes(1);
+
+    // Mutate in place, then rerender with the same Set reference. Without the
+    // defensive clone this rerender would look like "no change" even though
+    // the user effectively dropped a selection.
+    mutableSelection.delete(fileBKey);
+    rerender(mutableSelection);
+    flushTimers();
+
+    // The remaining still-selected file (a.txt) must not trigger a fresh
+    // indexFiles dispatch, because it is already tracked from the first batch
+    // via inFlightRef. The prior implementation (bare reference store) would
+    // skip the narrow path entirely; the clone forces the reconciliation to
+    // correctly remove b.txt from inFlightRef without cancelling the batch.
+    expect(indexFilesMock).toHaveBeenCalledTimes(1);
+    expect(cancelIndexingMock).not.toHaveBeenCalled();
+  });
+
   it('prefetches file sizes into the hot cache before token indexing completes', () => {
     // Regression for context-explorer responsiveness: size metadata used to
     // only land in the hot cache after the background indexer finished token

@@ -450,7 +450,11 @@ function lookupSelectedFileSize(params: {
     const decoded = decodeFileSelection(compositeKey);
     folderId = decoded.folderId;
     selectionPath = decoded.path;
-  } catch {
+  } catch (error) {
+    logger.debug('Failed to decode compositeKey during size prefetch lookup', {
+      compositeKey,
+      error,
+    });
     return null;
   }
   // FileTreeIndex keys by raw tree paths (same as classification loop below),
@@ -463,7 +467,12 @@ function lookupSelectedFileSize(params: {
   let normalizedPath: string;
   try {
     normalizedPath = normalizeSelectionPathForTokenCache(folderId, selectionPath);
-  } catch {
+  } catch (error) {
+    logger.debug('Failed to normalize selection path during size prefetch lookup', {
+      folderId,
+      selectionPath,
+      error,
+    });
     return null;
   }
   return { folderId, normalizedPath, fileSize: handleInfo.fileSize };
@@ -1352,7 +1361,14 @@ export function useBackgroundTokenIndexerIntegration({
     const previousSize = previousSelectionSizeRef.current;
     const previousSelectedFiles = previousSelectedFilesRef.current;
     previousSelectionSizeRef.current = selectedFiles.size;
-    previousSelectedFilesRef.current = selectedFiles;
+    // Shallow-clone so `reconcileInFlightOnShrink` stays correct even if an
+    // upstream caller ever mutates the Set in place. Storing a bare reference
+    // would mean the "previous" and "next" Sets point at the same object on
+    // the next render, and the diff loop would find zero removed keys --
+    // silently skipping the narrow/cancel path. React selection state is
+    // replaced immutably today, but this ref persists across renders and the
+    // failure mode would be invisible, so we pay the tiny clone cost.
+    previousSelectedFilesRef.current = new Set(selectedFiles);
 
     if (selectedFiles.size < previousSize) {
       // Previously, any shrink cleared the entire in-flight set, which threw
