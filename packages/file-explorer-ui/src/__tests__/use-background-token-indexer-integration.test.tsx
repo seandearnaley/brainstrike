@@ -237,6 +237,75 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     expect(cancelIndexingMock).not.toHaveBeenCalled();
   });
 
+  it('prefetches file sizes into the hot cache before token indexing completes', () => {
+    // Regression for context-explorer responsiveness: size metadata used to
+    // only land in the hot cache after the background indexer finished token
+    // counting, so a shrinking/filter-churning selection would render `—` in
+    // the size column whenever indexing was gated (embedding active,
+    // adaptive debounce, worker busy). The decoupled prefetch effect writes
+    // any size the handle sources already know the instant selection
+    // changes, independent of token indexing.
+    const updateFileSizeCacheSpy = tokenCacheContext.updateFileSizeCache as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    updateFileSizeCacheSpy.mockClear();
+
+    mockFileTreeIndexContext = {
+      getHandle: vi.fn((folderId: string, path: string) => {
+        if (folderId !== 'root') {
+          return;
+        }
+        if (path === 'a.txt') {
+          return { fileName: 'a.txt', fileSize: 2048, webHandle };
+        }
+        if (path === 'b.txt') {
+          return { fileName: 'b.txt', fileSize: 4096, webHandle };
+        }
+        return;
+      }),
+      getNode: vi.fn(() => undefined),
+      stats: { totalDirectories: 0, totalFiles: 0, totalNodes: 0 },
+      version: 1,
+    };
+
+    renderHook(() =>
+      useBackgroundTokenIndexerIntegration({
+        fileTree: [],
+        selectedFiles: new Set([fileAKey, fileBKey]),
+        onTokenResolved: vi.fn(),
+      })
+    );
+
+    // Sizes should be written synchronously during the prefetch effect, i.e.
+    // without needing to flush the adaptive-debounce timer that gates
+    // triggerIndexing. Any regression here would delay size rendering until
+    // after token counting, which is the exact failure mode we're fixing.
+    expect(updateFileSizeCacheSpy).toHaveBeenCalledWith('root', 'a.txt', 2048);
+    expect(updateFileSizeCacheSpy).toHaveBeenCalledWith('root', 'b.txt', 4096);
+  });
+
+  it('does not write file sizes when no handle source knows the size', () => {
+    // When neither FileTreeIndex nor the local handle map has populated
+    // metadata (e.g. selection restored from storage before the tree loads),
+    // the prefetch effect must stay quiet rather than writing zeros or
+    // stale fallbacks. The persistent cache still has the authoritative size
+    // from the last session; any premature write here would clobber it.
+    const updateFileSizeCacheSpy = tokenCacheContext.updateFileSizeCache as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    updateFileSizeCacheSpy.mockClear();
+
+    renderHook(() =>
+      useBackgroundTokenIndexerIntegration({
+        fileTree: [],
+        selectedFiles: new Set([fileAKey]),
+        onTokenResolved: vi.fn(),
+      })
+    );
+
+    expect(updateFileSizeCacheSpy).not.toHaveBeenCalled();
+  });
+
   it('re-queues files when root folder changes even if selection size stays the same', () => {
     const { rerender } = renderHook(
       (props: { tree: typeof fileTreeRootA | typeof fileTreeRootB; selected: Set<string> }) =>

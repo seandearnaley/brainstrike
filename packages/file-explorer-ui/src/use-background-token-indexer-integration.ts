@@ -425,6 +425,50 @@ function handleSelectionShrink(params: {
   }
 }
 
+/**
+ * Look up the file size for `compositeKey` from the handle sources the
+ * indexing effect already consults -- `FileTreeIndex` first (O(1), shared
+ * across folders), then the local HandleInfo map built from the current
+ * tree. Returns `undefined` when neither source knows the size yet; the
+ * caller can re-run after the FileTreeIndex version bumps or the local map
+ * rebuilds.
+ *
+ * Extracted so the metadata-prefetch effect stays small and so it can be
+ * unit-tested without a full render. Parking compositeKey decoding /
+ * normalization here also means the effect body doesn't branch on path
+ * validity.
+ */
+function lookupSelectedFileSize(params: {
+  compositeKey: string;
+  getHandle: ((folderId: string, path: string) => HandleInfo | undefined) | undefined;
+  localMap: ReadonlyMap<string, HandleInfo>;
+}): { folderId: string; normalizedPath: string; fileSize: number } | null {
+  const { compositeKey, getHandle, localMap } = params;
+  let folderId: string;
+  let selectionPath: string;
+  try {
+    const decoded = decodeFileSelection(compositeKey);
+    folderId = decoded.folderId;
+    selectionPath = decoded.path;
+  } catch {
+    return null;
+  }
+  // FileTreeIndex keys by raw tree paths (same as classification loop below),
+  // so use selectionPath here and only normalize once we're committing to a
+  // cache write.
+  const handleInfo = getHandle?.(folderId, selectionPath) ?? localMap.get(compositeKey);
+  if (!handleInfo || typeof handleInfo.fileSize !== 'number') {
+    return null;
+  }
+  let normalizedPath: string;
+  try {
+    normalizedPath = normalizeSelectionPathForTokenCache(folderId, selectionPath);
+  } catch {
+    return null;
+  }
+  return { folderId, normalizedPath, fileSize: handleInfo.fileSize };
+}
+
 function getSelectionSkipState(params: {
   hasHandleSource: boolean;
   isEmbeddingActive: boolean;
@@ -1276,6 +1320,34 @@ export function useBackgroundTokenIndexerIntegration({
   // Uses refs to avoid re-render loops while still accessing latest values
   const tokenCacheIsOperational = tokenCache?.isOperational ?? false;
   const tokenCacheIsPersisted = tokenCache?.isPersisted ?? false;
+
+  // Prefetch file sizes into the hot cache as soon as the selection and
+  // handle sources know them. Previously sizes were only written after the
+  // background token indexer finished a batch, so any time the indexing path
+  // was gated (embedding active, adaptive debounce, large queue) the
+  // context-explorer column rendered `—` for size even though the tree
+  // already had the value. Writes are idempotent (use-token-cache no-ops when
+  // the value matches) so re-running on every selection change is cheap.
+  // biome-ignore lint/plugin: Intentional side effect to populate hot cache from known handle sources
+  useEffect(() => {
+    const cache = tokenCacheRef.current;
+    if (!cache?.isOperational || selectedFiles.size === 0) {
+      return;
+    }
+    const getHandle = indexGetHandleRef.current;
+    const localMap = fileHandleMapRef.current;
+    if (!getHandle && localMap.size === 0) {
+      return;
+    }
+    for (const compositeKey of selectedFiles) {
+      const lookup = lookupSelectedFileSize({ compositeKey, getHandle, localMap });
+      if (!lookup) {
+        continue;
+      }
+      cache.updateFileSizeCache(lookup.folderId, lookup.normalizedPath, lookup.fileSize);
+    }
+  }, [selectedFiles, tokenCacheIsOperational, fileHandleMapSize, indexVersion]);
+
   useEffect(() => {
     const indexer = backgroundIndexerRef.current;
     const previousSize = previousSelectionSizeRef.current;
