@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AssistantTab } from '../assistant-tab';
+import { AssistantChatPanel } from '../assistant-chat-panel';
 
 vi.mock('../hooks/use-assistant-availability-with-local', () => ({
   useAssistantAvailabilityWithLocal: vi.fn(),
@@ -20,7 +20,7 @@ import { useAssistantAvailabilityWithLocal } from '../hooks/use-assistant-availa
 
 const useAssistantAvailabilityWithLocalMock = vi.mocked(useAssistantAvailabilityWithLocal);
 
-describe('AssistantTab', () => {
+describe('AssistantChatPanel', () => {
   beforeEach(() => {
     useAssistantAvailabilityWithLocalMock.mockReset();
   });
@@ -28,7 +28,7 @@ describe('AssistantTab', () => {
   it('shows loading indicator while fetching status', () => {
     useAssistantAvailabilityWithLocalMock.mockReturnValue({ state: 'loading' });
 
-    render(<AssistantTab />);
+    render(<AssistantChatPanel />);
 
     expect(screen.getByText('Checking assistant availability…')).toBeInTheDocument();
   });
@@ -39,7 +39,7 @@ describe('AssistantTab', () => {
       reason: 'no_provider',
     });
 
-    render(<AssistantTab />);
+    render(<AssistantChatPanel />);
 
     expect(screen.getByText('Assistant disabled')).toBeInTheDocument();
     expect(screen.getByText(/Reason: no_provider/)).toBeInTheDocument();
@@ -48,7 +48,7 @@ describe('AssistantTab', () => {
   it('renders error callout when status fetch fails', () => {
     useAssistantAvailabilityWithLocalMock.mockReturnValue({ state: 'error', message: 'boom' });
 
-    render(<AssistantTab />);
+    render(<AssistantChatPanel />);
 
     expect(screen.getByText('Assistant unavailable')).toBeInTheDocument();
     expect(screen.getByText('boom')).toBeInTheDocument();
@@ -57,7 +57,7 @@ describe('AssistantTab', () => {
   it('shows assistant UI when enabled', async () => {
     useAssistantAvailabilityWithLocalMock.mockReturnValue({ state: 'enabled' });
 
-    render(<AssistantTab />);
+    render(<AssistantChatPanel />);
 
     expect(screen.getByText('MCP banner')).toBeInTheDocument();
     expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();

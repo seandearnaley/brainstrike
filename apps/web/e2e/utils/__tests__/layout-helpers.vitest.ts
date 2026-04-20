@@ -96,5 +96,6 @@ describe('layout-helpers (unit)', () => {
     await resetLayoutState(page);
     expect(page.reload).toHaveBeenCalled();
     expect(evalCalls.join('\n')).toContain('panel-layout-store.v1');
+    expect(evalCalls.join('\n')).toContain('context-explorer-layout-store.v1');
   });
 });

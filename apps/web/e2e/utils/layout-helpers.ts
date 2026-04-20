@@ -85,7 +85,9 @@ export function getPanelElements(page: Page): PanelElements {
   return {
     // Main panels - v4 uses id attribute for panel identification
     leftPanel: page.locator('#explorer-panel, [data-panel-id="explorer-panel"]'),
-    rightPanel: page.locator('#tools-panel, [data-panel-id="tools-panel"]'),
+    rightPanel: page.locator(
+      '#agent-workspace-tools-panel, #tools-panel, [data-panel-id="agent-workspace-tools-panel"], [data-panel-id="tools-panel"]'
+    ),
     consolePanel: page.locator(
       '#console-panel, #console-panel-horizontal, [data-panel-id="console-panel"], [data-panel-id="console-panel-horizontal"]'
     ),
@@ -94,12 +96,16 @@ export function getPanelElements(page: Page): PanelElements {
 
     // Hide buttons (when panels are open)
     hideExplorerButton: page.locator('[data-testid="hide-explorer-panel"]'),
-    hideRightPanelButton: page.locator('[data-testid="hide-tools-panel"]'),
+    hideRightPanelButton: page.locator(
+      '[data-testid="hide-database-panel"], [data-testid="hide-tools-panel"]'
+    ),
     hideConsoleButton: page.locator('[data-testid="hide-console-panel"]'),
 
     // Show shims (when panels are closed)
     showExplorerShim: page.locator('[data-testid="show-explorer-panel"]'),
-    showRightPanelShim: page.locator('[data-testid="show-tools-panel"]'),
+    showRightPanelShim: page.locator(
+      '[data-testid="show-database-panel"], [data-testid="show-tools-panel"]'
+    ),
     showConsoleShim: page.locator('[data-testid="show-console-panel"]'),
   };
 }
@@ -120,19 +126,21 @@ export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promi
     await showShim.first().click();
   } else {
     const showButton = page
-      .locator('button[aria-label="Show tools panel"]')
+      .locator('button[aria-label="Show database panel"]')
+      .or(page.getByRole('button', { name: 'Show database panel' }))
+      .or(page.locator('button[aria-label="Show tools panel"]'))
       .or(page.getByRole('button', { name: 'Show tools panel' }));
 
     if ((await showButton.count()) > 0) {
       await showButton.first().click();
     } else {
-      logWarn('Unable to find "Show tools panel" control; assuming panel is already visible.');
+      logWarn('Unable to find right-panel show control; assuming panel is already visible.');
       return;
     }
   }
 
   await elements.rightPanel.waitFor({ state: 'visible', timeout }).catch(() => {
-    logWarn('Tools panel did not become visible after requesting to show it.');
+    logWarn('Right panel did not become visible after requesting to show it.');
   });
 }
 
@@ -301,6 +309,7 @@ export async function activateSidebarNavigation(
 export async function resetLayoutState(page: Page): Promise<void> {
   await page.evaluate(() => {
     localStorage.removeItem('panel-layout-store.v1');
+    localStorage.removeItem('context-explorer-layout-store.v1');
   });
   // Wait for the page to finish navigating before continuing.
   // Using 'load' to ensure JS bundles are loaded before checking React elements.
@@ -338,6 +347,7 @@ export async function togglePanelVisibility(
 export async function corruptLayoutStorage(page: Page): Promise<void> {
   await page.evaluate(() => {
     localStorage.setItem('panel-layout-store.v1', 'invalid-json');
+    localStorage.setItem('context-explorer-layout-store.v1', 'invalid-json');
   });
 }
 

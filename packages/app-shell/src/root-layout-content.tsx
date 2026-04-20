@@ -5,6 +5,7 @@ import {
   useFileSystem,
 } from '@brainstrike/file-explorer-ui';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
+import { useContextExplorerLayoutStore } from '@brainstrike/preferences/stores/context-explorer-layout-store';
 import {
   type PanelTab,
   usePanelLayoutStore,
@@ -22,67 +23,33 @@ import {
   useState,
 } from 'react';
 import { shallow } from 'zustand/shallow';
+import { AgentWorkspaceLayout } from './agent-workspace-layout';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
+import { AssistantChatPanel } from './assistant-chat-panel';
 import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
-import { ToolsPanel } from './tools-panel';
+import { DatabaseDrawer } from './database-drawer';
+import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
 
-/**
- * Wrapper that provides shared file tree state to all explorer panels.
- * This ensures that when expand-all completes in the left panel,
- * the middle panel and tabbed editor panel see the same updated tree
- * for file content loading.
- *
- * Note: The workspace filter function is handled internally by useFileExplorer
- * which creates its own filterTreeFn. This wrapper just provides the shared
- * tree state without the filter function since it can't access the store context.
- */
-function FileTreeWrapper({
-  children,
-  chunkingMode,
-}: {
-  children: ReactNode;
-  chunkingMode: 'host-proxy' | 'local';
-}): ReactElement {
+function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
   const { rootDirectoryHandle } = useFileSystem();
   return (
-    <ChunkingWorkerProvider autoStart={false} mode={chunkingMode}>
-      <EmbeddingRuntimeProvider>
-        <FileTreeProvider rootDirectoryHandle={rootDirectoryHandle}>
-          <WorkspaceCollectionSyncProvider>{children}</WorkspaceCollectionSyncProvider>
-        </FileTreeProvider>
-      </EmbeddingRuntimeProvider>
-    </ChunkingWorkerProvider>
+    <FileTreeProvider rootDirectoryHandle={rootDirectoryHandle}>
+      <WorkspaceCollectionSyncProvider>{children}</WorkspaceCollectionSyncProvider>
+    </FileTreeProvider>
   );
 }
 
 export interface RootLayoutContentProps {
+  readonly contextExplorerLeftPanelContent?: ReactNode;
+  readonly contextExplorerPageContent: ReactNode;
   readonly databaseTabChunkingMode?: 'host-proxy' | 'local';
-  readonly homePageContent: ReactNode;
-
-  /**
-   * Optional custom left panel content.
-   * If not provided, defaults to FileExplorerLeftPanel.
-   * Use this to wrap the left panel with app-specific providers (e.g., TokenCacheProvider).
-   */
-  readonly leftPanelContent?: ReactNode;
   /**
    * CRITICAL: Lazy loader for the app-specific embedding queue adapter.
    *
-   * The queue module is defined at the app entry point:
-   * - Desktop: apps/desktop/src/renderer/create-embedding-queue.ts
-   * - Web: apps/web/src/create-embedding-queue.ts
-   *
-   * The loader is passed down from here to:
-   * - ToolsPanel → DatabaseTab → DatabaseDemoPanel (embedding controls and import operations)
-   * so startup does not eagerly construct the workerpool-backed embedding runtime
-   * before the database tools are actually opened.
-   *
-   * DO NOT remove this prop path! It's critical for:
-   * - Embedding set management UI
-   * - File import embedding generation
-   * - Vector search operations
+   * This loader is the single source of truth for app-wide database tooling:
+   * RootLayoutContent → DatabaseDrawer → DatabaseTab → DatabaseDemoPanel.
    */
   readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
   readonly navigationItems: NavigationItem[];
@@ -100,18 +67,125 @@ function resolveActiveTabForPath(path: string): PanelTab {
   return NAV_PATH_TO_TAB[path] ?? 'explorer';
 }
 
+function useDebouncedPanelLayoutChange<T extends PanelLayoutState>(options: {
+  readonly panelState: T;
+  readonly setState: (next: T) => void;
+}) {
+  const { panelState, setState } = options;
+  const sizesRef = useRef(panelState.sizes);
+  const sizeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  sizesRef.current = panelState.sizes;
+
+  const cleanupSizeDebounce = useCallback(() => {
+    if (sizeDebounceRef.current) {
+      clearTimeout(sizeDebounceRef.current);
+    }
+  }, []);
+
+  useEffect(() => cleanupSizeDebounce, [cleanupSizeDebounce]);
+
+  return useCallback(
+    (state: PanelLayoutState) => {
+      const fallback = sizesRef.current;
+      const nextSizes = [
+        (state.sizes?.[0] as number | undefined) ?? fallback[0],
+        (state.sizes?.[1] as number | undefined) ?? fallback[1],
+        (state.sizes?.[2] as number | undefined) ?? fallback[2],
+      ] as [number, number, number];
+
+      const booleansChanged =
+        state.showConsole !== panelState.showConsole ||
+        state.showLeftPanel !== panelState.showLeftPanel ||
+        state.showRightPanel !== panelState.showRightPanel;
+
+      if (booleansChanged) {
+        if (sizeDebounceRef.current) {
+          clearTimeout(sizeDebounceRef.current);
+          sizeDebounceRef.current = null;
+        }
+        setState({
+          ...(panelState as T),
+          sizes: nextSizes,
+          showConsole: state.showConsole,
+          showLeftPanel: state.showLeftPanel,
+          showRightPanel: state.showRightPanel,
+        });
+        return;
+      }
+
+      if (sizeDebounceRef.current) {
+        clearTimeout(sizeDebounceRef.current);
+      }
+      sizeDebounceRef.current = setTimeout(() => {
+        sizeDebounceRef.current = null;
+        setState({
+          ...(panelState as T),
+          sizes: nextSizes,
+          showConsole: state.showConsole,
+          showLeftPanel: state.showLeftPanel,
+          showRightPanel: state.showRightPanel,
+        });
+      }, 150);
+    },
+    [panelState, setState]
+  );
+}
+
+function ContextExplorerSurface({
+  contextExplorerLeftPanelContent,
+  contextExplorerPageContent,
+}: {
+  readonly contextExplorerLeftPanelContent?: ReactNode;
+  readonly contextExplorerPageContent: ReactNode;
+}): ReactElement {
+  const setState = useContextExplorerLayoutStore((state) => state.setState);
+  const panelState = useContextExplorerLayoutStore(
+    (state) => ({
+      sizes: state.sizes,
+      showConsole: state.showConsole,
+      showLeftPanel: state.showLeftPanel,
+      showRightPanel: state.showRightPanel,
+    }),
+    shallow
+  );
+  const handlePanelLayoutChange = useDebouncedPanelLayoutChange({
+    panelState,
+    setState,
+  });
+  const resolvedLeftPanelContent = useMemo(
+    () => contextExplorerLeftPanelContent ?? <FileExplorerLeftPanel />,
+    [contextExplorerLeftPanelContent]
+  );
+  const consoleContent = useMemo(() => <TabbedFileEditorPanel className="h-full" />, []);
+
+  return (
+    <FileTreeWrapper>
+      <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
+        <IdeLayout
+          consoleContent={consoleContent}
+          leftPanelContent={resolvedLeftPanelContent}
+          rightPanelContent={null}
+        >
+          {contextExplorerPageContent}
+        </IdeLayout>
+      </PanelLayoutProvider>
+    </FileTreeWrapper>
+  );
+}
+
 export function RootLayoutContent({
-  homePageContent,
+  contextExplorerPageContent,
+  contextExplorerLeftPanelContent,
   settingsPageContent,
   promptsPageContent,
   navigationItems,
-  leftPanelContent,
   loadEmbeddingQueue = null,
   databaseTabChunkingMode = 'local',
   preloadDatabaseTabOnMount = false,
 }: RootLayoutContentProps): ReactElement {
-  const activeTab = usePanelLayoutStore((s) => s.activeTab);
-  const setState = usePanelLayoutStore((s) => s.setState);
+  const activeTab = usePanelLayoutStore((state) => state.activeTab);
+  const setState = usePanelLayoutStore((state) => state.setState);
   const appConfig = useMemo(() => createAppConfig({ navigationItems }), [navigationItems]);
   const [mountedTabs, setMountedTabs] = useState<{
     prompts: boolean;
@@ -138,111 +212,59 @@ export function RootLayoutContent({
     [setState]
   );
 
-  // CRITICAL: Pass loadEmbeddingQueue to ToolsPanel
-  // The queue flows:
-  // - RootLayoutContent → ToolsPanel → DatabaseTab → DatabaseDemoPanel (embedding controls and import operations)
-  const rightPanelContent = useMemo(
-    () => (
-      <ToolsPanel
-        chunkingMode={databaseTabChunkingMode}
-        loadEmbeddingQueue={loadEmbeddingQueue}
-        preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-      />
-    ),
-    [databaseTabChunkingMode, loadEmbeddingQueue, preloadDatabaseTabOnMount]
-  );
-
-  // Memoize panel content elements so resize drags don't bust IdeLayout's React.memo.
-  // Without this, every panelState.sizes change (60fps during drag) creates new JSX
-  // element references → IdeLayout re-renders → FileExplorerLeftPanel and
-  // TabbedFileEditorPanel fully re-render on every frame.
-  const resolvedLeftPanelContent = useMemo(
-    () => leftPanelContent ?? <FileExplorerLeftPanel />,
-    [leftPanelContent]
-  );
-  const consoleContent = useMemo(() => <TabbedFileEditorPanel className="h-full" />, []);
-
-  // Controlled panel layout state from store
-  // shallow equality prevents re-renders when the selected values haven't changed
   const panelState = usePanelLayoutStore(
-    (s) => ({
-      sizes: s.sizes,
-      showConsole: s.showConsole,
-      showLeftPanel: s.showLeftPanel,
-      showRightPanel: s.showRightPanel,
+    (state) => ({
+      sizes: state.sizes,
+      showConsole: state.showConsole,
+      showLeftPanel: state.showLeftPanel,
+      showRightPanel: state.showRightPanel,
     }),
     shallow
   );
+  const handlePanelLayoutChange = useDebouncedPanelLayoutChange({
+    panelState,
+    setState,
+  });
 
-  // Use a ref for sizes fallback to avoid recreating this callback on every resize drag frame.
-  const sizesRef = useRef(panelState.sizes);
-  sizesRef.current = panelState.sizes;
-
-  // Trailing-edge debounce: during panel drag, react-resizable-panels manages layout
-  // visually via CSS (defaultLayout, not controlled). The Zustand update is purely for
-  // persistence. Deferring it to drag-end avoids a re-render cascade on every frame:
-  // setState → panelState changes → RootLayoutContent re-renders → PanelLayoutProvider
-  // creates new context → IdeLayout re-renders.
-  const sizeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // The useCallback + named cleanup-ref pattern is intentional: the more obvious
-  // `useEffect(() => () => clearTimeout(...), [])` form gets auto-collapsed by
-  // ultracite into a concise arrow that then trips the biome plugin rule
-  // `noStateAsHandler` ("Avoid using state as an event handler"). Keeping the
-  // cleanup as a stable named function avoids that lint false-positive without
-  // any runtime cost (`useCallback([])` returns a singleton).
-  const cleanupSizeDebounce = useCallback(() => {
-    if (sizeDebounceRef.current) {
-      clearTimeout(sizeDebounceRef.current);
-    }
-  }, []);
-
-  useEffect(() => cleanupSizeDebounce, [cleanupSizeDebounce]);
-
-  const handlePanelLayoutChange = useCallback(
-    (state: PanelLayoutState) => {
-      const fallback = sizesRef.current;
-      const nextSizes = [
-        (state.sizes?.[0] as number | undefined) ?? fallback[0],
-        (state.sizes?.[1] as number | undefined) ?? fallback[1],
-        (state.sizes?.[2] as number | undefined) ?? fallback[2],
-      ] as [number, number, number];
-
-      // Boolean toggles (show/hide panel) are committed immediately for instant feedback.
-      const booleansChanged =
-        state.showConsole !== panelState.showConsole ||
-        state.showLeftPanel !== panelState.showLeftPanel ||
-        state.showRightPanel !== panelState.showRightPanel;
-
-      if (booleansChanged) {
-        if (sizeDebounceRef.current) {
-          clearTimeout(sizeDebounceRef.current);
-          sizeDebounceRef.current = null;
-        }
-        setState({
-          sizes: nextSizes,
-          showConsole: state.showConsole,
-          showLeftPanel: state.showLeftPanel,
-          showRightPanel: state.showRightPanel,
-        });
-        return;
-      }
-
-      // Size-only updates are debounced (trailing edge, 150ms after last drag frame).
-      if (sizeDebounceRef.current) {
-        clearTimeout(sizeDebounceRef.current);
-      }
-      sizeDebounceRef.current = setTimeout(() => {
-        sizeDebounceRef.current = null;
-        setState({
-          sizes: nextSizes,
-          showConsole: state.showConsole,
-          showLeftPanel: state.showLeftPanel,
-          showRightPanel: state.showRightPanel,
-        });
-      }, 150);
-    },
-    [setState, panelState.showConsole, panelState.showLeftPanel, panelState.showRightPanel]
+  const appSurfaceContent = useMemo(
+    () => (
+      <>
+        <div
+          aria-hidden={activeTab !== 'explorer'}
+          className={cn('h-full', activeTab !== 'explorer' && 'hidden')}
+          data-testid="explorer-section"
+        >
+          <ContextExplorerSurface
+            contextExplorerLeftPanelContent={contextExplorerLeftPanelContent}
+            contextExplorerPageContent={contextExplorerPageContent}
+          />
+        </div>
+        <div
+          aria-hidden={activeTab !== 'prompts'}
+          className={cn('h-full', activeTab !== 'prompts' && 'hidden')}
+          data-testid="prompts-section"
+        >
+          {mountedTabs.prompts ? promptsPageContent : null}
+        </div>
+        <div
+          aria-hidden={activeTab !== 'settings'}
+          className={cn('h-full', activeTab !== 'settings' && 'hidden')}
+          data-testid="settings-section"
+        >
+          {mountedTabs.settings ? settingsPageContent : null}
+        </div>
+      </>
+    ),
+    [
+      activeTab,
+      contextExplorerLeftPanelContent,
+      contextExplorerPageContent,
+      databaseTabChunkingMode,
+      mountedTabs.prompts,
+      mountedTabs.settings,
+      promptsPageContent,
+      settingsPageContent,
+    ]
   );
 
   return (
@@ -251,40 +273,24 @@ export function RootLayoutContent({
       currentPath={activeTab === 'explorer' ? '/' : `/${activeTab}`}
       onNavigationClick={handleNavigationClick}
     >
-      {/* All panels rendered simultaneously with CSS visibility toggling to preserve state */}
-      <div
-        aria-hidden={activeTab !== 'explorer'}
-        className={cn('h-full', activeTab !== 'explorer' && 'hidden')}
-        data-testid="explorer-section"
-      >
-        {/* FileTreeWrapper provides shared file tree state to all explorer panels.
-            This ensures expand-all updates are seen by all panels for file content loading. */}
-        <FileTreeWrapper chunkingMode={databaseTabChunkingMode}>
+      <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
+        <EmbeddingRuntimeProvider>
           <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
-            <IdeLayout
-              consoleContent={consoleContent}
-              leftPanelContent={resolvedLeftPanelContent}
-              rightPanelContent={rightPanelContent}
-            >
-              {homePageContent}
-            </IdeLayout>
+            <AgentWorkspaceLayout
+              appSurfaceContent={appSurfaceContent}
+              assistantContent={<AssistantChatPanel />}
+              databaseDrawerContent={
+                <DatabaseDrawer
+                  chunkingMode={databaseTabChunkingMode}
+                  loadEmbeddingQueue={loadEmbeddingQueue}
+                  preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                />
+              }
+              threadsContent={<ThreadsPanel />}
+            />
           </PanelLayoutProvider>
-        </FileTreeWrapper>
-      </div>
-      <div
-        aria-hidden={activeTab !== 'prompts'}
-        className={cn('h-full', activeTab !== 'prompts' && 'hidden')}
-        data-testid="prompts-section"
-      >
-        {mountedTabs.prompts ? promptsPageContent : null}
-      </div>
-      <div
-        aria-hidden={activeTab !== 'settings'}
-        className={cn('h-full', activeTab !== 'settings' && 'hidden')}
-        data-testid="settings-section"
-      >
-        {mountedTabs.settings ? settingsPageContent : null}
-      </div>
+        </EmbeddingRuntimeProvider>
+      </ChunkingWorkerProvider>
     </AppLayout>
   );
 }

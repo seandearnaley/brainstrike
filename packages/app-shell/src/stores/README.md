@@ -2,7 +2,7 @@
 
 This folder contains lightweight Zustand slices used by the app shell. Slices are persisted with storage adapters that work in browser and tests.
 
-- `tools-panel-store.ts`: Tools panel active tab.
+- `context-explorer-layout-store.ts`: Route-local context explorer panel layout.
 - `search-panel-store.ts`: Search tab filters (query/regex/case/whole-word/globs).
 - `db-panel-store.ts`: Database tab UI (active subtab, paging, sort, filter).
 - `import-settings-store.ts`: Database import settings (chunking + embeddings).

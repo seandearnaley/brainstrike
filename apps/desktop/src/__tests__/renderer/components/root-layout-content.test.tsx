@@ -4,7 +4,6 @@ import React from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let RootLayoutContent: React.ComponentType;
-let activeToolsTab: 'assistant' | 'database' = 'assistant';
 
 const { loggerInfoMock } = vi.hoisted(() => ({
   loggerInfoMock: vi.fn(),
@@ -96,26 +95,15 @@ vi.mock('@brainstrike/app-shell', () => ({
   ConnectedPromptManager: () => <div data-testid="connected-prompt-manager" />,
 }));
 
-vi.mock('@brainstrike/app-shell/stores/tools-panel-store', () => ({
-  toolsPanelSelectors: {
-    activeTab: (state: { activeTab: 'assistant' | 'database' }) => state.activeTab,
-  },
-  useToolsPanelStore: (selector: (state: { activeTab: 'assistant' | 'database' }) => unknown) =>
-    selector({ activeTab: activeToolsTab }),
-}));
-
 vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
   RootLayoutContent: ({
-    sidebarContent,
-    homePageContent,
+    contextExplorerPageContent,
   }: {
-    sidebarContent?: React.ReactNode;
-    homePageContent: React.ReactNode;
+    contextExplorerPageContent: React.ReactNode;
   }) => (
     <div data-testid="file-explorer-provider">
       <div data-testid="app-layout">
-        {sidebarContent && <aside>{sidebarContent}</aside>}
-        <main>{homePageContent}</main>
+        <main>{contextExplorerPageContent}</main>
       </div>
     </div>
   ),
@@ -137,9 +125,9 @@ function MockHomePage() {
     </div>
   );
 }
-vi.mock('../../../renderer/components/home-page-content', () => ({
+vi.mock('../../../renderer/components/context-explorer-page-content', () => ({
   default: MockHomePage,
-  DesktopFileExplorerLeftPanel: () => (
+  DesktopContextExplorerLeftPanel: () => (
     <div data-testid="desktop-file-explorer-left-panel">Left Panel</div>
   ),
 }));
@@ -196,7 +184,6 @@ describe('RootLayoutContent', () => {
   beforeEach(() => {
     currentDb = null;
     homeMountCount = 0;
-    activeToolsTab = 'assistant';
     vi.clearAllMocks();
   });
 

@@ -47,13 +47,19 @@ async function ensureExplorerVisible(page: Page): Promise<void> {
 export async function ensureToolsPanelVisible(page: Page): Promise<Locator> {
   await ensureExplorerVisible(page);
   // Use id selector for react-resizable-panels v4 compatibility
-  const rightPanel = page.locator('#tools-panel');
+  const rightPanel = page.locator('#agent-workspace-tools-panel, #tools-panel');
   const showRightPanelButton = page
-    .locator('[data-testid="show-tools-panel"]')
+    .locator('[data-testid="show-database-panel"]')
+    .or(page.locator('[data-testid="show-tools-panel"]'))
+    .or(page.getByRole('button', { name: 'Show database panel' }))
+    .or(page.locator('button[aria-label="Show database panel"]'))
     .or(page.getByRole('button', { name: 'Show tools panel' }))
     .or(page.locator('button[aria-label="Show tools panel"]'));
   const hideRightPanelButton = page
-    .locator('[data-testid="hide-tools-panel"]')
+    .locator('[data-testid="hide-database-panel"]')
+    .or(page.locator('[data-testid="hide-tools-panel"]'))
+    .or(page.getByRole('button', { name: 'Hide database panel' }))
+    .or(page.locator('button[aria-label="Hide database panel"]'))
     .or(page.getByRole('button', { name: 'Hide tools panel' }))
     .or(page.locator('button[aria-label="Hide tools panel"]'));
 
@@ -78,6 +84,15 @@ export async function ensureToolsPanelVisible(page: Page): Promise<Locator> {
   });
 
   return rightPanel;
+}
+
+export async function ensureAssistantShellVisible(page: Page): Promise<Locator> {
+  await ensureExplorerVisible(page);
+  const assistantShell = page.locator('[data-testid="assistant-chat-card"]');
+  await assistantShell.waitFor({ state: 'visible', timeout: 12_000 }).catch(() => {
+    console.warn('⚠️ Assistant shell did not become visible.');
+  });
+  return assistantShell;
 }
 
 /**

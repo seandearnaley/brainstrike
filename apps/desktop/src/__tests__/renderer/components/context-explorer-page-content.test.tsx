@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
-import HomePageContent from '../../../renderer/components/home-page-content';
+import ContextExplorerPageContent from '../../../renderer/components/context-explorer-page-content';
 
 // Mock the file explorer components
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
@@ -33,14 +33,14 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
   ),
 }));
 
-describe('HomePageContent', () => {
+describe('ContextExplorerPageContent', () => {
   it('should render without crashing', () => {
-    render(<HomePageContent />);
+    render(<ContextExplorerPageContent />);
     expect(screen.getByTestId('file-explorer-middle-panel-tabbed')).toBeInTheDocument();
   });
 
   it('should set correct page title', () => {
-    render(<HomePageContent />);
+    render(<ContextExplorerPageContent />);
     // Note: In a real test environment, you might want to test the actual title
     // For now, we'll just ensure the component renders
     expect(screen.getByTestId('file-explorer-middle-panel-tabbed')).toBeInTheDocument();
@@ -48,12 +48,12 @@ describe('HomePageContent', () => {
 
   it('should render loading fallback when suspended', () => {
     // This test would be more complex in a real scenario with actual Suspense
-    render(<HomePageContent />);
+    render(<ContextExplorerPageContent />);
     expect(screen.getByTestId('file-explorer-middle-panel-tabbed')).toBeInTheDocument();
   });
 
   it('should render DesktopFileExplorer component', () => {
-    render(<HomePageContent />);
+    render(<ContextExplorerPageContent />);
     expect(screen.getByTestId('file-explorer-middle-panel-tabbed')).toBeInTheDocument();
   });
 });

@@ -1,7 +1,7 @@
 /**
  * Panel Layout Store
  *
- * Canonical source of truth for IDE panel layout and root tab state.
+ * Canonical source of truth for the app-wide agent shell layout and root tab state.
  * - sizes: [left, right, console] as percentages (0..100), normalized on write
  * - visibility flags: showLeftPanel/showRightPanel/showConsole
  * - activeTab: 'explorer' | 'settings' | 'prompts'
@@ -38,8 +38,8 @@ export interface PanelLayoutStoreState {
 
 /**
  * Default panel sizes: [leftPanel, rightPanel, consolePanel]
- * - leftPanel (explorer): 25% of horizontal space
- * - rightPanel (tools): 20% of horizontal space
+ * - leftPanel (agent workspace): 25% of horizontal space
+ * - rightPanel (database drawer): 20% of horizontal space
  * - consolePanel: 20% of vertical space (when visible)
  *
  * Note: The middle panel size is calculated dynamically as: 100 - left - right
@@ -55,9 +55,8 @@ const DEFAULT_STATE: Omit<
   activeTab: 'explorer',
 };
 
-// Note: The '.v1' suffix is a storage key identifier, not a schema version.
-// Schema versioning is handled by the persist middleware's `version` field.
 const STORE_NAME = 'panel-layout-store.v1' as const;
+const STORE_VERSION = 3 as const;
 
 /**
  * Minimum panel sizes to prevent corrupted tiny values.
@@ -144,7 +143,7 @@ function createAdapterPersistStorage(storage: StorageAdapter): PersistStorage<Pe
     // The fallback storage stays synchronous for direct localStorage environments.
     getItem: async (name: string) => {
       const state = parsePersistedPanelState(await storage.getItem(name));
-      return state ? { state, version: 2 } : null;
+      return state ? { state, version: STORE_VERSION } : null;
     },
     setItem: async (name: string, value) => {
       await storage.setItem(name, JSON.stringify(value));
@@ -198,7 +197,7 @@ function createFallbackPersistStorage(): PersistStorage<PersistedPanelState> {
   return {
     getItem: (name: string) => {
       const state = parsePersistedPanelState(readRaw(name));
-      return state ? { state, version: 2 } : null;
+      return state ? { state, version: STORE_VERSION } : null;
     },
     setItem: (name: string, value) => {
       writeRaw(name, JSON.stringify(value));
@@ -214,7 +213,7 @@ function persistOptions(
 ): PersistOptions<PanelLayoutStoreState, PersistedPanelState> {
   return {
     name: STORE_NAME,
-    version: 2, // Bump version to trigger migration from v1 corrupted data
+    version: STORE_VERSION,
     storage,
     partialize: (state): PersistedPanelState => ({
       sizes: state.sizes,
@@ -223,12 +222,14 @@ function persistOptions(
       showConsole: state.showConsole,
     }),
     migrate: (persistedState, version) => {
-      // Migration from v1: Fix corrupted sizes format
-      if (version < 2) {
+      if (version < STORE_VERSION) {
         const state = persistedState as PersistedPanelState;
-        if (state?.sizes && hasCorruptedSizes(state.sizes)) {
-          state.sizes = [...DEFAULT_STATE.sizes] as [number, number, number];
-        }
+        return {
+          ...DEFAULT_STATE,
+          showConsole: state?.showConsole ?? DEFAULT_STATE.showConsole,
+          showLeftPanel: state?.showLeftPanel ?? DEFAULT_STATE.showLeftPanel,
+          showRightPanel: state?.showRightPanel ?? DEFAULT_STATE.showRightPanel,
+        } as PersistedPanelState;
       }
       return persistedState as PersistedPanelState;
     },

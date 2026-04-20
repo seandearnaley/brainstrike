@@ -3,7 +3,7 @@ import { AssistantUiPanelWrapperLazy } from './assistant-ui-panel-wrapper-lazy';
 import { useAssistantAvailabilityWithLocal } from './hooks/use-assistant-availability-with-local';
 import { McpBanner } from './mcp-banner';
 
-export function AssistantTab(): ReactElement {
+export function AssistantChatPanel(): ReactElement {
   const status = useAssistantAvailabilityWithLocal();
 
   return (
@@ -11,7 +11,7 @@ export function AssistantTab(): ReactElement {
       <div className="flex flex-shrink-0 flex-col space-y-1.5 px-4 py-3">
         <h3 className="font-semibold text-sm leading-none tracking-tight">Assistant</h3>
         <p className="text-muted-foreground text-xs">
-          Chat with the Brainstrike assistant for guidance while editing props.
+          Chat with the Brainstrike assistant while working anywhere in the app.
         </p>
       </div>
       <div className="flex min-h-0 flex-1 flex-col p-0">

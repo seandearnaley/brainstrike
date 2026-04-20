@@ -54,10 +54,6 @@
       "types": "./dist/root-layout-content.d.ts",
       "import": "./dist/root-layout-content.js"
     },
-    "./stores/tools-panel-store": {
-      "types": "./dist/stores/tools-panel-store.d.ts",
-      "import": "./dist/stores/tools-panel-store.js"
-    },
     "./types": {
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"

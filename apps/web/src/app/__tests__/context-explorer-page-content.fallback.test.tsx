@@ -11,13 +11,13 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
   },
 }));
 
-import HomePageContent from '../home-page-content';
+import ContextExplorerPageContent from '../context-explorer-page-content';
 
-describe('HomePageContent (fallback)', () => {
+describe('ContextExplorerPageContent (fallback)', () => {
   it('renders Suspense fallback while explorer is loading', () => {
     render(
       <HelmetProvider>
-        <HomePageContent />
+        <ContextExplorerPageContent />
       </HelmetProvider>
     );
 
