@@ -6,6 +6,10 @@
  *
  * This enables accurate token counting without blocking the main thread or
  * requiring file content to be loaded first.
+ *
+ * Priority contract: foreground token counting (this hook) is never gated on background-sync
+ * flags (`isImporting`, `isEmbeddingActive`). The WebGPU/LLM priority contract lives in
+ * `packages/utils/src/background-work-arbiter.ts` and is enforced at the collection-sync layer.
  */
 
 import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
