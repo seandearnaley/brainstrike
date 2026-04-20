@@ -178,18 +178,33 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 
 ---
 
-## PGlite (`@electric-sql/pglite` 0.3.x → 0.4.x)
+## PGlite (`@electric-sql/pglite` 0.3.x → 0.4.x) — completed
 
-**Why it matters:** Upstream documents **on-disk format / architecture** changes that may require a migration path for persisted databases.
+**Status:** Upgraded to `^0.4.4` workspace-wide. The app is pre-release, so no on-disk data migration was required.
 
-**What to verify**
+**Notable upstream changes (0.4.0 → 0.4.4)**
 
-- If you persist PGlite data locally, follow Electric’s upgrade guide (dump/restore / tooling) rather than only bumping the semver range.
+- **0.4.0:** New simplified PGlite with separate `initdb`. New experimental extensions (`pg_textsearch`, `postgis`). Default database is now `postgres` (was `template1`).
+- **0.4.1:** Clear timers on exit; remove `pglite-socket` dep on `pglite-postgis`.
+- **0.4.2:** Allow passing `initdb.wasm` asset for bundlers that need it.
+- **0.4.3:** Default database, user, and role are all `postgres`. Background workers disabled by default. Initial memory size is configurable.
+- **0.4.4:** Disable checkpointer.
+
+**What we touched**
+
+- Bumped six `package.json` files to `^0.4.4`: `apps/desktop`, `packages/db`, `packages/embeddings`, `packages/file-import`, `packages/token-cache`, `packages/vector-management`.
+- No code changes were needed for the default `postgres` user/db (we never relied on the legacy `web_user`/`template1` defaults), the worker import path, or the new `initdb.wasm` asset (Vite already excludes `@electric-sql/pglite` from `optimizeDeps` in `apps/desktop`, `apps/web`, and `packages/db`, and the `opfs-ahp.js` / `nodefs.js` aliases are still valid in 0.4).
+
+**Test compatibility note (jsdom)**
+
+- PGlite 0.4 detects browser vs. Node via `typeof window === "object"`. Under jsdom that resolves to "browser" and routes through code paths that need real `Worker`/`Blob` URL support — which jsdom does not provide. The previous `factory-reset.test.tsx` was the only DbProvider test that used the **real** `wasmLoader.createPGlite` under jsdom (every other DbProvider test already mocks `createPGlite`). Its open → close → reopen cycle deadlocked under 0.4.
+- Resolution: the test was rewritten to follow the established mock pattern (matching `clear-data.test.tsx`, `db-provider-lifecycle.test.tsx`, etc.) and now actually asserts that `close()` is called on the original instance and a fresh PGlite is provisioned by the retry-init path — coverage that the previous "doesn't throw" assertion didn't provide. Real PGlite open/close round-trips remain the responsibility of the browser-mode suite (`__tests__/*.browser.test.ts`).
 
 **Pointers**
 
 - Upgrade guide: [Upgrading between minor versions | PGlite](https://pglite.dev/docs/upgrade).
 - v0.4 announcement: [Announcing PGlite v0.4](https://electric-sql.com/blog/2026/03/25/announcing-pglite-v04).
+- Changelog: [`@electric-sql/pglite` CHANGELOG](https://github.com/electric-sql/pglite/blob/main/packages/pglite/CHANGELOG.md).
 
 ---
 
@@ -274,7 +289,6 @@ Tracked decisions where we intentionally hold a dependency below its latest vers
 | Package | Pinned at | Reason | Tracking |
 | --- | --- | --- | --- |
 | `webpack` (root `pnpm.overrides`) | `5.105.1` (exact) | webpack `5.106.0` tightened the `ProgressPlugin` options schema; `webpackbar` (used transitively by Docusaurus) emits options the new schema rejects, so `pnpm --filter @brainstrike/docs build` fails. Upstream: [facebook/docusaurus#11923](https://github.com/facebook/docusaurus/issues/11923). | [BST-511](https://linear.app/brainstrike/issue/BST-511) |
-| `@electric-sql/pglite` | `^0.3.15` | 0.4.x changes worker defaults and default user/db, causing db tests to hang. Re-evaluate alongside the upstream 0.4 upgrade guide. | (covered in PGlite section above) |
 | `typescript` | `^5.9.3` | 6.0.x stricter DOM types break `FileSystemDirectoryHandle` test mocks in `packages/utils`. Needs a coordinated TS 6 migration across the workspace. | (covered in TypeScript section above) |
 | `react-helmet-async` | `^2.0.5` | 3.x adds an `exports` field that breaks vite's resolution of `react-fast-compare` under `preserveSymlinks: true`. | (covered in react-helmet-async section above) |
 
