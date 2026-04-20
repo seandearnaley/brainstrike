@@ -399,12 +399,32 @@ function reconcileInFlightOnShrink(params: {
   const remainingInFlight = inFlight.size;
   const cancelBatch = inFlightRemoved > 0 && remainingInFlight === 0;
   const narrowedInFlight = !cancelBatch && inFlightRemoved > 0;
-  return {
-    cancelBatch,
-    narrowedInFlight,
-    removedCount,
-    remainingInFlight: cancelBatch ? 0 : remainingInFlight,
-  };
+  // `remainingInFlight` is always `inFlight.size` here: when `cancelBatch` is
+  // true, `inFlight.size === 0`, so no conditional is needed.
+  return { cancelBatch, narrowedInFlight, removedCount, remainingInFlight };
+}
+
+/**
+ * Decide whether the selection effect needs to reconcile in-flight tracking
+ * after a shrink. A reconcile is only worthwhile when the selection actually
+ * shrank AND there is tracked work that could be narrowed or cancelled --
+ * otherwise `reconcileInFlightOnShrink` would iterate the prior selection
+ * just to compute a `removedCount` nobody observes.
+ *
+ * Extracted into a helper so the call site stays a single predicate and the
+ * effect body stays under the cognitive-complexity budget.
+ */
+function shouldReconcileShrink(params: {
+  previousSize: number;
+  nextSize: number;
+  inFlightSize: number;
+  pendingNoHandleSize: number;
+}): boolean {
+  const { previousSize, nextSize, inFlightSize, pendingNoHandleSize } = params;
+  if (nextSize >= previousSize) {
+    return false;
+  }
+  return inFlightSize > 0 || pendingNoHandleSize > 0;
 }
 
 /**
@@ -1410,7 +1430,14 @@ export function useBackgroundTokenIndexerIntegration({
     // failure mode would be invisible, so we pay the tiny clone cost.
     previousSelectedFilesRef.current = new Set(selectedFiles);
 
-    if (selectedFiles.size < previousSize) {
+    if (
+      shouldReconcileShrink({
+        previousSize,
+        nextSize: selectedFiles.size,
+        inFlightSize: inFlightRef.current.size,
+        pendingNoHandleSize: pendingNoHandleRef.current.size,
+      })
+    ) {
       // Previously, any shrink cleared the entire in-flight set, which threw
       // away token-count work for files the user had not deselected (see the
       // context-explorer responsiveness investigation). `handleSelectionShrink`
