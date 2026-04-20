@@ -10,16 +10,18 @@ import * as wasmLoaderModule from '../src/wasm-loader';
 // Mocks (not real PGlite) so jsdom doesn't hit PGlite 0.4's browser-only
 // Worker/Blob paths. Real open/close is covered by `*.browser.test.ts`.
 
-type QueryMock = Mock<[string, unknown[]?], Promise<{ rows: unknown[] } | undefined>>;
-type ExecMock = Mock<[string], Promise<unknown>>;
-type CloseMock = Mock<[], Promise<void>>;
+type QueryMock = Mock<
+  (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] } | undefined>
+>;
+type ExecMock = Mock<(sql: string) => Promise<unknown>>;
+type CloseMock = Mock<() => Promise<void>>;
 
 interface MockTx {
   query: QueryMock;
 }
 
 type TransactionCallback = (tx: MockTx) => Promise<unknown> | unknown;
-type TransactionMock = Mock<[callback: TransactionCallback], Promise<unknown>>;
+type TransactionMock = Mock<(callback: TransactionCallback) => Promise<unknown>>;
 
 interface MockDb {
   close: CloseMock;
@@ -121,7 +123,6 @@ describe('DbProvider factoryReset', () => {
     if (!initialDb) {
       throw new Error('Expected initial DB to be created');
     }
-    const initialCallCount = createPGliteSpy.mock.calls.length;
 
     await act(async () => {
       const reset = result.current.reset;
@@ -132,9 +133,11 @@ describe('DbProvider factoryReset', () => {
     });
 
     // The first DB must have been closed exactly once during the reset, and
-    // a brand-new PGlite must have been provisioned by the retry-init path.
+    // exactly one new PGlite must have been provisioned by the retry-init path
+    // (initial + reset = 2). A higher count would indicate the retry loop
+    // re-entered, which our mock should never trigger -- regression signal.
     expect(initialDb.close).toHaveBeenCalledTimes(1);
-    expect(createPGliteSpy.mock.calls.length).toBeGreaterThan(initialCallCount);
-    expect(createdDbs.length).toBeGreaterThanOrEqual(2);
+    expect(createPGliteSpy).toHaveBeenCalledTimes(2);
+    expect(createdDbs).toHaveLength(2);
   });
 });
