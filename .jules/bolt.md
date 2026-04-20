@@ -34,6 +34,13 @@
 **Learning:** Using array spread syntax (`[...ancestors, node.id]`) during deep or wide recursive tree traversal (e.g., in `filterTreeNodes`) creates excessive intermediate arrays, increasing GC pressure and slowing down performance significantly.
 **Action:** Replace spread syntax with mutable array operations (`ancestors.push(node.id)` and `ancestors.pop()`) when passing tracking arrays down a recursive stack to minimize allocations and improve traversal speed.
 
+## 2026-03-31 - [Optimize buildNodeFromPath]
+**Learning:** When calculating node depth and relative name inside high-frequency file-tree mapping functions, avoid using `path.replace().split('/').filter(Boolean)`. This creates a regex evaluation, intermediate array and multiple strings for every node processed, causing severe garbage collection overhead when traversing large repos.
+**Action:** Extract depth calculation by manually counting '/' character occurrences and last string segment slicing inside hot loops. Native character iteration and slicing are allocation-free beyond the final target string.
+
+## 2026-04-02 - Fast path depth calculation
+**Learning:** Counting path depth by creating arrays (`relativePath.split('/').length - 1`) creates excessive intermediate strings and arrays leading to high GC overhead in hot paths involving file tree traversal and loading.
+**Action:** Replace split-based path depth counting with a native string loop iterating over character occurrences (using `indexOf` in a `while` loop) to achieve near-zero allocations and significantly improve performance.
 ## 2026-04-03 - Replacing string.split with native indexOf for chunking hot paths
 **Learning:** For hot paths such as `splitByBlankLines`, `String.prototype.split(/\r?\n/)` eagerly allocates an intermediate array of every line, which increases garbage collection pressure on large text bodies. Even where a downstream API still needs a line array, centralizing the scan logic makes behavior fixes easier to apply consistently.
 **Action:** Replace repeated `.split()` line scanning with a shared `indexOf('\n')` loop that only normalizes `\r` when it precedes an actual newline. Use that helper for streaming blank-line splitting and for any call sites that still need to materialize line arrays.
