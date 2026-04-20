@@ -1,5 +1,9 @@
 import { defaultCollator } from './file-node-collator';
-import { getDirPathForGrouping, getRootFolderDisplayName } from './path-display';
+import {
+  getDirectoryGroupDisplayName,
+  getDirectoryGroupKey,
+  getRootFolderDisplayName,
+} from './path-display';
 
 // Grouping system types
 export type GroupKey = string | number;
@@ -23,6 +27,7 @@ export const TOKEN_THRESHOLDS = {
 } as const;
 
 export interface GroupConfig<T = unknown> {
+  getDisambiguatedGroupLabel?: (groupKey: GroupKey) => string;
   getGroupLabel?: (groupKey: GroupKey) => string;
   groupBy: GroupFunction<T> | GroupBandFunction<T>;
   id: string;
@@ -68,19 +73,39 @@ export const GROUPING_CONFIGS = {
     id: 'directory',
     label: 'By Directory',
     groupBy: (item: TableRowData) =>
-      getDirPathForGrouping({
+      getDirectoryGroupKey({
         filePath: item.path,
         rootFolderId: item.rootFolderId,
       }),
+    getGroupLabel: (groupKey: GroupKey) =>
+      getDirectoryGroupDisplayName({
+        groupKey: String(groupKey),
+      }),
+    getDisambiguatedGroupLabel: (groupKey: GroupKey) =>
+      getDirectoryGroupDisplayName({
+        groupKey: String(groupKey),
+        useCanonicalRootLabel: true,
+      }),
     sortGroups: (a: GroupKey, b: GroupKey) => {
-      // Sort '.' (root) first, then alphabetically
-      if (a === '.') {
-        return -1;
+      const primaryComparison = groupingCollator.compare(
+        getDirectoryGroupDisplayName({ groupKey: String(a) }),
+        getDirectoryGroupDisplayName({ groupKey: String(b) })
+      );
+
+      if (primaryComparison !== 0) {
+        return primaryComparison;
       }
-      if (b === '.') {
-        return 1;
-      }
-      return groupingCollator.compare(String(a), String(b));
+
+      return groupingCollator.compare(
+        getDirectoryGroupDisplayName({
+          groupKey: String(a),
+          useCanonicalRootLabel: true,
+        }),
+        getDirectoryGroupDisplayName({
+          groupKey: String(b),
+          useCanonicalRootLabel: true,
+        })
+      );
     },
   },
   rootFolder: {
@@ -202,6 +227,19 @@ export function groupData<T extends { tokens?: number; size?: number }>(
     totalTokens: items.reduce((sum, item) => sum + (item.tokens || 0), 0),
     totalSize: items.reduce((sum, item) => sum + (item.size || 0), 0),
   }));
+
+  if (config.getDisambiguatedGroupLabel) {
+    const labelCounts = new Map<string, number>();
+    for (const group of result) {
+      labelCounts.set(group.groupLabel, (labelCounts.get(group.groupLabel) ?? 0) + 1);
+    }
+
+    for (const group of result) {
+      if ((labelCounts.get(group.groupLabel) ?? 0) > 1) {
+        group.groupLabel = config.getDisambiguatedGroupLabel(group.groupKey);
+      }
+    }
+  }
 
   // Sort groups if sorter is provided
   if (config.sortGroups) {

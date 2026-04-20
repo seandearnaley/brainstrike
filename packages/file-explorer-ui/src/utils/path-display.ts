@@ -10,6 +10,11 @@ interface DirPathDisplayOptions {
   tailSegments: number;
 }
 
+interface DirectoryGroupIdentity {
+  relativeDirPath: string;
+  rootFolderId: string;
+}
+
 function normalizePathIdentity(inputPath: string): string {
   return stripTrailingSlashes(normalizeSeparators(inputPath));
 }
@@ -280,6 +285,41 @@ function joinRootFolderPath(rootLabel: string, displayDirPath: string): string {
   return `${rootLabel}/${displayDirPath}`;
 }
 
+function getDirectoryGroupLabelFromIdentity(args: {
+  identity: DirectoryGroupIdentity;
+  useCanonicalRootLabel?: boolean;
+}): string {
+  const rootLabel = args.useCanonicalRootLabel
+    ? getRootFolderDisplayName(args.identity.rootFolderId)
+    : getRootFolderPathLabel(args.identity.rootFolderId);
+
+  if (rootLabel) {
+    return joinRootFolderPath(rootLabel, args.identity.relativeDirPath);
+  }
+
+  return args.identity.relativeDirPath || '.';
+}
+
+function serializeDirectoryGroupIdentity(identity: DirectoryGroupIdentity): string {
+  return JSON.stringify(identity);
+}
+
+function parseDirectoryGroupIdentity(groupKey: string): DirectoryGroupIdentity {
+  try {
+    const parsed = JSON.parse(groupKey) as Partial<DirectoryGroupIdentity>;
+    return {
+      relativeDirPath:
+        typeof parsed.relativeDirPath === 'string' ? parsed.relativeDirPath : groupKey,
+      rootFolderId: typeof parsed.rootFolderId === 'string' ? parsed.rootFolderId : '',
+    };
+  } catch {
+    return {
+      relativeDirPath: groupKey,
+      rootFolderId: '',
+    };
+  }
+}
+
 export function formatFilePathSubtitle(args: { filePath: string; rootFolderId: string }): string {
   const { dirPath } = splitFilePath(args.filePath);
   const displayDirPath = formatDirPathForDisplay({
@@ -293,6 +333,48 @@ export function formatFilePathSubtitle(args: { filePath: string; rootFolderId: s
   }
 
   return joinRootFolderPath(rootLabel, displayDirPath);
+}
+
+export function getDirectoryGroupKey(args: { filePath: string; rootFolderId: string }): string {
+  const normalizedRootFolderId = normalizePathIdentity(args.rootFolderId);
+  const { dirPath } = splitFilePath(args.filePath);
+  const normalizedDirPath = stripTrailingSlashes(normalizeSeparators(dirPath));
+
+  if (!normalizedDirPath) {
+    return serializeDirectoryGroupIdentity({
+      rootFolderId: normalizedRootFolderId,
+      relativeDirPath: '',
+    });
+  }
+
+  const { segments, trimmedToFolderRoot } = getFolderRelativeSegments({
+    normalizedDirPath,
+    rootFolderId: args.rootFolderId,
+  });
+
+  if (segments.length === 0) {
+    return serializeDirectoryGroupIdentity({
+      rootFolderId: normalizedRootFolderId,
+      relativeDirPath: trimmedToFolderRoot ? '' : normalizedDirPath,
+    });
+  }
+
+  return serializeDirectoryGroupIdentity({
+    rootFolderId: normalizedRootFolderId,
+    relativeDirPath: trimmedToFolderRoot ? segments.join('/') : normalizedDirPath,
+  });
+}
+
+export function getDirectoryGroupDisplayName(args: {
+  groupKey: string;
+  useCanonicalRootLabel?: boolean;
+}): string {
+  return getDirectoryGroupLabelFromIdentity({
+    identity: parseDirectoryGroupIdentity(args.groupKey),
+    ...(args.useCanonicalRootLabel === undefined
+      ? {}
+      : { useCanonicalRootLabel: args.useCanonicalRootLabel }),
+  });
 }
 
 export function getRootFolderDisplayName(rootFolderId: string): string {
