@@ -60,7 +60,7 @@ function getAllAncestorDirectories(filePath: string): string[] {
     if (idx > startIdx) {
       const segment = filePath.slice(startIdx, idx);
       if (pathBuilder.length > 0 && pathBuilder !== '/') {
-        pathBuilder += `/${segment}`;
+        pathBuilder += '/' + segment;
       } else {
         pathBuilder += segment;
       }
