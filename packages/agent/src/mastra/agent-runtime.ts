@@ -423,6 +423,12 @@ interface StreamResultLike {
 }
 
 type AgentStreamInput = Parameters<Agent['stream']>[0];
+// Derived from Agent.stream's 2-arg overload (introduced in @mastra/core 1.25 -- the
+// 1-arg overload now refuses `undefined` as the second arg, so callers must either
+// omit the second arg or pass real options). If a future Mastra bump exposes a
+// stable public StreamOptions type, prefer importing that directly over deriving it
+// from Parameters<>; the `as AgentStreamOptions` cast at the call sites is what
+// keeps this file from reaching across the overload boundary.
 type AgentStreamOptions = Exclude<
   Extract<Parameters<Agent['stream']>, [unknown, unknown]>[1],
   undefined
