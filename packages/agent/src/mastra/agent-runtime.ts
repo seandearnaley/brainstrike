@@ -446,13 +446,22 @@ interface StreamResultLike {
   fullStream?: NodeReadableStream<unknown> | ReadableStream<unknown>;
 }
 
+type AgentStreamInput = Parameters<Agent['stream']>[0];
+// Derived from Agent.stream's 2-arg overload (introduced in @mastra/core 1.25 -- the
+// 1-arg overload now refuses `undefined` as the second arg, so callers must either
+// omit the second arg or pass real options). If a future Mastra bump exposes a
+// stable public StreamOptions type, prefer importing that directly over deriving it
+// from Parameters<>; the `as AgentStreamOptions` cast at the call sites is what
+// keeps this file from reaching across the overload boundary.
+type AgentStreamOptions = Exclude<
+  Extract<Parameters<Agent['stream']>, [unknown, unknown]>[1],
+  undefined
+>;
+
 const hasStreamLegacy = (
   agent: Agent
 ): agent is Agent & {
-  streamLegacy: (
-    input: Parameters<Agent['stream']>[0],
-    options?: Parameters<Agent['stream']>[1]
-  ) => Promise<unknown>;
+  streamLegacy: (input: AgentStreamInput, options?: AgentStreamOptions) => Promise<unknown>;
 } => typeof (agent as { streamLegacy?: unknown }).streamLegacy === 'function';
 
 const resolveFullStream = (
@@ -516,7 +525,9 @@ async function createStreamIteratorFromRuntime({
 
     if (useLegacyStream && hasStreamLegacy(runtime.agent)) {
       logger.info('using streamLegacy for V1 model', { code: 'mastra_agent_stream_legacy_start' });
-      streamResult = await runtime.agent.streamLegacy(streamInput, resolvedStreamOptions);
+      streamResult = resolvedStreamOptions
+        ? await runtime.agent.streamLegacy(streamInput, resolvedStreamOptions as AgentStreamOptions)
+        : await runtime.agent.streamLegacy(streamInput);
       logger.info('mastra legacy stream started', { code: 'mastra_agent_stream_legacy_started' });
     } else {
       if (useLegacyStream) {
@@ -524,7 +535,9 @@ async function createStreamIteratorFromRuntime({
           code: 'mastra_agent_stream_legacy_unavailable',
         });
       }
-      const result = await runtime.agent.stream(streamInput, resolvedStreamOptions);
+      const result = resolvedStreamOptions
+        ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
+        : await runtime.agent.stream(streamInput);
       logger.info('mastra stream started', { code: 'mastra_agent_stream_started' });
       streamResult = result;
     }

@@ -561,7 +561,7 @@ export function useSemanticSearchExecutor({
       embeddingSetId: string | null
     ): Promise<SemanticSearchResult[]> => {
       logger.info('searchExecutor called', {
-        query: query.substring(0, 50),
+        query: query.slice(0, 50),
         embeddingSetId,
         config,
         hasChunkRepo: !!chunkRepository,

@@ -424,7 +424,7 @@ interface InitialLayoutApplicationConfig {
 }
 
 function applyInitialLayout(config: InitialLayoutApplicationConfig): void {
-  const startTime = typeof performance !== 'undefined' ? performance.now() : null;
+  const startTime = typeof performance === 'undefined' ? null : performance.now();
   try {
     if (config.horizontalGroupRef) {
       applyHorizontalLayout(
@@ -803,8 +803,8 @@ function usePanelToggleHandlers(config: PanelToggleConfig) {
       isVisible: boolean,
       buildHiddenArgs: () => Parameters<typeof saveLayout>,
       buildVisibleArgs: () => Parameters<typeof saveLayout>
-    ) => {
-      return (collapsed: boolean) => {
+    ) =>
+      (collapsed: boolean) => {
         if (isInitialRenderRef.current) {
           return;
         }
@@ -813,8 +813,7 @@ function usePanelToggleHandlers(config: PanelToggleConfig) {
         } else if (!(collapsed || isVisible)) {
           saveLayout(...buildVisibleArgs());
         }
-      };
-    },
+      },
     [saveLayout, isInitialRenderRef]
   );
 

@@ -179,7 +179,7 @@ function createDefaultConfig(): InternalLoggerConfig {
 }
 
 function parseEnvLogLevel(): LogLevel | undefined {
-  const envLevel = typeof process !== 'undefined' ? process.env?.['LOG_LEVEL'] : undefined;
+  const envLevel = typeof process === 'undefined' ? undefined : process.env?.['LOG_LEVEL'];
   if (!envLevel) {
     return;
   }
@@ -412,31 +412,29 @@ function createBrowserWrite(
 ): NonNullable<BrowserLoggerOptions['write']> {
   const baseBindings = resolveBaseBindings(config);
   const consoleThreshold = config.console.level ?? resolveEffectiveLevel(config);
-  const writeMethod = (level: LogMethodName | 'fatal') => {
-    return (value: unknown) => {
-      const globalConsole = typeof console !== 'undefined' ? console : null;
-      const logLevel = level === 'fatal' ? LogLevel.FATAL : (level as LogLevel);
-      if (
-        !(
-          globalConsole &&
-          config.console.enabled &&
-          isLevelEnabledAtThreshold(logLevel, consoleThreshold)
-        )
-      ) {
-        return;
-      }
+  const writeMethod = (level: LogMethodName | 'fatal') => (value: unknown) => {
+    const globalConsole = typeof console === 'undefined' ? null : console;
+    const logLevel = level === 'fatal' ? LogLevel.FATAL : (level as LogLevel);
+    if (
+      !(
+        globalConsole &&
+        config.console.enabled &&
+        isLevelEnabledAtThreshold(logLevel, consoleThreshold)
+      )
+    ) {
+      return;
+    }
 
-      const consoleMethodName = BROWSER_CONSOLE_METHOD_BY_LEVEL[level];
-      const consoleMethod =
-        typeof globalConsole[consoleMethodName] === 'function'
-          ? globalConsole[consoleMethodName]
-          : globalConsole.log;
+    const consoleMethodName = BROWSER_CONSOLE_METHOD_BY_LEVEL[level];
+    const consoleMethod =
+      typeof globalConsole[consoleMethodName] === 'function'
+        ? globalConsole[consoleMethodName]
+        : globalConsole.log;
 
-      consoleMethod.call(
-        globalConsole,
-        formatBrowserConsoleMessage(value, config.scopeKey, baseBindings)
-      );
-    };
+    consoleMethod.call(
+      globalConsole,
+      formatBrowserConsoleMessage(value, config.scopeKey, baseBindings)
+    );
   };
 
   return {
@@ -624,7 +622,7 @@ function resolveLogRecordMessage(args: readonly unknown[]): string | undefined {
       return arg;
     }
   }
-  return undefined;
+  return;
 }
 
 function emitLogRecord(level: LogLevel, scope: string | undefined, args: readonly unknown[]): void {

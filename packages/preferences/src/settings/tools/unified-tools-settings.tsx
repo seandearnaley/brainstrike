@@ -322,8 +322,8 @@ export function UnifiedToolsSettings({
   const liveQueryEnabled = Boolean(liveQueryConfig);
   const liveQuery = usePGliteLiveQuery<ToolDisplayMetadata>({
     query: liveQueryConfig?.query ?? EMPTY_LIVE_QUERY,
-    ...(liveQueryConfig?.params !== undefined ? { params: liveQueryConfig.params } : {}),
-    ...(liveQueryConfig?.select !== undefined ? { select: liveQueryConfig.select } : {}),
+    ...(liveQueryConfig?.params === undefined ? {} : { params: liveQueryConfig.params }),
+    ...(liveQueryConfig?.select === undefined ? {} : { select: liveQueryConfig.select }),
     enabled: liveQueryEnabled,
   });
   const tools = liveQueryEnabled ? liveQuery.rows : dataState.tools;
@@ -786,8 +786,9 @@ function ToolsAccordionList({
           {toolGroups.map((group) => {
             const serverName = group.source === 'mcp' ? group.serverName : undefined;
             const mcpProps =
-              serverName !== undefined
-                ? {
+              serverName === undefined
+                ? {}
+                : {
                     connectionStatus: getServerStatus(serverName),
                     errorMessage: getServerError(serverName),
                     ...(operations.openMcpConfig && {
@@ -796,8 +797,7 @@ function ToolsAccordionList({
                     ...(operations.refreshMcpServers && {
                       onRefreshConnection: onRefreshMcp,
                     }),
-                  }
-                : {};
+                  };
             const description =
               group.source === 'native'
                 ? 'Built-in BrainStrike tools'

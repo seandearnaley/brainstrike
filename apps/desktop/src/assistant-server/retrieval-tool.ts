@@ -287,7 +287,7 @@ function formatContext(chunks: readonly PackedContextChunk[]): string {
   return chunks
     .map((chunk, index) => {
       const location = chunk.filePath ?? chunk.fileName ?? 'Unknown file';
-      const chunkLabel = chunk.chunkIndex !== undefined ? ` (chunk ${chunk.chunkIndex})` : '';
+      const chunkLabel = chunk.chunkIndex === undefined ? '' : ` (chunk ${chunk.chunkIndex})`;
       return `Source ${index + 1}: ${location}${chunkLabel}\n${chunk.content}`;
     })
     .join('\n\n---\n\n');
@@ -522,7 +522,7 @@ async function packRetrievedContext(
   const packerOptions = {
     budgetTokens: resolveTokenBudget(runtimeData, input.tokenBudget),
     estimateTokens: countTokensHeuristic,
-    ...(input.maxChunks !== undefined ? { maxChunks: input.maxChunks } : {}),
+    ...(input.maxChunks === undefined ? {} : { maxChunks: input.maxChunks }),
   };
   const packer = new ContextPacker(packerOptions);
   const packed = packer.pack(chunkInputs);

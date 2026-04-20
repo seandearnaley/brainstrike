@@ -158,15 +158,15 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
       dispatch({ type: 'LOAD_ERROR', error: loadError });
       return;
     }
-    if (doc !== null) {
+    if (doc === null) {
+      dispatch({ type: 'LOAD_DONE' });
+    } else {
       dispatch({
         type: 'DOCUMENT_LOADED',
         path: doc.path,
         content: doc.content,
         created: doc.created,
       });
-    } else {
-      dispatch({ type: 'LOAD_DONE' });
     }
   }, []);
 

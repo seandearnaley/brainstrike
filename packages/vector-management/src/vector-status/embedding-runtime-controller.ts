@@ -119,7 +119,7 @@ function createAbortError(message: string): Error {
 function mergeAbortSignals(signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
   const filteredSignals = signals.filter((signal): signal is AbortSignal => signal !== undefined);
   if (filteredSignals.length === 0) {
-    return undefined;
+    return;
   }
   if (filteredSignals.length === 1) {
     return filteredSignals[0];

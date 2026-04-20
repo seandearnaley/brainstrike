@@ -15,7 +15,7 @@ const PAGINATION_DENSITY_HYSTERESIS_PX = 20;
 
 type PaginationDensity = 'auto' | 'full' | 'compact' | 'mini';
 type ResolvedPaginationDensity = Exclude<PaginationDensity, 'auto'>;
-const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
 function resolveAutoPaginationDensity(
   containerWidth: number | null,

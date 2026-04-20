@@ -78,10 +78,7 @@ export default function RootLayoutContent() {
 
   const navigationConfig = navigationItems as NavigationItem[];
   const loadEmbeddingQueue = useCallback(
-    () =>
-      import('../create-embedding-queue').then((module) => {
-        return module.getEmbeddingQueue();
-      }),
+    () => import('../create-embedding-queue').then((module) => module.getEmbeddingQueue()),
     []
   );
 

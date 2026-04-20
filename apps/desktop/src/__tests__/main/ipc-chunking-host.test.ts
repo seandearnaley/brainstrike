@@ -1,13 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { handlers, listeners, removeListener, removeHandler } = vi.hoisted(() => {
-  return {
-    handlers: new Map<string, (...args: unknown[]) => unknown>(),
-    listeners: new Map<string, (...args: unknown[]) => unknown>(),
-    removeHandler: vi.fn(),
-    removeListener: vi.fn(),
-  };
-});
+const { handlers, listeners, removeListener, removeHandler } = vi.hoisted(() => ({
+  handlers: new Map<string, (...args: unknown[]) => unknown>(),
+  listeners: new Map<string, (...args: unknown[]) => unknown>(),
+  removeHandler: vi.fn(),
+  removeListener: vi.fn(),
+}));
 
 vi.mock('electron', async () => {
   const electronUtils = await import('@brainstrike/test-utils');

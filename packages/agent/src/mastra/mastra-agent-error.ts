@@ -17,7 +17,7 @@ export class MastraAgentError extends Error {
   readonly context: Readonly<Record<string, unknown>> | undefined;
 
   constructor(code: MastraAgentErrorCode, message: string, options: MastraAgentErrorOptions = {}) {
-    super(message, options.cause !== undefined ? { cause: options.cause } : undefined);
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = 'MastraAgentError';
     this.code = code;
     this.context = options.context

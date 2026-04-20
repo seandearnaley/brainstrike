@@ -513,7 +513,7 @@ test.describe('IDE Layout Persistence', () => {
           await expect(showExplorerButton).toBeVisible({ timeout: 2000 });
           await showExplorerButton.click();
           await expect(leftPanel).toBeVisible();
-        } catch (_error) {
+        } catch {
           // If show explorer button is not available, we can't test constraints on collapsed panel
           // This might happen if leftPanelContent is null. Let's skip this test scenario.
           console.warn(

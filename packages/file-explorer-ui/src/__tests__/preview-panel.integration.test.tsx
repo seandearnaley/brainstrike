@@ -307,58 +307,56 @@ vi.mock('@brainstrike/ui', async () => {
       pageSize?: number;
       onPageSizeChange?: (size: number) => void;
       [key: string]: unknown;
-    }) => {
-      return (
-        <div data-testid="table-pagination" {...domProps}>
-          <button
-            aria-label="Go to first page"
-            disabled={currentPage === 0}
-            onClick={() => onPageChange?.(0)}
-            type="button"
-          >
-            First
-          </button>
-          <button
-            aria-label="Go to previous page"
-            disabled={currentPage === 0}
-            onClick={() => onPageChange?.(currentPage - 1)}
-            type="button"
-          >
-            Previous
-          </button>
-          <input
-            aria-label="Page number"
-            max={totalPages}
-            min={1}
-            onChange={(e) => {
-              const val = Number.parseInt(e.target.value, 10);
-              if (!Number.isNaN(val) && val >= 1 && val <= totalPages) {
-                onPageChange?.(val - 1);
-              }
-            }}
-            type="number"
-            value={currentPage + 1}
-          />
-          <span data-testid="page-info">of {totalPages}</span>
-          <button
-            aria-label="Go to next page"
-            disabled={currentPage >= totalPages - 1}
-            onClick={() => onPageChange?.(currentPage + 1)}
-            type="button"
-          >
-            Next
-          </button>
-          <button
-            aria-label="Go to last page"
-            disabled={currentPage >= totalPages - 1}
-            onClick={() => onPageChange?.(totalPages - 1)}
-            type="button"
-          >
-            Last
-          </button>
-        </div>
-      );
-    },
+    }) => (
+      <div data-testid="table-pagination" {...domProps}>
+        <button
+          aria-label="Go to first page"
+          disabled={currentPage === 0}
+          onClick={() => onPageChange?.(0)}
+          type="button"
+        >
+          First
+        </button>
+        <button
+          aria-label="Go to previous page"
+          disabled={currentPage === 0}
+          onClick={() => onPageChange?.(currentPage - 1)}
+          type="button"
+        >
+          Previous
+        </button>
+        <input
+          aria-label="Page number"
+          max={totalPages}
+          min={1}
+          onChange={(e) => {
+            const val = Number.parseInt(e.target.value, 10);
+            if (!Number.isNaN(val) && val >= 1 && val <= totalPages) {
+              onPageChange?.(val - 1);
+            }
+          }}
+          type="number"
+          value={currentPage + 1}
+        />
+        <span data-testid="page-info">of {totalPages}</span>
+        <button
+          aria-label="Go to next page"
+          disabled={currentPage >= totalPages - 1}
+          onClick={() => onPageChange?.(currentPage + 1)}
+          type="button"
+        >
+          Next
+        </button>
+        <button
+          aria-label="Go to last page"
+          disabled={currentPage >= totalPages - 1}
+          onClick={() => onPageChange?.(totalPages - 1)}
+          type="button"
+        >
+          Last
+        </button>
+      </div>
+    ),
     TableGroupHeader: ({
       groupLabel,
       onToggleCollapse,

@@ -343,13 +343,11 @@ export function getPathDepth(path: string): number {
   let count = 0;
   let inSegment = false;
   for (let i = 0; i < path.length; i++) {
-    if (path.charCodeAt(i) !== PATH_SEPARATOR_CODE) {
-      if (!inSegment) {
-        count++;
-        inSegment = true;
-      }
-    } else {
+    if (path.charCodeAt(i) === PATH_SEPARATOR_CODE) {
       inSegment = false;
+    } else if (!inSegment) {
+      count++;
+      inSegment = true;
     }
   }
   return count;

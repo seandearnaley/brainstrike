@@ -121,10 +121,10 @@ const SelectedTokensTooltip = memo<SelectedTokensTooltipProps>(function Selected
   activeRangeFilesCount,
 }) {
   const countedText = isEstimating
-    ? `Counted ${totalFiles - selectedTokensPendingCount} of ${totalFiles} file${totalFiles !== 1 ? 's' : ''}…`
+    ? `Counted ${totalFiles - selectedTokensPendingCount} of ${totalFiles} file${totalFiles === 1 ? '' : 's'}…`
     : useTapestryRanges
       ? 'Estimated tokens included in final context export'
-      : `Tokens from ${totalFiles} selected file${totalFiles !== 1 ? 's' : ''}`;
+      : `Tokens from ${totalFiles} selected file${totalFiles === 1 ? '' : 's'}`;
 
   return (
     <div className="text-xs">
@@ -135,7 +135,7 @@ const SelectedTokensTooltip = memo<SelectedTokensTooltipProps>(function Selected
       {useTapestryRanges && (
         <div className="text-muted-foreground">
           {rangeAdjustedFilesCount > 0
-            ? `${activeRangeFilesCount} of ${rangeAdjustedFilesCount} ranged file${rangeAdjustedFilesCount !== 1 ? 's' : ''} currently include active selections`
+            ? `${activeRangeFilesCount} of ${rangeAdjustedFilesCount} ranged file${rangeAdjustedFilesCount === 1 ? '' : 's'} currently include active selections`
             : 'Files without explicit ranges are treated as fully selected'}
         </div>
       )}

@@ -1228,9 +1228,10 @@ export function useCollectionTree({
     [filters, sortedChildrenMap]
   );
 
-  const matchesStandardFilters = React.useMemo(() => {
-    return createFilterMatcher(filterContext);
-  }, [filterContext]);
+  const matchesStandardFilters = React.useMemo(
+    () => createFilterMatcher(filterContext),
+    [filterContext]
+  );
   const matchesDirectNodeFilters = React.useCallback(
     (node: TreeNode<BrowserNodeData>) => matchesStandardNodeFilters(node, filters),
     [filters]

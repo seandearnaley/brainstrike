@@ -1259,4 +1259,4 @@ app.on('will-quit', () => {
   removeLogBufferListener();
 });
 
-export { createWindow, setupSecurity, registerIpcHandlers };
+export { createWindow, registerIpcHandlers, setupSecurity };

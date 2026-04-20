@@ -199,14 +199,14 @@ describe('WorkerStorage', () => {
   afterEach(() => {
     vi.useRealTimers();
     // Restore original Worker
-    if (originalWorker !== undefined) {
-      vi.stubGlobal('Worker', originalWorker);
-      (global as any).Worker = originalWorker;
-      (globalThis as any).Worker = originalWorker;
-    } else {
+    if (originalWorker === undefined) {
       vi.unstubAllGlobals();
       (global as any).Worker = undefined;
       (globalThis as any).Worker = undefined;
+    } else {
+      vi.stubGlobal('Worker', originalWorker);
+      (global as any).Worker = originalWorker;
+      (globalThis as any).Worker = originalWorker;
     }
   });
 

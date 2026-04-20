@@ -162,7 +162,7 @@ function getProviderColorSeed(providerName: string): string {
     hash = providerName.charCodeAt(i) + ((hash << 5) - hash);
   }
   const hex = (hash & 0x00_ff_ff_ff).toString(16).toUpperCase();
-  return `#${'00000'.substring(0, 6 - hex.length)}${hex}`;
+  return `#${'00000'.slice(0, 6 - hex.length)}${hex}`;
 }
 
 function ModelMetaBadges({ model, dimensionLabel, sizeLabel }: ModelMetaBadgesProps) {

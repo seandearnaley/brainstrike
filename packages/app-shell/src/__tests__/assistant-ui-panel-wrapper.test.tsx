@@ -295,11 +295,9 @@ vi.mock('@brainstrike/preferences', async () => {
   };
 });
 
-vi.mock('@brainstrike/preferences/hooks/use-model-registry', async () => {
-  return {
-    useEnsureModelRegistry: vi.fn(),
-  };
-});
+vi.mock('@brainstrike/preferences/hooks/use-model-registry', async () => ({
+  useEnsureModelRegistry: vi.fn(),
+}));
 
 vi.mock('@brainstrike/preferences/stores/assistant-preferences-store', async () => {
   const preferences = await import('@brainstrike/preferences');

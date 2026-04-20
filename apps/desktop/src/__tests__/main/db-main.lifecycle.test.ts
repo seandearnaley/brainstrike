@@ -165,9 +165,9 @@ describe('db-main lifecycle', () => {
     const gitHeadPath = path.join(resolvedGitDir, 'HEAD');
     const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(worktreeRoot);
 
-    existsSyncMock.mockImplementation((candidate: string) => {
-      return candidate === gitPointerPath || candidate === gitHeadPath;
-    });
+    existsSyncMock.mockImplementation(
+      (candidate: string) => candidate === gitPointerPath || candidate === gitHeadPath
+    );
     lstatSyncMock.mockImplementation((candidate: string) => ({
       isDirectory: () => false,
       isFile: () => candidate === gitPointerPath,

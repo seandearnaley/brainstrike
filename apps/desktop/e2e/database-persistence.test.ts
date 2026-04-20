@@ -114,7 +114,7 @@ test.describe('Database Persistence', () => {
         .locator('[data-testid="status-bar-db-connected"]')
         .first()
         .waitFor({ state: 'visible', timeout: 15_000 });
-    } catch (_error) {
+    } catch {
       try {
         await resolveRefreshButton(page, { timeoutMs: 15_000 });
       } catch {
@@ -200,7 +200,7 @@ test.describe('Database Persistence', () => {
     if (!preserveState) {
       try {
         await clearDatabaseRecords(window);
-      } catch (_error) {
+      } catch {
         // Ignore cleanup errors; tests already succeeded.
       }
     }

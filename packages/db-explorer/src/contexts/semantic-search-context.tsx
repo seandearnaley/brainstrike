@@ -132,7 +132,7 @@ export function SemanticSearchProvider({
   const executeSearch = useCallback(
     async (query: string, config: SearchConfig, embeddingSetId: string | null) => {
       logger.info('executeSearch called', {
-        query: query.substring(0, 50),
+        query: query.slice(0, 50),
         embeddingSetId,
         hasExecutor: !!searchExecutor,
       });
