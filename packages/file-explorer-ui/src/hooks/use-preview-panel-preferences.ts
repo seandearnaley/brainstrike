@@ -6,8 +6,6 @@ import {
   resolveColumnVisibility,
 } from '../preview-column-visibility';
 import {
-  clampPreviewFooterHeight,
-  getPreviewFooterModeHeight,
   inferPreviewFooterMode,
   PREVIEW_FOOTER_MODES,
   type PreviewFooterMode,
@@ -57,8 +55,6 @@ interface PreviewPanelPreferences {
   activeTab: string;
   collapsedGroups: Set<string>;
   columnVisibility: ColumnVisibility;
-  footerCollapsed: boolean;
-  footerHeight: number;
   footerMode: PreviewFooterMode;
   groupingConfig: string;
   pageSize: number;
@@ -69,7 +65,6 @@ interface PreviewPanelPreferences {
 
 interface PreviewPanelPreferencesDefaults {
   activeTab: string;
-  footerHeight: number;
   footerMode: PreviewFooterMode;
   groupingConfig: string;
   sortDirection: 'asc' | 'desc';
@@ -196,15 +191,6 @@ function sanitizeFooterHeight(
   value: StoredPreferences['footerHeight']
 ): StoredPreferences['footerHeight'] {
   if (typeof value === 'number' && Number.isFinite(value)) {
-    return clampPreviewFooterHeight(value);
-  }
-  return;
-}
-
-function sanitizeFooterCollapsed(
-  value: StoredPreferences['footerCollapsed']
-): StoredPreferences['footerCollapsed'] {
-  if (typeof value === 'boolean') {
     return value;
   }
   return;
@@ -253,15 +239,9 @@ function sanitizeStoredPreferences(stored: StoredPreferences | null): StoredPref
   const footerMode = sanitizeFooterMode(stored.footerMode);
   const footerHeight = sanitizeFooterHeight(stored.footerHeight);
   if (footerHeight !== undefined) {
-    sanitized.footerHeight = footerHeight;
     sanitized.footerMode = inferPreviewFooterMode(footerHeight);
   } else if (footerMode !== undefined) {
     sanitized.footerMode = footerMode;
-    sanitized.footerHeight = getPreviewFooterModeHeight(footerMode);
-  }
-  const footerCollapsed = sanitizeFooterCollapsed(stored.footerCollapsed);
-  if (footerCollapsed !== undefined) {
-    sanitized.footerCollapsed = footerCollapsed;
   }
 
   return sanitized;
@@ -278,8 +258,6 @@ interface PreviewPanelPreferencesSetters {
   setActiveTab: Dispatch<SetStateAction<string>>;
   setCollapsedGroups: Dispatch<SetStateAction<Set<string>>>;
   setColumnVisibility: Dispatch<SetStateAction<ColumnVisibility>>;
-  setFooterCollapsed: Dispatch<SetStateAction<boolean>>;
-  setFooterHeight: Dispatch<SetStateAction<number>>;
   setFooterMode: Dispatch<SetStateAction<PreviewFooterMode>>;
   setGroupingConfig: Dispatch<SetStateAction<string>>;
   setPageSize: Dispatch<SetStateAction<number>>;
@@ -334,13 +312,6 @@ export function usePreviewPanelPreferences(
   const [footerMode, setFooterMode] = useState<PreviewFooterMode>(() =>
     getStoredValue(storedPreferences, 'footerMode', defaults.footerMode)
   );
-  const [footerHeight, setFooterHeight] = useState<number>(() => {
-    const fallbackHeight = getStoredValue(storedPreferences, 'footerHeight', defaults.footerHeight);
-    return clampPreviewFooterHeight(fallbackHeight);
-  });
-  const [footerCollapsed, setFooterCollapsed] = useState<boolean>(() =>
-    getStoredValue(storedPreferences, 'footerCollapsed', false)
-  );
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -355,8 +326,6 @@ export function usePreviewPanelPreferences(
           pageSize,
           useTapestryRangesForContextOutput,
           footerMode,
-          footerHeight,
-          footerCollapsed,
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
       } catch (error) {
@@ -384,8 +353,6 @@ export function usePreviewPanelPreferences(
     pageSize,
     useTapestryRangesForContextOutput,
     footerMode,
-    footerHeight,
-    footerCollapsed,
   ]);
 
   return {
@@ -396,8 +363,6 @@ export function usePreviewPanelPreferences(
     pageSize,
     useTapestryRangesForContextOutput,
     footerMode,
-    footerHeight,
-    footerCollapsed,
     setActiveTab,
     setCollapsedGroups,
     setColumnVisibility,
@@ -405,8 +370,6 @@ export function usePreviewPanelPreferences(
     setPageSize,
     setUseTapestryRangesForContextOutput,
     setFooterMode,
-    setFooterHeight,
-    setFooterCollapsed,
     setSortDirection,
     setSortField,
     sortDirection,

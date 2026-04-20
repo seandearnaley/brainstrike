@@ -57,6 +57,7 @@ const { mockUseLocalRuntimeEmbeddingModelCatalog, runtimeCatalogWithOllamaEmbedd
               llm: false,
               embeddings: 'supported',
             },
+            capabilitySource: 'inferred',
             dimensionsKnown: {
               state: 'known',
               values: [768],
@@ -323,6 +324,7 @@ describe('EmbeddingSettings', () => {
               llm: false,
               embeddings: 'needs_verification',
             },
+            capabilitySource: 'inferred',
             dimensionsKnown: {
               state: 'needs_verification',
             },

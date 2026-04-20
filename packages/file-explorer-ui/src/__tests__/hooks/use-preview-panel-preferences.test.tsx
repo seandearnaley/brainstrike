@@ -10,7 +10,6 @@ describe('usePreviewPanelPreferences', () => {
     sortField: 'path' as const,
     useTapestryRangesForContextOutput: true,
     footerMode: 'default' as const,
-    footerHeight: 228,
   };
 
   it('sanitizes stored preferences', () => {
@@ -25,6 +24,7 @@ describe('usePreviewPanelPreferences', () => {
         collapsedGroups: ['keep', 12, null],
         footerMode: 'not-a-mode',
         footerHeight: 9999,
+        footerCollapsed: true,
       })
     );
 
@@ -38,10 +38,9 @@ describe('usePreviewPanelPreferences', () => {
     expect(result.current.columnVisibility.tokens).toBe(true);
     expect(Array.from(result.current.collapsedGroups)).toEqual(['keep']);
     expect(result.current.footerMode).toBe('expanded');
-    expect(result.current.footerHeight).toBe(540);
   });
 
-  it('hydrates canonical height when only footer mode is stored', () => {
+  it('hydrates footer mode when only the legacy stored mode is present', () => {
     localStorage.setItem(
       'previewPanelPreferences.v1',
       JSON.stringify({
@@ -52,10 +51,9 @@ describe('usePreviewPanelPreferences', () => {
     const { result } = renderHook(() => usePreviewPanelPreferences(defaults));
 
     expect(result.current.footerMode).toBe('compact');
-    expect(result.current.footerHeight).toBe(160);
   });
 
-  it('prefers inferred mode when stored mode and height disagree', () => {
+  it('prefers the inferred mode when legacy stored mode and height disagree', () => {
     localStorage.setItem(
       'previewPanelPreferences.v1',
       JSON.stringify({
@@ -67,6 +65,5 @@ describe('usePreviewPanelPreferences', () => {
     const { result } = renderHook(() => usePreviewPanelPreferences(defaults));
 
     expect(result.current.footerMode).toBe('expanded');
-    expect(result.current.footerHeight).toBe(500);
   });
 });

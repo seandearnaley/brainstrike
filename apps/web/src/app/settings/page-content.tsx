@@ -23,6 +23,7 @@ import {
 import {
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
+  createLocalRuntimeSettingsCategory,
   createSearchIndexingSettingsCategory,
   createTokenCountingSettingsCategoryWithRuntimeSupport,
   type SettingsCategory,
@@ -163,6 +164,7 @@ export default function SettingsPageContent() {
       createAppearanceSettingsCategory(),
       createSearchIndexingSettingsCategory(),
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
+      createLocalRuntimeSettingsCategory(),
       {
         id: 'models',
         title: 'Models & Providers',

@@ -348,6 +348,7 @@ describe('SettingsPageContent tool operations', () => {
       'appearance',
       'search-indexing',
       'token-counting',
+      'local-runtimes',
       'models',
       'logging',
       'ai-tools',

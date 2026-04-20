@@ -134,6 +134,17 @@ export interface LocalProviderOptions extends JSONObject {
   };
 }
 
+/**
+ * Per-request transport config for a local runtime (Ollama or LM Studio).
+ * `baseUrl` points the factory at a non-default host (e.g. a LAN GPU box) and
+ * `apiToken` is sent as `Authorization: Bearer <token>` — used for Ollama
+ * Turbo/Cloud and for LM Studio 0.4.0+ servers that opted into token auth.
+ */
+export interface LocalRuntimeProviderOptions extends JSONObject {
+  apiToken?: string;
+  baseUrl?: string;
+}
+
 export interface RuntimeModelSettings {
   maxOutputTokens?: number;
 }
@@ -143,6 +154,8 @@ export type RuntimeProviderOptions = (SharedV2ProviderOptions | SharedV3Provider
   anthropic?: AnthropicProviderOptions & JSONObject;
   google?: GoogleProviderOptions & JSONObject;
   local?: LocalProviderOptions & JSONObject;
+  ollama?: LocalRuntimeProviderOptions & JSONObject;
+  lmstudio?: LocalRuntimeProviderOptions & JSONObject;
 };
 
 export interface StreamChunkText {

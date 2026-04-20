@@ -865,6 +865,7 @@ describe('AssistantUiPanelWrapper', () => {
               source: 'openai_v1_models',
               freshness: 'live',
               capabilities: { llm: true, embeddings: 'supported' },
+              capabilitySource: 'inferred',
               dimensionsKnown: { state: 'known', values: [768], verifiedAt: 10, endpoint: '' },
             },
           ],
@@ -946,6 +947,7 @@ describe('AssistantUiPanelWrapper', () => {
               source: 'openai_v1_models',
               freshness: 'live',
               capabilities: { llm: true, embeddings: 'unsupported' },
+              capabilitySource: 'inferred',
               dimensionsKnown: { state: 'not_applicable' },
             },
             {
@@ -958,6 +960,7 @@ describe('AssistantUiPanelWrapper', () => {
               source: 'openai_v1_models',
               freshness: 'live',
               capabilities: { llm: false, embeddings: 'supported' },
+              capabilitySource: 'inferred',
               dimensionsKnown: { state: 'known', values: [768], verifiedAt: 20, endpoint: '' },
             },
           ],

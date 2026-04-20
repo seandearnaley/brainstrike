@@ -745,6 +745,36 @@ describe('AssistantDataStreamSession', () => {
         finishReason: 'error',
       });
     });
+
+    it('emits a user-visible error + error-finish when the source iterator throws', async () => {
+      // Regression: top-level provider errors used to surface as a synthetic
+      // tool-event with no toolCallId, which the data-stream mapper silently
+      // dropped. Now the agent runtime throws and we must see DataStreamCode.error
+      // ('3:') followed by a finishMessage with reason 'error' so the UI can
+      // surface the failure to the user.
+      const failingStream: AsyncIterable<StreamChunk> = {
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text-delta', value: 'partial' } as StreamChunk;
+          throw new Error('ollama_400_tool_calling_unsupported');
+        },
+      };
+
+      const session = new AssistantDataStreamSession(failingStream, () => {}, {
+        sessionId: 'iterator-throws-test',
+        messageId: 'msg-iterator-throws',
+      });
+
+      const response = await readResponse(session.createResponse());
+      const parsed = parseLines(response);
+
+      const errorLine = parsed.find((p) => p.code === '3');
+      const finishMessage = parsed.find((p) => p.code === 'd');
+
+      expect(errorLine).toBeDefined();
+      expect(errorLine?.value).toBe('ollama_400_tool_calling_unsupported');
+      expect(finishMessage).toBeDefined();
+      expect(finishMessage?.value).toMatchObject({ finishReason: 'error' });
+    });
   });
 });
 
