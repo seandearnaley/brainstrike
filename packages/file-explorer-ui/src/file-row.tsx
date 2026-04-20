@@ -53,7 +53,7 @@ export const FileRow = memo<FileRowProps>(function FileRow({
         {isLoading && <Loader2 className="h-3 w-3 animate-spin" data-testid="loading-spinner" />}
         <span className="min-w-[60px] text-right">{formatFileSize(item.size)}</span>
         <span className="min-w-[50px] text-right">
-          {item.tokens ? item.tokens.toLocaleString() : 'N/A'}
+          {item.tokens === undefined ? 'N/A' : item.tokens.toLocaleString()}
         </span>
         <Button
           aria-label="Remove from selection"
