@@ -585,6 +585,36 @@ describe('TreeTable', () => {
       expect(collapseButton).toBeInTheDocument();
     });
 
+    it('exposes aria-expanded and icon-xs sizing on row expand buttons', () => {
+      const nodes: TreeNode<TestData>[] = [createTestNode('1', 'Folder', null, true)];
+      const { rerender } = render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const collapsedButton = screen.getByRole('button', { name: /expand/i });
+      expect(collapsedButton).toHaveAttribute('aria-expanded', 'false');
+      expect(collapsedButton).toHaveAttribute('data-size', 'icon-xs');
+
+      rerender(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set(['1'])}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      expect(screen.getByRole('button', { name: /collapse/i })).toHaveAttribute(
+        'aria-expanded',
+        'true'
+      );
+    });
+
     it('calls onToggleExpand when expand button clicked', () => {
       const handleToggle = vi.fn();
       const nodes: TreeNode<TestData>[] = [createTestNode('1', 'Folder', null, true)];
