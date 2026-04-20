@@ -153,7 +153,7 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
             title="Edit collection"
             variant="ghost"
           >
-            <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
+            <Pencil aria-hidden="true" />
           </Button>
           <Button
             aria-label="Delete collection"
@@ -163,7 +163,7 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
             title="Delete collection"
             variant="ghost"
           >
-            <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
+            <Trash2 aria-hidden="true" />
           </Button>
         </div>
       </div>
