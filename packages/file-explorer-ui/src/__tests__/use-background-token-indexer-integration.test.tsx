@@ -102,6 +102,7 @@ const webHandle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
 const fileAKey = encodeFileSelection('root', 'a.txt');
 const fileBKey = encodeFileSelection('root', 'b.txt');
 const fileCKey = encodeFileSelection('other-root', 'c.txt');
+const fileRootCKey = encodeFileSelection('root', 'c.txt');
 
 const fileTreeRootA: IFileNode[] = [
   {
@@ -116,6 +117,22 @@ const fileTreeRootA: IFileNode[] = [
   {
     name: 'b.txt',
     path: 'b.txt',
+    type: 'file',
+    handle: webHandle,
+    depth: 0,
+    selectionState: 'unchecked' as const,
+    rootFolderId: 'root',
+  },
+];
+
+// Separate three-file tree used only by the swap-then-shrink regression
+// test. Keeping it out of `fileTreeRootA` preserves the `fileHandleMapSize
+// === 2` invariant that the P0 handle-map-rebuild tests rely on.
+const fileTreeRootAWithC: IFileNode[] = [
+  ...fileTreeRootA,
+  {
+    name: 'c.txt',
+    path: 'c.txt',
     type: 'file',
     handle: webHandle,
     depth: 0,
@@ -275,6 +292,51 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     // correctly remove b.txt from inFlightRef without cancelling the batch.
     expect(indexFilesMock).toHaveBeenCalledTimes(1);
     expect(cancelIndexingMock).not.toHaveBeenCalled();
+  });
+
+  it('cancels the batch when selection shrinks to empty after an equal-size swap orphans an in-flight file', () => {
+    // Regression for the swap-then-shrink scenario: {A,B} -> {A,C} is an
+    // equal-size swap that does NOT trigger the shrink handler, so B stays
+    // tracked in inFlightRef even though the user has deselected it. When
+    // selection then shrinks to empty ({} previousSize=2), the old
+    // `reconcileInFlightOnShrink` iterated only `previousSelectedFiles =
+    // {A, C}` and never visited B -- so `remainingInFlight` stayed at 1 and
+    // `cancelBatch` stayed false. The worker kept token-counting B even
+    // though nothing was selected. The fix iterates `inFlight` directly to
+    // drain any key not present in the current selection, which makes the
+    // cancel path fire correctly for this scenario.
+    const { rerender } = renderHook(
+      (selectedFiles: Set<string>) =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: fileTreeRootAWithC,
+          selectedFiles,
+          onTokenResolved: vi.fn(),
+        }),
+      {
+        initialProps: new Set([fileAKey, fileBKey]),
+      }
+    );
+
+    flushTimers();
+    expect(indexFilesMock).toHaveBeenCalledTimes(1);
+    expect(indexFilesMock.mock.calls[0]![0]).toHaveLength(2);
+
+    // Equal-size swap: B is deselected and replaced with root/c.txt. The
+    // shrink handler does NOT run here (size 2 -> 2). After this rerender
+    // and its debounced dispatch, inFlight should hold {A, B (orphan), C}.
+    rerender(new Set([fileAKey, fileRootCKey]));
+    flushTimers();
+    expect(indexFilesMock).toHaveBeenCalledTimes(2);
+
+    cancelIndexingMock.mockClear();
+
+    // Now shrink to empty. Without the inFlight-drain fix, the reconcile
+    // loop only visits `previousSelectedFiles = {A, C}`, leaves B in
+    // inFlight, sees remainingInFlight=1, and never calls cancelIndexing.
+    rerender(new Set());
+    flushTimers();
+
+    expect(cancelIndexingMock).toHaveBeenCalledTimes(1);
   });
 
   it('prefetches file sizes into the hot cache before token indexing completes', () => {

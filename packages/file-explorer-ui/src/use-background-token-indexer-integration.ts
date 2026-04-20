@@ -348,17 +348,34 @@ function reconcileInFlightOnShrink(params: {
   pendingNoHandle: Set<string>;
 }): ShrinkReconcileResult {
   const { previousSelectedFiles, selectedFiles, inFlight, pendingNoHandle } = params;
+  // Count deselections (files the user had selected that are no longer
+  // selected) for logging. `removedCount` is about selection intent, not
+  // about how much in-flight state was drained.
   let removedCount = 0;
-  let inFlightRemoved = 0;
   for (const key of previousSelectedFiles) {
-    if (selectedFiles.has(key)) {
-      continue;
+    if (!selectedFiles.has(key)) {
+      removedCount++;
     }
-    removedCount++;
-    if (inFlight.delete(key)) {
+  }
+  // Drain in-flight / pending-no-handle of any key that is no longer
+  // selected, not just keys that appear in `previousSelectedFiles`. This
+  // catches orphans introduced by equal-size swaps on earlier renders --
+  // e.g. {A,B} -> {A,C} (no shrink, `previousSelectedFiles` becomes {A,C},
+  // but B stays tracked from its original batch) -> {} (shrink to empty,
+  // but iterating only {A,C} would never touch B). Without this drain, the
+  // worker keeps token-counting B even though the user has nothing
+  // selected, wasting CPU and delaying UI recovery.
+  let inFlightRemoved = 0;
+  for (const key of [...inFlight]) {
+    if (!selectedFiles.has(key)) {
+      inFlight.delete(key);
       inFlightRemoved++;
     }
-    pendingNoHandle.delete(key);
+  }
+  for (const key of [...pendingNoHandle]) {
+    if (!selectedFiles.has(key)) {
+      pendingNoHandle.delete(key);
+    }
   }
   const remainingInFlight = inFlight.size;
   const cancelBatch = inFlightRemoved > 0 && remainingInFlight === 0;
@@ -403,8 +420,12 @@ function handleSelectionShrink(params: {
   });
 
   if (result.cancelBatch) {
+    // `reconcileInFlightOnShrink` has already emptied `inFlight` -- it only
+    // returns cancelBatch=true when every in-flight key was drained. No
+    // defensive clear needed here; rely on the reconcile contract instead
+    // of re-clearing and risking a reader thinking the reconcile is
+    // incomplete.
     cancelBatch();
-    inFlight.clear();
     onPulse();
     logger.debug('Cleared in-flight queue due to full selection shrink', {
       previousSize,
