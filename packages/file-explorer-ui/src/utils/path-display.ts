@@ -11,6 +11,7 @@ interface DirPathDisplayOptions {
 }
 
 interface DirectoryGroupIdentity {
+  allowExistingRootPrefix: boolean;
   relativeDirPath: string;
   rootFolderId: string;
 }
@@ -269,7 +270,20 @@ function getRootFolderPathLabel(rootFolderId: string): string {
   return getRootFolderBasename(normalized);
 }
 
-function joinRootFolderPath(rootLabel: string, displayDirPath: string): string {
+function hasCaseInsensitiveRootPrefix(displayDirPath: string, rootLabel: string): boolean {
+  const displayDirPathLower = displayDirPath.toLowerCase();
+  const rootLabelLower = rootLabel.toLowerCase();
+  return (
+    displayDirPathLower === rootLabelLower || displayDirPathLower.startsWith(`${rootLabelLower}/`)
+  );
+}
+
+function joinRootFolderPath(args: {
+  allowExistingRootPrefix: boolean;
+  displayDirPath: string;
+  rootLabel: string;
+}): string {
+  const { displayDirPath, rootLabel, allowExistingRootPrefix } = args;
   if (!displayDirPath || displayDirPath === '.') {
     return rootLabel;
   }
@@ -278,7 +292,7 @@ function joinRootFolderPath(rootLabel: string, displayDirPath: string): string {
     return displayDirPath.startsWith('/') ? displayDirPath : `/${displayDirPath}`;
   }
 
-  if (displayDirPath === rootLabel || displayDirPath.startsWith(`${rootLabel}/`)) {
+  if (allowExistingRootPrefix && hasCaseInsensitiveRootPrefix(displayDirPath, rootLabel)) {
     return displayDirPath;
   }
 
@@ -294,7 +308,11 @@ function getDirectoryGroupLabelFromIdentity(args: {
     : getRootFolderPathLabel(args.identity.rootFolderId);
 
   if (rootLabel) {
-    return joinRootFolderPath(rootLabel, args.identity.relativeDirPath);
+    return joinRootFolderPath({
+      rootLabel,
+      displayDirPath: args.identity.relativeDirPath,
+      allowExistingRootPrefix: args.identity.allowExistingRootPrefix,
+    });
   }
 
   return args.identity.relativeDirPath || '.';
@@ -311,17 +329,20 @@ function parseDirectoryGroupIdentity(groupKey: string): DirectoryGroupIdentity {
       relativeDirPath:
         typeof parsed.relativeDirPath === 'string' ? parsed.relativeDirPath : groupKey,
       rootFolderId: typeof parsed.rootFolderId === 'string' ? parsed.rootFolderId : '',
+      allowExistingRootPrefix: parsed.allowExistingRootPrefix === true,
     };
   } catch {
     return {
       relativeDirPath: groupKey,
       rootFolderId: '',
+      allowExistingRootPrefix: false,
     };
   }
 }
 
 export function formatFilePathSubtitle(args: { filePath: string; rootFolderId: string }): string {
-  const { dirPath } = splitFilePath(args.filePath);
+  const normalizedFilePath = normalizePathIdentity(args.filePath);
+  const { dirPath } = splitFilePath(normalizedFilePath);
   const displayDirPath = formatDirPathForDisplay({
     dirPath,
     rootFolderId: args.rootFolderId,
@@ -332,18 +353,24 @@ export function formatFilePathSubtitle(args: { filePath: string; rootFolderId: s
     return displayDirPath;
   }
 
-  return joinRootFolderPath(rootLabel, displayDirPath);
+  return joinRootFolderPath({
+    rootLabel,
+    displayDirPath,
+    allowExistingRootPrefix: !isProbablyAbsolutePath(normalizedFilePath),
+  });
 }
 
 export function getDirectoryGroupKey(args: { filePath: string; rootFolderId: string }): string {
   const normalizedRootFolderId = normalizePathIdentity(args.rootFolderId);
   const { dirPath } = splitFilePath(args.filePath);
   const normalizedDirPath = stripTrailingSlashes(normalizeSeparators(dirPath));
+  const allowExistingRootPrefix = !isProbablyAbsolutePath(normalizedDirPath);
 
   if (!normalizedDirPath) {
     return serializeDirectoryGroupIdentity({
       rootFolderId: normalizedRootFolderId,
       relativeDirPath: '',
+      allowExistingRootPrefix,
     });
   }
 
@@ -356,24 +383,32 @@ export function getDirectoryGroupKey(args: { filePath: string; rootFolderId: str
     return serializeDirectoryGroupIdentity({
       rootFolderId: normalizedRootFolderId,
       relativeDirPath: trimmedToFolderRoot ? '' : normalizedDirPath,
+      allowExistingRootPrefix,
     });
   }
 
   return serializeDirectoryGroupIdentity({
     rootFolderId: normalizedRootFolderId,
     relativeDirPath: trimmedToFolderRoot ? segments.join('/') : normalizedDirPath,
+    allowExistingRootPrefix,
   });
 }
 
-export function getDirectoryGroupDisplayName(args: {
+export interface DirectoryGroupDisplayNameOptions {
   groupKey: string;
   useCanonicalRootLabel?: boolean;
-}): string {
+}
+
+export function getDirectoryGroupDisplayName(args: DirectoryGroupDisplayNameOptions): string {
+  if (args.useCanonicalRootLabel === undefined) {
+    return getDirectoryGroupLabelFromIdentity({
+      identity: parseDirectoryGroupIdentity(args.groupKey),
+    });
+  }
+
   return getDirectoryGroupLabelFromIdentity({
     identity: parseDirectoryGroupIdentity(args.groupKey),
-    ...(args.useCanonicalRootLabel === undefined
-      ? {}
-      : { useCanonicalRootLabel: args.useCanonicalRootLabel }),
+    useCanonicalRootLabel: args.useCanonicalRootLabel,
   });
 }
 
@@ -388,50 +423,4 @@ export function getRootFolderDisplayName(rootFolderId: string): string {
   }
 
   return getRootFolderBasename(normalized);
-}
-
-/**
- * Extracts the folder-relative directory path from a full file path.
- * Used for grouping files by their directory.
- *
- * @example
- * getDirPathForGrouping({
- *   filePath: '/Users/me/project/src/components/Button.tsx',
- *   rootFolderId: 'project'
- * })
- * // Returns: 'src/components'
- *
- * getDirPathForGrouping({
- *   filePath: '/Users/me/project/index.ts',
- *   rootFolderId: 'project'
- * })
- * // Returns: '.' (file at project root)
- */
-export function getDirPathForGrouping(args: { filePath: string; rootFolderId: string }): string {
-  const { dirPath } = splitFilePath(args.filePath);
-
-  if (!dirPath) {
-    return '.';
-  }
-
-  const normalized = stripTrailingSlashes(normalizeSeparators(dirPath));
-  if (!normalized) {
-    return '.';
-  }
-
-  const { segments, trimmedToFolderRoot } = getFolderRelativeSegments({
-    normalizedDirPath: normalized,
-    rootFolderId: args.rootFolderId,
-  });
-
-  if (segments.length === 0) {
-    return trimmedToFolderRoot ? '.' : dirPath;
-  }
-
-  // If root folder wasn't found, return the original normalized path to preserve absolute paths
-  if (!trimmedToFolderRoot) {
-    return normalized;
-  }
-
-  return segments.join('/');
 }

@@ -32,6 +32,7 @@ export interface GroupConfig<T = unknown> {
   groupBy: GroupFunction<T> | GroupBandFunction<T>;
   id: string;
   label: string;
+  sortGroupedData?: (a: GroupedData<T>, b: GroupedData<T>) => number;
   sortGroups?: (a: GroupKey, b: GroupKey) => number;
 }
 
@@ -86,11 +87,8 @@ export const GROUPING_CONFIGS = {
         groupKey: String(groupKey),
         useCanonicalRootLabel: true,
       }),
-    sortGroups: (a: GroupKey, b: GroupKey) => {
-      const primaryComparison = groupingCollator.compare(
-        getDirectoryGroupDisplayName({ groupKey: String(a) }),
-        getDirectoryGroupDisplayName({ groupKey: String(b) })
-      );
+    sortGroupedData: (a: GroupedData<TableRowData>, b: GroupedData<TableRowData>) => {
+      const primaryComparison = groupingCollator.compare(a.groupLabel, b.groupLabel);
 
       if (primaryComparison !== 0) {
         return primaryComparison;
@@ -98,11 +96,11 @@ export const GROUPING_CONFIGS = {
 
       return groupingCollator.compare(
         getDirectoryGroupDisplayName({
-          groupKey: String(a),
+          groupKey: String(a.groupKey),
           useCanonicalRootLabel: true,
         }),
         getDirectoryGroupDisplayName({
-          groupKey: String(b),
+          groupKey: String(b.groupKey),
           useCanonicalRootLabel: true,
         })
       );
@@ -242,7 +240,9 @@ export function groupData<T extends { tokens?: number; size?: number }>(
   }
 
   // Sort groups if sorter is provided
-  if (config.sortGroups) {
+  if (config.sortGroupedData) {
+    result.sort(config.sortGroupedData);
+  } else if (config.sortGroups) {
     result.sort((a, b) => config.sortGroups?.(a.groupKey, b.groupKey) ?? 0);
   }
 
