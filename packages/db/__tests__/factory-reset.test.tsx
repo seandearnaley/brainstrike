@@ -1,3 +1,4 @@
+import type { PGlite } from '@electric-sql/pglite';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import type { Mock } from 'vitest';
@@ -6,15 +7,8 @@ import { DbProvider, useFactoryReset, useFileRecordRepository } from '../src/db-
 import * as migrations from '../src/migrations/bootstrap';
 import * as wasmLoaderModule from '../src/wasm-loader';
 
-// Why mocks instead of real PGlite:
-// PGlite 0.4 detects `typeof window === "object"` (true under jsdom) and routes
-// through its browser code path, which spawns helper Workers / Blob URLs that
-// jsdom does not implement. The factoryReset flow opens a DB, closes it, then
-// reopens a fresh one -- under jsdom that close/reopen cycle deadlocks.
-// Real PGlite open/close is exercised by the (browser-mode) `*.browser.test.ts`
-// suite. Here we follow the same mock pattern as `clear-data.test.tsx`,
-// `db-provider-lifecycle.test.tsx`, etc., so we can assert the orchestration
-// (close called, new instance created) without depending on a real WASM DB.
+// Mocks (not real PGlite) so jsdom doesn't hit PGlite 0.4's browser-only
+// Worker/Blob paths. Real open/close is covered by `*.browser.test.ts`.
 
 type QueryMock = Mock<[string, unknown[]?], Promise<{ rows: unknown[] } | undefined>>;
 type ExecMock = Mock<[string], Promise<unknown>>;
@@ -70,7 +64,7 @@ describe('DbProvider factoryReset', () => {
 
     createPGliteSpy = vi
       .spyOn(wasmLoaderModule.wasmLoader, 'createPGlite')
-      .mockImplementation(async (_path?: string) => {
+      .mockImplementation(async () => {
         const db = createMockDb();
         createdDbs.push(db);
         // The provider only exercises the four members we mock (query/exec/close/transaction);
