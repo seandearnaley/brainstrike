@@ -1328,7 +1328,6 @@ export function useBackgroundTokenIndexerIntegration({
   // context-explorer column rendered `—` for size even though the tree
   // already had the value. Writes are idempotent (use-token-cache no-ops when
   // the value matches) so re-running on every selection change is cheap.
-  // biome-ignore lint/plugin: Intentional side effect to populate hot cache from known handle sources
   useEffect(() => {
     const cache = tokenCacheRef.current;
     if (!cache?.isOperational || selectedFiles.size === 0) {
