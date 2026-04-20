@@ -208,7 +208,12 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     mockFileTreeIndexContext = null;
   });
 
-  it('re-queues files when selection shrinks (stale cache is cleared)', () => {
+  it('does not re-queue still-selected files when selection shrinks', () => {
+    // Regression: the previous implementation cancelled the full in-flight
+    // batch on any shrink and then re-queued the remaining file. That round
+    // trip is what made the context explorer briefly render `—` for files the
+    // user had not deselected. The narrowed cancel-on-shrink path keeps the
+    // still-selected in-flight key and avoids the re-dispatch.
     const { rerender } = renderHook(
       (selectedFiles: Set<string>) =>
         useBackgroundTokenIndexerIntegration({
@@ -221,18 +226,15 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       }
     );
 
-    // First selection: both files should be queued.
     flushTimers();
     expect(indexFilesMock).toHaveBeenCalledTimes(1);
     expect(indexFilesMock.mock.calls[0]![0]).toHaveLength(2);
 
-    // Shrink selection to only fileA; cache should clear and re-queue fileA.
     rerender(new Set([fileAKey]));
     flushTimers();
 
-    expect(indexFilesMock).toHaveBeenCalledTimes(2);
-    expect(indexFilesMock.mock.calls[1]![0]).toHaveLength(1);
-    expect(indexFilesMock.mock.calls[1]![0][0]?.compositeKey).toBe(fileAKey);
+    expect(indexFilesMock).toHaveBeenCalledTimes(1);
+    expect(cancelIndexingMock).not.toHaveBeenCalled();
   });
 
   it('re-queues files when root folder changes even if selection size stays the same', () => {
@@ -466,7 +468,9 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       expect(indexFilesMock.mock.calls[0]![0][0]?.compositeKey).toBe(fileAKey);
     });
 
-    it('cancels indexing when selection shrinks while indexing is active', () => {
+    it('cancels indexing when every in-flight file is deselected', () => {
+      // Full deselection means nobody is waiting for those token counts, so we
+      // tear down the worker batch to free the main thread immediately.
       mockBackgroundIndexer.isIndexing = true;
 
       const { rerender } = renderHook(
@@ -484,11 +488,40 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       flushTimers();
       cancelIndexingMock.mockClear();
 
-      // Shrink selection while indexing is happening
+      rerender(new Set<string>());
+      flushTimers();
+
+      expect(cancelIndexingMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not cancel indexing when still-selected files remain in flight', () => {
+      // Regression for the context explorer responsiveness fix: deselecting a
+      // subset of in-flight files must not nuke the whole worker batch. The
+      // files that remain selected keep their in-flight marker and continue
+      // counting, so their token column stays populated.
+      mockBackgroundIndexer.isIndexing = true;
+
+      const { rerender } = renderHook(
+        (selectedFiles: Set<string>) =>
+          useBackgroundTokenIndexerIntegration({
+            fileTree: fileTreeRootA,
+            selectedFiles,
+            onTokenResolved: vi.fn(),
+          }),
+        {
+          initialProps: new Set([fileAKey, fileBKey]),
+        }
+      );
+
+      flushTimers();
+      cancelIndexingMock.mockClear();
+      indexFilesMock.mockClear();
+
       rerender(new Set([fileAKey]));
       flushTimers();
 
-      expect(cancelIndexingMock).toHaveBeenCalled();
+      expect(cancelIndexingMock).not.toHaveBeenCalled();
+      expect(indexFilesMock).not.toHaveBeenCalled();
     });
 
     it('still queues indexing when cache is operational even if the background indexer is not ready yet', () => {

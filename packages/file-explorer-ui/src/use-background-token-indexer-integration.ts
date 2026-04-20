@@ -325,6 +325,106 @@ function buildFileHandleMap(
   }
 }
 
+/**
+ * Result of reconciling a selection shrink against the current in-flight set.
+ *
+ * `cancelBatch` is true only when every in-flight composite key has been
+ * deselected -- the only case where hard-cancelling the worker batch is
+ * useful. `narrowedInFlight` means we dropped some in-flight keys but others
+ * remain selected; the effect bumps the pulse counter so the UI can re-render
+ * without re-dispatching the still-selected keys.
+ */
+interface ShrinkReconcileResult {
+  cancelBatch: boolean;
+  narrowedInFlight: boolean;
+  remainingInFlight: number;
+  removedCount: number;
+}
+
+function reconcileInFlightOnShrink(params: {
+  previousSelectedFiles: ReadonlySet<string>;
+  selectedFiles: ReadonlySet<string>;
+  inFlight: Set<string>;
+  pendingNoHandle: Set<string>;
+}): ShrinkReconcileResult {
+  const { previousSelectedFiles, selectedFiles, inFlight, pendingNoHandle } = params;
+  let removedCount = 0;
+  let inFlightRemoved = 0;
+  for (const key of previousSelectedFiles) {
+    if (selectedFiles.has(key)) {
+      continue;
+    }
+    removedCount++;
+    if (inFlight.delete(key)) {
+      inFlightRemoved++;
+    }
+    pendingNoHandle.delete(key);
+  }
+  const remainingInFlight = inFlight.size;
+  const cancelBatch = inFlightRemoved > 0 && remainingInFlight === 0;
+  const narrowedInFlight = !cancelBatch && inFlightRemoved > 0;
+  return {
+    cancelBatch,
+    narrowedInFlight,
+    removedCount,
+    remainingInFlight: cancelBatch ? 0 : remainingInFlight,
+  };
+}
+
+/**
+ * Apply the result of `reconcileInFlightOnShrink`: cancel the worker batch
+ * when appropriate, pulse the in-flight version so observers re-render, and
+ * emit matching debug logs. Extracted from the selection effect so the effect
+ * body stays under the cognitive-complexity budget.
+ */
+function handleSelectionShrink(params: {
+  previousSize: number;
+  previousSelectedFiles: ReadonlySet<string>;
+  selectedFiles: ReadonlySet<string>;
+  inFlight: Set<string>;
+  pendingNoHandle: Set<string>;
+  cancelBatch: () => void;
+  onPulse: () => void;
+}): void {
+  const {
+    previousSize,
+    previousSelectedFiles,
+    selectedFiles,
+    inFlight,
+    pendingNoHandle,
+    cancelBatch,
+    onPulse,
+  } = params;
+  const result = reconcileInFlightOnShrink({
+    previousSelectedFiles,
+    selectedFiles,
+    inFlight,
+    pendingNoHandle,
+  });
+
+  if (result.cancelBatch) {
+    cancelBatch();
+    inFlight.clear();
+    onPulse();
+    logger.debug('Cleared in-flight queue due to full selection shrink', {
+      previousSize,
+      nextSize: selectedFiles.size,
+      removedCount: result.removedCount,
+    });
+    return;
+  }
+
+  if (result.narrowedInFlight) {
+    onPulse();
+    logger.debug('Narrowed in-flight queue to still-selected files', {
+      previousSize,
+      nextSize: selectedFiles.size,
+      removedCount: result.removedCount,
+      remainingInFlight: result.remainingInFlight,
+    });
+  }
+}
+
 function getSelectionSkipState(params: {
   hasHandleSource: boolean;
   isEmbeddingActive: boolean;
@@ -389,6 +489,12 @@ export function useBackgroundTokenIndexerIntegration({
   // Track files skipped due to missing handles - retry when FileTreeIndex fills
   const pendingNoHandleRef = useRef<Set<string>>(new Set());
   const previousSelectionSizeRef = useRef<number>(0);
+  // Track the exact prior selection so we can narrow cancel-on-shrink to the
+  // composite keys that actually left the selection. Without this, any filter
+  // change that deselected even a single already-indexed file would abort the
+  // whole in-flight batch and the remaining still-selected rows would render
+  // `—` until the next debounced triggerIndexing arrived.
+  const previousSelectedFilesRef = useRef<Set<string>>(new Set());
   const [_inFlightPulse, bumpInFlightPulse] = useState(0);
   // Track file handle map population to trigger selection effect re-run
   const [fileHandleMapSize, setFileHandleMapSize] = useState(0);
@@ -1173,15 +1279,25 @@ export function useBackgroundTokenIndexerIntegration({
   useEffect(() => {
     const indexer = backgroundIndexerRef.current;
     const previousSize = previousSelectionSizeRef.current;
+    const previousSelectedFiles = previousSelectedFilesRef.current;
     previousSelectionSizeRef.current = selectedFiles.size;
+    previousSelectedFilesRef.current = selectedFiles;
 
-    if (selectedFiles.size < previousSize && inFlightRef.current.size > 0) {
-      indexer.cancelIndexing();
-      inFlightRef.current.clear();
-      bumpInFlightPulse((value) => value + 1);
-      logger.debug('Cleared in-flight queue due to selection shrink', {
+    if (selectedFiles.size < previousSize) {
+      // Previously, any shrink cleared the entire in-flight set, which threw
+      // away token-count work for files the user had not deselected (see the
+      // context-explorer responsiveness investigation). `handleSelectionShrink`
+      // drops tracking only for keys that actually left the selection and
+      // hard-cancels the worker batch only when every in-flight key was
+      // deselected.
+      handleSelectionShrink({
         previousSize,
-        nextSize: selectedFiles.size,
+        previousSelectedFiles,
+        selectedFiles,
+        inFlight: inFlightRef.current,
+        pendingNoHandle: pendingNoHandleRef.current,
+        cancelBatch: () => indexer.cancelIndexing(),
+        onPulse: () => bumpInFlightPulse((value) => value + 1),
       });
     }
 
