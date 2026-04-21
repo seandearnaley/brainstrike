@@ -951,9 +951,20 @@ export interface IdeLayoutProps {
   consoleContent?: React.ReactNode;
   leftPanelChrome?: Partial<PanelChromeConfig>;
   leftPanelContent?: React.ReactNode;
+  panelConstraints?: Partial<IdeLayoutPanelConstraints>;
   panelIdPrefix?: string;
   rightPanelChrome?: Partial<PanelChromeConfig>;
   rightPanelContent?: React.ReactNode;
+}
+
+export interface IdeLayoutPanelConstraints {
+  consolePanelMaxSize: number | string;
+  consolePanelMinSize: number | string;
+  leftPanelMaxSize: number | string;
+  leftPanelMinSize: number | string;
+  mainContentMinSize: number | string;
+  rightPanelMaxSize: number | string;
+  rightPanelMinSize: number | string;
 }
 
 const DEFAULT_LEFT_PANEL_CHROME: PanelChromeConfig = {
@@ -974,10 +985,21 @@ const DEFAULT_RIGHT_PANEL_CHROME: PanelChromeConfig = {
   icon: PanelRight,
 };
 
+const DEFAULT_PANEL_CONSTRAINTS: IdeLayoutPanelConstraints = {
+  leftPanelMaxSize: '50%',
+  leftPanelMinSize: '15%',
+  mainContentMinSize: '30%',
+  consolePanelMaxSize: '80%',
+  consolePanelMinSize: '15%',
+  rightPanelMaxSize: '60%',
+  rightPanelMinSize: '15%',
+};
+
 export const IdeLayout = React.memo(function IdeLayout({
   children,
   leftPanelContent,
   leftPanelChrome,
+  panelConstraints,
   panelIdPrefix = '',
   rightPanelContent,
   rightPanelChrome,
@@ -1013,6 +1035,10 @@ export const IdeLayout = React.memo(function IdeLayout({
   const resolvedRightPanelChrome = useMemo(
     () => ({ ...DEFAULT_RIGHT_PANEL_CHROME, ...rightPanelChrome }),
     [rightPanelChrome]
+  );
+  const resolvedPanelConstraints = useMemo(
+    () => ({ ...DEFAULT_PANEL_CONSTRAINTS, ...panelConstraints }),
+    [panelConstraints]
   );
   const LeftPanelIcon = resolvedLeftPanelChrome.icon;
   const RightPanelIcon = resolvedRightPanelChrome.icon;
@@ -1254,8 +1280,8 @@ export const IdeLayout = React.memo(function IdeLayout({
                 collapsedSize="0%"
                 collapsible
                 id={layoutIds.explorerPanel}
-                maxSize="50%"
-                minSize="15%"
+                maxSize={resolvedPanelConstraints.leftPanelMaxSize}
+                minSize={resolvedPanelConstraints.leftPanelMinSize}
                 onResize={(panelSize) => {
                   const collapsed = panelSize.asPercentage === 0;
                   if (collapsed !== leftCollapsedRef.current) {
@@ -1296,14 +1322,18 @@ export const IdeLayout = React.memo(function IdeLayout({
           )}
 
           {/* Middle Panel - Main content area with optional console */}
-          <Panel id={layoutIds.middlePanel} minSize="30%">
+          <Panel id={layoutIds.middlePanel} minSize={resolvedPanelConstraints.mainContentMinSize}>
             <Group
               defaultLayout={verticalLayout}
               groupRef={verticalGroupRef}
               onLayoutChanged={handleVerticalLayout}
               orientation="vertical"
             >
-              <Panel className="bg-background" id={layoutIds.mainContentPanel} minSize="30%">
+              <Panel
+                className="bg-background"
+                id={layoutIds.mainContentPanel}
+                minSize={resolvedPanelConstraints.mainContentMinSize}
+              >
                 <div className="flex h-full flex-col [contain:layout_paint_style]">
                   <div className="min-h-0 flex-1">{children}</div>
                   {/* Show console toggle when collapsed - inside main content panel */}
@@ -1338,8 +1368,8 @@ export const IdeLayout = React.memo(function IdeLayout({
                     collapsedSize="0%"
                     collapsible
                     id={layoutIds.consolePanel}
-                    maxSize="80%"
-                    minSize="15%"
+                    maxSize={resolvedPanelConstraints.consolePanelMaxSize}
+                    minSize={resolvedPanelConstraints.consolePanelMinSize}
                     onResize={(panelSize) => {
                       const collapsed = panelSize.asPercentage === 0;
                       if (collapsed !== consoleCollapsedRef.current) {
@@ -1388,8 +1418,8 @@ export const IdeLayout = React.memo(function IdeLayout({
                 collapsedSize="0%"
                 collapsible
                 id={layoutIds.toolsPanel}
-                maxSize="60%"
-                minSize="15%"
+                maxSize={resolvedPanelConstraints.rightPanelMaxSize}
+                minSize={resolvedPanelConstraints.rightPanelMinSize}
                 onResize={(panelSize) => {
                   const collapsed = panelSize.asPercentage === 0;
                   if (collapsed !== rightCollapsedRef.current) {

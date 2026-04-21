@@ -143,33 +143,33 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('tabbed-file-editor-panel')).toBeInTheDocument();
   });
 
-  it('keeps the agent shell mounted while switching routes', () => {
+  it('renders settings as a full-frame route without the agent shell', () => {
     renderComponent();
 
     act(() => {
       mockHandlers.onNavigationClick('/settings');
     });
 
-    expect(screen.getByTestId('threads-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('explorer-section')).toHaveClass('hidden');
-    expect(screen.getByTestId('settings-section')).not.toHaveClass('hidden');
+    expect(screen.queryByTestId('threads-shell')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('assistant-chat-shell')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('database-drawer')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('explorer-section')).not.toBeInTheDocument();
+    expect(screen.getByTestId('settings-route')).toBeInTheDocument();
     expect(screen.getByTestId('settings-page')).toBeInTheDocument();
   });
 
-  it('keeps prompts mounted after first visit', () => {
+  it('renders prompts as a full-frame route without the agent shell', () => {
     renderComponent();
 
     act(() => {
       mockHandlers.onNavigationClick('/prompts');
     });
-    expect(screen.getByTestId('prompts-page')).toBeInTheDocument();
 
-    act(() => {
-      mockHandlers.onNavigationClick('/');
-    });
-
+    expect(screen.queryByTestId('threads-shell')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('assistant-chat-shell')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('database-drawer')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('explorer-section')).not.toBeInTheDocument();
+    expect(screen.getByTestId('prompts-route')).toBeInTheDocument();
     expect(screen.getByTestId('prompts-page')).toBeInTheDocument();
-    expect(screen.getByTestId('prompts-section')).toHaveClass('hidden');
   });
 });

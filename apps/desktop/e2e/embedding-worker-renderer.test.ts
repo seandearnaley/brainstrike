@@ -6060,13 +6060,29 @@ test.describe('Embedding Host Renderer', () => {
     expect(status.state).toBe('running');
   });
 
-  test('keeps the hidden host alive across visible-window navigation', async ({ window }) => {
+  test('keeps the hidden host alive across visible-window navigation once started', async ({
+    window,
+  }) => {
     let activeWindow = await showDatabaseDemoPanel(window);
 
     if (await isDatabaseError(activeWindow)) {
       await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
       return;
     }
+
+    await activeWindow.evaluate(async () => {
+      const host = (
+        globalThis as unknown as Window & {
+          embeddingHost?: {
+            ensureStarted?: () => Promise<EmbeddingHostStatus>;
+          };
+        }
+      ).embeddingHost;
+      if (!host?.ensureStarted) {
+        throw new Error('Embedding host bridge is not available');
+      }
+      await host.ensureStarted();
+    });
 
     const hostPageBefore = await getEmbeddingHostPage(activeWindow);
     const before = await createTestBackfillJob(activeWindow);

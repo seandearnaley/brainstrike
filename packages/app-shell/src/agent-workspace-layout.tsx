@@ -24,6 +24,10 @@ export function AgentWorkspaceLayout({
         icon: PanelLeftClose,
       }}
       leftPanelContent={threadsContent}
+      panelConstraints={{
+        mainContentMinSize: '25%',
+        rightPanelMaxSize: '75%',
+      }}
       panelIdPrefix="agent-workspace"
       rightPanelChrome={{
         title: 'Workspace',

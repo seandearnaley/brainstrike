@@ -11,18 +11,10 @@ import {
   usePanelLayoutStore,
 } from '@brainstrike/preferences/stores/panel-layout-store';
 import type { QueueAdapter } from '@brainstrike/queue';
-import { cn, IdeLayout, PanelLayoutProvider, type PanelLayoutState } from '@brainstrike/ui';
+import { IdeLayout, PanelLayoutProvider, type PanelLayoutState } from '@brainstrike/ui';
 import { EmbeddingRuntimeProvider } from '@brainstrike/vector-management';
 import { Database } from 'lucide-react';
-import {
-  type ReactElement,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import { shallow } from 'zustand/shallow';
 import { AgentWorkspaceLayout } from './agent-workspace-layout';
 import { createAppConfig } from './app-config';
@@ -209,23 +201,6 @@ export function RootLayoutContent({
   const activeTab = usePanelLayoutStore((state) => state.activeTab);
   const setState = usePanelLayoutStore((state) => state.setState);
   const appConfig = useMemo(() => createAppConfig({ navigationItems }), [navigationItems]);
-  const [mountedTabs, setMountedTabs] = useState<{
-    prompts: boolean;
-    settings: boolean;
-  }>({
-    prompts: activeTab === 'prompts',
-    settings: activeTab === 'settings',
-  });
-
-  useEffect(() => {
-    if (activeTab !== 'prompts' && activeTab !== 'settings') {
-      return;
-    }
-    if (mountedTabs[activeTab]) {
-      return;
-    }
-    setMountedTabs((current) => ({ ...current, [activeTab]: true }));
-  }, [activeTab, mountedTabs]);
 
   const handleNavigationClick = useCallback(
     (path: string) => {
@@ -233,7 +208,6 @@ export function RootLayoutContent({
     },
     [setState]
   );
-
   const panelState = usePanelLayoutStore(
     (state) => ({
       sizes: state.sizes,
@@ -248,49 +222,54 @@ export function RootLayoutContent({
     setState,
   });
 
-  const appSurfaceContent = useMemo(
+  const explorerAppContent = useMemo(
     () => (
-      <>
-        <div
-          aria-hidden={activeTab !== 'explorer'}
-          className={cn('h-full', activeTab !== 'explorer' && 'hidden')}
-          data-testid="explorer-section"
-        >
-          <ContextExplorerSurface
-            contextExplorerLeftPanelContent={contextExplorerLeftPanelContent}
-            contextExplorerPageContent={contextExplorerPageContent}
-            databaseTabChunkingMode={databaseTabChunkingMode}
-            loadEmbeddingQueue={loadEmbeddingQueue}
-            preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+      <div className="h-full" data-testid="explorer-section">
+        <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
+          <AgentWorkspaceLayout
+            assistantContent={<AssistantChatPanel />}
+            threadsContent={<ThreadsPanel />}
+            workspaceContent={
+              <ContextExplorerSurface
+                contextExplorerLeftPanelContent={contextExplorerLeftPanelContent}
+                contextExplorerPageContent={contextExplorerPageContent}
+                databaseTabChunkingMode={databaseTabChunkingMode}
+                loadEmbeddingQueue={loadEmbeddingQueue}
+                preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+              />
+            }
           />
-        </div>
-        <div
-          aria-hidden={activeTab !== 'prompts'}
-          className={cn('h-full', activeTab !== 'prompts' && 'hidden')}
-          data-testid="prompts-section"
-        >
-          {mountedTabs.prompts ? promptsPageContent : null}
-        </div>
-        <div
-          aria-hidden={activeTab !== 'settings'}
-          className={cn('h-full', activeTab !== 'settings' && 'hidden')}
-          data-testid="settings-section"
-        >
-          {mountedTabs.settings ? settingsPageContent : null}
-        </div>
-      </>
+        </PanelLayoutProvider>
+      </div>
     ),
     [
-      activeTab,
       contextExplorerLeftPanelContent,
       contextExplorerPageContent,
       databaseTabChunkingMode,
-      mountedTabs.prompts,
-      mountedTabs.settings,
-      promptsPageContent,
-      settingsPageContent,
+      panelState,
+      handlePanelLayoutChange,
+      loadEmbeddingQueue,
+      preloadDatabaseTabOnMount,
     ]
   );
+
+  const activeRouteContent = useMemo(() => {
+    if (activeTab === 'explorer') {
+      return explorerAppContent;
+    }
+    if (activeTab === 'prompts') {
+      return (
+        <div className="h-full" data-testid="prompts-route">
+          {promptsPageContent ?? null}
+        </div>
+      );
+    }
+    return (
+      <div className="h-full" data-testid="settings-route">
+        {settingsPageContent}
+      </div>
+    );
+  }, [activeTab, explorerAppContent, promptsPageContent, settingsPageContent]);
 
   return (
     <AppLayout
@@ -299,15 +278,7 @@ export function RootLayoutContent({
       onNavigationClick={handleNavigationClick}
     >
       <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
-        <EmbeddingRuntimeProvider>
-          <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
-            <AgentWorkspaceLayout
-              assistantContent={<AssistantChatPanel />}
-              threadsContent={<ThreadsPanel />}
-              workspaceContent={appSurfaceContent}
-            />
-          </PanelLayoutProvider>
-        </EmbeddingRuntimeProvider>
+        <EmbeddingRuntimeProvider>{activeRouteContent}</EmbeddingRuntimeProvider>
       </ChunkingWorkerProvider>
     </AppLayout>
   );
