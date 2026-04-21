@@ -31,6 +31,8 @@ async function overrideNextConfirm(
   await window.evaluate((nextValue: boolean) => {
     const target = globalThis as unknown as ConfirmOverrideTarget;
     const originalConfirm = target.confirm;
+    // Desktop still exercises the native window.confirm reset flow here. If the
+    // product switches to a custom dialog, this helper should change with it.
     target.confirm = () => {
       target.confirm = originalConfirm;
       return nextValue;
