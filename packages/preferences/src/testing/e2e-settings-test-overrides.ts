@@ -182,10 +182,6 @@ export function installSettingsTestHookApi(env: Record<string, unknown> | undefi
   };
 }
 
-export function getSettingsE2ETestOverrides(): SettingsE2ETestOverrides | undefined {
-  return currentOverrides;
-}
-
 export function getAccurateRuntimeAvailabilityTestOverride(): boolean | null | undefined {
   return currentOverrides?.accurateRuntimeAvailable;
 }
@@ -221,6 +217,14 @@ export function resolveCacheDirectorySelectionTestOverride(): CacheDirectorySele
     return { kind: 'cancelled' };
   }
   return { kind: 'selected', path: override.path };
+}
+
+export function getModelRegistryFetchErrorTestOverride(): string | null | undefined {
+  return currentOverrides?.modelRegistry?.fetchErrorMessage;
+}
+
+export function getModelRegistrySnapshotTestOverride(): ModelRegistrySnapshotOverride | undefined {
+  return currentOverrides?.modelRegistry?.snapshot;
 }
 
 export function __resetSettingsTestOverridesForTests(): void {

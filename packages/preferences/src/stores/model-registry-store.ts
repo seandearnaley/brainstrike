@@ -6,8 +6,8 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { isLocalModelProviderId } from '../models/local-model-utils';
 import {
-  getSettingsE2ETestOverrides,
-  type ModelRegistrySnapshotOverride,
+  getModelRegistryFetchErrorTestOverride,
+  getModelRegistrySnapshotTestOverride,
 } from '../testing/e2e-settings-test-overrides';
 
 const logger = createLogger('ModelRegistryStore');
@@ -92,15 +92,6 @@ interface RawModel {
 
 interface FileSystemAccess {
   exists: (path: string) => Promise<boolean>;
-}
-
-function getModelRegistryTestOverride():
-  | {
-      readonly fetchErrorMessage?: string | null;
-      readonly snapshot?: ModelRegistrySnapshotOverride;
-    }
-  | undefined {
-  return getSettingsE2ETestOverrides()?.modelRegistry;
 }
 
 async function checkLlmModelInCache(modelId: string): Promise<boolean> {
@@ -245,22 +236,23 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
       fetchRegistry: async (db: IDatabase) => {
         set({ isLoading: true, error: null });
         try {
-          const override = getModelRegistryTestOverride();
-          if (override?.fetchErrorMessage) {
+          const fetchErrorMessage = getModelRegistryFetchErrorTestOverride();
+          if (fetchErrorMessage) {
             set({
-              error: override.fetchErrorMessage,
+              error: fetchErrorMessage,
               isLoading: false,
               hasLoaded: false,
             });
             return;
           }
 
-          if (override?.snapshot) {
+          const snapshotOverride = getModelRegistrySnapshotTestOverride();
+          if (snapshotOverride) {
             set({
-              providers: override.snapshot.providers ?? [],
-              models: override.snapshot.models ?? [],
-              downloadedModels: override.snapshot.downloadedModels ?? {},
-              modelCacheDir: override.snapshot.modelCacheDir ?? get().modelCacheDir,
+              providers: snapshotOverride.providers ?? [],
+              models: snapshotOverride.models ?? [],
+              downloadedModels: snapshotOverride.downloadedModels ?? {},
+              modelCacheDir: snapshotOverride.modelCacheDir ?? get().modelCacheDir,
               isLoading: false,
               hasLoaded: true,
               error: null,
