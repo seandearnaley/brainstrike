@@ -80,10 +80,13 @@ async function ensureAgentSidebarVisible(page: Page): Promise<Locator> {
 }
 
 export async function ensureAssistantShellVisible(page: Page): Promise<Locator> {
+  await ensureExplorerVisible(page);
   const assistantShell = page.locator('[data-testid="assistant-chat-card"]');
-  await assistantShell.waitFor({ state: 'visible', timeout: 12_000 }).catch(() => {
-    console.warn('⚠️ Assistant shell did not become visible.');
-  });
+  try {
+    await assistantShell.waitFor({ state: 'visible', timeout: 12_000 });
+  } catch {
+    throw new Error('Assistant shell did not become visible after navigating to Context Explorer.');
+  }
   return assistantShell;
 }
 
