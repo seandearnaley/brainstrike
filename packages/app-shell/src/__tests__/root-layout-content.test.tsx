@@ -1,6 +1,7 @@
 import { useContextExplorerLayoutStore } from '@brainstrike/preferences/stores/context-explorer-layout-store';
 import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
+import type { PanelLayoutState } from '@brainstrike/ui';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type React from 'react';
@@ -31,6 +32,7 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
 
 const mockHandlers = {
   onNavigationClick: (_path: string) => {},
+  panelLayoutChanges: [] as Array<(state: PanelLayoutState) => void>,
 };
 
 vi.mock('../app-layout', () => ({
@@ -50,7 +52,18 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   const original = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
     ...original,
-    PanelLayoutProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    PanelLayoutProvider: ({
+      children,
+      onChange,
+    }: {
+      children: React.ReactNode;
+      onChange?: (state: PanelLayoutState) => void;
+    }) => {
+      if (onChange) {
+        mockHandlers.panelLayoutChanges.push(onChange);
+      }
+      return <>{children}</>;
+    },
     IdeLayout: ({
       children,
       leftPanelContent,
@@ -110,6 +123,7 @@ vi.mock('../database-panel', () => ({
 describe('RootLayoutContent', () => {
   beforeEach(() => {
     mockHandlers.onNavigationClick = vi.fn();
+    mockHandlers.panelLayoutChanges = [];
     usePanelLayoutStore.setState({
       activeTab: 'explorer',
       showConsole: false,
@@ -126,6 +140,7 @@ describe('RootLayoutContent', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.resetAllMocks();
   });
 
@@ -146,6 +161,12 @@ describe('RootLayoutContent', () => {
         {...overrides}
       />
     );
+
+  const getRootPanelLayoutChange = () => {
+    const panelLayoutChange = mockHandlers.panelLayoutChanges[0];
+    expect(panelLayoutChange).toBeDefined();
+    return panelLayoutChange as (state: PanelLayoutState) => void;
+  };
 
   it('renders the agent shell and explorer route by default', () => {
     renderComponent();
@@ -228,5 +249,144 @@ describe('RootLayoutContent', () => {
     });
 
     expect(screen.getByTestId('settings-input')).toHaveValue('persist me');
+  });
+
+  it('debounces size-only explorer layout updates and keeps the latest size payload', () => {
+    vi.useFakeTimers();
+    renderComponent();
+
+    const handlePanelLayoutChange = getRootPanelLayoutChange();
+
+    act(() => {
+      handlePanelLayoutChange({
+        sizes: [30, 25, 15],
+        showConsole: false,
+        showLeftPanel: true,
+        showRightPanel: false,
+      });
+      handlePanelLayoutChange({
+        sizes: [35, 30, 10],
+        showConsole: false,
+        showLeftPanel: true,
+        showRightPanel: false,
+      });
+    });
+
+    expect(usePanelLayoutStore.getState().sizes).toEqual([25, 20, 20]);
+
+    act(() => {
+      vi.advanceTimersByTime(149);
+    });
+    expect(usePanelLayoutStore.getState().sizes).toEqual([25, 20, 20]);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
+    expect(usePanelLayoutStore.getState().sizes).toEqual([35, 30, 10]);
+  });
+
+  it('applies visibility toggles immediately even when no size debounce is pending', () => {
+    renderComponent();
+
+    const handlePanelLayoutChange = getRootPanelLayoutChange();
+
+    act(() => {
+      handlePanelLayoutChange({
+        showConsole: true,
+        showLeftPanel: true,
+        showRightPanel: false,
+      } as unknown as PanelLayoutState);
+    });
+
+    expect(usePanelLayoutStore.getState()).toMatchObject({
+      showConsole: true,
+      showLeftPanel: true,
+      showRightPanel: false,
+      sizes: [25, 20, 20],
+    });
+  });
+
+  it('cancels a pending size update when a boolean layout change arrives', () => {
+    vi.useFakeTimers();
+    renderComponent();
+
+    const handlePanelLayoutChange = getRootPanelLayoutChange();
+
+    act(() => {
+      handlePanelLayoutChange({
+        sizes: [40, 30, 10],
+        showConsole: false,
+        showLeftPanel: true,
+        showRightPanel: false,
+      });
+      handlePanelLayoutChange({
+        showConsole: false,
+        showLeftPanel: false,
+        showRightPanel: false,
+      } as unknown as PanelLayoutState);
+      handlePanelLayoutChange({
+        showConsole: false,
+        showLeftPanel: false,
+        showRightPanel: true,
+      } as unknown as PanelLayoutState);
+    });
+
+    expect(usePanelLayoutStore.getState()).toMatchObject({
+      showConsole: false,
+      showLeftPanel: false,
+      showRightPanel: true,
+      sizes: [25, 20, 20],
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    expect(usePanelLayoutStore.getState()).toMatchObject({
+      showConsole: false,
+      showLeftPanel: false,
+      showRightPanel: true,
+      sizes: [25, 20, 20],
+    });
+  });
+
+  it('clears any pending debounce timer when the layout unmounts', () => {
+    vi.useFakeTimers();
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+
+    const view = renderComponent();
+    const handlePanelLayoutChange = getRootPanelLayoutChange();
+
+    act(() => {
+      handlePanelLayoutChange({
+        sizes: [45, 25, 10],
+        showConsole: false,
+        showLeftPanel: true,
+        showRightPanel: false,
+      });
+    });
+
+    view.unmount();
+
+    expect(clearTimeoutSpy).toHaveBeenCalled();
+  });
+
+  it('mounts an empty prompts route shell when prompts content is omitted', () => {
+    renderComponent({ promptsPageContent: undefined });
+
+    act(() => {
+      mockHandlers.onNavigationClick('/prompts');
+    });
+
+    const promptsRoute = screen.getByTestId('prompts-route');
+    expect(promptsRoute).toBeInTheDocument();
+    expect(promptsRoute).toBeEmptyDOMElement();
+
+    act(() => {
+      mockHandlers.onNavigationClick('/settings');
+    });
+
+    expect(promptsRoute).toHaveClass('hidden');
   });
 });
