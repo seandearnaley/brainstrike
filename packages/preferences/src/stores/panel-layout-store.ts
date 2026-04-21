@@ -225,6 +225,9 @@ function persistOptions(
       showConsole: state.showConsole,
     }),
     migrate: (persistedState, version) => {
+      // The outer shell replaced the old three-pane geometry, so pre-v4 sizes do not map
+      // safely. Intentionally hard-reset legacy panel layout state instead of attempting
+      // a fragile migration that could strand users in a broken layout.
       if (version < STORE_VERSION) {
         return {
           ...DEFAULT_STATE,

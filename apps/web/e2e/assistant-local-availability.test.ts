@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
+import { waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('Assistant local availability (web)', () => {
   test.beforeEach(async ({ page }) => {
@@ -42,12 +42,6 @@ test.describe('Assistant local availability (web)', () => {
   test('enables the assistant when the built-in local model is available without hosted keys', async ({
     page,
   }) => {
-    const elements = getPanelElements(page);
-    if (await elements.showRightPanelShim.isVisible()) {
-      await elements.showRightPanelShim.click();
-      await expect(elements.rightPanel).toBeVisible();
-    }
-
     const assistantViewport = page.getByTestId('assistant-ui-viewport');
     await expect(assistantViewport).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('assistant-status-callout')).toBeHidden();

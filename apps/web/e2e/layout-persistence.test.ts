@@ -2,6 +2,8 @@ import { expect, type Locator, type Page, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import {
   activateSidebarNavigation,
+  CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
+  CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR,
   ensureRightPanelVisible,
   getPanelElements,
   waitForAppLoad,
@@ -89,7 +91,7 @@ test.describe('IDE Layout Persistence', () => {
       page,
     }) => {
       // Verify left panel is visible by default
-      const leftPanel = page.locator('[id="explorer-panel"]');
+      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
       await expect(leftPanel).toBeVisible();
 
       // Hide the left panel
@@ -217,12 +219,12 @@ test.describe('IDE Layout Persistence', () => {
 
   test.describe('Panel Resize Persistence', () => {
     test('should persist left panel width across page reloads', async ({ page }) => {
-      const leftPanel = page.locator('[id="explorer-panel"]');
+      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
       await expect(leftPanel).toBeVisible();
 
       // Get container width before resize
       const containerWidth = await page
-        .locator('#middle-panel')
+        .locator(CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR)
         .evaluate((el) => el.getBoundingClientRect().width);
 
       // Get initial width
@@ -260,7 +262,7 @@ test.describe('IDE Layout Persistence', () => {
 
       // Get container width after reload
       const containerWidthAfter = await page
-        .locator('#middle-panel')
+        .locator(CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR)
         .evaluate((el) => el.getBoundingClientRect().width);
 
       // Verify width persisted by comparing percentages (accounts for container size changes)
@@ -314,7 +316,7 @@ test.describe('IDE Layout Persistence', () => {
       // Configure a complex layout: hide left panel, show console, resize console
 
       // 1. Hide left panel
-      const leftPanel = page.locator('[id="explorer-panel"]');
+      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
       const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
       await hideExplorerButton.click();
       await expect(leftPanel).not.toBeVisible();
@@ -354,7 +356,7 @@ test.describe('IDE Layout Persistence', () => {
       await expect(consolePanel).toBeVisible();
 
       // Verify console size persisted by comparing rendered percentage to stored percentage
-      const middlePanel = page.locator('[id="middle-panel"]');
+      const middlePanel = page.locator(CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR);
       const persistedMiddleHeight = await middlePanel.evaluate(
         (el) => el.getBoundingClientRect().height
       );
@@ -375,7 +377,7 @@ test.describe('IDE Layout Persistence', () => {
 
     test('should handle navigation between pages while preserving layout', async ({ page }) => {
       // Start with panel visible (default state)
-      const leftPanel = page.locator('[id="explorer-panel"]');
+      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
       await expect(leftPanel).toBeVisible();
 
       // Hide the panel
@@ -399,7 +401,7 @@ test.describe('IDE Layout Persistence', () => {
     });
 
     test('should preserve hidden explorer state across page navigation', async ({ page }) => {
-      const leftPanel = page.locator('[id="explorer-panel"]');
+      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
       await expect(leftPanel).toBeVisible();
 
       await page.getByTestId('hide-explorer-panel').click();
@@ -430,7 +432,7 @@ test.describe('IDE Layout Persistence', () => {
       ).toBeVisible();
 
       // Verify app loads with default layout (left panel visible, console hidden)
-      const leftPanel = page.locator('[id="explorer-panel"]');
+      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
       await expect(leftPanel).toBeVisible();
 
       const consolePanel = page.locator('[id="console-panel"], [id="console-panel-horizontal"]');
@@ -455,7 +457,7 @@ test.describe('IDE Layout Persistence', () => {
       ).toBeVisible();
 
       // Verify app loads with default layout
-      const leftPanel = page.locator('[id="explorer-panel"]');
+      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
       await expect(leftPanel).toBeVisible();
 
       const consolePanel = page.locator('[id="console-panel"], [id="console-panel-horizontal"]');
@@ -477,7 +479,7 @@ test.describe('IDE Layout Persistence', () => {
 
   test.describe('Panel Resize Constraints', () => {
     test('should respect minimum and maximum panel sizes', async ({ page }) => {
-      const leftPanel = page.locator('[id="explorer-panel"]');
+      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
       await expect(leftPanel).toBeVisible();
 
       // Get viewport width for calculations
@@ -558,7 +560,7 @@ test.describe('IDE Layout Persistence', () => {
       await hideExplorerButton.focus();
       await page.keyboard.press('Enter');
 
-      const leftPanel = page.locator('[id="explorer-panel"]');
+      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
       await expect(leftPanel).not.toBeVisible();
 
       // Focus on show explorer button and activate with keyboard

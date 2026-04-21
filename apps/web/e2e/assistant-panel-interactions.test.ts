@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { mockAssistantApi } from './utils/assistant-mocks';
-import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
+import { waitForAppLoad } from './utils/layout-helpers';
 import { mockBrowserApis } from './utils/mock-fs';
 
 test.describe('Assistant panel interactions (assistant-ui)', () => {
@@ -21,19 +21,6 @@ test.describe('Assistant panel interactions (assistant-ui)', () => {
   });
 
   test('stop streaming, retry, and long-stream stop smoke', async ({ page }) => {
-    // Ensure right panel is visible
-    const elements = getPanelElements(page);
-    if (await elements.showRightPanelShim.isVisible()) {
-      await elements.showRightPanelShim.click();
-      await expect(elements.rightPanel).toBeVisible();
-    }
-
-    // Open Props tab (assistant‑ui lives here)
-    await page
-      .getByRole('tab', { name: 'Props' })
-      .or(page.getByRole('button', { name: 'Props' }))
-      .click();
-
     const viewport = page.getByTestId('assistant-ui-viewport');
     await expect(viewport).toBeVisible();
 

@@ -1,6 +1,6 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
 import { Database, MessagesSquare } from 'lucide-react';
-import { type ReactElement, type ReactNode, useCallback, useEffect, useRef } from 'react';
+import { type ReactElement, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { preloadDatabaseTab } from './database-tab';
 
 interface AgentSidebarPanelProps {
@@ -9,11 +9,33 @@ interface AgentSidebarPanelProps {
   readonly threadsContent: ReactNode;
 }
 
+type AgentSidebarTab = 'database' | 'threads';
+
+const AGENT_SIDEBAR_TAB_STORAGE_KEY = 'brainstrike.agent-sidebar-tab.v1';
+
+function isAgentSidebarTab(value: string): value is AgentSidebarTab {
+  return value === 'threads' || value === 'database';
+}
+
+function readInitialAgentSidebarTab(): AgentSidebarTab {
+  if (typeof window === 'undefined') {
+    return 'threads';
+  }
+
+  try {
+    const storedValue = window.localStorage.getItem(AGENT_SIDEBAR_TAB_STORAGE_KEY);
+    return storedValue && isAgentSidebarTab(storedValue) ? storedValue : 'threads';
+  } catch {
+    return 'threads';
+  }
+}
+
 export function AgentSidebarPanel({
   threadsContent,
   databaseContent,
   preloadDatabaseTabOnMount = false,
 }: AgentSidebarPanelProps): ReactElement {
+  const [activeTab, setActiveTab] = useState<AgentSidebarTab>(() => readInitialAgentSidebarTab());
   const hasPrefetchedDatabaseTabRef = useRef(false);
 
   const requestDatabaseTabPrefetch = useCallback(() => {
@@ -22,9 +44,30 @@ export function AgentSidebarPanel({
     }
     hasPrefetchedDatabaseTabRef.current = true;
     void preloadDatabaseTab().catch(() => {
-      // Intent preload should not surface as an unhandled rejection during navigation/reload.
+      hasPrefetchedDatabaseTabRef.current = false;
     });
   }, []);
+
+  const handleValueChange = useCallback(
+    (nextValue: string) => {
+      if (!isAgentSidebarTab(nextValue)) {
+        return;
+      }
+
+      setActiveTab(nextValue);
+
+      try {
+        window.localStorage.setItem(AGENT_SIDEBAR_TAB_STORAGE_KEY, nextValue);
+      } catch {
+        // Ignore storage failures and keep the in-memory selection active.
+      }
+
+      if (nextValue === 'database') {
+        requestDatabaseTabPrefetch();
+      }
+    },
+    [requestDatabaseTabPrefetch]
+  );
 
   useEffect(() => {
     if (!preloadDatabaseTabOnMount) {
@@ -37,7 +80,8 @@ export function AgentSidebarPanel({
     <Tabs
       className="flex h-full min-h-0 flex-col"
       data-testid="agent-sidebar-panel"
-      defaultValue="threads"
+      onValueChange={handleValueChange}
+      value={activeTab}
     >
       <div className="border-border border-b px-2 py-2">
         <TabsList

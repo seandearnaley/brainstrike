@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
 
-test.describe('Tools Panel - Persistence', () => {
+test.describe('Agent sidebar database access', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await waitForAppLoad(page);
@@ -11,51 +11,48 @@ test.describe('Tools Panel - Persistence', () => {
     await waitForAppLoad(page);
   });
 
-  test('persists tools panel tab selection across hide/show and reload', async ({ page }) => {
+  test('keeps the database tab available across sidebar hide/show and reload', async ({ page }) => {
     const elements = getPanelElements(page);
 
     await page.waitForSelector(
-      '[data-testid="show-tools-panel"], [data-testid="hide-tools-panel"]',
+      '[data-testid="show-threads-panel"], [data-testid="hide-threads-panel"]',
       {
         state: 'attached',
       }
     );
-    const showToolsPanel = await elements.showRightPanelShim.isVisible().catch(() => false);
-    const hideToolsPanel = await elements.hideRightPanelButton.isVisible().catch(() => false);
-    if (!(showToolsPanel || hideToolsPanel)) {
-      test.skip(true, 'Tools panel controls not available in this environment');
-    }
-    if (showToolsPanel) {
-      await elements.showRightPanelShim.click();
-    }
-    await expect(elements.hideRightPanelButton).toBeVisible();
 
-    const dbTab = page
-      .getByRole('tab', { name: 'Database' })
-      .or(page.getByRole('button', { name: 'Database' }));
-    const hasDb = await dbTab.isVisible().catch(() => false);
-    if (!hasDb) {
-      test.skip(true, 'Database tab not available in this environment');
+    const showSidebar = await elements.showExplorerShim.isVisible().catch(() => false);
+    const hideSidebar = await elements.hideExplorerButton.isVisible().catch(() => false);
+    if (!(showSidebar || hideSidebar)) {
+      test.skip(true, 'Agent sidebar controls not available in this environment');
     }
 
-    await dbTab.click();
-    await expect(dbTab).toHaveAttribute('aria-selected', 'true');
+    if (showSidebar) {
+      await elements.showExplorerShim.click();
+    }
+    await expect(elements.hideExplorerButton).toBeVisible();
 
-    await elements.hideRightPanelButton.click();
-    await expect(elements.showRightPanelShim).toBeVisible();
-    await elements.showRightPanelShim.click();
-    await expect(elements.hideRightPanelButton).toBeVisible();
+    const databaseTab = page.getByRole('tab', { name: 'Database' });
+    await expect(databaseTab).toBeVisible();
 
-    await dbTab.click();
-    await expect(dbTab).toHaveAttribute('aria-selected', 'true');
+    await databaseTab.click();
+    await expect(page.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });
+
+    await elements.hideExplorerButton.click();
+    await expect(elements.showExplorerShim).toBeVisible();
+    await elements.showExplorerShim.click();
+    await expect(elements.hideExplorerButton).toBeVisible();
+
+    await databaseTab.click();
+    await expect(page.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });
 
     await page.reload();
     await waitForAppLoad(page);
-    if (await elements.showRightPanelShim.isVisible().catch(() => false)) {
-      await elements.showRightPanelShim.click();
+    if (await elements.showExplorerShim.isVisible().catch(() => false)) {
+      await elements.showExplorerShim.click();
     }
-    await expect(elements.hideRightPanelButton).toBeVisible();
-    await dbTab.click();
-    await expect(dbTab).toHaveAttribute('aria-selected', 'true');
+    await expect(elements.hideExplorerButton).toBeVisible();
+    await databaseTab.click();
+    await expect(page.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });
   });
 });

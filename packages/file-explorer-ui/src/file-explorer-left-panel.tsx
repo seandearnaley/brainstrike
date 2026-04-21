@@ -135,38 +135,6 @@ function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
 const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
 const LARGE_SELECTION_RENDER_DIAGNOSTIC_THRESHOLD = 250;
 
-interface FileExplorerTestSnapshot {
-  currentFolderId: string | null;
-  materializedPathCount: number;
-  materializedPathSamples: string[];
-  rootDirectoryPath: string | null;
-  selectedFilePathCount: number;
-  selectedFilePathSamples: string[];
-  selectionMode: 'explicit' | 'query' | 'rules';
-  treeRootCount: number;
-  treeSamples: Array<{
-    childCount: number;
-    path: string;
-    rootFolderId: string | null;
-    type: string;
-  }>;
-}
-
-declare global {
-  interface Window {
-    __brainstrikeFileExplorerTestHooks__?:
-      | {
-          getSnapshot: () => FileExplorerTestSnapshot;
-        }
-      | undefined;
-    desktopLifecycle?:
-      | {
-          isTestMode?: boolean;
-        }
-      | undefined;
-  }
-}
-
 /**
  * FileExplorerLeftPanel - Contains the file tree and toolbar
  * This component can be used independently in the left panel of an IDE layout

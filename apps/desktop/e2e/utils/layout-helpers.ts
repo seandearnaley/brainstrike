@@ -83,6 +83,8 @@ export async function ensureAssistantShellVisible(page: Page): Promise<Locator> 
   await ensureExplorerVisible(page);
   const assistantShell = page.locator('[data-testid="assistant-chat-card"]');
   try {
+    // The assistant is the explorer route's primary surface, not a collapsible side panel,
+    // so there is no show/hide control to click here. Visibility is purely route-driven.
     await assistantShell.waitFor({ state: 'visible', timeout: 12_000 });
   } catch {
     throw new Error('Assistant shell did not become visible after navigating to Context Explorer.');

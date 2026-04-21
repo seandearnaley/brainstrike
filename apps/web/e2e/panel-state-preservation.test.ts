@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import { getFileTree } from './utils/file-tree-locators';
 import {
+  CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
   getPanelElements,
   resetLayoutState,
   togglePanelVisibility,
@@ -47,7 +48,7 @@ test.describe('Panel State Preservation', () => {
     await expect(page.getByText('No directory selected')).toBeVisible();
 
     // Verify left panel is initially visible
-    const leftPanel = page.locator('#explorer-panel');
+    const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
     await expect(leftPanel).toBeVisible();
 
     // Select a root directory
@@ -148,7 +149,7 @@ test.describe('Panel State Preservation', () => {
     // Get references to the toggle buttons
     const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
     const showExplorerShim = page.locator('button[aria-label="Show explorer panel"]');
-    const leftPanel = page.locator('#explorer-panel');
+    const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
 
     // Perform multiple hide/show cycles
     for (let i = 0; i < 3; i++) {

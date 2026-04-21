@@ -2,6 +2,14 @@ import { expect, test } from '@playwright/test';
 import { HomePage } from './page-objects/home-page';
 import { resetAppState } from './utils/app-state';
 import {
+  AGENT_MAIN_PANEL_SELECTOR,
+  AGENT_MIDDLE_PANEL_SELECTOR,
+  AGENT_SIDEBAR_PANEL_SELECTOR,
+  AGENT_WORKSPACE_PANEL_SELECTOR,
+  CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR,
+  CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
+  CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR,
+  CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR,
   corruptLayoutStorage,
   getPanelElements,
   togglePanelVisibility,
@@ -172,19 +180,22 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
       await elements.showRightPanelShim.click(); // And show it again
 
       // Verify all main layout containers exist
-      // Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
-      await expect(page.locator('#explorer-panel')).toBeAttached();
-      await expect(page.locator('#middle-panel')).toBeAttached();
-      await expect(page.locator('#tools-panel')).toBeAttached();
-      await expect(page.locator('#main-content-panel')).toBeAttached();
-      await expect(page.locator('#console-panel')).toBeAttached();
+      // The app now uses an outer agent workspace shell plus a nested context explorer layout.
+      await expect(page.locator(AGENT_SIDEBAR_PANEL_SELECTOR)).toBeAttached();
+      await expect(page.locator(AGENT_MIDDLE_PANEL_SELECTOR)).toBeAttached();
+      await expect(page.locator(AGENT_WORKSPACE_PANEL_SELECTOR)).toBeAttached();
+      await expect(page.locator(AGENT_MAIN_PANEL_SELECTOR)).toBeAttached();
+      await expect(page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR)).toBeAttached();
+      await expect(page.locator(CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR)).toBeAttached();
+      await expect(page.locator(CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR)).toBeAttached();
+      await expect(page.locator(CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR)).toBeAttached();
 
       // Verify panel group structure using correct data attributes.
-      // The app layout contract is two resizable groups:
-      // - Outer horizontal (left / middle / right)
-      // - Inner vertical (main / console)
-      // The tools panel content is not itself a resizable panel group.
-      await expect(page.locator('[data-group]')).toHaveCount(2);
+      // The app layout contract is three resizable groups:
+      // - Outer horizontal agent workspace
+      // - Inner horizontal context explorer
+      // - Inner vertical context explorer main / console
+      await expect(page.locator('[data-group]')).toHaveCount(3);
     });
 
     test('should handle rapid panel visibility changes', async ({ page }) => {

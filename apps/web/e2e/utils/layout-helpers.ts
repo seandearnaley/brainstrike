@@ -16,6 +16,62 @@ const DEFAULT_CI_APP_LOAD_TIMEOUT_MS = 55_000;
 const DEFAULT_LOCAL_NETWORK_IDLE_TIMEOUT_MS = 2000;
 const DEFAULT_CI_NETWORK_IDLE_TIMEOUT_MS = 5000;
 
+export const AGENT_SIDEBAR_PANEL_SELECTOR = [
+  '#agent-workspace-explorer-panel',
+  '[data-panel-id="agent-workspace-explorer-panel"]',
+  '#explorer-panel',
+  '[data-panel-id="explorer-panel"]',
+].join(', ');
+
+export const AGENT_MAIN_PANEL_SELECTOR = [
+  '#agent-workspace-main-content-panel',
+  '[data-panel-id="agent-workspace-main-content-panel"]',
+  '#main-content-panel',
+  '[data-panel-id="main-content-panel"]',
+].join(', ');
+
+export const AGENT_MIDDLE_PANEL_SELECTOR = [
+  '#agent-workspace-middle-panel',
+  '[data-panel-id="agent-workspace-middle-panel"]',
+  '#middle-panel',
+  '[data-panel-id="middle-panel"]',
+].join(', ');
+
+export const AGENT_WORKSPACE_PANEL_SELECTOR = [
+  '#agent-workspace-tools-panel',
+  '[data-panel-id="agent-workspace-tools-panel"]',
+  '#tools-panel',
+  '[data-panel-id="tools-panel"]',
+].join(', ');
+
+export const CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR = [
+  '#context-explorer-explorer-panel',
+  '[data-panel-id="context-explorer-explorer-panel"]',
+  '#explorer-panel',
+  '[data-panel-id="explorer-panel"]',
+].join(', ');
+
+export const CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR = [
+  '#context-explorer-middle-panel',
+  '[data-panel-id="context-explorer-middle-panel"]',
+  '#middle-panel',
+  '[data-panel-id="middle-panel"]',
+].join(', ');
+
+export const CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR = [
+  '#context-explorer-main-content-panel',
+  '[data-panel-id="context-explorer-main-content-panel"]',
+  '#main-content-panel',
+  '[data-panel-id="main-content-panel"]',
+].join(', ');
+
+export const CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR = [
+  '#context-explorer-console-panel',
+  '[data-panel-id="context-explorer-console-panel"]',
+  '#console-panel',
+  '[data-panel-id="console-panel"]',
+].join(', ');
+
 function resolveErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -84,23 +140,23 @@ export interface PanelElements {
 export function getPanelElements(page: Page): PanelElements {
   return {
     // Main panels - v4 uses id attribute for panel identification
-    leftPanel: page.locator('#explorer-panel, [data-panel-id="explorer-panel"]'),
-    rightPanel: page.locator(
-      '#agent-workspace-tools-panel, [data-panel-id="agent-workspace-tools-panel"]'
-    ),
-    consolePanel: page.locator(
-      '#console-panel, #console-panel-horizontal, [data-panel-id="console-panel"], [data-panel-id="console-panel-horizontal"]'
-    ),
-    mainContentPanel: page.locator('#main-content-panel, [data-panel-id="main-content-panel"]'),
-    middlePanel: page.locator('#middle-panel, [data-panel-id="middle-panel"]'),
+    leftPanel: page.locator(AGENT_SIDEBAR_PANEL_SELECTOR),
+    rightPanel: page.locator(AGENT_WORKSPACE_PANEL_SELECTOR),
+    consolePanel: page.locator(CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR),
+    mainContentPanel: page.locator(AGENT_MAIN_PANEL_SELECTOR),
+    middlePanel: page.locator(AGENT_MIDDLE_PANEL_SELECTOR),
 
     // Hide buttons (when panels are open)
-    hideExplorerButton: page.locator('[data-testid="hide-explorer-panel"]'),
+    hideExplorerButton: page.locator(
+      '[data-testid="hide-threads-panel"], [data-testid="hide-explorer-panel"]'
+    ),
     hideRightPanelButton: page.locator('[data-testid="hide-workspace-panel"]'),
     hideConsoleButton: page.locator('[data-testid="hide-console-panel"]'),
 
     // Show shims (when panels are closed)
-    showExplorerShim: page.locator('[data-testid="show-explorer-panel"]'),
+    showExplorerShim: page.locator(
+      '[data-testid="show-threads-panel"], [data-testid="show-explorer-panel"]'
+    ),
     showRightPanelShim: page.locator('[data-testid="show-workspace-panel"]'),
     showConsoleShim: page.locator('[data-testid="show-console-panel"]'),
   };
@@ -153,10 +209,10 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
   // Caller-provided timeout can only raise these floors, never lower them.
   const effectiveTimeout = resolveWaitForAppLoadTimeout(timeout, isCI);
   const panelReadySelector = [
-    '#middle-panel',
-    '[data-panel-id="middle-panel"]',
-    '#main-content-panel',
-    '[data-panel-id="main-content-panel"]',
+    AGENT_MIDDLE_PANEL_SELECTOR,
+    AGENT_MAIN_PANEL_SELECTOR,
+    CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR,
+    CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR,
     'h1:has-text("Context Explorer")',
   ].join(', ');
 
@@ -241,14 +297,14 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
 
   // Also ensure the main content panel is present when panel IDs are available.
   await page
-    .waitForSelector('#main-content-panel, [data-panel-id="main-content-panel"]', {
+    .waitForSelector(`${AGENT_MAIN_PANEL_SELECTOR}, ${CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR}`, {
       state: 'attached',
       timeout: effectiveTimeout,
     })
     .catch((error) => {
       const errorMessage = resolveErrorMessage(error);
       logWarn('Main content panel selector did not attach after primary readiness check.', {
-        selector: '#main-content-panel, [data-panel-id="main-content-panel"]',
+        selector: `${AGENT_MAIN_PANEL_SELECTOR}, ${CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR}`,
         timeoutMs: effectiveTimeout,
         isCI,
         error: errorMessage,

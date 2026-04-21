@@ -275,6 +275,9 @@ export function RootLayoutContent({
       currentPath={activeTab === 'explorer' ? '/' : `/${activeTab}`}
       onNavigationClick={handleNavigationClick}
     >
+      {/* These providers now intentionally stay app-wide so background chunking and embedding
+          work can continue across route switches. They remain inert on non-explorer routes
+          unless a feature explicitly opts into them. */}
       <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
         <EmbeddingRuntimeProvider>
           <div

@@ -41,8 +41,19 @@ describe('layout-helpers (unit)', () => {
     // Best-effort networkidle wait for deferred script loading
     expect(loadStates).toContain('networkidle');
     // Readiness check now supports both id and data-panel-id based panel markers.
-    expect(waited.some((selector) => selector.includes('#middle-panel'))).toBe(true);
-    expect(waited.some((selector) => selector.includes('#main-content-panel'))).toBe(true);
+    expect(
+      waited.some(
+        (selector) =>
+          selector.includes('#agent-workspace-middle-panel') || selector.includes('#middle-panel')
+      )
+    ).toBe(true);
+    expect(
+      waited.some(
+        (selector) =>
+          selector.includes('#agent-workspace-main-content-panel') ||
+          selector.includes('#main-content-panel')
+      )
+    ).toBe(true);
   });
 
   it('enforces timeout floors for local and CI app load waits', () => {
@@ -58,13 +69,16 @@ describe('layout-helpers (unit)', () => {
     const hadCI = Object.hasOwn(process.env, 'CI');
     process.env['CI'] = 'true';
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    let waitForSelectorCallCount = 0;
     const page = {
       waitForLoadState: vi.fn(async () => undefined),
       waitForSelector: vi.fn(async (selector: string) => {
-        if (selector.startsWith('#main-content-panel')) {
+        waitForSelectorCallCount += 1;
+        if (waitForSelectorCallCount === 2 && selector.includes('main-content-panel')) {
           throw new Error('selector missing');
         }
       }),
+      evaluate: vi.fn(async () => 'mock'),
       on: vi.fn(),
     } as unknown as Page;
 

@@ -1,7 +1,12 @@
 import { expect, test } from '@playwright/test';
 import { FileExplorerPage } from './page-objects/file-explorer-page';
 import { resetAppState } from './utils/app-state';
-import { getPanelElements, togglePanelVisibility, waitForAppLoad } from './utils/layout-helpers';
+import {
+  CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
+  getPanelElements,
+  togglePanelVisibility,
+  waitForAppLoad,
+} from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 test.describe('Navigation Panel State Preservation', () => {
@@ -134,7 +139,7 @@ test.describe('Navigation Panel State Preservation', () => {
     await hideExplorerButton.click();
 
     // Verify panel is hidden
-    const leftPanel = page.locator('#explorer-panel');
+    const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
     await expect(leftPanel).not.toBeVisible();
 
     // Verify show button appears
@@ -259,7 +264,7 @@ test.describe('Navigation Panel State Preservation', () => {
     const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
     await hideExplorerButton.click();
 
-    const leftPanel = page.locator('#explorer-panel');
+    const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
     await expect(leftPanel).not.toBeVisible();
 
     // Show the panel again
@@ -317,7 +322,7 @@ test.describe('Navigation Panel State Preservation', () => {
     await expect(page.getByText('2/10')).toBeVisible();
 
     // Get panel and button references
-    const leftPanel = page.locator('#explorer-panel');
+    const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
     const hideButton = page.locator('button[aria-label="Hide explorer panel"]');
     const showButton = page.locator('button[aria-label="Show explorer panel"]');
 

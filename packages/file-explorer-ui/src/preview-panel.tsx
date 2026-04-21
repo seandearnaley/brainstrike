@@ -97,28 +97,6 @@ interface PreviewPanelProps {
   tokenCounting: TokenCountingState;
 }
 
-interface ContextExplorerPreviewTestSnapshot {
-  activeTab: string;
-  renderedFilePaths: string[];
-  selectedFilesCount: number;
-  totalRows: number;
-}
-
-declare global {
-  interface Window {
-    __brainstrikeContextExplorerPreviewTestHooks__?:
-      | {
-          getSnapshot: () => ContextExplorerPreviewTestSnapshot;
-        }
-      | undefined;
-    desktopLifecycle?:
-      | {
-          isTestMode?: boolean;
-        }
-      | undefined;
-  }
-}
-
 function handleNullValues(aVal: unknown, bVal: unknown): number | null {
   if (aVal === null && bVal === null) {
     return 0;
@@ -584,7 +562,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     return () => {
       window.__brainstrikeContextExplorerPreviewTestHooks__ = undefined;
     };
-  }, [activeTab, flattenedData.length, selectedFiles, tablePageData]);
+  }, [activeTab, flattenedData.length, selectedFiles.size, tablePageData]);
 
   const tableVisibleFilesOnPage = useMemo(
     () =>

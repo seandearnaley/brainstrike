@@ -13,6 +13,7 @@ vi.mock('../database-tab', () => ({
 describe('AgentSidebarPanel', () => {
   beforeEach(() => {
     mockPreloadDatabaseTab.mockClear();
+    window.localStorage.clear();
   });
 
   it('shows threads first and reveals database content when the database tab is selected', async () => {
@@ -66,5 +67,58 @@ describe('AgentSidebarPanel', () => {
     await waitFor(() => {
       expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('retries the database prefetch after a transient preload failure', async () => {
+    mockPreloadDatabaseTab
+      .mockRejectedValueOnce(new Error('transient chunk load failure'))
+      .mockResolvedValueOnce(undefined);
+
+    render(
+      <AgentSidebarPanel
+        databaseContent={<div>Database content</div>}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    const databaseTab = screen.getByRole('tab', { name: 'Database' });
+
+    fireEvent.pointerEnter(databaseTab);
+    await waitFor(() => {
+      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.focus(databaseTab);
+    await waitFor(() => {
+      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('persists the selected sidebar tab across remounts', async () => {
+    const { unmount } = render(
+      <AgentSidebarPanel
+        databaseContent={<div>Database content</div>}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    const databaseTab = screen.getByRole('tab', { name: 'Database' });
+    fireEvent.mouseDown(databaseTab, { button: 0, ctrlKey: false });
+
+    await waitFor(() => {
+      expect(databaseTab).toHaveAttribute('data-state', 'active');
+    });
+
+    unmount();
+
+    render(
+      <AgentSidebarPanel
+        databaseContent={<div>Database content</div>}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    expect(screen.getByRole('tab', { name: 'Database' })).toHaveAttribute('data-state', 'active');
+    expect(screen.getByText('Database content')).toBeVisible();
   });
 });
