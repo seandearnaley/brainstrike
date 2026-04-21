@@ -1,11 +1,11 @@
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
+import { installSettingsTestHooksIfNeeded } from '@brainstrike/preferences/automated-test/settings-test-hook-loader';
 import { DbSchemaVerifier } from '@brainstrike/preferences/components/db-schema-verifier';
 import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
 import { useLoggingPreferencesStore } from '@brainstrike/preferences/stores/logging-preferences-store';
 import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
-import { installSettingsTestHookApi } from '@brainstrike/preferences/testing/e2e-settings-test-overrides';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import { installConsoleGuard } from '@brainstrike/utils/console-guard';
 import { installRendererErrorHooks } from '@brainstrike/utils/install-renderer-error-hooks';
@@ -202,7 +202,7 @@ const unsubscribeLoggingPreferences = useLoggingPreferencesStore.subscribe((stat
   applyLoggingPreferences(state.preferences, 'electron-renderer');
 });
 const removeSettingsTestHooks =
-  typeof window === 'undefined' ? () => {} : installSettingsTestHookApi(import.meta.env);
+  typeof window === 'undefined' ? () => {} : installSettingsTestHooksIfNeeded(import.meta.env);
 
 const unsubscribeLoggingEvents =
   window.logging?.onPreferencesUpdated?.((preferences: LoggingPreferences) => {

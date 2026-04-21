@@ -10,6 +10,7 @@ import {
   useFileExplorerStoreSelector,
   useOptionalTokenCacheContext,
 } from '@brainstrike/file-explorer-ui';
+import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/preferences/automated-test/settings-test-state';
 import { ModelSelectionPage } from '@brainstrike/preferences/settings/models/model-selection-page';
 import {
   LoggingSettingsSection,
@@ -30,7 +31,6 @@ import {
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/preferences/settings-page-content';
 import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
-import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/preferences/testing/e2e-settings-test-overrides';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { Helmet } from 'react-helmet-async';

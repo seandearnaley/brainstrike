@@ -30,7 +30,7 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 import {
   getLocalRuntimeStatusTestOverride,
   recordLocalRuntimeProbeForTests,
-} from '../testing/e2e-settings-test-overrides';
+} from '../automated-test/settings-test-state';
 
 const logger = createLogger('AssistantPreferencesStore');
 

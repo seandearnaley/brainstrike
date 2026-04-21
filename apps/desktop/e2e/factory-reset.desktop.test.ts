@@ -24,6 +24,20 @@ async function openFactoryResetSettings(
   await settingsPage.openCategory(/Factory Reset/i, 'factory-reset');
 }
 
+async function overrideNextConfirm(
+  window: import('@playwright/test').Page,
+  value: boolean
+): Promise<void> {
+  await window.evaluate((nextValue: boolean) => {
+    const target = globalThis as unknown as ConfirmOverrideTarget;
+    const originalConfirm = target.confirm;
+    target.confirm = () => {
+      target.confirm = originalConfirm;
+      return nextValue;
+    };
+  }, value);
+}
+
 test.describe('Factory Reset settings (desktop)', () => {
   test('cancel path leaves persisted state untouched', async ({ window, homePage }) => {
     await updateSettingsTestOverrides(window, { accurateRuntimeAvailable: true });
@@ -39,9 +53,7 @@ test.describe('Factory Reset settings (desktop)', () => {
     await expect(window.getByRole('switch', { name: 'Enable inline fixtures' })).toBeVisible();
     await expect(window.getByTestId('clear-stored-folders-button')).toHaveCount(0);
 
-    await window.evaluate(() => {
-      (globalThis as unknown as ConfirmOverrideTarget).confirm = () => false;
-    });
+    await overrideNextConfirm(window, false);
     await window.getByTestId('factory-reset-button').click();
     await expect(window.getByTestId('settings-category-factory-reset')).toBeVisible();
 
@@ -71,9 +83,7 @@ test.describe('Factory Reset settings (desktop)', () => {
     await expect(tokenToggle).toHaveAttribute('aria-checked', 'false');
 
     await openFactoryResetSettings(homePage, settingsPage);
-    await window.evaluate(() => {
-      (globalThis as unknown as ConfirmOverrideTarget).confirm = () => true;
-    });
+    await overrideNextConfirm(window, true);
     await window.getByTestId('factory-reset-button').click();
 
     const restarted = await electronHarness.restart();

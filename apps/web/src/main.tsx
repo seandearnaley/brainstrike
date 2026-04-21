@@ -1,9 +1,9 @@
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter, createWebFileSystemAdapter } from '@brainstrike/file-system';
+import { installSettingsTestHooksIfNeeded } from '@brainstrike/preferences/automated-test/settings-test-hook-loader';
 import { DbSchemaVerifier } from '@brainstrike/preferences/components/db-schema-verifier';
 import { useLoggingPreferencesStore } from '@brainstrike/preferences/stores/logging-preferences-store';
-import { installSettingsTestHookApi } from '@brainstrike/preferences/testing/e2e-settings-test-overrides';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import { createBrowserStorageAdapter } from '@brainstrike/storage';
 import { installConsoleGuard } from '@brainstrike/utils/console-guard';
@@ -77,7 +77,7 @@ const unsubscribeLoggingPreferences = useLoggingPreferencesStore.subscribe((stat
   applyLoggingPreferences(state.preferences, 'browser');
 });
 const removeSettingsTestHooks =
-  typeof window === 'undefined' ? () => {} : installSettingsTestHookApi(import.meta.env);
+  typeof window === 'undefined' ? () => {} : installSettingsTestHooksIfNeeded(import.meta.env);
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {

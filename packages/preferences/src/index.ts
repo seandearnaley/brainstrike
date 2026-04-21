@@ -1,5 +1,7 @@
 // Preference Stores
 
+export * from './automated-test/settings-test-hook-loader';
+export * from './automated-test/settings-test-state';
 export * from './components/db-schema-verifier';
 export * from './components/global-download-indicator';
 export * from './embedding/embedding-settings-section';

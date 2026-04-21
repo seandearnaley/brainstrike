@@ -62,10 +62,12 @@ test.describe('Factory Reset recovery (web)', () => {
     page.once('dialog', async (dialog) => {
       await dialog.accept();
     });
+    const mainFrame = page.mainFrame();
     await Promise.all([
-      page.waitForNavigation({ waitUntil: 'load' }),
+      page.waitForEvent('framenavigated', { predicate: (frame) => frame === mainFrame }),
       page.getByTestId('factory-reset-button').click(),
     ]);
+    await page.waitForLoadState('load');
     await waitForAppLoad(page);
     await openTokenCountingSettings(page);
 

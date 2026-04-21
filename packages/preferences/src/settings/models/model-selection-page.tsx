@@ -4,10 +4,10 @@ import { Button, Input, Label, useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { Folder, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
+import { resolveCacheDirectorySelectionTestOverride } from '../../automated-test/settings-test-state';
 import { useEnsureModelRegistry } from '../../hooks/use-model-registry';
 import type { DbModel } from '../../stores/model-registry-store';
 import { useModelRegistryStore } from '../../stores/model-registry-store';
-import { resolveCacheDirectorySelectionTestOverride } from '../../testing/e2e-settings-test-overrides';
 import { ModelList } from './model-list';
 
 const logger = createLogger('ModelSelectionPage');
