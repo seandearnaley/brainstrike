@@ -25,6 +25,13 @@ import { DatabasePanel } from './database-panel';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
 
+interface DebouncedPanelLayoutState {
+  readonly showConsole: boolean;
+  readonly showLeftPanel: boolean;
+  readonly showRightPanel: boolean;
+  readonly sizes: [number, number, number];
+}
+
 function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
   const { rootDirectoryHandle } = useFileSystem();
   return (
@@ -60,9 +67,9 @@ function resolveActiveTabForPath(path: string): PanelTab {
   return NAV_PATH_TO_TAB[path] ?? 'explorer';
 }
 
-function useDebouncedPanelLayoutChange<T extends PanelLayoutState>(options: {
-  readonly panelState: T;
-  readonly setState: (next: T) => void;
+function useDebouncedPanelLayoutChange(options: {
+  readonly panelState: DebouncedPanelLayoutState;
+  readonly setState: (next: DebouncedPanelLayoutState) => void;
 }) {
   const { panelState, setState } = options;
   const sizesRef = useRef(panelState.sizes);
@@ -98,7 +105,7 @@ function useDebouncedPanelLayoutChange<T extends PanelLayoutState>(options: {
           sizeDebounceRef.current = null;
         }
         setState({
-          ...(panelState as T),
+          ...panelState,
           sizes: nextSizes,
           showConsole: state.showConsole,
           showLeftPanel: state.showLeftPanel,
@@ -113,7 +120,7 @@ function useDebouncedPanelLayoutChange<T extends PanelLayoutState>(options: {
       sizeDebounceRef.current = setTimeout(() => {
         sizeDebounceRef.current = null;
         setState({
-          ...(panelState as T),
+          ...panelState,
           sizes: nextSizes,
           showConsole: state.showConsole,
           showLeftPanel: state.showLeftPanel,
@@ -212,7 +219,7 @@ export function RootLayoutContent({
                 databaseContent={
                   <DatabasePanel
                     chunkingMode={databaseTabChunkingMode}
-                    {...(loadEmbeddingQueue === undefined ? {} : { loadEmbeddingQueue })}
+                    loadEmbeddingQueue={loadEmbeddingQueue}
                   />
                 }
                 preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
