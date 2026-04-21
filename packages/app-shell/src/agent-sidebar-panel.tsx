@@ -1,4 +1,5 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
+import { createSafeStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { Database, MessagesSquare } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { preloadDatabaseTab } from './database-tab';
@@ -12,22 +13,15 @@ interface AgentSidebarPanelProps {
 type AgentSidebarTab = 'database' | 'threads';
 
 const AGENT_SIDEBAR_TAB_STORAGE_KEY = 'brainstrike.agent-sidebar-tab.v1';
+const agentSidebarTabStorage = createSafeStorageAdapter();
 
 function isAgentSidebarTab(value: string): value is AgentSidebarTab {
   return value === 'threads' || value === 'database';
 }
 
 function readInitialAgentSidebarTab(): AgentSidebarTab {
-  if (typeof window === 'undefined') {
-    return 'threads';
-  }
-
-  try {
-    const storedValue = window.localStorage.getItem(AGENT_SIDEBAR_TAB_STORAGE_KEY);
-    return storedValue && isAgentSidebarTab(storedValue) ? storedValue : 'threads';
-  } catch {
-    return 'threads';
-  }
+  const storedValue = agentSidebarTabStorage.getItem(AGENT_SIDEBAR_TAB_STORAGE_KEY);
+  return storedValue && isAgentSidebarTab(storedValue) ? storedValue : 'threads';
 }
 
 export function AgentSidebarPanel({
@@ -56,11 +50,7 @@ export function AgentSidebarPanel({
 
       setActiveTab(nextValue);
 
-      try {
-        window.localStorage.setItem(AGENT_SIDEBAR_TAB_STORAGE_KEY, nextValue);
-      } catch {
-        // Ignore storage failures and keep the in-memory selection active.
-      }
+      agentSidebarTabStorage.setItem(AGENT_SIDEBAR_TAB_STORAGE_KEY, nextValue);
 
       if (nextValue === 'database') {
         requestDatabaseTabPrefetch();
