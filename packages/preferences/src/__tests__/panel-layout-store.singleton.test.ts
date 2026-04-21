@@ -59,10 +59,10 @@ describe('usePanelLayoutStore singleton fallback', () => {
 
     await persistApi.rehydrate();
 
-    expect(module.usePanelLayoutStore.getState().sizes).toEqual([25, 20, 20]);
-    expect(module.usePanelLayoutStore.getState().showLeftPanel).toBe(false);
+    expect(module.usePanelLayoutStore.getState().sizes).toEqual([18, 32, 20]);
+    expect(module.usePanelLayoutStore.getState().showLeftPanel).toBe(true);
     expect(module.usePanelLayoutStore.getState().showRightPanel).toBe(true);
-    expect(module.usePanelLayoutStore.getState().showConsole).toBe(true);
+    expect(module.usePanelLayoutStore.getState().showConsole).toBe(false);
   });
 
   it('uses in-memory fallback storage when window is unavailable', async () => {

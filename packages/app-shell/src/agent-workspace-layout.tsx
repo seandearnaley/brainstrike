@@ -1,66 +1,43 @@
 import { IdeLayout } from '@brainstrike/ui';
-import { Database, PanelsLeftBottom } from 'lucide-react';
+import { PanelLeftClose, PanelRightClose } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 
 export interface AgentWorkspaceLayoutProps {
-  readonly appSurfaceContent: ReactNode;
-  readonly assistantContent: ReactNode;
-  readonly databaseDrawerContent?: ReactNode;
-  readonly threadsContent: ReactNode;
-}
-
-function AgentWorkspaceSidebar({
-  threadsContent,
-  assistantContent,
-}: {
   readonly assistantContent: ReactNode;
   readonly threadsContent: ReactNode;
-}): ReactElement {
-  return (
-    <div
-      className="flex h-full min-h-0 flex-col overflow-hidden"
-      data-testid="agent-workspace-sidebar"
-    >
-      <div className="min-h-0 basis-[38%] overflow-hidden">{threadsContent}</div>
-      <div className="min-h-0 flex-1 overflow-hidden">{assistantContent}</div>
-    </div>
-  );
+  readonly workspaceContent: ReactNode;
 }
 
 export function AgentWorkspaceLayout({
   threadsContent,
   assistantContent,
-  appSurfaceContent,
-  databaseDrawerContent,
+  workspaceContent,
 }: AgentWorkspaceLayoutProps): ReactElement {
   return (
     <IdeLayout
       leftPanelChrome={{
-        title: 'Agent Workspace',
-        showButtonLabel: 'Show agent workspace panel',
-        showButtonTestId: 'show-agent-workspace-panel',
-        hideButtonLabel: 'Hide agent workspace panel',
-        hideButtonTestId: 'hide-agent-workspace-panel',
-        icon: PanelsLeftBottom,
+        title: 'Threads',
+        showButtonLabel: 'Show threads panel',
+        showButtonTestId: 'show-threads-panel',
+        hideButtonLabel: 'Hide threads panel',
+        hideButtonTestId: 'hide-threads-panel',
+        icon: PanelLeftClose,
       }}
-      leftPanelContent={
-        <AgentWorkspaceSidebar
-          assistantContent={assistantContent}
-          threadsContent={threadsContent}
-        />
-      }
+      leftPanelContent={threadsContent}
       panelIdPrefix="agent-workspace"
       rightPanelChrome={{
-        title: 'Database',
-        showButtonLabel: 'Show database panel',
-        showButtonTestId: 'show-database-panel',
-        hideButtonLabel: 'Hide database panel',
-        hideButtonTestId: 'hide-database-panel',
-        icon: Database,
+        title: 'Workspace',
+        showButtonLabel: 'Show workspace panel',
+        showButtonTestId: 'show-workspace-panel',
+        hideButtonLabel: 'Hide workspace panel',
+        hideButtonTestId: 'hide-workspace-panel',
+        icon: PanelRightClose,
       }}
-      rightPanelContent={databaseDrawerContent}
+      rightPanelContent={workspaceContent}
     >
-      {appSurfaceContent}
+      <div className="h-full min-h-0" data-testid="assistant-main-panel">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden">{assistantContent}</div>
+      </div>
     </IdeLayout>
   );
 }

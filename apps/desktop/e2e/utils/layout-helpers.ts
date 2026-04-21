@@ -44,10 +44,44 @@ async function ensureExplorerVisible(page: Page): Promise<void> {
   }
 }
 
+async function ensureWorkspacePanelVisible(page: Page): Promise<Locator> {
+  const workspacePanel = page.locator('#agent-workspace-tools-panel');
+  const showWorkspacePanelButton = page
+    .locator('[data-testid="show-workspace-panel"]')
+    .or(page.getByRole('button', { name: 'Show workspace panel' }))
+    .or(page.locator('button[aria-label="Show workspace panel"]'));
+  const hideWorkspacePanelButton = page
+    .locator('[data-testid="hide-workspace-panel"]')
+    .or(page.getByRole('button', { name: 'Hide workspace panel' }))
+    .or(page.locator('button[aria-label="Hide workspace panel"]'));
+
+  const panelBox = await workspacePanel.boundingBox().catch(() => null);
+  const workspacePanelVisible = Boolean(panelBox && panelBox.width > 5 && panelBox.height > 5);
+
+  if (!workspacePanelVisible) {
+    if ((await showWorkspacePanelButton.count()) > 0) {
+      verboseLog('👉 Showing workspace panel...');
+      await showWorkspacePanelButton.first().click();
+    } else if ((await hideWorkspacePanelButton.count()) > 0) {
+      verboseLog('👉 Re-toggling workspace panel to expand...');
+      await hideWorkspacePanelButton.first().click();
+      await showWorkspacePanelButton.first().click();
+    } else {
+      console.warn('⚠️ Workspace panel controls not found; waiting for panel to appear.');
+    }
+  }
+
+  await workspacePanel.waitFor({ state: 'visible', timeout: 12_000 }).catch(() => {
+    console.warn('⚠️ Workspace panel did not become visible after request.');
+  });
+
+  return workspacePanel;
+}
+
 export async function ensureToolsPanelVisible(page: Page): Promise<Locator> {
   await ensureExplorerVisible(page);
-  // Use id selector for react-resizable-panels v4 compatibility
-  const rightPanel = page.locator('#agent-workspace-tools-panel, #tools-panel');
+  await ensureWorkspacePanelVisible(page);
+  const rightPanel = page.locator('#context-explorer-tools-panel, #tools-panel');
   const showRightPanelButton = page
     .locator('[data-testid="show-database-panel"]')
     .or(page.locator('[data-testid="show-tools-panel"]'))
@@ -87,7 +121,6 @@ export async function ensureToolsPanelVisible(page: Page): Promise<Locator> {
 }
 
 export async function ensureAssistantShellVisible(page: Page): Promise<Locator> {
-  await ensureExplorerVisible(page);
   const assistantShell = page.locator('[data-testid="assistant-chat-card"]');
   await assistantShell.waitFor({ state: 'visible', timeout: 12_000 }).catch(() => {
     console.warn('⚠️ Assistant shell did not become visible.');
@@ -110,9 +143,8 @@ export async function showDatabaseDemoPanel(
   for (let attempt = 0; attempt < 2; attempt++) {
     activePage = await resolveActivePage(activePage);
     await waitForAppReadyInHelpers(activePage);
-    // Use id selector for react-resizable-panels v4 compatibility
     await activePage
-      .locator('#middle-panel')
+      .locator('#context-explorer-middle-panel, #middle-panel')
       .waitFor({ state: 'attached', timeout: tabTimeoutMs })
       .catch(() => {});
 

@@ -24,9 +24,9 @@ describe('panel-layout-store', () => {
 
   it('initializes with default state', () => {
     const s = store.getState();
-    expect(s.sizes).toEqual([25, 20, 20]);
+    expect(s.sizes).toEqual([18, 32, 20]);
     expect(s.showLeftPanel).toBe(true);
-    expect(s.showRightPanel).toBe(false);
+    expect(s.showRightPanel).toBe(true);
     expect(s.showConsole).toBe(false);
     expect(s.activeTab).toBe('explorer');
   });
@@ -34,7 +34,7 @@ describe('panel-layout-store', () => {
   it('toggles panel visibility flags', () => {
     const before = store.getState();
     expect(before.showLeftPanel).toBe(true);
-    expect(before.showRightPanel).toBe(false);
+    expect(before.showRightPanel).toBe(true);
     expect(before.showConsole).toBe(false);
 
     store.getState().toggleLeft();
@@ -43,7 +43,7 @@ describe('panel-layout-store', () => {
 
     const after = store.getState();
     expect(after.showLeftPanel).toBe(false);
-    expect(after.showRightPanel).toBe(true);
+    expect(after.showRightPanel).toBe(false);
     expect(after.showConsole).toBe(true);
   });
 
@@ -81,7 +81,7 @@ describe('panel-layout-store', () => {
     // Sizes like [4.488, 5.386, 0] represent corrupted localStorage values
     store.getState().setSizes([4.488, 5.386, 0]);
     const s = store.getState();
-    expect(s.sizes).toEqual([25, 20, 20]);
+    expect(s.sizes).toEqual([18, 32, 20]);
   });
 
   it('preserves valid sizes above minimum threshold', () => {
@@ -92,7 +92,7 @@ describe('panel-layout-store', () => {
 
   it('leaves sizes unchanged when setSizes receives an empty array', () => {
     store.getState().setSizes([]);
-    expect(store.getState().sizes).toEqual([25, 20, 20]);
+    expect(store.getState().sizes).toEqual([18, 32, 20]);
   });
 
   it('redistributes all-zero sizes evenly', () => {
@@ -115,13 +115,13 @@ describe('panel-layout-store', () => {
     const persistedStore = createPanelLayoutStore(storage);
     await getPersistApi(persistedStore).rehydrate();
 
-    expect(persistedStore.getState().sizes).toEqual([25, 20, 20]);
+    expect(persistedStore.getState().sizes).toEqual([18, 32, 20]);
     expect(persistedStore.getState().showLeftPanel).toBe(true);
-    expect(persistedStore.getState().showRightPanel).toBe(false);
+    expect(persistedStore.getState().showRightPanel).toBe(true);
     expect(persistedStore.getState().showConsole).toBe(false);
   });
 
-  it('repairs corrupted persisted sizes during rehydration while preserving visibility flags', async () => {
+  it('resets persisted outer-shell visibility and sizes when the layout version changes', async () => {
     const storage = createMemoryStorageAdapter();
     await storage.setItem(
       STORE_NAME,
@@ -139,10 +139,10 @@ describe('panel-layout-store', () => {
     const persistedStore = createPanelLayoutStore(storage);
     await getPersistApi(persistedStore).rehydrate();
 
-    expect(persistedStore.getState().sizes).toEqual([25, 20, 20]);
-    expect(persistedStore.getState().showLeftPanel).toBe(false);
+    expect(persistedStore.getState().sizes).toEqual([18, 32, 20]);
+    expect(persistedStore.getState().showLeftPanel).toBe(true);
     expect(persistedStore.getState().showRightPanel).toBe(true);
-    expect(persistedStore.getState().showConsole).toBe(true);
+    expect(persistedStore.getState().showConsole).toBe(false);
   });
 
   it('treats persisted snapshots without state as empty', async () => {
@@ -157,7 +157,7 @@ describe('panel-layout-store', () => {
     const persistedStore = createPanelLayoutStore(storage);
     await getPersistApi(persistedStore).rehydrate();
 
-    expect(persistedStore.getState().sizes).toEqual([25, 20, 20]);
+    expect(persistedStore.getState().sizes).toEqual([18, 32, 20]);
     expect(persistedStore.getState().activeTab).toBe('explorer');
   });
 });

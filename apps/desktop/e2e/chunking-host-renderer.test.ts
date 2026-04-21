@@ -55,9 +55,9 @@ async function waitForAppReadyInTest(page: Page): Promise<void> {
 
 async function assertVisibleWindowResponsive(page: Page): Promise<void> {
   const assistantShell = page.getByTestId('assistant-chat-card');
-  const databaseToggle = page
-    .getByTestId('show-database-panel')
-    .or(page.getByTestId('hide-database-panel'));
+  const workspaceToggle = page
+    .getByTestId('show-workspace-panel')
+    .or(page.getByTestId('hide-workspace-panel'));
 
   await expect(assistantShell).toBeVisible({ timeout: 10_000 });
 
@@ -70,7 +70,7 @@ async function assertVisibleWindowResponsive(page: Page): Promise<void> {
     readyState: 'complete',
   });
 
-  await expect(databaseToggle.first()).toBeVisible({ timeout: 10_000 });
+  await expect(workspaceToggle.first()).toBeVisible({ timeout: 10_000 });
 }
 
 async function getChunkingHostStatus(page: Page): Promise<ChunkingHostStatus> {

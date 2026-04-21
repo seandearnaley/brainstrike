@@ -371,12 +371,12 @@ test.describe('Embedding Host Renderer', () => {
 
   async function assertToolsPanelResponsive(page: Page): Promise<void> {
     const assistantShell = page.getByTestId('assistant-chat-card');
-    const databaseToggle = page
-      .getByTestId('show-database-panel')
-      .or(page.getByTestId('hide-database-panel'));
+    const workspaceToggle = page
+      .getByTestId('show-workspace-panel')
+      .or(page.getByTestId('hide-workspace-panel'));
 
     await expect(assistantShell).toBeVisible({ timeout: 10_000 });
-    await expect(databaseToggle.first()).toBeVisible({ timeout: 10_000 });
+    await expect(workspaceToggle.first()).toBeVisible({ timeout: 10_000 });
   }
 
   async function getEmbeddingHostStatus(page: Page): Promise<EmbeddingHostStatus> {
@@ -3696,7 +3696,12 @@ test.describe('Embedding Host Renderer', () => {
 
     const hideDatabaseButton = activeWindow.getByTestId('hide-database-panel');
     await expect(hideDatabaseButton).toBeVisible({ timeout: 10_000 });
-    await hideDatabaseButton.click({ timeout: 5000 });
+    await hideDatabaseButton.evaluate((button) => {
+      if (!(button instanceof HTMLElement)) {
+        throw new Error('Expected database toggle button element');
+      }
+      button.click();
+    });
     await expect(activeWindow.getByTestId('assistant-chat-card')).toBeVisible({ timeout: 10_000 });
     await expect(activeWindow.getByTestId('show-database-panel')).toBeVisible({ timeout: 10_000 });
 

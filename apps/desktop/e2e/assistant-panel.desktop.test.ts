@@ -30,6 +30,9 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
   });
 
   test('prompt library is ready without hanging fallbacks', async ({ window }) => {
+    const assistantChatCard = await ensureAssistantShellVisible(window);
+    await expect(assistantChatCard).toBeVisible({ timeout: 5000 });
+
     const promptsNav = window
       .getByRole('button', { name: /prompts/i })
       .or(window.getByRole('link', { name: /prompts/i }))
@@ -40,6 +43,7 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
     await expect(window.getByRole('heading', { name: /prompt library/i })).toBeVisible({
       timeout: 15_000,
     });
+    await expect(assistantChatCard).toBeVisible({ timeout: 10_000 });
     await expect(window.getByText(/Loading prompts/i)).toHaveCount(0);
   });
 
