@@ -59,6 +59,9 @@ function hasExplicitAutomatedSettingsTestOptIn(): boolean {
   if (typeof window === 'undefined') {
     return false;
   }
+  // This is defense in depth for testability hooks, not a hard security
+  // boundary. Production should still behave correctly if the signals are
+  // spoofed, which is why the hook installer no longer ships in the app bundle.
   return (
     window.__brainstrike_e2e_enable_settings_test_api__ === true &&
     window.navigator.webdriver === true
