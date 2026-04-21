@@ -1,6 +1,6 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
 import { Database, MessagesSquare } from 'lucide-react';
-import { type ReactElement, type ReactNode, useEffect } from 'react';
+import { type ReactElement, type ReactNode, useCallback, useEffect, useRef } from 'react';
 import { preloadDatabaseTab } from './database-tab';
 
 interface AgentSidebarPanelProps {
@@ -14,14 +14,24 @@ export function AgentSidebarPanel({
   databaseContent,
   preloadDatabaseTabOnMount = false,
 }: AgentSidebarPanelProps): ReactElement {
+  const hasPrefetchedDatabaseTabRef = useRef(false);
+
+  const requestDatabaseTabPrefetch = useCallback(() => {
+    if (hasPrefetchedDatabaseTabRef.current) {
+      return;
+    }
+    hasPrefetchedDatabaseTabRef.current = true;
+    void preloadDatabaseTab().catch(() => {
+      // Intent preload should not surface as an unhandled rejection during navigation/reload.
+    });
+  }, []);
+
   useEffect(() => {
     if (!preloadDatabaseTabOnMount) {
       return;
     }
-    void preloadDatabaseTab().catch(() => {
-      // Intent preload should not surface as an unhandled rejection during navigation/reload.
-    });
-  }, [preloadDatabaseTabOnMount]);
+    requestDatabaseTabPrefetch();
+  }, [preloadDatabaseTabOnMount, requestDatabaseTabPrefetch]);
 
   return (
     <Tabs
@@ -39,7 +49,12 @@ export function AgentSidebarPanel({
             <MessagesSquare className="h-4 w-4" />
             Threads
           </TabsTrigger>
-          <TabsTrigger data-testid="database-tab-trigger" value="database">
+          <TabsTrigger
+            data-testid="database-tab-trigger"
+            onFocus={requestDatabaseTabPrefetch}
+            onPointerEnter={requestDatabaseTabPrefetch}
+            value="database"
+          >
             <Database className="h-4 w-4" />
             Database
           </TabsTrigger>

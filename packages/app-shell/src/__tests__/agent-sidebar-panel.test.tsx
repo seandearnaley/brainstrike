@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentSidebarPanel } from '../agent-sidebar-panel';
 
 const { mockPreloadDatabaseTab } = vi.hoisted(() => ({
@@ -11,6 +11,10 @@ vi.mock('../database-tab', () => ({
 }));
 
 describe('AgentSidebarPanel', () => {
+  beforeEach(() => {
+    mockPreloadDatabaseTab.mockClear();
+  });
+
   it('shows threads first and reveals database content when the database tab is selected', async () => {
     render(
       <AgentSidebarPanel
@@ -40,6 +44,24 @@ describe('AgentSidebarPanel', () => {
         threadsContent={<div>Threads content</div>}
       />
     );
+
+    await waitFor(() => {
+      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('prefetches the database chunk on pointer and keyboard intent', async () => {
+    render(
+      <AgentSidebarPanel
+        databaseContent={<div>Database content</div>}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    const databaseTab = screen.getByRole('tab', { name: 'Database' });
+
+    fireEvent.pointerEnter(databaseTab);
+    fireEvent.focus(databaseTab);
 
     await waitFor(() => {
       expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
