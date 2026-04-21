@@ -13,15 +13,15 @@ import {
 import type { QueueAdapter } from '@brainstrike/queue';
 import { IdeLayout, PanelLayoutProvider, type PanelLayoutState } from '@brainstrike/ui';
 import { EmbeddingRuntimeProvider } from '@brainstrike/vector-management';
-import { Database } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import { shallow } from 'zustand/shallow';
+import { AgentSidebarPanel } from './agent-sidebar-panel';
 import { AgentWorkspaceLayout } from './agent-workspace-layout';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
 import { AssistantChatPanel } from './assistant-chat-panel';
 import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
-import { DatabaseDrawer } from './database-drawer';
+import { DatabasePanel } from './database-panel';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
 
@@ -42,7 +42,7 @@ export interface RootLayoutContentProps {
    * CRITICAL: Lazy loader for the app-specific embedding queue adapter.
    *
    * This loader is the single source of truth for app-wide database tooling:
-   * RootLayoutContent → DatabaseDrawer → DatabaseTab → DatabaseDemoPanel.
+   * RootLayoutContent → AgentSidebarPanel → DatabasePanel → DatabaseTab → DatabaseDemoPanel.
    */
   readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
   readonly navigationItems: NavigationItem[];
@@ -128,15 +128,9 @@ function useDebouncedPanelLayoutChange<T extends PanelLayoutState>(options: {
 function ContextExplorerSurface({
   contextExplorerLeftPanelContent,
   contextExplorerPageContent,
-  databaseTabChunkingMode,
-  loadEmbeddingQueue,
-  preloadDatabaseTabOnMount,
 }: {
   readonly contextExplorerLeftPanelContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
-  readonly databaseTabChunkingMode: 'host-proxy' | 'local';
-  readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
-  readonly preloadDatabaseTabOnMount: boolean;
 }): ReactElement {
   const setState = useContextExplorerLayoutStore((state) => state.setState);
   const panelState = useContextExplorerLayoutStore(
@@ -165,21 +159,6 @@ function ContextExplorerSurface({
           consoleContent={consoleContent}
           leftPanelContent={resolvedLeftPanelContent}
           panelIdPrefix="context-explorer"
-          rightPanelChrome={{
-            title: 'Database',
-            showButtonLabel: 'Show database panel',
-            showButtonTestId: 'show-database-panel',
-            hideButtonLabel: 'Hide database panel',
-            hideButtonTestId: 'hide-database-panel',
-            icon: Database,
-          }}
-          rightPanelContent={
-            <DatabaseDrawer
-              chunkingMode={databaseTabChunkingMode}
-              preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-              {...(loadEmbeddingQueue === undefined ? {} : { loadEmbeddingQueue })}
-            />
-          }
         >
           {contextExplorerPageContent}
         </IdeLayout>
@@ -224,18 +203,26 @@ export function RootLayoutContent({
 
   const explorerAppContent = useMemo(
     () => (
-      <div className="h-full" data-testid="explorer-section">
+      <div className="h-full min-h-0" data-testid="explorer-section">
         <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
           <AgentWorkspaceLayout
             assistantContent={<AssistantChatPanel />}
-            threadsContent={<ThreadsPanel />}
+            sidebarContent={
+              <AgentSidebarPanel
+                databaseContent={
+                  <DatabasePanel
+                    chunkingMode={databaseTabChunkingMode}
+                    {...(loadEmbeddingQueue === undefined ? {} : { loadEmbeddingQueue })}
+                  />
+                }
+                preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                threadsContent={<ThreadsPanel />}
+              />
+            }
             workspaceContent={
               <ContextExplorerSurface
                 contextExplorerLeftPanelContent={contextExplorerLeftPanelContent}
                 contextExplorerPageContent={contextExplorerPageContent}
-                databaseTabChunkingMode={databaseTabChunkingMode}
-                loadEmbeddingQueue={loadEmbeddingQueue}
-                preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
               />
             }
           />

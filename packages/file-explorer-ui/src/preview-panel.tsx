@@ -97,6 +97,28 @@ interface PreviewPanelProps {
   tokenCounting: TokenCountingState;
 }
 
+interface ContextExplorerPreviewTestSnapshot {
+  activeTab: string;
+  renderedFilePaths: string[];
+  selectedFilesCount: number;
+  totalRows: number;
+}
+
+declare global {
+  interface Window {
+    __brainstrikeContextExplorerPreviewTestHooks__?:
+      | {
+          getSnapshot: () => ContextExplorerPreviewTestSnapshot;
+        }
+      | undefined;
+    desktopLifecycle?:
+      | {
+          isTestMode?: boolean;
+        }
+      | undefined;
+  }
+}
+
 function handleNullValues(aVal: unknown, bVal: unknown): number | null {
   if (aVal === null && bVal === null) {
     return 0;
@@ -544,6 +566,25 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     groupingConfig === 'none'
       ? flattenedData.slice(tapestryPagination.startIndex, tapestryPagination.endIndex)
       : [];
+
+  useEffect(() => {
+    if (!window.desktopLifecycle?.isTestMode) {
+      return;
+    }
+
+    window.__brainstrikeContextExplorerPreviewTestHooks__ = {
+      getSnapshot: () => ({
+        activeTab,
+        renderedFilePaths: tablePageData.map((item) => item.path),
+        selectedFilesCount: selectedFiles.size,
+        totalRows: flattenedData.length,
+      }),
+    };
+
+    return () => {
+      window.__brainstrikeContextExplorerPreviewTestHooks__ = undefined;
+    };
+  }, [activeTab, flattenedData.length, selectedFiles, tablePageData]);
 
   const tableVisibleFilesOnPage = useMemo(
     () =>

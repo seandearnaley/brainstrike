@@ -44,80 +44,39 @@ async function ensureExplorerVisible(page: Page): Promise<void> {
   }
 }
 
-async function ensureWorkspacePanelVisible(page: Page): Promise<Locator> {
-  const workspacePanel = page.locator('#agent-workspace-tools-panel');
-  const showWorkspacePanelButton = page
-    .locator('[data-testid="show-workspace-panel"]')
-    .or(page.getByRole('button', { name: 'Show workspace panel' }))
-    .or(page.locator('button[aria-label="Show workspace panel"]'));
-  const hideWorkspacePanelButton = page
-    .locator('[data-testid="hide-workspace-panel"]')
-    .or(page.getByRole('button', { name: 'Hide workspace panel' }))
-    .or(page.locator('button[aria-label="Hide workspace panel"]'));
-
-  const panelBox = await workspacePanel.boundingBox().catch(() => null);
-  const workspacePanelVisible = Boolean(panelBox && panelBox.width > 5 && panelBox.height > 5);
-
-  if (!workspacePanelVisible) {
-    if ((await showWorkspacePanelButton.count()) > 0) {
-      verboseLog('👉 Showing workspace panel...');
-      await showWorkspacePanelButton.first().click();
-    } else if ((await hideWorkspacePanelButton.count()) > 0) {
-      verboseLog('👉 Re-toggling workspace panel to expand...');
-      await hideWorkspacePanelButton.first().click();
-      await showWorkspacePanelButton.first().click();
-    } else {
-      console.warn('⚠️ Workspace panel controls not found; waiting for panel to appear.');
-    }
-  }
-
-  await workspacePanel.waitFor({ state: 'visible', timeout: 12_000 }).catch(() => {
-    console.warn('⚠️ Workspace panel did not become visible after request.');
-  });
-
-  return workspacePanel;
-}
-
-export async function ensureToolsPanelVisible(page: Page): Promise<Locator> {
+async function ensureAgentSidebarVisible(page: Page): Promise<Locator> {
   await ensureExplorerVisible(page);
-  await ensureWorkspacePanelVisible(page);
-  const rightPanel = page.locator('#context-explorer-tools-panel, #tools-panel');
-  const showRightPanelButton = page
-    .locator('[data-testid="show-database-panel"]')
-    .or(page.locator('[data-testid="show-tools-panel"]'))
-    .or(page.getByRole('button', { name: 'Show database panel' }))
-    .or(page.locator('button[aria-label="Show database panel"]'))
-    .or(page.getByRole('button', { name: 'Show tools panel' }))
-    .or(page.locator('button[aria-label="Show tools panel"]'));
-  const hideRightPanelButton = page
-    .locator('[data-testid="hide-database-panel"]')
-    .or(page.locator('[data-testid="hide-tools-panel"]'))
-    .or(page.getByRole('button', { name: 'Hide database panel' }))
-    .or(page.locator('button[aria-label="Hide database panel"]'))
-    .or(page.getByRole('button', { name: 'Hide tools panel' }))
-    .or(page.locator('button[aria-label="Hide tools panel"]'));
+  const sidebarPanel = page.locator('#agent-workspace-explorer-panel');
+  const showSidebarButton = page
+    .locator('[data-testid="show-threads-panel"]')
+    .or(page.getByRole('button', { name: 'Show agent panel' }))
+    .or(page.locator('button[aria-label="Show agent panel"]'));
+  const hideSidebarButton = page
+    .locator('[data-testid="hide-threads-panel"]')
+    .or(page.getByRole('button', { name: 'Hide agent panel' }))
+    .or(page.locator('button[aria-label="Hide agent panel"]'));
 
-  const panelBox = await rightPanel.boundingBox().catch(() => null);
-  const rightPanelVisible = Boolean(panelBox && panelBox.width > 5 && panelBox.height > 5);
+  const panelBox = await sidebarPanel.boundingBox().catch(() => null);
+  const sidebarVisible = Boolean(panelBox && panelBox.width > 5 && panelBox.height > 5);
 
-  if (!rightPanelVisible) {
-    if ((await showRightPanelButton.count()) > 0) {
-      verboseLog('👉 Showing tools panel...');
-      await showRightPanelButton.first().click();
-    } else if ((await hideRightPanelButton.count()) > 0) {
-      verboseLog('👉 Re-toggling tools panel to expand...');
-      await hideRightPanelButton.first().click();
-      await showRightPanelButton.first().click();
+  if (!sidebarVisible) {
+    if ((await showSidebarButton.count()) > 0) {
+      verboseLog('👉 Showing agent sidebar...');
+      await showSidebarButton.first().click();
+    } else if ((await hideSidebarButton.count()) > 0) {
+      verboseLog('👉 Re-toggling agent sidebar to expand...');
+      await hideSidebarButton.first().click();
+      await showSidebarButton.first().click();
     } else {
-      console.warn('⚠️ Tools panel controls not found; waiting for panel to appear.');
+      console.warn('⚠️ Agent sidebar controls not found; waiting for panel to appear.');
     }
   }
 
-  await rightPanel.waitFor({ state: 'visible', timeout: 12_000 }).catch(() => {
-    console.warn('⚠️ Tools panel did not become visible after request.');
+  await sidebarPanel.waitFor({ state: 'visible', timeout: 12_000 }).catch(() => {
+    console.warn('⚠️ Agent sidebar did not become visible after request.');
   });
 
-  return rightPanel;
+  return sidebarPanel;
 }
 
 export async function ensureAssistantShellVisible(page: Page): Promise<Locator> {
@@ -148,10 +107,14 @@ export async function showDatabaseDemoPanel(
       .waitFor({ state: 'attached', timeout: tabTimeoutMs })
       .catch(() => {});
 
-    let rightPanel = await ensureToolsPanelVisible(activePage);
-
     activePage = await resolveActivePage(activePage);
-    rightPanel = await ensureToolsPanelVisible(activePage);
+    await ensureAgentSidebarVisible(activePage);
+
+    const databaseTabTrigger = activePage
+      .getByTestId('database-tab-trigger')
+      .or(activePage.getByRole('tab', { name: 'Database' }));
+    await databaseTabTrigger.waitFor({ state: 'visible', timeout: tabTimeoutMs });
+    await databaseTabTrigger.click();
 
     if (!activePage.isClosed()) {
       // Wait a moment for panel to stabilize
@@ -160,19 +123,19 @@ export async function showDatabaseDemoPanel(
       } catch (error) {
         if (activePage.isClosed()) {
           activePage = await resolveActivePage(activePage);
-          rightPanel = await ensureToolsPanelVisible(activePage);
+          await ensureAgentSidebarVisible(activePage);
         } else {
           throw error;
         }
       }
     }
 
-    verboseLog('🗂️ Waiting for database drawer...');
-    await rightPanel
-      .locator('[data-testid="database-drawer"]')
+    verboseLog('🗂️ Waiting for database sidebar tab...');
+    await activePage
+      .locator('[data-testid="database-panel"]')
       .waitFor({ state: 'visible', timeout: tabTimeoutMs })
       .catch(() => {
-        console.warn('⚠️ Database drawer did not become visible after showing the right panel.');
+        console.warn('⚠️ Database panel did not become visible after selecting the database tab.');
       });
 
     // Wait for either the database demo panel OR the database error to be visible

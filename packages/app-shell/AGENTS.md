@@ -4,12 +4,12 @@
 
 ## What this package is
 
-A reusable **React 19** application shell and IDE chrome for Brainstrike apps. It provides the outer layout, navigation, the app-wide agent workspace, the routed application surface, the database drawer, CSV export utilities, and light state slices (Zustand). It intentionally keeps business logic thin and delegates to sibling packages (`@brainstrike/ui`, `@brainstrike/db`, `@brainstrike/embeddings`, `@brainstrike/file-explorer-*`, etc.).
+A reusable **React 19** application shell and IDE chrome for Brainstrike apps. It provides the outer layout, navigation, the app-wide agent workspace, the routed application surface, the tabbed database surface, CSV export utilities, and light state slices (Zustand). It intentionally keeps business logic thin and delegates to sibling packages (`@brainstrike/ui`, `@brainstrike/db`, `@brainstrike/embeddings`, `@brainstrike/file-explorer-*`, etc.).
 
 ### Key exports (from `src/`)
 
 * **Layout:** `AppLayout`, `AgentWorkspaceLayout`, `createAppConfig`, `RootLayoutContent`, `PageWrapper`, `navigationItems`
-* **Agent workspace:** `ThreadsPanel`, `AssistantChatPanel`, `DatabaseDrawer`
+* **Agent workspace:** `AgentSidebarPanel`, `ThreadsPanel`, `AssistantChatPanel`, `DatabasePanel`
 * **Database utilities:** `DatabaseDemoPanel`, `VectorStatusWithDb`, `QueueHud`
 * **CSV:** `generateCSV`, `createCSVBlob`, `generateCSVFilename`, and richer exporters for files/chunks/embeddings
 * **Stores (Zustand):** `panel-layout-store`, `context-explorer-layout-store`, `search-panel-store`, `db-panel-store`, `import-settings-store`, `vector-*` stores
@@ -87,7 +87,7 @@ All slices are compact, selector-first, and **SSR/test-safe** via `createJSONSto
 
 ### Vector, embeddings & queue integration
 
-The shell surfaces vector status/queue controls in the database drawer and a compact **Queue** summary in the status bar. The heavy lifting lives in sibling packages, but there are app-shell specific UX expectations:
+The shell surfaces vector status/queue controls in the database tab and a compact **Queue** summary in the status bar. The heavy lifting lives in sibling packages, but there are app-shell specific UX expectations:
 
 * **Devices:** we heuristically detect the best device (WebGPU when available) and let users override to WASM/CPU. WebGPU drastically improves on-device inference latency; fall back to WASM where unsupported. ([ONNX Runtime][7])
 * **Backfilling:** when an embedding set becomes active **and** coverage is partial, the shell attempts an auto-backfill (enqueue jobs) if the local worker is running.
@@ -128,9 +128,9 @@ The Database tab provides a **WASM Postgres** (`PGlite`) with **pgvector** insid
 
 * **Assistant:** `AssistantChatPanel` calls `GET {assistantBase}/assistant/status -> {enabled:boolean,reason?:string}`. Set `window.assistant.getUrl()` or `window.assistant.url` to override base. If disabled, the panel shows guidance instead of failing.
 * **Threads:** `ThreadsPanel` is a placeholder-only shell surface for now. Keep it DB-free until thread persistence lands.
-* **Vector status surfaces:** host `VectorStatusWithDialog` for embedding set management, worker controls, and queue health. The embedding queue adapter must flow through `DatabaseDrawer` into DB-facing views.
+* **Vector status surfaces:** host `VectorStatusWithDialog` for embedding set management, worker controls, and queue health. The embedding queue adapter must flow through `DatabasePanel` into DB-facing views.
 * **Search panel (optional):** state lives in `search-panel-store`; keep it persistent and small (query + a few flags). Don’t move search execution here—call into repositories/services instead.
-* **Database drawer:** lazy-loaded chunk that initializes PGlite when the drawer is opened or preloaded by the host app.
+* **Database tab:** lazy-loaded chunk that initializes PGlite when the database tab is opened or preloaded by the host app.
 
 ## CSV export expectations
 
@@ -140,7 +140,7 @@ Utilities in `csv-export-core.ts` and `csv-export-utils.ts` generate consistent 
 
 * **Defer heavy components:** Keep `DatabaseTab` and `AssistantUiPanel` behind `lazy()` and flags. Don't "accidentally" import them in top-level modules.
 * **WebGPU first, WASM second:** for local models, choose WebGPU when available; fall back gracefully. Avoid device thrashing—reinitialize models only every N chunks (user-tunable). ([ONNX Runtime][7])
-* **App-Shell first paint:** Keep the shell static CSS and icons small; don’t let the tools panel pull big deps until opened. (This echoes modern App-Shell guidance.) ([Medium][13])
+* **App-Shell first paint:** Keep the shell static CSS and icons small; don’t let the database tab pull big deps until opened. (This echoes modern App-Shell guidance.) ([Medium][13])
 * **Zustand selectors:** Always destructure selectors outside render loops; prefer tuple selectors to minimize render churn. (Matches official persistence guidance.) ([Zustand Documentation][6])
 
 ## Security & privacy checklist
@@ -173,12 +173,12 @@ Utilities in `csv-export-core.ts` and `csv-export-utils.ts` generate consistent 
 
 * `window.assistant` and `window.mcp` bridges are **optional**. The UI must still render without them.
 * We detect Electron loosely (`window.electronAPI`) only where needed.
-* PGlite is initialized on-demand from the database drawer; the UI presents "initializing" states during setup.
+* PGlite is initialized on-demand from the database tab; the UI presents "initializing" states during setup.
 
 ## Testing guidance (what “good” looks like)
 
 * Use Vitest + RTL. Keep tests deterministic with **explicit mocks** for DB, embeddings, and bridges (see existing suites).
-* Simulate route switching and persisting state across toggles (see `root-layout-content` and `database-drawer` tests).
+* Simulate route switching and persisting state across toggles (see `root-layout-content`, `agent-sidebar-panel`, and `database-panel` tests).
 * Unit test helper functions (e.g., queue events, transactions) without the full DB by stubbing `query/transaction`.
 
 > Community patterns: the 2025 default across React apps is Vitest + RTL + Playwright for E2E. Keep our unit tests fast and isolated; E2E runs live in app packages. ([Medium][14])

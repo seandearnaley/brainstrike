@@ -53,7 +53,7 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
  *
  * 1. create-embedding-queue.ts is resolved lazily when DB/vector tooling needs it
  * 2. Passed to SharedRootLayoutContent as loadEmbeddingQueue prop
- * 3. Flows through RootLayoutContent → DatabaseDrawer → DatabaseTab → DatabaseDemoPanel
+ * 3. Flows through RootLayoutContent → AgentSidebarPanel → DatabasePanel → DatabaseTab → DatabaseDemoPanel
  * 4. Database-facing views use it for embedding set management and import operations
  *
  * DO NOT remove the loadEmbeddingQueue prop! It's the single source of truth for all

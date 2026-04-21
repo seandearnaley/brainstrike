@@ -103,7 +103,7 @@ describe('assistant vite helpers', () => {
 
     expect(entries).toEqual([
       `${appDir}/index.html`,
-      expect.stringContaining('/packages/app-shell/src/database-drawer.tsx'),
+      expect.stringContaining('/packages/app-shell/src/database-panel.tsx'),
       expect.stringContaining('/packages/app-shell/src/assistant-chat-panel.tsx'),
       expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper-lazy.tsx'),
       expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper.tsx'),

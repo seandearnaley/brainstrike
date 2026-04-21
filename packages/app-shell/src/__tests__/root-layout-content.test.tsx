@@ -82,12 +82,27 @@ vi.mock('../assistant-chat-panel', () => ({
   AssistantChatPanel: () => <div data-testid="assistant-chat-shell" />,
 }));
 
+vi.mock('../agent-sidebar-panel', () => ({
+  AgentSidebarPanel: ({
+    threadsContent,
+    databaseContent,
+  }: {
+    threadsContent: React.ReactNode;
+    databaseContent: React.ReactNode;
+  }) => (
+    <div data-testid="agent-sidebar-shell">
+      <div data-testid="threads-tab-content">{threadsContent}</div>
+      <div data-testid="database-tab-content">{databaseContent}</div>
+    </div>
+  ),
+}));
+
 vi.mock('../threads-panel', () => ({
   ThreadsPanel: () => <div data-testid="threads-shell" />,
 }));
 
-vi.mock('../database-drawer', () => ({
-  DatabaseDrawer: () => <div data-testid="database-drawer" />,
+vi.mock('../database-panel', () => ({
+  DatabasePanel: () => <div data-testid="database-panel" />,
 }));
 
 describe('RootLayoutContent', () => {
@@ -134,9 +149,10 @@ describe('RootLayoutContent', () => {
     renderComponent();
 
     expect(screen.getByTestId('app-layout')).toBeInTheDocument();
+    expect(screen.getByTestId('agent-sidebar-shell')).toBeInTheDocument();
     expect(screen.getByTestId('threads-shell')).toBeInTheDocument();
+    expect(screen.getByTestId('database-panel')).toBeInTheDocument();
     expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('database-drawer')).toBeInTheDocument();
     expect(screen.getByTestId('explorer-section')).not.toHaveClass('hidden');
     expect(screen.getByTestId('context-explorer-page')).toBeInTheDocument();
     expect(screen.getByTestId('file-explorer-left-panel')).toBeInTheDocument();
@@ -150,9 +166,8 @@ describe('RootLayoutContent', () => {
       mockHandlers.onNavigationClick('/settings');
     });
 
-    expect(screen.queryByTestId('threads-shell')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('agent-sidebar-shell')).not.toBeInTheDocument();
     expect(screen.queryByTestId('assistant-chat-shell')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('database-drawer')).not.toBeInTheDocument();
     expect(screen.queryByTestId('explorer-section')).not.toBeInTheDocument();
     expect(screen.getByTestId('settings-route')).toBeInTheDocument();
     expect(screen.getByTestId('settings-page')).toBeInTheDocument();
@@ -165,9 +180,8 @@ describe('RootLayoutContent', () => {
       mockHandlers.onNavigationClick('/prompts');
     });
 
-    expect(screen.queryByTestId('threads-shell')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('agent-sidebar-shell')).not.toBeInTheDocument();
     expect(screen.queryByTestId('assistant-chat-shell')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('database-drawer')).not.toBeInTheDocument();
     expect(screen.queryByTestId('explorer-section')).not.toBeInTheDocument();
     expect(screen.getByTestId('prompts-route')).toBeInTheDocument();
     expect(screen.getByTestId('prompts-page')).toBeInTheDocument();

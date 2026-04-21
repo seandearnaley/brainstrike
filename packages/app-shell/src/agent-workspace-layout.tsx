@@ -4,26 +4,26 @@ import type { ReactElement, ReactNode } from 'react';
 
 export interface AgentWorkspaceLayoutProps {
   readonly assistantContent: ReactNode;
-  readonly threadsContent: ReactNode;
+  readonly sidebarContent: ReactNode;
   readonly workspaceContent: ReactNode;
 }
 
 export function AgentWorkspaceLayout({
-  threadsContent,
+  sidebarContent,
   assistantContent,
   workspaceContent,
 }: AgentWorkspaceLayoutProps): ReactElement {
   return (
     <IdeLayout
       leftPanelChrome={{
-        title: 'Threads',
-        showButtonLabel: 'Show threads panel',
+        title: 'Agent',
+        showButtonLabel: 'Show agent panel',
         showButtonTestId: 'show-threads-panel',
-        hideButtonLabel: 'Hide threads panel',
+        hideButtonLabel: 'Hide agent panel',
         hideButtonTestId: 'hide-threads-panel',
         icon: PanelLeftClose,
       }}
-      leftPanelContent={threadsContent}
+      leftPanelContent={sidebarContent}
       panelConstraints={{
         mainContentMinSize: '25%',
         rightPanelMaxSize: '75%',
@@ -37,7 +37,11 @@ export function AgentWorkspaceLayout({
         hideButtonTestId: 'hide-workspace-panel',
         icon: PanelRightClose,
       }}
-      rightPanelContent={workspaceContent}
+      rightPanelContent={
+        <div className="h-full min-h-0" data-testid="workspace-surface-panel">
+          {workspaceContent}
+        </div>
+      }
     >
       <div className="h-full min-h-0" data-testid="assistant-main-panel">
         <div className="flex h-full min-h-0 flex-col overflow-hidden">{assistantContent}</div>

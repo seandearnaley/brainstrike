@@ -8,6 +8,10 @@ import { FILE_EXPLORER_STORAGE_VERSION } from '../../../packages/file-explorer/s
 import { serializeState } from '../../../packages/file-explorer/src/persistence/state-serialization.ts';
 import { buildQuerySelectionFingerprint } from '../../../packages/file-explorer/src/utils/query-selection-manifest.ts';
 import { expect, test } from './fixtures/electron-fixture';
+import {
+  getContextExplorerLeftPanel,
+  getContextExplorerMiddlePanel,
+} from './utils/context-explorer-locators';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 interface ElectronE2eFileSystemFixture {
@@ -28,7 +32,7 @@ interface ElectronE2eFileSystemFixture {
 }
 
 async function ensureLeftPanelVisible(page: Page): Promise<void> {
-  const leftPanel = page.locator('#explorer-panel');
+  const leftPanel = getContextExplorerLeftPanel(page);
   const showLeftPanelButton = page
     .getByTestId('show-explorer-panel')
     .or(page.getByRole('button', { name: /show explorer/i }));
@@ -67,7 +71,9 @@ async function setFileExplorerMaxSelectionCount(
   page: Page,
   maxSelectionCount: number
 ): Promise<void> {
-  const selectionSettingsButton = page.getByRole('button', { name: 'Selection settings' });
+  const selectionSettingsButton = getContextExplorerLeftPanel(page).getByRole('button', {
+    name: 'Selection settings',
+  });
   await expect(selectionSettingsButton).toBeVisible({ timeout: 15_000 });
   await selectionSettingsButton.click({ timeout: 5000 });
 
@@ -78,6 +84,39 @@ async function setFileExplorerMaxSelectionCount(
   await expect(page.getByTestId('selection-max')).toHaveText(String(maxSelectionCount), {
     timeout: 15_000,
   });
+}
+
+async function expectContextExplorerFileVisibility(args: {
+  fileName: string;
+  page: Page;
+  visible: boolean;
+}): Promise<void> {
+  const { fileName, page, visible } = args;
+  await expect(getContextExplorerMiddlePanel(page)).toBeVisible({ timeout: 15_000 });
+  await expect
+    .poll(
+      async () =>
+        page.evaluate((targetFileName) => {
+          const hooks = (
+            window as Window & {
+              __brainstrikeContextExplorerPreviewTestHooks__?: {
+                getSnapshot?: () => { renderedFilePaths?: string[] };
+              };
+            }
+          ).__brainstrikeContextExplorerPreviewTestHooks__;
+
+          const renderedFilePaths = hooks?.getSnapshot?.().renderedFilePaths ?? [];
+          return renderedFilePaths.some((filePath) => {
+            const normalizedPath = filePath.replaceAll('\\', '/');
+            const segments = normalizedPath.split('/');
+            return segments.at(-1) === targetFileName;
+          });
+        }, fileName),
+      {
+        timeout: 10_000,
+      }
+    )
+    .toBe(visible);
 }
 
 async function getExpandedDirectoryCount(page: Page): Promise<number> {
@@ -1343,10 +1382,24 @@ test.describe('Desktop file explorer selection', () => {
     await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
     await selectAllButton.click({ timeout: 5000 });
 
+    const contextExplorerSurface = getContextExplorerMiddlePanel(window);
+    await expect(contextExplorerSurface).toBeVisible({ timeout: 15_000 });
     await expect(window.getByText('3 files', { exact: true })).toBeVisible({ timeout: 15_000 });
-    await expect(window.getByRole('button', { name: 'index.ts' })).toBeVisible();
-    await expect(window.getByRole('button', { name: 'extra.ts' })).toBeVisible();
-    await expect(window.getByRole('button', { name: 'mock-file1.ts' })).toBeVisible();
+    await expectContextExplorerFileVisibility({
+      fileName: 'index.ts',
+      page: window,
+      visible: true,
+    });
+    await expectContextExplorerFileVisibility({
+      fileName: 'extra.ts',
+      page: window,
+      visible: true,
+    });
+    await expectContextExplorerFileVisibility({
+      fileName: 'mock-file1.ts',
+      page: window,
+      visible: true,
+    });
 
     const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
     await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
@@ -1354,9 +1407,21 @@ test.describe('Desktop file explorer selection', () => {
 
     await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
     await expect(window.getByText('1 files', { exact: true })).toBeVisible({ timeout: 15_000 });
-    await expect(window.getByRole('button', { name: 'mock-file1.ts' })).toBeVisible();
-    await expect(window.getByRole('button', { name: 'index.ts' })).not.toBeVisible();
-    await expect(window.getByRole('button', { name: 'extra.ts' })).not.toBeVisible();
+    await expectContextExplorerFileVisibility({
+      fileName: 'mock-file1.ts',
+      page: window,
+      visible: true,
+    });
+    await expectContextExplorerFileVisibility({
+      fileName: 'index.ts',
+      page: window,
+      visible: false,
+    });
+    await expectContextExplorerFileVisibility({
+      fileName: 'extra.ts',
+      page: window,
+      visible: false,
+    });
   });
 
   test('root capped Select All marks visible folders indeterminate when only some descendants are selected', async ({
@@ -1443,7 +1508,6 @@ test.describe('Desktop file explorer selection', () => {
 
     await installNestedPackagesFixture(electronApp.app, '/mock/desktop-selection-root-packages');
     await ensureLeftPanelVisible(window);
-    await setFileExplorerMaxSelectionCount(window, 10);
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
@@ -1452,6 +1516,7 @@ test.describe('Desktop file explorer selection', () => {
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree).toBeVisible({ timeout: 15_000 });
     await expect(fileTree.getByText('packages')).toBeVisible({ timeout: 15_000 });
+    await setFileExplorerMaxSelectionCount(window, 10);
 
     const packagesCheckbox = fileTree.getByRole('checkbox', { name: 'Select packages' });
     await expect(packagesCheckbox).toHaveAttribute('data-state', 'unchecked');
@@ -1491,7 +1556,6 @@ test.describe('Desktop file explorer selection', () => {
     const rootPath = '/mock/desktop-selection-root-toggle';
     await installMixedHookSelectionFixture(electronApp.app, rootPath);
     await ensureLeftPanelVisible(window);
-    await setFileExplorerMaxSelectionCount(window, 10);
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
@@ -1499,6 +1563,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree).toBeVisible({ timeout: 15_000 });
+    await setFileExplorerMaxSelectionCount(window, 10);
 
     const selectAllButton = window.getByRole('button', { name: /^Select All$/i }).first();
     await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
@@ -1552,7 +1617,6 @@ test.describe('Desktop file explorer selection', () => {
     const rootPath = '/mock/desktop-selection-root-e2e';
     await installIncrementalFolderSelectionFixture(electronApp.app, rootPath);
     await ensureLeftPanelVisible(window);
-    await setFileExplorerMaxSelectionCount(window, 10);
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
@@ -1560,6 +1624,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree).toBeVisible({ timeout: 15_000 });
+    await setFileExplorerMaxSelectionCount(window, 10);
 
     const e2eCheckbox = fileTree.getByRole('checkbox', { name: 'Select e2e' });
     await expect(e2eCheckbox).toHaveAttribute('data-state', 'unchecked');
@@ -1598,7 +1663,6 @@ test.describe('Desktop file explorer selection', () => {
     const rootPath = '/mock/desktop-selection-root-e2e-deselect';
     await installIncrementalFolderSelectionFixture(electronApp.app, rootPath);
     await ensureLeftPanelVisible(window);
-    await setFileExplorerMaxSelectionCount(window, 10);
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
@@ -1606,6 +1670,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree).toBeVisible({ timeout: 15_000 });
+    await setFileExplorerMaxSelectionCount(window, 10);
 
     const expandButtons = window.locator('button[aria-label="Expand"]');
     await expect(expandButtons).toHaveCount(1, { timeout: 15_000 });
@@ -1640,7 +1705,6 @@ test.describe('Desktop file explorer selection', () => {
     const rootPath = '/mock/desktop-selection-root-hooks-explicit';
     await installMixedHookSelectionFixture(electronApp.app, rootPath);
     await ensureLeftPanelVisible(window);
-    await setFileExplorerMaxSelectionCount(window, 10);
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
@@ -1648,6 +1712,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree).toBeVisible({ timeout: 15_000 });
+    await setFileExplorerMaxSelectionCount(window, 10);
 
     const hooksExpandButton = window.locator('button[aria-label="Expand"]').first();
     await expect(hooksExpandButton).toBeVisible({ timeout: 15_000 });
@@ -1693,7 +1758,6 @@ test.describe('Desktop file explorer selection', () => {
     const rootPath = '/mock/desktop-selection-root-hooks';
     await installMixedHookSelectionFixture(electronApp.app, rootPath);
     await ensureLeftPanelVisible(window);
-    await setFileExplorerMaxSelectionCount(window, 10);
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
@@ -1702,6 +1766,7 @@ test.describe('Desktop file explorer selection', () => {
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree).toBeVisible({ timeout: 15_000 });
     await expect(fileTree.getByText('hooks')).toBeVisible({ timeout: 15_000 });
+    await setFileExplorerMaxSelectionCount(window, 10);
 
     const selectAllButton = window.getByRole('button', { name: /^Select All$/i }).first();
     await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
@@ -1885,8 +1950,16 @@ test.describe('Desktop file explorer selection', () => {
       await expect(mainCheckbox).toHaveAttribute('data-state', 'checked');
       await expect(viteCheckbox).toHaveAttribute('data-state', 'checked');
       await expect(appCheckbox).toHaveAttribute('data-state', 'unchecked');
-      await expect(restartedWindow.getByRole('button', { name: 'main.tsx' })).toBeVisible();
-      await expect(restartedWindow.getByRole('button', { name: 'vite-env.d.ts' })).toBeVisible();
+      await expectContextExplorerFileVisibility({
+        fileName: 'main.tsx',
+        page: restartedWindow,
+        visible: true,
+      });
+      await expectContextExplorerFileVisibility({
+        fileName: 'vite-env.d.ts',
+        page: restartedWindow,
+        visible: true,
+      });
 
       await mainCheckbox.click({ timeout: 5000 });
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('1', {
@@ -1894,8 +1967,16 @@ test.describe('Desktop file explorer selection', () => {
       });
       await expect(mainCheckbox).toHaveAttribute('data-state', 'unchecked');
       await expect(srcCheckbox).toHaveAttribute('data-state', 'indeterminate');
-      await expect(restartedWindow.getByRole('button', { name: 'vite-env.d.ts' })).toBeVisible();
-      await expect(restartedWindow.getByRole('button', { name: 'main.tsx' })).not.toBeVisible();
+      await expectContextExplorerFileVisibility({
+        fileName: 'vite-env.d.ts',
+        page: restartedWindow,
+        visible: true,
+      });
+      await expectContextExplorerFileVisibility({
+        fileName: 'main.tsx',
+        page: restartedWindow,
+        visible: false,
+      });
 
       await appCheckbox.click({ timeout: 5000 });
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('2', {
@@ -1903,27 +1984,53 @@ test.describe('Desktop file explorer selection', () => {
       });
       await expect(appCheckbox).toHaveAttribute('data-state', 'checked');
       await expect(srcCheckbox).toHaveAttribute('data-state', 'indeterminate');
-      await expect(restartedWindow.getByRole('button', { name: 'App.tsx' })).toBeVisible();
+      await expectContextExplorerFileVisibility({
+        fileName: 'App.tsx',
+        page: restartedWindow,
+        visible: true,
+      });
 
       await srcCheckbox.click({ timeout: 5000 });
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('0', {
         timeout: 15_000,
       });
       await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
-      await expect(restartedWindow.getByRole('button', { name: 'main.tsx' })).not.toBeVisible();
-      await expect(
-        restartedWindow.getByRole('button', { name: 'vite-env.d.ts' })
-      ).not.toBeVisible();
-      await expect(restartedWindow.getByRole('button', { name: 'App.tsx' })).not.toBeVisible();
+      await expectContextExplorerFileVisibility({
+        fileName: 'main.tsx',
+        page: restartedWindow,
+        visible: false,
+      });
+      await expectContextExplorerFileVisibility({
+        fileName: 'vite-env.d.ts',
+        page: restartedWindow,
+        visible: false,
+      });
+      await expectContextExplorerFileVisibility({
+        fileName: 'App.tsx',
+        page: restartedWindow,
+        visible: false,
+      });
 
       await srcCheckbox.click({ timeout: 5000 });
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('5', {
         timeout: 15_000,
       });
       await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
-      await expect(restartedWindow.getByRole('button', { name: 'main.tsx' })).toBeVisible();
-      await expect(restartedWindow.getByRole('button', { name: 'vite-env.d.ts' })).toBeVisible();
-      await expect(restartedWindow.getByRole('button', { name: 'App.tsx' })).toBeVisible();
+      await expectContextExplorerFileVisibility({
+        fileName: 'main.tsx',
+        page: restartedWindow,
+        visible: true,
+      });
+      await expectContextExplorerFileVisibility({
+        fileName: 'vite-env.d.ts',
+        page: restartedWindow,
+        visible: true,
+      });
+      await expectContextExplorerFileVisibility({
+        fileName: 'App.tsx',
+        page: restartedWindow,
+        visible: true,
+      });
 
       await srcCheckbox.click({ timeout: 5000 });
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('0', {
