@@ -147,16 +147,12 @@ export function getPanelElements(page: Page): PanelElements {
     middlePanel: page.locator(AGENT_MIDDLE_PANEL_SELECTOR),
 
     // Hide buttons (when panels are open)
-    hideExplorerButton: page.locator(
-      '[data-testid="hide-threads-panel"], [data-testid="hide-explorer-panel"]'
-    ),
+    hideExplorerButton: page.locator('[data-testid="hide-threads-panel"]'),
     hideRightPanelButton: page.locator('[data-testid="hide-workspace-panel"]'),
     hideConsoleButton: page.locator('[data-testid="hide-console-panel"]'),
 
     // Show shims (when panels are closed)
-    showExplorerShim: page.locator(
-      '[data-testid="show-threads-panel"], [data-testid="show-explorer-panel"]'
-    ),
+    showExplorerShim: page.locator('[data-testid="show-threads-panel"]'),
     showRightPanelShim: page.locator('[data-testid="show-workspace-panel"]'),
     showConsoleShim: page.locator('[data-testid="show-console-panel"]'),
   };
@@ -423,15 +419,13 @@ export async function verifyDefaultLayout(page: Page, expectedState: DefaultLayo
     await expect(elements.leftPanel).toBeVisible();
   }
 
-  // Tools panel should be hidden by default
-  if (expectedState.rightPanelHidden === false) {
-    // Explicitly set to be visible
-    await expect(elements.rightPanel).toBeVisible();
-    await expect(elements.hideRightPanelButton).toBeVisible();
-  } else {
-    // Default behavior or explicitly hidden
+  // Workspace panel is visible by default in the promoted agent shell.
+  if (expectedState.rightPanelHidden) {
     await expect(elements.rightPanel).not.toBeVisible();
     await expect(elements.showRightPanelShim).toBeVisible();
+  } else {
+    await expect(elements.rightPanel).toBeVisible();
+    await expect(elements.hideRightPanelButton).toBeVisible();
   }
 
   // Console should be hidden by default

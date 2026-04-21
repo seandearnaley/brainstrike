@@ -38,8 +38,8 @@ export interface PanelLayoutStoreState {
 
 /**
  * Default panel sizes: [leftPanel, rightPanel, consolePanel]
- * - leftPanel (agent workspace): 25% of horizontal space
- * - rightPanel (workspace surface): 32% of horizontal space
+ * - leftPanel (agent workspace): 18% of horizontal space
+ * - rightPanel (workspace surface): 40% of horizontal space
  * - consolePanel: 20% of vertical space (when visible)
  *
  * Note: The middle panel size is calculated dynamically as: 100 - left - right
@@ -48,7 +48,7 @@ const DEFAULT_STATE: Omit<
   PanelLayoutStoreState,
   'setSizes' | 'toggleLeft' | 'toggleRight' | 'toggleConsole' | 'setActiveTab' | 'setState'
 > = {
-  sizes: [18, 32, 20],
+  sizes: [18, 40, 20],
   showLeftPanel: true,
   showRightPanel: true,
   showConsole: false,

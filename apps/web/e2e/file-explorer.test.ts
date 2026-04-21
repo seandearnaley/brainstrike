@@ -95,6 +95,8 @@ test.describe('File Explorer', () => {
 
     test('keeps footer controls usable when the explorer panel is narrowed', async ({ page }) => {
       await explorer.selectRoot();
+      await page.getByTestId('hide-threads-panel').click();
+      await expect(page.getByTestId('show-threads-panel')).toBeVisible();
 
       const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
       const initialWidth = await leftPanel.evaluate(
@@ -109,7 +111,7 @@ test.describe('File Explorer', () => {
 
       await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
       await page.mouse.down();
-      await page.mouse.move(handleBox.x - 120, handleBox.y + handleBox.height / 2);
+      await page.mouse.move(handleBox.x - 140, handleBox.y + handleBox.height / 2);
       await page.mouse.up();
 
       await page.waitForTimeout(300);
@@ -117,7 +119,8 @@ test.describe('File Explorer', () => {
       const narrowedWidth = await leftPanel.evaluate(
         (element) => element.getBoundingClientRect().width
       );
-      expect(narrowedWidth).toBeLessThan(initialWidth);
+      expect(narrowedWidth).toBeLessThanOrEqual(initialWidth);
+      expect(narrowedWidth).toBeLessThanOrEqual(110);
 
       await expect(page.getByRole('button', { name: 'Selection settings' })).toBeVisible();
       await expect(page.getByTestId('selection-count')).toBeVisible();
