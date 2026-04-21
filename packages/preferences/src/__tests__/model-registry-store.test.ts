@@ -5,6 +5,10 @@ import {
   type DbProvider,
   useModelRegistryStore,
 } from '../stores/model-registry-store';
+import {
+  __resetSettingsTestOverridesForTests,
+  __setSettingsTestOverridesForTests,
+} from '../testing/e2e-settings-test-overrides';
 
 // Mock @brainstrike/utils logger
 vi.mock('@brainstrike/utils', async (importOriginal) => {
@@ -51,11 +55,7 @@ const createMockModel = (overrides: Partial<DbModel> = {}): DbModel => ({
 describe('model-registry-store', () => {
   beforeEach(() => {
     __resetModelRegistryStoreForTests();
-    (
-      window as Window & {
-        __brainstrikeSettingsTestOverrides__?: unknown;
-      }
-    ).__brainstrikeSettingsTestOverrides__ = {};
+    __resetSettingsTestOverridesForTests();
   });
 
   describe('initial state', () => {
@@ -201,15 +201,9 @@ describe('model-registry-store', () => {
     });
 
     it('surfaces a test override fetch error without querying the database', async () => {
-      (
-        window as Window & {
-          __brainstrikeSettingsTestOverrides__?: {
-            modelRegistry?: { fetchErrorMessage?: string | null };
-          };
-        }
-      ).__brainstrikeSettingsTestOverrides__ = {
+      __setSettingsTestOverridesForTests({
         modelRegistry: { fetchErrorMessage: 'model registry failed in test' },
-      };
+      });
 
       const mockDb = {
         query: vi.fn(),

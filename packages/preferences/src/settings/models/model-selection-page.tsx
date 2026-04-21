@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { useEnsureModelRegistry } from '../../hooks/use-model-registry';
 import type { DbModel } from '../../stores/model-registry-store';
 import { useModelRegistryStore } from '../../stores/model-registry-store';
-import { getSettingsE2ETestOverrides } from '../../testing/e2e-settings-test-overrides';
+import { resolveCacheDirectorySelectionTestOverride } from '../../testing/e2e-settings-test-overrides';
 import { ModelList } from './model-list';
 
 const logger = createLogger('ModelSelectionPage');
@@ -23,12 +23,6 @@ interface DownloadDeps {
 
 interface DownloadProgress {
   progress?: number;
-}
-
-interface CacheDirectorySelectionOverride {
-  readonly errorMessage?: string;
-  readonly path?: string | null;
-  readonly unavailable?: boolean;
 }
 
 function readQuantizedFlag(parameters: Record<string, unknown> | null): boolean {
@@ -77,58 +71,51 @@ function applySelectedCacheDirectory(args: {
   }
 }
 
-function handleCacheDirectorySelectionOverride(args: {
+function applyCacheDirectorySelectionTestOverride(args: {
   db: ReturnType<typeof usePGliteDatabase>;
   fetchRegistry: (db: NonNullable<ReturnType<typeof usePGliteDatabase>>) => Promise<void>;
-  override: CacheDirectorySelectionOverride | null | undefined;
   setModelCacheDir: (dir: string) => void;
   toast: ToastFn;
 }): boolean {
-  const { override, toast } = args;
-  if (!override) {
+  const resolution = resolveCacheDirectorySelectionTestOverride();
+  if (resolution.kind === 'none') {
     return false;
   }
 
-  if (override.unavailable) {
-    toast({
-      title: 'Directory selection unavailable',
-      description: 'Choose a cache directory from the desktop app.',
-      variant: 'destructive',
-    });
-    return true;
+  switch (resolution.kind) {
+    case 'unavailable':
+      args.toast({
+        title: 'Directory selection unavailable',
+        description: 'Choose a cache directory from the desktop app.',
+        variant: 'destructive',
+      });
+      return true;
+    case 'error':
+      args.toast({
+        title: 'Directory selection failed',
+        description: resolution.message,
+        variant: 'destructive',
+      });
+      return true;
+    case 'cancelled':
+      args.toast({
+        title: 'No directory selected',
+        description: 'Please choose a folder to store local model files.',
+        variant: 'destructive',
+      });
+      return true;
+    case 'selected':
+      applySelectedCacheDirectory({
+        db: args.db,
+        fetchRegistry: args.fetchRegistry,
+        selectedPath: resolution.path,
+        setModelCacheDir: args.setModelCacheDir,
+        toast: args.toast,
+      });
+      return true;
+    default:
+      return false;
   }
-
-  if (override.errorMessage) {
-    toast({
-      title: 'Directory selection failed',
-      description: override.errorMessage,
-      variant: 'destructive',
-    });
-    return true;
-  }
-
-  if (!('path' in override)) {
-    return false;
-  }
-
-  const selectedPath = override.path ?? '';
-  if (!selectedPath) {
-    toast({
-      title: 'No directory selected',
-      description: 'Please choose a folder to store local model files.',
-      variant: 'destructive',
-    });
-    return true;
-  }
-
-  applySelectedCacheDirectory({
-    db: args.db,
-    fetchRegistry: args.fetchRegistry,
-    selectedPath,
-    setModelCacheDir: args.setModelCacheDir,
-    toast,
-  });
-  return true;
 }
 
 async function downloadLlmModel(
@@ -277,10 +264,9 @@ export function ModelSelectionPage() {
 
   const handleSelectCacheDir = async (): Promise<void> => {
     if (
-      handleCacheDirectorySelectionOverride({
+      applyCacheDirectorySelectionTestOverride({
         db,
         fetchRegistry,
-        override: getSettingsE2ETestOverrides()?.modelRegistry?.cacheDirectorySelection,
         setModelCacheDir,
         toast,
       })

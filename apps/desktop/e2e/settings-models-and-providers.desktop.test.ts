@@ -19,7 +19,7 @@ const MODEL_REGISTRY_SNAPSHOT = {
   ],
   models: [
     {
-      id: 'local:test-embedding-model',
+      id: 'local:test-chat-model',
       providerId: 'local',
       name: 'Test Chat Model',
       description: 'Deterministic E2E chat model',

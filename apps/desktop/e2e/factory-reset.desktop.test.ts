@@ -9,7 +9,7 @@ type ConfirmOverrideTarget = typeof globalThis & {
 };
 
 async function openTokenCountingSettings(
-  homePage: import('./page-objects/home-page').HomePage,
+  homePage: HomePage,
   settingsPage: SettingsPage
 ): Promise<void> {
   await homePage.openSettings();
@@ -17,7 +17,7 @@ async function openTokenCountingSettings(
 }
 
 async function openFactoryResetSettings(
-  homePage: import('./page-objects/home-page').HomePage,
+  homePage: HomePage,
   settingsPage: SettingsPage
 ): Promise<void> {
   await homePage.openSettings();

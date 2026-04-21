@@ -5,6 +5,7 @@ import { DbSchemaVerifier } from '@brainstrike/preferences/components/db-schema-
 import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
 import { useLoggingPreferencesStore } from '@brainstrike/preferences/stores/logging-preferences-store';
 import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
+import { installSettingsTestHookApi } from '@brainstrike/preferences/testing/e2e-settings-test-overrides';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import { installConsoleGuard } from '@brainstrike/utils/console-guard';
 import { installRendererErrorHooks } from '@brainstrike/utils/install-renderer-error-hooks';
@@ -200,6 +201,8 @@ if (desktopRendererRole !== 'visible-ui') {
 const unsubscribeLoggingPreferences = useLoggingPreferencesStore.subscribe((state) => {
   applyLoggingPreferences(state.preferences, 'electron-renderer');
 });
+const removeSettingsTestHooks =
+  typeof window === 'undefined' ? () => {} : installSettingsTestHookApi(import.meta.env);
 
 const unsubscribeLoggingEvents =
   window.logging?.onPreferencesUpdated?.((preferences: LoggingPreferences) => {
@@ -212,6 +215,7 @@ if (import.meta.hot) {
     removeHiddenHostLogForwarder = null;
     unsubscribeLoggingPreferences();
     unsubscribeLoggingEvents?.();
+    removeSettingsTestHooks();
     removeRendererErrorHooks();
   });
 }

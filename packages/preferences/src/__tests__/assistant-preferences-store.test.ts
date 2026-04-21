@@ -10,6 +10,10 @@ import {
   __resetAssistantPreferencesStoreForTests,
   useAssistantPreferencesStore,
 } from '../stores/assistant-preferences-store';
+import {
+  __resetSettingsTestOverridesForTests,
+  __setSettingsTestOverridesForTests,
+} from '../testing/e2e-settings-test-overrides';
 
 type PersistApi<T> = T & {
   persist?: {
@@ -33,14 +37,11 @@ const storeWithPersist = useAssistantPreferencesStore as PersistApi<
 describe('assistant-preferences-store', () => {
   beforeEach(() => {
     __resetAssistantPreferencesStoreForTests();
+    __resetSettingsTestOverridesForTests();
     storeWithPersist.persist?.clearStorage?.();
     vi.restoreAllMocks();
     const secretTarget = window as Window & { secrets?: unknown };
     Reflect.deleteProperty(secretTarget, 'secrets');
-    Reflect.deleteProperty(
-      window as Window & { __brainstrikeSettingsTestOverrides__?: unknown },
-      '__brainstrikeSettingsTestOverrides__'
-    );
   });
 
   it('returns composite model when set', () => {
@@ -226,19 +227,8 @@ describe('assistant-preferences-store', () => {
 
   it('uses local runtime test overrides before probing services', async () => {
     const probeSpy = vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime');
-    const calls: string[] = [];
-    (
-      window as Window & {
-        __brainstrikeSettingsTestOverrides__?: {
-          localRuntime?: {
-            onProbe?: (runtimeId: 'ollama' | 'lmstudio') => void;
-            statuses?: Record<string, unknown>;
-          };
-        };
-      }
-    ).__brainstrikeSettingsTestOverrides__ = {
+    __setSettingsTestOverridesForTests({
       localRuntime: {
-        onProbe: (runtimeId) => calls.push(runtimeId),
         statuses: {
           ollama: {
             state: 'blocked_web',
@@ -247,7 +237,7 @@ describe('assistant-preferences-store', () => {
           },
         },
       },
-    };
+    });
 
     const status = await useAssistantPreferencesStore.getState().getLocalRuntimeStatus('ollama', {
       force: true,
@@ -255,7 +245,6 @@ describe('assistant-preferences-store', () => {
 
     expect(status.state).toBe('blocked_web');
     expect(probeSpy).not.toHaveBeenCalled();
-    expect(calls).toEqual(['ollama']);
   });
 
   it('hides local runtime providers when localRuntimeEnabled is off, even if reachable', async () => {
