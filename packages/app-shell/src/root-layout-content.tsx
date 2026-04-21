@@ -96,6 +96,8 @@ function useDebouncedPanelLayoutChange(options: {
 
   useEffect(() => cleanupSizeDebounce, [cleanupSizeDebounce]);
 
+  // Stable callback: all mutable panel state flows through refs so resize commits
+  // do not recreate the outer or inner layout trees.
   return useCallback((state: PanelLayoutState) => {
     const currentPanelState = panelStateRef.current;
     const fallback = currentPanelState.sizes;
@@ -170,6 +172,8 @@ function ContextExplorerSurface({
 
   return (
     <FileTreeWrapper>
+      {/* The outer shell owns workspace-vs-assistant geometry; this nested provider owns
+          the route-local context explorer panes inside that workspace surface. */}
       <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
         <IdeLayout
           consoleContent={consoleContent}

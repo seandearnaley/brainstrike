@@ -53,6 +53,7 @@ import {
   type ModelPickerProvider,
   type ProviderGroupConfig,
 } from '@brainstrike/ui/assistant-ui-panel';
+import { createSafeStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { type FC, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 
@@ -102,6 +103,7 @@ function getToolDescription(toolId: string): string {
 }
 
 const INCLUDE_FILE_REPORT_STORAGE_KEY = 'brainstrike.assistant.include-file-report.v1';
+const includeFileReportStorage = createSafeStorageAdapter();
 const TREE_CONTEXT_LINE_LIMIT = 400;
 const TREE_TOKEN_ESTIMATE_PER_LINE = 4;
 const FILE_REPORT_OVERHEAD_PER_FILE = 8;
@@ -280,10 +282,7 @@ async function computeTreeTokenEstimate(
 }
 
 function loadStoredIncludeFileReport(): boolean {
-  if (typeof window === 'undefined') {
-    return true;
-  }
-  const raw = window.localStorage.getItem(INCLUDE_FILE_REPORT_STORAGE_KEY);
+  const raw = includeFileReportStorage.getItem(INCLUDE_FILE_REPORT_STORAGE_KEY);
   if (raw === null) {
     return true;
   }
@@ -805,10 +804,10 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   }, [effectiveSelection, currentFolderId]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    window.localStorage.setItem(INCLUDE_FILE_REPORT_STORAGE_KEY, includeFileReport ? '1' : '0');
+    includeFileReportStorage.setItem(
+      INCLUDE_FILE_REPORT_STORAGE_KEY,
+      includeFileReport ? '1' : '0'
+    );
   }, [includeFileReport]);
 
   useEffect(() => {

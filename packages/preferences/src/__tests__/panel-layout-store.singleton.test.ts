@@ -8,6 +8,8 @@ function clearSingleton(): void {
 }
 
 describe('usePanelLayoutStore singleton fallback', () => {
+  const DEFAULT_SIZES = [18, 40, 20] as const;
+
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
@@ -59,7 +61,7 @@ describe('usePanelLayoutStore singleton fallback', () => {
 
     await persistApi.rehydrate();
 
-    expect(module.usePanelLayoutStore.getState().sizes).toEqual([18, 32, 20]);
+    expect(module.usePanelLayoutStore.getState().sizes).toEqual(DEFAULT_SIZES);
     expect(module.usePanelLayoutStore.getState().showLeftPanel).toBe(true);
     expect(module.usePanelLayoutStore.getState().showRightPanel).toBe(true);
     expect(module.usePanelLayoutStore.getState().showConsole).toBe(false);

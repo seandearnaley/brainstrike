@@ -1,51 +1,6 @@
-import { Button, cn } from '@brainstrike/ui';
-import { Bot, MoreHorizontal, Plus, Search } from 'lucide-react';
+import { Button } from '@brainstrike/ui';
+import { ArrowRight, Database, Plus, Search } from 'lucide-react';
 import type { ReactElement } from 'react';
-
-interface ThreadGroup {
-  items: readonly {
-    id: string;
-    project: string;
-    summary: string;
-  }[];
-  label: string;
-}
-
-const THREAD_GROUPS: readonly ThreadGroup[] = [
-  {
-    label: 'Today',
-    items: [
-      {
-        id: 'current-session',
-        summary: 'Example workspace thread',
-        project: 'demo-project',
-      },
-      {
-        id: 'vector-follow-up',
-        summary: 'Follow-up example thread',
-        project: 'demo-project',
-      },
-    ],
-  },
-  {
-    label: 'Pinned',
-    items: [
-      {
-        id: 'desktop-llm-host',
-        summary: 'Example pinned thread',
-        project: 'demo-project',
-      },
-      {
-        id: 'db-import',
-        summary: 'Index tuning example',
-        project: 'demo-project',
-      },
-    ],
-  },
-] as const;
-
-// TODO: Replace placeholder selection with DB-backed agent thread state.
-const SELECTED_THREAD_ID = 'current-session';
 
 export function ThreadsPanel(): ReactElement {
   return (
@@ -88,60 +43,41 @@ export function ThreadsPanel(): ReactElement {
           <span>Search threads coming soon</span>
         </div>
         <div className="pt-2 text-[11px] text-muted-foreground">
-          Placeholder agent history for this shell slice.
+          Thread history is intentionally placeholder-only in this slice.
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        {THREAD_GROUPS.map((group) => (
-          <div className="pb-3" key={group.label}>
-            <div className="px-2 pb-2 font-medium text-[11px] text-muted-foreground/80 uppercase tracking-[0.18em]">
-              {group.label}
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+        <div
+          className="rounded-xl border border-border border-dashed bg-background/70 p-4"
+          data-testid="threads-placeholder-card"
+        >
+          <div className="font-medium text-sm">Your agent threads will appear here</div>
+          <p className="pt-2 text-muted-foreground text-xs leading-5">
+            This preview keeps the shell structure in place without shipping fake history entries.
+            DB-backed thread loading and persistence land in a later slice.
+          </p>
+          <div className="pt-4">
+            <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+              <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <div>
+                <div className="font-medium text-xs">Upcoming thread history</div>
+                <div className="pt-1 text-[11px] text-muted-foreground">
+                  Recent agents, pinned work, and resumable sessions will live here.
+                </div>
+              </div>
             </div>
-            <div className="space-y-1">
-              {group.items.map((item) => {
-                const isSelected = item.id === SELECTED_THREAD_ID;
-                return (
-                  <button
-                    aria-disabled="true"
-                    aria-pressed={isSelected}
-                    className={cn(
-                      'w-full rounded-lg border px-3 py-2 text-left transition-colors disabled:cursor-default disabled:opacity-100',
-                      isSelected
-                        ? 'border-primary/30 bg-primary/10 shadow-sm'
-                        : 'border-transparent bg-background/80 hover:border-border hover:bg-background'
-                    )}
-                    data-testid={isSelected ? 'selected-thread-row' : undefined}
-                    disabled
-                    key={item.id}
-                    title="Thread history is preview-only in this slice."
-                    type="button"
-                  >
-                    <div className="flex items-start gap-2">
-                      <div
-                        className={cn(
-                          'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md',
-                          isSelected
-                            ? 'bg-primary/15 text-primary'
-                            : 'bg-muted text-muted-foreground'
-                        )}
-                      >
-                        <Bot className="h-3.5 w-3.5" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate font-medium text-sm">{item.summary}</div>
-                        <div className="truncate pt-1 text-[11px] text-muted-foreground">
-                          {item.project}
-                        </div>
-                      </div>
-                      <MoreHorizontal className="mt-1 h-3.5 w-3.5 text-muted-foreground/70" />
-                    </div>
-                  </button>
-                );
-              })}
+            <div className="mt-2 flex items-start gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+              <Database className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <div>
+                <div className="font-medium text-xs">Database stays next door</div>
+                <div className="pt-1 text-[11px] text-muted-foreground">
+                  Use the Database tab for index tuning and collection diagnostics.
+                </div>
+              </div>
             </div>
           </div>
-        ))}
+        </div>
       </div>
     </section>
   );
