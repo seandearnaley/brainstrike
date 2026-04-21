@@ -30,7 +30,7 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 import {
   getLocalRuntimeStatusTestOverride,
   recordLocalRuntimeProbeForTests,
-} from '../automated-test/settings-test-state';
+} from '../settings-test-runtime-access';
 
 const logger = createLogger('AssistantPreferencesStore');
 
@@ -284,9 +284,9 @@ async function probeRuntimeViaBridgeOrService(
     readonly force?: boolean;
   }
 ): Promise<LocalRuntimeAvailabilityState> {
-  recordLocalRuntimeProbeForTests(runtimeId);
   const overriddenStatus = getLocalRuntimeStatusTestOverride(runtimeId);
   if (overriddenStatus) {
+    recordLocalRuntimeProbeForTests(runtimeId);
     return overriddenStatus;
   }
 

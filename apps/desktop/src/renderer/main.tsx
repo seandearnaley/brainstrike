@@ -1,7 +1,6 @@
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
-import { installSettingsTestHooksIfNeeded } from '@brainstrike/preferences/automated-test/settings-test-hook-loader';
 import { DbSchemaVerifier } from '@brainstrike/preferences/components/db-schema-verifier';
 import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
 import { useLoggingPreferencesStore } from '@brainstrike/preferences/stores/logging-preferences-store';
@@ -201,8 +200,6 @@ if (desktopRendererRole !== 'visible-ui') {
 const unsubscribeLoggingPreferences = useLoggingPreferencesStore.subscribe((state) => {
   applyLoggingPreferences(state.preferences, 'electron-renderer');
 });
-const removeSettingsTestHooks =
-  typeof window === 'undefined' ? () => {} : installSettingsTestHooksIfNeeded(import.meta.env);
 
 const unsubscribeLoggingEvents =
   window.logging?.onPreferencesUpdated?.((preferences: LoggingPreferences) => {
@@ -215,7 +212,6 @@ if (import.meta.hot) {
     removeHiddenHostLogForwarder = null;
     unsubscribeLoggingPreferences();
     unsubscribeLoggingEvents?.();
-    removeSettingsTestHooks();
     removeRendererErrorHooks();
   });
 }

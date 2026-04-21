@@ -72,6 +72,7 @@ type BrowserSettingsTestOverrides = Omit<SerializableSettingsTestOverrides, 'loc
 };
 
 type BrowserOverrideWindow = {
+  __brainstrikeLocalRuntimeProbeCounts__?: Partial<Record<LocalRuntimeId, number>>;
   __brainstrikePendingSettingsTestOverrides__?: BrowserSettingsTestOverrides;
   __brainstrikeSettingsTestHooks__?: {
     readLocalRuntimeProbeCounts: () => Partial<Record<LocalRuntimeId, number>>;
@@ -93,6 +94,7 @@ export async function installSettingsTestOverrides(
   page: Page,
   overrides: SerializableSettingsTestOverrides
 ): Promise<void> {
+  await ensureSettingsTestHooksInstalled(page);
   await page.addInitScript((payload: SerializableSettingsTestOverrides) => {
     const browserWindow = window as unknown as BrowserOverrideWindow;
     browserWindow.__brainstrike_e2e_enable_settings_test_api__ = true;
@@ -120,6 +122,7 @@ export async function updateSettingsTestOverrides(
   page: Page,
   overrides: SerializableSettingsTestOverrides
 ): Promise<void> {
+  await ensureSettingsTestHooksInstalled(page);
   await page.evaluate((payload: SerializableSettingsTestOverrides) => {
     const browserWindow = window as unknown as BrowserOverrideWindow;
     browserWindow.__brainstrike_e2e_enable_settings_test_api__ = true;
@@ -156,6 +159,7 @@ export async function updateSettingsTestOverrides(
 export async function readLocalRuntimeProbeCounts(
   page: Page
 ): Promise<Partial<Record<LocalRuntimeId, number>>> {
+  await ensureSettingsTestHooksInstalled(page);
   return await page.evaluate(() => {
     const browserWindow = window as unknown as BrowserOverrideWindow;
     return browserWindow.__brainstrikeSettingsTestHooks__?.readLocalRuntimeProbeCounts() ?? {};
@@ -163,8 +167,78 @@ export async function readLocalRuntimeProbeCounts(
 }
 
 export async function resetLocalRuntimeProbeCounts(page: Page): Promise<void> {
+  await ensureSettingsTestHooksInstalled(page);
   await page.evaluate(() => {
     const browserWindow = window as unknown as BrowserOverrideWindow;
     browserWindow.__brainstrikeSettingsTestHooks__?.resetLocalRuntimeProbeCounts();
   });
+}
+
+function installSettingsTestHooksOnWindow(): void {
+  type HookApi = NonNullable<BrowserOverrideWindow['__brainstrikeSettingsTestHooks__']>;
+
+  const browserWindow = window as unknown as BrowserOverrideWindow;
+  if (browserWindow.__brainstrikeSettingsTestHooks__) {
+    return;
+  }
+
+  const resetProbeCounts = (): void => {
+    browserWindow.__brainstrikeLocalRuntimeProbeCounts__ = {};
+  };
+
+  const mergeOverrides = (
+    current: BrowserSettingsTestOverrides | undefined,
+    updates: BrowserSettingsTestOverrides
+  ): BrowserSettingsTestOverrides => {
+    return {
+      ...(current ?? {}),
+      ...(updates.accurateRuntimeAvailable === undefined
+        ? {}
+        : { accurateRuntimeAvailable: updates.accurateRuntimeAvailable }),
+      ...(updates.localRuntime
+        ? {
+            localRuntime: {
+              ...(current?.localRuntime ?? {}),
+              ...updates.localRuntime,
+            },
+          }
+        : {}),
+      ...(updates.modelRegistry
+        ? {
+            modelRegistry: {
+              ...(current?.modelRegistry ?? {}),
+              ...updates.modelRegistry,
+            },
+          }
+        : {}),
+    };
+  };
+
+  const hooks: HookApi = {
+    readLocalRuntimeProbeCounts: () => browserWindow.__brainstrikeLocalRuntimeProbeCounts__ ?? {},
+    resetLocalRuntimeProbeCounts: () => {
+      resetProbeCounts();
+    },
+    resetSettingsTestOverrides: () => {
+      delete browserWindow.__brainstrikePendingSettingsTestOverrides__;
+      resetProbeCounts();
+    },
+    setSettingsTestOverrides: (overrides: BrowserSettingsTestOverrides) => {
+      browserWindow.__brainstrikePendingSettingsTestOverrides__ = overrides;
+      resetProbeCounts();
+    },
+    updateSettingsTestOverrides: (overrides: BrowserSettingsTestOverrides) => {
+      browserWindow.__brainstrikePendingSettingsTestOverrides__ = mergeOverrides(
+        browserWindow.__brainstrikePendingSettingsTestOverrides__,
+        overrides
+      );
+    },
+  };
+
+  browserWindow.__brainstrikeSettingsTestHooks__ = hooks;
+}
+
+async function ensureSettingsTestHooksInstalled(page: Page): Promise<void> {
+  await page.addInitScript(installSettingsTestHooksOnWindow);
+  await page.evaluate(installSettingsTestHooksOnWindow);
 }

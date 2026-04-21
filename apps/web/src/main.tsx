@@ -1,7 +1,6 @@
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter, createWebFileSystemAdapter } from '@brainstrike/file-system';
-import { installSettingsTestHooksIfNeeded } from '@brainstrike/preferences/automated-test/settings-test-hook-loader';
 import { DbSchemaVerifier } from '@brainstrike/preferences/components/db-schema-verifier';
 import { useLoggingPreferencesStore } from '@brainstrike/preferences/stores/logging-preferences-store';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
@@ -76,13 +75,10 @@ applyLoggingPreferences(useLoggingPreferencesStore.getState().preferences, 'brow
 const unsubscribeLoggingPreferences = useLoggingPreferencesStore.subscribe((state) => {
   applyLoggingPreferences(state.preferences, 'browser');
 });
-const removeSettingsTestHooks =
-  typeof window === 'undefined' ? () => {} : installSettingsTestHooksIfNeeded(import.meta.env);
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     unsubscribeLoggingPreferences();
-    removeSettingsTestHooks();
     removeRendererErrorHooks();
   });
 }

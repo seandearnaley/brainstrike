@@ -2,7 +2,7 @@ import type {
   LocalRuntimeAvailabilityState,
   LocalRuntimeId,
 } from '@brainstrike/agent/local-runtime';
-import type { DbModel, DbProvider } from '../stores/model-registry-store';
+import type { DbModel, DbProvider } from './stores/model-registry-store';
 
 export interface ModelRegistrySnapshotOverride {
   readonly downloadedModels?: Record<string, boolean>;
@@ -36,81 +36,84 @@ export type CacheDirectorySelectionTestOverrideResolution =
   | { readonly kind: 'cancelled' }
   | { readonly kind: 'selected'; readonly path: string };
 
-let currentOverrides: SettingsE2ETestOverrides | undefined;
-let localRuntimeProbeCounts: Partial<Record<LocalRuntimeId, number>> = {};
-
-export function mergeSettingsTestOverrides(
-  current: SettingsE2ETestOverrides | undefined,
-  updates: SettingsE2ETestOverrides
-): SettingsE2ETestOverrides {
-  return {
-    ...(current ?? {}),
-    ...(updates.accurateRuntimeAvailable === undefined
-      ? {}
-      : { accurateRuntimeAvailable: updates.accurateRuntimeAvailable }),
-    ...(updates.localRuntime
-      ? {
-          localRuntime: {
-            ...(current?.localRuntime ?? {}),
-            ...updates.localRuntime,
-          },
-        }
-      : {}),
-    ...(updates.modelRegistry
-      ? {
-          modelRegistry: {
-            ...(current?.modelRegistry ?? {}),
-            ...updates.modelRegistry,
-          },
-        }
-      : {}),
-  };
+declare global {
+  interface Window {
+    // biome-ignore lint/style/useNamingConvention: E2E init-script flag uses double underscores by convention
+    __brainstrike_e2e_enable_settings_test_api__?: boolean;
+    __brainstrikeLocalRuntimeProbeCounts__?: Partial<Record<LocalRuntimeId, number>>;
+    __brainstrikePendingSettingsTestOverrides__?: SettingsE2ETestOverrides;
+  }
 }
 
-export function replaceSettingsTestOverrides(overrides: SettingsE2ETestOverrides): void {
-  currentOverrides = overrides;
+function hasExplicitAutomatedSettingsTestOptIn(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  return (
+    window.__brainstrike_e2e_enable_settings_test_api__ === true &&
+    window.navigator.webdriver === true
+  );
 }
 
-export function updateSettingsTestOverrides(overrides: SettingsE2ETestOverrides): void {
-  currentOverrides = mergeSettingsTestOverrides(currentOverrides, overrides);
+function shouldReadSettingsTestOverrides(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  if (globalThis.process?.env?.['ELECTRON_IS_E2E_TEST'] === 'true') {
+    return true;
+  }
+  if (globalThis.process?.env?.['NODE_ENV'] === 'test') {
+    return true;
+  }
+  // This is a testability gate, not a security boundary. It exists so prod code
+  // paths stay dormant unless an automated browser explicitly opts in.
+  return hasExplicitAutomatedSettingsTestOptIn();
 }
 
-export function resetSettingsTestOverrides(): void {
-  currentOverrides = undefined;
-  localRuntimeProbeCounts = {};
+function readSettingsTestOverrides(): SettingsE2ETestOverrides | undefined {
+  if (!shouldReadSettingsTestOverrides()) {
+    return;
+  }
+  return window.__brainstrikePendingSettingsTestOverrides__;
 }
 
 export function getAccurateRuntimeAvailabilityTestOverride(): boolean | null | undefined {
-  return currentOverrides?.accurateRuntimeAvailable;
+  return readSettingsTestOverrides()?.accurateRuntimeAvailable;
 }
 
 export function getLocalRuntimeStatusTestOverride(
   runtimeId: LocalRuntimeId
 ): LocalRuntimeAvailabilityState | undefined {
-  return currentOverrides?.localRuntime?.statuses?.[runtimeId];
+  return readSettingsTestOverrides()?.localRuntime?.statuses?.[runtimeId];
 }
 
 export function recordLocalRuntimeProbeForTests(runtimeId: LocalRuntimeId): void {
-  if (!currentOverrides?.localRuntime) {
+  if (!readSettingsTestOverrides()?.localRuntime) {
     return;
   }
 
-  localRuntimeProbeCounts = {
-    ...localRuntimeProbeCounts,
-    [runtimeId]: (localRuntimeProbeCounts[runtimeId] ?? 0) + 1,
+  window.__brainstrikeLocalRuntimeProbeCounts__ = {
+    ...(window.__brainstrikeLocalRuntimeProbeCounts__ ?? {}),
+    [runtimeId]: (window.__brainstrikeLocalRuntimeProbeCounts__?.[runtimeId] ?? 0) + 1,
   };
 }
 
 export function readLocalRuntimeProbeCountsForTests(): Partial<Record<LocalRuntimeId, number>> {
-  return { ...localRuntimeProbeCounts };
+  if (typeof window === 'undefined') {
+    return {};
+  }
+  return window.__brainstrikeLocalRuntimeProbeCounts__ ?? {};
 }
 
 export function resetLocalRuntimeProbeCountsForTests(): void {
-  localRuntimeProbeCounts = {};
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.__brainstrikeLocalRuntimeProbeCounts__ = {};
 }
 
 export function resolveCacheDirectorySelectionTestOverride(): CacheDirectorySelectionTestOverrideResolution {
-  const override = currentOverrides?.modelRegistry?.cacheDirectorySelection;
+  const override = readSettingsTestOverrides()?.modelRegistry?.cacheDirectorySelection;
   if (!override) {
     return { kind: 'none' };
   }
@@ -130,9 +133,9 @@ export function resolveCacheDirectorySelectionTestOverride(): CacheDirectorySele
 }
 
 export function getModelRegistryFetchErrorTestOverride(): string | null | undefined {
-  return currentOverrides?.modelRegistry?.fetchErrorMessage;
+  return readSettingsTestOverrides()?.modelRegistry?.fetchErrorMessage;
 }
 
 export function getModelRegistrySnapshotTestOverride(): ModelRegistrySnapshotOverride | undefined {
-  return currentOverrides?.modelRegistry?.snapshot;
+  return readSettingsTestOverrides()?.modelRegistry?.snapshot;
 }

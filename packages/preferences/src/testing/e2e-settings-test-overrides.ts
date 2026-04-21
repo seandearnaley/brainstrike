@@ -1,18 +1,42 @@
 import type { LocalRuntimeId } from '@brainstrike/agent/local-runtime';
 import {
-  mergeSettingsTestOverrides,
   readLocalRuntimeProbeCountsForTests,
-  replaceSettingsTestOverrides,
   resetLocalRuntimeProbeCountsForTests,
-  resetSettingsTestOverrides,
   type SettingsE2ETestOverrides,
-  updateSettingsTestOverrides,
-} from '../automated-test/settings-test-state';
+} from '../settings-test-runtime-access';
 
 export type {
   ModelRegistrySnapshotOverride,
   SettingsE2ETestOverrides,
-} from '../automated-test/settings-test-state';
+} from '../settings-test-runtime-access';
+
+function mergeSettingsTestOverrides(
+  current: SettingsE2ETestOverrides | undefined,
+  updates: SettingsE2ETestOverrides
+): SettingsE2ETestOverrides {
+  return {
+    ...(current ?? {}),
+    ...(updates.accurateRuntimeAvailable === undefined
+      ? {}
+      : { accurateRuntimeAvailable: updates.accurateRuntimeAvailable }),
+    ...(updates.localRuntime
+      ? {
+          localRuntime: {
+            ...(current?.localRuntime ?? {}),
+            ...updates.localRuntime,
+          },
+        }
+      : {}),
+    ...(updates.modelRegistry
+      ? {
+          modelRegistry: {
+            ...(current?.modelRegistry ?? {}),
+            ...updates.modelRegistry,
+          },
+        }
+      : {}),
+  };
+}
 
 export interface SettingsTestHookApi {
   readonly readLocalRuntimeProbeCounts: () => Partial<Record<LocalRuntimeId, number>>;
@@ -41,13 +65,6 @@ function hasExplicitAutomatedSettingsTestOptIn(): boolean {
   );
 }
 
-function readPendingSettingsTestOverrides(): SettingsE2ETestOverrides | undefined {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  return window.__brainstrikePendingSettingsTestOverrides__;
-}
-
 export function shouldExposeSettingsAutomatedTestApis(
   env: Record<string, unknown> | undefined
 ): boolean {
@@ -72,13 +89,8 @@ export function installSettingsTestHookApi(env: Record<string, unknown> | undefi
   if (!shouldExposeSettingsAutomatedTestApis(env)) {
     Reflect.deleteProperty(window, '__brainstrikeSettingsTestHooks__');
     Reflect.deleteProperty(window, '__brainstrikePendingSettingsTestOverrides__');
-    resetSettingsTestOverrides();
+    resetLocalRuntimeProbeCountsForTests();
     return () => {};
-  }
-
-  const pendingOverrides = readPendingSettingsTestOverrides();
-  if (pendingOverrides) {
-    replaceSettingsTestOverrides(pendingOverrides);
   }
 
   const hooks: SettingsTestHookApi = {
@@ -88,12 +100,11 @@ export function installSettingsTestHookApi(env: Record<string, unknown> | undefi
     },
     resetSettingsTestOverrides: () => {
       Reflect.deleteProperty(window, '__brainstrikePendingSettingsTestOverrides__');
-      resetSettingsTestOverrides();
+      resetLocalRuntimeProbeCountsForTests();
     },
     setSettingsTestOverrides: (overrides) => {
       window.__brainstrikePendingSettingsTestOverrides__ = overrides;
       resetLocalRuntimeProbeCountsForTests();
-      replaceSettingsTestOverrides(overrides);
     },
     updateSettingsTestOverrides: (overrides) => {
       const nextOverrides = mergeSettingsTestOverrides(
@@ -101,7 +112,6 @@ export function installSettingsTestHookApi(env: Record<string, unknown> | undefi
         overrides
       );
       window.__brainstrikePendingSettingsTestOverrides__ = nextOverrides;
-      updateSettingsTestOverrides(overrides);
     },
   };
 
@@ -112,7 +122,7 @@ export function installSettingsTestHookApi(env: Record<string, unknown> | undefi
       Reflect.deleteProperty(window, '__brainstrikeSettingsTestHooks__');
     }
     Reflect.deleteProperty(window, '__brainstrikePendingSettingsTestOverrides__');
-    resetSettingsTestOverrides();
+    resetLocalRuntimeProbeCountsForTests();
   };
 }
 
@@ -121,10 +131,13 @@ export function __resetSettingsTestOverridesForTests(): void {
     Reflect.deleteProperty(window, '__brainstrikePendingSettingsTestOverrides__');
     Reflect.deleteProperty(window, '__brainstrikeSettingsTestHooks__');
     Reflect.deleteProperty(window, '__brainstrike_e2e_enable_settings_test_api__');
+    Reflect.deleteProperty(window, '__brainstrikeLocalRuntimeProbeCounts__');
   }
-  resetSettingsTestOverrides();
+  resetLocalRuntimeProbeCountsForTests();
 }
 
 export function __setSettingsTestOverridesForTests(overrides: SettingsE2ETestOverrides): void {
-  replaceSettingsTestOverrides(overrides);
+  if (typeof window !== 'undefined') {
+    window.__brainstrikePendingSettingsTestOverrides__ = overrides;
+  }
 }

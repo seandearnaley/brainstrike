@@ -4,11 +4,11 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import { isLocalModelProviderId } from '../models/local-model-utils';
 import {
   getModelRegistryFetchErrorTestOverride,
   getModelRegistrySnapshotTestOverride,
-} from '../automated-test/settings-test-state';
-import { isLocalModelProviderId } from '../models/local-model-utils';
+} from '../settings-test-runtime-access';
 
 const logger = createLogger('ModelRegistryStore');
 let registryLoadPromise: Promise<void> | null = null;

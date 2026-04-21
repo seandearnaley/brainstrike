@@ -7,7 +7,7 @@ import {
   readLocalRuntimeProbeCountsForTests,
   recordLocalRuntimeProbeForTests,
   resolveCacheDirectorySelectionTestOverride,
-} from '../automated-test/settings-test-state';
+} from '../settings-test-runtime-access';
 import {
   __resetSettingsTestOverridesForTests,
   installSettingsTestHookApi,
