@@ -44,3 +44,6 @@
 ## 2026-04-03 - Replacing string.split with native indexOf for chunking hot paths
 **Learning:** For hot paths such as `splitByBlankLines`, `String.prototype.split(/\r?\n/)` eagerly allocates an intermediate array of every line, which increases garbage collection pressure on large text bodies. Even where a downstream API still needs a line array, centralizing the scan logic makes behavior fixes easier to apply consistently.
 **Action:** Replace repeated `.split()` line scanning with a shared `indexOf('\n')` loop that only normalizes `\r` when it precedes an actual newline. Use that helper for streaming blank-line splitting and for any call sites that still need to materialize line arrays.
+## 2024-04-21 - Fast Path Depth Calculation
+**Learning:** Calculating path depth using `path.split('/').length - 1` allocates an array and multiple intermediate strings, which can cause significant garbage collection pressure during large file tree traversals.
+**Action:** Replace `split`-based depth counting with a manual `while` loop that increments a counter using `indexOf('/')` and an index variable. This approach has no intermediate string or array allocations and provides significant speedup on hot paths.

@@ -636,9 +636,10 @@ export class InMemoryTreeAdapter implements TreeAdapter {
 
     // Add implicit parent directories
     for (const path of this.files.keys()) {
-      const parts = path.split('/');
-      for (let i = 1; i < parts.length; i++) {
-        this.directories.add(parts.slice(0, i).join('/'));
+      let idx = path.indexOf('/');
+      while (idx !== -1) {
+        this.directories.add(path.slice(0, idx));
+        idx = path.indexOf('/', idx + 1);
       }
     }
   }
@@ -655,7 +656,12 @@ export class InMemoryTreeAdapter implements TreeAdapter {
       if (path === normalizedRoot || path.startsWith(`${normalizedRoot}/`)) {
         if (maxDepth !== undefined) {
           const relativePath = path.slice(normalizedRoot.length + 1);
-          const depth = relativePath.split('/').length - 1;
+          let depth = 0;
+          let idx = relativePath.indexOf('/');
+          while (idx !== -1) {
+            depth++;
+            idx = relativePath.indexOf('/', idx + 1);
+          }
           if (depth > maxDepth) {
             continue;
           }
