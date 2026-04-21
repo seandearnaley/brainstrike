@@ -71,7 +71,9 @@ export function ThreadsPanel(): ReactElement {
           aria-label="New agent"
           className="h-8 gap-1.5 px-2.5"
           data-testid="new-agent-button"
+          disabled
           size="sm"
+          title="New agent creation is preview-only in this slice."
           type="button"
           variant="secondary"
         >
@@ -101,15 +103,18 @@ export function ThreadsPanel(): ReactElement {
                 const isSelected = item.id === SELECTED_THREAD_ID;
                 return (
                   <button
+                    aria-disabled="true"
                     aria-pressed={isSelected}
                     className={cn(
-                      'w-full rounded-lg border px-3 py-2 text-left transition-colors',
+                      'w-full rounded-lg border px-3 py-2 text-left transition-colors disabled:cursor-default disabled:opacity-100',
                       isSelected
                         ? 'border-primary/30 bg-primary/10 shadow-sm'
                         : 'border-transparent bg-background/80 hover:border-border hover:bg-background'
                     )}
                     data-testid={isSelected ? 'selected-thread-row' : undefined}
+                    disabled
                     key={item.id}
+                    title="Thread history is preview-only in this slice."
                     type="button"
                   >
                     <div className="flex items-start gap-2">

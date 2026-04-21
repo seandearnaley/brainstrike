@@ -14,6 +14,7 @@ import type { QueueAdapter } from '@brainstrike/queue';
 import { IdeLayout, PanelLayoutProvider, type PanelLayoutState } from '@brainstrike/ui';
 import { EmbeddingRuntimeProvider } from '@brainstrike/vector-management';
 import {
+  memo,
   type ReactElement,
   type ReactNode,
   useCallback,
@@ -80,10 +81,12 @@ function useDebouncedPanelLayoutChange(options: {
   readonly setState: (next: DebouncedPanelLayoutState) => void;
 }) {
   const { panelState, setState } = options;
-  const sizesRef = useRef(panelState.sizes);
+  const panelStateRef = useRef(panelState);
+  const setStateRef = useRef(setState);
   const sizeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  sizesRef.current = panelState.sizes;
+  panelStateRef.current = panelState;
+  setStateRef.current = setState;
 
   const cleanupSizeDebounce = useCallback(() => {
     if (sizeDebounceRef.current) {
@@ -93,51 +96,49 @@ function useDebouncedPanelLayoutChange(options: {
 
   useEffect(() => cleanupSizeDebounce, [cleanupSizeDebounce]);
 
-  return useCallback(
-    (state: PanelLayoutState) => {
-      const fallback = sizesRef.current;
-      const nextSizes = [
-        (state.sizes?.[0] as number | undefined) ?? fallback[0],
-        (state.sizes?.[1] as number | undefined) ?? fallback[1],
-        (state.sizes?.[2] as number | undefined) ?? fallback[2],
-      ] as [number, number, number];
+  return useCallback((state: PanelLayoutState) => {
+    const currentPanelState = panelStateRef.current;
+    const fallback = currentPanelState.sizes;
+    const nextSizes = [
+      (state.sizes?.[0] as number | undefined) ?? fallback[0],
+      (state.sizes?.[1] as number | undefined) ?? fallback[1],
+      (state.sizes?.[2] as number | undefined) ?? fallback[2],
+    ] as [number, number, number];
 
-      const booleansChanged =
-        state.showConsole !== panelState.showConsole ||
-        state.showLeftPanel !== panelState.showLeftPanel ||
-        state.showRightPanel !== panelState.showRightPanel;
+    const booleansChanged =
+      state.showConsole !== currentPanelState.showConsole ||
+      state.showLeftPanel !== currentPanelState.showLeftPanel ||
+      state.showRightPanel !== currentPanelState.showRightPanel;
 
-      if (booleansChanged) {
-        if (sizeDebounceRef.current) {
-          clearTimeout(sizeDebounceRef.current);
-          sizeDebounceRef.current = null;
-        }
-        setState({
-          ...panelState,
-          sizes: nextSizes,
-          showConsole: state.showConsole,
-          showLeftPanel: state.showLeftPanel,
-          showRightPanel: state.showRightPanel,
-        });
-        return;
-      }
-
+    if (booleansChanged) {
       if (sizeDebounceRef.current) {
         clearTimeout(sizeDebounceRef.current);
-      }
-      sizeDebounceRef.current = setTimeout(() => {
         sizeDebounceRef.current = null;
-        setState({
-          ...panelState,
-          sizes: nextSizes,
-          showConsole: state.showConsole,
-          showLeftPanel: state.showLeftPanel,
-          showRightPanel: state.showRightPanel,
-        });
-      }, 150);
-    },
-    [panelState, setState]
-  );
+      }
+      setStateRef.current({
+        ...currentPanelState,
+        sizes: nextSizes,
+        showConsole: state.showConsole,
+        showLeftPanel: state.showLeftPanel,
+        showRightPanel: state.showRightPanel,
+      });
+      return;
+    }
+
+    if (sizeDebounceRef.current) {
+      clearTimeout(sizeDebounceRef.current);
+    }
+    sizeDebounceRef.current = setTimeout(() => {
+      sizeDebounceRef.current = null;
+      setStateRef.current({
+        ...currentPanelState,
+        sizes: nextSizes,
+        showConsole: state.showConsole,
+        showLeftPanel: state.showLeftPanel,
+        showRightPanel: state.showRightPanel,
+      });
+    }, 150);
+  }, []);
 }
 
 function ContextExplorerSurface({
@@ -181,6 +182,46 @@ function ContextExplorerSurface({
     </FileTreeWrapper>
   );
 }
+
+const ExplorerAppSurface = memo(function ExplorerAppSurface({
+  contextExplorerLeftPanelContent,
+  contextExplorerPageContent,
+  databaseTabChunkingMode,
+  loadEmbeddingQueue,
+  preloadDatabaseTabOnMount,
+}: {
+  readonly contextExplorerLeftPanelContent?: ReactNode;
+  readonly contextExplorerPageContent: ReactNode;
+  readonly databaseTabChunkingMode: 'host-proxy' | 'local';
+  readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
+  readonly preloadDatabaseTabOnMount: boolean;
+}): ReactElement {
+  return (
+    <div className="h-full min-h-0" data-testid="explorer-section">
+      <AgentWorkspaceLayout
+        assistantContent={<AssistantChatPanel />}
+        sidebarContent={
+          <AgentSidebarPanel
+            databaseContent={
+              <DatabasePanel
+                chunkingMode={databaseTabChunkingMode}
+                loadEmbeddingQueue={loadEmbeddingQueue}
+              />
+            }
+            preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+            threadsContent={<ThreadsPanel />}
+          />
+        }
+        workspaceContent={
+          <ContextExplorerSurface
+            contextExplorerLeftPanelContent={contextExplorerLeftPanelContent}
+            contextExplorerPageContent={contextExplorerPageContent}
+          />
+        }
+      />
+    </div>
+  );
+});
 
 export function RootLayoutContent({
   contextExplorerPageContent,
@@ -228,45 +269,6 @@ export function RootLayoutContent({
     setState,
   });
 
-  const explorerAppContent = useMemo(
-    () => (
-      <div className="h-full min-h-0" data-testid="explorer-section">
-        <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
-          <AgentWorkspaceLayout
-            assistantContent={<AssistantChatPanel />}
-            sidebarContent={
-              <AgentSidebarPanel
-                databaseContent={
-                  <DatabasePanel
-                    chunkingMode={databaseTabChunkingMode}
-                    loadEmbeddingQueue={loadEmbeddingQueue}
-                  />
-                }
-                preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-                threadsContent={<ThreadsPanel />}
-              />
-            }
-            workspaceContent={
-              <ContextExplorerSurface
-                contextExplorerLeftPanelContent={contextExplorerLeftPanelContent}
-                contextExplorerPageContent={contextExplorerPageContent}
-              />
-            }
-          />
-        </PanelLayoutProvider>
-      </div>
-    ),
-    [
-      contextExplorerLeftPanelContent,
-      contextExplorerPageContent,
-      databaseTabChunkingMode,
-      panelState,
-      handlePanelLayoutChange,
-      loadEmbeddingQueue,
-      preloadDatabaseTabOnMount,
-    ]
-  );
-
   return (
     <AppLayout
       config={appConfig}
@@ -280,7 +282,15 @@ export function RootLayoutContent({
             className={activeTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
             data-testid="explorer-route"
           >
-            {explorerAppContent}
+            <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
+              <ExplorerAppSurface
+                contextExplorerLeftPanelContent={contextExplorerLeftPanelContent}
+                contextExplorerPageContent={contextExplorerPageContent}
+                databaseTabChunkingMode={databaseTabChunkingMode}
+                loadEmbeddingQueue={loadEmbeddingQueue}
+                preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+              />
+            </PanelLayoutProvider>
           </div>
           {mountedTabs.has('prompts') ? (
             <div
