@@ -2,7 +2,9 @@ import { useContextExplorerLayoutStore } from '@brainstrike/preferences/stores/c
 import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type React from 'react';
+import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RootLayoutContent } from '../root-layout-content';
 import type { NavigationItem } from '../types';
@@ -166,9 +168,9 @@ describe('RootLayoutContent', () => {
       mockHandlers.onNavigationClick('/settings');
     });
 
-    expect(screen.queryByTestId('agent-sidebar-shell')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('assistant-chat-shell')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('explorer-section')).not.toBeInTheDocument();
+    expect(screen.getByTestId('agent-sidebar-shell')).toBeInTheDocument();
+    expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
+    expect(screen.getByTestId('explorer-route')).toHaveClass('hidden');
     expect(screen.getByTestId('settings-route')).toBeInTheDocument();
     expect(screen.getByTestId('settings-page')).toBeInTheDocument();
   });
@@ -180,10 +182,51 @@ describe('RootLayoutContent', () => {
       mockHandlers.onNavigationClick('/prompts');
     });
 
-    expect(screen.queryByTestId('agent-sidebar-shell')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('assistant-chat-shell')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('explorer-section')).not.toBeInTheDocument();
+    expect(screen.getByTestId('agent-sidebar-shell')).toBeInTheDocument();
+    expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
+    expect(screen.getByTestId('explorer-route')).toHaveClass('hidden');
     expect(screen.getByTestId('prompts-route')).toBeInTheDocument();
     expect(screen.getByTestId('prompts-page')).toBeInTheDocument();
+  });
+
+  it('keeps settings mounted after first visit so local form state survives route switches', async () => {
+    const user = userEvent.setup();
+
+    function StatefulSettingsPage() {
+      const [value, setValue] = useState('');
+
+      return (
+        <label>
+          Settings input
+          <input
+            data-testid="settings-input"
+            onChange={(event) => setValue(event.currentTarget.value)}
+            value={value}
+          />
+        </label>
+      );
+    }
+
+    renderComponent({
+      settingsPageContent: <StatefulSettingsPage />,
+    });
+
+    act(() => {
+      mockHandlers.onNavigationClick('/settings');
+    });
+
+    await user.type(screen.getByTestId('settings-input'), 'persist me');
+
+    act(() => {
+      mockHandlers.onNavigationClick('/');
+    });
+
+    expect(screen.getByTestId('settings-route')).toHaveClass('hidden');
+
+    act(() => {
+      mockHandlers.onNavigationClick('/settings');
+    });
+
+    expect(screen.getByTestId('settings-input')).toHaveValue('persist me');
   });
 });

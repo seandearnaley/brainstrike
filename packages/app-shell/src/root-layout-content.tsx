@@ -13,7 +13,15 @@ import {
 import type { QueueAdapter } from '@brainstrike/queue';
 import { IdeLayout, PanelLayoutProvider, type PanelLayoutState } from '@brainstrike/ui';
 import { EmbeddingRuntimeProvider } from '@brainstrike/vector-management';
-import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  type ReactElement,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { shallow } from 'zustand/shallow';
 import { AgentSidebarPanel } from './agent-sidebar-panel';
 import { AgentWorkspaceLayout } from './agent-workspace-layout';
@@ -186,7 +194,19 @@ export function RootLayoutContent({
 }: RootLayoutContentProps): ReactElement {
   const activeTab = usePanelLayoutStore((state) => state.activeTab);
   const setState = usePanelLayoutStore((state) => state.setState);
+  const [mountedTabs, setMountedTabs] = useState<ReadonlySet<PanelTab>>(() => new Set([activeTab]));
   const appConfig = useMemo(() => createAppConfig({ navigationItems }), [navigationItems]);
+
+  useEffect(() => {
+    setMountedTabs((currentTabs) => {
+      if (currentTabs.has(activeTab)) {
+        return currentTabs;
+      }
+      const nextTabs = new Set(currentTabs);
+      nextTabs.add(activeTab);
+      return nextTabs;
+    });
+  }, [activeTab]);
 
   const handleNavigationClick = useCallback(
     (path: string) => {
@@ -247,24 +267,6 @@ export function RootLayoutContent({
     ]
   );
 
-  const activeRouteContent = useMemo(() => {
-    if (activeTab === 'explorer') {
-      return explorerAppContent;
-    }
-    if (activeTab === 'prompts') {
-      return (
-        <div className="h-full" data-testid="prompts-route">
-          {promptsPageContent ?? null}
-        </div>
-      );
-    }
-    return (
-      <div className="h-full" data-testid="settings-route">
-        {settingsPageContent}
-      </div>
-    );
-  }, [activeTab, explorerAppContent, promptsPageContent, settingsPageContent]);
-
   return (
     <AppLayout
       config={appConfig}
@@ -272,7 +274,33 @@ export function RootLayoutContent({
       onNavigationClick={handleNavigationClick}
     >
       <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
-        <EmbeddingRuntimeProvider>{activeRouteContent}</EmbeddingRuntimeProvider>
+        <EmbeddingRuntimeProvider>
+          <div
+            aria-hidden={activeTab !== 'explorer'}
+            className={activeTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
+            data-testid="explorer-route"
+          >
+            {explorerAppContent}
+          </div>
+          {mountedTabs.has('prompts') ? (
+            <div
+              aria-hidden={activeTab !== 'prompts'}
+              className={activeTab === 'prompts' ? 'h-full' : 'hidden h-full'}
+              data-testid="prompts-route"
+            >
+              {promptsPageContent ?? null}
+            </div>
+          ) : null}
+          {mountedTabs.has('settings') ? (
+            <div
+              aria-hidden={activeTab !== 'settings'}
+              className={activeTab === 'settings' ? 'h-full' : 'hidden h-full'}
+              data-testid="settings-route"
+            >
+              {settingsPageContent}
+            </div>
+          ) : null}
+        </EmbeddingRuntimeProvider>
       </ChunkingWorkerProvider>
     </AppLayout>
   );

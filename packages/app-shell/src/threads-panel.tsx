@@ -17,13 +17,13 @@ const THREAD_GROUPS: readonly ThreadGroup[] = [
     items: [
       {
         id: 'current-session',
-        summary: 'Promote agent shell to first-class app frame',
-        project: 'brainstrike',
+        summary: 'Example workspace thread',
+        project: 'demo-project',
       },
       {
         id: 'vector-follow-up',
-        summary: 'Context explorer token warm-cache regression',
-        project: 'brainstrike',
+        summary: 'Follow-up example thread',
+        project: 'demo-project',
       },
     ],
   },
@@ -32,18 +32,19 @@ const THREAD_GROUPS: readonly ThreadGroup[] = [
     items: [
       {
         id: 'desktop-llm-host',
-        summary: 'Desktop local LLM host lifecycle cleanup',
-        project: 'brainstrike',
+        summary: 'Example pinned thread',
+        project: 'demo-project',
       },
       {
         id: 'db-import',
-        summary: 'Database import ergonomics and telemetry',
-        project: 'brainstrike',
+        summary: 'Index tuning example',
+        project: 'demo-project',
       },
     ],
   },
 ] as const;
 
+// TODO: Replace placeholder selection with DB-backed agent thread state.
 const SELECTED_THREAD_ID = 'current-session';
 
 export function ThreadsPanel(): ReactElement {
@@ -64,7 +65,7 @@ export function ThreadsPanel(): ReactElement {
               Preview
             </span>
           </div>
-          <div className="text-muted-foreground text-xs">Agent workstreams across this app</div>
+          <div className="text-muted-foreground text-xs">Preview agent history for this app</div>
         </div>
         <Button
           aria-label="New agent"
