@@ -30,6 +30,7 @@ import {
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/preferences/settings-page-content';
 import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
+import { getSettingsE2ETestOverrides } from '@brainstrike/preferences/testing/e2e-settings-test-overrides';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { Helmet } from 'react-helmet-async';
@@ -92,6 +93,10 @@ export default function SettingsPageContent() {
   }, []);
 
   const accurateRuntimeAvailable = useMemo<boolean | null>(() => {
+    const override = getSettingsE2ETestOverrides()?.accurateRuntimeAvailable;
+    if (override !== undefined) {
+      return override;
+    }
     if (!tokenCache) {
       return null;
     }

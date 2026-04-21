@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { useEnsureModelRegistry } from '../../hooks/use-model-registry';
 import type { DbModel } from '../../stores/model-registry-store';
 import { useModelRegistryStore } from '../../stores/model-registry-store';
+import { getSettingsE2ETestOverrides } from '../../testing/e2e-settings-test-overrides';
 import { ModelList } from './model-list';
 
 const logger = createLogger('ModelSelectionPage');
@@ -22,6 +23,12 @@ interface DownloadDeps {
 
 interface DownloadProgress {
   progress?: number;
+}
+
+interface CacheDirectorySelectionOverride {
+  readonly errorMessage?: string;
+  readonly path?: string | null;
+  readonly unavailable?: boolean;
 }
 
 function readQuantizedFlag(parameters: Record<string, unknown> | null): boolean {
@@ -51,6 +58,77 @@ function updateProgress(
   if (progress !== undefined) {
     setDownloadProgress(modelId, progress);
   }
+}
+
+function applySelectedCacheDirectory(args: {
+  db: ReturnType<typeof usePGliteDatabase>;
+  fetchRegistry: (db: NonNullable<ReturnType<typeof usePGliteDatabase>>) => Promise<void>;
+  selectedPath: string;
+  setModelCacheDir: (dir: string) => void;
+  toast: ToastFn;
+}): void {
+  args.setModelCacheDir(args.selectedPath);
+  args.toast({
+    title: 'Cache directory updated',
+    description: args.selectedPath,
+  });
+  if (args.db) {
+    void args.fetchRegistry(args.db);
+  }
+}
+
+function handleCacheDirectorySelectionOverride(args: {
+  db: ReturnType<typeof usePGliteDatabase>;
+  fetchRegistry: (db: NonNullable<ReturnType<typeof usePGliteDatabase>>) => Promise<void>;
+  override: CacheDirectorySelectionOverride | null | undefined;
+  setModelCacheDir: (dir: string) => void;
+  toast: ToastFn;
+}): boolean {
+  const { override, toast } = args;
+  if (!override) {
+    return false;
+  }
+
+  if (override.unavailable) {
+    toast({
+      title: 'Directory selection unavailable',
+      description: 'Choose a cache directory from the desktop app.',
+      variant: 'destructive',
+    });
+    return true;
+  }
+
+  if (override.errorMessage) {
+    toast({
+      title: 'Directory selection failed',
+      description: override.errorMessage,
+      variant: 'destructive',
+    });
+    return true;
+  }
+
+  if (!('path' in override)) {
+    return false;
+  }
+
+  const selectedPath = override.path ?? '';
+  if (!selectedPath) {
+    toast({
+      title: 'No directory selected',
+      description: 'Please choose a folder to store local model files.',
+      variant: 'destructive',
+    });
+    return true;
+  }
+
+  applySelectedCacheDirectory({
+    db: args.db,
+    fetchRegistry: args.fetchRegistry,
+    selectedPath,
+    setModelCacheDir: args.setModelCacheDir,
+    toast,
+  });
+  return true;
 }
 
 async function downloadLlmModel(
@@ -198,6 +276,18 @@ export function ModelSelectionPage() {
   };
 
   const handleSelectCacheDir = async (): Promise<void> => {
+    if (
+      handleCacheDirectorySelectionOverride({
+        db,
+        fetchRegistry,
+        override: getSettingsE2ETestOverrides()?.modelRegistry?.cacheDirectorySelection,
+        setModelCacheDir,
+        toast,
+      })
+    ) {
+      return;
+    }
+
     const requestDirectoryAccess = (
       window as unknown as {
         electronAPI?: {
@@ -244,14 +334,13 @@ export function ModelSelectionPage() {
       return;
     }
 
-    setModelCacheDir(selectedPath);
-    toast({
-      title: 'Cache directory updated',
-      description: selectedPath,
+    applySelectedCacheDirectory({
+      db,
+      fetchRegistry,
+      selectedPath,
+      setModelCacheDir,
+      toast,
     });
-    if (db) {
-      void fetchRegistry(db);
-    }
     setIsSelectingCacheDir(false);
   };
 
@@ -262,6 +351,7 @@ export function ModelSelectionPage() {
         <p className="text-sm">{error}</p>
         <Button
           className="mt-2"
+          data-testid="model-registry-retry"
           onClick={() => db && fetchRegistry(db)}
           size="sm"
           variant="outline"
@@ -280,6 +370,7 @@ export function ModelSelectionPage() {
           <div className="flex gap-2">
             <Input
               className="font-mono text-xs"
+              data-testid="model-cache-dir-input"
               id="model-cache-dir"
               onChange={(e) => setModelCacheDir(e.target.value)}
               placeholder="System default (Transformers.js cache)"
@@ -287,6 +378,7 @@ export function ModelSelectionPage() {
             />
             <Button
               aria-label="Select Model Cache Directory"
+              data-testid="model-cache-dir-select"
               disabled={isSelectingCacheDir}
               onClick={handleSelectCacheDir}
               size="icon"
@@ -302,6 +394,7 @@ export function ModelSelectionPage() {
         </div>
         <Button
           aria-label="Refresh model registry"
+          data-testid="model-registry-refresh"
           disabled={isLoading}
           onClick={() => db && fetchRegistry(db)}
           size="icon"

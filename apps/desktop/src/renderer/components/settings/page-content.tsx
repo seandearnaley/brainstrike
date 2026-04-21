@@ -25,6 +25,7 @@ import {
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/preferences/settings-page-content';
 import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
+import { getSettingsE2ETestOverrides } from '@brainstrike/preferences/testing/e2e-settings-test-overrides';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { DesktopLoggingSettings } from './logging-settings';
@@ -67,6 +68,10 @@ export default function SettingsPageContent() {
     (s) => s.setDevInlineFixtureEnabled
   );
   const accurateRuntimeAvailable = useMemo<boolean | null>(() => {
+    const override = getSettingsE2ETestOverrides()?.accurateRuntimeAvailable;
+    if (override !== undefined) {
+      return override;
+    }
     if (!tokenCache) {
       return null;
     }

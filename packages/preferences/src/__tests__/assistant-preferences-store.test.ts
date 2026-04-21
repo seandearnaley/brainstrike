@@ -37,6 +37,10 @@ describe('assistant-preferences-store', () => {
     vi.restoreAllMocks();
     const secretTarget = window as Window & { secrets?: unknown };
     Reflect.deleteProperty(secretTarget, 'secrets');
+    Reflect.deleteProperty(
+      window as Window & { __brainstrikeSettingsTestOverrides__?: unknown },
+      '__brainstrikeSettingsTestOverrides__'
+    );
   });
 
   it('returns composite model when set', () => {
@@ -218,6 +222,40 @@ describe('assistant-preferences-store', () => {
     expect(providers).toContain('local');
     expect(providers).toContain('ollama');
     expect(providers).toContain('lmstudio');
+  });
+
+  it('uses local runtime test overrides before probing services', async () => {
+    const probeSpy = vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime');
+    const calls: string[] = [];
+    (
+      window as Window & {
+        __brainstrikeSettingsTestOverrides__?: {
+          localRuntime?: {
+            onProbe?: (runtimeId: 'ollama' | 'lmstudio') => void;
+            statuses?: Record<string, unknown>;
+          };
+        };
+      }
+    ).__brainstrikeSettingsTestOverrides__ = {
+      localRuntime: {
+        onProbe: (runtimeId) => calls.push(runtimeId),
+        statuses: {
+          ollama: {
+            state: 'blocked_web',
+            checkedAt: 111,
+            message: 'blocked for test',
+          },
+        },
+      },
+    };
+
+    const status = await useAssistantPreferencesStore.getState().getLocalRuntimeStatus('ollama', {
+      force: true,
+    });
+
+    expect(status.state).toBe('blocked_web');
+    expect(probeSpy).not.toHaveBeenCalled();
+    expect(calls).toEqual(['ollama']);
   });
 
   it('hides local runtime providers when localRuntimeEnabled is off, even if reachable', async () => {

@@ -5,6 +5,10 @@ import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { isLocalModelProviderId } from '../models/local-model-utils';
+import {
+  getSettingsE2ETestOverrides,
+  type ModelRegistrySnapshotOverride,
+} from '../testing/e2e-settings-test-overrides';
 
 const logger = createLogger('ModelRegistryStore');
 let registryLoadPromise: Promise<void> | null = null;
@@ -88,6 +92,15 @@ interface RawModel {
 
 interface FileSystemAccess {
   exists: (path: string) => Promise<boolean>;
+}
+
+function getModelRegistryTestOverride():
+  | {
+      readonly fetchErrorMessage?: string | null;
+      readonly snapshot?: ModelRegistrySnapshotOverride;
+    }
+  | undefined {
+  return getSettingsE2ETestOverrides()?.modelRegistry;
 }
 
 async function checkLlmModelInCache(modelId: string): Promise<boolean> {
@@ -232,6 +245,29 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
       fetchRegistry: async (db: IDatabase) => {
         set({ isLoading: true, error: null });
         try {
+          const override = getModelRegistryTestOverride();
+          if (override?.fetchErrorMessage) {
+            set({
+              error: override.fetchErrorMessage,
+              isLoading: false,
+              hasLoaded: false,
+            });
+            return;
+          }
+
+          if (override?.snapshot) {
+            set({
+              providers: override.snapshot.providers ?? [],
+              models: override.snapshot.models ?? [],
+              downloadedModels: override.snapshot.downloadedModels ?? {},
+              modelCacheDir: override.snapshot.modelCacheDir ?? get().modelCacheDir,
+              isLoading: false,
+              hasLoaded: true,
+              error: null,
+            });
+            return;
+          }
+
           const providersResult = await db.query<RawProvider>(
             'SELECT * FROM providers ORDER BY sort_order ASC'
           );

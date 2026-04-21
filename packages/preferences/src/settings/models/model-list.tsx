@@ -327,6 +327,7 @@ function ModelRow({
           <Switch
             aria-label={`Enable ${model.name}`}
             checked={model.isEnabled}
+            data-testid={`model-toggle-${model.id}`}
             onCheckedChange={(checked) => onToggle(model.id, checked)}
           />
         </div>
