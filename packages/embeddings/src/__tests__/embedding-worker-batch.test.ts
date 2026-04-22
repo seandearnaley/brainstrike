@@ -65,6 +65,9 @@ class FakeEmbeddingService implements EmbeddingService {
   }
 }
 
+const PGLITE_SETUP_TIMEOUT_MS = 90_000;
+const EMBEDDING_WORKER_TEST_TIMEOUT_MS = 30_000;
+
 function vectorString(dim: number, entries: [number, number][]): string {
   const values = new Array(dim).fill(0);
   for (const [idx, value] of entries) {
@@ -97,7 +100,7 @@ describe('Embedding Worker Batch Optimization', () => {
   beforeEach(async () => {
     db = await wasmLoader.createPGlite('memory://embedding-worker-batch');
     await migrate(db);
-  });
+  }, PGLITE_SETUP_TIMEOUT_MS);
 
   afterEach(async () => {
     await db?.close();
@@ -209,4 +212,7 @@ describe('Embedding Worker Batch Optimization', () => {
 });
 
 // Increase timeouts to reduce flakiness under workspace-wide runs
-vi.setConfig({ hookTimeout: 30_000, testTimeout: 30_000 });
+vi.setConfig({
+  hookTimeout: PGLITE_SETUP_TIMEOUT_MS,
+  testTimeout: EMBEDDING_WORKER_TEST_TIMEOUT_MS,
+});

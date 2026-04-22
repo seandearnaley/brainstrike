@@ -589,7 +589,8 @@ describe('assistant-preferences-store', () => {
 
     await useAssistantPreferencesStore.getState().getAvailableProviders();
     const ollamaCall = probeSpy.mock.calls.find((call) => call[0] === 'ollama');
-    expect(ollamaCall?.[1]?.endpoint).toEqual({ baseUrl: 'http://gpu.lan:11434' });
+    const ollamaOptions = ollamaCall?.[1] as { endpoint?: { baseUrl?: string } } | undefined;
+    expect(ollamaOptions?.endpoint).toEqual({ baseUrl: 'http://gpu.lan:11434' });
   });
 
   it('excludes local runtime providers when runtime status is non-usable', async () => {

@@ -30,6 +30,23 @@ const CACHED_SELECT_ALL_TREE: FileTree = {
   ),
 };
 
+async function seedWorkspaceFocusedShellLayout(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    localStorage.setItem(
+      'panel-layout-store.v1',
+      JSON.stringify({
+        state: {
+          sizes: [18, 60, 20],
+          showLeftPanel: true,
+          showRightPanel: true,
+          showConsole: false,
+        },
+        version: 4,
+      })
+    );
+  });
+}
+
 async function supportsOpfs(page: Page): Promise<boolean> {
   return page.evaluate(() => typeof navigator.storage?.getDirectory === 'function');
 }
@@ -124,6 +141,27 @@ async function ensureConsolePanelVisible(page: Page): Promise<void> {
   }
 }
 
+async function ensureConsolePanelHidden(page: Page): Promise<void> {
+  const elements = getPanelElements(page);
+  const isVisible = await elements.consolePanel.isVisible().catch(() => false);
+  if (!isVisible) {
+    return;
+  }
+  if (await elements.hideConsoleButton.isVisible().catch(() => false)) {
+    await togglePanelVisibility(elements.hideConsoleButton, elements.consolePanel, false);
+  }
+}
+
+async function openPreviewFile(page: Page, fileName: string): Promise<void> {
+  await ensureConsolePanelHidden(page);
+  const rowButton = getPanelElements(page)
+    .rightPanel.getByRole('button', { name: fileName })
+    .first();
+  await rowButton.scrollIntoViewIfNeeded();
+  await expect(rowButton).toBeVisible({ timeout: 15_000 });
+  await rowButton.click();
+}
+
 async function restoreAccessIfNeeded(page: Page, explorer: FileExplorerPage): Promise<void> {
   const restoreBanner = page.getByText('Restore access to your last folder?');
   const restoreButton = page.getByRole('button', { name: 'Restore Access' });
@@ -151,6 +189,7 @@ async function resetExplorerState(page: Page, extraStorageKeys: string[] = []): 
     }, extraStorageKeys);
   }
   await clearIndexedDb(page, 'brainstrike-file-handles');
+  await seedWorkspaceFocusedShellLayout(page);
   await page.reload();
   await waitForAppLoad(page);
 }
@@ -226,13 +265,10 @@ test.describe('File Explorer persistence (web)', () => {
     await fileCheckbox.click({ force: true });
     await expect(fileCheckbox).toBeChecked();
 
-    await ensureConsolePanelVisible(page);
-
-    const previewRow = page.getByRole('button', { name: 'alpha.ts' });
-    await expect(previewRow).toBeVisible();
-    await previewRow.click();
+    await openPreviewFile(page, 'alpha.ts');
 
     const elements = getPanelElements(page);
+    await ensureConsolePanelVisible(page);
     const tabButton = elements.consolePanel.getByRole('button', { name: /alpha\.ts/ }).first();
     await expect(tabButton).toBeVisible();
     await expect(page.getByText('alpha content')).toBeVisible();
@@ -292,8 +328,8 @@ test.describe('File Explorer persistence (web)', () => {
     await expect(restoredCheckbox).toBeChecked();
     await expect(page.getByText('1/10')).toBeVisible();
 
+    await openPreviewFile(page, 'beta.ts');
     await ensureConsolePanelVisible(page);
-    await page.getByRole('button', { name: 'beta.ts' }).click();
     await expect(page.getByText('beta content')).toBeVisible({ timeout: 15_000 });
   });
 
@@ -427,7 +463,10 @@ test.describe('File Explorer persistence (web)', () => {
     await expect(selectAllButton).toBeEnabled();
     await selectAllButton.click();
 
-    await expect(page.getByText('1/1')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: 'Selection count (read-only)' })).toContainText(
+      '1/1',
+      { timeout: 15_000 }
+    );
   });
 
   test('persists large select-all as query-backed selection instead of giant explicit sets', async ({
