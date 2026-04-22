@@ -5,6 +5,7 @@ import {
   CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
   CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR,
   ensureRightPanelVisible,
+  getContextExplorerLeftResizeHandle,
   getPanelElements,
   waitForAppLoad,
   waitForContextExplorerPage,
@@ -232,7 +233,7 @@ test.describe('IDE Layout Persistence', () => {
 
       // Find and drag the resize handle to make panel wider
       // Note: react-resizable-panels v4 uses data-separator
-      const resizeHandle = page.locator('[data-separator]').first();
+      const resizeHandle = getContextExplorerLeftResizeHandle(page);
       await expect(resizeHandle).toBeVisible();
 
       // Get the resize handle position
@@ -490,7 +491,7 @@ test.describe('IDE Layout Persistence', () => {
 
       // Try to resize panel to very small size (should be constrained to minimum)
       // Note: react-resizable-panels v4 uses data-separator
-      const resizeHandle = page.locator('[data-separator]').first();
+      const resizeHandle = getContextExplorerLeftResizeHandle(page);
       const handleBox = await resizeHandle.boundingBox();
       if (!handleBox) {
         throw new Error('Resize handle not found');

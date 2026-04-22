@@ -51,6 +51,16 @@ export const CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR = [
   '[data-panel-id="explorer-panel"]',
 ].join(', ');
 
+/**
+ * Resolve the resize handle that sits directly between the context explorer tree
+ * and the preview area. Nested layouts make global separator ordering unreliable.
+ */
+export function getContextExplorerLeftResizeHandle(page: Page) {
+  return page
+    .locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR)
+    .locator('xpath=following-sibling::*[@data-separator][1]');
+}
+
 export const CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR = [
   '#context-explorer-middle-panel',
   '[data-panel-id="context-explorer-middle-panel"]',
