@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { resetAppState } from './utils/app-state';
+import { resetAppState, seedWorkspaceFocusedShellLayout } from './utils/app-state';
 import { getFileTree } from './utils/file-tree-locators';
 import { waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
@@ -21,25 +21,6 @@ async function clickUntilVisible(
   }
 
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
-}
-
-async function seedWorkspaceFocusedShellLayout(
-  page: import('@playwright/test').Page
-): Promise<void> {
-  await page.evaluate(() => {
-    localStorage.setItem(
-      'panel-layout-store.v1',
-      JSON.stringify({
-        state: {
-          sizes: [18, 60, 20],
-          showLeftPanel: true,
-          showRightPanel: true,
-          showConsole: false,
-        },
-        version: 4,
-      })
-    );
-  });
 }
 
 test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {

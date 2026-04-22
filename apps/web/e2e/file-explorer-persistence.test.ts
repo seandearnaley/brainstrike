@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import { FileExplorerPage } from './page-objects/file-explorer-page';
-import { resetAppState } from './utils/app-state';
+import { resetAppState, seedWorkspaceFocusedShellLayout } from './utils/app-state';
 import { getPanelElements, togglePanelVisibility, waitForAppLoad } from './utils/layout-helpers';
 import type { FileTree } from './utils/mock-fs';
 
@@ -29,23 +29,6 @@ const CACHED_SELECT_ALL_TREE: FileTree = {
     ])
   ),
 };
-
-async function seedWorkspaceFocusedShellLayout(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    localStorage.setItem(
-      'panel-layout-store.v1',
-      JSON.stringify({
-        state: {
-          sizes: [18, 60, 20],
-          showLeftPanel: true,
-          showRightPanel: true,
-          showConsole: false,
-        },
-        version: 4,
-      })
-    );
-  });
-}
 
 async function supportsOpfs(page: Page): Promise<boolean> {
   return page.evaluate(() => typeof navigator.storage?.getDirectory === 'function');

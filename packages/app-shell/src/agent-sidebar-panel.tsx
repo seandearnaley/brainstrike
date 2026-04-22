@@ -46,6 +46,8 @@ function migrateLegacyToolsPanelTab(): AgentSidebarTab | null {
     const migratedTab: AgentSidebarTab = legacyTab === 'database' ? 'database' : 'threads';
     agentSidebarTabStorage.setItem(AGENT_SIDEBAR_TAB_STORAGE_KEY, JSON.stringify(migratedTab));
     return migratedTab;
+  } catch {
+    return null;
   } finally {
     agentSidebarTabStorage.removeItem(LEGACY_TOOLS_PANEL_STORAGE_KEY);
   }

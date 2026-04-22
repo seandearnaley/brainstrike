@@ -78,3 +78,20 @@ export async function resetAppState(page: Page): Promise<void> {
     { keys: APP_STATE_KEYS, dbNames: INDEXED_DB_NAMES }
   );
 }
+
+export async function seedWorkspaceFocusedShellLayout(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    localStorage.setItem(
+      'panel-layout-store.v1',
+      JSON.stringify({
+        state: {
+          sizes: [18, 60, 20],
+          showLeftPanel: true,
+          showRightPanel: true,
+          showConsole: false,
+        },
+        version: 4,
+      })
+    );
+  });
+}

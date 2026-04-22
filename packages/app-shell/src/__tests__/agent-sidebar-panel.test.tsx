@@ -144,4 +144,20 @@ describe('AgentSidebarPanel', () => {
       JSON.stringify('database')
     );
   });
+
+  it('falls back to the default tab when legacy tools panel storage is corrupted', () => {
+    window.localStorage.setItem('tools-panel.v1', '{not valid json');
+
+    render(
+      <AgentSidebarPanel
+        databaseContent={<div>Database content</div>}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    expect(screen.getByRole('tab', { name: 'Threads' })).toHaveAttribute('data-state', 'active');
+    expect(screen.getByText('Threads content')).toBeVisible();
+    expect(window.localStorage.getItem('tools-panel.v1')).toBeNull();
+    expect(window.localStorage.getItem('brainstrike.agent-sidebar-tab.v1')).toBeNull();
+  });
 });
