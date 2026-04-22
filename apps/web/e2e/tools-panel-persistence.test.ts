@@ -21,16 +21,16 @@ test.describe('Agent sidebar database access', () => {
       }
     );
 
-    const showSidebar = await elements.showExplorerShim.isVisible().catch(() => false);
-    const hideSidebar = await elements.hideExplorerButton.isVisible().catch(() => false);
+    const showSidebar = await elements.showAgentPanelShim.isVisible().catch(() => false);
+    const hideSidebar = await elements.hideAgentPanelButton.isVisible().catch(() => false);
     if (!(showSidebar || hideSidebar)) {
       test.skip(true, 'Agent sidebar controls not available in this environment');
     }
 
     if (showSidebar) {
-      await elements.showExplorerShim.click();
+      await elements.showAgentPanelShim.click();
     }
-    await expect(elements.hideExplorerButton).toBeVisible();
+    await expect(elements.hideAgentPanelButton).toBeVisible();
 
     const databaseTab = page.getByRole('tab', { name: 'Database' });
     await expect(databaseTab).toBeVisible();
@@ -38,20 +38,20 @@ test.describe('Agent sidebar database access', () => {
     await databaseTab.click();
     await expect(page.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });
 
-    await elements.hideExplorerButton.click();
-    await expect(elements.showExplorerShim).toBeVisible();
-    await elements.showExplorerShim.click();
-    await expect(elements.hideExplorerButton).toBeVisible();
+    await elements.hideAgentPanelButton.click();
+    await expect(elements.showAgentPanelShim).toBeVisible();
+    await elements.showAgentPanelShim.click();
+    await expect(elements.hideAgentPanelButton).toBeVisible();
 
     await databaseTab.click();
     await expect(page.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });
 
     await page.reload();
     await waitForAppLoad(page);
-    if (await elements.showExplorerShim.isVisible().catch(() => false)) {
-      await elements.showExplorerShim.click();
+    if (await elements.showAgentPanelShim.isVisible().catch(() => false)) {
+      await elements.showAgentPanelShim.click();
     }
-    await expect(elements.hideExplorerButton).toBeVisible();
+    await expect(elements.hideAgentPanelButton).toBeVisible();
     await databaseTab.click();
     await expect(page.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });
   });

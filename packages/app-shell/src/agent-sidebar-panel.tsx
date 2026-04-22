@@ -1,5 +1,5 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
-import { createSafeStorageAdapter } from '@brainstrike/utils/safe-storage';
+import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { Database, MessagesSquare } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { preloadDatabaseTab } from './database-tab';
@@ -13,15 +13,50 @@ interface AgentSidebarPanelProps {
 type AgentSidebarTab = 'database' | 'threads';
 
 const AGENT_SIDEBAR_TAB_STORAGE_KEY = 'brainstrike.agent-sidebar-tab.v1';
-const agentSidebarTabStorage = createSafeStorageAdapter();
+const LEGACY_TOOLS_PANEL_STORAGE_KEY = 'tools-panel.v1';
+const agentSidebarTabStorage = createSafeJsonStorageAdapter();
 
 function isAgentSidebarTab(value: string): value is AgentSidebarTab {
   return value === 'threads' || value === 'database';
 }
 
+function readStoredAgentSidebarTab(key: string): AgentSidebarTab | null {
+  const raw = agentSidebarTabStorage.getItem(key);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return typeof parsed === 'string' && isAgentSidebarTab(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function migrateLegacyToolsPanelTab(): AgentSidebarTab | null {
+  const raw = agentSidebarTabStorage.getItem(LEGACY_TOOLS_PANEL_STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as { state?: { activeTab?: unknown } };
+    const legacyTab = parsed.state?.activeTab;
+    const migratedTab: AgentSidebarTab = legacyTab === 'database' ? 'database' : 'threads';
+    agentSidebarTabStorage.setItem(AGENT_SIDEBAR_TAB_STORAGE_KEY, JSON.stringify(migratedTab));
+    return migratedTab;
+  } finally {
+    agentSidebarTabStorage.removeItem(LEGACY_TOOLS_PANEL_STORAGE_KEY);
+  }
+}
+
 function readInitialAgentSidebarTab(): AgentSidebarTab {
-  const storedValue = agentSidebarTabStorage.getItem(AGENT_SIDEBAR_TAB_STORAGE_KEY);
-  return storedValue && isAgentSidebarTab(storedValue) ? storedValue : 'threads';
+  return (
+    readStoredAgentSidebarTab(AGENT_SIDEBAR_TAB_STORAGE_KEY) ??
+    migrateLegacyToolsPanelTab() ??
+    'threads'
+  );
 }
 
 export function AgentSidebarPanel({
@@ -50,7 +85,7 @@ export function AgentSidebarPanel({
 
       setActiveTab(nextValue);
 
-      agentSidebarTabStorage.setItem(AGENT_SIDEBAR_TAB_STORAGE_KEY, nextValue);
+      agentSidebarTabStorage.setItem(AGENT_SIDEBAR_TAB_STORAGE_KEY, JSON.stringify(nextValue));
 
       if (nextValue === 'database') {
         requestDatabaseTabPrefetch();

@@ -1,8 +1,10 @@
 import type { Page } from '@playwright/test';
 
 const APP_STATE_KEYS = [
+  'brainstrike.agent-sidebar-tab.v1',
   'panel-layout-store.v1',
   'context-explorer-layout-store.v1',
+  'tools-panel.v1',
   'panelLayout.v1',
   'fileExplorerSettings',
   'file-explorer-storage-v4',

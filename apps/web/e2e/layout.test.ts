@@ -129,11 +129,11 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
       await expect(elements.leftPanel).toBeVisible();
 
       // Hide panel
-      await togglePanelVisibility(elements.hideExplorerButton, elements.leftPanel, false);
-      await expect(elements.showExplorerShim).toBeVisible();
+      await togglePanelVisibility(elements.hideAgentPanelButton, elements.leftPanel, false);
+      await expect(elements.showAgentPanelShim).toBeVisible();
 
       // Show panel again
-      await togglePanelVisibility(elements.showExplorerShim, elements.leftPanel, true);
+      await togglePanelVisibility(elements.showAgentPanelShim, elements.leftPanel, true);
     });
 
     test('should allow toggling console panel visibility', async ({ page }) => {
@@ -201,13 +201,13 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
     test('should handle rapid panel visibility changes', async ({ page }) => {
       const elements = getPanelElements(page);
 
-      await elements.hideExplorerButton.click();
-      await expect(elements.showExplorerShim).toBeVisible();
+      await elements.hideAgentPanelButton.click();
+      await expect(elements.showAgentPanelShim).toBeVisible();
 
       await elements.showConsoleShim.click();
       await expect(elements.consolePanel).toBeVisible();
 
-      await elements.showExplorerShim.click();
+      await elements.showAgentPanelShim.click();
       await expect(elements.leftPanel).toBeVisible();
 
       await elements.hideConsoleButton.click();

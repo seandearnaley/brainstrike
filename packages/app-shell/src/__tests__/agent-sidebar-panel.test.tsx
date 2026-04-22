@@ -121,4 +121,27 @@ describe('AgentSidebarPanel', () => {
     expect(screen.getByRole('tab', { name: 'Database' })).toHaveAttribute('data-state', 'active');
     expect(screen.getByText('Database content')).toBeVisible();
   });
+
+  it('migrates the legacy tools panel tab and removes the old storage key', () => {
+    window.localStorage.setItem(
+      'tools-panel.v1',
+      JSON.stringify({
+        state: { activeTab: 'database' },
+        version: 2,
+      })
+    );
+
+    render(
+      <AgentSidebarPanel
+        databaseContent={<div>Database content</div>}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    expect(screen.getByRole('tab', { name: 'Database' })).toHaveAttribute('data-state', 'active');
+    expect(window.localStorage.getItem('tools-panel.v1')).toBeNull();
+    expect(window.localStorage.getItem('brainstrike.agent-sidebar-tab.v1')).toBe(
+      JSON.stringify('database')
+    );
+  });
 });

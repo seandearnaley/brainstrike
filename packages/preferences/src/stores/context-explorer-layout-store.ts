@@ -28,6 +28,7 @@ const DEFAULT_STATE: Omit<
 };
 
 const STORE_NAME = 'context-explorer-layout-store.v1' as const;
+const STORE_VERSION = 1 as const;
 const MIN_PANEL_SIZE = 10;
 const logger = createLogger('ContextExplorerLayoutStore');
 
@@ -59,6 +60,10 @@ type PersistedContextExplorerLayoutState = Pick<
   ContextExplorerLayoutStoreState,
   'sizes' | 'showLeftPanel' | 'showRightPanel' | 'showConsole'
 >;
+interface PersistedContextExplorerStorageValue {
+  state: PersistedContextExplorerLayoutState;
+  version: number;
+}
 
 function hasCorruptedSizes(sizes: unknown): boolean {
   if (!Array.isArray(sizes)) {
@@ -67,7 +72,7 @@ function hasCorruptedSizes(sizes: unknown): boolean {
   return sizes.some((size) => typeof size === 'number' && size > 0 && size < MIN_PANEL_SIZE);
 }
 
-function parsePersistedPanelState(raw: string | null): PersistedContextExplorerLayoutState | null {
+function parsePersistedPanelState(raw: string | null): PersistedContextExplorerStorageValue | null {
   if (!raw) {
     return null;
   }
@@ -75,18 +80,23 @@ function parsePersistedPanelState(raw: string | null): PersistedContextExplorerL
   try {
     const parsed = JSON.parse(raw) as {
       state?: PersistedContextExplorerLayoutState;
+      version?: number;
     };
     const state = parsed?.state;
     if (!state) {
       return null;
     }
+    const version = typeof parsed.version === 'number' ? parsed.version : 0;
     if (state.sizes && hasCorruptedSizes(state.sizes)) {
       return {
-        ...state,
-        sizes: [...DEFAULT_STATE.sizes] as [number, number, number],
+        state: {
+          ...state,
+          sizes: [...DEFAULT_STATE.sizes] as [number, number, number],
+        },
+        version,
       };
     }
-    return state;
+    return { state, version };
   } catch (error) {
     if (process.env['NODE_ENV'] !== 'production') {
       logger.warn('Ignoring invalid persisted context explorer layout state', {
@@ -101,10 +111,7 @@ function createAdapterPersistStorage(
   storage: StorageAdapter
 ): PersistStorage<PersistedContextExplorerLayoutState> {
   return {
-    getItem: async (name: string) => {
-      const state = parsePersistedPanelState(await storage.getItem(name));
-      return state ? { state, version: 1 } : null;
-    },
+    getItem: async (name: string) => parsePersistedPanelState(await storage.getItem(name)),
     setItem: async (name: string, value) => {
       await storage.setItem(name, JSON.stringify(value));
     },
@@ -155,10 +162,7 @@ function createFallbackPersistStorage(): PersistStorage<PersistedContextExplorer
   };
 
   return {
-    getItem: (name: string) => {
-      const state = parsePersistedPanelState(readRaw(name));
-      return state ? { state, version: 1 } : null;
-    },
+    getItem: (name: string) => parsePersistedPanelState(readRaw(name)),
     setItem: (name: string, value) => {
       writeRaw(name, JSON.stringify(value));
     },
@@ -173,7 +177,7 @@ function persistOptions(
 ): PersistOptions<ContextExplorerLayoutStoreState, PersistedContextExplorerLayoutState> {
   return {
     name: STORE_NAME,
-    version: 1,
+    version: STORE_VERSION,
     storage,
     partialize: (state): PersistedContextExplorerLayoutState => ({
       sizes: state.sizes,
@@ -181,6 +185,7 @@ function persistOptions(
       showRightPanel: state.showRightPanel,
       showConsole: state.showConsole,
     }),
+    migrate: (persistedState) => persistedState as PersistedContextExplorerLayoutState,
   };
 }
 

@@ -20,7 +20,7 @@ describe('layout-helpers (unit)', () => {
     const els = getPanelElements(page);
     expect(els.leftPanel).toBeDefined();
     expect(els.middlePanel).toBeDefined();
-    expect(els.hideExplorerButton).toBeDefined();
+    expect(els.hideAgentPanelButton).toBeDefined();
     expect(els.showRightPanelShim).toBeDefined();
     // Shape checks are sufficient; underlying calls are exercised by construction
   });
@@ -109,7 +109,9 @@ describe('layout-helpers (unit)', () => {
     } as unknown as Page;
     await resetLayoutState(page);
     expect(page.reload).toHaveBeenCalled();
+    expect(evalCalls.join('\n')).toContain('brainstrike.agent-sidebar-tab.v1');
     expect(evalCalls.join('\n')).toContain('panel-layout-store.v1');
     expect(evalCalls.join('\n')).toContain('context-explorer-layout-store.v1');
+    expect(evalCalls.join('\n')).toContain('tools-panel.v1');
   });
 });

@@ -131,15 +131,15 @@ async function getPlaywrightExpect(): Promise<PlaywrightExpect> {
 
 export interface PanelElements {
   consolePanel: ReturnType<Page['locator']>;
+  hideAgentPanelButton: ReturnType<Page['locator']>;
   hideConsoleButton: ReturnType<Page['locator']>;
-  hideExplorerButton: ReturnType<Page['locator']>;
   hideRightPanelButton: ReturnType<Page['locator']>;
   leftPanel: ReturnType<Page['locator']>;
   mainContentPanel: ReturnType<Page['locator']>;
   middlePanel: ReturnType<Page['locator']>;
   rightPanel: ReturnType<Page['locator']>;
+  showAgentPanelShim: ReturnType<Page['locator']>;
   showConsoleShim: ReturnType<Page['locator']>;
-  showExplorerShim: ReturnType<Page['locator']>;
   showRightPanelShim: ReturnType<Page['locator']>;
 }
 
@@ -157,12 +157,12 @@ export function getPanelElements(page: Page): PanelElements {
     middlePanel: page.locator(AGENT_MIDDLE_PANEL_SELECTOR),
 
     // Hide buttons (when panels are open)
-    hideExplorerButton: page.locator('[data-testid="hide-threads-panel"]'),
+    hideAgentPanelButton: page.locator('[data-testid="hide-threads-panel"]'),
     hideRightPanelButton: page.locator('[data-testid="hide-workspace-panel"]'),
     hideConsoleButton: page.locator('[data-testid="hide-console-panel"]'),
 
     // Show shims (when panels are closed)
-    showExplorerShim: page.locator('[data-testid="show-threads-panel"]'),
+    showAgentPanelShim: page.locator('[data-testid="show-threads-panel"]'),
     showRightPanelShim: page.locator('[data-testid="show-workspace-panel"]'),
     showConsoleShim: page.locator('[data-testid="show-console-panel"]'),
   };
@@ -364,8 +364,10 @@ export async function activateSidebarNavigation(
  */
 export async function resetLayoutState(page: Page): Promise<void> {
   await page.evaluate(() => {
+    localStorage.removeItem('brainstrike.agent-sidebar-tab.v1');
     localStorage.removeItem('panel-layout-store.v1');
     localStorage.removeItem('context-explorer-layout-store.v1');
+    localStorage.removeItem('tools-panel.v1');
   });
   // Wait for the page to finish navigating before continuing.
   // Using 'load' to ensure JS bundles are loaded before checking React elements.
@@ -424,7 +426,7 @@ export async function verifyDefaultLayout(page: Page, expectedState: DefaultLayo
   // Left panel should be visible by default
   if (expectedState.leftPanelHidden) {
     await expect(elements.leftPanel).not.toBeVisible();
-    await expect(elements.showExplorerShim).toBeVisible();
+    await expect(elements.showAgentPanelShim).toBeVisible();
   } else {
     await expect(elements.leftPanel).toBeVisible();
   }
