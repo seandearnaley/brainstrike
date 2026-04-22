@@ -214,6 +214,10 @@ function installSettingsTestHooksOnWindow(): void {
   browserWindow.__brainstrikeSettingsTestHooks__ = hooks;
 }
 
+export function __installSettingsTestHooksOnWindowForTests(): void {
+  installSettingsTestHooksOnWindow();
+}
+
 async function ensureSettingsTestHooksInstalled(page: Page): Promise<void> {
   if (!pagesWithInstalledSettingsTestHooks.has(page)) {
     await page.addInitScript(installSettingsTestHooksOnWindow);

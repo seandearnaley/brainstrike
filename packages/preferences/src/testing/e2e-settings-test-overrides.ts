@@ -11,7 +11,7 @@ export type {
   SettingsE2ETestOverrides,
 } from '../settings-test-runtime-access';
 
-function mergeSettingsTestOverrides(
+export function mergeSettingsTestOverrides(
   current: SettingsE2ETestOverrides | undefined,
   updates: SettingsE2ETestOverrides
 ): SettingsE2ETestOverrides {
