@@ -105,10 +105,16 @@ interface PersistedPanelStorageValue {
  * Check if sizes array contains corrupted values (non-zero but below minimum).
  */
 function hasCorruptedSizes(sizes: unknown): boolean {
-  if (!Array.isArray(sizes)) {
+  if (!Array.isArray(sizes) || sizes.length !== DEFAULT_STATE.sizes.length) {
     return true;
   }
-  return sizes.some((size) => typeof size === 'number' && size > 0 && size < MIN_PANEL_SIZE);
+  return sizes.some(
+    (size) =>
+      typeof size !== 'number' ||
+      Number.isNaN(size) ||
+      size < 0 ||
+      (size > 0 && size < MIN_PANEL_SIZE)
+  );
 }
 
 function parsePersistedPanelState(raw: string | null): PersistedPanelStorageValue | null {

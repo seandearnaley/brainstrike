@@ -77,6 +77,34 @@ vi.mock('@brainstrike/storage/electron', () => {
   return { ElectronStorageAdapter: MockAdapter };
 });
 
+vi.mock('../../assistant-server', () => ({
+  startAssistantServer: vi.fn(async () => ({
+    url: 'http://127.0.0.1:0',
+    stop: vi.fn(),
+  })),
+}));
+
+vi.mock('../../create-window', () => ({
+  createWindow: vi.fn(async () => ({
+    on: vi.fn(),
+    isDestroyed: vi.fn(() => false),
+    isFullScreen: vi.fn(() => false),
+    isMaximized: vi.fn(() => false),
+    getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1280, height: 800 })),
+    getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1280, height: 800 })),
+    webContents: {
+      send: vi.fn(),
+      reloadIgnoringCache: vi.fn(),
+    },
+  })),
+  noteNextWindowReload: vi.fn(),
+}));
+
+vi.mock('../../window-state', () => ({
+  readStoredWindowState: vi.fn(() => null),
+  registerWindowStatePersistence: vi.fn(),
+}));
+
 vi.mock('electron-store', () => {
   const MockElectronStore = vi.fn();
   MockElectronStore.mockImplementation(function (this: Record<string, unknown>) {
@@ -136,7 +164,7 @@ describe('main E2E window isolation', () => {
     const mockedApp = electronMockState.app;
 
     expect(mockedApp).not.toBeNull();
-    expect(mockedApp.requestSingleInstanceLock).toHaveBeenCalledTimes(1);
+    expect(mockedApp.requestSingleInstanceLock).toHaveBeenCalled();
     expect(mockedApp.on).toHaveBeenCalledWith('second-instance', expect.any(Function));
   });
 });

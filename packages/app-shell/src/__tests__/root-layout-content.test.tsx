@@ -163,6 +163,7 @@ describe('RootLayoutContent', () => {
     );
 
   const getRootPanelLayoutChange = () => {
+    expect(mockHandlers.panelLayoutChanges).toHaveLength(2);
     const panelLayoutChange = mockHandlers.panelLayoutChanges[0];
     expect(panelLayoutChange).toBeDefined();
     return panelLayoutChange as (state: PanelLayoutState) => void;

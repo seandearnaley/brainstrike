@@ -67,7 +67,9 @@ function applySelectedCacheDirectory(args: {
     description: args.selectedPath,
   });
   if (args.db) {
-    void args.fetchRegistry(args.db);
+    void args.fetchRegistry(args.db).catch((error: unknown) => {
+      logger.warn('Failed to refresh model registry after cache directory change', { error });
+    });
   }
 }
 

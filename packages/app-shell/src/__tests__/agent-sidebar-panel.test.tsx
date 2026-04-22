@@ -122,6 +122,31 @@ describe('AgentSidebarPanel', () => {
     expect(screen.getByText('Database content')).toBeVisible();
   });
 
+  it('keeps database tab state mounted after the first visit', async () => {
+    render(
+      <AgentSidebarPanel
+        databaseContent={<input aria-label="Database search" defaultValue="persisted query" />}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    const databaseTab = screen.getByRole('tab', { name: 'Database' });
+    fireEvent.mouseDown(databaseTab, { button: 0, ctrlKey: false });
+
+    const searchField = await screen.findByRole('textbox', { name: 'Database search' });
+    fireEvent.change(searchField, { target: { value: 'keep me' } });
+    expect(searchField).toHaveValue('keep me');
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Threads' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(screen.getByText('Threads content')).toBeVisible();
+
+    fireEvent.mouseDown(databaseTab, { button: 0, ctrlKey: false });
+    expect(await screen.findByRole('textbox', { name: 'Database search' })).toHaveValue('keep me');
+  });
+
   it('migrates the legacy tools panel tab and removes the old storage key', () => {
     window.localStorage.setItem(
       'tools-panel.v1',

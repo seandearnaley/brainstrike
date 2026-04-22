@@ -87,7 +87,9 @@ export async function ensureAssistantShellVisible(page: Page): Promise<Locator> 
     // so there is no show/hide control to click here. Visibility is purely route-driven.
     await assistantShell.waitFor({ state: 'visible', timeout: 12_000 });
   } catch {
-    throw new Error('Assistant shell did not become visible after navigating to Context Explorer.');
+    throw new Error(
+      `Assistant shell did not become visible after navigating to Context Explorer (current URL: ${page.url()}).`
+    );
   }
   return assistantShell;
 }

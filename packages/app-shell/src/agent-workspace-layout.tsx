@@ -8,6 +8,29 @@ export interface AgentWorkspaceLayoutProps {
   readonly workspaceContent: ReactNode;
 }
 
+const AGENT_LEFT_PANEL_CHROME = {
+  title: 'Agent',
+  showButtonLabel: 'Show agent panel',
+  showButtonTestId: 'show-threads-panel',
+  hideButtonLabel: 'Hide agent panel',
+  hideButtonTestId: 'hide-threads-panel',
+  icon: PanelLeftClose,
+} as const;
+
+const AGENT_RIGHT_PANEL_CHROME = {
+  title: 'Workspace',
+  showButtonLabel: 'Show workspace panel',
+  showButtonTestId: 'show-workspace-panel',
+  hideButtonLabel: 'Hide workspace panel',
+  hideButtonTestId: 'hide-workspace-panel',
+  icon: PanelRightClose,
+} as const;
+
+const AGENT_PANEL_CONSTRAINTS = {
+  mainContentMinSize: '25%',
+  rightPanelMaxSize: '75%',
+} as const;
+
 export function AgentWorkspaceLayout({
   sidebarContent,
   assistantContent,
@@ -15,28 +38,11 @@ export function AgentWorkspaceLayout({
 }: AgentWorkspaceLayoutProps): ReactElement {
   return (
     <IdeLayout
-      leftPanelChrome={{
-        title: 'Agent',
-        showButtonLabel: 'Show agent panel',
-        showButtonTestId: 'show-threads-panel',
-        hideButtonLabel: 'Hide agent panel',
-        hideButtonTestId: 'hide-threads-panel',
-        icon: PanelLeftClose,
-      }}
+      leftPanelChrome={AGENT_LEFT_PANEL_CHROME}
       leftPanelContent={sidebarContent}
-      panelConstraints={{
-        mainContentMinSize: '25%',
-        rightPanelMaxSize: '75%',
-      }}
+      panelConstraints={AGENT_PANEL_CONSTRAINTS}
       panelIdPrefix="agent-workspace"
-      rightPanelChrome={{
-        title: 'Workspace',
-        showButtonLabel: 'Show workspace panel',
-        showButtonTestId: 'show-workspace-panel',
-        hideButtonLabel: 'Hide workspace panel',
-        hideButtonTestId: 'hide-workspace-panel',
-        icon: PanelRightClose,
-      }}
+      rightPanelChrome={AGENT_RIGHT_PANEL_CHROME}
       rightPanelContent={
         <div className="h-full min-h-0" data-testid="workspace-surface-panel">
           {workspaceContent}

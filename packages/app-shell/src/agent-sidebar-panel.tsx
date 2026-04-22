@@ -49,6 +49,8 @@ function migrateLegacyToolsPanelTab(): AgentSidebarTab | null {
   } catch {
     return null;
   } finally {
+    // Legacy migration is intentionally one-shot. Even malformed old state is removed so the
+    // sidebar can recover to the default tab instead of re-parsing bad data on every mount.
     agentSidebarTabStorage.removeItem(LEGACY_TOOLS_PANEL_STORAGE_KEY);
   }
 }
@@ -67,6 +69,9 @@ export function AgentSidebarPanel({
   preloadDatabaseTabOnMount = false,
 }: AgentSidebarPanelProps): ReactElement {
   const [activeTab, setActiveTab] = useState<AgentSidebarTab>(() => readInitialAgentSidebarTab());
+  const [databaseTabMounted, setDatabaseTabMounted] = useState<boolean>(
+    () => preloadDatabaseTabOnMount || activeTab === 'database'
+  );
   const hasPrefetchedDatabaseTabRef = useRef(false);
 
   const requestDatabaseTabPrefetch = useCallback(() => {
@@ -90,6 +95,7 @@ export function AgentSidebarPanel({
       agentSidebarTabStorage.setItem(AGENT_SIDEBAR_TAB_STORAGE_KEY, JSON.stringify(nextValue));
 
       if (nextValue === 'database') {
+        setDatabaseTabMounted(true);
         requestDatabaseTabPrefetch();
       }
     },
@@ -100,8 +106,15 @@ export function AgentSidebarPanel({
     if (!preloadDatabaseTabOnMount) {
       return;
     }
+    setDatabaseTabMounted(true);
     requestDatabaseTabPrefetch();
   }, [preloadDatabaseTabOnMount, requestDatabaseTabPrefetch]);
+
+  const databaseTabMountProps = databaseTabMounted
+    ? ({
+        forceMount: true,
+      } as const)
+    : {};
 
   return (
     <Tabs
@@ -143,6 +156,7 @@ export function AgentSidebarPanel({
       <TabsContent
         className="mt-0 min-h-0 flex-1 overflow-hidden"
         data-testid="database-tab-content"
+        {...databaseTabMountProps}
         value="database"
       >
         {databaseContent}

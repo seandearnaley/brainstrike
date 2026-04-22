@@ -33,10 +33,12 @@ test.describe('Factory Reset recovery (web)', () => {
     await expect(page.getByTestId('clear-stored-folders-button')).toBeVisible();
     await expect(page.getByRole('switch', { name: 'Enable inline fixtures' })).toBeVisible();
 
-    page.once('dialog', async (dialog) => {
-      await dialog.dismiss();
-    });
-    await page.getByTestId('factory-reset-button').click();
+    await Promise.all([
+      page.waitForEvent('dialog').then(async (dialog) => {
+        await dialog.dismiss();
+      }),
+      page.getByTestId('factory-reset-button').click(),
+    ]);
 
     await expect(page.getByTestId('settings-category-factory-reset')).toBeVisible();
     await page.reload();
@@ -59,11 +61,11 @@ test.describe('Factory Reset recovery (web)', () => {
     await expect(tokenToggle).toHaveAttribute('aria-checked', 'false');
 
     await settings.openCategory(/Factory Reset/i, 'factory-reset');
-    page.once('dialog', async (dialog) => {
-      await dialog.accept();
-    });
     const mainFrame = page.mainFrame();
     await Promise.all([
+      page.waitForEvent('dialog').then(async (dialog) => {
+        await dialog.accept();
+      }),
       page.waitForEvent('framenavigated', { predicate: (frame) => frame === mainFrame }),
       page.getByTestId('factory-reset-button').click(),
     ]);

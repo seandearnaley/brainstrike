@@ -78,4 +78,32 @@ describe('context-explorer-layout-store', () => {
     expect(persistedStore.getState().showRightPanel).toBe(true);
     expect(persistedStore.getState().showConsole).toBe(true);
   });
+
+  it.each([
+    { label: 'negative sizes', sizes: [-5, 25, 20] },
+    { label: 'non-numeric sizes', sizes: ['25', 20, 20] },
+    { label: 'wrong-length sizes', sizes: [25, 20] },
+  ])('repairs $label during rehydration', async ({ sizes }) => {
+    const storage = createMemoryStorageAdapter();
+    await storage.setItem(
+      STORE_NAME,
+      JSON.stringify({
+        state: {
+          sizes,
+          showLeftPanel: false,
+          showRightPanel: true,
+          showConsole: true,
+        },
+        version: 1,
+      })
+    );
+
+    const persistedStore = createContextExplorerLayoutStore(storage);
+    await getPersistApi(persistedStore).rehydrate();
+
+    expect(persistedStore.getState().sizes).toEqual(DEFAULT_SIZES);
+    expect(persistedStore.getState().showLeftPanel).toBe(false);
+    expect(persistedStore.getState().showRightPanel).toBe(true);
+    expect(persistedStore.getState().showConsole).toBe(true);
+  });
 });

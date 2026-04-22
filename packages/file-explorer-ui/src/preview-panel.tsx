@@ -544,10 +544,13 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     groupingConfig === 'none'
       ? flattenedData.slice(tapestryPagination.startIndex, tapestryPagination.endIndex)
       : [];
-  const tablePageDataPathsKey = tablePageData.map((item) => item.path).join('\u0000');
+  const isDesktopPreviewTestMode = window.desktopLifecycle?.isTestMode ?? false;
+  const tablePageDataPathsKey = isDesktopPreviewTestMode
+    ? tablePageData.map((item) => item.path).join('\u0000')
+    : '';
 
   useEffect(() => {
-    if (!window.desktopLifecycle?.isTestMode) {
+    if (!isDesktopPreviewTestMode) {
       return;
     }
 
@@ -563,7 +566,13 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     return () => {
       window.__brainstrikeContextExplorerPreviewTestHooks__ = undefined;
     };
-  }, [activeTab, flattenedData.length, selectedFiles.size, tablePageDataPathsKey]);
+  }, [
+    activeTab,
+    flattenedData.length,
+    isDesktopPreviewTestMode,
+    selectedFiles.size,
+    tablePageDataPathsKey,
+  ]);
 
   const tableVisibleFilesOnPage = useMemo(
     () =>

@@ -6,6 +6,7 @@ import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 type ConfirmOverrideTarget = typeof globalThis & {
   confirm: () => boolean;
+  __brainstrikeOriginalConfirm__?: () => boolean;
 };
 
 async function openTokenCountingSettings(
@@ -30,17 +31,36 @@ async function overrideNextConfirm(
 ): Promise<void> {
   await window.evaluate((nextValue: boolean) => {
     const target = globalThis as unknown as ConfirmOverrideTarget;
-    const originalConfirm = target.confirm;
+    const originalConfirm = target.__brainstrikeOriginalConfirm__ ?? target.confirm;
+    target.__brainstrikeOriginalConfirm__ = originalConfirm;
     // Desktop still exercises the native window.confirm reset flow here. If the
     // product switches to a custom dialog, this helper should change with it.
     target.confirm = () => {
       target.confirm = originalConfirm;
+      target.__brainstrikeOriginalConfirm__ = undefined;
       return nextValue;
     };
   }, value);
 }
 
+async function restoreConfirmOverride(window: import('@playwright/test').Page): Promise<void> {
+  await window.evaluate(() => {
+    const target = globalThis as unknown as ConfirmOverrideTarget;
+    if (!target.__brainstrikeOriginalConfirm__) {
+      return;
+    }
+    target.confirm = target.__brainstrikeOriginalConfirm__;
+    target.__brainstrikeOriginalConfirm__ = undefined;
+  });
+}
+
 test.describe('Factory Reset settings (desktop)', () => {
+  test.afterEach(async ({ window }) => {
+    await restoreConfirmOverride(window).catch(() => {
+      // Some tests intentionally restart the app, which can invalidate the original page.
+    });
+  });
+
   test('cancel path leaves persisted state untouched', async ({ window, homePage }) => {
     await updateSettingsTestOverrides(window, { accurateRuntimeAvailable: true });
 
