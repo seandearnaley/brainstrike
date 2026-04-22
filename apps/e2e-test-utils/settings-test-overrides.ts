@@ -101,21 +101,15 @@ export async function installSettingsTestOverrides(
     browserWindow.__brainstrikePendingSettingsTestOverrides__ = payload;
   }, overrides);
 
-  const hooksInstalled = await page.evaluate((payload: SerializableSettingsTestOverrides) => {
+  await page.evaluate((payload: SerializableSettingsTestOverrides) => {
     const browserWindow = window as unknown as BrowserOverrideWindow;
     browserWindow.__brainstrike_e2e_enable_settings_test_api__ = true;
-    browserWindow.__brainstrikePendingSettingsTestOverrides__ = payload;
-    browserWindow.__brainstrikeSettingsTestHooks__?.setSettingsTestOverrides(payload);
-    return browserWindow.__brainstrikeSettingsTestHooks__ !== undefined;
+    const hooks = browserWindow.__brainstrikeSettingsTestHooks__;
+    if (!hooks) {
+      throw new Error('Settings test hooks were not installed before applying overrides');
+    }
+    hooks.setSettingsTestOverrides(payload);
   }, overrides);
-
-  if (!hooksInstalled) {
-    await page.reload({ waitUntil: 'load' });
-    await page.evaluate((payload: SerializableSettingsTestOverrides) => {
-      const browserWindow = window as unknown as BrowserOverrideWindow;
-      browserWindow.__brainstrikeSettingsTestHooks__?.setSettingsTestOverrides(payload);
-    }, overrides);
-  }
 }
 
 export async function updateSettingsTestOverrides(
@@ -126,33 +120,11 @@ export async function updateSettingsTestOverrides(
   await page.evaluate((payload: SerializableSettingsTestOverrides) => {
     const browserWindow = window as unknown as BrowserOverrideWindow;
     browserWindow.__brainstrike_e2e_enable_settings_test_api__ = true;
-    const current = browserWindow.__brainstrikePendingSettingsTestOverrides__ ?? {};
-    const nextOverrides: BrowserSettingsTestOverrides = { ...current };
-
-    if (payload['accurateRuntimeAvailable'] !== undefined) {
-      nextOverrides.accurateRuntimeAvailable = payload['accurateRuntimeAvailable'];
+    const hooks = browserWindow.__brainstrikeSettingsTestHooks__;
+    if (!hooks) {
+      throw new Error('Settings test hooks were not installed before updating overrides');
     }
-
-    if (payload['modelRegistry']) {
-      nextOverrides.modelRegistry = {
-        ...(current.modelRegistry ?? {}),
-        ...payload['modelRegistry'],
-      };
-    }
-
-    if (payload['localRuntime']) {
-      const nextLocalRuntime: LocalRuntimeProbeOverride = {
-        ...(current.localRuntime ?? {}),
-        ...(payload['localRuntime']['statuses']
-          ? { statuses: payload['localRuntime']['statuses'] }
-          : {}),
-      };
-
-      nextOverrides.localRuntime = nextLocalRuntime;
-    }
-
-    browserWindow.__brainstrikePendingSettingsTestOverrides__ = nextOverrides;
-    browserWindow.__brainstrikeSettingsTestHooks__?.updateSettingsTestOverrides(payload);
+    hooks.updateSettingsTestOverrides(payload);
   }, overrides);
 }
 
@@ -186,6 +158,8 @@ function installSettingsTestHooksOnWindow(): void {
     browserWindow.__brainstrikeLocalRuntimeProbeCounts__ = {};
   };
 
+  // Keep this browser-serialized merge behavior aligned with
+  // `packages/preferences/src/testing/e2e-settings-test-overrides.ts`.
   const mergeOverrides = (
     current: BrowserSettingsTestOverrides | undefined,
     updates: BrowserSettingsTestOverrides
@@ -241,4 +215,12 @@ function installSettingsTestHooksOnWindow(): void {
 async function ensureSettingsTestHooksInstalled(page: Page): Promise<void> {
   await page.addInitScript(installSettingsTestHooksOnWindow);
   await page.evaluate(installSettingsTestHooksOnWindow);
+  const hooksInstalled = await page.evaluate(() => {
+    const browserWindow = window as unknown as BrowserOverrideWindow;
+    return browserWindow.__brainstrikeSettingsTestHooks__ !== undefined;
+  });
+
+  if (!hooksInstalled) {
+    throw new Error('Failed to install settings test hooks');
+  }
 }

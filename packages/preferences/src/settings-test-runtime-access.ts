@@ -45,7 +45,7 @@ declare global {
   }
 }
 
-function hasExplicitAutomatedSettingsTestOptIn(): boolean {
+export function hasExplicitAutomatedSettingsTestOptIn(): boolean {
   if (typeof window === 'undefined') {
     return false;
   }

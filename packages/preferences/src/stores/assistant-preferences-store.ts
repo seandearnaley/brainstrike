@@ -285,7 +285,7 @@ async function probeRuntimeViaBridgeOrService(
   }
 ): Promise<LocalRuntimeAvailabilityState> {
   const overriddenStatus = getLocalRuntimeStatusTestOverride(runtimeId);
-  if (overriddenStatus) {
+  if (overriddenStatus !== undefined) {
     recordLocalRuntimeProbeForTests(runtimeId);
     return overriddenStatus;
   }

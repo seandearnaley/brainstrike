@@ -113,8 +113,10 @@ function applyCacheDirectorySelectionTestOverride(args: {
         toast: args.toast,
       });
       return true;
-    default:
-      return false;
+    default: {
+      const exhaustiveResolution: never = resolution;
+      return exhaustiveResolution;
+    }
   }
 }
 

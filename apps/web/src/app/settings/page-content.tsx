@@ -93,6 +93,8 @@ export default function SettingsPageContent() {
   }, []);
 
   const accurateRuntimeAvailable = useMemo<boolean | null>(() => {
+    // E2E overrides are read on mount/remount only. Tests that mutate them
+    // mid-lifecycle should reload or navigate to remount this settings view.
     const override = getAccurateRuntimeAvailabilityTestOverride();
     if (override !== undefined) {
       return override;

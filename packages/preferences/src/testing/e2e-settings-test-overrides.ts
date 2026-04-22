@@ -1,5 +1,6 @@
 import type { LocalRuntimeId } from '@brainstrike/agent/local-runtime';
 import {
+  hasExplicitAutomatedSettingsTestOptIn,
   readLocalRuntimeProbeCountsForTests,
   resetLocalRuntimeProbeCountsForTests,
   type SettingsE2ETestOverrides,
@@ -48,24 +49,8 @@ export interface SettingsTestHookApi {
 
 declare global {
   interface Window {
-    // biome-ignore lint/style/useNamingConvention: E2E init-script flag uses double underscores by convention
-    __brainstrike_e2e_enable_settings_test_api__?: boolean;
-    __brainstrikePendingSettingsTestOverrides__?: SettingsE2ETestOverrides;
     __brainstrikeSettingsTestHooks__?: SettingsTestHookApi;
   }
-}
-
-function hasExplicitAutomatedSettingsTestOptIn(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  // This is defense in depth for testability hooks, not a hard security
-  // boundary. Production should still behave correctly if the signals are
-  // spoofed, which is why the hook installer no longer ships in the app bundle.
-  return (
-    window.__brainstrike_e2e_enable_settings_test_api__ === true &&
-    window.navigator.webdriver === true
-  );
 }
 
 export function shouldExposeSettingsAutomatedTestApis(

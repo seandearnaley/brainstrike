@@ -237,7 +237,7 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
         set({ isLoading: true, error: null });
         try {
           const fetchErrorMessage = getModelRegistryFetchErrorTestOverride();
-          if (fetchErrorMessage) {
+          if (fetchErrorMessage !== undefined && fetchErrorMessage !== null) {
             set({
               error: fetchErrorMessage,
               isLoading: false,
