@@ -5,6 +5,10 @@ import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { isLocalModelProviderId } from '../models/local-model-utils';
+import {
+  getModelRegistryFetchErrorTestOverride,
+  getModelRegistrySnapshotTestOverride,
+} from '../settings-test-runtime-access';
 
 const logger = createLogger('ModelRegistryStore');
 let registryLoadPromise: Promise<void> | null = null;
@@ -232,6 +236,30 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
       fetchRegistry: async (db: IDatabase) => {
         set({ isLoading: true, error: null });
         try {
+          const fetchErrorMessage = getModelRegistryFetchErrorTestOverride();
+          if (fetchErrorMessage !== undefined && fetchErrorMessage !== null) {
+            set({
+              error: fetchErrorMessage,
+              isLoading: false,
+              hasLoaded: false,
+            });
+            return;
+          }
+
+          const snapshotOverride = getModelRegistrySnapshotTestOverride();
+          if (snapshotOverride) {
+            set({
+              providers: snapshotOverride.providers ?? [],
+              models: snapshotOverride.models ?? [],
+              downloadedModels: snapshotOverride.downloadedModels ?? {},
+              modelCacheDir: snapshotOverride.modelCacheDir ?? get().modelCacheDir,
+              isLoading: false,
+              hasLoaded: true,
+              error: null,
+            });
+            return;
+          }
+
           const providersResult = await db.query<RawProvider>(
             'SELECT * FROM providers ORDER BY sort_order ASC'
           );

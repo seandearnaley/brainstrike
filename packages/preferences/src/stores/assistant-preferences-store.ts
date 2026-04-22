@@ -27,6 +27,10 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import {
+  getLocalRuntimeStatusTestOverride,
+  recordLocalRuntimeProbeForTests,
+} from '../settings-test-runtime-access';
 
 const logger = createLogger('AssistantPreferencesStore');
 
@@ -280,6 +284,12 @@ async function probeRuntimeViaBridgeOrService(
     readonly force?: boolean;
   }
 ): Promise<LocalRuntimeAvailabilityState> {
+  const overriddenStatus = getLocalRuntimeStatusTestOverride(runtimeId);
+  if (overriddenStatus !== undefined) {
+    recordLocalRuntimeProbeForTests(runtimeId);
+    return overriddenStatus;
+  }
+
   const bridge = getRuntimeBridge();
   if (bridge) {
     const result = await bridge.probe(runtimeId, options);
