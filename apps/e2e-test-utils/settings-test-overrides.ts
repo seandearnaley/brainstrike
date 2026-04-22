@@ -90,6 +90,8 @@ declare global {
   }
 }
 
+const pagesWithInstalledSettingsTestHooks = new WeakSet<Page>();
+
 export async function installSettingsTestOverrides(
   page: Page,
   overrides: SerializableSettingsTestOverrides
@@ -213,7 +215,10 @@ function installSettingsTestHooksOnWindow(): void {
 }
 
 async function ensureSettingsTestHooksInstalled(page: Page): Promise<void> {
-  await page.addInitScript(installSettingsTestHooksOnWindow);
+  if (!pagesWithInstalledSettingsTestHooks.has(page)) {
+    await page.addInitScript(installSettingsTestHooksOnWindow);
+    pagesWithInstalledSettingsTestHooks.add(page);
+  }
   await page.evaluate(installSettingsTestHooksOnWindow);
   const hooksInstalled = await page.evaluate(() => {
     const browserWindow = window as unknown as BrowserOverrideWindow;
