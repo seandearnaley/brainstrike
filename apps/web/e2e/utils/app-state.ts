@@ -15,6 +15,10 @@ const APP_STATE_KEYS = [
   'vector-preferences.v1',
   'brainstrike.activeEmbeddingSetId',
   'token-preferences.v1',
+  'assistant-preferences.v1',
+  'logging-preferences.v1',
+  'model-registry-storage',
+  'native-tool-preferences.v1',
 ] as const;
 
 const INDEXED_DB_NAMES = ['brainstrike-file-handles'] as const;
@@ -27,20 +31,24 @@ export async function resetAppState(page: Page): Promise<void> {
     async (args: { dbNames: readonly string[]; keys: readonly string[] }) => {
       const deleteDatabase = async (name: string): Promise<void> =>
         new Promise((resolve) => {
-          const timeoutId = setTimeout(resolve, 1000);
-          const request = indexedDB.deleteDatabase(name);
-          request.onsuccess = () => {
-            clearTimeout(timeoutId);
+          try {
+            const timeoutId = setTimeout(resolve, 1000);
+            const request = indexedDB.deleteDatabase(name);
+            request.onsuccess = () => {
+              clearTimeout(timeoutId);
+              resolve();
+            };
+            request.onerror = () => {
+              clearTimeout(timeoutId);
+              resolve();
+            };
+            request.onblocked = () => {
+              clearTimeout(timeoutId);
+              resolve();
+            };
+          } catch {
             resolve();
-          };
-          request.onerror = () => {
-            clearTimeout(timeoutId);
-            resolve();
-          };
-          request.onblocked = () => {
-            clearTimeout(timeoutId);
-            resolve();
-          };
+          }
         });
 
       for (const name of args.dbNames) {

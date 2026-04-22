@@ -284,7 +284,7 @@ export function SystemDiagnosticsPanel({
   }, []);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="system-diagnostics-panel">
       {/* Header with refresh button */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -299,6 +299,7 @@ export function SystemDiagnosticsPanel({
         <button
           aria-label="Refresh all diagnostics"
           className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+          data-testid="system-diagnostics-refresh"
           disabled={isRefreshing}
           onClick={handleRefreshAll}
           type="button"

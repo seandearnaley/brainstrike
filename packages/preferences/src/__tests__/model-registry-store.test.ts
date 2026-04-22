@@ -5,6 +5,10 @@ import {
   type DbProvider,
   useModelRegistryStore,
 } from '../stores/model-registry-store';
+import {
+  __resetSettingsTestOverridesForTests,
+  __setSettingsTestOverridesForTests,
+} from '../testing/e2e-settings-test-overrides';
 
 // Mock @brainstrike/utils logger
 vi.mock('@brainstrike/utils', async (importOriginal) => {
@@ -51,6 +55,7 @@ const createMockModel = (overrides: Partial<DbModel> = {}): DbModel => ({
 describe('model-registry-store', () => {
   beforeEach(() => {
     __resetModelRegistryStoreForTests();
+    __resetSettingsTestOverridesForTests();
   });
 
   describe('initial state', () => {
@@ -193,6 +198,22 @@ describe('model-registry-store', () => {
       expect(useModelRegistryStore.getState().providers[0]?.name).toBe('OpenAI');
       expect(useModelRegistryStore.getState().models).toHaveLength(1);
       expect(useModelRegistryStore.getState().models[0]?.name).toBe('GPT-5.2');
+    });
+
+    it('surfaces a test override fetch error without querying the database', async () => {
+      __setSettingsTestOverridesForTests({
+        modelRegistry: { fetchErrorMessage: 'model registry failed in test' },
+      });
+
+      const mockDb = {
+        query: vi.fn(),
+      };
+
+      await useModelRegistryStore.getState().fetchRegistry(mockDb as never);
+
+      expect(mockDb.query).not.toHaveBeenCalled();
+      expect(useModelRegistryStore.getState().error).toBe('model registry failed in test');
+      expect(useModelRegistryStore.getState().hasLoaded).toBe(false);
     });
 
     it('parses JSON fields correctly', async () => {

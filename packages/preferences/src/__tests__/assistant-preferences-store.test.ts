@@ -10,6 +10,10 @@ import {
   __resetAssistantPreferencesStoreForTests,
   useAssistantPreferencesStore,
 } from '../stores/assistant-preferences-store';
+import {
+  __resetSettingsTestOverridesForTests,
+  __setSettingsTestOverridesForTests,
+} from '../testing/e2e-settings-test-overrides';
 
 type PersistApi<T> = T & {
   persist?: {
@@ -33,6 +37,7 @@ const storeWithPersist = useAssistantPreferencesStore as PersistApi<
 describe('assistant-preferences-store', () => {
   beforeEach(() => {
     __resetAssistantPreferencesStoreForTests();
+    __resetSettingsTestOverridesForTests();
     storeWithPersist.persist?.clearStorage?.();
     vi.restoreAllMocks();
     const secretTarget = window as Window & { secrets?: unknown };
@@ -218,6 +223,28 @@ describe('assistant-preferences-store', () => {
     expect(providers).toContain('local');
     expect(providers).toContain('ollama');
     expect(providers).toContain('lmstudio');
+  });
+
+  it('uses local runtime test overrides before probing services', async () => {
+    const probeSpy = vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime');
+    __setSettingsTestOverridesForTests({
+      localRuntime: {
+        statuses: {
+          ollama: {
+            state: 'blocked_web',
+            checkedAt: 111,
+            message: 'blocked for test',
+          },
+        },
+      },
+    });
+
+    const status = await useAssistantPreferencesStore.getState().getLocalRuntimeStatus('ollama', {
+      force: true,
+    });
+
+    expect(status.state).toBe('blocked_web');
+    expect(probeSpy).not.toHaveBeenCalled();
   });
 
   it('hides local runtime providers when localRuntimeEnabled is off, even if reachable', async () => {
