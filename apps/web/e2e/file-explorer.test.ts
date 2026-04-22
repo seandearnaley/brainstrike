@@ -120,7 +120,7 @@ test.describe('File Explorer', () => {
         (element) => element.getBoundingClientRect().width
       );
       expect(narrowedWidth).toBeLessThanOrEqual(initialWidth);
-      expect(narrowedWidth).toBeLessThanOrEqual(110);
+      expect(initialWidth - narrowedWidth).toBeGreaterThanOrEqual(40);
 
       await expect(page.getByRole('button', { name: 'Selection settings' })).toBeVisible();
       await expect(page.getByTestId('selection-count')).toBeVisible();
