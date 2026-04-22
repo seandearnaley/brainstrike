@@ -4,6 +4,8 @@ import { SettingsPage } from './page-objects/settings-page';
 import { resetAppState } from './utils/app-state';
 import { waitForAppLoad } from './utils/layout-helpers';
 
+const TOKEN_PREFERENCES_STORAGE_KEY = 'token-preferences.v1';
+
 async function openTokenCountingSettings(page: import('@playwright/test').Page): Promise<void> {
   const home = new HomePage(page);
   const settings = new SettingsPage(page);
@@ -61,15 +63,26 @@ test.describe('Factory Reset recovery (web)', () => {
     await expect(tokenToggle).toHaveAttribute('aria-checked', 'false');
 
     await settings.openCategory(/Factory Reset/i, 'factory-reset');
-    const mainFrame = page.mainFrame();
     await Promise.all([
       page.waitForEvent('dialog').then(async (dialog) => {
         await dialog.accept();
       }),
-      page.waitForEvent('framenavigated', { predicate: (frame) => frame === mainFrame }),
       page.getByTestId('factory-reset-button').click(),
     ]);
-    await page.waitForLoadState('load');
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(
+            (storageKey: string) => window.localStorage.getItem(storageKey),
+            TOKEN_PREFERENCES_STORAGE_KEY
+          ),
+        { message: 'expected factory reset to clear persisted token preferences' }
+      )
+      .toBeNull();
+
+    // Same-URL reloads are not guaranteed to surface a reliable framenavigated signal
+    // in Playwright here, so reload explicitly after the reset side effects land.
+    await page.reload({ waitUntil: 'load' });
     await waitForAppLoad(page);
     await openTokenCountingSettings(page);
 

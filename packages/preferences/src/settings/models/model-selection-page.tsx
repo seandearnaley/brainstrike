@@ -121,7 +121,6 @@ function applyCacheDirectorySelectionTestOverride(args: {
     }
   }
 }
-
 async function downloadLlmModel(
   model: DbModel,
   { modelCacheDir, setDownloadProgress, setDownloading, toast }: DownloadDeps
