@@ -837,6 +837,51 @@ describe('assistant-server', () => {
       expect(firstMemory).not.toBe(secondMemory);
     });
 
+    it('reuses desktop Mastra memory for semantically identical settings with different key order', async () => {
+      mockDesktopDatabase.exec.mockResolvedValue(undefined);
+      const memorySettingsA = {
+        observationalMemory: {
+          enabled: true,
+          modelTarget: 'openai/gpt-5.2',
+          scope: 'thread',
+          messageTokens: 10_000,
+          observationTokens: 20_000,
+          retrievalMode: 'off',
+        },
+        semanticRecall: {
+          enabled: false,
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          scope: 'resource',
+          topK: 3,
+          messageRange: 1,
+        },
+      };
+      const memorySettingsB = {
+        semanticRecall: {
+          messageRange: 1,
+          topK: 3,
+          scope: 'resource',
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          enabled: false,
+        },
+        observationalMemory: {
+          retrievalMode: 'off',
+          observationTokens: 20_000,
+          messageTokens: 10_000,
+          scope: 'thread',
+          modelTarget: 'openai/gpt-5.2',
+          enabled: true,
+        },
+      };
+
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+      const firstMemory = await getDesktopMastraMemoryForTests(memorySettingsA);
+      const secondMemory = await getDesktopMastraMemoryForTests(memorySettingsB);
+
+      expect(firstMemory).toBe(secondMemory);
+      expect(createPgliteMastraMemory).toHaveBeenCalledTimes(1);
+    });
+
     it('marks assistant thread runs completed after desktop streams finish', async () => {
       const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
       const { streamResponse } = await import('../assistant-server/http');

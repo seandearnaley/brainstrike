@@ -519,6 +519,58 @@ describe('createLocalModelAdapter', () => {
     });
   });
 
+  it('waits for in-flight local generation before completing backend disposal', async () => {
+    const generationResolvers: Array<(value: LocalLlmGenerationResult) => void> = [];
+    const warmup = vi.fn().mockResolvedValue(undefined);
+    const generate = vi.fn().mockImplementation(
+      async () =>
+        await new Promise<LocalLlmGenerationResult>((resolve) => {
+          generationResolvers.push(resolve);
+        })
+    );
+
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        warmup,
+        generate,
+        onProgress: vi.fn(() => () => {}),
+        onStatus: vi.fn(() => () => {}),
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+    });
+
+    const firstRun = collectRun(adapter.run(createRunOptions()));
+    await vi.waitFor(() => {
+      expect(generate).toHaveBeenCalledTimes(1);
+    });
+
+    const disposal = disposeLocalBackend();
+    let disposalResolved = false;
+    disposal.then(() => {
+      disposalResolved = true;
+    });
+    const secondRun = collectRun(adapter.run(createRunOptions()));
+    await Promise.resolve();
+
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(disposalResolved).toBe(false);
+
+    generationResolvers[0]?.(createGenerationResult({ text: 'First response.' }));
+    await firstRun;
+    await disposal;
+
+    await vi.waitFor(() => {
+      expect(generate).toHaveBeenCalledTimes(2);
+    });
+    generationResolvers[1]?.(createGenerationResult({ text: 'Second response.' }));
+    await expect(secondRun).resolves.toContainEqual({
+      content: expect.arrayContaining([{ type: 'text', text: 'Second response.' }]),
+    });
+  });
+
   it('does not cancel a shared warmup when only a joiner aborts', async () => {
     let resolveWarmup: VoidFunction | undefined;
     const warmup = vi.fn().mockImplementation(

@@ -573,6 +573,9 @@ async function withBackendStateLock<T>(operation: () => Promise<T>): Promise<T> 
 }
 
 function acquireLocalGenerationSlot(): (() => void) | Promise<() => void> {
+  if (disposalState.inProgress && disposalState.promise) {
+    return disposalState.promise.then(() => acquireLocalGenerationSlot());
+  }
   const previousQueue = localGenerationQueue;
   let releaseSlot!: () => void;
   const currentSlot = new Promise<void>((resolve) => {
@@ -1074,7 +1077,6 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
  * - If getBackend() is called during disposal, it waits for disposal to complete
  */
 export async function disposeLocalBackend(): Promise<void> {
-  localGenerationQueue = null;
   // Prevent re-entry if disposal is already in progress
   if (disposalState.inProgress) {
     // Wait for existing disposal to complete
@@ -1087,10 +1089,17 @@ export async function disposeLocalBackend(): Promise<void> {
   // Signal disposal is starting
   disposalState.requested = true;
   disposalState.inProgress = true;
+  const pendingGenerationQueue = localGenerationQueue;
 
   // Create a promise that callers can wait on
   disposalState.promise = (async () => {
     try {
+      if (pendingGenerationQueue) {
+        await pendingGenerationQueue;
+        if (localGenerationQueue === pendingGenerationQueue) {
+          localGenerationQueue = null;
+        }
+      }
       // Wait for any pending initialization to complete before disposing
       if (backendInstancePromise) {
         try {

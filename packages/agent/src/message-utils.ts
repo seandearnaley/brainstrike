@@ -220,8 +220,11 @@ export async function toAiSdkStyleStream(
 function selectCurrentTurnMessages(messages: AgentMessage[]): AgentMessage[] {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index]?.role === 'user') {
-      return messages.slice(index);
+      const systemMessages = messages
+        .slice(0, index)
+        .filter((message) => message.role === 'system');
+      return [...systemMessages, ...messages.slice(index)];
     }
   }
-  return messages.slice(-1);
+  throw new Error('Mastra memory requires a current user message');
 }

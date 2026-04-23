@@ -272,6 +272,50 @@ describe('PgliteMemoryStore', () => {
     expect(history.map((record) => record.id)).toEqual([created.id]);
   });
 
+  it('deletes thread messages and observational memory atomically with the thread', async () => {
+    await store.saveThread({
+      thread: {
+        id: 'thread-delete',
+        resourceId: 'workspace-a',
+        title: 'Delete me',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+    await store.saveMessages({
+      messages: [
+        {
+          id: 'message-delete',
+          threadId: 'thread-delete',
+          resourceId: 'workspace-a',
+          role: 'user',
+          type: 'text',
+          content: { content: 'Delete this conversation.' },
+          createdAt: new Date('2026-04-22T10:00:01Z'),
+        } as MastraDBMessage,
+      ],
+    });
+    const observation = await store.initializeObservationalMemory({
+      threadId: 'thread-delete',
+      resourceId: 'workspace-a',
+      scope: 'thread',
+      config: {},
+    });
+
+    await store.deleteThread({ threadId: 'thread-delete' });
+
+    await expect(store.getThreadById({ threadId: 'thread-delete' })).resolves.toBeNull();
+    await expect(store.listMessages({ threadId: 'thread-delete' })).resolves.toMatchObject({
+      messages: [],
+      total: 0,
+    });
+    const orphanedObservations = await db.query<{ count: string }>(
+      'SELECT COUNT(*)::text AS count FROM mastra_observational_memory WHERE id = $1',
+      [observation.id]
+    );
+    expect(orphanedObservations.rows[0]?.count).toBe('0');
+  });
+
   it('updates observational memory flags with targeted update statements', async () => {
     const created = await store.initializeObservationalMemory({
       threadId: 'thread-1',

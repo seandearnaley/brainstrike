@@ -508,13 +508,20 @@ export function createPgliteAssistantThreadRepository(
     },
     async deleteThread(threadId: string): Promise<void> {
       await initialize();
-      await database.query(`DELETE FROM ${ASSISTANT_THREAD_RUNS_TABLE} WHERE thread_id = $1`, [
-        threadId,
-      ]);
-      await database.query(`DELETE FROM ${MASTRA_MEMORY_TABLES.messages} WHERE thread_id = $1`, [
-        threadId,
-      ]);
-      await database.query(`DELETE FROM ${MASTRA_MEMORY_TABLES.threads} WHERE id = $1`, [threadId]);
+      await runTransaction(database, async (tx) => {
+        await tx.query(
+          `DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
+           WHERE "threadId" = $1 OR "lookupKey" = $2`,
+          [threadId, `thread:${threadId}`]
+        );
+        await tx.query(`DELETE FROM ${ASSISTANT_THREAD_RUNS_TABLE} WHERE thread_id = $1`, [
+          threadId,
+        ]);
+        await tx.query(`DELETE FROM ${MASTRA_MEMORY_TABLES.messages} WHERE thread_id = $1`, [
+          threadId,
+        ]);
+        await tx.query(`DELETE FROM ${MASTRA_MEMORY_TABLES.threads} WHERE id = $1`, [threadId]);
+      });
     },
     async listMessages(
       threadId: string,
@@ -608,4 +615,19 @@ export function createAssistantThreadHistoryAdapter({
       // only to avoid duplicate message rows with client-generated IDs.
     },
   };
+}
+
+interface TransactionalDbHandle extends DbHandle {
+  transaction?: <T>(fn: (tx: Pick<DbHandle, 'query'>) => Promise<T>) => Promise<T>;
+}
+
+async function runTransaction<T>(
+  database: DbHandle,
+  operation: (tx: Pick<DbHandle, 'query'>) => Promise<T>
+): Promise<T> {
+  const transaction = (database as TransactionalDbHandle).transaction;
+  if (typeof transaction !== 'function') {
+    throw new Error('Assistant thread repository requires PGlite transaction support');
+  }
+  return (await transaction.call(database, operation)) as T;
 }

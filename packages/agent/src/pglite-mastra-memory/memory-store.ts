@@ -519,12 +519,17 @@ export class PgliteMemoryStore extends MemoryStorage {
   }
 
   override async deleteThread({ threadId }: { threadId: string }): Promise<void> {
-    await this.database.query(`DELETE FROM ${MASTRA_MEMORY_TABLES.messages} WHERE thread_id = $1`, [
-      threadId,
-    ]);
-    await this.database.query(`DELETE FROM ${MASTRA_MEMORY_TABLES.threads} WHERE id = $1`, [
-      threadId,
-    ]);
+    await runTransaction(this.database, async (tx) => {
+      await tx.query(
+        `DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
+         WHERE "threadId" = $1 OR "lookupKey" = $2`,
+        [threadId, `thread:${threadId}`]
+      );
+      await tx.query(`DELETE FROM ${MASTRA_MEMORY_TABLES.messages} WHERE thread_id = $1`, [
+        threadId,
+      ]);
+      await tx.query(`DELETE FROM ${MASTRA_MEMORY_TABLES.threads} WHERE id = $1`, [threadId]);
+    });
   }
 
   override async listThreads(args: StorageListThreadsInput): Promise<StorageListThreadsOutput> {
@@ -1263,4 +1268,14 @@ export class PgliteMemoryStore extends MemoryStorage {
       throw new Error(`Observational memory record not found: ${id}`);
     }
   }
+}
+
+async function runTransaction<T>(
+  database: PgliteDatabase,
+  operation: (tx: PgliteDatabase) => Promise<T>
+): Promise<T> {
+  if (typeof database.transaction !== 'function') {
+    throw new Error('PGlite memory store requires transaction support');
+  }
+  return database.transaction(operation);
 }

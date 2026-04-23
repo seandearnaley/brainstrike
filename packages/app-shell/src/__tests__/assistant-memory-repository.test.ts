@@ -236,6 +236,25 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     expect(db.exec).toHaveBeenCalledTimes(2);
   });
 
+  it('deletes thread-owned rows in a transaction including observational memory', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await repository.deleteThread('thread-1');
+
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM mastra_observational_memory'),
+      ['thread-1', 'thread:thread-1']
+    );
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM mastra_messages'), [
+      'thread-1',
+    ]);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM mastra_threads'), [
+      'thread-1',
+    ]);
+  });
+
   it('reuses the same repository instance for a shared database handle', async () => {
     const db = createMockDb();
     const repositoryA = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
@@ -269,9 +288,22 @@ function createMockDb(): {
   query: ReturnType<
     typeof vi.fn<(sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>>
   >;
+  transaction: ReturnType<
+    typeof vi.fn<
+      <T>(
+        fn: (tx: {
+          query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+        }) => Promise<T>
+      ) => Promise<T>
+    >
+  >;
 } {
-  return {
+  const db = {
     exec: vi.fn(async () => undefined),
     query: vi.fn(async () => ({ rows: [] })),
+  };
+  return {
+    ...db,
+    transaction: vi.fn(async (fn) => await fn(db)),
   };
 }

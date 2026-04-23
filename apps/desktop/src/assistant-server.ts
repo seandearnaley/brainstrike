@@ -867,7 +867,7 @@ async function initializeAgentStream(
 async function getDesktopMastraMemory(
   memorySettings: RuntimeAssistantMemorySettings | undefined
 ): Promise<import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult> {
-  const cacheKey = JSON.stringify(memorySettings ?? null);
+  const cacheKey = stableJsonStringify(memorySettings ?? null);
   const cachedPromise = desktopMastraMemoryPromises.get(cacheKey);
   if (cachedPromise) {
     return cachedPromise;
@@ -887,6 +887,24 @@ async function getDesktopMastraMemory(
     }
   });
   return memoryPromise;
+}
+
+function stableJsonStringify(value: unknown): string {
+  return JSON.stringify(sortJsonValue(value));
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sortJsonValue(item));
+  }
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => [key, sortJsonValue(nested)])
+  );
 }
 
 export function resetDesktopMastraMemoryCacheForTests(): void {

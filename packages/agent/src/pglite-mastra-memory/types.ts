@@ -21,4 +21,5 @@ export interface PgliteDatabase {
     query: string,
     values?: PgliteQueryValues
   ): Promise<PgliteQueryResult<TRecord>>;
+  transaction?<T>(fn: (tx: PgliteDatabase) => Promise<T>): Promise<T>;
 }

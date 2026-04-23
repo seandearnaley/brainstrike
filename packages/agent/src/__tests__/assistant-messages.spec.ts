@@ -190,4 +190,45 @@ describe('toAiSdkStyleStream', () => {
     const [passedMessages] = streamMastraAgentMock.mock.calls[0] as unknown as [AgentMessage[]];
     expect(passedMessages).toEqual(messages.slice(2));
   });
+
+  it('preserves system context while trimming history when Mastra memory is active', async () => {
+    const asyncStream = (async function* () {
+      /* noop */
+    })();
+    streamMastraAgentMock.mockResolvedValue(asyncStream);
+    const messages: AgentMessage[] = [
+      { id: 'system-1', role: 'system', parts: [{ type: 'text', text: 'Use workspace context.' }] },
+      { id: '1', role: 'user', parts: [{ type: 'text', text: 'old question' }] },
+      { id: '2', role: 'assistant', parts: [{ type: 'text', text: 'old answer' }] },
+      { id: '3', role: 'user', parts: [{ type: 'text', text: 'current question' }] },
+    ];
+
+    await toAiSdkStyleStream(messages, {
+      memory: {
+        threadId: 'thread-1',
+        resourceId: 'workspace-a',
+      },
+    });
+
+    expect(streamMastraAgentMock).toHaveBeenCalledTimes(1);
+    const [passedMessages] = streamMastraAgentMock.mock.calls[0] as unknown as [AgentMessage[]];
+    expect(passedMessages).toEqual([messages[0], messages[3]]);
+  });
+
+  it('rejects memory-backed streams without a user turn', async () => {
+    const messages: AgentMessage[] = [
+      { id: 'system-1', role: 'system', parts: [{ type: 'text', text: 'Use context.' }] },
+      { id: 'assistant-1', role: 'assistant', parts: [{ type: 'text', text: 'No prompt.' }] },
+    ];
+
+    await expect(
+      toAiSdkStyleStream(messages, {
+        memory: {
+          threadId: 'thread-1',
+          resourceId: 'workspace-a',
+        },
+      })
+    ).rejects.toThrow('Mastra memory requires a current user message');
+    expect(streamMastraAgentMock).not.toHaveBeenCalled();
+  });
 });
