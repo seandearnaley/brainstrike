@@ -36,6 +36,9 @@
       "@brainstrike/agent/local-llm": [
         "../../packages/agent/dist/local-llm.d.ts"
       ],
+      "@brainstrike/agent/pglite-mastra-memory": [
+        "../../packages/agent/dist/pglite-mastra-memory/index.d.ts"
+      ],
       "@brainstrike/storage/electron": [
         "../../packages/storage/dist/electron.d.ts"
       ],

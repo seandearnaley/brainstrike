@@ -63,8 +63,25 @@ vi.mock('@brainstrike/agent', () => ({
     ['openai', 'anthropic', 'google', 'openrouter'].includes(provider),
 }));
 
+const mockPgliteMastraMemory = { id: 'desktop-memory' };
+
+vi.mock('@brainstrike/agent/pglite-mastra-memory', () => ({
+  createPgliteMastraMemory: vi.fn(() =>
+    Promise.resolve({
+      memory: mockPgliteMastraMemory,
+      storage: {},
+      store: {},
+      vector: {},
+    })
+  ),
+}));
+
 vi.mock('../assistant-server/assistant-tools', () => ({
   buildDesktopAssistantTools: vi.fn(() => ({})),
+}));
+
+vi.mock('../db-main', () => ({
+  getDatabase: vi.fn(() => Promise.resolve({ query: vi.fn(), exec: vi.fn() })),
 }));
 
 describe('assistant-server', () => {
@@ -616,6 +633,52 @@ describe('assistant-server', () => {
           },
         ],
       });
+    });
+
+    it('initializes PGlite Mastra memory when memory runtime context is present', async () => {
+      const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+      const { getDatabase } = await import('../db-main');
+      const { streamResponse } = await import('../assistant-server/http');
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text', content: 'Response' };
+        },
+      });
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: {
+            provider: 'openai',
+            memory: { threadId: 'thread-1', resourceId: 'workspace-a' },
+          },
+        }),
+      });
+
+      expect(getDatabase).toHaveBeenCalledTimes(1);
+      expect(createPgliteMastraMemory).toHaveBeenCalledWith({
+        database: expect.anything(),
+        semanticRecall: false,
+      });
+      expect(toAiSdkStyleStream).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.objectContaining({
+          memory: { threadId: 'thread-1', resourceId: 'workspace-a' },
+        }),
+        { memory: mockPgliteMastraMemory }
+      );
     });
 
     it('should handle stream initialization failure', async () => {

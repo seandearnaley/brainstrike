@@ -196,9 +196,10 @@ export function convertAssistantUiMessages(
 // Adapter to Vercel AI SDK v5 style data stream if needed by routes
 export async function toAiSdkStyleStream(
   messages: AgentMessage[],
-  runtime?: RuntimeData
+  runtime?: RuntimeData,
+  optionsOverride: Pick<MastraAgentRuntimeOptions, 'memory'> = {}
 ): Promise<StreamIterator> {
-  const options: MastraAgentRuntimeOptions = {};
+  const options: MastraAgentRuntimeOptions = { ...optionsOverride };
   if (runtime) {
     options.runtime = runtime;
   }

@@ -50,6 +50,9 @@ import {
 
 const logger = createLogger('DesktopAssistantServer');
 export const desktopAssistantServerLogger = logger;
+let desktopMastraMemoryPromise: Promise<
+  import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult
+> | null = null;
 
 const MAX_CONTEXT_FILES = 80;
 const MAX_FILE_CONTEXT_CHARS = 3500;
@@ -767,7 +770,12 @@ async function initializeAgentStream(
 
   try {
     const messagesWithContext = await prependContextMessageIfNeeded(messages, runtimeData);
-    const stream = await toAiSdkStyleStream(messagesWithContext, runtime);
+    const memoryResult = runtime.memory ? await getDesktopMastraMemory() : undefined;
+    const stream = await toAiSdkStyleStream(
+      messagesWithContext,
+      runtime,
+      memoryResult ? { memory: memoryResult.memory } : {}
+    );
     logger.info('Assistant stream initialized');
     return { ok: true, stream };
   } catch (error) {
@@ -779,4 +787,21 @@ async function initializeAgentStream(
       payload: { error: 'agent_stream_init_failed', message },
     };
   }
+}
+
+async function getDesktopMastraMemory(): Promise<
+  import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult
+> {
+  if (desktopMastraMemoryPromise) {
+    return desktopMastraMemoryPromise;
+  }
+  desktopMastraMemoryPromise = (async () => {
+    const database = await getDatabase();
+    const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+    return createPgliteMastraMemory({
+      database,
+      semanticRecall: false,
+    });
+  })();
+  return desktopMastraMemoryPromise;
 }
