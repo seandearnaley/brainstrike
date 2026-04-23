@@ -13,15 +13,20 @@ type AssistantThreadLoadState =
   | { readonly error: string; readonly status: 'error' };
 
 interface AssistantThreadState {
+  activeThreadIdByResourceId: Record<string, string>;
+  closeThreadTab: (resourceId: string, threadId: string) => void;
   createThread: (
     repository: AssistantThreadRepository,
     resourceId: string
   ) => Promise<AssistantMemoryThread>;
+  draftRuntimeByThreadId: Record<string, AssistantThreadDraftRuntime>;
   ensureResourceThreads: (
     repository: AssistantThreadRepository,
     resourceId: string
   ) => Promise<void>;
   loadStateByResourceId: Record<string, AssistantThreadLoadState>;
+  openThreadIdsByResourceId: Record<string, string[]>;
+  openThreadTab: (resourceId: string, threadId: string) => void;
   renameThread: (
     repository: AssistantThreadRepository,
     resourceId: string,
@@ -30,6 +35,7 @@ interface AssistantThreadState {
   ) => Promise<void>;
   selectedThreadByResourceId: Record<string, string>;
   selectThread: (resourceId: string, threadId: string) => void;
+  setThreadDraftRuntime: (threadId: string, config: AssistantThreadDraftRuntime) => void;
   threadIdsByResourceId: Record<string, string[]>;
   threadsByResourceId: Record<string, AssistantMemoryThread[]>;
   updateThreadMetadata: (
@@ -38,6 +44,14 @@ interface AssistantThreadState {
     threadId: string,
     metadata: AssistantThreadMetadata
   ) => Promise<void>;
+}
+
+export interface AssistantThreadDraftRuntime {
+  readonly model?: string;
+  readonly modelSettings?: Record<string, unknown>;
+  readonly provider?: string;
+  readonly providerOptions?: Record<string, unknown>;
+  readonly runtimeKind?: 'browser' | 'gateway' | 'hosted' | 'local';
 }
 
 function serializeThread(thread: AssistantMemoryThread): AssistantMemoryThread {
@@ -66,13 +80,93 @@ function selectExistingThread(
   return threads[0]?.id;
 }
 
+function openThreadIds(
+  currentOpenThreadIds: readonly string[] | undefined,
+  threadId: string
+): string[] {
+  if (!currentOpenThreadIds) {
+    return [threadId];
+  }
+  if (currentOpenThreadIds.includes(threadId)) {
+    return [...currentOpenThreadIds];
+  }
+  return [...currentOpenThreadIds, threadId];
+}
+
+function reconcileOpenThreadIds(
+  currentOpenThreadIds: readonly string[] | undefined,
+  loadedThreadIds: ReadonlySet<string>,
+  selectedThreadId: string | undefined
+): string[] {
+  const openIds = (currentOpenThreadIds ?? []).filter((threadId) => loadedThreadIds.has(threadId));
+  if (selectedThreadId && !openIds.includes(selectedThreadId)) {
+    openIds.push(selectedThreadId);
+  }
+  return openIds;
+}
+
+function selectActiveThreadAfterClose(
+  currentOpenThreadIds: readonly string[],
+  closingThreadId: string
+): string | undefined {
+  const closingIndex = currentOpenThreadIds.indexOf(closingThreadId);
+  const remainingThreadIds = currentOpenThreadIds.filter(
+    (threadId) => threadId !== closingThreadId
+  );
+  if (remainingThreadIds.length === 0) {
+    return;
+  }
+  const nextIndex = closingIndex > 0 ? closingIndex - 1 : 0;
+  return remainingThreadIds[nextIndex] ?? remainingThreadIds.at(-1);
+}
+
 export const useAssistantThreadStore = create<AssistantThreadState>()(
   persist(
     (set, get) => ({
+      activeThreadIdByResourceId: {},
+      draftRuntimeByThreadId: {},
       loadStateByResourceId: {},
+      openThreadIdsByResourceId: {},
       selectedThreadByResourceId: {},
       threadIdsByResourceId: {},
       threadsByResourceId: {},
+      closeThreadTab: (resourceId: string, threadId: string) => {
+        set((state) => {
+          const currentOpenThreadIds = state.openThreadIdsByResourceId[resourceId] ?? [];
+          const nextOpenThreadIds = currentOpenThreadIds.filter((item) => item !== threadId);
+          const wasActive = state.activeThreadIdByResourceId[resourceId] === threadId;
+          const nextActiveThreadId = wasActive
+            ? selectActiveThreadAfterClose(currentOpenThreadIds, threadId)
+            : state.activeThreadIdByResourceId[resourceId];
+
+          return {
+            activeThreadIdByResourceId: nextActiveThreadId
+              ? {
+                  ...state.activeThreadIdByResourceId,
+                  [resourceId]: nextActiveThreadId,
+                }
+              : Object.fromEntries(
+                  Object.entries(state.activeThreadIdByResourceId).filter(
+                    ([key]) => key !== resourceId
+                  )
+                ),
+            openThreadIdsByResourceId: {
+              ...state.openThreadIdsByResourceId,
+              [resourceId]: nextOpenThreadIds,
+            },
+            selectedThreadByResourceId: nextActiveThreadId
+              ? {
+                  ...state.selectedThreadByResourceId,
+                  [resourceId]: nextActiveThreadId,
+                }
+              : Object.fromEntries(
+                  Object.entries(state.selectedThreadByResourceId).filter(
+                    ([key]) => key !== resourceId
+                  )
+                ),
+          };
+        });
+      },
       createThread: async (repository: AssistantThreadRepository, resourceId: string) => {
         set((state) => ({
           loadStateByResourceId: {
@@ -88,6 +182,14 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
               loadStateByResourceId: {
                 ...state.loadStateByResourceId,
                 [resourceId]: { status: 'ready' },
+              },
+              activeThreadIdByResourceId: {
+                ...state.activeThreadIdByResourceId,
+                [resourceId]: thread.id,
+              },
+              openThreadIdsByResourceId: {
+                ...state.openThreadIdsByResourceId,
+                [resourceId]: openThreadIds(state.openThreadIdsByResourceId[resourceId], thread.id),
               },
               selectedThreadByResourceId: {
                 ...state.selectedThreadByResourceId,
@@ -137,14 +239,30 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
               ? loadedThreads
               : [serializeThread(await repository.createThread(resourceId))];
           const selectedThreadId = selectExistingThread(
-            get().selectedThreadByResourceId[resourceId],
+            get().activeThreadIdByResourceId[resourceId] ??
+              get().selectedThreadByResourceId[resourceId],
             threads
           );
+          const loadedThreadIds = new Set(threads.map((thread) => thread.id));
 
           set((state) => ({
+            activeThreadIdByResourceId: selectedThreadId
+              ? {
+                  ...state.activeThreadIdByResourceId,
+                  [resourceId]: selectedThreadId,
+                }
+              : state.activeThreadIdByResourceId,
             loadStateByResourceId: {
               ...state.loadStateByResourceId,
               [resourceId]: { status: 'ready' },
+            },
+            openThreadIdsByResourceId: {
+              ...state.openThreadIdsByResourceId,
+              [resourceId]: reconcileOpenThreadIds(
+                state.openThreadIdsByResourceId[resourceId],
+                loadedThreadIds,
+                selectedThreadId
+              ),
             },
             selectedThreadByResourceId: selectedThreadId
               ? {
@@ -172,11 +290,34 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           throw error;
         }
       },
-      selectThread: (resourceId: string, threadId: string) => {
+      openThreadTab: (resourceId: string, threadId: string) => {
         set((state) => ({
+          activeThreadIdByResourceId: {
+            ...state.activeThreadIdByResourceId,
+            [resourceId]: threadId,
+          },
+          openThreadIdsByResourceId: {
+            ...state.openThreadIdsByResourceId,
+            [resourceId]: openThreadIds(state.openThreadIdsByResourceId[resourceId], threadId),
+          },
           selectedThreadByResourceId: {
             ...state.selectedThreadByResourceId,
             [resourceId]: threadId,
+          },
+        }));
+      },
+      selectThread: (resourceId: string, threadId: string) => {
+        get().openThreadTab(resourceId, threadId);
+      },
+      setThreadDraftRuntime: (threadId: string, config: AssistantThreadDraftRuntime) => {
+        set((state) => ({
+          draftRuntimeByThreadId: {
+            ...state.draftRuntimeByThreadId,
+            [threadId]: {
+              ...config,
+              ...(config.modelSettings ? { modelSettings: { ...config.modelSettings } } : {}),
+              ...(config.providerOptions ? { providerOptions: { ...config.providerOptions } } : {}),
+            },
           },
         }));
       },
@@ -247,9 +388,12 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
     {
       name: 'brainstrike-assistant-threads-v1',
       partialize: (state) => ({
+        activeThreadIdByResourceId: state.activeThreadIdByResourceId,
+        draftRuntimeByThreadId: state.draftRuntimeByThreadId,
+        openThreadIdsByResourceId: state.openThreadIdsByResourceId,
         selectedThreadByResourceId: state.selectedThreadByResourceId,
       }),
-      version: 2,
+      version: 3,
     }
   )
 );
