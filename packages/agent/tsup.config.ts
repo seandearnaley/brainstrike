@@ -10,6 +10,7 @@ export default defineConfig((_options) => ({
     'src/provider-metadata.ts',
     'src/local-runtime.ts',
     'src/context-packer.ts',
+    'src/pglite-mastra-memory/index.ts',
   ],
   format: ['esm', 'cjs'],
   dts: {
@@ -22,6 +23,7 @@ export default defineConfig((_options) => ({
       'src/provider-metadata.ts',
       'src/local-runtime.ts',
       'src/context-packer.ts',
+      'src/pglite-mastra-memory/index.ts',
     ],
     compilerOptions: {
       composite: false,
@@ -34,5 +36,11 @@ export default defineConfig((_options) => ({
   clean: false,
   sourcemap: false,
   splitting: false,
-  external: ['@brainstrike/types', '@mastra/core', '@mastra/mcp'],
+  external: [
+    '@brainstrike/types',
+    '@electric-sql/pglite',
+    '@mastra/core',
+    '@mastra/mcp',
+    '@mastra/memory',
+  ],
 }));
