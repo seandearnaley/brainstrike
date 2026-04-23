@@ -1,5 +1,5 @@
 import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
-import { FileExplorerErrorBoundary, FileExplorerHeader } from '@brainstrike/file-explorer-ui';
+import { FileExplorerErrorBoundary } from '@brainstrike/file-explorer-ui';
 import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
@@ -223,9 +223,8 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
   return (
     <FileExplorerErrorBoundary>
       <div className="flex h-full flex-col overflow-hidden">
-        <FileExplorerHeader />
         <div className="flex flex-1 flex-col overflow-hidden">
-          <div className="flex-1 overflow-hidden border-t bg-card/50 md:border-t-0 md:border-l">
+          <div className="flex-1 overflow-hidden bg-card/50">
             <PreviewPanel
               decodeFileSelection={decodeFileSelection}
               {...(estimateTokenCost ? { estimateTokenCost } : {})}

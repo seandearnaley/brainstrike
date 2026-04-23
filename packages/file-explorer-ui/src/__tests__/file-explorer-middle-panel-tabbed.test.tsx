@@ -423,9 +423,8 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     expect(mainContainer).toBeInTheDocument();
 
     // Check for content area with proper styling
-    const contentArea = container.querySelector('.flex-1.overflow-hidden.border-t');
+    const contentArea = container.querySelector('.flex-1.overflow-hidden.bg-card\\/50');
     expect(contentArea).toBeInTheDocument();
-    expect(contentArea).toHaveClass('bg-card/50');
   });
 
   it('should render inside error boundary', async () => {
