@@ -116,6 +116,9 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_thread_runs_status_idx
   ON ${ASSISTANT_THREAD_RUNS_TABLE} (status);
 `;
 
+const assistantThreadRepositoryCache = new WeakMap<DbHandle, AssistantThreadRepository>();
+const assistantThreadSchemaInitPromises = new WeakMap<DbHandle, Promise<void>>();
+
 function assertMemoryDatabase(database: DbHandle): asserts database is DbHandle & {
   exec: NonNullable<DbHandle['exec']>;
 } {
@@ -362,16 +365,22 @@ export function createPgliteAssistantThreadRepository(
   database: DbHandle
 ): AssistantThreadRepository {
   assertMemoryDatabase(database);
-
-  let initPromise: Promise<void> | null = null;
+  const cachedRepository = assistantThreadRepositoryCache.get(database);
+  if (cachedRepository) {
+    return cachedRepository;
+  }
   const initialize = async (): Promise<void> => {
-    initPromise ??= database
-      .exec(ASSISTANT_THREAD_RUNS_SCHEMA_SQL)
-      .then(() => undefined)
-      .catch((error: unknown) => {
-        initPromise = null;
-        throw error;
-      });
+    let initPromise = assistantThreadSchemaInitPromises.get(database);
+    if (!initPromise) {
+      initPromise = database
+        .exec(ASSISTANT_THREAD_RUNS_SCHEMA_SQL)
+        .then(() => undefined)
+        .catch((error: unknown) => {
+          assistantThreadSchemaInitPromises.delete(database);
+          throw error;
+        });
+      assistantThreadSchemaInitPromises.set(database, initPromise);
+    }
     await initPromise;
   };
 
@@ -403,7 +412,7 @@ export function createPgliteAssistantThreadRepository(
     return result.rows.map(toThreadRunRecord);
   };
 
-  return {
+  const repository: AssistantThreadRepository = {
     async completeThreadRun(runId: string, input: CompleteAssistantThreadRunInput): Promise<void> {
       await initialize();
       await database.query(
@@ -576,6 +585,8 @@ export function createPgliteAssistantThreadRepository(
       );
     },
   };
+  assistantThreadRepositoryCache.set(database, repository);
+  return repository;
 }
 
 export function createAssistantThreadHistoryAdapter({

@@ -235,6 +235,33 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     });
     expect(db.exec).toHaveBeenCalledTimes(2);
   });
+
+  it('reuses the same repository instance for a shared database handle', async () => {
+    const db = createMockDb();
+    const repositoryA = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+    const repositoryB = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    expect(repositoryA).toBe(repositoryB);
+
+    await repositoryA.createThreadRun({
+      id: 'run-1',
+      resourceId: '/tmp/workspace-a',
+      threadId: 'thread-1',
+      provider: 'openai',
+      model: 'gpt-5.2',
+      runtimeKind: 'hosted',
+    });
+    await repositoryB.createThreadRun({
+      id: 'run-2',
+      resourceId: '/tmp/workspace-a',
+      threadId: 'thread-2',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      runtimeKind: 'hosted',
+    });
+
+    expect(db.exec).toHaveBeenCalledTimes(1);
+  });
 });
 
 function createMockDb(): {

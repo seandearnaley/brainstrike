@@ -1040,17 +1040,11 @@ export class PgliteMemoryStore extends MemoryStorage {
   }
 
   override async setReflectingFlag(id: string, isReflecting: boolean): Promise<void> {
-    const record = await this.findObservationalMemoryRecordById(id);
-    record.isReflecting = isReflecting;
-    record.updatedAt = new Date();
-    await this.saveObservationalMemoryRecord(record);
+    await this.updateObservationalMemoryColumns(id, [['"isReflecting"', isReflecting]]);
   }
 
   override async setObservingFlag(id: string, isObserving: boolean): Promise<void> {
-    const record = await this.findObservationalMemoryRecordById(id);
-    record.isObserving = isObserving;
-    record.updatedAt = new Date();
-    await this.saveObservationalMemoryRecord(record);
+    await this.updateObservationalMemoryColumns(id, [['"isObserving"', isObserving]]);
   }
 
   override async setBufferingObservationFlag(
@@ -1058,20 +1052,15 @@ export class PgliteMemoryStore extends MemoryStorage {
     isBuffering: boolean,
     lastBufferedAtTokens?: number
   ): Promise<void> {
-    const record = await this.findObservationalMemoryRecordById(id);
-    record.isBufferingObservation = isBuffering;
+    const updates: [string, PgliteQueryValue][] = [['"isBufferingObservation"', isBuffering]];
     if (lastBufferedAtTokens !== undefined) {
-      record.lastBufferedAtTokens = lastBufferedAtTokens;
+      updates.push(['"lastBufferedAtTokens"', lastBufferedAtTokens]);
     }
-    record.updatedAt = new Date();
-    await this.saveObservationalMemoryRecord(record);
+    await this.updateObservationalMemoryColumns(id, updates);
   }
 
   override async setBufferingReflectionFlag(id: string, isBuffering: boolean): Promise<void> {
-    const record = await this.findObservationalMemoryRecordById(id);
-    record.isBufferingReflection = isBuffering;
-    record.updatedAt = new Date();
-    await this.saveObservationalMemoryRecord(record);
+    await this.updateObservationalMemoryColumns(id, [['"isBufferingReflection"', isBuffering]]);
   }
 
   override async clearObservationalMemory(
@@ -1085,10 +1074,7 @@ export class PgliteMemoryStore extends MemoryStorage {
   }
 
   override async setPendingMessageTokens(id: string, tokenCount: number): Promise<void> {
-    const record = await this.findObservationalMemoryRecordById(id);
-    record.pendingMessageTokens = tokenCount;
-    record.updatedAt = new Date();
-    await this.saveObservationalMemoryRecord(record);
+    await this.updateObservationalMemoryColumns(id, [['"pendingMessageTokens"', tokenCount]]);
   }
 
   override async updateObservationalMemoryConfig(
@@ -1251,5 +1237,29 @@ export class PgliteMemoryStore extends MemoryStorage {
         record.updatedAt,
       ]
     );
+  }
+
+  private async updateObservationalMemoryColumns(
+    id: string,
+    updates: [string, PgliteQueryValue][]
+  ): Promise<void> {
+    const now = new Date();
+    const values: PgliteQueryValue[] = [id];
+    const setClauses = updates.map(([column, value]) => {
+      values.push(value);
+      return `${column} = $${values.length}`;
+    });
+    values.push(now);
+    const updatedAtParam = values.length;
+    const result = await this.database.query<{ id: string }>(
+      `UPDATE ${MASTRA_MEMORY_TABLES.observationalMemory}
+       SET ${setClauses.join(', ')}, "updatedAt" = $${updatedAtParam}
+       WHERE id = $1
+       RETURNING id`,
+      values
+    );
+    if (!result.rows[0]) {
+      throw new Error(`Observational memory record not found: ${id}`);
+    }
   }
 }

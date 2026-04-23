@@ -918,7 +918,6 @@ export function AssistantUiPanelWrapper({
   const mcpTools = mcpState.tools;
   const mcpLoading = mcpState.loading;
   const isMountedRef = useRef(true);
-  const pendingThreadRunPromiseRef = useRef<Promise<string | undefined> | null>(null);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -1473,45 +1472,6 @@ export function AssistantUiPanelWrapper({
     [observationalMemorySettings, semanticRecallSettings]
   );
 
-  const startThreadRun = useCallback(async (): Promise<string | undefined> => {
-    if (pendingThreadRunPromiseRef.current) {
-      return pendingThreadRunPromiseRef.current;
-    }
-
-    let runPromise: Promise<string | undefined>;
-    runPromise = createAssistantThreadRunPromise({
-      assistantThreadRepository,
-      memoryResourceId,
-      modelSettings,
-      providerOptions,
-      resolvedModelName,
-      selectedMemoryThreadId,
-      selectedProvider,
-    }).catch((error: unknown) => {
-      if (pendingThreadRunPromiseRef.current === runPromise) {
-        pendingThreadRunPromiseRef.current = null;
-      }
-      throw error;
-    });
-
-    pendingThreadRunPromiseRef.current = runPromise;
-    return runPromise;
-  }, [
-    assistantThreadRepository,
-    memoryResourceId,
-    modelSettings,
-    providerOptions,
-    resolvedModelName,
-    selectedMemoryThreadId,
-    selectedProvider,
-  ]);
-
-  const handleThreadRunStart = useCallback(() => {
-    void startThreadRun().catch(() => {
-      // prepareRequestData surfaces submission failures to the UI flow.
-    });
-  }, [startThreadRun]);
-
   const requestData = useMemo(
     () =>
       buildAssistantRequestData({
@@ -1547,13 +1507,20 @@ export function AssistantUiPanelWrapper({
   );
 
   const prepareRequestData = useCallback(async (): Promise<Record<string, unknown>> => {
-    const runId = await startThreadRun();
+    const runId = await createAssistantThreadRunPromise({
+      assistantThreadRepository,
+      memoryResourceId,
+      modelSettings,
+      providerOptions,
+      resolvedModelName,
+      selectedMemoryThreadId,
+      selectedProvider,
+    });
     const memoryContext = requestData['memory'];
     if (!(memoryContext && typeof memoryContext === 'object' && !Array.isArray(memoryContext))) {
       throw new Error('Assistant request preparation requires Mastra memory context.');
     }
 
-    pendingThreadRunPromiseRef.current = null;
     return {
       ...requestData,
       memory: {
@@ -1561,7 +1528,16 @@ export function AssistantUiPanelWrapper({
         ...(runId ? { runId } : {}),
       },
     };
-  }, [requestData, startThreadRun]);
+  }, [
+    assistantThreadRepository,
+    memoryResourceId,
+    modelSettings,
+    providerOptions,
+    requestData,
+    resolvedModelName,
+    selectedMemoryThreadId,
+    selectedProvider,
+  ]);
 
   // Check if a model is enabled - always use DB as source of truth
   const isModelEnabled = useCallback(
@@ -2004,7 +1980,6 @@ export function AssistantUiPanelWrapper({
     <AssistantUiPanel
       contextMenu={contextMenu}
       onProviderSettingsChange={handleProviderSettingsChange}
-      onThreadRunStart={handleThreadRunStart}
       pickerModels={pickerModels}
       pickerProviders={pickerProviders}
       prepareRequestData={prepareRequestData}

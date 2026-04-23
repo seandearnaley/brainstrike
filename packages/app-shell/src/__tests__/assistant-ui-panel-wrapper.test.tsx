@@ -1878,7 +1878,6 @@ describe('AssistantUiPanelWrapper', () => {
       await waitFor(() => {
         expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
       });
-      await user.click(screen.getByTestId('submit-thread-run'));
       await user.click(screen.getByTestId('prepare-thread-request'));
     });
 
@@ -1911,6 +1910,46 @@ describe('AssistantUiPanelWrapper', () => {
     );
     expect(insertCall?.[1]?.[6]).toContain('"reasoningEffort":"high"');
     expect(insertCall?.[1]?.[5]).toContain('"maxOutputTokens":512');
+    uuidSpy.mockRestore();
+  });
+
+  test('creates a fresh run record for each prepared request', async () => {
+    const user = userEvent.setup();
+    const uuidSpy = vi
+      .spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000010')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000011');
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+    }));
+
+    await renderAssistantPanel(['openai'], async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('prepare-thread-request'));
+      await user.click(screen.getByTestId('prepare-thread-request'));
+    });
+
+    const runInsertCalls = mockDb.query.mock.calls.filter(([sql]) =>
+      String(sql).includes('INSERT INTO brainstrike_assistant_thread_runs')
+    );
+
+    expect(runInsertCalls).toHaveLength(2);
+    expect(runInsertCalls[0]?.[1]).toEqual(
+      expect.arrayContaining(['run-00000000-0000-4000-8000-000000000010'])
+    );
+    expect(runInsertCalls[1]?.[1]).toEqual(
+      expect.arrayContaining(['run-00000000-0000-4000-8000-000000000011'])
+    );
+    expect(preparedRequestDataLog[0]?.['memory']).toMatchObject({
+      runId: 'run-00000000-0000-4000-8000-000000000010',
+    });
+    expect(preparedRequestDataLog[1]?.['memory']).toMatchObject({
+      runId: 'run-00000000-0000-4000-8000-000000000011',
+    });
     uuidSpy.mockRestore();
   });
 

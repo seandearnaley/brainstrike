@@ -342,8 +342,8 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
         `Query vector has ${queryVector.length} dimensions, expected ${stats.dimension}`
       );
     }
-    const values: PgliteQueryValue[] = [indexName];
-    const clauses = ['index_name = $1', `id <> '${INDEX_METADATA_ID}'`];
+    const values: PgliteQueryValue[] = [indexName, INDEX_METADATA_ID];
+    const clauses = ['index_name = $1', 'id <> $2'];
     appendFilterSql(filter, values, clauses);
     let scoreSql = '1';
     let orderSql = 'updated_at DESC';
@@ -477,11 +477,11 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
     await this.ensureVectorTable();
     const result = await this.database.query<IndexRow>(
       `SELECT index_name AS "indexName", dimension, metric,
-        COUNT(*) FILTER (WHERE id <> '${INDEX_METADATA_ID}') AS count
+        COUNT(*) FILTER (WHERE id <> $2) AS count
        FROM ${MASTRA_VECTOR_TABLE}
        WHERE index_name = $1
        GROUP BY index_name, dimension, metric`,
-      [indexName]
+      [indexName, INDEX_METADATA_ID]
     );
     const row = result.rows[0];
     if (!row) {

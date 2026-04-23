@@ -272,6 +272,36 @@ describe('PgliteMemoryStore', () => {
     expect(history.map((record) => record.id)).toEqual([created.id]);
   });
 
+  it('updates observational memory flags with targeted update statements', async () => {
+    const created = await store.initializeObservationalMemory({
+      threadId: 'thread-1',
+      resourceId: 'workspace-a',
+      scope: 'thread',
+      config: {},
+    });
+    const querySpy = vi.spyOn(db, 'query');
+
+    await store.setReflectingFlag(created.id, true);
+    await store.setObservingFlag(created.id, false);
+    await store.setBufferingObservationFlag(created.id, true, 42);
+    await store.setBufferingReflectionFlag(created.id, true);
+    await store.setPendingMessageTokens(created.id, 77);
+
+    expect(querySpy).toHaveBeenCalledTimes(5);
+
+    const updated = await store.getObservationalMemory('thread-1', 'workspace-a');
+
+    expect(updated).toMatchObject({
+      id: created.id,
+      isReflecting: true,
+      isObserving: false,
+      isBufferingObservation: true,
+      isBufferingReflection: true,
+      lastBufferedAtTokens: 42,
+      pendingMessageTokens: 77,
+    });
+  });
+
   it('activates buffered observational chunks and creates reflection generations', async () => {
     const created = await store.initializeObservationalMemory({
       threadId: 'thread-1',
