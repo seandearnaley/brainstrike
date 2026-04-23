@@ -582,6 +582,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onModelToggle,
     onProviderSettingsChange,
     onThreadRunStart,
+    completePreparedRequest,
     prepareRequestData,
     contextMenu,
     requestData,
@@ -604,6 +605,11 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
     onProviderSettingsChange?: (providerId: string, updates: Record<string, unknown>) => void;
     onThreadRunStart?: () => void;
+    completePreparedRequest?: (
+      requestData: Record<string, unknown> | undefined,
+      status: 'cancelled' | 'completed' | 'failed',
+      error?: string
+    ) => Promise<void> | void;
     prepareRequestData?: () => Promise<Record<string, unknown> | undefined>;
     contextMenu?: Record<string, unknown>;
     requestData?: Record<string, unknown>;
@@ -758,6 +764,40 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
           type="button"
         >
           Prepare request
+        </button>
+        <button
+          data-testid="complete-prepared-request-success"
+          onClick={async () => {
+            await completePreparedRequest?.(preparedRequestDataLog.at(-1), 'completed');
+          }}
+          type="button"
+        >
+          Complete prepared request
+        </button>
+        <button
+          data-testid="complete-prepared-request-failure"
+          onClick={async () => {
+            await completePreparedRequest?.(
+              preparedRequestDataLog.at(-1),
+              'failed',
+              'model failed'
+            );
+          }}
+          type="button"
+        >
+          Fail prepared request
+        </button>
+        <button
+          data-testid="complete-prepared-request-without-run"
+          onClick={async () => {
+            await completePreparedRequest?.(
+              { memory: { threadId: 'thread-existing' } },
+              'completed'
+            );
+          }}
+          type="button"
+        >
+          Complete request without run
         </button>
       </div>
     );
@@ -1819,6 +1859,38 @@ describe('AssistantUiPanelWrapper', () => {
     );
   });
 
+  test('stores provider setting changes globally when no thread prop is mounted', async () => {
+    const user = userEvent.setup();
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      providerSettings: {
+        ...state.providerSettings,
+        openai: {
+          ...state.providerSettings['openai'],
+          maxOutputTokens: 512,
+          reasoningEffort: 'high',
+        },
+      },
+    }));
+
+    await renderAssistantPanel(['openai'], async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('provider-settings-change-openai'));
+    });
+
+    expect(useAssistantThreadStore.getState().draftRuntimeByThreadId).toEqual({});
+    expect(useAssistantPreferencesStore.getState().providerSettings['openai']).toEqual(
+      expect.objectContaining({
+        maxOutputTokens: 2048,
+        reasoningEffort: 'low',
+      })
+    );
+  });
+
   test('stores model changes as per-thread draft runtime instead of global preferences', async () => {
     const user = userEvent.setup();
     useAssistantPreferencesStore.setState((state) => ({
@@ -1995,6 +2067,40 @@ describe('AssistantUiPanelWrapper', () => {
     );
     expect(insertCall?.[1]?.[6]).toContain('"reasoningEffort":"high"');
     expect(insertCall?.[1]?.[5]).toContain('"maxOutputTokens":512');
+    uuidSpy.mockRestore();
+  });
+
+  test('completes prepared run records with terminal statuses', async () => {
+    const user = userEvent.setup();
+    const uuidSpy = vi
+      .spyOn(crypto, 'randomUUID')
+      .mockReturnValue('00000000-0000-4000-8000-000000000012');
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+    }));
+
+    await renderAssistantPanel(['openai'], async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('prepare-thread-request'));
+      await user.click(screen.getByTestId('complete-prepared-request-success'));
+      await user.click(screen.getByTestId('complete-prepared-request-failure'));
+      await user.click(screen.getByTestId('complete-prepared-request-without-run'));
+    });
+
+    const updateCalls = mockDb.query.mock.calls.filter(([sql]) =>
+      String(sql).includes('UPDATE brainstrike_assistant_thread_runs')
+    );
+    expect(updateCalls).toHaveLength(2);
+    expect(updateCalls[0]?.[1]).toEqual(
+      expect.arrayContaining(['run-00000000-0000-4000-8000-000000000012', 'completed', null])
+    );
+    expect(updateCalls[1]?.[1]).toEqual(
+      expect.arrayContaining(['run-00000000-0000-4000-8000-000000000012', 'failed', 'model failed'])
+    );
     uuidSpy.mockRestore();
   });
 
