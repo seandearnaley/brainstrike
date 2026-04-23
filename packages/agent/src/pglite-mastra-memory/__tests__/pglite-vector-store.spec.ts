@@ -32,6 +32,16 @@ describe('PgliteVectorStore', () => {
     });
   });
 
+  it('rejects unsafe index names', async () => {
+    await expect(
+      store.createIndex({
+        indexName: 'memory_messages; DROP TABLE mastra_vectors; --',
+        dimension: 3,
+        metric: 'cosine',
+      })
+    ).rejects.toThrow(/unsupported index name/i);
+  });
+
   it('upserts, filters, queries, updates, and deletes vectors', async () => {
     await store.createIndex({ indexName: 'memory_messages', dimension: 3, metric: 'cosine' });
     const ids = await store.upsert({
@@ -93,6 +103,23 @@ describe('PgliteVectorStore', () => {
     await store.deleteVector({ indexName: 'memory_messages', id: 'message-c' });
     await expect(store.describeIndex({ indexName: 'memory_messages' })).resolves.toMatchObject({
       count: 0,
+    });
+  });
+
+  it('requires deleteVectors to specify ids or a filter', async () => {
+    await store.createIndex({ indexName: 'memory_messages', dimension: 3, metric: 'cosine' });
+    await store.upsert({
+      indexName: 'memory_messages',
+      ids: ['message-a'],
+      vectors: [[1, 0, 0]],
+      metadata: [{ message_id: 'message-a' }],
+    });
+
+    await expect(store.deleteVectors({ indexName: 'memory_messages' })).rejects.toThrow(
+      /requires either ids or filter/i
+    );
+    await expect(store.describeIndex({ indexName: 'memory_messages' })).resolves.toMatchObject({
+      count: 1,
     });
   });
 });

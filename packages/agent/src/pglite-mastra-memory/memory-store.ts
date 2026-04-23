@@ -211,8 +211,9 @@ function appendLimit(
   if (perPage === false) {
     return sql;
   }
-  values.push(perPage, page * perPage);
-  const limitIndex = values.length - 1;
+  values.push(perPage);
+  const limitIndex = values.length;
+  values.push(page * perPage);
   const offsetIndex = values.length;
   return `${sql} LIMIT $${limitIndex} OFFSET $${offsetIndex}`;
 }

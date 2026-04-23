@@ -92,6 +92,9 @@ function assertIndexName(indexName: string): void {
   if (!indexName.trim()) {
     throw new Error('indexName is required');
   }
+  if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(indexName)) {
+    throw new Error(`Unsupported index name: ${indexName}`);
+  }
 }
 
 function assertFilterKey(key: string): void {
@@ -441,6 +444,9 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
     await this.ensureVectorTable();
     if (ids && filter) {
       throw new Error('deleteVectors accepts either ids or filter, not both');
+    }
+    if (!(ids || filter)) {
+      throw new Error('deleteVectors requires either ids or filter');
     }
     const values: PgliteQueryValue[] = [indexName];
     const clauses = ['index_name = $1'];
