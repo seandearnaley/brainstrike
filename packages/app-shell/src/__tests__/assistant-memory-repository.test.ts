@@ -201,6 +201,25 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     });
   });
 
+  it('rejects corrupt message timestamps instead of substituting the current time', async () => {
+    const db = createMockDb();
+    db.query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'message-1',
+          role: 'user',
+          content: { content: 'Hello' },
+          createdAt: 'not-a-date',
+        },
+      ],
+    });
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(repository.listMessages('thread-1', '/tmp/workspace-a')).rejects.toThrow(
+      /invalid timestamp/i
+    );
+  });
+
   it('retries schema initialization after a transient bootstrap failure', async () => {
     const db = createMockDb();
     db.exec

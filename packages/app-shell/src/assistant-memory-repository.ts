@@ -133,6 +133,9 @@ function createThreadId(): string {
 
 function normalizeDate(value: unknown): Date {
   if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      throw new Error('Invalid timestamp value');
+    }
     return value;
   }
   if (typeof value === 'string' || typeof value === 'number') {
@@ -141,7 +144,7 @@ function normalizeDate(value: unknown): Date {
       return date;
     }
   }
-  return new Date();
+  throw new Error(`Invalid timestamp value: ${String(value)}`);
 }
 
 function normalizeNullableDate(value: unknown): Date | null {

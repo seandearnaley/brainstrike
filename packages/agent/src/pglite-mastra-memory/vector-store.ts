@@ -88,7 +88,13 @@ function parseVector(value: number[] | string | null): number[] | undefined {
     .replace(/\]$/, '')
     .split(',')
     .filter((part) => part.trim().length > 0)
-    .map((part) => Number(part));
+    .map((part) => {
+      const component = Number(part);
+      if (!Number.isFinite(component)) {
+        throw new Error(`Invalid vector component: ${part}`);
+      }
+      return component;
+    });
 }
 
 function parseMetadata(

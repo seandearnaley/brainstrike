@@ -132,4 +132,34 @@ describe('PgliteVectorStore', () => {
       count: 1,
     });
   });
+
+  it('rejects non-finite vector values returned from storage', async () => {
+    const mockDb = {
+      exec: vi.fn(async () => undefined),
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({
+          rows: [{ count: 1, dimension: 3, indexName: 'memory_messages', metric: 'cosine' }],
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              embedding: '[1,NaN,0]',
+              id: 'message-a',
+              metadata: null,
+              score: 1,
+            },
+          ],
+        }),
+    };
+    const mockStore = new PgliteVectorStore({ database: mockDb });
+
+    await expect(
+      mockStore.query({
+        indexName: 'memory_messages',
+        topK: 1,
+        includeVector: true,
+      })
+    ).rejects.toThrow(/invalid vector component/i);
+  });
 });

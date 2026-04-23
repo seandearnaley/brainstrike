@@ -55,6 +55,7 @@ const desktopMastraMemoryPromises = new Map<
   string,
   Promise<import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult>
 >();
+const DESKTOP_MEMORY_CACHE_LIMIT = 16;
 
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const MAX_CONTEXT_FILES = 80;
@@ -897,6 +898,7 @@ async function getDesktopMastraMemory(
       ...(memorySettings ? { memorySettings } : {}),
     });
   })();
+  evictOldestDesktopMastraMemoryPromise();
   desktopMastraMemoryPromises.set(cacheKey, memoryPromise);
   memoryPromise.catch(() => {
     if (desktopMastraMemoryPromises.get(cacheKey) === memoryPromise) {
@@ -904,6 +906,16 @@ async function getDesktopMastraMemory(
     }
   });
   return memoryPromise;
+}
+
+function evictOldestDesktopMastraMemoryPromise(): void {
+  if (desktopMastraMemoryPromises.size < DESKTOP_MEMORY_CACHE_LIMIT) {
+    return;
+  }
+  const oldestKey = desktopMastraMemoryPromises.keys().next().value;
+  if (typeof oldestKey === 'string') {
+    desktopMastraMemoryPromises.delete(oldestKey);
+  }
 }
 
 function stableJsonStringify(value: unknown): string {

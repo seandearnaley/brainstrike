@@ -882,6 +882,51 @@ describe('assistant-server', () => {
       expect(createPgliteMastraMemory).toHaveBeenCalledTimes(1);
     });
 
+    it('evicts the oldest desktop Mastra memory cache entries', async () => {
+      mockDesktopDatabase.exec.mockResolvedValue(undefined);
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+
+      for (let index = 0; index < 17; index += 1) {
+        await getDesktopMastraMemoryForTests({
+          observationalMemory: {
+            enabled: true,
+            modelTarget: 'openai/gpt-5.2',
+            scope: 'thread',
+            messageTokens: 10_000 + index,
+            observationTokens: 20_000,
+            retrievalMode: 'off',
+          },
+          semanticRecall: {
+            enabled: false,
+            embeddingModelTarget: 'openai/text-embedding-3-small',
+            scope: 'resource',
+            topK: 3,
+            messageRange: 1,
+          },
+        });
+      }
+
+      await getDesktopMastraMemoryForTests({
+        observationalMemory: {
+          enabled: true,
+          modelTarget: 'openai/gpt-5.2',
+          scope: 'thread',
+          messageTokens: 10_000,
+          observationTokens: 20_000,
+          retrievalMode: 'off',
+        },
+        semanticRecall: {
+          enabled: false,
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          scope: 'resource',
+          topK: 3,
+          messageRange: 1,
+        },
+      });
+
+      expect(createPgliteMastraMemory).toHaveBeenCalledTimes(18);
+    });
+
     it('marks assistant thread runs completed after desktop streams finish', async () => {
       const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
       const { streamResponse } = await import('../assistant-server/http');

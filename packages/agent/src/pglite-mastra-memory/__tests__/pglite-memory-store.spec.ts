@@ -33,6 +33,14 @@ describe('PgliteMemoryStore', () => {
         'mastra_threads',
       ])
     );
+
+    const configColumn = await db.query<{ data_type: string }>(
+      `SELECT data_type
+       FROM information_schema.columns
+       WHERE table_name = 'mastra_observational_memory'
+         AND column_name = 'config'`
+    );
+    expect(configColumn.rows[0]?.data_type).toBe('jsonb');
   });
 
   it('retries schema initialization after a transient bootstrap failure', async () => {

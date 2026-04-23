@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS ${TABLE_OBSERVATIONAL_MEMORY} (
   "activeObservations" TEXT NOT NULL,
   "activeObservationsPendingUpdate" TEXT,
   "originType" TEXT NOT NULL,
-  config TEXT NOT NULL,
+  config JSONB NOT NULL,
   "generationCount" INTEGER NOT NULL,
   "lastObservedAt" TIMESTAMPTZ,
   "lastReflectionAt" TIMESTAMPTZ,
