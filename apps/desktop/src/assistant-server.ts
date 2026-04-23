@@ -182,7 +182,7 @@ async function handleAssistantPostStreamError({
 }): Promise<void> {
   const message = error instanceof Error ? error.message : String(error);
   if (runId) {
-    await completeDesktopAssistantThreadRun(
+    await recordDesktopAssistantThreadRunStatus(
       runId,
       signal.aborted ? 'cancelled' : 'failed',
       message
@@ -226,7 +226,7 @@ async function streamAssistantPostResponse({
   );
   if (!streamResult.ok) {
     if (runId) {
-      await completeDesktopAssistantThreadRun(runId, 'failed', streamResult.payload.message);
+      await recordDesktopAssistantThreadRunStatus(runId, 'failed', streamResult.payload.message);
     }
     respondJson(res, streamResult.status, streamResult.payload);
     return;
@@ -236,7 +236,23 @@ async function streamAssistantPostResponse({
   const response = session.createResponse();
   await streamResponse(res, response, signal);
   if (runId) {
-    await completeDesktopAssistantThreadRun(runId, 'completed', null);
+    await recordDesktopAssistantThreadRunStatus(runId, 'completed', null);
+  }
+}
+
+async function recordDesktopAssistantThreadRunStatus(
+  runId: string,
+  status: 'cancelled' | 'completed' | 'failed',
+  error: string | null
+): Promise<void> {
+  try {
+    await completeDesktopAssistantThreadRun(runId, status, error);
+  } catch (statusError) {
+    logger.error('Failed to update assistant thread run status', {
+      error: statusError,
+      runId,
+      status,
+    });
   }
 }
 
@@ -245,12 +261,13 @@ async function completeDesktopAssistantThreadRun(
   status: 'cancelled' | 'completed' | 'failed',
   error: string | null
 ): Promise<void> {
+  const now = new Date();
   const database = await getDatabase();
   await database.query(
     `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
      SET status = $2, error = $3, completed_at = $4, updated_at = $5
      WHERE id = $1`,
-    [runId, status, error, new Date(), new Date()]
+    [runId, status, error, now, now]
   );
 }
 

@@ -960,6 +960,58 @@ describe('assistant-server', () => {
       );
     });
 
+    it('preserves the stream error when failing to mark an assistant thread run failed', async () => {
+      const loggerErrorSpy = vi
+        .spyOn(desktopAssistantServerLogger, 'error')
+        .mockImplementation(() => {});
+      const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text', content: 'Response' };
+        },
+      });
+      (streamResponse as Mock).mockRejectedValueOnce(new Error('stream pipeline failed'));
+      mockDesktopDatabase.query.mockRejectedValueOnce(new Error('run status write failed'));
+
+      const response = await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: {
+            provider: 'openai',
+            memory: {
+              threadId: 'thread-1',
+              resourceId: 'workspace-a',
+              runId: 'run-failed-status-write',
+            },
+          },
+        }),
+      });
+
+      expect(response.status).toBe(500);
+      const data = JSON.parse(response.body) as { error: string; message: string };
+      expect(data).toEqual({
+        error: 'assistant_stream_failed',
+        message: 'stream pipeline failed',
+      });
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        'Failed to update assistant thread run status',
+        expect.objectContaining({
+          runId: 'run-failed-status-write',
+          status: 'failed',
+        })
+      );
+
+      loggerErrorSpy.mockRestore();
+    });
+
     it('should handle stream initialization failure', async () => {
       const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
 
