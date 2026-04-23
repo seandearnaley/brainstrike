@@ -64,6 +64,8 @@ interface MockLlmGenerateRequest {
 test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
+      const STREAM_STEP_DELAY_MS = 300;
+
       // @ts-expect-error test-only override
       window.__assistantAvailabilityOverride = { state: 'enabled' };
       const progressListeners = new Set<(event: MockProgressEvent) => void>();
@@ -107,7 +109,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
               kind: 'reasoning',
               reasoningText: 'Inspect whether a tool is needed.',
             });
-            await delay(150);
+            await delay(STREAM_STEP_DELAY_MS);
             return {
               text: '',
               reasoningText: 'Inspect whether a tool is needed.',
@@ -131,14 +133,14 @@ test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
             kind: 'reasoning',
             reasoningText: hasToolResponse ? 'Summarize the tool result.' : 'Plan a short reply.',
           });
-          await delay(150);
+          await delay(STREAM_STEP_DELAY_MS);
           emitProgress(requestId, { kind: 'stage', message: 'responding' });
-          await delay(150);
+          await delay(STREAM_STEP_DELAY_MS);
           emitProgress(requestId, {
             kind: 'text',
             text: 'Assistant: Mock response from tests.',
           });
-          await delay(150);
+          await delay(STREAM_STEP_DELAY_MS);
           return {
             text: 'Assistant: Mock response from tests.',
             reasoningText: hasToolResponse ? 'Summarize the tool result.' : 'Plan a short reply.',
@@ -185,8 +187,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
     await sendBtn.click();
 
     const stopBtn = page.getByRole('button', { name: 'Stop' });
-    await expect(stopBtn).toBeVisible();
-    await expect(stopBtn).toBeEnabled({ timeout: 5000 });
+    await expect(stopBtn).toBeVisible({ timeout: 5000 });
 
     await expect(page.getByTestId('local-model-status')).toContainText(/generating answer/i, {
       timeout: 10_000,

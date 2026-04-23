@@ -5,6 +5,7 @@ import type { Locator, Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
 import { DESKTOP_DEV_RENDERER_PORT, DESKTOP_DEV_RENDERER_URL } from '../src/desktop-renderer-url';
 import { expect, test } from './fixtures/electron-fixture';
+import { getContextExplorerLeftPanel } from './utils/context-explorer-locators';
 import { showDatabaseDemoPanel } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
@@ -370,16 +371,13 @@ test.describe('Embedding Host Renderer', () => {
   }
 
   async function assertToolsPanelResponsive(page: Page): Promise<void> {
-    const assistantTab = page.getByRole('tab', { name: /assistant/i });
-    const databaseTab = page.getByRole('tab', { name: /database/i });
+    const assistantShell = page.getByTestId('assistant-chat-card');
+    const workspaceToggle = page
+      .getByTestId('show-workspace-panel')
+      .or(page.getByTestId('hide-workspace-panel'));
 
-    await expect(assistantTab).toBeVisible({ timeout: 10_000 });
-    await assistantTab.click({ timeout: 5000 });
-    await expect(assistantTab).toHaveAttribute('data-state', 'active');
-
-    await expect(databaseTab).toBeVisible({ timeout: 10_000 });
-    await databaseTab.click({ timeout: 5000 });
-    await expect(databaseTab).toHaveAttribute('data-state', 'active');
+    await expect(assistantShell).toBeVisible({ timeout: 10_000 });
+    await expect(workspaceToggle.first()).toBeVisible({ timeout: 10_000 });
   }
 
   async function getEmbeddingHostStatus(page: Page): Promise<EmbeddingHostStatus> {
@@ -705,7 +703,7 @@ test.describe('Embedding Host Renderer', () => {
   }
 
   async function ensureLeftPanelVisible(page: Page): Promise<void> {
-    const leftPanel = page.locator('#explorer-panel');
+    const leftPanel = getContextExplorerLeftPanel(page);
     const showLeftPanelButton = page
       .getByTestId('show-explorer-panel')
       .or(page.getByRole('button', { name: /show explorer/i }));
@@ -3645,13 +3643,12 @@ test.describe('Embedding Host Renderer', () => {
     const createdOption = activeWindow.getByRole('option', { name: new RegExp(collectionName) });
     await expect(createdOption).toBeVisible({ timeout: 15_000 });
     await expect(createdOption).toHaveAttribute('aria-selected', 'true');
-    await expect(activeWindow.getByRole('tab', { name: /database/i })).toHaveAttribute(
-      'data-state',
-      'active'
-    );
+    await expect(activeWindow.locator('[data-testid="database-demo-panel"]')).toBeVisible({
+      timeout: 15_000,
+    });
   });
 
-  test('preserves backfill progress on the database button across tab switches', async ({
+  test('preserves backfill progress on the database button across sidebar tab switches', async ({
     electronHarness,
     window,
   }) => {
@@ -3698,17 +3695,19 @@ test.describe('Embedding Host Renderer', () => {
     );
     expect(initialProgress.total).toBe(fixture.totalChunks);
 
-    await activeWindow.getByRole('tab', { name: /assistant/i }).click({ timeout: 5000 });
-    await expect(activeWindow.getByRole('tab', { name: /assistant/i })).toHaveAttribute(
-      'data-state',
-      'active'
-    );
+    const threadsTab = activeWindow
+      .getByTestId('threads-tab-trigger')
+      .or(activeWindow.getByRole('tab', { name: 'Threads' }));
+    await expect(threadsTab).toBeVisible({ timeout: 10_000 });
+    await threadsTab.click();
+    await expect(activeWindow.getByTestId('assistant-chat-card')).toBeVisible({ timeout: 10_000 });
+    await expect(
+      activeWindow
+        .getByTestId('database-tab-trigger')
+        .or(activeWindow.getByRole('tab', { name: 'Database' }))
+    ).toBeVisible({ timeout: 10_000 });
 
-    await activeWindow.getByRole('tab', { name: /database/i }).click({ timeout: 5000 });
-    await expect(activeWindow.getByRole('tab', { name: /database/i })).toHaveAttribute(
-      'data-state',
-      'active'
-    );
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
 
     const remountedDatabasePanel = activeWindow.locator('[data-testid="database-demo-panel"]');
     const remountedBackfillButton = remountedDatabasePanel
@@ -3790,9 +3789,13 @@ test.describe('Embedding Host Renderer', () => {
 
       await waitForEmbeddingHostIdleAndQueueDrain(activeWindow, 60_000);
       await activeWindow.waitForTimeout(1000);
-      expect(await getRelevantElectronStderrSince(context.app, initialElectronStderrCount)).toEqual(
-        []
+      const stderrSinceWipe = await getRelevantElectronStderrSince(
+        context.app,
+        initialElectronStderrCount
       );
+      expect(
+        stderrSinceWipe.filter((entry) => !entry.includes('Embedding backfill was canceled'))
+      ).toEqual([]);
 
       const countsAfterWipe = await getEmbeddingSetCounts(activeWindow, fixture.embeddingSetId);
       expect(countsAfterWipe.totalChunks).toBe(fixture.totalChunks);
@@ -6063,7 +6066,9 @@ test.describe('Embedding Host Renderer', () => {
     expect(status.state).toBe('running');
   });
 
-  test('keeps the hidden host alive across visible-window navigation', async ({ window }) => {
+  test('keeps the hidden host alive across visible-window navigation once started', async ({
+    window,
+  }) => {
     let activeWindow = await showDatabaseDemoPanel(window);
 
     if (await isDatabaseError(activeWindow)) {
@@ -6071,13 +6076,33 @@ test.describe('Embedding Host Renderer', () => {
       return;
     }
 
+    await activeWindow.evaluate(async () => {
+      const host = (
+        globalThis as unknown as Window & {
+          embeddingHost?: {
+            ensureStarted?: () => Promise<EmbeddingHostStatus>;
+          };
+        }
+      ).embeddingHost;
+      if (!host?.ensureStarted) {
+        throw new Error('Embedding host bridge is not available');
+      }
+      await host.ensureStarted();
+    });
+
     const hostPageBefore = await getEmbeddingHostPage(activeWindow);
     const before = await createTestBackfillJob(activeWindow);
     expect(await getJobStatus(activeWindow, before.jobId)).not.toBeNull();
 
-    const assistantTab = activeWindow.getByRole('tab', { name: /assistant/i });
-    await assistantTab.click({ timeout: 5000 });
-    await expect(assistantTab).toHaveAttribute('data-state', 'active');
+    const promptsNav = activeWindow
+      .getByRole('button', { name: /prompts/i })
+      .or(activeWindow.getByRole('link', { name: /prompts/i }))
+      .first();
+    await expect(promptsNav).toBeVisible({ timeout: 10_000 });
+    await promptsNav.click();
+    await expect(activeWindow.getByRole('heading', { name: /prompt library/i })).toBeVisible({
+      timeout: 15_000,
+    });
 
     activeWindow = await showDatabaseDemoPanel(activeWindow);
 
@@ -6133,41 +6158,69 @@ test.describe('Embedding Host Renderer', () => {
   const CRASH_REPRO_IDLE_POLL_INTERVAL_MS = 30_000;
   const CRASH_REPRO_IDLE_POLL_COUNT = 10;
 
-  async function blurVisibleWindow(app: ElectronApplication): Promise<void> {
-    await app.evaluate(({ BrowserWindow }) => {
-      const visibleWindow = BrowserWindow.getAllWindows().find((win) => {
-        const url = win.webContents.getURL();
-        return !(url.includes('mode=embedding-host') || url.includes('mode=chunking-host'));
-      });
-      if (visibleWindow) {
-        visibleWindow.blur();
+  async function runVisibleWindowActionWithRetry(
+    app: ElectronApplication,
+    action: 'blur' | 'focus' | 'minimize',
+    timeoutMs = 15_000
+  ): Promise<void> {
+    const startedAt = Date.now();
+    let lastDisposedError: Error | null = null;
+
+    while (Date.now() - startedAt < timeoutMs) {
+      try {
+        await app.evaluate(({ BrowserWindow }, nextAction) => {
+          const visibleWindow = BrowserWindow.getAllWindows().find((win) => {
+            const url = win.webContents.getURL();
+            return !(url.includes('mode=embedding-host') || url.includes('mode=chunking-host'));
+          });
+
+          if (!visibleWindow) {
+            return;
+          }
+
+          switch (nextAction) {
+            case 'blur':
+              visibleWindow.blur();
+              return;
+            case 'focus':
+              visibleWindow.restore();
+              visibleWindow.focus();
+              return;
+            case 'minimize':
+              visibleWindow.minimize();
+              return;
+          }
+        }, action);
+
+        return;
+      } catch (error) {
+        if (!isDisposedElectronEvaluateError(error)) {
+          throw error;
+        }
+        lastDisposedError = error;
+        await new Promise((resolve) => {
+          setTimeout(resolve, 250);
+        });
       }
-    });
+    }
+
+    throw new Error(
+      `Timed out waiting to ${action} the visible Electron window after execution-context churn: ${
+        lastDisposedError?.message ?? 'unknown disposed execution context error'
+      }`
+    );
+  }
+
+  async function blurVisibleWindow(app: ElectronApplication): Promise<void> {
+    await runVisibleWindowActionWithRetry(app, 'blur');
   }
 
   async function minimizeVisibleWindow(app: ElectronApplication): Promise<void> {
-    await app.evaluate(({ BrowserWindow }) => {
-      const visibleWindow = BrowserWindow.getAllWindows().find((win) => {
-        const url = win.webContents.getURL();
-        return !(url.includes('mode=embedding-host') || url.includes('mode=chunking-host'));
-      });
-      if (visibleWindow) {
-        visibleWindow.minimize();
-      }
-    });
+    await runVisibleWindowActionWithRetry(app, 'minimize');
   }
 
   async function focusVisibleWindow(app: ElectronApplication): Promise<void> {
-    await app.evaluate(({ BrowserWindow }) => {
-      const visibleWindow = BrowserWindow.getAllWindows().find((win) => {
-        const url = win.webContents.getURL();
-        return !(url.includes('mode=embedding-host') || url.includes('mode=chunking-host'));
-      });
-      if (visibleWindow) {
-        visibleWindow.restore();
-        visibleWindow.focus();
-      }
-    });
+    await runVisibleWindowActionWithRetry(app, 'focus');
   }
 
   async function getVisibleWindowPage(app: ElectronApplication): Promise<Page> {

@@ -120,8 +120,8 @@ export function getLazySurfaceOptimizeDepsEntries(
 ): readonly string[] {
   const entries = [
     path.resolve(appRoot, 'index.html'),
-    path.resolve(appShellDir, 'tools-panel.tsx'),
-    path.resolve(appShellDir, 'assistant-tab.tsx'),
+    path.resolve(appShellDir, 'database-panel.tsx'),
+    path.resolve(appShellDir, 'assistant-chat-panel.tsx'),
     path.resolve(appShellDir, 'assistant-ui-panel-wrapper-lazy.tsx'),
     path.resolve(appShellDir, 'assistant-ui-panel-wrapper.tsx'),
     path.resolve(appShellDir, 'database-tab.tsx'),

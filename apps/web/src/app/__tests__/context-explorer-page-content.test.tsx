@@ -1,7 +1,7 @@
 import { render } from '@testing-library/react';
 import { HelmetProvider } from 'react-helmet-async';
 import { describe, expect, it, vi } from 'vitest';
-import HomePageContent from '../home-page-content';
+import ContextExplorerPageContent from '../context-explorer-page-content';
 
 // Mock the file explorer components
 vi.mock('@brainstrike/file-explorer-ui', () => ({
@@ -41,11 +41,11 @@ vi.mock('@brainstrike/storage', () => ({
   })),
 }));
 
-describe('HomePageContent', () => {
+describe('ContextExplorerPageContent', () => {
   it('renders the FileExplorerMiddlePanelTabbed component', () => {
     const { getByTestId } = render(
       <HelmetProvider>
-        <HomePageContent />
+        <ContextExplorerPageContent />
       </HelmetProvider>
     );
 

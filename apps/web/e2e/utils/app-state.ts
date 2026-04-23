@@ -1,12 +1,14 @@
 import type { Page } from '@playwright/test';
 
 const APP_STATE_KEYS = [
+  'brainstrike.agent-sidebar-tab.v1',
   'panel-layout-store.v1',
+  'context-explorer-layout-store.v1',
+  'tools-panel.v1',
   'panelLayout.v1',
   'fileExplorerSettings',
   'file-explorer-storage-v4',
   'previewPanelPreferences.v1',
-  'tools-panel.v1',
   'collection-browser.v1',
   'database-demo.v2',
   'import-settings.v1',
@@ -75,4 +77,21 @@ export async function resetAppState(page: Page): Promise<void> {
     },
     { keys: APP_STATE_KEYS, dbNames: INDEXED_DB_NAMES }
   );
+}
+
+export async function seedWorkspaceFocusedShellLayout(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    localStorage.setItem(
+      'panel-layout-store.v1',
+      JSON.stringify({
+        state: {
+          sizes: [18, 60, 20],
+          showLeftPanel: true,
+          showRightPanel: true,
+          showConsole: false,
+        },
+        version: 4,
+      })
+    );
+  });
 }

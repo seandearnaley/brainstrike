@@ -1,12 +1,13 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
+import { getContextExplorerLeftPanel } from './utils/context-explorer-locators';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 test.describe('File System Integration', () => {
   async function ensureLeftPanelVisible(window: Page): Promise<void> {
     // Use id selector for react-resizable-panels v4 compatibility
-    const leftPanel = window.locator('#explorer-panel');
+    const leftPanel = getContextExplorerLeftPanel(window);
     const showLeftPanelButton = window
       .getByTestId('show-explorer-panel')
       .or(window.getByRole('button', { name: /show explorer/i }));
@@ -86,7 +87,7 @@ test.describe('File System Integration', () => {
     await expect(window.getByRole('button', { name: /view filters/i })).toBeVisible({
       timeout: 15_000,
     });
-    await expect(window.locator('#explorer-panel')).toBeVisible({ timeout: 15_000 });
+    await expect(getContextExplorerLeftPanel(window)).toBeVisible({ timeout: 15_000 });
     await expect
       .poll(async () => window.evaluate(() => performance.timeOrigin), {
         timeout: 10_000,

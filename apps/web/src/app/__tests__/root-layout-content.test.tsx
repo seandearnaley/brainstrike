@@ -3,7 +3,6 @@ import React from 'react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let RootLayoutContent: React.ComponentType;
-let activeToolsTab: 'assistant' | 'database' = 'assistant';
 const mockEmbeddingQueue = {
   add: vi.fn(),
   addBulk: vi.fn(),
@@ -135,23 +134,13 @@ vi.mock('@brainstrike/app-shell', () => ({
   ConnectedPromptManager: () => <div data-testid="connected-prompt-manager" />,
 }));
 
-vi.mock('@brainstrike/app-shell/stores/tools-panel-store', () => ({
-  toolsPanelSelectors: {
-    activeTab: (state: { activeTab: 'assistant' | 'database' }) => state.activeTab,
-  },
-  useToolsPanelStore: (selector: (state: { activeTab: 'assistant' | 'database' }) => unknown) =>
-    selector({ activeTab: activeToolsTab }),
-}));
-
 vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
   RootLayoutContent({
-    sidebarContent,
-    homePageContent,
+    contextExplorerPageContent,
     settingsPageContent,
     navigationItems,
   }: {
-    sidebarContent?: React.ReactNode;
-    homePageContent: React.ReactNode;
+    contextExplorerPageContent: React.ReactNode;
     settingsPageContent: React.ReactNode;
     navigationItems: unknown[];
   }) {
@@ -175,8 +164,7 @@ vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
         >
           <div data-testid="app-config-title">BrainStrike.ai</div>
           <div data-testid="navigation-items-count">{navigationItems.length}</div>
-          {sidebarContent && <aside>{sidebarContent}</aside>}
-          <main>{activeTab === 'explorer' ? homePageContent : settingsPageContent}</main>
+          <main>{activeTab === 'explorer' ? contextExplorerPageContent : settingsPageContent}</main>
         </div>
       </div>
     );
@@ -205,7 +193,7 @@ function MockWebFileExplorerLeftPanel() {
   return <div data-testid="web-file-explorer-left-panel">Left Panel</div>;
 }
 
-vi.mock('../home-page-content', () => ({
+vi.mock('../context-explorer-page-content', () => ({
   default: MockHomePageContent,
   WebFileExplorerLeftPanel: MockWebFileExplorerLeftPanel,
 }));
@@ -223,7 +211,6 @@ describe('RootLayoutContent', () => {
     vi.clearAllMocks();
     homeMountCount = 0;
     currentDb = null;
-    activeToolsTab = 'assistant';
   });
 
   it('renders without crashing', () => {

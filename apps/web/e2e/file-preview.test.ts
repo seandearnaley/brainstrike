@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { resetAppState } from './utils/app-state';
+import { resetAppState, seedWorkspaceFocusedShellLayout } from './utils/app-state';
 import { getFileTree } from './utils/file-tree-locators';
 import { getPanelElements, togglePanelVisibility, waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
@@ -15,6 +15,7 @@ test.describe('File Tabbed Editor', { tag: '@smoke' }, () => {
     await page.goto('/');
     await waitForAppLoad(page);
     await resetAppState(page);
+    await seedWorkspaceFocusedShellLayout(page);
     await page.reload();
     await waitForAppLoad(page);
   });
@@ -29,8 +30,10 @@ test.describe('File Tabbed Editor', { tag: '@smoke' }, () => {
     await checkbox.click({ force: true });
     await expect(checkbox).toBeChecked();
 
-    // Show the console panel first (where tabbed editor lives)
     const elements = getPanelElements(page);
+
+    // Show the editor once to verify its empty state, then collapse it so the
+    // preview surface has enough room for row-level interactions in the shell.
     await togglePanelVisibility(elements.showConsoleShim, elements.consolePanel, true);
 
     // Verify initial state shows no files open in tabbed editor
@@ -38,10 +41,14 @@ test.describe('File Tabbed Editor', { tag: '@smoke' }, () => {
     await expect(
       page.getByText('Click on a file in Context Explorer to open it here')
     ).toBeVisible();
+    await togglePanelVisibility(elements.hideConsoleButton, elements.consolePanel, false);
 
     const rowButton = page.getByRole('button', { name: 'example.ts' });
+    await rowButton.scrollIntoViewIfNeeded();
     await expect(rowButton).toBeVisible();
     await rowButton.click();
+
+    await togglePanelVisibility(elements.showConsoleShim, elements.consolePanel, true);
 
     // File should now open in a tab in the tabbed editor (look specifically in console panel)
     const tab = elements.consolePanel.getByRole('button', { name: /example\.ts/ }).first();

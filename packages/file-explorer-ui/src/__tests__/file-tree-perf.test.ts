@@ -86,6 +86,17 @@ function measureFlattenTreeAverageMs(
   };
 }
 
+function measureFlattenTreeBudgetMs(
+  tree: TreeNode[],
+  expandedPaths: Set<string>
+): { averageMs: number; iterations: number } {
+  // Warm the JIT and populate inline caches before measuring against budgets.
+  flattenTree(tree, expandedPaths);
+  flattenTree(tree, expandedPaths);
+
+  return measureFlattenTreeAverageMs(tree, expandedPaths);
+}
+
 describe('FileTree Performance (BST-145)', () => {
   describe('flattenTree budget compliance', () => {
     it('should flatten small tree (~100 nodes) within FLATTEN_TREE budget', () => {
@@ -97,14 +108,15 @@ describe('FileTree Performance (BST-145)', () => {
         allNodes.filter((n) => n.type === 'directory').map((n) => n.path)
       );
 
-      const start = performance.now();
       const flattened = flattenTree(tree, expandedPaths);
-      const durationMs = performance.now() - start;
+      const measurement = measureFlattenTreeBudgetMs(tree, expandedPaths);
 
       // Log for baseline recording
-      console.log(`[PERF] flattenTree small: ${durationMs.toFixed(2)}ms for ${nodeCount} nodes`);
+      console.log(
+        `[PERF] flattenTree small: ${measurement.averageMs.toFixed(2)}ms avg over ${measurement.iterations} runs for ${nodeCount} nodes`
+      );
 
-      expect(durationMs).toBeLessThan(PERF_BUDGETS.flattenTree);
+      expect(measurement.averageMs).toBeLessThan(PERF_BUDGETS.flattenTree);
       expect(flattened.length).toBeGreaterThan(0);
     });
 
@@ -116,14 +128,15 @@ describe('FileTree Performance (BST-145)', () => {
         allNodes.filter((n) => n.type === 'directory').map((n) => n.path)
       );
 
-      const start = performance.now();
       const flattened = flattenTree(tree, expandedPaths);
-      const durationMs = performance.now() - start;
+      const measurement = measureFlattenTreeBudgetMs(tree, expandedPaths);
 
-      console.log(`[PERF] flattenTree medium: ${durationMs.toFixed(2)}ms for ${nodeCount} nodes`);
+      console.log(
+        `[PERF] flattenTree medium: ${measurement.averageMs.toFixed(2)}ms avg over ${measurement.iterations} runs for ${nodeCount} nodes`
+      );
 
       // Allow 2x budget for medium trees
-      expect(durationMs).toBeLessThan(PERF_BUDGETS.flattenTree * 2);
+      expect(measurement.averageMs).toBeLessThan(PERF_BUDGETS.flattenTree * 2);
       expect(flattened.length).toBeGreaterThan(0);
     });
 
@@ -135,14 +148,15 @@ describe('FileTree Performance (BST-145)', () => {
         allNodes.filter((n) => n.type === 'directory').map((n) => n.path)
       );
 
-      const start = performance.now();
       const flattened = flattenTree(tree, expandedPaths);
-      const durationMs = performance.now() - start;
+      const measurement = measureFlattenTreeBudgetMs(tree, expandedPaths);
 
-      console.log(`[PERF] flattenTree large: ${durationMs.toFixed(2)}ms for ${nodeCount} nodes`);
+      console.log(
+        `[PERF] flattenTree large: ${measurement.averageMs.toFixed(2)}ms avg over ${measurement.iterations} runs for ${nodeCount} nodes`
+      );
 
       // Allow 5x budget for large trees (linear scaling)
-      expect(durationMs).toBeLessThan(PERF_BUDGETS.flattenTree * 5);
+      expect(measurement.averageMs).toBeLessThan(PERF_BUDGETS.flattenTree * 5);
       expect(flattened.length).toBeGreaterThan(0);
     });
 
@@ -154,16 +168,15 @@ describe('FileTree Performance (BST-145)', () => {
         allNodes.filter((n) => n.type === 'directory').map((n) => n.path)
       );
 
-      const start = performance.now();
       const flattened = flattenTree(tree, expandedPaths);
-      const durationMs = performance.now() - start;
+      const measurement = measureFlattenTreeBudgetMs(tree, expandedPaths);
 
       console.log(
-        `[PERF] flattenTree repoScale: ${durationMs.toFixed(2)}ms for ${nodeCount} nodes`
+        `[PERF] flattenTree repoScale: ${measurement.averageMs.toFixed(2)}ms avg over ${measurement.iterations} runs for ${nodeCount} nodes`
       );
 
       // Allow 10x budget for repoScale trees
-      expect(durationMs).toBeLessThan(PERF_BUDGETS.flattenTree * 10);
+      expect(measurement.averageMs).toBeLessThan(PERF_BUDGETS.flattenTree * 10);
       expect(flattened.length).toBeGreaterThan(0);
     });
 
@@ -175,14 +188,15 @@ describe('FileTree Performance (BST-145)', () => {
         allNodes.filter((n) => n.type === 'directory').map((n) => n.path)
       );
 
-      const start = performance.now();
       const flattened = flattenTree(tree, expandedPaths);
-      const durationMs = performance.now() - start;
+      const measurement = measureFlattenTreeBudgetMs(tree, expandedPaths);
 
-      console.log(`[PERF] flattenTree mega: ${durationMs.toFixed(2)}ms for ${nodeCount} nodes`);
+      console.log(
+        `[PERF] flattenTree mega: ${measurement.averageMs.toFixed(2)}ms avg over ${measurement.iterations} runs for ${nodeCount} nodes`
+      );
 
       // Allow 20x budget for mega trees (linear scaling at ~0.02μs/node)
-      expect(durationMs).toBeLessThan(PERF_BUDGETS.flattenTree * 20);
+      expect(measurement.averageMs).toBeLessThan(PERF_BUDGETS.flattenTree * 20);
       expect(flattened.length).toBeGreaterThan(0);
       // Verify we actually have 80K+ nodes
       expect(nodeCount).toBeGreaterThan(80_000);

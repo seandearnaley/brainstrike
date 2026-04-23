@@ -6,6 +6,10 @@ import {
   type ExplorerBootstrapOptions,
   reloadExplorer,
 } from './utils/file-explorer-setup';
+import {
+  CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
+  getContextExplorerLeftResizeHandle,
+} from './utils/layout-helpers';
 import type { FileTree } from './utils/mock-fs';
 
 /**
@@ -94,13 +98,15 @@ test.describe('File Explorer', () => {
 
     test('keeps footer controls usable when the explorer panel is narrowed', async ({ page }) => {
       await explorer.selectRoot();
+      await page.getByTestId('hide-threads-panel').click();
+      await expect(page.getByTestId('show-threads-panel')).toBeVisible();
 
-      const leftPanel = page.locator('#explorer-panel');
+      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
       const initialWidth = await leftPanel.evaluate(
         (element) => element.getBoundingClientRect().width
       );
 
-      const resizeHandle = page.locator('[data-separator]').first();
+      const resizeHandle = getContextExplorerLeftResizeHandle(page);
       const handleBox = await resizeHandle.boundingBox();
       if (!handleBox) {
         throw new Error('Resize handle not found');
@@ -108,7 +114,7 @@ test.describe('File Explorer', () => {
 
       await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
       await page.mouse.down();
-      await page.mouse.move(handleBox.x - 120, handleBox.y + handleBox.height / 2);
+      await page.mouse.move(handleBox.x - 140, handleBox.y + handleBox.height / 2);
       await page.mouse.up();
 
       await page.waitForTimeout(300);
@@ -116,14 +122,15 @@ test.describe('File Explorer', () => {
       const narrowedWidth = await leftPanel.evaluate(
         (element) => element.getBoundingClientRect().width
       );
-      expect(narrowedWidth).toBeLessThan(initialWidth);
+      expect(narrowedWidth).toBeLessThanOrEqual(initialWidth);
+      expect(initialWidth - narrowedWidth).toBeGreaterThanOrEqual(40);
 
       await expect(page.getByRole('button', { name: 'Selection settings' })).toBeVisible();
       await expect(page.getByTestId('selection-count')).toBeVisible();
       await expect(page.getByRole('button', { name: 'Select All' })).toBeVisible();
       await expect(page.getByTestId('bulk-action-full-label')).not.toBeVisible();
 
-      await page.getByRole('button', { name: 'Selection settings' }).click();
+      await page.getByRole('button', { name: 'Selection settings' }).press('Enter');
       await expect(page.getByRole('button', { name: '5K' })).toBeVisible();
       await expect(page.getByRole('button', { name: '6K' })).toBeVisible();
       await expect(page.getByRole('button', { name: '8K' })).toBeVisible();
@@ -324,7 +331,7 @@ test.describe('File Explorer', () => {
 
     async function getPresetTrigger(page: Page) {
       const presetTrigger = page
-        .locator('#explorer-panel')
+        .locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR)
         .locator('button')
         .filter({ hasText: /select filter|source files|documentation|typescript\/javascript/i })
         .first();
@@ -401,7 +408,9 @@ test.describe('File Explorer', () => {
       await documentationOption.click();
 
       await expect(
-        page.locator('#explorer-panel').getByRole('button', { name: /documentation/i })
+        page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR).getByRole('button', {
+          name: /documentation/i,
+        })
       ).toBeVisible({ timeout: 10_000 });
       await expect(page.getByText('Select filter...')).toHaveCount(0);
     });
@@ -448,7 +457,9 @@ test.describe('File Explorer', () => {
       await tsPresetOption.click();
 
       await expect(
-        page.locator('#explorer-panel').getByRole('button', { name: /typescript\/javascript/i })
+        page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR).getByRole('button', {
+          name: /typescript\/javascript/i,
+        })
       ).toBeVisible({ timeout: 10_000 });
 
       await filteredExplorer.selectAllButton.click();

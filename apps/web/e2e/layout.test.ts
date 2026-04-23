@@ -2,7 +2,16 @@ import { expect, test } from '@playwright/test';
 import { HomePage } from './page-objects/home-page';
 import { resetAppState } from './utils/app-state';
 import {
+  AGENT_MAIN_PANEL_SELECTOR,
+  AGENT_MIDDLE_PANEL_SELECTOR,
+  AGENT_SIDEBAR_PANEL_SELECTOR,
+  AGENT_WORKSPACE_PANEL_SELECTOR,
+  CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR,
+  CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
+  CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR,
+  CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR,
   corruptLayoutStorage,
+  ensureRightPanelVisible,
   getPanelElements,
   togglePanelVisibility,
   verifyDefaultLayout,
@@ -120,11 +129,11 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
       await expect(elements.leftPanel).toBeVisible();
 
       // Hide panel
-      await togglePanelVisibility(elements.hideExplorerButton, elements.leftPanel, false);
-      await expect(elements.showExplorerShim).toBeVisible();
+      await togglePanelVisibility(elements.hideAgentPanelButton, elements.leftPanel, false);
+      await expect(elements.showAgentPanelShim).toBeVisible();
 
       // Show panel again
-      await togglePanelVisibility(elements.showExplorerShim, elements.leftPanel, true);
+      await togglePanelVisibility(elements.showAgentPanelShim, elements.leftPanel, true);
     });
 
     test('should allow toggling console panel visibility', async ({ page }) => {
@@ -167,36 +176,38 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
     test('should maintain panel structure integrity', async ({ page }) => {
       const elements = getPanelElements(page);
       await elements.showConsoleShim.click();
-      await elements.showRightPanelShim.click(); // Show tools panel first since it's hidden by default
-      await elements.hideRightPanelButton.click(); // Now we can hide it
-      await elements.showRightPanelShim.click(); // And show it again
+      await ensureRightPanelVisible(page);
+      await elements.hideRightPanelButton.click();
+      await elements.showRightPanelShim.click();
 
       // Verify all main layout containers exist
-      // Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
-      await expect(page.locator('#explorer-panel')).toBeAttached();
-      await expect(page.locator('#middle-panel')).toBeAttached();
-      await expect(page.locator('#tools-panel')).toBeAttached();
-      await expect(page.locator('#main-content-panel')).toBeAttached();
-      await expect(page.locator('#console-panel')).toBeAttached();
+      // The app now uses an outer agent workspace shell plus a nested context explorer layout.
+      await expect(page.locator(AGENT_SIDEBAR_PANEL_SELECTOR)).toBeAttached();
+      await expect(page.locator(AGENT_MIDDLE_PANEL_SELECTOR)).toBeAttached();
+      await expect(page.locator(AGENT_WORKSPACE_PANEL_SELECTOR)).toBeAttached();
+      await expect(page.locator(AGENT_MAIN_PANEL_SELECTOR)).toBeAttached();
+      await expect(page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR)).toBeAttached();
+      await expect(page.locator(CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR)).toBeAttached();
+      await expect(page.locator(CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR)).toBeAttached();
+      await expect(page.locator(CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR)).toBeAttached();
 
-      // Verify panel group structure using correct data attributes.
-      // The app layout contract is two resizable groups:
-      // - Outer horizontal (left / middle / right)
-      // - Inner vertical (main / console)
-      // The tools panel content is not itself a resizable panel group.
-      await expect(page.locator('[data-group]')).toHaveCount(2);
+      // Verify the shell still exposes the expected nested resizable groups.
+      // The exact count can vary with wrapper groups created by the panel library,
+      // but the promoted shell must still include the outer workspace plus the
+      // inner horizontal and vertical explorer groups.
+      expect(await page.locator('[data-group]').count()).toBeGreaterThanOrEqual(3);
     });
 
     test('should handle rapid panel visibility changes', async ({ page }) => {
       const elements = getPanelElements(page);
 
-      await elements.hideExplorerButton.click();
-      await expect(elements.showExplorerShim).toBeVisible();
+      await elements.hideAgentPanelButton.click();
+      await expect(elements.showAgentPanelShim).toBeVisible();
 
       await elements.showConsoleShim.click();
       await expect(elements.consolePanel).toBeVisible();
 
-      await elements.showExplorerShim.click();
+      await elements.showAgentPanelShim.click();
       await expect(elements.leftPanel).toBeVisible();
 
       await elements.hideConsoleButton.click();

@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type QueueAddCall = Parameters<QueueAdapter['add']>[0];
 
+const QUEUE_BACKEND_TEST_TIMEOUT_MS = 30_000;
+
 const pipelineMock = vi.fn();
 
 vi.mock('@huggingface/transformers', () => ({
@@ -57,7 +59,9 @@ describe('TransformersBackend queue integration', () => {
     vi.unstubAllGlobals();
   });
 
-  it('prefers the browser queue when available', async () => {
+  it('prefers the browser queue when available', {
+    timeout: QUEUE_BACKEND_TEST_TIMEOUT_MS,
+  }, async () => {
     vi.stubGlobal('window', {});
     vi.stubGlobal('navigator', { gpu: {} });
     vi.stubGlobal('Worker', class {});

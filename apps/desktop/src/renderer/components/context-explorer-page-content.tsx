@@ -4,17 +4,11 @@ import {
 } from '@brainstrike/file-explorer-ui';
 import { Suspense } from 'react';
 
-// Desktop file explorer component
-function DesktopFileExplorer() {
+function DesktopContextExplorerPage() {
   return <FileExplorerMiddlePanelTabbed />;
 }
 
-// Desktop file explorer left panel component
-function DesktopFileExplorerLeftPanel() {
-  return <FileExplorerLeftPanel />;
-}
-
-export default function HomePageContent() {
+export default function ContextExplorerPageContent() {
   return (
     <>
       <title>BrainStrike Desktop - Home</title>
@@ -22,10 +16,12 @@ export default function HomePageContent() {
       <Suspense
         fallback={<div className="flex h-full items-center justify-center">Loading...</div>}
       >
-        <DesktopFileExplorer />
+        <DesktopContextExplorerPage />
       </Suspense>
     </>
   );
 }
 
-export { DesktopFileExplorerLeftPanel };
+export function DesktopContextExplorerLeftPanel() {
+  return <FileExplorerLeftPanel />;
+}

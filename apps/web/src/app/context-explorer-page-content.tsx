@@ -3,11 +3,11 @@ import { Suspense } from 'react';
 import { Helmet } from 'react-helmet-async';
 
 /**
- * Home page content - the middle panel of the file explorer.
+ * Context explorer page content - the middle panel of the route-local explorer layout.
  * Note: TokenCacheProvider wraps the entire layout in root-layout-content.tsx,
  * so this component (and the left panel) share the same token cache context.
  */
-export default function HomePageContent() {
+export default function ContextExplorerPageContent() {
   return (
     <>
       <Helmet>

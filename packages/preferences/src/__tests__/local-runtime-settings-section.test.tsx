@@ -90,10 +90,10 @@ describe('LocalRuntimeSettingsSection', () => {
 
     // The save handler forces a re-probe with the new endpoint config.
     await waitFor(() => {
-      const forcedCall = probeSpy.mock.calls.find(
-        ([runtime, options]) =>
-          runtime === 'ollama' && options?.endpoint?.baseUrl === 'http://gpu.lan:11434'
-      );
+      const forcedCall = probeSpy.mock.calls.find(([runtime, options]) => {
+        const probeOptions = options as { endpoint?: { baseUrl?: string } } | undefined;
+        return runtime === 'ollama' && probeOptions?.endpoint?.baseUrl === 'http://gpu.lan:11434';
+      });
       expect(forcedCall).toBeTruthy();
     });
   });

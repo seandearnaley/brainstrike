@@ -1,5 +1,6 @@
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import { getContextExplorerLeftPanel } from './utils/context-explorer-locators';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 interface ElectronE2eFileSystemFixture {
@@ -20,7 +21,7 @@ interface ElectronE2eFileSystemFixture {
 }
 
 async function ensureLeftPanelVisible(window: Page): Promise<void> {
-  const leftPanel = window.locator('#explorer-panel');
+  const leftPanel = getContextExplorerLeftPanel(window);
   const showLeftPanelButton = window
     .getByTestId('show-explorer-panel')
     .or(window.getByRole('button', { name: /show explorer/i }));
@@ -47,7 +48,7 @@ async function ensureViewFiltersExpanded(window: Page): Promise<void> {
 }
 
 async function resolvePresetTrigger(window: Page): Promise<Locator> {
-  const explorerPanel = window.locator('#explorer-panel');
+  const explorerPanel = getContextExplorerLeftPanel(window);
   const presetTrigger = explorerPanel
     .locator('button')
     .filter({ hasText: /select filter|source files|documentation|typescript\/javascript/i })
@@ -225,7 +226,7 @@ async function selectMockRoot(window: Page): Promise<void> {
 }
 
 async function selectDocumentationPreset(window: Page): Promise<void> {
-  const selectedDocumentationTrigger = window.locator('#explorer-panel').getByRole('button', {
+  const selectedDocumentationTrigger = getContextExplorerLeftPanel(window).getByRole('button', {
     name: /documentation/i,
   });
   if (await selectedDocumentationTrigger.isVisible().catch(() => false)) {
@@ -249,7 +250,7 @@ async function selectDocumentationPreset(window: Page): Promise<void> {
 }
 
 async function switchPreset(window: Page, currentName: RegExp, nextName: RegExp): Promise<void> {
-  const presetTrigger = window.locator('#explorer-panel').getByRole('button', {
+  const presetTrigger = getContextExplorerLeftPanel(window).getByRole('button', {
     name: currentName,
   });
   await expect(presetTrigger).toBeVisible({ timeout: 10_000 });

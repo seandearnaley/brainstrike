@@ -16,6 +16,72 @@ const DEFAULT_CI_APP_LOAD_TIMEOUT_MS = 55_000;
 const DEFAULT_LOCAL_NETWORK_IDLE_TIMEOUT_MS = 2000;
 const DEFAULT_CI_NETWORK_IDLE_TIMEOUT_MS = 5000;
 
+export const AGENT_SIDEBAR_PANEL_SELECTOR = [
+  '#agent-workspace-explorer-panel',
+  '[data-panel-id="agent-workspace-explorer-panel"]',
+  '#explorer-panel',
+  '[data-panel-id="explorer-panel"]',
+].join(', ');
+
+export const AGENT_MAIN_PANEL_SELECTOR = [
+  '#agent-workspace-main-content-panel',
+  '[data-panel-id="agent-workspace-main-content-panel"]',
+  '#main-content-panel',
+  '[data-panel-id="main-content-panel"]',
+].join(', ');
+
+export const AGENT_MIDDLE_PANEL_SELECTOR = [
+  '#agent-workspace-middle-panel',
+  '[data-panel-id="agent-workspace-middle-panel"]',
+  '#middle-panel',
+  '[data-panel-id="middle-panel"]',
+].join(', ');
+
+export const AGENT_WORKSPACE_PANEL_SELECTOR = [
+  '#agent-workspace-tools-panel',
+  '[data-panel-id="agent-workspace-tools-panel"]',
+  '#tools-panel',
+  '[data-panel-id="tools-panel"]',
+].join(', ');
+
+export const CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR = [
+  '#context-explorer-explorer-panel',
+  '[data-panel-id="context-explorer-explorer-panel"]',
+  '#explorer-panel',
+  '[data-panel-id="explorer-panel"]',
+].join(', ');
+
+/**
+ * Resolve the resize handle that sits directly between the context explorer tree
+ * and the preview area. Nested layouts make global separator ordering unreliable.
+ */
+export function getContextExplorerLeftResizeHandle(page: Page) {
+  return page
+    .locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR)
+    .locator('xpath=following-sibling::*[@data-separator][1]');
+}
+
+export const CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR = [
+  '#context-explorer-middle-panel',
+  '[data-panel-id="context-explorer-middle-panel"]',
+  '#middle-panel',
+  '[data-panel-id="middle-panel"]',
+].join(', ');
+
+export const CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR = [
+  '#context-explorer-main-content-panel',
+  '[data-panel-id="context-explorer-main-content-panel"]',
+  '#main-content-panel',
+  '[data-panel-id="main-content-panel"]',
+].join(', ');
+
+export const CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR = [
+  '#context-explorer-console-panel',
+  '[data-panel-id="context-explorer-console-panel"]',
+  '#console-panel',
+  '[data-panel-id="console-panel"]',
+].join(', ');
+
 function resolveErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -65,15 +131,15 @@ async function getPlaywrightExpect(): Promise<PlaywrightExpect> {
 
 export interface PanelElements {
   consolePanel: ReturnType<Page['locator']>;
+  hideAgentPanelButton: ReturnType<Page['locator']>;
   hideConsoleButton: ReturnType<Page['locator']>;
-  hideExplorerButton: ReturnType<Page['locator']>;
   hideRightPanelButton: ReturnType<Page['locator']>;
   leftPanel: ReturnType<Page['locator']>;
   mainContentPanel: ReturnType<Page['locator']>;
   middlePanel: ReturnType<Page['locator']>;
   rightPanel: ReturnType<Page['locator']>;
+  showAgentPanelShim: ReturnType<Page['locator']>;
   showConsoleShim: ReturnType<Page['locator']>;
-  showExplorerShim: ReturnType<Page['locator']>;
   showRightPanelShim: ReturnType<Page['locator']>;
 }
 
@@ -84,22 +150,20 @@ export interface PanelElements {
 export function getPanelElements(page: Page): PanelElements {
   return {
     // Main panels - v4 uses id attribute for panel identification
-    leftPanel: page.locator('#explorer-panel, [data-panel-id="explorer-panel"]'),
-    rightPanel: page.locator('#tools-panel, [data-panel-id="tools-panel"]'),
-    consolePanel: page.locator(
-      '#console-panel, #console-panel-horizontal, [data-panel-id="console-panel"], [data-panel-id="console-panel-horizontal"]'
-    ),
-    mainContentPanel: page.locator('#main-content-panel, [data-panel-id="main-content-panel"]'),
-    middlePanel: page.locator('#middle-panel, [data-panel-id="middle-panel"]'),
+    leftPanel: page.locator(AGENT_SIDEBAR_PANEL_SELECTOR),
+    rightPanel: page.locator(AGENT_WORKSPACE_PANEL_SELECTOR),
+    consolePanel: page.locator(CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR),
+    mainContentPanel: page.locator(AGENT_MAIN_PANEL_SELECTOR),
+    middlePanel: page.locator(AGENT_MIDDLE_PANEL_SELECTOR),
 
     // Hide buttons (when panels are open)
-    hideExplorerButton: page.locator('[data-testid="hide-explorer-panel"]'),
-    hideRightPanelButton: page.locator('[data-testid="hide-tools-panel"]'),
+    hideAgentPanelButton: page.locator('[data-testid="hide-threads-panel"]'),
+    hideRightPanelButton: page.locator('[data-testid="hide-workspace-panel"]'),
     hideConsoleButton: page.locator('[data-testid="hide-console-panel"]'),
 
     // Show shims (when panels are closed)
-    showExplorerShim: page.locator('[data-testid="show-explorer-panel"]'),
-    showRightPanelShim: page.locator('[data-testid="show-tools-panel"]'),
+    showAgentPanelShim: page.locator('[data-testid="show-threads-panel"]'),
+    showRightPanelShim: page.locator('[data-testid="show-workspace-panel"]'),
     showConsoleShim: page.locator('[data-testid="show-console-panel"]'),
   };
 }
@@ -120,19 +184,19 @@ export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promi
     await showShim.first().click();
   } else {
     const showButton = page
-      .locator('button[aria-label="Show tools panel"]')
-      .or(page.getByRole('button', { name: 'Show tools panel' }));
+      .locator('button[aria-label="Show workspace panel"]')
+      .or(page.getByRole('button', { name: 'Show workspace panel' }));
 
     if ((await showButton.count()) > 0) {
       await showButton.first().click();
     } else {
-      logWarn('Unable to find "Show tools panel" control; assuming panel is already visible.');
+      logWarn('Unable to find right-panel show control; assuming panel is already visible.');
       return;
     }
   }
 
   await elements.rightPanel.waitFor({ state: 'visible', timeout }).catch(() => {
-    logWarn('Tools panel did not become visible after requesting to show it.');
+    logWarn('Right panel did not become visible after requesting to show it.');
   });
 }
 
@@ -151,10 +215,10 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
   // Caller-provided timeout can only raise these floors, never lower them.
   const effectiveTimeout = resolveWaitForAppLoadTimeout(timeout, isCI);
   const panelReadySelector = [
-    '#middle-panel',
-    '[data-panel-id="middle-panel"]',
-    '#main-content-panel',
-    '[data-panel-id="main-content-panel"]',
+    AGENT_MIDDLE_PANEL_SELECTOR,
+    AGENT_MAIN_PANEL_SELECTOR,
+    CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR,
+    CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR,
     'h1:has-text("Context Explorer")',
   ].join(', ');
 
@@ -239,14 +303,14 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
 
   // Also ensure the main content panel is present when panel IDs are available.
   await page
-    .waitForSelector('#main-content-panel, [data-panel-id="main-content-panel"]', {
+    .waitForSelector(`${AGENT_MAIN_PANEL_SELECTOR}, ${CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR}`, {
       state: 'attached',
       timeout: effectiveTimeout,
     })
     .catch((error) => {
       const errorMessage = resolveErrorMessage(error);
       logWarn('Main content panel selector did not attach after primary readiness check.', {
-        selector: '#main-content-panel, [data-panel-id="main-content-panel"]',
+        selector: `${AGENT_MAIN_PANEL_SELECTOR}, ${CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR}`,
         timeoutMs: effectiveTimeout,
         isCI,
         error: errorMessage,
@@ -300,7 +364,10 @@ export async function activateSidebarNavigation(
  */
 export async function resetLayoutState(page: Page): Promise<void> {
   await page.evaluate(() => {
+    localStorage.removeItem('brainstrike.agent-sidebar-tab.v1');
     localStorage.removeItem('panel-layout-store.v1');
+    localStorage.removeItem('context-explorer-layout-store.v1');
+    localStorage.removeItem('tools-panel.v1');
   });
   // Wait for the page to finish navigating before continuing.
   // Using 'load' to ensure JS bundles are loaded before checking React elements.
@@ -338,6 +405,7 @@ export async function togglePanelVisibility(
 export async function corruptLayoutStorage(page: Page): Promise<void> {
   await page.evaluate(() => {
     localStorage.setItem('panel-layout-store.v1', 'invalid-json');
+    localStorage.setItem('context-explorer-layout-store.v1', 'invalid-json');
   });
 }
 
@@ -358,20 +426,18 @@ export async function verifyDefaultLayout(page: Page, expectedState: DefaultLayo
   // Left panel should be visible by default
   if (expectedState.leftPanelHidden) {
     await expect(elements.leftPanel).not.toBeVisible();
-    await expect(elements.showExplorerShim).toBeVisible();
+    await expect(elements.showAgentPanelShim).toBeVisible();
   } else {
     await expect(elements.leftPanel).toBeVisible();
   }
 
-  // Tools panel should be hidden by default
-  if (expectedState.rightPanelHidden === false) {
-    // Explicitly set to be visible
-    await expect(elements.rightPanel).toBeVisible();
-    await expect(elements.hideRightPanelButton).toBeVisible();
-  } else {
-    // Default behavior or explicitly hidden
+  // Workspace panel is visible by default in the promoted agent shell.
+  if (expectedState.rightPanelHidden) {
     await expect(elements.rightPanel).not.toBeVisible();
     await expect(elements.showRightPanelShim).toBeVisible();
+  } else {
+    await expect(elements.rightPanel).toBeVisible();
+    await expect(elements.hideRightPanelButton).toBeVisible();
   }
 
   // Console should be hidden by default

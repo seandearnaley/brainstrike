@@ -1,6 +1,6 @@
 import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
-import { ensureToolsPanelVisible } from './utils/layout-helpers';
+import { ensureAssistantShellVisible } from './utils/layout-helpers';
 
 test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
   test.beforeEach(async ({ window }) => {
@@ -9,10 +9,7 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
 
   test('initial assistant mount does not reload the visible renderer', async ({ window }) => {
     const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
-    const rightPanel = await ensureToolsPanelVisible(window);
-    await expect(rightPanel).toBeVisible();
-
-    const assistantChatCard = window.getByTestId('assistant-chat-card');
+    const assistantChatCard = await ensureAssistantShellVisible(window);
     await expect(assistantChatCard).toBeVisible({ timeout: 5000 });
 
     const loadingIndicator = window.getByText(/Loading assistant/i);
@@ -32,7 +29,10 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
       .toBe(initialTimeOrigin);
   });
 
-  test('prompt library is ready without hanging fallbacks', async ({ window }) => {
+  test('prompts loads full-frame while the assistant shell stays hidden', async ({ window }) => {
+    const assistantChatCard = await ensureAssistantShellVisible(window);
+    await expect(assistantChatCard).toBeVisible({ timeout: 5000 });
+
     const promptsNav = window
       .getByRole('button', { name: /prompts/i })
       .or(window.getByRole('link', { name: /prompts/i }))
@@ -43,19 +43,13 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
     await expect(window.getByRole('heading', { name: /prompt library/i })).toBeVisible({
       timeout: 15_000,
     });
+    await expect(assistantChatCard).toBeHidden();
     await expect(window.getByText(/Loading prompts/i)).toHaveCount(0);
   });
 
-  test('send message and see streamed response in tools panel', async ({ window }) => {
-    const rightPanel = await ensureToolsPanelVisible(window);
-    await expect(rightPanel).toBeVisible();
+  test('send message and see streamed response in assistant shell', async ({ window }) => {
     const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
-
-    const assistantTab = window.getByRole('tab', { name: /assistant/i }).first();
-    await expect(assistantTab).toBeVisible({ timeout: 5000 });
-    await assistantTab.click();
-
-    const assistantChatCard = window.getByTestId('assistant-chat-card');
+    const assistantChatCard = await ensureAssistantShellVisible(window);
     await expect(assistantChatCard).toBeVisible({ timeout: 5000 });
 
     const loadingIndicator = window.getByText(/Loading assistant/i);

@@ -49,6 +49,7 @@ vi.mock('lucide-react', async (importOriginal) => {
     Link2: () => <div data-testid="link-icon" />,
     Loader2: () => <div data-testid="loader-icon" />,
     MoreHorizontal: () => <div data-testid="more-icon" />,
+    Trash2: () => <div data-testid="trash-icon" />,
   };
 });
 

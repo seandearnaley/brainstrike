@@ -112,7 +112,15 @@ vi.mock('react-resizable-panels', () => {
       }
     });
     return (
-      <div data-testid="panel" {...props}>
+      <div
+        data-collapsed-size={String(collapsedSize ?? '')}
+        data-collapsible={String(Boolean(collapsible))}
+        data-default-size={String(defaultSize ?? '')}
+        data-max-size={String(maxSize ?? '')}
+        data-min-size={String(minSize ?? '')}
+        data-testid="panel"
+        {...props}
+      >
         {children}
       </div>
     );
@@ -198,6 +206,29 @@ describe('IdeLayout', () => {
 
     fireEvent.click(screen.getByTestId('show-console-panel'));
     expect(mockState.saveLayout).toHaveBeenCalled();
+  });
+
+  it('applies panel constraint overrides to the middle and right panels', () => {
+    render(
+      <IdeLayout
+        panelConstraints={{
+          mainContentMinSize: '25%',
+          rightPanelMaxSize: '75%',
+        }}
+        rightPanelContent={rightContent}
+      >
+        <div>Main Content</div>
+      </IdeLayout>
+    );
+
+    expect(screen.getByText('Main Content').closest('[data-testid="panel"]')).toHaveAttribute(
+      'data-min-size',
+      '25%'
+    );
+    expect(screen.getByText('Right Content').closest('[data-testid="panel"]')).toHaveAttribute(
+      'data-max-size',
+      '75%'
+    );
   });
 
   it('calls saveLayout from layout callbacks', () => {

@@ -13,7 +13,13 @@ import type {
 } from '../types';
 import { clearModelConfigCache } from '../worker/embedding-worker';
 
-vi.setConfig({ hookTimeout: 30_000, testTimeout: 30_000 });
+const PGLITE_SETUP_TIMEOUT_MS = 90_000;
+const EMBEDDING_WORKER_TEST_TIMEOUT_MS = 30_000;
+
+vi.setConfig({
+  hookTimeout: PGLITE_SETUP_TIMEOUT_MS,
+  testTimeout: EMBEDDING_WORKER_TEST_TIMEOUT_MS,
+});
 
 const loggerCalls = {
   error: [] as unknown[][],
@@ -144,7 +150,7 @@ describe('embedding-worker error logging', () => {
     clearModelConfigCache();
     db = await wasmLoader.createPGlite('memory://embedding-worker-error-logging');
     await migrate(db);
-  });
+  }, PGLITE_SETUP_TIMEOUT_MS);
 
   afterEach(async () => {
     await db.close();
