@@ -8,6 +8,7 @@ import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/ui/assistant-
 export interface AssistantMemoryThread {
   readonly createdAt: Date;
   readonly id: string;
+  readonly latestRun?: AssistantThreadRunRecord;
   readonly metadata?: AssistantThreadMetadata;
   readonly resourceId: string;
   readonly title: string;
@@ -22,9 +23,52 @@ export interface AssistantThreadMetadata {
   readonly source?: string;
 }
 
+export type AssistantThreadRunStatus = 'cancelled' | 'completed' | 'failed' | 'running';
+export type AssistantThreadRuntimeKind = 'browser' | 'gateway' | 'hosted' | 'local';
+
+export interface AssistantThreadRunRecord {
+  readonly completedAt: Date | null;
+  readonly createdAt: Date;
+  readonly error: string | null;
+  readonly id: string;
+  readonly model: string;
+  readonly modelSettings?: Record<string, unknown>;
+  readonly provider: string;
+  readonly providerOptions?: Record<string, unknown>;
+  readonly resourceId: string;
+  readonly runtimeKind: AssistantThreadRuntimeKind;
+  readonly startedAt: Date;
+  readonly status: AssistantThreadRunStatus;
+  readonly threadId: string;
+  readonly updatedAt: Date;
+}
+
+export interface CreateAssistantThreadRunInput {
+  readonly completedAt?: Date | null;
+  readonly error?: string | null;
+  readonly id: string;
+  readonly model: string;
+  readonly modelSettings?: Record<string, unknown>;
+  readonly provider: string;
+  readonly providerOptions?: Record<string, unknown>;
+  readonly resourceId: string;
+  readonly runtimeKind: AssistantThreadRuntimeKind;
+  readonly startedAt?: Date;
+  readonly status?: AssistantThreadRunStatus;
+  readonly threadId: string;
+}
+
+export interface CompleteAssistantThreadRunInput {
+  readonly error?: string | null;
+  readonly status: Exclude<AssistantThreadRunStatus, 'running'>;
+}
+
 export interface AssistantThreadRepository {
+  completeThreadRun: (runId: string, input: CompleteAssistantThreadRunInput) => Promise<void>;
   createThread: (resourceId: string) => Promise<AssistantMemoryThread>;
+  createThreadRun: (input: CreateAssistantThreadRunInput) => Promise<AssistantThreadRunRecord>;
   deleteThread: (threadId: string) => Promise<void>;
+  listLatestThreadRuns: (resourceId: string) => Promise<readonly AssistantThreadRunRecord[]>;
   listMessages: (
     threadId: string,
     resourceId: string
@@ -40,6 +84,37 @@ interface AssistantHistoryMessage {
   readonly id: string;
   readonly role: string;
 }
+
+const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
+const ASSISTANT_THREAD_RUNS_SCHEMA_SQL = `
+${MASTRA_MEMORY_SCHEMA_SQL}
+
+CREATE TABLE IF NOT EXISTS ${ASSISTANT_THREAD_RUNS_TABLE} (
+  id text PRIMARY KEY,
+  resource_id text NOT NULL,
+  thread_id text NOT NULL REFERENCES ${MASTRA_MEMORY_TABLES.threads}(id) ON DELETE CASCADE,
+  provider text NOT NULL,
+  model text NOT NULL,
+  model_settings jsonb,
+  provider_options jsonb,
+  runtime_kind text NOT NULL,
+  status text NOT NULL,
+  error text,
+  started_at timestamptz NOT NULL,
+  completed_at timestamptz,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_thread_runs_resource_idx
+  ON ${ASSISTANT_THREAD_RUNS_TABLE} (resource_id);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_thread_runs_thread_latest_idx
+  ON ${ASSISTANT_THREAD_RUNS_TABLE} (resource_id, thread_id, started_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_thread_runs_status_idx
+  ON ${ASSISTANT_THREAD_RUNS_TABLE} (status);
+`;
 
 function assertMemoryDatabase(database: DbHandle): asserts database is DbHandle & {
   exec: NonNullable<DbHandle['exec']>;
@@ -66,9 +141,17 @@ function normalizeDate(value: unknown): Date {
   return new Date();
 }
 
+function normalizeNullableDate(value: unknown): Date | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return normalizeDate(value);
+}
+
 function toMemoryThread(thread: {
   createdAt: unknown;
   id: string;
+  latestRun?: AssistantThreadRunRecord;
   metadata?: unknown;
   resourceId: string;
   title?: string | null;
@@ -80,6 +163,7 @@ function toMemoryThread(thread: {
     title: thread.title?.trim() || 'New Thread',
     createdAt: normalizeDate(thread.createdAt),
     updatedAt: normalizeDate(thread.updatedAt),
+    ...(thread.latestRun ? { latestRun: thread.latestRun } : {}),
     ...(isThreadMetadata(thread.metadata) ? { metadata: thread.metadata } : {}),
   };
 }
@@ -114,6 +198,11 @@ function optionalRecord(value: unknown): Record<string, unknown> | undefined {
   return isRecord(value) ? value : undefined;
 }
 
+function optionalJsonRecord(value: unknown): Record<string, unknown> | undefined {
+  const parsed = parseJson(value);
+  return optionalRecord(parsed);
+}
+
 function isThreadMetadata(value: unknown): value is AssistantThreadMetadata {
   if (!isRecord(value)) {
     return false;
@@ -125,6 +214,52 @@ function isThreadMetadata(value: unknown): value is AssistantThreadMetadata {
       optionalRecord(value['providerOptions']) ||
       optionalString(value['source'])
   );
+}
+
+function requireRunStatus(value: unknown): AssistantThreadRunStatus {
+  if (value === 'cancelled' || value === 'completed' || value === 'failed' || value === 'running') {
+    return value;
+  }
+  throw new Error('Invalid assistant thread run row: status is not valid.');
+}
+
+function requireRuntimeKind(value: unknown): AssistantThreadRuntimeKind {
+  if (value === 'browser' || value === 'gateway' || value === 'hosted' || value === 'local') {
+    return value;
+  }
+  throw new Error('Invalid assistant thread run row: runtime_kind is not valid.');
+}
+
+function getRowValue(row: Record<string, unknown>, camelKey: string, snakeKey: string): unknown {
+  return row[camelKey] ?? row[snakeKey];
+}
+
+function nullableString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function toThreadRunRecord(row: Record<string, unknown>): AssistantThreadRunRecord {
+  const modelSettings = optionalJsonRecord(getRowValue(row, 'modelSettings', 'model_settings'));
+  const providerOptions = optionalJsonRecord(
+    getRowValue(row, 'providerOptions', 'provider_options')
+  );
+
+  return {
+    id: requireString(row['id'], 'id'),
+    resourceId: requireString(getRowValue(row, 'resourceId', 'resource_id'), 'resourceId'),
+    threadId: requireString(getRowValue(row, 'threadId', 'thread_id'), 'threadId'),
+    provider: requireString(row['provider'], 'provider'),
+    model: requireString(row['model'], 'model'),
+    runtimeKind: requireRuntimeKind(getRowValue(row, 'runtimeKind', 'runtime_kind')),
+    status: requireRunStatus(row['status']),
+    error: nullableString(row['error']),
+    startedAt: normalizeDate(getRowValue(row, 'startedAt', 'started_at')),
+    completedAt: normalizeNullableDate(getRowValue(row, 'completedAt', 'completed_at')),
+    createdAt: normalizeDate(getRowValue(row, 'createdAt', 'created_at')),
+    updatedAt: normalizeDate(getRowValue(row, 'updatedAt', 'updated_at')),
+    ...(modelSettings ? { modelSettings } : {}),
+    ...(providerOptions ? { providerOptions } : {}),
+  };
 }
 
 function extractText(value: unknown): string {
@@ -230,11 +365,48 @@ export function createPgliteAssistantThreadRepository(
 
   let initPromise: Promise<void> | null = null;
   const initialize = async (): Promise<void> => {
-    initPromise ??= database.exec(MASTRA_MEMORY_SCHEMA_SQL).then(() => undefined);
+    initPromise ??= database.exec(ASSISTANT_THREAD_RUNS_SCHEMA_SQL).then(() => undefined);
     await initPromise;
   };
 
+  const listLatestThreadRuns = async (
+    resourceId: string
+  ): Promise<readonly AssistantThreadRunRecord[]> => {
+    await initialize();
+    const result = await database.query<Record<string, unknown>>(
+      `SELECT DISTINCT ON (thread_id)
+          id,
+          resource_id AS "resourceId",
+          thread_id AS "threadId",
+          provider,
+          model,
+          model_settings AS "modelSettings",
+          provider_options AS "providerOptions",
+          runtime_kind AS "runtimeKind",
+          status,
+          error,
+          started_at AS "startedAt",
+          completed_at AS "completedAt",
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+       FROM ${ASSISTANT_THREAD_RUNS_TABLE}
+       WHERE resource_id = $1
+       ORDER BY thread_id, started_at DESC, id DESC`,
+      [resourceId]
+    );
+    return result.rows.map(toThreadRunRecord);
+  };
+
   return {
+    async completeThreadRun(runId: string, input: CompleteAssistantThreadRunInput): Promise<void> {
+      await initialize();
+      await database.query(
+        `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
+         SET status = $2, error = $3, completed_at = $4, updated_at = $5
+         WHERE id = $1`,
+        [runId, input.status, input.error ?? null, new Date(), new Date()]
+      );
+    },
     async createThread(resourceId: string): Promise<AssistantMemoryThread> {
       await initialize();
       const now = new Date();
@@ -260,8 +432,70 @@ export function createPgliteAssistantThreadRepository(
       );
       return thread;
     },
+    async createThreadRun(input: CreateAssistantThreadRunInput): Promise<AssistantThreadRunRecord> {
+      await initialize();
+      const now = new Date();
+      const startedAt = input.startedAt ?? now;
+      const completedAt = input.completedAt ?? null;
+      const record = {
+        id: input.id,
+        resourceId: input.resourceId,
+        threadId: input.threadId,
+        provider: input.provider,
+        model: input.model,
+        runtimeKind: input.runtimeKind,
+        status: input.status ?? 'running',
+        error: input.error ?? null,
+        startedAt,
+        completedAt,
+        createdAt: now,
+        updatedAt: now,
+        ...(input.modelSettings ? { modelSettings: { ...input.modelSettings } } : {}),
+        ...(input.providerOptions ? { providerOptions: { ...input.providerOptions } } : {}),
+      } satisfies AssistantThreadRunRecord;
+      await database.query(
+        `INSERT INTO ${ASSISTANT_THREAD_RUNS_TABLE}
+          (
+            id,
+            resource_id,
+            thread_id,
+            provider,
+            model,
+            model_settings,
+            provider_options,
+            runtime_kind,
+            status,
+            error,
+            started_at,
+            completed_at,
+            created_at,
+            updated_at
+          )
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          record.id,
+          record.resourceId,
+          record.threadId,
+          record.provider,
+          record.model,
+          record.modelSettings ? JSON.stringify(record.modelSettings) : null,
+          record.providerOptions ? JSON.stringify(record.providerOptions) : null,
+          record.runtimeKind,
+          record.status,
+          record.error,
+          record.startedAt,
+          record.completedAt,
+          record.createdAt,
+          record.updatedAt,
+        ]
+      );
+      return record;
+    },
     async deleteThread(threadId: string): Promise<void> {
       await initialize();
+      await database.query(`DELETE FROM ${ASSISTANT_THREAD_RUNS_TABLE} WHERE thread_id = $1`, [
+        threadId,
+      ]);
       await database.query(`DELETE FROM ${MASTRA_MEMORY_TABLES.messages} WHERE thread_id = $1`, [
         threadId,
       ]);
@@ -286,6 +520,7 @@ export function createPgliteAssistantThreadRepository(
         createdAt: normalizeDate(row['createdAt']),
       }));
     },
+    listLatestThreadRuns,
     async listThreads(resourceId: string): Promise<readonly AssistantMemoryThread[]> {
       await initialize();
       const result = await database.query<Record<string, unknown>>(
@@ -295,16 +530,22 @@ export function createPgliteAssistantThreadRepository(
          ORDER BY "updatedAt" DESC, id DESC`,
         [resourceId]
       );
-      return result.rows.map((row) =>
-        toMemoryThread({
-          id: requireString(row['id'], 'id'),
+      const latestRunByThreadId = new Map(
+        (await listLatestThreadRuns(resourceId)).map((run) => [run.threadId, run])
+      );
+      return result.rows.map((row) => {
+        const threadId = requireString(row['id'], 'id');
+        const latestRun = latestRunByThreadId.get(threadId);
+        return toMemoryThread({
+          id: threadId,
           resourceId: requireString(row['resourceId'], 'resourceId'),
           title: typeof row['title'] === 'string' ? row['title'] : null,
           metadata: parseJson(row['metadata']),
           createdAt: row['createdAt'],
           updatedAt: row['updatedAt'],
-        })
-      );
+          ...(latestRun ? { latestRun } : {}),
+        });
+      });
     },
     async renameThread(threadId: string, title: string): Promise<void> {
       const normalizedTitle = title.trim();

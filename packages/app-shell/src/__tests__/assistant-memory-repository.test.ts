@@ -1,16 +1,21 @@
+import type { DbHandle } from '@brainstrike/db';
 import { describe, expect, it, vi } from 'vitest';
 import {
   type AssistantThreadRepository,
   createAssistantThreadHistoryAdapter,
+  createPgliteAssistantThreadRepository,
 } from '../assistant-memory-repository';
 
 describe('createAssistantThreadHistoryAdapter', () => {
   it('hydrates assistant-ui history from Mastra memory messages', async () => {
     const repository: AssistantThreadRepository = {
       createThread: vi.fn(),
+      createThreadRun: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
+      listLatestThreadRuns: vi.fn(),
       renameThread: vi.fn(),
+      completeThreadRun: vi.fn(),
       updateThreadMetadata: vi.fn(),
       listMessages: vi.fn(async () => [
         {
@@ -48,9 +53,12 @@ describe('createAssistantThreadHistoryAdapter', () => {
   it('does not write client-side history because Mastra is the durable writer', async () => {
     const repository: AssistantThreadRepository = {
       createThread: vi.fn(),
+      createThreadRun: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
+      listLatestThreadRuns: vi.fn(),
       renameThread: vi.fn(),
+      completeThreadRun: vi.fn(),
       updateThreadMetadata: vi.fn(),
       listMessages: vi.fn(async () => []),
     };
@@ -76,3 +84,132 @@ describe('createAssistantThreadHistoryAdapter', () => {
     expect(repository.listMessages).not.toHaveBeenCalled();
   });
 });
+
+describe('createPgliteAssistantThreadRepository thread runs', () => {
+  it('bootstraps the Brainstrike-owned assistant run table before writes', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await repository.createThreadRun({
+      id: 'run-1',
+      resourceId: '/tmp/workspace-a',
+      threadId: 'thread-1',
+      provider: 'openai',
+      model: 'gpt-5.2',
+      runtimeKind: 'hosted',
+      modelSettings: { maxOutputTokens: 512 },
+      providerOptions: { openai: { reasoningEffort: 'high' } },
+    });
+
+    expect(db.exec).toHaveBeenCalledTimes(1);
+    expect(db.exec).toHaveBeenCalledWith(
+      expect.stringContaining('CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_runs')
+    );
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO brainstrike_assistant_thread_runs'),
+      expect.arrayContaining([
+        'run-1',
+        '/tmp/workspace-a',
+        'thread-1',
+        'openai',
+        'gpt-5.2',
+        JSON.stringify({ maxOutputTokens: 512 }),
+        JSON.stringify({ openai: { reasoningEffort: 'high' } }),
+        'hosted',
+        'running',
+      ])
+    );
+  });
+
+  it('completes assistant run records without mutating thread metadata', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await repository.completeThreadRun('run-1', {
+      status: 'failed',
+      error: 'model unavailable',
+    });
+
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE brainstrike_assistant_thread_runs'),
+      expect.arrayContaining(['run-1', 'failed', 'model unavailable'])
+    );
+    expect(db.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE mastra_threads'),
+      expect.anything()
+    );
+  });
+
+  it('loads latest run metadata for thread list badges', async () => {
+    const db = createMockDb();
+    db.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM mastra_threads')) {
+        return {
+          rows: [
+            {
+              id: 'thread-1',
+              resourceId: '/tmp/workspace-a',
+              title: 'Persistence bug',
+              createdAt: new Date('2026-04-22T09:00:00Z'),
+              updatedAt: new Date('2026-04-22T10:00:00Z'),
+            },
+          ],
+        };
+      }
+      if (sql.includes('FROM brainstrike_assistant_thread_runs')) {
+        return {
+          rows: [
+            {
+              id: 'run-2',
+              resource_id: '/tmp/workspace-a',
+              thread_id: 'thread-1',
+              provider: 'anthropic',
+              model: 'claude-sonnet-4-5',
+              model_settings: JSON.stringify({ maxOutputTokens: 2048 }),
+              provider_options: null,
+              runtime_kind: 'hosted',
+              status: 'completed',
+              error: null,
+              started_at: new Date('2026-04-22T10:30:00Z'),
+              completed_at: new Date('2026-04-22T10:31:00Z'),
+              created_at: new Date('2026-04-22T10:30:00Z'),
+              updated_at: new Date('2026-04-22T10:31:00Z'),
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    const threads = await repository.listThreads('/tmp/workspace-a');
+
+    expect(threads[0]?.latestRun).toEqual({
+      id: 'run-2',
+      resourceId: '/tmp/workspace-a',
+      threadId: 'thread-1',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      modelSettings: { maxOutputTokens: 2048 },
+      runtimeKind: 'hosted',
+      status: 'completed',
+      error: null,
+      startedAt: new Date('2026-04-22T10:30:00Z'),
+      completedAt: new Date('2026-04-22T10:31:00Z'),
+      createdAt: new Date('2026-04-22T10:30:00Z'),
+      updatedAt: new Date('2026-04-22T10:31:00Z'),
+    });
+  });
+});
+
+function createMockDb(): {
+  exec: ReturnType<typeof vi.fn<(sql: string) => Promise<unknown>>>;
+  query: ReturnType<
+    typeof vi.fn<(sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>>
+  >;
+} {
+  return {
+    exec: vi.fn(async () => undefined),
+    query: vi.fn(async () => ({ rows: [] })),
+  };
+}

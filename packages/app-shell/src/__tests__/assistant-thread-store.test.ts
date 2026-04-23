@@ -24,6 +24,7 @@ function createRepository(
   ]
 ): AssistantThreadRepository {
   return {
+    completeThreadRun: vi.fn(),
     createThread: vi.fn(async (resourceId: string) => ({
       id: 'thread-created',
       resourceId,
@@ -31,7 +32,9 @@ function createRepository(
       createdAt: new Date('2026-04-22T12:00:00Z'),
       updatedAt: new Date('2026-04-22T12:00:00Z'),
     })),
+    createThreadRun: vi.fn(),
     deleteThread: vi.fn(),
+    listLatestThreadRuns: vi.fn(async () => []),
     listMessages: vi.fn(async () => []),
     listThreads: vi.fn(async () => threads),
     renameThread: vi.fn(),
