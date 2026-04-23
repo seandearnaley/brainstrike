@@ -41,7 +41,10 @@ test.describe('File Explorer Feature', () => {
     await page.goto('/');
 
     // Wait for app to load - use actual elements from your app
-    await expect(page.getByRole('heading', { name: 'Context Explorer' })).toBeVisible();
+    await expect(
+  page.getByRole('button', { name: 'Context Explorer', exact: true })
+    .and(page.locator('[aria-current="page"]'))
+).toBeVisible();
     await expect(page.getByRole('button', { name: 'Select Root' })).toBeVisible({ timeout: 10_000 });
   });
 
@@ -139,7 +142,10 @@ After reload, the app returns to Context Explorer:
 test('reload behavior', async ({ page }) => {
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Context Explorer' })).toBeVisible();
+  await expect(
+  page.getByRole('button', { name: 'Context Explorer', exact: true })
+    .and(page.locator('[aria-current="page"]'))
+).toBeVisible();
 });
 ```
 
@@ -424,7 +430,10 @@ export class FileExplorerPage {
 import { expect, type Page } from '@playwright/test';
 
 export async function waitForAppLoad(page: Page) {
-  await expect(page.getByRole('heading', { name: 'Context Explorer' })).toBeVisible();
+  await expect(
+  page.getByRole('button', { name: 'Context Explorer', exact: true })
+    .and(page.locator('[aria-current="page"]'))
+).toBeVisible();
   await expect(page.getByRole('button', { name: 'Select Root' })).toBeVisible({ timeout: 10_000 });
 }
 
@@ -517,7 +526,10 @@ test('launches desktop app', async () => {
   await expect(win).toBeDefined();
 
   // Interact with the renderer window like a normal Page:
-  await expect(win.getByRole('heading', { name: 'Context Explorer' })).toBeVisible();
+  await expect(
+    win.getByRole('button', { name: 'Context Explorer', exact: true })
+      .and(win.locator('[aria-current="page"]'))
+  ).toBeVisible();
 
   await app.close();
 });

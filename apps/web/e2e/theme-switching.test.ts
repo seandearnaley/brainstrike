@@ -2,6 +2,7 @@ import { expect, type Locator, type Page, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import {
   activateSidebarNavigation,
+  contextExplorerActiveNavLocator,
   waitForAppLoad,
   waitForContextExplorerPage,
   waitForSettingsPage,
@@ -95,9 +96,7 @@ test.describe('Theme Switching', () => {
     // Test persistence again
     await activateSidebarNavigation(page, 'Context Explorer');
     await waitForContextExplorerPage(page);
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
+    await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
     await expect(htmlElement).not.toHaveClass(/dark/);
   });
 
@@ -194,9 +193,7 @@ test.describe('Theme Switching', () => {
     await waitForContextExplorerPage(page);
 
     await page.reload();
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
+    await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
     await expect(htmlElement).not.toHaveClass(/dark/);
   });
 });
