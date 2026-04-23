@@ -1,14 +1,26 @@
 import type { MastraMessageContentV2 } from '@mastra/core/agent';
 import type { MastraDBMessage, StorageThreadType } from '@mastra/core/memory';
 import type {
+  BufferedObservationChunk,
+  CreateObservationalMemoryInput,
+  CreateReflectionGenerationInput,
+  ObservationalMemoryHistoryOptions,
+  ObservationalMemoryRecord,
   StorageListMessagesByResourceIdInput,
   StorageListMessagesInput,
   StorageListMessagesOutput,
   StorageListThreadsInput,
   StorageListThreadsOutput,
   StorageResourceType,
+  SwapBufferedReflectionToActiveInput,
+  SwapBufferedToActiveInput,
+  SwapBufferedToActiveResult,
   ThreadOrderBy,
   ThreadSortDirection,
+  UpdateActiveObservationsInput,
+  UpdateBufferedObservationsInput,
+  UpdateBufferedReflectionInput,
+  UpdateObservationalMemoryConfigInput,
 } from '@mastra/core/storage';
 import { MemoryStorage } from '@mastra/core/storage';
 import { MASTRA_MEMORY_SCHEMA_SQL, MASTRA_MEMORY_TABLES } from './sql';
@@ -53,6 +65,44 @@ interface CountRow {
   [key: string]: unknown;
 }
 
+interface ObservationalMemoryRow {
+  activeObservations: string;
+  activeObservationsPendingUpdate: string | null;
+  bufferedMessageIds: string[] | string | null;
+  bufferedObservationChunks: ObservationalMemoryRecord['bufferedObservationChunks'] | string | null;
+  bufferedObservations: string | null;
+  bufferedObservationTokens: number | null;
+  bufferedReflection: string | null;
+  bufferedReflectionInputTokens: number | null;
+  bufferedReflectionTokens: number | null;
+  config: string;
+  createdAt: Date | string;
+  generationCount: number;
+  id: string;
+  isBufferingObservation: boolean;
+  isBufferingReflection: boolean;
+  isObserving: boolean;
+  isReflecting: boolean;
+  lastBufferedAtTime: Date | string | null;
+  lastBufferedAtTokens: number;
+  lastObservedAt: Date | string | null;
+  lastReflectionAt: Date | string | null;
+  lookupKey: string;
+  metadata: Record<string, unknown> | string | null;
+  observationTokenCount: number;
+  observedMessageIds: string[] | string | null;
+  observedTimezone: string | null;
+  originType: ObservationalMemoryRecord['originType'];
+  pendingMessageTokens: number;
+  reflectedObservationLineCount: number | null;
+  resourceId: string | null;
+  scope: ObservationalMemoryRecord['scope'];
+  threadId: string | null;
+  totalTokensObserved: number;
+  updatedAt: Date | string;
+  [key: string]: unknown;
+}
+
 const DEFAULT_THREADS_PER_PAGE = 100;
 const DEFAULT_MESSAGES_PER_PAGE = 40;
 const THREAD_ORDER_FIELDS = new Set<ThreadOrderBy>(['createdAt', 'updatedAt']);
@@ -60,6 +110,10 @@ const THREAD_ORDER_DIRECTIONS = new Set<ThreadSortDirection>(['ASC', 'DESC']);
 
 function toDate(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value);
+}
+
+function toOptionalDate(value: Date | string | null): Date | undefined {
+  return value ? toDate(value) : undefined;
 }
 
 function toJsonString(value: Record<string, unknown> | undefined): string | null {
@@ -79,6 +133,14 @@ function parseJsonRecord(
       : undefined;
   }
   return value;
+}
+
+function parseJsonArray<TValue>(value: TValue[] | string | null): TValue[] | undefined {
+  if (!value) {
+    return;
+  }
+  const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
+  return Array.isArray(parsed) ? (parsed as TValue[]) : undefined;
 }
 
 function parseMessageContent(value: string): MastraDBMessage['content'] {
@@ -191,6 +253,164 @@ function resourceFromRow(row: ResourceRow): StorageResourceType {
     resource.metadata = metadata;
   }
   return resource;
+}
+
+function observationalMemoryKey(threadId: string | null, resourceId: string): string {
+  return threadId ? `thread:${threadId}` : `resource:${resourceId}`;
+}
+
+function normalizeBufferedChunks(
+  value: ObservationalMemoryRow['bufferedObservationChunks']
+): ObservationalMemoryRecord['bufferedObservationChunks'] {
+  const chunks = parseJsonArray<
+    NonNullable<ObservationalMemoryRecord['bufferedObservationChunks']>[number]
+  >(value ?? null);
+  return chunks?.map((chunk) => ({
+    ...chunk,
+    createdAt: toDate(chunk.createdAt),
+    lastObservedAt: toDate(chunk.lastObservedAt),
+  }));
+}
+
+function observationalMemoryFromRow(row: ObservationalMemoryRow): ObservationalMemoryRecord {
+  const record: ObservationalMemoryRecord = {
+    id: row.id,
+    scope: row.scope,
+    threadId: row.threadId,
+    resourceId: row.resourceId ?? '',
+    createdAt: toDate(row.createdAt),
+    updatedAt: toDate(row.updatedAt),
+    originType: row.originType,
+    generationCount: row.generationCount,
+    activeObservations: row.activeObservations,
+    totalTokensObserved: row.totalTokensObserved,
+    observationTokenCount: row.observationTokenCount,
+    pendingMessageTokens: row.pendingMessageTokens,
+    isReflecting: row.isReflecting,
+    isObserving: row.isObserving,
+    isBufferingObservation: row.isBufferingObservation,
+    isBufferingReflection: row.isBufferingReflection,
+    lastBufferedAtTokens: row.lastBufferedAtTokens,
+    lastBufferedAtTime: row.lastBufferedAtTime ? toDate(row.lastBufferedAtTime) : null,
+    config: parseJsonRecord(row.config) ?? {},
+  };
+  const lastObservedAt = toOptionalDate(row.lastObservedAt);
+  if (lastObservedAt) {
+    record.lastObservedAt = lastObservedAt;
+  }
+  const bufferedObservationChunks = normalizeBufferedChunks(row.bufferedObservationChunks);
+  if (bufferedObservationChunks) {
+    record.bufferedObservationChunks = bufferedObservationChunks;
+  }
+  if (row.bufferedObservations !== null) {
+    record.bufferedObservations = row.bufferedObservations;
+  }
+  if (row.bufferedObservationTokens !== null) {
+    record.bufferedObservationTokens = row.bufferedObservationTokens;
+  }
+  const bufferedMessageIds = parseJsonArray<string>(row.bufferedMessageIds);
+  if (bufferedMessageIds) {
+    record.bufferedMessageIds = bufferedMessageIds;
+  }
+  if (row.bufferedReflection !== null) {
+    record.bufferedReflection = row.bufferedReflection;
+  }
+  if (row.bufferedReflectionTokens !== null) {
+    record.bufferedReflectionTokens = row.bufferedReflectionTokens;
+  }
+  if (row.bufferedReflectionInputTokens !== null) {
+    record.bufferedReflectionInputTokens = row.bufferedReflectionInputTokens;
+  }
+  if (row.reflectedObservationLineCount !== null) {
+    record.reflectedObservationLineCount = row.reflectedObservationLineCount;
+  }
+  const observedMessageIds = parseJsonArray<string>(row.observedMessageIds);
+  if (observedMessageIds) {
+    record.observedMessageIds = observedMessageIds;
+  }
+  if (row.observedTimezone) {
+    record.observedTimezone = row.observedTimezone;
+  }
+  const metadata = parseJsonRecord(row.metadata);
+  if (metadata) {
+    record.metadata = metadata;
+  }
+  return record;
+}
+
+interface BufferedActivationChoice {
+  count: number;
+}
+
+function chooseBufferedActivationCount(
+  chunks: BufferedObservationChunk[],
+  input: SwapBufferedToActiveInput
+): BufferedActivationChoice {
+  const retentionFloor = input.messageTokensThreshold * (1 - input.activationRatio);
+  const targetMessageTokens = Math.max(0, input.currentPendingTokens - retentionFloor);
+  let cumulativeMessageTokens = 0;
+  let bestOverBoundary = 0;
+  let bestOverTokens = 0;
+  let bestUnderBoundary = 0;
+  let bestUnderTokens = 0;
+  for (let index = 0; index < chunks.length; index += 1) {
+    cumulativeMessageTokens += chunks[index]?.messageTokens ?? 0;
+    const boundary = index + 1;
+    if (cumulativeMessageTokens >= targetMessageTokens) {
+      if (bestOverBoundary === 0 || cumulativeMessageTokens < bestOverTokens) {
+        bestOverBoundary = boundary;
+        bestOverTokens = cumulativeMessageTokens;
+      }
+    } else if (cumulativeMessageTokens > bestUnderTokens) {
+      bestUnderBoundary = boundary;
+      bestUnderTokens = cumulativeMessageTokens;
+    }
+  }
+
+  const maxOvershoot = retentionFloor * 0.95;
+  const overshoot = bestOverTokens - targetMessageTokens;
+  const remainingAfterOver = input.currentPendingTokens - bestOverTokens;
+  const remainingAfterUnder = input.currentPendingTokens - bestUnderTokens;
+  const minRemaining = Math.min(1000, retentionFloor);
+  if (input.forceMaxActivation && bestOverBoundary > 0 && remainingAfterOver >= minRemaining) {
+    return { count: bestOverBoundary };
+  }
+  if (bestOverBoundary > 0 && overshoot <= maxOvershoot && remainingAfterOver >= minRemaining) {
+    return { count: bestOverBoundary };
+  }
+  if (bestUnderBoundary > 0 && remainingAfterUnder >= minRemaining) {
+    return { count: bestUnderBoundary };
+  }
+  return { count: bestOverBoundary > 0 ? bestOverBoundary : 1 };
+}
+
+function emptyBufferedActivation(): SwapBufferedToActiveResult {
+  return {
+    chunksActivated: 0,
+    messageTokensActivated: 0,
+    observationTokensActivated: 0,
+    messagesActivated: 0,
+    activatedCycleIds: [],
+    activatedMessageIds: [],
+  };
+}
+
+function withoutBufferedObservationChunks(
+  record: ObservationalMemoryRecord
+): ObservationalMemoryRecord {
+  const { bufferedObservationChunks: _bufferedObservationChunks, ...rest } = record;
+  return rest;
+}
+
+function withoutBufferedReflection(record: ObservationalMemoryRecord): ObservationalMemoryRecord {
+  const {
+    bufferedReflection: _bufferedReflection,
+    bufferedReflectionInputTokens: _bufferedReflectionInputTokens,
+    bufferedReflectionTokens: _bufferedReflectionTokens,
+    reflectedObservationLineCount: _reflectedObservationLineCount,
+    ...rest
+  } = record;
+  return rest;
 }
 
 export class PgliteMemoryStore extends MemoryStorage {
@@ -517,6 +737,321 @@ export class PgliteMemoryStore extends MemoryStorage {
     return this.saveResource({ resource: next });
   }
 
+  override async getObservationalMemory(
+    threadId: string | null,
+    resourceId: string
+  ): Promise<ObservationalMemoryRecord | null> {
+    const result = await this.database.query<ObservationalMemoryRow>(
+      `SELECT *
+       FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
+       WHERE "lookupKey" = $1
+       ORDER BY "generationCount" DESC, "createdAt" DESC
+       LIMIT 1`,
+      [observationalMemoryKey(threadId, resourceId)]
+    );
+    const row = result.rows[0];
+    return row ? observationalMemoryFromRow(row) : null;
+  }
+
+  override async getObservationalMemoryHistory(
+    threadId: string | null,
+    resourceId: string,
+    limit?: number,
+    options?: ObservationalMemoryHistoryOptions
+  ): Promise<ObservationalMemoryRecord[]> {
+    const values: PgliteQueryValue[] = [observationalMemoryKey(threadId, resourceId)];
+    const where = ['"lookupKey" = $1'];
+    if (options?.from) {
+      values.push(options.from);
+      where.push(`"createdAt" >= $${values.length}`);
+    }
+    if (options?.to) {
+      values.push(options.to);
+      where.push(`"createdAt" <= $${values.length}`);
+    }
+    let sql = `SELECT *
+       FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
+       WHERE ${where.join(' AND ')}
+       ORDER BY "generationCount" DESC, "createdAt" DESC`;
+    if (options?.offset !== undefined) {
+      values.push(options.offset);
+      sql = `${sql} OFFSET $${values.length}`;
+    }
+    if (limit !== undefined) {
+      values.push(limit);
+      sql = `${sql} LIMIT $${values.length}`;
+    }
+    const result = await this.database.query<ObservationalMemoryRow>(sql, values);
+    return result.rows.map(observationalMemoryFromRow);
+  }
+
+  override async initializeObservationalMemory(
+    input: CreateObservationalMemoryInput
+  ): Promise<ObservationalMemoryRecord> {
+    const now = new Date();
+    const record: ObservationalMemoryRecord = {
+      id: crypto.randomUUID(),
+      scope: input.scope,
+      threadId: input.threadId,
+      resourceId: input.resourceId,
+      createdAt: now,
+      updatedAt: now,
+      originType: 'initial',
+      generationCount: 0,
+      activeObservations: '',
+      totalTokensObserved: 0,
+      observationTokenCount: 0,
+      pendingMessageTokens: 0,
+      isReflecting: false,
+      isObserving: false,
+      isBufferingObservation: false,
+      isBufferingReflection: false,
+      lastBufferedAtTokens: 0,
+      lastBufferedAtTime: null,
+      config: input.config,
+      metadata: {},
+    };
+    if (input.observedTimezone) {
+      record.observedTimezone = input.observedTimezone;
+    }
+    await this.insertObservationalMemoryRecord(record);
+    return record;
+  }
+
+  override async insertObservationalMemoryRecord(record: ObservationalMemoryRecord): Promise<void> {
+    await this.saveObservationalMemoryRecord(record);
+  }
+
+  override async updateActiveObservations(input: UpdateActiveObservationsInput): Promise<void> {
+    const record = await this.findObservationalMemoryRecordById(input.id);
+    record.activeObservations = input.observations;
+    record.observationTokenCount = input.tokenCount;
+    record.totalTokensObserved += input.tokenCount;
+    record.pendingMessageTokens = 0;
+    record.lastObservedAt = input.lastObservedAt;
+    record.updatedAt = new Date();
+    if (input.observedMessageIds) {
+      record.observedMessageIds = input.observedMessageIds;
+    }
+    if (input.observedTimezone) {
+      record.observedTimezone = input.observedTimezone;
+    }
+    await this.saveObservationalMemoryRecord(record);
+  }
+
+  override async updateBufferedObservations(input: UpdateBufferedObservationsInput): Promise<void> {
+    const record = await this.findObservationalMemoryRecordById(input.id);
+    const chunk = {
+      ...input.chunk,
+      id: `ombuf-${crypto.randomUUID()}`,
+      createdAt: new Date(),
+    };
+    record.bufferedObservationChunks = [...(record.bufferedObservationChunks ?? []), chunk];
+    if (input.lastBufferedAtTime) {
+      record.lastBufferedAtTime = input.lastBufferedAtTime;
+    }
+    record.updatedAt = new Date();
+    await this.saveObservationalMemoryRecord(record);
+  }
+
+  override async swapBufferedToActive(
+    input: SwapBufferedToActiveInput
+  ): Promise<SwapBufferedToActiveResult> {
+    const record = await this.findObservationalMemoryRecordById(input.id);
+    const chunks = input.bufferedChunks ?? record.bufferedObservationChunks ?? [];
+    if (chunks.length === 0) {
+      return emptyBufferedActivation();
+    }
+
+    const chunksToActivate = chooseBufferedActivationCount(chunks, input).count;
+    const activatedChunks = chunks.slice(0, chunksToActivate);
+    const remainingChunks = chunks.slice(chunksToActivate);
+    const activatedContent = activatedChunks.map((chunk) => chunk.observations).join('\n\n');
+    const activatedTokens = activatedChunks.reduce((sum, chunk) => sum + chunk.tokenCount, 0);
+    const activatedMessageTokens = activatedChunks.reduce(
+      (sum, chunk) => sum + chunk.messageTokens,
+      0
+    );
+    const activatedMessageCount = activatedChunks.reduce(
+      (sum, chunk) => sum + chunk.messageIds.length,
+      0
+    );
+    const latestChunk = activatedChunks.at(-1);
+    const derivedLastObservedAt = input.lastObservedAt ?? latestChunk?.lastObservedAt ?? new Date();
+
+    if (record.activeObservations) {
+      const boundary = `\n\n--- message boundary (${derivedLastObservedAt.toISOString()}) ---\n\n`;
+      record.activeObservations = `${record.activeObservations}${boundary}${activatedContent}`;
+    } else {
+      record.activeObservations = activatedContent;
+    }
+    record.observationTokenCount += activatedTokens;
+    record.pendingMessageTokens = Math.max(0, record.pendingMessageTokens - activatedMessageTokens);
+    const recordToSave =
+      remainingChunks.length > 0
+        ? { ...record, bufferedObservationChunks: remainingChunks }
+        : withoutBufferedObservationChunks(record);
+    record.lastObservedAt = derivedLastObservedAt;
+    record.updatedAt = new Date();
+    recordToSave.lastObservedAt = derivedLastObservedAt;
+    recordToSave.updatedAt = record.updatedAt;
+    await this.saveObservationalMemoryRecord(recordToSave);
+
+    return {
+      chunksActivated: activatedChunks.length,
+      messageTokensActivated: activatedMessageTokens,
+      observationTokensActivated: activatedTokens,
+      messagesActivated: activatedMessageCount,
+      activatedCycleIds: activatedChunks.map((chunk) => chunk.cycleId).filter(Boolean),
+      activatedMessageIds: activatedChunks.flatMap((chunk) => chunk.messageIds),
+      observations: activatedContent,
+      perChunk: activatedChunks.map((chunk) => ({
+        cycleId: chunk.cycleId,
+        messageTokens: chunk.messageTokens,
+        observationTokens: chunk.tokenCount,
+        messageCount: chunk.messageIds.length,
+        observations: chunk.observations,
+      })),
+      ...(latestChunk?.suggestedContinuation
+        ? { suggestedContinuation: latestChunk.suggestedContinuation }
+        : {}),
+      ...(latestChunk?.currentTask ? { currentTask: latestChunk.currentTask } : {}),
+    };
+  }
+
+  override async createReflectionGeneration(
+    input: CreateReflectionGenerationInput
+  ): Promise<ObservationalMemoryRecord> {
+    const now = new Date();
+    const record: ObservationalMemoryRecord = {
+      id: crypto.randomUUID(),
+      scope: input.currentRecord.scope,
+      threadId: input.currentRecord.threadId,
+      resourceId: input.currentRecord.resourceId,
+      createdAt: now,
+      updatedAt: now,
+      lastObservedAt: input.currentRecord.lastObservedAt ?? now,
+      originType: 'reflection',
+      generationCount: input.currentRecord.generationCount + 1,
+      activeObservations: input.reflection,
+      config: input.currentRecord.config,
+      totalTokensObserved: input.currentRecord.totalTokensObserved,
+      observationTokenCount: input.tokenCount,
+      pendingMessageTokens: 0,
+      isReflecting: false,
+      isObserving: false,
+      isBufferingObservation: false,
+      isBufferingReflection: false,
+      lastBufferedAtTokens: 0,
+      lastBufferedAtTime: null,
+      metadata: {},
+    };
+    if (input.currentRecord.observedTimezone) {
+      record.observedTimezone = input.currentRecord.observedTimezone;
+    }
+    await this.insertObservationalMemoryRecord(record);
+    return record;
+  }
+
+  override async updateBufferedReflection(input: UpdateBufferedReflectionInput): Promise<void> {
+    const record = await this.findObservationalMemoryRecordById(input.id);
+    record.bufferedReflection = record.bufferedReflection
+      ? `${record.bufferedReflection}\n\n${input.reflection}`
+      : input.reflection;
+    record.bufferedReflectionTokens = (record.bufferedReflectionTokens ?? 0) + input.tokenCount;
+    record.bufferedReflectionInputTokens =
+      (record.bufferedReflectionInputTokens ?? 0) + input.inputTokenCount;
+    record.reflectedObservationLineCount = input.reflectedObservationLineCount;
+    record.updatedAt = new Date();
+    await this.saveObservationalMemoryRecord(record);
+  }
+
+  override async swapBufferedReflectionToActive(
+    input: SwapBufferedReflectionToActiveInput
+  ): Promise<ObservationalMemoryRecord> {
+    const record = await this.findObservationalMemoryRecordById(input.currentRecord.id);
+    if (!record.bufferedReflection) {
+      throw new Error('No buffered reflection to swap');
+    }
+    const reflectedLineCount = record.reflectedObservationLineCount ?? 0;
+    const unreflectedContent = record.activeObservations
+      .split('\n')
+      .slice(reflectedLineCount)
+      .join('\n')
+      .trim();
+    const nextObservations = unreflectedContent
+      ? `${record.bufferedReflection}\n\n${unreflectedContent}`
+      : record.bufferedReflection;
+    const generation = await this.createReflectionGeneration({
+      currentRecord: record,
+      reflection: nextObservations,
+      tokenCount: input.tokenCount,
+    });
+    await this.saveObservationalMemoryRecord(withoutBufferedReflection(record));
+    return generation;
+  }
+
+  override async setReflectingFlag(id: string, isReflecting: boolean): Promise<void> {
+    const record = await this.findObservationalMemoryRecordById(id);
+    record.isReflecting = isReflecting;
+    record.updatedAt = new Date();
+    await this.saveObservationalMemoryRecord(record);
+  }
+
+  override async setObservingFlag(id: string, isObserving: boolean): Promise<void> {
+    const record = await this.findObservationalMemoryRecordById(id);
+    record.isObserving = isObserving;
+    record.updatedAt = new Date();
+    await this.saveObservationalMemoryRecord(record);
+  }
+
+  override async setBufferingObservationFlag(
+    id: string,
+    isBuffering: boolean,
+    lastBufferedAtTokens?: number
+  ): Promise<void> {
+    const record = await this.findObservationalMemoryRecordById(id);
+    record.isBufferingObservation = isBuffering;
+    if (lastBufferedAtTokens !== undefined) {
+      record.lastBufferedAtTokens = lastBufferedAtTokens;
+    }
+    record.updatedAt = new Date();
+    await this.saveObservationalMemoryRecord(record);
+  }
+
+  override async setBufferingReflectionFlag(id: string, isBuffering: boolean): Promise<void> {
+    const record = await this.findObservationalMemoryRecordById(id);
+    record.isBufferingReflection = isBuffering;
+    record.updatedAt = new Date();
+    await this.saveObservationalMemoryRecord(record);
+  }
+
+  override async clearObservationalMemory(
+    threadId: string | null,
+    resourceId: string
+  ): Promise<void> {
+    await this.database.query(
+      `DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory} WHERE "lookupKey" = $1`,
+      [observationalMemoryKey(threadId, resourceId)]
+    );
+  }
+
+  override async setPendingMessageTokens(id: string, tokenCount: number): Promise<void> {
+    const record = await this.findObservationalMemoryRecordById(id);
+    record.pendingMessageTokens = tokenCount;
+    record.updatedAt = new Date();
+    await this.saveObservationalMemoryRecord(record);
+  }
+
+  override async updateObservationalMemoryConfig(
+    input: UpdateObservationalMemoryConfigInput
+  ): Promise<void> {
+    const record = await this.findObservationalMemoryRecordById(input.id);
+    record.config = this.deepMergeConfig(record.config, input.config);
+    record.updatedAt = new Date();
+    await this.saveObservationalMemoryRecord(record);
+  }
+
   private async listMessagesWhere(
     args: (StorageListMessagesInput | StorageListMessagesByResourceIdInput) & {
       threadIds?: string[];
@@ -564,5 +1099,109 @@ export class PgliteMemoryStore extends MemoryStorage {
       messages: result.rows.map(messageFromRow),
       ...pagination(total, page, perPage),
     };
+  }
+
+  private async findObservationalMemoryRecordById(id: string): Promise<ObservationalMemoryRecord> {
+    const result = await this.database.query<ObservationalMemoryRow>(
+      `SELECT *
+       FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
+       WHERE id = $1`,
+      [id]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error(`Observational memory record not found: ${id}`);
+    }
+    return observationalMemoryFromRow(row);
+  }
+
+  private async saveObservationalMemoryRecord(record: ObservationalMemoryRecord): Promise<void> {
+    await this.database.query(
+      `INSERT INTO ${MASTRA_MEMORY_TABLES.observationalMemory}
+        (id, "lookupKey", scope, "resourceId", "threadId", "activeObservations",
+         "activeObservationsPendingUpdate", "originType", config, "generationCount",
+         "lastObservedAt", "lastReflectionAt", "pendingMessageTokens",
+         "totalTokensObserved", "observationTokenCount", "isObserving", "isReflecting",
+         "observedMessageIds", "observedTimezone", "bufferedObservations",
+         "bufferedObservationTokens", "bufferedMessageIds", "bufferedReflection",
+         "bufferedReflectionTokens", "bufferedReflectionInputTokens",
+         "reflectedObservationLineCount", "bufferedObservationChunks",
+         "isBufferingObservation", "isBufferingReflection", "lastBufferedAtTokens",
+         "lastBufferedAtTime", metadata, "createdAt", "updatedAt")
+       VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+         $17, $18::jsonb, $19, $20, $21, $22::jsonb, $23, $24, $25, $26, $27::jsonb,
+         $28, $29, $30, $31, $32::jsonb, $33, $34)
+       ON CONFLICT (id) DO UPDATE SET
+        "lookupKey" = EXCLUDED."lookupKey",
+        scope = EXCLUDED.scope,
+        "resourceId" = EXCLUDED."resourceId",
+        "threadId" = EXCLUDED."threadId",
+        "activeObservations" = EXCLUDED."activeObservations",
+        "activeObservationsPendingUpdate" = EXCLUDED."activeObservationsPendingUpdate",
+        "originType" = EXCLUDED."originType",
+        config = EXCLUDED.config,
+        "generationCount" = EXCLUDED."generationCount",
+        "lastObservedAt" = EXCLUDED."lastObservedAt",
+        "lastReflectionAt" = EXCLUDED."lastReflectionAt",
+        "pendingMessageTokens" = EXCLUDED."pendingMessageTokens",
+        "totalTokensObserved" = EXCLUDED."totalTokensObserved",
+        "observationTokenCount" = EXCLUDED."observationTokenCount",
+        "isObserving" = EXCLUDED."isObserving",
+        "isReflecting" = EXCLUDED."isReflecting",
+        "observedMessageIds" = EXCLUDED."observedMessageIds",
+        "observedTimezone" = EXCLUDED."observedTimezone",
+        "bufferedObservations" = EXCLUDED."bufferedObservations",
+        "bufferedObservationTokens" = EXCLUDED."bufferedObservationTokens",
+        "bufferedMessageIds" = EXCLUDED."bufferedMessageIds",
+        "bufferedReflection" = EXCLUDED."bufferedReflection",
+        "bufferedReflectionTokens" = EXCLUDED."bufferedReflectionTokens",
+        "bufferedReflectionInputTokens" = EXCLUDED."bufferedReflectionInputTokens",
+        "reflectedObservationLineCount" = EXCLUDED."reflectedObservationLineCount",
+        "bufferedObservationChunks" = EXCLUDED."bufferedObservationChunks",
+        "isBufferingObservation" = EXCLUDED."isBufferingObservation",
+        "isBufferingReflection" = EXCLUDED."isBufferingReflection",
+        "lastBufferedAtTokens" = EXCLUDED."lastBufferedAtTokens",
+        "lastBufferedAtTime" = EXCLUDED."lastBufferedAtTime",
+        metadata = EXCLUDED.metadata,
+        "createdAt" = EXCLUDED."createdAt",
+        "updatedAt" = EXCLUDED."updatedAt"`,
+      [
+        record.id,
+        observationalMemoryKey(record.threadId, record.resourceId),
+        record.scope,
+        record.resourceId,
+        record.threadId,
+        record.activeObservations,
+        null,
+        record.originType,
+        JSON.stringify(record.config),
+        record.generationCount,
+        record.lastObservedAt ?? null,
+        null,
+        record.pendingMessageTokens,
+        record.totalTokensObserved,
+        record.observationTokenCount,
+        record.isObserving,
+        record.isReflecting,
+        record.observedMessageIds ? JSON.stringify(record.observedMessageIds) : null,
+        record.observedTimezone ?? null,
+        record.bufferedObservations ?? null,
+        record.bufferedObservationTokens ?? null,
+        record.bufferedMessageIds ? JSON.stringify(record.bufferedMessageIds) : null,
+        record.bufferedReflection ?? null,
+        record.bufferedReflectionTokens ?? null,
+        record.bufferedReflectionInputTokens ?? null,
+        record.reflectedObservationLineCount ?? null,
+        record.bufferedObservationChunks ? JSON.stringify(record.bufferedObservationChunks) : null,
+        record.isBufferingObservation,
+        record.isBufferingReflection,
+        record.lastBufferedAtTokens,
+        record.lastBufferedAtTime,
+        record.metadata ? JSON.stringify(record.metadata) : null,
+        record.createdAt,
+        record.updatedAt,
+      ]
+    );
   }
 }

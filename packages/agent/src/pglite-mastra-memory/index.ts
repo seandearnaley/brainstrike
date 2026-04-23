@@ -6,3 +6,4 @@ export type {
   PgliteQueryValue,
   PgliteQueryValues,
 } from './types';
+export { PgliteVectorStore } from './vector-store';

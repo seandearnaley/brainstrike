@@ -1,5 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import type { MastraDBMessage } from '@mastra/core/memory';
+import type { ObservationalMemoryRecord } from '@mastra/core/storage';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PgliteMemoryStore } from '../memory-store';
 
@@ -153,5 +154,95 @@ describe('PgliteMemoryStore', () => {
     expect(loaded?.workingMemory).toBe(
       'User prefers concise implementation notes and no fallbacks.'
     );
+  });
+
+  it('persists observational memory records and history', async () => {
+    const created = await store.initializeObservationalMemory({
+      threadId: 'thread-1',
+      resourceId: 'workspace-a',
+      scope: 'thread',
+      config: { observation: { messageTokens: 1000 } },
+      observedTimezone: 'America/New_York',
+    });
+
+    await store.updateActiveObservations({
+      id: created.id,
+      observations: '- User is wiring Mastra memory into Brainstrike.',
+      tokenCount: 12,
+      lastObservedAt: new Date('2026-04-22T10:00:00Z'),
+      observedMessageIds: ['message-1'],
+    });
+
+    const active = await store.getObservationalMemory('thread-1', 'workspace-a');
+    const history = await store.getObservationalMemoryHistory('thread-1', 'workspace-a', 10);
+
+    expect(active?.activeObservations).toContain('Mastra memory');
+    expect(active?.observedMessageIds).toEqual(['message-1']);
+    expect(active?.observedTimezone).toBe('America/New_York');
+    expect(history.map((record) => record.id)).toEqual([created.id]);
+  });
+
+  it('activates buffered observational chunks and creates reflection generations', async () => {
+    const created = await store.initializeObservationalMemory({
+      threadId: 'thread-1',
+      resourceId: 'workspace-a',
+      scope: 'thread',
+      config: {},
+    });
+
+    await store.updateBufferedObservations({
+      id: created.id,
+      lastBufferedAtTime: new Date('2026-04-22T10:00:04Z'),
+      chunk: {
+        cycleId: 'cycle-1',
+        observations: '- User chose a no-fallback memory architecture.',
+        tokenCount: 10,
+        messageIds: ['message-1', 'message-2'],
+        messageTokens: 200,
+        lastObservedAt: new Date('2026-04-22T10:00:02Z'),
+        suggestedContinuation: 'Continue with the PGlite adapter.',
+        currentTask: 'Wire Mastra memory',
+      },
+    });
+
+    const activation = await store.swapBufferedToActive({
+      id: created.id,
+      activationRatio: 0.8,
+      messageTokensThreshold: 300,
+      currentPendingTokens: 240,
+    });
+    const active = await store.getObservationalMemory('thread-1', 'workspace-a');
+
+    expect(activation).toMatchObject({
+      chunksActivated: 1,
+      messageTokensActivated: 200,
+      observationTokensActivated: 10,
+      activatedMessageIds: ['message-1', 'message-2'],
+      suggestedContinuation: 'Continue with the PGlite adapter.',
+      currentTask: 'Wire Mastra memory',
+    });
+    expect(active?.bufferedObservationChunks).toBeUndefined();
+    expect(active?.activeObservations).toContain('no-fallback');
+
+    await store.updateBufferedReflection({
+      id: created.id,
+      reflection: '- The durable memory architecture is mandatory.',
+      tokenCount: 8,
+      inputTokenCount: 10,
+      reflectedObservationLineCount: 1,
+    });
+
+    const reflection = await store.swapBufferedReflectionToActive({
+      currentRecord: (await store.getObservationalMemory(
+        'thread-1',
+        'workspace-a'
+      )) as ObservationalMemoryRecord,
+      tokenCount: 8,
+    });
+    const history = await store.getObservationalMemoryHistory('thread-1', 'workspace-a', 10);
+
+    expect(reflection.generationCount).toBe(1);
+    expect(reflection.originType).toBe('reflection');
+    expect(history.map((record) => record.generationCount)).toEqual([1, 0]);
   });
 });
