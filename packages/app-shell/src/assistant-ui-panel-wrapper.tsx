@@ -637,6 +637,8 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({
     setProviderSettings,
   } = useAssistantPreferencesStore();
   const selectedModel = useAssistantPreferencesStore((state) => state.selectedModel);
+  const draftRuntimeByThreadId = useAssistantThreadStore((state) => state.draftRuntimeByThreadId);
+  const setThreadDraftRuntime = useAssistantThreadStore((state) => state.setThreadDraftRuntime);
   const enabledModelsByProvider = useAssistantPreferencesStore(
     (state) => state.enabledModelsByProvider
   );
@@ -745,11 +747,18 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({
     [runtimeLlmModelsByProvider]
   );
 
+  const selectedThreadDraftRuntime = memoryThreadId
+    ? draftRuntimeByThreadId[memoryThreadId]
+    : undefined;
+  const selectedDraftModel =
+    selectedThreadDraftRuntime?.provider && selectedThreadDraftRuntime.model
+      ? `${selectedThreadDraftRuntime.provider}::${selectedThreadDraftRuntime.model}`
+      : undefined;
+  const currentModel = selectedDraftModel ?? selectedModel;
   const selectedProvider = useMemo(
-    () => resolveProviderFromComposite(selectedModel),
-    [selectedModel]
+    () => resolveProviderFromComposite(currentModel),
+    [currentModel]
   );
-  const currentModel = selectedModel;
   const resolvedModelName = useMemo(
     () => resolveModelNameFromComposite(currentModel),
     [currentModel]
@@ -765,6 +774,26 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({
     () => buildProviderOptions(selectedProvider, resolvedModelName, selectedProviderSettings),
     [selectedProvider, resolvedModelName, selectedProviderSettings]
   );
+
+  useEffect(() => {
+    if (!(memoryThreadId && selectedProvider && resolvedModelName)) {
+      return;
+    }
+    if (draftRuntimeByThreadId[memoryThreadId]) {
+      return;
+    }
+    setThreadDraftRuntime(memoryThreadId, {
+      provider: selectedProvider,
+      model: resolvedModelName,
+    });
+  }, [
+    draftRuntimeByThreadId,
+    memoryThreadId,
+    resolvedModelName,
+    selectedProvider,
+    setThreadDraftRuntime,
+  ]);
+
   const activeEmbeddingSetId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
   const [
     tokenBudget,
@@ -1580,10 +1609,19 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({
 
   const handleModelChange = useCallback(
     (compositeKey: string) => {
-      // Composite key format: "provider::model"
+      const provider = resolveProviderFromComposite(compositeKey);
+      const model = resolveModelNameFromComposite(compositeKey);
+      if (memoryThreadId && provider && model) {
+        setThreadDraftRuntime(memoryThreadId, {
+          ...(draftRuntimeByThreadId[memoryThreadId] ?? {}),
+          provider,
+          model,
+        });
+        return;
+      }
       setModel(compositeKey);
     },
-    [setModel]
+    [draftRuntimeByThreadId, memoryThreadId, setModel, setThreadDraftRuntime]
   );
 
   const handleModelToggle = useCallback(

@@ -823,6 +823,26 @@ const renderAssistantPanel = async (providers: string[], afterRender?: () => Pro
   return renderResult;
 };
 
+const renderAssistantThreadPanel = async (
+  providers: string[],
+  threadId: string,
+  afterRender?: () => Promise<void>
+) => {
+  const renderResult = render(
+    <AssistantUiPanelWrapper
+      initialProviders={providers as SupportedProvider[]}
+      memoryResourceId="/tmp/test-workspace"
+      memoryThreadId={threadId}
+    />
+  );
+
+  if (afterRender) {
+    await afterRender();
+  }
+
+  return renderResult;
+};
+
 interface McpToolDescriptor {
   description?: string;
   enabled: boolean;
@@ -1701,6 +1721,28 @@ describe('AssistantUiPanelWrapper', () => {
         });
       })
     );
+  });
+
+  test('stores model changes as per-thread draft runtime instead of global preferences', async () => {
+    const user = userEvent.setup();
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+    }));
+
+    await renderAssistantThreadPanel(['openai', 'anthropic'], 'thread-existing', async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+      await user.selectOptions(screen.getByTestId('provider-select'), 'anthropic');
+    });
+
+    expect(useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']).toEqual({
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    expect(useAssistantPreferencesStore.getState().selectedModel).toBe('openai::gpt-5.2');
   });
 
   test('includes workspace-scoped Mastra memory context in assistant requests', async () => {
