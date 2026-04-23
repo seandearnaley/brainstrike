@@ -213,6 +213,15 @@ export async function toAiSdkStyleStream(
     options.tools = runtime.mastraTools;
   }
 
-  const streamMessages = runtime?.memory ? messages.slice(-1) : messages;
+  const streamMessages = runtime?.memory ? selectCurrentTurnMessages(messages) : messages;
   return streamMastraAgent(streamMessages, options);
+}
+
+function selectCurrentTurnMessages(messages: AgentMessage[]): AgentMessage[] {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === 'user') {
+      return messages.slice(index);
+    }
+  }
+  return messages.slice(-1);
 }
