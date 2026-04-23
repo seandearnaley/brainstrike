@@ -5,6 +5,7 @@ import {
   ChainOfThoughtPrimitive,
   ComposerPrimitive,
   MessagePrimitive,
+  type ThreadHistoryAdapter,
   ThreadPrimitive,
   useAui,
   useAuiState,
@@ -177,6 +178,7 @@ export interface AssistantUiPanelProps {
   contextMenu?: AssistantContextMenuConfig;
   disabled?: boolean;
   disabledReason?: string;
+  historyAdapter?: ThreadHistoryAdapter;
   onModelChange?: (compositeKey: string) => void;
   onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
   onProviderSettingsChange?:
@@ -192,8 +194,11 @@ export interface AssistantUiPanelProps {
   requestData?: Record<string, unknown>;
   selectedModel?: string;
   selectedProvider?: string;
+  threadKey?: string;
   toolMenu?: AssistantToolMenuConfig;
 }
+
+export type AssistantUiThreadHistoryAdapter = ThreadHistoryAdapter;
 
 declare global {
   interface Window {
@@ -437,6 +442,7 @@ const LocalRuntimeChat: FC<
 const DataStreamRuntimeChat: FC<
   ChatThreadProps & {
     api: string;
+    historyAdapter: ThreadHistoryAdapter | undefined;
     requestData: Record<string, unknown> | undefined;
     modelName: string | undefined;
   }
@@ -452,6 +458,7 @@ const DataStreamRuntimeChat: FC<
   disabled,
   disabledReason,
   api,
+  historyAdapter,
   requestData,
   modelName,
   toolMenu,
@@ -463,6 +470,7 @@ const DataStreamRuntimeChat: FC<
   const runtime = useDataStreamRuntime({
     api,
     protocol: 'data-stream',
+    ...(historyAdapter ? { adapters: { history: historyAdapter } } : {}),
     body: {
       data: {
         ...(requestData ?? {}),
@@ -660,6 +668,8 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   contextMenu,
   disabled = false,
   disabledReason,
+  historyAdapter,
+  threadKey,
 }) => {
   // API URL for data stream runtime (hosted providers)
   const initialApi =
@@ -738,6 +748,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           contextMenu={contextMenu}
           disabled={disabled}
           disabledReason={disabledReason}
+          key={threadKey ? `local:${threadKey}` : 'local'}
           localLoadingState={localLoadingState}
           modelId={modelName}
           onLoadingStateChange={handleLocalLoadingStateChange}
@@ -758,6 +769,8 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           contextMenu={contextMenu}
           disabled={disabled}
           disabledReason={disabledReason}
+          historyAdapter={historyAdapter}
+          key={threadKey ? `data-stream:${threadKey}` : 'data-stream'}
           modelName={modelName}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}

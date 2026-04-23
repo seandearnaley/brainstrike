@@ -213,5 +213,6 @@ export async function toAiSdkStyleStream(
     options.tools = runtime.mastraTools;
   }
 
-  return streamMastraAgent(messages, options);
+  const streamMessages = runtime?.memory ? messages.slice(-1) : messages;
+  return streamMastraAgent(streamMessages, options);
 }

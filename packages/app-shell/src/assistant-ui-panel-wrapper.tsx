@@ -56,6 +56,10 @@ import {
 import { createSafeStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { type FC, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import {
+  createAssistantThreadHistoryAdapter,
+  createPgliteAssistantThreadRepository,
+} from './assistant-memory-repository';
 import { useAssistantThreadStore } from './assistant-thread-store';
 
 export interface AssistantUiPanelWrapperProps {
@@ -1115,21 +1119,42 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   ]);
 
   const workspaceRootPath = rootDirectoryHandle?.path ?? null;
+  const assistantThreadRepository = useMemo(
+    () => (db ? createPgliteAssistantThreadRepository(db) : null),
+    [db]
+  );
   const selectedThreadByResourceId = useAssistantThreadStore(
     (state) => state.selectedThreadByResourceId
   );
-  const ensureThread = useAssistantThreadStore((state) => state.ensureThread);
+  const loadStateByResourceId = useAssistantThreadStore((state) => state.loadStateByResourceId);
+  const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
   const memoryResourceId = workspaceRootPath ?? undefined;
   const selectedMemoryThreadId = memoryResourceId
     ? selectedThreadByResourceId[memoryResourceId]
     : undefined;
+  const memoryLoadState = memoryResourceId
+    ? (loadStateByResourceId[memoryResourceId] ?? { status: 'idle' as const })
+    : null;
 
   useEffect(() => {
-    if (!memoryResourceId) {
+    if (!(assistantThreadRepository && memoryResourceId)) {
       return;
     }
-    ensureThread(memoryResourceId);
-  }, [ensureThread, memoryResourceId]);
+    ensureResourceThreads(assistantThreadRepository, memoryResourceId).catch(() => {
+      // The store records the explicit error state; the assistant remains unavailable.
+    });
+  }, [assistantThreadRepository, ensureResourceThreads, memoryResourceId]);
+
+  const historyAdapter = useMemo(() => {
+    if (!(assistantThreadRepository && memoryResourceId && selectedMemoryThreadId)) {
+      return;
+    }
+    return createAssistantThreadHistoryAdapter({
+      repository: assistantThreadRepository,
+      resourceId: memoryResourceId,
+      threadId: selectedMemoryThreadId,
+    });
+  }, [assistantThreadRepository, memoryResourceId, selectedMemoryThreadId]);
 
   const requestData = useMemo(() => {
     const data: Record<string, unknown> = {};
@@ -1584,8 +1609,33 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   const isProviderReady = Boolean(
     selectedProvider && currentModel && configuredProviders.includes(selectedProvider)
   );
+  const memoryDisabledReason = useMemo(() => {
+    if (!workspaceRootPath) {
+      return 'Open a workspace before using assistant memory.';
+    }
+    if (dbError) {
+      return `Assistant memory database failed to initialize: ${dbError.message}`;
+    }
+    if (dbInitializing || !assistantThreadRepository || memoryLoadState?.status === 'loading') {
+      return 'Assistant memory is loading from PGlite.';
+    }
+    if (memoryLoadState?.status === 'error') {
+      return `Assistant memory failed to load: ${memoryLoadState.error}`;
+    }
+    if (!selectedMemoryThreadId) {
+      return 'Assistant memory has no selected thread for this workspace.';
+    }
+    return;
+  }, [
+    assistantThreadRepository,
+    dbError,
+    dbInitializing,
+    memoryLoadState,
+    selectedMemoryThreadId,
+    workspaceRootPath,
+  ]);
 
-  const disabledReason = useMemo(() => {
+  const providerDisabledReason = useMemo(() => {
     const localRuntimeProviderReason = resolveLocalRuntimeProviderDisabledReason(
       selectedProvider,
       configuredProviders
@@ -1640,6 +1690,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     providerHasEnabledModels,
     selectedProvider,
   ]);
+  const disabledReason = memoryDisabledReason ?? providerDisabledReason;
 
   return (
     <AssistantUiPanel
@@ -1651,9 +1702,11 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       providerSettings={providerSettings}
       requestData={requestData}
       toolMenu={toolMenu}
+      {...(historyAdapter ? { historyAdapter } : {})}
+      {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
       {...(selectedProvider ? { selectedProvider } : {})}
       {...(currentModel ? { selectedModel: currentModel } : {})}
-      disabled={!isProviderReady}
+      disabled={!isProviderReady || Boolean(memoryDisabledReason)}
       onModelChange={handleModelChange}
       onModelToggle={handleModelToggle}
       {...(disabledReason ? { disabledReason } : {})}

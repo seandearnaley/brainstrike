@@ -128,4 +128,27 @@ describe('toAiSdkStyleStream', () => {
     expect(options['tools']).toBe(toolStub);
     expect(options['runtime']).toEqual(runtime);
   });
+
+  it('sends only the current turn when Mastra memory is active', async () => {
+    const asyncStream = (async function* () {
+      /* noop */
+    })();
+    streamMastraAgentMock.mockResolvedValue(asyncStream);
+    const messages: AgentMessage[] = [
+      { id: '1', role: 'user', parts: [{ type: 'text', text: 'old question' }] },
+      { id: '2', role: 'assistant', parts: [{ type: 'text', text: 'old answer' }] },
+      { id: '3', role: 'user', parts: [{ type: 'text', text: 'current question' }] },
+    ];
+
+    await toAiSdkStyleStream(messages, {
+      memory: {
+        threadId: 'thread-1',
+        resourceId: 'workspace-a',
+      },
+    });
+
+    expect(streamMastraAgentMock).toHaveBeenCalledTimes(1);
+    const [passedMessages] = streamMastraAgentMock.mock.calls[0] as unknown as [AgentMessage[]];
+    expect(passedMessages).toEqual([messages[2]]);
+  });
 });
