@@ -1128,6 +1128,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   );
   const loadStateByResourceId = useAssistantThreadStore((state) => state.loadStateByResourceId);
   const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
+  const updateThreadMetadata = useAssistantThreadStore((state) => state.updateThreadMetadata);
   const memoryResourceId = workspaceRootPath ?? undefined;
   const selectedMemoryThreadId = memoryResourceId
     ? selectedThreadByResourceId[memoryResourceId]
@@ -1155,6 +1156,45 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       threadId: selectedMemoryThreadId,
     });
   }, [assistantThreadRepository, memoryResourceId, selectedMemoryThreadId]);
+
+  const selectedThreadMetadata = useMemo(() => {
+    if (!(selectedProvider && resolvedModelName)) {
+      return;
+    }
+    return {
+      provider: selectedProvider,
+      model: resolvedModelName,
+      ...(modelSettings ? { modelSettings: { ...modelSettings } } : {}),
+      ...(providerOptions ? { providerOptions: { ...providerOptions } } : {}),
+    };
+  }, [modelSettings, providerOptions, resolvedModelName, selectedProvider]);
+
+  useEffect(() => {
+    if (
+      !(
+        assistantThreadRepository &&
+        memoryResourceId &&
+        selectedMemoryThreadId &&
+        selectedThreadMetadata
+      )
+    ) {
+      return;
+    }
+    updateThreadMetadata(
+      assistantThreadRepository,
+      memoryResourceId,
+      selectedMemoryThreadId,
+      selectedThreadMetadata
+    ).catch(() => {
+      // The store records the explicit error state; no fallback metadata source is used.
+    });
+  }, [
+    assistantThreadRepository,
+    memoryResourceId,
+    selectedMemoryThreadId,
+    selectedThreadMetadata,
+    updateThreadMetadata,
+  ]);
 
   const requestData = useMemo(() => {
     const data: Record<string, unknown> = {};

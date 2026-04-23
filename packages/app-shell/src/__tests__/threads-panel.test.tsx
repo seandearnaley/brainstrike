@@ -48,6 +48,12 @@ describe('ThreadsPanel', () => {
         id: 'thread-b',
         resourceId: '/tmp/workspace-a',
         title: 'Second thread',
+        metadata: JSON.stringify({
+          provider: 'openai',
+          model: 'gpt-5.2',
+          modelSettings: { maxOutputTokens: 512 },
+          providerOptions: { openai: { reasoningEffort: 'high' } },
+        }),
         createdAt: new Date('2026-04-22T10:00:00Z'),
         updatedAt: new Date('2026-04-22T11:00:00Z'),
       },
@@ -101,6 +107,10 @@ describe('ThreadsPanel', () => {
     ]);
     expect(screen.getByText('First thread')).toBeVisible();
     expect(screen.getByText('Second thread')).toBeVisible();
+    expect(screen.getByText('OpenAI')).toBeVisible();
+    expect(screen.getByText('gpt-5.2')).toBeVisible();
+    expect(screen.getByText('Reasoning: high')).toBeVisible();
+    expect(screen.getByText('Max output: 512')).toBeVisible();
     expect(useAssistantThreadStore.getState().selectedThreadByResourceId['/tmp/workspace-a']).toBe(
       'thread-b'
     );
@@ -133,5 +143,28 @@ describe('ThreadsPanel', () => {
       'thread-a',
     ]);
     uuidSpy.mockRestore();
+  });
+
+  it('renames a thread through Mastra thread storage', async () => {
+    const user = userEvent.setup();
+    render(<ThreadsPanel />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    await user.click(screen.getByRole('button', { name: 'Rename thread Second thread' }));
+    const input = screen.getByRole('textbox', { name: 'Thread title' });
+    await user.clear(input);
+    await user.type(input, 'Deployment plan');
+    await user.click(screen.getByRole('button', { name: 'Save thread title' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Deployment plan')).toBeVisible();
+    });
+    expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE mastra_threads'), [
+      'thread-b',
+      'Deployment plan',
+      expect.any(Date),
+    ]);
   });
 });

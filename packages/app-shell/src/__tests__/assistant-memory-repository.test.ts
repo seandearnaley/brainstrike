@@ -10,6 +10,8 @@ describe('createAssistantThreadHistoryAdapter', () => {
       createThread: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
+      renameThread: vi.fn(),
+      updateThreadMetadata: vi.fn(),
       listMessages: vi.fn(async () => [
         {
           id: 'message-1',
@@ -48,6 +50,8 @@ describe('createAssistantThreadHistoryAdapter', () => {
       createThread: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
+      renameThread: vi.fn(),
+      updateThreadMetadata: vi.fn(),
       listMessages: vi.fn(async () => []),
     };
     const adapter = createAssistantThreadHistoryAdapter({

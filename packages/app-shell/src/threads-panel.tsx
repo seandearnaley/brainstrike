@@ -1,9 +1,9 @@
 import { usePGliteDatabase } from '@brainstrike/db';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui';
 import { Button } from '@brainstrike/ui';
-import { MessageSquare, Plus } from 'lucide-react';
+import { Check, MessageSquare, Pencil, Plus, X } from 'lucide-react';
 import type { ReactElement } from 'react';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   type AssistantMemoryThread,
   type AssistantThreadRepository,
@@ -14,6 +14,36 @@ import { useAssistantThreadStore } from './assistant-thread-store';
 type ThreadPanelLoadState =
   | { readonly status: 'idle' | 'loading' | 'ready' }
   | { readonly error: string; readonly status: 'error' };
+
+const PROVIDER_LABELS: Record<string, string> = {
+  anthropic: 'Anthropic',
+  google: 'Google',
+  openai: 'OpenAI',
+  openrouter: 'OpenRouter',
+};
+
+function getProviderLabel(provider: string | undefined): string | null {
+  if (!provider) {
+    return null;
+  }
+  return PROVIDER_LABELS[provider] ?? provider;
+}
+
+function getReasoningLabel(thread: AssistantMemoryThread): string | null {
+  const provider = thread.metadata?.provider;
+  const providerOptions = thread.metadata?.providerOptions;
+  const providerRecord =
+    provider && providerOptions && typeof providerOptions[provider] === 'object'
+      ? (providerOptions[provider] as Record<string, unknown>)
+      : null;
+  const reasoning = providerRecord?.['reasoningEffort'] ?? providerRecord?.['effort'];
+  return typeof reasoning === 'string' && reasoning.trim() ? `Reasoning: ${reasoning}` : null;
+}
+
+function getMaxOutputLabel(thread: AssistantMemoryThread): string | null {
+  const value = thread.metadata?.modelSettings?.['maxOutputTokens'];
+  return typeof value === 'number' && Number.isFinite(value) ? `Max output: ${value}` : null;
+}
 
 function ThreadStateCard({
   description,
@@ -39,45 +69,267 @@ function ThreadStateCard({
 }
 
 function ThreadRows({
+  onRenameThread,
   onSelectThread,
   selectedThreadId,
   threads,
 }: {
+  readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
   readonly onSelectThread: (threadId: string) => void;
   readonly selectedThreadId: string | undefined;
   readonly threads: readonly AssistantMemoryThread[];
 }): ReactElement {
+  const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
+  const [draftTitle, setDraftTitle] = useState<string>('');
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [savingThreadId, setSavingThreadId] = useState<string | null>(null);
+
   return (
     <div className="space-y-2">
-      {threads.map((thread) => {
-        const isSelected = selectedThreadId === thread.id;
-        return (
-          <button
-            aria-current={isSelected ? 'true' : undefined}
-            className={`w-full rounded-lg border px-3 py-2 text-left ${
-              isSelected ? 'border-primary/50 bg-primary/5' : 'border-border bg-background'
-            }`}
-            data-testid="thread-row"
-            key={thread.id}
-            onClick={() => {
-              onSelectThread(thread.id);
-            }}
-            type="button"
-          >
-            <div className="flex min-w-0 items-center gap-2 font-medium text-xs">
-              <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <span className="truncate">{thread.title}</span>
-            </div>
-            <div className="truncate pt-1 text-[11px] text-muted-foreground">{thread.id}</div>
-          </button>
-        );
-      })}
+      {threads.map((thread) => (
+        <ThreadRowItem
+          draftTitle={draftTitle}
+          editingThreadId={editingThreadId}
+          key={thread.id}
+          onCancelRename={() => {
+            setEditingThreadId(null);
+            setDraftTitle('');
+            setRenameError(null);
+          }}
+          onDraftTitleChange={setDraftTitle}
+          onRenameThread={onRenameThread}
+          onRenameThreadStart={() => {
+            setEditingThreadId(thread.id);
+            setDraftTitle(thread.title);
+            setRenameError(null);
+          }}
+          onRenameThreadSubmitError={setRenameError}
+          onRenameThreadSubmitted={() => {
+            setEditingThreadId(null);
+            setDraftTitle('');
+          }}
+          onSavingThreadIdChange={setSavingThreadId}
+          onSelectThread={onSelectThread}
+          renameError={renameError}
+          savingThreadId={savingThreadId}
+          selectedThreadId={selectedThreadId}
+          thread={thread}
+        />
+      ))}
     </div>
+  );
+}
+
+function ThreadRowItem({
+  draftTitle,
+  editingThreadId,
+  onCancelRename,
+  onDraftTitleChange,
+  onRenameThread,
+  onRenameThreadStart,
+  onRenameThreadSubmitted,
+  onRenameThreadSubmitError,
+  onSavingThreadIdChange,
+  onSelectThread,
+  renameError,
+  savingThreadId,
+  selectedThreadId,
+  thread,
+}: {
+  readonly draftTitle: string;
+  readonly editingThreadId: string | null;
+  readonly onCancelRename: () => void;
+  readonly onDraftTitleChange: (title: string) => void;
+  readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
+  readonly onRenameThreadStart: () => void;
+  readonly onRenameThreadSubmitted: () => void;
+  readonly onRenameThreadSubmitError: (message: string) => void;
+  readonly onSavingThreadIdChange: (threadId: string | null) => void;
+  readonly onSelectThread: (threadId: string) => void;
+  readonly renameError: string | null;
+  readonly savingThreadId: string | null;
+  readonly selectedThreadId: string | undefined;
+  readonly thread: AssistantMemoryThread;
+}): ReactElement {
+  const isSelected = selectedThreadId === thread.id;
+  const isEditing = editingThreadId === thread.id;
+  return (
+    <div
+      className={`w-full rounded-lg border px-3 py-2 text-left ${
+        isSelected ? 'border-primary/50 bg-primary/5' : 'border-border bg-background'
+      }`}
+      data-testid="thread-row"
+    >
+      {isEditing ? (
+        <ThreadRenameForm
+          draftTitle={draftTitle}
+          onCancelRename={onCancelRename}
+          onDraftTitleChange={onDraftTitleChange}
+          onRenameThread={onRenameThread}
+          onRenameThreadSubmitError={onRenameThreadSubmitError}
+          onRenameThreadSubmitted={onRenameThreadSubmitted}
+          onSavingThreadIdChange={onSavingThreadIdChange}
+          renameError={renameError}
+          savingThreadId={savingThreadId}
+          thread={thread}
+        />
+      ) : (
+        <ThreadRowDisplay
+          onRenameThreadStart={onRenameThreadStart}
+          onSelectThread={onSelectThread}
+          selected={isSelected}
+          thread={thread}
+        />
+      )}
+    </div>
+  );
+}
+
+function ThreadRenameForm({
+  draftTitle,
+  onCancelRename,
+  onDraftTitleChange,
+  onRenameThread,
+  onRenameThreadSubmitted,
+  onRenameThreadSubmitError,
+  onSavingThreadIdChange,
+  renameError,
+  savingThreadId,
+  thread,
+}: {
+  readonly draftTitle: string;
+  readonly onCancelRename: () => void;
+  readonly onDraftTitleChange: (title: string) => void;
+  readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
+  readonly onRenameThreadSubmitted: () => void;
+  readonly onRenameThreadSubmitError: (message: string) => void;
+  readonly onSavingThreadIdChange: (threadId: string | null) => void;
+  readonly renameError: string | null;
+  readonly savingThreadId: string | null;
+  readonly thread: AssistantMemoryThread;
+}): ReactElement {
+  return (
+    <form
+      className="flex items-center gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSavingThreadIdChange(thread.id);
+        onRenameThread(thread.id, draftTitle)
+          .then(onRenameThreadSubmitted)
+          .catch((error: unknown) => {
+            onRenameThreadSubmitError(error instanceof Error ? error.message : String(error));
+          })
+          .finally(() => {
+            onSavingThreadIdChange(null);
+          });
+      }}
+    >
+      <input
+        aria-label="Thread title"
+        className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onChange={(event) => {
+          onDraftTitleChange(event.target.value);
+        }}
+        value={draftTitle}
+      />
+      {renameError ? <span className="text-[11px] text-destructive">{renameError}</span> : null}
+      <Button
+        aria-label="Save thread title"
+        disabled={savingThreadId === thread.id}
+        size="icon"
+        type="submit"
+        variant="ghost"
+      >
+        <Check className="h-3.5 w-3.5" />
+      </Button>
+      <Button
+        aria-label="Cancel rename"
+        onClick={onCancelRename}
+        size="icon"
+        type="button"
+        variant="ghost"
+      >
+        <X className="h-3.5 w-3.5" />
+      </Button>
+    </form>
+  );
+}
+
+function ThreadRowDisplay({
+  onRenameThreadStart,
+  onSelectThread,
+  selected,
+  thread,
+}: {
+  readonly onRenameThreadStart: () => void;
+  readonly onSelectThread: (threadId: string) => void;
+  readonly selected: boolean;
+  readonly thread: AssistantMemoryThread;
+}): ReactElement {
+  return (
+    <>
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <button
+          aria-current={selected ? 'true' : undefined}
+          className="min-w-0 flex-1 text-left"
+          onClick={() => {
+            onSelectThread(thread.id);
+          }}
+          type="button"
+        >
+          <div className="flex min-w-0 items-center gap-2 font-medium text-xs">
+            <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate">{thread.title}</span>
+          </div>
+          <div className="truncate pt-1 text-[11px] text-muted-foreground">{thread.id}</div>
+        </button>
+        <Button
+          aria-label={`Rename thread ${thread.title}`}
+          onClick={onRenameThreadStart}
+          size="icon"
+          type="button"
+          variant="ghost"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      <ThreadMetadataBadges thread={thread} />
+    </>
+  );
+}
+
+function ThreadMetadataBadges({
+  thread,
+}: {
+  readonly thread: AssistantMemoryThread;
+}): ReactElement | null {
+  const providerLabel = getProviderLabel(thread.metadata?.provider);
+  const reasoningLabel = getReasoningLabel(thread);
+  const maxOutputLabel = getMaxOutputLabel(thread);
+  if (!(providerLabel || thread.metadata?.model || reasoningLabel || maxOutputLabel)) {
+    return null;
+  }
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {providerLabel ? <ThreadBadge>{providerLabel}</ThreadBadge> : null}
+      {thread.metadata?.model ? <ThreadBadge>{thread.metadata.model}</ThreadBadge> : null}
+      {reasoningLabel ? <ThreadBadge>{reasoningLabel}</ThreadBadge> : null}
+      {maxOutputLabel ? <ThreadBadge>{maxOutputLabel}</ThreadBadge> : null}
+    </div>
+  );
+}
+
+function ThreadBadge({ children }: { readonly children: string }): ReactElement {
+  return (
+    <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
+      {children}
+    </span>
   );
 }
 
 function ThreadsPanelContent({
   loadState,
+  onRenameThread,
   onSelectThread,
   repository,
   resourceId,
@@ -85,6 +337,7 @@ function ThreadsPanelContent({
   threads,
 }: {
   readonly loadState: ThreadPanelLoadState | null;
+  readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
   readonly onSelectThread: (threadId: string) => void;
   readonly repository: AssistantThreadRepository | null;
   readonly resourceId: string | null;
@@ -140,6 +393,7 @@ function ThreadsPanelContent({
   }
   return (
     <ThreadRows
+      onRenameThread={onRenameThread}
       onSelectThread={onSelectThread}
       selectedThreadId={selectedThreadId}
       threads={threads}
@@ -162,6 +416,7 @@ export function ThreadsPanel(): ReactElement {
   const loadStateByResourceId = useAssistantThreadStore((state) => state.loadStateByResourceId);
   const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
   const createThread = useAssistantThreadStore((state) => state.createThread);
+  const renameThread = useAssistantThreadStore((state) => state.renameThread);
   const selectThread = useAssistantThreadStore((state) => state.selectThread);
   const selectedThreadId = resourceId ? selectedThreadByResourceId[resourceId] : undefined;
   const threads = resourceId ? (threadsByResourceId[resourceId] ?? []) : [];
@@ -171,6 +426,12 @@ export function ThreadsPanel(): ReactElement {
       return;
     }
     selectThread(resourceId, threadId);
+  };
+  const handleRenameThread = async (threadId: string, title: string): Promise<void> => {
+    if (!(repository && resourceId)) {
+      return;
+    }
+    await renameThread(repository, resourceId, threadId, title);
   };
 
   useEffect(() => {
@@ -231,6 +492,7 @@ export function ThreadsPanel(): ReactElement {
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
         <ThreadsPanelContent
           loadState={loadState}
+          onRenameThread={handleRenameThread}
           onSelectThread={handleSelectThread}
           repository={repository}
           resourceId={resourceId}

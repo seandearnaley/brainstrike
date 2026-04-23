@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type {
   AssistantMemoryThread,
+  AssistantThreadMetadata,
   AssistantThreadRepository,
 } from './assistant-memory-repository';
 
@@ -21,10 +22,22 @@ interface AssistantThreadState {
     resourceId: string
   ) => Promise<void>;
   loadStateByResourceId: Record<string, AssistantThreadLoadState>;
+  renameThread: (
+    repository: AssistantThreadRepository,
+    resourceId: string,
+    threadId: string,
+    title: string
+  ) => Promise<void>;
   selectedThreadByResourceId: Record<string, string>;
   selectThread: (resourceId: string, threadId: string) => void;
   threadIdsByResourceId: Record<string, string[]>;
   threadsByResourceId: Record<string, AssistantMemoryThread[]>;
+  updateThreadMetadata: (
+    repository: AssistantThreadRepository,
+    resourceId: string,
+    threadId: string,
+    metadata: AssistantThreadMetadata
+  ) => Promise<void>;
 }
 
 function serializeThread(thread: AssistantMemoryThread): AssistantMemoryThread {
@@ -166,6 +179,69 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
             [resourceId]: threadId,
           },
         }));
+      },
+      renameThread: async (
+        repository: AssistantThreadRepository,
+        resourceId: string,
+        threadId: string,
+        title: string
+      ): Promise<void> => {
+        const normalizedTitle = title.trim();
+        try {
+          await repository.renameThread(threadId, normalizedTitle);
+          set((state) => ({
+            threadsByResourceId: {
+              ...state.threadsByResourceId,
+              [resourceId]: (state.threadsByResourceId[resourceId] ?? []).map((thread) =>
+                thread.id === threadId
+                  ? { ...thread, title: normalizedTitle, updatedAt: new Date() }
+                  : thread
+              ),
+            },
+          }));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          set((state) => ({
+            loadStateByResourceId: {
+              ...state.loadStateByResourceId,
+              [resourceId]: { status: 'error', error: message },
+            },
+          }));
+          throw error;
+        }
+      },
+      updateThreadMetadata: async (
+        repository: AssistantThreadRepository,
+        resourceId: string,
+        threadId: string,
+        metadata: AssistantThreadMetadata
+      ): Promise<void> => {
+        try {
+          await repository.updateThreadMetadata(threadId, metadata);
+          set((state) => ({
+            threadsByResourceId: {
+              ...state.threadsByResourceId,
+              [resourceId]: (state.threadsByResourceId[resourceId] ?? []).map((thread) =>
+                thread.id === threadId
+                  ? {
+                      ...thread,
+                      metadata: { ...(thread.metadata ?? {}), ...metadata },
+                      updatedAt: new Date(),
+                    }
+                  : thread
+              ),
+            },
+          }));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          set((state) => ({
+            loadStateByResourceId: {
+              ...state.loadStateByResourceId,
+              [resourceId]: { status: 'error', error: message },
+            },
+          }));
+          throw error;
+        }
       },
     }),
     {

@@ -8,9 +8,18 @@ import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/ui/assistant-
 export interface AssistantMemoryThread {
   readonly createdAt: Date;
   readonly id: string;
+  readonly metadata?: AssistantThreadMetadata;
   readonly resourceId: string;
   readonly title: string;
   readonly updatedAt: Date;
+}
+
+export interface AssistantThreadMetadata {
+  readonly model?: string;
+  readonly modelSettings?: Record<string, unknown>;
+  readonly provider?: string;
+  readonly providerOptions?: Record<string, unknown>;
+  readonly source?: string;
 }
 
 export interface AssistantThreadRepository {
@@ -21,6 +30,8 @@ export interface AssistantThreadRepository {
     resourceId: string
   ) => Promise<readonly AssistantHistoryMessage[]>;
   listThreads: (resourceId: string) => Promise<readonly AssistantMemoryThread[]>;
+  renameThread: (threadId: string, title: string) => Promise<void>;
+  updateThreadMetadata: (threadId: string, metadata: AssistantThreadMetadata) => Promise<void>;
 }
 
 interface AssistantHistoryMessage {
@@ -58,6 +69,7 @@ function normalizeDate(value: unknown): Date {
 function toMemoryThread(thread: {
   createdAt: unknown;
   id: string;
+  metadata?: unknown;
   resourceId: string;
   title?: string | null;
   updatedAt: unknown;
@@ -68,6 +80,7 @@ function toMemoryThread(thread: {
     title: thread.title?.trim() || 'New Thread',
     createdAt: normalizeDate(thread.createdAt),
     updatedAt: normalizeDate(thread.updatedAt),
+    ...(isThreadMetadata(thread.metadata) ? { metadata: thread.metadata } : {}),
   };
 }
 
@@ -87,6 +100,31 @@ function requireString(value: unknown, fieldName: string): string {
     throw new Error(`Invalid Mastra memory row: ${fieldName} is not a string.`);
   }
   return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function optionalRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined;
+}
+
+function isThreadMetadata(value: unknown): value is AssistantThreadMetadata {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return Boolean(
+    optionalString(value['provider']) ||
+      optionalString(value['model']) ||
+      optionalRecord(value['modelSettings']) ||
+      optionalRecord(value['providerOptions']) ||
+      optionalString(value['source'])
+  );
 }
 
 function extractText(value: unknown): string {
@@ -251,7 +289,7 @@ export function createPgliteAssistantThreadRepository(
     async listThreads(resourceId: string): Promise<readonly AssistantMemoryThread[]> {
       await initialize();
       const result = await database.query<Record<string, unknown>>(
-        `SELECT id, "resourceId", title, "createdAt", "updatedAt"
+        `SELECT id, "resourceId", title, metadata, "createdAt", "updatedAt"
          FROM ${MASTRA_MEMORY_TABLES.threads}
          WHERE "resourceId" = $1
          ORDER BY "updatedAt" DESC, id DESC`,
@@ -262,9 +300,32 @@ export function createPgliteAssistantThreadRepository(
           id: requireString(row['id'], 'id'),
           resourceId: requireString(row['resourceId'], 'resourceId'),
           title: typeof row['title'] === 'string' ? row['title'] : null,
+          metadata: parseJson(row['metadata']),
           createdAt: row['createdAt'],
           updatedAt: row['updatedAt'],
         })
+      );
+    },
+    async renameThread(threadId: string, title: string): Promise<void> {
+      const normalizedTitle = title.trim();
+      if (!normalizedTitle) {
+        throw new Error('Thread title is required.');
+      }
+      await initialize();
+      await database.query(
+        `UPDATE ${MASTRA_MEMORY_TABLES.threads}
+         SET title = $2, "updatedAt" = $3
+         WHERE id = $1`,
+        [threadId, normalizedTitle, new Date()]
+      );
+    },
+    async updateThreadMetadata(threadId: string, metadata: AssistantThreadMetadata): Promise<void> {
+      await initialize();
+      await database.query(
+        `UPDATE ${MASTRA_MEMORY_TABLES.threads}
+         SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb, "updatedAt" = $3
+         WHERE id = $1`,
+        [threadId, JSON.stringify(metadata), new Date()]
       );
     },
   };

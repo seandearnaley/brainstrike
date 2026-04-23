@@ -1646,6 +1646,36 @@ describe('AssistantUiPanelWrapper', () => {
     );
   });
 
+  test('persists selected model and runtime options into the Mastra thread metadata', async () => {
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      providerSettings: {
+        ...state.providerSettings,
+        openai: {
+          maxOutputTokens: 512,
+          reasoningEffort: 'high',
+        },
+      },
+    }));
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        expect(mockDb.query).toHaveBeenCalledWith(
+          expect.stringContaining('UPDATE mastra_threads'),
+          ['thread-existing', expect.stringContaining('"provider":"openai"'), expect.any(Date)]
+        );
+      })
+    );
+    const updateCall = mockDb.query.mock.calls.find(([sql]) =>
+      String(sql).includes('UPDATE mastra_threads')
+    );
+    expect(updateCall?.[1]?.[1]).toContain('"model":"gpt-5.2"');
+    expect(updateCall?.[1]?.[1]).toContain('"reasoningEffort":"high"');
+    expect(updateCall?.[1]?.[1]).toContain('"maxOutputTokens":512');
+  });
+
   test('builds provider options for anthropic settings', async () => {
     useAssistantPreferencesStore.setState((state) => ({
       selectedProvider: 'anthropic',
