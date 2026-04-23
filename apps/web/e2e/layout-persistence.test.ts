@@ -5,6 +5,7 @@ import {
   CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR,
   CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
   CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR,
+  contextExplorerActiveNavLocator,
   ensureRightPanelVisible,
   getContextExplorerLeftResizeHandle,
   getPanelElements,
@@ -124,9 +125,7 @@ test.describe('IDE Layout Persistence', () => {
 
       // Reload page
       await page.reload();
-      await expect(
-        page.getByRole('heading', { name: 'Context Explorer', exact: true })
-      ).toBeVisible();
+      await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
 
       // Verify left panel remains hidden after reload
       await expect(leftPanel).not.toBeVisible();
@@ -138,9 +137,7 @@ test.describe('IDE Layout Persistence', () => {
 
       // Reload and verify it's visible
       await page.reload();
-      await expect(
-        page.getByRole('heading', { name: 'Context Explorer', exact: true })
-      ).toBeVisible();
+      await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
       await expect(leftPanel).toBeVisible();
     });
 
@@ -165,9 +162,7 @@ test.describe('IDE Layout Persistence', () => {
 
       // Reload page
       await page.reload();
-      await expect(
-        page.getByRole('heading', { name: 'Context Explorer', exact: true })
-      ).toBeVisible();
+      await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
 
       // Verify console remains visible after reload
       await expect(consolePanel).toBeVisible();
@@ -179,9 +174,7 @@ test.describe('IDE Layout Persistence', () => {
 
       // Reload and verify it remains hidden
       await page.reload();
-      await expect(
-        page.getByRole('heading', { name: 'Context Explorer', exact: true })
-      ).toBeVisible();
+      await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
       await expect(consolePanel).not.toBeVisible();
     });
 
@@ -260,9 +253,7 @@ test.describe('IDE Layout Persistence', () => {
 
       // Reload page
       await page.reload();
-      await expect(
-        page.getByRole('heading', { name: 'Context Explorer', exact: true })
-      ).toBeVisible();
+      await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
 
       // Get container width after reload
       const containerWidthAfter = await page
@@ -462,9 +453,7 @@ test.describe('IDE Layout Persistence', () => {
 
       // Reload page
       await page.reload();
-      await expect(
-        page.getByRole('heading', { name: 'Context Explorer', exact: true })
-      ).toBeVisible();
+      await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
 
       // Verify app loads with default layout (left panel visible, console hidden)
       const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
@@ -487,9 +476,7 @@ test.describe('IDE Layout Persistence', () => {
 
       // Reload page
       await page.reload();
-      await expect(
-        page.getByRole('heading', { name: 'Context Explorer', exact: true })
-      ).toBeVisible();
+      await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
 
       // Verify app loads with default layout
       const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
@@ -505,9 +492,7 @@ test.describe('IDE Layout Persistence', () => {
 
       // Reload and verify persistence works
       await page.reload();
-      await expect(
-        page.getByRole('heading', { name: 'Context Explorer', exact: true })
-      ).toBeVisible();
+      await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
       await expect(leftPanel).not.toBeVisible();
     });
   });

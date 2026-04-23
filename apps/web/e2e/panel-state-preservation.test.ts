@@ -3,6 +3,7 @@ import { resetAppState } from './utils/app-state';
 import { getFileTree } from './utils/file-tree-locators';
 import {
   CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
+  contextExplorerActiveNavLocator,
   getPanelElements,
   resetLayoutState,
   togglePanelVisibility,
@@ -41,9 +42,7 @@ test.describe('Panel State Preservation', () => {
     page,
   }) => {
     // Wait for the file explorer to be ready
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
+    await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
     await expect(page.getByTestId('select-root-button')).toBeVisible();
     await expect(page.getByText('No directory selected')).toBeVisible();
 
@@ -127,9 +126,7 @@ test.describe('Panel State Preservation', () => {
 
   test('should preserve file explorer state across multiple panel toggles', async ({ page }) => {
     // Wait for the file explorer to be ready
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
+    await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
     await expect(page.getByTestId('select-root-button')).toBeVisible();
 
     // Select a root directory

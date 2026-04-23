@@ -1,7 +1,11 @@
 import { expect, type Locator, test } from '@playwright/test';
 import { FileExplorerPage } from './page-objects/file-explorer-page';
 import { resetAppState } from './utils/app-state';
-import { CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR, waitForAppLoad } from './utils/layout-helpers';
+import {
+  CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
+  contextExplorerActiveNavLocator,
+  waitForAppLoad,
+} from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 async function checkTreeCheckbox(checkbox: Locator): Promise<void> {
@@ -66,10 +70,8 @@ test.describe('Navigation Panel State Preservation', () => {
     await page.reload();
     await waitForAppLoad(page);
 
-    // Verify initial state
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
+    // Verify initial state — sidebar nav marks Context Explorer as the active page.
+    await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
     await expect(page.getByTestId('select-root-button')).toBeVisible();
     await expect(page.getByText('No directory selected')).toBeVisible();
   });

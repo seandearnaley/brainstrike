@@ -219,7 +219,6 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
     AGENT_MAIN_PANEL_SELECTOR,
     CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR,
     CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR,
-    'h1:has-text("Context Explorer")',
   ].join(', ');
 
   // Collect console errors and network failures in CI for debugging
@@ -325,11 +324,20 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
     });
 }
 
+/**
+ * Locator for the Context Explorer sidebar nav button when it is the active page.
+ * The sidebar sets `aria-current="page"` on the active nav item — a stable,
+ * semantically meaningful landmark that survives UI redesigns.
+ */
+export function contextExplorerActiveNavLocator(page: Page) {
+  return page
+    .getByRole('button', { name: 'Context Explorer', exact: true })
+    .and(page.locator('[aria-current="page"]'));
+}
+
 export async function waitForContextExplorerPage(page: Page, timeout = 15_000): Promise<void> {
   const expect = await getPlaywrightExpect();
-  await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible({
-    timeout,
-  });
+  await expect(contextExplorerActiveNavLocator(page)).toBeVisible({ timeout });
 }
 
 export async function waitForSettingsPage(page: Page, timeout = 15_000): Promise<void> {

@@ -4,7 +4,6 @@ export * from './components/restore-access-modal';
 export * from './contexts/file-editor-context';
 export * from './file-content-context';
 export { default as FileExplorerErrorBoundary } from './file-explorer-error-boundary';
-export * from './file-explorer-header';
 export * from './file-explorer-left-panel';
 export * from './file-explorer-middle-panel';
 export * from './file-explorer-middle-panel-tabbed';

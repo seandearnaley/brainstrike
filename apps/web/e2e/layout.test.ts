@@ -29,7 +29,7 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
     await expect(page.locator('main')).toBeVisible();
 
     // Verify the page title is for Context Explorer by default and visible
-    await expect(home.contextExplorerHeading).toBeVisible();
+    await expect(home.contextExplorerPageMarker).toBeVisible();
     // Ensure the Settings H1 is in the DOM but not visible
     await expect(home.settingsHeading).not.toBeVisible();
   });
@@ -43,7 +43,7 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
     await expect(home.settingsNavButton).toBeVisible();
 
     // Initial state: Context Explorer is active, Settings is not
-    await expect(home.contextExplorerHeading).toBeVisible();
+    await expect(home.contextExplorerPageMarker).toBeVisible();
     await expect(home.settingsHeading).not.toBeVisible();
 
     // Ensure Settings button is enabled, then click
@@ -52,7 +52,7 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
 
     // Verify the Settings page content is visible and Context Explorer is not
     await waitForSettingsPage(page);
-    await expect(home.contextExplorerHeading).not.toBeVisible();
+    await expect(home.contextExplorerPageMarker).not.toBeVisible();
 
     // Ensure Context Explorer button is enabled, then click to navigate back
     await expect(home.contextExplorerNavButton).toBeEnabled({ timeout: 10_000 });
