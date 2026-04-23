@@ -56,6 +56,7 @@ let desktopMastraMemoryPromise: Promise<
 > | null = null;
 let desktopMastraMemoryCacheKey: string | null = null;
 
+const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const MAX_CONTEXT_FILES = 80;
 const MAX_FILE_CONTEXT_CHARS = 3500;
 const MAX_TREE_CONTEXT_LINES = 400;
@@ -151,36 +152,110 @@ async function handleAssistantPost(
     return;
   }
   const { signal, cleanup } = registerRequestAbort(req);
+  const runId = runtimeData.memory?.runId;
   try {
-    const mcpConfig = (await loadMcpConfig()).config;
-    const streamResult = await initializeAgentStream(
+    await streamAssistantPostResponse({
+      res,
       messages,
       runtimeData,
       apiKey,
-      mcpConfig,
-      signal
-    );
-    if (!streamResult.ok) {
-      respondJson(res, streamResult.status, streamResult.payload);
-      return;
-    }
-
-    const session = assistantDataStreamSessions.create(streamResult.stream);
-    const response = session.createResponse();
-    await streamResponse(res, response, signal);
+      signal,
+      runId,
+    });
   } catch (error) {
-    if (!signal.aborted) {
-      logger.error('Assistant stream error', { error });
-      if (!res.headersSent) {
-        respondJson(res, 500, {
-          error: 'assistant_stream_failed',
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
+    await handleAssistantPostStreamError({ res, runId, signal, error });
   } finally {
     cleanup();
   }
+}
+
+async function handleAssistantPostStreamError({
+  res,
+  runId,
+  signal,
+  error,
+}: {
+  readonly res: http.ServerResponse;
+  readonly runId: string | undefined;
+  readonly signal: AbortSignal;
+  readonly error: unknown;
+}): Promise<void> {
+  const message = error instanceof Error ? error.message : String(error);
+  if (runId) {
+    await completeDesktopAssistantThreadRun(
+      runId,
+      signal.aborted ? 'cancelled' : 'failed',
+      message
+    );
+  }
+  if (signal.aborted) {
+    return;
+  }
+  logger.error('Assistant stream error', { error });
+  if (res.headersSent) {
+    return;
+  }
+  respondJson(res, 500, {
+    error: 'assistant_stream_failed',
+    message,
+  });
+}
+
+async function streamAssistantPostResponse({
+  res,
+  messages,
+  runtimeData,
+  apiKey,
+  signal,
+  runId,
+}: {
+  readonly res: http.ServerResponse;
+  readonly messages: AgentMessage[];
+  readonly runtimeData: RuntimeData;
+  readonly apiKey: string | undefined;
+  readonly signal: AbortSignal;
+  readonly runId: string | undefined;
+}): Promise<void> {
+  const mcpConfig = (await loadMcpConfig()).config;
+  const streamResult = await initializeAgentStream(
+    messages,
+    runtimeData,
+    apiKey,
+    mcpConfig,
+    signal
+  );
+  if (!streamResult.ok) {
+    if (runId) {
+      await completeDesktopAssistantThreadRun(runId, 'failed', streamResult.payload.message);
+    }
+    respondJson(res, streamResult.status, streamResult.payload);
+    return;
+  }
+
+  const session = assistantDataStreamSessions.create(streamResult.stream);
+  const response = session.createResponse();
+  await streamResponse(res, response, signal);
+  if (runId) {
+    await completeDesktopAssistantThreadRun(
+      runId,
+      signal.aborted ? 'cancelled' : 'completed',
+      null
+    );
+  }
+}
+
+async function completeDesktopAssistantThreadRun(
+  runId: string,
+  status: 'cancelled' | 'completed' | 'failed',
+  error: string | null
+): Promise<void> {
+  const database = await getDatabase();
+  await database.query(
+    `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
+     SET status = $2, error = $3, completed_at = $4, updated_at = $5
+     WHERE id = $1`,
+    [runId, status, error, new Date(), new Date()]
+  );
 }
 
 interface PreparedAssistantPostRequest {

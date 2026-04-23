@@ -64,6 +64,10 @@ vi.mock('@brainstrike/agent', () => ({
 }));
 
 const mockPgliteMastraMemory = { id: 'desktop-memory' };
+const mockDesktopDatabase = {
+  exec: vi.fn(),
+  query: vi.fn(),
+};
 
 vi.mock('@brainstrike/agent/pglite-mastra-memory', () => ({
   createPgliteMastraMemory: vi.fn(() =>
@@ -81,7 +85,7 @@ vi.mock('../assistant-server/assistant-tools', () => ({
 }));
 
 vi.mock('../db-main', () => ({
-  getDatabase: vi.fn(() => Promise.resolve({ query: vi.fn(), exec: vi.fn() })),
+  getDatabase: vi.fn(() => Promise.resolve(mockDesktopDatabase)),
 }));
 
 describe('assistant-server', () => {
@@ -197,6 +201,8 @@ describe('assistant-server', () => {
       server = undefined;
     }
     vi.clearAllMocks();
+    mockDesktopDatabase.exec.mockReset();
+    mockDesktopDatabase.query.mockReset();
     mockSecretsService.getKey.mockResolvedValue('test-api-key');
     mockSecretsService.listProviders.mockResolvedValue(['openai']);
   }, 15_000);
@@ -714,6 +720,46 @@ describe('assistant-server', () => {
           memory: expect.objectContaining({ threadId: 'thread-1', resourceId: 'workspace-a' }),
         }),
         { memory: mockPgliteMastraMemory }
+      );
+    });
+
+    it('marks assistant thread runs completed after desktop streams finish', async () => {
+      const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text', content: 'Response' };
+        },
+      });
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: {
+            provider: 'openai',
+            memory: {
+              threadId: 'thread-1',
+              resourceId: 'workspace-a',
+              runId: 'run-1',
+            },
+          },
+        }),
+      });
+
+      expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE brainstrike_assistant_thread_runs'),
+        expect.arrayContaining(['run-1', 'completed', null])
       );
     });
 
