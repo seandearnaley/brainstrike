@@ -1315,7 +1315,10 @@ export const IdeLayout = React.memo(function IdeLayout({
                 </div>
               </Panel>
               <Separator
-                className="z-10 w-1 bg-panel-divider hover:bg-panel-divider/80"
+                className={cn(
+                  'z-10 w-1 hover:bg-panel-divider/80',
+                  showLeftPanel ? 'bg-panel-divider' : 'bg-transparent'
+                )}
                 onPointerDown={handleSeparatorPointerDown}
               />
             </>
@@ -1360,7 +1363,10 @@ export const IdeLayout = React.memo(function IdeLayout({
               {hasConsole && (
                 <>
                   <Separator
-                    className="z-10 h-1 bg-panel-divider hover:bg-panel-divider/80"
+                    className={cn(
+                      'z-10 h-1 hover:bg-panel-divider/80',
+                      showConsole ? 'bg-panel-divider' : 'bg-transparent'
+                    )}
                     onPointerDown={handleSeparatorPointerDown}
                   />
                   <Panel
@@ -1410,7 +1416,10 @@ export const IdeLayout = React.memo(function IdeLayout({
           {hasTools && (
             <>
               <Separator
-                className="z-10 w-1 bg-panel-divider hover:bg-panel-divider/80"
+                className={cn(
+                  'z-10 w-1 hover:bg-panel-divider/80',
+                  showRightPanel ? 'bg-panel-divider' : 'bg-transparent'
+                )}
                 onPointerDown={handleSeparatorPointerDown}
               />
               <Panel

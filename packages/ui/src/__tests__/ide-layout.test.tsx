@@ -802,6 +802,49 @@ describe('IdeLayout', () => {
       }
     });
 
+    it('collapsed panels render their adjacent Separator transparent so nested layouts do not double up', () => {
+      // Simulate all collapsible panels collapsed — the scenario that produces the
+      // doubled-divider artifact when an IdeLayout is nested inside another IdeLayout's
+      // collapsible panel (the outer separator sits flush against the inner separator
+      // with a 0-width panel between them).
+      Object.assign(mockState, {
+        showLeftPanel: false,
+        showRightPanel: false,
+        showConsole: false,
+      });
+      render(
+        <IdeLayout
+          consoleContent={consoleContent}
+          leftPanelContent={leftContent}
+          rightPanelContent={rightContent}
+        >
+          <div>Main Content</div>
+        </IdeLayout>
+      );
+      const handles = screen.getAllByTestId('resize-handle');
+      expect(handles.length).toBeGreaterThanOrEqual(3);
+      for (const handle of handles) {
+        expect(handle.className).toContain('bg-transparent');
+        // The base bg-* color must be transparent (hover: variant with panel-divider is fine).
+        expect(handle.className).not.toMatch(/(^|\s)bg-panel-divider(\s|$)/);
+      }
+    });
+
+    it('expanded panels render their adjacent Separator with the panel-divider color', () => {
+      Object.assign(mockState, {
+        showLeftPanel: true,
+        showRightPanel: true,
+        showConsole: true,
+      });
+      renderDefaultLayout();
+      const handles = screen.getAllByTestId('resize-handle');
+      expect(handles.length).toBeGreaterThanOrEqual(3);
+      for (const handle of handles) {
+        expect(handle.className).toContain('bg-panel-divider');
+        expect(handle.className).not.toContain('bg-transparent');
+      }
+    });
+
     it('tools panel inner wrapper does not add border-l; the Separator alone provides the boundary', async () => {
       const fs = await import('node:fs');
       const path = await import('node:path');
