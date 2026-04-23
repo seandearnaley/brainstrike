@@ -205,6 +205,7 @@ let currentModelId: string | null = null;
 const warmedDesktopModelIds = new Set<string>();
 const desktopWarmupPromises = new Map<string, Promise<void>>();
 let backendStateLock: Promise<void> = Promise.resolve();
+let localGenerationQueue: Promise<void> | null = null;
 // Track disposal lifecycle to prevent race conditions
 // - requested: disposal has been requested (blocks new inits from returning soon-to-be-disposed instances)
 // - inProgress: disposal is actively running (prevents new init while cleanup happens)
@@ -565,6 +566,25 @@ async function withBackendStateLock<T>(operation: () => Promise<T>): Promise<T> 
   }
 }
 
+function acquireLocalGenerationSlot(): (() => void) | Promise<() => void> {
+  const previousQueue = localGenerationQueue;
+  let releaseSlot!: () => void;
+  const currentSlot = new Promise<void>((resolve) => {
+    releaseSlot = resolve;
+  });
+  const releaseCurrentSlot = () => {
+    releaseSlot();
+    if (localGenerationQueue === currentSlot) {
+      localGenerationQueue = null;
+    }
+  };
+  localGenerationQueue = previousQueue ? previousQueue.then(() => currentSlot) : currentSlot;
+  if (!previousQueue) {
+    return releaseCurrentSlot;
+  }
+  return previousQueue.then(() => releaseCurrentSlot);
+}
+
 function ensureDesktopHostStateSync(
   llmHost: NonNullable<ReturnType<typeof getDesktopLlmHost>>
 ): void {
@@ -752,6 +772,9 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Generator handles init, conversion, streaming, and errors
     async *run({ messages, abortSignal }) {
       const releaseBackgroundPause = await acquireBackgroundWorkPauseReason('local-llm');
+      const generationSlot = acquireLocalGenerationSlot();
+      const releaseGenerationSlot =
+        typeof generationSlot === 'function' ? generationSlot : await generationSlot;
       try {
         // Convert messages to LocalLlmMessage format
         const localMessages = convertMessages(messages);
@@ -1015,6 +1038,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
           ],
         };
       } finally {
+        releaseGenerationSlot();
         releaseBackgroundPause();
       }
     },
@@ -1030,6 +1054,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
  * - If getBackend() is called during disposal, it waits for disposal to complete
  */
 export async function disposeLocalBackend(): Promise<void> {
+  localGenerationQueue = null;
   // Prevent re-entry if disposal is already in progress
   if (disposalState.inProgress) {
     // Wait for existing disposal to complete
