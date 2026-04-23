@@ -40,6 +40,24 @@ interface VectorRow {
 const DEFAULT_TOP_K = 10;
 const DEFAULT_METRIC: NonNullable<IndexStats['metric']> = 'cosine';
 const INDEX_METADATA_ID = '__index_metadata__';
+const MASTRA_VECTOR_SCHEMA_SQL = `
+  CREATE EXTENSION IF NOT EXISTS vector;
+  CREATE TABLE IF NOT EXISTS ${MASTRA_VECTOR_TABLE} (
+    index_name TEXT NOT NULL,
+    id TEXT NOT NULL,
+    embedding vector NOT NULL,
+    metadata JSONB,
+    dimension INTEGER NOT NULL,
+    metric TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (index_name, id)
+  );
+  CREATE INDEX IF NOT EXISTS mastra_vectors_index_name_idx
+    ON ${MASTRA_VECTOR_TABLE} (index_name);
+  CREATE INDEX IF NOT EXISTS mastra_vectors_metadata_idx
+    ON ${MASTRA_VECTOR_TABLE} USING gin (metadata);
+`;
 const VECTOR_OPERATORS = {
   cosine: '<=>',
   dotproduct: '<#>',
@@ -184,6 +202,7 @@ function appendFilterSql(
 
 export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
   private readonly database: PgliteDatabase;
+  private initPromise: Promise<void> | null = null;
 
   constructor(options: PgliteVectorStoreOptions) {
     super({ id: options.id ?? 'brainstrike-pglite-vector' });
@@ -199,24 +218,7 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
     if (!Number.isSafeInteger(dimension) || dimension <= 0) {
       throw new Error('dimension must be a positive safe integer');
     }
-    await this.database.exec(`
-      CREATE EXTENSION IF NOT EXISTS vector;
-      CREATE TABLE IF NOT EXISTS ${MASTRA_VECTOR_TABLE} (
-        index_name TEXT NOT NULL,
-        id TEXT NOT NULL,
-        embedding vector NOT NULL,
-        metadata JSONB,
-        dimension INTEGER NOT NULL,
-        metric TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        PRIMARY KEY (index_name, id)
-      );
-      CREATE INDEX IF NOT EXISTS mastra_vectors_index_name_idx
-        ON ${MASTRA_VECTOR_TABLE} (index_name);
-      CREATE INDEX IF NOT EXISTS mastra_vectors_metadata_idx
-        ON ${MASTRA_VECTOR_TABLE} USING gin (metadata);
-    `);
+    await this.ensureVectorTable();
     const existing = await this.describeIndexIfExists(indexName);
     if (existing) {
       if (existing.dimension !== dimension) {
@@ -463,20 +465,14 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
   }
 
   private async ensureVectorTable(): Promise<void> {
-    await this.database.exec(`
-      CREATE EXTENSION IF NOT EXISTS vector;
-      CREATE TABLE IF NOT EXISTS ${MASTRA_VECTOR_TABLE} (
-        index_name TEXT NOT NULL,
-        id TEXT NOT NULL,
-        embedding vector NOT NULL,
-        metadata JSONB,
-        dimension INTEGER NOT NULL,
-        metric TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        PRIMARY KEY (index_name, id)
-      );
-    `);
+    this.initPromise ??= this.database
+      .exec(MASTRA_VECTOR_SCHEMA_SQL)
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        this.initPromise = null;
+        throw error;
+      });
+    await this.initPromise;
   }
 
   private async describeIndexIfExists(indexName: string): Promise<IndexStats | null> {

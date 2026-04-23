@@ -1,6 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import { vector } from '@electric-sql/pglite/vector';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PgliteVectorStore } from '../vector-store';
 
 describe('PgliteVectorStore', () => {
@@ -40,6 +40,16 @@ describe('PgliteVectorStore', () => {
         metric: 'cosine',
       })
     ).rejects.toThrow(/unsupported index name/i);
+  });
+
+  it('caches vector table bootstrap across operations', async () => {
+    const execSpy = vi.spyOn(db, 'exec');
+
+    await store.createIndex({ indexName: 'memory_messages', dimension: 3, metric: 'cosine' });
+    await store.listIndexes();
+    await store.describeIndex({ indexName: 'memory_messages' });
+
+    expect(execSpy).toHaveBeenCalledTimes(1);
   });
 
   it('upserts, filters, queries, updates, and deletes vectors', async () => {
