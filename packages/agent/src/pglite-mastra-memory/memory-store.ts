@@ -421,6 +421,7 @@ function withoutBufferedReflection(record: ObservationalMemoryRecord): Observati
 export class PgliteMemoryStore extends MemoryStorage {
   override readonly supportsObservationalMemory = true;
   private readonly database: PgliteDatabase;
+  private initPromise: Promise<void> | null = null;
 
   constructor(options: PgliteMemoryStoreOptions) {
     super();
@@ -432,7 +433,14 @@ export class PgliteMemoryStore extends MemoryStorage {
   }
 
   async initialize(): Promise<void> {
-    await this.database.exec(MASTRA_MEMORY_SCHEMA_SQL);
+    this.initPromise ??= this.database
+      .exec(MASTRA_MEMORY_SCHEMA_SQL)
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        this.initPromise = null;
+        throw error;
+      });
+    await this.initPromise;
   }
 
   override async dangerouslyClearAll(): Promise<void> {
@@ -660,13 +668,17 @@ export class PgliteMemoryStore extends MemoryStorage {
       id: string;
     })[];
   }): Promise<MastraDBMessage[]> {
+    const messageIds = args.messages.map((message) => message.id);
+    const existing = await this.listMessagesById({ messageIds });
+    const existingById = new Map(existing.messages.map((message) => [message.id, message]));
+    const mergedMessages: MastraDBMessage[] = [];
+
     for (const message of args.messages) {
-      const existing = await this.listMessagesById({ messageIds: [message.id] });
-      const current = existing.messages[0];
+      const current = existingById.get(message.id);
       if (!current) {
         continue;
       }
-      const merged: MastraDBMessage = {
+      mergedMessages.push({
         ...current,
         ...message,
         content:
@@ -676,11 +688,14 @@ export class PgliteMemoryStore extends MemoryStorage {
                 ...current.content,
                 ...message.content,
               },
-      } as MastraDBMessage;
-      await this.saveMessages({ messages: [merged] });
+      } as MastraDBMessage);
     }
-    return (await this.listMessagesById({ messageIds: args.messages.map((message) => message.id) }))
-      .messages;
+
+    if (mergedMessages.length > 0) {
+      await this.saveMessages({ messages: mergedMessages });
+    }
+
+    return (await this.listMessagesById({ messageIds })).messages;
   }
 
   override async deleteMessages(messageIds: string[]): Promise<void> {

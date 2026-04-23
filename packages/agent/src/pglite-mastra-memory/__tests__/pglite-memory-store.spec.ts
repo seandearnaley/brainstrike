@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import type { MastraDBMessage } from '@mastra/core/memory';
 import type { ObservationalMemoryRecord } from '@mastra/core/storage';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PgliteMemoryStore } from '../memory-store';
 
 describe('PgliteMemoryStore', () => {
@@ -33,6 +33,21 @@ describe('PgliteMemoryStore', () => {
         'mastra_threads',
       ])
     );
+  });
+
+  it('retries schema initialization after a transient bootstrap failure', async () => {
+    const database = {
+      exec: vi
+        .fn<(sql: string) => Promise<void>>()
+        .mockRejectedValueOnce(new Error('temporary bootstrap failure'))
+        .mockResolvedValue(undefined),
+      query: vi.fn(),
+    };
+    const transientStore = new PgliteMemoryStore({ database });
+
+    await expect(transientStore.initialize()).rejects.toThrow('temporary bootstrap failure');
+    await expect(transientStore.initialize()).resolves.toBeUndefined();
+    expect(database.exec).toHaveBeenCalledTimes(2);
   });
 
   it('persists and lists workspace-scoped threads by updated time', async () => {
@@ -128,6 +143,81 @@ describe('PgliteMemoryStore', () => {
     expect(byThread.messages.map((message) => message.id)).toEqual(['message-1', 'message-2']);
     expect(byResource.messages.map((message) => message.id)).toEqual(['message-1', 'message-2']);
     expect(byId.messages.map((message) => message.id)).toEqual(['message-2']);
+  });
+
+  it('updates messages in one batched read-write cycle', async () => {
+    await store.saveThread({
+      thread: {
+        id: 'thread-1',
+        resourceId: 'workspace-a',
+        title: 'Memory thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+    await store.saveMessages({
+      messages: [
+        {
+          id: 'message-1',
+          role: 'user',
+          type: 'text',
+          threadId: 'thread-1',
+          resourceId: 'workspace-a',
+          createdAt: new Date('2026-04-22T10:00:01Z'),
+          content: {
+            content: 'Remember the Friday deploy window.',
+            metadata: { provider: 'openai' },
+          },
+        },
+        {
+          id: 'message-2',
+          role: 'assistant',
+          type: 'text',
+          threadId: 'thread-1',
+          resourceId: 'workspace-a',
+          createdAt: new Date('2026-04-22T10:00:02Z'),
+          content: {
+            content: 'I will remember that.',
+            metadata: { model: 'gpt-5.2' },
+          },
+        },
+      ],
+    });
+
+    const querySpy = vi.spyOn(db, 'query');
+
+    const updated = await store.updateMessages({
+      messages: [
+        {
+          id: 'message-1',
+          content: {
+            metadata: { provider: 'anthropic' },
+          },
+        },
+        {
+          id: 'message-2',
+          role: 'tool',
+          content: {
+            content: 'Deploy window stored.',
+          },
+        },
+      ],
+    });
+
+    expect(updated).toHaveLength(2);
+    expect(updated[0]?.content).toEqual({
+      content: 'Remember the Friday deploy window.',
+      metadata: { provider: 'anthropic' },
+    });
+    expect(updated[1]).toMatchObject({
+      id: 'message-2',
+      role: 'tool',
+      content: {
+        content: 'Deploy window stored.',
+        metadata: { model: 'gpt-5.2' },
+      },
+    });
+    expect(querySpy).toHaveBeenCalledTimes(4);
   });
 
   it('persists workspace-scoped working memory resources', async () => {

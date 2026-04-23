@@ -200,6 +200,41 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
       updatedAt: new Date('2026-04-22T10:31:00Z'),
     });
   });
+
+  it('retries schema initialization after a transient bootstrap failure', async () => {
+    const db = createMockDb();
+    db.exec
+      .mockRejectedValueOnce(new Error('temporary bootstrap failure'))
+      .mockResolvedValue(undefined);
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.createThreadRun({
+        id: 'run-1',
+        resourceId: '/tmp/workspace-a',
+        threadId: 'thread-1',
+        provider: 'openai',
+        model: 'gpt-5.2',
+        runtimeKind: 'hosted',
+      })
+    ).rejects.toThrow('temporary bootstrap failure');
+
+    await expect(
+      repository.createThreadRun({
+        id: 'run-2',
+        resourceId: '/tmp/workspace-a',
+        threadId: 'thread-1',
+        provider: 'openai',
+        model: 'gpt-5.2',
+        runtimeKind: 'hosted',
+      })
+    ).resolves.toMatchObject({
+      id: 'run-2',
+      threadId: 'thread-1',
+      resourceId: '/tmp/workspace-a',
+    });
+    expect(db.exec).toHaveBeenCalledTimes(2);
+  });
 });
 
 function createMockDb(): {

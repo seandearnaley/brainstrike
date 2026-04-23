@@ -365,7 +365,13 @@ export function createPgliteAssistantThreadRepository(
 
   let initPromise: Promise<void> | null = null;
   const initialize = async (): Promise<void> => {
-    initPromise ??= database.exec(ASSISTANT_THREAD_RUNS_SCHEMA_SQL).then(() => undefined);
+    initPromise ??= database
+      .exec(ASSISTANT_THREAD_RUNS_SCHEMA_SQL)
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        initPromise = null;
+        throw error;
+      });
     await initPromise;
   };
 
