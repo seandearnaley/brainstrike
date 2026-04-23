@@ -30,8 +30,8 @@ function getProviderLabel(provider: string | undefined): string | null {
 }
 
 function getReasoningLabel(thread: AssistantMemoryThread): string | null {
-  const provider = thread.metadata?.provider;
-  const providerOptions = thread.metadata?.providerOptions;
+  const provider = thread.latestRun?.provider;
+  const providerOptions = thread.latestRun?.providerOptions;
   const providerRecord =
     provider && providerOptions && typeof providerOptions[provider] === 'object'
       ? (providerOptions[provider] as Record<string, unknown>)
@@ -41,7 +41,7 @@ function getReasoningLabel(thread: AssistantMemoryThread): string | null {
 }
 
 function getMaxOutputLabel(thread: AssistantMemoryThread): string | null {
-  const value = thread.metadata?.modelSettings?.['maxOutputTokens'];
+  const value = thread.latestRun?.modelSettings?.['maxOutputTokens'];
   return typeof value === 'number' && Number.isFinite(value) ? `Max output: ${value}` : null;
 }
 
@@ -303,16 +303,16 @@ function ThreadMetadataBadges({
 }: {
   readonly thread: AssistantMemoryThread;
 }): ReactElement | null {
-  const providerLabel = getProviderLabel(thread.metadata?.provider);
+  const providerLabel = getProviderLabel(thread.latestRun?.provider);
   const reasoningLabel = getReasoningLabel(thread);
   const maxOutputLabel = getMaxOutputLabel(thread);
-  if (!(providerLabel || thread.metadata?.model || reasoningLabel || maxOutputLabel)) {
+  if (!(providerLabel || thread.latestRun?.model || reasoningLabel || maxOutputLabel)) {
     return null;
   }
   return (
     <div className="mt-2 flex flex-wrap gap-1.5">
       {providerLabel ? <ThreadBadge>{providerLabel}</ThreadBadge> : null}
-      {thread.metadata?.model ? <ThreadBadge>{thread.metadata.model}</ThreadBadge> : null}
+      {thread.latestRun?.model ? <ThreadBadge>{thread.latestRun.model}</ThreadBadge> : null}
       {reasoningLabel ? <ThreadBadge>{reasoningLabel}</ThreadBadge> : null}
       {maxOutputLabel ? <ThreadBadge>{maxOutputLabel}</ThreadBadge> : null}
     </div>

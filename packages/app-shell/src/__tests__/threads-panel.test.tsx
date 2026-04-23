@@ -48,12 +48,6 @@ describe('ThreadsPanel', () => {
         id: 'thread-b',
         resourceId: '/tmp/workspace-a',
         title: 'Second thread',
-        metadata: JSON.stringify({
-          provider: 'openai',
-          model: 'gpt-5.2',
-          modelSettings: { maxOutputTokens: 512 },
-          providerOptions: { openai: { reasoningEffort: 'high' } },
-        }),
         createdAt: new Date('2026-04-22T10:00:00Z'),
         updatedAt: new Date('2026-04-22T11:00:00Z'),
       },
@@ -79,6 +73,28 @@ describe('ThreadsPanel', () => {
       }
       if (sql.includes('FROM mastra_threads')) {
         return { rows: [...threadRows] };
+      }
+      if (sql.includes('FROM brainstrike_assistant_thread_runs')) {
+        return {
+          rows: [
+            {
+              id: 'run-1',
+              resourceId: '/tmp/workspace-a',
+              threadId: 'thread-b',
+              provider: 'openai',
+              model: 'gpt-5.2',
+              modelSettings: JSON.stringify({ maxOutputTokens: 512 }),
+              providerOptions: JSON.stringify({ openai: { reasoningEffort: 'high' } }),
+              runtimeKind: 'hosted',
+              status: 'completed',
+              error: null,
+              startedAt: new Date('2026-04-22T11:00:00Z'),
+              completedAt: new Date('2026-04-22T11:00:10Z'),
+              createdAt: new Date('2026-04-22T11:00:00Z'),
+              updatedAt: new Date('2026-04-22T11:00:10Z'),
+            },
+          ],
+        };
       }
       return { rows: [] };
     });

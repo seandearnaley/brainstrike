@@ -67,6 +67,8 @@ import { useAssistantThreadStore } from './assistant-thread-store';
 export interface AssistantUiPanelWrapperProps {
   className?: string;
   initialProviders?: SupportedProvider[];
+  memoryResourceId?: string;
+  memoryThreadId?: string;
 }
 
 // App-shell wrapper wires DB/preferences state into the shared UI-only AssistantUiPanel.
@@ -609,7 +611,11 @@ function tokenEstimateReducer(
   }
 }
 
-export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ initialProviders }) => {
+export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({
+  initialProviders,
+  memoryResourceId: memoryResourceIdOverride,
+  memoryThreadId,
+}) => {
   const [configuredProviders, setConfiguredProviders] = useState<SupportedProvider[]>(
     () => initialProviders ?? []
   );
@@ -1151,9 +1157,9 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   );
   const loadStateByResourceId = useAssistantThreadStore((state) => state.loadStateByResourceId);
   const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
-  const memoryResourceId = workspaceRootPath ?? undefined;
+  const memoryResourceId = memoryResourceIdOverride ?? workspaceRootPath ?? undefined;
   const selectedMemoryThreadId = memoryResourceId
-    ? selectedThreadByResourceId[memoryResourceId]
+    ? (memoryThreadId ?? selectedThreadByResourceId[memoryResourceId])
     : undefined;
   const memoryLoadState = memoryResourceId
     ? (loadStateByResourceId[memoryResourceId] ?? { status: 'idle' as const })

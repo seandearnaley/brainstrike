@@ -1,16 +1,16 @@
 import { type ComponentType, memo, useEffect, useState } from 'react';
 import { createRetryableLazyModuleLoader } from './retryable-lazy-module-loader';
 
-type AssistantUiPanelWrapperModule = typeof import('./assistant-ui-panel-wrapper');
+type AssistantThreadTabsWorkspaceModule = typeof import('./assistant-thread-tabs-workspace');
 type AssistantUiPanelWrapperComponent = ComponentType;
 
 let assistantUiPanelWrapperComponent: AssistantUiPanelWrapperComponent | null = null;
 const assistantUiPanelWrapperModuleLoader =
-  createRetryableLazyModuleLoader<AssistantUiPanelWrapperModule>(
-    () => import('./assistant-ui-panel-wrapper')
+  createRetryableLazyModuleLoader<AssistantThreadTabsWorkspaceModule>(
+    () => import('./assistant-thread-tabs-workspace')
   );
 
-function loadAssistantUiPanelWrapperModule(): Promise<AssistantUiPanelWrapperModule> {
+function loadAssistantUiPanelWrapperModule(): Promise<AssistantThreadTabsWorkspaceModule> {
   return assistantUiPanelWrapperModuleLoader.load();
 }
 
@@ -20,7 +20,7 @@ function getLoadedAssistantUiPanelWrapper(): AssistantUiPanelWrapperComponent | 
 
 export function preloadAssistantUiPanelWrapper(): Promise<void> {
   return loadAssistantUiPanelWrapperModule().then((module) => {
-    assistantUiPanelWrapperComponent = module.AssistantUiPanelWrapper;
+    assistantUiPanelWrapperComponent = module.AssistantThreadTabsWorkspace;
   });
 }
 
@@ -41,8 +41,8 @@ export const AssistantUiPanelWrapperLazy = memo(function AssistantUiPanelWrapper
         if (!active) {
           return;
         }
-        assistantUiPanelWrapperComponent = module.AssistantUiPanelWrapper;
-        setLoadedComponent(() => module.AssistantUiPanelWrapper);
+        assistantUiPanelWrapperComponent = module.AssistantThreadTabsWorkspace;
+        setLoadedComponent(() => module.AssistantThreadTabsWorkspace);
       })
       .catch((error: unknown) => {
         if (!active) {
