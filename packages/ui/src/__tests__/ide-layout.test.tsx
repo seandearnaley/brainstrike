@@ -785,4 +785,35 @@ describe('IdeLayout', () => {
       }
     });
   });
+
+  describe('panel-divider token', () => {
+    it('resize separators use bg-panel-divider (not bg-border) so adjacent panels do not visually double up', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const source = fs.readFileSync(
+        path.resolve(import.meta.dirname, '../layout/ide-layout.tsx'),
+        'utf-8'
+      );
+      const separatorBlocks = source.match(/<Separator[\s\S]*?\/>/g) ?? [];
+      expect(separatorBlocks.length).toBeGreaterThanOrEqual(3);
+      for (const block of separatorBlocks) {
+        expect(block).toContain('bg-panel-divider');
+        expect(block).not.toMatch(/\bbg-border\b/);
+      }
+    });
+
+    it('tools panel inner wrapper does not add border-l; the Separator alone provides the boundary', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const source = fs.readFileSync(
+        path.resolve(import.meta.dirname, '../layout/ide-layout.tsx'),
+        'utf-8'
+      );
+      // The tools panel inner wrapper historically had `border-border border-l` which
+      // stacked with the adjacent 4px Separator — producing the "double border" when
+      // workspace-side panels collapse. The fix is to drop `border-l` entirely and
+      // rely on the darker panel-divider separator as the single boundary.
+      expect(source).not.toMatch(/border-border border-l \[contain:layout_paint_style\]/);
+    });
+  });
 });
