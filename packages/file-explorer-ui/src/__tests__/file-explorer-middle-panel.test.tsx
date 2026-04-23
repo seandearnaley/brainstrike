@@ -75,7 +75,6 @@ vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
 
   return {
     ...actual,
-    FileExplorerHeader: () => <div data-testid="header">Header</div>,
     FileExplorerErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   };
 });
@@ -196,13 +195,13 @@ describe('FileExplorerMiddlePanel', () => {
     } as unknown as ReturnType<typeof useUndoableAction>);
   });
 
-  it('renders header and preview panel', async () => {
+  it('renders preview panel without a page heading', async () => {
     act(() => {
       renderWithProviders(<FileExplorerMiddlePanel />);
     });
 
-    expect(await screen.findByTestId('header')).toBeInTheDocument();
     expect(await screen.findByTestId('preview')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /context explorer/i })).not.toBeInTheDocument();
   });
 
   it('calls selection change when interacting with the component', async () => {
@@ -267,7 +266,7 @@ describe('FileExplorerMiddlePanel', () => {
     });
 
     // Should not crash when openFileInTab is undefined
-    expect(await screen.findByTestId('header')).toBeInTheDocument();
+    expect(await screen.findByTestId('preview')).toBeInTheDocument();
   });
 
   it('uses the unfiltered tree for the initial tree token count', async () => {

@@ -26,10 +26,6 @@ vi.mock('../use-selection-manager-context', () => ({
   })),
 }));
 
-vi.mock('../file-explorer-header', () => ({
-  FileExplorerHeader: () => <div data-testid="file-explorer-header">Header</div>,
-}));
-
 vi.mock('../preview-panel', () => ({
   PreviewPanel: vi.fn(({ onFileClick, selectedFiles }) => (
     <div data-testid="preview-panel">
@@ -101,7 +97,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     );
 
     await screen.findByTestId('preview-panel');
-    expect(screen.getByTestId('file-explorer-header')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /context explorer/i })).not.toBeInTheDocument();
     expect(screen.getByTestId('preview-panel')).toBeInTheDocument();
   });
 
