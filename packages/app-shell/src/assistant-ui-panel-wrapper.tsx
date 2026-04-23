@@ -56,6 +56,7 @@ import {
 import { createSafeStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { type FC, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useAssistantThreadStore } from './assistant-thread-store';
 
 export interface AssistantUiPanelWrapperProps {
   className?: string;
@@ -1114,6 +1115,21 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   ]);
 
   const workspaceRootPath = rootDirectoryHandle?.path ?? null;
+  const selectedThreadByResourceId = useAssistantThreadStore(
+    (state) => state.selectedThreadByResourceId
+  );
+  const ensureThread = useAssistantThreadStore((state) => state.ensureThread);
+  const memoryResourceId = workspaceRootPath ?? undefined;
+  const selectedMemoryThreadId = memoryResourceId
+    ? selectedThreadByResourceId[memoryResourceId]
+    : undefined;
+
+  useEffect(() => {
+    if (!memoryResourceId) {
+      return;
+    }
+    ensureThread(memoryResourceId);
+  }, [ensureThread, memoryResourceId]);
 
   const requestData = useMemo(() => {
     const data: Record<string, unknown> = {};
@@ -1128,6 +1144,16 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     }
     if (workspaceRootPath) {
       data['workspaceRootPath'] = workspaceRootPath;
+    }
+    if (memoryResourceId && selectedMemoryThreadId) {
+      data['memory'] = {
+        threadId: selectedMemoryThreadId,
+        resourceId: memoryResourceId,
+        memoryOptions: {
+          lastMessages: 40,
+          workingMemory: { enabled: true, scope: 'resource' },
+        },
+      };
     }
     if (typeof tokenBudget === 'number') {
       data['tokenBudget'] = tokenBudget;
@@ -1148,7 +1174,9 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     includeFileReport,
     includeProjectTree,
     modelSettings,
+    memoryResourceId,
     providerOptions,
+    selectedMemoryThreadId,
     workspaceRootPath,
     selectionData,
     tokenBudget,

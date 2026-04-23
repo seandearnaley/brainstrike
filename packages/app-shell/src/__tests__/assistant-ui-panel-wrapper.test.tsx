@@ -10,6 +10,7 @@ import { encodeFileSelection } from '@brainstrike/utils';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 
 const NATIVE_TOOL_COUNT = Object.keys(NATIVE_TOOL_DEFAULTS).length;
@@ -686,6 +687,7 @@ function resetTestEnabledModels() {
 beforeEach(() => {
   resetTestEnabledModels();
   __resetAssistantPreferencesStoreForTests();
+  useAssistantThreadStore.setState({ selectedThreadByResourceId: {} });
   fileExplorerMocks.effectiveSelection = new Set<string>();
   fileExplorerMocks.tokenCache = null;
   fileExplorerMocks.currentFolderId = 'test-folder';
@@ -704,6 +706,7 @@ beforeEach(() => {
   mockDb.query.mockReset();
   mockDb.query.mockResolvedValue({ rows: [] });
   window.localStorage.removeItem('brainstrike.assistant.include-file-report.v1');
+  window.localStorage.removeItem('brainstrike-assistant-threads-v1');
 });
 
 afterEach(() => {
@@ -1600,6 +1603,22 @@ describe('AssistantUiPanelWrapper', () => {
             reasoningSummary: 'auto',
           },
         });
+      })
+    );
+  });
+
+  test('includes workspace-scoped Mastra memory context in assistant requests', async () => {
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        const requestData = readPanelRequestData();
+        expect(requestData['memory']).toMatchObject({
+          resourceId: '/tmp/test-workspace',
+          memoryOptions: {
+            lastMessages: 40,
+            workingMemory: { enabled: true, scope: 'resource' },
+          },
+        });
+        expect((requestData['memory'] as { threadId?: string }).threadId).toMatch(/^thread-/);
       })
     );
   });
