@@ -15,7 +15,7 @@ import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 
 const NATIVE_TOOL_COUNT = Object.keys(NATIVE_TOOL_DEFAULTS).length;
 
-const { fileExplorerMocks, memoryStoreMocks, testEnabledModels } = vi.hoisted(() => ({
+const { fileExplorerMocks, testEnabledModels } = vi.hoisted(() => ({
   fileExplorerMocks: {
     addMultipleSelectedFiles: vi.fn<(folderId: string, paths: string[]) => void>(),
     clearSelectionRules: vi.fn<() => void>(),
@@ -36,37 +36,6 @@ const { fileExplorerMocks, memoryStoreMocks, testEnabledModels } = vi.hoisted(()
       getTokenCount: (folderId: string, path: string) => number | undefined;
     },
   },
-  memoryStoreMocks: {
-    init: vi.fn(() => Promise.resolve()),
-    saveThread: vi.fn(({ thread }: { thread: unknown }) => Promise.resolve(thread)),
-    deleteThread: vi.fn(() => Promise.resolve()),
-    listMessages: vi.fn(() =>
-      Promise.resolve({
-        messages: [],
-        total: 0,
-        page: 0,
-        perPage: false,
-        hasMore: false,
-      })
-    ),
-    listThreads: vi.fn(() =>
-      Promise.resolve({
-        threads: [
-          {
-            id: 'thread-existing',
-            resourceId: '/tmp/test-workspace',
-            title: 'Existing thread',
-            createdAt: new Date('2026-04-22T10:00:00Z'),
-            updatedAt: new Date('2026-04-22T10:00:00Z'),
-          },
-        ],
-        total: 1,
-        page: 0,
-        perPage: false,
-        hasMore: false,
-      })
-    ),
-  },
   // Track enabled models in a mutable Set for testing toggle functionality
   testEnabledModels: new Set<string>([
     'gpt-5.2', // OpenAI default
@@ -74,16 +43,6 @@ const { fileExplorerMocks, memoryStoreMocks, testEnabledModels } = vi.hoisted(()
     'gemini-3-flash-preview', // Google default
     'openai/gpt-5.2', // OpenRouter default
   ]),
-}));
-
-vi.mock('@brainstrike/agent/pglite-mastra-memory/store', () => ({
-  PgliteMemoryStore: class {
-    init = memoryStoreMocks.init;
-    saveThread = memoryStoreMocks.saveThread;
-    deleteThread = memoryStoreMocks.deleteThread;
-    listMessages = memoryStoreMocks.listMessages;
-    listThreads = memoryStoreMocks.listThreads;
-  },
 }));
 
 // Mock preferences stores with lightweight Zustand stores to avoid loading the full package graph.
@@ -753,33 +712,21 @@ beforeEach(() => {
   mockDb.query.mockReset();
   mockDb.exec.mockReset();
   mockDb.exec.mockResolvedValue(undefined);
-  mockDb.query.mockResolvedValue({ rows: [] });
-  memoryStoreMocks.init.mockClear();
-  memoryStoreMocks.saveThread.mockClear();
-  memoryStoreMocks.deleteThread.mockClear();
-  memoryStoreMocks.listMessages.mockClear();
-  memoryStoreMocks.listThreads.mockClear();
-  memoryStoreMocks.listMessages.mockResolvedValue({
-    messages: [],
-    total: 0,
-    page: 0,
-    perPage: false,
-    hasMore: false,
-  });
-  memoryStoreMocks.listThreads.mockResolvedValue({
-    threads: [
-      {
-        id: 'thread-existing',
-        resourceId: '/tmp/test-workspace',
-        title: 'Existing thread',
-        createdAt: new Date('2026-04-22T10:00:00Z'),
-        updatedAt: new Date('2026-04-22T10:00:00Z'),
-      },
-    ],
-    total: 1,
-    page: 0,
-    perPage: false,
-    hasMore: false,
+  mockDb.query.mockImplementation(async (sql: string) => {
+    if (sql.includes('FROM mastra_threads')) {
+      return {
+        rows: [
+          {
+            id: 'thread-existing',
+            resourceId: '/tmp/test-workspace',
+            title: 'Existing thread',
+            createdAt: new Date('2026-04-22T10:00:00Z'),
+            updatedAt: new Date('2026-04-22T10:00:00Z'),
+          },
+        ],
+      };
+    }
+    return { rows: [] };
   });
   window.localStorage.removeItem('brainstrike.assistant.include-file-report.v1');
   window.localStorage.removeItem('brainstrike-assistant-threads-v1');

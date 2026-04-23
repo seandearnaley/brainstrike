@@ -4,10 +4,6 @@ import {
   createAssistantThreadHistoryAdapter,
 } from '../assistant-memory-repository';
 
-vi.mock('@brainstrike/agent/pglite-mastra-memory/store', () => ({
-  PgliteMemoryStore: class {},
-}));
-
 describe('createAssistantThreadHistoryAdapter', () => {
   it('hydrates assistant-ui history from Mastra memory messages', async () => {
     const repository: AssistantThreadRepository = {

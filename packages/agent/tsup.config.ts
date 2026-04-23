@@ -11,7 +11,7 @@ export default defineConfig((_options) => ({
     'src/local-runtime.ts',
     'src/context-packer.ts',
     'src/pglite-mastra-memory/index.ts',
-    'src/pglite-mastra-memory/store.ts',
+    'src/pglite-mastra-memory/schema.ts',
   ],
   format: ['esm', 'cjs'],
   dts: {
@@ -25,7 +25,7 @@ export default defineConfig((_options) => ({
       'src/local-runtime.ts',
       'src/context-packer.ts',
       'src/pglite-mastra-memory/index.ts',
-      'src/pglite-mastra-memory/store.ts',
+      'src/pglite-mastra-memory/schema.ts',
     ],
     compilerOptions: {
       composite: false,

@@ -1,8 +1,7 @@
 import {
-  type PgliteDatabase,
-  PgliteMemoryStore,
-  type PgliteQueryValues,
-} from '@brainstrike/agent/pglite-mastra-memory/store';
+  MASTRA_MEMORY_SCHEMA_SQL,
+  MASTRA_MEMORY_TABLES,
+} from '@brainstrike/agent/pglite-mastra-memory/schema';
 import type { DbHandle } from '@brainstrike/db';
 import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/ui/assistant-ui-panel';
 
@@ -39,18 +38,6 @@ function assertMemoryDatabase(database: DbHandle): asserts database is DbHandle 
   }
 }
 
-function toPgliteDatabase(
-  database: DbHandle & { exec: NonNullable<DbHandle['exec']> }
-): PgliteDatabase {
-  return {
-    exec: (sql: string) => database.exec(sql),
-    query: <TRecord extends Record<string, unknown> = Record<string, unknown>>(
-      sql: string,
-      values?: PgliteQueryValues
-    ) => database.query<TRecord>(sql, values ? [...values] : undefined),
-  };
-}
-
 function createThreadId(): string {
   return `thread-${crypto.randomUUID()}`;
 }
@@ -82,6 +69,24 @@ function toMemoryThread(thread: {
     createdAt: normalizeDate(thread.createdAt),
     updatedAt: normalizeDate(thread.updatedAt),
   };
+}
+
+function parseJson(value: unknown): unknown {
+  if (typeof value !== 'string') {
+    return value;
+  }
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+function requireString(value: unknown, fieldName: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(`Invalid Mastra memory row: ${fieldName} is not a string.`);
+  }
+  return value;
 }
 
 function extractText(value: unknown): string {
@@ -185,10 +190,9 @@ export function createPgliteAssistantThreadRepository(
 ): AssistantThreadRepository {
   assertMemoryDatabase(database);
 
-  const store = new PgliteMemoryStore({ database: toPgliteDatabase(database) });
   let initPromise: Promise<void> | null = null;
   const initialize = async (): Promise<void> => {
-    initPromise ??= store.init();
+    initPromise ??= database.exec(MASTRA_MEMORY_SCHEMA_SQL).then(() => undefined);
     await initPromise;
   };
 
@@ -196,48 +200,72 @@ export function createPgliteAssistantThreadRepository(
     async createThread(resourceId: string): Promise<AssistantMemoryThread> {
       await initialize();
       const now = new Date();
-      const thread = await store.saveThread({
-        thread: {
-          id: createThreadId(),
-          resourceId,
-          title: 'New Thread',
-          createdAt: now,
-          updatedAt: now,
-          metadata: { source: 'brainstrike' },
-        },
-      });
-      return toMemoryThread(thread);
+      const thread = {
+        id: createThreadId(),
+        resourceId,
+        title: 'New Thread',
+        createdAt: now,
+        updatedAt: now,
+      } satisfies AssistantMemoryThread;
+      await database.query(
+        `INSERT INTO ${MASTRA_MEMORY_TABLES.threads}
+          (id, "resourceId", title, metadata, "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
+        [
+          thread.id,
+          thread.resourceId,
+          thread.title,
+          JSON.stringify({ source: 'brainstrike' }),
+          thread.createdAt,
+          thread.updatedAt,
+        ]
+      );
+      return thread;
     },
     async deleteThread(threadId: string): Promise<void> {
       await initialize();
-      await store.deleteThread({ threadId });
+      await database.query(`DELETE FROM ${MASTRA_MEMORY_TABLES.messages} WHERE thread_id = $1`, [
+        threadId,
+      ]);
+      await database.query(`DELETE FROM ${MASTRA_MEMORY_TABLES.threads} WHERE id = $1`, [threadId]);
     },
     async listMessages(
       threadId: string,
       resourceId: string
     ): Promise<readonly AssistantHistoryMessage[]> {
       await initialize();
-      const result = await store.listMessages({
-        threadId,
-        resourceId,
-        perPage: false,
-        orderBy: { field: 'createdAt', direction: 'ASC' },
-      });
-      return result.messages.map((message) => ({
-        id: message.id,
-        role: message.role,
-        content: message.content,
-        createdAt: normalizeDate(message.createdAt),
+      const result = await database.query<Record<string, unknown>>(
+        `SELECT id, role, content, "createdAt"
+         FROM ${MASTRA_MEMORY_TABLES.messages}
+         WHERE thread_id = $1 AND "resourceId" = $2
+         ORDER BY "createdAt" ASC, id ASC`,
+        [threadId, resourceId]
+      );
+      return result.rows.map((row) => ({
+        id: requireString(row['id'], 'id'),
+        role: requireString(row['role'], 'role'),
+        content: parseJson(row['content']),
+        createdAt: normalizeDate(row['createdAt']),
       }));
     },
     async listThreads(resourceId: string): Promise<readonly AssistantMemoryThread[]> {
       await initialize();
-      const result = await store.listThreads({
-        filter: { resourceId },
-        perPage: false,
-        orderBy: { field: 'updatedAt', direction: 'DESC' },
-      });
-      return result.threads.map(toMemoryThread);
+      const result = await database.query<Record<string, unknown>>(
+        `SELECT id, "resourceId", title, "createdAt", "updatedAt"
+         FROM ${MASTRA_MEMORY_TABLES.threads}
+         WHERE "resourceId" = $1
+         ORDER BY "updatedAt" DESC, id DESC`,
+        [resourceId]
+      );
+      return result.rows.map((row) =>
+        toMemoryThread({
+          id: requireString(row['id'], 'id'),
+          resourceId: requireString(row['resourceId'], 'resourceId'),
+          title: typeof row['title'] === 'string' ? row['title'] : null,
+          createdAt: row['createdAt'],
+          updatedAt: row['updatedAt'],
+        })
+      );
     },
   };
 }

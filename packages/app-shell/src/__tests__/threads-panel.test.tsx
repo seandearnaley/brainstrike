@@ -4,47 +4,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantThreadStore } from '../assistant-thread-store';
 import { ThreadsPanel } from '../threads-panel';
 
-const { fileExplorerMocks, memoryStoreMocks, mockDb } = vi.hoisted(() => ({
+const { fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
   fileExplorerMocks: {
     rootDirectoryHandle: {
       name: 'workspace-a',
       path: '/tmp/workspace-a',
     } as { name: string; path: string } | null,
   },
-  memoryStoreMocks: {
-    init: vi.fn(() => Promise.resolve()),
-    saveThread: vi.fn(({ thread }: { thread: unknown }) => Promise.resolve(thread)),
-    deleteThread: vi.fn(() => Promise.resolve()),
-    listMessages: vi.fn(() => Promise.resolve({ messages: [] })),
-    listThreads: vi.fn(() =>
-      Promise.resolve({
-        threads: [
-          {
-            id: 'thread-b',
-            resourceId: '/tmp/workspace-a',
-            title: 'Second thread',
-            createdAt: new Date('2026-04-22T10:00:00Z'),
-            updatedAt: new Date('2026-04-22T11:00:00Z'),
-          },
-          {
-            id: 'thread-a',
-            resourceId: '/tmp/workspace-a',
-            title: 'First thread',
-            createdAt: new Date('2026-04-22T09:00:00Z'),
-            updatedAt: new Date('2026-04-22T09:00:00Z'),
-          },
-        ],
-        total: 2,
-        page: 0,
-        perPage: false,
-        hasMore: false,
-      })
-    ),
-  },
   mockDb: {
     exec: vi.fn(() => Promise.resolve()),
-    query: vi.fn(() => Promise.resolve({ rows: [] })),
+    query: vi.fn<(sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>>(
+      () => Promise.resolve({ rows: [] })
+    ),
   },
+  threadRows: [] as Record<string, unknown>[],
 }));
 
 vi.mock('@brainstrike/db', () => ({
@@ -54,16 +27,6 @@ vi.mock('@brainstrike/db', () => ({
 vi.mock('@brainstrike/file-explorer-ui', () => ({
   useFileExplorerStoreSelector: <T,>(selector: (state: typeof fileExplorerMocks) => T): T =>
     selector(fileExplorerMocks),
-}));
-
-vi.mock('@brainstrike/agent/pglite-mastra-memory/store', () => ({
-  PgliteMemoryStore: class {
-    init = memoryStoreMocks.init;
-    saveThread = memoryStoreMocks.saveThread;
-    deleteThread = memoryStoreMocks.deleteThread;
-    listMessages = memoryStoreMocks.listMessages;
-    listThreads = memoryStoreMocks.listThreads;
-  },
 }));
 
 describe('ThreadsPanel', () => {
@@ -78,36 +41,41 @@ describe('ThreadsPanel', () => {
       threadIdsByResourceId: {},
       threadsByResourceId: {},
     });
-    memoryStoreMocks.init.mockClear();
-    memoryStoreMocks.saveThread.mockClear();
-    memoryStoreMocks.deleteThread.mockClear();
-    memoryStoreMocks.listMessages.mockClear();
-    memoryStoreMocks.listThreads.mockClear();
-    memoryStoreMocks.listThreads.mockResolvedValue({
-      threads: [
-        {
-          id: 'thread-b',
-          resourceId: '/tmp/workspace-a',
-          title: 'Second thread',
-          createdAt: new Date('2026-04-22T10:00:00Z'),
-          updatedAt: new Date('2026-04-22T11:00:00Z'),
-        },
-        {
-          id: 'thread-a',
-          resourceId: '/tmp/workspace-a',
-          title: 'First thread',
-          createdAt: new Date('2026-04-22T09:00:00Z'),
-          updatedAt: new Date('2026-04-22T09:00:00Z'),
-        },
-      ],
-      total: 2,
-      page: 0,
-      perPage: false,
-      hasMore: false,
-    });
-    memoryStoreMocks.saveThread.mockImplementation(({ thread }: { thread: unknown }) =>
-      Promise.resolve(thread)
+    threadRows.splice(
+      0,
+      threadRows.length,
+      {
+        id: 'thread-b',
+        resourceId: '/tmp/workspace-a',
+        title: 'Second thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T11:00:00Z'),
+      },
+      {
+        id: 'thread-a',
+        resourceId: '/tmp/workspace-a',
+        title: 'First thread',
+        createdAt: new Date('2026-04-22T09:00:00Z'),
+        updatedAt: new Date('2026-04-22T09:00:00Z'),
+      }
     );
+    mockDb.exec.mockClear();
+    mockDb.query.mockClear();
+    mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('INSERT INTO mastra_threads')) {
+        threadRows.unshift({
+          id: String(params?.[0]),
+          resourceId: String(params?.[1]),
+          title: String(params?.[2]),
+          createdAt: params?.[4],
+          updatedAt: params?.[5],
+        });
+      }
+      if (sql.includes('FROM mastra_threads')) {
+        return { rows: [...threadRows] };
+      }
+      return { rows: [] };
+    });
   });
 
   it('shows an explicit empty workspace state before a workspace is open', () => {
@@ -127,11 +95,10 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
-    expect(memoryStoreMocks.listThreads).toHaveBeenCalledWith({
-      filter: { resourceId: '/tmp/workspace-a' },
-      perPage: false,
-      orderBy: { field: 'updatedAt', direction: 'DESC' },
-    });
+    expect(mockDb.exec).toHaveBeenCalled();
+    expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('FROM mastra_threads'), [
+      '/tmp/workspace-a',
+    ]);
     expect(screen.getByText('First thread')).toBeVisible();
     expect(screen.getByText('Second thread')).toBeVisible();
     expect(useAssistantThreadStore.getState().selectedThreadByResourceId['/tmp/workspace-a']).toBe(
@@ -141,16 +108,10 @@ describe('ThreadsPanel', () => {
 
   it('persists newly created threads through Mastra storage instead of replacing the list', async () => {
     const user = userEvent.setup();
-    memoryStoreMocks.saveThread.mockImplementation(({ thread }: { thread: unknown }) =>
-      Promise.resolve({
-        ...(typeof thread === 'object' && thread ? thread : {}),
-        id: 'thread-c',
-        title: 'New Thread',
-        resourceId: '/tmp/workspace-a',
-        createdAt: new Date('2026-04-22T12:00:00Z'),
-        updatedAt: new Date('2026-04-22T12:00:00Z'),
-      })
-    );
+    const uuidSpy = vi
+      .spyOn(crypto, 'randomUUID')
+      .mockReturnValue('00000000-0000-4000-8000-00000000000c');
+    const threadId = 'thread-00000000-0000-4000-8000-00000000000c';
     render(<ThreadsPanel />);
 
     await waitFor(() => {
@@ -161,12 +122,16 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(3);
     });
-    expect(memoryStoreMocks.saveThread).toHaveBeenCalledTimes(1);
-    expect(screen.getByText('thread-c')).toBeVisible();
+    expect(mockDb.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO mastra_threads'),
+      expect.arrayContaining([threadId, '/tmp/workspace-a', 'New Thread'])
+    );
+    expect(screen.getByText(threadId)).toBeVisible();
     expect(useAssistantThreadStore.getState().threadIdsByResourceId['/tmp/workspace-a']).toEqual([
-      'thread-c',
+      threadId,
       'thread-b',
       'thread-a',
     ]);
+    uuidSpy.mockRestore();
   });
 });

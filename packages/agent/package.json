@@ -75,10 +75,10 @@
       "import": "./dist/pglite-mastra-memory/index.mjs",
       "require": "./dist/pglite-mastra-memory/index.js"
     },
-    "./pglite-mastra-memory/store": {
-      "types": "./dist/pglite-mastra-memory/store.d.ts",
-      "import": "./dist/pglite-mastra-memory/store.mjs",
-      "require": "./dist/pglite-mastra-memory/store.js"
+    "./pglite-mastra-memory/schema": {
+      "types": "./dist/pglite-mastra-memory/schema.d.ts",
+      "import": "./dist/pglite-mastra-memory/schema.mjs",
+      "require": "./dist/pglite-mastra-memory/schema.js"
     }
   },
   "files": [

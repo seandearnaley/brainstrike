@@ -1,9 +1,7 @@
-import {
-  TABLE_MESSAGES,
-  TABLE_OBSERVATIONAL_MEMORY,
-  TABLE_RESOURCES,
-  TABLE_THREADS,
-} from '@mastra/core/storage';
+const TABLE_THREADS = 'mastra_threads';
+const TABLE_MESSAGES = 'mastra_messages';
+const TABLE_RESOURCES = 'mastra_resources';
+const TABLE_OBSERVATIONAL_MEMORY = 'mastra_observational_memory';
 
 export const MASTRA_MEMORY_TABLES = {
   messages: TABLE_MESSAGES,

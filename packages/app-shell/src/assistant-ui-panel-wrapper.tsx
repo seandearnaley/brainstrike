@@ -1611,7 +1611,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   );
   const memoryDisabledReason = useMemo(() => {
     if (!workspaceRootPath) {
-      return 'Open a workspace before using assistant memory.';
+      return;
     }
     if (dbError) {
       return `Assistant memory database failed to initialize: ${dbError.message}`;
