@@ -1,0 +1,163 @@
+import { act, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useAssistantThreadStore } from '../assistant-thread-store';
+import { AssistantThreadTabsWorkspace } from '../assistant-thread-tabs-workspace';
+
+const { fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
+  fileExplorerMocks: {
+    rootDirectoryHandle: {
+      name: 'workspace-a',
+      path: '/tmp/workspace-a',
+    } as { name: string; path: string } | null,
+  },
+  mockDb: {
+    exec: vi.fn(() => Promise.resolve()),
+    query: vi.fn<(sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>>(
+      () => Promise.resolve({ rows: [] })
+    ),
+  },
+  threadRows: [] as Record<string, unknown>[],
+}));
+
+vi.mock('@brainstrike/db', () => ({
+  usePGliteDatabase: () => mockDb,
+}));
+
+vi.mock('@brainstrike/file-explorer-ui', () => ({
+  useFileExplorerStoreSelector: <T,>(selector: (state: typeof fileExplorerMocks) => T): T =>
+    selector(fileExplorerMocks),
+}));
+
+vi.mock('../assistant-ui-panel-wrapper', () => ({
+  AssistantUiPanelWrapper: ({
+    memoryThreadId,
+  }: {
+    memoryResourceId?: string;
+    memoryThreadId?: string;
+  }) => <div data-testid="assistant-thread-wrapper">{memoryThreadId}</div>,
+}));
+
+describe('AssistantThreadTabsWorkspace', () => {
+  beforeEach(() => {
+    fileExplorerMocks.rootDirectoryHandle = {
+      name: 'workspace-a',
+      path: '/tmp/workspace-a',
+    };
+    threadRows.splice(
+      0,
+      threadRows.length,
+      {
+        id: 'thread-a',
+        resourceId: '/tmp/workspace-a',
+        title: 'Purchasing app search log',
+        createdAt: new Date('2026-04-22T09:00:00Z'),
+        updatedAt: new Date('2026-04-22T11:00:00Z'),
+      },
+      {
+        id: 'thread-b',
+        resourceId: '/tmp/workspace-a',
+        title: 'Amazon Bedrock Converse',
+        createdAt: new Date('2026-04-22T09:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      }
+    );
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: {},
+      draftRuntimeByThreadId: {},
+      loadStateByResourceId: {},
+      openThreadIdsByResourceId: {},
+      selectedThreadByResourceId: {},
+      threadIdsByResourceId: {},
+      threadsByResourceId: {},
+    });
+    mockDb.exec.mockClear();
+    mockDb.query.mockClear();
+    mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('INSERT INTO mastra_threads')) {
+        threadRows.unshift({
+          id: String(params?.[0]),
+          resourceId: String(params?.[1]),
+          title: String(params?.[2]),
+          createdAt: params?.[4],
+          updatedAt: params?.[5],
+        });
+      }
+      if (sql.includes('FROM mastra_threads')) {
+        return { rows: [...threadRows] };
+      }
+      return { rows: [] };
+    });
+  });
+
+  it('force-mounts one assistant wrapper per open thread tab', async () => {
+    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
+    });
+
+    act(() => {
+      useAssistantThreadStore.getState().openThreadTab('/tmp/workspace-a', 'thread-b');
+    });
+
+    expect(screen.getAllByTestId('assistant-thread-wrapper')).toHaveLength(2);
+    expect(screen.getByTestId('assistant-thread-panel-thread-a')).not.toBeVisible();
+    expect(screen.getByTestId('assistant-thread-panel-thread-b')).toBeVisible();
+    expect(screen.getByRole('tab', { name: /Amazon Bedrock Converse/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+  });
+
+  it('creates durable threads as focused tabs', async () => {
+    const user = userEvent.setup();
+    const uuidSpy = vi
+      .spyOn(crypto, 'randomUUID')
+      .mockReturnValue('00000000-0000-4000-8000-00000000000e');
+    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
+    });
+    await user.click(screen.getByRole('button', { name: 'New assistant thread' }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('assistant-thread-panel-thread-00000000-0000-4000-8000-00000000000e')
+      ).toBeVisible();
+    });
+    expect(mockDb.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO mastra_threads'),
+      expect.arrayContaining([
+        'thread-00000000-0000-4000-8000-00000000000e',
+        '/tmp/workspace-a',
+        'New Thread',
+      ])
+    );
+    uuidSpy.mockRestore();
+  });
+
+  it('closes tabs without deleting durable thread history', async () => {
+    const user = userEvent.setup();
+    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
+    });
+    act(() => {
+      useAssistantThreadStore.getState().openThreadTab('/tmp/workspace-a', 'thread-b');
+    });
+    await user.click(screen.getByRole('button', { name: 'Close thread Amazon Bedrock Converse' }));
+
+    expect(mockDb.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM mastra_threads'),
+      expect.anything()
+    );
+    expect(useAssistantThreadStore.getState().threadIdsByResourceId['/tmp/workspace-a']).toEqual([
+      'thread-a',
+      'thread-b',
+    ]);
+    expect(screen.queryByTestId('assistant-thread-panel-thread-b')).not.toBeInTheDocument();
+  });
+});

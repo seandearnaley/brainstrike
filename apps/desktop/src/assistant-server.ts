@@ -5,6 +5,7 @@ import type {
   AgentMessagePartText,
   AssistantUiMessageStrict,
   McpConfig,
+  RuntimeAssistantMemorySettings,
   RuntimeData,
   StreamChunk,
 } from '@brainstrike/agent';
@@ -50,7 +51,13 @@ import {
 
 const logger = createLogger('DesktopAssistantServer');
 export const desktopAssistantServerLogger = logger;
+const desktopMastraMemoryPromises = new Map<
+  string,
+  Promise<import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult>
+>();
+const DESKTOP_MEMORY_CACHE_LIMIT = 16;
 
+const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const MAX_CONTEXT_FILES = 80;
 const MAX_FILE_CONTEXT_CHARS = 3500;
 const MAX_TREE_CONTEXT_LINES = 400;
@@ -146,36 +153,123 @@ async function handleAssistantPost(
     return;
   }
   const { signal, cleanup } = registerRequestAbort(req);
+  const runId = runtimeData.memory?.runId;
   try {
-    const mcpConfig = (await loadMcpConfig()).config;
-    const streamResult = await initializeAgentStream(
+    await streamAssistantPostResponse({
+      res,
       messages,
       runtimeData,
       apiKey,
-      mcpConfig,
-      signal
-    );
-    if (!streamResult.ok) {
-      respondJson(res, streamResult.status, streamResult.payload);
-      return;
-    }
-
-    const session = assistantDataStreamSessions.create(streamResult.stream);
-    const response = session.createResponse();
-    await streamResponse(res, response, signal);
+      signal,
+      runId,
+    });
   } catch (error) {
-    if (!signal.aborted) {
-      logger.error('Assistant stream error', { error });
-      if (!res.headersSent) {
-        respondJson(res, 500, {
-          error: 'assistant_stream_failed',
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
+    await handleAssistantPostStreamError({ res, runId, signal, error });
   } finally {
     cleanup();
   }
+}
+
+async function handleAssistantPostStreamError({
+  res,
+  runId,
+  signal,
+  error,
+}: {
+  readonly res: http.ServerResponse;
+  readonly runId: string | undefined;
+  readonly signal: AbortSignal;
+  readonly error: unknown;
+}): Promise<void> {
+  const message = error instanceof Error ? error.message : String(error);
+  if (runId) {
+    await recordDesktopAssistantThreadRunStatus(
+      runId,
+      signal.aborted ? 'cancelled' : 'failed',
+      message
+    );
+  }
+  if (signal.aborted) {
+    return;
+  }
+  logger.error('Assistant stream error', { error });
+  if (res.headersSent) {
+    return;
+  }
+  respondJson(res, 500, {
+    error: 'assistant_stream_failed',
+    message,
+  });
+}
+
+async function streamAssistantPostResponse({
+  res,
+  messages,
+  runtimeData,
+  apiKey,
+  signal,
+  runId,
+}: {
+  readonly res: http.ServerResponse;
+  readonly messages: AgentMessage[];
+  readonly runtimeData: RuntimeData;
+  readonly apiKey: string | undefined;
+  readonly signal: AbortSignal;
+  readonly runId: string | undefined;
+}): Promise<void> {
+  const mcpConfig = (await loadMcpConfig()).config;
+  const streamResult = await initializeAgentStream(
+    messages,
+    runtimeData,
+    apiKey,
+    mcpConfig,
+    signal
+  );
+  if (!streamResult.ok) {
+    if (runId) {
+      await recordDesktopAssistantThreadRunStatus(runId, 'failed', streamResult.payload.message);
+    }
+    respondJson(res, streamResult.status, streamResult.payload);
+    return;
+  }
+
+  const session = assistantDataStreamSessions.create(streamResult.stream);
+  const response = session.createResponse();
+  await streamResponse(res, response, signal);
+  if (runId) {
+    await recordDesktopAssistantThreadRunStatus(runId, 'completed', null);
+  }
+}
+
+async function recordDesktopAssistantThreadRunStatus(
+  runId: string,
+  status: 'cancelled' | 'completed' | 'failed',
+  error: string | null
+): Promise<void> {
+  try {
+    await completeDesktopAssistantThreadRun(runId, status, error);
+  } catch (statusError) {
+    logger.error('Failed to update assistant thread run status', {
+      error: statusError,
+      runId,
+      status,
+    });
+  }
+}
+
+async function completeDesktopAssistantThreadRun(
+  runId: string,
+  status: 'cancelled' | 'completed' | 'failed',
+  error: string | null
+): Promise<void> {
+  const now = new Date();
+  const database = await getDatabase();
+  await database.query(
+    `UPDATE ${ASSISTANT_THREAD_RUNS_TABLE}
+     SET status = $2, error = $3, completed_at = $4, updated_at = $5
+     WHERE id = $1`,
+    [runId, status, error, now, now]
+  );
 }
 
 interface PreparedAssistantPostRequest {
@@ -767,7 +861,14 @@ async function initializeAgentStream(
 
   try {
     const messagesWithContext = await prependContextMessageIfNeeded(messages, runtimeData);
-    const stream = await toAiSdkStyleStream(messagesWithContext, runtime);
+    const memoryResult = runtime.memory
+      ? await getDesktopMastraMemory(runtime.memory.memorySettings)
+      : undefined;
+    const stream = await toAiSdkStyleStream(
+      messagesWithContext,
+      runtime,
+      memoryResult ? { memory: memoryResult.memory } : {}
+    );
     logger.info('Assistant stream initialized');
     return { ok: true, stream };
   } catch (error) {
@@ -779,4 +880,68 @@ async function initializeAgentStream(
       payload: { error: 'agent_stream_init_failed', message },
     };
   }
+}
+
+async function getDesktopMastraMemory(
+  memorySettings: RuntimeAssistantMemorySettings | undefined
+): Promise<import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult> {
+  const cacheKey = stableJsonStringify(memorySettings ?? null);
+  const cachedPromise = desktopMastraMemoryPromises.get(cacheKey);
+  if (cachedPromise) {
+    return cachedPromise;
+  }
+  const memoryPromise = (async () => {
+    const database = await getDatabase();
+    const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+    return createPgliteMastraMemory({
+      database,
+      ...(memorySettings ? { memorySettings } : {}),
+    });
+  })();
+  evictOldestDesktopMastraMemoryPromise();
+  desktopMastraMemoryPromises.set(cacheKey, memoryPromise);
+  memoryPromise.catch(() => {
+    if (desktopMastraMemoryPromises.get(cacheKey) === memoryPromise) {
+      desktopMastraMemoryPromises.delete(cacheKey);
+    }
+  });
+  return memoryPromise;
+}
+
+function evictOldestDesktopMastraMemoryPromise(): void {
+  if (desktopMastraMemoryPromises.size < DESKTOP_MEMORY_CACHE_LIMIT) {
+    return;
+  }
+  const oldestKey = desktopMastraMemoryPromises.keys().next().value;
+  if (typeof oldestKey === 'string') {
+    desktopMastraMemoryPromises.delete(oldestKey);
+  }
+}
+
+function stableJsonStringify(value: unknown): string {
+  return JSON.stringify(sortJsonValue(value));
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sortJsonValue(item));
+  }
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => [key, sortJsonValue(nested)])
+  );
+}
+
+export function resetDesktopMastraMemoryCacheForTests(): void {
+  desktopMastraMemoryPromises.clear();
+}
+
+export async function getDesktopMastraMemoryForTests(
+  memorySettings: RuntimeAssistantMemorySettings | undefined
+): Promise<import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult> {
+  return getDesktopMastraMemory(memorySettings);
 }

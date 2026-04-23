@@ -15,12 +15,18 @@ const useDataStreamRuntimeMock = vi.fn((_options?: unknown) => ({ runtime: 'test
 const useLocalRuntimeMock = vi.fn((_adapter?: unknown) => ({ runtime: 'local-runtime' }));
 const setCollapsedMock = vi.fn();
 let capturedLocalAdapterOptions: {
+  completeRuntimeData?: (
+    runtimeData: Record<string, unknown> | undefined,
+    status: 'cancelled' | 'completed' | 'failed',
+    error?: string
+  ) => Promise<void> | void;
   onLoadingProgress?: (progress: {
     stage: 'downloading' | 'generating' | 'loading' | 'ready';
     progress: number;
     message: string;
     file?: string;
   }) => void;
+  prepareRuntimeData?: () => Promise<Record<string, unknown> | undefined>;
 } | null = null;
 
 // @assistant-ui/styles v0.3.x consolidated all styles into index.css
@@ -276,6 +282,122 @@ describe('AssistantUiPanel model picker', () => {
         api: '/api/assistant',
         protocol: 'data-stream',
       })
+    );
+  });
+
+  it('prepares per-run request data when the hosted runtime starts a request', async () => {
+    const prepareRequestData = vi.fn(async () => ({
+      memory: {
+        threadId: 'thread-1',
+        resourceId: 'workspace-1',
+        runId: 'run-1',
+      },
+    }));
+
+    render(
+      <AssistantUiPanel
+        {...baseProps}
+        onModelChange={() => {}}
+        prepareRequestData={prepareRequestData}
+        requestData={{ tokenBudget: 123 }}
+      />
+    );
+
+    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+      body?: () => Promise<Record<string, unknown> | undefined>;
+    };
+
+    await expect(options.body?.()).resolves.toEqual({
+      data: {
+        tokenBudget: 123,
+        memory: {
+          threadId: 'thread-1',
+          resourceId: 'workspace-1',
+          runId: 'run-1',
+        },
+        provider: 'openai',
+        model: 'gpt-5.2',
+      },
+    });
+    expect(prepareRequestData).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards per-run request preparation and completion to local runtime runs', async () => {
+    const prepareRequestData = vi.fn(async () => ({
+      memory: {
+        threadId: 'thread-local',
+        resourceId: 'workspace-local',
+        runId: 'run-local',
+      },
+    }));
+    const completePreparedRequest = vi.fn();
+    const localGroups: ProviderGroupConfig[] = [
+      {
+        runtime: 'local',
+        label: 'Local',
+        providers: [
+          {
+            id: 'local',
+            name: 'Local',
+            runtime: 'local',
+            capabilities: {
+              llm: true,
+              embeddings: false,
+              streaming: false,
+              supportsStandardEmbeddingDimension: false,
+            },
+            models: [
+              {
+                id: 'onnx-community/gemma-4-E2B-it-ONNX',
+                label: 'Gemma 4 E2B',
+                type: 'llm',
+                enabled: true,
+                default: true,
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    render(
+      <AssistantUiPanel
+        completePreparedRequest={completePreparedRequest}
+        onModelChange={() => {}}
+        pickerModels={[
+          {
+            id: 'onnx-community/gemma-4-E2B-it-ONNX',
+            providerId: 'local',
+            name: 'Gemma 4 E2B',
+            description: null,
+            capabilities: { type: 'llm', streaming: false },
+          },
+        ]}
+        pickerProviders={[{ id: 'local', name: 'Local', icon: null }]}
+        prepareRequestData={prepareRequestData}
+        providerGroups={localGroups}
+        requestData={{ tokenBudget: 456 }}
+        selectedModel="local::onnx-community/gemma-4-E2B-it-ONNX"
+        selectedProvider="local"
+      />
+    );
+
+    await expect(capturedLocalAdapterOptions?.prepareRuntimeData?.()).resolves.toEqual({
+      tokenBudget: 456,
+      memory: {
+        threadId: 'thread-local',
+        resourceId: 'workspace-local',
+        runId: 'run-local',
+      },
+    });
+    await capturedLocalAdapterOptions?.completeRuntimeData?.(
+      { memory: { runId: 'run-local' } },
+      'completed'
+    );
+    expect(prepareRequestData).toHaveBeenCalledTimes(1);
+    expect(completePreparedRequest).toHaveBeenCalledWith(
+      { memory: { runId: 'run-local' } },
+      'completed'
     );
   });
 

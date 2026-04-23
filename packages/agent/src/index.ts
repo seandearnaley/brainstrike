@@ -69,6 +69,14 @@ export {
 } from './mcp/tool-registry';
 // Memory store for early development
 export { InMemoryMemoryStore } from './memory/in-memory';
+export {
+  DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  type RuntimeAssistantMemoryRetrievalMode,
+  type RuntimeAssistantMemoryScope,
+  type RuntimeAssistantMemorySettings,
+  type RuntimeAssistantObservationalMemorySettings,
+  type RuntimeAssistantSemanticRecallSettings,
+} from './memory-settings';
 // Message utilities — conversion and normalization functions
 export { convertAssistantUiMessages, toAiSdkStyleStream } from './message-utils';
 export type {

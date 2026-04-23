@@ -5,6 +5,7 @@ import {
   ChainOfThoughtPrimitive,
   ComposerPrimitive,
   MessagePrimitive,
+  type ThreadHistoryAdapter,
   ThreadPrimitive,
   useAui,
   useAuiState,
@@ -174,26 +175,37 @@ import type {
 
 export interface AssistantUiPanelProps {
   className?: string;
+  completePreparedRequest?: (
+    requestData: Record<string, unknown> | undefined,
+    status: 'cancelled' | 'completed' | 'failed',
+    error?: string
+  ) => Promise<void> | void;
   contextMenu?: AssistantContextMenuConfig;
   disabled?: boolean;
   disabledReason?: string;
+  historyAdapter?: ThreadHistoryAdapter;
   onModelChange?: (compositeKey: string) => void;
   onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
+  onThreadRunStart?: () => void;
   /** Models for the ModelPicker component */
   pickerModels: ModelPickerModel[];
   /** Providers for the ModelPicker component */
   pickerProviders: ModelPickerProvider[];
+  prepareRequestData?: () => Promise<Record<string, unknown> | undefined>;
   providerGroups?: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
   providers?: ProviderConfig[];
   requestData?: Record<string, unknown>;
   selectedModel?: string;
   selectedProvider?: string;
+  threadKey?: string;
   toolMenu?: AssistantToolMenuConfig;
 }
+
+export type AssistantUiThreadHistoryAdapter = ThreadHistoryAdapter;
 
 declare global {
   interface Window {
@@ -326,6 +338,13 @@ const LocalChainOfThought: FC = () => {
 
 // Shared props for inner chat components
 interface ChatThreadProps {
+  completePreparedRequest?:
+    | ((
+        requestData: Record<string, unknown> | undefined,
+        status: 'cancelled' | 'completed' | 'failed',
+        error?: string
+      ) => Promise<void> | void)
+    | undefined;
   contextMenu?: AssistantContextMenuConfig | undefined;
   disabled: boolean;
   disabledReason: string | undefined;
@@ -334,8 +353,10 @@ interface ChatThreadProps {
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
+  onThreadRunStart?: (() => void) | undefined;
   pickerModels: ModelPickerModel[];
   pickerProviders: ModelPickerProvider[];
+  prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
   providerGroups: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
   requestData?: Record<string, unknown> | undefined;
@@ -362,6 +383,7 @@ const LocalRuntimeChat: FC<
   selectedProvider,
   selectedModel,
   onModelChange,
+  onThreadRunStart,
   disabled,
   disabledReason,
   localLoadingState,
@@ -370,6 +392,8 @@ const LocalRuntimeChat: FC<
   toolMenu,
   contextMenu,
   requestData,
+  prepareRequestData,
+  completePreparedRequest,
 }) => {
   const hasGroupedProviders = providerGroups.length > 0;
   const isComposerDisabled = Boolean(disabled);
@@ -383,6 +407,11 @@ const LocalRuntimeChat: FC<
         modelId,
         thinkingEnabled,
         ...(requestData ? { runtimeData: requestData } : {}),
+        prepareRuntimeData: async () => ({
+          ...(requestData ?? {}),
+          ...((await prepareRequestData?.()) ?? {}),
+        }),
+        ...(completePreparedRequest ? { completeRuntimeData: completePreparedRequest } : {}),
         ...(toolMenu?.items ? { tools: toolMenu.items } : {}),
         onLoadingProgress: (progress: LocalModelLoadingState) => {
           onLoadingStateChange(progress);
@@ -395,7 +424,15 @@ const LocalRuntimeChat: FC<
           });
         },
       }),
-    [modelId, onLoadingStateChange, requestData, thinkingEnabled, toolMenu?.items]
+    [
+      completePreparedRequest,
+      modelId,
+      onLoadingStateChange,
+      prepareRequestData,
+      requestData,
+      thinkingEnabled,
+      toolMenu?.items,
+    ]
   );
 
   const runtime = useLocalRuntime(adapter);
@@ -418,6 +455,7 @@ const LocalRuntimeChat: FC<
         localLoadingState={localLoadingState}
         onModelChange={onModelChange}
         onProviderSettingsChange={onProviderSettingsChange}
+        onThreadRunStart={onThreadRunStart}
         pickerModels={pickerModels}
         pickerProviders={pickerProviders}
         providerGroups={providerGroups}
@@ -437,7 +475,9 @@ const LocalRuntimeChat: FC<
 const DataStreamRuntimeChat: FC<
   ChatThreadProps & {
     api: string;
+    historyAdapter: ThreadHistoryAdapter | undefined;
     requestData: Record<string, unknown> | undefined;
+    prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
     modelName: string | undefined;
   }
 > = ({
@@ -449,10 +489,13 @@ const DataStreamRuntimeChat: FC<
   selectedProvider,
   selectedModel,
   onModelChange,
+  onThreadRunStart,
   disabled,
   disabledReason,
   api,
+  historyAdapter,
   requestData,
+  prepareRequestData,
   modelName,
   toolMenu,
   contextMenu,
@@ -463,12 +506,17 @@ const DataStreamRuntimeChat: FC<
   const runtime = useDataStreamRuntime({
     api,
     protocol: 'data-stream',
-    body: {
-      data: {
-        ...(requestData ?? {}),
-        provider: selectedProvider,
-        model: modelName,
-      },
+    ...(historyAdapter ? { adapters: { history: historyAdapter } } : {}),
+    body: async () => {
+      const preparedRequestData = prepareRequestData ? await prepareRequestData() : undefined;
+      return {
+        data: {
+          ...(requestData ?? {}),
+          ...(preparedRequestData ?? {}),
+          provider: selectedProvider,
+          model: modelName,
+        },
+      };
     },
   });
 
@@ -481,6 +529,7 @@ const DataStreamRuntimeChat: FC<
         isComposerDisabled={isComposerDisabled}
         onModelChange={onModelChange}
         onProviderSettingsChange={onProviderSettingsChange}
+        onThreadRunStart={onThreadRunStart}
         pickerModels={pickerModels}
         pickerProviders={pickerProviders}
         providerGroups={providerGroups}
@@ -509,6 +558,7 @@ const ChatThreadUI: FC<{
   selectedProvider: string | undefined;
   selectedModel: string | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
+  onThreadRunStart?: (() => void) | undefined;
   isComposerDisabled: boolean;
   disabledReason: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
@@ -524,6 +574,7 @@ const ChatThreadUI: FC<{
   selectedProvider,
   selectedModel,
   onModelChange,
+  onThreadRunStart,
   isComposerDisabled,
   disabledReason,
   localLoadingState,
@@ -614,6 +665,7 @@ const ChatThreadUI: FC<{
         aria-disabled={isComposerDisabled}
         className="aui-composer-root"
         data-disabled={isComposerDisabled ? '' : undefined}
+        onSubmitCapture={onThreadRunStart}
       >
         <ComposerPrimitive.Input
           aria-label="Message input"
@@ -647,6 +699,7 @@ const ChatThreadUI: FC<{
 // Pure UI layer: state management and data wiring live in app-shell wrapper(s).
 export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   className,
+  completePreparedRequest,
   providerGroups,
   pickerModels,
   pickerProviders,
@@ -655,11 +708,15 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   selectedProvider,
   selectedModel,
   requestData,
+  prepareRequestData,
   onModelChange,
+  onThreadRunStart,
   toolMenu,
   contextMenu,
   disabled = false,
   disabledReason,
+  historyAdapter,
+  threadKey,
 }) => {
   // API URL for data stream runtime (hosted providers)
   const initialApi =
@@ -735,16 +792,20 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
     >
       {isLocalProvider && modelName ? (
         <LocalRuntimeChat
+          completePreparedRequest={completePreparedRequest}
           contextMenu={contextMenu}
           disabled={disabled}
           disabledReason={disabledReason}
+          key={threadKey ? `local:${threadKey}` : 'local'}
           localLoadingState={localLoadingState}
           modelId={modelName}
           onLoadingStateChange={handleLocalLoadingStateChange}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
+          onThreadRunStart={onThreadRunStart}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}
+          prepareRequestData={prepareRequestData}
           providerGroups={groupedProviders}
           providerSettings={providerSettings}
           requestData={requestData}
@@ -758,11 +819,15 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           contextMenu={contextMenu}
           disabled={disabled}
           disabledReason={disabledReason}
+          historyAdapter={historyAdapter}
+          key={threadKey ? `data-stream:${threadKey}` : 'data-stream'}
           modelName={modelName}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
+          onThreadRunStart={onThreadRunStart}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}
+          prepareRequestData={prepareRequestData}
           providerGroups={groupedProviders}
           providerSettings={providerSettings}
           requestData={requestData}

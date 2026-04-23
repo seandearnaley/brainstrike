@@ -146,16 +146,18 @@ export function AgentSidebarPanel({
       </div>
 
       <TabsContent
-        className="mt-0 min-h-0 flex-1 overflow-hidden"
+        className="mt-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden"
         data-testid="threads-tab-content"
+        hidden={activeTab !== 'threads'}
         value="threads"
       >
         {threadsContent}
       </TabsContent>
 
       <TabsContent
-        className="mt-0 min-h-0 flex-1 overflow-hidden"
+        className="mt-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden"
         data-testid="database-tab-content"
+        hidden={activeTab !== 'database'}
         {...databaseTabMountProps}
         value="database"
       >

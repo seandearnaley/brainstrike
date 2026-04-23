@@ -101,6 +101,7 @@ export async function pumpReadableToResponse(
   } catch (error) {
     if (!(abortState.aborted || res.destroyed)) {
       logger.error('Stream pipeline failed', { error });
+      throw error;
     }
   } finally {
     try {

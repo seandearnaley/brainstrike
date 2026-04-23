@@ -1,7 +1,8 @@
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { createLogger, generateUUID } from '@brainstrike/utils';
-import { Agent, type ToolsInput } from '@mastra/core/agent';
+import { Agent, type AgentMemoryOption, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
+import type { MastraMemory } from '@mastra/core/memory';
 import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
 import type { McpConfig } from '../mcp/config';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
@@ -22,6 +23,7 @@ export interface MastraAgentRuntimeOptions {
   mcpConfig?: McpConfig;
   // Optional timeout (ms) for initial MCP tool discovery
   mcpTimeoutMs?: number;
+  memory?: MastraMemory;
   model?: string;
   resolved?: ResolvedRuntimeConfiguration;
   runtime?: RuntimeData;
@@ -152,6 +154,7 @@ export async function createMastraAgentRuntime(
     tools: localTools,
     mcpTimeoutMs,
     resolved,
+    memory,
   } = options;
 
   let runtimeResolution: ResolvedRuntimeConfiguration;
@@ -225,6 +228,7 @@ Only run state-changing tools after the user confirms.
 Provide concise answers after using tools.`,
     model: languageModel,
     tools: combinedTools,
+    ...(memory ? { memory } : {}),
   });
 
   return {
@@ -428,6 +432,7 @@ async function initializeMastraRuntime(
 }
 
 interface StreamIterationParams {
+  memory?: MastraMemory;
   messages: AgentMessage[];
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;
@@ -473,6 +478,36 @@ const resolveFullStream = (
   return (result as StreamResultLike).fullStream;
 };
 
+function resolveMemoryOption(
+  runtimeData: RuntimeData | undefined,
+  memory: MastraMemory | undefined
+): AgentMemoryOption | undefined {
+  const memoryContext = runtimeData?.memory;
+  if (!memoryContext) {
+    return;
+  }
+  if (!memory) {
+    throw createMastraAgentError('mastra_agent_memory_unavailable', {
+      detail: 'runtime memory context was provided but no Mastra memory instance is configured',
+    });
+  }
+  if (!memoryContext.threadId.trim()) {
+    throw createMastraAgentError('mastra_agent_memory_unavailable', {
+      detail: 'memory.threadId is required',
+    });
+  }
+  if (!memoryContext.resourceId.trim()) {
+    throw createMastraAgentError('mastra_agent_memory_unavailable', {
+      detail: 'memory.resourceId is required',
+    });
+  }
+  return {
+    thread: memoryContext.threadId,
+    resource: memoryContext.resourceId,
+    ...(memoryContext.memoryOptions ? { options: memoryContext.memoryOptions } : {}),
+  };
+}
+
 async function* streamChunksFromMastra({
   runtime,
   runtimeData,
@@ -506,6 +541,7 @@ async function createStreamIteratorFromRuntime({
   runtime,
   runtimeData,
   messages,
+  memory,
   sanitizedNameMap,
   useLegacyStream,
 }: StreamIterationParams): Promise<StreamIterator> {
@@ -513,10 +549,12 @@ async function createStreamIteratorFromRuntime({
 
   try {
     const streamInput = mastraMessages as unknown as Parameters<typeof runtime.agent.stream>[0];
+    const memoryOption = resolveMemoryOption(runtimeData, memory);
 
     // Use streamLegacy for AI SDK V1 models, stream for V2+ models
     const streamOptions = {
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
+      ...(memoryOption ? { memory: memoryOption } : {}),
       ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
       ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
     };
@@ -594,6 +632,7 @@ export async function streamMastraAgent(
   return createStreamIteratorFromRuntime({
     runtime,
     messages,
+    ...(options.memory ? { memory: options.memory } : {}),
     useLegacyStream: runtime.usesLegacyModel,
     ...(runtimeData ? { runtimeData } : {}),
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),

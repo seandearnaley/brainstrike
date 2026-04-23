@@ -142,6 +142,7 @@ describe('AgentSidebarPanel', () => {
       ctrlKey: false,
     });
     expect(screen.getByText('Threads content')).toBeVisible();
+    expect(searchField).not.toBeVisible();
 
     fireEvent.mouseDown(databaseTab, { button: 0, ctrlKey: false });
     expect(await screen.findByRole('textbox', { name: 'Database search' })).toHaveValue('keep me');

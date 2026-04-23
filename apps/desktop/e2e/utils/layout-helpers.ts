@@ -94,6 +94,20 @@ export async function ensureAssistantShellVisible(page: Page): Promise<Locator> 
   return assistantShell;
 }
 
+export async function ensureMockWorkspaceOpen(page: Page): Promise<void> {
+  await ensureExplorerVisible(page);
+
+  const filtersButton = page.getByRole('button', { name: /view filters/i });
+  if (await filtersButton.isVisible().catch(() => false)) {
+    return;
+  }
+
+  const selectRootButton = page.getByRole('button', { name: /select root|browse/i }).first();
+  await selectRootButton.waitFor({ state: 'visible', timeout: 10_000 });
+  await selectRootButton.click();
+  await filtersButton.waitFor({ state: 'visible', timeout: 15_000 });
+}
+
 /**
  * Navigate to and show the database demo panel in the right panel
  */

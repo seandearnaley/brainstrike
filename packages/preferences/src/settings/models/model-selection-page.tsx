@@ -8,6 +8,7 @@ import { useEnsureModelRegistry } from '../../hooks/use-model-registry';
 import { resolveCacheDirectorySelectionTestOverride } from '../../settings-test-runtime-access';
 import type { DbModel } from '../../stores/model-registry-store';
 import { useModelRegistryStore } from '../../stores/model-registry-store';
+import { AssistantMemorySettingsSection } from './assistant-memory-settings-section';
 import { ModelList } from './model-list';
 
 const logger = createLogger('ModelSelectionPage');
@@ -393,6 +394,8 @@ export function ModelSelectionPage() {
           <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
         </Button>
       </div>
+
+      <AssistantMemorySettingsSection />
 
       <ModelList
         downloadedModels={downloadedModels}

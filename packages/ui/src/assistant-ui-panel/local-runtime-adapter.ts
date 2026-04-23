@@ -205,6 +205,7 @@ let currentModelId: string | null = null;
 const warmedDesktopModelIds = new Set<string>();
 const desktopWarmupPromises = new Map<string, Promise<void>>();
 let backendStateLock: Promise<void> = Promise.resolve();
+let localGenerationQueue: Promise<void> | null = null;
 // Track disposal lifecycle to prevent race conditions
 // - requested: disposal has been requested (blocks new inits from returning soon-to-be-disposed instances)
 // - inProgress: disposal is actively running (prevents new init while cleanup happens)
@@ -301,6 +302,11 @@ function convertMessages(messages: ChatModelRunOptions['messages']): LocalLlmMes
 }
 
 export interface LocalRuntimeAdapterOptions {
+  completeRuntimeData?: (
+    runtimeData: Record<string, unknown> | undefined,
+    status: 'cancelled' | 'completed' | 'failed',
+    error?: string
+  ) => Promise<void> | void;
   modelId: string;
   onError?: (error: Error) => void;
   onLoadingProgress?: (progress: {
@@ -309,6 +315,7 @@ export interface LocalRuntimeAdapterOptions {
     message: string;
     file?: string;
   }) => void;
+  prepareRuntimeData?: () => Promise<Record<string, unknown> | undefined>;
   runtimeData?: Record<string, unknown>;
   thinkingEnabled?: boolean;
   tools?: readonly LocalRuntimeToolConfig[];
@@ -565,6 +572,28 @@ async function withBackendStateLock<T>(operation: () => Promise<T>): Promise<T> 
   }
 }
 
+function acquireLocalGenerationSlot(): (() => void) | Promise<() => void> {
+  if (disposalState.inProgress && disposalState.promise) {
+    return disposalState.promise.then(() => acquireLocalGenerationSlot());
+  }
+  const previousQueue = localGenerationQueue;
+  let releaseSlot!: () => void;
+  const currentSlot = new Promise<void>((resolve) => {
+    releaseSlot = resolve;
+  });
+  const releaseCurrentSlot = () => {
+    releaseSlot();
+    if (localGenerationQueue === currentSlot) {
+      localGenerationQueue = null;
+    }
+  };
+  localGenerationQueue = previousQueue ? previousQueue.then(() => currentSlot) : currentSlot;
+  if (!previousQueue) {
+    return releaseCurrentSlot;
+  }
+  return previousQueue.then(() => releaseCurrentSlot);
+}
+
 function ensureDesktopHostStateSync(
   llmHost: NonNullable<ReturnType<typeof getDesktopLlmHost>>
 ): void {
@@ -741,7 +770,16 @@ function handleDesktopProgressEvent(
  * using transformers.js with WebGPU or WASM acceleration.
  */
 export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): ChatModelAdapter {
-  const { modelId, thinkingEnabled, onLoadingProgress, onError, runtimeData, tools } = options;
+  const {
+    completeRuntimeData,
+    modelId,
+    thinkingEnabled,
+    onLoadingProgress,
+    onError,
+    prepareRuntimeData,
+    runtimeData,
+    tools,
+  } = options;
   const toolExecutor = getToolExecutor();
   const toolDefinitions = buildLocalToolDefinitions(
     tools,
@@ -752,7 +790,12 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Generator handles init, conversion, streaming, and errors
     async *run({ messages, abortSignal }) {
       const releaseBackgroundPause = await acquireBackgroundWorkPauseReason('local-llm');
+      const generationSlot = acquireLocalGenerationSlot();
+      const releaseGenerationSlot =
+        typeof generationSlot === 'function' ? generationSlot : await generationSlot;
+      let preparedRuntimeData: Record<string, unknown> | undefined;
       try {
+        preparedRuntimeData = prepareRuntimeData ? await prepareRuntimeData() : runtimeData;
         // Convert messages to LocalLlmMessage format
         const localMessages = convertMessages(messages);
 
@@ -955,6 +998,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
               progress: 100,
               message: createReadyMessage(),
             });
+            await completeRuntimeData?.(preparedRuntimeData, 'completed');
             return;
           }
 
@@ -969,7 +1013,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             progress: 0,
             message: 'Running tool...',
           });
-          const executedTools = await executeToolCalls(result.toolCalls, runtimeData);
+          const executedTools = await executeToolCalls(result.toolCalls, preparedRuntimeData);
           accumulatedToolParts = mergeToolCallParts(accumulatedToolParts, executedTools.parts);
           yield {
             content: buildAssistantContentParts(
@@ -998,12 +1042,14 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             progress: 100,
             message: 'Generation stopped.',
           });
+          await completeRuntimeData?.(preparedRuntimeData, 'cancelled', errorMessage);
           yield {
             content: [{ type: 'text', text: 'Generation cancelled.' }],
           };
           return;
         }
 
+        await completeRuntimeData?.(preparedRuntimeData, 'failed', errorMessage);
         onError?.(error instanceof Error ? error : new Error(errorMessage));
 
         yield {
@@ -1015,6 +1061,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
           ],
         };
       } finally {
+        releaseGenerationSlot();
         releaseBackgroundPause();
       }
     },
@@ -1042,10 +1089,17 @@ export async function disposeLocalBackend(): Promise<void> {
   // Signal disposal is starting
   disposalState.requested = true;
   disposalState.inProgress = true;
+  const pendingGenerationQueue = localGenerationQueue;
 
   // Create a promise that callers can wait on
   disposalState.promise = (async () => {
     try {
+      if (pendingGenerationQueue) {
+        await pendingGenerationQueue;
+        if (localGenerationQueue === pendingGenerationQueue) {
+          localGenerationQueue = null;
+        }
+      }
       // Wait for any pending initialization to complete before disposing
       if (backendInstancePromise) {
         try {

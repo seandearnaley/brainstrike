@@ -1,7 +1,8 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
-import { ensureAssistantShellVisible } from './utils/layout-helpers';
+import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const PROMPT_TEXT = 'Find relevant context';
@@ -46,6 +47,12 @@ async function expandReasoning(window: Page): Promise<void> {
 }
 
 test.describe('Assistant retrieval (desktop)', () => {
+  test.beforeEach(async ({ window }) => {
+    const { mockFileSystemOperations } = await loadElectronHelpers();
+    await mockFileSystemOperations(window);
+    await ensureMockWorkspaceOpen(window);
+  });
+
   test('shows retrieval tool event and response', async ({ window }) => {
     await setupAssistantMock(window, { variant: 'tool', message: 'Retrieved answer.' });
     await openAssistantChat(window);

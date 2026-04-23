@@ -1,12 +1,16 @@
 import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
-import { ensureAssistantShellVisible } from './utils/layout-helpers';
+import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 test.describe('Assistant chat (desktop)', () => {
   test.skip(!!process.env['CI'], 'Skipped in CI: Electron launch flag incompatibility.');
 
   test.beforeEach(async ({ window }) => {
+    const { mockFileSystemOperations } = await loadElectronHelpers();
+    await mockFileSystemOperations(window);
     await setupAssistantMock(window, { variant: 'detailed' });
+    await ensureMockWorkspaceOpen(window);
   });
 
   test('assistant chat renders messages', async ({ window }) => {

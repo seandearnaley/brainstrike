@@ -3,8 +3,9 @@ import type {
   SharedV2ProviderOptions,
   SharedV3ProviderOptions,
 } from '@ai-sdk/provider';
-import type { ToolsInput } from '@mastra/core/agent';
+import type { AgentMemoryOption, ToolsInput } from '@mastra/core/agent';
 import type { McpConfig } from './mcp/config';
+import type { RuntimeAssistantMemorySettings } from './memory-settings';
 
 export interface AgentMessagePartText {
   text: string;
@@ -81,6 +82,8 @@ export interface RuntimeData {
   mastraTools?: ToolsInput;
   mcpConfig?: McpConfig;
   mcpEnabled?: boolean;
+  /** Mastra memory context for durable thread/resource-scoped conversation state. */
+  memory?: RuntimeMemoryContext;
   /** Model name to use. Uses provider-specific default if not specified. */
   model?: string;
   /** Optional model-level settings (e.g., max output tokens). */
@@ -101,6 +104,14 @@ export interface RuntimeData {
   tokenBudget?: number;
   /** Optional absolute workspace root path for workspace read tools. */
   workspaceRootPath?: string;
+}
+
+export interface RuntimeMemoryContext {
+  memoryOptions?: AgentMemoryOption['options'];
+  memorySettings?: RuntimeAssistantMemorySettings;
+  resourceId: string;
+  runId?: string;
+  threadId: string;
 }
 
 export type OpenAiReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';

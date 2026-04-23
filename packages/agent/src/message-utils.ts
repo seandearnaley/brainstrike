@@ -196,9 +196,10 @@ export function convertAssistantUiMessages(
 // Adapter to Vercel AI SDK v5 style data stream if needed by routes
 export async function toAiSdkStyleStream(
   messages: AgentMessage[],
-  runtime?: RuntimeData
+  runtime?: RuntimeData,
+  optionsOverride: Pick<MastraAgentRuntimeOptions, 'memory'> = {}
 ): Promise<StreamIterator> {
-  const options: MastraAgentRuntimeOptions = {};
+  const options: MastraAgentRuntimeOptions = { ...optionsOverride };
   if (runtime) {
     options.runtime = runtime;
   }
@@ -212,5 +213,18 @@ export async function toAiSdkStyleStream(
     options.tools = runtime.mastraTools;
   }
 
-  return streamMastraAgent(messages, options);
+  const streamMessages = runtime?.memory ? selectCurrentTurnMessages(messages) : messages;
+  return streamMastraAgent(streamMessages, options);
+}
+
+function selectCurrentTurnMessages(messages: AgentMessage[]): AgentMessage[] {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === 'user') {
+      const systemMessages = messages
+        .slice(0, index)
+        .filter((message) => message.role === 'system');
+      return [...systemMessages, ...messages.slice(index)];
+    }
+  }
+  throw new Error('Mastra memory requires a current user message');
 }

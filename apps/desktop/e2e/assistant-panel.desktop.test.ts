@@ -1,10 +1,14 @@
 import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
-import { ensureAssistantShellVisible } from './utils/layout-helpers';
+import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
   test.beforeEach(async ({ window }) => {
+    const { mockFileSystemOperations } = await loadElectronHelpers();
+    await mockFileSystemOperations(window);
     await setupAssistantMock(window, { variant: 'simple' });
+    await ensureMockWorkspaceOpen(window);
   });
 
   test('initial assistant mount does not reload the visible renderer', async ({ window }) => {
