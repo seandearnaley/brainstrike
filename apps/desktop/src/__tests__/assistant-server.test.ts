@@ -662,7 +662,27 @@ describe('assistant-server', () => {
           messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
           data: {
             provider: 'openai',
-            memory: { threadId: 'thread-1', resourceId: 'workspace-a' },
+            memory: {
+              threadId: 'thread-1',
+              resourceId: 'workspace-a',
+              memorySettings: {
+                observationalMemory: {
+                  enabled: true,
+                  modelTarget: 'anthropic/claude-haiku-4-5',
+                  scope: 'thread',
+                  messageTokens: 20_000,
+                  observationTokens: 40_000,
+                  retrievalMode: 'off',
+                },
+                semanticRecall: {
+                  enabled: false,
+                  embeddingModelTarget: 'openai/text-embedding-3-small',
+                  scope: 'resource',
+                  topK: 5,
+                  messageRange: 2,
+                },
+              },
+            },
           },
         }),
       });
@@ -670,12 +690,28 @@ describe('assistant-server', () => {
       expect(getDatabase).toHaveBeenCalledTimes(1);
       expect(createPgliteMastraMemory).toHaveBeenCalledWith({
         database: expect.anything(),
-        semanticRecall: false,
+        memorySettings: {
+          observationalMemory: {
+            enabled: true,
+            modelTarget: 'anthropic/claude-haiku-4-5',
+            scope: 'thread',
+            messageTokens: 20_000,
+            observationTokens: 40_000,
+            retrievalMode: 'off',
+          },
+          semanticRecall: {
+            enabled: false,
+            embeddingModelTarget: 'openai/text-embedding-3-small',
+            scope: 'resource',
+            topK: 5,
+            messageRange: 2,
+          },
+        },
       });
       expect(toAiSdkStyleStream).toHaveBeenCalledWith(
         expect.any(Array),
         expect.objectContaining({
-          memory: { threadId: 'thread-1', resourceId: 'workspace-a' },
+          memory: expect.objectContaining({ threadId: 'thread-1', resourceId: 'workspace-a' }),
         }),
         { memory: mockPgliteMastraMemory }
       );

@@ -34,6 +34,7 @@ import {
   useSelectionManager,
 } from '@brainstrike/file-explorer-ui';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
+import { useAssistantMemoryPreferencesStore } from '@brainstrike/preferences/stores/assistant-memory-preferences-store';
 import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
@@ -619,6 +620,12 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     (state) => state.enabledModelsByProvider
   );
   const providerSettings = useAssistantPreferencesStore((state) => state.providerSettings);
+  const observationalMemorySettings = useAssistantMemoryPreferencesStore(
+    (state) => state.observationalMemory
+  );
+  const semanticRecallSettings = useAssistantMemoryPreferencesStore(
+    (state) => state.semanticRecall
+  );
   const [nativeToolStates, setNativeToolEnabled] = useNativeToolPreferencesStore(
     (state) => [state.toolStates, state.setToolEnabled] as const
   );
@@ -1169,6 +1176,14 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     };
   }, [modelSettings, providerOptions, resolvedModelName, selectedProvider]);
 
+  const runtimeMemorySettings = useMemo(
+    () => ({
+      observationalMemory: observationalMemorySettings,
+      semanticRecall: semanticRecallSettings,
+    }),
+    [observationalMemorySettings, semanticRecallSettings]
+  );
+
   useEffect(() => {
     if (
       !(
@@ -1214,6 +1229,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       data['memory'] = {
         threadId: selectedMemoryThreadId,
         resourceId: memoryResourceId,
+        memorySettings: runtimeMemorySettings,
         memoryOptions: {
           lastMessages: 40,
           workingMemory: { enabled: true, scope: 'resource' },
@@ -1241,6 +1257,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     modelSettings,
     memoryResourceId,
     providerOptions,
+    runtimeMemorySettings,
     selectedMemoryThreadId,
     workspaceRootPath,
     selectionData,

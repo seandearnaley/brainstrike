@@ -2,6 +2,7 @@ import type { LocalRuntimeModelCatalogState, SupportedProvider } from '@brainstr
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/tool-metadata';
 import {
   __resetAssistantPreferencesStoreForTests,
+  useAssistantMemoryPreferencesStore,
   useAssistantPreferencesStore,
   usePanelLayoutStore,
 } from '@brainstrike/preferences';
@@ -134,6 +135,24 @@ vi.mock('@brainstrike/preferences', async () => {
     setProviderSettings: (providerId: string, updates: Record<string, unknown>) => void;
   }
 
+  interface AssistantMemoryPreferencesState {
+    observationalMemory: {
+      enabled: boolean;
+      modelTarget: string;
+      scope: 'thread' | 'resource';
+      messageTokens: number;
+      observationTokens: number;
+      retrievalMode: 'off' | 'messages' | 'vector';
+    };
+    semanticRecall: {
+      enabled: boolean;
+      embeddingModelTarget: string | null;
+      scope: 'thread' | 'resource';
+      topK: number;
+      messageRange: number;
+    };
+  }
+
   const useAssistantPreferencesStore = create<AssistantPreferencesState>((set, get) => ({
     selectedProvider: null,
     selectedModel: null,
@@ -217,6 +236,28 @@ vi.mock('@brainstrike/preferences', async () => {
     },
   }));
 
+  const defaultAssistantMemoryPreferences: AssistantMemoryPreferencesState = {
+    observationalMemory: {
+      enabled: true,
+      modelTarget: 'openai/gpt-5.2-chat-latest',
+      scope: 'thread',
+      messageTokens: 30_000,
+      observationTokens: 40_000,
+      retrievalMode: 'off',
+    },
+    semanticRecall: {
+      enabled: false,
+      embeddingModelTarget: 'openai/text-embedding-3-small',
+      scope: 'resource',
+      topK: 5,
+      messageRange: 2,
+    },
+  };
+
+  const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferencesState>(() => ({
+    ...defaultAssistantMemoryPreferences,
+  }));
+
   const nativeToolPreferencesState: {
     toolStates: Record<string, boolean>;
     setToolEnabled: (toolId: string, enabled: boolean) => void;
@@ -273,6 +314,9 @@ vi.mock('@brainstrike/preferences', async () => {
       enabledModelsByProvider: buildEnabledModelsByProvider(),
       providerSettings: {},
     });
+    useAssistantMemoryPreferencesStore.setState({
+      ...defaultAssistantMemoryPreferences,
+    });
     nativeToolPreferencesState.toolStates = {};
   };
 
@@ -286,6 +330,7 @@ vi.mock('@brainstrike/preferences', async () => {
 
   return {
     __resetAssistantPreferencesStoreForTests,
+    useAssistantMemoryPreferencesStore,
     useAssistantPreferencesStore,
     useEnsureModelRegistry: vi.fn(),
     useModelRegistryStore,
@@ -304,6 +349,13 @@ vi.mock('@brainstrike/preferences/stores/assistant-preferences-store', async () 
   const preferences = await import('@brainstrike/preferences');
   return {
     useAssistantPreferencesStore: preferences.useAssistantPreferencesStore,
+  };
+});
+
+vi.mock('@brainstrike/preferences/stores/assistant-memory-preferences-store', async () => {
+  const preferences = await import('@brainstrike/preferences');
+  return {
+    useAssistantMemoryPreferencesStore: preferences.useAssistantMemoryPreferencesStore,
   };
 });
 
@@ -1640,6 +1692,51 @@ describe('AssistantUiPanelWrapper', () => {
           memoryOptions: {
             lastMessages: 40,
             workingMemory: { enabled: true, scope: 'resource' },
+          },
+        });
+      })
+    );
+  });
+
+  test('passes assistant memory preferences into Mastra runtime requests', async () => {
+    useAssistantMemoryPreferencesStore.setState({
+      observationalMemory: {
+        enabled: true,
+        modelTarget: 'anthropic/claude-haiku-4-5',
+        scope: 'resource',
+        messageTokens: 18_000,
+        observationTokens: 36_000,
+        retrievalMode: 'messages',
+      },
+      semanticRecall: {
+        enabled: false,
+        embeddingModelTarget: 'openai/text-embedding-3-small',
+        scope: 'resource',
+        topK: 5,
+        messageRange: 2,
+      },
+    });
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        const requestData = readPanelRequestData();
+        expect(requestData['memory']).toMatchObject({
+          memorySettings: {
+            observationalMemory: {
+              enabled: true,
+              modelTarget: 'anthropic/claude-haiku-4-5',
+              scope: 'resource',
+              messageTokens: 18_000,
+              observationTokens: 36_000,
+              retrievalMode: 'messages',
+            },
+            semanticRecall: {
+              enabled: false,
+              embeddingModelTarget: 'openai/text-embedding-3-small',
+              scope: 'resource',
+              topK: 5,
+              messageRange: 2,
+            },
           },
         });
       })

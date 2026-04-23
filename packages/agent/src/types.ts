@@ -5,6 +5,7 @@ import type {
 } from '@ai-sdk/provider';
 import type { AgentMemoryOption, ToolsInput } from '@mastra/core/agent';
 import type { McpConfig } from './mcp/config';
+import type { RuntimeAssistantMemorySettings } from './memory-settings';
 
 export interface AgentMessagePartText {
   text: string;
@@ -107,6 +108,7 @@ export interface RuntimeData {
 
 export interface RuntimeMemoryContext {
   memoryOptions?: AgentMemoryOption['options'];
+  memorySettings?: RuntimeAssistantMemorySettings;
   resourceId: string;
   threadId: string;
 }

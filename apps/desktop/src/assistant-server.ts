@@ -5,6 +5,7 @@ import type {
   AgentMessagePartText,
   AssistantUiMessageStrict,
   McpConfig,
+  RuntimeAssistantMemorySettings,
   RuntimeData,
   StreamChunk,
 } from '@brainstrike/agent';
@@ -53,6 +54,7 @@ export const desktopAssistantServerLogger = logger;
 let desktopMastraMemoryPromise: Promise<
   import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult
 > | null = null;
+let desktopMastraMemoryCacheKey: string | null = null;
 
 const MAX_CONTEXT_FILES = 80;
 const MAX_FILE_CONTEXT_CHARS = 3500;
@@ -770,7 +772,9 @@ async function initializeAgentStream(
 
   try {
     const messagesWithContext = await prependContextMessageIfNeeded(messages, runtimeData);
-    const memoryResult = runtime.memory ? await getDesktopMastraMemory() : undefined;
+    const memoryResult = runtime.memory
+      ? await getDesktopMastraMemory(runtime.memory.memorySettings)
+      : undefined;
     const stream = await toAiSdkStyleStream(
       messagesWithContext,
       runtime,
@@ -789,18 +793,20 @@ async function initializeAgentStream(
   }
 }
 
-async function getDesktopMastraMemory(): Promise<
-  import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult
-> {
-  if (desktopMastraMemoryPromise) {
+async function getDesktopMastraMemory(
+  memorySettings: RuntimeAssistantMemorySettings | undefined
+): Promise<import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult> {
+  const cacheKey = JSON.stringify(memorySettings ?? null);
+  if (desktopMastraMemoryPromise && desktopMastraMemoryCacheKey === cacheKey) {
     return desktopMastraMemoryPromise;
   }
+  desktopMastraMemoryCacheKey = cacheKey;
   desktopMastraMemoryPromise = (async () => {
     const database = await getDatabase();
     const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
     return createPgliteMastraMemory({
       database,
-      semanticRecall: false,
+      ...(memorySettings ? { memorySettings } : {}),
     });
   })();
   return desktopMastraMemoryPromise;

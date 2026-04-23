@@ -1,6 +1,10 @@
 import { MastraCompositeStore } from '@mastra/core/storage';
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { Memory } from '@mastra/memory';
+import {
+  DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  type RuntimeAssistantMemorySettings,
+} from '../memory-settings';
 import { PgliteMemoryStore } from './memory-store';
 import type { PgliteDatabase } from './types';
 import { PgliteVectorStore } from './vector-store';
@@ -9,6 +13,8 @@ export interface PgliteMastraMemoryOptions {
   database: PgliteDatabase;
   embedder?: MastraEmbeddingModel<string> | string;
   id?: string;
+  memorySettings?: RuntimeAssistantMemorySettings;
+  /** @deprecated Use memorySettings.semanticRecall.enabled. */
   semanticRecall?: boolean;
 }
 
@@ -19,13 +25,50 @@ export interface PgliteMastraMemoryResult {
   vector: PgliteVectorStore;
 }
 
+function buildObservationalMemoryOption(
+  settings: RuntimeAssistantMemorySettings['observationalMemory']
+) {
+  if (!settings.enabled) {
+    return false;
+  }
+
+  return {
+    model: settings.modelTarget,
+    scope: settings.scope,
+    ...(settings.retrievalMode === 'messages' ? { retrieval: { scope: settings.scope } } : {}),
+    ...(settings.retrievalMode === 'vector'
+      ? { retrieval: { vector: true, scope: settings.scope } }
+      : {}),
+    observation: {
+      messageTokens: settings.messageTokens,
+    },
+    reflection: {
+      observationTokens: settings.observationTokens,
+    },
+  } as const;
+}
+
+function buildSemanticRecallOption(settings: RuntimeAssistantMemorySettings['semanticRecall']) {
+  if (!settings.enabled) {
+    return false;
+  }
+
+  return {
+    topK: settings.topK,
+    messageRange: settings.messageRange,
+    scope: settings.scope,
+  };
+}
+
 export async function createPgliteMastraMemory({
   database,
   embedder,
   id = 'brainstrike-pglite-memory',
+  memorySettings = DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   semanticRecall = false,
 }: PgliteMastraMemoryOptions): Promise<PgliteMastraMemoryResult> {
-  if (semanticRecall && !embedder) {
+  const semanticRecallEnabled = semanticRecall || memorySettings.semanticRecall.enabled;
+  if (semanticRecallEnabled && !embedder) {
     throw new Error('PGlite Mastra semantic recall requires an explicit embedder.');
   }
 
@@ -42,12 +85,11 @@ export async function createPgliteMastraMemory({
     ...(embedder ? { embedder } : {}),
     options: {
       lastMessages: 40,
-      semanticRecall,
+      semanticRecall: semanticRecall
+        ? true
+        : buildSemanticRecallOption(memorySettings.semanticRecall),
       workingMemory: { enabled: true, scope: 'resource' },
-      observationalMemory: {
-        model: 'openai/gpt-5.4-mini',
-        scope: 'thread',
-      },
+      observationalMemory: buildObservationalMemoryOption(memorySettings.observationalMemory),
     },
   });
 

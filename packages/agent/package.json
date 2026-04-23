@@ -70,6 +70,11 @@
       "import": "./dist/context-packer.mjs",
       "require": "./dist/context-packer.js"
     },
+    "./memory-settings": {
+      "types": "./dist/memory-settings.d.ts",
+      "import": "./dist/memory-settings.mjs",
+      "require": "./dist/memory-settings.js"
+    },
     "./pglite-mastra-memory": {
       "types": "./dist/pglite-mastra-memory/index.d.ts",
       "import": "./dist/pglite-mastra-memory/index.mjs",
