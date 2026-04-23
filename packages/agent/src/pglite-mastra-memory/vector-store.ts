@@ -38,6 +38,7 @@ interface VectorRow {
 }
 
 const DEFAULT_TOP_K = 10;
+const MAX_TOP_K = 1000;
 const DEFAULT_METRIC: NonNullable<IndexStats['metric']> = 'cosine';
 const INDEX_METADATA_ID = '__index_metadata__';
 const MASTRA_VECTOR_SCHEMA_SQL = `
@@ -345,8 +346,8 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
     includeVector,
   }: QueryVectorParams<PgliteVectorFilter>): Promise<QueryResult[]> {
     const stats = await this.describeIndex({ indexName });
-    if (!Number.isSafeInteger(topK) || topK <= 0) {
-      throw new Error('topK must be a positive safe integer');
+    if (!Number.isSafeInteger(topK) || topK <= 0 || topK > MAX_TOP_K) {
+      throw new Error(`topK must be between 1 and ${MAX_TOP_K}`);
     }
     if (queryVector && queryVector.length !== stats.dimension) {
       throw new Error(

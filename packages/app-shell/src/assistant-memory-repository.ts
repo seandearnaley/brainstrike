@@ -268,15 +268,22 @@ function toThreadRunRecord(row: Record<string, unknown>): AssistantThreadRunReco
   };
 }
 
-function extractText(value: unknown): string {
+function extractText(value: unknown, seenObjects = new WeakSet<object>()): string {
   if (typeof value === 'string') {
     return value;
   }
   if (!value || typeof value !== 'object') {
     return '';
   }
+  if (seenObjects.has(value)) {
+    return '';
+  }
+  seenObjects.add(value);
   if (Array.isArray(value)) {
-    return value.map(extractText).filter(Boolean).join('\n');
+    return value
+      .map((item) => extractText(item, seenObjects))
+      .filter(Boolean)
+      .join('\n');
   }
 
   const record = value as Record<string, unknown>;
@@ -288,7 +295,7 @@ function extractText(value: unknown): string {
   if (typeof content === 'string') {
     return content;
   }
-  return extractText(content);
+  return extractText(content, seenObjects);
 }
 
 function toHistoryRepository(

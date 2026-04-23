@@ -162,4 +162,21 @@ describe('PgliteVectorStore', () => {
       })
     ).rejects.toThrow(/invalid vector component/i);
   });
+
+  it('rejects excessive topK values', async () => {
+    const mockDb = {
+      exec: vi.fn(async () => undefined),
+      query: vi.fn().mockResolvedValueOnce({
+        rows: [{ count: 1, dimension: 3, indexName: 'memory_messages', metric: 'cosine' }],
+      }),
+    };
+    const mockStore = new PgliteVectorStore({ database: mockDb });
+
+    await expect(
+      mockStore.query({
+        indexName: 'memory_messages',
+        topK: 1001,
+      })
+    ).rejects.toThrow(/topK must be between 1 and 1000/i);
+  });
 });

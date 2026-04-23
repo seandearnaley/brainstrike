@@ -83,6 +83,36 @@ describe('createAssistantThreadHistoryAdapter', () => {
     ).resolves.toBeUndefined();
     expect(repository.listMessages).not.toHaveBeenCalled();
   });
+
+  it('hydrates cyclic message content without recursing indefinitely', async () => {
+    const cyclicContent: Record<string, unknown> = {};
+    cyclicContent['content'] = cyclicContent;
+    const repository: AssistantThreadRepository = {
+      createThread: vi.fn(),
+      createThreadRun: vi.fn(),
+      deleteThread: vi.fn(),
+      listThreads: vi.fn(),
+      listLatestThreadRuns: vi.fn(),
+      renameThread: vi.fn(),
+      completeThreadRun: vi.fn(),
+      updateThreadMetadata: vi.fn(),
+      listMessages: vi.fn(async () => [
+        {
+          id: 'message-1',
+          role: 'user',
+          content: cyclicContent,
+          createdAt: new Date('2026-04-22T10:00:00Z'),
+        },
+      ]),
+    };
+    const adapter = createAssistantThreadHistoryAdapter({
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+
+    await expect(adapter.load()).resolves.toEqual({ headId: null, messages: [] });
+  });
 });
 
 describe('createPgliteAssistantThreadRepository thread runs', () => {
