@@ -175,6 +175,11 @@ import type {
 
 export interface AssistantUiPanelProps {
   className?: string;
+  completePreparedRequest?: (
+    requestData: Record<string, unknown> | undefined,
+    status: 'cancelled' | 'completed' | 'failed',
+    error?: string
+  ) => Promise<void> | void;
   contextMenu?: AssistantContextMenuConfig;
   disabled?: boolean;
   disabledReason?: string;
@@ -333,6 +338,13 @@ const LocalChainOfThought: FC = () => {
 
 // Shared props for inner chat components
 interface ChatThreadProps {
+  completePreparedRequest?:
+    | ((
+        requestData: Record<string, unknown> | undefined,
+        status: 'cancelled' | 'completed' | 'failed',
+        error?: string
+      ) => Promise<void> | void)
+    | undefined;
   contextMenu?: AssistantContextMenuConfig | undefined;
   disabled: boolean;
   disabledReason: string | undefined;
@@ -380,6 +392,8 @@ const LocalRuntimeChat: FC<
   toolMenu,
   contextMenu,
   requestData,
+  prepareRequestData,
+  completePreparedRequest,
 }) => {
   const hasGroupedProviders = providerGroups.length > 0;
   const isComposerDisabled = Boolean(disabled);
@@ -393,6 +407,11 @@ const LocalRuntimeChat: FC<
         modelId,
         thinkingEnabled,
         ...(requestData ? { runtimeData: requestData } : {}),
+        prepareRuntimeData: async () => ({
+          ...(requestData ?? {}),
+          ...((await prepareRequestData?.()) ?? {}),
+        }),
+        ...(completePreparedRequest ? { completeRuntimeData: completePreparedRequest } : {}),
         ...(toolMenu?.items ? { tools: toolMenu.items } : {}),
         onLoadingProgress: (progress: LocalModelLoadingState) => {
           onLoadingStateChange(progress);
@@ -405,7 +424,15 @@ const LocalRuntimeChat: FC<
           });
         },
       }),
-    [modelId, onLoadingStateChange, requestData, thinkingEnabled, toolMenu?.items]
+    [
+      completePreparedRequest,
+      modelId,
+      onLoadingStateChange,
+      prepareRequestData,
+      requestData,
+      thinkingEnabled,
+      toolMenu?.items,
+    ]
   );
 
   const runtime = useLocalRuntime(adapter);
@@ -672,6 +699,7 @@ const ChatThreadUI: FC<{
 // Pure UI layer: state management and data wiring live in app-shell wrapper(s).
 export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   className,
+  completePreparedRequest,
   providerGroups,
   pickerModels,
   pickerProviders,
@@ -764,6 +792,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
     >
       {isLocalProvider && modelName ? (
         <LocalRuntimeChat
+          completePreparedRequest={completePreparedRequest}
           contextMenu={contextMenu}
           disabled={disabled}
           disabledReason={disabledReason}
@@ -776,6 +805,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           onThreadRunStart={onThreadRunStart}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}
+          prepareRequestData={prepareRequestData}
           providerGroups={groupedProviders}
           providerSettings={providerSettings}
           requestData={requestData}

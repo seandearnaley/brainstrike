@@ -580,6 +580,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     selectedModel,
     onModelChange,
     onModelToggle,
+    onProviderSettingsChange,
     onThreadRunStart,
     prepareRequestData,
     contextMenu,
@@ -601,6 +602,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     selectedModel?: string;
     onModelChange?: (compositeKey: string) => void;
     onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
+    onProviderSettingsChange?: (providerId: string, updates: Record<string, unknown>) => void;
     onThreadRunStart?: () => void;
     prepareRequestData?: () => Promise<Record<string, unknown> | undefined>;
     contextMenu?: Record<string, unknown>;
@@ -729,6 +731,18 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
         </div>
         <button data-testid="submit-thread-run" onClick={onThreadRunStart} type="button">
           Submit
+        </button>
+        <button
+          data-testid="provider-settings-change-openai"
+          onClick={() =>
+            onProviderSettingsChange?.('openai', {
+              maxOutputTokens: 2048,
+              reasoningEffort: 'low',
+            })
+          }
+          type="button"
+        >
+          Change OpenAI settings
         </button>
         <button
           data-testid="prepare-thread-request"
@@ -1730,6 +1744,77 @@ describe('AssistantUiPanelWrapper', () => {
             reasoningSummary: 'auto',
           },
         });
+      })
+    );
+  });
+
+  test('uses per-thread draft settings instead of global provider settings for requests', async () => {
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      providerSettings: {
+        ...state.providerSettings,
+        openai: {
+          ...state.providerSettings['openai'],
+          maxOutputTokens: 512,
+          reasoningEffort: 'high',
+        },
+      },
+    }));
+    useAssistantThreadStore.getState().setThreadDraftRuntime('thread-existing', {
+      provider: 'openai',
+      model: 'gpt-5.2',
+      modelSettings: { maxOutputTokens: 2048 },
+      providerOptions: { openai: { reasoningEffort: 'low' } },
+    });
+
+    await renderAssistantThreadPanel(['openai'], 'thread-existing', () =>
+      waitFor(() => {
+        const requestData = readPanelRequestData();
+        expect(requestData['modelSettings']).toEqual({ maxOutputTokens: 2048 });
+        expect(requestData['providerOptions']).toEqual({
+          openai: { reasoningEffort: 'low' },
+        });
+      })
+    );
+  });
+
+  test('stores provider setting changes as per-thread draft runtime', async () => {
+    const user = userEvent.setup();
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      providerSettings: {
+        ...state.providerSettings,
+        openai: {
+          ...state.providerSettings['openai'],
+          maxOutputTokens: 512,
+          reasoningEffort: 'high',
+        },
+      },
+    }));
+
+    await renderAssistantThreadPanel(['openai'], 'thread-existing', async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('provider-settings-change-openai'));
+    });
+
+    expect(useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']).toEqual(
+      expect.objectContaining({
+        provider: 'openai',
+        model: 'gpt-5.2',
+        modelSettings: { maxOutputTokens: 2048 },
+        providerOptions: { openai: { reasoningEffort: 'low' } },
+      })
+    );
+    expect(useAssistantPreferencesStore.getState().providerSettings['openai']).toEqual(
+      expect.objectContaining({
+        maxOutputTokens: 512,
+        reasoningEffort: 'high',
       })
     );
   });

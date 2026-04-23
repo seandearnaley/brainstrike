@@ -814,6 +814,64 @@ function buildProviderOptions(
   }
 }
 
+function copyProviderSettingsMap(
+  settings: Record<string, AssistantProviderSettings> | undefined
+): Record<string, AssistantProviderSettings> | undefined {
+  if (!settings) {
+    return;
+  }
+  return Object.fromEntries(
+    Object.entries(settings).map(([providerId, providerSetting]) => [
+      providerId,
+      { ...providerSetting },
+    ])
+  );
+}
+
+function extractPreparedRunId(requestData: Record<string, unknown> | undefined): string | null {
+  const memory = requestData?.['memory'];
+  if (!(memory && typeof memory === 'object' && !Array.isArray(memory))) {
+    return null;
+  }
+  const runId = (memory as Record<string, unknown>)['runId'];
+  return typeof runId === 'string' && runId.trim() ? runId : null;
+}
+
+function mergeAssistantProviderSettings(
+  base: AssistantProviderSettings | undefined,
+  updates: AssistantProviderSettingsUpdate
+): AssistantProviderSettings {
+  const merged: Record<string, unknown> = { ...(base ?? {}) };
+  for (const [key, value] of Object.entries(updates)) {
+    if (value !== undefined) {
+      merged[key] = value;
+    }
+  }
+  return merged as AssistantProviderSettings;
+}
+
+function buildDraftRuntimeForProvider({
+  model,
+  provider,
+  providerSettingsMap,
+}: {
+  readonly model: string | undefined;
+  readonly provider: SupportedProvider;
+  readonly providerSettingsMap: Record<string, AssistantProviderSettings>;
+}) {
+  const settings = providerSettingsMap[provider];
+  const modelSettings = buildModelSettings(settings);
+  const providerOptions = model ? buildProviderOptions(provider, model, settings) : undefined;
+  const hasProviderSettings = Object.keys(providerSettingsMap).length > 0;
+  return {
+    provider,
+    ...(model ? { model } : {}),
+    ...(hasProviderSettings ? { providerSettings: providerSettingsMap } : {}),
+    ...(modelSettings ? { modelSettings } : {}),
+    ...(providerOptions ? { providerOptions } : {}),
+  };
+}
+
 interface McpState {
   loading: boolean;
   tools: AssistantToolMenuItem[];
@@ -1010,16 +1068,33 @@ export function AssistantUiPanelWrapper({
     () => resolveModelNameFromComposite(currentModel),
     [currentModel]
   );
+  const effectiveProviderSettings = useMemo(() => {
+    const draftProviderSettings = selectedThreadDraftRuntime?.providerSettings;
+    if (!draftProviderSettings) {
+      return providerSettings;
+    }
+    return {
+      ...providerSettings,
+      ...copyProviderSettingsMap(draftProviderSettings),
+    };
+  }, [providerSettings, selectedThreadDraftRuntime?.providerSettings]);
   const selectedProviderSettings = selectedProvider
-    ? providerSettings[selectedProvider]
+    ? effectiveProviderSettings[selectedProvider]
     : undefined;
   const modelSettings = useMemo(
-    () => buildModelSettings(selectedProviderSettings),
-    [selectedProviderSettings]
+    () => selectedThreadDraftRuntime?.modelSettings ?? buildModelSettings(selectedProviderSettings),
+    [selectedProviderSettings, selectedThreadDraftRuntime?.modelSettings]
   );
   const providerOptions = useMemo(
-    () => buildProviderOptions(selectedProvider, resolvedModelName, selectedProviderSettings),
-    [selectedProvider, resolvedModelName, selectedProviderSettings]
+    () =>
+      selectedThreadDraftRuntime?.providerOptions ??
+      buildProviderOptions(selectedProvider, resolvedModelName, selectedProviderSettings),
+    [
+      selectedProvider,
+      resolvedModelName,
+      selectedProviderSettings,
+      selectedThreadDraftRuntime?.providerOptions,
+    ]
   );
 
   useEffect(() => {
@@ -1539,6 +1614,27 @@ export function AssistantUiPanelWrapper({
     selectedProvider,
   ]);
 
+  const completePreparedRequest = useCallback(
+    async (
+      preparedRequestData: Record<string, unknown> | undefined,
+      status: 'cancelled' | 'completed' | 'failed',
+      error?: string
+    ): Promise<void> => {
+      const runId = extractPreparedRunId(preparedRequestData);
+      if (!runId) {
+        return;
+      }
+      if (!assistantThreadRepository) {
+        throw new Error('Assistant run completion requires an active thread repository.');
+      }
+      await assistantThreadRepository.completeThreadRun(runId, {
+        status,
+        ...(error ? { error } : {}),
+      });
+    },
+    [assistantThreadRepository]
+  );
+
   // Check if a model is enabled - always use DB as source of truth
   const isModelEnabled = useCallback(
     (_providerId: SupportedProvider, modelId: string): boolean => enabledModelIds.has(modelId),
@@ -1797,16 +1893,22 @@ export function AssistantUiPanelWrapper({
       const provider = resolveProviderFromComposite(compositeKey);
       const model = resolveModelNameFromComposite(compositeKey);
       if (memoryThreadId && provider && model) {
+        const draftProviderSettings = draftRuntimeByThreadId[memoryThreadId]?.providerSettings;
+        const providerSettingsMap =
+          copyProviderSettingsMap(draftProviderSettings) ??
+          (providerSettings[provider] ? { [provider]: { ...providerSettings[provider] } } : {});
         setThreadDraftRuntime(memoryThreadId, {
-          ...(draftRuntimeByThreadId[memoryThreadId] ?? {}),
-          provider,
-          model,
+          ...buildDraftRuntimeForProvider({
+            model,
+            provider,
+            providerSettingsMap,
+          }),
         });
         return;
       }
       setModel(compositeKey);
     },
-    [draftRuntimeByThreadId, memoryThreadId, setModel, setThreadDraftRuntime]
+    [draftRuntimeByThreadId, memoryThreadId, providerSettings, setModel, setThreadDraftRuntime]
   );
 
   const handleModelToggle = useCallback(
@@ -1832,9 +1934,39 @@ export function AssistantUiPanelWrapper({
       if (!isSupportedProvider(providerId)) {
         return;
       }
+      if (memoryThreadId) {
+        const currentDraft = draftRuntimeByThreadId[memoryThreadId] ?? {};
+        const nextProviderSettings = copyProviderSettingsMap(currentDraft.providerSettings) ?? {};
+        nextProviderSettings[providerId] = mergeAssistantProviderSettings(
+          currentDraft.providerSettings?.[providerId] ?? providerSettings[providerId],
+          updates
+        );
+        const draftProviderCandidate = currentDraft.provider ?? selectedProvider ?? providerId;
+        const draftProvider = isSupportedProvider(draftProviderCandidate)
+          ? draftProviderCandidate
+          : providerId;
+        const draftModel = currentDraft.model ?? resolvedModelName;
+        setThreadDraftRuntime(memoryThreadId, {
+          ...currentDraft,
+          ...buildDraftRuntimeForProvider({
+            model: draftModel,
+            provider: draftProvider,
+            providerSettingsMap: nextProviderSettings,
+          }),
+        });
+        return;
+      }
       setProviderSettings(providerId, updates);
     },
-    [setProviderSettings]
+    [
+      draftRuntimeByThreadId,
+      memoryThreadId,
+      providerSettings,
+      resolvedModelName,
+      selectedProvider,
+      setProviderSettings,
+      setThreadDraftRuntime,
+    ]
   );
 
   const providerGroups = useMemo<ProviderGroupConfig[]>(() => {
@@ -1978,13 +2110,14 @@ export function AssistantUiPanelWrapper({
 
   return (
     <AssistantUiPanel
+      completePreparedRequest={completePreparedRequest}
       contextMenu={contextMenu}
       onProviderSettingsChange={handleProviderSettingsChange}
       pickerModels={pickerModels}
       pickerProviders={pickerProviders}
       prepareRequestData={prepareRequestData}
       providerGroups={providerGroups}
-      providerSettings={providerSettings}
+      providerSettings={effectiveProviderSettings}
       requestData={requestData}
       toolMenu={toolMenu}
       {...(historyAdapter ? { historyAdapter } : {})}

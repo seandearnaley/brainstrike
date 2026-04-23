@@ -1,3 +1,5 @@
+import type { RuntimeData } from '@brainstrike/agent';
+import type { AssistantProviderSettings } from '@brainstrike/types';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type {
@@ -48,9 +50,10 @@ interface AssistantThreadState {
 
 export interface AssistantThreadDraftRuntime {
   readonly model?: string;
-  readonly modelSettings?: Record<string, unknown>;
+  readonly modelSettings?: RuntimeData['modelSettings'];
   readonly provider?: string;
-  readonly providerOptions?: Record<string, unknown>;
+  readonly providerOptions?: RuntimeData['providerOptions'];
+  readonly providerSettings?: Record<string, AssistantProviderSettings>;
   readonly runtimeKind?: 'browser' | 'gateway' | 'hosted' | 'local';
 }
 
@@ -120,6 +123,27 @@ function selectActiveThreadAfterClose(
   }
   const nextIndex = closingIndex > 0 ? closingIndex - 1 : 0;
   return remainingThreadIds[nextIndex] ?? remainingThreadIds.at(-1);
+}
+
+function copyProviderSettings(
+  providerSettings: Record<string, AssistantProviderSettings> | undefined
+): Record<string, AssistantProviderSettings> | undefined {
+  if (!providerSettings) {
+    return;
+  }
+  return Object.fromEntries(
+    Object.entries(providerSettings).map(([providerId, settings]) => [providerId, { ...settings }])
+  );
+}
+
+function normalizeDraftRuntime(config: AssistantThreadDraftRuntime): AssistantThreadDraftRuntime {
+  const providerSettings = copyProviderSettings(config.providerSettings);
+  return {
+    ...config,
+    ...(config.modelSettings ? { modelSettings: { ...config.modelSettings } } : {}),
+    ...(config.providerOptions ? { providerOptions: { ...config.providerOptions } } : {}),
+    ...(providerSettings ? { providerSettings } : {}),
+  };
 }
 
 export const useAssistantThreadStore = create<AssistantThreadState>()(
@@ -326,11 +350,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         set((state) => ({
           draftRuntimeByThreadId: {
             ...state.draftRuntimeByThreadId,
-            [threadId]: {
-              ...config,
-              ...(config.modelSettings ? { modelSettings: { ...config.modelSettings } } : {}),
-              ...(config.providerOptions ? { providerOptions: { ...config.providerOptions } } : {}),
-            },
+            [threadId]: normalizeDraftRuntime(config),
           },
         }));
       },

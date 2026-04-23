@@ -302,6 +302,11 @@ function convertMessages(messages: ChatModelRunOptions['messages']): LocalLlmMes
 }
 
 export interface LocalRuntimeAdapterOptions {
+  completeRuntimeData?: (
+    runtimeData: Record<string, unknown> | undefined,
+    status: 'cancelled' | 'completed' | 'failed',
+    error?: string
+  ) => Promise<void> | void;
   modelId: string;
   onError?: (error: Error) => void;
   onLoadingProgress?: (progress: {
@@ -310,6 +315,7 @@ export interface LocalRuntimeAdapterOptions {
     message: string;
     file?: string;
   }) => void;
+  prepareRuntimeData?: () => Promise<Record<string, unknown> | undefined>;
   runtimeData?: Record<string, unknown>;
   thinkingEnabled?: boolean;
   tools?: readonly LocalRuntimeToolConfig[];
@@ -761,7 +767,16 @@ function handleDesktopProgressEvent(
  * using transformers.js with WebGPU or WASM acceleration.
  */
 export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): ChatModelAdapter {
-  const { modelId, thinkingEnabled, onLoadingProgress, onError, runtimeData, tools } = options;
+  const {
+    completeRuntimeData,
+    modelId,
+    thinkingEnabled,
+    onLoadingProgress,
+    onError,
+    prepareRuntimeData,
+    runtimeData,
+    tools,
+  } = options;
   const toolExecutor = getToolExecutor();
   const toolDefinitions = buildLocalToolDefinitions(
     tools,
@@ -775,7 +790,9 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
       const generationSlot = acquireLocalGenerationSlot();
       const releaseGenerationSlot =
         typeof generationSlot === 'function' ? generationSlot : await generationSlot;
+      let preparedRuntimeData: Record<string, unknown> | undefined;
       try {
+        preparedRuntimeData = prepareRuntimeData ? await prepareRuntimeData() : runtimeData;
         // Convert messages to LocalLlmMessage format
         const localMessages = convertMessages(messages);
 
@@ -978,6 +995,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
               progress: 100,
               message: createReadyMessage(),
             });
+            await completeRuntimeData?.(preparedRuntimeData, 'completed');
             return;
           }
 
@@ -992,7 +1010,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             progress: 0,
             message: 'Running tool...',
           });
-          const executedTools = await executeToolCalls(result.toolCalls, runtimeData);
+          const executedTools = await executeToolCalls(result.toolCalls, preparedRuntimeData);
           accumulatedToolParts = mergeToolCallParts(accumulatedToolParts, executedTools.parts);
           yield {
             content: buildAssistantContentParts(
@@ -1021,12 +1039,14 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             progress: 100,
             message: 'Generation stopped.',
           });
+          await completeRuntimeData?.(preparedRuntimeData, 'cancelled', errorMessage);
           yield {
             content: [{ type: 'text', text: 'Generation cancelled.' }],
           };
           return;
         }
 
+        await completeRuntimeData?.(preparedRuntimeData, 'failed', errorMessage);
         onError?.(error instanceof Error ? error : new Error(errorMessage));
 
         yield {

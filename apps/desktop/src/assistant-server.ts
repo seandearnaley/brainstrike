@@ -51,10 +51,10 @@ import {
 
 const logger = createLogger('DesktopAssistantServer');
 export const desktopAssistantServerLogger = logger;
-let desktopMastraMemoryPromise: Promise<
-  import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult
-> | null = null;
-let desktopMastraMemoryCacheKey: string | null = null;
+const desktopMastraMemoryPromises = new Map<
+  string,
+  Promise<import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult>
+>();
 
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const MAX_CONTEXT_FILES = 80;
@@ -868,11 +868,11 @@ async function getDesktopMastraMemory(
   memorySettings: RuntimeAssistantMemorySettings | undefined
 ): Promise<import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult> {
   const cacheKey = JSON.stringify(memorySettings ?? null);
-  if (desktopMastraMemoryPromise && desktopMastraMemoryCacheKey === cacheKey) {
-    return desktopMastraMemoryPromise;
+  const cachedPromise = desktopMastraMemoryPromises.get(cacheKey);
+  if (cachedPromise) {
+    return cachedPromise;
   }
-  desktopMastraMemoryCacheKey = cacheKey;
-  desktopMastraMemoryPromise = (async () => {
+  const memoryPromise = (async () => {
     const database = await getDatabase();
     const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
     return createPgliteMastraMemory({
@@ -880,11 +880,21 @@ async function getDesktopMastraMemory(
       ...(memorySettings ? { memorySettings } : {}),
     });
   })();
-  desktopMastraMemoryPromise.catch(() => {
-    if (desktopMastraMemoryCacheKey === cacheKey) {
-      desktopMastraMemoryPromise = null;
-      desktopMastraMemoryCacheKey = null;
+  desktopMastraMemoryPromises.set(cacheKey, memoryPromise);
+  memoryPromise.catch(() => {
+    if (desktopMastraMemoryPromises.get(cacheKey) === memoryPromise) {
+      desktopMastraMemoryPromises.delete(cacheKey);
     }
   });
-  return desktopMastraMemoryPromise;
+  return memoryPromise;
+}
+
+export function resetDesktopMastraMemoryCacheForTests(): void {
+  desktopMastraMemoryPromises.clear();
+}
+
+export async function getDesktopMastraMemoryForTests(
+  memorySettings: RuntimeAssistantMemorySettings | undefined
+): Promise<import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult> {
+  return getDesktopMastraMemory(memorySettings);
 }

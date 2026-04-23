@@ -4,7 +4,9 @@ import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
 import {
   desktopAssistantServerLogger,
+  getDesktopMastraMemoryForTests,
   handleAssistantRequest,
+  resetDesktopMastraMemoryCacheForTests,
   startAssistantServer,
 } from '../assistant-server';
 import { DESKTOP_DEV_RENDERER_URL } from '../desktop-renderer-url';
@@ -203,6 +205,7 @@ describe('assistant-server', () => {
     vi.clearAllMocks();
     mockDesktopDatabase.exec.mockReset();
     mockDesktopDatabase.query.mockReset();
+    resetDesktopMastraMemoryCacheForTests();
     mockSecretsService.getKey.mockResolvedValue('test-api-key');
     mockSecretsService.listProviders.mockResolvedValue(['openai']);
   }, 15_000);
@@ -792,6 +795,46 @@ describe('assistant-server', () => {
       expect(failedResponse.status).toBe(502);
       expect(retriedResponse.status).toBe(200);
       expect(createPgliteMastraMemory).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps separate in-flight Mastra memory initializations keyed by settings', async () => {
+      mockDesktopDatabase.exec.mockResolvedValue(undefined);
+      const memorySettingsA = {
+        observationalMemory: {
+          enabled: true,
+          modelTarget: 'openai/gpt-5.2',
+          scope: 'thread',
+          messageTokens: 10_000,
+          observationTokens: 20_000,
+          retrievalMode: 'off',
+        },
+        semanticRecall: {
+          enabled: false,
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          scope: 'resource',
+          topK: 3,
+          messageRange: 1,
+        },
+      };
+      const memorySettingsB = {
+        ...memorySettingsA,
+        observationalMemory: {
+          ...memorySettingsA.observationalMemory,
+          messageTokens: 12_000,
+        },
+      };
+
+      const firstRequest = getDesktopMastraMemoryForTests(memorySettingsA);
+      const secondRequest = getDesktopMastraMemoryForTests(memorySettingsB);
+      const thirdRequest = getDesktopMastraMemoryForTests(memorySettingsA);
+      const [firstMemory, secondMemory, thirdMemory] = await Promise.all([
+        firstRequest,
+        secondRequest,
+        thirdRequest,
+      ]);
+
+      expect(firstMemory).toBe(thirdMemory);
+      expect(firstMemory).not.toBe(secondMemory);
     });
 
     it('marks assistant thread runs completed after desktop streams finish', async () => {
