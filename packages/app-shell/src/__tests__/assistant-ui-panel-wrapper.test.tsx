@@ -579,6 +579,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     selectedModel,
     onModelChange,
     onModelToggle,
+    onThreadRunStart,
     contextMenu,
     requestData,
     disabled,
@@ -598,6 +599,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     selectedModel?: string;
     onModelChange?: (compositeKey: string) => void;
     onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
+    onThreadRunStart?: () => void;
     contextMenu?: Record<string, unknown>;
     requestData?: Record<string, unknown>;
     disabled?: boolean;
@@ -722,6 +724,9 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
             </label>
           ))}
         </div>
+        <button data-testid="submit-thread-run" onClick={onThreadRunStart} type="button">
+          Submit
+        </button>
       </div>
     );
   },
@@ -1743,7 +1748,7 @@ describe('AssistantUiPanelWrapper', () => {
     );
   });
 
-  test('persists selected model and runtime options into the Mastra thread metadata', async () => {
+  test('does not rewrite Mastra thread metadata just by selecting a thread', async () => {
     useAssistantPreferencesStore.setState((state) => ({
       selectedProvider: 'openai',
       selectedModel: 'openai::gpt-5.2',
@@ -1757,14 +1762,45 @@ describe('AssistantUiPanelWrapper', () => {
       },
     }));
 
-    await renderAssistantPanel(['openai'], () =>
-      waitFor(() => {
-        expect(mockDb.query).toHaveBeenCalledWith(
-          expect.stringContaining('UPDATE mastra_threads'),
-          ['thread-existing', expect.stringContaining('"provider":"openai"'), expect.any(Date)]
-        );
-      })
-    );
+    await renderAssistantPanel(['openai'], async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+    });
+    expect(
+      mockDb.query.mock.calls.some(([sql]) => String(sql).includes('UPDATE mastra_threads'))
+    ).toBe(false);
+  });
+
+  test('persists selected model and runtime options into thread metadata when a run starts', async () => {
+    const user = userEvent.setup();
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      providerSettings: {
+        ...state.providerSettings,
+        openai: {
+          maxOutputTokens: 512,
+          reasoningEffort: 'high',
+        },
+      },
+    }));
+
+    await renderAssistantPanel(['openai'], async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('submit-thread-run'));
+    });
+
+    await waitFor(() => {
+      expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE mastra_threads'), [
+        'thread-existing',
+        expect.stringContaining('"provider":"openai"'),
+        expect.any(Date),
+      ]);
+    });
     const updateCall = mockDb.query.mock.calls.find(([sql]) =>
       String(sql).includes('UPDATE mastra_threads')
     );

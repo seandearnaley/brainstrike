@@ -1164,7 +1164,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     });
   }, [assistantThreadRepository, memoryResourceId, selectedMemoryThreadId]);
 
-  const selectedThreadMetadata = useMemo(() => {
+  const buildSelectedThreadMetadata = useCallback(() => {
     if (!(selectedProvider && resolvedModelName)) {
       return;
     }
@@ -1184,15 +1184,12 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     [observationalMemorySettings, semanticRecallSettings]
   );
 
-  useEffect(() => {
-    if (
-      !(
-        assistantThreadRepository &&
-        memoryResourceId &&
-        selectedMemoryThreadId &&
-        selectedThreadMetadata
-      )
-    ) {
+  const handleThreadRunStart = useCallback(() => {
+    if (!(assistantThreadRepository && memoryResourceId && selectedMemoryThreadId)) {
+      return;
+    }
+    const selectedThreadMetadata = buildSelectedThreadMetadata();
+    if (!selectedThreadMetadata) {
       return;
     }
     updateThreadMetadata(
@@ -1205,9 +1202,9 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     });
   }, [
     assistantThreadRepository,
+    buildSelectedThreadMetadata,
     memoryResourceId,
     selectedMemoryThreadId,
-    selectedThreadMetadata,
     updateThreadMetadata,
   ]);
 
@@ -1753,6 +1750,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     <AssistantUiPanel
       contextMenu={contextMenu}
       onProviderSettingsChange={handleProviderSettingsChange}
+      onThreadRunStart={handleThreadRunStart}
       pickerModels={pickerModels}
       pickerProviders={pickerProviders}
       providerGroups={providerGroups}

@@ -184,6 +184,7 @@ export interface AssistantUiPanelProps {
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
+  onThreadRunStart?: () => void;
   /** Models for the ModelPicker component */
   pickerModels: ModelPickerModel[];
   /** Providers for the ModelPicker component */
@@ -339,6 +340,7 @@ interface ChatThreadProps {
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
+  onThreadRunStart?: (() => void) | undefined;
   pickerModels: ModelPickerModel[];
   pickerProviders: ModelPickerProvider[];
   providerGroups: ProviderGroupConfig[];
@@ -367,6 +369,7 @@ const LocalRuntimeChat: FC<
   selectedProvider,
   selectedModel,
   onModelChange,
+  onThreadRunStart,
   disabled,
   disabledReason,
   localLoadingState,
@@ -423,6 +426,7 @@ const LocalRuntimeChat: FC<
         localLoadingState={localLoadingState}
         onModelChange={onModelChange}
         onProviderSettingsChange={onProviderSettingsChange}
+        onThreadRunStart={onThreadRunStart}
         pickerModels={pickerModels}
         pickerProviders={pickerProviders}
         providerGroups={providerGroups}
@@ -455,6 +459,7 @@ const DataStreamRuntimeChat: FC<
   selectedProvider,
   selectedModel,
   onModelChange,
+  onThreadRunStart,
   disabled,
   disabledReason,
   api,
@@ -489,6 +494,7 @@ const DataStreamRuntimeChat: FC<
         isComposerDisabled={isComposerDisabled}
         onModelChange={onModelChange}
         onProviderSettingsChange={onProviderSettingsChange}
+        onThreadRunStart={onThreadRunStart}
         pickerModels={pickerModels}
         pickerProviders={pickerProviders}
         providerGroups={providerGroups}
@@ -517,6 +523,7 @@ const ChatThreadUI: FC<{
   selectedProvider: string | undefined;
   selectedModel: string | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
+  onThreadRunStart?: (() => void) | undefined;
   isComposerDisabled: boolean;
   disabledReason: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
@@ -532,6 +539,7 @@ const ChatThreadUI: FC<{
   selectedProvider,
   selectedModel,
   onModelChange,
+  onThreadRunStart,
   isComposerDisabled,
   disabledReason,
   localLoadingState,
@@ -622,6 +630,7 @@ const ChatThreadUI: FC<{
         aria-disabled={isComposerDisabled}
         className="aui-composer-root"
         data-disabled={isComposerDisabled ? '' : undefined}
+        onSubmitCapture={onThreadRunStart}
       >
         <ComposerPrimitive.Input
           aria-label="Message input"
@@ -664,6 +673,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   selectedModel,
   requestData,
   onModelChange,
+  onThreadRunStart,
   toolMenu,
   contextMenu,
   disabled = false,
@@ -754,6 +764,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           onLoadingStateChange={handleLocalLoadingStateChange}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
+          onThreadRunStart={onThreadRunStart}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}
           providerGroups={groupedProviders}
@@ -774,6 +785,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           modelName={modelName}
           onModelChange={onModelChange}
           onProviderSettingsChange={onProviderSettingsChange}
+          onThreadRunStart={onThreadRunStart}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}
           providerGroups={groupedProviders}
