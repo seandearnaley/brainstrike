@@ -279,6 +279,43 @@ describe('AssistantUiPanel model picker', () => {
     );
   });
 
+  it('prepares per-run request data when the hosted runtime starts a request', async () => {
+    const prepareRequestData = vi.fn(async () => ({
+      memory: {
+        threadId: 'thread-1',
+        resourceId: 'workspace-1',
+        runId: 'run-1',
+      },
+    }));
+
+    render(
+      <AssistantUiPanel
+        {...baseProps}
+        onModelChange={() => {}}
+        prepareRequestData={prepareRequestData}
+        requestData={{ tokenBudget: 123 }}
+      />
+    );
+
+    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+      body?: () => Promise<Record<string, unknown> | undefined>;
+    };
+
+    await expect(options.body?.()).resolves.toEqual({
+      data: {
+        tokenBudget: 123,
+        memory: {
+          threadId: 'thread-1',
+          resourceId: 'workspace-1',
+          runId: 'run-1',
+        },
+        provider: 'openai',
+        model: 'gpt-5.2',
+      },
+    });
+    expect(prepareRequestData).toHaveBeenCalledTimes(1);
+  });
+
   it('renders compact local model status and auto-hides ready state', () => {
     vi.useFakeTimers();
 

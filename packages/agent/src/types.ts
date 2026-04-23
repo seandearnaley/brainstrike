@@ -110,6 +110,7 @@ export interface RuntimeMemoryContext {
   memoryOptions?: AgentMemoryOption['options'];
   memorySettings?: RuntimeAssistantMemorySettings;
   resourceId: string;
+  runId?: string;
   threadId: string;
 }
 

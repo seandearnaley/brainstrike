@@ -189,6 +189,7 @@ export interface AssistantUiPanelProps {
   pickerModels: ModelPickerModel[];
   /** Providers for the ModelPicker component */
   pickerProviders: ModelPickerProvider[];
+  prepareRequestData?: () => Promise<Record<string, unknown> | undefined>;
   providerGroups?: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
   providers?: ProviderConfig[];
@@ -343,6 +344,7 @@ interface ChatThreadProps {
   onThreadRunStart?: (() => void) | undefined;
   pickerModels: ModelPickerModel[];
   pickerProviders: ModelPickerProvider[];
+  prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
   providerGroups: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
   requestData?: Record<string, unknown> | undefined;
@@ -448,6 +450,7 @@ const DataStreamRuntimeChat: FC<
     api: string;
     historyAdapter: ThreadHistoryAdapter | undefined;
     requestData: Record<string, unknown> | undefined;
+    prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
     modelName: string | undefined;
   }
 > = ({
@@ -465,6 +468,7 @@ const DataStreamRuntimeChat: FC<
   api,
   historyAdapter,
   requestData,
+  prepareRequestData,
   modelName,
   toolMenu,
   contextMenu,
@@ -476,12 +480,16 @@ const DataStreamRuntimeChat: FC<
     api,
     protocol: 'data-stream',
     ...(historyAdapter ? { adapters: { history: historyAdapter } } : {}),
-    body: {
-      data: {
-        ...(requestData ?? {}),
-        provider: selectedProvider,
-        model: modelName,
-      },
+    body: async () => {
+      const preparedRequestData = prepareRequestData ? await prepareRequestData() : undefined;
+      return {
+        data: {
+          ...(requestData ?? {}),
+          ...(preparedRequestData ?? {}),
+          provider: selectedProvider,
+          model: modelName,
+        },
+      };
     },
   });
 
@@ -672,6 +680,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   selectedProvider,
   selectedModel,
   requestData,
+  prepareRequestData,
   onModelChange,
   onThreadRunStart,
   toolMenu,
@@ -788,6 +797,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           onThreadRunStart={onThreadRunStart}
           pickerModels={pickerModels}
           pickerProviders={pickerProviders}
+          prepareRequestData={prepareRequestData}
           providerGroups={groupedProviders}
           providerSettings={providerSettings}
           requestData={requestData}

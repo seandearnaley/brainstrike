@@ -16,7 +16,7 @@ import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 
 const NATIVE_TOOL_COUNT = Object.keys(NATIVE_TOOL_DEFAULTS).length;
 
-const { fileExplorerMocks, testEnabledModels } = vi.hoisted(() => ({
+const { fileExplorerMocks, preparedRequestDataLog, testEnabledModels } = vi.hoisted(() => ({
   fileExplorerMocks: {
     addMultipleSelectedFiles: vi.fn<(folderId: string, paths: string[]) => void>(),
     clearSelectionRules: vi.fn<() => void>(),
@@ -38,6 +38,7 @@ const { fileExplorerMocks, testEnabledModels } = vi.hoisted(() => ({
     },
   },
   // Track enabled models in a mutable Set for testing toggle functionality
+  preparedRequestDataLog: [] as Array<Record<string, unknown> | undefined>,
   testEnabledModels: new Set<string>([
     'gpt-5.2', // OpenAI default
     'claude-sonnet-4-5', // Anthropic default
@@ -580,6 +581,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onModelChange,
     onModelToggle,
     onThreadRunStart,
+    prepareRequestData,
     contextMenu,
     requestData,
     disabled,
@@ -600,6 +602,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onModelChange?: (compositeKey: string) => void;
     onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
     onThreadRunStart?: () => void;
+    prepareRequestData?: () => Promise<Record<string, unknown> | undefined>;
     contextMenu?: Record<string, unknown>;
     requestData?: Record<string, unknown>;
     disabled?: boolean;
@@ -727,6 +730,15 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
         <button data-testid="submit-thread-run" onClick={onThreadRunStart} type="button">
           Submit
         </button>
+        <button
+          data-testid="prepare-thread-request"
+          onClick={async () => {
+            preparedRequestDataLog.push(await prepareRequestData?.());
+          }}
+          type="button"
+        >
+          Prepare request
+        </button>
       </div>
     );
   },
@@ -746,11 +758,15 @@ beforeEach(() => {
   resetTestEnabledModels();
   __resetAssistantPreferencesStoreForTests();
   useAssistantThreadStore.setState({
+    activeThreadIdByResourceId: {},
+    draftRuntimeByThreadId: {},
     loadStateByResourceId: {},
+    openThreadIdsByResourceId: {},
     selectedThreadByResourceId: {},
     threadIdsByResourceId: {},
     threadsByResourceId: {},
   });
+  preparedRequestDataLog.splice(0, preparedRequestDataLog.length);
   fileExplorerMocks.effectiveSelection = new Set<string>();
   fileExplorerMocks.tokenCache = null;
   fileExplorerMocks.currentFolderId = 'test-folder';
@@ -1772,8 +1788,11 @@ describe('AssistantUiPanelWrapper', () => {
     ).toBe(false);
   });
 
-  test('persists selected model and runtime options into thread metadata when a run starts', async () => {
+  test('creates immutable run records and attaches run IDs to prepared requests', async () => {
     const user = userEvent.setup();
+    const uuidSpy = vi
+      .spyOn(crypto, 'randomUUID')
+      .mockReturnValue('00000000-0000-4000-8000-00000000000d');
     useAssistantPreferencesStore.setState((state) => ({
       selectedProvider: 'openai',
       selectedModel: 'openai::gpt-5.2',
@@ -1792,21 +1811,39 @@ describe('AssistantUiPanelWrapper', () => {
         expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
       });
       await user.click(screen.getByTestId('submit-thread-run'));
+      await user.click(screen.getByTestId('prepare-thread-request'));
     });
 
     await waitFor(() => {
-      expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE mastra_threads'), [
-        'thread-existing',
-        expect.stringContaining('"provider":"openai"'),
-        expect.any(Date),
-      ]);
+      expect(mockDb.query).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO brainstrike_assistant_thread_runs'),
+        expect.arrayContaining([
+          'run-00000000-0000-4000-8000-00000000000d',
+          '/tmp/test-workspace',
+          'thread-existing',
+          'openai',
+          'gpt-5.2',
+          JSON.stringify({ maxOutputTokens: 512 }),
+          JSON.stringify({ openai: { reasoningEffort: 'high' } }),
+          'hosted',
+          'running',
+        ])
+      );
     });
-    const updateCall = mockDb.query.mock.calls.find(([sql]) =>
-      String(sql).includes('UPDATE mastra_threads')
+    expect(
+      mockDb.query.mock.calls.some(([sql]) => String(sql).includes('UPDATE mastra_threads'))
+    ).toBe(false);
+    expect(preparedRequestDataLog[0]?.['memory']).toMatchObject({
+      threadId: 'thread-existing',
+      resourceId: '/tmp/test-workspace',
+      runId: 'run-00000000-0000-4000-8000-00000000000d',
+    });
+    const insertCall = mockDb.query.mock.calls.find(([sql]) =>
+      String(sql).includes('INSERT INTO brainstrike_assistant_thread_runs')
     );
-    expect(updateCall?.[1]?.[1]).toContain('"model":"gpt-5.2"');
-    expect(updateCall?.[1]?.[1]).toContain('"reasoningEffort":"high"');
-    expect(updateCall?.[1]?.[1]).toContain('"maxOutputTokens":512');
+    expect(insertCall?.[1]?.[6]).toContain('"reasoningEffort":"high"');
+    expect(insertCall?.[1]?.[5]).toContain('"maxOutputTokens":512');
+    uuidSpy.mockRestore();
   });
 
   test('builds provider options for anthropic settings', async () => {

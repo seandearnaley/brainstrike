@@ -58,6 +58,7 @@ import { createSafeStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { type FC, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
+  type AssistantThreadRuntimeKind,
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
 } from './assistant-memory-repository';
@@ -113,6 +114,20 @@ const includeFileReportStorage = createSafeStorageAdapter();
 const TREE_CONTEXT_LINE_LIMIT = 400;
 const TREE_TOKEN_ESTIMATE_PER_LINE = 4;
 const FILE_REPORT_OVERHEAD_PER_FILE = 8;
+
+function createThreadRunId(): string {
+  return `run-${crypto.randomUUID()}`;
+}
+
+function toAssistantThreadRuntimeKind(runtime: ProviderRuntime): AssistantThreadRuntimeKind {
+  switch (runtime) {
+    case 'browser':
+    case 'gateway':
+    case 'hosted':
+    case 'local':
+      return runtime;
+  }
+}
 
 interface TokenCountRow {
   path: string;
@@ -647,6 +662,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   const mcpTools = mcpState.tools;
   const mcpLoading = mcpState.loading;
   const isMountedRef = useRef(true);
+  const pendingThreadRunPromiseRef = useRef<Promise<string | undefined> | null>(null);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -1135,7 +1151,6 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   );
   const loadStateByResourceId = useAssistantThreadStore((state) => state.loadStateByResourceId);
   const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
-  const updateThreadMetadata = useAssistantThreadStore((state) => state.updateThreadMetadata);
   const memoryResourceId = workspaceRootPath ?? undefined;
   const selectedMemoryThreadId = memoryResourceId
     ? selectedThreadByResourceId[memoryResourceId]
@@ -1164,18 +1179,6 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     });
   }, [assistantThreadRepository, memoryResourceId, selectedMemoryThreadId]);
 
-  const buildSelectedThreadMetadata = useCallback(() => {
-    if (!(selectedProvider && resolvedModelName)) {
-      return;
-    }
-    return {
-      provider: selectedProvider,
-      model: resolvedModelName,
-      ...(modelSettings ? { modelSettings: { ...modelSettings } } : {}),
-      ...(providerOptions ? { providerOptions: { ...providerOptions } } : {}),
-    };
-  }, [modelSettings, providerOptions, resolvedModelName, selectedProvider]);
-
   const runtimeMemorySettings = useMemo(
     () => ({
       observationalMemory: observationalMemorySettings,
@@ -1184,29 +1187,48 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     [observationalMemorySettings, semanticRecallSettings]
   );
 
-  const handleThreadRunStart = useCallback(() => {
+  const startThreadRun = useCallback(async (): Promise<string | undefined> => {
+    if (pendingThreadRunPromiseRef.current) {
+      return pendingThreadRunPromiseRef.current;
+    }
+
     if (!(assistantThreadRepository && memoryResourceId && selectedMemoryThreadId)) {
-      return;
+      throw new Error('Assistant run records require an active memory thread.');
     }
-    const selectedThreadMetadata = buildSelectedThreadMetadata();
-    if (!selectedThreadMetadata) {
-      return;
+    if (!(selectedProvider && resolvedModelName)) {
+      throw new Error('Assistant run records require a selected provider and model.');
     }
-    updateThreadMetadata(
-      assistantThreadRepository,
-      memoryResourceId,
-      selectedMemoryThreadId,
-      selectedThreadMetadata
-    ).catch(() => {
-      // The store records the explicit error state; no fallback metadata source is used.
-    });
+
+    const providerDefinition = getProviderDefinition(selectedProvider);
+    const runId = createThreadRunId();
+    const runPromise = assistantThreadRepository
+      .createThreadRun({
+        id: runId,
+        resourceId: memoryResourceId,
+        threadId: selectedMemoryThreadId,
+        provider: selectedProvider,
+        model: resolvedModelName,
+        runtimeKind: toAssistantThreadRuntimeKind(providerDefinition.runtime),
+        ...(modelSettings ? { modelSettings: { ...modelSettings } } : {}),
+        ...(providerOptions ? { providerOptions: { ...providerOptions } } : {}),
+      })
+      .then((record) => record.id);
+
+    pendingThreadRunPromiseRef.current = runPromise;
+    return runPromise;
   }, [
     assistantThreadRepository,
-    buildSelectedThreadMetadata,
     memoryResourceId,
+    modelSettings,
+    providerOptions,
+    resolvedModelName,
     selectedMemoryThreadId,
-    updateThreadMetadata,
+    selectedProvider,
   ]);
+
+  const handleThreadRunStart = useCallback(() => {
+    void startThreadRun();
+  }, [startThreadRun]);
 
   const requestData = useMemo(() => {
     const data: Record<string, unknown> = {};
@@ -1260,6 +1282,23 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     selectionData,
     tokenBudget,
   ]);
+
+  const prepareRequestData = useCallback(async (): Promise<Record<string, unknown>> => {
+    const runId = await startThreadRun();
+    const memoryContext = requestData['memory'];
+    if (!(memoryContext && typeof memoryContext === 'object' && !Array.isArray(memoryContext))) {
+      throw new Error('Assistant request preparation requires Mastra memory context.');
+    }
+
+    pendingThreadRunPromiseRef.current = null;
+    return {
+      ...requestData,
+      memory: {
+        ...memoryContext,
+        ...(runId ? { runId } : {}),
+      },
+    };
+  }, [requestData, startThreadRun]);
 
   // Check if a model is enabled - always use DB as source of truth
   const isModelEnabled = useCallback(
@@ -1753,6 +1792,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       onThreadRunStart={handleThreadRunStart}
       pickerModels={pickerModels}
       pickerProviders={pickerProviders}
+      prepareRequestData={prepareRequestData}
       providerGroups={providerGroups}
       providerSettings={providerSettings}
       requestData={requestData}
