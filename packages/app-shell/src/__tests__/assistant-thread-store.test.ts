@@ -55,6 +55,31 @@ describe('useAssistantThreadStore tab sessions', () => {
     });
   });
 
+  it('deduplicates concurrent resource thread loads', async () => {
+    let resolveThreads!: (threads: readonly AssistantMemoryThread[]) => void;
+    const listThreadsPromise = new Promise<readonly AssistantMemoryThread[]>((resolve) => {
+      resolveThreads = resolve;
+    });
+    const repository = createRepository([]);
+    vi.mocked(repository.listThreads).mockReturnValue(listThreadsPromise);
+
+    const firstLoad = useAssistantThreadStore
+      .getState()
+      .ensureResourceThreads(repository, workspaceId);
+    const secondLoad = useAssistantThreadStore
+      .getState()
+      .ensureResourceThreads(repository, workspaceId);
+
+    expect(repository.listThreads).toHaveBeenCalledTimes(1);
+    resolveThreads([makeThread('thread-a', '2026-04-22T11:00:00Z')]);
+    await Promise.all([firstLoad, secondLoad]);
+
+    expect(repository.createThread).not.toHaveBeenCalled();
+    expect(useAssistantThreadStore.getState().threadIdsByResourceId[workspaceId]).toEqual([
+      'thread-a',
+    ]);
+  });
+
   it('opens and focuses historical threads without replacing the durable thread list', async () => {
     const repository = createRepository();
 

@@ -236,11 +236,7 @@ async function streamAssistantPostResponse({
   const response = session.createResponse();
   await streamResponse(res, response, signal);
   if (runId) {
-    await completeDesktopAssistantThreadRun(
-      runId,
-      signal.aborted ? 'cancelled' : 'completed',
-      null
-    );
+    await completeDesktopAssistantThreadRun(runId, 'completed', null);
   }
 }
 
@@ -884,5 +880,11 @@ async function getDesktopMastraMemory(
       ...(memorySettings ? { memorySettings } : {}),
     });
   })();
+  desktopMastraMemoryPromise.catch(() => {
+    if (desktopMastraMemoryCacheKey === cacheKey) {
+      desktopMastraMemoryPromise = null;
+      desktopMastraMemoryCacheKey = null;
+    }
+  });
   return desktopMastraMemoryPromise;
 }

@@ -41,7 +41,7 @@ interface ThreadRow {
 }
 
 interface MessageRow {
-  content: string;
+  content: MastraDBMessage['content'] | string;
   createdAt: Date | string;
   id: string;
   resourceId: string | null;
@@ -143,7 +143,12 @@ function parseJsonArray<TValue>(value: TValue[] | string | null): TValue[] | und
   return Array.isArray(parsed) ? (parsed as TValue[]) : undefined;
 }
 
-function parseMessageContent(value: string): MastraDBMessage['content'] {
+function parseMessageContent(
+  value: MastraDBMessage['content'] | string
+): MastraDBMessage['content'] {
+  if (typeof value !== 'string') {
+    return value;
+  }
   const parsed: unknown = JSON.parse(value);
   return parsed as MastraDBMessage['content'];
 }
@@ -584,37 +589,65 @@ export class PgliteMemoryStore extends MemoryStorage {
   override async saveMessages(args: { messages: MastraDBMessage[] }): Promise<{
     messages: MastraDBMessage[];
   }> {
-    for (const message of args.messages) {
-      await this.database.query(
-        `INSERT INTO ${MASTRA_MEMORY_TABLES.messages}
-          (id, thread_id, content, role, type, "createdAt", "resourceId")
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (id) DO UPDATE SET
-          thread_id = EXCLUDED.thread_id,
-          content = EXCLUDED.content,
-          role = EXCLUDED.role,
-          type = EXCLUDED.type,
-          "createdAt" = EXCLUDED."createdAt",
-          "resourceId" = EXCLUDED."resourceId"`,
-        [
-          message.id,
-          message.threadId ?? '',
-          JSON.stringify(message.content),
-          message.role,
-          message.type ?? 'v2',
-          message.createdAt,
-          message.resourceId ?? null,
-        ]
+    if (args.messages.length === 0) {
+      return { messages: [] };
+    }
+
+    const insertValues: PgliteQueryValue[] = [];
+    const insertRows = args.messages.map((message, index) => {
+      const base = index * 7;
+      insertValues.push(
+        message.id,
+        message.threadId ?? '',
+        JSON.stringify(message.content),
+        message.role,
+        message.type ?? 'v2',
+        message.createdAt,
+        message.resourceId ?? null
       );
-      if (message.threadId) {
-        await this.database.query(
-          `UPDATE ${MASTRA_MEMORY_TABLES.threads}
-           SET "updatedAt" = GREATEST("updatedAt", $2)
-           WHERE id = $1`,
-          [message.threadId, message.createdAt]
-        );
+      return `($${base + 1}, $${base + 2}, $${base + 3}::jsonb, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`;
+    });
+
+    await this.database.query(
+      `INSERT INTO ${MASTRA_MEMORY_TABLES.messages}
+        (id, thread_id, content, role, type, "createdAt", "resourceId")
+       VALUES ${insertRows.join(', ')}
+       ON CONFLICT (id) DO UPDATE SET
+        thread_id = EXCLUDED.thread_id,
+        content = EXCLUDED.content,
+        role = EXCLUDED.role,
+        type = EXCLUDED.type,
+        "createdAt" = EXCLUDED."createdAt",
+        "resourceId" = EXCLUDED."resourceId"`,
+      insertValues
+    );
+
+    const threadUpdates = new Map<string, Date>();
+    for (const message of args.messages) {
+      if (!message.threadId) {
+        continue;
+      }
+      const currentUpdatedAt = threadUpdates.get(message.threadId);
+      if (!(currentUpdatedAt && currentUpdatedAt.getTime() >= message.createdAt.getTime())) {
+        threadUpdates.set(message.threadId, message.createdAt);
       }
     }
+    if (threadUpdates.size > 0) {
+      const updateValues: PgliteQueryValue[] = [];
+      const updateRows = [...threadUpdates.entries()].map(([threadId, updatedAt], index) => {
+        const base = index * 2;
+        updateValues.push(threadId, updatedAt);
+        return `($${base + 1}, $${base + 2}::timestamptz)`;
+      });
+      await this.database.query(
+        `UPDATE ${MASTRA_MEMORY_TABLES.threads} AS threads
+         SET "updatedAt" = GREATEST(threads."updatedAt", updates.updated_at)
+         FROM (VALUES ${updateRows.join(', ')}) AS updates(id, updated_at)
+         WHERE threads.id = updates.id`,
+        updateValues
+      );
+    }
+
     return { messages: args.messages };
   }
 

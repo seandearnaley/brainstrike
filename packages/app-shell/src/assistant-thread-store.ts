@@ -54,6 +54,8 @@ export interface AssistantThreadDraftRuntime {
   readonly runtimeKind?: 'browser' | 'gateway' | 'hosted' | 'local';
 }
 
+const resourceThreadLoadPromises = new Map<string, Promise<void>>();
+
 function serializeThread(thread: AssistantMemoryThread): AssistantMemoryThread {
   return {
     ...thread,
@@ -221,74 +223,85 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         repository: AssistantThreadRepository,
         resourceId: string
       ): Promise<void> => {
+        const existingLoad = resourceThreadLoadPromises.get(resourceId);
+        if (existingLoad) {
+          return existingLoad;
+        }
         if (get().loadStateByResourceId[resourceId]?.status === 'loading') {
           return;
         }
 
-        set((state) => ({
-          loadStateByResourceId: {
-            ...state.loadStateByResourceId,
-            [resourceId]: { status: 'loading' },
-          },
-        }));
-
-        try {
-          const loadedThreads = (await repository.listThreads(resourceId)).map(serializeThread);
-          const threads =
-            loadedThreads.length > 0
-              ? loadedThreads
-              : [serializeThread(await repository.createThread(resourceId))];
-          const selectedThreadId = selectExistingThread(
-            get().activeThreadIdByResourceId[resourceId] ??
-              get().selectedThreadByResourceId[resourceId],
-            threads
-          );
-          const loadedThreadIds = new Set(threads.map((thread) => thread.id));
-
-          set((state) => ({
-            activeThreadIdByResourceId: selectedThreadId
-              ? {
-                  ...state.activeThreadIdByResourceId,
-                  [resourceId]: selectedThreadId,
-                }
-              : state.activeThreadIdByResourceId,
-            loadStateByResourceId: {
-              ...state.loadStateByResourceId,
-              [resourceId]: { status: 'ready' },
-            },
-            openThreadIdsByResourceId: {
-              ...state.openThreadIdsByResourceId,
-              [resourceId]: reconcileOpenThreadIds(
-                state.openThreadIdsByResourceId[resourceId],
-                loadedThreadIds,
-                selectedThreadId
-              ),
-            },
-            selectedThreadByResourceId: selectedThreadId
-              ? {
-                  ...state.selectedThreadByResourceId,
-                  [resourceId]: selectedThreadId,
-                }
-              : state.selectedThreadByResourceId,
-            threadIdsByResourceId: {
-              ...state.threadIdsByResourceId,
-              [resourceId]: threads.map((thread) => thread.id),
-            },
-            threadsByResourceId: {
-              ...state.threadsByResourceId,
-              [resourceId]: threads,
-            },
-          }));
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+        const loadPromise = (async () => {
           set((state) => ({
             loadStateByResourceId: {
               ...state.loadStateByResourceId,
-              [resourceId]: { status: 'error', error: message },
+              [resourceId]: { status: 'loading' },
             },
           }));
-          throw error;
-        }
+
+          try {
+            const loadedThreads = (await repository.listThreads(resourceId)).map(serializeThread);
+            const threads =
+              loadedThreads.length > 0
+                ? loadedThreads
+                : [serializeThread(await repository.createThread(resourceId))];
+            const selectedThreadId = selectExistingThread(
+              get().activeThreadIdByResourceId[resourceId] ??
+                get().selectedThreadByResourceId[resourceId],
+              threads
+            );
+            const loadedThreadIds = new Set(threads.map((thread) => thread.id));
+
+            set((state) => ({
+              activeThreadIdByResourceId: selectedThreadId
+                ? {
+                    ...state.activeThreadIdByResourceId,
+                    [resourceId]: selectedThreadId,
+                  }
+                : state.activeThreadIdByResourceId,
+              loadStateByResourceId: {
+                ...state.loadStateByResourceId,
+                [resourceId]: { status: 'ready' },
+              },
+              openThreadIdsByResourceId: {
+                ...state.openThreadIdsByResourceId,
+                [resourceId]: reconcileOpenThreadIds(
+                  state.openThreadIdsByResourceId[resourceId],
+                  loadedThreadIds,
+                  selectedThreadId
+                ),
+              },
+              selectedThreadByResourceId: selectedThreadId
+                ? {
+                    ...state.selectedThreadByResourceId,
+                    [resourceId]: selectedThreadId,
+                  }
+                : state.selectedThreadByResourceId,
+              threadIdsByResourceId: {
+                ...state.threadIdsByResourceId,
+                [resourceId]: threads.map((thread) => thread.id),
+              },
+              threadsByResourceId: {
+                ...state.threadsByResourceId,
+                [resourceId]: threads,
+              },
+            }));
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            set((state) => ({
+              loadStateByResourceId: {
+                ...state.loadStateByResourceId,
+                [resourceId]: { status: 'error', error: message },
+              },
+            }));
+            throw error;
+          } finally {
+            resourceThreadLoadPromises.delete(resourceId);
+          }
+        })();
+
+        resourceThreadLoadPromises.set(resourceId, loadPromise);
+        return loadPromise;
       },
       openThreadTab: (resourceId: string, threadId: string) => {
         set((state) => ({

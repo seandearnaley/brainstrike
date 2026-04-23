@@ -733,7 +733,13 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
         <button
           data-testid="prepare-thread-request"
           onClick={async () => {
-            preparedRequestDataLog.push(await prepareRequestData?.());
+            try {
+              preparedRequestDataLog.push(await prepareRequestData?.());
+            } catch (error) {
+              preparedRequestDataLog.push({
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
           }}
           type="button"
         >
@@ -801,6 +807,10 @@ beforeEach(() => {
     }
     return { rows: [] };
   });
+  Object.defineProperty(window, 'assistant', {
+    configurable: true,
+    value: { url: 'http://127.0.0.1:9876' },
+  });
   window.localStorage.removeItem('brainstrike.assistant.include-file-report.v1');
   window.localStorage.removeItem('brainstrike-assistant-threads-v1');
 });
@@ -809,6 +819,7 @@ afterEach(() => {
   __resetAssistantPreferencesStoreForTests();
   Reflect.deleteProperty(window, 'tools');
   Reflect.deleteProperty(window, 'mcp');
+  Reflect.deleteProperty(window, 'assistant');
 });
 
 const renderAssistantPanel = async (providers: string[], afterRender?: () => Promise<void>) => {
@@ -1761,6 +1772,21 @@ describe('AssistantUiPanelWrapper', () => {
     );
   });
 
+  test('disables hosted memory requests when the runtime has no Mastra memory backend', async () => {
+    Reflect.deleteProperty(window, 'assistant');
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        const requestData = readPanelRequestData();
+        expect(requestData['memory']).toBeUndefined();
+        expect(screen.getByTestId('panel-disabled')).toHaveTextContent('true');
+        expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
+          'Assistant memory for hosted providers requires the desktop assistant backend.'
+        );
+      })
+    );
+  });
+
   test('passes assistant memory preferences into Mastra runtime requests', async () => {
     useAssistantMemoryPreferencesStore.setState({
       observationalMemory: {
@@ -1885,6 +1911,77 @@ describe('AssistantUiPanelWrapper', () => {
     );
     expect(insertCall?.[1]?.[6]).toContain('"reasoningEffort":"high"');
     expect(insertCall?.[1]?.[5]).toContain('"maxOutputTokens":512');
+    uuidSpy.mockRestore();
+  });
+
+  test('retries thread run creation after a transient failure', async () => {
+    const user = userEvent.setup();
+    const uuidSpy = vi
+      .spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce('00000000-0000-4000-8000-00000000000e')
+      .mockReturnValueOnce('00000000-0000-4000-8000-00000000000f');
+    let runInsertCount = 0;
+    mockDb.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM mastra_threads')) {
+        return {
+          rows: [
+            {
+              id: 'thread-existing',
+              resourceId: '/tmp/test-workspace',
+              title: 'Existing thread',
+              createdAt: new Date('2026-04-22T10:00:00Z'),
+              updatedAt: new Date('2026-04-22T10:00:00Z'),
+            },
+          ],
+        };
+      }
+      if (sql.includes('INSERT INTO brainstrike_assistant_thread_runs')) {
+        runInsertCount += 1;
+        if (runInsertCount === 1) {
+          throw new Error('temporary run insert failure');
+        }
+        return {
+          rows: [
+            {
+              id: 'run-00000000-0000-4000-8000-00000000000f',
+              resource_id: '/tmp/test-workspace',
+              thread_id: 'thread-existing',
+              provider: 'openai',
+              model: 'gpt-5.2',
+              model_settings: null,
+              provider_options: null,
+              runtime_kind: 'hosted',
+              status: 'running',
+              error: null,
+              started_at: new Date('2026-04-22T10:00:00Z'),
+              completed_at: null,
+              created_at: new Date('2026-04-22T10:00:00Z'),
+              updated_at: new Date('2026-04-22T10:00:00Z'),
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+    }));
+
+    await renderAssistantPanel(['openai'], async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('prepare-thread-request'));
+      await user.click(screen.getByTestId('prepare-thread-request'));
+    });
+
+    expect(preparedRequestDataLog[0]).toEqual({ error: 'temporary run insert failure' });
+    expect(preparedRequestDataLog[1]?.['memory']).toMatchObject({
+      runId: 'run-00000000-0000-4000-8000-00000000000f',
+    });
+    expect(runInsertCount).toBe(2);
     uuidSpy.mockRestore();
   });
 

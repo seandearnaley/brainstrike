@@ -106,8 +106,10 @@ function appendEqualityFilter(
   values: PgliteQueryValue[],
   clauses: string[]
 ): void {
+  values.push(key);
+  const keyParam = `$${values.length}`;
   values.push(String(value));
-  clauses.push(`metadata ->> '${key}' = $${values.length}`);
+  clauses.push(`metadata ->> ${keyParam} = $${values.length}`);
 }
 
 function appendOperatorFilter(
@@ -125,8 +127,10 @@ function appendOperatorFilter(
     if (!Array.isArray(inValues)) {
       throw new Error('$in vector filter value must be an array');
     }
+    values.push(key);
+    const keyParam = `$${values.length}`;
     values.push(inValues.map((entry) => String(entry)));
-    clauses.push(`metadata ->> '${key}' = ANY($${values.length}::text[])`);
+    clauses.push(`metadata ->> ${keyParam} = ANY($${values.length}::text[])`);
     return;
   }
   throw new Error(`Unsupported vector filter operator for key: ${key}`);
@@ -286,32 +290,39 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
     if (metadata && metadata.length !== vectors.length) {
       throw new Error('metadata length must match vectors length');
     }
+    const values: PgliteQueryValue[] = [];
+    const rows: string[] = [];
     for (const [index, vector] of vectors.entries()) {
       if (vector.length !== stats.dimension) {
         throw new Error(
           `Vector at index ${index} has ${vector.length} dimensions, expected ${stats.dimension}`
         );
       }
-      await this.database.query(
-        `INSERT INTO ${MASTRA_VECTOR_TABLE}
-          (index_name, id, embedding, metadata, dimension, metric, updated_at)
-         VALUES ($1, $2, $3::vector, $4::jsonb, $5, $6, now())
-         ON CONFLICT (index_name, id) DO UPDATE SET
-          embedding = EXCLUDED.embedding,
-          metadata = EXCLUDED.metadata,
-          dimension = EXCLUDED.dimension,
-          metric = EXCLUDED.metric,
-          updated_at = now()`,
-        [
-          indexName,
-          resultIds[index] ?? crypto.randomUUID(),
-          vectorLiteral(vector),
-          metadata?.[index] ? JSON.stringify(metadata[index]) : null,
-          stats.dimension,
-          stats.metric ?? DEFAULT_METRIC,
-        ]
+      const base = index * 6;
+      values.push(
+        indexName,
+        resultIds[index] ?? crypto.randomUUID(),
+        vectorLiteral(vector),
+        metadata?.[index] ? JSON.stringify(metadata[index]) : null,
+        stats.dimension,
+        stats.metric ?? DEFAULT_METRIC
+      );
+      rows.push(
+        `($${base + 1}, $${base + 2}, $${base + 3}::vector, $${base + 4}::jsonb, $${base + 5}, $${base + 6}, now())`
       );
     }
+    await this.database.query(
+      `INSERT INTO ${MASTRA_VECTOR_TABLE}
+        (index_name, id, embedding, metadata, dimension, metric, updated_at)
+       VALUES ${rows.join(', ')}
+       ON CONFLICT (index_name, id) DO UPDATE SET
+        embedding = EXCLUDED.embedding,
+        metadata = EXCLUDED.metadata,
+        dimension = EXCLUDED.dimension,
+        metric = EXCLUDED.metric,
+        updated_at = now()`,
+      values
+    );
     return resultIds;
   }
 
