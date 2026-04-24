@@ -81,6 +81,8 @@ const UNSAFE_RUN_EVENT_METADATA_KEYS = new Set([
   'token',
 ]);
 
+const MAX_RUN_EVENT_METADATA_DEPTH = 8;
+
 const UNSAFE_RUN_EVENT_METADATA_KEY_FRAGMENTS = [
   'apikey',
   'authorization',
@@ -123,11 +125,14 @@ export function sanitizeAssistantRunEventMetadata(
     return;
   }
 
-  const sanitized = sanitizeRunEventJsonValue(metadata);
+  const sanitized = sanitizeRunEventJsonValue(metadata, 0);
   return isPlainRecord(sanitized) ? sanitized : undefined;
 }
 
-function sanitizeRunEventJsonValue(value: unknown): AssistantRunEventJson {
+function sanitizeRunEventJsonValue(value: unknown, depth: number): AssistantRunEventJson {
+  if (depth > MAX_RUN_EVENT_METADATA_DEPTH) {
+    return null;
+  }
   if (value === null || typeof value === 'string' || typeof value === 'boolean') {
     return value;
   }
@@ -135,7 +140,7 @@ function sanitizeRunEventJsonValue(value: unknown): AssistantRunEventJson {
     return Number.isFinite(value) ? value : null;
   }
   if (Array.isArray(value)) {
-    return value.map((item) => sanitizeRunEventJsonValue(item));
+    return value.map((item) => sanitizeRunEventJsonValue(item, depth + 1));
   }
   if (!isPlainRecord(value)) {
     return null;
@@ -147,7 +152,7 @@ function sanitizeRunEventJsonValue(value: unknown): AssistantRunEventJson {
     if (isUnsafeRunEventMetadataKey(normalizedKey)) {
       continue;
     }
-    sanitized[key] = sanitizeRunEventJsonValue(nested);
+    sanitized[key] = sanitizeRunEventJsonValue(nested, depth + 1);
   }
   return sanitized;
 }

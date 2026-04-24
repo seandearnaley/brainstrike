@@ -14,12 +14,16 @@ describe('run event metadata sanitization', () => {
         output: 'tool output',
         count: 2,
       },
+      memoryHitCount: 3,
+      completionTokens: 64,
       values: [{ prompt: 'raw prompt' }, 'safe'],
     });
 
     expect(sanitized).toEqual({
       model: 'gpt-5.2',
       promptTokens: 128,
+      memoryHitCount: 3,
+      completionTokens: 64,
       nested: {
         count: 2,
       },
@@ -36,6 +40,50 @@ describe('run event metadata sanitization', () => {
     expect(sanitized).toEqual({
       createdAt: null,
       matcher: null,
+    });
+  });
+
+  it('bounds recursive metadata sanitization depth', () => {
+    const sanitized = sanitizeAssistantRunEventMetadata({
+      level1: {
+        level2: {
+          level3: {
+            level4: {
+              level5: {
+                level6: {
+                  level7: {
+                    level8: {
+                      level9: {
+                        level10: 'too deep',
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(sanitized).toEqual({
+      level1: {
+        level2: {
+          level3: {
+            level4: {
+              level5: {
+                level6: {
+                  level7: {
+                    level8: {
+                      level9: null,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     });
   });
 });
