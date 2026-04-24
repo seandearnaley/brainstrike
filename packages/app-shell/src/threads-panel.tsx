@@ -1,7 +1,7 @@
 import { usePGliteDatabase } from '@brainstrike/db';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui';
 import { Button } from '@brainstrike/ui';
-import { Check, MessageSquare, Pencil, Plus, X } from 'lucide-react';
+import { Check, MessageSquare, Pencil, Plus, Trash2, X } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -69,16 +69,21 @@ function ThreadStateCard({
 }
 
 function ThreadRows({
+  onDeleteThread,
   onRenameThread,
   onSelectThread,
   selectedThreadId,
   threads,
 }: {
+  readonly onDeleteThread: (threadId: string) => Promise<void>;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
   readonly onSelectThread: (threadId: string) => void;
   readonly selectedThreadId: string | undefined;
   readonly threads: readonly AssistantMemoryThread[];
 }): ReactElement {
+  const [confirmingDeleteThreadId, setConfirmingDeleteThreadId] = useState<string | null>(null);
+  const [deletingThreadId, setDeletingThreadId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState<string>('');
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -88,6 +93,9 @@ function ThreadRows({
     <div className="space-y-2">
       {threads.map((thread) => (
         <ThreadRowItem
+          confirmingDeleteThreadId={confirmingDeleteThreadId}
+          deleteError={deleteError}
+          deletingThreadId={deletingThreadId}
           draftTitle={draftTitle}
           editingThreadId={editingThreadId}
           key={thread.id}
@@ -95,6 +103,28 @@ function ThreadRows({
             setEditingThreadId(null);
             setDraftTitle('');
             setRenameError(null);
+          }}
+          onConfirmDeleteThread={() => {
+            setDeletingThreadId(thread.id);
+            setDeleteError(null);
+            onDeleteThread(thread.id)
+              .then(() => {
+                setConfirmingDeleteThreadId(null);
+              })
+              .catch((error: unknown) => {
+                setDeleteError(error instanceof Error ? error.message : String(error));
+              })
+              .finally(() => {
+                setDeletingThreadId(null);
+              });
+          }}
+          onDeleteThreadCancel={() => {
+            setConfirmingDeleteThreadId(null);
+            setDeleteError(null);
+          }}
+          onDeleteThreadStart={() => {
+            setConfirmingDeleteThreadId(thread.id);
+            setDeleteError(null);
           }}
           onDraftTitleChange={setDraftTitle}
           onRenameThread={onRenameThread}
@@ -121,9 +151,15 @@ function ThreadRows({
 }
 
 function ThreadRowItem({
+  confirmingDeleteThreadId,
+  deletingThreadId,
+  deleteError,
   draftTitle,
   editingThreadId,
   onCancelRename,
+  onConfirmDeleteThread,
+  onDeleteThreadCancel,
+  onDeleteThreadStart,
   onDraftTitleChange,
   onRenameThread,
   onRenameThreadStart,
@@ -136,9 +172,15 @@ function ThreadRowItem({
   selectedThreadId,
   thread,
 }: {
+  readonly confirmingDeleteThreadId: string | null;
+  readonly deletingThreadId: string | null;
+  readonly deleteError: string | null;
   readonly draftTitle: string;
   readonly editingThreadId: string | null;
   readonly onCancelRename: () => void;
+  readonly onConfirmDeleteThread: () => void;
+  readonly onDeleteThreadCancel: () => void;
+  readonly onDeleteThreadStart: () => void;
   readonly onDraftTitleChange: (title: string) => void;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
   readonly onRenameThreadStart: () => void;
@@ -153,6 +195,7 @@ function ThreadRowItem({
 }): ReactElement {
   const isSelected = selectedThreadId === thread.id;
   const isEditing = editingThreadId === thread.id;
+  const isConfirmingDelete = confirmingDeleteThreadId === thread.id;
   return (
     <div
       className={`w-full rounded-lg border px-3 py-2 text-left ${
@@ -175,8 +218,14 @@ function ThreadRowItem({
         />
       ) : (
         <ThreadRowDisplay
+          deleteError={isConfirmingDelete ? deleteError : null}
+          deleting={deletingThreadId === thread.id}
+          onConfirmDeleteThread={onConfirmDeleteThread}
+          onDeleteThreadCancel={onDeleteThreadCancel}
+          onDeleteThreadStart={onDeleteThreadStart}
           onRenameThreadStart={onRenameThreadStart}
           onSelectThread={onSelectThread}
+          pendingDelete={isConfirmingDelete}
           selected={isSelected}
           thread={thread}
         />
@@ -256,13 +305,25 @@ function ThreadRenameForm({
 }
 
 function ThreadRowDisplay({
+  deleteError,
+  deleting,
+  onConfirmDeleteThread,
+  onDeleteThreadCancel,
+  onDeleteThreadStart,
   onRenameThreadStart,
   onSelectThread,
+  pendingDelete,
   selected,
   thread,
 }: {
+  readonly deleteError: string | null;
+  readonly deleting: boolean;
+  readonly onConfirmDeleteThread: () => void;
+  readonly onDeleteThreadCancel: () => void;
+  readonly onDeleteThreadStart: () => void;
   readonly onRenameThreadStart: () => void;
   readonly onSelectThread: (threadId: string) => void;
+  readonly pendingDelete: boolean;
   readonly selected: boolean;
   readonly thread: AssistantMemoryThread;
 }): ReactElement {
@@ -283,16 +344,57 @@ function ThreadRowDisplay({
           </div>
           <div className="truncate pt-1 text-[11px] text-muted-foreground">{thread.id}</div>
         </button>
-        <Button
-          aria-label={`Rename thread ${thread.title}`}
-          onClick={onRenameThreadStart}
-          size="icon"
-          type="button"
-          variant="ghost"
-        >
-          <Pencil className="h-3.5 w-3.5" />
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            aria-label={`Rename thread ${thread.title}`}
+            onClick={onRenameThreadStart}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            aria-label={`Delete thread ${thread.title}`}
+            onClick={onDeleteThreadStart}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       </div>
+      {pendingDelete ? (
+        <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
+          <p className="text-[11px] text-destructive">
+            Delete this thread and its Mastra memory rows permanently?
+          </p>
+          {deleteError ? <p className="mt-1 text-[11px] text-destructive">{deleteError}</p> : null}
+          <div className="mt-2 flex justify-end gap-2">
+            <Button
+              aria-label={`Cancel delete thread ${thread.title}`}
+              disabled={deleting}
+              onClick={onDeleteThreadCancel}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              Cancel
+            </Button>
+            <Button
+              aria-label={`Confirm delete thread ${thread.title}`}
+              disabled={deleting}
+              onClick={onConfirmDeleteThread}
+              size="sm"
+              type="button"
+              variant="destructive"
+            >
+              Delete
+            </Button>
+          </div>
+        </div>
+      ) : null}
       <ThreadMetadataBadges thread={thread} />
     </>
   );
@@ -329,6 +431,7 @@ function ThreadBadge({ children }: { readonly children: string }): ReactElement 
 
 function ThreadsPanelContent({
   loadState,
+  onDeleteThread,
   onRenameThread,
   onSelectThread,
   repository,
@@ -337,6 +440,7 @@ function ThreadsPanelContent({
   threads,
 }: {
   readonly loadState: ThreadPanelLoadState | null;
+  readonly onDeleteThread: (threadId: string) => Promise<void>;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
   readonly onSelectThread: (threadId: string) => void;
   readonly repository: AssistantThreadRepository | null;
@@ -393,6 +497,7 @@ function ThreadsPanelContent({
   }
   return (
     <ThreadRows
+      onDeleteThread={onDeleteThread}
       onRenameThread={onRenameThread}
       onSelectThread={onSelectThread}
       selectedThreadId={selectedThreadId}
@@ -416,6 +521,7 @@ export function ThreadsPanel(): ReactElement {
   const loadStateByResourceId = useAssistantThreadStore((state) => state.loadStateByResourceId);
   const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
   const createThread = useAssistantThreadStore((state) => state.createThread);
+  const deleteThread = useAssistantThreadStore((state) => state.deleteThread);
   const renameThread = useAssistantThreadStore((state) => state.renameThread);
   const selectThread = useAssistantThreadStore((state) => state.selectThread);
   const selectedThreadId = resourceId ? selectedThreadByResourceId[resourceId] : undefined;
@@ -432,6 +538,12 @@ export function ThreadsPanel(): ReactElement {
       return;
     }
     await renameThread(repository, resourceId, threadId, title);
+  };
+  const handleDeleteThread = async (threadId: string): Promise<void> => {
+    if (!(repository && resourceId)) {
+      return;
+    }
+    await deleteThread(repository, resourceId, threadId);
   };
 
   useEffect(() => {
@@ -492,6 +604,7 @@ export function ThreadsPanel(): ReactElement {
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
         <ThreadsPanelContent
           loadState={loadState}
+          onDeleteThread={handleDeleteThread}
           onRenameThread={handleRenameThread}
           onSelectThread={handleSelectThread}
           repository={repository}

@@ -21,6 +21,11 @@ interface AssistantThreadState {
     repository: AssistantThreadRepository,
     resourceId: string
   ) => Promise<AssistantMemoryThread>;
+  deleteThread: (
+    repository: AssistantThreadRepository,
+    resourceId: string,
+    threadId: string
+  ) => Promise<void>;
   draftRuntimeByThreadId: Record<string, AssistantThreadDraftRuntime>;
   ensureResourceThreads: (
     repository: AssistantThreadRepository,
@@ -125,6 +130,26 @@ function selectActiveThreadAfterClose(
   return remainingThreadIds[nextIndex] ?? remainingThreadIds.at(-1);
 }
 
+function omitRecordKey<T>(record: Record<string, T>, keyToOmit: string): Record<string, T> {
+  return Object.fromEntries(Object.entries(record).filter(([key]) => key !== keyToOmit));
+}
+
+function selectActiveThreadAfterDelete({
+  currentOpenThreadIds,
+  deletedThreadId,
+  remainingThreadIds,
+}: {
+  currentOpenThreadIds: readonly string[];
+  deletedThreadId: string;
+  remainingThreadIds: readonly string[];
+}): string | undefined {
+  const nextOpenActive = selectActiveThreadAfterClose(currentOpenThreadIds, deletedThreadId);
+  if (nextOpenActive) {
+    return nextOpenActive;
+  }
+  return remainingThreadIds[0];
+}
+
 function copyProviderSettings(
   providerSettings: Record<string, AssistantProviderSettings> | undefined
 ): Record<string, AssistantProviderSettings> | undefined {
@@ -171,11 +196,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
                   ...state.activeThreadIdByResourceId,
                   [resourceId]: nextActiveThreadId,
                 }
-              : Object.fromEntries(
-                  Object.entries(state.activeThreadIdByResourceId).filter(
-                    ([key]) => key !== resourceId
-                  )
-                ),
+              : omitRecordKey(state.activeThreadIdByResourceId, resourceId),
             openThreadIdsByResourceId: {
               ...state.openThreadIdsByResourceId,
               [resourceId]: nextOpenThreadIds,
@@ -185,11 +206,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
                   ...state.selectedThreadByResourceId,
                   [resourceId]: nextActiveThreadId,
                 }
-              : Object.fromEntries(
-                  Object.entries(state.selectedThreadByResourceId).filter(
-                    ([key]) => key !== resourceId
-                  )
-                ),
+              : omitRecordKey(state.selectedThreadByResourceId, resourceId),
           };
         });
       },
@@ -232,6 +249,69 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
             };
           });
           return thread;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          set((state) => ({
+            loadStateByResourceId: {
+              ...state.loadStateByResourceId,
+              [resourceId]: { status: 'error', error: message },
+            },
+          }));
+          throw error;
+        }
+      },
+      deleteThread: async (
+        repository: AssistantThreadRepository,
+        resourceId: string,
+        threadId: string
+      ): Promise<void> => {
+        try {
+          await repository.deleteThread(threadId);
+          set((state) => {
+            const remainingThreads = (state.threadsByResourceId[resourceId] ?? []).filter(
+              (thread) => thread.id !== threadId
+            );
+            const remainingThreadIds = remainingThreads.map((thread) => thread.id);
+            const currentOpenThreadIds = state.openThreadIdsByResourceId[resourceId] ?? [];
+            const nextOpenThreadIds = currentOpenThreadIds.filter((item) => item !== threadId);
+            const nextActiveThreadId = selectActiveThreadAfterDelete({
+              currentOpenThreadIds,
+              deletedThreadId: threadId,
+              remainingThreadIds,
+            });
+
+            return {
+              activeThreadIdByResourceId: nextActiveThreadId
+                ? {
+                    ...state.activeThreadIdByResourceId,
+                    [resourceId]: nextActiveThreadId,
+                  }
+                : omitRecordKey(state.activeThreadIdByResourceId, resourceId),
+              draftRuntimeByThreadId: omitRecordKey(state.draftRuntimeByThreadId, threadId),
+              loadStateByResourceId: {
+                ...state.loadStateByResourceId,
+                [resourceId]: { status: 'ready' },
+              },
+              openThreadIdsByResourceId: {
+                ...state.openThreadIdsByResourceId,
+                [resourceId]: nextOpenThreadIds,
+              },
+              selectedThreadByResourceId: nextActiveThreadId
+                ? {
+                    ...state.selectedThreadByResourceId,
+                    [resourceId]: nextActiveThreadId,
+                  }
+                : omitRecordKey(state.selectedThreadByResourceId, resourceId),
+              threadIdsByResourceId: {
+                ...state.threadIdsByResourceId,
+                [resourceId]: remainingThreadIds,
+              },
+              threadsByResourceId: {
+                ...state.threadsByResourceId,
+                [resourceId]: remainingThreads,
+              },
+            };
+          });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           set((state) => ({
