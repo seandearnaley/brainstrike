@@ -251,6 +251,29 @@ async function* observeDesktopAssistantRunEvents(
   queuedEvents: AssistantRunEvent[]
 ): AsyncIterable<StreamChunk> {
   let sequence = 0;
+  let persistenceError: unknown;
+  let persistenceQueue: Promise<void> = Promise.resolve();
+  const persistEvent = (event: AssistantRunEvent): void => {
+    if (persistenceError) {
+      return;
+    }
+    persistenceQueue = persistenceQueue
+      .then(() => recordDesktopAssistantRunEvent(runId, event))
+      .catch((error: unknown) => {
+        persistenceError = error;
+        logger.error('Failed to persist assistant run event', {
+          error,
+          eventId: event.id,
+          runId,
+        });
+      });
+  };
+  const flushPersistedEvents = async (): Promise<void> => {
+    await persistenceQueue;
+    if (persistenceError) {
+      throw persistenceError;
+    }
+  };
   const drainQueuedEvents = async function* (): AsyncIterable<StreamChunk> {
     while (queuedEvents.length > 0) {
       const queuedEvent = queuedEvents.shift();
@@ -263,7 +286,7 @@ async function* observeDesktopAssistantRunEvents(
         sequence: queuedEvent.sequence ?? sequence,
       };
       sequence = Math.max(sequence, (event.sequence ?? sequence) + 1);
-      await recordDesktopAssistantRunEvent(runId, event);
+      persistEvent(event);
       yield { type: 'run-event', event };
     }
   };
@@ -280,10 +303,11 @@ async function* observeDesktopAssistantRunEvents(
       sequence: chunk.event.sequence ?? sequence,
     };
     sequence = Math.max(sequence, (event.sequence ?? sequence) + 1);
-    await recordDesktopAssistantRunEvent(runId, event);
+    persistEvent(event);
     yield { type: 'run-event', event };
   }
   yield* drainQueuedEvents();
+  await flushPersistedEvents();
 }
 
 async function recordDesktopAssistantThreadRunStatus(
