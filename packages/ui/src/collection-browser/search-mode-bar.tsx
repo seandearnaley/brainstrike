@@ -191,8 +191,8 @@ export const SearchModeBar = React.memo(function SearchModeBar({
 
             <div className="relative">
               <Button
+                aria-expanded={!!isFilterVisible}
                 aria-label={filterToggleLabel}
-                aria-pressed={isFilterVisible ? 'true' : 'false'}
                 className={cn(
                   'h-9 w-9 p-0',
                   (isFilterVisible || hasActiveFilters) && 'bg-accent text-accent-foreground'
@@ -210,8 +210,8 @@ export const SearchModeBar = React.memo(function SearchModeBar({
             </div>
 
             <Button
+              aria-expanded={!!isConfigExpanded}
               aria-label="Toggle search settings"
-              aria-pressed={isConfigExpanded ? 'true' : 'false'}
               className={cn('h-9 w-9 p-0', isConfigExpanded && 'bg-accent text-accent-foreground')}
               onClick={() => onConfigExpandedChange(!isConfigExpanded)}
               size="sm"

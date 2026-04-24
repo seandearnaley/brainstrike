@@ -213,38 +213,38 @@ describe('SearchModeBar', () => {
     expect(screen.getByRole('button', { name: 'Toggle search settings' })).toBeInTheDocument();
   });
 
-  it('uses aria-pressed to reflect filter panel visibility', () => {
+  it('uses aria-expanded to reflect filter panel visibility', () => {
     render(<SearchModeBar {...createProps({ isFilterVisible: true })} />);
 
     expect(screen.getByRole('button', { name: 'Toggle filters' })).toHaveAttribute(
-      'aria-pressed',
+      'aria-expanded',
       'true'
     );
   });
 
-  it('uses aria-pressed to reflect search settings expansion', () => {
+  it('uses aria-expanded to reflect search settings expansion', () => {
     render(<SearchModeBar {...createProps({ isConfigExpanded: true })} />);
 
     expect(screen.getByRole('button', { name: 'Toggle search settings' })).toHaveAttribute(
-      'aria-pressed',
+      'aria-expanded',
       'true'
     );
   });
 
-  it('defaults filter and settings toggles to aria-pressed false', () => {
+  it('defaults filter and settings toggles to aria-expanded false', () => {
     render(<SearchModeBar {...createProps()} />);
 
     expect(screen.getByRole('button', { name: 'Toggle filters' })).toHaveAttribute(
-      'aria-pressed',
+      'aria-expanded',
       'false'
     );
     expect(screen.getByRole('button', { name: 'Toggle search settings' })).toHaveAttribute(
-      'aria-pressed',
+      'aria-expanded',
       'false'
     );
   });
 
-  it('keeps the filter toggle unpressed when filters are active but the panel is closed', () => {
+  it('keeps the filter toggle unexpanded when filters are active but the panel is closed', () => {
     render(
       <SearchModeBar
         {...createProps({
@@ -260,7 +260,7 @@ describe('SearchModeBar', () => {
     );
 
     const filterToggle = screen.getByRole('button', { name: 'Toggle filters (active)' });
-    expect(filterToggle).toHaveAttribute('aria-pressed', 'false');
+    expect(filterToggle).toHaveAttribute('aria-expanded', 'false');
     expect(filterToggle).toHaveClass('bg-accent');
   });
 
