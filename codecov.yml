@@ -6,91 +6,111 @@ coverage:
   round: down
   range: "0...100"
   status:
-    project:
-      default:
-        # PRs currently upload affected-only unit coverage, so project-wide deltas
-        # are not a reliable merge gate. Keep patch coverage blocking instead.
-        informational: true
-        only_pulls: true
-        target: 70%
-        threshold: 0.5%
+    # PRs currently upload affected-only unit coverage, so project-wide deltas
+    # are not a reliable merge gate. Keep patch coverage blocking instead.
+    project: off
     patch:
       default:
         target: 70%
         threshold: 0.5%
 
 # Organize by workspace paths so Codecov shows per-package components.
-components:
-  - name: apps-desktop
+component_management:
+  individual_components:
+  - component_id: apps-desktop
+    name: apps-desktop
     paths:
       - apps/desktop/**
-  - name: apps-web
+  - component_id: apps-web
+    name: apps-web
     paths:
       - apps/web/**
-  - name: pkg-app-shell
+  - component_id: pkg-app-shell
+    name: pkg-app-shell
     paths:
       - packages/app-shell/**
-  - name: pkg-build-utils
+  - component_id: pkg-build-utils
+    name: pkg-build-utils
     paths:
       - packages/build-utils/**
-  - name: pkg-config
+  - component_id: pkg-config
+    name: pkg-config
     paths:
       - packages/config/**
-  - name: pkg-db
+  - component_id: pkg-db
+    name: pkg-db
     paths:
       - packages/db/**
-  - name: pkg-embeddings
+  - component_id: pkg-embeddings
+    name: pkg-embeddings
     paths:
       - packages/embeddings/**
-  - name: pkg-file-explorer
+  - component_id: pkg-file-explorer
+    name: pkg-file-explorer
     paths:
       - packages/file-explorer/**
-  - name: pkg-file-explorer-hooks
+  - component_id: pkg-file-explorer-hooks
+    name: pkg-file-explorer-hooks
     paths:
       - packages/file-explorer-hooks/**
-  - name: pkg-file-explorer-ui
+  - component_id: pkg-file-explorer-ui
+    name: pkg-file-explorer-ui
     paths:
       - packages/file-explorer-ui/**
-  - name: pkg-file-import
+  - component_id: pkg-file-import
+    name: pkg-file-import
     paths:
       - packages/file-import/**
-  - name: pkg-file-system
+  - component_id: pkg-file-system
+    name: pkg-file-system
     paths:
       - packages/file-system/**
-  - name: pkg-fonts
+  - component_id: pkg-fonts
+    name: pkg-fonts
     paths:
       - packages/fonts/**
-  - name: pkg-hooks
+  - component_id: pkg-hooks
+    name: pkg-hooks
     paths:
       - packages/hooks/**
-  - name: pkg-platform-utils
+  - component_id: pkg-platform-utils
+    name: pkg-platform-utils
     paths:
       - packages/platform-utils/**
-  - name: pkg-server-config
+  - component_id: pkg-server-config
+    name: pkg-server-config
     paths:
       - packages/server-config/**
-  - name: pkg-storage
+  - component_id: pkg-storage
+    name: pkg-storage
     paths:
       - packages/storage/**
-  - name: pkg-tailwind-config
+  - component_id: pkg-tailwind-config
+    name: pkg-tailwind-config
     paths:
       - packages/tailwind-config/**
-  - name: pkg-test-utils
+  - component_id: pkg-test-utils
+    name: pkg-test-utils
     paths:
       - packages/test-utils/**
-  - name: pkg-tsconfig
+  - component_id: pkg-tsconfig
+    name: pkg-tsconfig
     paths:
       - packages/tsconfig/**
-  - name: pkg-types
+  - component_id: pkg-types
+    name: pkg-types
     paths:
       - packages/types/**
-  - name: pkg-ui
+  - component_id: pkg-ui
+    name: pkg-ui
     paths:
       - packages/ui/**
-  - name: pkg-utils
+  - component_id: pkg-utils
+    name: pkg-utils
     paths:
       - packages/utils/**
-  - name: pkg-workers
+  - component_id: pkg-workers
+    name: pkg-workers
     paths:
       - packages/workers/**
 

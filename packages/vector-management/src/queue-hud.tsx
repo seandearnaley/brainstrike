@@ -121,7 +121,6 @@ function QueueHudStatusBar({
     <div className="flex items-center gap-2 text-[10px]" data-testid="status-bar-queue">
       <Tooltip>
         <TooltipTrigger asChild>
-          {/* biome-ignore lint/a11y/useSemanticElements: Status text isn't a form calculation result. */}
           <div
             aria-label={`Embedding queue: ${queued} queued, ${running} running, ${failed} failed, ${succeeded} succeeded`}
             aria-live="polite"

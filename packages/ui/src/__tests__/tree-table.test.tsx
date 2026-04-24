@@ -615,6 +615,39 @@ describe('TreeTable', () => {
       );
     });
 
+    it('does not inset root expand buttons by default', () => {
+      const nodes: TreeNode<TestData>[] = [createTestNode('1', 'Folder', null, true)];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const expandButton = screen.getByRole('button', { name: /expand/i });
+      expect(expandButton.parentElement).not.toHaveClass('pl-1');
+    });
+
+    it('insets root expand buttons when tree control inset is enabled', () => {
+      const nodes: TreeNode<TestData>[] = [createTestNode('1', 'Folder', null, true)];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          insetTreeControls
+          nodes={nodes}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const expandButton = screen.getByRole('button', { name: /expand/i });
+      expect(expandButton.parentElement).toHaveClass('pl-1');
+    });
+
     it('calls onToggleExpand when expand button clicked', () => {
       const handleToggle = vi.fn();
       const nodes: TreeNode<TestData>[] = [createTestNode('1', 'Folder', null, true)];

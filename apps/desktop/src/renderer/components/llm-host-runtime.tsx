@@ -236,6 +236,7 @@ export function LlmHostRuntime(): null {
   const abortControllersRef = useRef(new Map<string, AbortController>());
   const activeRequestCountRef = useRef(0);
 
+  // biome-ignore lint/plugin: Hidden renderer host lifecycle wires external IPC request handling.
   useEffect(() => {
     logger.info('Llm host runtime booted', {
       runtimeId: runtimeIdRef.current,

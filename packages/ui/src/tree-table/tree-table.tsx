@@ -497,6 +497,7 @@ export function TreeTable<T>({
   ariaRole = 'treegrid',
   showHeader = true,
   showCheckbox = false,
+  insetTreeControls = false,
   onRowDoubleClick,
   onRowContextMenu,
 }: TreeTableProps<T>) {
@@ -946,6 +947,7 @@ export function TreeTable<T>({
                       checkboxState={checkboxStates.get(row.node.id) ?? 'unchecked'}
                       className={getRowClassName(row.node)}
                       columns={columns}
+                      insetTreeControls={insetTreeControls}
                       isFocused={keyboard.state.focusedId === row.node.id}
                       key={row.node.id}
                       measureRef={measureRow}
@@ -967,6 +969,7 @@ export function TreeTable<T>({
                     checkboxState={checkboxStates.get(row.node.id) ?? 'unchecked'}
                     className={getRowClassName(row.node)}
                     columns={columns}
+                    insetTreeControls={insetTreeControls}
                     isFocused={keyboard.state.focusedId === row.node.id}
                     key={row.node.id}
                     onCheckboxChange={showCheckbox ? handleCheckboxChange : undefined}

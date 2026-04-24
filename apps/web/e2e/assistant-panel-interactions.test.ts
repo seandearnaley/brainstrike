@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { mockAssistantApi } from './utils/assistant-mocks';
-import { waitForAppLoad } from './utils/layout-helpers';
-import { mockBrowserApis } from './utils/mock-fs';
+import { openAssistantWorkspace } from './utils/assistant-workspace';
 
 test.describe('Assistant panel interactions (assistant-ui)', () => {
   test.beforeEach(async ({ request }, testInfo) => {
@@ -14,10 +13,10 @@ test.describe('Assistant panel interactions (assistant-ui)', () => {
 
   test.beforeEach(async ({ page }) => {
     await mockAssistantApi(page);
-    await page.goto('/');
-    await waitForAppLoad(page);
-    // Enable clipboard mocking for copy tests
-    await mockBrowserApis(page, 'test-root', {}, { clipboard: true });
+    await openAssistantWorkspace(page, {
+      clipboard: true,
+      rootName: 'assistant-panel-interactions',
+    });
   });
 
   test('stop streaming, retry, and long-stream stop smoke', async ({ page }) => {

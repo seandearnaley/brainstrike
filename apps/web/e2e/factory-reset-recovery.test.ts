@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/web-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
@@ -6,11 +7,23 @@ import { waitForAppLoad } from './utils/layout-helpers';
 
 const TOKEN_PREFERENCES_STORAGE_KEY = 'token-preferences.v1';
 
-async function openTokenCountingSettings(page: import('@playwright/test').Page): Promise<void> {
+async function openTokenCountingSettings(page: Page): Promise<void> {
   const home = new HomePage(page);
   const settings = new SettingsPage(page);
   await home.navigateToSettings();
   await settings.openCategory(/Token Counting/i, 'token-counting');
+}
+
+async function confirmFactoryResetAndWaitForReload(page: Page): Promise<void> {
+  const reloadPromise = page.waitForEvent('load');
+  await Promise.all([
+    page.waitForEvent('dialog').then(async (dialog) => {
+      await dialog.accept();
+    }),
+    page.getByTestId('factory-reset-button').click(),
+  ]);
+  await reloadPromise;
+  await waitForAppLoad(page);
 }
 
 test.describe('Factory Reset recovery (web)', () => {
@@ -63,12 +76,7 @@ test.describe('Factory Reset recovery (web)', () => {
     await expect(tokenToggle).toHaveAttribute('aria-checked', 'false');
 
     await settings.openCategory(/Factory Reset/i, 'factory-reset');
-    await Promise.all([
-      page.waitForEvent('dialog').then(async (dialog) => {
-        await dialog.accept();
-      }),
-      page.getByTestId('factory-reset-button').click(),
-    ]);
+    await confirmFactoryResetAndWaitForReload(page);
     await expect
       .poll(
         async () =>
@@ -80,10 +88,6 @@ test.describe('Factory Reset recovery (web)', () => {
       )
       .toBeNull();
 
-    // Same-URL reloads are not guaranteed to surface a reliable framenavigated signal
-    // in Playwright here, so reload explicitly after the reset side effects land.
-    await page.reload({ waitUntil: 'load' });
-    await waitForAppLoad(page);
     await openTokenCountingSettings(page);
 
     await expect(page.getByTestId('token-counting-accurate-toggle')).toHaveAttribute(
