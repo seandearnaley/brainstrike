@@ -5,10 +5,9 @@ import {
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   type AssistantRunEvent,
-  type AssistantRunEventJson,
   type AssistantRunEventKind,
-  type AssistantRunEventMetadata,
   type AssistantRunEventStatus,
+  sanitizeAssistantRunEventMetadata,
 } from '@brainstrike/agent/run-events';
 import type { DbHandle } from '@brainstrike/db';
 import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/ui/assistant-ui-panel';
@@ -314,23 +313,6 @@ const ASSISTANT_RUN_EVENT_STATUSES = new Set<AssistantRunEventStatus>([
   'running',
 ]);
 
-const REDACTED_EVENT_METADATA_KEYS = new Set([
-  'apikey',
-  'api_key',
-  'authorization',
-  'content',
-  'cookie',
-  'memory',
-  'output',
-  'password',
-  'prompt',
-  'reasoning',
-  'result',
-  'secret',
-  'text',
-  'token',
-]);
-
 function requireRunEventKind(value: unknown): AssistantRunEventKind {
   if (typeof value === 'string' && ASSISTANT_RUN_EVENT_KINDS.has(value as AssistantRunEventKind)) {
     return value as AssistantRunEventKind;
@@ -352,42 +334,9 @@ function isFiniteInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value);
 }
 
-function sanitizeRunEventMetadataValue(value: unknown): AssistantRunEventJson {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
-    return value;
-  }
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? value : null;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizeRunEventMetadataValue(item));
-  }
-  if (isRecord(value)) {
-    const sanitized: Record<string, AssistantRunEventJson> = {};
-    for (const [key, nested] of Object.entries(value)) {
-      const normalizedKey = key.toLowerCase();
-      sanitized[key] = REDACTED_EVENT_METADATA_KEYS.has(normalizedKey)
-        ? '[redacted]'
-        : sanitizeRunEventMetadataValue(nested);
-    }
-    return sanitized;
-  }
-  return null;
-}
-
-function sanitizeRunEventMetadata(
-  metadata: Record<string, unknown> | undefined
-): AssistantRunEventMetadata | undefined {
-  if (!metadata) {
-    return;
-  }
-  const sanitized = sanitizeRunEventMetadataValue(metadata);
-  return isRecord(sanitized) ? sanitized : undefined;
-}
-
 function toThreadRunEvent(row: Record<string, unknown>): AssistantRunEvent {
   const metadata = optionalJsonRecord(row['metadata']);
-  const sanitizedMetadata = sanitizeRunEventMetadata(metadata);
+  const sanitizedMetadata = sanitizeAssistantRunEventMetadata(metadata);
   const detail = nullableString(row['detail']);
   const durationRaw = getRowValue(row, 'durationMs', 'duration_ms');
   const durationMs = isFiniteInteger(durationRaw) ? durationRaw : undefined;
@@ -482,6 +431,8 @@ function toHistoryRepository(
       continue;
     }
 
+    // This compatibility view attaches persisted run summaries to the latest
+    // assistant message until run records carry a durable message id.
     const dataParts = runEvents.map((event) => ({
       type: 'data' as const,
       name: ASSISTANT_RUN_EVENT_DATA_NAME,
@@ -631,7 +582,7 @@ export function createPgliteAssistantThreadRepository(
         throw new Error('Assistant run event sequence must be a non-negative safe integer.');
       }
       const occurredAt = normalizeDate(event.timestamp);
-      const sanitizedMetadata = sanitizeRunEventMetadata(event.metadata);
+      const sanitizedMetadata = sanitizeAssistantRunEventMetadata(event.metadata);
       const now = new Date();
       await database.query(
         `INSERT INTO ${ASSISTANT_RUN_EVENTS_TABLE}

@@ -202,6 +202,7 @@ export {
   type AssistantRunEventKind,
   type AssistantRunEventMetadata,
   type AssistantRunEventStatus,
+  sanitizeAssistantRunEventMetadata,
 } from './run-events';
 export {
   AssistantDataStreamSession,

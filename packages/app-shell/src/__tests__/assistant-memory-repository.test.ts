@@ -239,6 +239,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
       metadata: {
         threadId: 'thread-1',
         apiKey: 'secret-key',
+        'api-key': 'hyphenated-secret',
         result: { content: 'full tool output' },
       },
     });
@@ -266,8 +267,6 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     );
     expect(JSON.parse(String(metadataParam))).toEqual({
       threadId: 'thread-1',
-      apiKey: '[redacted]',
-      result: '[redacted]',
     });
   });
 

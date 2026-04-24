@@ -56,6 +56,7 @@ vi.mock('@brainstrike/agent', () => ({
   },
   convertAssistantUiMessages: vi.fn((messages) => messages),
   resolveDataStreamSession: vi.fn(() => {}),
+  sanitizeAssistantRunEventMetadata: vi.fn((metadata) => metadata),
   toAiSdkStyleStream: vi.fn(async () => ({
     async *[Symbol.asyncIterator]() {
       yield { type: 'text', content: 'test' };
@@ -985,7 +986,18 @@ describe('assistant-server', () => {
               kind: 'run.started',
               label: 'Assistant run started',
               status: 'running',
+              sequence: 5,
               timestamp: '2026-04-24T10:00:00.000Z',
+            },
+          };
+          yield {
+            type: 'run-event',
+            event: {
+              id: 'event-2',
+              kind: 'run.step.started',
+              label: 'Step started',
+              status: 'running',
+              timestamp: '2026-04-24T10:00:01.000Z',
             },
           };
           yield { type: 'text-delta', value: 'Response' };
@@ -1033,7 +1045,11 @@ describe('assistant-server', () => {
 
       expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO brainstrike_assistant_run_events'),
-        expect.arrayContaining(['event-1', 'run-1', 0, 'run.started', 'running'])
+        expect.arrayContaining(['event-1', 'run-1', 5, 'run.started', 'running'])
+      );
+      expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO brainstrike_assistant_run_events'),
+        expect.arrayContaining(['event-2', 'run-1', 6, 'run.step.started', 'running'])
       );
     });
 

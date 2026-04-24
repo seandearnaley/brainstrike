@@ -402,7 +402,7 @@
 
 .bs-thread[data-history-collapsed="true"]
   .aui-thread-viewport
-  > :where(.aui-user-message-root, .aui-assistant-message-root):nth-last-of-type(n + 9) {
+  > :where(.aui-user-message-root, .aui-assistant-message-root):nth-last-child(n + 9) {
   display: none;
 }
 

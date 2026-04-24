@@ -15,6 +15,7 @@ import {
   convertAssistantUiMessages,
   isSupportedProvider,
   resolveDataStreamSession,
+  sanitizeAssistantRunEventMetadata,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
@@ -261,7 +262,7 @@ async function* observeDesktopAssistantRunEvents(
         runId,
         sequence: queuedEvent.sequence ?? sequence,
       };
-      sequence += 1;
+      sequence = Math.max(sequence, (event.sequence ?? sequence) + 1);
       await recordDesktopAssistantRunEvent(runId, event);
       yield { type: 'run-event', event };
     }
@@ -278,7 +279,7 @@ async function* observeDesktopAssistantRunEvents(
       runId,
       sequence: chunk.event.sequence ?? sequence,
     };
-    sequence += 1;
+    sequence = Math.max(sequence, (event.sequence ?? sequence) + 1);
     await recordDesktopAssistantRunEvent(runId, event);
     yield { type: 'run-event', event };
   }
@@ -1016,6 +1017,8 @@ async function getDesktopMastraMemory(
   if (runId) {
     const database = await getDatabase();
     const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+    // Run-scoped memory instances intentionally bypass the shared cache so the
+    // per-run event sink cannot leak observability events across concurrent runs.
     return createPgliteMastraMemory({
       database,
       ...(eventSink ? { eventSink } : {}),
@@ -1058,39 +1061,6 @@ function evictOldestDesktopMastraMemoryPromise(): void {
 
 function stableJsonStringify(value: unknown): string {
   return JSON.stringify(sortJsonValue(value));
-}
-
-const UNSAFE_RUN_EVENT_METADATA_KEYS = new Set([
-  'apikey',
-  'api_key',
-  'authorization',
-  'content',
-  'cookie',
-  'memory',
-  'output',
-  'password',
-  'prompt',
-  'reasoning',
-  'result',
-  'secret',
-  'text',
-  'token',
-]);
-
-function sanitizeAssistantRunEventMetadata(
-  metadata: AssistantRunEvent['metadata'] | undefined
-): AssistantRunEvent['metadata'] | undefined {
-  if (!metadata) {
-    return;
-  }
-  const entries = Object.entries(metadata).flatMap(([key, value]) => {
-    const normalizedKey = key.toLowerCase().replaceAll(/[^a-z0-9]/g, '');
-    if (UNSAFE_RUN_EVENT_METADATA_KEYS.has(normalizedKey)) {
-      return [];
-    }
-    return [[key, value] as const];
-  });
-  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 function sortJsonValue(value: unknown): unknown {
