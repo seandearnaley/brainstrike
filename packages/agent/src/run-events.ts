@@ -62,6 +62,36 @@ export interface AssistantRunEvent {
 
 export type AssistantRunEventSink = (event: AssistantRunEvent) => Promise<void> | void;
 
+export function emitAssistantRunEventSafely(input: {
+  readonly event: {
+    readonly detail?: string;
+    readonly durationMs?: number;
+    readonly kind: AssistantRunEventKind;
+    readonly label: string;
+    readonly metadata?: AssistantRunEventMetadata;
+    readonly status: AssistantRunEventStatus;
+  };
+  readonly eventSink: AssistantRunEventSink | undefined;
+  readonly onError: (error: unknown, event: AssistantRunEvent) => void;
+  readonly runId: string | undefined;
+}): void {
+  if (!(input.eventSink && input.runId)) {
+    return;
+  }
+
+  const event = createAssistantRunEvent({
+    ...input.event,
+    runId: input.runId,
+  });
+  try {
+    void Promise.resolve(input.eventSink(event)).catch((error: unknown) => {
+      input.onError(error, event);
+    });
+  } catch (error) {
+    input.onError(error, event);
+  }
+}
+
 // These exact normalized keys are treated as unsafe raw payload names. Composite
 // summary keys like memoryHitCount or tokenCount are intentionally allowed
 // unless they match a credential fragment below.

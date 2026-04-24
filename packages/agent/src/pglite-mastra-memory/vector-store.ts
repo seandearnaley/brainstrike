@@ -12,7 +12,7 @@ import type {
   UpsertVectorParams,
 } from '@mastra/core/vector';
 import { MastraVector } from '@mastra/core/vector';
-import { type AssistantRunEventSink, createAssistantRunEvent } from '../run-events';
+import { type AssistantRunEventSink, emitAssistantRunEventSafely } from '../run-events';
 import { MASTRA_VECTOR_TABLE } from './sql';
 import type { PgliteDatabase, PgliteQueryValue } from './types';
 
@@ -532,35 +532,23 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
     label: string,
     metadata: Record<string, string | number>
   ): void {
-    if (!(this.eventSink && this.runId)) {
-      return;
-    }
-    try {
-      void Promise.resolve(
-        this.eventSink(
-          createAssistantRunEvent({
-            kind,
-            label,
-            metadata,
-            runId: this.runId,
-            status: kind.endsWith('.started') ? 'running' : 'completed',
-          })
-        )
-      ).catch((error) => {
+    emitAssistantRunEventSafely({
+      event: {
+        kind,
+        label,
+        metadata,
+        status: kind.endsWith('.started') ? 'running' : 'completed',
+      },
+      eventSink: this.eventSink,
+      onError: (error, event) => {
         logger.error('Assistant run event sink failed during vector operation', {
           code: 'assistant_run_event_sink_failed',
           error: getErrorMessage(error),
-          kind,
-          runId: this.runId,
+          kind: event.kind,
+          runId: event.runId,
         });
-      });
-    } catch (error) {
-      logger.error('Assistant run event sink failed during vector operation', {
-        code: 'assistant_run_event_sink_failed',
-        error: getErrorMessage(error),
-        kind,
-        runId: this.runId,
-      });
-    }
+      },
+      runId: this.runId,
+    });
   }
 }

@@ -251,12 +251,14 @@ async function* observeDesktopAssistantRunEvents(
   queuedEvents: AssistantRunEvent[]
 ): AsyncIterable<StreamChunk> {
   let sequence = 0;
+  let persistenceErrorCount = 0;
   let persistenceError: unknown;
   let persistenceQueue: Promise<void> = Promise.resolve();
   const persistEvent = (event: AssistantRunEvent): void => {
     persistenceQueue = persistenceQueue
       .then(() => recordDesktopAssistantRunEvent(runId, event))
       .catch((error: unknown) => {
+        persistenceErrorCount += 1;
         persistenceError ??= error;
         logger.error('Failed to persist assistant run event', {
           error,
@@ -268,6 +270,14 @@ async function* observeDesktopAssistantRunEvents(
   const flushPersistedEvents = async (): Promise<void> => {
     await persistenceQueue;
     if (persistenceError) {
+      if (persistenceErrorCount > 1) {
+        logger.error('Multiple assistant run events failed to persist', {
+          firstError: persistenceError,
+          failureCount: persistenceErrorCount,
+          runId,
+          suppressedFailureCount: persistenceErrorCount - 1,
+        });
+      }
       throw persistenceError;
     }
   };
