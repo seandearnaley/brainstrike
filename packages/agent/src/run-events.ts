@@ -62,6 +62,9 @@ export interface AssistantRunEvent {
 
 export type AssistantRunEventSink = (event: AssistantRunEvent) => Promise<void> | void;
 
+// These exact normalized keys are treated as unsafe raw payload names. Composite
+// summary keys like memoryHitCount or tokenCount are intentionally allowed
+// unless they match a credential fragment below.
 const UNSAFE_RUN_EVENT_METADATA_KEYS = new Set([
   'apikey',
   'authorization',

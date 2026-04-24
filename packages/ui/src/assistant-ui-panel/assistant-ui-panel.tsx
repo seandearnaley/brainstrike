@@ -356,7 +356,7 @@ const ThreadHistoryControl: FC<{
   }
 
   return (
-    <div className="bs-history-control">
+    <div aria-live="polite" className="bs-history-control" data-testid="assistant-history-control">
       <button
         aria-expanded={expanded}
         className="bs-history-control-button"

@@ -311,6 +311,10 @@ test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
       });
     }
 
+    await expect(page.getByTestId('assistant-history-control')).toHaveAttribute(
+      'aria-live',
+      'polite'
+    );
     const historyToggle = page.getByTestId('assistant-history-toggle');
     await expect(historyToggle).toContainText('2 previous messages');
     await expect(longUserMessage).toBeHidden();
