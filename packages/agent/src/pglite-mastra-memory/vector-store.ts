@@ -345,7 +345,7 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
         updated_at = now()`,
       values
     );
-    await this.emitRunEvent('memory.semantic.completed', 'Semantic memory indexed', {
+    this.emitRunEvent('memory.semantic.completed', 'Semantic memory indexed', {
       count: resultIds.length,
       indexName,
     });
@@ -387,7 +387,7 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
     }
     values.push(topK);
     const limitParam = `$${values.length}`;
-    await this.emitRunEvent('memory.semantic.started', 'Semantic memory search started', {
+    this.emitRunEvent('memory.semantic.started', 'Semantic memory search started', {
       indexName,
       topK,
     });
@@ -415,7 +415,7 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
       }
       return queryResult;
     });
-    await this.emitRunEvent('memory.semantic.completed', 'Semantic memory search completed', {
+    this.emitRunEvent('memory.semantic.completed', 'Semantic memory search completed', {
       count: rows.length,
       indexName,
       topK,
@@ -527,11 +527,11 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
     };
   }
 
-  private async emitRunEvent(
+  private emitRunEvent(
     kind: 'memory.semantic.completed' | 'memory.semantic.started',
     label: string,
     metadata: Record<string, string | number>
-  ): Promise<void> {
+  ): void {
     if (!(this.eventSink && this.runId)) {
       return;
     }
