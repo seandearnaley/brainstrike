@@ -30,6 +30,18 @@ describe('SearchModeBar', () => {
     expect(screen.queryByRole('textbox', { name: 'Hybrid search query' })).not.toBeInTheDocument();
   });
 
+  it('pluralizes the hybrid search result count', () => {
+    const { rerender } = render(
+      <SearchModeBar {...createProps({ hasSearched: true, resultCount: 1 })} />
+    );
+
+    expect(screen.getByText('1 result')).toBeInTheDocument();
+
+    rerender(<SearchModeBar {...createProps({ hasSearched: true, resultCount: 2 })} />);
+
+    expect(screen.getByText('2 results')).toBeInTheDocument();
+  });
+
   it('calls onSearchExpandedChange when the hybrid search trigger is clicked', () => {
     const onSearchExpandedChange = vi.fn();
     render(<SearchModeBar {...createProps({ onSearchExpandedChange })} />);

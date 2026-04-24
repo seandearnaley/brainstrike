@@ -36,6 +36,7 @@ export const CollectionBrowserToolbar = React.memo(function CollectionBrowserToo
     return (
       filters.searchQuery !== '' ||
       filters.nodeTypes.size !== DEFAULT_FILTERS.nodeTypes.size ||
+      Array.from(DEFAULT_FILTERS.nodeTypes).some((nodeType) => !filters.nodeTypes.has(nodeType)) ||
       filters.embeddingStatus !== 'all'
     );
   }, [filters]);

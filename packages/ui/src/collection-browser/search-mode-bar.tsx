@@ -91,7 +91,9 @@ export const SearchModeBar = React.memo(function SearchModeBar({
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-2 text-muted-foreground text-xs">
-          {hasSearched && resultCount !== undefined ? `${resultCount} results` : null}
+          {hasSearched && resultCount !== undefined
+            ? `${resultCount} result${resultCount === 1 ? '' : 's'}`
+            : null}
           {isSearchExpanded ? (
             <ChevronUp className="h-4 w-4" />
           ) : (

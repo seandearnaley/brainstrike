@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { CollectionBrowserToolbar } from '../collection-browser/collection-browser-toolbar';
+import type { CollectionNodeType } from '../collection-browser/types';
 
 describe('CollectionBrowserToolbar', () => {
   it('renders grid controls as icon buttons at the collection level', () => {
@@ -56,6 +57,30 @@ describe('CollectionBrowserToolbar', () => {
     const multiSelectToggle = screen.getByRole('button', { name: 'Toggle multi-select' });
     expect(multiSelectToggle).toHaveAttribute('aria-pressed', 'true');
     expect(multiSelectToggle).toHaveClass('bg-accent');
+  });
+
+  it('marks filters active when node type membership changes without changing size', () => {
+    render(
+      <CollectionBrowserToolbar
+        filters={{
+          embeddingStatus: 'all',
+          nodeTypes: new Set<CollectionNodeType>([
+            'file',
+            'chunk',
+            'embedding',
+            'unknown' as CollectionNodeType,
+          ]),
+          searchMatchesOnly: false,
+          searchQuery: '',
+        }}
+        isFilterVisible={false}
+        onFilterVisibleChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: 'Toggle filters (active)' })).toHaveClass(
+      'bg-accent'
+    );
   });
 
   it('calls toolbar toggle handlers with the next state', () => {

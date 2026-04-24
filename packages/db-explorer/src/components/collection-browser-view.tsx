@@ -639,7 +639,7 @@ export function CollectionBrowserView({
   const hasActiveCollection = activeCollectionId !== null;
   const hasScopedSemanticSearch = hasActiveCollection && hasSearched;
   const scopedSearchResults = useMemo(() => {
-    if (!hasActiveCollection) {
+    if (activeCollectionId === null) {
       return [];
     }
     return searchResults.filter((result) => result.embeddingSetId === activeCollectionId);
