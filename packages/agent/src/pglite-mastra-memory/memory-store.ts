@@ -1415,7 +1415,14 @@ export class PgliteMemoryStore extends MemoryStorage {
       ...(metadata ? { metadata } : {}),
     };
     try {
-      await this.eventSink(createAssistantRunEvent(eventInput));
+      void Promise.resolve(this.eventSink(createAssistantRunEvent(eventInput))).catch((error) => {
+        logger.error('Assistant run event sink failed during memory operation', {
+          code: 'assistant_run_event_sink_failed',
+          error: getErrorMessage(error),
+          kind,
+          runId: this.runId,
+        });
+      });
     } catch (error) {
       logger.error('Assistant run event sink failed during memory operation', {
         code: 'assistant_run_event_sink_failed',

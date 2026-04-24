@@ -3,6 +3,17 @@ import { vector } from '@electric-sql/pglite/vector';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PgliteVectorStore } from '../vector-store';
 
+function createDeferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T | PromiseLike<T>) => void;
+} {
+  let resolve: (value: T | PromiseLike<T>) => void = () => {};
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
 describe('PgliteVectorStore', () => {
   let db: PGlite;
   let store: PgliteVectorStore;
@@ -178,6 +189,25 @@ describe('PgliteVectorStore', () => {
         vectors: [[1, 0, 0]],
       })
     ).resolves.toEqual(['message-a']);
+  });
+
+  it('does not await slow run-event emission on vector upsert paths', async () => {
+    const releaseSink = createDeferred<void>();
+    const observedStore = new PgliteVectorStore({
+      database: db,
+      eventSink: () => releaseSink.promise,
+      runId: 'run-1',
+    });
+    await observedStore.createIndex({ indexName: 'memory_messages', dimension: 3 });
+
+    await expect(
+      observedStore.upsert({
+        ids: ['message-a'],
+        indexName: 'memory_messages',
+        vectors: [[1, 0, 0]],
+      })
+    ).resolves.toEqual(['message-a']);
+    releaseSink.resolve();
   });
 
   it('rejects non-finite vector values returned from storage', async () => {

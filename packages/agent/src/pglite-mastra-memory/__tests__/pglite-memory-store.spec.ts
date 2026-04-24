@@ -4,6 +4,17 @@ import type { ObservationalMemoryRecord } from '@mastra/core/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PgliteMemoryStore } from '../memory-store';
 
+function createDeferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T | PromiseLike<T>) => void;
+} {
+  let resolve: (value: T | PromiseLike<T>) => void = () => {};
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
 describe('PgliteMemoryStore', () => {
   let db: PGlite;
   let store: PgliteMemoryStore;
@@ -225,6 +236,32 @@ describe('PgliteMemoryStore', () => {
     ).resolves.toMatchObject({
       messages: [],
     });
+  });
+
+  it('does not await slow run-event emission on memory read paths', async () => {
+    const releaseSink = createDeferred<void>();
+    const observedStore = new PgliteMemoryStore({
+      database: db,
+      eventSink: () => releaseSink.promise,
+      runId: 'run-1',
+    });
+    await observedStore.initialize();
+    await observedStore.saveThread({
+      thread: {
+        id: 'thread-1',
+        resourceId: 'workspace-a',
+        title: 'Memory thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+
+    await expect(
+      observedStore.listMessages({ threadId: 'thread-1', perPage: false })
+    ).resolves.toMatchObject({
+      messages: [],
+    });
+    releaseSink.resolve();
   });
 
   it('updates messages in one batched read-write cycle', async () => {

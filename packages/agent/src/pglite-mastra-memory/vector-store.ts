@@ -536,15 +536,24 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
       return;
     }
     try {
-      await this.eventSink(
-        createAssistantRunEvent({
+      void Promise.resolve(
+        this.eventSink(
+          createAssistantRunEvent({
+            kind,
+            label,
+            metadata,
+            runId: this.runId,
+            status: kind.endsWith('.started') ? 'running' : 'completed',
+          })
+        )
+      ).catch((error) => {
+        logger.error('Assistant run event sink failed during vector operation', {
+          code: 'assistant_run_event_sink_failed',
+          error: getErrorMessage(error),
           kind,
-          label,
-          metadata,
           runId: this.runId,
-          status: kind.endsWith('.started') ? 'running' : 'completed',
-        })
-      );
+        });
+      });
     } catch (error) {
       logger.error('Assistant run event sink failed during vector operation', {
         code: 'assistant_run_event_sink_failed',
