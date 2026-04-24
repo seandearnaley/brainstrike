@@ -333,10 +333,14 @@ test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
     const tabStrip = page.getByTestId('assistant-thread-tab-strip');
     const tabScroll = page.getByTestId('assistant-thread-tab-scroll');
     const tabList = page.getByRole('tablist', { name: 'Open assistant threads' });
+    const scrollLeftButton = page.getByTestId('assistant-tabs-scroll-left');
+    const scrollRightButton = page.getByTestId('assistant-tabs-scroll-right');
     const newThreadButton = page.getByTestId('assistant-new-thread-button');
 
     await expect(tabStrip).toBeVisible();
     await expect(tabScroll).toBeVisible();
+    await expect(scrollLeftButton).toBeVisible();
+    await expect(scrollRightButton).toBeVisible();
     await expect(newThreadButton).toBeVisible();
 
     const initialTabCount = await tabList.getByRole('tab').count();
@@ -359,6 +363,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
       scrollWidth: element.scrollWidth,
     }));
     expect(scrollMetrics.scrollWidth).toBeGreaterThan(scrollMetrics.clientWidth);
+    await expect(scrollRightButton).toBeEnabled();
 
     const overflowButtonBox = await newThreadButton.boundingBox();
     const overflowFirstTabBox = await tabList.getByRole('tab').first().boundingBox();
@@ -376,6 +381,20 @@ test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
     expect(Math.abs(overflowFirstTabBox.y - initialFirstTabBox.y)).toBeLessThan(2);
     expect(Math.abs(overflowFirstTabBox.height - initialFirstTabBox.height)).toBeLessThan(2);
     expect(overflowButtonBox.x).toBeGreaterThanOrEqual(tabListBox.x + tabListBox.width);
+
+    const beforeButtonScrollLeft = await tabScroll.evaluate((element) => element.scrollLeft);
+    await scrollRightButton.click();
+    await expect
+      .poll(() => tabScroll.evaluate((element) => element.scrollLeft))
+      .toBeGreaterThan(beforeButtonScrollLeft);
+    await expect(scrollLeftButton).toBeEnabled();
+
+    await tabScroll.evaluate((element) => {
+      element.scrollLeft = 0;
+    });
+    await tabScroll.hover();
+    await page.mouse.wheel(0, 240);
+    await expect.poll(() => tabScroll.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
 
     await tabScroll.evaluate((element) => {
       element.scrollLeft = element.scrollWidth;

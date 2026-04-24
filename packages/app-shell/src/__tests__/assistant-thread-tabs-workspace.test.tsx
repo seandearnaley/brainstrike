@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantThreadStore } from '../assistant-thread-store';
@@ -155,6 +155,30 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(tabStrip).toContainElement(newThreadButton);
     expect(tabList).toContainElement(firstTab);
     expect(within(tabList).queryByRole('button', { name: 'New assistant thread' })).toBeNull();
+    expect(
+      within(tabList).queryByRole('button', { name: 'Scroll assistant tabs left' })
+    ).toBeNull();
+    expect(
+      within(tabList).queryByRole('button', { name: 'Scroll assistant tabs right' })
+    ).toBeNull();
+  });
+
+  it('scrolls the tab lane when vertical wheel input lands over the tabs', async () => {
+    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
+    });
+
+    const tabScroll = screen.getByTestId('assistant-thread-tab-scroll');
+    Object.defineProperties(tabScroll, {
+      clientWidth: { configurable: true, value: 240 },
+      scrollWidth: { configurable: true, value: 720 },
+    });
+
+    fireEvent.wheel(tabScroll, { deltaX: 0, deltaY: 96 });
+
+    expect(tabScroll.scrollLeft).toBe(96);
   });
 
   it('closes tabs without deleting durable thread history', async () => {
