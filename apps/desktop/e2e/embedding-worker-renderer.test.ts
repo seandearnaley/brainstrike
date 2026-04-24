@@ -104,6 +104,19 @@ async function waitForAppReadyInTest(page: Page): Promise<void> {
   await waitForAppReady(page);
 }
 
+async function getHybridSearchBox(page: Page): Promise<Locator> {
+  const toggle = page.getByRole('button', { name: 'Hybrid search' });
+  await expect(toggle).toBeVisible({ timeout: 15_000 });
+
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+    await toggle.click();
+  }
+
+  const searchBox = page.getByLabel('Hybrid search query');
+  await expect(searchBox).toBeVisible({ timeout: 15_000 });
+  return searchBox;
+}
+
 interface ElectronE2eFileSystemFixtureSummary {
   directoryPaths: string[];
   fileCount: number;
@@ -4364,8 +4377,7 @@ test.describe('Embedding Host Renderer', () => {
     expect(directSqlSearchResult.topSimilarity).toBeGreaterThan(0.95);
 
     // ── 7. UI semantic search: fill search box, click Query, verify results ─
-    const semanticSearchBox = activeWindow.getByLabel('Semantic search query');
-    await expect(semanticSearchBox).toBeVisible({ timeout: 15_000 });
+    const semanticSearchBox = await getHybridSearchBox(activeWindow);
 
     // Search for known content from our fixture
     const searchQuery = 'desktop chunking backfill';
@@ -4566,8 +4578,7 @@ test.describe('Embedding Host Renderer', () => {
       .toMatchObject({ embeddedChunks: LAZY_FILE_COUNT });
 
     // ── Search: chunks are NOT expanded in the tree (lazy loaded) ──
-    const semanticSearchBox = activeWindow.getByLabel('Semantic search query');
-    await expect(semanticSearchBox).toBeVisible({ timeout: 15_000 });
+    const semanticSearchBox = await getHybridSearchBox(activeWindow);
     await semanticSearchBox.fill('lazy-chunk-search-fixture');
     await activeWindow.getByRole('button', { name: /^Query$/ }).click({ timeout: 5000 });
 
@@ -4717,8 +4728,7 @@ test.describe('Embedding Host Renderer', () => {
     // ── The critical assertion: search must not crash the renderer ──
     const timeOriginBeforeSearch = await getRendererTimeOrigin(activeWindow);
 
-    const semanticSearchBox = activeWindow.getByLabel('Semantic search query');
-    await expect(semanticSearchBox).toBeVisible({ timeout: 15_000 });
+    const semanticSearchBox = await getHybridSearchBox(activeWindow);
     await semanticSearchBox.fill('desktop chunking backfill');
     await activeWindow.getByRole('button', { name: /^Query$/ }).click({ timeout: 5000 });
 
@@ -5027,13 +5037,12 @@ test.describe('Embedding Host Renderer', () => {
         });
 
       const semanticQuery = 'stress-file-42-sentence-0';
-      const semanticSearchBox = activeWindow.getByLabel('Semantic search query');
+      const semanticSearchBox = await getHybridSearchBox(activeWindow);
       const collectionTreeRegion = activeWindow.getByTestId('collection-tree-region');
       const emptySemanticSearchMessage = collectionTreeRegion.getByText(
         'No matching results found. Try adjusting your search query or threshold.'
       );
       const searchingOverlay = collectionTreeRegion.getByText('Searching...');
-      await expect(semanticSearchBox).toBeVisible({ timeout: 15_000 });
       await semanticSearchBox.fill(semanticQuery);
       await activeWindow.getByRole('button', { name: /^Query$/ }).click({ timeout: 5000 });
 
@@ -5148,9 +5157,8 @@ test.describe('Embedding Host Renderer', () => {
       await searchableCollectionOption.click({ timeout: 30_000 });
       await expect(searchableCollectionOption).toHaveAttribute('aria-selected', 'true');
 
-      const semanticSearchBox = activeWindow.getByLabel('Semantic search query');
+      const semanticSearchBox = await getHybridSearchBox(activeWindow);
       const queryButton = activeWindow.getByRole('button', { name: /^Query$/ });
-      await expect(semanticSearchBox).toBeVisible({ timeout: 15_000 });
       await semanticSearchBox.fill('desktop import backfill regression');
       await queryButton.click({ timeout: 30_000 });
 
@@ -5547,9 +5555,8 @@ test.describe('Embedding Host Renderer', () => {
 
       expect(embeddedChunkCount).toBeGreaterThan(0);
 
-      const semanticSearchBox = activeWindow.getByLabel('Semantic search query');
+      const semanticSearchBox = await getHybridSearchBox(activeWindow);
       const queryButton = activeWindow.getByRole('button', { name: /^Query$/ });
-      await expect(semanticSearchBox).toBeVisible({ timeout: 15_000 });
       await semanticSearchBox.fill('stress-file-42-sentence-0');
       await queryButton.click({ timeout: 30_000 });
 
