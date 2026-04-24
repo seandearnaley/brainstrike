@@ -170,9 +170,9 @@ export function useCollectionBrowserColumns({
           </>
         ),
         headerContentClassName: 'justify-center',
-        width: '2.75rem',
-        minWidth: '2.75rem',
-        maxWidth: '2.75rem',
+        width: 44,
+        minWidth: 44,
+        maxWidth: 44,
         sortable: true,
         accessorFn: (node) => {
           const { data: nodeData, type } = node;

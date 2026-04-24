@@ -184,13 +184,12 @@ function migratePersistedState(
   }
 
   // Chain future version migrations here (v3->v4, etc.) to preserve upgrade paths.
-  if (version < 3 && 'contextSelectedIds' in snapshot) {
+  if (version < 3) {
     const { contextSelectedIds: _contextSelectedIds, ...rest } =
       snapshot as PersistedCollectionBrowserData & { contextSelectedIds?: unknown };
     return rest;
   }
 
-  // v1 snapshots did not include contextSelectedIds; zustand merges them with defaults.
   return snapshot;
 }
 

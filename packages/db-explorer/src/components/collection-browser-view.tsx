@@ -638,10 +638,12 @@ export function CollectionBrowserView({
 
   const hasActiveCollection = activeCollectionId !== null;
   const hasScopedSemanticSearch = hasActiveCollection && hasSearched;
-  const scopedSearchResults = useMemo(
-    () => (hasActiveCollection ? searchResults : []),
-    [hasActiveCollection, searchResults]
-  );
+  const scopedSearchResults = useMemo(() => {
+    if (!hasActiveCollection) {
+      return [];
+    }
+    return searchResults.filter((result) => result.embeddingSetId === activeCollectionId);
+  }, [activeCollectionId, hasActiveCollection, searchResults]);
 
   // Transform data for CollectionBrowser.
   // When semantic search results are present, build the tree from the search

@@ -307,6 +307,23 @@ describe('collection-browser-store', () => {
       expect(migrated.expandedIds).toEqual(['node-1']);
     });
 
+    it('drops legacy context-selected IDs from all pre-v3 snapshots', () => {
+      const options = storeWithPersist.persist?.getOptions?.();
+      if (!options?.migrate) {
+        throw new Error('persist migrate unavailable for test');
+      }
+
+      const snapshot = { selectedId: 'node-1' };
+      const migrated = options.migrate(snapshot, 1) as {
+        contextSelectedIds?: unknown;
+        selectedId?: string;
+      };
+
+      expect(migrated).not.toBe(snapshot);
+      expect(migrated).not.toHaveProperty('contextSelectedIds');
+      expect(migrated.selectedId).toBe('node-1');
+    });
+
     it('persists through fallback storage when localStorage fails', () => {
       // Suppress SafeStorage fallback warnings - these are expected when testing
       // the fallback behavior with localStorage blocked

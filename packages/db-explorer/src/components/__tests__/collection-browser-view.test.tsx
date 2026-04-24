@@ -461,6 +461,45 @@ describe('CollectionBrowserView', () => {
     expect(latestProps).not.toHaveProperty('semanticResults');
   });
 
+  it('filters stale semantic results from a previously active collection', () => {
+    semanticSearchMock.state = {
+      error: null,
+      hasSearched: true,
+      isSearching: false,
+      searchResults: [
+        {
+          chunkId: 'stale-chunk',
+          content: 'stale semantic result',
+          embeddingSetId: 'collection-a',
+          fileName: 'stale.ts',
+          filePath: '/stale.ts',
+          fileRecordId: 'stale-file',
+        },
+      ],
+    };
+    useCollectionBrowserStore.getState().setSearchMode('semantic');
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId="collection-b"
+        chunks={[]}
+        height={500}
+        records={[]}
+      />
+    );
+
+    expect(screen.getByTestId('empty-message')).toHaveTextContent(
+      'No matching results found. Try adjusting your query or threshold.'
+    );
+
+    const latestProps = collectionBrowserPropsSpy.mock.calls.at(-1)?.[0];
+    expect(latestProps).toMatchObject({
+      data: { files: [] },
+      hasSearched: true,
+      semanticResults: [],
+    });
+  });
+
   it('renders source pagination controls without double-paging the tree', () => {
     render(
       <CollectionBrowserView
