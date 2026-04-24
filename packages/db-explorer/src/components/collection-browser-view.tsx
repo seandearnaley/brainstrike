@@ -658,7 +658,7 @@ export function CollectionBrowserView({
       // Single pass: build both file and chunk arrays from search results
       const fileMap = new Map<
         string,
-        { id: string; name: string; path: string; chunkCount: number }
+        { id: string; name: string; path: string; size: number; chunkCount: number }
       >();
       const treeChunks: CollectionTreeInput['chunks'] = [];
 
@@ -671,16 +671,20 @@ export function CollectionBrowserView({
             id: result.fileRecordId,
             name: result.fileName,
             path: result.filePath,
+            size: result.fileSize ?? 0,
             chunkCount: 1,
           });
         }
         treeChunks.push({
           id: result.chunkId,
           fileRecordId: result.fileRecordId,
-          chunkIndex: i,
+          chunkIndex: result.chunkIndex ?? i,
           content: result.content,
-          tokenCount: 0,
+          tokenCount: result.tokenCount ?? 0,
           hasEmbedding: true,
+          ...(result.embeddingDimensions === undefined
+            ? {}
+            : { embeddingDimensions: result.embeddingDimensions }),
           ...(result.embeddingSetId ? { embeddingSetId: result.embeddingSetId } : {}),
         });
       }
@@ -690,7 +694,7 @@ export function CollectionBrowserView({
           id: file.id,
           name: file.name,
           path: file.path,
-          size: 0,
+          size: file.size,
           chunksCount: file.chunkCount,
           embeddedChunksCount: file.chunkCount,
           ...(activeCollectionId ? { embeddingSetId: activeCollectionId } : {}),

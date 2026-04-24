@@ -20,10 +20,14 @@ const semanticSearchMock = vi.hoisted(() => ({
     searchResults: [] as Array<{
       chunkId: string;
       content: string;
+      chunkIndex?: number;
+      embeddingDimensions?: number;
       embeddingSetId: string;
       fileName: string;
       filePath: string;
+      fileSize?: number;
       fileRecordId: string;
+      tokenCount?: number;
     }>,
   },
 }));
@@ -497,6 +501,59 @@ describe('CollectionBrowserView', () => {
       data: { files: [] },
       hasSearched: true,
       semanticResults: [],
+    });
+  });
+
+  it('preserves semantic result metadata for file sizes, chunk tokens, and embedding rows', () => {
+    semanticSearchMock.state = {
+      error: null,
+      hasSearched: true,
+      isSearching: false,
+      searchResults: [
+        {
+          chunkId: 'result-chunk',
+          chunkIndex: 7,
+          content: 'matched chunk body',
+          embeddingDimensions: 1536,
+          embeddingSetId: 'collection-1',
+          fileName: 'result.ts',
+          filePath: '/src/result.ts',
+          fileRecordId: 'result-file',
+          fileSize: 4096,
+          tokenCount: 128,
+        },
+      ],
+    };
+    useCollectionBrowserStore.getState().setSearchMode('semantic');
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId="collection-1"
+        chunks={[]}
+        height={500}
+        records={[]}
+      />
+    );
+
+    const latestProps = collectionBrowserPropsSpy.mock.calls.at(-1)?.[0];
+    expect(latestProps).toMatchObject({
+      data: {
+        files: [
+          expect.objectContaining({
+            id: 'result-file',
+            size: 4096,
+          }),
+        ],
+        chunks: [
+          expect.objectContaining({
+            id: 'result-chunk',
+            chunkIndex: 7,
+            tokenCount: 128,
+            embeddingDimensions: 1536,
+            hasEmbedding: true,
+          }),
+        ],
+      },
     });
   });
 
