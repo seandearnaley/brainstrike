@@ -785,4 +785,70 @@ describe('IdeLayout', () => {
       }
     });
   });
+
+  describe('panel-divider token', () => {
+    it('collapsed panels render their adjacent Separator transparent with no hover color so nested layouts do not double up', () => {
+      // Simulate all collapsible panels collapsed — the scenario that produces the
+      // doubled-divider artifact when an IdeLayout is nested inside another IdeLayout's
+      // collapsible panel (the outer separator sits flush against the inner separator
+      // with a 0-width panel between them).
+      Object.assign(mockState, {
+        showLeftPanel: false,
+        showRightPanel: false,
+        showConsole: false,
+      });
+      render(
+        <IdeLayout
+          consoleContent={consoleContent}
+          leftPanelContent={leftContent}
+          rightPanelContent={rightContent}
+        >
+          <div>Main Content</div>
+        </IdeLayout>
+      );
+      const handles = screen.getAllByTestId('resize-handle');
+      expect(handles.length).toBeGreaterThanOrEqual(3);
+      for (const handle of handles) {
+        expect(handle.className).toContain('bg-transparent');
+        // The base bg-* color must be transparent (no panel-divider at rest or on hover —
+        // a hover flash on an invisible handle would surprise the user).
+        expect(handle.className).not.toMatch(/(^|\s)bg-panel-divider(\s|$)/);
+        expect(handle.className).not.toContain('hover:bg-panel-divider');
+      }
+    });
+
+    it('expanded panels render their adjacent Separator with the panel-divider color and hover variant', () => {
+      Object.assign(mockState, {
+        showLeftPanel: true,
+        showRightPanel: true,
+        showConsole: true,
+      });
+      renderDefaultLayout();
+      const handles = screen.getAllByTestId('resize-handle');
+      expect(handles.length).toBeGreaterThanOrEqual(3);
+      for (const handle of handles) {
+        expect(handle.className).toContain('bg-panel-divider');
+        expect(handle.className).toContain('hover:bg-panel-divider/80');
+        expect(handle.className).not.toContain('bg-transparent');
+        // And no stale reference to the old generic border token on any Separator.
+        expect(handle.className).not.toMatch(/(^|\s)bg-border(\s|\/|$)/);
+      }
+    });
+
+    it('tools panel inner wrapper does not add border-l; the Separator alone provides the boundary', () => {
+      // Assert via rendered DOM (more robust than regex-matching the source file):
+      // the wrapper immediately inside the tools Panel must not stack a 1px border
+      // against the adjacent 4px Separator.
+      Object.assign(mockState, {
+        showLeftPanel: true,
+        showRightPanel: true,
+      });
+      renderDefaultLayout();
+      const toolsPanel = screen.getByText('Right Content').closest('[data-testid="panel"]');
+      expect(toolsPanel).not.toBeNull();
+      const wrapper = toolsPanel?.firstElementChild as HTMLElement | null;
+      expect(wrapper).not.toBeNull();
+      expect(wrapper?.className ?? '').not.toMatch(/\bborder-l\b/);
+    });
+  });
 });
