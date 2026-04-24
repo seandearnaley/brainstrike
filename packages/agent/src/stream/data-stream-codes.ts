@@ -2,6 +2,8 @@ export const DataStreamCode = {
   textDelta: '0',
   data: '2',
   error: '3',
+  reasoningDelta: 'g',
+  auiDataPart: 'aui-data',
   toolCall: '9',
   toolCallResult: 'a',
   startToolCall: 'b',

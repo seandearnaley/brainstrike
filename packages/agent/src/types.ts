@@ -6,6 +6,7 @@ import type {
 import type { AgentMemoryOption, ToolsInput } from '@mastra/core/agent';
 import type { McpConfig } from './mcp/config';
 import type { RuntimeAssistantMemorySettings } from './memory-settings';
+import type { AssistantRunEvent } from './run-events';
 
 export interface AgentMessagePartText {
   text: string;
@@ -173,6 +174,14 @@ export interface StreamChunkText {
   type: 'text-delta';
   value: string;
 }
+export interface StreamChunkReasoning {
+  type: 'reasoning-delta';
+  value: string;
+}
+export interface StreamChunkRunEvent {
+  event: AssistantRunEvent;
+  type: 'run-event';
+}
 export interface StreamChunkTool {
   name: string;
   payload?: unknown;
@@ -190,6 +199,8 @@ export interface StreamChunkMessageFinish {
   usage: { promptTokens: number; completionTokens: number };
 }
 export type StreamChunk =
+  | StreamChunkReasoning
+  | StreamChunkRunEvent
   | StreamChunkText
   | StreamChunkTool
   | StreamChunkFinish

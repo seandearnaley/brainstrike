@@ -16,6 +16,13 @@ const { fileExplorerMocks, mockDb, threadRows } = vi.hoisted(() => ({
     query: vi.fn<(sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>>(
       () => Promise.resolve({ rows: [] })
     ),
+    transaction: vi.fn(
+      async <T,>(
+        callback: (tx: {
+          query: (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
+        }) => Promise<T>
+      ): Promise<T> => callback(mockDb)
+    ),
   },
   threadRows: [] as Record<string, unknown>[],
 }));
@@ -36,7 +43,10 @@ describe('ThreadsPanel', () => {
       path: '/tmp/workspace-a',
     };
     useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: {},
+      draftRuntimeByThreadId: {},
       loadStateByResourceId: {},
+      openThreadIdsByResourceId: {},
       selectedThreadByResourceId: {},
       threadIdsByResourceId: {},
       threadsByResourceId: {},
@@ -61,6 +71,7 @@ describe('ThreadsPanel', () => {
     );
     mockDb.exec.mockClear();
     mockDb.query.mockClear();
+    mockDb.transaction.mockClear();
     mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
       if (sql.includes('INSERT INTO mastra_threads')) {
         threadRows.unshift({
@@ -70,6 +81,13 @@ describe('ThreadsPanel', () => {
           createdAt: params?.[4],
           updatedAt: params?.[5],
         });
+      }
+      if (sql.includes('DELETE FROM mastra_threads')) {
+        const threadId = String(params?.[0]);
+        const index = threadRows.findIndex((row) => row['id'] === threadId);
+        if (index >= 0) {
+          threadRows.splice(index, 1);
+        }
       }
       if (sql.includes('FROM mastra_threads')) {
         return { rows: [...threadRows] };
@@ -181,6 +199,34 @@ describe('ThreadsPanel', () => {
       'thread-b',
       'Deployment plan',
       expect.any(Date),
+    ]);
+  });
+
+  it('deletes a thread only after explicit confirmation', async () => {
+    const user = userEvent.setup();
+    render(<ThreadsPanel />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    await user.click(screen.getByRole('button', { name: 'Delete thread Second thread' }));
+    expect(
+      screen.getByRole('button', { name: 'Confirm delete thread Second thread' })
+    ).toBeVisible();
+    expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+
+    await user.click(screen.getByRole('button', { name: 'Confirm delete thread Second thread' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(1);
+    });
+    expect(mockDb.query).toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM mastra_threads'),
+      ['thread-b']
+    );
+    expect(screen.queryByText('Second thread')).not.toBeInTheDocument();
+    expect(useAssistantThreadStore.getState().threadIdsByResourceId['/tmp/workspace-a']).toEqual([
+      'thread-a',
     ]);
   });
 });

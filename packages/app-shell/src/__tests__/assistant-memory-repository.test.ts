@@ -1,3 +1,4 @@
+import type { AssistantRunEvent } from '@brainstrike/agent';
 import type { DbHandle } from '@brainstrike/db';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -9,10 +10,12 @@ import {
 describe('createAssistantThreadHistoryAdapter', () => {
   it('hydrates assistant-ui history from Mastra memory messages', async () => {
     const repository: AssistantThreadRepository = {
+      appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
+      listThreadRunEvents: vi.fn(async () => []),
       listLatestThreadRuns: vi.fn(),
       renameThread: vi.fn(),
       completeThreadRun: vi.fn(),
@@ -52,10 +55,12 @@ describe('createAssistantThreadHistoryAdapter', () => {
 
   it('does not write client-side history because Mastra is the durable writer', async () => {
     const repository: AssistantThreadRepository = {
+      appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
+      listThreadRunEvents: vi.fn(async () => []),
       listLatestThreadRuns: vi.fn(),
       renameThread: vi.fn(),
       completeThreadRun: vi.fn(),
@@ -88,10 +93,12 @@ describe('createAssistantThreadHistoryAdapter', () => {
     const cyclicContent: Record<string, unknown> = {};
     cyclicContent['content'] = cyclicContent;
     const repository: AssistantThreadRepository = {
+      appendThreadRunEvent: vi.fn(),
       createThread: vi.fn(),
       createThreadRun: vi.fn(),
       deleteThread: vi.fn(),
       listThreads: vi.fn(),
+      listThreadRunEvents: vi.fn(async () => []),
       listLatestThreadRuns: vi.fn(),
       renameThread: vi.fn(),
       completeThreadRun: vi.fn(),
@@ -112,6 +119,73 @@ describe('createAssistantThreadHistoryAdapter', () => {
     });
 
     await expect(adapter.load()).resolves.toEqual({ headId: null, messages: [] });
+  });
+
+  it('hydrates persisted assistant run events as assistant-ui data parts on the latest assistant message', async () => {
+    const repository: AssistantThreadRepository = {
+      appendThreadRunEvent: vi.fn(),
+      createThread: vi.fn(),
+      createThreadRun: vi.fn(),
+      deleteThread: vi.fn(),
+      listThreads: vi.fn(),
+      listLatestThreadRuns: vi.fn(),
+      renameThread: vi.fn(),
+      completeThreadRun: vi.fn(),
+      updateThreadMetadata: vi.fn(),
+      listThreadRunEvents: vi.fn(async () => [
+        {
+          id: 'event-1',
+          kind: 'memory.configured',
+          label: 'Memory configured',
+          runId: 'run-1',
+          sequence: 1,
+          status: 'completed',
+          timestamp: '2026-04-24T12:00:00.000Z',
+          metadata: { threadId: 'thread-1' },
+        } satisfies AssistantRunEvent,
+      ]),
+      listMessages: vi.fn(async () => [
+        {
+          id: 'message-1',
+          role: 'user',
+          content: { content: 'Use memory' },
+          createdAt: new Date('2026-04-24T12:00:00Z'),
+        },
+        {
+          id: 'message-2',
+          role: 'assistant',
+          content: { content: 'I used memory.' },
+          createdAt: new Date('2026-04-24T12:00:01Z'),
+        },
+      ]),
+    };
+    const adapter = createAssistantThreadHistoryAdapter({
+      repository,
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+
+    const history = await adapter.load();
+    const assistant = history.messages.find((item) => item.message.id === 'message-2');
+
+    expect(repository.listThreadRunEvents).toHaveBeenCalledWith('thread-1', 'workspace-a');
+    expect(assistant?.message.content).toEqual([
+      {
+        type: 'data',
+        name: 'brainstrike.run-event',
+        data: {
+          id: 'event-1',
+          kind: 'memory.configured',
+          label: 'Memory configured',
+          runId: 'run-1',
+          sequence: 1,
+          status: 'completed',
+          timestamp: '2026-04-24T12:00:00.000Z',
+          metadata: { threadId: 'thread-1' },
+        },
+      },
+      { type: 'text', text: 'I used memory.' },
+    ]);
   });
 });
 
@@ -149,6 +223,96 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         'running',
       ])
     );
+  });
+
+  it('persists compact redacted assistant run event summaries', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await repository.appendThreadRunEvent('run-1', {
+      id: 'event-1',
+      kind: 'tool.completed',
+      label: 'Used workspace.read',
+      sequence: 7,
+      status: 'completed',
+      timestamp: '2026-04-24T12:00:00.000Z',
+      metadata: {
+        threadId: 'thread-1',
+        apiKey: 'secret-key',
+        'api-key': 'hyphenated-secret',
+        result: { content: 'full tool output' },
+      },
+    });
+
+    const insert = db.query.mock.calls.find(([sql]) =>
+      String(sql).includes('INSERT INTO brainstrike_assistant_run_events')
+    );
+    const params = insert?.[1] ?? [];
+
+    expect(db.exec).toHaveBeenCalledWith(
+      expect.stringContaining('CREATE TABLE IF NOT EXISTS brainstrike_assistant_run_events')
+    );
+    expect(params).toEqual(
+      expect.arrayContaining([
+        'event-1',
+        'run-1',
+        7,
+        'tool.completed',
+        'completed',
+        'Used workspace.read',
+      ])
+    );
+    const metadataParam = params.find((value) =>
+      typeof value === 'string' ? value.includes('thread-1') : false
+    );
+    expect(JSON.parse(String(metadataParam))).toEqual({
+      threadId: 'thread-1',
+    });
+  });
+
+  it('lists assistant run events in run sequence order', async () => {
+    const db = createMockDb();
+    db.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM brainstrike_assistant_run_events')) {
+        return {
+          rows: [
+            {
+              id: 'event-1',
+              run_id: 'run-1',
+              sequence: 1,
+              kind: 'run.started',
+              status: 'running',
+              label: 'Assistant run started',
+              detail: null,
+              duration_ms: null,
+              metadata: JSON.stringify({ model: 'gpt-5.2' }),
+              occurred_at: '2026-04-24T12:00:00.000Z',
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    const events = await repository.listThreadRunEvents('thread-1', '/tmp/workspace-a');
+
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining('FROM brainstrike_assistant_run_events'),
+      ['thread-1', '/tmp/workspace-a']
+    );
+    expect(events).toEqual([
+      {
+        id: 'event-1',
+        kind: 'run.started',
+        label: 'Assistant run started',
+        metadata: { model: 'gpt-5.2' },
+        runId: 'run-1',
+        sequence: 1,
+        status: 'running',
+        timestamp: '2026-04-24T12:00:00.000Z',
+      },
+    ]);
   });
 
   it('completes assistant run records without mutating thread metadata', async () => {

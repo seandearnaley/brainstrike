@@ -2,6 +2,15 @@ import {
   MASTRA_MEMORY_SCHEMA_SQL,
   MASTRA_MEMORY_TABLES,
 } from '@brainstrike/agent/pglite-mastra-memory/schema';
+import {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
+  ASSISTANT_RUN_EVENT_KINDS,
+  ASSISTANT_RUN_EVENT_STATUSES,
+  type AssistantRunEvent,
+  type AssistantRunEventKind,
+  type AssistantRunEventStatus,
+  sanitizeAssistantRunEventMetadata,
+} from '@brainstrike/agent/run-events';
 import type { DbHandle } from '@brainstrike/db';
 import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/ui/assistant-ui-panel';
 
@@ -64,6 +73,7 @@ export interface CompleteAssistantThreadRunInput {
 }
 
 export interface AssistantThreadRepository {
+  appendThreadRunEvent: (runId: string, event: AssistantRunEvent) => Promise<void>;
   completeThreadRun: (runId: string, input: CompleteAssistantThreadRunInput) => Promise<void>;
   createThread: (resourceId: string) => Promise<AssistantMemoryThread>;
   createThreadRun: (input: CreateAssistantThreadRunInput) => Promise<AssistantThreadRunRecord>;
@@ -73,6 +83,10 @@ export interface AssistantThreadRepository {
     threadId: string,
     resourceId: string
   ) => Promise<readonly AssistantHistoryMessage[]>;
+  listThreadRunEvents: (
+    threadId: string,
+    resourceId: string
+  ) => Promise<readonly AssistantRunEvent[]>;
   listThreads: (resourceId: string) => Promise<readonly AssistantMemoryThread[]>;
   renameThread: (threadId: string, title: string) => Promise<void>;
   updateThreadMetadata: (threadId: string, metadata: AssistantThreadMetadata) => Promise<void>;
@@ -86,6 +100,7 @@ interface AssistantHistoryMessage {
 }
 
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
+const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 const ASSISTANT_THREAD_RUNS_SCHEMA_SQL = `
 ${MASTRA_MEMORY_SCHEMA_SQL}
 
@@ -114,6 +129,29 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_thread_runs_thread_latest_idx
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_thread_runs_status_idx
   ON ${ASSISTANT_THREAD_RUNS_TABLE} (status);
+
+CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_EVENTS_TABLE} (
+  id text PRIMARY KEY,
+  run_id text NOT NULL REFERENCES ${ASSISTANT_THREAD_RUNS_TABLE}(id) ON DELETE CASCADE,
+  resource_id text NOT NULL,
+  thread_id text NOT NULL REFERENCES ${MASTRA_MEMORY_TABLES.threads}(id) ON DELETE CASCADE,
+  sequence integer NOT NULL,
+  kind text NOT NULL,
+  status text NOT NULL,
+  label text NOT NULL,
+  detail text,
+  duration_ms integer,
+  metadata jsonb,
+  occurred_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_thread_idx
+  ON ${ASSISTANT_RUN_EVENTS_TABLE} (thread_id, resource_id, sequence ASC, occurred_at ASC);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_run_idx
+  ON ${ASSISTANT_RUN_EVENTS_TABLE} (run_id, sequence ASC, occurred_at ASC);
 `;
 
 const assistantThreadRepositoryCache = new WeakMap<DbHandle, AssistantThreadRepository>();
@@ -244,6 +282,60 @@ function nullableString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
 
+const ASSISTANT_RUN_EVENT_KIND_SET = new Set<AssistantRunEventKind>(ASSISTANT_RUN_EVENT_KINDS);
+
+const ASSISTANT_RUN_EVENT_STATUS_SET = new Set<AssistantRunEventStatus>(
+  ASSISTANT_RUN_EVENT_STATUSES
+);
+
+function requireRunEventKind(value: unknown): AssistantRunEventKind {
+  if (
+    typeof value === 'string' &&
+    ASSISTANT_RUN_EVENT_KIND_SET.has(value as AssistantRunEventKind)
+  ) {
+    return value as AssistantRunEventKind;
+  }
+  throw new Error('Invalid assistant run event row: kind is not valid.');
+}
+
+function requireRunEventStatus(value: unknown): AssistantRunEventStatus {
+  if (
+    typeof value === 'string' &&
+    ASSISTANT_RUN_EVENT_STATUS_SET.has(value as AssistantRunEventStatus)
+  ) {
+    return value as AssistantRunEventStatus;
+  }
+  throw new Error('Invalid assistant run event row: status is not valid.');
+}
+
+function isFiniteInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value);
+}
+
+function toThreadRunEvent(row: Record<string, unknown>): AssistantRunEvent {
+  const metadata = optionalJsonRecord(row['metadata']);
+  const sanitizedMetadata = sanitizeAssistantRunEventMetadata(metadata);
+  const detail = nullableString(row['detail']);
+  const durationRaw = getRowValue(row, 'durationMs', 'duration_ms');
+  const durationMs = isFiniteInteger(durationRaw) ? durationRaw : undefined;
+  const event: AssistantRunEvent = {
+    id: requireString(row['id'], 'id'),
+    runId: requireString(getRowValue(row, 'runId', 'run_id'), 'runId'),
+    kind: requireRunEventKind(row['kind']),
+    status: requireRunEventStatus(row['status']),
+    label: requireString(row['label'], 'label'),
+    sequence: isFiniteInteger(row['sequence']) ? row['sequence'] : Number(row['sequence']),
+    timestamp: normalizeDate(getRowValue(row, 'timestamp', 'occurred_at')).toISOString(),
+    ...(detail ? { detail } : {}),
+    ...(durationMs === undefined ? {} : { durationMs }),
+    ...(sanitizedMetadata ? { metadata: sanitizedMetadata } : {}),
+  };
+  if (!Number.isSafeInteger(event.sequence)) {
+    throw new Error('Invalid assistant run event row: sequence is not valid.');
+  }
+  return event;
+}
+
 function toThreadRunRecord(row: Record<string, unknown>): AssistantThreadRunRecord {
   const modelSettings = optionalJsonRecord(getRowValue(row, 'modelSettings', 'model_settings'));
   const providerOptions = optionalJsonRecord(
@@ -266,6 +358,18 @@ function toThreadRunRecord(row: Record<string, unknown>): AssistantThreadRunReco
     ...(modelSettings ? { modelSettings } : {}),
     ...(providerOptions ? { providerOptions } : {}),
   };
+}
+
+function toRunEventDataParts(runEvents: readonly AssistantRunEvent[]): Array<{
+  readonly data: AssistantRunEvent;
+  readonly name: typeof ASSISTANT_RUN_EVENT_DATA_NAME;
+  readonly type: 'data';
+}> {
+  return runEvents.map((event) => ({
+    type: 'data' as const,
+    name: ASSISTANT_RUN_EVENT_DATA_NAME,
+    data: event,
+  }));
 }
 
 function extractText(value: unknown, seenObjects = new WeakSet<object>()): string {
@@ -299,12 +403,22 @@ function extractText(value: unknown, seenObjects = new WeakSet<object>()): strin
 }
 
 function toHistoryRepository(
-  messages: readonly AssistantHistoryMessage[]
+  messages: readonly AssistantHistoryMessage[],
+  runEvents: readonly AssistantRunEvent[] = []
 ): Awaited<ReturnType<AssistantUiThreadHistoryAdapter['load']>> {
   const repositoryMessages: Awaited<
     ReturnType<AssistantUiThreadHistoryAdapter['load']>
   >['messages'] = [];
   let parentId: string | null = null;
+  let latestAssistantMessageId: string | null = null;
+  const runEventDataParts = toRunEventDataParts(runEvents);
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const candidate = messages[index];
+    if (candidate?.role === 'assistant' && extractText(candidate.content).trim()) {
+      latestAssistantMessageId = candidate.id;
+      break;
+    }
+  }
 
   for (const message of messages) {
     if (!(message.role === 'user' || message.role === 'assistant' || message.role === 'system')) {
@@ -316,14 +430,18 @@ function toHistoryRepository(
       continue;
     }
 
+    // This compatibility view attaches persisted run summaries to the latest
+    // assistant message until run records carry a durable message id.
     const content = [{ type: 'text' as const, text }] as const;
     if (message.role === 'assistant') {
+      const isLatestAssistantMessage =
+        runEvents.length > 0 && message.id === latestAssistantMessageId;
       repositoryMessages.push({
         parentId,
         message: {
           id: message.id,
           role: 'assistant',
-          content,
+          content: isLatestAssistantMessage ? [...runEventDataParts, ...content] : content,
           createdAt: message.createdAt,
           status: { type: 'complete', reason: 'stop' },
           metadata: {
@@ -422,7 +540,110 @@ export function createPgliteAssistantThreadRepository(
     return result.rows.map(toThreadRunRecord);
   };
 
+  const listThreadRunEvents = async (
+    threadId: string,
+    resourceId: string
+  ): Promise<readonly AssistantRunEvent[]> => {
+    await initialize();
+    const result = await database.query<Record<string, unknown>>(
+      `SELECT
+          id,
+          run_id,
+          sequence,
+          kind,
+          status,
+          label,
+          detail,
+          duration_ms,
+          metadata,
+          occurred_at
+       FROM ${ASSISTANT_RUN_EVENTS_TABLE}
+       WHERE thread_id = $1
+          AND resource_id = $2
+          AND run_id = (
+            SELECT id
+            FROM ${ASSISTANT_THREAD_RUNS_TABLE}
+            WHERE thread_id = $1 AND resource_id = $2
+            ORDER BY started_at DESC, created_at DESC, id DESC
+            LIMIT 1
+          )
+       ORDER BY sequence ASC, occurred_at ASC, id ASC`,
+      [threadId, resourceId]
+    );
+    return result.rows.map(toThreadRunEvent);
+  };
+
   const repository: AssistantThreadRepository = {
+    async appendThreadRunEvent(runId: string, event: AssistantRunEvent): Promise<void> {
+      await initialize();
+      const sequence = event.sequence ?? 0;
+      if (!Number.isSafeInteger(sequence) || sequence < 0) {
+        throw new Error('Assistant run event sequence must be a non-negative safe integer.');
+      }
+      const occurredAt = normalizeDate(event.timestamp);
+      const sanitizedMetadata = sanitizeAssistantRunEventMetadata(event.metadata);
+      const now = new Date();
+      await database.query(
+        `INSERT INTO ${ASSISTANT_RUN_EVENTS_TABLE}
+          (
+            id,
+            run_id,
+            resource_id,
+            thread_id,
+            sequence,
+            kind,
+            status,
+            label,
+            detail,
+            metadata,
+            duration_ms,
+            occurred_at,
+            created_at,
+            updated_at
+          )
+         SELECT
+            $1,
+            runs.id,
+            runs.resource_id,
+            runs.thread_id,
+            $3,
+            $4,
+            $5,
+            $6,
+            $7,
+            $8::jsonb,
+            $9,
+            $10,
+            $11,
+            $12
+         FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
+         WHERE runs.id = $2
+         ON CONFLICT (id) DO UPDATE SET
+            sequence = EXCLUDED.sequence,
+            kind = EXCLUDED.kind,
+            status = EXCLUDED.status,
+            label = EXCLUDED.label,
+            detail = EXCLUDED.detail,
+            metadata = EXCLUDED.metadata,
+            duration_ms = EXCLUDED.duration_ms,
+            occurred_at = EXCLUDED.occurred_at,
+            updated_at = EXCLUDED.updated_at`,
+        [
+          event.id,
+          runId,
+          sequence,
+          event.kind,
+          event.status,
+          event.label,
+          event.detail ?? null,
+          sanitizedMetadata ? JSON.stringify(sanitizedMetadata) : null,
+          event.durationMs ?? null,
+          occurredAt,
+          now,
+          now,
+        ]
+      );
+    },
     async completeThreadRun(runId: string, input: CompleteAssistantThreadRunInput): Promise<void> {
       await initialize();
       await database.query(
@@ -533,6 +754,7 @@ export function createPgliteAssistantThreadRepository(
         await tx.query(`DELETE FROM ${MASTRA_MEMORY_TABLES.threads} WHERE id = $1`, [threadId]);
       });
     },
+    listThreadRunEvents,
     async listMessages(
       threadId: string,
       resourceId: string
@@ -618,7 +840,8 @@ export function createAssistantThreadHistoryAdapter({
   return {
     async load() {
       const messages = await repository.listMessages(threadId, resourceId);
-      return toHistoryRepository(messages);
+      const runEvents = await repository.listThreadRunEvents(threadId, resourceId);
+      return toHistoryRepository(messages, runEvents);
     },
     async append() {
       // Mastra is the durable writer for assistant conversations. The client adapter is read-through

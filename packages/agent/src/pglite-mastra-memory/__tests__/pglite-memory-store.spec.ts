@@ -4,6 +4,17 @@ import type { ObservationalMemoryRecord } from '@mastra/core/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PgliteMemoryStore } from '../memory-store';
 
+function createDeferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T | PromiseLike<T>) => void;
+} {
+  let resolve: (value: T | PromiseLike<T>) => void = () => {};
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
 describe('PgliteMemoryStore', () => {
   let db: PGlite;
   let store: PgliteMemoryStore;
@@ -153,6 +164,106 @@ describe('PgliteMemoryStore', () => {
     expect(byId.messages.map((message) => message.id)).toEqual(['message-2']);
   });
 
+  it('emits compact run events from real history and working-memory hooks', async () => {
+    const events: string[] = [];
+    const observedStore = new PgliteMemoryStore({
+      database: db,
+      eventSink: (event) => {
+        events.push(`${event.kind}:${event.label}:${event.runId}`);
+      },
+      runId: 'run-1',
+    });
+    await observedStore.initialize();
+    await observedStore.saveThread({
+      thread: {
+        id: 'thread-1',
+        resourceId: 'workspace-a',
+        title: 'Memory thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+    await observedStore.saveMessages({
+      messages: [
+        {
+          id: 'message-1',
+          role: 'user',
+          type: 'text',
+          threadId: 'thread-1',
+          resourceId: 'workspace-a',
+          createdAt: new Date('2026-04-22T10:00:01Z'),
+          content: { content: 'Remember the deploy window.' },
+        },
+      ],
+    });
+
+    await observedStore.listMessages({ threadId: 'thread-1', perPage: false });
+    await observedStore.updateResource({
+      resourceId: 'workspace-a',
+      workingMemory: 'Deploy window is Friday.',
+    });
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        'memory.history.loaded:Conversation history loaded:run-1',
+        'memory.working.loaded:Working memory loaded:run-1',
+        'memory.working.updated:Working memory updated:run-1',
+      ])
+    );
+  });
+
+  it('does not fail memory operations when run-event emission fails', async () => {
+    const observedStore = new PgliteMemoryStore({
+      database: db,
+      eventSink: () => {
+        throw new Error('run event sink unavailable');
+      },
+      runId: 'run-1',
+    });
+    await observedStore.initialize();
+    await observedStore.saveThread({
+      thread: {
+        id: 'thread-1',
+        resourceId: 'workspace-a',
+        title: 'Memory thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+
+    await expect(
+      observedStore.listMessages({ threadId: 'thread-1', perPage: false })
+    ).resolves.toMatchObject({
+      messages: [],
+    });
+  });
+
+  it('does not await slow run-event emission on memory read paths', async () => {
+    const releaseSink = createDeferred<void>();
+    const observedStore = new PgliteMemoryStore({
+      database: db,
+      eventSink: () => releaseSink.promise,
+      runId: 'run-1',
+    });
+    await observedStore.initialize();
+    await observedStore.saveThread({
+      thread: {
+        id: 'thread-1',
+        resourceId: 'workspace-a',
+        title: 'Memory thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+
+    await expect(
+      observedStore.listMessages({ threadId: 'thread-1', perPage: false })
+    ).resolves.toMatchObject({
+      messages: [],
+    });
+    releaseSink.resolve();
+  });
+
   it('updates messages in one batched read-write cycle', async () => {
     await store.saveThread({
       thread: {
@@ -255,7 +366,16 @@ describe('PgliteMemoryStore', () => {
   });
 
   it('persists observational memory records and history', async () => {
-    const created = await store.initializeObservationalMemory({
+    const events: string[] = [];
+    const observedStore = new PgliteMemoryStore({
+      database: db,
+      eventSink: (event) => {
+        events.push(`${event.kind}:${event.status}:${event.label}`);
+      },
+      runId: 'run-1',
+    });
+    await observedStore.initialize();
+    const created = await observedStore.initializeObservationalMemory({
       threadId: 'thread-1',
       resourceId: 'workspace-a',
       scope: 'thread',
@@ -263,7 +383,7 @@ describe('PgliteMemoryStore', () => {
       observedTimezone: 'America/New_York',
     });
 
-    await store.updateActiveObservations({
+    await observedStore.updateActiveObservations({
       id: created.id,
       observations: '- User is wiring Mastra memory into Brainstrike.',
       tokenCount: 12,
@@ -271,13 +391,28 @@ describe('PgliteMemoryStore', () => {
       observedMessageIds: ['message-1'],
     });
 
-    const active = await store.getObservationalMemory('thread-1', 'workspace-a');
-    const history = await store.getObservationalMemoryHistory('thread-1', 'workspace-a', 10);
+    const active = await observedStore.getObservationalMemory('thread-1', 'workspace-a');
+    const history = await observedStore.getObservationalMemoryHistory(
+      'thread-1',
+      'workspace-a',
+      10
+    );
 
     expect(active?.activeObservations).toContain('Mastra memory');
     expect(active?.observedMessageIds).toEqual(['message-1']);
     expect(active?.observedTimezone).toBe('America/New_York');
     expect(history.map((record) => record.id)).toEqual([created.id]);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        'memory.configured:completed:Observational memory configured',
+        'memory.observation.completed:completed:Observations updated',
+        'memory.observation.completed:completed:Observational memory read',
+        'memory.observation.completed:completed:Observation history loaded',
+      ])
+    );
+    expect(events).not.toEqual(
+      expect.arrayContaining(['memory.observation.started:completed:Observational memory read'])
+    );
   });
 
   it('deletes thread messages and observational memory atomically with the thread', async () => {

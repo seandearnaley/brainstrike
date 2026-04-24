@@ -24,6 +24,7 @@ function createRepository(
   ]
 ): AssistantThreadRepository {
   return {
+    appendThreadRunEvent: vi.fn(),
     completeThreadRun: vi.fn(),
     createThread: vi.fn(async (resourceId: string) => ({
       id: 'thread-created',
@@ -36,6 +37,7 @@ function createRepository(
     deleteThread: vi.fn(),
     listLatestThreadRuns: vi.fn(async () => []),
     listMessages: vi.fn(async () => []),
+    listThreadRunEvents: vi.fn(async () => []),
     listThreads: vi.fn(async () => threads),
     renameThread: vi.fn(),
     updateThreadMetadata: vi.fn(),
@@ -108,6 +110,26 @@ describe('useAssistantThreadStore tab sessions', () => {
     expect(state.threadIdsByResourceId[workspaceId]).toEqual(['thread-a', 'thread-b']);
     expect(state.openThreadIdsByResourceId[workspaceId]).toEqual(['thread-a']);
     expect(state.activeThreadIdByResourceId[workspaceId]).toBe('thread-a');
+  });
+
+  it('deletes a durable thread and reconciles open tab state', async () => {
+    const repository = createRepository();
+
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    useAssistantThreadStore.getState().openThreadTab(workspaceId, 'thread-a');
+    useAssistantThreadStore.getState().openThreadTab(workspaceId, 'thread-b');
+
+    await useAssistantThreadStore.getState().deleteThread(repository, workspaceId, 'thread-b');
+
+    expect(repository.deleteThread).toHaveBeenCalledWith('thread-b');
+    const state = useAssistantThreadStore.getState();
+    expect(state.threadIdsByResourceId[workspaceId]).toEqual(['thread-a']);
+    expect(state.threadsByResourceId[workspaceId]?.map((thread) => thread.id)).toEqual([
+      'thread-a',
+    ]);
+    expect(state.openThreadIdsByResourceId[workspaceId]).toEqual(['thread-a']);
+    expect(state.activeThreadIdByResourceId[workspaceId]).toBe('thread-a');
+    expect(state.selectedThreadByResourceId[workspaceId]).toBe('thread-a');
   });
 
   it('creates durable threads as focused open tabs', async () => {

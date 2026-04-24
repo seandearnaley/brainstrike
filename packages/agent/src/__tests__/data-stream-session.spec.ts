@@ -185,6 +185,100 @@ describe('AssistantDataStreamSession', () => {
     expect(finish?.usage).toStrictEqual({ inputTokens: 11, outputTokens: 13 });
   });
 
+  it('encodes assistant run events as assistant-ui named data parts', async () => {
+    const chunks: StreamChunk[] = [
+      {
+        type: 'run-event',
+        event: {
+          id: 'event-1',
+          kind: 'memory.configured',
+          label: 'Memory configured',
+          sequence: 1,
+          status: 'completed',
+          timestamp: '2026-04-24T12:00:00.000Z',
+          metadata: {
+            threadId: 'thread-1',
+            resourceId: 'workspace-1',
+          },
+        },
+      },
+      { type: 'text-delta', value: 'Hello' },
+      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      sessionId: 'run-events',
+      messageId: 'msg-run-events',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+    const runEvent = events.find((evt) => evt.code === 'aui-data');
+
+    expect(runEvent?.value).toStrictEqual({
+      name: 'brainstrike.run-event',
+      data: {
+        id: 'event-1',
+        kind: 'memory.configured',
+        label: 'Memory configured',
+        sequence: 1,
+        status: 'completed',
+        timestamp: '2026-04-24T12:00:00.000Z',
+        metadata: {
+          threadId: 'thread-1',
+          resourceId: 'workspace-1',
+        },
+      },
+    });
+  });
+
+  it('encodes reasoning deltas and skips empty text-like chunks', async () => {
+    const chunks: StreamChunk[] = [
+      { type: 'text-delta', value: '' },
+      { type: 'reasoning-delta', value: '' },
+      { type: 'reasoning-delta', value: 'Checking memory state' },
+      { type: 'text-delta', value: 'Visible answer' },
+      { type: 'finish', usage: { promptTokens: 3, completionTokens: 4 } },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      sessionId: 'reasoning',
+      messageId: 'msg-reasoning',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+
+    expect(events.filter((evt) => evt.code === 'g')).toStrictEqual([
+      { code: 'g', value: 'Checking memory state' },
+    ]);
+    expect(events.filter((evt) => evt.code === '0')).toStrictEqual([
+      { code: '0', value: 'Visible answer' },
+    ]);
+  });
+
+  it('emits an error finish when the source stream throws', async () => {
+    async function* failingStream(): AsyncIterableIterator<StreamChunk> {
+      yield { type: 'text-delta', value: 'Before failure' };
+      throw new Error('stream exploded');
+    }
+
+    const session = new AssistantDataStreamSession(failingStream(), () => {}, {
+      sessionId: 'source-error',
+      messageId: 'msg-source-error',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+
+    expect(events.find((evt) => evt.code === '3')?.value).toBe('stream exploded');
+    expect(events.at(-1)).toStrictEqual({
+      code: 'd',
+      value: {
+        finishReason: 'error',
+        usage: { inputTokens: 0, outputTokens: 0 },
+        path: [],
+      },
+    });
+  });
+
   it('supports resuming from Last-Event-ID', async () => {
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'First ' },
