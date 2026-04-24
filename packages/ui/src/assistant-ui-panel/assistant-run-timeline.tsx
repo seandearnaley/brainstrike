@@ -13,7 +13,7 @@ import {
   Radio,
 } from 'lucide-react';
 import * as m from 'motion/react-m';
-import { type ReactElement, useId, useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { Button } from '../button';
 
 interface AssistantRunTimelineProps {
@@ -34,13 +34,21 @@ const STATUS_LABELS: Record<AssistantRunEventStatus, string> = {
   running: 'Running',
 };
 
-const STATUS_ICONS: Record<AssistantRunEventStatus, ReactElement> = {
-  cancelled: <AlertCircle className="size-4 text-muted-foreground" />,
-  completed: <CheckCircle className="size-4 text-emerald-600 dark:text-emerald-500" />,
-  failed: <AlertCircle className="size-4 text-destructive" />,
-  info: <Radio className="size-4 text-sky-600 dark:text-sky-400" />,
-  running: <Loader2 className="size-4 animate-spin text-sky-600 dark:text-sky-400" />,
-};
+function AssistantRunStatusIcon({ status }: { status: AssistantRunEventStatus }) {
+  if (status === 'completed') {
+    return <CheckCircle className="size-4 text-emerald-600 dark:text-emerald-500" />;
+  }
+  if (status === 'failed') {
+    return <AlertCircle className="size-4 text-destructive" />;
+  }
+  if (status === 'cancelled') {
+    return <AlertCircle className="size-4 text-muted-foreground" />;
+  }
+  if (status === 'running') {
+    return <Loader2 className="size-4 animate-spin text-sky-600 dark:text-sky-400" />;
+  }
+  return <Radio className="size-4 text-sky-600 dark:text-sky-400" />;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -138,7 +146,6 @@ export function AssistantRunTimeline({ data }: AssistantRunTimelineProps) {
   }
 
   const statusLabel = STATUS_LABELS[event.status];
-  const statusIcon = STATUS_ICONS[event.status];
   const durationLabel = formatDuration(event.durationMs);
   const hasDetails = Boolean(event.detail) || metadataEntries.length > 0;
   const isFailed = event.status === 'failed';
@@ -154,7 +161,7 @@ export function AssistantRunTimeline({ data }: AssistantRunTimelineProps) {
     >
       <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] gap-3 px-4 py-3">
         <div aria-hidden="true" className="bs-run-timeline-rail">
-          {statusIcon}
+          <AssistantRunStatusIcon status={event.status} />
         </div>
         <div className="min-w-0">
           <p className={`font-medium text-sm ${isFailed ? 'text-destructive' : ''}`}>

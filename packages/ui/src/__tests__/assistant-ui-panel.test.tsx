@@ -389,6 +389,56 @@ describe('AssistantUiPanel model picker', () => {
     );
   });
 
+  it('uses the latest hosted completion callback when the panel rerenders mid-run', async () => {
+    const prepareRequestData = vi.fn(async () => ({
+      memory: {
+        threadId: 'thread-1',
+        resourceId: 'workspace-1',
+        runId: 'run-1',
+      },
+    }));
+    const firstCompletePreparedRequest = vi.fn();
+    const secondCompletePreparedRequest = vi.fn();
+
+    const view = render(
+      <AssistantUiPanel
+        {...baseProps}
+        completePreparedRequest={firstCompletePreparedRequest}
+        onModelChange={() => {}}
+        prepareRequestData={prepareRequestData}
+      />
+    );
+
+    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+      body?: () => Promise<Record<string, unknown> | undefined>;
+      onFinish?: () => void;
+    };
+
+    await options.body?.();
+    view.rerender(
+      <AssistantUiPanel
+        {...baseProps}
+        completePreparedRequest={secondCompletePreparedRequest}
+        onModelChange={() => {}}
+        prepareRequestData={prepareRequestData}
+      />
+    );
+    options.onFinish?.();
+
+    expect(firstCompletePreparedRequest).not.toHaveBeenCalled();
+    expect(secondCompletePreparedRequest).toHaveBeenCalledWith(
+      {
+        memory: {
+          threadId: 'thread-1',
+          resourceId: 'workspace-1',
+          runId: 'run-1',
+        },
+      },
+      'completed',
+      undefined
+    );
+  });
+
   it('marks hosted prepared requests failed when the data stream errors', async () => {
     const prepareRequestData = vi.fn(async () => ({
       memory: {

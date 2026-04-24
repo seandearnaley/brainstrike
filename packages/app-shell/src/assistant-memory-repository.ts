@@ -420,6 +420,14 @@ function toHistoryRepository(
     ReturnType<AssistantUiThreadHistoryAdapter['load']>
   >['messages'] = [];
   let parentId: string | null = null;
+  let latestAssistantMessageId: string | null = null;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const candidate = messages[index];
+    if (candidate?.role === 'assistant' && extractText(candidate.content).trim()) {
+      latestAssistantMessageId = candidate.id;
+      break;
+    }
+  }
 
   for (const message of messages) {
     if (!(message.role === 'user' || message.role === 'assistant' || message.role === 'system')) {
@@ -441,10 +449,7 @@ function toHistoryRepository(
     const content = [{ type: 'text' as const, text }] as const;
     if (message.role === 'assistant') {
       const isLatestAssistantMessage =
-        runEvents.length > 0 &&
-        messages
-          .slice(messages.indexOf(message) + 1)
-          .every((candidate) => candidate.role !== 'assistant');
+        runEvents.length > 0 && message.id === latestAssistantMessageId;
       repositoryMessages.push({
         parentId,
         message: {

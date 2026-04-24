@@ -614,6 +614,8 @@ const DataStreamRuntimeChat: FC<
   const isComposerDisabled = Boolean(disabled);
   const preparedRequestDataRef = useRef<Record<string, unknown> | undefined>(undefined);
   const completedPreparedRequestRef = useRef(false);
+  const completePreparedRequestRef = useRef(completePreparedRequest);
+  completePreparedRequestRef.current = completePreparedRequest;
 
   const completeLatestPreparedRequest = useCallback(
     async (status: 'cancelled' | 'completed' | 'failed', error?: string): Promise<void> => {
@@ -621,9 +623,9 @@ const DataStreamRuntimeChat: FC<
         return;
       }
       completedPreparedRequestRef.current = true;
-      await completePreparedRequest?.(preparedRequestDataRef.current, status, error);
+      await completePreparedRequestRef.current?.(preparedRequestDataRef.current, status, error);
     },
-    [completePreparedRequest]
+    []
   );
 
   const runtime = useDataStreamRuntime({
