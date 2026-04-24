@@ -101,7 +101,7 @@ export const SearchModeBar = React.memo(function SearchModeBar({
               less weight.
             </p>
 
-            <div className="flex items-start gap-1.5">
+            <div className="space-y-1.5" data-testid="hybrid-search-controls">
               <div className="relative min-w-0 flex-1">
                 <ExpandableTextarea
                   aria-label="Hybrid search query"
@@ -129,19 +129,27 @@ export const SearchModeBar = React.memo(function SearchModeBar({
                 )}
               </div>
 
-              <Button
-                className="h-9 gap-1.5 px-3"
-                disabled={isSearching || !semanticQuery.trim()}
-                onClick={onSemanticSearch}
-                size="sm"
+              <div
+                className="flex min-h-8 items-center justify-between gap-2"
+                data-testid="hybrid-search-action-row"
               >
-                {isSearching ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="h-4 w-4" />
-                )}
-                <span className="hidden sm:inline">Query</span>
-              </Button>
+                <span className="min-w-0 truncate text-muted-foreground text-xs">
+                  Semantic search across embedded chunks
+                </span>
+                <Button
+                  className="h-8 shrink-0 gap-1.5 px-2.5"
+                  disabled={isSearching || !semanticQuery.trim()}
+                  onClick={onSemanticSearch}
+                  size="sm"
+                >
+                  {isSearching ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4" />
+                  )}
+                  <span>Query</span>
+                </Button>
+              </div>
             </div>
 
             {advancedOptions}

@@ -485,6 +485,29 @@ describe('CollectionBrowserView', () => {
     expect(screen.getByTestId('table-pagination')).toHaveTextContent('1:50:120:3');
   });
 
+  it('renders source pagination without an extra padded wrapper', () => {
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        pagination={{
+          currentPage: 1,
+          onPageChange: vi.fn(),
+          onPageSizeChange: vi.fn(),
+          pageSize: 50,
+          totalRecords: 120,
+        }}
+        records={TEST_RECORDS}
+      />
+    );
+
+    const paginationElement = screen.getByTestId('table-pagination');
+    expect(paginationElement.parentElement).not.toHaveClass('px-3');
+    expect(paginationElement.parentElement).not.toHaveClass('py-2');
+    expect(paginationElement.parentElement).not.toHaveClass('border-t');
+  });
+
   it('handles double-click by toggling expansion for file nodes', async () => {
     const user = userEvent.setup();
 

@@ -46,6 +46,16 @@ describe('SearchModeBar', () => {
     expect(screen.getByRole('button', { name: 'Query' })).toBeInTheDocument();
   });
 
+  it('keeps the query action in a separate row so the input can use the full panel width', () => {
+    render(<SearchModeBar {...createProps({ isSearchExpanded: true, semanticQuery: 'search' })} />);
+
+    const actionRow = screen.getByTestId('hybrid-search-action-row');
+    expect(actionRow).toContainElement(screen.getByRole('button', { name: 'Query' }));
+    expect(actionRow).not.toContainElement(
+      screen.getByRole('textbox', { name: 'Hybrid search query' })
+    );
+  });
+
   it('calls onSemanticQueryChange when typing in search input', () => {
     const onSemanticQueryChange = vi.fn();
     render(<SearchModeBar {...createProps({ isSearchExpanded: true, onSemanticQueryChange })} />);

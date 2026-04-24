@@ -1181,23 +1181,21 @@ export function CollectionBrowserView({
       </div>
 
       {pagination && (
-        <div className="border-border border-t px-3 py-2">
-          <TablePagination
-            currentPage={pagination.currentPage}
-            onPageChange={pagination.onPageChange}
-            onPageSizeChange={pagination.onPageSizeChange}
-            pageInfo="files"
-            pageSize={pagination.pageSize}
-            pageSizeOptions={EMBEDDING_TREE_PAGE_SIZE_OPTIONS}
-            showItemRange
-            totalItems={pagination.totalRecords}
-            totalPages={
-              pagination
-                ? Math.max(1, Math.ceil(pagination.totalRecords / Math.max(1, pagination.pageSize)))
-                : 1
-            }
-          />
-        </div>
+        <TablePagination
+          currentPage={pagination.currentPage}
+          onPageChange={pagination.onPageChange}
+          onPageSizeChange={pagination.onPageSizeChange}
+          pageInfo="files"
+          pageSize={pagination.pageSize}
+          pageSizeOptions={EMBEDDING_TREE_PAGE_SIZE_OPTIONS}
+          showItemRange
+          totalItems={pagination.totalRecords}
+          totalPages={
+            pagination
+              ? Math.max(1, Math.ceil(pagination.totalRecords / Math.max(1, pagination.pageSize)))
+              : 1
+          }
+        />
       )}
 
       {/* Context menu (positioned at right-click location) */}
