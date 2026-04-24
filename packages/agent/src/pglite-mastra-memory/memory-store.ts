@@ -592,7 +592,7 @@ export class PgliteMemoryStore extends MemoryStorage {
       throw new Error('threadId must be a non-empty string or array of non-empty strings');
     }
     const result = await this.listMessagesWhere({ ...args, threadIds });
-    await this.emitRunEvent('memory.history.loaded', 'completed', 'Conversation history loaded', {
+    this.emitRunEvent('memory.history.loaded', 'completed', 'Conversation history loaded', {
       count: result.messages.length,
       threadCount: threadIds.length,
     });
@@ -603,7 +603,7 @@ export class PgliteMemoryStore extends MemoryStorage {
     args: StorageListMessagesByResourceIdInput
   ): Promise<StorageListMessagesOutput> {
     const result = await this.listMessagesWhere(args);
-    await this.emitRunEvent('memory.history.loaded', 'completed', 'Resource history loaded', {
+    this.emitRunEvent('memory.history.loaded', 'completed', 'Resource history loaded', {
       count: result.messages.length,
       resourceId: args.resourceId,
     });
@@ -753,7 +753,7 @@ export class PgliteMemoryStore extends MemoryStorage {
     );
     const row = result.rows[0];
     const resource = row ? resourceFromRow(row) : null;
-    await this.emitRunEvent('memory.working.loaded', 'completed', 'Working memory loaded', {
+    this.emitRunEvent('memory.working.loaded', 'completed', 'Working memory loaded', {
       exists: resource !== null,
       resourceId,
     });
@@ -820,7 +820,7 @@ export class PgliteMemoryStore extends MemoryStorage {
       next.metadata = metadata;
     }
     const saved = await this.saveResource({ resource: next });
-    await this.emitRunEvent('memory.working.updated', 'completed', 'Working memory updated', {
+    this.emitRunEvent('memory.working.updated', 'completed', 'Working memory updated', {
       hasWorkingMemory: saved.workingMemory !== undefined,
       resourceId,
     });
@@ -841,16 +841,11 @@ export class PgliteMemoryStore extends MemoryStorage {
     );
     const row = result.rows[0];
     const record = row ? observationalMemoryFromRow(row) : null;
-    await this.emitRunEvent(
-      'memory.observation.started',
-      'completed',
-      'Observational memory read',
-      {
-        exists: record !== null,
-        resourceId,
-        scope: threadId ? 'thread' : 'resource',
-      }
-    );
+    this.emitRunEvent('memory.observation.completed', 'completed', 'Observational memory read', {
+      exists: record !== null,
+      resourceId,
+      scope: threadId ? 'thread' : 'resource',
+    });
     return record;
   }
 
@@ -884,16 +879,11 @@ export class PgliteMemoryStore extends MemoryStorage {
     }
     const result = await this.database.query<ObservationalMemoryRow>(sql, values);
     const records = result.rows.map(observationalMemoryFromRow);
-    await this.emitRunEvent(
-      'memory.observation.started',
-      'completed',
-      'Observation history loaded',
-      {
-        count: records.length,
-        resourceId,
-        scope: threadId ? 'thread' : 'resource',
-      }
-    );
+    this.emitRunEvent('memory.observation.completed', 'completed', 'Observation history loaded', {
+      count: records.length,
+      resourceId,
+      scope: threadId ? 'thread' : 'resource',
+    });
     return records;
   }
 
@@ -927,7 +917,7 @@ export class PgliteMemoryStore extends MemoryStorage {
       record.observedTimezone = input.observedTimezone;
     }
     await this.insertObservationalMemoryRecord(record);
-    await this.emitRunEvent('memory.configured', 'completed', 'Observational memory configured', {
+    this.emitRunEvent('memory.configured', 'completed', 'Observational memory configured', {
       resourceId: input.resourceId,
       scope: input.scope,
     });
@@ -953,7 +943,7 @@ export class PgliteMemoryStore extends MemoryStorage {
       record.observedTimezone = input.observedTimezone;
     }
     await this.saveObservationalMemoryRecord(record);
-    await this.emitRunEvent('memory.observation.completed', 'completed', 'Observations updated', {
+    this.emitRunEvent('memory.observation.completed', 'completed', 'Observations updated', {
       messageCount: input.observedMessageIds?.length ?? 0,
       tokenCount: input.tokenCount,
     });
@@ -972,7 +962,7 @@ export class PgliteMemoryStore extends MemoryStorage {
     }
     record.updatedAt = new Date();
     await this.saveObservationalMemoryRecord(record);
-    await this.emitRunEvent(
+    this.emitRunEvent(
       'memory.observation.completed',
       'completed',
       'Buffered observations updated',
@@ -1025,7 +1015,7 @@ export class PgliteMemoryStore extends MemoryStorage {
     recordToSave.lastObservedAt = derivedLastObservedAt;
     recordToSave.updatedAt = record.updatedAt;
     await this.saveObservationalMemoryRecord(recordToSave);
-    await this.emitRunEvent(
+    this.emitRunEvent(
       'memory.observation.completed',
       'completed',
       'Buffered observations activated',
@@ -1089,15 +1079,10 @@ export class PgliteMemoryStore extends MemoryStorage {
       record.observedTimezone = input.currentRecord.observedTimezone;
     }
     await this.insertObservationalMemoryRecord(record);
-    await this.emitRunEvent(
-      'memory.reflection.completed',
-      'completed',
-      'Memory reflection created',
-      {
-        generationCount: record.generationCount,
-        tokenCount: input.tokenCount,
-      }
-    );
+    this.emitRunEvent('memory.reflection.completed', 'completed', 'Memory reflection created', {
+      generationCount: record.generationCount,
+      tokenCount: input.tokenCount,
+    });
     return record;
   }
 
@@ -1112,15 +1097,10 @@ export class PgliteMemoryStore extends MemoryStorage {
     record.reflectedObservationLineCount = input.reflectedObservationLineCount;
     record.updatedAt = new Date();
     await this.saveObservationalMemoryRecord(record);
-    await this.emitRunEvent(
-      'memory.reflection.completed',
-      'completed',
-      'Buffered reflection updated',
-      {
-        inputTokenCount: input.inputTokenCount,
-        tokenCount: input.tokenCount,
-      }
-    );
+    this.emitRunEvent('memory.reflection.completed', 'completed', 'Buffered reflection updated', {
+      inputTokenCount: input.inputTokenCount,
+      tokenCount: input.tokenCount,
+    });
   }
 
   override async swapBufferedReflectionToActive(
@@ -1145,33 +1125,24 @@ export class PgliteMemoryStore extends MemoryStorage {
       tokenCount: input.tokenCount,
     });
     await this.saveObservationalMemoryRecord(withoutBufferedReflection(record));
-    await this.emitRunEvent(
-      'memory.reflection.completed',
-      'completed',
-      'Buffered reflection activated',
-      {
-        generationCount: generation.generationCount,
-        tokenCount: input.tokenCount,
-      }
-    );
+    this.emitRunEvent('memory.reflection.completed', 'completed', 'Buffered reflection activated', {
+      generationCount: generation.generationCount,
+      tokenCount: input.tokenCount,
+    });
     return generation;
   }
 
   override async setReflectingFlag(id: string, isReflecting: boolean): Promise<void> {
     await this.updateObservationalMemoryColumns(id, [['"isReflecting"', isReflecting]]);
     if (isReflecting) {
-      await this.emitRunEvent('memory.reflection.started', 'running', 'Memory reflection started');
+      this.emitRunEvent('memory.reflection.started', 'running', 'Memory reflection started');
     }
   }
 
   override async setObservingFlag(id: string, isObserving: boolean): Promise<void> {
     await this.updateObservationalMemoryColumns(id, [['"isObserving"', isObserving]]);
     if (isObserving) {
-      await this.emitRunEvent(
-        'memory.observation.started',
-        'running',
-        'Memory observation started'
-      );
+      this.emitRunEvent('memory.observation.started', 'running', 'Memory observation started');
     }
   }
 
@@ -1190,11 +1161,7 @@ export class PgliteMemoryStore extends MemoryStorage {
   override async setBufferingReflectionFlag(id: string, isBuffering: boolean): Promise<void> {
     await this.updateObservationalMemoryColumns(id, [['"isBufferingReflection"', isBuffering]]);
     if (isBuffering) {
-      await this.emitRunEvent(
-        'memory.reflection.started',
-        'running',
-        'Buffered reflection started'
-      );
+      this.emitRunEvent('memory.reflection.started', 'running', 'Buffered reflection started');
     }
   }
 
@@ -1398,12 +1365,12 @@ export class PgliteMemoryStore extends MemoryStorage {
     }
   }
 
-  private async emitRunEvent(
+  private emitRunEvent(
     kind: AssistantRunEventKind,
     status: AssistantRunEventStatus,
     label: string,
     metadata?: AssistantRunEventMetadata
-  ): Promise<void> {
+  ): void {
     if (!(this.eventSink && this.runId)) {
       return;
     }

@@ -366,7 +366,16 @@ describe('PgliteMemoryStore', () => {
   });
 
   it('persists observational memory records and history', async () => {
-    const created = await store.initializeObservationalMemory({
+    const events: string[] = [];
+    const observedStore = new PgliteMemoryStore({
+      database: db,
+      eventSink: (event) => {
+        events.push(`${event.kind}:${event.status}:${event.label}`);
+      },
+      runId: 'run-1',
+    });
+    await observedStore.initialize();
+    const created = await observedStore.initializeObservationalMemory({
       threadId: 'thread-1',
       resourceId: 'workspace-a',
       scope: 'thread',
@@ -374,7 +383,7 @@ describe('PgliteMemoryStore', () => {
       observedTimezone: 'America/New_York',
     });
 
-    await store.updateActiveObservations({
+    await observedStore.updateActiveObservations({
       id: created.id,
       observations: '- User is wiring Mastra memory into Brainstrike.',
       tokenCount: 12,
@@ -382,13 +391,28 @@ describe('PgliteMemoryStore', () => {
       observedMessageIds: ['message-1'],
     });
 
-    const active = await store.getObservationalMemory('thread-1', 'workspace-a');
-    const history = await store.getObservationalMemoryHistory('thread-1', 'workspace-a', 10);
+    const active = await observedStore.getObservationalMemory('thread-1', 'workspace-a');
+    const history = await observedStore.getObservationalMemoryHistory(
+      'thread-1',
+      'workspace-a',
+      10
+    );
 
     expect(active?.activeObservations).toContain('Mastra memory');
     expect(active?.observedMessageIds).toEqual(['message-1']);
     expect(active?.observedTimezone).toBe('America/New_York');
     expect(history.map((record) => record.id)).toEqual([created.id]);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        'memory.configured:completed:Observational memory configured',
+        'memory.observation.completed:completed:Observations updated',
+        'memory.observation.completed:completed:Observational memory read',
+        'memory.observation.completed:completed:Observation history loaded',
+      ])
+    );
+    expect(events).not.toEqual(
+      expect.arrayContaining(['memory.observation.started:completed:Observational memory read'])
+    );
   });
 
   it('deletes thread messages and observational memory atomically with the thread', async () => {
