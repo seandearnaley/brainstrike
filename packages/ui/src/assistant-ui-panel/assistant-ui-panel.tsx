@@ -343,6 +343,7 @@ const LocalChainOfThought: FC = () => {
   );
 };
 
+// Keep this in sync with the collapsed-history nth-last-child selector in overrides.css.
 const COLLAPSED_HISTORY_VISIBLE_MESSAGES = 8;
 
 const ThreadHistoryControl: FC<{
@@ -383,6 +384,7 @@ const ExpandableMessageContent: FC<{
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [hasOverflow, setHasOverflow] = useState(false);
+  const [contentHeight, setContentHeight] = useState(collapsedHeight);
 
   useEffect(() => {
     const node = contentRef.current;
@@ -391,7 +393,9 @@ const ExpandableMessageContent: FC<{
     }
 
     const measure = (): void => {
-      setHasOverflow(node.scrollHeight > collapsedHeight + 1);
+      const nextContentHeight = node.scrollHeight;
+      setContentHeight(nextContentHeight);
+      setHasOverflow(nextContentHeight > collapsedHeight + 1);
     };
 
     measure();
@@ -411,7 +415,7 @@ const ExpandableMessageContent: FC<{
   return (
     <div className={cn(className, 'bs-expandable-message')} data-testid={testId}>
       <m.div
-        animate={{ maxHeight: collapsed ? collapsedHeight : 1200 }}
+        animate={{ maxHeight: collapsed ? collapsedHeight : contentHeight }}
         className="bs-expandable-message-body"
         initial={false}
         ref={contentRef}
