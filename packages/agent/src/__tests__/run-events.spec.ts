@@ -8,8 +8,10 @@ describe('run event metadata sanitization', () => {
       promptTokens: 128,
       apiKey: 'secret',
       'api-key': 'secret',
+      accessToken: 'secret',
       bearerCredential: 'secret',
       nested: {
+        refreshToken: 'secret',
         userSessionId: 'secret',
         output: 'tool output',
         count: 2,

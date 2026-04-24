@@ -93,8 +93,8 @@ export function emitAssistantRunEventSafely(input: {
 }
 
 // These exact normalized keys are treated as unsafe raw payload names. Composite
-// summary keys like memoryHitCount or tokenCount are intentionally allowed
-// unless they match a credential fragment below.
+// summary keys like memoryHitCount, promptTokens, or tokenCount are intentionally
+// allowed unless they match a credential-token fragment below.
 const UNSAFE_RUN_EVENT_METADATA_KEYS = new Set([
   'apikey',
   'authorization',
@@ -118,11 +118,15 @@ const MAX_RUN_EVENT_METADATA_DEPTH = 8;
 
 const UNSAFE_RUN_EVENT_METADATA_KEY_FRAGMENTS = [
   'apikey',
+  'accesstoken',
   'authorization',
+  'authtoken',
   'bearer',
   'cookie',
   'credential',
+  'idtoken',
   'password',
+  'refreshtoken',
   'secret',
   'session',
 ] as const;

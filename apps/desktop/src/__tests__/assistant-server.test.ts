@@ -1240,6 +1240,94 @@ describe('assistant-server', () => {
       );
     });
 
+    it('flushes run-event persistence failures when the source stream throws', async () => {
+      const loggerErrorSpy = vi
+        .spyOn(desktopAssistantServerLogger, 'error')
+        .mockImplementation(() => {});
+      const { assistantDataStreamSessions, toAiSdkStyleStream, convertAssistantUiMessages } =
+        await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+      let capturedStream: AsyncIterable<unknown> | null = null;
+
+      mockDesktopDatabase.query.mockImplementation((sql: unknown) => {
+        if (
+          typeof sql === 'string' &&
+          sql.includes('INSERT INTO brainstrike_assistant_run_events')
+        ) {
+          return Promise.reject(new Error('insert failed before stream error'));
+        }
+        return Promise.resolve({ rows: [] });
+      });
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            type: 'run-event',
+            event: {
+              id: 'event-before-source-error',
+              kind: 'run.started',
+              label: 'Assistant run started',
+              status: 'running',
+              timestamp: '2026-04-24T10:00:00.000Z',
+            },
+          };
+          throw new Error('agent stream failed');
+        },
+      });
+      (assistantDataStreamSessions.create as Mock).mockImplementationOnce(
+        (stream: AsyncIterable<unknown>) => {
+          capturedStream = stream;
+          return {
+            createResponse: vi.fn(() => ({
+              status: 200,
+              headers: new Headers(),
+              body: null,
+            })),
+          };
+        }
+      );
+      (streamResponse as Mock).mockImplementationOnce(async () => {
+        if (!capturedStream) {
+          throw new Error('Expected stream to be captured.');
+        }
+        for await (const _chunk of capturedStream) {
+          // consume stream until source error
+        }
+      });
+
+      const response = await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: {
+            provider: 'openai',
+            memory: {
+              threadId: 'thread-1',
+              resourceId: 'workspace-a',
+              runId: 'run-source-error',
+            },
+          },
+        }),
+      });
+
+      expect(response.status).toBe(500);
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        'Failed to flush assistant run event persistence after stream error',
+        expect.objectContaining({
+          runId: 'run-source-error',
+          sourceError: expect.any(Error),
+        })
+      );
+      expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE brainstrike_assistant_thread_runs'),
+        expect.arrayContaining(['run-source-error', 'failed', 'agent stream failed'])
+      );
+    });
+
     it('marks assistant thread runs failed when response streaming fails', async () => {
       const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
       const { streamResponse } = await import('../assistant-server/http');

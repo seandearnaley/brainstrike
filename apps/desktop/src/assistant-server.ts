@@ -297,24 +297,49 @@ async function* observeDesktopAssistantRunEvents(
       yield { type: 'run-event', event };
     }
   };
-  yield* drainQueuedEvents();
-  for await (const chunk of stream) {
+  let sourceError: unknown;
+  let persistenceFlushError: unknown;
+  try {
     yield* drainQueuedEvents();
-    if (chunk.type !== 'run-event') {
-      yield chunk;
-      continue;
+    for await (const chunk of stream) {
+      yield* drainQueuedEvents();
+      if (chunk.type !== 'run-event') {
+        yield chunk;
+        continue;
+      }
+      const event: AssistantRunEvent = {
+        ...chunk.event,
+        runId,
+        sequence: chunk.event.sequence ?? sequence,
+      };
+      sequence = Math.max(sequence, (event.sequence ?? sequence) + 1);
+      persistEvent(event);
+      yield { type: 'run-event', event };
     }
-    const event: AssistantRunEvent = {
-      ...chunk.event,
-      runId,
-      sequence: chunk.event.sequence ?? sequence,
-    };
-    sequence = Math.max(sequence, (event.sequence ?? sequence) + 1);
-    persistEvent(event);
-    yield { type: 'run-event', event };
+    yield* drainQueuedEvents();
+  } catch (error) {
+    sourceError = error;
+  } finally {
+    try {
+      await flushPersistedEvents();
+    } catch (error) {
+      persistenceFlushError = error;
+    }
   }
-  yield* drainQueuedEvents();
-  await flushPersistedEvents();
+
+  if (persistenceFlushError) {
+    if (!sourceError) {
+      throw persistenceFlushError;
+    }
+    logger.error('Failed to flush assistant run event persistence after stream error', {
+      error: persistenceFlushError,
+      runId,
+      sourceError,
+    });
+  }
+  if (sourceError) {
+    throw sourceError;
+  }
 }
 
 async function recordDesktopAssistantThreadRunStatus(
