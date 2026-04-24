@@ -1,15 +1,15 @@
 import {
+  MASTRA_MEMORY_SCHEMA_SQL,
+  MASTRA_MEMORY_TABLES,
+} from '@brainstrike/agent/pglite-mastra-memory/schema';
+import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   type AssistantRunEvent,
   type AssistantRunEventJson,
   type AssistantRunEventKind,
   type AssistantRunEventMetadata,
   type AssistantRunEventStatus,
-} from '@brainstrike/agent';
-import {
-  MASTRA_MEMORY_SCHEMA_SQL,
-  MASTRA_MEMORY_TABLES,
-} from '@brainstrike/agent/pglite-mastra-memory/schema';
+} from '@brainstrike/agent/run-events';
 import type { DbHandle } from '@brainstrike/db';
 import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/ui/assistant-ui-panel';
 
