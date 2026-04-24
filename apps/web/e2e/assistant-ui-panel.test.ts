@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
+import { openAssistantWorkspace } from './utils/assistant-workspace';
+import { getPanelElements } from './utils/layout-helpers';
 
 // Assistant-UI E2E (web): uses the local-runtime UI path with a mocked `window.llmHost`
 // so the shared assistant-ui message rendering and local status states are exercised
@@ -166,8 +167,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
       };
     });
 
-    await page.goto('/');
-    await waitForAppLoad(page);
+    await openAssistantWorkspace(page, { rootName: 'assistant-ui-panel' });
   });
 
   test('send message and see assistant stream with tool progress', async ({ page }) => {

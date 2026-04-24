@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { waitForAppLoad } from './utils/layout-helpers';
+import { openAssistantWorkspace } from './utils/assistant-workspace';
 
 test.describe('Assistant local availability (web)', () => {
   test.beforeEach(async ({ page }) => {
@@ -35,8 +35,7 @@ test.describe('Assistant local availability (web)', () => {
       });
     });
 
-    await page.goto('/');
-    await waitForAppLoad(page);
+    await openAssistantWorkspace(page, { rootName: 'assistant-local-availability' });
   });
 
   test('enables the assistant when the built-in local model is available without hosted keys', async ({

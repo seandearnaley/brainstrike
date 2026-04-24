@@ -18,6 +18,7 @@ const APP_STATE_KEYS = [
   'brainstrike.activeEmbeddingSetId',
   'token-preferences.v1',
   'assistant-preferences.v1',
+  'brainstrike-assistant-threads-v1',
   'logging-preferences.v1',
   'model-registry-storage',
   'native-tool-preferences.v1',
