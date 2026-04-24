@@ -643,7 +643,7 @@ export function CollectionBrowserView({
       return [];
     }
     return searchResults.filter((result) => result.embeddingSetId === activeCollectionId);
-  }, [activeCollectionId, hasActiveCollection, searchResults]);
+  }, [activeCollectionId, searchResults]);
 
   // Transform data for CollectionBrowser.
   // When semantic search results are present, build the tree from the search
