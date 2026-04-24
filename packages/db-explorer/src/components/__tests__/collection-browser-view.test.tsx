@@ -10,15 +10,33 @@ import {
 import { CollectionBrowserView } from '../collection-browser-view';
 
 const collectionBrowserPropsSpy = vi.fn<(props: Record<string, unknown>) => void>();
+const semanticSearchMock = vi.hoisted(() => ({
+  clearResults: vi.fn(),
+  executeSearch: vi.fn(),
+  state: {
+    error: null as string | null,
+    hasSearched: false,
+    isSearching: false,
+    searchResults: [] as Array<{
+      chunkId: string;
+      content: string;
+      chunkIndex?: number;
+      embeddingDimensions?: number;
+      embeddingSetId: string;
+      fileName: string;
+      filePath: string;
+      fileSize?: number;
+      fileRecordId: string;
+      tokenCount?: number;
+    }>,
+  },
+}));
 
 vi.mock('../../contexts/semantic-search-context', () => ({
   useSemanticSearch: () => ({
-    searchResults: [],
-    isSearching: false,
-    hasSearched: false,
-    error: null,
-    executeSearch: vi.fn(),
-    clearResults: vi.fn(),
+    ...semanticSearchMock.state,
+    executeSearch: semanticSearchMock.executeSearch,
+    clearResults: semanticSearchMock.clearResults,
   }),
 }));
 
@@ -33,6 +51,8 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 
   const CollectionBrowser = (props: {
     data: { files: Array<{ id: string }> };
+    emptyMessage?: string;
+    hasSearched?: boolean;
     onSelect?: (nodeId: string, nodeType: string, nodeData: unknown) => void;
     onSelectedIdChange?: (id: string | null) => void;
     multiSelectEnabled?: boolean;
@@ -45,13 +65,14 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     ) => void;
     bulkActions?: Array<{ id: string; label: string }>;
     onMultiSelect?: (ids: Set<string>) => void;
+    semanticResults?: unknown[];
     showCheckbox?: boolean;
-    contextNodeIds?: Set<string>;
     treeWindowingStrategy?: string;
   }) => {
     collectionBrowserPropsSpy(props as Record<string, unknown>);
     const {
       data,
+      emptyMessage,
       onSelect,
       onSelectedIdChange,
       multiSelectEnabled,
@@ -60,7 +81,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
       bulkActions,
       onMultiSelect,
       showCheckbox,
-      contextNodeIds,
     } = props;
     const firstFile = data.files[0];
 
@@ -71,11 +91,11 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
         {bulkActions && bulkActions.length > 0 && (
           <span data-testid="bulk-actions-count">{bulkActions.length}</span>
         )}
+        {!firstFile && emptyMessage ? (
+          <span data-testid="empty-message">{emptyMessage}</span>
+        ) : null}
         {firstFile ? (
           <>
-            {contextNodeIds?.has(`file-${firstFile.id}`) && (
-              <span data-testid="context-selected-first-file" />
-            )}
             <button
               aria-label="Select first file"
               onClick={() => onSelect?.(`file-${firstFile.id}`, 'file', {})}
@@ -137,6 +157,33 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   );
 
   const SearchModeBar = ({
+    advancedOptions,
+    isSearchExpanded,
+    onSemanticSearch,
+    onSearchExpandedChange,
+  }: {
+    advancedOptions?: ReactNode;
+    isSearchExpanded?: boolean;
+    onSemanticSearch?: () => void;
+    onSearchExpandedChange?: (expanded: boolean) => void;
+  }) => (
+    <div data-testid="search-mode-bar">
+      <button
+        aria-expanded={isSearchExpanded ? 'true' : 'false'}
+        aria-label="Hybrid search"
+        onClick={() => onSearchExpandedChange?.(!isSearchExpanded)}
+        type="button"
+      >
+        Hybrid search
+      </button>
+      <button aria-label="Run hybrid search" onClick={onSemanticSearch} type="button">
+        Run hybrid search
+      </button>
+      {isSearchExpanded && advancedOptions}
+    </div>
+  );
+
+  const CollectionBrowserToolbar = ({
     multiSelectEnabled,
     onMultiSelectToggle,
     groupBy,
@@ -149,7 +196,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     onGroupByChange?: (key: string) => void;
     onExpandAll?: () => void;
   }) => (
-    <div data-testid="search-mode-bar">
+    <div data-testid="collection-browser-toolbar">
       {onMultiSelectToggle && (
         <button
           aria-label="Toggle multi-select"
@@ -209,6 +256,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     ...actual,
     Button,
     CollectionBrowser,
+    CollectionBrowserToolbar,
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
@@ -260,6 +308,12 @@ describe('CollectionBrowserView', () => {
   beforeEach(() => {
     __resetCollectionBrowserStoreForTests();
     vi.clearAllMocks();
+    semanticSearchMock.state = {
+      error: null,
+      hasSearched: false,
+      isSearching: false,
+      searchResults: [],
+    };
     collectionBrowserPropsSpy.mockClear();
   });
 
@@ -344,6 +398,183 @@ describe('CollectionBrowserView', () => {
     expect(screen.getByTestId('bulk-actions-count')).toHaveTextContent('3');
   });
 
+  it('nests advanced options inside the expanded hybrid search panel', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        records={TEST_RECORDS}
+      />
+    );
+
+    expect(screen.queryByTestId('search-config-panel')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Hybrid search' }));
+
+    expect(screen.getByTestId('search-mode-bar')).toContainElement(
+      screen.getByTestId('search-config-panel')
+    );
+  });
+
+  it('renders collection grid controls in their own toolbar', () => {
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        records={TEST_RECORDS}
+      />
+    );
+
+    expect(screen.getByTestId('collection-browser-toolbar')).toBeInTheDocument();
+    expect(screen.getByTestId('search-mode-bar')).not.toContainElement(
+      screen.getByTestId('collection-browser-toolbar')
+    );
+  });
+
+  it('prioritizes the no-collection empty state over stale semantic search state', () => {
+    semanticSearchMock.state = {
+      error: null,
+      hasSearched: true,
+      isSearching: false,
+      searchResults: [
+        {
+          chunkId: 'stale-chunk',
+          content: 'stale semantic result',
+          embeddingSetId: 'collection-a',
+          fileName: 'stale.ts',
+          filePath: '/stale.ts',
+          fileRecordId: 'stale-file',
+        },
+      ],
+    };
+    useCollectionBrowserStore.getState().setSearchMode('semantic');
+
+    render(
+      <CollectionBrowserView activeCollectionId={null} chunks={[]} height={500} records={[]} />
+    );
+
+    expect(screen.getByTestId('empty-message')).toHaveTextContent(
+      'Create or select a collection to start importing files and searching with semantic embeddings.'
+    );
+    expect(screen.queryByText(/No matching results found/i)).not.toBeInTheDocument();
+
+    const latestProps = collectionBrowserPropsSpy.mock.calls.at(-1)?.[0];
+    expect(latestProps).toMatchObject({
+      data: { files: [] },
+      hasSearched: false,
+    });
+    expect(latestProps).not.toHaveProperty('semanticResults');
+  });
+
+  it('does not execute hybrid search without an active collection', async () => {
+    const user = userEvent.setup();
+    useCollectionBrowserStore.getState().setSemanticQuery('orphan query');
+
+    render(
+      <CollectionBrowserView activeCollectionId={null} chunks={[]} height={500} records={[]} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Run hybrid search' }));
+
+    expect(semanticSearchMock.executeSearch).not.toHaveBeenCalled();
+  });
+
+  it('filters stale semantic results from a previously active collection', () => {
+    semanticSearchMock.state = {
+      error: null,
+      hasSearched: true,
+      isSearching: false,
+      searchResults: [
+        {
+          chunkId: 'stale-chunk',
+          content: 'stale semantic result',
+          embeddingSetId: 'collection-a',
+          fileName: 'stale.ts',
+          filePath: '/stale.ts',
+          fileRecordId: 'stale-file',
+        },
+      ],
+    };
+    useCollectionBrowserStore.getState().setSearchMode('semantic');
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId="collection-b"
+        chunks={[]}
+        height={500}
+        records={[]}
+      />
+    );
+
+    expect(screen.getByTestId('empty-message')).toHaveTextContent(
+      'No matching results found. Try adjusting your query or threshold.'
+    );
+
+    const latestProps = collectionBrowserPropsSpy.mock.calls.at(-1)?.[0];
+    expect(latestProps).toMatchObject({
+      data: { files: [] },
+      hasSearched: true,
+      semanticResults: [],
+    });
+  });
+
+  it('preserves semantic result metadata for file sizes, chunk tokens, and embedding rows', () => {
+    semanticSearchMock.state = {
+      error: null,
+      hasSearched: true,
+      isSearching: false,
+      searchResults: [
+        {
+          chunkId: 'result-chunk',
+          chunkIndex: 7,
+          content: 'matched chunk body',
+          embeddingDimensions: 1536,
+          embeddingSetId: 'collection-1',
+          fileName: 'result.ts',
+          filePath: '/src/result.ts',
+          fileRecordId: 'result-file',
+          fileSize: 4096,
+          tokenCount: 128,
+        },
+      ],
+    };
+    useCollectionBrowserStore.getState().setSearchMode('semantic');
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId="collection-1"
+        chunks={[]}
+        height={500}
+        records={[]}
+      />
+    );
+
+    const latestProps = collectionBrowserPropsSpy.mock.calls.at(-1)?.[0];
+    expect(latestProps).toMatchObject({
+      data: {
+        files: [
+          expect.objectContaining({
+            id: 'result-file',
+            size: 4096,
+          }),
+        ],
+        chunks: [
+          expect.objectContaining({
+            id: 'result-chunk',
+            chunkIndex: 7,
+            tokenCount: 128,
+            embeddingDimensions: 1536,
+            hasEmbedding: true,
+          }),
+        ],
+      },
+    });
+  });
+
   it('renders source pagination controls without double-paging the tree', () => {
     render(
       <CollectionBrowserView
@@ -366,6 +597,29 @@ describe('CollectionBrowserView', () => {
       treeWindowingStrategy: 'virtual',
     });
     expect(screen.getByTestId('table-pagination')).toHaveTextContent('1:50:120:3');
+  });
+
+  it('renders source pagination without an extra padded wrapper', () => {
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        pagination={{
+          currentPage: 1,
+          onPageChange: vi.fn(),
+          onPageSizeChange: vi.fn(),
+          pageSize: 50,
+          totalRecords: 120,
+        }}
+        records={TEST_RECORDS}
+      />
+    );
+
+    const paginationElement = screen.getByTestId('table-pagination');
+    expect(paginationElement.parentElement).not.toHaveClass('px-3');
+    expect(paginationElement.parentElement).not.toHaveClass('py-2');
+    expect(paginationElement.parentElement).not.toHaveClass('border-t');
   });
 
   it('handles double-click by toggling expansion for file nodes', async () => {
@@ -531,7 +785,7 @@ describe('CollectionBrowserView', () => {
     expect(useCollectionBrowserStore.getState().groupBy).toBe('status');
   });
 
-  it('updates context selection from toolbar controls', async () => {
+  it('does not render context mutation controls for selected collection rows', async () => {
     const user = userEvent.setup();
 
     render(
@@ -546,26 +800,14 @@ describe('CollectionBrowserView', () => {
     expect(
       screen.queryByRole('button', { name: /add selected to context/i })
     ).not.toBeInTheDocument();
+    expect(screen.queryByText(/in context:/i)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Select first file' }));
     expect(useCollectionBrowserStore.getState().selectedId).toBe('file-1');
-
-    const addButton = screen.getByRole('button', { name: /add selected to context/i });
-    expect(addButton).toBeEnabled();
-    const clearContextButton = screen.getByRole('button', { name: /clear context/i });
-    expect(clearContextButton).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: /add selected to context/i }));
-
-    expect(useCollectionBrowserStore.getState().contextSelectedIds).toContain('file-1');
-    expect(screen.getByTestId('context-selected-first-file')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /clear context/i })).toBeEnabled();
-
-    await user.click(screen.getByRole('button', { name: /clear context/i }));
-    expect(useCollectionBrowserStore.getState().contextSelectedIds).toEqual([]);
-
-    await user.click(screen.getByRole('button', { name: /add selected to context/i }));
-    await user.click(screen.getByRole('button', { name: /remove selected from context/i }));
-    expect(useCollectionBrowserStore.getState().contextSelectedIds).not.toContain('file-1');
+    expect(
+      screen.queryByRole('button', { name: /add selected to context/i })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /clear context/i })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Clear selection' }));
     expect(

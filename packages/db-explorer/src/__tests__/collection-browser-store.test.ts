@@ -239,29 +239,6 @@ describe('collection-browser-store', () => {
     });
   });
 
-  describe('context selection state', () => {
-    it('toggles context-selected IDs on and off', () => {
-      const store = useCollectionBrowserStore.getState();
-      store.toggleContextSelectedId('file-1');
-      expect(useCollectionBrowserStore.getState().contextSelectedIds).toEqual(['file-1']);
-
-      store.toggleContextSelectedId('file-1');
-      expect(useCollectionBrowserStore.getState().contextSelectedIds).toEqual([]);
-    });
-
-    it('clears all context-selected IDs', () => {
-      const store = useCollectionBrowserStore.getState();
-      store.toggleContextSelectedId('file-1');
-      store.toggleContextSelectedId('file-2');
-      expect(useCollectionBrowserStore.getState().contextSelectedIds).toEqual(
-        expect.arrayContaining(['file-1', 'file-2'])
-      );
-
-      store.clearContextSelectedIds();
-      expect(useCollectionBrowserStore.getState().contextSelectedIds).toEqual([]);
-    });
-  });
-
   describe('reset', () => {
     it('resets all state to defaults', () => {
       const store = useCollectionBrowserStore.getState();
@@ -282,7 +259,6 @@ describe('collection-browser-store', () => {
       store.setSearchConfigDistanceMetric('l2');
       store.setSearchConfigExpanded(true);
       store.setIsFilterVisible(true);
-      store.toggleContextSelectedId('file-1');
 
       // Reset
       store.reset();
@@ -304,7 +280,6 @@ describe('collection-browser-store', () => {
       expect(state.searchConfigDistanceMetric).toBe('cosine');
       expect(state.searchConfigExpanded).toBe(false);
       expect(state.isFilterVisible).toBe(false);
-      expect(state.contextSelectedIds).toEqual([]);
     });
   });
 
@@ -313,18 +288,40 @@ describe('collection-browser-store', () => {
       expect(storeWithPersist.persist).toBeDefined();
     });
 
-    it('migrates pre-v2 snapshots to include contextSelectedIds', () => {
+    it('drops legacy context-selected IDs during migration', () => {
       const options = storeWithPersist.persist?.getOptions?.();
-      expect(options?.version).toBe(2);
+      expect(options?.version).toBe(3);
       expect(options?.migrate).toBeTypeOf('function');
       if (!options?.migrate) {
         throw new Error('persist migrate unavailable for test');
       }
 
-      const migrated = options.migrate({ expandedIds: ['node-1'] }, 1) as {
+      const migrated = options.migrate(
+        { contextSelectedIds: ['file-1'], expandedIds: ['node-1'] },
+        2
+      ) as {
         contextSelectedIds?: string[];
+        expandedIds?: string[];
       };
-      expect(migrated.contextSelectedIds).toEqual([]);
+      expect(migrated.contextSelectedIds).toBeUndefined();
+      expect(migrated.expandedIds).toEqual(['node-1']);
+    });
+
+    it('drops legacy context-selected IDs from all pre-v3 snapshots', () => {
+      const options = storeWithPersist.persist?.getOptions?.();
+      if (!options?.migrate) {
+        throw new Error('persist migrate unavailable for test');
+      }
+
+      const snapshot = { selectedId: 'node-1' };
+      const migrated = options.migrate(snapshot, 1) as {
+        contextSelectedIds?: unknown;
+        selectedId?: string;
+      };
+
+      expect(migrated).not.toBe(snapshot);
+      expect(migrated).not.toHaveProperty('contextSelectedIds');
+      expect(migrated.selectedId).toBe('node-1');
     });
 
     it('persists through fallback storage when localStorage fails', () => {

@@ -231,6 +231,8 @@ export interface TreeTableProps<T> {
   // Highlighting (e.g., search results)
   /** Set of highlighted node IDs */
   highlightedIds?: Set<string>;
+  /** Adds a small inset before tree controls in the tree column. */
+  insetTreeControls?: boolean;
   /** Set of node IDs currently loading children */
   loadingNodeIds?: Set<string>;
   /** Maximum height of the table container */
@@ -308,6 +310,8 @@ export interface TreeTableRowProps<T> {
   className?: string;
   /** Column definitions */
   columns: TreeTableColumn<T>[];
+  /** Adds a small inset before tree controls in the tree column. */
+  insetTreeControls?: boolean | undefined;
   /** Whether this row is focused for keyboard navigation */
   isFocused?: boolean;
   /** Ref callback for measuring element */

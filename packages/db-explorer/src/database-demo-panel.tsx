@@ -24,7 +24,6 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  EmptyState,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -673,17 +672,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                 records={records}
               />
             </SemanticSearchProvider>
-
-            {/* Empty state when no collection is selected */}
-            {!activeCollectionId && (
-              <div className="absolute inset-0 z-10">
-                <EmptyState
-                  description="Create or select a collection to start importing files and searching with semantic embeddings"
-                  icon={<Database />}
-                  title="No collection selected"
-                />
-              </div>
-            )}
           </div>
         </Panel>
       </Group>

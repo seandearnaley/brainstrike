@@ -273,8 +273,12 @@ export const DEFAULT_SEARCH_CONFIG: SearchConfig = {
 export interface SemanticSearchResult {
   /** Original chunk ID in the database */
   chunkId: string;
+  /** Original chunk index within the source file */
+  chunkIndex?: number;
   /** Chunk content for preview */
   content: string;
+  /** Embedding vector dimensions for the matched chunk */
+  embeddingDimensions?: number;
   /** Embedding set ID this chunk belongs to */
   embeddingSetId?: string;
   /** File name for context */
@@ -283,6 +287,8 @@ export interface SemanticSearchResult {
   filePath: string;
   /** File record ID this chunk belongs to */
   fileRecordId: string;
+  /** File size in bytes */
+  fileSize?: number;
   /** Full-text search rank score (if available) */
   ftsRank?: number;
   /** Headline snippet with highlighted matches from FTS */
@@ -293,6 +299,8 @@ export interface SemanticSearchResult {
   similarity: number;
   /** Number of search sources that found this result (1-2 for hybrid) */
   sourceCount?: number;
+  /** Stored token count for the matched chunk */
+  tokenCount?: number;
 
   // === Hybrid Search Metadata (BST-294) ===
   /** Vector similarity score from vector search (if available) */
@@ -303,42 +311,22 @@ export interface SemanticSearchResult {
  * Props for the SearchModeBar component
  */
 export interface SearchModeBarProps {
+  /** Advanced search controls rendered inside the expanded hybrid search panel */
+  advancedOptions?: React.ReactNode;
   /** Custom class name */
   className?: string;
-  /** Current filter state (controlled) */
-  filters?: CollectionBrowserFilters;
-  /** Current group-by key */
-  groupBy?: GroupByKey;
   /** Whether semantic search has been executed */
   hasSearched?: boolean;
-  /** Whether config panel is expanded */
-  isConfigExpanded: boolean;
-  /** Whether the filter bar is visible */
-  isFilterVisible?: boolean;
+  /** Whether the hybrid search panel is expanded */
+  isSearchExpanded: boolean;
   /** Whether semantic search is in progress */
   isSearching: boolean;
   /** Current search mode */
   mode: SearchMode;
-  /** Whether multi-select mode is enabled */
-  multiSelectEnabled?: boolean;
-  /** Callback to collapse all nodes */
-  onCollapseAll?: () => void;
-  /** Callback when config expansion changes */
-  onConfigExpandedChange: (expanded: boolean) => void;
-  /** Callback to expand all nodes */
-  onExpandAll?: () => void;
-  /** Callback when filters change (controlled) */
-  onFiltersChange?: (filters: CollectionBrowserFilters) => void;
-  /** Callback when filter visibility changes */
-  onFilterVisibleChange?: (visible: boolean) => void;
-  /** Callback when group-by changes */
-  onGroupByChange?: (groupBy: GroupByKey) => void;
   /** Callback when mode changes */
   onModeChange: (mode: SearchMode) => void;
-  /** Callback when multi-select toggle changes */
-  onMultiSelectToggle?: (enabled: boolean) => void;
-  /** Callback to reset filters */
-  onResetFilters?: () => void;
+  /** Callback when hybrid search panel expansion changes */
+  onSearchExpandedChange: (expanded: boolean) => void;
   /** Callback when semantic query changes */
   onSemanticQueryChange: (query: string) => void;
   /** Callback to execute semantic search */
@@ -347,8 +335,32 @@ export interface SearchModeBarProps {
   resultCount?: number;
   /** Semantic search query */
   semanticQuery: string;
-  /** Total number of nodes */
-  totalCount?: number;
+}
+
+/**
+ * Props for the collection browser toolbar that sits directly above the grid.
+ */
+export interface CollectionBrowserToolbarProps {
+  /** Custom class name */
+  className?: string;
+  /** Current filter state (controlled) */
+  filters?: CollectionBrowserFilters;
+  /** Current group-by key */
+  groupBy?: GroupByKey;
+  /** Whether the filter bar is visible */
+  isFilterVisible?: boolean;
+  /** Whether multi-select mode is enabled */
+  multiSelectEnabled?: boolean;
+  /** Callback to collapse all nodes */
+  onCollapseAll?: () => void;
+  /** Callback to expand all nodes */
+  onExpandAll?: () => void;
+  /** Callback when filter visibility changes */
+  onFilterVisibleChange?: (visible: boolean) => void;
+  /** Callback when group-by changes */
+  onGroupByChange?: (groupBy: GroupByKey) => void;
+  /** Callback when multi-select toggle changes */
+  onMultiSelectToggle?: (enabled: boolean) => void;
 }
 
 /**

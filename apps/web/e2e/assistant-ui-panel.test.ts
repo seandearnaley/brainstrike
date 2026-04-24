@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { resetAppState, seedWorkspaceFocusedShellLayout } from './utils/app-state';
-import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
-import { type FileTree, mockBrowserApis } from './utils/mock-fs';
+import { openAssistantWorkspace } from './utils/assistant-workspace';
+import { getPanelElements } from './utils/layout-helpers';
 
 // Assistant-UI E2E (web): uses the local-runtime UI path with a mocked `window.llmHost`
 // so the shared assistant-ui message rendering and local status states are exercised
@@ -65,11 +64,10 @@ interface MockLlmGenerateRequest {
 
 test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
   test.beforeEach(async ({ page }) => {
-    const tree: FileTree = {
+    const tree = {
       'README.md': '# BrainStrike test workspace',
     };
 
-    await mockBrowserApis(page, 'test-root', tree);
     await page.addInitScript(() => {
       const STREAM_STEP_DELAY_MS = 300;
 
@@ -173,14 +171,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
       };
     });
 
-    await page.goto('/');
-    await waitForAppLoad(page);
-    await resetAppState(page);
-    await seedWorkspaceFocusedShellLayout(page);
-    await page.reload();
-    await waitForAppLoad(page);
-    await page.getByTestId('select-root-button').click();
-    await expect(page.getByTestId('assistant-ui-viewport')).toBeVisible({ timeout: 15_000 });
+    await openAssistantWorkspace(page, { rootName: 'assistant-ui-panel', tree });
   });
 
   test('send message and see assistant stream with tool progress', async ({ page }) => {
@@ -290,6 +281,11 @@ test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
       'Priority targets include local-runtime-adapter, database setup, and assistant panel tests.',
       'Write a careful implementation plan that preserves renderer-only local LLM execution.',
       'Do not skip verification and do not hide errors behind fallback behavior.',
+      ...Array.from(
+        { length: 8 },
+        (_, index) =>
+          `Detailed verification note ${index + 1}: keep the chat message tall enough to exercise the collapsed-message affordance across responsive assistant layouts.`
+      ),
     ].join('\n\n');
 
     const input = page.locator('#assistant-input');

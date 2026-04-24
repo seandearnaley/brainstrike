@@ -5,14 +5,31 @@
  * to keep the main component focused on behavior and layout.
  */
 
-import { File, FileText, FolderOpen, Layers, Sparkles } from 'lucide-react';
+import {
+  CheckCircle2,
+  Circle,
+  Clock3,
+  File,
+  FileText,
+  FolderOpen,
+  Layers,
+  Loader2,
+  Sparkles,
+  XCircle,
+} from 'lucide-react';
 import * as React from 'react';
-import { Badge } from '../badge';
 import { cn } from '../lib/utils';
 import { Progress } from '../progress';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../tooltip';
 import type { TreeTableColumn } from '../tree-table/types';
-import type { BrowserNodeData, ChunkData, CollectionData, EmbeddingData, FileData } from './types';
+import type {
+  BrowserNodeData,
+  ChunkData,
+  CollectionData,
+  EmbeddingData,
+  EmbeddingStatus,
+  FileData,
+} from './types';
 import { EMBEDDING_STATUS_CONFIG, NODE_TYPE_CONFIG } from './types';
 import { getNodeDisplayInfo } from './utils';
 
@@ -38,24 +55,37 @@ function NodeIcon({ type }: { type: string }) {
   return null;
 }
 
-/**
- * Status badge component
- */
-function StatusBadge({ status }: { status: string }) {
-  const config = EMBEDDING_STATUS_CONFIG[status as keyof typeof EMBEDDING_STATUS_CONFIG];
-  if (!config || status === 'all') {
-    return null;
-  }
+function EmbeddingStatusIcon({ status }: { status: EmbeddingStatus }): React.ReactElement {
+  const config = EMBEDDING_STATUS_CONFIG[status];
+  const iconClassName = cn('h-3.5 w-3.5', config.color, status === 'processing' && 'animate-spin');
+  const icon =
+    status === 'complete' ? (
+      <CheckCircle2 className={iconClassName} />
+    ) : status === 'failed' ? (
+      <XCircle className={iconClassName} />
+    ) : status === 'processing' ? (
+      <Loader2 className={iconClassName} />
+    ) : status === 'pending' ? (
+      <Clock3 className={iconClassName} />
+    ) : (
+      <Circle className={iconClassName} />
+    );
 
   return (
-    <Badge
-      className="text-xs"
-      variant={
-        status === 'complete' ? 'default' : status === 'failed' ? 'destructive' : 'secondary'
-      }
-    >
-      {config.label}
-    </Badge>
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            aria-label={`${config.label} embedding status`}
+            className="inline-flex size-6 items-center justify-center rounded-sm"
+            role="img"
+          >
+            {icon}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top">{config.label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
@@ -88,7 +118,7 @@ export function useCollectionBrowserColumns({
       {
         id: 'name',
         header: 'Name',
-        width: showScoreColumn ? '30%' : '40%',
+        width: showScoreColumn ? '34%' : '48%',
         minWidth: 150,
         sortable: true,
         accessorFn: (node) => getNodeDisplayInfo(node.type, node.data).displayName.toLowerCase(),
@@ -133,8 +163,16 @@ export function useCollectionBrowserColumns({
       },
       {
         id: 'status',
-        header: 'Status',
-        width: showScoreColumn ? '10%' : '15%',
+        header: (
+          <>
+            <span className="sr-only">Status</span>
+            <Sparkles aria-hidden="true" className="h-3.5 w-3.5 text-muted-foreground" />
+          </>
+        ),
+        headerContentClassName: 'justify-center',
+        width: 44,
+        minWidth: 44,
+        maxWidth: 44,
         sortable: true,
         accessorFn: (node) => {
           const { data: nodeData, type } = node;
@@ -149,10 +187,10 @@ export function useCollectionBrowserColumns({
         cell: ({ node }) => {
           const { data: nodeData, type } = node;
           if (type === 'file') {
-            return <StatusBadge status={(nodeData as FileData).embeddingStatus} />;
+            return <EmbeddingStatusIcon status={(nodeData as FileData).embeddingStatus} />;
           }
           if (type === 'chunk') {
-            return <StatusBadge status={(nodeData as ChunkData).embeddingStatus} />;
+            return <EmbeddingStatusIcon status={(nodeData as ChunkData).embeddingStatus} />;
           }
           return null;
         },
@@ -160,7 +198,8 @@ export function useCollectionBrowserColumns({
       {
         id: 'size',
         header: 'Size',
-        width: showScoreColumn ? '10%' : '15%',
+        width: showScoreColumn ? '5.5rem' : '6rem',
+        minWidth: 72,
         sortable: true,
         accessorFn: (node) => {
           const { data: nodeData, type } = node;
@@ -214,7 +253,7 @@ export function useCollectionBrowserColumns({
       {
         id: 'meta',
         header: 'Info',
-        width: showScoreColumn ? '15%' : '30%',
+        width: showScoreColumn ? '16%' : 'auto',
         sortable: false,
         cell: ({ node }) => {
           const { data: nodeData, type } = node;

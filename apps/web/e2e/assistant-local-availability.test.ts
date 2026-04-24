@@ -1,15 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { resetAppState, seedWorkspaceFocusedShellLayout } from './utils/app-state';
-import { waitForAppLoad } from './utils/layout-helpers';
-import { type FileTree, mockBrowserApis } from './utils/mock-fs';
+import { openAssistantWorkspace } from './utils/assistant-workspace';
 
 test.describe('Assistant local availability (web)', () => {
   test.beforeEach(async ({ page }) => {
-    const tree: FileTree = {
+    const tree = {
       'README.md': '# BrainStrike local assistant availability workspace',
     };
 
-    await mockBrowserApis(page, 'test-root', tree);
     await page.addInitScript(() => {
       if (!('gpu' in navigator)) {
         Object.defineProperty(navigator, 'gpu', {
@@ -42,13 +39,7 @@ test.describe('Assistant local availability (web)', () => {
       });
     });
 
-    await page.goto('/');
-    await waitForAppLoad(page);
-    await resetAppState(page);
-    await seedWorkspaceFocusedShellLayout(page);
-    await page.reload();
-    await waitForAppLoad(page);
-    await page.getByTestId('select-root-button').click();
+    await openAssistantWorkspace(page, { rootName: 'assistant-local-availability', tree });
   });
 
   test('enables the assistant when the built-in local model is available without hosted keys', async ({

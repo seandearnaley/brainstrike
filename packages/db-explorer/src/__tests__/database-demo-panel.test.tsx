@@ -451,6 +451,19 @@ describe('DatabaseDemoPanel', () => {
       });
     });
 
+    it('keeps database browser controls visible when no collection is selected', async () => {
+      setActiveEmbeddingSetId(null);
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Hybrid search' })).toBeInTheDocument();
+      });
+
+      expect(screen.queryByText('No collection selected')).not.toBeInTheDocument();
+      expect(screen.getByText(/Create or select a collection/i)).toBeInTheDocument();
+    });
+
     it('fetches model registry on mount', async () => {
       renderWithProviders(<DatabaseDemoPanel />);
 

@@ -319,7 +319,11 @@ describe('useSemanticSearchExecutor', () => {
 
   it('search executor performs search and returns results', async () => {
     const chunk = createMockChunk('chunk-1', 'file-1');
+    chunk.chunkIndex = 3;
+    chunk.embedding = [0.1, 0.2, 0.3];
+    chunk.tokenCount = 72;
     const file = createMockFileRecord('file-1');
+    file.size = 2048;
     const chunkRepo = createMockChunkRepository([chunk]);
     const fileRepo = createMockFileRepository([file]);
 
@@ -338,10 +342,14 @@ describe('useSemanticSearchExecutor', () => {
     expect(searchResults[0]).toEqual(
       expect.objectContaining({
         chunkId: 'chunk-1',
+        chunkIndex: 3,
+        embeddingDimensions: 3,
         fileRecordId: 'file-1',
         fileName: 'file-file-1.txt',
         filePath: '/path/to/file-file-1.txt',
+        fileSize: 2048,
         similarity: expect.any(Number),
+        tokenCount: 72,
       })
     );
     expect(MockSimpleEmbeddingService).toHaveBeenCalledTimes(1);
