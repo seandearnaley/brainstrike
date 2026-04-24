@@ -1,5 +1,6 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
-import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, Loader2, Wrench } from 'lucide-react';
+import * as m from 'motion/react-m';
 import { type ComponentProps, type ReactElement, useId, useState } from 'react';
 import { Button } from '../button';
 
@@ -111,23 +112,35 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   const formattedResult = hasResult ? formatResult(result) : undefined;
 
   return (
-    <div
-      className={`my-2 rounded-lg border ${
-        isError ? 'border-destructive/50 bg-destructive/5' : 'border-border'
+    <m.div
+      animate={{ opacity: 1, y: 0 }}
+      className={`bs-tool-timeline my-2 rounded-lg border ${
+        isError ? 'border-destructive/50 bg-destructive/5' : 'border-border bg-background/70'
       }`}
       data-testid="tool-fallback"
+      initial={{ opacity: 0, y: 4 }}
+      transition={{ duration: 0.16, ease: 'easeOut' }}
     >
-      <div className="flex items-center gap-2 px-4 py-3">
-        {statusIcon}
-        <div className="flex-grow">
+      <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] gap-3 px-4 py-3">
+        <div aria-hidden="true" className="bs-tool-timeline-rail">
+          {isRunning ? <Loader2 className="size-4 animate-spin" /> : statusIcon}
+        </div>
+        <div className="min-w-0">
           <p className={`font-medium text-sm ${isError ? 'text-destructive' : ''}`}>
-            <span className="font-semibold">{toolName}</span>
-            {' • '}
-            <span className="text-xs">{statusText}</span>
+            <span className="inline-flex items-center gap-1.5">
+              <Wrench className="size-3.5 text-muted-foreground" />
+              <span>Used {toolName}</span>
+            </span>
+            <span className="ml-2 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] text-muted-foreground">
+              {statusText}
+            </span>
           </p>
-          {isError && errorMessage && (
+          {isRunning ? (
+            <p className="mt-1 text-muted-foreground text-xs">Waiting for tool result...</p>
+          ) : null}
+          {isError && errorMessage ? (
             <p className="mt-1 text-destructive text-xs">{errorMessage}</p>
-          )}
+          ) : null}
         </div>
         {showDetails && (
           <Button
@@ -161,7 +174,7 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
           )}
         </div>
       )}
-    </div>
+    </m.div>
   );
 };
 

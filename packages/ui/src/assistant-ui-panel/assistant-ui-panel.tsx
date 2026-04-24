@@ -14,15 +14,20 @@ import {
 } from '@assistant-ui/react';
 import { useDataStreamRuntime } from '@assistant-ui/react-data-stream';
 import {
+  ArrowUpIcon,
   CheckIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ChevronUpIcon,
   CopyIcon,
   PencilIcon,
   RefreshCwIcon,
   SlidersHorizontal,
+  SquareIcon,
 } from 'lucide-react';
-import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as m from 'motion/react-m';
+import { type FC, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 // @assistant-ui/styles v0.3.x consolidated all styles into index.css
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
@@ -336,6 +341,97 @@ const LocalChainOfThought: FC = () => {
   );
 };
 
+const COLLAPSED_HISTORY_VISIBLE_MESSAGES = 8;
+
+const ThreadHistoryControl: FC<{
+  expanded: boolean;
+  hiddenMessageCount: number;
+  onExpandedChange: (expanded: boolean) => void;
+}> = ({ expanded, hiddenMessageCount, onExpandedChange }) => {
+  if (hiddenMessageCount <= 0) {
+    return null;
+  }
+
+  return (
+    <div className="bs-history-control">
+      <button
+        aria-expanded={expanded}
+        className="bs-history-control-button"
+        data-testid="assistant-history-toggle"
+        onClick={() => onExpandedChange(!expanded)}
+        type="button"
+      >
+        {expanded ? (
+          <ChevronUpIcon className="size-3.5" />
+        ) : (
+          <ChevronDownIcon className="size-3.5" />
+        )}
+        <span>{hiddenMessageCount} previous messages</span>
+      </button>
+    </div>
+  );
+};
+
+const ExpandableMessageContent: FC<{
+  children: ReactNode;
+  className: string;
+  collapsedHeight?: number;
+  testId?: string;
+}> = ({ children, className, collapsedHeight = 176, testId }) => {
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [hasOverflow, setHasOverflow] = useState(false);
+
+  useEffect(() => {
+    const node = contentRef.current;
+    if (!node) {
+      return;
+    }
+
+    const measure = (): void => {
+      setHasOverflow(node.scrollHeight > collapsedHeight + 1);
+    };
+
+    measure();
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+    };
+  }, [collapsedHeight, children]);
+
+  const collapsed = hasOverflow && !expanded;
+
+  return (
+    <div className={cn(className, 'bs-expandable-message')} data-testid={testId}>
+      <m.div
+        animate={{ maxHeight: collapsed ? collapsedHeight : 1200 }}
+        className="bs-expandable-message-body"
+        initial={false}
+        ref={contentRef}
+        transition={{ duration: 0.18, ease: 'easeOut' }}
+      >
+        {children}
+      </m.div>
+      {collapsed ? <div aria-hidden="true" className="bs-expandable-message-fade" /> : null}
+      {hasOverflow ? (
+        <button
+          aria-expanded={expanded}
+          className="bs-expandable-message-toggle"
+          onClick={() => setExpanded((current) => !current)}
+          type="button"
+        >
+          {expanded ? 'Show less' : 'Show more'}
+        </button>
+      ) : null}
+    </div>
+  );
+};
+
 // Shared props for inner chat components
 interface ChatThreadProps {
   completePreparedRequest?:
@@ -580,121 +676,143 @@ const ChatThreadUI: FC<{
   localLoadingState,
   toolMenu,
   contextMenu,
-}) => (
-  <ThreadPrimitive.Root className="aui-root aui-thread-root bs-thread flex h-full min-h-0 flex-col">
-    {/* Provider and Model Selector Header */}
-    {hasGroupedProviders && (
-      <ProviderModelHeader
-        contextMenu={contextMenu}
-        groups={providerGroups}
-        onModelChange={onModelChange}
-        onProviderSettingsChange={onProviderSettingsChange}
-        pickerModels={pickerModels}
-        pickerProviders={pickerProviders}
-        providerSettings={providerSettings}
-        selectedModel={selectedModel}
-        selectedProvider={selectedProvider}
-        toolMenu={toolMenu}
-      />
-    )}
-    {/**
-     * Messages Viewport
-     *
-     * CRITICAL: className only includes "aui-thread-viewport" - NO additional Tailwind classes
-     *
-     * WHY: The @assistant-ui library applies its own classes via @apply in CSS.
-     * Adding Tailwind classes here (flex-1, overflow-y-auto, etc.) creates conflicts.
-     *
-     * All layout constraints are handled in overrides.css with !important declarations
-     * to override the library's defaults.
-     *
-     * See: packages/ui/src/assistant-ui-panel/overrides.css
-     * Post-mortem: apps/docs/docs/archive/cold/handoffs/20250930-094210-assistant-ui-layout-fix-postmortem.md
-     */}
-    <ThreadPrimitive.Viewport
-      aria-atomic="false"
-      aria-live="polite"
-      autoScroll
-      className="aui-thread-viewport"
-      data-testid="assistant-ui-viewport"
-      scrollToBottomOnInitialize={false}
-      scrollToBottomOnRunStart={false}
-    >
-      {disabledReason && (
-        <p aria-live="polite" className="px-4 py-3 text-muted-foreground text-xs">
-          {disabledReason}
-        </p>
-      )}
-      <ThreadPrimitive.Messages
-        components={{
-          /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-          AssistantMessage,
-          /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-          UserMessage,
-          /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-          EditComposer,
-        }}
-      />
-    </ThreadPrimitive.Viewport>
+}) => {
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const messageCount = useAuiState((state) => state.thread.messages.length);
+  const hiddenMessageCount = Math.max(0, messageCount - COLLAPSED_HISTORY_VISIBLE_MESSAGES);
+  const historyCollapsed = hiddenMessageCount > 0 && !historyExpanded;
 
-    {/**
-     * Composer: Fixed at bottom of thread
-     *
-     * STRUCTURE: This is a SIBLING to the viewport, not a child
-     *
-     * LAYOUT:
-     * - flex-shrink-0: Never shrinks, always maintains its height
-     * - Viewport above is flex-1: Grows/shrinks to fill available space
-     * - This pattern ensures composer stays at bottom regardless of message content
-     *
-     * LIBRARY DIFFERENCE:
-     * The @assistant-ui library expects the composer INSIDE the viewport as:
-     *   <ThreadPrimitive.Viewport>
-     *     <Messages />
-     *     <div className="aui-thread-viewport-footer" style="position: sticky">
-     *       <Composer />
-     *     </div>
-     *   </ThreadPrimitive.Viewport>
-     *
-     * We extracted it outside to avoid scrolling with messages.
-     * This required aggressive CSS overrides (see overrides.css).
-     */}
-    <div className="flex-shrink-0 border-border border-t bg-background">
-      {localLoadingState && <LocalModelStatus state={localLoadingState} />}
-      <ComposerPrimitive.Root
-        aria-disabled={isComposerDisabled}
-        className="aui-composer-root"
-        data-disabled={isComposerDisabled ? '' : undefined}
-        onSubmitCapture={onThreadRunStart}
+  return (
+    <ThreadPrimitive.Root
+      className="aui-root aui-thread-root bs-thread flex h-full min-h-0 flex-col"
+      data-history-collapsed={historyCollapsed ? 'true' : undefined}
+    >
+      {/**
+       * Messages Viewport
+       *
+       * CRITICAL: className only includes "aui-thread-viewport" - NO additional Tailwind classes
+       *
+       * WHY: The @assistant-ui library applies its own classes via @apply in CSS.
+       * Adding Tailwind classes here (flex-1, overflow-y-auto, etc.) creates conflicts.
+       *
+       * All layout constraints are handled in overrides.css with !important declarations
+       * to override the library's defaults.
+       *
+       * See: packages/ui/src/assistant-ui-panel/overrides.css
+       * Post-mortem: apps/docs/docs/archive/cold/handoffs/20250930-094210-assistant-ui-layout-fix-postmortem.md
+       */}
+      <ThreadPrimitive.Viewport
+        aria-atomic="false"
+        aria-live="polite"
+        autoScroll
+        className="aui-thread-viewport"
+        data-testid="assistant-ui-viewport"
+        scrollToBottomOnInitialize={false}
+        scrollToBottomOnRunStart={false}
       >
-        <ComposerPrimitive.Input
-          aria-label="Message input"
-          className="aui-composer-input"
-          disabled={isComposerDisabled}
-          id="assistant-input"
-          placeholder="Ask the assistant…"
-          rows={1}
+        {disabledReason && (
+          <p aria-live="polite" className="px-4 py-3 text-muted-foreground text-xs">
+            {disabledReason}
+          </p>
+        )}
+        <ThreadHistoryControl
+          expanded={historyExpanded}
+          hiddenMessageCount={hiddenMessageCount}
+          onExpandedChange={setHistoryExpanded}
         />
-        <ThreadPrimitive.If running={false}>
-          <ComposerPrimitive.Send
-            className="aui-button aui-button-primary aui-composer-send"
-            disabled={isComposerDisabled}
-          >
-            Send
-          </ComposerPrimitive.Send>
-        </ThreadPrimitive.If>
-        <ThreadPrimitive.If running>
-          <ComposerPrimitive.Cancel
-            className="aui-button aui-button-primary aui-composer-cancel"
-            disabled={isComposerDisabled}
-          >
-            Stop
-          </ComposerPrimitive.Cancel>
-        </ThreadPrimitive.If>
-      </ComposerPrimitive.Root>
-    </div>
-  </ThreadPrimitive.Root>
-);
+        <ThreadPrimitive.Messages
+          components={{
+            /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+            AssistantMessage,
+            /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+            UserMessage,
+            /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+            EditComposer,
+          }}
+        />
+      </ThreadPrimitive.Viewport>
+
+      {/**
+       * Composer: Fixed at bottom of thread
+       *
+       * STRUCTURE: This is a SIBLING to the viewport, not a child
+       *
+       * LAYOUT:
+       * - flex-shrink-0: Never shrinks, always maintains its height
+       * - Viewport above is flex-1: Grows/shrinks to fill available space
+       * - This pattern ensures composer stays at bottom regardless of message content
+       *
+       * LIBRARY DIFFERENCE:
+       * The @assistant-ui library expects the composer INSIDE the viewport as:
+       *   <ThreadPrimitive.Viewport>
+       *     <Messages />
+       *     <div className="aui-thread-viewport-footer" style="position: sticky">
+       *       <Composer />
+       *     </div>
+       *   </ThreadPrimitive.Viewport>
+       *
+       * We extracted it outside to avoid scrolling with messages.
+       * This required aggressive CSS overrides (see overrides.css).
+       */}
+      <div className="bs-composer-shell" data-testid="assistant-composer-shell">
+        {localLoadingState && <LocalModelStatus state={localLoadingState} />}
+        <ComposerPrimitive.Root
+          aria-disabled={isComposerDisabled}
+          className="aui-composer-root"
+          data-disabled={isComposerDisabled ? '' : undefined}
+          onSubmitCapture={onThreadRunStart}
+        >
+          <div className="bs-composer-input-frame">
+            <ComposerPrimitive.Input
+              aria-label="Message input"
+              className="aui-composer-input"
+              disabled={isComposerDisabled}
+              id="assistant-input"
+              placeholder="Ask BrainStrike anything..."
+              rows={1}
+            />
+            <div className="bs-composer-primary-actions">
+              <ThreadPrimitive.If running={false}>
+                <ComposerPrimitive.Send
+                  aria-label="Send"
+                  className="aui-button aui-button-primary aui-composer-send"
+                  disabled={isComposerDisabled}
+                  title="Send"
+                >
+                  <ArrowUpIcon className="size-4" />
+                </ComposerPrimitive.Send>
+              </ThreadPrimitive.If>
+              <ThreadPrimitive.If running>
+                <ComposerPrimitive.Cancel
+                  aria-label="Stop"
+                  className="aui-button aui-button-primary aui-composer-cancel"
+                  disabled={isComposerDisabled}
+                  title="Stop"
+                >
+                  <SquareIcon className="size-3.5 fill-current" />
+                </ComposerPrimitive.Cancel>
+              </ThreadPrimitive.If>
+            </div>
+          </div>
+          {hasGroupedProviders && (
+            <ProviderModelHeader
+              contextMenu={contextMenu}
+              groups={providerGroups}
+              onModelChange={onModelChange}
+              onProviderSettingsChange={onProviderSettingsChange}
+              pickerModels={pickerModels}
+              pickerProviders={pickerProviders}
+              providerSettings={providerSettings}
+              selectedModel={selectedModel}
+              selectedProvider={selectedProvider}
+              toolMenu={toolMenu}
+            />
+          )}
+        </ComposerPrimitive.Root>
+      </div>
+    </ThreadPrimitive.Root>
+  );
+};
 
 // Pure UI layer: state management and data wiring live in app-shell wrapper(s).
 export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
@@ -844,17 +962,20 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
 
 const UserMessage: FC = () => {
   return (
-    <MessagePrimitive.Root className="aui-user-message-root grid w-full auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] gap-y-2 py-3 [&:where(>*)]:col-start-2">
+    <MessagePrimitive.Root className="aui-user-message-root grid w-full auto-rows-auto grid-cols-[minmax(48px,1fr)_auto] gap-y-2 py-3 [&:where(>*)]:col-start-2">
       <UserActionBar />
 
-      <div className="aui-user-message-content col-start-2 row-start-2 max-w-xl break-words rounded-2xl bg-muted px-4 py-2">
+      <ExpandableMessageContent
+        className="aui-user-message-content col-start-2 row-start-2 max-w-xl break-words rounded-2xl bg-muted px-4 py-2"
+        testId="assistant-user-message-content"
+      >
         <MessagePrimitive.Parts
           components={{
             /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
             Text: AssistantMessageText,
           }}
         />
-      </div>
+      </ExpandableMessageContent>
 
       <BranchPicker className="col-span-full col-start-1 row-start-3 -mr-1 justify-end" />
     </MessagePrimitive.Root>
@@ -894,8 +1015,8 @@ const EditComposer: FC = () => (
 
 const AssistantMessage: FC = () => {
   return (
-    <MessagePrimitive.Root className="aui-assistant-message-root relative grid w-full grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-3">
-      <div className="aui-assistant-message-content col-span-2 col-start-2 row-start-1 my-1.5 max-w-xl break-words text-foreground leading-7">
+    <MessagePrimitive.Root className="aui-assistant-message-root relative grid w-full grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-4">
+      <div className="aui-assistant-message-content col-span-2 col-start-2 row-start-1 my-1.5 max-w-2xl break-words text-foreground leading-7">
         <MessagePrimitive.Parts
           components={{
             /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "ChainOfThought" key */
@@ -1056,14 +1177,6 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
     [normalizedGroups]
   );
 
-  const selectedOption = useMemo<ProviderModelOption | undefined>(
-    () =>
-      options.find(
-        (option) => option.provider.id === selectedProvider && option.model.id === modelName
-      ),
-    [options, modelName, selectedProvider]
-  );
-
   // Build a lookup map from model ID to provider ID for the ModelPicker callback
   const modelToProviderMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -1092,82 +1205,32 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
     [modelToProviderMap, onModelChange]
   );
 
-  const summaryProps: ProviderSelectionSummaryProps = {
-    provider: selectedOption?.provider,
-    model: selectedOption?.model,
-    selectedProvider,
-    selectedModel,
-  };
-
   return (
-    <div className="flex-shrink-0 border-border border-b bg-muted/30 px-3 py-3 backdrop-blur-sm">
-      <div className="space-y-2.5">
-        <ProviderSelectionSummary {...summaryProps} />
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="min-w-[220px] flex-1" data-testid="assistant-model-dropdown">
-            <ModelPicker
-              models={pickerModels}
-              providers={pickerProviders}
-              {...(modelName ? { value: modelName } : {})}
-              className="h-9 rounded-full border-border/70 bg-background/80 text-xs"
-              disabled={options.length === 0 || !onModelChange}
-              mode="single"
-              modelType="llm"
-              onChange={handleModelPickerChange}
-              placeholder={options.length === 0 ? 'No models enabled' : 'Select a model...'}
-            />
-          </div>
-          <ControlsMenu
-            contextMenu={contextMenu}
-            modelName={modelName}
-            onProviderSettingsChange={onProviderSettingsChange}
-            providerSettings={providerSettings}
-            selectedProvider={selectedProvider}
-            toolMenu={toolMenu}
-          />
-        </div>
+    <div className="bs-composer-control-dock" data-testid="assistant-composer-controls">
+      <div className="bs-composer-model-slot" data-testid="assistant-model-dropdown">
+        <ModelPicker
+          models={pickerModels}
+          providers={pickerProviders}
+          {...(modelName ? { value: modelName } : {})}
+          className="bs-composer-model-picker h-8 rounded-full border-border/70 bg-background/85 text-xs"
+          disabled={options.length === 0 || !onModelChange}
+          mode="single"
+          modelType="llm"
+          onChange={handleModelPickerChange}
+          placeholder={options.length === 0 ? 'No models enabled' : 'Select a model...'}
+        />
+      </div>
+      <div className="bs-composer-context-slot">
         <ContextSummaryRow contextMenu={contextMenu} />
       </div>
-    </div>
-  );
-};
-
-interface ProviderSelectionSummaryProps {
-  model: ProviderModelOptionConfig | undefined;
-  provider: ProviderOptionConfig | undefined;
-  selectedModel?: string | undefined;
-  selectedProvider?: string | undefined;
-}
-
-const ProviderSelectionSummary: FC<ProviderSelectionSummaryProps> = ({
-  provider,
-  model,
-  selectedProvider,
-  selectedModel,
-}) => {
-  if (!(provider && selectedProvider)) {
-    return (
-      <div className="rounded-md border border-border/70 border-dashed bg-background px-3 py-2 text-muted-foreground text-xs">
-        Select a provider and model to start chatting.
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-center justify-between rounded-md border border-border bg-background px-3 py-2">
-      <div>
-        <p className="font-semibold text-[10px] text-muted-foreground uppercase tracking-wide">
-          In use
-        </p>
-        <p className="font-medium text-sm leading-tight">{provider.name}</p>
-      </div>
-      <div className="flex flex-wrap items-center justify-end gap-1 text-xs">
-        <Badge variant="secondary">{model?.label ?? selectedModel ?? 'Select a model'}</Badge>
-        {model?.supportsStreaming && <Badge variant="outline">Streaming</Badge>}
-        {model?.type === 'embedding' && model.supportsStandardDimension && (
-          <Badge variant="outline">768D</Badge>
-        )}
-      </div>
+      <ControlsMenu
+        contextMenu={contextMenu}
+        modelName={modelName}
+        onProviderSettingsChange={onProviderSettingsChange}
+        providerSettings={providerSettings}
+        selectedProvider={selectedProvider}
+        toolMenu={toolMenu}
+      />
     </div>
   );
 };
@@ -1572,10 +1635,13 @@ const ContextSummaryRow: FC<{ contextMenu?: AssistantContextMenuConfig | undefin
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+    <div
+      className="bs-context-summary text-[10px] text-muted-foreground"
+      data-testid="assistant-context-summary"
+    >
       <span className="font-semibold uppercase tracking-wide">Context</span>
       {badges.map((badge) => (
-        <Badge className="text-[10px]" key={badge.key} variant="outline">
+        <Badge className="bs-context-summary-badge text-[10px]" key={badge.key} variant="outline">
           {badge.label}
         </Badge>
       ))}

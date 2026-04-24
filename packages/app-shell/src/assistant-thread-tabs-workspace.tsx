@@ -91,7 +91,7 @@ export function AssistantThreadTabsWorkspace({
     <div className="flex min-h-0 flex-1 flex-col" data-testid="assistant-thread-tabs-workspace">
       <div
         aria-label="Open assistant threads"
-        className="flex h-10 flex-shrink-0 items-stretch overflow-x-auto border-border border-b bg-muted/20"
+        className="flex h-11 flex-shrink-0 items-stretch gap-1 overflow-x-auto border-border border-b bg-muted/20 px-2 pt-1"
         role="tablist"
       >
         {openThreadIds.map((threadId) => {
@@ -100,8 +100,10 @@ export function AssistantThreadTabsWorkspace({
           const isActive = threadId === activeThreadId;
           return (
             <div
-              className={`group flex min-w-36 max-w-64 items-center border-border border-r px-3 text-sm ${
-                isActive ? 'bg-background text-foreground' : 'bg-muted/10 text-muted-foreground'
+              className={`group flex min-w-36 max-w-64 items-center rounded-t-md border border-b-0 px-2.5 text-sm transition-colors ${
+                isActive
+                  ? 'border-border bg-background text-foreground shadow-sm'
+                  : 'border-transparent bg-muted/35 text-muted-foreground hover:border-border/70 hover:bg-background/60 hover:text-foreground'
               }`}
               key={threadId}
             >
@@ -117,7 +119,7 @@ export function AssistantThreadTabsWorkspace({
               </button>
               <button
                 aria-label={`Close thread ${title}`}
-                className="ml-2 rounded p-1 text-muted-foreground opacity-80 hover:bg-muted hover:text-foreground"
+                className="ml-2 rounded p-1 text-muted-foreground opacity-70 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
                 onClick={() => closeThreadTab(resourceId, threadId)}
                 type="button"
               >
@@ -128,7 +130,7 @@ export function AssistantThreadTabsWorkspace({
         })}
         <Button
           aria-label="New assistant thread"
-          className="m-1 h-8 gap-1.5 px-2.5"
+          className="my-1 h-8 gap-1.5 rounded-full border border-border/70 bg-background/70 px-2.5 shadow-sm"
           disabled={loadState?.status === 'loading'}
           onClick={() => {
             createThread(repository, resourceId).catch(() => {

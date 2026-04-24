@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
+import { resetAppState, seedWorkspaceFocusedShellLayout } from './utils/app-state';
 import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
+import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 // Assistant-UI E2E (web): uses the local-runtime UI path with a mocked `window.llmHost`
 // so the shared assistant-ui message rendering and local status states are exercised
@@ -63,6 +65,11 @@ interface MockLlmGenerateRequest {
 
 test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
   test.beforeEach(async ({ page }) => {
+    const tree: FileTree = {
+      'README.md': '# BrainStrike test workspace',
+    };
+
+    await mockBrowserApis(page, 'test-root', tree);
     await page.addInitScript(() => {
       const STREAM_STEP_DELAY_MS = 300;
 
@@ -168,6 +175,12 @@ test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
 
     await page.goto('/');
     await waitForAppLoad(page);
+    await resetAppState(page);
+    await seedWorkspaceFocusedShellLayout(page);
+    await page.reload();
+    await waitForAppLoad(page);
+    await page.getByTestId('select-root-button').click();
+    await expect(page.getByTestId('assistant-ui-viewport')).toBeVisible({ timeout: 15_000 });
   });
 
   test('send message and see assistant stream with tool progress', async ({ page }) => {
@@ -227,5 +240,83 @@ test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
     await toolCard.getByRole('button', { name: 'Expand details' }).click();
     await expect(toolCard.getByText('Arguments:')).toBeVisible();
     await expect(toolCard.getByText('Result:')).toBeVisible();
+  });
+
+  test('keeps composer controls in the input shell and reveals collapsed history', async ({
+    page,
+  }) => {
+    const elements = getPanelElements(page);
+    if (await elements.showRightPanelShim.isVisible()) {
+      await elements.showRightPanelShim.click();
+      await expect(elements.rightPanel).toBeVisible();
+    }
+
+    const viewport = page.getByTestId('assistant-ui-viewport');
+    const composerShell = page.getByTestId('assistant-composer-shell');
+    await expect(viewport).toBeVisible();
+    await expect(composerShell).toBeVisible();
+    await expect(composerShell.getByTestId('assistant-composer-controls')).toBeVisible();
+    await expect(composerShell.getByRole('button', { name: 'Send' })).toBeVisible();
+    await expect(composerShell.getByText('Send', { exact: true })).toHaveCount(0);
+
+    const modelBox = await composerShell
+      .getByTestId('assistant-model-dropdown')
+      .getByRole('combobox')
+      .boundingBox();
+    const contextBox = await composerShell.getByTestId('assistant-context-summary').boundingBox();
+    const controlsBox = await composerShell
+      .getByRole('button', { name: 'Open assistant controls' })
+      .boundingBox();
+
+    expect(modelBox).not.toBeNull();
+    expect(contextBox).not.toBeNull();
+    expect(controlsBox).not.toBeNull();
+    if (!(modelBox && contextBox && controlsBox)) {
+      throw new Error('Assistant composer control alignment boxes were unavailable.');
+    }
+
+    const modelCenterY = modelBox.y + modelBox.height / 2;
+    const contextCenterY = contextBox.y + contextBox.height / 2;
+    const controlsCenterY = controlsBox.y + controlsBox.height / 2;
+    expect(Math.abs(modelCenterY - contextCenterY)).toBeLessThan(6);
+    expect(Math.abs(modelCenterY - controlsCenterY)).toBeLessThan(6);
+
+    const longPrompt = [
+      'history collapse turn 1',
+      'You are improving unit test coverage on the BrainStrike project.',
+      'Priority targets include local-runtime-adapter, database setup, and assistant panel tests.',
+      'Write a careful implementation plan that preserves renderer-only local LLM execution.',
+      'Do not skip verification and do not hide errors behind fallback behavior.',
+    ].join('\n\n');
+
+    const input = page.locator('#assistant-input');
+    await input.fill(longPrompt);
+    await composerShell.getByRole('button', { name: 'Send' }).click();
+    await expect(viewport.getByText(/Mock response from tests/i)).toHaveCount(1, {
+      timeout: 15_000,
+    });
+
+    const longUserMessage = viewport
+      .getByTestId('assistant-user-message-content')
+      .filter({ hasText: 'history collapse turn 1' })
+      .first();
+    await expect(longUserMessage.getByRole('button', { name: 'Show more' })).toBeVisible();
+    await longUserMessage.getByRole('button', { name: 'Show more' }).click();
+    await expect(longUserMessage.getByRole('button', { name: 'Show less' })).toBeVisible();
+
+    for (let turn = 2; turn <= 5; turn += 1) {
+      await input.fill(`history collapse turn ${turn}`);
+      await composerShell.getByRole('button', { name: 'Send' }).click();
+      await expect(viewport.getByText(/Mock response from tests/i)).toHaveCount(turn, {
+        timeout: 15_000,
+      });
+    }
+
+    const historyToggle = page.getByTestId('assistant-history-toggle');
+    await expect(historyToggle).toContainText('2 previous messages');
+    await expect(longUserMessage).toBeHidden();
+
+    await historyToggle.click();
+    await expect(longUserMessage).toBeVisible();
   });
 });
