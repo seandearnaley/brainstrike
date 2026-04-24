@@ -322,4 +322,71 @@ test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
     await historyToggle.click();
     await expect(longUserMessage).toBeVisible();
   });
+
+  test('keeps the assistant tab controller stable when tabs overflow', async ({ page }) => {
+    const elements = getPanelElements(page);
+    if (await elements.showRightPanelShim.isVisible()) {
+      await elements.showRightPanelShim.click();
+      await expect(elements.rightPanel).toBeVisible();
+    }
+
+    const tabStrip = page.getByTestId('assistant-thread-tab-strip');
+    const tabScroll = page.getByTestId('assistant-thread-tab-scroll');
+    const tabList = page.getByRole('tablist', { name: 'Open assistant threads' });
+    const newThreadButton = page.getByTestId('assistant-new-thread-button');
+
+    await expect(tabStrip).toBeVisible();
+    await expect(tabScroll).toBeVisible();
+    await expect(newThreadButton).toBeVisible();
+
+    const initialTabCount = await tabList.getByRole('tab').count();
+    const initialButtonBox = await newThreadButton.boundingBox();
+    const initialFirstTabBox = await tabList.getByRole('tab').first().boundingBox();
+
+    expect(initialButtonBox).not.toBeNull();
+    expect(initialFirstTabBox).not.toBeNull();
+    if (!(initialButtonBox && initialFirstTabBox)) {
+      throw new Error('Assistant tab controller boxes were unavailable before overflow.');
+    }
+
+    for (let index = 1; index <= 8; index += 1) {
+      await newThreadButton.click();
+      await expect(tabList.getByRole('tab')).toHaveCount(initialTabCount + index);
+    }
+
+    const scrollMetrics = await tabScroll.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+    expect(scrollMetrics.scrollWidth).toBeGreaterThan(scrollMetrics.clientWidth);
+
+    const overflowButtonBox = await newThreadButton.boundingBox();
+    const overflowFirstTabBox = await tabList.getByRole('tab').first().boundingBox();
+    const tabListBox = await tabList.boundingBox();
+
+    expect(overflowButtonBox).not.toBeNull();
+    expect(overflowFirstTabBox).not.toBeNull();
+    expect(tabListBox).not.toBeNull();
+    if (!(overflowButtonBox && overflowFirstTabBox && tabListBox)) {
+      throw new Error('Assistant tab controller boxes were unavailable after overflow.');
+    }
+
+    expect(Math.abs(overflowButtonBox.y - initialButtonBox.y)).toBeLessThan(2);
+    expect(Math.abs(overflowButtonBox.height - initialButtonBox.height)).toBeLessThan(2);
+    expect(Math.abs(overflowFirstTabBox.y - initialFirstTabBox.y)).toBeLessThan(2);
+    expect(Math.abs(overflowFirstTabBox.height - initialFirstTabBox.height)).toBeLessThan(2);
+    expect(overflowButtonBox.x).toBeGreaterThanOrEqual(tabListBox.x + tabListBox.width);
+
+    await tabScroll.evaluate((element) => {
+      element.scrollLeft = element.scrollWidth;
+    });
+
+    const scrolledButtonBox = await newThreadButton.boundingBox();
+    expect(scrolledButtonBox).not.toBeNull();
+    if (!scrolledButtonBox) {
+      throw new Error('Assistant new-thread button disappeared after tab scroll.');
+    }
+    expect(Math.abs(scrolledButtonBox.x - overflowButtonBox.x)).toBeLessThan(2);
+    expect(Math.abs(scrolledButtonBox.y - overflowButtonBox.y)).toBeLessThan(2);
+  });
 });

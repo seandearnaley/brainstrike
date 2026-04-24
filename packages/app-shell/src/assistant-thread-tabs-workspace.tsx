@@ -90,60 +90,71 @@ export function AssistantThreadTabsWorkspace({
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="assistant-thread-tabs-workspace">
       <div
-        aria-label="Open assistant threads"
-        className="flex h-11 flex-shrink-0 items-stretch gap-1 overflow-x-auto border-border border-b bg-muted/20 px-2 pt-1"
-        role="tablist"
+        className="flex h-12 flex-shrink-0 items-start gap-1.5 border-border border-b bg-muted/20 px-2 pt-1.5"
+        data-testid="assistant-thread-tab-strip"
       >
-        {openThreadIds.map((threadId) => {
-          const thread = threadById.get(threadId);
-          const title = thread?.title ?? threadId;
-          const isActive = threadId === activeThreadId;
-          return (
-            <div
-              className={`group flex min-w-36 max-w-64 items-center rounded-t-md border border-b-0 px-2.5 text-sm transition-colors ${
-                isActive
-                  ? 'border-border bg-background text-foreground shadow-sm'
-                  : 'border-transparent bg-muted/35 text-muted-foreground hover:border-border/70 hover:bg-background/60 hover:text-foreground'
-              }`}
-              key={threadId}
-            >
-              <button
-                aria-selected={isActive}
-                className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                onClick={() => openThreadTab(resourceId, threadId)}
-                role="tab"
-                type="button"
-              >
-                <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{title}</span>
-              </button>
-              <button
-                aria-label={`Close thread ${title}`}
-                className="ml-2 rounded p-1 text-muted-foreground opacity-70 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
-                onClick={() => closeThreadTab(resourceId, threadId)}
-                type="button"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          );
-        })}
-        <Button
-          aria-label="New assistant thread"
-          className="my-1 h-8 gap-1.5 rounded-full border border-border/70 bg-background/70 px-2.5 shadow-sm"
-          disabled={loadState?.status === 'loading'}
-          onClick={() => {
-            createThread(repository, resourceId).catch(() => {
-              // The store records the explicit error state; no fallback thread source is used.
-            });
-          }}
-          size="sm"
-          type="button"
-          variant="ghost"
+        <div
+          aria-label="Open assistant threads"
+          className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden pb-1"
+          data-testid="assistant-thread-tab-scroll"
+          role="tablist"
         >
-          <Plus className="h-3.5 w-3.5" />
-          <span className="text-xs">New</span>
-        </Button>
+          <div className="flex min-w-max items-start gap-1">
+            {openThreadIds.map((threadId) => {
+              const thread = threadById.get(threadId);
+              const title = thread?.title ?? threadId;
+              const isActive = threadId === activeThreadId;
+              return (
+                <div
+                  className={`group flex h-8 min-w-36 max-w-64 items-center rounded-t-lg border border-b-0 px-2.5 text-sm transition-colors ${
+                    isActive
+                      ? 'border-border bg-background text-foreground shadow-sm'
+                      : 'border-transparent bg-muted/35 text-muted-foreground hover:border-border/70 hover:bg-background/60 hover:text-foreground'
+                  }`}
+                  key={threadId}
+                >
+                  <button
+                    aria-selected={isActive}
+                    className="flex h-full min-w-0 flex-1 items-center gap-2 text-left"
+                    onClick={() => openThreadTab(resourceId, threadId)}
+                    role="tab"
+                    type="button"
+                  >
+                    <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{title}</span>
+                  </button>
+                  <button
+                    aria-label={`Close thread ${title}`}
+                    className="ml-2 rounded p-1 text-muted-foreground opacity-70 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
+                    onClick={() => closeThreadTab(resourceId, threadId)}
+                    type="button"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="flex h-8 shrink-0 items-center">
+          <Button
+            aria-label="New assistant thread"
+            className="h-8 gap-1.5 rounded-full border border-border/70 bg-background/85 px-2.5 shadow-sm"
+            data-testid="assistant-new-thread-button"
+            disabled={loadState?.status === 'loading'}
+            onClick={() => {
+              createThread(repository, resourceId).catch(() => {
+                // The store records the explicit error state; no fallback thread source is used.
+              });
+            }}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span className="text-xs">New</span>
+          </Button>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1">

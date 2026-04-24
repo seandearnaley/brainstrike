@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantThreadStore } from '../assistant-thread-store';
@@ -136,6 +136,25 @@ describe('AssistantThreadTabsWorkspace', () => {
       ])
     );
     uuidSpy.mockRestore();
+  });
+
+  it('keeps the new-thread action outside the scrollable tablist', async () => {
+    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
+    });
+
+    const tabStrip = screen.getByTestId('assistant-thread-tab-strip');
+    const tabScroll = screen.getByTestId('assistant-thread-tab-scroll');
+    const tabList = screen.getByRole('tablist', { name: 'Open assistant threads' });
+    const newThreadButton = screen.getByRole('button', { name: 'New assistant thread' });
+    const firstTab = screen.getByRole('tab', { name: /Purchasing app search log/ });
+
+    expect(tabStrip).toContainElement(tabScroll);
+    expect(tabStrip).toContainElement(newThreadButton);
+    expect(tabList).toContainElement(firstTab);
+    expect(within(tabList).queryByRole('button', { name: 'New assistant thread' })).toBeNull();
   });
 
   it('closes tabs without deleting durable thread history', async () => {
