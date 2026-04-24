@@ -113,12 +113,11 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
 
   return (
     <m.div
-      animate={{ opacity: 1, y: 0 }}
       className={`bs-tool-timeline my-2 rounded-lg border ${
         isError ? 'border-destructive/50 bg-destructive/5' : 'border-border bg-background/70'
       }`}
       data-testid="tool-fallback"
-      initial={{ opacity: 0, y: 4 }}
+      layout
       transition={{ duration: 0.16, ease: 'easeOut' }}
     >
       <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] gap-3 px-4 py-3">
