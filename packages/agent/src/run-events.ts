@@ -81,6 +81,17 @@ const UNSAFE_RUN_EVENT_METADATA_KEYS = new Set([
   'token',
 ]);
 
+const UNSAFE_RUN_EVENT_METADATA_KEY_FRAGMENTS = [
+  'apikey',
+  'authorization',
+  'bearer',
+  'cookie',
+  'credential',
+  'password',
+  'secret',
+  'session',
+] as const;
+
 export function createAssistantRunEvent(input: {
   readonly detail?: string;
   readonly durationMs?: number;
@@ -145,12 +156,9 @@ function isUnsafeRunEventMetadataKey(normalizedKey: string): boolean {
   if (UNSAFE_RUN_EVENT_METADATA_KEYS.has(normalizedKey)) {
     return true;
   }
-  return [...UNSAFE_RUN_EVENT_METADATA_KEYS].some((unsafeKey) => {
-    if (unsafeKey === 'token') {
-      return false;
-    }
-    return normalizedKey.includes(unsafeKey);
-  });
+  return UNSAFE_RUN_EVENT_METADATA_KEY_FRAGMENTS.some((unsafeKey) =>
+    normalizedKey.includes(unsafeKey)
+  );
 }
 
 function normalizeRunEventMetadataKey(key: string): string {

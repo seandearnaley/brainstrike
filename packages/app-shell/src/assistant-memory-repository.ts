@@ -558,7 +558,15 @@ export function createPgliteAssistantThreadRepository(
           metadata,
           occurred_at
        FROM ${ASSISTANT_RUN_EVENTS_TABLE}
-       WHERE thread_id = $1 AND resource_id = $2
+       WHERE thread_id = $1
+          AND resource_id = $2
+          AND run_id = (
+            SELECT id
+            FROM ${ASSISTANT_THREAD_RUNS_TABLE}
+            WHERE thread_id = $1 AND resource_id = $2
+            ORDER BY started_at DESC, created_at DESC, id DESC
+            LIMIT 1
+          )
        ORDER BY sequence ASC, occurred_at ASC, id ASC`,
       [threadId, resourceId]
     );

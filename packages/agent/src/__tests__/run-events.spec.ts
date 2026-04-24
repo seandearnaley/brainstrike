@@ -5,6 +5,7 @@ describe('run event metadata sanitization', () => {
   it('strips unsafe keys after canonical key normalization', () => {
     const sanitized = sanitizeAssistantRunEventMetadata({
       model: 'gpt-5.2',
+      promptTokens: 128,
       apiKey: 'secret',
       'api-key': 'secret',
       bearerCredential: 'secret',
@@ -18,6 +19,7 @@ describe('run event metadata sanitization', () => {
 
     expect(sanitized).toEqual({
       model: 'gpt-5.2',
+      promptTokens: 128,
       nested: {
         count: 2,
       },
