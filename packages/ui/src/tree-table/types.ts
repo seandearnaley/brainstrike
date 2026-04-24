@@ -241,6 +241,12 @@ export interface TreeTableProps<T> {
   multiSelectedIds?: Set<string>;
   /** Tree nodes to display (can be nested via hasChildren) */
   nodes: TreeNode<T>[];
+  /**
+   * Treat `nodes` as an already-expanded, visible flat row model.
+   * This skips TreeTable's recursive expansion flattening while preserving
+   * row virtualization, keyboard navigation, and ARIA row metadata.
+   */
+  nodesArePreFlattened?: boolean;
   /** Callback to collapse all nodes */
   onCollapseAll?: () => void;
   /** Callback to expand all nodes */

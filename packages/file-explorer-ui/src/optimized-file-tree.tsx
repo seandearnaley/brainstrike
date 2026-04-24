@@ -2158,6 +2158,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
               expandedIds={renderedExpandedDirectoryPaths}
               maxHeight="none"
               nodes={treeRows}
+              nodesArePreFlattened={true}
               onToggleExpand={handleToggleExpand}
               overscan={10}
               rowHeight={ROW_HEIGHT}
