@@ -636,13 +636,20 @@ export function CollectionBrowserView({
     }
   }, [semanticQuery, searchConfig, activeCollectionId, executeSearch, setSearchMode]);
 
+  const hasActiveCollection = activeCollectionId !== null;
+  const hasScopedSemanticSearch = hasActiveCollection && hasSearched;
+  const scopedSearchResults = useMemo(
+    () => (hasActiveCollection ? searchResults : []),
+    [hasActiveCollection, searchResults]
+  );
+
   // Transform data for CollectionBrowser.
   // When semantic search results are present, build the tree from the search
   // results themselves — search results span ALL pages but the paginated
   // `records` only contains the current page. Without this, files on other
   // pages have no tree nodes and the tree shows "No matching results".
   const treeData = useMemo(() => {
-    if (searchMode === 'semantic' && hasSearched && searchResults.length > 0) {
+    if (searchMode === 'semantic' && hasScopedSemanticSearch && scopedSearchResults.length > 0) {
       // Build a minimal tree from search results — each result has enough
       // data (fileRecordId, fileName, filePath, content, chunkId) to create
       // both file and chunk nodes without querying the paginated records.
@@ -653,7 +660,7 @@ export function CollectionBrowserView({
       >();
       const treeChunks: CollectionTreeInput['chunks'] = [];
 
-      for (const [i, result] of searchResults.entries()) {
+      for (const [i, result] of scopedSearchResults.entries()) {
         const existing = fileMap.get(result.fileRecordId);
         if (existing) {
           existing.chunkCount++;
@@ -697,8 +704,8 @@ export function CollectionBrowserView({
     activeCollectionId,
     pendingChunkIds,
     searchMode,
-    hasSearched,
-    searchResults,
+    hasScopedSemanticSearch,
+    scopedSearchResults,
   ]);
 
   useEffect(() => {
@@ -1022,14 +1029,14 @@ export function CollectionBrowserView({
 
   // Empty state message - depends on search mode
   const emptyMessage = useMemo(() => {
-    if (searchMode === 'semantic' && hasSearched && searchResults.length === 0) {
-      return 'No matching results found. Try adjusting your query or threshold.';
-    }
     if (!activeCollectionId) {
       return 'Create or select a collection to start importing files and searching with semantic embeddings.';
     }
+    if (searchMode === 'semantic' && hasScopedSemanticSearch && scopedSearchResults.length === 0) {
+      return 'No matching results found. Try adjusting your query or threshold.';
+    }
     return 'No files in this collection. Import files to get started.';
-  }, [activeCollectionId, searchMode, hasSearched, searchResults.length]);
+  }, [activeCollectionId, searchMode, hasScopedSemanticSearch, scopedSearchResults.length]);
 
   return (
     <div className="flex h-full flex-col" style={{ height }}>
@@ -1045,7 +1052,7 @@ export function CollectionBrowserView({
           />
         }
         className="border-border border-b"
-        hasSearched={hasSearched}
+        hasSearched={hasScopedSemanticSearch}
         isSearchExpanded={searchPanelExpanded}
         isSearching={isSearching}
         mode={searchMode}
@@ -1053,7 +1060,7 @@ export function CollectionBrowserView({
         onSearchExpandedChange={setSearchPanelExpanded}
         onSemanticQueryChange={setSemanticQuery}
         onSemanticSearch={handleSearch}
-        resultCount={searchResults.length}
+        resultCount={scopedSearchResults.length}
         semanticQuery={semanticQuery}
       />
 
@@ -1117,7 +1124,7 @@ export function CollectionBrowserView({
               emptyMessage={emptyMessage}
               expandedIds={expandedIdsSet}
               filters={filters}
-              hasSearched={hasSearched}
+              hasSearched={hasScopedSemanticSearch}
               height="100%"
               isLoading={isLoading}
               isSearching={isSearching}
@@ -1134,7 +1141,9 @@ export function CollectionBrowserView({
               showCheckbox={showCheckbox && multiSelectEnabled}
               treeWindowingStrategy="virtual"
               {...(sortState ? { sortState } : {})}
-              {...(searchMode === 'semantic' ? { semanticResults: searchResults } : {})}
+              {...(searchMode === 'semantic' && hasActiveCollection
+                ? { semanticResults: scopedSearchResults }
+                : {})}
               {...(groupBy === 'none' ? {} : { groupBy })}
             />
           </Panel>

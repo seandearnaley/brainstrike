@@ -10,15 +10,29 @@ import {
 import { CollectionBrowserView } from '../collection-browser-view';
 
 const collectionBrowserPropsSpy = vi.fn<(props: Record<string, unknown>) => void>();
+const semanticSearchMock = vi.hoisted(() => ({
+  clearResults: vi.fn(),
+  executeSearch: vi.fn(),
+  state: {
+    error: null as string | null,
+    hasSearched: false,
+    isSearching: false,
+    searchResults: [] as Array<{
+      chunkId: string;
+      content: string;
+      embeddingSetId: string;
+      fileName: string;
+      filePath: string;
+      fileRecordId: string;
+    }>,
+  },
+}));
 
 vi.mock('../../contexts/semantic-search-context', () => ({
   useSemanticSearch: () => ({
-    searchResults: [],
-    isSearching: false,
-    hasSearched: false,
-    error: null,
-    executeSearch: vi.fn(),
-    clearResults: vi.fn(),
+    ...semanticSearchMock.state,
+    executeSearch: semanticSearchMock.executeSearch,
+    clearResults: semanticSearchMock.clearResults,
   }),
 }));
 
@@ -33,6 +47,8 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 
   const CollectionBrowser = (props: {
     data: { files: Array<{ id: string }> };
+    emptyMessage?: string;
+    hasSearched?: boolean;
     onSelect?: (nodeId: string, nodeType: string, nodeData: unknown) => void;
     onSelectedIdChange?: (id: string | null) => void;
     multiSelectEnabled?: boolean;
@@ -45,12 +61,14 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     ) => void;
     bulkActions?: Array<{ id: string; label: string }>;
     onMultiSelect?: (ids: Set<string>) => void;
+    semanticResults?: unknown[];
     showCheckbox?: boolean;
     treeWindowingStrategy?: string;
   }) => {
     collectionBrowserPropsSpy(props as Record<string, unknown>);
     const {
       data,
+      emptyMessage,
       onSelect,
       onSelectedIdChange,
       multiSelectEnabled,
@@ -69,6 +87,9 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
         {bulkActions && bulkActions.length > 0 && (
           <span data-testid="bulk-actions-count">{bulkActions.length}</span>
         )}
+        {!firstFile && emptyMessage ? (
+          <span data-testid="empty-message">{emptyMessage}</span>
+        ) : null}
         {firstFile ? (
           <>
             <button
@@ -278,6 +299,12 @@ describe('CollectionBrowserView', () => {
   beforeEach(() => {
     __resetCollectionBrowserStoreForTests();
     vi.clearAllMocks();
+    semanticSearchMock.state = {
+      error: null,
+      hasSearched: false,
+      isSearching: false,
+      searchResults: [],
+    };
     collectionBrowserPropsSpy.mockClear();
   });
 
@@ -397,6 +424,41 @@ describe('CollectionBrowserView', () => {
     expect(screen.getByTestId('search-mode-bar')).not.toContainElement(
       screen.getByTestId('collection-browser-toolbar')
     );
+  });
+
+  it('prioritizes the no-collection empty state over stale semantic search state', () => {
+    semanticSearchMock.state = {
+      error: null,
+      hasSearched: true,
+      isSearching: false,
+      searchResults: [
+        {
+          chunkId: 'stale-chunk',
+          content: 'stale semantic result',
+          embeddingSetId: 'collection-a',
+          fileName: 'stale.ts',
+          filePath: '/stale.ts',
+          fileRecordId: 'stale-file',
+        },
+      ],
+    };
+    useCollectionBrowserStore.getState().setSearchMode('semantic');
+
+    render(
+      <CollectionBrowserView activeCollectionId={null} chunks={[]} height={500} records={[]} />
+    );
+
+    expect(screen.getByTestId('empty-message')).toHaveTextContent(
+      'Create or select a collection to start importing files and searching with semantic embeddings.'
+    );
+    expect(screen.queryByText(/No matching results found/i)).not.toBeInTheDocument();
+
+    const latestProps = collectionBrowserPropsSpy.mock.calls.at(-1)?.[0];
+    expect(latestProps).toMatchObject({
+      data: { files: [] },
+      hasSearched: false,
+    });
+    expect(latestProps).not.toHaveProperty('semanticResults');
   });
 
   it('renders source pagination controls without double-paging the tree', () => {
