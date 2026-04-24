@@ -13,8 +13,6 @@ describe('SearchModeBar', () => {
     isSearching: false,
     isSearchExpanded: false,
     onSearchExpandedChange: vi.fn(),
-    isConfigExpanded: false,
-    onConfigExpandedChange: vi.fn(),
     hasSearched: false,
     ...overrides,
   });

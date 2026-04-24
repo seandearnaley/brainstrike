@@ -1046,18 +1046,15 @@ export function CollectionBrowserView({
         }
         className="border-border border-b"
         hasSearched={hasSearched}
-        isConfigExpanded={searchConfigExpanded}
         isSearchExpanded={searchPanelExpanded}
         isSearching={isSearching}
         mode={searchMode}
-        onConfigExpandedChange={setSearchConfigExpanded}
         onModeChange={handleSearchModeChange}
         onSearchExpandedChange={setSearchPanelExpanded}
         onSemanticQueryChange={setSemanticQuery}
         onSemanticSearch={handleSearch}
         resultCount={searchResults.length}
         semanticQuery={semanticQuery}
-        totalCount={pagination?.totalRecords ?? records.length}
       />
 
       {/* Quick Filters Panel */}

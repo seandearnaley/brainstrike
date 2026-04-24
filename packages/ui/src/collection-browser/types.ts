@@ -309,16 +309,12 @@ export interface SearchModeBarProps {
   className?: string;
   /** Whether semantic search has been executed */
   hasSearched?: boolean;
-  /** Whether config panel is expanded */
-  isConfigExpanded: boolean;
   /** Whether the hybrid search panel is expanded */
   isSearchExpanded: boolean;
   /** Whether semantic search is in progress */
   isSearching: boolean;
   /** Current search mode */
   mode: SearchMode;
-  /** Callback when config expansion changes */
-  onConfigExpandedChange: (expanded: boolean) => void;
   /** Callback when mode changes */
   onModeChange: (mode: SearchMode) => void;
   /** Callback when hybrid search panel expansion changes */
@@ -331,8 +327,6 @@ export interface SearchModeBarProps {
   resultCount?: number;
   /** Semantic search query */
   semanticQuery: string;
-  /** Total number of nodes */
-  totalCount?: number;
 }
 
 /**
