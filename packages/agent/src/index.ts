@@ -196,6 +196,14 @@ export {
   unifiedToolRegistry,
 } from './registry';
 export {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
+  type AssistantRunEvent,
+  type AssistantRunEventJson,
+  type AssistantRunEventKind,
+  type AssistantRunEventMetadata,
+  type AssistantRunEventStatus,
+} from './run-events';
+export {
   AssistantDataStreamSession,
   AssistantDataStreamSessionManager,
   assistantDataStreamSessions,

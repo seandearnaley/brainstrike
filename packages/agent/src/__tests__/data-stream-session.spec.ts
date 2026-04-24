@@ -185,6 +185,52 @@ describe('AssistantDataStreamSession', () => {
     expect(finish?.usage).toStrictEqual({ inputTokens: 11, outputTokens: 13 });
   });
 
+  it('encodes assistant run events as assistant-ui named data parts', async () => {
+    const chunks: StreamChunk[] = [
+      {
+        type: 'run-event',
+        event: {
+          id: 'event-1',
+          kind: 'memory.configured',
+          label: 'Memory configured',
+          sequence: 1,
+          status: 'completed',
+          timestamp: '2026-04-24T12:00:00.000Z',
+          metadata: {
+            threadId: 'thread-1',
+            resourceId: 'workspace-1',
+          },
+        },
+      },
+      { type: 'text-delta', value: 'Hello' },
+      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      sessionId: 'run-events',
+      messageId: 'msg-run-events',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+    const runEvent = events.find((evt) => evt.code === 'aui-data');
+
+    expect(runEvent?.value).toStrictEqual({
+      name: 'brainstrike.run-event',
+      data: {
+        id: 'event-1',
+        kind: 'memory.configured',
+        label: 'Memory configured',
+        sequence: 1,
+        status: 'completed',
+        timestamp: '2026-04-24T12:00:00.000Z',
+        metadata: {
+          threadId: 'thread-1',
+          resourceId: 'workspace-1',
+        },
+      },
+    });
+  });
+
   it('supports resuming from Last-Event-ID', async () => {
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'First ' },
