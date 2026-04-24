@@ -1315,7 +1315,10 @@ export const IdeLayout = React.memo(function IdeLayout({
                 </div>
               </Panel>
               <Separator
-                className="z-10 w-1 bg-border hover:bg-border/80"
+                className={cn(
+                  'z-10 w-1',
+                  showLeftPanel ? 'bg-panel-divider hover:bg-panel-divider/80' : 'bg-transparent'
+                )}
                 onPointerDown={handleSeparatorPointerDown}
               />
             </>
@@ -1360,7 +1363,10 @@ export const IdeLayout = React.memo(function IdeLayout({
               {hasConsole && (
                 <>
                   <Separator
-                    className="z-10 h-1 bg-border hover:bg-border/80"
+                    className={cn(
+                      'z-10 h-1',
+                      showConsole ? 'bg-panel-divider hover:bg-panel-divider/80' : 'bg-transparent'
+                    )}
                     onPointerDown={handleSeparatorPointerDown}
                   />
                   <Panel
@@ -1379,7 +1385,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                     }}
                     panelRef={consolePanelRef}
                   >
-                    <div className="flex h-full flex-col border-border border-t [contain:layout_paint_style]">
+                    <div className="flex h-full flex-col [contain:layout_paint_style]">
                       <div className="flex items-center justify-between border-border border-b bg-muted/30 p-2">
                         <div className="flex items-center gap-2">
                           <Terminal className="h-4 w-4" />
@@ -1410,7 +1416,10 @@ export const IdeLayout = React.memo(function IdeLayout({
           {hasTools && (
             <>
               <Separator
-                className="z-10 w-1 bg-border hover:bg-border/80"
+                className={cn(
+                  'z-10 w-1',
+                  showRightPanel ? 'bg-panel-divider hover:bg-panel-divider/80' : 'bg-transparent'
+                )}
                 onPointerDown={handleSeparatorPointerDown}
               />
               <Panel
@@ -1429,7 +1438,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                 }}
                 panelRef={rightPanelRef}
               >
-                <div className="flex h-full flex-col border-border border-l [contain:layout_paint_style]">
+                <div className="flex h-full flex-col [contain:layout_paint_style]">
                   <div className="flex items-center justify-between border-border border-b bg-muted/30 p-2">
                     <div className="flex items-center gap-2">
                       <RightPanelIcon className="h-4 w-4" />
