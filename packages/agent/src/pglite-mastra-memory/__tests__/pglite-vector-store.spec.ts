@@ -161,6 +161,25 @@ describe('PgliteVectorStore', () => {
     ]);
   });
 
+  it('does not fail vector operations when run-event emission fails', async () => {
+    const observedStore = new PgliteVectorStore({
+      database: db,
+      eventSink: () => {
+        throw new Error('run event sink unavailable');
+      },
+      runId: 'run-1',
+    });
+    await observedStore.createIndex({ indexName: 'memory_messages', dimension: 3 });
+
+    await expect(
+      observedStore.upsert({
+        ids: ['message-a'],
+        indexName: 'memory_messages',
+        vectors: [[1, 0, 0]],
+      })
+    ).resolves.toEqual(['message-a']);
+  });
+
   it('rejects non-finite vector values returned from storage', async () => {
     const mockDb = {
       exec: vi.fn(async () => undefined),

@@ -1,3 +1,4 @@
+import { createLogger, getErrorMessage } from '@brainstrike/utils';
 import type { MastraMessageContentV2 } from '@mastra/core/agent';
 import type { MastraDBMessage, StorageThreadType } from '@mastra/core/memory';
 import type {
@@ -32,6 +33,8 @@ import {
 } from '../run-events';
 import { MASTRA_MEMORY_SCHEMA_SQL, MASTRA_MEMORY_TABLES } from './sql';
 import type { PgliteDatabase, PgliteQueryValue } from './types';
+
+const logger = createLogger('PgliteMemoryStore');
 
 interface PgliteMemoryStoreOptions {
   database: PgliteDatabase;
@@ -1411,7 +1414,16 @@ export class PgliteMemoryStore extends MemoryStorage {
       status,
       ...(metadata ? { metadata } : {}),
     };
-    await this.eventSink(createAssistantRunEvent(eventInput));
+    try {
+      await this.eventSink(createAssistantRunEvent(eventInput));
+    } catch (error) {
+      logger.error('Assistant run event sink failed during memory operation', {
+        code: 'assistant_run_event_sink_failed',
+        error: getErrorMessage(error),
+        kind,
+        runId: this.runId,
+      });
+    }
   }
 }
 

@@ -201,6 +201,32 @@ describe('PgliteMemoryStore', () => {
     );
   });
 
+  it('does not fail memory operations when run-event emission fails', async () => {
+    const observedStore = new PgliteMemoryStore({
+      database: db,
+      eventSink: () => {
+        throw new Error('run event sink unavailable');
+      },
+      runId: 'run-1',
+    });
+    await observedStore.initialize();
+    await observedStore.saveThread({
+      thread: {
+        id: 'thread-1',
+        resourceId: 'workspace-a',
+        title: 'Memory thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+
+    await expect(
+      observedStore.listMessages({ threadId: 'thread-1', perPage: false })
+    ).resolves.toMatchObject({
+      messages: [],
+    });
+  });
+
   it('updates messages in one batched read-write cycle', async () => {
     await store.saveThread({
       thread: {

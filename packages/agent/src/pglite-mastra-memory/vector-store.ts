@@ -1,3 +1,4 @@
+import { createLogger, getErrorMessage } from '@brainstrike/utils';
 import type {
   CreateIndexParams,
   DeleteIndexParams,
@@ -14,6 +15,8 @@ import { MastraVector } from '@mastra/core/vector';
 import { type AssistantRunEventSink, createAssistantRunEvent } from '../run-events';
 import { MASTRA_VECTOR_TABLE } from './sql';
 import type { PgliteDatabase, PgliteQueryValue } from './types';
+
+const logger = createLogger('PgliteVectorStore');
 
 type PgliteVectorFilter = Record<string, unknown> | null | undefined;
 
@@ -532,14 +535,23 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
     if (!(this.eventSink && this.runId)) {
       return;
     }
-    await this.eventSink(
-      createAssistantRunEvent({
+    try {
+      await this.eventSink(
+        createAssistantRunEvent({
+          kind,
+          label,
+          metadata,
+          runId: this.runId,
+          status: kind.endsWith('.started') ? 'running' : 'completed',
+        })
+      );
+    } catch (error) {
+      logger.error('Assistant run event sink failed during vector operation', {
+        code: 'assistant_run_event_sink_failed',
+        error: getErrorMessage(error),
         kind,
-        label,
-        metadata,
         runId: this.runId,
-        status: kind.endsWith('.started') ? 'running' : 'completed',
-      })
-    );
+      });
+    }
   }
 }
