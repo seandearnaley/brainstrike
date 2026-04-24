@@ -13,6 +13,7 @@ import {
   useMessagePartReasoning,
 } from '@assistant-ui/react';
 import { useDataStreamRuntime } from '@assistant-ui/react-data-stream';
+import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/agent';
 import {
   ArrowUpIcon,
   CheckIcon,
@@ -54,6 +55,7 @@ import { Progress } from '../progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select';
 import { Switch } from '../switch';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
+import { AssistantRunTimeline } from './assistant-run-timeline';
 import {
   type BudgetStatus,
   clampNumber,
@@ -1023,6 +1025,12 @@ const AssistantMessage: FC = () => {
             ChainOfThought: LocalChainOfThought,
             /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
             Text: AssistantMessageText,
+            data: {
+              /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "by_name" key */
+              by_name: {
+                [ASSISTANT_RUN_EVENT_DATA_NAME]: AssistantRunTimeline,
+              },
+            },
           }}
         />
       </div>
