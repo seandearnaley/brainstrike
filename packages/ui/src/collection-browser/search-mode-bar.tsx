@@ -94,11 +94,7 @@ export const SearchModeBar = React.memo(function SearchModeBar({
       </Button>
 
       {isSearchExpanded && (
-        <div
-          className="overflow-hidden transition-all duration-200 ease-out"
-          data-testid="hybrid-search-panel"
-          id="hybrid-search-panel"
-        >
+        <div className="overflow-hidden" data-testid="hybrid-search-panel" id="hybrid-search-panel">
           <div className="space-y-2 px-3 pb-3">
             <p className="text-muted-foreground text-xs">
               Ask in natural language, then tune hybrid search when exact terms should carry more or

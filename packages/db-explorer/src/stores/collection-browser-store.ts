@@ -190,6 +190,7 @@ function migratePersistedState(
     return rest;
   }
 
+  // v1 snapshots did not include contextSelectedIds; zustand merges them with defaults.
   return snapshot;
 }
 
