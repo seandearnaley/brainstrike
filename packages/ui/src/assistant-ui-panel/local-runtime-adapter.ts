@@ -429,25 +429,25 @@ function createLocalRunEvent(
   };
 }
 
-function createRunEventParts(runEvents: readonly AssistantRunEvent[]): AssistantDataContentPart[] {
-  return runEvents.map((event) => ({
+function createRunEventPart(event: AssistantRunEvent): AssistantDataContentPart {
+  return {
     type: 'data',
     name: ASSISTANT_RUN_EVENT_DATA_NAME,
     data: event,
-  }));
+  };
 }
 
 function buildAssistantContentParts(
   reasoningText: string | undefined,
   text: string,
   toolCallParts: AssistantToolCallContentPart[],
-  runEvents: readonly AssistantRunEvent[] = []
+  runEventParts: readonly AssistantDataContentPart[] = []
 ): AssistantContentPart[] {
   return [
     ...(reasoningText?.trim() ? [{ type: 'reasoning', text: reasoningText.trim() } as const] : []),
     ...toolCallParts,
     ...(text.trim() ? [{ type: 'text', text } as const] : []),
-    ...createRunEventParts(runEvents),
+    ...runEventParts,
   ];
 }
 
@@ -833,14 +833,14 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
       const releaseGenerationSlot =
         typeof generationSlot === 'function' ? generationSlot : await generationSlot;
       let preparedRuntimeData: Record<string, unknown> | undefined;
-      const runEvents: AssistantRunEvent[] = [];
+      const runEventParts: AssistantDataContentPart[] = [];
       const appendRunEvent = (
         kind: AssistantRunEventKind,
         status: AssistantRunEventStatus,
         label: string,
         metadata?: AssistantRunEventMetadata
       ): void => {
-        runEvents.push(createLocalRunEvent(kind, status, label, metadata));
+        runEventParts.push(createRunEventPart(createLocalRunEvent(kind, status, label, metadata)));
       };
       try {
         preparedRuntimeData = prepareRuntimeData ? await prepareRuntimeData() : runtimeData;
@@ -857,13 +857,13 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
               undefined,
               'No message content to process.',
               [],
-              runEvents
+              runEventParts
             ),
           };
           return;
         }
         yield {
-          content: buildAssistantContentParts(undefined, '', [], runEvents),
+          content: buildAssistantContentParts(undefined, '', [], runEventParts),
         };
 
         const generationOptions: LocalLlmGenerationOptions = {
@@ -885,14 +885,14 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             modelId,
           });
           yield {
-            content: buildAssistantContentParts(undefined, '', [], runEvents),
+            content: buildAssistantContentParts(undefined, '', [], runEventParts),
           };
           await ensureDesktopModelWarmed(llmHost, modelId, onLoadingProgress, abortSignal);
           appendRunEvent('run.step.finished', 'completed', 'Local model warmup completed', {
             modelId,
           });
           yield {
-            content: buildAssistantContentParts(undefined, '', [], runEvents),
+            content: buildAssistantContentParts(undefined, '', [], runEventParts),
           };
         }
         if (!llmHost?.generate) {
@@ -900,7 +900,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             modelId,
           });
           yield {
-            content: buildAssistantContentParts(undefined, '', [], runEvents),
+            content: buildAssistantContentParts(undefined, '', [], runEventParts),
           };
           await withBackendStateLock(async () => {
             const backend = await getBackend();
@@ -916,7 +916,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             modelId,
           });
           yield {
-            content: buildAssistantContentParts(undefined, '', [], runEvents),
+            content: buildAssistantContentParts(undefined, '', [], runEventParts),
           };
         }
 
@@ -930,7 +930,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             round: toolRound + 1,
           });
           yield {
-            content: buildAssistantContentParts(undefined, '', accumulatedToolParts, runEvents),
+            content: buildAssistantContentParts(undefined, '', accumulatedToolParts, runEventParts),
           };
           let result: LocalLlmGenerationResult;
           let streamedReasoningText = '';
@@ -957,14 +957,14 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
           const updateReasoningSnapshot = (reasoningText: string) => {
             streamedReasoningText = reasoningText;
             enqueueUpdate(
-              buildAssistantContentParts(streamedReasoningText, streamedText, [], runEvents)
+              buildAssistantContentParts(streamedReasoningText, streamedText, [], runEventParts)
             );
           };
           const updateTextSnapshot = (text: string) => {
             streamedText = text;
             deliveredStreamSnapshot = true;
             enqueueUpdate(
-              buildAssistantContentParts(streamedReasoningText, streamedText, [], runEvents)
+              buildAssistantContentParts(streamedReasoningText, streamedText, [], runEventParts)
             );
           };
 
@@ -1079,7 +1079,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             result.reasoningText,
             result.text,
             accumulatedToolParts,
-            runEvents
+            runEventParts
           );
           if (!deliveredStreamSnapshot || accumulatedToolParts.length > 0) {
             yield {
@@ -1103,7 +1103,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
                 result.reasoningText,
                 result.text,
                 accumulatedToolParts,
-                runEvents
+                runEventParts
               ),
             };
             return;
@@ -1138,7 +1138,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
               result.reasoningText,
               result.text,
               accumulatedToolParts,
-              runEvents
+              runEventParts
             ),
           };
 
@@ -1164,7 +1164,12 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
           });
           await completeRuntimeData?.(preparedRuntimeData, 'cancelled', errorMessage);
           yield {
-            content: buildAssistantContentParts(undefined, 'Generation cancelled.', [], runEvents),
+            content: buildAssistantContentParts(
+              undefined,
+              'Generation cancelled.',
+              [],
+              runEventParts
+            ),
           };
           return;
         }
@@ -1178,7 +1183,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             undefined,
             `Local model error: ${errorMessage}. Make sure the model is downloaded and WebGPU is available.`,
             [],
-            runEvents
+            runEventParts
           ),
         };
       } finally {
