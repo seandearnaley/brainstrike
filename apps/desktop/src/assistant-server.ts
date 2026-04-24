@@ -254,13 +254,10 @@ async function* observeDesktopAssistantRunEvents(
   let persistenceError: unknown;
   let persistenceQueue: Promise<void> = Promise.resolve();
   const persistEvent = (event: AssistantRunEvent): void => {
-    if (persistenceError) {
-      return;
-    }
     persistenceQueue = persistenceQueue
       .then(() => recordDesktopAssistantRunEvent(runId, event))
       .catch((error: unknown) => {
-        persistenceError = error;
+        persistenceError ??= error;
         logger.error('Failed to persist assistant run event', {
           error,
           eventId: event.id,

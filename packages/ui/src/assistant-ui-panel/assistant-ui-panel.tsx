@@ -612,20 +612,19 @@ const DataStreamRuntimeChat: FC<
 }) => {
   const hasGroupedProviders = providerGroups.length > 0;
   const isComposerDisabled = Boolean(disabled);
-  const preparedRequestQueueRef = useRef<
-    Array<{
-      readonly data: Record<string, unknown> | undefined;
-    }>
-  >([]);
+  const preparedRequestRef = useRef<{ readonly data: Record<string, unknown> | undefined } | null>(
+    null
+  );
   const completePreparedRequestRef = useRef(completePreparedRequest);
   completePreparedRequestRef.current = completePreparedRequest;
 
   const completeLatestPreparedRequest = useCallback(
     async (status: 'cancelled' | 'completed' | 'failed', error?: string): Promise<void> => {
-      const preparedRequest = preparedRequestQueueRef.current.shift();
+      const preparedRequest = preparedRequestRef.current;
       if (!preparedRequest) {
         return;
       }
+      preparedRequestRef.current = null;
       await completePreparedRequestRef.current?.(preparedRequest.data, status, error);
     },
     []
@@ -636,8 +635,11 @@ const DataStreamRuntimeChat: FC<
     protocol: 'data-stream',
     ...(historyAdapter ? { adapters: { history: historyAdapter } } : {}),
     body: async () => {
+      if (preparedRequestRef.current) {
+        throw new Error('Cannot start a hosted assistant run while another run is in progress.');
+      }
       const preparedRequestData = prepareRequestData ? await prepareRequestData() : undefined;
-      preparedRequestQueueRef.current.push({ data: preparedRequestData });
+      preparedRequestRef.current = { data: preparedRequestData };
       return {
         data: {
           ...(requestData ?? {}),

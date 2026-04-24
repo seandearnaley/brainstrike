@@ -439,7 +439,7 @@ describe('AssistantUiPanel model picker', () => {
     );
   });
 
-  it('keeps hosted prepared request completions paired with queued request data', async () => {
+  it('rejects concurrent hosted prepared requests before creating a second run', async () => {
     const prepareRequestData = vi
       .fn()
       .mockResolvedValueOnce({
@@ -470,16 +470,17 @@ describe('AssistantUiPanel model picker', () => {
     const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
       body?: () => Promise<Record<string, unknown> | undefined>;
       onCancel?: () => void;
-      onFinish?: () => void;
     };
 
     await options.body?.();
-    await options.body?.();
+    await expect(options.body?.()).rejects.toThrow(
+      'Cannot start a hosted assistant run while another run is in progress.'
+    );
     options.onCancel?.();
-    options.onFinish?.();
 
-    expect(completePreparedRequest).toHaveBeenNthCalledWith(
-      1,
+    expect(prepareRequestData).toHaveBeenCalledTimes(1);
+    expect(completePreparedRequest).toHaveBeenCalledTimes(1);
+    expect(completePreparedRequest).toHaveBeenCalledWith(
       {
         memory: {
           threadId: 'thread-1',
@@ -488,18 +489,6 @@ describe('AssistantUiPanel model picker', () => {
         },
       },
       'cancelled',
-      undefined
-    );
-    expect(completePreparedRequest).toHaveBeenNthCalledWith(
-      2,
-      {
-        memory: {
-          threadId: 'thread-1',
-          resourceId: 'workspace-1',
-          runId: 'run-2',
-        },
-      },
-      'completed',
       undefined
     );
   });
