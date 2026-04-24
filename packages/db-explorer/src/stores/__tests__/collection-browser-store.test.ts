@@ -35,7 +35,6 @@ describe('CollectionBrowserStore', () => {
       expect(state.searchConfigExpanded).toBe(false);
       expect(state.isFilterVisible).toBe(false);
       expect(state.groupBy).toBe('none');
-      expect(state.contextSelectedIds).toEqual([]);
       expect(state.showCheckbox).toBe(false);
       expect(state.multiSelectEnabled).toBe(false);
     });
@@ -276,30 +275,12 @@ describe('CollectionBrowserStore', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Grouping & context actions
+  // Grouping and selection display actions
   // ---------------------------------------------------------------------------
-  describe('grouping and context actions', () => {
+  describe('grouping and selection display actions', () => {
     it('setGroupBy updates grouping', () => {
       useCollectionBrowserStore.getState().setGroupBy('type');
       expect(useCollectionBrowserStore.getState().groupBy).toBe('type');
-    });
-
-    it('toggleContextSelectedId adds a node ID', () => {
-      useCollectionBrowserStore.getState().toggleContextSelectedId('node-1');
-      expect(useCollectionBrowserStore.getState().contextSelectedIds).toContain('node-1');
-    });
-
-    it('toggleContextSelectedId removes an already-present node ID', () => {
-      useCollectionBrowserStore.getState().toggleContextSelectedId('node-1');
-      useCollectionBrowserStore.getState().toggleContextSelectedId('node-1');
-      expect(useCollectionBrowserStore.getState().contextSelectedIds).not.toContain('node-1');
-    });
-
-    it('clearContextSelectedIds clears all context IDs', () => {
-      useCollectionBrowserStore.getState().toggleContextSelectedId('node-1');
-      useCollectionBrowserStore.getState().toggleContextSelectedId('node-2');
-      useCollectionBrowserStore.getState().clearContextSelectedIds();
-      expect(useCollectionBrowserStore.getState().contextSelectedIds).toEqual([]);
     });
 
     it('setShowCheckbox updates checkbox visibility', () => {

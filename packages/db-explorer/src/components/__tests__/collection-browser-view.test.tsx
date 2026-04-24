@@ -46,7 +46,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     bulkActions?: Array<{ id: string; label: string }>;
     onMultiSelect?: (ids: Set<string>) => void;
     showCheckbox?: boolean;
-    contextNodeIds?: Set<string>;
     treeWindowingStrategy?: string;
   }) => {
     collectionBrowserPropsSpy(props as Record<string, unknown>);
@@ -60,7 +59,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
       bulkActions,
       onMultiSelect,
       showCheckbox,
-      contextNodeIds,
     } = props;
     const firstFile = data.files[0];
 
@@ -73,9 +71,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
         )}
         {firstFile ? (
           <>
-            {contextNodeIds?.has(`file-${firstFile.id}`) && (
-              <span data-testid="context-selected-first-file" />
-            )}
             <button
               aria-label="Select first file"
               onClick={() => onSelect?.(`file-${firstFile.id}`, 'file', {})}
@@ -137,6 +132,28 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   );
 
   const SearchModeBar = ({
+    advancedOptions,
+    isSearchExpanded,
+    onSearchExpandedChange,
+  }: {
+    advancedOptions?: ReactNode;
+    isSearchExpanded?: boolean;
+    onSearchExpandedChange?: (expanded: boolean) => void;
+  }) => (
+    <div data-testid="search-mode-bar">
+      <button
+        aria-expanded={isSearchExpanded ? 'true' : 'false'}
+        aria-label="Hybrid search"
+        onClick={() => onSearchExpandedChange?.(!isSearchExpanded)}
+        type="button"
+      >
+        Hybrid search
+      </button>
+      {isSearchExpanded && advancedOptions}
+    </div>
+  );
+
+  const CollectionBrowserToolbar = ({
     multiSelectEnabled,
     onMultiSelectToggle,
     groupBy,
@@ -149,7 +166,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     onGroupByChange?: (key: string) => void;
     onExpandAll?: () => void;
   }) => (
-    <div data-testid="search-mode-bar">
+    <div data-testid="collection-browser-toolbar">
       {onMultiSelectToggle && (
         <button
           aria-label="Toggle multi-select"
@@ -209,6 +226,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     ...actual,
     Button,
     CollectionBrowser,
+    CollectionBrowserToolbar,
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
@@ -342,6 +360,43 @@ describe('CollectionBrowserView', () => {
 
     // 3 bulk actions: Expand, Collapse, Copy IDs
     expect(screen.getByTestId('bulk-actions-count')).toHaveTextContent('3');
+  });
+
+  it('nests advanced options inside the expanded hybrid search panel', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        records={TEST_RECORDS}
+      />
+    );
+
+    expect(screen.queryByTestId('search-config-panel')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Hybrid search' }));
+
+    expect(screen.getByTestId('search-mode-bar')).toContainElement(
+      screen.getByTestId('search-config-panel')
+    );
+  });
+
+  it('renders collection grid controls in their own toolbar', () => {
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        records={TEST_RECORDS}
+      />
+    );
+
+    expect(screen.getByTestId('collection-browser-toolbar')).toBeInTheDocument();
+    expect(screen.getByTestId('search-mode-bar')).not.toContainElement(
+      screen.getByTestId('collection-browser-toolbar')
+    );
   });
 
   it('renders source pagination controls without double-paging the tree', () => {
@@ -531,7 +586,7 @@ describe('CollectionBrowserView', () => {
     expect(useCollectionBrowserStore.getState().groupBy).toBe('status');
   });
 
-  it('updates context selection from toolbar controls', async () => {
+  it('does not render context mutation controls for selected collection rows', async () => {
     const user = userEvent.setup();
 
     render(
@@ -546,26 +601,14 @@ describe('CollectionBrowserView', () => {
     expect(
       screen.queryByRole('button', { name: /add selected to context/i })
     ).not.toBeInTheDocument();
+    expect(screen.queryByText(/in context:/i)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Select first file' }));
     expect(useCollectionBrowserStore.getState().selectedId).toBe('file-1');
-
-    const addButton = screen.getByRole('button', { name: /add selected to context/i });
-    expect(addButton).toBeEnabled();
-    const clearContextButton = screen.getByRole('button', { name: /clear context/i });
-    expect(clearContextButton).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: /add selected to context/i }));
-
-    expect(useCollectionBrowserStore.getState().contextSelectedIds).toContain('file-1');
-    expect(screen.getByTestId('context-selected-first-file')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /clear context/i })).toBeEnabled();
-
-    await user.click(screen.getByRole('button', { name: /clear context/i }));
-    expect(useCollectionBrowserStore.getState().contextSelectedIds).toEqual([]);
-
-    await user.click(screen.getByRole('button', { name: /add selected to context/i }));
-    await user.click(screen.getByRole('button', { name: /remove selected from context/i }));
-    expect(useCollectionBrowserStore.getState().contextSelectedIds).not.toContain('file-1');
+    expect(
+      screen.queryByRole('button', { name: /add selected to context/i })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /clear context/i })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Clear selection' }));
     expect(

@@ -19,6 +19,7 @@ import {
   Button,
   CollectionBrowser,
   type CollectionBrowserFilters,
+  CollectionBrowserToolbar,
   type CollectionNodeType,
   type CollectionSortState,
   type CollectionTreeInput,
@@ -281,7 +282,6 @@ function buildSelectedNodeData(
 /**
  * CollectionBrowserView - Connects CollectionBrowser to database data
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This adapter intentionally centralizes tree-grid wiring and inspector coordination.
 export function CollectionBrowserView({
   records,
   chunks,
@@ -325,6 +325,7 @@ export function CollectionBrowserView({
     searchConfigRetrievalMode,
     searchConfigVectorWeight,
     searchConfigFtsWeight,
+    searchPanelExpanded,
     searchConfigExpanded,
     isFilterVisible,
     setSearchMode,
@@ -336,16 +337,14 @@ export function CollectionBrowserView({
     setSearchConfigRetrievalMode,
     setSearchConfigVectorWeight,
     setSearchConfigFtsWeight,
+    setSearchPanelExpanded,
     setSearchConfigExpanded,
     setIsFilterVisible,
     // Grouping and checkbox state
     groupBy,
-    contextSelectedIds,
     showCheckbox,
     multiSelectEnabled,
     setGroupBy,
-    toggleContextSelectedId,
-    clearContextSelectedIds,
     setShowCheckbox,
     setMultiSelectEnabled,
     toggleExpanded,
@@ -373,13 +372,6 @@ export function CollectionBrowserView({
     [setSearchQuery, setNodeTypes, setEmbeddingStatus]
   );
 
-  // Handle filter reset
-  const handleResetFilters = useCallback(() => {
-    setSearchQuery('');
-    setNodeTypes(['collection', 'file', 'chunk', 'embedding']);
-    setEmbeddingStatus('all');
-  }, [setSearchQuery, setNodeTypes, setEmbeddingStatus]);
-
   // Handle collapse all
   const handleCollapseAll = useCallback(() => {
     setExpandedIds([]);
@@ -397,8 +389,6 @@ export function CollectionBrowserView({
 
   // Convert expanded IDs array to Set for CollectionBrowser
   const expandedIdsSet = useMemo(() => new Set(expandedIds), [expandedIds]);
-  const contextNodeIdsSet = useMemo(() => new Set(contextSelectedIds), [contextSelectedIds]);
-  const shouldShowContextToolbar = selectedId !== null || contextSelectedIds.length > 0;
 
   // State for selected node inspection (derived from store selectedId)
   const { selectedNodeType, selectedNodeId } = useMemo(() => {
@@ -864,15 +854,6 @@ export function CollectionBrowserView({
     [setGroupBy]
   );
 
-  const handleToggleContextForSelected = useCallback(() => {
-    if (!selectedId) {
-      return;
-    }
-    toggleContextSelectedId(selectedId);
-  }, [selectedId, toggleContextSelectedId]);
-
-  const handleClearContextSelection = clearContextSelectedIds;
-
   // Handle double-click: toggle expand for parent nodes, open inspector for leaves
   const handleDoubleClick = useCallback(
     (nodeId: string, nodeType: string, _data: BrowserNodeData) => {
@@ -1051,36 +1032,29 @@ export function CollectionBrowserView({
     <div className="flex h-full flex-col" style={{ height }}>
       {/* Search mode bar - Top level controls */}
       <SearchModeBar
+        advancedOptions={
+          <SearchConfigPanel
+            className="rounded-md border border-border"
+            config={searchConfig}
+            isExpanded={searchConfigExpanded}
+            onConfigChange={handleSearchConfigChange}
+            onExpandedChange={setSearchConfigExpanded}
+          />
+        }
         className="border-border border-b"
-        filters={filters}
-        groupBy={groupBy}
         hasSearched={hasSearched}
         isConfigExpanded={searchConfigExpanded}
-        isFilterVisible={isFilterVisible}
+        isSearchExpanded={searchPanelExpanded}
         isSearching={isSearching}
         mode={searchMode}
-        multiSelectEnabled={multiSelectEnabled}
-        onCollapseAll={handleCollapseAll}
         onConfigExpandedChange={setSearchConfigExpanded}
-        onExpandAll={handleExpandAll}
-        onFilterVisibleChange={setIsFilterVisible}
-        onGroupByChange={handleGroupByChange}
         onModeChange={handleSearchModeChange}
-        onMultiSelectToggle={handleMultiSelectToggle}
-        onResetFilters={handleResetFilters}
+        onSearchExpandedChange={setSearchPanelExpanded}
         onSemanticQueryChange={setSemanticQuery}
         onSemanticSearch={handleSearch}
         resultCount={searchResults.length}
         semanticQuery={semanticQuery}
         totalCount={pagination?.totalRecords ?? records.length}
-      />
-
-      {/* Advanced Search Options Panel */}
-      <SearchConfigPanel
-        config={searchConfig}
-        isExpanded={searchConfigExpanded}
-        onConfigChange={handleSearchConfigChange}
-        onExpandedChange={setSearchConfigExpanded}
       />
 
       {/* Quick Filters Panel */}
@@ -1091,40 +1065,24 @@ export function CollectionBrowserView({
         onFiltersChange={handleFiltersChange}
       />
 
-      {shouldShowContextToolbar && (
-        <div className="flex items-center justify-between border-border border-b px-3 py-2">
-          <span className="text-muted-foreground text-xs">
-            In context: {contextSelectedIds.length}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button
-              disabled={!selectedId}
-              onClick={handleToggleContextForSelected}
-              size="sm"
-              variant="outline"
-            >
-              {selectedId && contextNodeIdsSet.has(selectedId)
-                ? 'Remove selected from context'
-                : 'Add selected to context'}
-            </Button>
-            <Button
-              disabled={contextSelectedIds.length === 0}
-              onClick={handleClearContextSelection}
-              size="sm"
-              variant="outline"
-            >
-              Clear context
-            </Button>
-          </div>
-        </div>
-      )}
-
       {/* Error message display */}
       {searchError && (
         <div className="border-border border-b bg-destructive/10 px-3 py-2 text-destructive text-sm">
           {searchError}
         </div>
       )}
+
+      <CollectionBrowserToolbar
+        filters={filters}
+        groupBy={groupBy}
+        isFilterVisible={isFilterVisible}
+        multiSelectEnabled={multiSelectEnabled}
+        onCollapseAll={handleCollapseAll}
+        onExpandAll={handleExpandAll}
+        onFilterVisibleChange={setIsFilterVisible}
+        onGroupByChange={handleGroupByChange}
+        onMultiSelectToggle={handleMultiSelectToggle}
+      />
 
       {/* Main content area */}
       <div className="relative flex min-h-0 flex-1 border-t">
@@ -1155,7 +1113,6 @@ export function CollectionBrowserView({
             <CollectionBrowser
               bulkActions={bulkActions}
               className="h-full"
-              contextNodeIds={contextNodeIdsSet}
               data={treeData}
               emptyMessage={emptyMessage}
               expandedIds={expandedIdsSet}
