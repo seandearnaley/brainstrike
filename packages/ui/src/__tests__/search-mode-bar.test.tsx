@@ -46,14 +46,16 @@ describe('SearchModeBar', () => {
     expect(screen.getByRole('button', { name: 'Query' })).toBeInTheDocument();
   });
 
-  it('keeps the query action in a separate row so the input can use the full panel width', () => {
+  it('renders the query input and action as a compact input button group', () => {
     render(<SearchModeBar {...createProps({ isSearchExpanded: true, semanticQuery: 'search' })} />);
 
-    const actionRow = screen.getByTestId('hybrid-search-action-row');
-    expect(actionRow).toContainElement(screen.getByRole('button', { name: 'Query' }));
-    expect(actionRow).not.toContainElement(
+    const inputGroup = screen.getByTestId('hybrid-search-input-group');
+    expect(inputGroup).toContainElement(
       screen.getByRole('textbox', { name: 'Hybrid search query' })
     );
+    expect(inputGroup).toContainElement(screen.getByRole('button', { name: 'Query' }));
+    expect(inputGroup).toHaveClass('flex');
+    expect(inputGroup).not.toHaveTextContent(/semantic search across embedded chunks/i);
   });
 
   it('calls onSemanticQueryChange when typing in search input', () => {
@@ -214,19 +216,8 @@ describe('SearchModeBar', () => {
     expect(panel).toContainElement(screen.getByTestId('advanced-options-slot'));
   });
 
-  describe('single-line constraint for semantic query textarea', () => {
-    let scrollHeightSpy: ReturnType<typeof vi.spyOn>;
-
-    beforeEach(() => {
-      // Simulate content that would normally expand a multi-row textarea
-      scrollHeightSpy = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(200);
-    });
-
-    afterEach(() => {
-      scrollHeightSpy.mockRestore();
-    });
-
-    it('limits the semantic search textarea to a single row height even with large content', () => {
+  describe('single-line constraint for semantic query input', () => {
+    it('uses a fixed-height input for long natural-language queries', () => {
       render(
         <SearchModeBar
           {...createProps({
@@ -236,11 +227,7 @@ describe('SearchModeBar', () => {
         />
       );
 
-      const textarea = screen.getByRole('textbox', { name: 'Hybrid search query' });
-      // With maxRows=6 (before fix): calculatedMaxHeight = 120px → height = 120px
-      // With maxRows=1 (after fix):  calculatedMaxHeight = 36px  → height = 36px
-      const height = Number.parseInt((textarea as HTMLTextAreaElement).style.height, 10);
-      expect(height).toBeLessThanOrEqual(36);
+      expect(screen.getByRole('textbox', { name: 'Hybrid search query' })).toHaveClass('h-9');
     });
   });
 });

@@ -46,7 +46,7 @@ interface GroupHeaderCellProps<T> {
 function GroupHeaderCell<T>({ node, isExpanded, onExpandClick, columns }: GroupHeaderCellProps<T>) {
   return (
     <TableCell className="p-0" colSpan={columns.length} role="gridcell">
-      <div className="flex items-center">
+      <div className="flex items-center pl-1">
         {/* Indentation spacer */}
         <span className="flex-shrink-0" style={{ width: node.depth * INDENT_WIDTH }} />
 
@@ -349,7 +349,7 @@ function TreeTableCellComponent<T>({
 
     return (
       <TableCell className={cn('p-0', column.className)} colSpan={colSpan} role="gridcell">
-        <div className="flex items-center">
+        <div className="flex items-center pl-1">
           {/* Indentation spacer */}
           <span className="flex-shrink-0" style={{ width: node.depth * indentWidth }} />
 

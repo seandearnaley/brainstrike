@@ -98,10 +98,10 @@ export interface TreeTableColumn<T> {
    * prevent the tree layout from being applied.
    */
   isTreeColumn?: boolean;
-  /** Maximum width in pixels */
-  maxWidth?: number;
-  /** Minimum width in pixels */
-  minWidth?: number;
+  /** Maximum width in pixels or CSS string */
+  maxWidth?: number | string;
+  /** Minimum width in pixels or CSS string */
+  minWidth?: number | string;
   /** When false, leaf rows do not reserve empty expand-toggle space in the tree column. */
   reserveToggleSpace?: boolean;
   /** Whether this column is sortable */

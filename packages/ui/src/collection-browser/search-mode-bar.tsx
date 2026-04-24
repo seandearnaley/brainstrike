@@ -8,7 +8,7 @@
 import { ChevronDown, ChevronUp, Loader2, Sparkles, X } from 'lucide-react';
 import * as React from 'react';
 import { Button } from '../button';
-import { ExpandableTextarea } from '../expandable-textarea';
+import { Input } from '../input';
 import { cn } from '../lib/utils';
 import type { SearchModeBarProps } from './types';
 
@@ -43,8 +43,15 @@ export const SearchModeBar = React.memo(function SearchModeBar({
     }
   }, [onSemanticQueryChange, mode, hasSearched, onModeChange]);
 
+  const handleSemanticInputChange = React.useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      handleSemanticQueryChange(event.currentTarget.value);
+    },
+    [handleSemanticQueryChange]
+  );
+
   const handleSemanticKeyDown = React.useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
         if (!isSearching && semanticQuery.trim()) {
@@ -101,43 +108,33 @@ export const SearchModeBar = React.memo(function SearchModeBar({
               less weight.
             </p>
 
-            <div className="space-y-1.5" data-testid="hybrid-search-controls">
-              <div className="relative min-w-0 flex-1">
-                <ExpandableTextarea
-                  aria-label="Hybrid search query"
-                  className="py-[7px] pr-8 text-xs leading-5"
-                  disabled={isSearching}
-                  maxLength={10_000}
-                  maxRows={1}
-                  minHeight={36}
-                  minRows={1}
-                  onChange={handleSemanticQueryChange}
-                  onKeyDown={handleSemanticKeyDown}
-                  placeholder="Describe what you want to find... (Cmd+Enter)"
-                  value={semanticQuery}
-                />
-                {semanticQuery && !isSearching && (
-                  <Button
-                    aria-label="Clear query"
-                    className="absolute top-1.5 right-1.5 h-6 w-6 p-0"
-                    onClick={handleClearSemanticQuery}
-                    size="sm"
-                    variant="ghost"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
-                )}
-              </div>
-
-              <div
-                className="flex min-h-8 items-center justify-between gap-2"
-                data-testid="hybrid-search-action-row"
-              >
-                <span className="min-w-0 truncate text-muted-foreground text-xs">
-                  Semantic search across embedded chunks
-                </span>
+            <div data-testid="hybrid-search-controls">
+              <div className="flex min-w-0 items-stretch" data-testid="hybrid-search-input-group">
+                <div className="relative min-w-0 flex-1">
+                  <Input
+                    aria-label="Hybrid search query"
+                    className="h-9 rounded-r-none border-r-0 pr-8 text-xs"
+                    disabled={isSearching}
+                    maxLength={10_000}
+                    onChange={handleSemanticInputChange}
+                    onKeyDown={handleSemanticKeyDown}
+                    placeholder="Describe what you want to find... (Cmd+Enter)"
+                    value={semanticQuery}
+                  />
+                  {semanticQuery && !isSearching && (
+                    <Button
+                      aria-label="Clear query"
+                      className="absolute top-1.5 right-1.5 h-6 w-6 p-0"
+                      onClick={handleClearSemanticQuery}
+                      size="sm"
+                      variant="ghost"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
                 <Button
-                  className="h-8 shrink-0 gap-1.5 px-2.5"
+                  className="h-9 shrink-0 rounded-l-none px-2.5"
                   disabled={isSearching || !semanticQuery.trim()}
                   onClick={onSemanticSearch}
                   size="sm"
