@@ -159,10 +159,12 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   const SearchModeBar = ({
     advancedOptions,
     isSearchExpanded,
+    onSemanticSearch,
     onSearchExpandedChange,
   }: {
     advancedOptions?: ReactNode;
     isSearchExpanded?: boolean;
+    onSemanticSearch?: () => void;
     onSearchExpandedChange?: (expanded: boolean) => void;
   }) => (
     <div data-testid="search-mode-bar">
@@ -173,6 +175,9 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
         type="button"
       >
         Hybrid search
+      </button>
+      <button aria-label="Run hybrid search" onClick={onSemanticSearch} type="button">
+        Run hybrid search
       </button>
       {isSearchExpanded && advancedOptions}
     </div>
@@ -463,6 +468,19 @@ describe('CollectionBrowserView', () => {
       hasSearched: false,
     });
     expect(latestProps).not.toHaveProperty('semanticResults');
+  });
+
+  it('does not execute hybrid search without an active collection', async () => {
+    const user = userEvent.setup();
+    useCollectionBrowserStore.getState().setSemanticQuery('orphan query');
+
+    render(
+      <CollectionBrowserView activeCollectionId={null} chunks={[]} height={500} records={[]} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Run hybrid search' }));
+
+    expect(semanticSearchMock.executeSearch).not.toHaveBeenCalled();
   });
 
   it('filters stale semantic results from a previously active collection', () => {

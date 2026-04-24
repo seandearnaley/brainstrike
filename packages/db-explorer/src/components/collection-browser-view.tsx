@@ -630,6 +630,9 @@ export function CollectionBrowserView({
 
   // Handle semantic search execution
   const handleSearch = useCallback(() => {
+    if (activeCollectionId === null) {
+      return;
+    }
     if (semanticQuery.trim()) {
       setSearchMode('semantic');
       void executeSearch(semanticQuery, searchConfig, activeCollectionId);
