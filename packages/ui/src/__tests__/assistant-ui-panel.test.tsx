@@ -439,6 +439,71 @@ describe('AssistantUiPanel model picker', () => {
     );
   });
 
+  it('keeps hosted prepared request completions paired with queued request data', async () => {
+    const prepareRequestData = vi
+      .fn()
+      .mockResolvedValueOnce({
+        memory: {
+          threadId: 'thread-1',
+          resourceId: 'workspace-1',
+          runId: 'run-1',
+        },
+      })
+      .mockResolvedValueOnce({
+        memory: {
+          threadId: 'thread-1',
+          resourceId: 'workspace-1',
+          runId: 'run-2',
+        },
+      });
+    const completePreparedRequest = vi.fn();
+
+    render(
+      <AssistantUiPanel
+        {...baseProps}
+        completePreparedRequest={completePreparedRequest}
+        onModelChange={() => {}}
+        prepareRequestData={prepareRequestData}
+      />
+    );
+
+    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+      body?: () => Promise<Record<string, unknown> | undefined>;
+      onCancel?: () => void;
+      onFinish?: () => void;
+    };
+
+    await options.body?.();
+    await options.body?.();
+    options.onCancel?.();
+    options.onFinish?.();
+
+    expect(completePreparedRequest).toHaveBeenNthCalledWith(
+      1,
+      {
+        memory: {
+          threadId: 'thread-1',
+          resourceId: 'workspace-1',
+          runId: 'run-1',
+        },
+      },
+      'cancelled',
+      undefined
+    );
+    expect(completePreparedRequest).toHaveBeenNthCalledWith(
+      2,
+      {
+        memory: {
+          threadId: 'thread-1',
+          resourceId: 'workspace-1',
+          runId: 'run-2',
+        },
+      },
+      'completed',
+      undefined
+    );
+  });
+
   it('marks hosted prepared requests failed when the data stream errors', async () => {
     const prepareRequestData = vi.fn(async () => ({
       memory: {

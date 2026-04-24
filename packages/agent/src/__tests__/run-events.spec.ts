@@ -7,7 +7,9 @@ describe('run event metadata sanitization', () => {
       model: 'gpt-5.2',
       apiKey: 'secret',
       'api-key': 'secret',
+      bearerCredential: 'secret',
       nested: {
+        userSessionId: 'secret',
         output: 'tool output',
         count: 2,
       },

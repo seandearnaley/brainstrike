@@ -612,18 +612,21 @@ const DataStreamRuntimeChat: FC<
 }) => {
   const hasGroupedProviders = providerGroups.length > 0;
   const isComposerDisabled = Boolean(disabled);
-  const preparedRequestDataRef = useRef<Record<string, unknown> | undefined>(undefined);
-  const completedPreparedRequestRef = useRef(false);
+  const preparedRequestQueueRef = useRef<
+    Array<{
+      readonly data: Record<string, unknown> | undefined;
+    }>
+  >([]);
   const completePreparedRequestRef = useRef(completePreparedRequest);
   completePreparedRequestRef.current = completePreparedRequest;
 
   const completeLatestPreparedRequest = useCallback(
     async (status: 'cancelled' | 'completed' | 'failed', error?: string): Promise<void> => {
-      if (completedPreparedRequestRef.current) {
+      const preparedRequest = preparedRequestQueueRef.current.shift();
+      if (!preparedRequest) {
         return;
       }
-      completedPreparedRequestRef.current = true;
-      await completePreparedRequestRef.current?.(preparedRequestDataRef.current, status, error);
+      await completePreparedRequestRef.current?.(preparedRequest.data, status, error);
     },
     []
   );
@@ -633,9 +636,8 @@ const DataStreamRuntimeChat: FC<
     protocol: 'data-stream',
     ...(historyAdapter ? { adapters: { history: historyAdapter } } : {}),
     body: async () => {
-      completedPreparedRequestRef.current = false;
       const preparedRequestData = prepareRequestData ? await prepareRequestData() : undefined;
-      preparedRequestDataRef.current = preparedRequestData;
+      preparedRequestQueueRef.current.push({ data: preparedRequestData });
       return {
         data: {
           ...(requestData ?? {}),

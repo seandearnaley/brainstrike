@@ -4,6 +4,8 @@ import {
 } from '@brainstrike/agent/pglite-mastra-memory/schema';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
+  ASSISTANT_RUN_EVENT_KINDS,
+  ASSISTANT_RUN_EVENT_STATUSES,
   type AssistantRunEvent,
   type AssistantRunEventKind,
   type AssistantRunEventStatus,
@@ -280,41 +282,17 @@ function nullableString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
 
-const ASSISTANT_RUN_EVENT_KINDS = new Set<AssistantRunEventKind>([
-  'context.budget',
-  'context.prepared',
-  'context.selection',
-  'memory.configured',
-  'memory.history.loaded',
-  'memory.observation.completed',
-  'memory.observation.started',
-  'memory.reflection.completed',
-  'memory.reflection.started',
-  'memory.semantic.completed',
-  'memory.semantic.started',
-  'memory.working.loaded',
-  'memory.working.updated',
-  'run.cancelled',
-  'run.failed',
-  'run.finished',
-  'run.started',
-  'run.step.finished',
-  'run.step.started',
-  'tool.completed',
-  'tool.failed',
-  'tool.started',
-]);
+const ASSISTANT_RUN_EVENT_KIND_SET = new Set<AssistantRunEventKind>(ASSISTANT_RUN_EVENT_KINDS);
 
-const ASSISTANT_RUN_EVENT_STATUSES = new Set<AssistantRunEventStatus>([
-  'cancelled',
-  'completed',
-  'failed',
-  'info',
-  'running',
-]);
+const ASSISTANT_RUN_EVENT_STATUS_SET = new Set<AssistantRunEventStatus>(
+  ASSISTANT_RUN_EVENT_STATUSES
+);
 
 function requireRunEventKind(value: unknown): AssistantRunEventKind {
-  if (typeof value === 'string' && ASSISTANT_RUN_EVENT_KINDS.has(value as AssistantRunEventKind)) {
+  if (
+    typeof value === 'string' &&
+    ASSISTANT_RUN_EVENT_KIND_SET.has(value as AssistantRunEventKind)
+  ) {
     return value as AssistantRunEventKind;
   }
   throw new Error('Invalid assistant run event row: kind is not valid.');
@@ -323,7 +301,7 @@ function requireRunEventKind(value: unknown): AssistantRunEventKind {
 function requireRunEventStatus(value: unknown): AssistantRunEventStatus {
   if (
     typeof value === 'string' &&
-    ASSISTANT_RUN_EVENT_STATUSES.has(value as AssistantRunEventStatus)
+    ASSISTANT_RUN_EVENT_STATUS_SET.has(value as AssistantRunEventStatus)
   ) {
     return value as AssistantRunEventStatus;
   }
@@ -382,6 +360,18 @@ function toThreadRunRecord(row: Record<string, unknown>): AssistantThreadRunReco
   };
 }
 
+function toRunEventDataParts(runEvents: readonly AssistantRunEvent[]): Array<{
+  readonly data: AssistantRunEvent;
+  readonly name: typeof ASSISTANT_RUN_EVENT_DATA_NAME;
+  readonly type: 'data';
+}> {
+  return runEvents.map((event) => ({
+    type: 'data' as const,
+    name: ASSISTANT_RUN_EVENT_DATA_NAME,
+    data: event,
+  }));
+}
+
 function extractText(value: unknown, seenObjects = new WeakSet<object>()): string {
   if (typeof value === 'string') {
     return value;
@@ -421,6 +411,7 @@ function toHistoryRepository(
   >['messages'] = [];
   let parentId: string | null = null;
   let latestAssistantMessageId: string | null = null;
+  const runEventDataParts = toRunEventDataParts(runEvents);
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const candidate = messages[index];
     if (candidate?.role === 'assistant' && extractText(candidate.content).trim()) {
@@ -441,11 +432,6 @@ function toHistoryRepository(
 
     // This compatibility view attaches persisted run summaries to the latest
     // assistant message until run records carry a durable message id.
-    const dataParts = runEvents.map((event) => ({
-      type: 'data' as const,
-      name: ASSISTANT_RUN_EVENT_DATA_NAME,
-      data: event,
-    }));
     const content = [{ type: 'text' as const, text }] as const;
     if (message.role === 'assistant') {
       const isLatestAssistantMessage =
@@ -455,7 +441,7 @@ function toHistoryRepository(
         message: {
           id: message.id,
           role: 'assistant',
-          content: isLatestAssistantMessage ? [...dataParts, ...content] : content,
+          content: isLatestAssistantMessage ? [...runEventDataParts, ...content] : content,
           createdAt: message.createdAt,
           status: { type: 'complete', reason: 'stop' },
           metadata: {

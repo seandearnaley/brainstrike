@@ -1,30 +1,41 @@
 export const ASSISTANT_RUN_EVENT_DATA_NAME = 'brainstrike.run-event';
 
-export type AssistantRunEventKind =
-  | 'context.budget'
-  | 'context.prepared'
-  | 'context.selection'
-  | 'memory.configured'
-  | 'memory.history.loaded'
-  | 'memory.observation.completed'
-  | 'memory.observation.started'
-  | 'memory.reflection.completed'
-  | 'memory.reflection.started'
-  | 'memory.semantic.completed'
-  | 'memory.semantic.started'
-  | 'memory.working.loaded'
-  | 'memory.working.updated'
-  | 'run.cancelled'
-  | 'run.failed'
-  | 'run.finished'
-  | 'run.started'
-  | 'run.step.finished'
-  | 'run.step.started'
-  | 'tool.completed'
-  | 'tool.failed'
-  | 'tool.started';
+export const ASSISTANT_RUN_EVENT_KINDS = [
+  'context.budget',
+  'context.prepared',
+  'context.selection',
+  'memory.configured',
+  'memory.history.loaded',
+  'memory.observation.completed',
+  'memory.observation.started',
+  'memory.reflection.completed',
+  'memory.reflection.started',
+  'memory.semantic.completed',
+  'memory.semantic.started',
+  'memory.working.loaded',
+  'memory.working.updated',
+  'run.cancelled',
+  'run.failed',
+  'run.finished',
+  'run.started',
+  'run.step.finished',
+  'run.step.started',
+  'tool.completed',
+  'tool.failed',
+  'tool.started',
+] as const;
 
-export type AssistantRunEventStatus = 'cancelled' | 'completed' | 'failed' | 'info' | 'running';
+export type AssistantRunEventKind = (typeof ASSISTANT_RUN_EVENT_KINDS)[number];
+
+export const ASSISTANT_RUN_EVENT_STATUSES = [
+  'cancelled',
+  'completed',
+  'failed',
+  'info',
+  'running',
+] as const;
+
+export type AssistantRunEventStatus = (typeof ASSISTANT_RUN_EVENT_STATUSES)[number];
 
 export type AssistantRunEventJson =
   | AssistantRunEventJson[]
@@ -54,8 +65,10 @@ export type AssistantRunEventSink = (event: AssistantRunEvent) => Promise<void> 
 const UNSAFE_RUN_EVENT_METADATA_KEYS = new Set([
   'apikey',
   'authorization',
+  'bearer',
   'content',
   'cookie',
+  'credential',
   'memory',
   'output',
   'password',
@@ -63,6 +76,7 @@ const UNSAFE_RUN_EVENT_METADATA_KEYS = new Set([
   'reasoning',
   'result',
   'secret',
+  'session',
   'text',
   'token',
 ]);
@@ -119,12 +133,24 @@ function sanitizeRunEventJsonValue(value: unknown): AssistantRunEventJson {
   const sanitized: Record<string, AssistantRunEventJson> = {};
   for (const [key, nested] of Object.entries(value)) {
     const normalizedKey = normalizeRunEventMetadataKey(key);
-    if (UNSAFE_RUN_EVENT_METADATA_KEYS.has(normalizedKey)) {
+    if (isUnsafeRunEventMetadataKey(normalizedKey)) {
       continue;
     }
     sanitized[key] = sanitizeRunEventJsonValue(nested);
   }
   return sanitized;
+}
+
+function isUnsafeRunEventMetadataKey(normalizedKey: string): boolean {
+  if (UNSAFE_RUN_EVENT_METADATA_KEYS.has(normalizedKey)) {
+    return true;
+  }
+  return [...UNSAFE_RUN_EVENT_METADATA_KEYS].some((unsafeKey) => {
+    if (unsafeKey === 'token') {
+      return false;
+    }
+    return normalizedKey.includes(unsafeKey);
+  });
 }
 
 function normalizeRunEventMetadataKey(key: string): string {
