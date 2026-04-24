@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '../dropdown-menu';
 import { cn } from '../lib/utils';
-import type { CollectionBrowserToolbarProps, GroupByKey } from './types';
+import { type CollectionBrowserToolbarProps, DEFAULT_FILTERS, type GroupByKey } from './types';
 
 const GROUP_BY_OPTIONS: { value: GroupByKey; label: string }[] = [
   { value: 'none', label: 'No Grouping' },
@@ -35,7 +35,7 @@ export const CollectionBrowserToolbar = React.memo(function CollectionBrowserToo
     }
     return (
       filters.searchQuery !== '' ||
-      filters.nodeTypes.size !== 4 ||
+      filters.nodeTypes.size !== DEFAULT_FILTERS.nodeTypes.size ||
       filters.embeddingStatus !== 'all'
     );
   }, [filters]);
