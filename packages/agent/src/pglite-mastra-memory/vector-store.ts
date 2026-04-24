@@ -11,6 +11,7 @@ import type {
   UpsertVectorParams,
 } from '@mastra/core/vector';
 import { MastraVector } from '@mastra/core/vector';
+import { type AssistantRunEventSink, createAssistantRunEvent } from '../run-events';
 import { MASTRA_VECTOR_TABLE } from './sql';
 import type { PgliteDatabase, PgliteQueryValue } from './types';
 
@@ -18,7 +19,9 @@ type PgliteVectorFilter = Record<string, unknown> | null | undefined;
 
 interface PgliteVectorStoreOptions {
   database: PgliteDatabase;
+  eventSink?: AssistantRunEventSink;
   id?: string;
+  runId?: string;
 }
 
 interface IndexRow {
@@ -209,11 +212,15 @@ function appendFilterSql(
 
 export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
   private readonly database: PgliteDatabase;
+  private readonly eventSink: AssistantRunEventSink | undefined;
+  private readonly runId: string | undefined;
   private initPromise: Promise<void> | null = null;
 
   constructor(options: PgliteVectorStoreOptions) {
     super({ id: options.id ?? 'brainstrike-pglite-vector' });
     this.database = options.database;
+    this.eventSink = options.eventSink;
+    this.runId = options.runId;
   }
 
   override async createIndex({
@@ -335,6 +342,10 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
         updated_at = now()`,
       values
     );
+    await this.emitRunEvent('memory.semantic.completed', 'Semantic memory indexed', {
+      count: resultIds.length,
+      indexName,
+    });
     return resultIds;
   }
 
@@ -373,6 +384,10 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
     }
     values.push(topK);
     const limitParam = `$${values.length}`;
+    await this.emitRunEvent('memory.semantic.started', 'Semantic memory search started', {
+      indexName,
+      topK,
+    });
     const result = await this.database.query<VectorRow>(
       `SELECT id, metadata, ${includeVector ? 'embedding::text' : 'NULL'} AS embedding,
         ${scoreSql} AS score
@@ -382,7 +397,7 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
        LIMIT ${limitParam}`,
       values
     );
-    return result.rows.map((row) => {
+    const rows = result.rows.map((row) => {
       const queryResult: QueryResult = {
         id: row.id,
         score: Number(row.score),
@@ -397,6 +412,12 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
       }
       return queryResult;
     });
+    await this.emitRunEvent('memory.semantic.completed', 'Semantic memory search completed', {
+      count: rows.length,
+      indexName,
+      topK,
+    });
+    return rows;
   }
 
   override async updateVector({
@@ -501,5 +522,24 @@ export class PgliteVectorStore extends MastraVector<PgliteVectorFilter> {
       dimension: Number(row.dimension),
       metric: row.metric ?? DEFAULT_METRIC,
     };
+  }
+
+  private async emitRunEvent(
+    kind: 'memory.semantic.completed' | 'memory.semantic.started',
+    label: string,
+    metadata: Record<string, string | number>
+  ): Promise<void> {
+    if (!(this.eventSink && this.runId)) {
+      return;
+    }
+    await this.eventSink(
+      createAssistantRunEvent({
+        kind,
+        label,
+        metadata,
+        runId: this.runId,
+        status: kind.endsWith('.started') ? 'running' : 'completed',
+      })
+    );
   }
 }

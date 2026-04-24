@@ -153,6 +153,54 @@ describe('PgliteMemoryStore', () => {
     expect(byId.messages.map((message) => message.id)).toEqual(['message-2']);
   });
 
+  it('emits compact run events from real history and working-memory hooks', async () => {
+    const events: string[] = [];
+    const observedStore = new PgliteMemoryStore({
+      database: db,
+      eventSink: (event) => {
+        events.push(`${event.kind}:${event.label}:${event.runId}`);
+      },
+      runId: 'run-1',
+    });
+    await observedStore.initialize();
+    await observedStore.saveThread({
+      thread: {
+        id: 'thread-1',
+        resourceId: 'workspace-a',
+        title: 'Memory thread',
+        createdAt: new Date('2026-04-22T10:00:00Z'),
+        updatedAt: new Date('2026-04-22T10:00:00Z'),
+      },
+    });
+    await observedStore.saveMessages({
+      messages: [
+        {
+          id: 'message-1',
+          role: 'user',
+          type: 'text',
+          threadId: 'thread-1',
+          resourceId: 'workspace-a',
+          createdAt: new Date('2026-04-22T10:00:01Z'),
+          content: { content: 'Remember the deploy window.' },
+        },
+      ],
+    });
+
+    await observedStore.listMessages({ threadId: 'thread-1', perPage: false });
+    await observedStore.updateResource({
+      resourceId: 'workspace-a',
+      workingMemory: 'Deploy window is Friday.',
+    });
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        'memory.history.loaded:Conversation history loaded:run-1',
+        'memory.working.loaded:Working memory loaded:run-1',
+        'memory.working.updated:Working memory updated:run-1',
+      ])
+    );
+  });
+
   it('updates messages in one batched read-write cycle', async () => {
     await store.saveThread({
       thread: {

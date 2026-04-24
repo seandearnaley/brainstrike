@@ -22,6 +22,11 @@ interface RuntimeData {
   provider?: string;
 }
 type StreamChunk =
+  | { type: 'reasoning-delta'; value: string }
+  | {
+      type: 'run-event';
+      event: unknown;
+    }
   | { type: 'text-delta'; value: string }
   | {
       type: 'tool-event';

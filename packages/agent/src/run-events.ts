@@ -48,3 +48,29 @@ export interface AssistantRunEvent {
   readonly status: AssistantRunEventStatus;
   readonly timestamp: string;
 }
+
+export type AssistantRunEventSink = (event: AssistantRunEvent) => Promise<void> | void;
+
+export function createAssistantRunEvent(input: {
+  readonly detail?: string;
+  readonly durationMs?: number;
+  readonly kind: AssistantRunEventKind;
+  readonly label: string;
+  readonly metadata?: AssistantRunEventMetadata;
+  readonly runId?: string;
+  readonly sequence?: number;
+  readonly status: AssistantRunEventStatus;
+}): AssistantRunEvent {
+  return {
+    id: `run-event-${crypto.randomUUID()}`,
+    kind: input.kind,
+    label: input.label,
+    status: input.status,
+    timestamp: new Date().toISOString(),
+    ...(input.detail ? { detail: input.detail } : {}),
+    ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
+    ...(input.metadata ? { metadata: input.metadata } : {}),
+    ...(input.runId ? { runId: input.runId } : {}),
+    ...(input.sequence === undefined ? {} : { sequence: input.sequence }),
+  };
+}

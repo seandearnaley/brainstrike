@@ -133,6 +133,34 @@ describe('PgliteVectorStore', () => {
     });
   });
 
+  it('emits compact run events from real semantic upsert and query hooks', async () => {
+    const events: string[] = [];
+    const observedStore = new PgliteVectorStore({
+      database: db,
+      eventSink: (event) => {
+        events.push(`${event.kind}:${event.label}:${event.runId}`);
+      },
+      runId: 'run-1',
+    });
+    await observedStore.createIndex({ indexName: 'memory_messages', dimension: 3 });
+    await observedStore.upsert({
+      indexName: 'memory_messages',
+      vectors: [[1, 0, 0]],
+      ids: ['message-a'],
+    });
+    await observedStore.query({
+      indexName: 'memory_messages',
+      queryVector: [1, 0, 0],
+      topK: 1,
+    });
+
+    expect(events).toEqual([
+      'memory.semantic.completed:Semantic memory indexed:run-1',
+      'memory.semantic.started:Semantic memory search started:run-1',
+      'memory.semantic.completed:Semantic memory search completed:run-1',
+    ]);
+  });
+
   it('rejects non-finite vector values returned from storage', async () => {
     const mockDb = {
       exec: vi.fn(async () => undefined),
