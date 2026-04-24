@@ -276,10 +276,13 @@ test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
     }
 
     const modelCenterY = modelBox.y + modelBox.height / 2;
-    const contextCenterY = contextBox.y + contextBox.height / 2;
     const controlsCenterY = controlsBox.y + controlsBox.height / 2;
-    expect(Math.abs(modelCenterY - contextCenterY)).toBeLessThan(6);
     expect(Math.abs(modelCenterY - controlsCenterY)).toBeLessThan(6);
+    expect(contextBox.y).toBeGreaterThanOrEqual(
+      Math.max(modelBox.y + modelBox.height, controlsBox.y + controlsBox.height)
+    );
+    expect(contextBox.width).toBeGreaterThan(modelBox.width);
+    expect(contextBox.width).toBeGreaterThan(controlsBox.width * 2);
 
     const longPrompt = [
       'history collapse turn 1',

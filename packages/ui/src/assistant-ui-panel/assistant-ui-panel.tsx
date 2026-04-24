@@ -1207,30 +1207,34 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
 
   return (
     <div className="bs-composer-control-dock" data-testid="assistant-composer-controls">
-      <div className="bs-composer-model-slot" data-testid="assistant-model-dropdown">
-        <ModelPicker
-          models={pickerModels}
-          providers={pickerProviders}
-          {...(modelName ? { value: modelName } : {})}
-          className="bs-composer-model-picker h-8 rounded-full border-border/70 bg-background/85 text-xs"
-          disabled={options.length === 0 || !onModelChange}
-          mode="single"
-          modelType="llm"
-          onChange={handleModelPickerChange}
-          placeholder={options.length === 0 ? 'No models enabled' : 'Select a model...'}
-        />
+      <div className="bs-composer-primary-controls">
+        <div className="bs-composer-model-slot" data-testid="assistant-model-dropdown">
+          <ModelPicker
+            models={pickerModels}
+            providers={pickerProviders}
+            {...(modelName ? { value: modelName } : {})}
+            className="bs-composer-model-picker h-8 rounded-full border-border/70 bg-background/85 text-xs"
+            disabled={options.length === 0 || !onModelChange}
+            mode="single"
+            modelType="llm"
+            onChange={handleModelPickerChange}
+            placeholder={options.length === 0 ? 'No models enabled' : 'Select a model...'}
+          />
+        </div>
+        <div className="bs-composer-controls-slot">
+          <ControlsMenu
+            contextMenu={contextMenu}
+            modelName={modelName}
+            onProviderSettingsChange={onProviderSettingsChange}
+            providerSettings={providerSettings}
+            selectedProvider={selectedProvider}
+            toolMenu={toolMenu}
+          />
+        </div>
       </div>
       <div className="bs-composer-context-slot">
         <ContextSummaryRow contextMenu={contextMenu} />
       </div>
-      <ControlsMenu
-        contextMenu={contextMenu}
-        modelName={modelName}
-        onProviderSettingsChange={onProviderSettingsChange}
-        providerSettings={providerSettings}
-        selectedProvider={selectedProvider}
-        toolMenu={toolMenu}
-      />
     </div>
   );
 };
