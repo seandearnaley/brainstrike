@@ -337,6 +337,98 @@ describe('AssistantUiPanel model picker', () => {
     expect(prepareRequestData).toHaveBeenCalledTimes(1);
   });
 
+  it('completes hosted prepared requests from data stream terminal callbacks', async () => {
+    const prepareRequestData = vi.fn(async () => ({
+      memory: {
+        threadId: 'thread-1',
+        resourceId: 'workspace-1',
+        runId: 'run-1',
+      },
+    }));
+    const completePreparedRequest = vi.fn();
+
+    render(
+      <AssistantUiPanel
+        {...baseProps}
+        completePreparedRequest={completePreparedRequest}
+        onModelChange={() => {}}
+        prepareRequestData={prepareRequestData}
+      />
+    );
+
+    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+      body?: () => Promise<Record<string, unknown> | undefined>;
+      onCancel?: () => void;
+      onError?: (error: Error) => void;
+      onFinish?: () => void;
+    };
+
+    const preparedBody = await options.body?.();
+    options.onFinish?.();
+    options.onError?.(new Error('late stream error'));
+    options.onCancel?.();
+
+    expect(preparedBody).toMatchObject({
+      data: {
+        memory: {
+          runId: 'run-1',
+        },
+      },
+    });
+    expect(completePreparedRequest).toHaveBeenCalledTimes(1);
+    expect(completePreparedRequest).toHaveBeenCalledWith(
+      {
+        memory: {
+          threadId: 'thread-1',
+          resourceId: 'workspace-1',
+          runId: 'run-1',
+        },
+      },
+      'completed',
+      undefined
+    );
+  });
+
+  it('marks hosted prepared requests failed when the data stream errors', async () => {
+    const prepareRequestData = vi.fn(async () => ({
+      memory: {
+        threadId: 'thread-1',
+        resourceId: 'workspace-1',
+        runId: 'run-1',
+      },
+    }));
+    const completePreparedRequest = vi.fn();
+
+    render(
+      <AssistantUiPanel
+        {...baseProps}
+        completePreparedRequest={completePreparedRequest}
+        onModelChange={() => {}}
+        prepareRequestData={prepareRequestData}
+      />
+    );
+
+    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+      body?: () => Promise<Record<string, unknown> | undefined>;
+      onError?: (error: Error) => void;
+    };
+
+    await options.body?.();
+    options.onError?.(new Error('stream failed'));
+
+    expect(completePreparedRequest).toHaveBeenCalledWith(
+      {
+        memory: {
+          threadId: 'thread-1',
+          resourceId: 'workspace-1',
+          runId: 'run-1',
+        },
+      },
+      'failed',
+      'stream failed'
+    );
+  });
+
   it('forwards per-run request preparation and completion to local runtime runs', async () => {
     const prepareRequestData = vi.fn(async () => ({
       memory: {

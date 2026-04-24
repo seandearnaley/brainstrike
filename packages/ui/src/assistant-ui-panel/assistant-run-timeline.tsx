@@ -2,7 +2,7 @@ import type {
   AssistantRunEvent,
   AssistantRunEventJson,
   AssistantRunEventStatus,
-} from '@brainstrike/agent';
+} from '@brainstrike/agent/run-events';
 import {
   AlertCircle,
   CheckCircle,

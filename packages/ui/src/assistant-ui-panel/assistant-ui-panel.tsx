@@ -13,7 +13,7 @@ import {
   useMessagePartReasoning,
 } from '@assistant-ui/react';
 import { useDataStreamRuntime } from '@assistant-ui/react-data-stream';
-import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/agent';
+import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/agent/run-events';
 import {
   ArrowUpIcon,
   CheckIcon,
@@ -573,6 +573,13 @@ const LocalRuntimeChat: FC<
 const DataStreamRuntimeChat: FC<
   ChatThreadProps & {
     api: string;
+    completePreparedRequest?:
+      | ((
+          requestData: Record<string, unknown> | undefined,
+          status: 'cancelled' | 'completed' | 'failed',
+          error?: string
+        ) => Promise<void> | void)
+      | undefined;
     historyAdapter: ThreadHistoryAdapter | undefined;
     requestData: Record<string, unknown> | undefined;
     prepareRequestData?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
@@ -591,6 +598,7 @@ const DataStreamRuntimeChat: FC<
   disabled,
   disabledReason,
   api,
+  completePreparedRequest,
   historyAdapter,
   requestData,
   prepareRequestData,
@@ -600,13 +608,28 @@ const DataStreamRuntimeChat: FC<
 }) => {
   const hasGroupedProviders = providerGroups.length > 0;
   const isComposerDisabled = Boolean(disabled);
+  const preparedRequestDataRef = useRef<Record<string, unknown> | undefined>(undefined);
+  const completedPreparedRequestRef = useRef(false);
+
+  const completeLatestPreparedRequest = useCallback(
+    async (status: 'cancelled' | 'completed' | 'failed', error?: string): Promise<void> => {
+      if (completedPreparedRequestRef.current) {
+        return;
+      }
+      completedPreparedRequestRef.current = true;
+      await completePreparedRequest?.(preparedRequestDataRef.current, status, error);
+    },
+    [completePreparedRequest]
+  );
 
   const runtime = useDataStreamRuntime({
     api,
     protocol: 'data-stream',
     ...(historyAdapter ? { adapters: { history: historyAdapter } } : {}),
     body: async () => {
+      completedPreparedRequestRef.current = false;
       const preparedRequestData = prepareRequestData ? await prepareRequestData() : undefined;
+      preparedRequestDataRef.current = preparedRequestData;
       return {
         data: {
           ...(requestData ?? {}),
@@ -615,6 +638,15 @@ const DataStreamRuntimeChat: FC<
           model: modelName,
         },
       };
+    },
+    onCancel: () => {
+      void completeLatestPreparedRequest('cancelled');
+    },
+    onError: (error: Error) => {
+      void completeLatestPreparedRequest('failed', error.message);
+    },
+    onFinish: () => {
+      void completeLatestPreparedRequest('completed');
     },
   });
 
@@ -936,6 +968,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
       ) : (
         <DataStreamRuntimeChat
           api={api}
+          completePreparedRequest={completePreparedRequest}
           contextMenu={contextMenu}
           disabled={disabled}
           disabledReason={disabledReason}
