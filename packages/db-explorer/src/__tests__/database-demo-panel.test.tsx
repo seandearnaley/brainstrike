@@ -741,10 +741,12 @@ describe('DatabaseDemoPanel', () => {
       });
 
       const footer = screen.getByTestId('database-panel-actions');
+      expect(within(footer).getByRole('button', { name: /^Export$/ })).toBeInTheDocument();
       expect(within(footer).getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
       expect(within(footer).getByTestId('mock-embedding-actions-dropdown')).toBeInTheDocument();
 
       const toolbar = screen.getByTestId('database-panel-toolbar');
+      expect(within(toolbar).queryByRole('button', { name: /^Export$/ })).not.toBeInTheDocument();
       expect(
         within(toolbar).queryByRole('button', { name: /^Import\s*\(/ })
       ).not.toBeInTheDocument();
