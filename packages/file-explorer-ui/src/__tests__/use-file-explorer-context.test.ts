@@ -395,6 +395,59 @@ describe('useFileExplorer (context)', () => {
       vi.useRealTimers();
     });
 
+    it('preserves recoverable persisted folder state while no web root handle is selected', async () => {
+      vi.mocked(useFileSystem).mockReturnValue({
+        rootDirectoryHandle: null,
+        isAccessLoading: false,
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+        setRootDirectoryHandle: vi.fn(),
+        setAccessLoading: vi.fn(),
+      });
+
+      storeState.currentFolderId = 'brainstrike';
+      storeState.selectedFilePaths = new Set(['brainstrike|@|src/file-0.ts']);
+      storeState.expandedDirectoryPaths = new Set(['src']);
+      storeState.folderStates = {
+        brainstrike: {
+          selectedFilePaths: new Set(['brainstrike|@|src/file-0.ts']),
+          selectionModel: {
+            mode: 'explicit',
+            explicitPaths: new Set(['brainstrike|@|src/file-0.ts']),
+            ruleSetJson: null,
+            materializedPaths: null,
+            materializedAt: null,
+            queryDescriptor: null,
+          },
+          expandedDirectoryPaths: new Set(['src']),
+          includeFilters: [],
+          excludeFilters: [],
+          useRegex: false,
+          includeProjectTree: true,
+          tokenBudget: 100_000,
+          folderSummaryThreshold: 5,
+          maxSelectionCount: 2000,
+          lastActiveTab: 'files',
+          lastAccessed: Date.now(),
+          viewFilterPresetId: null,
+        },
+      };
+
+      vi.useFakeTimers();
+
+      renderHook(() => useFileExplorer());
+
+      await act(async () => {
+        vi.advanceTimersByTime(1500);
+      });
+
+      expect(storeState.clearSelectedFiles).not.toHaveBeenCalled();
+      expect(storeState.setExpandedPaths).not.toHaveBeenCalledWith(new Set());
+
+      vi.useRealTimers();
+    });
+
     it('should NOT clear state when root directory handle exists (regardless of loading state)', () => {
       // Setup: root directory handle exists
       vi.mocked(useFileSystem).mockReturnValue({
@@ -505,7 +558,7 @@ describe('useFileExplorer (context)', () => {
       });
 
       expect(storeState.clearSelectedFiles).not.toHaveBeenCalled();
-      expect(storeState.setExpandedPaths).not.toHaveBeenCalled();
+      expect(storeState.setExpandedPaths).not.toHaveBeenCalledWith(new Set());
 
       vi.useRealTimers();
     });
@@ -583,7 +636,7 @@ describe('useFileExplorer (context)', () => {
       });
 
       expect(storeState.clearSelectedFiles).not.toHaveBeenCalled();
-      expect(storeState.setExpandedPaths).not.toHaveBeenCalled();
+      expect(storeState.setExpandedPaths).not.toHaveBeenCalledWith(new Set());
 
       vi.useRealTimers();
     });
@@ -863,6 +916,131 @@ describe('useFileExplorer (context)', () => {
       const calledPaths = loadSpecificPathsMock.mock.calls[0]?.[0] as string[];
       // Using Set ensures no duplicates - 'src/components' should appear only once
       expect(calledPaths.filter((p) => p === 'src/components').length).toBe(1);
+    });
+
+    it('re-commits restored expansion paths even without restored selected files', async () => {
+      vi.mocked(useFileSystem).mockReturnValue({
+        rootDirectoryHandle: rootHandle,
+        isAccessLoading: false,
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+        setRootDirectoryHandle: vi.fn(),
+        setAccessLoading: vi.fn(),
+      });
+
+      storeState.selectedFilePaths = new Set();
+      storeState.expandedDirectoryPaths = new Set(['src', 'src/components']);
+
+      const loadSpecificPathsMock = vi.fn().mockResolvedValue(undefined);
+      vi.mocked(useFileTree).mockReturnValue({
+        fileTree: initialFileTree,
+        isLoading: false,
+        error: null,
+        refreshTree: mockRefreshTree,
+        loadingProgress: { loadingCount: 0, isInitialLoading: false },
+        cancellable: false,
+        cancelOperation: vi.fn(),
+        isCancelling: false,
+        loadingPaths: new Set<string>(),
+        loadChildren: vi.fn(),
+        refreshDirectory: vi.fn(),
+        expandAllProgressively: vi.fn(),
+        cancelExpandAll: vi.fn(),
+        isExpandingAll: false,
+        expandAllProgress: null,
+        loadSpecificPaths: loadSpecificPathsMock,
+        cancelChildLoading: vi.fn(),
+        selectFolderRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+        cancelRecursiveSelect: vi.fn(),
+        isLoadingForSelection: false,
+        loadingPathForSelection: null,
+        selectAllRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+        cancelSelectAll: vi.fn(),
+        isLoadingForSelectAll: false,
+        workerPortRef: { current: null },
+      });
+
+      renderHook(() => useFileExplorer());
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(loadSpecificPathsMock).toHaveBeenCalledTimes(1);
+      expect(storeState.setExpandedPaths).toHaveBeenCalledWith(new Set(['src', 'src/components']));
+    });
+
+    it('does not commit restored expansion paths after the root changes mid-restore', async () => {
+      const otherRootHandle: DirectoryHandle = {
+        path: '/other',
+        name: 'other',
+        kind: 'directory',
+        platform: 'web',
+        _internal: {} as FileSystemDirectoryHandle,
+      };
+      let resolveLoadSpecificPaths: (() => void) | null = null;
+      const loadSpecificPathsMock = vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveLoadSpecificPaths = resolve;
+          })
+      );
+
+      storeState.expandedDirectoryPaths = new Set(['src']);
+      vi.mocked(useFileTree).mockReturnValue({
+        fileTree: initialFileTree,
+        isLoading: false,
+        error: null,
+        refreshTree: mockRefreshTree,
+        loadingProgress: { loadingCount: 0, isInitialLoading: false },
+        cancellable: false,
+        cancelOperation: vi.fn(),
+        isCancelling: false,
+        loadingPaths: new Set<string>(),
+        loadChildren: vi.fn(),
+        refreshDirectory: vi.fn(),
+        expandAllProgressively: vi.fn(),
+        cancelExpandAll: vi.fn(),
+        isExpandingAll: false,
+        expandAllProgress: null,
+        loadSpecificPaths: loadSpecificPathsMock,
+        cancelChildLoading: vi.fn(),
+        selectFolderRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+        cancelRecursiveSelect: vi.fn(),
+        isLoadingForSelection: false,
+        loadingPathForSelection: null,
+        selectAllRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+        cancelSelectAll: vi.fn(),
+        isLoadingForSelectAll: false,
+        workerPortRef: { current: null },
+      });
+
+      const { rerender } = renderHook(() => useFileExplorer());
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(loadSpecificPathsMock).toHaveBeenCalledTimes(1);
+
+      vi.mocked(useFileSystem).mockReturnValue({
+        rootDirectoryHandle: otherRootHandle,
+        isAccessLoading: false,
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+        setRootDirectoryHandle: vi.fn(),
+        setAccessLoading: vi.fn(),
+      });
+
+      rerender();
+
+      await act(async () => {
+        resolveLoadSpecificPaths?.();
+        await Promise.resolve();
+      });
+
+      expect(storeState.setExpandedPaths).not.toHaveBeenCalled();
     });
   });
 });

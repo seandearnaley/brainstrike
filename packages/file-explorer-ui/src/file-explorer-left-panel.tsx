@@ -553,21 +553,22 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
           title: FileExplorerStrings.inlineFixture.noAccessFallbackTitle,
           description: FileExplorerStrings.inlineFixture.noAccessFallbackDescription,
         });
-        return;
+        return null;
       }
       handleBrowserCompatibilityError(reason);
-      return;
+      return null;
     }
 
     try {
       const handle = await handleRootDirectorySelect();
       if (handle === null) {
         // User cancelled the directory selection, do nothing
-        return;
+        return null;
       }
-      // Additional business logic for successful selection can be added here if needed
+      return handle;
     } catch (error) {
       handleDirectorySelectError(error);
+      return null;
     }
   }, [
     handleRootDirectorySelect,
@@ -578,6 +579,18 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     setDevInlineFixtureEnabled,
     showToast,
   ]);
+
+  const handleChooseDifferentFolderFromRestore = useCallback(async () => {
+    const handle = await handleDirectorySelect();
+    if (handle === null) {
+      return;
+    }
+    dismissRestore();
+  }, [dismissRestore, handleDirectorySelect]);
+
+  const handleToolbarDirectorySelect = useCallback(async (): Promise<void> => {
+    await handleDirectorySelect();
+  }, [handleDirectorySelect]);
 
   const handleFilterChange = useCallback(
     (newIncludeFilters: string[], newExcludeFilters: string[], newUseRegex: boolean) => {
@@ -623,7 +636,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
       // checks IndexedDB for stored handles. Don't clear during this time.
       const isWaitingForRestore =
         isCheckingStoredHandles || pendingRestore || showDeniedBanner || showStaleBanner;
-      if (!isWaitingForRestore) {
+      const hasRecoverablePersistedFolder =
+        currentFolderId !== null && Boolean(store.getState().folderStates[currentFolderId]);
+      if (!(isWaitingForRestore || hasRecoverablePersistedFolder)) {
         setCurrentFolderId(null);
       }
     }
@@ -713,7 +728,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         <div className="shrink-0">
           <FileExplorerToolbar
             isLoading={isLoading}
-            onDirectorySelect={handleDirectorySelect}
+            onDirectorySelect={handleToolbarDirectorySelect}
             rootDirectoryHandle={rootDirectoryHandle}
           />
           {/* Restoration indicator - shown when restoring expanded directories from persisted state */}
@@ -838,7 +853,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               hasFilesInTree={fileTree.length > 0}
               isLoadingForSelectAll={isLoadingForSelectAll}
               maxSelectionCount={maxSelectionCount}
-              onSelectionLimitExceeded={handleSelectionLimitError}
               selectAllRecursively={selectAllRecursively}
               selectedFiles={selectedFilesList}
               setSelectedFiles={setSelectedFilesFromList}
@@ -875,6 +889,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
           folderName={pendingRestore?.name ?? storedFolders[0]?.name ?? 'previous folder'}
           isOpen={!rootDirectoryHandle && (!!pendingRestore || showDeniedBanner || showStaleBanner)}
           isRestoring={isRestoring}
+          onChooseDifferentFolder={handleChooseDifferentFolderFromRestore}
           onDismiss={dismissRestore}
           onRestore={() => {
             // CRITICAL: Chrome requires requestPermission() to be called as the ABSOLUTE

@@ -17,7 +17,6 @@ function getProps(overrides: Partial<ActionButtonsProps> = {}): ActionButtonsPro
     currentFolderId: TEST_FOLDER_ID,
     setSelectedFiles: vi.fn(),
     encodeFileSelection: (folderId, path) => `${folderId}:${path}`,
-    onSelectionLimitExceeded: vi.fn(),
     ...overrides,
   };
 }
@@ -234,13 +233,11 @@ describe('ActionButtons', () => {
       expect(props.setSelectedFiles).toHaveBeenCalledWith(expectedSelection);
     });
 
-    it('calls onSelectionLimitExceeded when selecting all exceeds limit (fallback behavior)', async () => {
-      const onSelectionLimitExceeded = vi.fn();
+    it('caps fallback Select All without a limit notification prop', async () => {
       const setSelectedFiles = vi.fn();
       const props = getProps({
         displayedFiles: new Set(['file1.txt', 'file2.txt', 'file3.txt']),
         maxSelectionCount: 2,
-        onSelectionLimitExceeded,
         setSelectedFiles,
       });
       const user = userEvent.setup();
@@ -252,18 +249,15 @@ describe('ActionButtons', () => {
       await user.click(selectButton);
       const expectedSelection = new Set(['test-folder:file1.txt', 'test-folder:file2.txt']);
       expect(setSelectedFiles).toHaveBeenCalledWith(expectedSelection);
-      expect(onSelectionLimitExceeded).toHaveBeenCalled();
     });
 
     it('caps quick-filter explicit selection to maxSelectionCount', async () => {
-      const onSelectionLimitExceeded = vi.fn();
       const setSelectedFiles = vi.fn();
       const props = getProps({
         currentFolderId: TEST_FOLDER_ID,
         displayedFiles: new Set<string>(),
         hasActiveQuickFilter: true,
         maxSelectionCount: 2,
-        onSelectionLimitExceeded,
         setSelectedFiles,
         visibleFilePaths: ['/test.ts', '/test2.ts', '/test3.ts'],
       });
@@ -275,7 +269,27 @@ describe('ActionButtons', () => {
       expect(setSelectedFiles).toHaveBeenCalledWith(
         new Set(['test-folder:/test.ts', 'test-folder:/test2.ts'])
       );
-      expect(onSelectionLimitExceeded).toHaveBeenCalled();
+    });
+
+    it('accepts recursive Select All cap results without a limit notification prop', async () => {
+      const selectAllRecursively = vi.fn().mockResolvedValue({
+        success: true,
+        filePaths: ['/src/a.ts'],
+        totalAvailable: 2,
+        limitReached: true,
+      });
+      const props = getProps({
+        addMultipleSelectedFiles: vi.fn(),
+        filteredTree: createFullyLoadedTree(),
+        maxSelectionCount: 1,
+        selectAllRecursively,
+      });
+
+      const user = userEvent.setup();
+      render(<ActionButtons {...props} />);
+      await user.click(screen.getByRole('button', { name: 'Select All' }));
+
+      expect(selectAllRecursively).toHaveBeenCalled();
     });
 
     it('should deselect all files when clicking "Deselect All"', async () => {

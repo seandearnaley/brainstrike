@@ -29,6 +29,8 @@ const CACHED_SELECT_ALL_TREE: FileTree = {
     ])
   ),
 };
+const STALE_SELECTION_ROOT_NAME = 'brainstrike';
+const CURRENT_FILE_EXPLORER_STORAGE_VERSION = 3;
 
 async function supportsOpfs(page: Page): Promise<boolean> {
   return page.evaluate(() => typeof navigator.storage?.getDirectory === 'function');
@@ -145,6 +147,19 @@ async function openPreviewFile(page: Page, fileName: string): Promise<void> {
   await rowButton.click();
 }
 
+async function clickDirectoryToggle(
+  explorer: FileExplorerPage,
+  directoryName: string,
+  action: 'Collapse' | 'Expand'
+): Promise<void> {
+  const escapedName = directoryName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const row = explorer.fileTree
+    .getByRole('row', { name: new RegExp(`^${action} Select ${escapedName}\\b`) })
+    .first();
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.getByRole('button', { name: action }).click();
+}
+
 async function restoreAccessIfNeeded(page: Page, explorer: FileExplorerPage): Promise<void> {
   const restoreBanner = page.getByText('Restore access to your last folder?');
   const restoreButton = page.getByRole('button', { name: 'Restore Access' });
@@ -193,6 +208,75 @@ async function readPersistedExplorerState(page: Page): Promise<unknown> {
     const raw = localStorage.getItem('file-explorer-storage-v4');
     return raw ? JSON.parse(raw) : null;
   });
+}
+
+async function seedPersistedSelectionState(
+  page: Page,
+  folderId: string,
+  selectedCount: number,
+  storageVersion = CURRENT_FILE_EXPLORER_STORAGE_VERSION
+): Promise<void> {
+  await page.evaluate(
+    ({ count, id, version }) => {
+      const selectedFilePaths = Array.from(
+        { length: count },
+        (_, index) => `${id}|@|src/file-${index}.ts`
+      );
+      const selectionModel = {
+        mode: 'explicit',
+        explicitPaths: selectedFilePaths,
+        ruleSetJson: null,
+        materializedPaths: null,
+        materializedAt: null,
+        queryDescriptor: null,
+      };
+      const folderState = {
+        selectedFilePaths,
+        selectionModel,
+        expandedDirectoryPaths: ['src'],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: true,
+        tokenBudget: 100_000,
+        folderSummaryThreshold: 5,
+        maxSelectionCount: count,
+        lastActiveTab: 'files',
+        lastAccessed: Date.now(),
+        viewFilterPresetId: null,
+      };
+
+      localStorage.setItem(
+        'file-explorer-storage-v4',
+        JSON.stringify({
+          state: {
+            currentFolderId: id,
+            folderStates: {
+              [id]: folderState,
+            },
+            folderAccessOrder: [id],
+            selectedFilePaths,
+            expandedDirectoryPaths: ['src'],
+            includeFilters: [],
+            excludeFilters: [],
+            useRegex: false,
+            includeProjectTree: true,
+            tokenBudget: 100_000,
+            folderSummaryThreshold: 5,
+            maxSelectionCount: count,
+            lastActiveTab: 'files',
+            quickFilter: '',
+            devInlineFixtureEnabled: false,
+            selectionModel,
+            viewFilterPresetId: null,
+            isFiltersExpanded: true,
+          },
+          version,
+        })
+      );
+    },
+    { count: selectedCount, id: folderId, version: storageVersion }
+  );
 }
 
 test.describe('File Explorer persistence (web)', () => {
@@ -314,6 +398,58 @@ test.describe('File Explorer persistence (web)', () => {
     await openPreviewFile(page, 'beta.ts');
     await ensureConsolePanelVisible(page);
     await expect(page.getByText('beta content')).toBeVisible({ timeout: 15_000 });
+  });
+
+  test('restores expanded folders without selections and keeps single-click toggles after reload', async ({
+    page,
+    browserName,
+  }) => {
+    if (browserName !== 'chromium') {
+      test.skip(true, 'File System Access API is only available in Chromium');
+    }
+
+    await page.goto('/');
+    await waitForAppLoad(page);
+
+    if (!(await supportsOpfs(page))) {
+      test.skip(true, 'OPFS not available in this environment');
+    }
+
+    await resetExplorerState(page);
+    await setupOpfsDirectoryPicker(page, ROOT_NAME, {
+      src: {
+        nested: {
+          'deep.ts': 'deep content',
+        },
+        'index.ts': 'index content',
+      },
+      'root.ts': 'root content',
+    });
+
+    const explorer = new FileExplorerPage(page);
+    await explorer.selectRoot();
+
+    await clickDirectoryToggle(explorer, 'src', 'Expand');
+    await expect(explorer.fileTree.getByText('index.ts')).toBeVisible({ timeout: 15_000 });
+
+    await clickDirectoryToggle(explorer, 'nested', 'Expand');
+    await expect(explorer.fileTree.getByText('deep.ts')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('0/10')).toBeVisible();
+
+    await page.reload();
+    await waitForAppLoad(page);
+    await restoreAccessIfNeeded(page, explorer);
+
+    await expect(explorer.fileTree).toBeVisible({ timeout: 15_000 });
+    await expect(explorer.fileTree.getByText('index.ts')).toBeVisible({ timeout: 15_000 });
+    await expect(explorer.fileTree.getByText('deep.ts')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('0/10')).toBeVisible();
+
+    await clickDirectoryToggle(explorer, 'nested', 'Collapse');
+    await expect(explorer.fileTree.getByText('deep.ts')).not.toBeVisible();
+
+    await clickDirectoryToggle(explorer, 'nested', 'Expand');
+    await expect(explorer.fileTree.getByText('deep.ts')).toBeVisible({ timeout: 15_000 });
   });
 
   test('completes Select All after restoring web folder access', async ({ page, browserName }) => {
@@ -450,6 +586,104 @@ test.describe('File Explorer persistence (web)', () => {
       '1/1',
       { timeout: 15_000 }
     );
+    // Observe one toast mount window after the capped selection completes.
+    await page.waitForTimeout(500);
+    await expect(
+      page.getByText('Cannot select more files. Maximum selection limit reached.')
+    ).toHaveCount(0);
+  });
+
+  test('preserves stale persisted selections and rehydrates them after choosing the root', async ({
+    page,
+    browserName,
+  }) => {
+    if (browserName !== 'chromium') {
+      test.skip(true, 'File System Access API is only available in Chromium');
+    }
+
+    await page.goto('/');
+    await waitForAppLoad(page);
+
+    if (!(await supportsOpfs(page))) {
+      test.skip(true, 'OPFS not available in this environment');
+    }
+
+    await resetExplorerState(page);
+    await seedPersistedSelectionState(page, STALE_SELECTION_ROOT_NAME, 2000);
+    await page.reload();
+    await waitForAppLoad(page);
+
+    const explorer = new FileExplorerPage(page);
+    await expect(page.getByText('No directory selected')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: 'Selection count (read-only)' })).toContainText(
+      '2000/2000',
+      { timeout: 15_000 }
+    );
+
+    await setupOpfsDirectoryPicker(page, STALE_SELECTION_ROOT_NAME, {
+      src: {
+        'file-0.ts': 'export const zero = 0;',
+      },
+    });
+
+    await explorer.selectRoot();
+    await expect(explorer.fileTree.getByText('src')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: 'Selection count (read-only)' })).toContainText(
+      '2000/2000',
+      { timeout: 15_000 }
+    );
+  });
+
+  test('discards older persisted explorer snapshots and still allows root selection', async ({
+    page,
+    browserName,
+  }) => {
+    if (browserName !== 'chromium') {
+      test.skip(true, 'File System Access API is only available in Chromium');
+    }
+
+    await page.goto('/');
+    await waitForAppLoad(page);
+
+    if (!(await supportsOpfs(page))) {
+      test.skip(true, 'OPFS not available in this environment');
+    }
+
+    await resetExplorerState(page);
+    await seedPersistedSelectionState(page, STALE_SELECTION_ROOT_NAME, 2000, 2);
+    await page.reload();
+    await waitForAppLoad(page);
+
+    const explorer = new FileExplorerPage(page);
+    await expect(page.getByText('No directory selected')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: 'Selection count (read-only)' })).toContainText(
+      '0/10',
+      { timeout: 15_000 }
+    );
+
+    await setupOpfsDirectoryPicker(page, STALE_SELECTION_ROOT_NAME, {
+      src: {
+        'file-0.ts': 'export const zero = 0;',
+      },
+    });
+
+    await explorer.selectRoot();
+    await expect(explorer.fileTree.getByText('src')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: 'Selection count (read-only)' })).toContainText(
+      '0/10',
+      { timeout: 15_000 }
+    );
+    await expect
+      .poll(async () => {
+        const persisted = await readPersistedExplorerState(page);
+        return persisted &&
+          typeof persisted === 'object' &&
+          'version' in persisted &&
+          persisted.version === CURRENT_FILE_EXPLORER_STORAGE_VERSION
+          ? persisted.version
+          : null;
+      })
+      .toBe(CURRENT_FILE_EXPLORER_STORAGE_VERSION);
   });
 
   test('persists large select-all as query-backed selection instead of giant explicit sets', async ({
