@@ -572,6 +572,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
+                        aria-label="Refresh database records"
                         className="h-8 w-8 p-0"
                         disabled={refreshing}
                         onClick={handleManualRefresh}
@@ -625,7 +626,12 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button className="h-8 w-8 p-0" size="sm" variant="ghost">
+                      <Button
+                        aria-label="Database help"
+                        className="h-8 w-8 p-0"
+                        size="sm"
+                        variant="ghost"
+                      >
                         <HelpCircle className="h-4 w-4 text-muted-foreground" />
                         <span className="sr-only">Help</span>
                       </Button>
