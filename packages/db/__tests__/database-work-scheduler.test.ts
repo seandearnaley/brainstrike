@@ -128,4 +128,38 @@ describe('DatabaseWorkScheduler', () => {
     expect(rawDb.exec).toHaveBeenCalledTimes(1);
     expect(seenPriorities).toEqual(['foreground', 'background', 'background']);
   });
+
+  it('does not re-enter the scheduler for queries inside a scheduled transaction', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    const seenPriorities: DatabaseWorkPriority[] = [];
+    scheduler.subscribe((snapshot) => {
+      if (snapshot.runningPriority) {
+        seenPriorities.push(snapshot.runningPriority);
+      }
+    });
+
+    const txDb = {
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
+        rows: [{ ok: true }] as T[],
+      })),
+    };
+    const rawDb = {
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
+        rows: [] as T[],
+      })),
+      transaction: vi.fn(async <T>(fn: (tx: typeof txDb) => Promise<T>) => await fn(txDb)),
+    };
+
+    const scheduled = createScheduledDbHandle(rawDb, scheduler, 'background');
+
+    await expect(
+      scheduled.transaction?.(async (tx) => {
+        const result = await tx.query<{ ok: boolean }>('SELECT inside transaction');
+        return result.rows[0]?.ok;
+      })
+    ).resolves.toBe(true);
+
+    expect(txDb.query).toHaveBeenCalledTimes(1);
+    expect(seenPriorities).toEqual(['background']);
+  });
 });

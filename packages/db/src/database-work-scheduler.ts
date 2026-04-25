@@ -283,6 +283,53 @@ function mergeOptions(
   };
 }
 
+function createPriorityOptionsDbHandle<TDatabase extends object & ScheduledDbHandle>(
+  db: TDatabase,
+  priority: DatabaseWorkPriority,
+  scheduler: DatabaseWorkScheduler | null
+): TDatabase {
+  const prioritizedQuery: ScheduledDbHandle['query'] = async <T = unknown>(
+    sql: string,
+    params?: unknown[],
+    options?: DatabaseWorkOptions
+  ) => await db.query<T>(sql, params, mergeOptions(priority, options));
+
+  const prioritizedExec: ScheduledDbHandle['exec'] | undefined = db.exec
+    ? async (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
+        await db.exec?.(sql, params, mergeOptions(priority, options))
+    : undefined;
+
+  const baseTransaction = db.transaction;
+  const prioritizedTransaction: ScheduledDbHandle['transaction'] | undefined = baseTransaction
+    ? async <T>(fn: (tx: ScheduledDbHandle) => Promise<T>) =>
+        await baseTransaction(async (tx) => {
+          const prioritizedTx = createPriorityOptionsDbHandle(tx, priority, scheduler);
+          return await fn(prioritizedTx);
+        })
+    : undefined;
+
+  return new Proxy(db, {
+    get(target, property, receiver) {
+      if (property === 'query') {
+        return prioritizedQuery;
+      }
+      if (property === 'exec') {
+        return prioritizedExec;
+      }
+      if (property === 'transaction') {
+        return prioritizedTransaction;
+      }
+      if (property === SCHEDULER_SYMBOL) {
+        return scheduler;
+      }
+      if (property === DEFAULT_PRIORITY_SYMBOL) {
+        return priority;
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}
+
 export function getDatabaseWorkScheduler(handle: unknown): DatabaseWorkScheduler | null {
   return getSchedulerFromHandle(handle);
 }
@@ -320,8 +367,8 @@ export function createScheduledDbHandle<TDatabase extends object & ScheduledDbHa
         scheduler.run(
           async () =>
             await baseTransaction(async (tx) => {
-              const scheduledTx = createScheduledDbHandle(tx, scheduler, defaultPriority);
-              return await fn(scheduledTx);
+              const prioritizedTx = createPriorityOptionsDbHandle(tx, defaultPriority, scheduler);
+              return await fn(prioritizedTx);
             }),
           { priority: defaultPriority, label: 'transaction' }
         )
@@ -355,48 +402,7 @@ export function createPriorityDbHandle<TDatabase extends object & ScheduledDbHan
 ): TDatabase {
   const scheduler = getSchedulerFromHandle(db);
   if (!scheduler) {
-    return createScheduledDbHandle(
-      db,
-      createDatabaseWorkScheduler({ foregroundQuietMs: 0 }),
-      priority
-    );
+    return createPriorityOptionsDbHandle(db, priority, null);
   }
-
-  const prioritizedQuery: ScheduledDbHandle['query'] = async <T = unknown>(
-    sql: string,
-    params?: unknown[],
-    options?: DatabaseWorkOptions
-  ) => await db.query<T>(sql, params, mergeOptions(priority, options));
-
-  const prioritizedExec: ScheduledDbHandle['exec'] | undefined = db.exec
-    ? async (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
-        await db.exec?.(sql, params, mergeOptions(priority, options))
-    : undefined;
-
-  const baseTransaction = db.transaction;
-  const prioritizedTransaction: ScheduledDbHandle['transaction'] | undefined = baseTransaction
-    ? async <T>(fn: (tx: ScheduledDbHandle) => Promise<T>) =>
-        await baseTransaction(async (tx) => await fn(createPriorityDbHandle(tx, priority)))
-    : undefined;
-
-  return new Proxy(db, {
-    get(target, property, receiver) {
-      if (property === 'query') {
-        return prioritizedQuery;
-      }
-      if (property === 'exec') {
-        return prioritizedExec;
-      }
-      if (property === 'transaction') {
-        return prioritizedTransaction;
-      }
-      if (property === SCHEDULER_SYMBOL) {
-        return scheduler;
-      }
-      if (property === DEFAULT_PRIORITY_SYMBOL) {
-        return priority;
-      }
-      return Reflect.get(target, property, receiver);
-    },
-  });
+  return createPriorityOptionsDbHandle(db, priority, scheduler);
 }
