@@ -54,40 +54,6 @@ function looksLikeSerializedState(value: unknown): value is SerializedState {
   );
 }
 
-function ensureSelectionModel(state: SerializedState): SerializedState {
-  const topLevelSelectionModel = state.selectionModel ?? {
-    mode: 'explicit',
-    explicitPaths: Array.isArray(state.selectedFilePaths) ? state.selectedFilePaths : [],
-    ruleSetJson: null,
-    materializedPaths: null,
-    materializedAt: null,
-    queryDescriptor: null,
-  };
-
-  return {
-    ...state,
-    selectionModel: topLevelSelectionModel,
-    folderStates: Object.fromEntries(
-      Object.entries(state.folderStates ?? {}).map(([folderId, folderState]) => [
-        folderId,
-        {
-          ...folderState,
-          selectionModel: folderState.selectionModel ?? {
-            mode: 'explicit',
-            explicitPaths: Array.isArray(folderState.selectedFilePaths)
-              ? folderState.selectedFilePaths
-              : [],
-            ruleSetJson: null,
-            materializedPaths: null,
-            materializedAt: null,
-            queryDescriptor: null,
-          },
-        },
-      ])
-    ),
-  };
-}
-
 function discardInvalidPayload(message: string, shouldLog: boolean): SerializedState {
   if (shouldLog) {
     logger.debug(message);
@@ -184,7 +150,13 @@ export function migrateState(
       shouldLog
     );
   }
-  const migrated = version < 2 ? ensureSelectionModel(serialized) : serialized;
+  if (version < FILE_EXPLORER_STORAGE_VERSION) {
+    return discardInvalidPayload(
+      `Migrate - Persisted version ${version} is older than supported version ${FILE_EXPLORER_STORAGE_VERSION}, discarding.`,
+      shouldLog
+    );
+  }
+  const migrated = serialized;
   if (shouldLog) {
     logger.debug('Migrate - Returning valid SerializedState summary', {
       currentFolderId: migrated.currentFolderId,

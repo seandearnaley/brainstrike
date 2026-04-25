@@ -108,9 +108,17 @@ describe('state-migration coverage', () => {
       folderSummaryThreshold: 10,
       maxSelectionCount: 50,
       lastActiveTab: 'files',
+      selectionModel: {
+        mode: 'explicit',
+        explicitPaths: ['folder-1|@|file.ts'],
+        ruleSetJson: null,
+        materializedPaths: null,
+        materializedAt: null,
+        queryDescriptor: null,
+      },
     };
 
-    const result = migrateState(serializedState, 1, true);
+    const result = migrateState(serializedState, 3, true);
 
     expect(result.selectionModel).toEqual({
       mode: 'explicit',
@@ -148,11 +156,11 @@ describe('state-migration coverage', () => {
       lastActiveTab: 'files',
     };
 
-    const result = migrateState(serializedState, 3, true);
+    const result = migrateState(serializedState, 4, true);
 
     expectEmptySerializedState(result);
     expect(mockLogger.debug).toHaveBeenCalledWith(
-      'Migrate - Future persisted version 3 is not supported, discarding.'
+      'Migrate - Future persisted version 4 is not supported, discarding.'
     );
   });
 
