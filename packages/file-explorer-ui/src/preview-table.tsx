@@ -845,8 +845,12 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   // Async row metadata (size from FileSystem adapter, tokens from background indexer)
   // resolves after Select All. Tests that depend on grouped/sorted output need a
   // deterministic readiness signal so they can wait for resolution before asserting.
+  // The empty-array case must be `false` — otherwise the pre-selection state
+  // (currentPageData = []) would satisfy the contract before any data exists,
+  // letting the race this attribute is meant to prevent slip past the wait.
   const rowsReady = useMemo(
-    () => currentPageData.every((row) => typeof row.size === 'number'),
+    () =>
+      currentPageData.length > 0 && currentPageData.every((row) => typeof row.size === 'number'),
     [currentPageData]
   );
   const rowsReadyAttr = rowsReady ? 'true' : 'false';

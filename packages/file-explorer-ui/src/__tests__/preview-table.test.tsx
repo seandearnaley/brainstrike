@@ -46,6 +46,7 @@ const DEFAULT_GROUP: GroupedData<TableRowData> = {
 interface PreviewTableTestOverrides {
   collapsedGroups?: Set<string>;
   columnVisibility?: ColumnVisibility;
+  currentPageData?: TableRowData[];
   groupedData?: GroupedData<TableRowData>[];
   groupingConfig?: string;
   handleGroupDeselectAll?: (group: GroupedData<TableRowData>) => void;
@@ -64,7 +65,7 @@ function renderGroupedPreviewTable(overrides: PreviewTableTestOverrides = {}) {
     sortDirection: 'asc' as const,
     groupingConfig: overrides.groupingConfig ?? 'directory',
     groupedData: overrides.groupedData ?? [DEFAULT_GROUP],
-    currentPageData: [],
+    currentPageData: overrides.currentPageData ?? [],
     collapsedGroups: overrides.collapsedGroups ?? new Set<string>(),
     previewSelections: overrides.previewSelections ?? new Set<string>(),
     visibleFilesOnPage: [FILE_ONE, FILE_TWO],
@@ -787,19 +788,12 @@ describe('PreviewTable readiness signal', () => {
     compositeKey: 'workspace:src/loading.ts',
   };
 
-  it('exposes data-rows-ready="true" in ungrouped mode when every visible row has a resolved size', () => {
-    renderUngroupedPreviewTable();
-    expect(screen.getByTestId('preview-table')).toHaveAttribute('data-rows-ready', 'true');
-  });
-
-  it('exposes data-rows-ready="false" in ungrouped mode while any visible row size is still resolving', () => {
-    renderUngroupedPreviewTable({});
-    // Re-render with a row missing its size to model the async-resolution window.
-    render(
+  function renderUngroupedWithCurrentPageData(currentPageData: TableRowData[]) {
+    return render(
       <PreviewTable
         collapsedGroups={new Set<string>()}
         columnVisibility={DEFAULT_COLUMN_VISIBILITY}
-        currentPageData={[FILE_ONE, FILE_WITHOUT_SIZE]}
+        currentPageData={currentPageData}
         groupedData={[]}
         groupingConfig="none"
         handleGroupDeselectAll={vi.fn()}
@@ -817,15 +811,38 @@ describe('PreviewTable readiness signal', () => {
         sortDirection="asc"
         sortField="path"
         toggleGroupCollapse={vi.fn()}
-        visibleFilesOnPage={[FILE_ONE, FILE_WITHOUT_SIZE]}
+        visibleFilesOnPage={currentPageData}
       />
     );
-    const tables = screen.getAllByTestId('preview-table');
-    expect(tables.at(-1)).toHaveAttribute('data-rows-ready', 'false');
+  }
+
+  it('reports data-rows-ready="true" in ungrouped mode when every visible row has a resolved size', () => {
+    renderUngroupedPreviewTable();
+    expect(screen.getByTestId('preview-table')).toHaveAttribute('data-rows-ready', 'true');
   });
 
-  it('exposes data-rows-ready in grouped mode tied to the same currentPageData contract', () => {
-    renderGroupedPreviewTable();
+  it('reports data-rows-ready="false" in ungrouped mode while any visible row size is still resolving', () => {
+    renderUngroupedWithCurrentPageData([FILE_ONE, FILE_WITHOUT_SIZE]);
+    expect(screen.getByTestId('preview-table')).toHaveAttribute('data-rows-ready', 'false');
+  });
+
+  it('reports data-rows-ready="false" in ungrouped mode when there are no rows to inspect (pre-selection state)', () => {
+    renderUngroupedWithCurrentPageData([]);
+    expect(screen.getByTestId('preview-table')).toHaveAttribute('data-rows-ready', 'false');
+  });
+
+  it('reports data-rows-ready="true" in grouped mode when every row in currentPageData has a resolved size', () => {
+    renderGroupedPreviewTable({ currentPageData: [FILE_ONE, FILE_TWO] });
     expect(screen.getByTestId('preview-table')).toHaveAttribute('data-rows-ready', 'true');
+  });
+
+  it('reports data-rows-ready="false" in grouped mode while any row in currentPageData is missing a size', () => {
+    renderGroupedPreviewTable({ currentPageData: [FILE_ONE, FILE_WITHOUT_SIZE] });
+    expect(screen.getByTestId('preview-table')).toHaveAttribute('data-rows-ready', 'false');
+  });
+
+  it('reports data-rows-ready="false" in grouped mode when currentPageData is empty (pre-selection state)', () => {
+    renderGroupedPreviewTable();
+    expect(screen.getByTestId('preview-table')).toHaveAttribute('data-rows-ready', 'false');
   });
 });
