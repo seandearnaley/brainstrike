@@ -478,6 +478,106 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       <Group className="min-h-0 flex-1" orientation="vertical">
         <Panel className="min-h-0" defaultSize="38%" maxSize="60%" minSize="26%">
           <div className="flex h-full flex-col overflow-hidden bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
+            {/* Header Toolbar — chrome controls (New | Refresh, Help, Settings) */}
+            <div
+              className="flex flex-shrink-0 items-center justify-between gap-2 border-b bg-background px-4 py-2"
+              data-testid="database-panel-toolbar"
+            >
+              <div className="flex items-center gap-2">
+                <Button
+                  className="h-8 gap-1.5 px-2.5 font-medium text-xs"
+                  onClick={collectionDialogs.handleCreateCollection}
+                  size="sm"
+                  title="Create new collection"
+                  variant="ghost"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>New</span>
+                </Button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        className="h-8 w-8 p-0"
+                        disabled={refreshing}
+                        onClick={handleManualRefresh}
+                        size="sm"
+                        variant="ghost"
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+                        <span className="sr-only">Refresh</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">Refresh database records</TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button className="h-8 w-8 p-0" size="sm" variant="ghost">
+                        <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                        <span className="sr-only">Help</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-[300px]" side="bottom">
+                      <p className="text-sm">
+                        Collections let you search files with different AI models. Create separate
+                        collections for code, documentation, or general content to get better search
+                        results optimized for each use case.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+
+                  <div className="mx-1 h-4 w-px bg-border" />
+
+                  <Popover onOpenChange={setShowSettings} open={showSettings}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <PopoverTrigger asChild>
+                          <button
+                            aria-label="Import Settings"
+                            className="group flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm transition-colors hover:border-accent-foreground/20 hover:bg-accent focus-visible:border-foreground/20 focus-visible:bg-accent/80 focus-visible:outline-none"
+                            type="button"
+                          >
+                            <Settings2 className="size-3.5 text-muted-foreground" />
+                            <span className="font-medium">Settings</span>
+                            <Pencil className="size-3 text-muted-foreground" />
+                          </button>
+                        </PopoverTrigger>
+                      </TooltipTrigger>
+                      {!showSettings && (
+                        <TooltipContent side="bottom">
+                          <div className="text-xs">Configure import and chunking</div>
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                    <PopoverContent
+                      align="end"
+                      className="w-[min(96vw,48rem)] max-w-[calc(100vw-1.5rem)] p-0"
+                      collisionPadding={16}
+                      side="bottom"
+                    >
+                      <SettingsPanel
+                        className="mt-0 border-none bg-transparent"
+                        clearDatabaseProps={{
+                          clearAllData,
+                          recordsCount: activeCollectionCounts.records,
+                          chunksCount: activeCollectionCounts.chunks,
+                          clearing,
+                          showClearDialog,
+                          setShowClearDialog,
+                          onClear: handleClearDatabase,
+                        }}
+                        importSettings={importSettings}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </TooltipProvider>
+              </div>
+            </div>
+
             <div className="flex flex-1 flex-col gap-3 overflow-auto px-4 py-3">
               <SearchCollectionSelector
                 activeCollectionId={activeCollectionId}
@@ -495,7 +595,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
               ) : null}
             </div>
 
-            {/* Import Progress Bar - above footer */}
+            {/* Import Progress Bar - above action footer */}
             {importFlow.showImportProgress && importFlow.progress && (
               <ImportProgressBar
                 isCancelling={importFlow.isCancelling}
@@ -505,141 +605,47 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
               />
             )}
 
-            {/* Sticky Footer */}
-            <div className="flex flex-shrink-0 items-center justify-between border-t bg-background p-2 px-4">
-              <div className="flex items-center gap-2">
-                <Button
-                  className="h-8 gap-1.5 px-2.5 font-medium text-xs"
-                  onClick={collectionDialogs.handleCreateCollection}
-                  size="sm"
-                  title="Create new collection"
-                  variant="ghost"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  <span>New</span>
-                </Button>
+            {/* Action Footer — collection-contextual actions (Export, Import, Embeddings) */}
+            <div
+              className="flex flex-shrink-0 items-center justify-end gap-2 border-t bg-background px-4 py-2"
+              data-testid="database-panel-actions"
+            >
+              <TooltipProvider delayDuration={200}>
+                <ExportDropdown counts={activeCollectionCounts} exportHandlers={exportHandlers} />
 
-                <div className="mx-1 h-4 w-px bg-border" />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      className="flex h-8 items-center gap-1.5"
+                      disabled={
+                        importFlow.isImporting ||
+                        !activeCollectionId ||
+                        importFlow.selectedFileCount === 0 ||
+                        isManagedCollection
+                      }
+                      onClick={importFlow.handleImportClick}
+                      size="sm"
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                      <span className="font-medium">Import</span>
+                      <span className="text-[10px] opacity-70">
+                        ({importFlow.selectedFileCount})
+                      </span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    {importFlow.selectedFileCount === 0
+                      ? 'Select files to import first'
+                      : isManagedCollection
+                        ? 'Background indexing manages imports for this collection'
+                        : activeCollectionId
+                          ? `Import ${importFlow.selectedFileCount} files to collection`
+                          : 'Select a collection first'}
+                  </TooltipContent>
+                </Tooltip>
 
-                <Popover onOpenChange={setShowSettings} open={showSettings}>
-                  <TooltipProvider delayDuration={200}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <PopoverTrigger asChild>
-                          <button
-                            aria-label="Import Settings"
-                            className="group flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm transition-colors hover:border-accent-foreground/20 hover:bg-accent focus-visible:border-foreground/20 focus-visible:bg-accent/80 focus-visible:outline-none"
-                            type="button"
-                          >
-                            <Settings2 className="size-3.5 text-muted-foreground" />
-                            <span className="font-medium">Settings</span>
-                            <Pencil className="size-3 text-muted-foreground" />
-                          </button>
-                        </PopoverTrigger>
-                      </TooltipTrigger>
-                      {!showSettings && (
-                        <TooltipContent side="top">
-                          <div className="text-xs">Configure import and chunking</div>
-                        </TooltipContent>
-                      )}
-                    </Tooltip>
-                  </TooltipProvider>
-                  <PopoverContent
-                    align="end"
-                    className="w-[min(96vw,48rem)] max-w-[calc(100vw-1.5rem)] p-0"
-                    collisionPadding={16}
-                    side="top"
-                  >
-                    <SettingsPanel
-                      className="mt-0 border-none bg-transparent"
-                      clearDatabaseProps={{
-                        clearAllData,
-                        recordsCount: activeCollectionCounts.records,
-                        chunksCount: activeCollectionCounts.chunks,
-                        clearing,
-                        showClearDialog,
-                        setShowClearDialog,
-                        onClear: handleClearDatabase,
-                      }}
-                      importSettings={importSettings}
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <TooltipProvider delayDuration={200}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        className="h-8 w-8 p-0"
-                        disabled={refreshing}
-                        onClick={handleManualRefresh}
-                        size="sm"
-                        variant="outline"
-                      >
-                        <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-                        <span className="sr-only">Refresh</span>
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Refresh database records</TooltipContent>
-                  </Tooltip>
-
-                  <ExportDropdown counts={activeCollectionCounts} exportHandlers={exportHandlers} />
-
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        className="flex h-8 items-center gap-1.5"
-                        disabled={
-                          importFlow.isImporting ||
-                          !activeCollectionId ||
-                          importFlow.selectedFileCount === 0 ||
-                          isManagedCollection
-                        }
-                        onClick={importFlow.handleImportClick}
-                        size="sm"
-                      >
-                        <FileText className="h-3.5 w-3.5" />
-                        <span className="font-medium">Import</span>
-                        <span className="text-[10px] opacity-70">
-                          ({importFlow.selectedFileCount})
-                        </span>
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      {importFlow.selectedFileCount === 0
-                        ? 'Select files to import first'
-                        : isManagedCollection
-                          ? 'Background indexing manages imports for this collection'
-                          : activeCollectionId
-                            ? `Import ${importFlow.selectedFileCount} files to collection`
-                            : 'Select a collection first'}
-                    </TooltipContent>
-                  </Tooltip>
-
-                  {/* Embedding Actions (inline with Import) */}
-                  <EmbeddingActionsDropdown {...dropdownProps} className="shrink-0" />
-
-                  <div className="mx-1 h-4 w-px bg-border" />
-
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button className="h-8 w-8 p-0" size="sm" variant="ghost">
-                        <HelpCircle className="h-4 w-4 text-muted-foreground" />
-                        <span className="sr-only">Help</span>
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-[300px]" side="top">
-                      <p className="text-sm">
-                        Collections let you search files with different AI models. Create separate
-                        collections for code, documentation, or general content to get better search
-                        results optimized for each use case.
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
+                <EmbeddingActionsDropdown {...dropdownProps} className="shrink-0" />
+              </TooltipProvider>
             </div>
 
             {/* Embedding Status Bar */}
