@@ -1591,21 +1591,22 @@ describe('database IPC handlers', () => {
       return { result, listener: listener!, sender, liveHandle };
     }
 
-    it('pauses subscriptions on background and resumes on foreground', async () => {
+    it('keeps live-query subscriptions attached across background and foreground transitions', async () => {
       const { setBackgrounded } = await import('../../ipc-handlers');
       const { liveHandle } = await setupLiveQuery();
 
       // subscribe called once during setup
       expect(liveHandle.subscribe).toHaveBeenCalledTimes(1);
 
-      // Enter backgrounded state — should unsubscribe
+      // PGlite 0.4.4 treats unsubscribe of the final listener as terminal for the
+      // handle, so backgrounding must rely on IPC batching instead of detaching.
       setBackgrounded(true);
-      expect(liveHandle.unsubscribe).toHaveBeenCalled();
+      expect(liveHandle.unsubscribe).not.toHaveBeenCalled();
 
-      // Return to foreground — should re-subscribe
+      // Return to foreground — should flush pending updates without re-subscribing.
       // pendingLiveUpdates is empty so flushPendingLiveUpdates is a no-op
       setBackgrounded(false);
-      expect(liveHandle.subscribe).toHaveBeenCalledTimes(2);
+      expect(liveHandle.subscribe).toHaveBeenCalledTimes(1);
     });
 
     it('does not pause when setBackgrounded(false) is called while already foregrounded', async () => {
@@ -1623,17 +1624,17 @@ describe('database IPC handlers', () => {
       const { liveHandle } = await setupLiveQuery();
 
       setBackgrounded(true);
-      expect(liveHandle.unsubscribe).toHaveBeenCalledTimes(1);
+      expect(liveHandle.unsubscribe).not.toHaveBeenCalled();
 
-      // Already backgrounded — should not unsubscribe again
+      // Already backgrounded — should still keep the live-query handle attached.
       setBackgrounded(true);
-      expect(liveHandle.unsubscribe).toHaveBeenCalledTimes(1);
+      expect(liveHandle.unsubscribe).not.toHaveBeenCalled();
 
       // Clean up without triggering flush (no pending updates)
       setBackgrounded(false);
     });
 
-    it('logs unsubscribe failures during pause without throwing', async () => {
+    it('does not call unsubscribe during background pause', async () => {
       const { setBackgrounded } = await import('../../ipc-handlers');
       const { liveHandle } = await setupLiveQuery();
 
@@ -1642,16 +1643,16 @@ describe('database IPC handlers', () => {
       expect(() => setBackgrounded(true)).not.toThrow();
       await Promise.resolve();
 
-      expect(loggerDebug).toHaveBeenCalledWith('Failed to unsubscribe live query during pause', {
-        subscriptionId: expect.any(Number),
-        webContentsId: 50,
-        error: expect.any(Error),
-      });
+      expect(liveHandle.unsubscribe).not.toHaveBeenCalled();
+      expect(loggerDebug).not.toHaveBeenCalledWith(
+        'Failed to unsubscribe live query during pause',
+        expect.anything()
+      );
 
       setBackgrounded(false);
     });
 
-    it('logs resubscribe failures during resume without throwing', async () => {
+    it('does not call subscribe again during foreground resume', async () => {
       const { setBackgrounded } = await import('../../ipc-handlers');
       const { liveHandle } = await setupLiveQuery();
 
@@ -1661,13 +1662,10 @@ describe('database IPC handlers', () => {
       expect(() => setBackgrounded(false)).not.toThrow();
       await Promise.resolve();
 
-      expect(loggerDebug).toHaveBeenCalledWith(
+      expect(liveHandle.subscribe).toHaveBeenCalledTimes(1);
+      expect(loggerDebug).not.toHaveBeenCalledWith(
         'Failed to resubscribe live query after pause release',
-        {
-          subscriptionId: expect.any(Number),
-          webContentsId: 50,
-          error: expect.any(Error),
-        }
+        expect.anything()
       );
     });
 
@@ -1684,7 +1682,7 @@ describe('database IPC handlers', () => {
       setBackgrounded(false);
       await Promise.resolve();
 
-      expect(liveHandle.unsubscribe).toHaveBeenCalled();
+      expect(liveHandle.unsubscribe).toHaveBeenCalledTimes(1);
       expect(sender.send).not.toHaveBeenCalled();
     });
 

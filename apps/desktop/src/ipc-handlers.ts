@@ -83,12 +83,12 @@ const logger = createLogger('DesktopIpcHandlers');
 // mutations, each triggering multiple live queries).
 //
 // Foreground: 200ms flush interval — responsive UI updates without flooding
-// Background: subscriptions are fully paused, so the 2s interval is only a
-// defensive fallback for any queued updates that exist before pause takes effect
+// Background: subscriptions stay attached. PGlite 0.4.4 treats the last listener
+// unsubscribe as terminal for a live-query handle, so pressure control must happen
+// at the IPC delivery layer via deduped batched sends.
 // Focus: immediate flush — user sees up-to-date state on return
 // ---------------------------------------------------------------------------
 let isBackgrounded = false;
-let liveSubscriptionPauseDepth = 0;
 const pendingLiveUpdates = new Map<number, { id: number; results: unknown }>();
 let liveFlushTimer: ReturnType<typeof setTimeout> | null = null;
 const LIVE_FLUSH_BACKGROUND_INTERVAL_MS = 2000;
@@ -298,7 +298,6 @@ async function runDesktopEmbeddingBackfill(params: {
     progress: null,
     source,
   });
-  acquireLiveSubscriptionPause();
 
   try {
     const hostStatus = await hostManager.ensureStarted({ waitForRunning: true });
@@ -339,7 +338,6 @@ async function runDesktopEmbeddingBackfill(params: {
   } finally {
     embeddingBackfillsInFlight.delete(normalizedEmbeddingSetId);
     embeddingBackfillsCanceled.delete(normalizedEmbeddingSetId);
-    releaseLiveSubscriptionPause();
     if (!isBackgrounded) {
       flushPendingLiveUpdates();
     }
@@ -462,77 +460,8 @@ export { flushPendingLiveUpdates };
 export function setBackgrounded(value: boolean): void {
   const wasBackgrounded = isBackgrounded;
   isBackgrounded = value;
-  if (value && !wasBackgrounded) {
-    acquireLiveSubscriptionPause();
-  }
   if (!value && wasBackgrounded) {
-    releaseLiveSubscriptionPause();
     flushPendingLiveUpdates();
-  }
-}
-
-// Reference-counted pause/resume for PGlite live query subscriptions.
-// Multiple callers (window blur, backfill) can pause independently;
-// subscriptions only resume when ALL callers have released.
-function acquireLiveSubscriptionPause(): void {
-  liveSubscriptionPauseDepth += 1;
-  if (liveSubscriptionPauseDepth === 1) {
-    // Intentional fire-and-forget: PGlite unsubscribe may resolve asynchronously,
-    // so callbacks can race briefly with the pause transition. Those callbacks
-    // only enqueue fresh state and are flushed once subscriptions resume.
-    for (const record of liveSubscriptions.values()) {
-      try {
-        record.handle.unsubscribe(record.listener).catch((error: unknown) => {
-          logger.debug('Failed to unsubscribe live query during pause', {
-            subscriptionId: record.id,
-            webContentsId: record.webContentsId,
-            error,
-          });
-        });
-      } catch (error) {
-        logger.debug('Failed to unsubscribe live query during pause', {
-          subscriptionId: record.id,
-          webContentsId: record.webContentsId,
-          error,
-        });
-      }
-    }
-  }
-}
-
-function releaseLiveSubscriptionPause(): void {
-  if (liveSubscriptionPauseDepth <= 0) {
-    return;
-  }
-  liveSubscriptionPauseDepth -= 1;
-  if (liveSubscriptionPauseDepth === 0) {
-    // Intentional fire-and-forget: subscriptions may already have been cleaned
-    // up concurrently, and live query reattachment should not block foregrounding.
-    for (const record of liveSubscriptions.values()) {
-      try {
-        const subscribeResult = record.handle.subscribe(record.listener) as unknown;
-        if (
-          subscribeResult &&
-          typeof subscribeResult === 'object' &&
-          'catch' in subscribeResult &&
-          typeof subscribeResult.catch === 'function'
-        ) {
-          void subscribeResult.catch((error: unknown) => {
-            logger.debug('Failed to resubscribe live query after pause release', {
-              subscriptionId: record.id,
-              webContentsId: record.webContentsId,
-              error,
-            });
-          });
-        }
-      } catch (error) {
-        logger.debug('Failed to resubscribe live query after pause release', {
-          subscriptionId: record.id,
-          webContentsId: record.webContentsId,
-          error,
-        });
-      }
-    }
   }
 }
 
