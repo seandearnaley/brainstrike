@@ -81,7 +81,7 @@ test.describe('Background indexing settings (web)', () => {
     await page.getByRole('switch', { name: /background indexing/i }).click();
 
     await expect(page.getByText('No root folder selected.')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('collection-sync-status-item')).toContainText('Blocked');
+    await expect(page.getByTestId('indexing-status-item')).toContainText('Blocked');
   });
 
   test('disables manual DB import when the collection is marked as managed', async ({ page }) => {

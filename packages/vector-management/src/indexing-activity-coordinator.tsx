@@ -112,6 +112,7 @@ export function IndexingActivityCoordinator(): null {
     state: state.state,
     managedCollectionId: state.managedCollectionId,
     managedCollectionName: state.managedCollectionName,
+    lastError: state.lastError,
     pauseReasons: state.pauseReasons,
   }));
 
@@ -237,6 +238,7 @@ export function IndexingActivityCoordinator(): null {
   const backgroundSnapshot = useMemo(
     () => ({
       enabled: backgroundEnabled,
+      lastError: backgroundStatus.lastError,
       paused: backgroundPaused || backgroundStatus.state === 'paused',
       managedCollectionId,
       managedCollectionName: backgroundStatus.managedCollectionName,
@@ -245,6 +247,7 @@ export function IndexingActivityCoordinator(): null {
     }),
     [
       backgroundEnabled,
+      backgroundStatus.lastError,
       backgroundPaused,
       backgroundStatus.managedCollectionName,
       backgroundStatus.pauseReasons,

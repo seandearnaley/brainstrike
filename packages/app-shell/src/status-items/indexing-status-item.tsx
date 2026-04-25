@@ -36,6 +36,9 @@ function toStatusValue(snapshot: IndexingActivitySnapshot): string {
     return 'Paused';
   }
   if (snapshot.status === 'error') {
+    if (snapshot.phase === 'background-indexing') {
+      return 'Blocked';
+    }
     return 'Issue';
   }
   if (snapshot.status === 'active') {
@@ -137,7 +140,12 @@ export function IndexingStatusItem() {
           />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="center" className="w-[420px] space-y-3" side="top">
+      <PopoverContent
+        align="center"
+        className="w-[420px] space-y-3"
+        data-testid="indexing-status-popover"
+        side="top"
+      >
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="font-medium text-sm">Indexing activity</div>

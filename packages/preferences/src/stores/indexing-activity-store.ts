@@ -30,6 +30,7 @@ export interface IndexingBackfillSnapshot {
 
 export interface IndexingBackgroundSnapshot {
   readonly enabled: boolean;
+  readonly lastError: string | null;
   readonly managedCollectionId: string | null;
   readonly managedCollectionName: string | null;
   readonly paused: boolean;
@@ -78,6 +79,7 @@ type IndexingActivitySnapshotInput = Pick<
 
 const DEFAULT_BACKGROUND_SNAPSHOT: IndexingBackgroundSnapshot = {
   enabled: false,
+  lastError: null,
   paused: false,
   managedCollectionId: null,
   managedCollectionName: null,
@@ -118,6 +120,7 @@ function isBackgroundActive(background: IndexingBackgroundSnapshot): boolean {
 function isBackgroundUnavailable(background: IndexingBackgroundSnapshot): boolean {
   return (
     !background.enabled &&
+    background.lastError === null &&
     background.state === 'disabled' &&
     background.managedCollectionId === null &&
     background.managedCollectionName === null &&
@@ -171,7 +174,11 @@ function deriveErrorSnapshot(args: IndexingActivitySnapshotInput): IndexingActiv
       lastError: args.activityError,
       phase:
         getBackfillPhase(args.activeBackfills) ??
-        (isQueueErrored(args.queue) || isQueueActive(args.queue) ? 'queue' : null),
+        (isQueueErrored(args.queue) || isQueueActive(args.queue)
+          ? 'queue'
+          : isBackgroundUnavailable(args.background)
+            ? null
+            : 'background-indexing'),
       status: 'error',
     });
   }
@@ -186,7 +193,7 @@ function deriveErrorSnapshot(args: IndexingActivitySnapshotInput): IndexingActiv
 
   if (args.background.state === 'error') {
     return buildSnapshot(args, {
-      lastError: 'Background indexing failed',
+      lastError: args.background.lastError ?? 'Background indexing failed',
       phase: 'background-indexing',
       status: 'error',
     });

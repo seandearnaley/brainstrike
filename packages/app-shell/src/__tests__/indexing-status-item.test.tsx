@@ -42,6 +42,7 @@ describe('IndexingStatusItem', () => {
     ]);
     useIndexingActivityStore.getState().setBackgroundSnapshot({
       enabled: true,
+      lastError: null,
       paused: false,
       managedCollectionId: 'collection-a',
       managedCollectionName: 'Workspace cache',
@@ -67,6 +68,7 @@ describe('IndexingStatusItem', () => {
     useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
     useIndexingActivityStore.getState().setBackgroundSnapshot({
       enabled: true,
+      lastError: null,
       paused: false,
       managedCollectionId: 'collection-a',
       managedCollectionName: 'Workspace cache',
@@ -82,5 +84,21 @@ describe('IndexingStatusItem', () => {
     await waitFor(() => {
       expect(useBackgroundIndexingPreferencesStore.getState().paused).toBe(true);
     });
+  });
+
+  it('shows background indexing errors as blocked activity', () => {
+    useIndexingActivityStore.getState().setBackgroundSnapshot({
+      enabled: true,
+      lastError: 'No root folder selected.',
+      paused: false,
+      managedCollectionId: 'collection-a',
+      managedCollectionName: 'Workspace cache',
+      state: 'error',
+      pauseReasons: [],
+    });
+
+    render(<IndexingStatusItem />);
+
+    expect(screen.getByTestId('indexing-status-item')).toHaveTextContent('Indexing:Blocked');
   });
 });

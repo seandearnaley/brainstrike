@@ -607,7 +607,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
             {/* Action Footer — collection-contextual actions (Export, Import, Embeddings) */}
             <div
-              className="flex flex-shrink-0 items-center justify-end gap-2 border-t bg-background px-4 py-2"
+              className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2 border-t bg-background px-4 py-2"
               data-testid="database-panel-actions"
             >
               <TooltipProvider delayDuration={200}>

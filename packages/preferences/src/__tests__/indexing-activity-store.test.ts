@@ -17,6 +17,7 @@ describe('indexing-activity-store', () => {
       activeBackfills: [],
       background: {
         enabled: false,
+        lastError: null,
         paused: false,
         managedCollectionId: null,
         managedCollectionName: null,
@@ -110,6 +111,7 @@ describe('indexing-activity-store', () => {
     });
     useIndexingActivityStore.getState().setBackgroundSnapshot({
       enabled: true,
+      lastError: null,
       paused: true,
       managedCollectionId: 'set-1',
       managedCollectionName: 'Workspace cache',
@@ -122,6 +124,7 @@ describe('indexing-activity-store', () => {
       phase: 'background-indexing',
       background: {
         enabled: true,
+        lastError: null,
         paused: true,
         managedCollectionId: 'set-1',
         managedCollectionName: 'Workspace cache',
@@ -160,6 +163,29 @@ describe('indexing-activity-store', () => {
       status: 'error',
       phase: 'queue',
       lastError: '1 embedding job failed',
+    });
+
+    useIndexingActivityStore.getState().setQueueSnapshot({
+      queued: 0,
+      running: 0,
+      failed: 0,
+      succeeded: 2,
+      nextRunnableAt: null,
+    });
+    useIndexingActivityStore.getState().setBackgroundSnapshot({
+      enabled: true,
+      lastError: 'No root folder selected.',
+      paused: false,
+      managedCollectionId: 'set-1',
+      managedCollectionName: 'Workspace cache',
+      state: 'error',
+      pauseReasons: [],
+    });
+
+    expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
+      status: 'error',
+      phase: 'background-indexing',
+      lastError: 'No root folder selected.',
     });
 
     useIndexingActivityStore.getState().setIndexingActivityError('Live query failed');
