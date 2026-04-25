@@ -259,8 +259,10 @@ test.describe('File Explorer', () => {
       // The size-grouping reducer reads `item.size` from the FileSystem-adapter cache,
       // which populates asynchronously after Select All. Without waiting, items can land
       // in the "Unknown" group on slower runners and the assertion below would race.
+      // Use an explicit 15s budget so a stressed CI runner gets a clearer failure than
+      // Playwright's default 5s expect timeout would produce.
       const previewTable = page.getByTestId('preview-table');
-      await expect(previewTable).toHaveAttribute('data-rows-ready', 'true');
+      await expect(previewTable).toHaveAttribute('data-rows-ready', 'true', { timeout: 15_000 });
 
       const previewToolbar = page.getByTestId('preview-view-toolbar');
       await expect(previewToolbar).toBeVisible();
