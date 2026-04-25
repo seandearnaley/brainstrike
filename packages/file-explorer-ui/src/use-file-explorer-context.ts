@@ -78,7 +78,8 @@ interface UseFileExplorerReturn {
   expandAllProgress: { loaded: number; total: number } | null;
   /** Progressively expand all directories (loads everything) */
   expandAllProgressively: (
-    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
+    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
+    currentExpandedPaths?: ReadonlySet<string>
   ) => Promise<void>;
   fileContents: { [path: string]: string };
   /** Filtered tree currently visible in the explorer */

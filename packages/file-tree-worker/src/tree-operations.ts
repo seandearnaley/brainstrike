@@ -76,7 +76,7 @@ export function getUnloadedDirectories(
     }
     processed.add(path);
     const node = findNodeByPath(tree, path);
-    if (node?.type === 'directory' && needsLoading(node)) {
+    if (canLoadNode(node)) {
       toLoad.push(path);
     }
   }

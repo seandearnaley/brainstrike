@@ -94,7 +94,7 @@ export interface UseFileTreeWorkerOptions {
   /** Callback when errors occur */
   onError?: (error: Error) => void;
   /** Callback when progress updates occur */
-  onProgress?: (loaded: number, total: number) => void;
+  onProgress?: (loaded: number, total: number, currentPath: string) => void;
 }
 
 export interface UseFileTreeWorkerReturn {
@@ -233,8 +233,8 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
 
     // Handle progress updates - use ref to get current callback
     unsubscribes.push(
-      port.onProgress((loaded, total, _currentPath) => {
-        onProgressRef.current?.(loaded, total);
+      port.onProgress((loaded, total, currentPath) => {
+        onProgressRef.current?.(loaded, total, currentPath);
       })
     );
 

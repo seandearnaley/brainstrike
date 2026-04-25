@@ -21,7 +21,12 @@ import { cn } from '../lib/utils';
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '../table';
 import { TablePagination } from '../table-pagination';
 import { DEFAULT_ROW_HEIGHTS, TreeTableRow } from './tree-table-row';
-import { createChildrenGetter, flattenTreeRecursive, getDescendantIds } from './tree-utils';
+import {
+  createChildrenGetter,
+  flattenPreFlattenedTreeRows,
+  flattenTreeRecursive,
+  getDescendantIds,
+} from './tree-utils';
 import type { CheckboxState, TreeNode, TreeTableProps } from './types';
 import { type UseTreeKeyboardOptions, useTreeKeyboard } from './use-tree-keyboard';
 import { useTreeTableHandlers } from './use-tree-table-handlers';
@@ -480,6 +485,7 @@ export function TreeTable<T>({
   selectionMode = 'single',
   highlightedIds = DEFAULT_HIGHLIGHTED,
   contextNodeIds = DEFAULT_CONTEXT_NODE_IDS,
+  nodesArePreFlattened = false,
   rowHeight = DEFAULT_ROW_HEIGHTS,
   overscan = DEFAULT_OVERSCAN,
   windowingStrategy = 'virtual',
@@ -524,6 +530,17 @@ export function TreeTable<T>({
             return node;
           });
 
+    if (nodesArePreFlattened) {
+      return flattenPreFlattenedTreeRows(nodesWithLoading, {
+        expandedIds,
+        selectedId,
+        multiSelectedIds,
+        highlightedIds,
+        contextNodeIds,
+        rowIndexOffset: resolveRowIndexOffset(showHeader),
+      });
+    }
+
     const rootsWithLoading = nodesWithLoading.filter((n) => n.parentId === null);
     const getChildrenWithLoading = createChildrenGetter(nodesWithLoading);
 
@@ -547,6 +564,7 @@ export function TreeTable<T>({
     highlightedIds,
     contextNodeIds,
     loadingNodeIds,
+    nodesArePreFlattened,
     showHeader,
   ]);
 

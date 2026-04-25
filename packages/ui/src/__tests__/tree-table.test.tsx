@@ -332,6 +332,27 @@ describe('TreeTable', () => {
       expect(screen.queryByLabelText('Go to next page')).not.toBeInTheDocument();
     });
 
+    it('can consume pre-flattened visible rows without recursive expansion gating', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('parent', 'Parent', null, true, 0),
+        createTestNode('child', 'Child', 'parent', false, 1),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          nodesArePreFlattened={true}
+          onToggleExpand={() => {}}
+          windowingStrategy="virtual"
+        />
+      );
+
+      expect(screen.getByText('Parent')).toBeInTheDocument();
+      expect(screen.getByText('Child')).toBeInTheDocument();
+    });
+
     it('renders fallback rows when virtualizer temporarily returns no items', () => {
       virtualizerMode = 'empty';
       const nodes: TreeNode<TestData>[] = [
