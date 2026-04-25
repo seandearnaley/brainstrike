@@ -14,7 +14,6 @@ import {
 import {
   createDatabaseWorkScheduler,
   createScheduledDbHandle,
-  type DatabaseWorkOptions,
   type DatabaseWorkPriority,
   type ScheduledDbHandle,
 } from './database-work-scheduler.js';
@@ -109,7 +108,7 @@ async function loadDrizzleViewFilterPresetsRepository() {
 }
 
 export interface DbHandle extends IDatabase {
-  exec?: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) => Promise<unknown>;
+  exec?: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
   readonly raw?: unknown;
 }
 
@@ -193,7 +192,7 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
   const query: DbHandle['query'] = async <T = unknown>(
     sql: string,
     params?: unknown[],
-    options?: DatabaseWorkOptions
+    options?: unknown
   ) => {
     const result = await executor.query(sql, params, options);
     return { rows: result.rows as T[] };
@@ -203,7 +202,7 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
   };
 
   if (typeof executor.exec === 'function') {
-    handle.exec = async (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
+    handle.exec = async (sql: string, params?: unknown[], options?: unknown) =>
       await executor.exec?.(sql, params, options);
   }
 
