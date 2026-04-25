@@ -256,6 +256,23 @@ test.describe('File Explorer', () => {
       await explorer.selectRoot();
       await explorer.selectAllButton.click();
 
+      // Two anchors guard the multi-step interaction below from racing with async work:
+      //
+      //   1. Selection actually applied. Persistence/restore on the first render after
+      //      `resetSettings: true` can race with the Select All click and leave the
+      //      selection count at 0. If this assertion times out, the failure is
+      //      "Select All didn't take effect" — not a flake, a real bug.
+      //
+      //   2. Row sizes resolved. `data-rows-ready` flips to "true" only when every
+      //      visible row has a defined `size` (FileSystem-adapter cache populated). If
+      //      this assertion times out after #1 passed, the failure is "size metadata
+      //      didn't resolve" — also a real bug. If both pass, downstream Group-by
+      //      assertions can run on a deterministic state.
+      await expect(page.getByTestId('selection-count')).toHaveText('2', { timeout: 15_000 });
+
+      const previewTable = page.getByTestId('preview-table');
+      await expect(previewTable).toHaveAttribute('data-rows-ready', 'true', { timeout: 15_000 });
+
       const previewToolbar = page.getByTestId('preview-view-toolbar');
       await expect(previewToolbar).toBeVisible();
       await previewToolbar.getByRole('button', { name: 'Group by' }).click();

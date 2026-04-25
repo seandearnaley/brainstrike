@@ -842,6 +842,17 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     pagination,
   } = props;
 
+  // The empty-array case must be `false` — otherwise the pre-selection state
+  // (currentPageData = []) would satisfy the contract before any data exists.
+  // Scope is intentionally narrow (size only) — `tokens` may never resolve for
+  // non-text files, which would make a token-inclusive gate uncloseable.
+  const rowsReady = useMemo(
+    () =>
+      currentPageData.length > 0 && currentPageData.every((row) => typeof row.size === 'number'),
+    [currentPageData]
+  );
+  const rowsReadyAttr = rowsReady ? 'true' : 'false';
+
   const onSortStable = useEventCallback(onSort);
   const onSelectAllOnPageStable = useEventCallback(onSelectAllOnPage);
   const onDeselectAllStable = useEventCallback(onDeselectAll);
@@ -1001,7 +1012,11 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     // TODO(BST-312): converge the ungrouped path onto TreeTable once parity and
     // migration-risk constraints for ungrouped headers/rows are fully closed.
     return (
-      <div className={cn('flex-1 overflow-auto', scrollAreaClassName)}>
+      <div
+        className={cn('flex-1 overflow-auto', scrollAreaClassName)}
+        data-rows-ready={rowsReadyAttr}
+        data-testid="preview-table"
+      >
         <div className="min-w-full">
           <table className="w-full min-w-full table-fixed border-collapse">
             <thead className="sticky top-0 z-10 border-b bg-background">
@@ -1092,7 +1107,11 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
 
   // Group rows are modeled as parent nodes with item children for true tree semantics.
   return (
-    <div className={cn('flex min-h-0 flex-1 overflow-auto', scrollAreaClassName)}>
+    <div
+      className={cn('flex min-h-0 flex-1 overflow-auto', scrollAreaClassName)}
+      data-rows-ready={rowsReadyAttr}
+      data-testid="preview-table"
+    >
       <TreeTable
         ariaLabel="Context explorer table"
         className="w-full"
