@@ -1,3 +1,4 @@
+import { createPriorityDbHandle } from '@brainstrike/db';
 import { getRegisteredEmbeddingRuntimeConfig } from '@brainstrike/embeddings/runtime-config';
 import type {
   EmbeddingWorkerController,
@@ -309,7 +310,7 @@ export function useEmbeddingRuntimeController(
       try {
         const startEmbeddingWorker = await loadStartEmbeddingWorker();
         const controller = await startEmbeddingWorker({
-          db,
+          db: createPriorityDbHandle(db, 'background'),
           enable: true,
           reinitEveryN,
           device: devicePreference,
