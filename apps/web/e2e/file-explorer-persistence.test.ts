@@ -29,6 +29,7 @@ const CACHED_SELECT_ALL_TREE: FileTree = {
     ])
   ),
 };
+const STALE_SELECTION_ROOT_NAME = 'brainstrike';
 
 async function supportsOpfs(page: Page): Promise<boolean> {
   return page.evaluate(() => typeof navigator.storage?.getDirectory === 'function');
@@ -206,6 +207,74 @@ async function readPersistedExplorerState(page: Page): Promise<unknown> {
     const raw = localStorage.getItem('file-explorer-storage-v4');
     return raw ? JSON.parse(raw) : null;
   });
+}
+
+async function seedPersistedSelectionState(
+  page: Page,
+  folderId: string,
+  selectedCount: number
+): Promise<void> {
+  await page.evaluate(
+    ({ count, id }) => {
+      const selectedFilePaths = Array.from(
+        { length: count },
+        (_, index) => `${id}|@|src/file-${index}.ts`
+      );
+      const selectionModel = {
+        mode: 'explicit',
+        explicitPaths: selectedFilePaths,
+        ruleSetJson: null,
+        materializedPaths: null,
+        materializedAt: null,
+        queryDescriptor: null,
+      };
+      const folderState = {
+        selectedFilePaths,
+        selectionModel,
+        expandedDirectoryPaths: ['src'],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: true,
+        tokenBudget: 100_000,
+        folderSummaryThreshold: 5,
+        maxSelectionCount: count,
+        lastActiveTab: 'files',
+        lastAccessed: Date.now(),
+        viewFilterPresetId: null,
+      };
+
+      localStorage.setItem(
+        'file-explorer-storage-v4',
+        JSON.stringify({
+          state: {
+            currentFolderId: id,
+            folderStates: {
+              [id]: folderState,
+            },
+            folderAccessOrder: [id],
+            selectedFilePaths,
+            expandedDirectoryPaths: ['src'],
+            includeFilters: [],
+            excludeFilters: [],
+            useRegex: false,
+            includeProjectTree: true,
+            tokenBudget: 100_000,
+            folderSummaryThreshold: 5,
+            maxSelectionCount: count,
+            lastActiveTab: 'files',
+            quickFilter: '',
+            devInlineFixtureEnabled: false,
+            selectionModel,
+            viewFilterPresetId: null,
+            isFiltersExpanded: true,
+          },
+          version: 2,
+        })
+      );
+    },
+    { count: selectedCount, id: folderId }
+  );
 }
 
 test.describe('File Explorer persistence (web)', () => {
@@ -520,6 +589,43 @@ test.describe('File Explorer persistence (web)', () => {
     await expect(
       page.getByText('Cannot select more files. Maximum selection limit reached.')
     ).toHaveCount(0);
+  });
+
+  test('allows choosing a new web root after stale persisted selections clear without a handle', async ({
+    page,
+    browserName,
+  }) => {
+    if (browserName !== 'chromium') {
+      test.skip(true, 'File System Access API is only available in Chromium');
+    }
+
+    await page.goto('/');
+    await waitForAppLoad(page);
+
+    if (!(await supportsOpfs(page))) {
+      test.skip(true, 'OPFS not available in this environment');
+    }
+
+    await resetExplorerState(page);
+    await seedPersistedSelectionState(page, STALE_SELECTION_ROOT_NAME, 2000);
+    await page.reload();
+    await waitForAppLoad(page);
+
+    const explorer = new FileExplorerPage(page);
+    await expect(page.getByText('No directory selected')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: 'Selection count (read-only)' })).toContainText(
+      '0/2000',
+      { timeout: 15_000 }
+    );
+
+    await setupOpfsDirectoryPicker(page, STALE_SELECTION_ROOT_NAME, {
+      src: {
+        'file-0.ts': 'export const zero = 0;',
+      },
+    });
+
+    await explorer.selectRoot();
+    await expect(explorer.fileTree.getByText('src')).toBeVisible({ timeout: 15_000 });
   });
 
   test('persists large select-all as query-backed selection instead of giant explicit sets', async ({

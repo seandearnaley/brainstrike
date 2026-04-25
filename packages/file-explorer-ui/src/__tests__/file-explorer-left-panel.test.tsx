@@ -1,6 +1,6 @@
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import type { FileExplorerState } from '@brainstrike/types';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileExplorerLeftPanel } from '../file-explorer-left-panel';
@@ -341,6 +341,44 @@ describe('FileExplorerLeftPanel', () => {
     renderWithProviders(<FileExplorerLeftPanel />);
 
     expect(setAccessLoadingMock).toHaveBeenCalledWith(true);
+  });
+
+  it('lets the restore modal choose a new root when stale persisted state has no root handle', async () => {
+    const { useRestoreAccess } = await import('@brainstrike/file-explorer-hooks');
+    const user = userEvent.setup();
+    const dismissRestoreMock = vi.fn();
+    const setAccessLoadingMock = vi.fn();
+
+    handleRootDirectorySelectMock.mockResolvedValueOnce({
+      path: 'new-root',
+      name: 'new-root',
+      kind: 'directory',
+      platform: 'web',
+      _internal: {},
+    });
+    vi.mocked(useRestoreAccess).mockReturnValueOnce({
+      pendingRestore: null,
+      showDeniedBanner: false,
+      showStaleBanner: true,
+      storedFolders: [{ folderId: 'brainstrike', name: 'brainstrike' }],
+      beginRestore: vi.fn(),
+      dismissRestore: dismissRestoreMock,
+      chooseDifferentFolder: vi.fn(),
+      clearStoredHandles: vi.fn(),
+      isCheckingStoredHandles: false,
+    });
+    vi.mocked(useFileExplorer).mockReturnValueOnce({
+      ...fileExplorerReturnValue,
+      rootDirectoryHandle: null,
+      setAccessLoading: setAccessLoadingMock,
+    });
+
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    await user.click(screen.getByRole('button', { name: 'Choose different folder' }));
+
+    await waitFor(() => expect(handleRootDirectorySelectMock).toHaveBeenCalledTimes(1));
+    expect(dismissRestoreMock).toHaveBeenCalledTimes(1);
   });
 
   it('triggers refresh and shows toast when refresh button is clicked', async () => {

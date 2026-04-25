@@ -16,6 +16,7 @@ export interface RestoreAccessModalProps {
   folderName: string;
   isOpen: boolean;
   isRestoring?: boolean;
+  onChooseDifferentFolder: () => void;
   onDismiss: () => void;
   onRestore: () => void;
   variant: RestoreAccessModalVariant;
@@ -25,17 +26,16 @@ const variantCopy = {
   pending: {
     title: 'Restore access to your last folder?',
     description:
-      'Your browser remembered the folder you were working with. Click below to restore access and continue where you left off.',
+      'Your browser remembered the folder you were working with. Restore access to continue where you left off, or choose a different folder.',
   },
   denied: {
     title: 'Folder access was denied',
     description:
-      'Permission to access the folder was denied. You can try again or select a different folder using the toolbar.',
+      'Permission to access the folder was denied. Try again or choose a different folder to continue.',
   },
   stale: {
     title: 'Stored folder is no longer accessible',
-    description:
-      'The folder may have been moved or deleted. Please select a new folder using the toolbar to continue.',
+    description: 'The folder may have been moved or deleted. Choose a new folder to continue.',
   },
 } as const satisfies Record<RestoreAccessModalVariant, { title: string; description: string }>;
 
@@ -44,6 +44,7 @@ export const RestoreAccessModal: React.FC<RestoreAccessModalProps> = ({
   folderName,
   variant,
   isRestoring = false,
+  onChooseDifferentFolder,
   onRestore,
   onDismiss,
 }) => {
@@ -89,6 +90,16 @@ export const RestoreAccessModal: React.FC<RestoreAccessModalProps> = ({
               {isRestoring ? 'Restoring...' : 'Restore Access'}
             </Button>
           )}
+          <Button
+            aria-label="Choose different folder"
+            className="w-full"
+            disabled={isRestoring}
+            onClick={onChooseDifferentFolder}
+            size="lg"
+            variant={showRestoreButton ? 'secondary' : 'default'}
+          >
+            Choose Different Folder
+          </Button>
           <Button
             aria-label={variant === 'stale' ? 'Close dialog' : 'Dismiss and restore later'}
             className="w-full"
