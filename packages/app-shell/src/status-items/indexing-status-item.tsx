@@ -90,6 +90,14 @@ function formatQueueSummary(snapshot: IndexingActivitySnapshot): string {
   return `${snapshot.queue.queued} queued / ${snapshot.queue.running} running / ${snapshot.queue.failed} failed / ${snapshot.queue.succeeded} succeeded`;
 }
 
+function formatDatabaseWorkSummary(snapshot: IndexingActivitySnapshot): string {
+  const databaseWork = snapshot.databaseWork;
+  if (!databaseWork) {
+    return 'Database QoS unavailable';
+  }
+  return `${databaseWork.queued.foreground} foreground / ${databaseWork.queued.normal} normal / ${databaseWork.queued.background} background`;
+}
+
 function formatPhase(snapshot: IndexingActivitySnapshot): string {
   if (!snapshot.phase) {
     return snapshot.status === 'idle' ? 'Idle' : 'Unknown';
@@ -171,6 +179,10 @@ export function IndexingStatusItem() {
             <dd>{snapshot.worker?.state ?? 'Unknown'}</dd>
           </div>
           <div className="flex justify-between gap-3">
+            <dt className="text-muted-foreground">Database QoS</dt>
+            <dd className="max-w-[250px] text-right">{formatDatabaseWorkSummary(snapshot)}</dd>
+          </div>
+          <div className="flex justify-between gap-3">
             <dt className="text-muted-foreground">Updated</dt>
             <dd>{formatLastUpdated(snapshot.lastUpdatedAt)}</dd>
           </div>
@@ -202,6 +214,13 @@ export function IndexingStatusItem() {
             <div className="text-muted-foreground">
               {snapshot.background.pauseReasons.join(' / ')}
             </div>
+          </div>
+        ) : null}
+
+        {snapshot.databaseWork?.backgroundWaiting ? (
+          <div className="rounded-md border border-border bg-muted/40 p-2 text-xs">
+            <div className="font-medium">Yielding to foreground database work</div>
+            <div className="text-muted-foreground">{formatDatabaseWorkSummary(snapshot)}</div>
           </div>
         ) : null}
 

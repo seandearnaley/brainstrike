@@ -43,9 +43,21 @@ export interface IndexingWorkerSnapshot {
   readonly state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping' | 'unknown';
 }
 
+export type IndexingDatabaseWorkPriority = 'foreground' | 'normal' | 'background';
+
+export interface IndexingDatabaseWorkSnapshot {
+  readonly backgroundWaiting: boolean;
+  readonly backgroundWaitingSince: number | null;
+  readonly lastForegroundAt: number | null;
+  readonly queued: Record<IndexingDatabaseWorkPriority, number>;
+  readonly runningLabel: string | null;
+  readonly runningPriority: IndexingDatabaseWorkPriority | null;
+}
+
 export interface IndexingActivitySnapshot {
   readonly activeBackfills: readonly IndexingBackfillSnapshot[];
   readonly background: IndexingBackgroundSnapshot;
+  readonly databaseWork: IndexingDatabaseWorkSnapshot | null;
   readonly lastError: string | null;
   readonly lastUpdatedAt: number | null;
   readonly phase: IndexingActivityPhase;
@@ -63,6 +75,7 @@ interface IndexingActivityActions {
   readonly resetIndexingActivity: () => void;
   readonly setBackfills: (backfills: readonly IndexingBackfillSnapshot[]) => void;
   readonly setBackgroundSnapshot: (background: IndexingBackgroundSnapshot) => void;
+  readonly setDatabaseWorkSnapshot: (databaseWork: IndexingDatabaseWorkSnapshot | null) => void;
   readonly setIndexingActivityError: (error: string | null) => void;
   readonly setQueueSnapshot: (queue: IndexingQueueSnapshot | null) => void;
   readonly setWorkerSnapshot: (worker: IndexingWorkerSnapshot | null) => void;
@@ -72,7 +85,7 @@ export type IndexingActivityStore = IndexingActivityData & IndexingActivityActio
 
 type IndexingActivitySnapshotInput = Pick<
   IndexingActivitySnapshot,
-  'activeBackfills' | 'background' | 'lastUpdatedAt' | 'queue' | 'worker'
+  'activeBackfills' | 'background' | 'databaseWork' | 'lastUpdatedAt' | 'queue' | 'worker'
 > & {
   readonly activityError: string | null;
 };
@@ -93,6 +106,7 @@ const DEFAULT_INDEXING_ACTIVITY_SNAPSHOT: IndexingActivitySnapshot = {
   queue: null,
   activeBackfills: [],
   background: DEFAULT_BACKGROUND_SNAPSHOT,
+  databaseWork: null,
   worker: null,
   lastError: null,
   lastUpdatedAt: null,
@@ -104,6 +118,17 @@ function isQueueActive(queue: IndexingQueueSnapshot | null): boolean {
 
 function isQueueErrored(queue: IndexingQueueSnapshot | null): boolean {
   return queue !== null && queue.failed > 0;
+}
+
+function isDatabaseWorkActive(databaseWork: IndexingDatabaseWorkSnapshot | null): boolean {
+  return (
+    databaseWork !== null &&
+    (databaseWork.backgroundWaiting ||
+      databaseWork.runningPriority !== null ||
+      databaseWork.queued.foreground > 0 ||
+      databaseWork.queued.normal > 0 ||
+      databaseWork.queued.background > 0)
+  );
 }
 
 function isBackgroundActive(background: IndexingBackgroundSnapshot): boolean {
@@ -161,6 +186,7 @@ function buildSnapshot(
   return {
     activeBackfills: args.activeBackfills,
     background: args.background,
+    databaseWork: args.databaseWork,
     lastUpdatedAt: args.lastUpdatedAt,
     queue: args.queue,
     worker: args.worker,
@@ -238,6 +264,17 @@ function deriveActiveSnapshot(
     });
   }
 
+  if (isDatabaseWorkActive(args.databaseWork)) {
+    return buildSnapshot(args, {
+      lastError: null,
+      phase:
+        args.databaseWork?.backgroundWaiting || args.databaseWork?.runningPriority === 'background'
+          ? 'background-indexing'
+          : 'queue',
+      status: 'active',
+    });
+  }
+
   return null;
 }
 
@@ -268,7 +305,12 @@ function deriveSnapshot(args: IndexingActivitySnapshotInput): IndexingActivitySn
     });
   }
 
-  if (args.queue !== null || !isBackgroundUnavailable(args.background) || args.worker !== null) {
+  if (
+    args.queue !== null ||
+    args.databaseWork !== null ||
+    !isBackgroundUnavailable(args.background) ||
+    args.worker !== null
+  ) {
     return buildSnapshot(args, {
       lastError: null,
       phase: null,
@@ -289,7 +331,7 @@ function deriveNextSnapshot(
   patch: Partial<
     Pick<
       IndexingActivitySnapshot,
-      'activeBackfills' | 'background' | 'lastUpdatedAt' | 'queue' | 'worker'
+      'activeBackfills' | 'background' | 'databaseWork' | 'lastUpdatedAt' | 'queue' | 'worker'
     >
   >
 ): IndexingActivitySnapshot {
@@ -297,6 +339,7 @@ function deriveNextSnapshot(
     activityError,
     activeBackfills: patch.activeBackfills ?? current.activeBackfills,
     background: patch.background ?? current.background,
+    databaseWork: patch.databaseWork === undefined ? current.databaseWork : patch.databaseWork,
     lastUpdatedAt: patch.lastUpdatedAt ?? current.lastUpdatedAt,
     queue: patch.queue === undefined ? current.queue : patch.queue,
     worker: patch.worker === undefined ? current.worker : patch.worker,
@@ -338,6 +381,13 @@ export const useIndexingActivityStore = create<IndexingActivityStore>()((set) =>
           ...background,
           pauseReasons: [...background.pauseReasons],
         },
+        lastUpdatedAt: now(),
+      }),
+    })),
+  setDatabaseWorkSnapshot: (databaseWork: IndexingDatabaseWorkSnapshot | null) =>
+    set((state) => ({
+      snapshot: deriveNextSnapshot(state.snapshot, state.indexingActivityError, {
+        databaseWork,
         lastUpdatedAt: now(),
       }),
     })),

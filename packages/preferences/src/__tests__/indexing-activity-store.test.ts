@@ -24,6 +24,7 @@ describe('indexing-activity-store', () => {
         state: 'disabled',
         pauseReasons: [],
       },
+      databaseWork: null,
       worker: null,
       lastError: null,
       lastUpdatedAt: null,
@@ -71,6 +72,26 @@ describe('indexing-activity-store', () => {
         failed: 0,
         succeeded: 20,
         nextRunnableAt: '2026-04-25T12:00:00.000Z',
+      },
+    });
+  });
+
+  it('reports active background indexing when database work is yielding to foreground work', () => {
+    useIndexingActivityStore.getState().setDatabaseWorkSnapshot({
+      backgroundWaiting: true,
+      backgroundWaitingSince: 1000,
+      lastForegroundAt: 900,
+      queued: { foreground: 1, normal: 0, background: 4 },
+      runningLabel: null,
+      runningPriority: null,
+    });
+
+    expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
+      status: 'active',
+      phase: 'background-indexing',
+      databaseWork: {
+        backgroundWaiting: true,
+        queued: { foreground: 1, normal: 0, background: 4 },
       },
     });
   });

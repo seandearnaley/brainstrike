@@ -101,4 +101,24 @@ describe('IndexingStatusItem', () => {
 
     expect(screen.getByTestId('indexing-status-item')).toHaveTextContent('Indexing:Blocked');
   });
+
+  it('shows when background indexing is yielding to foreground database work', async () => {
+    useIndexingActivityStore.getState().setDatabaseWorkSnapshot({
+      backgroundWaiting: true,
+      backgroundWaitingSince: 1000,
+      lastForegroundAt: 950,
+      queued: { foreground: 2, normal: 0, background: 5 },
+      runningLabel: null,
+      runningPriority: null,
+    });
+
+    render(<IndexingStatusItem />);
+
+    expect(screen.getByTestId('indexing-status-item')).toHaveTextContent('Indexing:Background');
+
+    await userEvent.click(screen.getByTestId('indexing-status-trigger'));
+
+    expect(await screen.findByText('Yielding to foreground database work')).toBeInTheDocument();
+    expect(screen.getAllByText('2 foreground / 0 normal / 5 background')).toHaveLength(2);
+  });
 });

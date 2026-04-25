@@ -1,6 +1,12 @@
-import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
+import {
+  getDatabaseWorkScheduler,
+  makeLiveQueryKey,
+  usePGliteDatabase,
+  usePGliteLiveQuery,
+} from '@brainstrike/db';
 import {
   type IndexingBackfillSnapshot,
+  type IndexingDatabaseWorkSnapshot,
   type IndexingQueueSnapshot,
   type IndexingWorkerSnapshot,
   useBackgroundIndexingPreferencesStore,
@@ -27,6 +33,7 @@ const QUEUE_AGGREGATE_QUERY = `
   FROM job_queue
   WHERE queue = $1
 `.trim();
+const DATABASE_WORK_SNAPSHOT_POLL_MS = 500;
 
 interface QueueAggregateRow {
   readonly failed: number | string | null;
@@ -91,12 +98,23 @@ function normalizeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function getElectronDatabaseWorkSnapshot(): (() => Promise<IndexingDatabaseWorkSnapshot>) | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  return window.electronAPI?.db?.schedulerSnapshot ?? null;
+}
+
 export function IndexingActivityCoordinator(): null {
+  const db = usePGliteDatabase();
   const { controller } = useSharedEmbeddingRuntime();
   const setQueueSnapshot = useIndexingActivityStore((state) => state.setQueueSnapshot);
   const setBackfills = useIndexingActivityStore((state) => state.setBackfills);
   const setWorkerSnapshot = useIndexingActivityStore((state) => state.setWorkerSnapshot);
   const setBackgroundSnapshot = useIndexingActivityStore((state) => state.setBackgroundSnapshot);
+  const setDatabaseWorkSnapshot = useIndexingActivityStore(
+    (state) => state.setDatabaseWorkSnapshot
+  );
   const setIndexingActivityError = useIndexingActivityStore(
     (state) => state.setIndexingActivityError
   );
@@ -122,6 +140,45 @@ export function IndexingActivityCoordinator(): null {
     cacheKey: makeLiveQueryKey('indexing-activity', EMBEDDINGS_QUEUE),
     enabled: true,
   });
+
+  useEffect(() => {
+    const scheduler = getDatabaseWorkScheduler(db);
+    if (scheduler) {
+      setDatabaseWorkSnapshot(scheduler.getSnapshot());
+      return scheduler.subscribe(setDatabaseWorkSnapshot);
+    }
+
+    const readElectronSnapshot = getElectronDatabaseWorkSnapshot();
+    if (!readElectronSnapshot) {
+      setDatabaseWorkSnapshot(null);
+      return;
+    }
+
+    let disposed = false;
+    const refresh = async (): Promise<void> => {
+      try {
+        const snapshot = await readElectronSnapshot();
+        if (!disposed) {
+          setDatabaseWorkSnapshot(snapshot);
+        }
+      } catch (error) {
+        if (!disposed) {
+          setIndexingActivityError(normalizeError(error));
+        }
+      }
+    };
+
+    void refresh();
+    const interval = window.setInterval(() => {
+      void refresh();
+    }, DATABASE_WORK_SNAPSHOT_POLL_MS);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+      setDatabaseWorkSnapshot(null);
+    };
+  }, [db, setDatabaseWorkSnapshot, setIndexingActivityError]);
 
   useEffect(() => {
     if (queueResult.loading) {

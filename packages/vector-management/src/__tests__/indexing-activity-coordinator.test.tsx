@@ -23,13 +23,29 @@ import type {
   EmbeddingRuntimeStatus,
 } from '../vector-status/embedding-runtime-controller';
 
-const { makeLiveQueryKeyMock, usePGliteLiveQueryMock, useSharedEmbeddingRuntimeMock } = vi.hoisted(
-  () => ({
+const {
+  databaseWorkSchedulerState,
+  getDatabaseWorkSchedulerMock,
+  makeLiveQueryKeyMock,
+  usePGliteDatabaseMock,
+  usePGliteLiveQueryMock,
+  useSharedEmbeddingRuntimeMock,
+} = vi.hoisted(() => {
+  const databaseWorkSchedulerState = {
+    current: null as {
+      getSnapshot: ReturnType<typeof vi.fn>;
+      subscribe: ReturnType<typeof vi.fn>;
+    } | null,
+  };
+  return {
+    databaseWorkSchedulerState,
+    getDatabaseWorkSchedulerMock: vi.fn(() => databaseWorkSchedulerState.current),
     makeLiveQueryKeyMock: vi.fn((...args: readonly unknown[]) => JSON.stringify(args)),
+    usePGliteDatabaseMock: vi.fn((): unknown => null),
     usePGliteLiveQueryMock: vi.fn(),
     useSharedEmbeddingRuntimeMock: vi.fn(),
-  })
-);
+  };
+});
 
 interface LiveQueryState {
   error: Error | null;
@@ -44,7 +60,9 @@ const liveQueryState: LiveQueryState = {
 };
 
 vi.mock('@brainstrike/db', () => ({
+  getDatabaseWorkScheduler: getDatabaseWorkSchedulerMock,
   makeLiveQueryKey: makeLiveQueryKeyMock,
+  usePGliteDatabase: usePGliteDatabaseMock,
   usePGliteLiveQuery: usePGliteLiveQueryMock,
 }));
 
@@ -117,6 +135,8 @@ describe('IndexingActivityCoordinator', () => {
     liveQueryState.rows = [];
     liveQueryState.loading = false;
     liveQueryState.error = null;
+    databaseWorkSchedulerState.current = null;
+    usePGliteDatabaseMock.mockReturnValue(null);
     usePGliteLiveQueryMock.mockImplementation(() => ({
       rows: liveQueryState.rows,
       loading: liveQueryState.loading,
@@ -266,6 +286,59 @@ describe('IndexingActivityCoordinator', () => {
           state: 'paused',
           pauseReasons: ['Paused manually'],
         },
+      });
+    });
+  });
+
+  it('mirrors direct database scheduler pressure into the canonical snapshot', async () => {
+    const listeners = new Set<
+      (snapshot: {
+        backgroundWaiting: boolean;
+        backgroundWaitingSince: number | null;
+        lastForegroundAt: number | null;
+        queued: { background: number; foreground: number; normal: number };
+        runningLabel: string | null;
+        runningPriority: 'foreground' | 'normal' | 'background' | null;
+      }) => void
+    >();
+    const initialSnapshot = {
+      backgroundWaiting: false,
+      backgroundWaitingSince: null,
+      lastForegroundAt: null,
+      queued: { foreground: 0, normal: 0, background: 0 },
+      runningLabel: null,
+      runningPriority: null,
+    } as const;
+    databaseWorkSchedulerState.current = {
+      getSnapshot: vi.fn(() => initialSnapshot),
+      subscribe: vi.fn((listener) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      }),
+    };
+    usePGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
+
+    render(<IndexingActivityCoordinator />);
+
+    const pressureSnapshot = {
+      backgroundWaiting: true,
+      backgroundWaitingSince: 1000,
+      lastForegroundAt: 950,
+      queued: { foreground: 1, normal: 0, background: 4 },
+      runningLabel: null,
+      runningPriority: null,
+    } as const;
+    for (const listener of listeners) {
+      listener(pressureSnapshot);
+    }
+
+    await waitFor(() => {
+      expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
+        status: 'active',
+        phase: 'background-indexing',
+        databaseWork: pressureSnapshot,
       });
     });
   });
