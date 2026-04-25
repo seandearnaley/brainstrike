@@ -1,0 +1,131 @@
+import { describe, expect, it, vi } from 'vitest';
+import {
+  createDatabaseWorkScheduler,
+  createPriorityDbHandle,
+  createScheduledDbHandle,
+  type DatabaseWorkPriority,
+} from '../src/database-work-scheduler';
+
+describe('DatabaseWorkScheduler', () => {
+  it('runs foreground work before queued background work during the quiet window', async () => {
+    vi.useFakeTimers();
+    try {
+      const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 50 });
+      const events: string[] = [];
+
+      await scheduler.run(
+        async () => {
+          events.push('foreground-1');
+        },
+        { priority: 'foreground', label: 'initial foreground' }
+      );
+
+      const background = scheduler.run(
+        async () => {
+          events.push('background');
+        },
+        { priority: 'background', label: 'background import' }
+      );
+
+      await Promise.resolve();
+      expect(events).toEqual(['foreground-1']);
+      expect(scheduler.getSnapshot()).toMatchObject({
+        queued: { background: 1, foreground: 0, normal: 0 },
+        backgroundWaiting: true,
+      });
+
+      const foreground = scheduler.run(
+        async () => {
+          events.push('foreground-2');
+        },
+        { priority: 'foreground', label: 'collection page' }
+      );
+
+      await foreground;
+      expect(events).toEqual(['foreground-1', 'foreground-2']);
+
+      await vi.advanceTimersByTimeAsync(49);
+      expect(events).toEqual(['foreground-1', 'foreground-2']);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await background;
+      expect(events).toEqual(['foreground-1', 'foreground-2', 'background']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('preserves FIFO order within the same priority', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    const events: string[] = [];
+
+    await Promise.all([
+      scheduler.run(
+        async () => {
+          events.push('normal-1');
+        },
+        { priority: 'normal' }
+      ),
+      scheduler.run(
+        async () => {
+          events.push('normal-2');
+        },
+        { priority: 'normal' }
+      ),
+      scheduler.run(
+        async () => {
+          events.push('normal-3');
+        },
+        { priority: 'normal' }
+      ),
+    ]);
+
+    expect(events).toEqual(['normal-1', 'normal-2', 'normal-3']);
+  });
+
+  it('propagates operation errors without blocking later work', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    const expectedError = new Error('query failed');
+
+    await expect(
+      scheduler.run(
+        async () => {
+          throw expectedError;
+        },
+        { priority: 'foreground', label: 'broken query' }
+      )
+    ).rejects.toBe(expectedError);
+
+    await expect(
+      scheduler.run(async () => 'recovered', { priority: 'foreground', label: 'next query' })
+    ).resolves.toBe('recovered');
+  });
+
+  it('wraps database handles with scheduled default and explicit priority lanes', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    const seenPriorities: DatabaseWorkPriority[] = [];
+    scheduler.subscribe((snapshot) => {
+      if (snapshot.runningPriority) {
+        seenPriorities.push(snapshot.runningPriority);
+      }
+    });
+
+    const rawDb = {
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
+        rows: [] as T[],
+      })),
+      exec: vi.fn(async (_sql: string, _params?: unknown[]) => undefined),
+    };
+
+    const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground');
+    const background = createPriorityDbHandle(scheduled, 'background');
+
+    await scheduled.query('SELECT foreground');
+    await background.query('SELECT background');
+    await background.exec?.('UPDATE background');
+
+    expect(rawDb.query).toHaveBeenCalledTimes(2);
+    expect(rawDb.exec).toHaveBeenCalledTimes(1);
+    expect(seenPriorities).toEqual(['foreground', 'background', 'background']);
+  });
+});
