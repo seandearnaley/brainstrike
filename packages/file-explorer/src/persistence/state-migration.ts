@@ -156,16 +156,15 @@ export function migrateState(
       shouldLog
     );
   }
-  const migrated = serialized;
   if (shouldLog) {
     logger.debug('Migrate - Returning valid SerializedState summary', {
-      currentFolderId: migrated.currentFolderId,
-      folderStateCount: Object.keys(migrated.folderStates ?? {}).length,
-      hasSelectionModel: Boolean(migrated.selectionModel),
-      selectedFileCount: Array.isArray(migrated.selectedFilePaths)
-        ? migrated.selectedFilePaths.length
+      currentFolderId: serialized.currentFolderId,
+      folderStateCount: Object.keys(serialized.folderStates ?? {}).length,
+      hasSelectionModel: Boolean(serialized.selectionModel),
+      selectedFileCount: Array.isArray(serialized.selectedFilePaths)
+        ? serialized.selectedFilePaths.length
         : 0,
     });
   }
-  return migrated;
+  return serialized;
 }
