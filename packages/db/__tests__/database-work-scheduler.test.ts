@@ -162,4 +162,38 @@ describe('DatabaseWorkScheduler', () => {
     expect(txDb.query).toHaveBeenCalledTimes(1);
     expect(seenPriorities).toEqual(['background']);
   });
+
+  it('schedules direct live query creation and refresh on the handle default lane', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    const seenPriorities: DatabaseWorkPriority[] = [];
+    scheduler.subscribe((snapshot) => {
+      if (snapshot.runningPriority) {
+        seenPriorities.push(snapshot.runningPriority);
+      }
+    });
+
+    const liveHandle = {
+      initialResults: { rows: [] },
+      refresh: vi.fn(async () => undefined),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(async () => undefined),
+    };
+    const rawDb = {
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
+        rows: [] as T[],
+      })),
+      live: {
+        query: vi.fn(async () => liveHandle),
+        incrementalQuery: vi.fn(async () => liveHandle),
+      },
+    };
+
+    const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground') as typeof rawDb;
+    const handle = await scheduled.live.query({ query: 'SELECT 1' });
+    await handle.refresh();
+
+    expect(rawDb.live.query).toHaveBeenCalledTimes(1);
+    expect(liveHandle.refresh).toHaveBeenCalledTimes(1);
+    expect(seenPriorities).toEqual(['foreground', 'foreground']);
+  });
 });

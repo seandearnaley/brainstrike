@@ -1,8 +1,10 @@
 import {
   applyManagedCacheBatch as applyManagedCacheBatchLocally,
-  useEmbeddingSetsRepository,
-  useFileChunkRepository,
-  useFileRecordRepository,
+  createPriorityDbHandle,
+  type DbHandle,
+  ElectronEmbeddingSetsRepository,
+  ElectronFileChunkRepository,
+  ElectronFileRecordRepository,
   usePGliteDatabase,
 } from '@brainstrike/db';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
@@ -25,9 +27,28 @@ import { WorkspaceCollectionSyncService } from './workspace-collection-sync-serv
 
 const logger = createLogger('WorkspaceCollectionSyncProvider');
 export const FILE_EXPLORER_REFRESH_EVENT = 'brainstrike:file-explorer-refreshed';
+const BACKGROUND_DATABASE_WORK_OPTIONS = {
+  label: 'background indexing',
+  priority: 'background',
+} as const;
 
 export interface WorkspaceCollectionSyncProviderProps {
   children: ReactNode;
+}
+
+function createBackgroundRepositoryDb(db: DbHandle): {
+  exec: (sql: string) => Promise<void>;
+  query: DbHandle['query'];
+} {
+  if (!db.exec) {
+    throw new Error('Background indexing requires database exec support.');
+  }
+  return {
+    query: db.query,
+    exec: async (sql: string) => {
+      await db.exec?.(sql);
+    },
+  };
 }
 
 export function WorkspaceCollectionSyncProvider({
@@ -37,9 +58,18 @@ export function WorkspaceCollectionSyncProvider({
   const { isAccessLoading, rootDirectoryHandle } = useFileSystem();
   const fileTreeContext = useOptionalFileTreeContext();
   const db = usePGliteDatabase();
-  const fileRecordRepository = useFileRecordRepository();
-  const chunkRepository = useFileChunkRepository();
-  const embeddingSetsRepository = useEmbeddingSetsRepository();
+  const backgroundDb = useMemo(() => (db ? createPriorityDbHandle(db, 'background') : null), [db]);
+  const backgroundRepositories = useMemo(() => {
+    if (!backgroundDb) {
+      return null;
+    }
+    const repositoryDb = createBackgroundRepositoryDb(backgroundDb);
+    return {
+      chunkRepository: new ElectronFileChunkRepository(repositoryDb),
+      embeddingSetsRepository: new ElectronEmbeddingSetsRepository(repositoryDb),
+      fileRecordRepository: new ElectronFileRecordRepository(repositoryDb),
+    };
+  }, [backgroundDb]);
   const { ensureStarted: ensureChunkingWorker } = useChunkingWorkerContext();
   const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
   const managedCollectionId = useBackgroundIndexingPreferencesStore(
@@ -108,10 +138,12 @@ export function WorkspaceCollectionSyncProvider({
     if (
       !(
         db &&
+        backgroundDb &&
+        backgroundRepositories &&
         fileSystemAdapter &&
-        fileRecordRepository &&
-        chunkRepository &&
-        embeddingSetsRepository
+        backgroundRepositories.fileRecordRepository &&
+        backgroundRepositories.chunkRepository &&
+        backgroundRepositories.embeddingSetsRepository
       )
     ) {
       return null;
@@ -120,23 +152,23 @@ export function WorkspaceCollectionSyncProvider({
       applyManagedCacheBatch: async (args) => {
         const electronApplyManagedCacheBatch = window.electronAPI?.db?.applyManagedCacheBatch;
         if (electronApplyManagedCacheBatch) {
-          await electronApplyManagedCacheBatch(args);
+          await electronApplyManagedCacheBatch(args, BACKGROUND_DATABASE_WORK_OPTIONS);
           return;
         }
-        await applyManagedCacheBatchLocally(db, args);
+        await applyManagedCacheBatchLocally(backgroundDb, args);
       },
       cancelBackfill: async (embeddingSetId) => {
         await runtimeController.cancelBackfill(embeddingSetId);
       },
-      chunkRepository,
-      db,
-      embeddingSetsRepository,
+      chunkRepository: backgroundRepositories.chunkRepository,
+      db: backgroundDb,
+      embeddingSetsRepository: backgroundRepositories.embeddingSetsRepository,
       enqueueBackfill: async (embeddingSetId, options) =>
         await runtimeController.enqueueBackfill(embeddingSetId, options),
       ensureChunkingWorker,
       ensureEmbeddingRuntimeStarted,
       fileSystemAdapter,
-      fileRecordRepository,
+      fileRecordRepository: backgroundRepositories.fileRecordRepository,
       getBackfillsInFlight: async () => await runtimeController.getBackfillsInFlight(),
       log: logger,
       onManagedCollectionMissing: (missingCollectionId) => {
@@ -153,12 +185,11 @@ export function WorkspaceCollectionSyncProvider({
       validateHostedProviderAccess,
     });
   }, [
-    chunkRepository,
+    backgroundDb,
+    backgroundRepositories,
     db,
-    embeddingSetsRepository,
     ensureEmbeddingRuntimeStarted,
     ensureChunkingWorker,
-    fileRecordRepository,
     fileSystemAdapter,
     runtimeController,
     setManagedCollectionId,

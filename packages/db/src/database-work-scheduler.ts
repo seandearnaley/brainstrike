@@ -49,6 +49,7 @@ interface ScheduledTask<T> {
 }
 
 type QueuedTask = ScheduledTask<unknown>;
+type CallableUnknown = (...args: unknown[]) => unknown;
 
 const PRIORITY_ORDER: readonly DatabaseWorkPriority[] = ['foreground', 'normal', 'background'];
 const DEFAULT_FOREGROUND_QUIET_MS = 75;
@@ -258,9 +259,14 @@ function getSchedulerFromHandle(handle: unknown): DatabaseWorkScheduler | null {
     return null;
   }
   const scheduler = (handle as { [SCHEDULER_SYMBOL]?: unknown })[SCHEDULER_SYMBOL];
-  return scheduler && typeof scheduler === 'object' && 'run' in scheduler
-    ? (scheduler as DatabaseWorkScheduler)
-    : null;
+  if (scheduler && typeof scheduler === 'object' && 'run' in scheduler) {
+    return scheduler as DatabaseWorkScheduler;
+  }
+  const raw = (handle as { raw?: unknown }).raw;
+  if (raw && raw !== handle) {
+    return getSchedulerFromHandle(raw);
+  }
+  return null;
 }
 
 function getDefaultPriorityFromHandle(handle: unknown): DatabaseWorkPriority | null {
@@ -268,9 +274,14 @@ function getDefaultPriorityFromHandle(handle: unknown): DatabaseWorkPriority | n
     return null;
   }
   const priority = (handle as { [DEFAULT_PRIORITY_SYMBOL]?: unknown })[DEFAULT_PRIORITY_SYMBOL];
-  return priority === 'foreground' || priority === 'normal' || priority === 'background'
-    ? priority
-    : null;
+  if (priority === 'foreground' || priority === 'normal' || priority === 'background') {
+    return priority;
+  }
+  const raw = (handle as { raw?: unknown }).raw;
+  if (raw && raw !== handle) {
+    return getDefaultPriorityFromHandle(raw);
+  }
+  return null;
 }
 
 function mergeOptions(
@@ -281,6 +292,62 @@ function mergeOptions(
     ...(options ?? {}),
     priority: options?.priority ?? defaultPriority,
   };
+}
+
+function isObjectRecord(value: unknown): value is Record<PropertyKey, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function createScheduledLiveQueryHandle<THandle extends object>(
+  handle: THandle,
+  scheduler: DatabaseWorkScheduler,
+  priority: DatabaseWorkPriority
+): THandle {
+  return new Proxy(handle, {
+    get(target, property, receiver) {
+      if (property === 'refresh') {
+        const refresh = Reflect.get(target, property, receiver);
+        if (typeof refresh !== 'function') {
+          return refresh;
+        }
+        return async (...args: unknown[]) =>
+          await scheduler.run(
+            async () => await Reflect.apply(refresh as CallableUnknown, target, args),
+            { priority, label: 'live query refresh' }
+          );
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}
+
+function createScheduledLiveNamespace<TLive extends object>(
+  live: TLive,
+  scheduler: DatabaseWorkScheduler,
+  priority: DatabaseWorkPriority
+): TLive {
+  return new Proxy(live, {
+    get(target, property, receiver) {
+      if (property === 'query' || property === 'incrementalQuery') {
+        const startLiveQuery = Reflect.get(target, property, receiver);
+        if (typeof startLiveQuery !== 'function') {
+          return startLiveQuery;
+        }
+        const label = property === 'query' ? 'live query' : 'live incremental query';
+        return async (...args: unknown[]) =>
+          await scheduler.run(
+            async () => {
+              const handle = await Reflect.apply(startLiveQuery as CallableUnknown, target, args);
+              return isObjectRecord(handle)
+                ? createScheduledLiveQueryHandle(handle, scheduler, priority)
+                : handle;
+            },
+            { priority, label }
+          );
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
 }
 
 function createPriorityOptionsDbHandle<TDatabase extends object & ScheduledDbHandle>(
@@ -318,6 +385,12 @@ function createPriorityOptionsDbHandle<TDatabase extends object & ScheduledDbHan
       }
       if (property === 'transaction') {
         return prioritizedTransaction;
+      }
+      if (property === 'live') {
+        const live = Reflect.get(target, property, receiver);
+        return scheduler && isObjectRecord(live)
+          ? createScheduledLiveNamespace(live, scheduler, priority)
+          : live;
       }
       if (property === SCHEDULER_SYMBOL) {
         return scheduler;
@@ -384,6 +457,12 @@ export function createScheduledDbHandle<TDatabase extends object & ScheduledDbHa
       }
       if (property === 'transaction') {
         return scheduledTransaction;
+      }
+      if (property === 'live') {
+        const live = Reflect.get(target, property, receiver);
+        return isObjectRecord(live)
+          ? createScheduledLiveNamespace(live, scheduler, defaultPriority)
+          : live;
       }
       if (property === SCHEDULER_SYMBOL) {
         return scheduler;

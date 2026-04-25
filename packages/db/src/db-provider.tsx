@@ -11,6 +11,13 @@ import {
   useRef,
   useState,
 } from 'react';
+import {
+  createDatabaseWorkScheduler,
+  createScheduledDbHandle,
+  type DatabaseWorkOptions,
+  type DatabaseWorkPriority,
+  type ScheduledDbHandle,
+} from './database-work-scheduler.js';
 import { type DrizzleDb, drizzle } from './drizzle/database.js';
 import { migrate } from './migrations/bootstrap.js';
 import { DrizzleFileChunkRepository } from './repositories/drizzle/file-chunk-repository.js';
@@ -102,13 +109,17 @@ async function loadDrizzleViewFilterPresetsRepository() {
 }
 
 export interface DbHandle extends IDatabase {
-  exec?: (sql: string, params?: unknown[]) => Promise<unknown>;
+  exec?: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) => Promise<unknown>;
   readonly raw?: unknown;
 }
 
 interface QueryExecutor {
-  exec?: (sql: string, params?: unknown[]) => Promise<unknown>;
-  query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+  exec?: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) => Promise<unknown>;
+  query: <T = unknown>(
+    sql: string,
+    params?: unknown[],
+    options?: DatabaseWorkOptions
+  ) => Promise<{ rows: T[] }>;
   transaction?: <T>(fn: (tx: QueryExecutor) => Promise<T>) => Promise<T>;
 }
 
@@ -179,13 +190,21 @@ function clearActiveEmbeddingSetIdFromStorage(): void {
 }
 
 function createDbHandle(executor: QueryExecutor): DbHandle {
-  const query = executor.query.bind(executor) as DbHandle['query'];
+  const query: DbHandle['query'] = async <T = unknown>(
+    sql: string,
+    params?: unknown[],
+    options?: DatabaseWorkOptions
+  ) => {
+    const result = await executor.query(sql, params, options);
+    return { rows: result.rows as T[] };
+  };
   const handle: DbHandle = {
     query,
   };
 
   if (typeof executor.exec === 'function') {
-    handle.exec = executor.exec.bind(executor);
+    handle.exec = async (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
+      await executor.exec?.(sql, params, options);
   }
 
   if (typeof executor.transaction === 'function') {
@@ -203,6 +222,15 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
   });
 
   return handle;
+}
+
+function getRendererDefaultDatabaseWorkPriority(): DatabaseWorkPriority {
+  if (typeof window === 'undefined') {
+    return 'foreground';
+  }
+  const search = window.location?.search ?? '';
+  const mode = new URLSearchParams(search).get('mode');
+  return mode === 'embedding-host' || mode === 'chunking-host' ? 'background' : 'foreground';
 }
 
 function formatDesktopDatabaseInitError(
@@ -329,6 +357,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const connectionRef = useRef<DbConnection | null>(null);
   const initializingRef = useRef<boolean>(false);
   const initializingPromiseRef = useRef<Promise<void> | null>(null);
+  const databaseWorkSchedulerRef = useRef(createDatabaseWorkScheduler());
 
   const testElectronConnection = useCallback(async (electronDB: ElectronDatabaseAPI) => {
     if (!electronDB.test) {
@@ -362,15 +391,15 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         throw new Error('Electron database exec operation is unavailable over IPC');
       }
 
-      const exec: (sql: string) => Promise<void> = async (sql) => {
-        await electronExec(sql);
+      const repositoryDb = {
+        query: electronDB.query,
+        exec: async (sql: string) => {
+          await electronExec(sql);
+        },
       };
 
       // The repository doesn't need the test method, so we can pass just the db interface
-      const repository = new ElectronFileRecordRepository({
-        query: electronDB.query,
-        exec,
-      });
+      const repository = new ElectronFileRecordRepository(repositoryDb);
       // Detect pgvector extension availability over IPC
       let hasVector = false;
       let diagnostics: DatabaseDiagnosticsSnapshot | null = null;
@@ -391,23 +420,14 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
           formatDesktopDatabaseInitError(diagnostics, 'Desktop database failed to initialize.')
         );
       }
-      const chunkRepo = new ElectronFileChunkRepository({
-        query: electronDB.query,
-        exec,
-      });
+      const chunkRepo = new ElectronFileChunkRepository(repositoryDb);
 
       // Dynamic import via module-level helpers (avoids import() in component scope)
       const ElectronEmbeddingSetsRepo = await loadElectronEmbeddingSetsRepository();
-      const embeddingSetsRepo = new ElectronEmbeddingSetsRepo({
-        query: electronDB.query,
-        exec,
-      });
+      const embeddingSetsRepo = new ElectronEmbeddingSetsRepo(repositoryDb);
 
       const ElectronViewFilterPresetsRepo = await loadElectronViewFilterPresetsRepository();
-      const viewFilterPresetsRepo = new ElectronViewFilterPresetsRepo({
-        query: electronDB.query,
-        exec,
-      });
+      const viewFilterPresetsRepo = new ElectronViewFilterPresetsRepo(repositoryDb);
 
       if (!cancelled.value) {
         connectionRef.current = { kind: 'ipc', bridge: electronDB };
@@ -432,12 +452,20 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       const db = await wasmLoader.createPGlite(resolvedPath);
       connectionRef.current = { kind: 'direct', db, dataDir: resolvedPath };
 
-      await migrate(db);
+      const scheduledDb = createScheduledDbHandle(
+        db as unknown as QueryExecutor & object,
+        databaseWorkSchedulerRef.current,
+        getRendererDefaultDatabaseWorkPriority()
+      ) as unknown as PGlite & ScheduledDbHandle;
+
+      await migrate(scheduledDb);
 
       // Check if pgvector extension is available
       let hasVector = false;
       try {
-        const result = await db.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
+        const result = await scheduledDb.query(
+          "SELECT 1 FROM pg_extension WHERE extname = 'vector'"
+        );
         hasVector = result.rows.length > 0;
         logger.debug('pgvector extension detected', { available: hasVector });
       } catch (err) {
@@ -453,7 +481,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       // Dynamic imports via module-level helpers (avoids import() in component scope)
       const DrizzleEmbeddingSetsRepo = await loadDrizzleEmbeddingSetsRepository();
       const DrizzleViewFilterPresetsRepo = await loadDrizzleViewFilterPresetsRepository();
-      const drizzleInstance = drizzle(db);
+      const drizzleInstance = drizzle(scheduledDb);
       const repository = new DrizzleFileRecordRepository(drizzleInstance);
       const chunkRepo = new DrizzleFileChunkRepository(drizzleInstance);
       const embeddingSetsRepo = new DrizzleEmbeddingSetsRepo(drizzleInstance);
@@ -467,7 +495,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         setVectorEnabled(hasVector);
         setError(null);
         setReady(true);
-        setExposedDb(createDbHandle(db as unknown as QueryExecutor));
+        setExposedDb(createDbHandle(scheduledDb as unknown as QueryExecutor));
       }
     },
     [resolvedPath]
