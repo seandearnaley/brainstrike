@@ -170,6 +170,7 @@ export function useFileSystem() {
     const handle = await selectDirectoryWithErrorMapping(coreApi);
     if (handle) {
       setRootDirectoryHandle(handle);
+      rehydrateCurrentFolderStateIfNeeded(handle.path);
     }
     return handle;
   };

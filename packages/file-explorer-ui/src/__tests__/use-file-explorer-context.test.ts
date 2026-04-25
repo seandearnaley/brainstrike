@@ -395,6 +395,59 @@ describe('useFileExplorer (context)', () => {
       vi.useRealTimers();
     });
 
+    it('preserves recoverable persisted folder state while no web root handle is selected', async () => {
+      vi.mocked(useFileSystem).mockReturnValue({
+        rootDirectoryHandle: null,
+        isAccessLoading: false,
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+        setRootDirectoryHandle: vi.fn(),
+        setAccessLoading: vi.fn(),
+      });
+
+      storeState.currentFolderId = 'brainstrike';
+      storeState.selectedFilePaths = new Set(['brainstrike|@|src/file-0.ts']);
+      storeState.expandedDirectoryPaths = new Set(['src']);
+      storeState.folderStates = {
+        brainstrike: {
+          selectedFilePaths: new Set(['brainstrike|@|src/file-0.ts']),
+          selectionModel: {
+            mode: 'explicit',
+            explicitPaths: new Set(['brainstrike|@|src/file-0.ts']),
+            ruleSetJson: null,
+            materializedPaths: null,
+            materializedAt: null,
+            queryDescriptor: null,
+          },
+          expandedDirectoryPaths: new Set(['src']),
+          includeFilters: [],
+          excludeFilters: [],
+          useRegex: false,
+          includeProjectTree: true,
+          tokenBudget: 100_000,
+          folderSummaryThreshold: 5,
+          maxSelectionCount: 2000,
+          lastActiveTab: 'files',
+          lastAccessed: Date.now(),
+          viewFilterPresetId: null,
+        },
+      };
+
+      vi.useFakeTimers();
+
+      renderHook(() => useFileExplorer());
+
+      await act(async () => {
+        vi.advanceTimersByTime(1500);
+      });
+
+      expect(storeState.clearSelectedFiles).not.toHaveBeenCalled();
+      expect(storeState.setExpandedPaths).not.toHaveBeenCalledWith(new Set());
+
+      vi.useRealTimers();
+    });
+
     it('should NOT clear state when root directory handle exists (regardless of loading state)', () => {
       // Setup: root directory handle exists
       vi.mocked(useFileSystem).mockReturnValue({

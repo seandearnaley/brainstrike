@@ -343,6 +343,90 @@ describe('FileExplorerLeftPanel', () => {
     expect(setAccessLoadingMock).toHaveBeenCalledWith(true);
   });
 
+  it('keeps the recoverable current folder while a web root handle is missing', async () => {
+    const setCurrentFolderId = vi.fn();
+    const storeState = {
+      includeFilters: [],
+      excludeFilters: [],
+      useRegex: false,
+      viewFilterPresetId: null,
+      setFilters: vi.fn(),
+      setUseRegex: vi.fn(),
+      setViewFilterPresetId: vi.fn(),
+      currentFolderId: 'brainstrike',
+      setCurrentFolderId,
+      hydrateFolderState: vi.fn(),
+      maxSelectionCount: 2000,
+      includeProjectTree: true,
+      setIncludeProjectTree: vi.fn(),
+      folderSummaryThreshold: 5,
+      expandAllDirectories: vi.fn(),
+      collapseAllDirectories: vi.fn(),
+      selectionModel: {
+        mode: 'explicit' as const,
+        explicitPaths: new Set<string>(['brainstrike|@|src/file-0.ts']),
+        ruleSetJson: null,
+        materializedPaths: null,
+        materializedAt: null,
+        queryDescriptor: null,
+      },
+      setMaterializedPaths: vi.fn(),
+      quickFilter: '',
+      setQuickFilter: vi.fn(),
+      clearQuickFilter: vi.fn(),
+      isFiltersExpanded: true,
+      setFiltersExpanded: vi.fn(),
+      disabledIncludeFilters: new Set<string>(),
+      disabledExcludeFilters: new Set<string>(),
+      toggleFilterEnabled: vi.fn(),
+      devInlineFixtureEnabled: false,
+      setDevInlineFixtureEnabled: vi.fn(),
+      folderStates: {
+        brainstrike: {
+          selectedFilePaths: new Set<string>(['brainstrike|@|src/file-0.ts']),
+          selectionModel: {
+            mode: 'explicit' as const,
+            explicitPaths: new Set<string>(['brainstrike|@|src/file-0.ts']),
+            ruleSetJson: null,
+            materializedPaths: null,
+            materializedAt: null,
+            queryDescriptor: null,
+          },
+          expandedDirectoryPaths: new Set<string>(['src']),
+          includeFilters: [],
+          excludeFilters: [],
+          useRegex: false,
+          includeProjectTree: true,
+          tokenBudget: 100_000,
+          folderSummaryThreshold: 5,
+          maxSelectionCount: 2000,
+          lastActiveTab: 'files' as const,
+          lastAccessed: Date.now(),
+          viewFilterPresetId: null,
+        },
+      },
+    };
+    const mockStore = Object.assign(
+      (selector?: (s: typeof storeState) => unknown) =>
+        typeof selector === 'function' ? selector(storeState) : storeState,
+      { getState: () => storeState }
+    );
+
+    vi.mocked(useFileExplorerStoreContext).mockReturnValue(
+      mockStore as unknown as ReturnType<typeof useFileExplorerStoreContext>
+    );
+    vi.mocked(useFileExplorer).mockReturnValueOnce({
+      ...fileExplorerReturnValue,
+      rootDirectoryHandle: null,
+      fileTree: [],
+      isLoading: false,
+    });
+
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    expect(setCurrentFolderId).not.toHaveBeenCalledWith(null);
+  });
+
   it('lets the restore modal choose a new root when stale persisted state has no root handle', async () => {
     const { useRestoreAccess } = await import('@brainstrike/file-explorer-hooks');
     const user = userEvent.setup();

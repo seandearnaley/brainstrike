@@ -636,7 +636,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
       // checks IndexedDB for stored handles. Don't clear during this time.
       const isWaitingForRestore =
         isCheckingStoredHandles || pendingRestore || showDeniedBanner || showStaleBanner;
-      if (!isWaitingForRestore) {
+      const hasRecoverablePersistedFolder =
+        currentFolderId !== null && Boolean(store.getState().folderStates[currentFolderId]);
+      if (!(isWaitingForRestore || hasRecoverablePersistedFolder)) {
         setCurrentFolderId(null);
       }
     }

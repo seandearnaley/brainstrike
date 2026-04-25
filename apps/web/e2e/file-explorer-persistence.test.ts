@@ -591,7 +591,7 @@ test.describe('File Explorer persistence (web)', () => {
     ).toHaveCount(0);
   });
 
-  test('allows choosing a new web root after stale persisted selections clear without a handle', async ({
+  test('preserves stale persisted selections and rehydrates them after choosing the root', async ({
     page,
     browserName,
   }) => {
@@ -614,7 +614,7 @@ test.describe('File Explorer persistence (web)', () => {
     const explorer = new FileExplorerPage(page);
     await expect(page.getByText('No directory selected')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: 'Selection count (read-only)' })).toContainText(
-      '0/2000',
+      '2000/2000',
       { timeout: 15_000 }
     );
 
@@ -626,6 +626,10 @@ test.describe('File Explorer persistence (web)', () => {
 
     await explorer.selectRoot();
     await expect(explorer.fileTree.getByText('src')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: 'Selection count (read-only)' })).toContainText(
+      '2000/2000',
+      { timeout: 15_000 }
+    );
   });
 
   test('persists large select-all as query-backed selection instead of giant explicit sets', async ({
