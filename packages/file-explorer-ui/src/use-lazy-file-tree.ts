@@ -80,7 +80,9 @@ function countTreeNodes(nodes: readonly CountableTreeNode[]): number {
     }
     count += 1;
     if (node.children) {
-      stack.push(...node.children);
+      for (const child of node.children) {
+        stack.push(child);
+      }
     }
   }
   return count;
