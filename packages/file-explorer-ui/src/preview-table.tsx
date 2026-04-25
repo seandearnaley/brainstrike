@@ -842,16 +842,10 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     pagination,
   } = props;
 
-  // `size` resolves asynchronously via the FileSystem adapter cache after Select All.
-  // Tests that depend on size-grouped output need a deterministic readiness signal
-  // so they can wait for resolution before asserting on group buckets.
   // The empty-array case must be `false` — otherwise the pre-selection state
-  // (currentPageData = []) would satisfy the contract before any data exists,
-  // letting the race this attribute is meant to prevent slip past the wait.
-  // Scope is intentionally narrow (size only) — `tokens` resolves on a different
-  // pipeline (background indexer) and may never resolve for non-text files, which
-  // would make a token-inclusive readiness gate uncloseable. Add a separate gate
-  // if/when a token-grouping E2E flake surfaces.
+  // (currentPageData = []) would satisfy the contract before any data exists.
+  // Scope is intentionally narrow (size only) — `tokens` may never resolve for
+  // non-text files, which would make a token-inclusive gate uncloseable.
   const rowsReady = useMemo(
     () =>
       currentPageData.length > 0 && currentPageData.every((row) => typeof row.size === 'number'),
