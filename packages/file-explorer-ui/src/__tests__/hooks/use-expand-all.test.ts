@@ -202,6 +202,40 @@ describe('useExpandAll', () => {
     expect(expandedPaths).toEqual(new Set(['/root/src', '/root/src/nested']));
   });
 
+  it('does not enter expand-all when every known directory is already loaded and expanded', async () => {
+    rootNodesRef.current = [
+      createDirectoryNode({
+        name: 'src',
+        path: '/root/src',
+        loadState: 'loaded',
+        children: [
+          createDirectoryNode({
+            name: 'nested',
+            path: '/root/src/nested',
+            depth: 1,
+            loadState: 'loaded',
+            children: [],
+          }),
+        ],
+      }),
+    ];
+    const loadDirectoryPath = vi.fn();
+    const { result } = renderExpandAllHook(loadDirectoryPath);
+    const setExpandedPaths = vi.fn();
+
+    await act(async () => {
+      await result.current.expandAllProgressively(
+        setExpandedPaths,
+        new Set(['/root/src', '/root/src/nested'])
+      );
+    });
+
+    expect(result.current.isExpandingAll).toBe(false);
+    expect(loadDirectoryPath).not.toHaveBeenCalled();
+    expect(setExpandedPaths).not.toHaveBeenCalled();
+    expect(onProgressMock).not.toHaveBeenCalled();
+  });
+
   it('commits expanded paths incrementally across multiple batches', async () => {
     rootNodesRef.current = [
       createDirectoryNode({

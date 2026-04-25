@@ -445,7 +445,8 @@ export interface UseLazyFileTreeReturn {
   expandAllProgress: { loaded: number; total: number } | null;
   /** Progressively expand all directories (loads everything) */
   expandAllProgressively: (
-    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
+    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
+    currentExpandedPaths?: ReadonlySet<string>
   ) => Promise<void>;
   /** Current file tree (lazily loaded) */
   fileTree: IFileNode[];
@@ -1145,7 +1146,8 @@ export function useLazyFileTree(
    */
   const expandAllProgressively = useCallback(
     async (
-      setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
+      setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
+      currentExpandedPaths?: ReadonlySet<string>
     ): Promise<void> => {
       if (!fileSystemAdapter) {
         logger.warn('expandAllProgressively: missing file system adapter');
@@ -1153,7 +1155,7 @@ export function useLazyFileTree(
       }
 
       try {
-        await expandAllFromHook(setExpandedPaths);
+        await expandAllFromHook(setExpandedPaths, currentExpandedPaths);
       } catch (err) {
         logger.error('expandAllProgressively failed', {
           error: err instanceof Error ? err.message : String(err),

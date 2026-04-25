@@ -44,6 +44,41 @@ function shouldSkipExpandAll(isAlreadyStarting: boolean): { skip: boolean; reaso
   return { skip: false };
 }
 
+function hasPendingExpandAllWork(args: {
+  expandedPaths: ReadonlySet<string>;
+  getNodeByPath: (path: string) => IFileNode | undefined;
+  rootDirectoryPaths: readonly string[];
+}): boolean {
+  const { expandedPaths, getNodeByPath, rootDirectoryPaths } = args;
+  const queue = [...new Set(rootDirectoryPaths.filter(Boolean))];
+  let queueIndex = 0;
+
+  while (queueIndex < queue.length) {
+    const path = queue[queueIndex];
+    queueIndex += 1;
+    if (!path) {
+      continue;
+    }
+
+    const node = getNodeByPath(path);
+    if (!(node && node.type === 'directory')) {
+      continue;
+    }
+
+    if (node.loadState !== 'loaded' || !expandedPaths.has(path)) {
+      return true;
+    }
+
+    for (const child of node.children ?? []) {
+      if (child.type === 'directory') {
+        queue.push(child.path);
+      }
+    }
+  }
+
+  return false;
+}
+
 function handleExpandError(err: unknown, onError?: (error: Error) => void): void {
   const isCancelled = isAbortError(err);
   if (!isCancelled) {
@@ -279,7 +314,8 @@ export interface UseExpandAllOptions {
 export interface UseExpandAllReturn {
   cancelExpandAll: () => void;
   expandAllProgressively: (
-    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
+    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
+    currentExpandedPaths?: ReadonlySet<string>
   ) => Promise<void>;
   isExpandingAll: boolean;
   isExpandingAllRef: React.RefObject<boolean>;
@@ -324,13 +360,29 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
 
   const expandAllProgressively = useCallback(
     async (
-      setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
+      setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
+      currentExpandedPaths: ReadonlySet<string> = new Set()
     ): Promise<void> => {
       const skipCheck = shouldSkipExpandAll(isExpandAllStartingRef.current);
       if (skipCheck.skip) {
         if (skipCheck.reason) {
           logger.debug(`expandAllProgressively: ${skipCheck.reason}`);
         }
+        return;
+      }
+
+      const initialRootDirectoryPaths = getRootNodes()
+        .filter((node) => node.type === 'directory')
+        .map((node) => node.path);
+      if (
+        initialRootDirectoryPaths.length === 0 ||
+        !hasPendingExpandAllWork({
+          expandedPaths: currentExpandedPaths,
+          getNodeByPath,
+          rootDirectoryPaths: initialRootDirectoryPaths,
+        })
+      ) {
+        logger.debug('expandAllProgressively: no directories need expansion');
         return;
       }
 
@@ -343,7 +395,7 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
       const sessionId = sessionIdRef.current + 1;
       sessionIdRef.current = sessionId;
 
-      const committedPaths = new Set<string>();
+      const committedPaths = new Set(currentExpandedPaths);
 
       try {
         const result = await runExpandAllSession({

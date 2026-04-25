@@ -653,6 +653,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     if (fileTree && fileTree.length > 0) {
       logger.info('expandAll: calling expandAllProgressively');
       // Use progressive expand-all that loads directories on demand
+      const currentExpandedPaths = store.getState().expandedDirectoryPaths;
       const setExpandedPaths = (updater: (prev: Set<string>) => Set<string>) => {
         const currentPaths = store.getState().expandedDirectoryPaths;
         const newPaths = updater(currentPaths);
@@ -661,7 +662,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         }
         store.getState().setExpandedPaths(newPaths);
       };
-      void expandAllProgressively(setExpandedPaths);
+      void expandAllProgressively(setExpandedPaths, currentExpandedPaths);
     } else {
       logger.warn('expandAll: no file tree or empty tree');
     }
