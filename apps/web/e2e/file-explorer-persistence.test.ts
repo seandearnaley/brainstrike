@@ -515,6 +515,7 @@ test.describe('File Explorer persistence (web)', () => {
       '1/1',
       { timeout: 15_000 }
     );
+    // Observe one toast mount window after the capped selection completes.
     await page.waitForTimeout(500);
     await expect(
       page.getByText('Cannot select more files. Maximum selection limit reached.')

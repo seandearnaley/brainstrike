@@ -298,11 +298,11 @@ describe('FileExplorerLeftPanel', () => {
     expect(await screen.findByRole('button', { name: /select all/i })).toBeInTheDocument();
   });
 
-  it('passes the selection limit handler through to ActionButtons', () => {
+  it('passes the selection limit handler to the selection manager', () => {
     renderWithProviders(<FileExplorerLeftPanel />);
 
-    expect(ActionButtonsMock).toHaveBeenCalled();
-    const props = ActionButtonsMock?.mock.calls[0]?.[0] as {
+    expect(useSelectionManager).toHaveBeenCalled();
+    const props = vi.mocked(useSelectionManager).mock.calls[0]?.[0] as {
       onSelectionLimitExceeded: () => void;
     };
 

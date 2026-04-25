@@ -45,7 +45,6 @@ export interface ActionButtonsProps {
   /** Whether the tree is being loaded for select all */
   isLoadingForSelectAll?: boolean | undefined;
   maxSelectionCount: number;
-  onSelectionLimitExceeded?: (() => void) | undefined;
   /**
    * Recursively select all files in the provided tree, loading if needed.
    * IMPORTANT: The first parameter is the filtered tree to operate on.

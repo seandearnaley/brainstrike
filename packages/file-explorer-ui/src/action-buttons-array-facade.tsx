@@ -22,7 +22,6 @@ interface Props {
   /** Whether the tree is being loaded for select all */
   isLoadingForSelectAll?: boolean;
   maxSelectionCount: number;
-  onSelectionLimitExceeded: () => void | Promise<void>;
   /**
    * Recursively select all files in the provided tree, loading if needed.
    * IMPORTANT: The first parameter is the filtered tree to operate on.
@@ -64,7 +63,6 @@ const ActionButtonsArrayFacade: React.FC<Props> = (props) => {
       hasFilesInTree={props.hasFilesInTree}
       isLoadingForSelectAll={props.isLoadingForSelectAll}
       maxSelectionCount={props.maxSelectionCount}
-      onSelectionLimitExceeded={props.onSelectionLimitExceeded}
       selectAllRecursively={props.selectAllRecursively}
       selectedFilePaths={selectedSet}
       setSelectedFiles={setSelectedSet}
