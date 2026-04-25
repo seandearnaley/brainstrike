@@ -5,10 +5,11 @@ const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-updat
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT = 'assistant:preview-context-selection-update';
 const MCP_TOOLS_UPDATED_EVENT = 'mcp:tools:updated';
 const DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL = 'db:managed-cache:apply-batch' as const;
+const DB_SCHEDULER_SNAPSHOT_CHANNEL = 'db:scheduler:snapshot' as const;
 
 import type { ApplyManagedCacheBatchArgs } from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
-import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
+import type { AssistantSelectionUpdatePayload, DatabaseWorkOptions } from '@brainstrike/types';
 import type {
   LayoutLoadResult,
   LayoutPersistenceResult,
@@ -281,29 +282,39 @@ if (shouldExposeBridge('electronAPI')) {
     loadLayout: (): Promise<LayoutLoadResult> => ipcRenderer.invoke('layout:load'),
     // Database operations
     db: {
-      applyManagedCacheBatch: (payload: ApplyManagedCacheBatchArgs) =>
-        ipcRenderer.invoke(DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL, payload),
+      applyManagedCacheBatch: (
+        payload: ApplyManagedCacheBatchArgs,
+        options?: DatabaseWorkOptions
+      ) => ipcRenderer.invoke(DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL, payload, options),
       ping: () => ipcRenderer.invoke('db:ping'),
       diagnostics: () => ipcRenderer.invoke('db:diagnostics'),
-      query: (sql: string, params?: unknown[]) => ipcRenderer.invoke('db:query', sql, params),
-      exec: (sql: string) => ipcRenderer.invoke('db:exec', sql),
+      schedulerSnapshot: () => ipcRenderer.invoke(DB_SCHEDULER_SNAPSHOT_CHANNEL),
+      query: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
+        ipcRenderer.invoke('db:query', sql, params, options),
+      exec: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
+        ipcRenderer.invoke('db:exec', sql, params, options),
       test: () => ipcRenderer.invoke('db:test'),
       clearAll: (confirmationToken?: string) =>
         ipcRenderer.invoke('db:clearAll', confirmationToken),
       resetLocal: () => ipcRenderer.invoke('db:resetLocal'),
     },
     dbLive: {
-      start: (options: {
-        query: string;
-        params?: readonly unknown[];
-        key?: string;
-        mode?: 'query' | 'incremental';
-        offset?: number;
-        limit?: number;
-      }) => ipcRenderer.invoke('db:live-query:start', options),
+      start: (
+        options: {
+          query: string;
+          params?: readonly unknown[];
+          key?: string;
+          mode?: 'query' | 'incremental';
+          offset?: number;
+          limit?: number;
+        },
+        workOptions?: DatabaseWorkOptions
+      ) => ipcRenderer.invoke('db:live-query:start', options, workOptions),
       stop: (id: number) => ipcRenderer.invoke('db:live-query:stop', id),
-      refresh: (payload: { id: number; offset?: number; limit?: number }) =>
-        ipcRenderer.invoke('db:live-query:refresh', payload),
+      refresh: (
+        payload: { id: number; offset?: number; limit?: number },
+        options?: DatabaseWorkOptions
+      ) => ipcRenderer.invoke('db:live-query:refresh', payload, options),
       onUpdate: (callback: (payload: { id: number; results: unknown }) => void) => {
         const listener = (_event: unknown, data: { id: number; results: unknown }) =>
           callback(data);

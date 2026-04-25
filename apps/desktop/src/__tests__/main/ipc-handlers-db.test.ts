@@ -29,6 +29,7 @@ const {
   resetLocalDatabaseMock,
   getDatabaseDiagnosticsMock,
   enqueueEmbeddingBackfillMock,
+  embeddingHostIsHostWindowMock,
   embeddingHostEnsureStartedMock,
   embeddingHostGetStatusMock,
   embeddingHostResetMock,
@@ -74,6 +75,7 @@ const {
   const handleRuntimeCorruptionMock = vi.fn();
   const resetLocalDatabaseMock = vi.fn();
   const enqueueEmbeddingBackfillMock = vi.fn();
+  const embeddingHostIsHostWindowMock = vi.fn(() => false);
   const embeddingHostEnsureStartedMock = vi.fn(async () => ({
     state: 'running' as const,
     active: false,
@@ -133,6 +135,7 @@ const {
     resetLocalDatabaseMock,
     getDatabaseDiagnosticsMock,
     enqueueEmbeddingBackfillMock,
+    embeddingHostIsHostWindowMock,
     embeddingHostEnsureStartedMock,
     embeddingHostGetStatusMock,
     embeddingHostResetMock,
@@ -233,7 +236,7 @@ vi.mock('../../embedding-host-manager', () => ({
     dispose = vi.fn(async () => {});
     ensureStarted = embeddingHostEnsureStartedMock;
     getStatus = embeddingHostGetStatusMock;
-    isHostWindow = vi.fn(() => false);
+    isHostWindow = embeddingHostIsHostWindowMock;
     reset = embeddingHostResetMock;
     stop = embeddingHostStopMock;
     destroyAndRestart = embeddingHostDestroyAndRestartMock;
@@ -286,8 +289,11 @@ import '../../main';
 describe('database IPC handlers', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
-    const { setBackgrounded } = await import('../../ipc-handlers');
+    const { resetDesktopDatabaseWorkSchedulerForTests, setBackgrounded } = await import(
+      '../../ipc-handlers'
+    );
     setBackgrounded(false);
+    resetDesktopDatabaseWorkSchedulerForTests();
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_CHECK_INTERVAL_MS');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE');
@@ -344,6 +350,83 @@ describe('database IPC handlers', () => {
     await expect(handler?.({} as unknown, 'BAD')).rejects.toThrow(err);
   });
 
+  it('schedules foreground db:query before queued background work during the quiet window', async () => {
+    vi.useFakeTimers();
+    try {
+      const { resetDesktopDatabaseWorkSchedulerForTests } = await import('../../ipc-handlers');
+      let now = 1000;
+      resetDesktopDatabaseWorkSchedulerForTests({ foregroundQuietMs: 50, now: () => now });
+      const handler = handlers.get('db:query');
+      const order: string[] = [];
+      mockDb.query.mockImplementation(async (sql: string) => {
+        order.push(sql);
+        return { rows: [] };
+      });
+
+      await handler?.({} as unknown, 'warmup', []);
+      order.length = 0;
+
+      const background = handler?.({} as unknown, 'background', [], {
+        priority: 'background',
+        label: 'background claim',
+      });
+      await Promise.resolve();
+      expect(order).toEqual([]);
+
+      now += 1;
+      const foreground = handler?.({} as unknown, 'foreground', [], { label: 'collection page' });
+      await foreground;
+      expect(order).toEqual(['foreground']);
+
+      now += 50;
+      await vi.advanceTimersByTimeAsync(50);
+      await background;
+
+      expect(order).toEqual(['foreground', 'background']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('defaults db:query calls from the embedding host to background priority', async () => {
+    vi.useFakeTimers();
+    try {
+      const { resetDesktopDatabaseWorkSchedulerForTests } = await import('../../ipc-handlers');
+      let now = 1000;
+      resetDesktopDatabaseWorkSchedulerForTests({ foregroundQuietMs: 50, now: () => now });
+      const handler = handlers.get('db:query');
+      const order: string[] = [];
+      mockDb.query.mockImplementation(async (sql: string) => {
+        order.push(sql);
+        return { rows: [] };
+      });
+      const hiddenSender = {
+        getOwnerBrowserWindow: vi.fn(() => createWindowWithWebContents({ send: vi.fn() })),
+      };
+
+      await handler?.({} as unknown, 'warmup', []);
+      order.length = 0;
+      embeddingHostIsHostWindowMock.mockReturnValueOnce(true);
+
+      const background = handler?.({ sender: hiddenSender } as unknown, 'hidden-host', []);
+      await Promise.resolve();
+      expect(order).toEqual([]);
+
+      now += 1;
+      const foreground = handler?.({} as unknown, 'visible-renderer', []);
+      await foreground;
+      expect(order).toEqual(['visible-renderer']);
+
+      now += 50;
+      await vi.advanceTimersByTimeAsync(50);
+      await background;
+
+      expect(order).toEqual(['visible-renderer', 'hidden-host']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('db:exec calls exec and returns result', async () => {
     const handler = handlers.get('db:exec');
     const ret = { done: true };
@@ -391,6 +474,49 @@ describe('database IPC handlers', () => {
 
     expect(getDatabaseMock).toHaveBeenCalled();
     expect(applyManagedCacheBatchMock).toHaveBeenCalledWith(mockDb, payload);
+  });
+
+  it('schedules db:managed-cache:apply-batch as background when requested', async () => {
+    vi.useFakeTimers();
+    try {
+      const { resetDesktopDatabaseWorkSchedulerForTests } = await import('../../ipc-handlers');
+      let now = 1000;
+      resetDesktopDatabaseWorkSchedulerForTests({ foregroundQuietMs: 50, now: () => now });
+      const batchHandler = handlers.get('db:managed-cache:apply-batch');
+      const queryHandler = handlers.get('db:query');
+      const order: string[] = [];
+      applyManagedCacheBatchMock.mockImplementation(async () => {
+        order.push('batch');
+      });
+      mockDb.query.mockImplementation(async () => {
+        order.push('query');
+        return { rows: [] };
+      });
+      const payload = { embeddingSetId: 'set-1', changes: [] };
+
+      await queryHandler?.({} as unknown, 'warmup', []);
+      order.length = 0;
+
+      const background = batchHandler?.({} as unknown, payload, {
+        priority: 'background',
+        label: 'managed cache batch',
+      });
+      await Promise.resolve();
+      expect(order).toEqual([]);
+
+      now += 1;
+      await queryHandler?.({} as unknown, 'foreground query', []);
+      expect(order).toEqual(['query']);
+
+      now += 50;
+      await vi.advanceTimersByTimeAsync(50);
+      await background;
+
+      expect(order).toEqual(['query', 'batch']);
+      expect(applyManagedCacheBatchMock).toHaveBeenCalledWith(mockDb, payload);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('db:managed-cache:apply-batch rejects invalid payloads before touching the database', async () => {

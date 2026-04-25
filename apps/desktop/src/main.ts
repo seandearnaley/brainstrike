@@ -722,6 +722,7 @@ unregisterLoggingIpcHandlers = registerLoggingIpcHandlers({
 
 // Register IPC handlers early to avoid renderer calls racing registration during startup.
 unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettingsStore, {
+  chunkingHostManager,
   embeddingHostManager,
   onResetLocal: handleResetLocal,
 });
