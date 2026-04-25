@@ -26,15 +26,11 @@ export interface DatabaseWorkScheduler {
 }
 
 export interface ScheduledDbHandle {
-  readonly exec?: (
-    sql: string,
-    params?: unknown[],
-    options?: DatabaseWorkOptions
-  ) => Promise<unknown>;
+  readonly exec?: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
   readonly query: <T = unknown>(
     sql: string,
     params?: unknown[],
-    options?: DatabaseWorkOptions
+    options?: unknown
   ) => Promise<{ rows: T[] }>;
   readonly raw?: unknown;
   readonly transaction?: <T>(fn: (tx: ScheduledDbHandle) => Promise<T>) => Promise<T>;
@@ -294,6 +290,27 @@ function mergeOptions(
   };
 }
 
+function isDatabaseWorkOptions(value: unknown): value is DatabaseWorkOptions {
+  if (!isObjectRecord(value)) {
+    return false;
+  }
+  return 'priority' in value || 'label' in value;
+}
+
+function splitDatabaseWorkOptions(args: readonly unknown[]): {
+  readonly databaseWorkOptions: DatabaseWorkOptions | undefined;
+  readonly forwardedArgs: unknown[];
+} {
+  const lastArg = args.at(-1);
+  if (!isDatabaseWorkOptions(lastArg)) {
+    return { databaseWorkOptions: undefined, forwardedArgs: [...args] };
+  }
+  return {
+    databaseWorkOptions: lastArg,
+    forwardedArgs: args.slice(0, -1),
+  };
+}
+
 function isObjectRecord(value: unknown): value is Record<PropertyKey, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -355,15 +372,22 @@ function createPriorityOptionsDbHandle<TDatabase extends object & ScheduledDbHan
   priority: DatabaseWorkPriority,
   scheduler: DatabaseWorkScheduler | null
 ): TDatabase {
-  const prioritizedQuery: ScheduledDbHandle['query'] = async <T = unknown>(
-    sql: string,
-    params?: unknown[],
-    options?: DatabaseWorkOptions
-  ) => await db.query<T>(sql, params, mergeOptions(priority, options));
+  const prioritizedQuery = async <T = unknown>(...args: unknown[]) => {
+    const { databaseWorkOptions, forwardedArgs } = splitDatabaseWorkOptions(args);
+    return (await Reflect.apply(db.query, db, [
+      ...forwardedArgs,
+      mergeOptions(priority, databaseWorkOptions),
+    ])) as { rows: T[] };
+  };
 
-  const prioritizedExec: ScheduledDbHandle['exec'] | undefined = db.exec
-    ? async (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
-        await db.exec?.(sql, params, mergeOptions(priority, options))
+  const prioritizedExec = db.exec
+    ? async (...args: unknown[]) => {
+        const { databaseWorkOptions, forwardedArgs } = splitDatabaseWorkOptions(args);
+        return await Reflect.apply(db.exec as CallableUnknown, db, [
+          ...forwardedArgs,
+          mergeOptions(priority, databaseWorkOptions),
+        ]);
+      }
     : undefined;
 
   const baseTransaction = db.transaction;
@@ -416,22 +440,22 @@ export function createScheduledDbHandle<TDatabase extends object & ScheduledDbHa
   scheduler: DatabaseWorkScheduler,
   defaultPriority: DatabaseWorkPriority
 ): TDatabase {
-  const scheduledQuery: ScheduledDbHandle['query'] = async <T = unknown>(
-    sql: string,
-    params?: unknown[],
-    options?: DatabaseWorkOptions
-  ) =>
-    scheduler.run(
-      async () => await db.query<T>(sql, params),
-      mergeOptions(defaultPriority, options)
-    );
+  const scheduledQuery = async <T = unknown>(...args: unknown[]) => {
+    const { databaseWorkOptions, forwardedArgs } = splitDatabaseWorkOptions(args);
+    return (await scheduler.run(
+      async () => await Reflect.apply(db.query, db, forwardedArgs),
+      mergeOptions(defaultPriority, databaseWorkOptions)
+    )) as { rows: T[] };
+  };
 
-  const scheduledExec: ScheduledDbHandle['exec'] | undefined = db.exec
-    ? async (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
-        scheduler.run(
-          async () => await db.exec?.(sql, params),
-          mergeOptions(defaultPriority, options)
-        )
+  const scheduledExec = db.exec
+    ? async (...args: unknown[]) => {
+        const { databaseWorkOptions, forwardedArgs } = splitDatabaseWorkOptions(args);
+        return await scheduler.run(
+          async () => await Reflect.apply(db.exec as CallableUnknown, db, forwardedArgs),
+          mergeOptions(defaultPriority, databaseWorkOptions)
+        );
+      }
     : undefined;
 
   const baseTransaction = db.transaction;

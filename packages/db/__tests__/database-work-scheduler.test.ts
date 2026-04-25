@@ -129,6 +129,23 @@ describe('DatabaseWorkScheduler', () => {
     expect(seenPriorities).toEqual(['foreground', 'background', 'background']);
   });
 
+  it('forwards native PGlite query options while consuming database work options', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    const nativeQueryOptions = { rowMode: 'array' };
+    const rawDb = {
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[], _options?: unknown) => ({
+        rows: [] as T[],
+      })),
+    };
+
+    const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground');
+    await scheduled.query('SELECT native', [], nativeQueryOptions);
+    await scheduled.query('SELECT qos', [], { label: 'collection page', priority: 'normal' });
+
+    expect(rawDb.query).toHaveBeenNthCalledWith(1, 'SELECT native', [], nativeQueryOptions);
+    expect(rawDb.query).toHaveBeenNthCalledWith(2, 'SELECT qos', []);
+  });
+
   it('does not re-enter the scheduler for queries inside a scheduled transaction', async () => {
     const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
     const seenPriorities: DatabaseWorkPriority[] = [];

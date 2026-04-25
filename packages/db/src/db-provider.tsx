@@ -114,11 +114,11 @@ export interface DbHandle extends IDatabase {
 }
 
 interface QueryExecutor {
-  exec?: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) => Promise<unknown>;
+  exec?: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
   query: <T = unknown>(
     sql: string,
     params?: unknown[],
-    options?: DatabaseWorkOptions
+    options?: unknown
   ) => Promise<{ rows: T[] }>;
   transaction?: <T>(fn: (tx: QueryExecutor) => Promise<T>) => Promise<T>;
 }
