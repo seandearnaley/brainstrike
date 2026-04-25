@@ -8,14 +8,9 @@ import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
-import { lazy, type ReactElement, type ReactNode, Suspense, useCallback, useEffect } from 'react';
+import { type ReactElement, type ReactNode, useCallback, useEffect } from 'react';
 import ContextExplorerPageContent from './context-explorer-page-content';
 import SettingsPageContent from './settings/page-content';
-
-const LazyEmbeddingJobQueueTracker = lazy(async () => {
-  const module = await import('@brainstrike/vector-management');
-  return { default: module.EmbeddingJobQueueTracker };
-});
 
 /**
  * Wrapper component that provides TokenCacheProvider.
@@ -60,7 +55,6 @@ function useInitializeWebVectorDevicePreference(): void {
  */
 export default function RootLayoutContent() {
   useInitializeWebVectorDevicePreference();
-  const db = usePGliteDatabase();
 
   const navigationConfig = navigationItems as NavigationItem[];
   const loadEmbeddingQueue = useCallback(
@@ -82,11 +76,6 @@ export default function RootLayoutContent() {
 
   return (
     <TokenCacheWrapper>
-      {db ? (
-        <Suspense fallback={null}>
-          <LazyEmbeddingJobQueueTracker />
-        </Suspense>
-      ) : null}
       <RootLayout {...sharedProps} />
     </TokenCacheWrapper>
   );

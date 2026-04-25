@@ -12,7 +12,10 @@ import {
 } from '@brainstrike/preferences/stores/panel-layout-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { IdeLayout, PanelLayoutProvider, type PanelLayoutState } from '@brainstrike/ui';
-import { EmbeddingRuntimeProvider } from '@brainstrike/vector-management';
+import {
+  EmbeddingRuntimeProvider,
+  IndexingActivityCoordinator,
+} from '@brainstrike/vector-management';
 import {
   memo,
   type ReactElement,
@@ -284,6 +287,7 @@ export function RootLayoutContent({
           unless a feature explicitly opts into them. */}
       <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
         <EmbeddingRuntimeProvider>
+          <IndexingActivityCoordinator />
           <div
             aria-hidden={activeTab !== 'explorer'}
             className={activeTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}

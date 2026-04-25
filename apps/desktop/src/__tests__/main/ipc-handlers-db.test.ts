@@ -474,6 +474,7 @@ describe('database IPC handlers', () => {
     expect(sender.send).toHaveBeenCalledWith(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
       embeddingSetId: 'set-123',
       requestId: expect.stringMatching(/^embedding-backfill:/),
+      source: 'manual',
       stage: 'backfill',
       current: 0,
       total: 450,
@@ -481,6 +482,7 @@ describe('database IPC handlers', () => {
     expect(sender.send).toHaveBeenLastCalledWith(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
       embeddingSetId: 'set-123',
       requestId: expect.stringMatching(/^embedding-backfill:/),
+      source: 'manual',
       stage: 'backfill',
       current: 450,
       total: 450,

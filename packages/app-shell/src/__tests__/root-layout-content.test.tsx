@@ -87,6 +87,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 
 vi.mock('@brainstrike/vector-management', () => ({
   EmbeddingRuntimeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  IndexingActivityCoordinator: () => <div data-testid="indexing-activity-coordinator" />,
 }));
 
 vi.mock('../background-indexing/workspace-collection-sync-provider', () => ({
@@ -177,6 +178,7 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('threads-shell')).toBeInTheDocument();
     expect(screen.getByTestId('database-panel')).toBeInTheDocument();
     expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
+    expect(screen.getByTestId('indexing-activity-coordinator')).toBeInTheDocument();
     expect(screen.getByTestId('explorer-section')).not.toHaveClass('hidden');
     expect(screen.getByTestId('context-explorer-page')).toBeInTheDocument();
     expect(screen.getByTestId('file-explorer-left-panel')).toBeInTheDocument();

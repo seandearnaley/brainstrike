@@ -225,7 +225,6 @@ vi.mock('@brainstrike/vector-management', async (importOriginal) => {
       hasDb: true,
     }),
     EmbeddingActionsDropdown: () => <div data-testid="mock-embedding-actions-dropdown" />,
-    EmbeddingStatusBar: () => <div data-testid="mock-embedding-status-bar" />,
   };
 });
 
@@ -441,6 +440,16 @@ describe('DatabaseDemoPanel', () => {
       await waitFor(() => {
         expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
       });
+    });
+
+    it('does not render a panel-local embedding status bar', async () => {
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId('mock-embedding-status-bar')).not.toBeInTheDocument();
     });
 
     it('renders the collection browser view', async () => {

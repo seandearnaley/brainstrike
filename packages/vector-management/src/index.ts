@@ -33,6 +33,7 @@ export * from './embedding-set-management';
 // Embedding status bar (compact metrics display)
 export type { EmbeddingStatusBarProps } from './embedding-status-bar';
 export { EmbeddingStatusBar } from './embedding-status-bar';
+export { IndexingActivityCoordinator } from './indexing-activity-coordinator';
 // Queue HUD and Diagnostics (BST-166)
 export { QueueDiagnosticsPanel } from './queue-diagnostics-panel';
 export { QueueHud } from './queue-hud';

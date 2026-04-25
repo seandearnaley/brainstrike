@@ -281,12 +281,12 @@ describe('RootLayoutContent', () => {
     );
   });
 
-  it('does not mount the embedding queue tracker before the database is ready', () => {
+  it('does not mount an app-specific embedding queue tracker before the database is ready', () => {
     render(<RootLayoutContent />);
     expect(screen.queryByTestId('embedding-job-queue-tracker')).not.toBeInTheDocument();
   });
 
-  it('mounts the embedding queue tracker once the database becomes available', async () => {
+  it('keeps indexing activity delegated to the shared root when the database becomes available', async () => {
     const { rerender } = render(<RootLayoutContent />);
 
     currentDb = {
@@ -295,8 +295,7 @@ describe('RootLayoutContent', () => {
 
     rerender(<RootLayoutContent />);
 
-    await waitFor(() =>
-      expect(screen.getByTestId('embedding-job-queue-tracker')).toBeInTheDocument()
-    );
+    await waitFor(() => expect(screen.getByTestId('home-page-content')).toBeInTheDocument());
+    expect(screen.queryByTestId('embedding-job-queue-tracker')).not.toBeInTheDocument();
   });
 });

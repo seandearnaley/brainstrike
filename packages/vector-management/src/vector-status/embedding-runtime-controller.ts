@@ -18,12 +18,14 @@ export type EmbeddingRuntimeBackfillSource = 'background-indexing' | 'manual';
 
 export interface EmbeddingRuntimeBackfillProgress extends BackgroundRuntimeProgress {
   readonly embeddingSetId: string;
+  readonly source: EmbeddingRuntimeBackfillSource;
 }
 
 export interface EmbeddingRuntimeBackfillInfo {
   readonly embeddingSetId: string;
   readonly progress: { current: number; total: number } | null;
   readonly requestId: string;
+  readonly source: EmbeddingRuntimeBackfillSource;
 }
 
 export type EmbeddingRuntimeStatus = BackgroundRuntimeStatus<'embedding-host' | 'embedding-worker'>;
@@ -77,6 +79,7 @@ interface LocalBackfillState {
   readonly abortController: AbortController;
   progress: { current: number; total: number } | null;
   readonly requestId: string;
+  readonly source: EmbeddingRuntimeBackfillSource;
 }
 
 interface UseEmbeddingRuntimeControllerParams {
@@ -163,6 +166,7 @@ async function enqueueLocalBackfill(args: {
     requestId,
     abortController: backfillAbortController,
     progress: null,
+    source,
   });
 
   try {
@@ -176,6 +180,7 @@ async function enqueueLocalBackfill(args: {
         args.notifyBackfillProgress({
           embeddingSetId: args.embeddingSetId,
           requestId,
+          source,
           stage: 'backfill',
           current: done,
           total,
@@ -409,6 +414,7 @@ export function useEmbeddingRuntimeController(
           ([embeddingSetId, backfill]) => ({
             embeddingSetId,
             requestId: backfill.requestId,
+            source: backfill.source,
             progress: backfill.progress,
           })
         );

@@ -38,7 +38,6 @@ import {
   CreateEmbeddingSetDialog,
   DeleteEmbeddingSetDialog,
   EmbeddingActionsDropdown,
-  EmbeddingStatusBar,
   RenameEmbeddingSetDialog,
   useEmbeddingControls,
 } from '@brainstrike/vector-management';
@@ -262,8 +261,9 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     fileRepository: repository,
   });
 
-  // Embedding controls state for inline dropdown and status bar
-  const { dropdownProps, statusBarProps } = useEmbeddingControls({
+  // Embedding controls state for the action dropdown. Canonical queue/activity
+  // status is rendered by the shared app-shell status bar.
+  const { dropdownProps } = useEmbeddingControls({
     chunkRepository: dbChunkRepository,
     toast,
   });
@@ -647,9 +647,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                 <EmbeddingActionsDropdown {...dropdownProps} className="shrink-0" />
               </TooltipProvider>
             </div>
-
-            {/* Embedding Status Bar */}
-            <EmbeddingStatusBar {...statusBarProps} className="border-t" />
           </div>
         </Panel>
 

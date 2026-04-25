@@ -233,12 +233,14 @@ function createDesktopBackfillProgressReporter(params: {
   backfillRequestId: string;
   event: IpcMainInvokeEvent;
   normalizedEmbeddingSetId: string;
+  source: EmbeddingBackfillSource;
 }): (done: number, total: number) => void {
   const {
     backfillProgressTargetUnavailableRef,
     backfillRequestId,
     event,
     normalizedEmbeddingSetId,
+    source,
   } = params;
 
   return (done: number, total: number) => {
@@ -254,6 +256,7 @@ function createDesktopBackfillProgressReporter(params: {
       event.sender.send(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
         embeddingSetId: normalizedEmbeddingSetId,
         requestId: backfillRequestId,
+        source,
         stage: 'backfill',
         current: done,
         total,
@@ -318,6 +321,7 @@ async function runDesktopEmbeddingBackfill(params: {
         backfillRequestId,
         event,
         normalizedEmbeddingSetId,
+        source,
       }),
       {
         assertCanContinue: () => {
@@ -1039,6 +1043,7 @@ export function registerIpcHandlers(
     Array.from(embeddingBackfillsInFlight.entries()).map(([embeddingSetId, backfill]) => ({
       embeddingSetId,
       requestId: backfill.requestId,
+      source: backfill.source,
       progress: backfill.progress,
     }))
   );
