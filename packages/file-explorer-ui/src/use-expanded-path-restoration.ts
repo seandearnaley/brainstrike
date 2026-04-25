@@ -223,6 +223,14 @@ async function restoreExpandedPaths(args: RestoreExpandedPathsArgs): Promise<voi
       setRestorationProgress({ loaded, total: progressTotal, currentPath });
     });
 
+    if (currentRootFolderIdRef.current !== currentRootFolderId) {
+      logger.debug('Skipping restored expanded paths for stale root', {
+        currentFolderId: currentRootFolderIdRef.current,
+        restoredFolderId: currentRootFolderId,
+      });
+      return;
+    }
+
     const currentExpandedPaths = store.getState().expandedDirectoryPaths;
     const restoredExpandedPaths = new Set([...currentExpandedPaths, ...plan.allPathsToRestore]);
     setExpandedPaths(restoredExpandedPaths);
