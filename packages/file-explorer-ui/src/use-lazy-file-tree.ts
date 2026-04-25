@@ -12,7 +12,7 @@
  */
 
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
-import type { FileTreeWorkerPort } from '@brainstrike/file-tree-worker';
+import type { FileTreeWorkerPort, WorkerFileNode } from '@brainstrike/file-tree-worker';
 import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -64,6 +64,38 @@ interface InFlightRootLoad {
 type SpecificPathProgressHandler = (loaded: number, total: number, currentPath: string) => void;
 
 const inFlightRootLoads = new Map<string, InFlightRootLoad>();
+
+function countWorkerTreeNodes(nodes: readonly WorkerFileNode[]): number {
+  let count = 0;
+  const stack = [...nodes];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) {
+      continue;
+    }
+    count += 1;
+    if (node.children) {
+      stack.push(...node.children);
+    }
+  }
+  return count;
+}
+
+function countFileTreeNodes(nodes: readonly IFileNode[]): number {
+  let count = 0;
+  const stack = [...nodes];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) {
+      continue;
+    }
+    count += 1;
+    if (node.children) {
+      stack.push(...node.children);
+    }
+  }
+  return count;
+}
 
 /**
  * Clear shared root-load state between tests.
@@ -409,6 +441,43 @@ async function loadSpecificPathsSerial(args: {
 
     onProgress?.(index + 1, total, path);
   }
+}
+
+function applyWorkerExpandAllResult(args: {
+  handleMapRef: React.RefObject<Map<string, FileSystemHandle>>;
+  onNodesIndexedRef: React.RefObject<
+    ((nodes: IFileNode[], parentPath: string | null) => void) | undefined
+  >;
+  result: Awaited<ReturnType<FileTreeWorkerPort['expandAll']>>;
+  setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>;
+  syncNormalizedTree: (tree: IFileNode[]) => void;
+}): { discoveredDirectories: number; pathsToCommit: readonly string[] } {
+  const { handleMapRef, onNodesIndexedRef, result, setState, syncNormalizedTree } = args;
+  const hydratedTree = rehydrateTree(result.tree, handleMapRef.current);
+  const expectedNodeCount = countWorkerTreeNodes(result.tree);
+  const actualNodeCount = countFileTreeNodes(hydratedTree);
+
+  if (actualNodeCount !== expectedNodeCount) {
+    throw new Error(
+      `Expand-all worker returned ${expectedNodeCount} nodes but only ${actualNodeCount} could be rehydrated`
+    );
+  }
+
+  syncNormalizedTree(hydratedTree);
+  setState((s) => ({
+    ...s,
+    fileTree: hydratedTree,
+    loadingPaths: new Set(),
+  }));
+
+  if (onNodesIndexedRef.current && hydratedTree.length > 0) {
+    onNodesIndexedRef.current(hydratedTree, null);
+  }
+
+  return {
+    discoveredDirectories: result.expandedPaths.length,
+    pathsToCommit: result.expandedPaths,
+  };
 }
 
 export interface LazyFileTreeState {
@@ -1016,6 +1085,7 @@ export function useLazyFileTree(
   }, [cancelAllLoading]);
 
   const cancelExpandAllLoads = useCallback(() => {
+    portRef.current?.abort();
     cancelAllLoading();
     const loadingPaths = Array.from(
       new Set([...loadingPathsRef.current, ...childAbortControllersRef.current.keys()])
@@ -1041,7 +1111,27 @@ export function useLazyFileTree(
       fileTree: nextTree,
       loadingPaths: new Set(),
     }));
-  }, [cancelAllLoading, commitNormalizedTree]);
+  }, [cancelAllLoading, commitNormalizedTree, portRef]);
+
+  const runWorkerExpandAll = useCallback(async () => {
+    const port = portRef.current;
+    if (!port) {
+      throw new Error('File tree worker is unavailable for expand-all');
+    }
+    const rootFolderId = getRootFolderId(rootDirectoryHandle);
+    if (!rootFolderId) {
+      throw new Error('Cannot expand all without a root folder id');
+    }
+
+    const result = await port.expandAll(rootFolderId);
+    return applyWorkerExpandAllResult({
+      handleMapRef,
+      onNodesIndexedRef,
+      result,
+      setState,
+      syncNormalizedTree,
+    });
+  }, [handleMapRef, onNodesIndexedRef, portRef, rootDirectoryHandle, syncNormalizedTree]);
 
   /**
    * Cancel loading for a specific directory (e.g., when collapsing a folder).
@@ -1091,6 +1181,7 @@ export function useLazyFileTree(
       handleProgress(loaded, total, '');
     },
     rootFolderId: getRootFolderId(rootDirectoryHandle) ?? '',
+    runUnloadedExpandAll: runWorkerExpandAll,
   });
 
   /**
