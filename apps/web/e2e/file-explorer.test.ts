@@ -256,6 +256,12 @@ test.describe('File Explorer', () => {
       await explorer.selectRoot();
       await explorer.selectAllButton.click();
 
+      // The size-grouping reducer reads `item.size` from the FileSystem-adapter cache,
+      // which populates asynchronously after Select All. Without waiting, items can land
+      // in the "Unknown" group on slower runners and the assertion below would race.
+      const previewTable = page.getByTestId('preview-table');
+      await expect(previewTable).toHaveAttribute('data-rows-ready', 'true');
+
       const previewToolbar = page.getByTestId('preview-view-toolbar');
       await expect(previewToolbar).toBeVisible();
       await previewToolbar.getByRole('button', { name: 'Group by' }).click();

@@ -776,3 +776,56 @@ describe('PreviewTable ungrouped mode', () => {
     );
   });
 });
+
+describe('PreviewTable readiness signal', () => {
+  const FILE_WITHOUT_SIZE: TableRowData = {
+    id: '3',
+    rootFolderId: 'workspace',
+    path: 'src/loading.ts',
+    type: 'ts',
+    tokens: 100,
+    compositeKey: 'workspace:src/loading.ts',
+  };
+
+  it('exposes data-rows-ready="true" in ungrouped mode when every visible row has a resolved size', () => {
+    renderUngroupedPreviewTable();
+    expect(screen.getByTestId('preview-table')).toHaveAttribute('data-rows-ready', 'true');
+  });
+
+  it('exposes data-rows-ready="false" in ungrouped mode while any visible row size is still resolving', () => {
+    renderUngroupedPreviewTable({});
+    // Re-render with a row missing its size to model the async-resolution window.
+    render(
+      <PreviewTable
+        collapsedGroups={new Set<string>()}
+        columnVisibility={DEFAULT_COLUMN_VISIBILITY}
+        currentPageData={[FILE_ONE, FILE_WITHOUT_SIZE]}
+        groupedData={[]}
+        groupingConfig="none"
+        handleGroupDeselectAll={vi.fn()}
+        handleGroupSelectAll={vi.fn()}
+        isAllSelected={() => false}
+        isGroupFullySelected={() => false}
+        isGroupPartiallySelected={() => false}
+        onDeselectAll={vi.fn()}
+        onFileClick={vi.fn()}
+        onSelectAllOnPage={vi.fn()}
+        onSort={vi.fn()}
+        onToggleSelection={vi.fn()}
+        pagination={{ startIndex: 0, endIndex: 20 }}
+        previewSelections={new Set<string>()}
+        sortDirection="asc"
+        sortField="path"
+        toggleGroupCollapse={vi.fn()}
+        visibleFilesOnPage={[FILE_ONE, FILE_WITHOUT_SIZE]}
+      />
+    );
+    const tables = screen.getAllByTestId('preview-table');
+    expect(tables.at(-1)).toHaveAttribute('data-rows-ready', 'false');
+  });
+
+  it('exposes data-rows-ready in grouped mode tied to the same currentPageData contract', () => {
+    renderGroupedPreviewTable();
+    expect(screen.getByTestId('preview-table')).toHaveAttribute('data-rows-ready', 'true');
+  });
+});
