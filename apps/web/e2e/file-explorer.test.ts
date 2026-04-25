@@ -256,11 +256,20 @@ test.describe('File Explorer', () => {
       await explorer.selectRoot();
       await explorer.selectAllButton.click();
 
-      // The size-grouping reducer reads `item.size` from the FileSystem-adapter cache,
-      // which populates asynchronously after Select All. Without waiting, items can land
-      // in the "Unknown" group on slower runners and the assertion below would race.
-      // Use an explicit 15s budget so a stressed CI runner gets a clearer failure than
-      // Playwright's default 5s expect timeout would produce.
+      // Two anchors guard the multi-step interaction below from racing with async work:
+      //
+      //   1. Selection actually applied. Persistence/restore on the first render after
+      //      `resetSettings: true` can race with the Select All click and leave the
+      //      selection count at 0. If this assertion times out, the failure is
+      //      "Select All didn't take effect" — not a flake, a real bug.
+      //
+      //   2. Row sizes resolved. `data-rows-ready` flips to "true" only when every
+      //      visible row has a defined `size` (FileSystem-adapter cache populated). If
+      //      this assertion times out after #1 passed, the failure is "size metadata
+      //      didn't resolve" — also a real bug. If both pass, downstream Group-by
+      //      assertions can run on a deterministic state.
+      await expect(page.getByTestId('selection-count')).toHaveText('2', { timeout: 15_000 });
+
       const previewTable = page.getByTestId('preview-table');
       await expect(previewTable).toHaveAttribute('data-rows-ready', 'true', { timeout: 15_000 });
 
