@@ -671,6 +671,68 @@ describe('useFileTree (lazy loading version)', () => {
       expect(mockWorkerPort.loadPaths).toHaveBeenCalledWith(['parent', 'parent/child']);
     });
 
+    it('restores multiple paths serially when the worker is unavailable', async () => {
+      const originalWorker = globalThis.Worker;
+      vi.stubGlobal(
+        'Worker',
+        vi.fn(() => {
+          throw new Error('Worker unavailable');
+        })
+      );
+
+      try {
+        const nestedFS = createNestedMockFileSystem();
+        mockAdapter.setMockFileSystem(nestedFS);
+
+        const handle = await mockAdapter.requestDirectoryAccess();
+
+        const TestWrapper = ({ children }: { children: ReactNode }) =>
+          FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+        const { result } = renderHook(() => useFileTree(handle), {
+          wrapper: TestWrapper,
+        });
+
+        await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+        const initialParentDir = result.current.fileTree.find(
+          (node) => node.type === 'directory' && node.name === 'parent'
+        );
+        expect(initialParentDir?.type).toBe('directory');
+        if (!initialParentDir || initialParentDir.type !== 'directory') {
+          throw new Error('Expected parent directory to be present before restoration');
+        }
+
+        await act(async () => {
+          await result.current.loadSpecificPaths([
+            initialParentDir.path,
+            `${initialParentDir.path}/child`,
+          ]);
+        });
+
+        expect(mockWorkerPort.loadPaths).not.toHaveBeenCalled();
+
+        const parentDir = result.current.fileTree.find(
+          (node) => node.type === 'directory' && node.name === 'parent'
+        );
+        expect(parentDir?.type).toBe('directory');
+        if (!parentDir || parentDir.type !== 'directory') {
+          throw new Error('Expected parent directory to be restored');
+        }
+        expect(parentDir.loadState).toBe('loaded');
+
+        const childDir = parentDir.children?.find((node) => node.name === 'child');
+        expect(childDir?.type).toBe('directory');
+        if (!childDir || childDir.type !== 'directory') {
+          throw new Error('Expected child directory to be restored');
+        }
+        expect(childDir.loadState).toBe('loaded');
+        expect(childDir.children?.some((child) => child.name === 'nested-file.txt')).toBe(true);
+      } finally {
+        vi.stubGlobal('Worker', originalWorker);
+      }
+    });
+
     it('deduplicates concurrent child loads between direct expansion and restoration replay', async () => {
       const nestedFS = createNestedMockFileSystem();
       mockAdapter.setMockFileSystem(nestedFS);

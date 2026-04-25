@@ -106,7 +106,7 @@ function collectPendingExpandAllWork(args: {
   while (queueIndex < queue.length) {
     const path = queue[queueIndex];
     queueIndex += 1;
-    if (!(path && !visitedPaths.has(path))) {
+    if (!path || visitedPaths.has(path)) {
       continue;
     }
     visitedPaths.add(path);

@@ -12,7 +12,7 @@
  */
 
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
-import type { FileTreeWorkerPort, WorkerFileNode } from '@brainstrike/file-tree-worker';
+import type { FileTreeWorkerPort } from '@brainstrike/file-tree-worker';
 import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -26,6 +26,7 @@ import {
   useRecursiveFolderSelect,
   useRecursiveSelectAll,
 } from './hooks';
+import type { ExpandAllExecutorArgs, ExpandAllExecutorResult } from './hooks/use-expand-all';
 import { getRootFolderId } from './utils/get-root-folder-id';
 import {
   needsLoading as checkNeedsLoading,
@@ -61,27 +62,15 @@ interface InFlightRootLoad {
   promise: Promise<IFileNode[]>;
 }
 
+interface CountableTreeNode {
+  children?: readonly CountableTreeNode[] | undefined;
+}
+
 type SpecificPathProgressHandler = (loaded: number, total: number, currentPath: string) => void;
 
 const inFlightRootLoads = new Map<string, InFlightRootLoad>();
 
-function countWorkerTreeNodes(nodes: readonly WorkerFileNode[]): number {
-  let count = 0;
-  const stack = [...nodes];
-  while (stack.length > 0) {
-    const node = stack.pop();
-    if (!node) {
-      continue;
-    }
-    count += 1;
-    if (node.children) {
-      stack.push(...node.children);
-    }
-  }
-  return count;
-}
-
-function countFileTreeNodes(nodes: readonly IFileNode[]): number {
+function countTreeNodes(nodes: readonly CountableTreeNode[]): number {
   let count = 0;
   const stack = [...nodes];
   while (stack.length > 0) {
@@ -454,8 +443,8 @@ function applyWorkerExpandAllResult(args: {
 }): { discoveredDirectories: number; pathsToCommit: readonly string[] } {
   const { handleMapRef, onNodesIndexedRef, result, setState, syncNormalizedTree } = args;
   const hydratedTree = rehydrateTree(result.tree, handleMapRef.current);
-  const expectedNodeCount = countWorkerTreeNodes(result.tree);
-  const actualNodeCount = countFileTreeNodes(hydratedTree);
+  const expectedNodeCount = countTreeNodes(result.tree);
+  const actualNodeCount = countTreeNodes(hydratedTree);
 
   if (actualNodeCount !== expectedNodeCount) {
     throw new Error(
@@ -1113,25 +1102,28 @@ export function useLazyFileTree(
     }));
   }, [cancelAllLoading, commitNormalizedTree, portRef]);
 
-  const runWorkerExpandAll = useCallback(async () => {
-    const port = portRef.current;
-    if (!port) {
-      throw new Error('File tree worker is unavailable for expand-all');
-    }
-    const rootFolderId = getRootFolderId(rootDirectoryHandle);
-    if (!rootFolderId) {
-      throw new Error('Cannot expand all without a root folder id');
-    }
+  const runWorkerExpandAll = useCallback(
+    async (_args: ExpandAllExecutorArgs): Promise<ExpandAllExecutorResult> => {
+      const port = portRef.current;
+      if (!port) {
+        throw new Error('File tree worker is unavailable for expand-all');
+      }
+      const rootFolderId = getRootFolderId(rootDirectoryHandle);
+      if (!rootFolderId) {
+        throw new Error('Cannot expand all without a root folder id');
+      }
 
-    const result = await port.expandAll(rootFolderId);
-    return applyWorkerExpandAllResult({
-      handleMapRef,
-      onNodesIndexedRef,
-      result,
-      setState,
-      syncNormalizedTree,
-    });
-  }, [handleMapRef, onNodesIndexedRef, portRef, rootDirectoryHandle, syncNormalizedTree]);
+      const result = await port.expandAll(rootFolderId);
+      return applyWorkerExpandAllResult({
+        handleMapRef,
+        onNodesIndexedRef,
+        result,
+        setState,
+        syncNormalizedTree,
+      });
+    },
+    [handleMapRef, onNodesIndexedRef, portRef, rootDirectoryHandle, syncNormalizedTree]
+  );
 
   /**
    * Cancel loading for a specific directory (e.g., when collapsing a folder).
@@ -1277,21 +1269,26 @@ export function useLazyFileTree(
       try {
         if (paths.length > 1) {
           const port = portRef.current;
-          if (!port) {
-            throw new Error('File tree worker is unavailable for multi-path restoration');
+          if (port) {
+            await loadSpecificPathsWithWorker({
+              handleMapRef,
+              onNodesIndexedRef,
+              onProgress,
+              paths,
+              port,
+              setState,
+              specificPathProgressRef,
+              syncNormalizedTree,
+            });
+            return;
           }
 
-          await loadSpecificPathsWithWorker({
-            handleMapRef,
-            onNodesIndexedRef,
-            onProgress,
-            paths,
-            port,
-            setState,
-            specificPathProgressRef,
-            syncNormalizedTree,
-          });
-          return;
+          logger.debug(
+            'loadSpecificPaths using serial restoration because worker port is unavailable',
+            {
+              pathCount: paths.length,
+            }
+          );
         }
 
         await loadSpecificPathsSerial({
