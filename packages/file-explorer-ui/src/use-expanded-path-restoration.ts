@@ -223,15 +223,9 @@ async function restoreExpandedPaths(args: RestoreExpandedPathsArgs): Promise<voi
       setRestorationProgress({ loaded, total: progressTotal, currentPath });
     });
 
-    if (plan.parentDirectoriesOfSelectedFiles.size > 0) {
-      const currentExpandedPaths = store.getState().expandedDirectoryPaths;
-      const newExpandedPaths = new Set([
-        ...currentExpandedPaths,
-        ...plan.parentDirectoriesOfSelectedFiles,
-        ...plan.queryCoveredDirectories,
-      ]);
-      setExpandedPaths(newExpandedPaths);
-    }
+    const currentExpandedPaths = store.getState().expandedDirectoryPaths;
+    const restoredExpandedPaths = new Set([...currentExpandedPaths, ...plan.allPathsToRestore]);
+    setExpandedPaths(restoredExpandedPaths);
 
     logger.info('Restored expanded directories', {
       folderId: currentRootFolderId,

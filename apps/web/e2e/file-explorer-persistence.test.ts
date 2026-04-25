@@ -145,6 +145,19 @@ async function openPreviewFile(page: Page, fileName: string): Promise<void> {
   await rowButton.click();
 }
 
+async function clickDirectoryToggle(
+  explorer: FileExplorerPage,
+  directoryName: string,
+  action: 'Collapse' | 'Expand'
+): Promise<void> {
+  const escapedName = directoryName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const row = explorer.fileTree
+    .getByRole('row', { name: new RegExp(`^${action} Select ${escapedName}\\b`) })
+    .first();
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.getByRole('button', { name: action }).click();
+}
+
 async function restoreAccessIfNeeded(page: Page, explorer: FileExplorerPage): Promise<void> {
   const restoreBanner = page.getByText('Restore access to your last folder?');
   const restoreButton = page.getByRole('button', { name: 'Restore Access' });
@@ -316,6 +329,58 @@ test.describe('File Explorer persistence (web)', () => {
     await expect(page.getByText('beta content')).toBeVisible({ timeout: 15_000 });
   });
 
+  test('restores expanded folders without selections and keeps single-click toggles after reload', async ({
+    page,
+    browserName,
+  }) => {
+    if (browserName !== 'chromium') {
+      test.skip(true, 'File System Access API is only available in Chromium');
+    }
+
+    await page.goto('/');
+    await waitForAppLoad(page);
+
+    if (!(await supportsOpfs(page))) {
+      test.skip(true, 'OPFS not available in this environment');
+    }
+
+    await resetExplorerState(page);
+    await setupOpfsDirectoryPicker(page, ROOT_NAME, {
+      src: {
+        nested: {
+          'deep.ts': 'deep content',
+        },
+        'index.ts': 'index content',
+      },
+      'root.ts': 'root content',
+    });
+
+    const explorer = new FileExplorerPage(page);
+    await explorer.selectRoot();
+
+    await clickDirectoryToggle(explorer, 'src', 'Expand');
+    await expect(explorer.fileTree.getByText('index.ts')).toBeVisible({ timeout: 15_000 });
+
+    await clickDirectoryToggle(explorer, 'nested', 'Expand');
+    await expect(explorer.fileTree.getByText('deep.ts')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('0/10')).toBeVisible();
+
+    await page.reload();
+    await waitForAppLoad(page);
+    await restoreAccessIfNeeded(page, explorer);
+
+    await expect(explorer.fileTree).toBeVisible({ timeout: 15_000 });
+    await expect(explorer.fileTree.getByText('index.ts')).toBeVisible({ timeout: 15_000 });
+    await expect(explorer.fileTree.getByText('deep.ts')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('0/10')).toBeVisible();
+
+    await clickDirectoryToggle(explorer, 'nested', 'Collapse');
+    await expect(explorer.fileTree.getByText('deep.ts')).not.toBeVisible();
+
+    await clickDirectoryToggle(explorer, 'nested', 'Expand');
+    await expect(explorer.fileTree.getByText('deep.ts')).toBeVisible({ timeout: 15_000 });
+  });
+
   test('completes Select All after restoring web folder access', async ({ page, browserName }) => {
     if (browserName !== 'chromium') {
       test.skip(true, 'File System Access API is only available in Chromium');
@@ -450,6 +515,10 @@ test.describe('File Explorer persistence (web)', () => {
       '1/1',
       { timeout: 15_000 }
     );
+    await page.waitForTimeout(500);
+    await expect(
+      page.getByText('Cannot select more files. Maximum selection limit reached.')
+    ).toHaveCount(0);
   });
 
   test('persists large select-all as query-backed selection instead of giant explicit sets', async ({

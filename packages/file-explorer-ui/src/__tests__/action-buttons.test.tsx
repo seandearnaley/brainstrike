@@ -234,7 +234,7 @@ describe('ActionButtons', () => {
       expect(props.setSelectedFiles).toHaveBeenCalledWith(expectedSelection);
     });
 
-    it('calls onSelectionLimitExceeded when selecting all exceeds limit (fallback behavior)', async () => {
+    it('does not show a limit toast when fallback Select All reaches the cap', async () => {
       const onSelectionLimitExceeded = vi.fn();
       const setSelectedFiles = vi.fn();
       const props = getProps({
@@ -252,7 +252,7 @@ describe('ActionButtons', () => {
       await user.click(selectButton);
       const expectedSelection = new Set(['test-folder:file1.txt', 'test-folder:file2.txt']);
       expect(setSelectedFiles).toHaveBeenCalledWith(expectedSelection);
-      expect(onSelectionLimitExceeded).toHaveBeenCalled();
+      expect(onSelectionLimitExceeded).not.toHaveBeenCalled();
     });
 
     it('caps quick-filter explicit selection to maxSelectionCount', async () => {
@@ -275,7 +275,31 @@ describe('ActionButtons', () => {
       expect(setSelectedFiles).toHaveBeenCalledWith(
         new Set(['test-folder:/test.ts', 'test-folder:/test2.ts'])
       );
-      expect(onSelectionLimitExceeded).toHaveBeenCalled();
+      expect(onSelectionLimitExceeded).not.toHaveBeenCalled();
+    });
+
+    it('does not show a limit toast when recursive Select All reports a cap', async () => {
+      const onSelectionLimitExceeded = vi.fn();
+      const selectAllRecursively = vi.fn().mockResolvedValue({
+        success: true,
+        filePaths: ['/src/a.ts'],
+        totalAvailable: 2,
+        limitReached: true,
+      });
+      const props = getProps({
+        addMultipleSelectedFiles: vi.fn(),
+        filteredTree: createFullyLoadedTree(),
+        maxSelectionCount: 1,
+        onSelectionLimitExceeded,
+        selectAllRecursively,
+      });
+
+      const user = userEvent.setup();
+      render(<ActionButtons {...props} />);
+      await user.click(screen.getByRole('button', { name: 'Select All' }));
+
+      expect(selectAllRecursively).toHaveBeenCalled();
+      expect(onSelectionLimitExceeded).not.toHaveBeenCalled();
     });
 
     it('should deselect all files when clicking "Deselect All"', async () => {

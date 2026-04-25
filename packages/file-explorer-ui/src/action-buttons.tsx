@@ -72,7 +72,6 @@ export const ActionButtons = React.memo(
     currentFolderId,
     setSelectedFiles,
     encodeFileSelection,
-    onSelectionLimitExceeded,
     hasFilesInTree = false,
     filteredTree,
     hasActiveQuickFilter = false,
@@ -92,24 +91,14 @@ export const ActionButtons = React.memo(
           return;
         }
 
-        const result = await selectAllRecursively(
+        await selectAllRecursively(
           filteredTree,
           folderId,
           addMultipleSelectedFiles,
           maxSelectionCount
         );
-
-        if (result.limitReached && onSelectionLimitExceeded) {
-          onSelectionLimitExceeded();
-        }
       },
-      [
-        selectAllRecursively,
-        addMultipleSelectedFiles,
-        filteredTree,
-        maxSelectionCount,
-        onSelectionLimitExceeded,
-      ]
+      [selectAllRecursively, addMultipleSelectedFiles, filteredTree, maxSelectionCount]
     );
 
     /**
@@ -127,9 +116,6 @@ export const ActionButtons = React.memo(
           .slice(0, maxSelectionCount)
           .map((path) => encodeFileSelection(folderId, path));
 
-        if (sourcePaths.length > maxSelectionCount && onSelectionLimitExceeded) {
-          onSelectionLimitExceeded();
-        }
         setSelectedFiles(new Set(filesToSelect));
       },
       [
@@ -138,7 +124,6 @@ export const ActionButtons = React.memo(
         visibleFilePaths,
         maxSelectionCount,
         encodeFileSelection,
-        onSelectionLimitExceeded,
         setSelectedFiles,
       ]
     );
