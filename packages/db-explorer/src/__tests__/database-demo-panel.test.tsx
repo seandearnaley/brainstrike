@@ -12,7 +12,7 @@ import {
 } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { TooltipProvider } from '@brainstrike/ui';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseDemoPanel } from '../database-demo-panel';
@@ -663,6 +663,96 @@ describe('DatabaseDemoPanel', () => {
         // The export dropdown should be visible
         expect(screen.getByRole('button', { name: /Refresh/ })).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('Header Toolbar Layout', () => {
+    it('renders a header toolbar with data-testid="database-panel-toolbar"', async () => {
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('database-panel-toolbar')).toBeInTheDocument();
+      });
+    });
+
+    it('places the New button as the leftmost button in the header toolbar', async () => {
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('database-panel-toolbar')).toBeInTheDocument();
+      });
+
+      const toolbar = screen.getByTestId('database-panel-toolbar');
+      const newButton = within(toolbar).getByRole('button', { name: /^New$/ });
+      expect(newButton).toBeInTheDocument();
+
+      const toolbarButtons = within(toolbar).getAllByRole('button');
+      expect(toolbarButtons[0]).toBe(newButton);
+    });
+
+    it('places the Settings button on the right side of the header toolbar', async () => {
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('database-panel-toolbar')).toBeInTheDocument();
+      });
+
+      const toolbar = screen.getByTestId('database-panel-toolbar');
+      const settingsButton = within(toolbar).getByRole('button', { name: /Import Settings/ });
+      expect(settingsButton).toBeInTheDocument();
+
+      const toolbarButtons = within(toolbar).getAllByRole('button');
+      expect(toolbarButtons.at(-1)).toBe(settingsButton);
+    });
+
+    it('places the Refresh button in the header toolbar (not the footer)', async () => {
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('database-panel-toolbar')).toBeInTheDocument();
+      });
+
+      const toolbar = screen.getByTestId('database-panel-toolbar');
+      expect(within(toolbar).getByRole('button', { name: /Refresh/ })).toBeInTheDocument();
+
+      const footer = screen.getByTestId('database-panel-actions');
+      expect(within(footer).queryByRole('button', { name: /Refresh/ })).not.toBeInTheDocument();
+    });
+
+    it('places the Help button in the header toolbar (not the footer)', async () => {
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('database-panel-toolbar')).toBeInTheDocument();
+      });
+
+      const toolbar = screen.getByTestId('database-panel-toolbar');
+      expect(within(toolbar).getByRole('button', { name: /Help/ })).toBeInTheDocument();
+
+      const footer = screen.getByTestId('database-panel-actions');
+      expect(within(footer).queryByRole('button', { name: /Help/ })).not.toBeInTheDocument();
+    });
+
+    it('keeps Export, Import, and Embeddings actions in the footer (not the toolbar)', async () => {
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('database-panel-actions')).toBeInTheDocument();
+      });
+
+      const footer = screen.getByTestId('database-panel-actions');
+      expect(within(footer).getByRole('button', { name: /^Export$/ })).toBeInTheDocument();
+      expect(within(footer).getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+      expect(within(footer).getByTestId('mock-embedding-actions-dropdown')).toBeInTheDocument();
+
+      const toolbar = screen.getByTestId('database-panel-toolbar');
+      expect(within(toolbar).queryByRole('button', { name: /^Export$/ })).not.toBeInTheDocument();
+      expect(
+        within(toolbar).queryByRole('button', { name: /^Import\s*\(/ })
+      ).not.toBeInTheDocument();
+      expect(
+        within(toolbar).queryByTestId('mock-embedding-actions-dropdown')
+      ).not.toBeInTheDocument();
     });
   });
 
