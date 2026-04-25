@@ -49,12 +49,19 @@ import {
   replaceNormalizedDirectoryChildren,
   setNormalizedNodeLoadState,
 } from './utils/normalized-file-tree';
-import { buildHandleMap, toWorkerFileNodes } from './utils/worker-node-conversion';
+import {
+  buildHandleMap,
+  type FileSystemHandle,
+  rehydrateTree,
+  toWorkerFileNodes,
+} from './utils/worker-node-conversion';
 
 const logger = createLogger('LazyFileTree');
 interface InFlightRootLoad {
   promise: Promise<IFileNode[]>;
 }
+
+type SpecificPathProgressHandler = (loaded: number, total: number, currentPath: string) => void;
 
 const inFlightRootLoads = new Map<string, InFlightRootLoad>();
 
@@ -333,6 +340,77 @@ function shouldSkipSpecificPathLoad(
   return paths.length === 0;
 }
 
+async function loadSpecificPathsWithWorker(args: {
+  handleMapRef: React.RefObject<Map<string, FileSystemHandle>>;
+  onNodesIndexedRef: React.RefObject<
+    ((nodes: IFileNode[], parentPath: string | null) => void) | undefined
+  >;
+  onProgress: SpecificPathProgressHandler | undefined;
+  paths: string[];
+  port: FileTreeWorkerPort;
+  setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>;
+  specificPathProgressRef: React.RefObject<SpecificPathProgressHandler | null>;
+  syncNormalizedTree: (tree: IFileNode[]) => void;
+}): Promise<void> {
+  const {
+    handleMapRef,
+    onNodesIndexedRef,
+    onProgress,
+    paths,
+    port,
+    setState,
+    specificPathProgressRef,
+    syncNormalizedTree,
+  } = args;
+  const total = paths.length;
+
+  specificPathProgressRef.current = onProgress ?? null;
+  onProgress?.(0, total, paths[0] ?? '');
+
+  const result = await port.loadPaths(paths);
+  const hydratedTree = rehydrateTree(result.tree, handleMapRef.current);
+  syncNormalizedTree(hydratedTree);
+  setState((s) => ({
+    ...s,
+    fileTree: hydratedTree,
+    loadingPaths: new Set(),
+  }));
+  if (onNodesIndexedRef.current && hydratedTree.length > 0) {
+    onNodesIndexedRef.current(hydratedTree, null);
+  }
+  onProgress?.(total, total, paths.at(-1) ?? '');
+}
+
+async function loadSpecificPathsSerial(args: {
+  loadChildrenRef: React.RefObject<(path: string) => Promise<void>>;
+  normalizedTreeRef: React.RefObject<NormalizedFileTreeState>;
+  onProgress: SpecificPathProgressHandler | undefined;
+  paths: string[];
+}): Promise<void> {
+  const { loadChildrenRef, normalizedTreeRef, onProgress, paths } = args;
+  const total = paths.length;
+
+  for (let index = 0; index < paths.length; index += 1) {
+    const path = paths[index];
+    if (!path) {
+      continue;
+    }
+
+    onProgress?.(index, total, path);
+
+    const node = materializeNormalizedSubtree(normalizedTreeRef.current, path);
+    const shouldLoadNode = node && node.type === 'directory' && node.loadState !== 'loaded';
+    if (!shouldLoadNode) {
+      onProgress?.(index + 1, total, path);
+      continue;
+    }
+
+    await loadChildrenRef.current(path);
+
+    onProgress?.(index + 1, total, path);
+  }
+}
+
 export interface LazyFileTreeState {
   error: Error | null;
   fileTree: IFileNode[];
@@ -493,6 +571,9 @@ export function useLazyFileTree(
   const [normalizedTreeVersion, setNormalizedTreeVersion] = useState(0);
   const inFlightChildLoadsRef = useRef<Map<string, Promise<void>>>(new Map());
   const loadChildrenRef = useRef<(path: string) => Promise<void>>(async () => {});
+  const specificPathProgressRef = useRef<
+    ((loaded: number, total: number, currentPath: string) => void) | null
+  >(null);
   const isUnmountedRef = useRef(false);
 
   // Track which root we've initialized for to prevent redundant reinits
@@ -530,7 +611,12 @@ export function useLazyFileTree(
   );
 
   // Progress handler - defined before useFileTreeWorker so we can pass it
-  const handleProgress = useCallback((loaded: number, total: number) => {
+  const handleProgress = useCallback((loaded: number, total: number, currentPath: string) => {
+    const specificPathProgress = specificPathProgressRef.current;
+    if (specificPathProgress) {
+      specificPathProgress(loaded, total, currentPath);
+      return;
+    }
     setExpandAllProgress({ loaded, total });
   }, []);
 
@@ -1000,7 +1086,9 @@ export function useLazyFileTree(
     },
     loadDirectoryPath: (path: string) => loadChildrenRef.current(path),
     onError: handleWorkerError,
-    onProgress: handleProgress,
+    onProgress: (loaded: number, total: number) => {
+      handleProgress(loaded, total, '');
+    },
     rootFolderId: getRootFolderId(rootDirectoryHandle) ?? '',
   });
 
@@ -1094,33 +1182,40 @@ export function useLazyFileTree(
       logger.debug('loadSpecificPaths starting', { pathCount: paths.length });
 
       try {
-        const total = paths.length;
-        for (let index = 0; index < paths.length; index += 1) {
-          const path = paths[index];
-          if (!path) {
-            continue;
+        if (paths.length > 1) {
+          const port = portRef.current;
+          if (!port) {
+            throw new Error('File tree worker is unavailable for multi-path restoration');
           }
 
-          onProgress?.(index, total, path);
-
-          const node = materializeNormalizedSubtree(normalizedTreeRef.current, path);
-          const shouldLoadNode = node && node.type === 'directory' && node.loadState !== 'loaded';
-          if (!shouldLoadNode) {
-            onProgress?.(index + 1, total, path);
-            continue;
-          }
-
-          await loadChildrenRef.current(path);
-
-          onProgress?.(index + 1, total, path);
+          await loadSpecificPathsWithWorker({
+            handleMapRef,
+            onNodesIndexedRef,
+            onProgress,
+            paths,
+            port,
+            setState,
+            specificPathProgressRef,
+            syncNormalizedTree,
+          });
+          return;
         }
+
+        await loadSpecificPathsSerial({
+          loadChildrenRef,
+          normalizedTreeRef,
+          onProgress,
+          paths,
+        });
       } catch (err) {
         if (!isAbortError(err)) {
           logger.error('loadSpecificPaths failed', { error: String(err) });
         }
+      } finally {
+        specificPathProgressRef.current = null;
       }
     },
-    [fileSystemAdapter]
+    [fileSystemAdapter, handleMapRef, onNodesIndexedRef, portRef, syncNormalizedTree]
   );
 
   // Store loadRoot in a ref to avoid effect dependency on the callback itself.

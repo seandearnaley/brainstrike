@@ -10,6 +10,7 @@ import { FileExplorerTestWrapper } from './test-helpers';
 const mockWorkerPort = {
   init: vi.fn(),
   expandAll: vi.fn().mockResolvedValue({ tree: [], expandedPaths: [] }),
+  loadPaths: vi.fn().mockResolvedValue({ tree: [], expandedPaths: [], loadedCount: 0 }),
   abort: vi.fn(),
   terminate: vi.fn(),
   updateTree: vi.fn(),
@@ -100,6 +101,7 @@ describe('useFileTree (lazy loading version)', () => {
   beforeEach(() => {
     mockAdapter = new MockFileSystemAdapter();
     vi.clearAllMocks();
+    mockWorkerPort.loadPaths.mockResolvedValue({ tree: [], expandedPaths: [], loadedCount: 0 });
     __resetInFlightRootLoads();
     resetLogger();
     setLogLevel(LogLevel.DEBUG);
@@ -550,6 +552,29 @@ describe('useFileTree (lazy loading version)', () => {
       expect(reloadedParent?.type).toBe('directory');
       expect(reloadedParent?.loadState).toBe('loaded');
       expect(reloadedParent?.children?.some((child) => child.name === 'child')).toBe(true);
+    });
+
+    it('uses the worker batch loader when restoring multiple paths', async () => {
+      const nestedFS = createNestedMockFileSystem();
+      mockAdapter.setMockFileSystem(nestedFS);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      await act(async () => {
+        await result.current.loadSpecificPaths(['parent', 'parent/child']);
+      });
+
+      expect(mockWorkerPort.loadPaths).toHaveBeenCalledTimes(1);
+      expect(mockWorkerPort.loadPaths).toHaveBeenCalledWith(['parent', 'parent/child']);
     });
 
     it('deduplicates concurrent child loads between direct expansion and restoration replay', async () => {
