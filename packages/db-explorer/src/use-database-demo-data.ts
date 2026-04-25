@@ -732,12 +732,10 @@ export function useDatabaseDemoData({
     [activeCollectionId]
   );
 
-  // Pause live queries during import and active embedding. These queries still
-  // re-run on every file_chunks mutation, and cache-backed snapshots are enough
-  // to keep the database panel responsive while background work is active.
-  const liveQueryEnabled = Boolean(
-    database && schemaReady && activeCollectionId && !isImporting && !isEmbeddingActive
-  );
+  // Pause live queries only during the foreground import path. Background
+  // embedding must keep collection pages and counts live so users can search
+  // and page through collections while indexing continues.
+  const liveQueryEnabled = Boolean(database && schemaReady && activeCollectionId && !isImporting);
 
   const {
     rows: recordRows,

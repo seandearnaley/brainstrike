@@ -37,8 +37,7 @@ const INDEXED_CHUNK_COUNT_QUERY = `
 
 export function useIndexedChunkCount(activeCollectionId: string | null): number | undefined {
   const isImporting = useVectorStatusUIStore((s) => s.isImporting);
-  const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
-  const liveQueryEnabled = Boolean(activeCollectionId) && !isImporting && !isEmbeddingActive;
+  const liveQueryEnabled = Boolean(activeCollectionId) && !isImporting;
   const params = useMemo<readonly [string] | undefined>(
     () => (activeCollectionId ? ([activeCollectionId] as const) : undefined),
     [activeCollectionId]

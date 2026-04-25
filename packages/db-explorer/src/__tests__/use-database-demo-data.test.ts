@@ -229,7 +229,7 @@ beforeEach(() => {
 });
 
 describe('useDatabaseDemoData', () => {
-  it('pauses live queries while embedding is active and falls back to cached snapshots', async () => {
+  it('keeps collection page and count queries live while embedding is active', async () => {
     mockVectorStatusUIStore.schemaVerified = true;
     mockVectorStatusUIStore.cachedFileData = {
       collectionCounts: {
@@ -280,7 +280,29 @@ describe('useDatabaseDemoData', () => {
       ],
       totalRecords: 1,
     };
-    setupLiveQueries();
+    setupLiveQueries({
+      records: [
+        {
+          id: 'live-record',
+          name: 'live.ts',
+          path: '/live.ts',
+          size: 24,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+          contentHash: 'live-record-hash',
+          tokenCount: 2,
+          processedAt: null,
+          chunksProcessedAt: null,
+          chunksCount: 2,
+          embeddedChunksCount: 1,
+          chunkingStrategy: null,
+          hasEmbedding: true,
+          embeddingSetId: 'set-1',
+        },
+      ],
+      totalRecords: [{ totalRecords: 1 }],
+      collectionCounts: [{ recordsCount: 1, chunksCount: 2, embeddingsCount: 1 }],
+    });
 
     const { result } = renderHook(() =>
       useDatabaseDemoData({
@@ -294,15 +316,38 @@ describe('useDatabaseDemoData', () => {
     );
 
     await waitFor(() => {
-      expect(result.current.records.at(0)?.id).toBe('cached-record');
+      expect(result.current.records.at(0)?.id).toBe('live-record');
     });
 
-    expect(result.current.chunks.at(0)?.id).toBe('cached-chunk');
+    expect(result.current.collectionCounts).toEqual({
+      records: 1,
+      chunks: 2,
+      embeddings: 1,
+    });
+    expect(
+      mockedUsePGliteLiveQuery.mock.calls.some(
+        ([queryOptions]) =>
+          queryOptions.query.includes('FROM file_records fr') && queryOptions.enabled === true
+      )
+    ).toBe(true);
+    expect(
+      mockedUsePGliteLiveQuery.mock.calls.some(
+        ([queryOptions]) =>
+          queryOptions.query.includes('COUNT(*)::int AS "totalRecords"') &&
+          queryOptions.enabled === true
+      )
+    ).toBe(true);
+    expect(
+      mockedUsePGliteLiveQuery.mock.calls.some(
+        ([queryOptions]) =>
+          queryOptions.query.includes('AS "recordsCount"') && queryOptions.enabled === true
+      )
+    ).toBe(true);
   });
 
-  it('uses the canonical four-parameter record query when fetching snapshots', async () => {
+  it('uses the canonical four-parameter record query when fetching import snapshots', async () => {
     mockVectorStatusUIStore.schemaVerified = true;
-    mockVectorStatusUIStore.isEmbeddingActive = true;
+    mockVectorStatusUIStore.isImporting = true;
     setupLiveQueries();
     const database = createMockDatabase({
       recordRows: [],
@@ -317,7 +362,7 @@ describe('useDatabaseDemoData', () => {
         toast: vi.fn(),
         database,
         activeCollectionId: 'set-1',
-        isEmbeddingActive: true,
+        isImporting: true,
       })
     );
 
