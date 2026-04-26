@@ -126,7 +126,11 @@ function createRequestId(): string {
 }
 
 function resolveDefaultEntryPath(): string {
-  return path.join(path.dirname(module.filename), 'db-host-entry.js');
+  const currentModuleFilename =
+    typeof module.filename === 'string' && module.filename.length > 0
+      ? module.filename
+      : path.join(process.cwd(), 'db-host-manager.js');
+  return path.join(path.dirname(currentModuleFilename), 'db-host-entry.js');
 }
 
 function resolveDatabaseRootPathForHost(): string {
@@ -148,7 +152,9 @@ function resolveDatabaseRootPathForHost(): string {
 
 function createDbHostEnvironment(): Record<string, string> {
   const environment: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
+  const allowedKeys = ['NODE_ENV', 'LOG_LEVEL'] as const;
+  for (const key of allowedKeys) {
+    const value = process.env[key];
     if (value !== undefined) {
       environment[key] = value;
     }
@@ -170,6 +176,7 @@ class RemoteLiveQuery<TRecord = unknown> implements RemoteDbLiveQuery<TRecord> {
   readonly #listeners = new Set<(results: DbHostQueryResult<TRecord>) => void>();
   readonly #manager: DefaultDbHostManager;
   readonly #liveId: string;
+  #failure: Error | null = null;
   #stopped = false;
   initialResults: DbHostQueryResult<TRecord>;
 
@@ -191,6 +198,9 @@ class RemoteLiveQuery<TRecord = unknown> implements RemoteDbLiveQuery<TRecord> {
   }
 
   async refresh(options?: { readonly limit?: number; readonly offset?: number }): Promise<void> {
+    if (this.#failure) {
+      throw this.#failure;
+    }
     if (this.#stopped) {
       return;
     }
@@ -215,6 +225,9 @@ class RemoteLiveQuery<TRecord = unknown> implements RemoteDbLiveQuery<TRecord> {
     }
     this.#stopped = true;
     this.#manager.unregisterLiveQuery(this.#liveId);
+    if (this.#failure) {
+      return;
+    }
     await this.#manager.send({ kind: 'live:stop', liveId: this.#liveId });
   }
 
@@ -226,6 +239,12 @@ class RemoteLiveQuery<TRecord = unknown> implements RemoteDbLiveQuery<TRecord> {
     for (const listener of this.#listeners) {
       listener(results);
     }
+  }
+
+  fail(error: Error): void {
+    this.#failure = error;
+    this.#stopped = true;
+    this.#listeners.clear();
   }
 }
 
@@ -282,7 +301,7 @@ class DefaultDbHostManager implements DbHostManager {
       this.#host.kill();
       this.#host = null;
       this.#client = null;
-      this.#liveQueries.clear();
+      this.#failAllLiveQueries(new Error('DB host closed.'));
     }
   }
 
@@ -296,8 +315,10 @@ class DefaultDbHostManager implements DbHostManager {
     const envelope: DbHostRequestEnvelope = { id, kind: 'request', request };
     return await new Promise<TResult>((resolve, reject) => {
       const timer = setTimeout(() => {
+        const error = new Error(`DB host request timed out: ${request.kind}`);
         this.#pending.delete(id);
-        reject(new Error(`DB host request timed out: ${request.kind}`));
+        reject(error);
+        this.#terminateHost(error);
       }, this.#requestTimeoutMs);
       this.#pending.set(id, {
         reject,
@@ -328,10 +349,11 @@ class DefaultDbHostManager implements DbHostManager {
       this.#acceptMessage(message);
     });
     host.on('exit', (code) => {
+      const error = new Error(`DB host exited with code ${code}.`);
       this.#host = null;
       this.#client = null;
-      this.#liveQueries.clear();
-      this.#rejectAll(new Error(`DB host exited with code ${code}.`));
+      this.#failAllLiveQueries(error);
+      this.#rejectAll(error);
     });
     host.on('error', (type, location) => {
       logger.error('DB host process error', { type, location });
@@ -490,7 +512,7 @@ class DefaultDbHostManager implements DbHostManager {
       return;
     }
     if (message.kind === 'log') {
-      logger[message.level](message.message, message.context ?? {});
+      logger[message.level](message.context ?? {}, message.message);
       return;
     }
     if (message.kind === 'live-update') {
@@ -521,6 +543,25 @@ class DefaultDbHostManager implements DbHostManager {
       this.#pending.delete(id);
     }
   }
+
+  #failAllLiveQueries(error: Error): void {
+    for (const liveQuery of this.#liveQueries.values()) {
+      liveQuery.fail(error);
+    }
+    this.#liveQueries.clear();
+  }
+
+  #terminateHost(error: Error): void {
+    const host = this.#host;
+    if (!host) {
+      return;
+    }
+    this.#host = null;
+    this.#client = null;
+    this.#failAllLiveQueries(error);
+    this.#rejectAll(error);
+    host.kill();
+  }
 }
 
 let defaultManager: DbHostManager | null = null;
@@ -534,6 +575,12 @@ export function getDbHostManager(): DbHostManager {
     defaultManager = createDbHostManager();
   }
   return defaultManager;
+}
+
+export async function closeDbHostManager(): Promise<void> {
+  const manager = defaultManager;
+  defaultManager = null;
+  await manager?.close();
 }
 
 export function resetDbHostManagerForTests(): void {

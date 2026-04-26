@@ -52,6 +52,36 @@ describe('DrizzleEmbeddingSetsRepository', () => {
       expect(result.name).toBe('text-embedding-3-small (1536D)');
     });
 
+    it('seeds a zero-count indexing stats row for new empty sets', async () => {
+      const result = await repository.getOrCreateSet(
+        'openai::text-embedding-3-small',
+        'text-embedding-3-small',
+        1536,
+        'cosine'
+      );
+
+      const stats = await client.query<{
+        chunk_count: number;
+        dirty: boolean;
+        embedded_chunk_count: number;
+        file_count: number;
+        pending_chunk_count: number;
+      }>(
+        `SELECT file_count, chunk_count, embedded_chunk_count, pending_chunk_count, dirty
+           FROM collection_indexing_stats
+          WHERE embedding_set_id = $1`,
+        [result.id]
+      );
+
+      expect(stats.rows[0]).toEqual({
+        file_count: 0,
+        chunk_count: 0,
+        embedded_chunk_count: 0,
+        pending_chunk_count: 0,
+        dirty: false,
+      });
+    });
+
     it('should create with custom metadata', async () => {
       const result = await repository.getOrCreateSet(
         'voyage::voyage-2',

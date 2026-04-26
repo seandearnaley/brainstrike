@@ -13,7 +13,24 @@ export const migration030CollectionIndexingStats: Migration = {
       dirty BOOLEAN NOT NULL DEFAULT FALSE,
       last_refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    --> statement-breakpoint
 
+    WITH aggregated_files AS (
+      SELECT
+        embedding_set_id::text AS embedding_set_id,
+        COUNT(*)::int AS file_count
+      FROM file_records
+      GROUP BY embedding_set_id::text
+    ),
+    aggregated_chunks AS (
+      SELECT
+        embedding_set_id::text AS embedding_set_id,
+        COUNT(*)::int AS chunk_count,
+        COUNT(*) FILTER (WHERE embedding IS NOT NULL)::int AS embedded_chunk_count,
+        COUNT(*) FILTER (WHERE embedding IS NULL)::int AS pending_chunk_count
+      FROM file_chunks
+      GROUP BY embedding_set_id::text
+    )
     INSERT INTO collection_indexing_stats (
       embedding_set_id,
       file_count,
@@ -25,31 +42,15 @@ export const migration030CollectionIndexingStats: Migration = {
     )
     SELECT
       s.id,
-      (
-        SELECT COUNT(*)::int
-          FROM file_records fr
-         WHERE fr.embedding_set_id = s.id
-      ) AS file_count,
-      (
-        SELECT COUNT(*)::int
-          FROM file_chunks c
-         WHERE c.embedding_set_id = s.id
-      ) AS chunk_count,
-      (
-        SELECT COUNT(*)::int
-          FROM file_chunks c
-         WHERE c.embedding_set_id = s.id
-           AND c.embedding IS NOT NULL
-      ) AS embedded_chunk_count,
-      (
-        SELECT COUNT(*)::int
-          FROM file_chunks c
-         WHERE c.embedding_set_id = s.id
-           AND c.embedding IS NULL
-      ) AS pending_chunk_count,
+      COALESCE(af.file_count, 0) AS file_count,
+      COALESCE(ac.chunk_count, 0) AS chunk_count,
+      COALESCE(ac.embedded_chunk_count, 0) AS embedded_chunk_count,
+      COALESCE(ac.pending_chunk_count, 0) AS pending_chunk_count,
       FALSE,
       NOW()
     FROM embedding_sets s
+    LEFT JOIN aggregated_files af ON af.embedding_set_id = s.id::text
+    LEFT JOIN aggregated_chunks ac ON ac.embedding_set_id = s.id::text
     ON CONFLICT (embedding_set_id) DO UPDATE SET
       file_count = EXCLUDED.file_count,
       chunk_count = EXCLUDED.chunk_count,
@@ -57,12 +58,14 @@ export const migration030CollectionIndexingStats: Migration = {
       pending_chunk_count = EXCLUDED.pending_chunk_count,
       dirty = FALSE,
       last_refreshed_at = EXCLUDED.last_refreshed_at;
+    --> statement-breakpoint
 
     CREATE INDEX IF NOT EXISTS idx_collection_indexing_stats_dirty
       ON collection_indexing_stats(dirty, last_refreshed_at);
   `,
   down: `
     DROP INDEX IF EXISTS idx_collection_indexing_stats_dirty;
+    --> statement-breakpoint
     DROP TABLE IF EXISTS collection_indexing_stats;
   `,
 };

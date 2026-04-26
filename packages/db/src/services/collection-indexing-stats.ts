@@ -1,4 +1,4 @@
-import type { DatabaseWorkOptions } from '../database-work-scheduler';
+import { type DatabaseWorkOptions, getDatabaseWorkScheduler } from '../database-work-scheduler';
 
 export interface CollectionIndexingStats {
   readonly chunkCount: number;
@@ -21,7 +21,7 @@ interface CollectionIndexingStatsRow {
 }
 
 interface CollectionStatsDatabase {
-  readonly query: unknown;
+  readonly query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
 }
 
 function toNumber(value: number | string): number {
@@ -63,15 +63,15 @@ async function queryStatsDatabase(
   params?: unknown[],
   options?: DatabaseWorkOptions
 ): Promise<{ rows: unknown[] }> {
-  if (typeof db.query !== 'function') {
-    throw new Error('Collection indexing stats require a database query function.');
+  if (!(options && getDatabaseWorkScheduler(db))) {
+    return await db.query(sql, params);
   }
-  const query = db.query as (
-    sql: string,
-    params?: unknown[],
-    options?: DatabaseWorkOptions
+  const scheduledQuery = db.query as (
+    querySql: string,
+    queryParams: unknown[] | undefined,
+    queryOptions: DatabaseWorkOptions
   ) => Promise<{ rows: unknown[] }>;
-  return await query.call(db, sql, params, options);
+  return await scheduledQuery(sql, params, options);
 }
 
 const STATS_SELECT = `
@@ -135,6 +135,24 @@ export async function refreshCollectionIndexingStats(
       WITH requested AS (
         SELECT UNNEST($1::text[]) AS embedding_set_id
       ),
+      aggregated_files AS (
+        SELECT
+          fr.embedding_set_id::text AS embedding_set_id,
+          COUNT(*)::int AS file_count
+        FROM file_records fr
+        JOIN requested r ON r.embedding_set_id = fr.embedding_set_id::text
+        GROUP BY fr.embedding_set_id::text
+      ),
+      aggregated_chunks AS (
+        SELECT
+          c.embedding_set_id::text AS embedding_set_id,
+          COUNT(*)::int AS chunk_count,
+          COUNT(*) FILTER (WHERE c.embedding IS NOT NULL)::int AS embedded_chunk_count,
+          COUNT(*) FILTER (WHERE c.embedding IS NULL)::int AS pending_chunk_count
+        FROM file_chunks c
+        JOIN requested r ON r.embedding_set_id = c.embedding_set_id::text
+        GROUP BY c.embedding_set_id::text
+      ),
       refreshed AS (
         INSERT INTO collection_indexing_stats (
           embedding_set_id,
@@ -147,32 +165,16 @@ export async function refreshCollectionIndexingStats(
         )
         SELECT
           s.id,
-          (
-            SELECT COUNT(*)::int
-              FROM file_records fr
-             WHERE fr.embedding_set_id = s.id
-          ) AS file_count,
-          (
-            SELECT COUNT(*)::int
-              FROM file_chunks c
-             WHERE c.embedding_set_id = s.id
-          ) AS chunk_count,
-          (
-            SELECT COUNT(*)::int
-              FROM file_chunks c
-             WHERE c.embedding_set_id = s.id
-               AND c.embedding IS NOT NULL
-          ) AS embedded_chunk_count,
-          (
-            SELECT COUNT(*)::int
-              FROM file_chunks c
-             WHERE c.embedding_set_id = s.id
-               AND c.embedding IS NULL
-          ) AS pending_chunk_count,
+          COALESCE(af.file_count, 0) AS file_count,
+          COALESCE(ac.chunk_count, 0) AS chunk_count,
+          COALESCE(ac.embedded_chunk_count, 0) AS embedded_chunk_count,
+          COALESCE(ac.pending_chunk_count, 0) AS pending_chunk_count,
           FALSE,
           NOW()
         FROM embedding_sets s
         JOIN requested r ON r.embedding_set_id = s.id::text
+        LEFT JOIN aggregated_files af ON af.embedding_set_id = s.id::text
+        LEFT JOIN aggregated_chunks ac ON ac.embedding_set_id = s.id::text
         ON CONFLICT (embedding_set_id) DO UPDATE SET
           file_count = EXCLUDED.file_count,
           chunk_count = EXCLUDED.chunk_count,

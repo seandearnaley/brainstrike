@@ -203,6 +203,11 @@ async function getRemoteDbHostManager() {
   return getDbHostManager();
 }
 
+async function closeRemoteDbHostManager(): Promise<void> {
+  const { closeDbHostManager } = await import('./db-host-manager');
+  await closeDbHostManager();
+}
+
 const PROFILES_DIRECTORY_NAME = 'profiles' as const;
 const PROFILE_BACKUPS_DIRECTORY_NAME = 'backups' as const;
 const PROFILE_BACKUPS_RETENTION_COUNT = 5 as const;
@@ -1132,8 +1137,7 @@ export async function closeDatabase(): Promise<void> {
     await closeLocalDatabase();
     return;
   }
-  const manager = await getRemoteDbHostManager();
-  await manager.close();
+  await closeRemoteDbHostManager();
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: compatibility facade for local PGlite and remote DB host clients

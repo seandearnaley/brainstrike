@@ -159,6 +159,7 @@ export function IndexingActivityCoordinator(): null {
       try {
         const snapshot = await readElectronSnapshot();
         if (!disposed) {
+          setIndexingActivityError(null);
           setDatabaseWorkSnapshot(snapshot);
         }
       } catch (error) {

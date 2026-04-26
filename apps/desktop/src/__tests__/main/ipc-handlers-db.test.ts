@@ -366,6 +366,16 @@ describe('database IPC handlers', () => {
     expect(result).toBe(rows);
   });
 
+  it('db:query rejects empty object params instead of treating them as work options', async () => {
+    const handler = handlers.get('db:query');
+
+    await expect(handler?.({} as unknown, 'SELECT $1', {})).rejects.toThrow(
+      'db:query parameters must be an array when provided.'
+    );
+
+    expect(mockDb.query).not.toHaveBeenCalled();
+  });
+
   it('db:query rejects object params before they reach PGlite', async () => {
     const handler = handlers.get('db:query');
 

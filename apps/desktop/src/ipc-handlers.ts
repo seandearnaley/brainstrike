@@ -620,6 +620,10 @@ function parseDatabaseWorkOptions(value: unknown): DatabaseWorkOptions {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Database work options must be an object when provided.');
   }
+  const keys = Object.keys(value);
+  if (keys.length === 0 || keys.some((key) => key !== 'priority' && key !== 'label')) {
+    throw new Error('Database work options may only include priority and label.');
+  }
   const candidate = value as { label?: unknown; priority?: unknown };
   if (candidate.priority !== undefined && !isDatabaseWorkPriority(candidate.priority)) {
     throw new Error('Database work priority must be foreground, normal, or background.');
@@ -642,7 +646,14 @@ function isDatabaseWorkOptionsArgument(value: unknown): value is DatabaseWorkOpt
     return false;
   }
   const keys = Object.keys(value);
-  return keys.length === 0 || keys.includes('priority') || keys.includes('label');
+  if (keys.length === 0 || keys.some((key) => key !== 'priority' && key !== 'label')) {
+    return false;
+  }
+  const candidate = value as { label?: unknown; priority?: unknown };
+  if (candidate.priority !== undefined && !isDatabaseWorkPriority(candidate.priority)) {
+    return false;
+  }
+  return candidate.label === undefined || typeof candidate.label === 'string';
 }
 
 function resolveSqlParamsAndWorkOptions(

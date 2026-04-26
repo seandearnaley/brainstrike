@@ -61,6 +61,24 @@ const liveQueryState: LiveQueryState = {
   error: null,
 };
 
+function createDeferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly reject: (error: Error) => void;
+  readonly resolve: (value: T) => void;
+} {
+  let resolveDeferred!: (value: T) => void;
+  let rejectDeferred!: (error: Error) => void;
+  const promise = new Promise<T>((resolve, reject) => {
+    resolveDeferred = resolve;
+    rejectDeferred = reject;
+  });
+  return {
+    promise,
+    reject: rejectDeferred,
+    resolve: resolveDeferred,
+  };
+}
+
 function createPriorityStats(
   overrides: Partial<IndexingDatabaseWorkPriorityStats> = {}
 ): IndexingDatabaseWorkPriorityStats {
@@ -373,5 +391,60 @@ describe('IndexingActivityCoordinator', () => {
         databaseWork: pressureSnapshot,
       });
     });
+  });
+
+  it('clears scheduler polling errors after a successful Electron snapshot refresh', async () => {
+    liveQueryState.loading = true;
+    const successfulSnapshot = createDatabaseWorkSnapshot({
+      queued: { foreground: 1, normal: 0, background: 0 },
+    });
+    const firstSnapshot = createDeferred<IndexingDatabaseWorkSnapshot>();
+    const secondSnapshot = createDeferred<IndexingDatabaseWorkSnapshot>();
+    const schedulerSnapshot = vi
+      .fn()
+      .mockReturnValueOnce(firstSnapshot.promise)
+      .mockReturnValue(secondSnapshot.promise);
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: {
+        db: {
+          schedulerSnapshot,
+        },
+      },
+    });
+
+    try {
+      render(<IndexingActivityCoordinator />);
+
+      await waitFor(() => {
+        expect(schedulerSnapshot).toHaveBeenCalledTimes(1);
+      });
+      firstSnapshot.reject(new Error('scheduler unavailable'));
+
+      await waitFor(() => {
+        expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
+          lastError: 'scheduler unavailable',
+          status: 'error',
+        });
+      });
+
+      await waitFor(() => {
+        expect(schedulerSnapshot).toHaveBeenCalledTimes(2);
+      });
+      secondSnapshot.resolve(successfulSnapshot);
+
+      await waitFor(() => {
+        expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
+          lastError: null,
+          status: 'active',
+          databaseWork: successfulSnapshot,
+        });
+      });
+    } finally {
+      Object.defineProperty(window, 'electronAPI', {
+        configurable: true,
+        value: undefined,
+      });
+    }
   });
 });

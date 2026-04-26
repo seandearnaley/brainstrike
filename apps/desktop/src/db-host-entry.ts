@@ -172,6 +172,9 @@ function isTransactionRequestForActiveTransaction(request: DbHostRequest): boole
   if (activeTransactionId === null) {
     return true;
   }
+  if (request.kind === 'diagnostics' || request.kind === 'reset' || request.kind === 'close') {
+    return true;
+  }
   if (
     request.kind === 'transaction:query' ||
     request.kind === 'transaction:exec' ||
@@ -180,7 +183,7 @@ function isTransactionRequestForActiveTransaction(request: DbHostRequest): boole
   ) {
     return request.transactionId === activeTransactionId;
   }
-  return request.kind === 'diagnostics';
+  return false;
 }
 
 function nextRunnableRequestIndex(): number {
@@ -333,9 +336,11 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
       return getDatabaseDiagnostics();
     case 'reset':
       await resetLocalDatabase();
+      activeTransactionId = null;
       return { reset: true };
     case 'close':
       await closeDatabase();
+      activeTransactionId = null;
       return { closed: true };
   }
 }
@@ -354,13 +359,6 @@ async function handleEnvelope(envelope: DbHostRequestEnvelope): Promise<void> {
       },
       requestKind: envelope.request.kind,
     });
-    if (
-      activeTransactionId !== null &&
-      (envelope.request.kind === 'transaction:commit' ||
-        envelope.request.kind === 'transaction:rollback')
-    ) {
-      activeTransactionId = null;
-    }
     postError(envelope.id, error);
   }
 }

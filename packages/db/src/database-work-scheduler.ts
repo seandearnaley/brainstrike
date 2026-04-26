@@ -76,6 +76,12 @@ const METRICS_WINDOW_SIZE = 64;
 const SCHEDULER_SYMBOL = Symbol.for('brainstrike.databaseWorkScheduler');
 const DEFAULT_PRIORITY_SYMBOL = Symbol.for('brainstrike.databaseWorkDefaultPriority');
 
+interface MetricSamples {
+  nextIndex: number;
+  readonly ordered: number[];
+  readonly sorted: number[];
+}
+
 function createEmptyQueues(): Record<DatabaseWorkPriority, QueuedTask[]> {
   return {
     foreground: [],
@@ -126,28 +132,67 @@ function clonePriorityStats(
   };
 }
 
-function createEmptyMetricSamples(): Record<DatabaseWorkPriority, number[]> {
+function createEmptyMetricWindow(): MetricSamples {
   return {
-    foreground: [],
-    normal: [],
-    background: [],
+    nextIndex: 0,
+    ordered: [],
+    sorted: [],
   };
 }
 
-function calculatePercentile(samples: readonly number[], percentile: number): number {
-  if (samples.length === 0) {
-    return 0;
-  }
-  const sorted = [...samples].sort((a, b) => a - b);
-  const index = Math.max(0, Math.ceil(percentile * sorted.length) - 1);
-  return sorted[index] ?? 0;
+function createEmptyMetricSamples(): Record<DatabaseWorkPriority, MetricSamples> {
+  return {
+    foreground: createEmptyMetricWindow(),
+    normal: createEmptyMetricWindow(),
+    background: createEmptyMetricWindow(),
+  };
 }
 
-function addMetricSample(samples: number[], value: number): void {
-  samples.push(value);
-  if (samples.length > METRICS_WINDOW_SIZE) {
-    samples.shift();
+function calculatePercentile(samples: MetricSamples, percentile: number): number {
+  if (samples.sorted.length === 0) {
+    return 0;
   }
+  const index = Math.max(0, Math.ceil(percentile * samples.sorted.length) - 1);
+  return samples.sorted[index] ?? 0;
+}
+
+function findMetricInsertIndex(samples: readonly number[], value: number): number {
+  let low = 0;
+  let high = samples.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if ((samples[mid] ?? 0) <= value) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return low;
+}
+
+function removeMetricSample(samples: number[], value: number): void {
+  const insertionPoint = findMetricInsertIndex(samples, value);
+  const candidateIndex = insertionPoint - 1;
+  if (candidateIndex >= 0 && samples[candidateIndex] === value) {
+    samples.splice(candidateIndex, 1);
+    return;
+  }
+  const fallbackIndex = samples.indexOf(value);
+  if (fallbackIndex >= 0) {
+    samples.splice(fallbackIndex, 1);
+  }
+}
+
+function addMetricSample(samples: MetricSamples, value: number): void {
+  if (samples.ordered.length < METRICS_WINDOW_SIZE) {
+    samples.ordered.push(value);
+  } else {
+    const replaced = samples.ordered[samples.nextIndex] ?? 0;
+    samples.ordered[samples.nextIndex] = value;
+    samples.nextIndex = (samples.nextIndex + 1) % METRICS_WINDOW_SIZE;
+    removeMetricSample(samples.sorted, replaced);
+  }
+  samples.sorted.splice(findMetricInsertIndex(samples.sorted, value), 0, value);
 }
 
 function patchPriorityStat(
@@ -473,7 +518,19 @@ function isDatabaseWorkOptions(value: unknown): value is DatabaseWorkOptions {
   if (!isObjectRecord(value)) {
     return false;
   }
-  return 'priority' in value || 'label' in value;
+  const keys = Object.keys(value);
+  if (keys.length === 0 || keys.some((key) => key !== 'priority' && key !== 'label')) {
+    return false;
+  }
+  if (
+    value['priority'] !== undefined &&
+    value['priority'] !== 'foreground' &&
+    value['priority'] !== 'normal' &&
+    value['priority'] !== 'background'
+  ) {
+    return false;
+  }
+  return value['label'] === undefined || typeof value['label'] === 'string';
 }
 
 function splitDatabaseWorkOptions(args: readonly unknown[]): {

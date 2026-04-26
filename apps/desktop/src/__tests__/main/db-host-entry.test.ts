@@ -193,4 +193,71 @@ describe('db-host-entry', () => {
       })
     );
   });
+
+  it('keeps the active transaction fenced after a commit failure until rollback runs', async () => {
+    const exec = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('commit failed'))
+      .mockResolvedValueOnce(undefined);
+    const query = vi.fn(async () => ({ rows: [] }));
+    dbMainMocks.getDatabase.mockResolvedValue({ exec, query });
+    const { listeners, parentPort } = installParentPortMock();
+    await import('../../db-host-entry');
+
+    listeners[0]?.({
+      data: {
+        id: 'tx-start',
+        kind: 'request',
+        request: { kind: 'transaction:start' },
+      },
+    });
+    await flushMicrotasks();
+    const txStartResponse = parentPort.postMessage.mock.calls.find(
+      ([message]) =>
+        typeof message === 'object' &&
+        message !== null &&
+        (message as { id?: string }).id === 'tx-start'
+    )?.[0] as { result?: { transactionId?: string } } | undefined;
+    const transactionId = txStartResponse?.result?.transactionId;
+    expect(transactionId).toBeTruthy();
+
+    listeners[0]?.({
+      data: {
+        id: 'tx-commit',
+        kind: 'request',
+        request: { kind: 'transaction:commit', transactionId },
+      },
+    });
+    listeners[0]?.({
+      data: {
+        id: 'plain-query',
+        kind: 'request',
+        request: { kind: 'query', sql: 'SELECT outside transaction' },
+      },
+    });
+    await flushMicrotasks();
+
+    expect(query).not.toHaveBeenCalled();
+
+    listeners[0]?.({
+      data: {
+        id: 'tx-rollback',
+        kind: 'request',
+        request: { kind: 'transaction:rollback', transactionId },
+      },
+    });
+    await vi.waitFor(() => {
+      expect(parentPort.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'tx-rollback',
+          kind: 'response',
+          ok: true,
+        })
+      );
+    });
+    await vi.waitFor(() => {
+      expect(query).toHaveBeenCalledWith('SELECT outside transaction');
+    });
+  });
 });

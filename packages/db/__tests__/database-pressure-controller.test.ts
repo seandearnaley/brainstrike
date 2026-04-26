@@ -229,4 +229,23 @@ describe('DatabasePressureController', () => {
       vi.useRealTimers();
     }
   });
+
+  it('rejects permits when scheduler snapshots cannot be read', async () => {
+    const controller = createDatabasePressureController({
+      snapshotSource: {
+        getSnapshot: async () => {
+          throw new Error('scheduler unavailable');
+        },
+      },
+    });
+
+    await expect(controller.waitForBackgroundPermit({ label: 'embedding claim' })).rejects.toThrow(
+      'scheduler unavailable'
+    );
+    expect(controller.getSnapshot()).toMatchObject({
+      permitWaiting: false,
+      waitingLabel: null,
+      waitingReason: null,
+    });
+  });
 });

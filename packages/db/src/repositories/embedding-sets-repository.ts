@@ -35,23 +35,45 @@ export class EmbeddingSetsRepository {
     const defaultName = `${normalizedMetadata.modelId} (${dimensions}D)`;
     const name = metadata?.name ?? defaultName;
 
-    const insertResult = await this.db.query(
-      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at, name, description, tags, category)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING *`,
-      [
-        id,
-        normalizedMetadata.modelKey,
-        normalizedMetadata.modelId,
-        dimensions,
-        distance,
-        now,
-        name,
-        metadata?.description ?? null,
-        metadata?.tags ?? null,
-        metadata?.category ?? null,
-      ]
-    );
+    let insertResult: { rows: unknown[] };
+    await this.db.query('BEGIN');
+    try {
+      insertResult = await this.db.query(
+        `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at, name, description, tags, category)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         RETURNING *`,
+        [
+          id,
+          normalizedMetadata.modelKey,
+          normalizedMetadata.modelId,
+          dimensions,
+          distance,
+          now,
+          name,
+          metadata?.description ?? null,
+          metadata?.tags ?? null,
+          metadata?.category ?? null,
+        ]
+      );
+
+      await this.db.query(
+        `INSERT INTO collection_indexing_stats (embedding_set_id)
+         VALUES ($1)
+         ON CONFLICT (embedding_set_id) DO NOTHING`,
+        [id]
+      );
+      await this.db.query('COMMIT');
+    } catch (error) {
+      try {
+        await this.db.query('ROLLBACK');
+      } catch (rollbackError) {
+        this.logger.error('Failed to rollback embedding set creation', {
+          rollbackError:
+            rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+        });
+      }
+      throw error;
+    }
 
     if (insertResult.rows.length === 0) {
       throw new Error(

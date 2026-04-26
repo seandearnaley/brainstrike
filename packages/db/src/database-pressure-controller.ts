@@ -221,7 +221,22 @@ export function createDatabasePressureController(
           return;
         }
         checking = true;
-        const reason = await readWaitingReason();
+        let reason: DatabasePressureWaitingReason | null;
+        try {
+          reason = await readWaitingReason();
+        } catch (error) {
+          checking = false;
+          cleanup();
+          snapshot = {
+            ...snapshot,
+            permitWaiting: false,
+            permitWaitingSince: null,
+            waitingLabel: null,
+            waitingReason: null,
+          };
+          reject(error);
+          return;
+        }
         checking = false;
         if (!reason) {
           finish();

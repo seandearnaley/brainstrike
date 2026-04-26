@@ -174,6 +174,32 @@ describe('DatabaseWorkScheduler', () => {
     });
   });
 
+  it('keeps rolling metric percentiles bounded to the latest sample window', async () => {
+    let now = 0;
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0, now: () => now });
+
+    for (let waitMs = 1; waitMs <= 65; waitMs += 1) {
+      const scheduledAt = now;
+      const run = scheduler.run(
+        async () => {
+          now += 1;
+        },
+        { priority: 'background', label: `embedding batch ${waitMs}` }
+      );
+      now = scheduledAt + waitMs;
+      await run;
+      now += 1;
+    }
+
+    expect(scheduler.getSnapshot().priorityStats.background).toMatchObject({
+      completed: 65,
+      serviceP50Ms: 1,
+      serviceP95Ms: 1,
+      waitP50Ms: 33,
+      waitP95Ms: 62,
+    });
+  });
+
   it('marks background work as waiting while foreground work is running', async () => {
     vi.useFakeTimers();
     try {
@@ -274,6 +300,21 @@ describe('DatabaseWorkScheduler', () => {
 
     expect(rawDb.query).toHaveBeenNthCalledWith(1, 'SELECT native', [], nativeQueryOptions);
     expect(rawDb.query).toHaveBeenNthCalledWith(2, 'SELECT qos', []);
+  });
+
+  it('does not consume native query options that only resemble scheduler options', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    const rawDb = {
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[], _options?: unknown) => ({
+        rows: [] as T[],
+      })),
+    };
+    const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground');
+    const nativeOptions = { label: 'native query label', rowMode: 'array' };
+
+    await scheduled.query('SELECT native', [], nativeOptions);
+
+    expect(rawDb.query).toHaveBeenCalledWith('SELECT native', [], nativeOptions);
   });
 
   it('does not re-enter the scheduler for queries inside a scheduled transaction', async () => {

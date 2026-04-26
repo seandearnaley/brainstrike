@@ -25,8 +25,7 @@ describe('collection indexing stats', () => {
 
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining('FROM collection_indexing_stats'),
-      ['set-1'],
-      undefined
+      ['set-1']
     );
   });
 
@@ -83,9 +82,10 @@ describe('collection indexing stats', () => {
     expect(stats).toHaveLength(1);
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO collection_indexing_stats'),
-      [['set-1']],
-      { label: 'stats refresh', priority: 'background' }
+      [['set-1']]
     );
+    expect(db.query.mock.calls[0]?.[0]).toContain('aggregated_files AS');
+    expect(db.query.mock.calls[0]?.[0]).toContain('aggregated_chunks AS');
   });
 
   it('refreshes stats against PGlite UUID embedding set ids', async () => {
@@ -161,10 +161,8 @@ describe('collection indexing stats', () => {
 
     await markCollectionIndexingStatsDirty(db, ['set-1', 'set-1', 'set-2']);
 
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining('SET dirty = TRUE'),
-      [['set-1', 'set-2']],
-      undefined
-    );
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('SET dirty = TRUE'), [
+      ['set-1', 'set-2'],
+    ]);
   });
 });

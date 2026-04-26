@@ -48,6 +48,8 @@ const appGetPathMock = vi.hoisted(() =>
   vi.fn((name: string) => (name === 'documents' ? '/mock/documents' : '/mock/userData'))
 );
 const loggerErrorMock = vi.hoisted(() => vi.fn());
+const loggerInfoMock = vi.hoisted(() => vi.fn());
+const loggerWarnMock = vi.hoisted(() => vi.fn());
 
 vi.mock('electron', () => ({
   app: {
@@ -67,9 +69,9 @@ vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
       debug: vi.fn(),
       error: loggerErrorMock,
       fatal: vi.fn(),
-      info: vi.fn(),
+      info: loggerInfoMock,
       trace: vi.fn(),
-      warn: vi.fn(),
+      warn: loggerWarnMock,
     }),
   };
 });
@@ -89,7 +91,7 @@ async function flushMicrotasks(): Promise<void> {
 
 function restoreEnvValue(key: string, value: string | undefined): void {
   if (value === undefined) {
-    delete process.env[key];
+    Reflect.deleteProperty(process.env, key);
     return;
   }
   process.env[key] = value;
@@ -104,6 +106,9 @@ describe('DbHostManager', () => {
     forkMock.mockReset();
     forkMock.mockImplementation(() => new FakeUtilityProcess());
     loggerErrorMock.mockReset();
+    loggerInfoMock.mockReset();
+    loggerWarnMock.mockReset();
+    Reflect.deleteProperty(process.env, 'SECRET_TOKEN');
   });
 
   afterEach(() => {
@@ -155,6 +160,50 @@ describe('DbHostManager', () => {
     );
   });
 
+  it('does not forward unrelated process environment variables to the utility DB host', async () => {
+    process.env['NODE_ENV'] = 'development';
+    process.env['SECRET_TOKEN'] = 'should-not-cross-process-boundary';
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    void manager.getDiagnostics();
+
+    const options = forkMock.mock.calls.at(-1)?.[2] as
+      | { readonly env?: Record<string, string> }
+      | undefined;
+    expect(options?.env).toMatchObject({
+      BRAINSTRIKE_DB_ROOT_PATH: '/mock/documents/BrainStrike-dev',
+      NODE_ENV: 'development',
+    });
+    expect(options?.env).not.toHaveProperty('SECRET_TOKEN');
+  });
+
+  it('relays DB host log context as structured pino fields', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    void manager.getDiagnostics();
+    latestProcess().emit('message', {
+      kind: 'log',
+      level: 'info',
+      message: 'DB host init completed',
+      context: {
+        logSource: 'db-host',
+        pid: 123,
+        runtime: 'db-host',
+      },
+    });
+
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      {
+        logSource: 'db-host',
+        pid: 123,
+        runtime: 'db-host',
+      },
+      'DB host init completed'
+    );
+  });
+
   it('exposes diagnostics from the DB host without creating another host process', async () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
@@ -172,6 +221,28 @@ describe('DbHostManager', () => {
       dataDir: '/mock/pgdata',
     });
     expect(forkMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes and clears the default utility DB host manager singleton', async () => {
+    const { closeDbHostManager, getDbHostManager } = await import('../../db-host-manager');
+    const manager = getDbHostManager();
+
+    const diagnosticsPromise = manager.getDiagnostics();
+    const diagnosticsMessage = latestProcess().messages.at(-1);
+    latestProcess().reply(diagnosticsMessage as PostedMessage, {
+      hasDatabaseHandle: true,
+    });
+    await expect(diagnosticsPromise).resolves.toMatchObject({ hasDatabaseHandle: true });
+
+    const firstHost = latestProcess();
+    const closePromise = closeDbHostManager();
+    const closeMessage = firstHost.messages.at(-1);
+    expect(closeMessage?.request.kind).toBe('close');
+    firstHost.reply(closeMessage as PostedMessage, { closed: true });
+    await closePromise;
+
+    expect(firstHost.kill).toHaveBeenCalledTimes(1);
+    expect(getDbHostManager()).not.toBe(manager);
   });
 
   it('escapes literal percents before sending live query requests to the DB host', async () => {
@@ -231,6 +302,56 @@ describe('DbHostManager', () => {
       }),
       'DB host live query start failed'
     );
+  });
+
+  it('fails existing live query handles when the utility DB host exits', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+    const databasePromise = manager.getDatabase();
+    latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
+    const database = await databasePromise;
+
+    const livePromise = database.live.query({ query: 'SELECT 1' });
+    const liveMessage = latestProcess().messages.at(-1);
+    latestProcess().reply(liveMessage as PostedMessage, {
+      liveId: 'live-1',
+      initialResults: { rows: [] },
+    });
+    const liveQuery = await livePromise;
+
+    latestProcess().emit('exit', 1);
+
+    await expect(liveQuery.refresh()).rejects.toThrow('DB host exited with code 1.');
+    expect(forkMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('terminates the utility DB host when a request times out', async () => {
+    vi.useFakeTimers();
+    try {
+      const { createDbHostManager } = await import('../../db-host-manager');
+      const manager = createDbHostManager({
+        entryPath: '/mock/db-host-entry.js',
+        requestTimeoutMs: 5,
+      });
+
+      const diagnosticsPromise = manager.getDiagnostics();
+      const diagnosticsAssertion = expect(diagnosticsPromise).rejects.toThrow(
+        'DB host request timed out: diagnostics'
+      );
+      const firstHost = latestProcess();
+      await vi.advanceTimersByTimeAsync(5);
+      await diagnosticsAssertion;
+      expect(firstHost.kill).toHaveBeenCalledTimes(1);
+
+      const nextDiagnosticsPromise = manager.getDiagnostics();
+      expect(forkMock).toHaveBeenCalledTimes(2);
+      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
+        hasDatabaseHandle: true,
+      });
+      await expect(nextDiagnosticsPromise).resolves.toMatchObject({ hasDatabaseHandle: true });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('commits a remote transaction after the callback succeeds', async () => {

@@ -9,6 +9,7 @@
 
 import { createLogger } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
+import { migration030CollectionIndexingStats } from '../migrations/030-collection-indexing-stats.js';
 
 // Import the pre-compiled migrations manifest
 // Using import attribute for Node.js 22+ ESM compatibility
@@ -70,6 +71,28 @@ async function getAppliedMigrations(db: PGlite): Promise<Set<string>> {
 async function recordMigration(db: PGlite, hash: string): Promise<void> {
   await db.query(`INSERT INTO "${MIGRATIONS_TABLE}" (hash) VALUES ($1)`, [hash]);
 }
+
+function requireStringMigrationSql(
+  name: string,
+  sql: string | ((db: PGlite) => Promise<void>)
+): string {
+  if (typeof sql === 'string') {
+    return sql;
+  }
+  throw new Error(`Drizzle migration "${name}" must be a SQL string.`);
+}
+
+const customMigrations: Migration[] = [
+  {
+    hash: 'custom-030-collection-indexing-stats',
+    name: migration030CollectionIndexingStats.name,
+    sql: requireStringMigrationSql(
+      migration030CollectionIndexingStats.name,
+      migration030CollectionIndexingStats.up
+    ),
+    version: String(migration030CollectionIndexingStats.version),
+  },
+];
 
 /**
  * Splits migration SQL into individual statements
@@ -162,6 +185,17 @@ export async function runMigrations(
       onMigrationComplete?.(migration.name);
     }
 
+    for (const migration of customMigrations) {
+      if (applied.has(migration.hash)) {
+        continue;
+      }
+
+      onMigrationStart?.(migration.name);
+      await applySingleMigration(db, migration);
+      appliedMigrations.push(migration.name);
+      onMigrationComplete?.(migration.name);
+    }
+
     return { success: true, appliedMigrations };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -178,24 +212,25 @@ export async function getMigrationStatus(db: PGlite): Promise<{
   pending: string[];
 }> {
   const manifest = migrationsManifest as MigrationManifest;
+  const allMigrations = [...manifest.migrations, ...customMigrations];
 
   try {
     await ensureMigrationsTable(db);
     const applied = await getAppliedMigrations(db);
 
-    const pending = manifest.migrations.filter((m) => !applied.has(m.hash)).map((m) => m.name);
+    const pending = allMigrations.filter((m) => !applied.has(m.hash)).map((m) => m.name);
 
     return {
-      total: manifest.migrations.length,
+      total: allMigrations.length,
       applied: applied.size,
       pending,
     };
   } catch {
     // Table doesn't exist yet, all migrations are pending
     return {
-      total: manifest.migrations.length,
+      total: allMigrations.length,
       applied: 0,
-      pending: manifest.migrations.map((m) => m.name),
+      pending: allMigrations.map((m) => m.name),
     };
   }
 }
