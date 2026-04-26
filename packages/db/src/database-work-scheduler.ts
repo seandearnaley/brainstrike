@@ -601,10 +601,9 @@ function createPriorityOptionsDbHandle<TDatabase extends object & ScheduledDbHan
   const baseTransaction = db.transaction;
   const prioritizedTransaction: ScheduledDbHandle['transaction'] | undefined = baseTransaction
     ? async <T>(fn: (tx: ScheduledDbHandle) => Promise<T>) =>
-        await baseTransaction(async (tx) => {
-          const prioritizedTx = createPriorityOptionsDbHandle(tx, priority, scheduler);
-          return await fn(prioritizedTx);
-        })
+        (await Reflect.apply(baseTransaction as CallableUnknown, db, [
+          async (tx: ScheduledDbHandle) => await fn(tx),
+        ])) as T
     : undefined;
 
   return new Proxy(db, {
@@ -669,14 +668,13 @@ export function createScheduledDbHandle<TDatabase extends object & ScheduledDbHa
   const baseTransaction = db.transaction;
   const scheduledTransaction: ScheduledDbHandle['transaction'] | undefined = baseTransaction
     ? async <T>(fn: (tx: ScheduledDbHandle) => Promise<T>) =>
-        scheduler.run(
+        (await scheduler.run(
           async () =>
-            await baseTransaction(async (tx) => {
-              const prioritizedTx = createPriorityOptionsDbHandle(tx, defaultPriority, scheduler);
-              return await fn(prioritizedTx);
-            }),
+            await Reflect.apply(baseTransaction as CallableUnknown, db, [
+              async (tx: ScheduledDbHandle) => await fn(tx),
+            ]),
           { priority: defaultPriority, label: 'transaction' }
-        )
+        )) as T
     : undefined;
 
   return new Proxy(db, {

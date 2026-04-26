@@ -28,6 +28,10 @@ import { wasmLoader } from './wasm-loader.js';
 
 const logger = createLogger('DbProvider');
 
+function logDatabaseError(message: string, error: unknown): void {
+  logger.error({ err: error }, message);
+}
+
 /**
  * Discriminated union for the internal DB connection handle.
  * IPC mode: renderer communicates via Electron IPC bridge (no local close).
@@ -155,22 +159,31 @@ export function getDefaultDbPath() {
     return 'idb://app';
   }
 
-  // For Node.js/Electron environments, default to a temp directory
-  // Use dynamic imports to avoid bundling Node built-ins in browser builds
   const { tmpdir } = requireNodeOs();
   const { join } = requireNodePath();
   return join(tmpdir(), 'app.db');
 }
 
-// Lazily require Node built-ins without creating static import edges in the bundle
+type NodeProcessWithBuiltins = NodeJS.Process & {
+  getBuiltinModule?: (name: string) => unknown;
+};
+
+function getNodeBuiltinModule<TModule>(name: string): TModule {
+  const runtimeProcess = globalThis.process as NodeProcessWithBuiltins | undefined;
+  const module = runtimeProcess?.getBuiltinModule?.(name);
+  if (!module) {
+    throw new Error(`Node builtin module is unavailable: ${name}`);
+  }
+  return module as TModule;
+}
+
+// Lazily access Node built-ins without creating static import/require edges in browser bundles.
 function requireNodeOs(): { tmpdir: () => string } {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  return require('node:os');
+  return getNodeBuiltinModule<{ tmpdir: () => string }>('node:os');
 }
 
 function requireNodePath(): { join: (...parts: string[]) => string } {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  return require('node:path');
+  return getNodeBuiltinModule<{ join: (...parts: string[]) => string }>('node:path');
 }
 
 const DbContext = createContext<DbContextValue | undefined>(undefined);
@@ -524,7 +537,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         }
         setLazyInitialized(true);
       } catch (err) {
-        logger.error('Failed to initialize database:', err);
+        logDatabaseError('Failed to initialize database', err);
         setFileRecordRepository(null);
         setChunkRepository(null);
         setEmbeddingSetsRepository(null);
@@ -552,7 +565,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     if (process.env['NODE_ENV'] === 'test') {
       // Fire and forget; internal guards prevent duplicate initialization
       initializeDatabase().catch((err) => {
-        logger.error('Failed to eager-initialize database in test:', err);
+        logDatabaseError('Failed to eager-initialize database in test', err);
       });
     }
 
@@ -954,7 +967,7 @@ export function useFileRecordRepository():
   useEffect(() => {
     if (!(fileRecordRepository || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [fileRecordRepository, error, initializing, initializeDatabase]);
@@ -981,7 +994,7 @@ export function usePGliteDatabase(): DbHandle | null {
   useEffect(() => {
     if (!(db || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [db, error, initializing, initializeDatabase]);
@@ -1004,7 +1017,7 @@ export function useOptionalPGliteDatabase(): DbHandle | null {
   useEffect(() => {
     if (!(db || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [db, error, initializing, initializeDatabase]);
@@ -1037,7 +1050,7 @@ export function useFileChunkRepository():
   useEffect(() => {
     if (!(chunkRepository || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [chunkRepository, error, initializing, initializeDatabase]);
@@ -1066,7 +1079,7 @@ export function useClearAllData():
   useEffect(() => {
     if (!(fileRecordRepository || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [fileRecordRepository, error, initializing, initializeDatabase]);
@@ -1093,7 +1106,7 @@ export function useFactoryReset(): (() => Promise<void>) | null {
   useEffect(() => {
     if (!(db || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [db, error, initializing, initializeDatabase]);
@@ -1118,7 +1131,7 @@ export function useClearQueuesAndEmbeddingSets(): (() => Promise<void>) | null {
   useEffect(() => {
     if (!(db || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [db, error, initializing, initializeDatabase]);
@@ -1146,7 +1159,7 @@ export function useDrizzleDb(): DrizzleDb | null {
   useEffect(() => {
     if (!(drizzleDb || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [drizzleDb, error, initializing, initializeDatabase]);
@@ -1176,7 +1189,7 @@ export function useEmbeddingSetsRepository(): EmbeddingSetsRepo | null {
   useEffect(() => {
     if (!(embeddingSetsRepository || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [embeddingSetsRepository, error, initializing, initializeDatabase]);
@@ -1206,7 +1219,7 @@ export function useViewFilterPresetsRepository(): ViewFilterPresetsRepo | null {
   useEffect(() => {
     if (!(viewFilterPresetsRepository || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [viewFilterPresetsRepository, error, initializing, initializeDatabase]);

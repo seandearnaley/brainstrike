@@ -307,7 +307,64 @@ describe('DatabaseWorkScheduler', () => {
     ).resolves.toBe(true);
 
     expect(txDb.query).toHaveBeenCalledTimes(1);
+    expect(txDb.query).toHaveBeenCalledWith('SELECT inside transaction');
     expect(seenPriorities).toEqual(['background']);
+  });
+
+  it('preserves the raw database receiver when scheduling transactions', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    const txDb = {
+      query: vi.fn(async <T = unknown>(_sql: string) => ({
+        rows: [{ ok: true }] as T[],
+      })),
+    };
+    const rawDb = {
+      marker: 'raw-db',
+      query: vi.fn(async <T = unknown>(_sql: string) => ({ rows: [] as T[] })),
+      async transaction<T>(
+        this: { marker: string },
+        fn: (tx: typeof txDb) => Promise<T>
+      ): Promise<T> {
+        expect(this.marker).toBe('raw-db');
+        return await fn(txDb);
+      },
+    };
+
+    const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground');
+
+    await expect(
+      scheduled.transaction?.(async (tx) => await tx.query('SELECT 1'))
+    ).resolves.toEqual({
+      rows: [{ ok: true }],
+    });
+  });
+
+  it('preserves the raw database receiver when applying priority transactions', async () => {
+    const txDb = {
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[], _options?: unknown) => ({
+        rows: [{ ok: true }] as T[],
+      })),
+    };
+    const rawDb = {
+      marker: 'priority-db',
+      query: vi.fn(async <T = unknown>(_sql: string) => ({ rows: [] as T[] })),
+      async transaction<T>(
+        this: { marker: string },
+        fn: (tx: typeof txDb) => Promise<T>
+      ): Promise<T> {
+        expect(this.marker).toBe('priority-db');
+        return await fn(txDb);
+      },
+    };
+
+    const background = createPriorityDbHandle(rawDb, 'background');
+
+    await expect(
+      background.transaction?.(async (tx) => await tx.query('SELECT 1'))
+    ).resolves.toEqual({
+      rows: [{ ok: true }],
+    });
+    expect(txDb.query).toHaveBeenCalledWith('SELECT 1');
   });
 
   it('schedules direct live query creation and refresh on the handle default lane', async () => {

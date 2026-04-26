@@ -40,6 +40,12 @@ function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
   };
 }
 
+function hasStructuredErrorArg(record: LogRecord, error: Error): boolean {
+  return record.args.some(
+    (arg) => typeof arg === 'object' && arg !== null && 'err' in arg && arg.err === error
+  );
+}
+
 describe('DbProvider error handling', () => {
   const activeDatabases: MockDb[] = [];
 
@@ -67,6 +73,36 @@ describe('DbProvider error handling', () => {
     activeDatabases.length = 0;
 
     vi.restoreAllMocks();
+  });
+
+  it('logs initialization errors as structured metadata for browser exports', async () => {
+    const { addLogListener, configureLogger, LogLevel } = await import('@brainstrike/utils');
+    configureLogger({ enableInProduction: true });
+    const captured: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      if (record.scope === 'DbProvider') {
+        captured.push(record);
+      }
+    });
+    const initError = new Error('browser visible init failure');
+
+    vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockRejectedValue(initError);
+
+    renderHook(() => useFileRecordRepository(), { wrapper });
+
+    await waitFor(() => {
+      expect(
+        captured.some(
+          (record) =>
+            record.level === LogLevel.ERROR &&
+            record.scope === 'DbProvider' &&
+            record.message === 'Failed to initialize database' &&
+            hasStructuredErrorArg(record, initError)
+        )
+      ).toBe(true);
+    });
+
+    unsubscribe();
   });
 
   it('handles database initialization errors gracefully', async () => {
@@ -99,8 +135,8 @@ describe('DbProvider error handling', () => {
           (record) =>
             record.level === LogLevel.ERROR &&
             record.scope === 'DbProvider' &&
-            record.message === 'Failed to initialize database:' &&
-            record.args.includes(initError)
+            record.message === 'Failed to initialize database' &&
+            hasStructuredErrorArg(record, initError)
         )
       ).toBe(true);
     });
@@ -137,8 +173,8 @@ describe('DbProvider error handling', () => {
           (record) =>
             record.level === LogLevel.ERROR &&
             record.scope === 'DbProvider' &&
-            record.message === 'Failed to initialize database:' &&
-            record.args.includes(migrationError)
+            record.message === 'Failed to initialize database' &&
+            hasStructuredErrorArg(record, migrationError)
         )
       ).toBe(true);
     });
