@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   applyManagedCacheBatch,
   escapePGliteLiveQueryFormatPercents,
@@ -76,7 +77,6 @@ if (!parentPort) {
 }
 
 let activeTransactionId: string | null = null;
-let activeTransactionSequence = 0;
 let draining = false;
 let pendingRequestSequence = 0;
 const pendingControlRequests: QueuedRequest[] = [];
@@ -84,13 +84,8 @@ const pendingGeneralRequests: QueuedRequest[] = [];
 const pendingTransactionRequests: QueuedRequest[] = [];
 const liveQueries = new Map<string, LiveQueryRecord>();
 
-function createTransactionId(): string {
-  activeTransactionSequence += 1;
-  return `tx:${Date.now().toString(36)}:${activeTransactionSequence.toString(36)}`;
-}
-
 function createLiveId(): string {
-  return `live:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`;
+  return `live:${randomUUID()}`;
 }
 
 function serializeError(error: unknown): DbHostSerializedError {
@@ -351,7 +346,7 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
       }
       const db = await getQueryableDatabase();
       await execSql(db, 'BEGIN');
-      activeTransactionId = createTransactionId();
+      activeTransactionId = request.transactionId;
       const result: DbHostTransactionStartResult = { transactionId: activeTransactionId };
       return result;
     }

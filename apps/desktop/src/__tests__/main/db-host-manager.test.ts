@@ -245,6 +245,33 @@ describe('DbHostManager', () => {
     expect(getDbHostManager()).not.toBe(manager);
   });
 
+  it('does not create a second default manager while singleton close is in flight', async () => {
+    const { closeDbHostManager, getDbHostManager } = await import('../../db-host-manager');
+    const manager = getDbHostManager();
+
+    const diagnosticsPromise = manager.getDiagnostics();
+    latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
+      hasDatabaseHandle: true,
+    });
+    await expect(diagnosticsPromise).resolves.toMatchObject({ hasDatabaseHandle: true });
+
+    const firstHost = latestProcess();
+    const closePromise = closeDbHostManager();
+    expect(() => getDbHostManager()).toThrow(
+      'DB host manager is closing; wait for closeDbHostManager() to complete.'
+    );
+    expect(forkMock).toHaveBeenCalledTimes(1);
+
+    const closeMessage = firstHost.messages.at(-1);
+    firstHost.reply(closeMessage as PostedMessage, { closed: true });
+    await closePromise;
+
+    const nextManager = getDbHostManager();
+    expect(nextManager).not.toBe(manager);
+    void nextManager.getDiagnostics();
+    expect(forkMock).toHaveBeenCalledTimes(2);
+  });
+
   it('escapes literal percents before sending live query requests to the DB host', async () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
@@ -370,7 +397,12 @@ describe('DbHostManager', () => {
 
       const transactionPromise = database.transaction(async () => 'unreachable');
       const txStartMessage = latestProcess().messages.at(-1);
-      expect(txStartMessage?.request.kind).toBe('transaction:start');
+      expect(txStartMessage).toMatchObject({
+        request: {
+          kind: 'transaction:start',
+          transactionId: expect.stringMatching(/^tx:/),
+        },
+      });
       const firstHost = latestProcess();
       const transactionAssertion = expect(transactionPromise).rejects.toThrow(
         'DB host request timed out: transaction:start'
@@ -399,25 +431,29 @@ describe('DbHostManager', () => {
     latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
     const database = await databasePromise;
 
+    let transactionId = '';
     const resultPromise = database.transaction(async (tx) => {
       const queryPromise = tx.query('SELECT 1');
       const queryMessage = latestProcess().messages.at(-1);
       expect(queryMessage).toMatchObject({
-        request: { kind: 'transaction:query', transactionId: 'tx-1', sql: 'SELECT 1' },
+        request: { kind: 'transaction:query', transactionId, sql: 'SELECT 1' },
       });
       latestProcess().reply(queryMessage as PostedMessage, { rows: [{ value: 1 }] });
       return (await queryPromise).rows[0];
     });
 
     const txStart = latestProcess().messages.at(-1);
-    expect(txStart).toMatchObject({ request: { kind: 'transaction:start' } });
-    latestProcess().reply(txStart as PostedMessage, { transactionId: 'tx-1' });
+    transactionId = txStart?.request.transactionId ?? '';
+    expect(txStart).toMatchObject({
+      request: { kind: 'transaction:start', transactionId: expect.stringMatching(/^tx:/) },
+    });
+    latestProcess().reply(txStart as PostedMessage, { transactionId });
     await flushMicrotasks();
     await flushMicrotasks();
 
     const commitMessage = latestProcess().messages.at(-1);
     expect(commitMessage).toMatchObject({
-      request: { kind: 'transaction:commit', transactionId: 'tx-1' },
+      request: { kind: 'transaction:commit', transactionId },
     });
     latestProcess().reply(commitMessage as PostedMessage, { committed: true });
 
@@ -436,16 +472,38 @@ describe('DbHostManager', () => {
     });
 
     const txStart = latestProcess().messages.at(-1);
-    expect(txStart).toMatchObject({ request: { kind: 'transaction:start' } });
-    latestProcess().reply(txStart as PostedMessage, { transactionId: 'tx-1' });
+    const transactionId = txStart?.request.transactionId;
+    expect(txStart).toMatchObject({
+      request: { kind: 'transaction:start', transactionId: expect.stringMatching(/^tx:/) },
+    });
+    latestProcess().reply(txStart as PostedMessage, { transactionId });
     await flushMicrotasks();
 
     const rollbackMessage = latestProcess().messages.at(-1);
     expect(rollbackMessage).toMatchObject({
-      request: { kind: 'transaction:rollback', transactionId: 'tx-1' },
+      request: { kind: 'transaction:rollback', transactionId },
     });
     latestProcess().reply(rollbackMessage as PostedMessage, { rolledBack: true });
 
     await expect(resultPromise).rejects.toThrow('callback failed');
+  });
+
+  it('rejects a remote transaction if the host acknowledges a different transaction id', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+    const databasePromise = manager.getDatabase();
+    latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
+    const database = await databasePromise;
+
+    const resultPromise = database.transaction(async () => 'unreachable');
+    const txStart = latestProcess().messages.at(-1);
+    expect(txStart).toMatchObject({
+      request: { kind: 'transaction:start', transactionId: expect.stringMatching(/^tx:/) },
+    });
+    latestProcess().reply(txStart as PostedMessage, { transactionId: 'tx:wrong' });
+
+    await expect(resultPromise).rejects.toThrow(
+      'DB host transaction acknowledgement mismatch: expected'
+    );
   });
 });

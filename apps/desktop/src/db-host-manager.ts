@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { escapePGliteLiveQueryFormatPercents } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -122,7 +123,11 @@ function toError(error: DbHostSerializedError): Error {
 }
 
 function createRequestId(): string {
-  return `db-host:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`;
+  return `db-host:${randomUUID()}`;
+}
+
+function createTransactionId(): string {
+  return `tx:${randomUUID()}`;
 }
 
 function requiresHostTerminationOnTimeout(request: DbHostRequest): boolean {
@@ -486,9 +491,16 @@ class DefaultDbHostManager implements DbHostManager {
   }
 
   async #transaction<TResult>(fn: (tx: RemoteDbTransaction) => Promise<TResult>): Promise<TResult> {
-    const { transactionId } = await this.send<DbHostTransactionStartResult>({
+    const transactionId = createTransactionId();
+    const started = await this.send<DbHostTransactionStartResult>({
       kind: 'transaction:start',
+      transactionId,
     });
+    if (started.transactionId !== transactionId) {
+      throw new Error(
+        `DB host transaction acknowledgement mismatch: expected ${transactionId}, received ${started.transactionId}`
+      );
+    }
     const tx: RemoteDbTransaction = {
       exec: async (sql, params) =>
         await this.send({
@@ -581,12 +593,16 @@ class DefaultDbHostManager implements DbHostManager {
 }
 
 let defaultManager: DbHostManager | null = null;
+let closingDefaultManager: Promise<void> | null = null;
 
 export function createDbHostManager(options?: DbHostManagerOptions): DbHostManager {
   return new DefaultDbHostManager(options);
 }
 
 export function getDbHostManager(): DbHostManager {
+  if (closingDefaultManager) {
+    throw new Error('DB host manager is closing; wait for closeDbHostManager() to complete.');
+  }
   if (!defaultManager) {
     defaultManager = createDbHostManager();
   }
@@ -594,11 +610,24 @@ export function getDbHostManager(): DbHostManager {
 }
 
 export async function closeDbHostManager(): Promise<void> {
+  if (closingDefaultManager) {
+    await closingDefaultManager;
+    return;
+  }
   const manager = defaultManager;
-  defaultManager = null;
-  await manager?.close();
+  if (!manager) {
+    return;
+  }
+  closingDefaultManager = manager.close().finally(() => {
+    if (defaultManager === manager) {
+      defaultManager = null;
+    }
+    closingDefaultManager = null;
+  });
+  await closingDefaultManager;
 }
 
 export function resetDbHostManagerForTests(): void {
   defaultManager = null;
+  closingDefaultManager = null;
 }

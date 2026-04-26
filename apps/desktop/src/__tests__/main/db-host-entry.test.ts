@@ -209,7 +209,7 @@ describe('db-host-entry', () => {
       data: {
         id: 'tx-start',
         kind: 'request',
-        request: { kind: 'transaction:start' },
+        request: { kind: 'transaction:start', transactionId: 'tx:client-owned' },
       },
     });
     await flushMicrotasks();
@@ -220,7 +220,7 @@ describe('db-host-entry', () => {
         (message as { id?: string }).id === 'tx-start'
     )?.[0] as { result?: { transactionId?: string } } | undefined;
     const transactionId = txStartResponse?.result?.transactionId;
-    expect(transactionId).toBeTruthy();
+    expect(transactionId).toBe('tx:client-owned');
 
     listeners[0]?.({
       data: {
@@ -272,7 +272,7 @@ describe('db-host-entry', () => {
       data: {
         id: 'tx-start',
         kind: 'request',
-        request: { kind: 'transaction:start' },
+        request: { kind: 'transaction:start', transactionId: 'tx:client-owned' },
       },
     });
     listeners[0]?.({
@@ -309,7 +309,7 @@ describe('db-host-entry', () => {
       data: {
         id: 'tx-start',
         kind: 'request',
-        request: { kind: 'transaction:start' },
+        request: { kind: 'transaction:start', transactionId: 'tx:client-owned' },
       },
     });
     await flushMicrotasks();
@@ -320,7 +320,7 @@ describe('db-host-entry', () => {
         (message as { id?: string }).id === 'tx-start'
     )?.[0] as { result?: { transactionId?: string } } | undefined;
     const transactionId = txStartResponse?.result?.transactionId;
-    expect(transactionId).toBeTruthy();
+    expect(transactionId).toBe('tx:client-owned');
 
     listeners[0]?.({
       data: {
