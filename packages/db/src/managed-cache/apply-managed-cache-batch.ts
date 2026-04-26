@@ -417,10 +417,6 @@ export async function applyManagedCacheBatch(
     // batch are inserted. Reordering these calls changes conflict behavior and atomicity.
     await applyManagedCacheReplacements(tx, args.embeddingSetId, replacements);
     await insertManagedCacheImports(tx, args.embeddingSetId, imports);
-  });
-
-  await refreshCollectionIndexingStats(db, [args.embeddingSetId], {
-    label: 'managed-cache stats refresh',
-    priority: 'background',
+    await refreshCollectionIndexingStats(tx, [args.embeddingSetId]);
   });
 }
