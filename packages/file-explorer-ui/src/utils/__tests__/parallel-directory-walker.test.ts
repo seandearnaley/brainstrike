@@ -76,4 +76,58 @@ describe('walkDirectoryParallel', () => {
       }),
     ]);
   });
+
+  it('skips package manager stores before traversing them', async () => {
+    const rootHandle: DirectoryHandle = {
+      kind: 'directory',
+      name: 'root',
+      path: '/workspace/root',
+      platform: 'electron',
+      _internal: undefined,
+    };
+
+    const readDirectory = vi.fn(async (handle: DirectoryHandle) => {
+      if (handle.path === '/workspace/root') {
+        return [
+          createDirectoryEntry('.pnpm-store', '/workspace/root/.pnpm-store'),
+          createDirectoryEntry('src', '/workspace/root/src'),
+        ];
+      }
+      if (handle.path === '/workspace/root/src') {
+        return [createFileEntry('index.ts', '/workspace/root/src/index.ts')];
+      }
+      if (handle.path === '/workspace/root/.pnpm-store') {
+        return [createDirectoryEntry('v10', '/workspace/root/.pnpm-store/v10')];
+      }
+      throw new Error(`Unexpected directory read: ${handle.path}`);
+    });
+
+    const fileSystemAdapter: FileSystemAdapter = {
+      exists: vi.fn(),
+      readDirectory,
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
+    } as unknown as FileSystemAdapter;
+
+    const skipped: string[] = [];
+    const tree = await walkDirectoryParallel(fileSystemAdapter, rootHandle, {
+      onEntrySkipped: ({ relativePath }) => {
+        skipped.push(relativePath);
+      },
+    });
+
+    expect(readDirectory).toHaveBeenCalledTimes(2);
+    expect(readDirectory).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '/workspace/root/.pnpm-store',
+      })
+    );
+    expect(skipped).toContain('.pnpm-store');
+    expect(tree).toEqual([
+      expect.objectContaining({
+        name: 'src',
+        children: [expect.objectContaining({ name: 'index.ts' })],
+      }),
+    ]);
+  });
 });
