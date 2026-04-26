@@ -79,10 +79,7 @@ function getForegroundLatencyReason(
   serviceP95ThresholdMs: number
 ): DatabasePressureWaitingReason | null {
   const foregroundStats = snapshot.priorityStats.foreground;
-  const lastForegroundPressureAt = Math.max(
-    snapshot.lastForegroundAt ?? 0,
-    snapshot.lastCompletedAt ?? 0
-  );
+  const lastForegroundPressureAt = snapshot.lastForegroundAt ?? 0;
   if (lastForegroundPressureAt <= 0 || now - lastForegroundPressureAt > pressureWindowMs) {
     return null;
   }

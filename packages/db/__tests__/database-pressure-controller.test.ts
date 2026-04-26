@@ -136,6 +136,67 @@ describe('DatabasePressureController', () => {
     await expect(permit).resolves.toBeUndefined();
   });
 
+  it('does not let background completions extend stale foreground latency pressure', async () => {
+    let now = 10_000;
+    const baseScheduler = createDatabaseWorkScheduler({
+      foregroundQuietMs: 0,
+      now: () => now,
+    });
+    const baseSnapshot = baseScheduler.getSnapshot();
+    const listeners = new Set<(snapshot: DatabaseWorkSchedulerSnapshot) => void>();
+    const snapshot = (): DatabaseWorkSchedulerSnapshot => ({
+      ...baseSnapshot,
+      lastCompletedAt: now,
+      lastForegroundAt: 9000,
+      priorityStats: {
+        ...baseSnapshot.priorityStats,
+        background: {
+          ...baseSnapshot.priorityStats.background,
+          completed: 128,
+          lastCompletedLabel: 'backfill queue capacity',
+        },
+        foreground: {
+          ...baseSnapshot.priorityStats.foreground,
+          completed: 1,
+          lastCompletedLabel: 'collection page',
+          serviceP95Ms: 120,
+        },
+      },
+    });
+
+    const controller = createDatabasePressureController({
+      foregroundPressureWindowMs: 500,
+      foregroundServiceP95ThresholdMs: 50,
+      now: () => now,
+      pollMs: 1000,
+      snapshotSource: {
+        getSnapshot: snapshot,
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => {
+            listeners.delete(listener);
+          };
+        },
+      },
+    });
+
+    await expect(
+      controller.waitForBackgroundPermit({ label: 'embedding claim' })
+    ).resolves.toBeUndefined();
+    expect(controller.getSnapshot()).toMatchObject({
+      permitWaiting: false,
+      permitYieldCount: 0,
+    });
+
+    now += 100;
+    for (const listener of listeners) {
+      listener(snapshot());
+    }
+    await expect(
+      controller.waitForBackgroundPermit({ label: 'embedding completion' })
+    ).resolves.toBeUndefined();
+  });
+
   it('rejects a pending permit when aborted', async () => {
     vi.useFakeTimers();
     try {
