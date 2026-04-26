@@ -609,6 +609,21 @@ function isMissingRelationError(error: unknown): boolean {
   return message.includes('relation') && message.includes('does not exist');
 }
 
+async function clearOptionalRelation(
+  tx: { query: (sql: string) => Promise<{ rows: unknown[] }> },
+  tableName: string
+): Promise<void> {
+  try {
+    await tx.query(`DELETE FROM ${tableName}`);
+  } catch (error) {
+    if (isMissingRelationError(error)) {
+      return;
+    }
+    logger.warn('Failed to clear optional database table', { error, tableName });
+    throw error;
+  }
+}
+
 function isDatabaseWorkPriority(value: unknown): value is DatabaseWorkPriority {
   return value === 'foreground' || value === 'normal' || value === 'background';
 }
@@ -1407,15 +1422,9 @@ export function registerIpcHandlers(
           }
           await tx.query('DELETE FROM file_records');
           // Clear embedding sets and any queued jobs
-          try {
-            await tx.query('DELETE FROM collection_indexing_stats');
-          } catch {}
-          try {
-            await tx.query('DELETE FROM embedding_sets');
-          } catch {}
-          try {
-            await tx.query('DELETE FROM job_queue');
-          } catch {}
+          await clearOptionalRelation(tx, 'collection_indexing_stats');
+          await clearOptionalRelation(tx, 'embedding_sets');
+          await clearOptionalRelation(tx, 'job_queue');
 
           return {
             success: true,

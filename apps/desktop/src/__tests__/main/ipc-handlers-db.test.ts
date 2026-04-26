@@ -1807,6 +1807,69 @@ describe('database IPC handlers', () => {
         error: expect.any(Error),
       });
     });
+
+    it('ignores missing relation errors when clearing optional indexing tables', async () => {
+      const handler = handlers.get('db:clearAll');
+
+      mockDb.transaction.mockImplementation(async (callback) => {
+        const missingRelation = Object.assign(
+          new Error('relation "collection_indexing_stats" does not exist'),
+          { code: '42P01' }
+        );
+        const mockTx = {
+          query: vi
+            .fn()
+            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
+            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
+            .mockResolvedValueOnce(undefined) // DELETE chunks
+            .mockResolvedValueOnce(undefined) // DELETE snapshot files
+            .mockResolvedValueOnce(undefined) // DELETE snapshot headers
+            .mockResolvedValueOnce(undefined) // DELETE files
+            .mockRejectedValueOnce(missingRelation) // DELETE collection_indexing_stats
+            .mockResolvedValueOnce(undefined) // DELETE embedding_sets
+            .mockResolvedValueOnce(undefined), // DELETE job_queue
+        };
+        return await callback(mockTx);
+      });
+
+      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+      expect(result).toEqual({
+        success: true,
+        message: 'Database cleared successfully',
+        deletedFiles: 0,
+        deletedChunks: 0,
+      });
+      expect(loggerWarn).not.toHaveBeenCalled();
+    });
+
+    it('fails the clear when optional indexing table cleanup hits an unexpected error', async () => {
+      const handler = handlers.get('db:clearAll');
+
+      mockDb.transaction.mockImplementation(async (callback) => {
+        const mockTx = {
+          query: vi
+            .fn()
+            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
+            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
+            .mockResolvedValueOnce(undefined) // DELETE chunks
+            .mockResolvedValueOnce(undefined) // DELETE snapshot files
+            .mockResolvedValueOnce(undefined) // DELETE snapshot headers
+            .mockResolvedValueOnce(undefined) // DELETE files
+            .mockRejectedValueOnce(new Error('stats cleanup failed')),
+        };
+        return await callback(mockTx);
+      });
+
+      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+      expect(result).toEqual({
+        success: false,
+        message: 'Database clear failed: stats cleanup failed',
+        deletedFiles: 0,
+        deletedChunks: 0,
+      });
+    });
   });
 
   describe('live query backgrounding', () => {
