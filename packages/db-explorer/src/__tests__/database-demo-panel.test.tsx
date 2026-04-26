@@ -112,6 +112,20 @@ const mockChunkLiveQueryResult = {
   refresh: vi.fn().mockResolvedValue(undefined),
 };
 
+const mockCollectionCountLiveQueryResult = {
+  rows: [
+    {
+      embeddingSetId: TEST_COLLECTION_ID,
+      recordsCount: 1,
+      chunksCount: 1,
+      embeddingsCount: 1,
+    },
+  ] as unknown[],
+  loading: false,
+  error: null,
+  refresh: vi.fn().mockResolvedValue(undefined),
+};
+
 const mockDatabase = {
   query: vi.fn().mockResolvedValue({ rows: [{ location: 'PGlite WASM' }] }),
 };
@@ -139,6 +153,9 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     migrations: [],
     usePGliteLiveQuery: (options: { query: string }) => {
       // Return stable object references based on query type
+      if (options.query.includes('FROM collection_indexing_stats')) {
+        return mockCollectionCountLiveQueryResult;
+      }
       if (options.query.includes('FROM file_records')) {
         return mockRecordLiveQueryResult;
       }

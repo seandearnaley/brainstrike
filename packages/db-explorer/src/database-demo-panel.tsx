@@ -222,6 +222,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   });
   const {
     collectionCounts,
+    collectionCountsStatus,
     records,
     chunks,
     refreshing,
@@ -233,6 +234,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     recordPagination,
   } = data;
   const activeCollectionCounts = collectionCounts;
+  const activeCollectionCountsPending = collectionCountsStatus === 'pending';
   const previousCollectionIdRef = useRef<string | null>(activeCollectionId);
 
   useEffect(() => {
@@ -565,6 +567,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                           clearAllData,
                           recordsCount: activeCollectionCounts.records,
                           chunksCount: activeCollectionCounts.chunks,
+                          countsPending: activeCollectionCountsPending,
                           clearing,
                           showClearDialog,
                           setShowClearDialog,
@@ -611,7 +614,11 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
               data-testid="database-panel-actions"
             >
               <TooltipProvider delayDuration={200}>
-                <ExportDropdown counts={activeCollectionCounts} exportHandlers={exportHandlers} />
+                <ExportDropdown
+                  counts={activeCollectionCounts}
+                  countsStatus={collectionCountsStatus}
+                  exportHandlers={exportHandlers}
+                />
 
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -683,6 +690,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       <ClearDatabaseDialog
         chunksCount={activeCollectionCounts.chunks}
         clearing={clearing}
+        countsPending={activeCollectionCountsPending}
         onClear={handleClearDatabase}
         recordsCount={activeCollectionCounts.records}
         setShowClearDialog={setShowClearDialog}

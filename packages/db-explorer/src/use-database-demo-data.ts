@@ -112,6 +112,8 @@ export interface DatabaseCollectionCounts {
   records: number;
 }
 
+export type DatabaseCollectionCountsStatus = 'pending' | 'ready';
+
 export interface DatabaseRecordPagination {
   currentPage: number;
   pageSize: number;
@@ -122,6 +124,7 @@ export interface DatabaseRecordPagination {
 export interface UseDatabaseDemoDataResult extends DatabaseLoaders {
   chunks: DatabaseFileChunkSummary[];
   collectionCounts: DatabaseCollectionCounts;
+  collectionCountsStatus: DatabaseCollectionCountsStatus;
   dbInfo: DatabaseInfo | null;
   recordPagination: DatabaseRecordPagination;
   records: DatabaseFileRecordSummary[];
@@ -210,27 +213,22 @@ const FILE_RECORDS_PAGE_QUERY = `
 `.trim();
 
 const FILE_RECORDS_TOTAL_QUERY = `
-  SELECT COUNT(*)::int AS "totalRecords"
+  SELECT
+    $1::text AS "embeddingSetId",
+    COUNT(*)::int AS "totalRecords"
   FROM file_records
   WHERE embedding_set_id = $1
 `.trim();
 
 const COLLECTION_COUNTS_QUERY = `
   SELECT
-    (
-      SELECT COUNT(*)::int
-      FROM file_records
-      WHERE embedding_set_id = $1
-    ) AS "recordsCount",
-    chunk_counts."chunksCount",
-    chunk_counts."embeddingsCount"
-  FROM (
-    SELECT
-      COUNT(*)::int AS "chunksCount",
-      COUNT(*) FILTER (WHERE embedding IS NOT NULL)::int AS "embeddingsCount"
-    FROM file_chunks
-    WHERE embedding_set_id = $2
-  ) chunk_counts
+    embedding_set_id AS "embeddingSetId",
+    file_count AS "recordsCount",
+    chunk_count AS "chunksCount",
+    embedded_chunk_count AS "embeddingsCount"
+  FROM collection_indexing_stats
+  WHERE embedding_set_id = $1
+    AND dirty = FALSE
 `.trim();
 
 // PERFORMANCE: chunk summaries for the collection browser are loaded per file on demand.
@@ -293,11 +291,13 @@ interface FileChunkRow {
 }
 
 interface FileRecordsTotalRow {
+  embeddingSetId?: string | null;
   totalRecords: number | null;
 }
 
 interface CollectionCountsRow {
   chunksCount: number | null;
+  embeddingSetId?: string | null;
   embeddingsCount: number | null;
   recordsCount: number | null;
 }
@@ -565,6 +565,54 @@ function normalizeCount(value: number | string | null | undefined): number {
   return Number(value);
 }
 
+function rowBelongsToCollection(
+  row: { embeddingSetId?: string | null } | null | undefined,
+  collectionId: string
+): boolean {
+  return row?.embeddingSetId === undefined || row.embeddingSetId === collectionId;
+}
+
+function recordsBelongToCollection(
+  records: readonly DatabaseFileRecordSummary[],
+  collectionId: string
+): boolean {
+  return records.every(
+    (record) => record.embeddingSetId === undefined || record.embeddingSetId === collectionId
+  );
+}
+
+function mapCollectionCountsRow(row: CollectionCountsRow): DatabaseCollectionCounts {
+  return {
+    records: normalizeCount(row.recordsCount),
+    chunks: normalizeCount(row.chunksCount),
+    embeddings: normalizeCount(row.embeddingsCount),
+  };
+}
+
+function cacheTotalRecordsForCollection(args: {
+  cache: Map<string, number>;
+  collectionId: string;
+  rows: readonly FileRecordsTotalRow[];
+}): void {
+  const totalRow = args.rows[0];
+  if (!rowBelongsToCollection(totalRow, args.collectionId)) {
+    return;
+  }
+  args.cache.set(args.collectionId, normalizeCount(totalRow?.totalRecords));
+}
+
+function cacheCollectionCountsForCollection(args: {
+  cache: Map<string, DatabaseCollectionCounts>;
+  collectionId: string;
+  rows: readonly CollectionCountsRow[];
+}): void {
+  const countsRow = args.rows[0];
+  if (!(countsRow && rowBelongsToCollection(countsRow, args.collectionId))) {
+    return;
+  }
+  args.cache.set(args.collectionId, mapCollectionCountsRow(countsRow));
+}
+
 function countLoadedChunkGroups(
   loadedChunksByPage: Map<string, Map<string, DatabaseFileChunkSummary[]>>
 ): number {
@@ -745,8 +793,8 @@ export function useDatabaseDemoData({
     () => (activeCollectionId ? [activeCollectionId] : undefined),
     [activeCollectionId]
   );
-  const collectionCountsQueryParams = useMemo<readonly [string, string] | undefined>(
-    () => (activeCollectionId ? [activeCollectionId, activeCollectionId] : undefined),
+  const collectionCountsQueryParams = useMemo<readonly [string] | undefined>(
+    () => (activeCollectionId ? [activeCollectionId] : undefined),
     [activeCollectionId]
   );
 
@@ -799,22 +847,46 @@ export function useDatabaseDemoData({
     }
     return recordRows.map(mapRecordRow);
   }, [recordRows, schemaReady, activeCollectionId]);
+  const liveRecordsMatchActiveCollection = useMemo(
+    () => Boolean(activeCollectionId && recordsBelongToCollection(records, activeCollectionId)),
+    [activeCollectionId, records]
+  );
   const liveTotalRecords = useMemo(() => {
     const firstRow = totalRecordRows[0];
+    if (!(activeCollectionId && rowBelongsToCollection(firstRow, activeCollectionId))) {
+      return null;
+    }
     return normalizeCount(firstRow?.totalRecords);
-  }, [totalRecordRows]);
+  }, [activeCollectionId, totalRecordRows]);
+  const liveTotalRecordsReady = liveTotalRecords !== null;
   const liveCollectionCounts = useMemo<DatabaseCollectionCounts>(() => {
     const firstRow = collectionCountRows[0];
-    return {
-      records: normalizeCount(firstRow?.recordsCount),
-      chunks: normalizeCount(firstRow?.chunksCount),
-      embeddings: normalizeCount(firstRow?.embeddingsCount),
-    };
-  }, [collectionCountRows]);
+    if (!(activeCollectionId && firstRow && rowBelongsToCollection(firstRow, activeCollectionId))) {
+      return { records: 0, chunks: 0, embeddings: 0 };
+    }
+    return mapCollectionCountsRow(firstRow);
+  }, [activeCollectionId, collectionCountRows]);
+  const liveCollectionCountsStatus: DatabaseCollectionCountsStatus = useMemo(() => {
+    if (collectionCountsLoading) {
+      return 'pending';
+    }
+    const firstRow = collectionCountRows[0];
+    return activeCollectionId && firstRow && rowBelongsToCollection(firstRow, activeCollectionId)
+      ? 'ready'
+      : 'pending';
+  }, [activeCollectionId, collectionCountRows, collectionCountsLoading]);
 
   // biome-ignore lint/plugin: This syncs live query results to cache, not fetching data
   useEffect(() => {
-    if (!(liveQueryEnabled && activeCollectionId && recordPageCacheKey) || recordsLoading) {
+    if (
+      !(liveQueryEnabled && activeCollectionId && recordPageCacheKey) ||
+      recordsLoading ||
+      totalRecordsLoading ||
+      collectionCountsLoading ||
+      !liveRecordsMatchActiveCollection ||
+      !liveTotalRecordsReady ||
+      liveCollectionCountsStatus !== 'ready'
+    ) {
       return;
     }
     cachedRecordsRef.current.set(recordPageCacheKey, records);
@@ -840,12 +912,17 @@ export function useDatabaseDemoData({
   }, [
     activeCollectionId,
     liveCollectionCounts,
+    liveCollectionCountsStatus,
+    liveRecordsMatchActiveCollection,
     liveQueryEnabled,
     liveTotalRecords,
+    liveTotalRecordsReady,
     normalizedRecordPage,
     normalizedRecordPageSize,
     recordPageCacheKey,
     records,
+    totalRecordsLoading,
+    collectionCountsLoading,
     recordsLoading,
     setGlobalCachedFileData,
   ]);
@@ -910,10 +987,7 @@ export function useDatabaseDemoData({
         ? queryDatabase.query<FileRecordsTotalRow>(FILE_RECORDS_TOTAL_QUERY, [activeCollectionId])
         : Promise.resolve(null));
       const collectionCountsResult = await (options.includeCollectionCounts
-        ? queryDatabase.query<CollectionCountsRow>(COLLECTION_COUNTS_QUERY, [
-            activeCollectionId,
-            activeCollectionId,
-          ])
+        ? queryDatabase.query<CollectionCountsRow>(COLLECTION_COUNTS_QUERY, [activeCollectionId])
         : Promise.resolve(null));
 
       if (recordsResult) {
@@ -921,16 +995,17 @@ export function useDatabaseDemoData({
         loadedRecordPagesRef.current.add(recordPageCacheKey);
       }
       if (totalRecordsResult) {
-        cachedRecordTotalsRef.current.set(
-          activeCollectionId,
-          normalizeCount(totalRecordsResult.rows[0]?.totalRecords)
-        );
+        cacheTotalRecordsForCollection({
+          cache: cachedRecordTotalsRef.current,
+          collectionId: activeCollectionId,
+          rows: totalRecordsResult.rows,
+        });
       }
       if (collectionCountsResult) {
-        cachedCollectionCountsRef.current.set(activeCollectionId, {
-          records: normalizeCount(collectionCountsResult.rows[0]?.recordsCount),
-          chunks: normalizeCount(collectionCountsResult.rows[0]?.chunksCount),
-          embeddings: normalizeCount(collectionCountsResult.rows[0]?.embeddingsCount),
+        cacheCollectionCountsForCollection({
+          cache: cachedCollectionCountsRef.current,
+          collectionId: activeCollectionId,
+          rows: collectionCountsResult.rows,
         });
       }
 
@@ -1008,11 +1083,20 @@ export function useDatabaseDemoData({
     schemaReady,
   ]);
 
-  const resolvedRecords = liveQueryEnabled && !recordsLoading ? records : cachedRecords;
+  const resolvedRecords =
+    liveQueryEnabled && !recordsLoading && liveRecordsMatchActiveCollection
+      ? records
+      : cachedRecords;
   const resolvedTotalRecords =
-    liveQueryEnabled && !totalRecordsLoading ? liveTotalRecords : cachedTotalRecords;
+    liveQueryEnabled && !totalRecordsLoading && liveTotalRecordsReady
+      ? liveTotalRecords
+      : cachedTotalRecords;
   const resolvedCollectionCounts =
-    liveQueryEnabled && !collectionCountsLoading ? liveCollectionCounts : cachedCollectionCounts;
+    liveQueryEnabled && !collectionCountsLoading && liveCollectionCountsStatus === 'ready'
+      ? liveCollectionCounts
+      : cachedCollectionCounts;
+  const resolvedCollectionCountsStatus: DatabaseCollectionCountsStatus =
+    liveQueryEnabled && liveCollectionCountsStatus === 'ready' ? 'ready' : 'pending';
   const pageDataDiagnosticSignatureRef = useRef<string | null>(null);
 
   const loadFileChunkSummaries = useCallback(
@@ -1563,6 +1647,7 @@ export function useDatabaseDemoData({
 
   return {
     collectionCounts: resolvedCollectionCounts,
+    collectionCountsStatus: resolvedCollectionCountsStatus,
     records: resolvedRecords,
     chunks: cachedChunks,
     refreshing,

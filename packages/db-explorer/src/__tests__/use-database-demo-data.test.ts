@@ -433,6 +433,124 @@ describe('useDatabaseDemoData', () => {
     });
   });
 
+  it('does not expose stale live rows from a previous collection after switching collections', async () => {
+    mockVectorStatusUIStore.schemaVerified = true;
+    mockVectorStatusUIStore.cachedFileData = {
+      collectionCounts: {
+        records: 3,
+        chunks: 30,
+        embeddings: 12,
+      },
+      collectionId: 'set-2',
+      page: 0,
+      pageSize: 50,
+      records: [
+        {
+          id: 'set-2-record',
+          name: 'active.ts',
+          path: '/active.ts',
+          size: 12,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+          contentHash: 'active-hash',
+          tokenCount: 1,
+          processedAt: null,
+          chunksProcessedAt: null,
+          chunksCount: 30,
+          embeddedChunksCount: 12,
+          chunkingStrategy: null,
+          hasEmbedding: false,
+          embeddingSetId: 'set-2',
+        },
+      ],
+      chunks: [],
+      totalRecords: 3,
+    };
+    setupLiveQueries({
+      records: [
+        {
+          id: 'set-1-stale-record',
+          name: 'stale.ts',
+          path: '/stale.ts',
+          size: 24,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+          contentHash: 'stale-hash',
+          tokenCount: 2,
+          processedAt: null,
+          chunksProcessedAt: null,
+          chunksCount: 1000,
+          embeddedChunksCount: 999,
+          chunkingStrategy: null,
+          hasEmbedding: true,
+          embeddingSetId: 'set-1',
+        },
+      ],
+      recordsLoading: false,
+      totalRecords: [{ embeddingSetId: 'set-1', totalRecords: 999 }],
+      totalRecordsLoading: false,
+      collectionCounts: [
+        {
+          embeddingSetId: 'set-1',
+          recordsCount: 999,
+          chunksCount: 1000,
+          embeddingsCount: 999,
+        },
+      ],
+      collectionCountsLoading: false,
+    });
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository: createRepository(),
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database: createMockDatabase(),
+        activeCollectionId: 'set-2',
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.records.map((record) => record.id)).toEqual(['set-2-record']);
+    });
+    expect(result.current.recordPagination.totalRecords).toBe(3);
+    expect(result.current.collectionCounts).toEqual({
+      records: 3,
+      chunks: 30,
+      embeddings: 12,
+    });
+    expect(result.current.collectionCountsStatus).toBe('pending');
+  });
+
+  it('reports collection counts as pending when active collection stats are unavailable', async () => {
+    mockVectorStatusUIStore.schemaVerified = true;
+    setupLiveQueries({
+      records: [],
+      totalRecords: [{ embeddingSetId: 'set-1', totalRecords: 0 }],
+      collectionCounts: [],
+      collectionCountsLoading: false,
+    });
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository: createRepository(),
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database: createMockDatabase(),
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.collectionCountsStatus).toBe('pending');
+    });
+    expect(result.current.collectionCounts).toEqual({
+      records: 0,
+      chunks: 0,
+      embeddings: 0,
+    });
+  });
+
   it('uses the canonical four-parameter record query when fetching import snapshots', async () => {
     mockVectorStatusUIStore.schemaVerified = true;
     mockVectorStatusUIStore.isImporting = true;
@@ -473,7 +591,7 @@ describe('useDatabaseDemoData', () => {
     });
   });
 
-  it('uses subqueries for collection counts instead of a collection-wide join', async () => {
+  it('uses collection indexing stats for collection counts instead of aggregate scans', async () => {
     setupLiveQueries();
 
     renderHook(() =>
@@ -495,9 +613,11 @@ describe('useDatabaseDemoData', () => {
       const countQueryParams = countQueryCall?.[0].params;
 
       expect(countQuery).toBeDefined();
-      expect(countQuery).toContain('SELECT COUNT(*)::int');
+      expect(countQuery).toContain('FROM collection_indexing_stats');
+      expect(countQuery).toContain('embedded_chunk_count AS "embeddingsCount"');
+      expect(countQuery).not.toContain('SELECT COUNT(*)::int');
       expect(countQuery).not.toContain('LEFT JOIN file_chunks');
-      expect(countQueryParams).toEqual(['set-1', 'set-1']);
+      expect(countQueryParams).toEqual(['set-1']);
     });
   });
 

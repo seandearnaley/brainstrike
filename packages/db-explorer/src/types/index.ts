@@ -65,6 +65,7 @@ export interface ExportButtonsProps {
     embeddings: number;
     records: number;
   };
+  countsStatus?: 'pending' | 'ready';
   exportHandlers: ExportHandlers;
 }
 
