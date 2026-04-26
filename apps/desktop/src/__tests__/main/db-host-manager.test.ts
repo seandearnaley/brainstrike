@@ -7,6 +7,10 @@ interface PostedMessage {
   readonly request: {
     readonly kind: string;
     readonly params?: readonly unknown[];
+    readonly payload?: {
+      readonly params?: readonly unknown[] | null;
+      readonly query?: string;
+    };
     readonly sql?: string;
     readonly transactionId?: string;
   };
@@ -151,6 +155,38 @@ describe('DbHostManager', () => {
       dataDir: '/mock/pgdata',
     });
     expect(forkMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('escapes literal percents before sending live query requests to the DB host', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+    const databasePromise = manager.getDatabase();
+    latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
+    const database = await databasePromise;
+
+    const livePromise = database.live.query({
+      query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
+      params: ['needle'],
+    });
+    const liveMessage = latestProcess().messages.at(-1);
+
+    expect(liveMessage).toMatchObject({
+      request: {
+        kind: 'live:start',
+        payload: {
+          query: "SELECT * FROM file_records WHERE path LIKE '%%' || $1 || '%%'",
+          params: ['needle'],
+        },
+      },
+    });
+    latestProcess().reply(liveMessage as PostedMessage, {
+      liveId: 'live-1',
+      initialResults: { rows: [] },
+    });
+
+    await expect(livePromise).resolves.toMatchObject({
+      initialResults: { rows: [] },
+    });
   });
 
   it('commits a remote transaction after the callback succeeds', async () => {

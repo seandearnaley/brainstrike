@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { escapePGliteLiveQueryFormatPercents } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app, type UtilityProcess, utilityProcess } from 'electron';
 import type {
@@ -18,6 +19,26 @@ import { DB_ROOT_PATH_ENV } from './db-runtime-env';
 const logger = createLogger('DbHostManager');
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
+function createLiveQueryDiagnostics(payload: {
+  readonly mode: 'query' | 'incremental';
+  readonly params?: readonly unknown[] | null;
+  readonly query: string;
+}): {
+  readonly mode: 'query' | 'incremental';
+  readonly paramsCount: number;
+  readonly queryPreview: string;
+  readonly unescapedPercentRuns: number;
+} {
+  const queryPreview = payload.query.replace(/\s+/g, ' ').slice(0, 240);
+  const percentRuns = payload.query.match(/%+/g) ?? [];
+  return {
+    mode: payload.mode,
+    paramsCount: payload.params?.length ?? 0,
+    queryPreview,
+    unescapedPercentRuns: percentRuns.filter((run) => run.length % 2 === 1).length,
+  };
+}
 
 export interface RemoteDbTransaction {
   readonly exec: (sql: string, params?: readonly unknown[]) => Promise<unknown>;
@@ -393,18 +414,26 @@ class DefaultDbHostManager implements DbHostManager {
     readonly params?: readonly unknown[] | null;
     readonly query: string;
   }): Promise<RemoteLiveQuery<TRecord>> {
+    const query = escapePGliteLiveQueryFormatPercents(payload.query, payload.params);
+    const requestPayload = {
+      query,
+      mode: payload.mode,
+      ...(payload.params === undefined || payload.params === null
+        ? {}
+        : { params: payload.params }),
+      ...(payload.key === undefined ? {} : { key: payload.key }),
+      ...(payload.limit === undefined ? {} : { limit: payload.limit }),
+      ...(payload.offset === undefined ? {} : { offset: payload.offset }),
+    };
     const result = await this.send<DbHostLiveStartResult>({
       kind: 'live:start',
-      payload: {
-        query: payload.query,
-        mode: payload.mode,
-        ...(payload.params === undefined || payload.params === null
-          ? {}
-          : { params: payload.params }),
-        ...(payload.key === undefined ? {} : { key: payload.key }),
-        ...(payload.limit === undefined ? {} : { limit: payload.limit }),
-        ...(payload.offset === undefined ? {} : { offset: payload.offset }),
-      },
+      payload: requestPayload,
+    }).catch((error: unknown) => {
+      logger.error('DB host live query start failed', {
+        error,
+        ...createLiveQueryDiagnostics(requestPayload),
+      });
+      throw error;
     });
     const liveQuery = new RemoteLiveQuery<TRecord>(
       this,
