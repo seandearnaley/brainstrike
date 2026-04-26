@@ -427,8 +427,6 @@ async function resolveIdType(db: IDatabase, table: string): Promise<string> {
   }
 }
 
-type EmbeddingWriteMode = 'vector' | 'raw';
-
 function readRowString(row: Record<string, unknown> | undefined, keys: readonly string[]): string {
   if (!row) {
     return '';
@@ -444,7 +442,7 @@ function readRowString(row: Record<string, unknown> | undefined, keys: readonly 
   return '';
 }
 
-async function resolveEmbeddingWriteMode(db: IDatabase): Promise<EmbeddingWriteMode> {
+async function assertVectorEmbeddingColumn(db: IDatabase): Promise<void> {
   try {
     const res = await db.query<Record<string, unknown>>(
       `SELECT data_type AS "dataType", udt_name AS "udtName"
@@ -460,12 +458,15 @@ async function resolveEmbeddingWriteMode(db: IDatabase): Promise<EmbeddingWriteM
     )}`.toLowerCase();
 
     if (columnType.includes('vector')) {
-      return 'vector';
+      return;
     }
     if (columnType.trim().length > 0) {
-      return 'raw';
+      throw new Error(`file_chunks.embedding must be a vector column, found: ${columnType}`);
     }
   } catch (error) {
+    if (error instanceof Error && error.message.includes('must be a vector column')) {
+      throw error;
+    }
     workerLogger.debug('Failed to resolve file_chunks.embedding column type', { error });
   }
 
@@ -474,15 +475,17 @@ async function resolveEmbeddingWriteMode(db: IDatabase): Promise<EmbeddingWriteM
       "SELECT 1 as one FROM pg_extension WHERE extname = 'vector'"
     );
     if (Array.isArray(res.rows) && res.rows.length > 0) {
-      return 'vector';
+      return;
     }
   } catch (error) {
-    workerLogger.debug('Failed to detect pgvector extension; treating writes as raw', {
+    workerLogger.debug('Failed to detect pgvector extension for embedding writes', {
       error,
     });
   }
 
-  return 'raw';
+  workerLogger.debug(
+    'Could not verify file_chunks.embedding column type; continuing with vector writes because initialized Brainstrike databases require pgvector.'
+  );
 }
 
 async function updateChunkEmbeddingBatch(
@@ -493,7 +496,6 @@ async function updateChunkEmbeddingBatch(
     embeddingSetId: string;
     embeddingHash: string;
   }>,
-  writeMode: EmbeddingWriteMode,
   idType: string
 ) {
   if (updates.length === 0) {
@@ -510,34 +512,10 @@ async function updateChunkEmbeddingBatch(
 
   let sql: string;
 
-  if (writeMode === 'vector') {
-    if (idType === 'uuid') {
-      sql = `UPDATE file_chunks AS fc
-         SET
-           embedding = t.embedding::vector,
-           embedding_set_id = t.embedding_set_id,
-           embedding_updated_at = $1,
-           embedding_hash = t.embedding_hash,
-           updated_at = $1
-       FROM unnest($2::uuid[], $3::text[], $4::text[], $5::text[])
-         AS t(id, embedding, embedding_set_id, embedding_hash)
-       WHERE fc.id = t.id`;
-    } else {
-      sql = `UPDATE file_chunks AS fc
-         SET
-           embedding = t.embedding::vector,
-           embedding_set_id = t.embedding_set_id,
-           embedding_updated_at = $1,
-           embedding_hash = t.embedding_hash,
-           updated_at = $1
-       FROM unnest($2::text[], $3::text[], $4::text[], $5::text[])
-         AS t(id, embedding, embedding_set_id, embedding_hash)
-       WHERE fc.id = t.id`;
-    }
-  } else if (idType === 'uuid') {
+  if (idType === 'uuid') {
     sql = `UPDATE file_chunks AS fc
          SET
-           embedding = t.embedding,
+           embedding = t.embedding::vector,
            embedding_set_id = t.embedding_set_id,
            embedding_updated_at = $1,
            embedding_hash = t.embedding_hash,
@@ -548,7 +526,7 @@ async function updateChunkEmbeddingBatch(
   } else {
     sql = `UPDATE file_chunks AS fc
          SET
-           embedding = t.embedding,
+           embedding = t.embedding::vector,
            embedding_set_id = t.embedding_set_id,
            embedding_updated_at = $1,
            embedding_hash = t.embedding_hash,
@@ -1082,7 +1060,7 @@ export async function startEmbeddingWorker(
     await options.waitForBackgroundPermit?.({ label });
   }
 
-  const embeddingWriteMode = await resolveEmbeddingWriteMode(options.db);
+  await assertVectorEmbeddingColumn(options.db);
 
   // Lightweight metrics for observability
   const metrics = {
@@ -1833,7 +1811,7 @@ export async function startEmbeddingWorker(
 
     if (updates.length > 0) {
       await waitForBackgroundPermit('embedding completion');
-      await updateChunkEmbeddingBatch(options.db, updates, embeddingWriteMode, fileChunkIdType);
+      await updateChunkEmbeddingBatch(options.db, updates, fileChunkIdType);
     }
 
     const completedJobs = await jq.completeBatch(jobCompletions);
