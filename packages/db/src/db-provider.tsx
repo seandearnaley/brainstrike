@@ -14,6 +14,7 @@ import {
 import {
   createDatabaseWorkScheduler,
   createScheduledDbHandle,
+  type DatabaseWorkOptions,
   type DatabaseWorkPriority,
   type ScheduledDbHandle,
 } from './database-work-scheduler.js';
@@ -207,7 +208,8 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
     params?: unknown[],
     options?: unknown
   ) => {
-    const result = await executor.query(sql, params, options);
+    const forwarded = splitExposedDatabaseWorkOptions(params, options);
+    const result = await executor.query(sql, forwarded.params, forwarded.options);
     return { rows: result.rows as T[] };
   };
   const handle: DbHandle = {
@@ -215,8 +217,10 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
   };
 
   if (typeof executor.exec === 'function') {
-    handle.exec = async (sql: string, params?: unknown[], options?: unknown) =>
-      await executor.exec?.(sql, params, options);
+    handle.exec = async (sql: string, params?: unknown[], options?: unknown) => {
+      const forwarded = splitExposedDatabaseWorkOptions(params, options);
+      return await executor.exec?.(sql, forwarded.params, forwarded.options);
+    };
   }
 
   if (typeof executor.transaction === 'function') {
@@ -243,6 +247,20 @@ function getRendererDefaultDatabaseWorkPriority(): DatabaseWorkPriority {
   const search = window.location?.search ?? '';
   const mode = new URLSearchParams(search).get('mode');
   return mode === 'embedding-host' || mode === 'chunking-host' ? 'background' : 'foreground';
+}
+
+function isDatabaseWorkOptions(value: unknown): value is DatabaseWorkOptions {
+  return typeof value === 'object' && value !== null && ('priority' in value || 'label' in value);
+}
+
+function splitExposedDatabaseWorkOptions(
+  params: unknown[] | undefined,
+  options: unknown
+): { options: unknown; params: unknown[] | undefined } {
+  if (options !== undefined || !isDatabaseWorkOptions(params)) {
+    return { params, options };
+  }
+  return { params: undefined, options: params };
 }
 
 function formatDesktopDatabaseInitError(

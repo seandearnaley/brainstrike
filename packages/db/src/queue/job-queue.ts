@@ -119,6 +119,8 @@ export interface CancelParams {
   reason?: string;
 }
 
+type IdTypeProbe = 'information_schema' | 'pg_catalog';
+
 export class JobQueue {
   private static readonly DEFAULT_MAX_ATTEMPTS = 5;
   private static readonly MAX_BATCH_SIZE = 9000;
@@ -187,7 +189,7 @@ export class JobQueue {
         return this.idType;
       }
     } catch (error) {
-      errors.push(error instanceof Error ? error.message : String(error));
+      this.recordIdTypeProbeError(errors, 'pg_catalog', error);
     }
 
     try {
@@ -197,11 +199,20 @@ export class JobQueue {
         return this.idType;
       }
     } catch (error) {
-      errors.push(error instanceof Error ? error.message : String(error));
+      this.recordIdTypeProbeError(errors, 'information_schema', error);
     }
 
     const suffix = errors.length > 0 ? ` Details: ${errors.join('; ')}` : '';
     throw new Error(`Failed to resolve ID type for job_queue.id.${suffix}`);
+  }
+
+  private recordIdTypeProbeError(errors: string[], probe: IdTypeProbe, error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    errors.push(`${probe}: ${message}`);
+    logger.error('Failed to resolve job_queue id type probe', {
+      message,
+      probe,
+    });
   }
 
   private validateIdType(idType: string): asserts idType is 'uuid' | 'text' {

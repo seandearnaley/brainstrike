@@ -413,6 +413,7 @@ async function loadChunksBatch(db: IDatabase, ids: string[], idType: string) {
 }
 
 async function resolveIdType(db: IDatabase, table: string): Promise<string> {
+  type IdTypeProbe = 'information_schema' | 'pg_catalog';
   const normalizeType = (value: unknown): 'uuid' | 'text' | null => {
     if (typeof value !== 'string') {
       return null;
@@ -427,6 +428,15 @@ async function resolveIdType(db: IDatabase, table: string): Promise<string> {
     return null;
   };
   const errors: string[] = [];
+  const recordProbeError = (probe: IdTypeProbe, error: unknown): void => {
+    const message = error instanceof Error ? error.message : String(error);
+    errors.push(`${probe}: ${message}`);
+    workerLogger.error('Failed to resolve id type probe for embedding worker', {
+      message,
+      probe,
+      table,
+    });
+  };
 
   try {
     const res = await db.query<{ dataType: string }>(
@@ -446,7 +456,7 @@ async function resolveIdType(db: IDatabase, table: string): Promise<string> {
       return type;
     }
   } catch (error) {
-    errors.push(error instanceof Error ? error.message : String(error));
+    recordProbeError('pg_catalog', error);
   }
 
   try {
@@ -464,7 +474,7 @@ async function resolveIdType(db: IDatabase, table: string): Promise<string> {
       return type;
     }
   } catch (error) {
-    errors.push(error instanceof Error ? error.message : String(error));
+    recordProbeError('information_schema', error);
   }
 
   const suffix = errors.length > 0 ? ` Details: ${errors.join('; ')}` : '';
