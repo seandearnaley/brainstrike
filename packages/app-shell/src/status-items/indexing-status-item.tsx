@@ -98,6 +98,29 @@ function formatDatabaseWorkSummary(snapshot: IndexingActivitySnapshot): string {
   return `${databaseWork.queued.foreground} foreground / ${databaseWork.queued.normal} normal / ${databaseWork.queued.background} background`;
 }
 
+function formatDatabaseWorkStats(snapshot: IndexingActivitySnapshot): string {
+  const databaseWork = snapshot.databaseWork;
+  if (!databaseWork) {
+    return 'No scheduler stats';
+  }
+  const foreground = databaseWork.priorityStats.foreground.completed;
+  const normal = databaseWork.priorityStats.normal.completed;
+  const background = databaseWork.priorityStats.background.completed;
+  return `${foreground} foreground / ${normal} normal / ${background} background completed`;
+}
+
+function formatDatabaseYieldSummary(snapshot: IndexingActivitySnapshot): string {
+  const databaseWork = snapshot.databaseWork;
+  if (!databaseWork) {
+    return 'No yield data';
+  }
+  if (databaseWork.backgroundYieldCount === 0) {
+    return 'No background yields observed';
+  }
+  const waitMs = Math.round(databaseWork.priorityStats.background.totalWaitMs);
+  return `${databaseWork.backgroundYieldCount} background yield${databaseWork.backgroundYieldCount === 1 ? '' : 's'} / ${waitMs}ms background wait`;
+}
+
 function formatPhase(snapshot: IndexingActivitySnapshot): string {
   if (!snapshot.phase) {
     return snapshot.status === 'idle' ? 'Idle' : 'Unknown';
@@ -183,6 +206,14 @@ export function IndexingStatusItem() {
             <dd className="max-w-[250px] text-right">{formatDatabaseWorkSummary(snapshot)}</dd>
           </div>
           <div className="flex justify-between gap-3">
+            <dt className="text-muted-foreground">DB completed</dt>
+            <dd className="max-w-[250px] text-right">{formatDatabaseWorkStats(snapshot)}</dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-muted-foreground">DB yields</dt>
+            <dd className="max-w-[250px] text-right">{formatDatabaseYieldSummary(snapshot)}</dd>
+          </div>
+          <div className="flex justify-between gap-3">
             <dt className="text-muted-foreground">Updated</dt>
             <dd>{formatLastUpdated(snapshot.lastUpdatedAt)}</dd>
           </div>
@@ -220,7 +251,10 @@ export function IndexingStatusItem() {
         {snapshot.databaseWork?.backgroundWaiting ? (
           <div className="rounded-md border border-border bg-muted/40 p-2 text-xs">
             <div className="font-medium">Yielding to foreground database work</div>
-            <div className="text-muted-foreground">{formatDatabaseWorkSummary(snapshot)}</div>
+            <div className="text-muted-foreground">
+              {formatDatabaseWorkSummary(snapshot)} · waiting{' '}
+              {Math.round(snapshot.databaseWork.currentBackgroundWaitMs)}ms
+            </div>
           </div>
         ) : null}
 

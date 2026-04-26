@@ -8,10 +8,23 @@ export interface DatabaseWorkOptions {
 export interface DatabaseWorkSchedulerSnapshot {
   readonly backgroundWaiting: boolean;
   readonly backgroundWaitingSince: number | null;
+  readonly backgroundYieldCount: number;
+  readonly currentBackgroundWaitMs: number;
+  readonly lastBackgroundYieldAt: number | null;
+  readonly lastCompletedAt: number | null;
   readonly lastForegroundAt: number | null;
+  readonly lastStartedAt: number | null;
+  readonly priorityStats: Record<DatabaseWorkPriority, DatabaseWorkPriorityStats>;
   readonly queued: Record<DatabaseWorkPriority, number>;
   readonly runningLabel: string | null;
   readonly runningPriority: DatabaseWorkPriority | null;
+}
+
+export interface DatabaseWorkPriorityStats {
+  readonly completed: number;
+  readonly queued: number;
+  readonly started: number;
+  readonly totalWaitMs: number;
 }
 
 export interface DatabaseWorkSchedulerOptions {
@@ -37,6 +50,7 @@ export interface ScheduledDbHandle {
 }
 
 interface ScheduledTask<T> {
+  readonly enqueuedAt: number;
   readonly label: string | null;
   readonly priority: DatabaseWorkPriority;
   readonly reject: (reason: unknown) => void;
@@ -70,6 +84,37 @@ function createQueuedCounts(
   };
 }
 
+function createEmptyPriorityStats(): Record<DatabaseWorkPriority, DatabaseWorkPriorityStats> {
+  return {
+    foreground: { completed: 0, queued: 0, started: 0, totalWaitMs: 0 },
+    normal: { completed: 0, queued: 0, started: 0, totalWaitMs: 0 },
+    background: { completed: 0, queued: 0, started: 0, totalWaitMs: 0 },
+  };
+}
+
+function clonePriorityStats(
+  stats: Record<DatabaseWorkPriority, DatabaseWorkPriorityStats>
+): Record<DatabaseWorkPriority, DatabaseWorkPriorityStats> {
+  return {
+    foreground: { ...stats.foreground },
+    normal: { ...stats.normal },
+    background: { ...stats.background },
+  };
+}
+
+function incrementPriorityStat(
+  stats: Record<DatabaseWorkPriority, DatabaseWorkPriorityStats>,
+  priority: DatabaseWorkPriority,
+  key: keyof DatabaseWorkPriorityStats,
+  amount: number
+): void {
+  const current = stats[priority];
+  stats[priority] = {
+    ...current,
+    [key]: current[key] + amount,
+  };
+}
+
 function normalizePriority(priority: DatabaseWorkPriority | undefined): DatabaseWorkPriority {
   return priority ?? 'foreground';
 }
@@ -88,10 +133,15 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
   readonly #foregroundQuietMs: number;
   readonly #listeners = new Set<(snapshot: DatabaseWorkSchedulerSnapshot) => void>();
   readonly #now: () => number;
+  readonly #priorityStats = createEmptyPriorityStats();
   readonly #queues = createEmptyQueues();
   #backgroundWaitingSince: number | null = null;
+  #backgroundYieldCount = 0;
   #drainTimer: ReturnType<typeof setTimeout> | null = null;
+  #lastBackgroundYieldAt: number | null = null;
+  #lastCompletedAt: number | null = null;
   #lastForegroundAt: number | null = null;
+  #lastStartedAt: number | null = null;
   #running = false;
   #runningLabel: string | null = null;
   #runningPriority: DatabaseWorkPriority | null = null;
@@ -102,10 +152,18 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
   }
 
   getSnapshot(): DatabaseWorkSchedulerSnapshot {
+    const now = this.#now();
     return {
       backgroundWaiting: this.#backgroundWaitingSince !== null,
       backgroundWaitingSince: this.#backgroundWaitingSince,
+      backgroundYieldCount: this.#backgroundYieldCount,
+      currentBackgroundWaitMs:
+        this.#backgroundWaitingSince === null ? 0 : Math.max(0, now - this.#backgroundWaitingSince),
+      lastBackgroundYieldAt: this.#lastBackgroundYieldAt,
+      lastCompletedAt: this.#lastCompletedAt,
       lastForegroundAt: this.#lastForegroundAt,
+      lastStartedAt: this.#lastStartedAt,
+      priorityStats: clonePriorityStats(this.#priorityStats),
       queued: createQueuedCounts(this.#queues),
       runningLabel: this.#runningLabel,
       runningPriority: this.#runningPriority,
@@ -114,18 +172,31 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
 
   run<T>(work: () => Promise<T>, options: DatabaseWorkOptions = {}): Promise<T> {
     const priority = normalizePriority(options.priority);
+    const enqueuedAt = this.#now();
     if (priority === 'foreground') {
-      this.#lastForegroundAt = this.#now();
+      this.#lastForegroundAt = enqueuedAt;
+    }
+
+    incrementPriorityStat(this.#priorityStats, priority, 'queued', 1);
+    if (
+      priority === 'background' &&
+      (this.#runningPriority === 'foreground' || this.#runningPriority === 'normal')
+    ) {
+      this.#markBackgroundWaiting(enqueuedAt);
     }
 
     return new Promise<T>((resolve, reject) => {
       this.#queues[priority].push({
+        enqueuedAt,
         label: options.label ?? null,
         priority,
         reject,
         resolve: resolve as (value: unknown) => void,
         work: work as () => Promise<unknown>,
       });
+      if (priority !== 'background' && this.#queues.background.length > 0) {
+        this.#markBackgroundWaiting(enqueuedAt);
+      }
       this.#emit();
       this.#scheduleDrain(0);
     });
@@ -143,6 +214,19 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     for (const listener of this.#listeners) {
       listener(snapshot);
     }
+  }
+
+  #markBackgroundWaiting(now: number): void {
+    if (this.#backgroundWaitingSince !== null) {
+      return;
+    }
+    this.#backgroundWaitingSince = now;
+    this.#lastBackgroundYieldAt = now;
+    this.#backgroundYieldCount += 1;
+  }
+
+  #clearBackgroundWaiting(): void {
+    this.#backgroundWaitingSince = null;
   }
 
   #nextDelayMs(): number {
@@ -168,13 +252,19 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     }
 
     for (const priority of PRIORITY_ORDER) {
+      if (
+        priority === 'foreground' &&
+        this.#queues.background.length > 0 &&
+        hasForegroundOrNormalWork(this.#queues)
+      ) {
+        this.#markBackgroundWaiting(this.#now());
+      }
+
       if (priority === 'background') {
         const delayMs = this.#nextDelayMs();
         if (delayMs > 0) {
-          if (this.#backgroundWaitingSince === null) {
-            this.#backgroundWaitingSince = this.#now();
-            this.#emit();
-          }
+          this.#markBackgroundWaiting(this.#now());
+          this.#emit();
           this.#scheduleDrain(delayMs);
           return null;
         }
@@ -182,15 +272,24 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
 
       const task = this.#queues[priority].shift();
       if (task) {
-        if (priority === 'background' && this.#backgroundWaitingSince !== null) {
-          this.#backgroundWaitingSince = null;
+        const now = this.#now();
+        this.#lastStartedAt = now;
+        incrementPriorityStat(this.#priorityStats, priority, 'started', 1);
+        incrementPriorityStat(
+          this.#priorityStats,
+          priority,
+          'totalWaitMs',
+          Math.max(0, now - task.enqueuedAt)
+        );
+        if (priority === 'background') {
+          this.#clearBackgroundWaiting();
         }
         return task;
       }
     }
 
     if (this.#backgroundWaitingSince !== null) {
-      this.#backgroundWaitingSince = null;
+      this.#clearBackgroundWaiting();
     }
     return null;
   }
@@ -232,6 +331,8 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     } catch (error) {
       task.reject(error);
     } finally {
+      this.#lastCompletedAt = this.#now();
+      incrementPriorityStat(this.#priorityStats, task.priority, 'completed', 1);
       this.#running = false;
       this.#runningPriority = null;
       this.#runningLabel = null;

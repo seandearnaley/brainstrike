@@ -4,6 +4,7 @@ import {
 } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
 import {
   __resetIndexingActivityStoreForTests,
+  type IndexingDatabaseWorkSnapshot,
   useIndexingActivityStore,
 } from '@brainstrike/preferences/stores/indexing-activity-store';
 import {
@@ -58,6 +59,30 @@ const liveQueryState: LiveQueryState = {
   loading: false,
   error: null,
 };
+
+function createDatabaseWorkSnapshot(
+  overrides: Partial<IndexingDatabaseWorkSnapshot> = {}
+): IndexingDatabaseWorkSnapshot {
+  return {
+    backgroundWaiting: false,
+    backgroundWaitingSince: null,
+    backgroundYieldCount: 0,
+    currentBackgroundWaitMs: 0,
+    lastBackgroundYieldAt: null,
+    lastCompletedAt: null,
+    lastForegroundAt: null,
+    lastStartedAt: null,
+    priorityStats: {
+      foreground: { completed: 0, queued: 0, started: 0, totalWaitMs: 0 },
+      normal: { completed: 0, queued: 0, started: 0, totalWaitMs: 0 },
+      background: { completed: 0, queued: 0, started: 0, totalWaitMs: 0 },
+    },
+    queued: { foreground: 0, normal: 0, background: 0 },
+    runningLabel: null,
+    runningPriority: null,
+    ...overrides,
+  };
+}
 
 vi.mock('@brainstrike/db', () => ({
   getDatabaseWorkScheduler: getDatabaseWorkSchedulerMock,
@@ -291,24 +316,8 @@ describe('IndexingActivityCoordinator', () => {
   });
 
   it('mirrors direct database scheduler pressure into the canonical snapshot', async () => {
-    const listeners = new Set<
-      (snapshot: {
-        backgroundWaiting: boolean;
-        backgroundWaitingSince: number | null;
-        lastForegroundAt: number | null;
-        queued: { background: number; foreground: number; normal: number };
-        runningLabel: string | null;
-        runningPriority: 'foreground' | 'normal' | 'background' | null;
-      }) => void
-    >();
-    const initialSnapshot = {
-      backgroundWaiting: false,
-      backgroundWaitingSince: null,
-      lastForegroundAt: null,
-      queued: { foreground: 0, normal: 0, background: 0 },
-      runningLabel: null,
-      runningPriority: null,
-    } as const;
+    const listeners = new Set<(snapshot: IndexingDatabaseWorkSnapshot) => void>();
+    const initialSnapshot = createDatabaseWorkSnapshot();
     databaseWorkSchedulerState.current = {
       getSnapshot: vi.fn(() => initialSnapshot),
       subscribe: vi.fn((listener) => {
@@ -322,14 +331,15 @@ describe('IndexingActivityCoordinator', () => {
 
     render(<IndexingActivityCoordinator />);
 
-    const pressureSnapshot = {
+    const pressureSnapshot = createDatabaseWorkSnapshot({
       backgroundWaiting: true,
       backgroundWaitingSince: 1000,
+      backgroundYieldCount: 1,
+      currentBackgroundWaitMs: 25,
+      lastBackgroundYieldAt: 1000,
       lastForegroundAt: 950,
       queued: { foreground: 1, normal: 0, background: 4 },
-      runningLabel: null,
-      runningPriority: null,
-    } as const;
+    });
     for (const listener of listeners) {
       listener(pressureSnapshot);
     }

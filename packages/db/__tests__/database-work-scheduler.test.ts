@@ -101,6 +101,64 @@ describe('DatabaseWorkScheduler', () => {
     ).resolves.toBe('recovered');
   });
 
+  it('retains cumulative operation stats after instantaneous queues drain', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+
+    await scheduler.run(async () => 'foreground', {
+      priority: 'foreground',
+      label: 'collection search',
+    });
+    await scheduler.run(async () => 'background', {
+      priority: 'background',
+      label: 'embedding claim',
+    });
+
+    expect(scheduler.getSnapshot()).toMatchObject({
+      queued: { background: 0, foreground: 0, normal: 0 },
+      priorityStats: {
+        foreground: { completed: 1, queued: 1, started: 1 },
+        normal: { completed: 0, queued: 0, started: 0 },
+        background: { completed: 1, queued: 1, started: 1 },
+      },
+    });
+  });
+
+  it('marks background work as waiting while foreground work is running', async () => {
+    vi.useFakeTimers();
+    try {
+      const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 50 });
+      let releaseForeground: (() => void) | null = null;
+      const foreground = scheduler.run(
+        async () =>
+          await new Promise<void>((resolve) => {
+            releaseForeground = resolve;
+          }),
+        { priority: 'foreground', label: 'hybrid search' }
+      );
+
+      await Promise.resolve();
+      const background = scheduler.run(async () => 'background', {
+        priority: 'background',
+        label: 'embedding claim',
+      });
+      await Promise.resolve();
+
+      expect(scheduler.getSnapshot()).toMatchObject({
+        backgroundWaiting: true,
+        backgroundYieldCount: 1,
+        queued: { background: 1, foreground: 0, normal: 0 },
+        runningPriority: 'foreground',
+      });
+
+      releaseForeground?.();
+      await foreground;
+      await vi.advanceTimersByTimeAsync(50);
+      await background;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('wraps database handles with scheduled default and explicit priority lanes', async () => {
     const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
     const seenPriorities: DatabaseWorkPriority[] = [];

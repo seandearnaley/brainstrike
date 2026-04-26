@@ -68,10 +68,23 @@ export interface DatabaseWorkOptions {
 export interface DatabaseWorkSchedulerSnapshot {
   readonly backgroundWaiting: boolean;
   readonly backgroundWaitingSince: number | null;
+  readonly backgroundYieldCount: number;
+  readonly currentBackgroundWaitMs: number;
+  readonly lastBackgroundYieldAt: number | null;
+  readonly lastCompletedAt: number | null;
   readonly lastForegroundAt: number | null;
+  readonly lastStartedAt: number | null;
+  readonly priorityStats: Record<DatabaseWorkPriority, DatabaseWorkPriorityStats>;
   readonly queued: Record<DatabaseWorkPriority, number>;
   readonly runningLabel: string | null;
   readonly runningPriority: DatabaseWorkPriority | null;
+}
+
+export interface DatabaseWorkPriorityStats {
+  readonly completed: number;
+  readonly queued: number;
+  readonly started: number;
+  readonly totalWaitMs: number;
 }
 
 /**

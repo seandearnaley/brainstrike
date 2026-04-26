@@ -1,8 +1,33 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   __resetIndexingActivityStoreForTests,
+  type IndexingDatabaseWorkSnapshot,
   useIndexingActivityStore,
 } from '../stores/indexing-activity-store';
+
+function createDatabaseWorkSnapshot(
+  overrides: Partial<IndexingDatabaseWorkSnapshot> = {}
+): IndexingDatabaseWorkSnapshot {
+  return {
+    backgroundWaiting: false,
+    backgroundWaitingSince: null,
+    backgroundYieldCount: 0,
+    currentBackgroundWaitMs: 0,
+    lastBackgroundYieldAt: null,
+    lastCompletedAt: null,
+    lastForegroundAt: null,
+    lastStartedAt: null,
+    priorityStats: {
+      foreground: { completed: 0, queued: 0, started: 0, totalWaitMs: 0 },
+      normal: { completed: 0, queued: 0, started: 0, totalWaitMs: 0 },
+      background: { completed: 0, queued: 0, started: 0, totalWaitMs: 0 },
+    },
+    queued: { foreground: 0, normal: 0, background: 0 },
+    runningLabel: null,
+    runningPriority: null,
+    ...overrides,
+  };
+}
 
 describe('indexing-activity-store', () => {
   beforeEach(() => {
@@ -77,14 +102,16 @@ describe('indexing-activity-store', () => {
   });
 
   it('reports active background indexing when database work is yielding to foreground work', () => {
-    useIndexingActivityStore.getState().setDatabaseWorkSnapshot({
-      backgroundWaiting: true,
-      backgroundWaitingSince: 1000,
-      lastForegroundAt: 900,
-      queued: { foreground: 1, normal: 0, background: 4 },
-      runningLabel: null,
-      runningPriority: null,
-    });
+    useIndexingActivityStore.getState().setDatabaseWorkSnapshot(
+      createDatabaseWorkSnapshot({
+        backgroundWaiting: true,
+        backgroundWaitingSince: 1000,
+        backgroundYieldCount: 1,
+        currentBackgroundWaitMs: 50,
+        lastForegroundAt: 900,
+        queued: { foreground: 1, normal: 0, background: 4 },
+      })
+    );
 
     expect(useIndexingActivityStore.getState().snapshot).toMatchObject({
       status: 'active',

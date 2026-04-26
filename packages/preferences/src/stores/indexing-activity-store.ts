@@ -48,10 +48,23 @@ export type IndexingDatabaseWorkPriority = 'foreground' | 'normal' | 'background
 export interface IndexingDatabaseWorkSnapshot {
   readonly backgroundWaiting: boolean;
   readonly backgroundWaitingSince: number | null;
+  readonly backgroundYieldCount: number;
+  readonly currentBackgroundWaitMs: number;
+  readonly lastBackgroundYieldAt: number | null;
+  readonly lastCompletedAt: number | null;
   readonly lastForegroundAt: number | null;
+  readonly lastStartedAt: number | null;
+  readonly priorityStats: Record<IndexingDatabaseWorkPriority, IndexingDatabaseWorkPriorityStats>;
   readonly queued: Record<IndexingDatabaseWorkPriority, number>;
   readonly runningLabel: string | null;
   readonly runningPriority: IndexingDatabaseWorkPriority | null;
+}
+
+export interface IndexingDatabaseWorkPriorityStats {
+  readonly completed: number;
+  readonly queued: number;
+  readonly started: number;
+  readonly totalWaitMs: number;
 }
 
 export interface IndexingActivitySnapshot {
