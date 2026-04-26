@@ -160,7 +160,15 @@ vi.mock('@brainstrike/db', () => ({
     };
   }),
   applyManagedCacheBatch: applyManagedCacheBatchLocalMock,
+  createDatabasePressureController: vi.fn(() => ({
+    waitForBackgroundPermit: vi.fn(async () => undefined),
+  })),
   createPriorityDbHandle: createPriorityDbHandleMock,
+  getDatabaseWorkScheduler: vi.fn(() => ({
+    getSnapshot: vi.fn(),
+    run: vi.fn(),
+    subscribe: vi.fn(() => () => {}),
+  })),
   ElectronEmbeddingSetsRepository: vi.fn(function MockElectronEmbeddingSetsRepository() {
     return {
       getById: getByIdMock,

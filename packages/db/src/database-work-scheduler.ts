@@ -10,6 +10,7 @@ export interface DatabaseWorkSchedulerSnapshot {
   readonly backgroundWaitingSince: number | null;
   readonly backgroundYieldCount: number;
   readonly currentBackgroundWaitMs: number;
+  readonly foregroundQuietMs: number;
   readonly lastBackgroundYieldAt: number | null;
   readonly lastCompletedAt: number | null;
   readonly lastForegroundAt: number | null;
@@ -207,6 +208,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
       backgroundYieldCount: this.#backgroundYieldCount,
       currentBackgroundWaitMs:
         this.#backgroundWaitingSince === null ? 0 : Math.max(0, now - this.#backgroundWaitingSince),
+      foregroundQuietMs: this.#foregroundQuietMs,
       lastBackgroundYieldAt: this.#lastBackgroundYieldAt,
       lastCompletedAt: this.#lastCompletedAt,
       lastForegroundAt: this.#lastForegroundAt,

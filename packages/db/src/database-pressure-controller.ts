@@ -1,0 +1,257 @@
+import type {
+  DatabaseWorkScheduler,
+  DatabaseWorkSchedulerSnapshot,
+} from './database-work-scheduler.js';
+
+export type DatabasePressureWaitingReason =
+  | 'foreground-latency'
+  | 'foreground-queued'
+  | 'foreground-quiet-window'
+  | 'foreground-running';
+
+export interface DatabasePressurePermitOptions {
+  readonly label?: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface DatabasePressureControllerSnapshot {
+  readonly lastPermitAt: number | null;
+  readonly lastYieldAt: number | null;
+  readonly permitWaiting: boolean;
+  readonly permitWaitingSince: number | null;
+  readonly permitYieldCount: number;
+  readonly waitingLabel: string | null;
+  readonly waitingReason: DatabasePressureWaitingReason | null;
+}
+
+export interface DatabasePressureController {
+  readonly getSnapshot: () => DatabasePressureControllerSnapshot;
+  readonly waitForBackgroundPermit: (options?: DatabasePressurePermitOptions) => Promise<void>;
+}
+
+export interface DatabasePressureSnapshotSource {
+  readonly getSnapshot: () =>
+    | DatabaseWorkSchedulerSnapshot
+    | Promise<DatabaseWorkSchedulerSnapshot>;
+  readonly subscribe?: (listener: (snapshot: DatabaseWorkSchedulerSnapshot) => void) => () => void;
+}
+
+export interface DatabasePressureControllerOptions {
+  readonly foregroundPressureWindowMs?: number;
+  readonly foregroundServiceP95ThresholdMs?: number;
+  readonly foregroundWaitP95ThresholdMs?: number;
+  readonly now?: () => number;
+  readonly pollMs?: number;
+  readonly scheduler?: DatabaseWorkScheduler;
+  readonly snapshotSource?: DatabasePressureSnapshotSource;
+}
+
+const DEFAULT_FOREGROUND_PRESSURE_WINDOW_MS = 1500;
+const DEFAULT_FOREGROUND_SERVICE_P95_THRESHOLD_MS = 120;
+const DEFAULT_FOREGROUND_WAIT_P95_THRESHOLD_MS = 75;
+const DEFAULT_POLL_MS = 25;
+
+function createInitialSnapshot(): DatabasePressureControllerSnapshot {
+  return {
+    lastPermitAt: null,
+    lastYieldAt: null,
+    permitWaiting: false,
+    permitWaitingSince: null,
+    permitYieldCount: 0,
+    waitingLabel: null,
+    waitingReason: null,
+  };
+}
+
+function resolveSource(options: DatabasePressureControllerOptions): DatabasePressureSnapshotSource {
+  const source = options.scheduler ?? options.snapshotSource;
+  if (!source) {
+    throw new Error('DatabasePressureController requires a scheduler or snapshot source.');
+  }
+  return source;
+}
+
+function getForegroundLatencyReason(
+  snapshot: DatabaseWorkSchedulerSnapshot,
+  now: number,
+  pressureWindowMs: number,
+  waitP95ThresholdMs: number,
+  serviceP95ThresholdMs: number
+): DatabasePressureWaitingReason | null {
+  const foregroundStats = snapshot.priorityStats.foreground;
+  const lastForegroundPressureAt = Math.max(
+    snapshot.lastForegroundAt ?? 0,
+    snapshot.lastCompletedAt ?? 0
+  );
+  if (lastForegroundPressureAt <= 0 || now - lastForegroundPressureAt > pressureWindowMs) {
+    return null;
+  }
+  if (
+    foregroundStats.waitP95Ms > waitP95ThresholdMs ||
+    foregroundStats.serviceP95Ms > serviceP95ThresholdMs
+  ) {
+    return 'foreground-latency';
+  }
+  return null;
+}
+
+function getWaitingReason(
+  snapshot: DatabaseWorkSchedulerSnapshot,
+  now: number,
+  options: Required<
+    Pick<
+      DatabasePressureControllerOptions,
+      | 'foregroundPressureWindowMs'
+      | 'foregroundServiceP95ThresholdMs'
+      | 'foregroundWaitP95ThresholdMs'
+    >
+  >
+): DatabasePressureWaitingReason | null {
+  if (snapshot.runningPriority === 'foreground' || snapshot.runningPriority === 'normal') {
+    return 'foreground-running';
+  }
+  if (snapshot.queued.foreground > 0 || snapshot.queued.normal > 0) {
+    return 'foreground-queued';
+  }
+  if (
+    snapshot.lastForegroundAt !== null &&
+    now - snapshot.lastForegroundAt < snapshot.foregroundQuietMs
+  ) {
+    return 'foreground-quiet-window';
+  }
+  return getForegroundLatencyReason(
+    snapshot,
+    now,
+    options.foregroundPressureWindowMs,
+    options.foregroundWaitP95ThresholdMs,
+    options.foregroundServiceP95ThresholdMs
+  );
+}
+
+export function createDatabasePressureController(
+  options: DatabasePressureControllerOptions
+): DatabasePressureController {
+  const source = resolveSource(options);
+  const now = options.now ?? (() => Date.now());
+  const pollMs = Math.max(1, options.pollMs ?? DEFAULT_POLL_MS);
+  const policy = {
+    foregroundPressureWindowMs:
+      options.foregroundPressureWindowMs ?? DEFAULT_FOREGROUND_PRESSURE_WINDOW_MS,
+    foregroundServiceP95ThresholdMs:
+      options.foregroundServiceP95ThresholdMs ?? DEFAULT_FOREGROUND_SERVICE_P95_THRESHOLD_MS,
+    foregroundWaitP95ThresholdMs:
+      options.foregroundWaitP95ThresholdMs ?? DEFAULT_FOREGROUND_WAIT_P95_THRESHOLD_MS,
+  };
+  let snapshot = createInitialSnapshot();
+
+  const getSnapshot = (): DatabasePressureControllerSnapshot => ({ ...snapshot });
+  const readWaitingReason = async (): Promise<DatabasePressureWaitingReason | null> =>
+    getWaitingReason(await source.getSnapshot(), now(), policy);
+
+  const waitForBackgroundPermit = async (
+    permitOptions: DatabasePressurePermitOptions = {}
+  ): Promise<void> => {
+    if (permitOptions.signal?.aborted) {
+      throw new Error('Background database permit aborted');
+    }
+
+    const firstReason = await readWaitingReason();
+    if (!firstReason) {
+      snapshot = {
+        ...snapshot,
+        lastPermitAt: now(),
+        permitWaiting: false,
+        permitWaitingSince: null,
+        waitingLabel: null,
+        waitingReason: null,
+      };
+      return;
+    }
+
+    const waitingSince = now();
+    snapshot = {
+      ...snapshot,
+      lastYieldAt: waitingSince,
+      permitWaiting: true,
+      permitWaitingSince: waitingSince,
+      permitYieldCount: snapshot.permitYieldCount + 1,
+      waitingLabel: permitOptions.label ?? null,
+      waitingReason: firstReason,
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      let unsubscribe: (() => void) | null = null;
+
+      const cleanup = (): void => {
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = null;
+        }
+        unsubscribe?.();
+        unsubscribe = null;
+        permitOptions.signal?.removeEventListener('abort', onAbort);
+      };
+
+      const finish = (): void => {
+        cleanup();
+        snapshot = {
+          ...snapshot,
+          lastPermitAt: now(),
+          permitWaiting: false,
+          permitWaitingSince: null,
+          waitingLabel: null,
+          waitingReason: null,
+        };
+        resolve();
+      };
+
+      const onAbort = (): void => {
+        cleanup();
+        snapshot = {
+          ...snapshot,
+          permitWaiting: false,
+          permitWaitingSince: null,
+          waitingLabel: null,
+          waitingReason: null,
+        };
+        reject(new Error('Background database permit aborted'));
+      };
+
+      let checking = false;
+      const check = async (): Promise<void> => {
+        if (checking) {
+          return;
+        }
+        checking = true;
+        const reason = await readWaitingReason();
+        checking = false;
+        if (!reason) {
+          finish();
+          return;
+        }
+        snapshot = {
+          ...snapshot,
+          waitingReason: reason,
+        };
+        timeout = setTimeout(() => {
+          void check();
+        }, pollMs);
+      };
+
+      permitOptions.signal?.addEventListener('abort', onAbort, { once: true });
+      unsubscribe =
+        source.subscribe?.(() => {
+          void check();
+        }) ?? null;
+      timeout = setTimeout(() => {
+        void check();
+      }, pollMs);
+    });
+  };
+
+  return {
+    getSnapshot,
+    waitForBackgroundPermit,
+  };
+}

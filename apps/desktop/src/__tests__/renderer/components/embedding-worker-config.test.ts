@@ -1,3 +1,4 @@
+import { createDatabaseWorkScheduler, createScheduledDbHandle } from '@brainstrike/db';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { loggerInfoMock, registryStoreState } = vi.hoisted(() => ({
@@ -28,6 +29,15 @@ vi.mock('@brainstrike/utils/logger', async () => {
 
 import { createEmbeddingWorkerConfig } from '../../../renderer/components/embedding-worker-config';
 
+function createScheduledTestDb() {
+  const db = { query: vi.fn(async () => ({ rows: [] })) };
+  const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+  return {
+    db,
+    scheduledDb: createScheduledDbHandle(db, scheduler, 'background'),
+  };
+}
+
 describe('createEmbeddingWorkerConfig', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -39,19 +49,21 @@ describe('createEmbeddingWorkerConfig', () => {
   });
 
   it('uses strict defaults when optional env vars are not configured', () => {
-    const db = { query: vi.fn() };
+    const { db, scheduledDb } = createScheduledTestDb();
 
-    const config = createEmbeddingWorkerConfig(db as never);
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
 
     expect(config).toEqual({
-      db,
+      db: scheduledDb,
       claimBatchSize: 1,
       concurrency: 1,
       interBatchDelayMs: 150,
       leaseMs: 60_000,
       log: expect.any(Function),
       onDownloadProgress: expect.any(Function),
+      waitForBackgroundPermit: expect.any(Function),
     });
+    expect(db.query).not.toHaveBeenCalled();
   });
 
   it('uses configured env vars and forwards logs and download progress updates', () => {
@@ -60,17 +72,18 @@ describe('createEmbeddingWorkerConfig', () => {
     import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = '75';
     import.meta.env['VITE_EMBED_LEASE_MS'] = '45000';
     import.meta.env['VITE_EMBED_MODEL_KEY'] = 'local:test-model';
-    const db = { query: vi.fn() };
+    const { scheduledDb } = createScheduledTestDb();
 
-    const config = createEmbeddingWorkerConfig(db as never);
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
 
     expect(config).toMatchObject({
-      db,
+      db: scheduledDb,
       claimBatchSize: 4,
       concurrency: 3,
       interBatchDelayMs: 75,
       leaseMs: 45_000,
       modelKey: 'local:test-model',
+      waitForBackgroundPermit: expect.any(Function),
     });
 
     config.log?.('Worker started');

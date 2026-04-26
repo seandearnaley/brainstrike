@@ -1,10 +1,12 @@
 import {
   applyManagedCacheBatch as applyManagedCacheBatchLocally,
+  createDatabasePressureController,
   createPriorityDbHandle,
   type DbHandle,
   ElectronEmbeddingSetsRepository,
   ElectronFileChunkRepository,
   ElectronFileRecordRepository,
+  getDatabaseWorkScheduler,
   usePGliteDatabase,
 } from '@brainstrike/db';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
@@ -31,6 +33,7 @@ const BACKGROUND_DATABASE_WORK_OPTIONS = {
   label: 'background indexing',
   priority: 'background',
 } as const;
+const BACKGROUND_PRESSURE_POLL_MS = 50;
 
 export interface WorkspaceCollectionSyncProviderProps {
   children: ReactNode;
@@ -51,6 +54,28 @@ function createBackgroundRepositoryDb(db: DbHandle): {
   };
 }
 
+function createWaitForBackgroundPermit(
+  db: DbHandle
+): (options: { readonly label: string }) => Promise<void> {
+  const scheduler = getDatabaseWorkScheduler(db);
+  if (scheduler) {
+    return createDatabasePressureController({ scheduler }).waitForBackgroundPermit;
+  }
+
+  const schedulerSnapshot =
+    typeof window === 'undefined' ? undefined : window.electronAPI?.db?.schedulerSnapshot;
+  if (!schedulerSnapshot) {
+    throw new Error('Background indexing requires database QoS scheduler snapshots.');
+  }
+
+  return createDatabasePressureController({
+    pollMs: BACKGROUND_PRESSURE_POLL_MS,
+    snapshotSource: {
+      getSnapshot: schedulerSnapshot,
+    },
+  }).waitForBackgroundPermit;
+}
+
 export function WorkspaceCollectionSyncProvider({
   children,
 }: WorkspaceCollectionSyncProviderProps) {
@@ -59,6 +84,10 @@ export function WorkspaceCollectionSyncProvider({
   const fileTreeContext = useOptionalFileTreeContext();
   const db = usePGliteDatabase();
   const backgroundDb = useMemo(() => (db ? createPriorityDbHandle(db, 'background') : null), [db]);
+  const waitForBackgroundPermit = useMemo(
+    () => (backgroundDb ? createWaitForBackgroundPermit(backgroundDb) : null),
+    [backgroundDb]
+  );
   const backgroundRepositories = useMemo(() => {
     if (!backgroundDb) {
       return null;
@@ -139,6 +168,7 @@ export function WorkspaceCollectionSyncProvider({
       !(
         db &&
         backgroundDb &&
+        waitForBackgroundPermit &&
         backgroundRepositories &&
         fileSystemAdapter &&
         backgroundRepositories.fileRecordRepository &&
@@ -183,6 +213,7 @@ export function WorkspaceCollectionSyncProvider({
       setStatus: setSyncStatus,
       subscribeToBackfillProgress: (callback) => runtimeController.onBackfillProgress(callback),
       validateHostedProviderAccess,
+      waitForBackgroundPermit,
     });
   }, [
     backgroundDb,
@@ -196,6 +227,7 @@ export function WorkspaceCollectionSyncProvider({
     setIsImporting,
     setSyncStatus,
     validateHostedProviderAccess,
+    waitForBackgroundPermit,
   ]);
 
   const triggerSync = useCallback(() => {

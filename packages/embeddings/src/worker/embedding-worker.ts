@@ -311,6 +311,7 @@ export interface EmbeddingWorkerOptions {
   stopOnFatalLocalError?: boolean;
   /** Explicit worker URL for streamed local embedding execution in the renderer host. */
   streamingWorkerUrl?: string;
+  waitForBackgroundPermit?: (options: { readonly label: string }) => Promise<void>;
   workerId?: string; // optional
 }
 
@@ -1018,6 +1019,10 @@ export async function startEmbeddingWorker(
 
   const jq = new JobQueue(options.db);
   let running = true;
+
+  async function waitForBackgroundPermit(label: string): Promise<void> {
+    await options.waitForBackgroundPermit?.({ label });
+  }
 
   // Detect pgvector availability once for write path
   let vectorEnabledForWrites = false;
@@ -1781,6 +1786,7 @@ export async function startEmbeddingWorker(
     }
 
     if (updates.length > 0) {
+      await waitForBackgroundPermit('embedding completion');
       await updateChunkEmbeddingBatch(options.db, updates, vectorEnabledForWrites, fileChunkIdType);
     }
 
@@ -2198,6 +2204,7 @@ export async function startEmbeddingWorker(
   async function processBatch(): Promise<void> {
     const batchStart = performance.now();
     try {
+      await waitForBackgroundPermit('embedding claim');
       // Claim a batch of jobs
       const jobs = (await jq.claimMany({
         queue: queueName,

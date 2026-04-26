@@ -12,6 +12,7 @@ export {
 } from '@brainstrike/text-splitter';
 // Configuration
 export { CHUNKING_CONFIG } from './config/chunking-config.js';
+export * from './database-pressure-controller.js';
 export * from './database-work-scheduler.js';
 export * from './db-provider.js';
 // Drizzle ORM utilities and database wrapper

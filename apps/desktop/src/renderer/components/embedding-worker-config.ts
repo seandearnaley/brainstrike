@@ -1,4 +1,8 @@
-import type { IDatabase } from '@brainstrike/db';
+import {
+  createDatabasePressureController,
+  getDatabaseWorkScheduler,
+  type IDatabase,
+} from '@brainstrike/db';
 import type { EmbeddingWorkerOptions } from '@brainstrike/embeddings/worker';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -9,6 +13,7 @@ const logger = createLogger('EmbeddingWorkerConfig');
 // background commits small and leave a deliberate gap between claims.
 const DESKTOP_EMBED_CLAIM_BATCH_SIZE = 1;
 const DESKTOP_EMBED_INTER_BATCH_DELAY_MS = 150;
+const DESKTOP_PRESSURE_POLL_MS = 50;
 
 function parsePositiveIntegerEnv(
   name:
@@ -27,6 +32,28 @@ function parsePositiveIntegerEnv(
     throw new Error(`${name} must be a positive integer when configured.`);
   }
   return parsed;
+}
+
+function createWaitForBackgroundPermit(
+  db: IDatabase
+): EmbeddingWorkerOptions['waitForBackgroundPermit'] {
+  const scheduler = getDatabaseWorkScheduler(db);
+  if (scheduler) {
+    return createDatabasePressureController({ scheduler }).waitForBackgroundPermit;
+  }
+
+  const schedulerSnapshot =
+    typeof window === 'undefined' ? undefined : window.electronAPI?.db?.schedulerSnapshot;
+  if (!schedulerSnapshot) {
+    throw new Error('Desktop embedding worker requires database QoS scheduler snapshots.');
+  }
+
+  return createDatabasePressureController({
+    pollMs: DESKTOP_PRESSURE_POLL_MS,
+    snapshotSource: {
+      getSnapshot: schedulerSnapshot,
+    },
+  }).waitForBackgroundPermit;
 }
 
 export function createEmbeddingWorkerConfig(db: IDatabase): EmbeddingWorkerOptions {
@@ -48,6 +75,7 @@ export function createEmbeddingWorkerConfig(db: IDatabase): EmbeddingWorkerOptio
     concurrency,
     interBatchDelayMs,
     leaseMs,
+    waitForBackgroundPermit: createWaitForBackgroundPermit(db),
     ...(modelKey ? { modelKey } : {}),
     log: (msg: string, meta?: unknown) => {
       if (meta) {

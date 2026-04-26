@@ -34,6 +34,7 @@ function createDatabaseWorkSnapshot(
     backgroundWaitingSince: null,
     backgroundYieldCount: 0,
     currentBackgroundWaitMs: 0,
+    foregroundQuietMs: 75,
     lastBackgroundYieldAt: null,
     lastCompletedAt: null,
     lastForegroundAt: null,
