@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { escapePGliteLiveQueryFormatPercents } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app, type UtilityProcess, utilityProcess } from 'electron';
 import type {
@@ -194,8 +193,8 @@ class RemoteLiveQuery<TRecord = unknown> implements RemoteDbLiveQuery<TRecord> {
   readonly #manager: DefaultDbHostManager;
   readonly #liveId: string;
   #failure: Error | null = null;
+  #initialResults: DbHostQueryResult<TRecord>;
   #stopped = false;
-  initialResults: DbHostQueryResult<TRecord>;
 
   constructor(
     manager: DefaultDbHostManager,
@@ -204,7 +203,11 @@ class RemoteLiveQuery<TRecord = unknown> implements RemoteDbLiveQuery<TRecord> {
   ) {
     this.#manager = manager;
     this.#liveId = liveId;
-    this.initialResults = initialResults;
+    this.#initialResults = initialResults;
+  }
+
+  get initialResults(): DbHostQueryResult<TRecord> {
+    return this.#initialResults;
   }
 
   subscribe(listener: (results: DbHostQueryResult<TRecord>) => void): void {
@@ -252,7 +255,7 @@ class RemoteLiveQuery<TRecord = unknown> implements RemoteDbLiveQuery<TRecord> {
     if (this.#stopped) {
       return;
     }
-    this.initialResults = results;
+    this.#initialResults = results;
     for (const listener of this.#listeners) {
       listener(results);
     }
@@ -457,9 +460,8 @@ class DefaultDbHostManager implements DbHostManager {
     readonly params?: readonly unknown[] | null;
     readonly query: string;
   }): Promise<RemoteLiveQuery<TRecord>> {
-    const query = escapePGliteLiveQueryFormatPercents(payload.query, payload.params);
     const requestPayload = {
-      query,
+      query: payload.query,
       mode: payload.mode,
       ...(payload.params === undefined || payload.params === null
         ? {}

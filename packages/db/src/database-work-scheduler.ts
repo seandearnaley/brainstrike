@@ -230,6 +230,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
   readonly #waitSamples = createEmptyMetricSamples();
   #backgroundWaitingSince: number | null = null;
   #backgroundYieldCount = 0;
+  #drainMicrotaskScheduled = false;
   #drainTimer: ReturnType<typeof setTimeout> | null = null;
   #lastBackgroundYieldAt: number | null = null;
   #lastCompletedAt: number | null = null;
@@ -393,7 +394,12 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     }
 
     if (delayMs <= 0) {
+      if (this.#drainMicrotaskScheduled) {
+        return;
+      }
+      this.#drainMicrotaskScheduled = true;
       queueMicrotask(() => {
+        this.#drainMicrotaskScheduled = false;
         void this.#drain();
       });
       return;

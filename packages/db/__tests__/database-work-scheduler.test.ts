@@ -83,6 +83,24 @@ describe('DatabaseWorkScheduler', () => {
     expect(events).toEqual(['normal-1', 'normal-2', 'normal-3']);
   });
 
+  it('coalesces synchronous zero-delay drain scheduling into one microtask', async () => {
+    const queueMicrotaskSpy = vi.spyOn(globalThis, 'queueMicrotask');
+    try {
+      const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+      const work = vi.fn(async () => undefined);
+
+      const first = scheduler.run(work, { priority: 'foreground' });
+      const second = scheduler.run(work, { priority: 'foreground' });
+      const third = scheduler.run(work, { priority: 'foreground' });
+
+      expect(queueMicrotaskSpy).toHaveBeenCalledTimes(1);
+      await Promise.all([first, second, third]);
+      expect(work).toHaveBeenCalledTimes(3);
+    } finally {
+      queueMicrotaskSpy.mockRestore();
+    }
+  });
+
   it('propagates operation errors without blocking later work', async () => {
     const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
     const expectedError = new Error('query failed');

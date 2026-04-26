@@ -272,7 +272,7 @@ describe('DbHostManager', () => {
     expect(forkMock).toHaveBeenCalledTimes(2);
   });
 
-  it('escapes literal percents before sending live query requests to the DB host', async () => {
+  it('sends raw live query text to the DB host so escaping happens at one boundary', async () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
     const databasePromise = manager.getDatabase();
@@ -289,7 +289,7 @@ describe('DbHostManager', () => {
       request: {
         kind: 'live:start',
         payload: {
-          query: "SELECT * FROM file_records WHERE path LIKE '%%' || $1 || '%%'",
+          query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
           params: ['needle'],
         },
       },
@@ -324,8 +324,8 @@ describe('DbHostManager', () => {
         err: expect.any(Error),
         mode: 'query',
         paramsCount: 1,
-        queryPreview: "SELECT * FROM file_records WHERE path LIKE '%%' || $1 || '%%'",
-        unescapedPercentRuns: 0,
+        queryPreview: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
+        unescapedPercentRuns: 2,
       }),
       'DB host live query start failed'
     );
