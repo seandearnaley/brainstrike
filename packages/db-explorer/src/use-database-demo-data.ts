@@ -48,7 +48,7 @@ export interface UseDatabaseDemoDataOptions {
   activeCollectionId: string | null;
   chunkRepository?: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
   database?: ReturnType<typeof usePGliteDatabase>;
-  /** When true, live queries are paused and cache-backed snapshots are used. */
+  /** When true, diagnostics can reflect active embedding pressure. Collection reads remain live. */
   isEmbeddingActive?: boolean;
   /** When true, live queries are paused to avoid performance degradation during bulk operations */
   isImporting?: boolean;
@@ -157,36 +157,56 @@ async function mapInBatches<T, R>(
 // PERFORMANCE: Do NOT select the full embedding column in live queries!
 // See FILE_CHUNKS_LIVE_QUERY comment for details.
 const FILE_RECORDS_PAGE_QUERY = `
-  WITH embedded_chunk_counts AS (
+  WITH page_records AS (
+    SELECT
+      fr.id,
+      fr.name,
+      fr.path,
+      fr.size,
+      fr.created_at,
+      fr.updated_at,
+      fr.content_hash,
+      fr.token_count,
+      fr.processed_at,
+      fr.chunks_processed_at,
+      fr.chunks_count,
+      fr.chunking_strategy,
+      fr.embedding,
+      fr.embedding_set_id
+    FROM file_records fr
+    WHERE fr.embedding_set_id = $1
+    ORDER BY fr.updated_at DESC, fr.id DESC
+    LIMIT $2
+    OFFSET $3
+  ),
+  embedded_chunk_counts AS (
     SELECT
       file_record_id,
       COUNT(*) FILTER (WHERE embedding IS NOT NULL)::int AS embedded_chunk_count
     FROM file_chunks
-    WHERE embedding_set_id = $1
+    WHERE embedding_set_id = $4
+      AND file_record_id IN (SELECT id FROM page_records)
     GROUP BY file_record_id
   )
   SELECT
-    fr.id,
-    fr.name,
-    fr.path,
-    fr.size,
-    fr.created_at AS "createdAt",
-    fr.updated_at AS "updatedAt",
-    fr.content_hash AS "contentHash",
-    fr.token_count AS "tokenCount",
-    fr.processed_at AS "processedAt",
-    fr.chunks_processed_at AS "chunksProcessedAt",
-    fr.chunks_count AS "chunksCount",
+    pr.id,
+    pr.name,
+    pr.path,
+    pr.size,
+    pr.created_at AS "createdAt",
+    pr.updated_at AS "updatedAt",
+    pr.content_hash AS "contentHash",
+    pr.token_count AS "tokenCount",
+    pr.processed_at AS "processedAt",
+    pr.chunks_processed_at AS "chunksProcessedAt",
+    pr.chunks_count AS "chunksCount",
     COALESCE(ecc.embedded_chunk_count, 0) AS "embeddedChunksCount",
-    fr.chunking_strategy AS "chunkingStrategy",
-    (fr.embedding IS NOT NULL) AS "hasEmbedding",
-    fr.embedding_set_id AS "embeddingSetId"
-  FROM file_records fr
-  LEFT JOIN embedded_chunk_counts ecc ON ecc.file_record_id = fr.id
-  WHERE fr.embedding_set_id = $2
-  ORDER BY fr.updated_at DESC, fr.id DESC
-  LIMIT $3
-  OFFSET $4
+    pr.chunking_strategy AS "chunkingStrategy",
+    (pr.embedding IS NOT NULL) AS "hasEmbedding",
+    pr.embedding_set_id AS "embeddingSetId"
+  FROM page_records pr
+  LEFT JOIN embedded_chunk_counts ecc ON ecc.file_record_id = pr.id
+  ORDER BY pr.updated_at DESC, pr.id DESC
 `.trim();
 
 const FILE_RECORDS_TOTAL_QUERY = `
@@ -202,16 +222,15 @@ const COLLECTION_COUNTS_QUERY = `
       FROM file_records
       WHERE embedding_set_id = $1
     ) AS "recordsCount",
-    (
-      SELECT COUNT(*)::int
-      FROM file_chunks
-      WHERE embedding_set_id = $2
-    ) AS "chunksCount",
-    (
-      SELECT COUNT(*)::int
-      FROM file_chunks
-      WHERE embedding_set_id = $3 AND embedding IS NOT NULL
-    ) AS "embeddingsCount"
+    chunk_counts."chunksCount",
+    chunk_counts."embeddingsCount"
+  FROM (
+    SELECT
+      COUNT(*)::int AS "chunksCount",
+      COUNT(*) FILTER (WHERE embedding IS NOT NULL)::int AS "embeddingsCount"
+    FROM file_chunks
+    WHERE embedding_set_id = $2
+  ) chunk_counts
 `.trim();
 
 // PERFORMANCE: chunk summaries for the collection browser are loaded per file on demand.
@@ -715,10 +734,10 @@ export function useDatabaseDemoData({
     }
   }, []);
 
-  const recordQueryParams = useMemo<readonly [string, string, number, number] | undefined>(
+  const recordQueryParams = useMemo<readonly [string, number, number, string] | undefined>(
     () =>
       activeCollectionId
-        ? [activeCollectionId, activeCollectionId, normalizedRecordPageSize, recordOffset]
+        ? [activeCollectionId, normalizedRecordPageSize, recordOffset, activeCollectionId]
         : undefined,
     [activeCollectionId, normalizedRecordPageSize, recordOffset]
   );
@@ -726,15 +745,14 @@ export function useDatabaseDemoData({
     () => (activeCollectionId ? [activeCollectionId] : undefined),
     [activeCollectionId]
   );
-  const collectionCountsQueryParams = useMemo<readonly [string, string, string] | undefined>(
-    () =>
-      activeCollectionId ? [activeCollectionId, activeCollectionId, activeCollectionId] : undefined,
+  const collectionCountsQueryParams = useMemo<readonly [string, string] | undefined>(
+    () => (activeCollectionId ? [activeCollectionId, activeCollectionId] : undefined),
     [activeCollectionId]
   );
 
-  // Pause live queries only during the foreground import path. Background
-  // embedding must keep collection pages and counts live so users can search
-  // and page through collections while indexing continues.
+  // Pause live queries only during the foreground import path. Background embedding keeps
+  // collection pages and counts live, but the queries above are intentionally page-scoped
+  // and single-scan so embedding updates do not rematerialize the full collection page.
   const liveQueryEnabled = Boolean(database && schemaReady && activeCollectionId && !isImporting);
 
   const {
@@ -881,9 +899,9 @@ export function useDatabaseDemoData({
       };
       const recordParams = recordQueryParams ?? [
         activeCollectionId,
-        activeCollectionId,
         normalizedRecordPageSize,
         recordOffset,
+        activeCollectionId,
       ];
       const recordsResult = await (options.includeRecords
         ? queryDatabase.query<FileRecordRow>(FILE_RECORDS_PAGE_QUERY, recordParams)
@@ -893,7 +911,6 @@ export function useDatabaseDemoData({
         : Promise.resolve(null));
       const collectionCountsResult = await (options.includeCollectionCounts
         ? queryDatabase.query<CollectionCountsRow>(COLLECTION_COUNTS_QUERY, [
-            activeCollectionId,
             activeCollectionId,
             activeCollectionId,
           ])
@@ -1259,6 +1276,7 @@ export function useDatabaseDemoData({
       return;
     }
 
+    const embeddingCountBucket = Math.floor(resolvedCollectionCounts.embeddings / 100);
     const diagnosticSignature = [
       activeCollectionId,
       liveQueryEnabled ? 'live' : 'snapshot',
@@ -1269,7 +1287,7 @@ export function useDatabaseDemoData({
       resolvedTotalRecords,
       resolvedCollectionCounts.records,
       resolvedCollectionCounts.chunks,
-      resolvedCollectionCounts.embeddings,
+      embeddingCountBucket,
       loadedRecordPagesRef.current.size,
       loadedChunkGroups,
       totalLoadedChunks,

@@ -60,12 +60,9 @@ function invokeAsyncAction(action: () => Promise<void>): void {
 function getBackfillButtonText(
   startingWorker: boolean,
   backfilling: boolean,
-  backfillProgress: BackfillProgress,
+  _backfillProgress: BackfillProgress,
   willAutoStartWorker: boolean
 ): string {
-  if (backfilling && backfillProgress) {
-    return `${backfillProgress.done}/${backfillProgress.total}`;
-  }
   if (backfilling) {
     return 'Backfilling…';
   }

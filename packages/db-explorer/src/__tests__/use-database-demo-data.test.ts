@@ -158,7 +158,7 @@ const setupLiveQueries = (
       }
       if (
         queryOptions.query.includes('FROM file_records fr') &&
-        queryOptions.query.includes('LIMIT $3')
+        queryOptions.query.includes('LIMIT $2')
       ) {
         return recordResult as ReturnType<typeof mockedUsePGliteLiveQuery>;
       }
@@ -194,7 +194,7 @@ const createMockDatabase = (options?: {
           ],
         };
       }
-      if (sql.includes('FROM file_records fr') && sql.includes('LIMIT $3')) {
+      if (sql.includes('FROM file_records fr') && sql.includes('LIMIT $2')) {
         return { rows: options?.recordRows ?? [] };
       }
       if (
@@ -373,11 +373,13 @@ describe('useDatabaseDemoData', () => {
           ([sql, params]) =>
             typeof sql === 'string' &&
             sql.includes('FROM file_records fr') &&
-            sql.includes('LIMIT $3') &&
+            sql.includes('LIMIT $2') &&
             Array.isArray(params) &&
             params.length === 4 &&
             params[0] === 'set-1' &&
-            params[1] === 'set-1'
+            params[1] === 50 &&
+            params[2] === 0 &&
+            params[3] === 'set-1'
         )
       ).toBe(true);
     });
@@ -407,7 +409,7 @@ describe('useDatabaseDemoData', () => {
       expect(countQuery).toBeDefined();
       expect(countQuery).toContain('SELECT COUNT(*)::int');
       expect(countQuery).not.toContain('LEFT JOIN file_chunks');
-      expect(countQueryParams).toEqual(['set-1', 'set-1', 'set-1']);
+      expect(countQueryParams).toEqual(['set-1', 'set-1']);
     });
   });
 

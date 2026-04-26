@@ -246,12 +246,9 @@ export function getBackfillButtonText(
   baseLabel: string,
   startingWorker: boolean,
   backfilling: boolean,
-  backfillProgress: { done: number; total: number } | null,
+  _backfillProgress: { done: number; total: number } | null,
   willAutoStartWorker: boolean
 ): string {
-  if (backfilling && backfillProgress) {
-    return `${backfillProgress.done}/${backfillProgress.total}`;
-  }
   if (backfilling) {
     return 'Backfilling…';
   }

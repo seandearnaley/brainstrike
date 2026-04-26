@@ -241,9 +241,9 @@ describe('getBackfillButtonText', () => {
     expect(getBackfillButtonText(baseLabel, true, false, null, false)).toBe('Starting…');
   });
 
-  it('returns progress when backfilling with progress', () => {
+  it('uses an action-oriented label while backfilling instead of stale local progress', () => {
     expect(getBackfillButtonText(baseLabel, false, true, { done: 5, total: 10 }, false)).toBe(
-      '5/10'
+      'Backfilling…'
     );
   });
 
@@ -261,12 +261,16 @@ describe('getBackfillButtonText', () => {
     expect(getBackfillButtonText(baseLabel, false, false, null, false)).toBe('Backfill MySet');
   });
 
-  it('prioritizes startingWorker over other states', () => {
-    expect(getBackfillButtonText(baseLabel, true, true, { done: 5, total: 10 }, true)).toBe('5/10');
+  it('prioritizes backfilling over startingWorker and local progress', () => {
+    expect(getBackfillButtonText(baseLabel, true, true, { done: 5, total: 10 }, true)).toBe(
+      'Backfilling…'
+    );
   });
 
-  it('prioritizes backfilling with progress over willAutoStartWorker', () => {
-    expect(getBackfillButtonText(baseLabel, false, true, { done: 3, total: 8 }, true)).toBe('3/8');
+  it('prioritizes backfilling over willAutoStartWorker', () => {
+    expect(getBackfillButtonText(baseLabel, false, true, { done: 3, total: 8 }, true)).toBe(
+      'Backfilling…'
+    );
   });
 });
 

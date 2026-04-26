@@ -31,7 +31,9 @@ import { createEmbeddingWorkerConfig } from '../../../renderer/components/embedd
 describe('createEmbeddingWorkerConfig', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    import.meta.env['VITE_EMBED_CLAIM_BATCH_SIZE'] = '';
     import.meta.env['VITE_EMBED_CONCURRENCY'] = '';
+    import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = '';
     import.meta.env['VITE_EMBED_LEASE_MS'] = '';
     import.meta.env['VITE_EMBED_MODEL_KEY'] = '';
   });
@@ -43,9 +45,9 @@ describe('createEmbeddingWorkerConfig', () => {
 
     expect(config).toEqual({
       db,
-      claimBatchSize: 4,
+      claimBatchSize: 1,
       concurrency: 1,
-      interBatchDelayMs: 75,
+      interBatchDelayMs: 150,
       leaseMs: 60_000,
       log: expect.any(Function),
       onDownloadProgress: expect.any(Function),
@@ -54,6 +56,8 @@ describe('createEmbeddingWorkerConfig', () => {
 
   it('uses configured env vars and forwards logs and download progress updates', () => {
     import.meta.env['VITE_EMBED_CONCURRENCY'] = '3';
+    import.meta.env['VITE_EMBED_CLAIM_BATCH_SIZE'] = '4';
+    import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = '75';
     import.meta.env['VITE_EMBED_LEASE_MS'] = '45000';
     import.meta.env['VITE_EMBED_MODEL_KEY'] = 'local:test-model';
     const db = { query: vi.fn() };
@@ -87,6 +91,22 @@ describe('createEmbeddingWorkerConfig', () => {
 
     expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
       'VITE_EMBED_CONCURRENCY must be a positive integer when configured.'
+    );
+  });
+
+  it('fails fast when embed claim batch size is not a positive integer', () => {
+    import.meta.env['VITE_EMBED_CLAIM_BATCH_SIZE'] = '0';
+
+    expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
+      'VITE_EMBED_CLAIM_BATCH_SIZE must be a positive integer when configured.'
+    );
+  });
+
+  it('fails fast when embed inter-batch delay is not a positive integer', () => {
+    import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = 'abc';
+
+    expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
+      'VITE_EMBED_INTER_BATCH_DELAY_MS must be a positive integer when configured.'
     );
   });
 
