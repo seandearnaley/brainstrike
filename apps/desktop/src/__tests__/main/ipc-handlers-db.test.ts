@@ -587,7 +587,9 @@ describe('database IPC handlers', () => {
     expect(getDatabaseMock).toHaveBeenCalledTimes(1);
     expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledTimes(1);
     expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledWith(
-      mockDb,
+      expect.objectContaining({
+        query: expect.any(Function),
+      }),
       expect.any(Object),
       'set-123',
       expect.any(Function),
@@ -615,6 +617,47 @@ describe('database IPC handlers', () => {
     });
     expect(result).toEqual({
       requestId: expect.stringMatching(/^embedding-backfill:/),
+    });
+  });
+
+  it('embedding-host:enqueue-backfill schedules background indexing backfill DB work as background', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    mockDb.query.mockResolvedValue({ rows: [] });
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (db: { query: (sql: string, params?: unknown[]) => Promise<unknown> }) => {
+        await db.query('background backfill query', []);
+        return {
+          queued: 0,
+          running: 0,
+          failed: 0,
+          succeeded: 0,
+        };
+      }
+    );
+
+    const { getDesktopDatabaseWorkSchedulerSnapshot } = await import('../../ipc-handlers');
+
+    const result = await handler({ sender } as unknown, {
+      embeddingSetId: 'set-123',
+      source: 'background-indexing',
+    });
+
+    const snapshot = getDesktopDatabaseWorkSchedulerSnapshot();
+    expect(snapshot.priorityStats.background.completed).toBe(1);
+    expect(snapshot.priorityStats.foreground.completed).toBe(0);
+    expect(result).toEqual({
+      requestId: expect.stringMatching(/^background-indexing-backfill:/),
     });
   });
 

@@ -2,6 +2,7 @@ import path from 'node:path';
 import {
   applyManagedCacheBatch,
   createDatabaseWorkScheduler,
+  createScheduledDbHandle,
   type DatabaseWorkOptions,
   type DatabaseWorkPriority,
   type DatabaseWorkScheduler,
@@ -323,10 +324,13 @@ async function runDesktopEmbeddingBackfill(params: {
 
     const { getDatabase } = await import('./db-main');
     const db = await getDatabase();
-    const jobQueue = new JobQueue(db);
+    const backfillPriority: DatabaseWorkPriority =
+      source === 'background-indexing' ? 'background' : 'foreground';
+    const scheduledDb = createScheduledDbHandle(db, desktopDatabaseWorkScheduler, backfillPriority);
+    const jobQueue = new JobQueue(scheduledDb);
 
     await enqueueEmbeddingBackfill(
-      db,
+      scheduledDb,
       jobQueue,
       normalizedEmbeddingSetId,
       createDesktopBackfillProgressReporter({
