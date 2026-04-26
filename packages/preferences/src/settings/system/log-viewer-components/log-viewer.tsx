@@ -108,6 +108,16 @@ function matchesSearchTerm(record: LogRecord, term: string): boolean {
   return haystack.includes(term);
 }
 
+function getLogRecordContext(record: LogRecord): Record<string, unknown> | null {
+  for (const arg of record.args.toReversed()) {
+    if (arg === null || typeof arg !== 'object' || Array.isArray(arg)) {
+      continue;
+    }
+    return arg as Record<string, unknown>;
+  }
+  return null;
+}
+
 function shouldIncludeLogRecord(
   record: LogRecord,
   minimumLevelIndex: number,
@@ -122,6 +132,11 @@ function shouldIncludeLogRecord(
 }
 
 function getRuntimeSource(record: LogRecord): string {
+  const context = getLogRecordContext(record);
+  const explicitSource = context?.['logSource'];
+  if (typeof explicitSource === 'string' && explicitSource.trim().length > 0) {
+    return explicitSource.trim();
+  }
   const runtime = record.bindings?.['runtime'];
   return typeof runtime === 'string' && runtime.trim().length > 0 ? runtime.trim() : 'unknown';
 }

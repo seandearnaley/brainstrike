@@ -108,6 +108,26 @@ function post(message: DbHostToMainMessage): void {
   parentPort.postMessage(message);
 }
 
+function postLog(
+  level: 'debug' | 'info' | 'warn' | 'error',
+  message: string,
+  context: Record<string, unknown> = {}
+): void {
+  post({
+    context: {
+      ...context,
+      logSource: 'db-host',
+      pid: process.pid,
+      runtime: 'db-host',
+    },
+    kind: 'log',
+    level,
+    message,
+  });
+}
+
+postLog('info', 'DB host process started');
+
 function postResponse(id: string, result: unknown): void {
   const response: DbHostResponseEnvelope = {
     id,
@@ -235,7 +255,9 @@ async function handleLiveStart(request: Extract<DbHostRequest, { kind: 'live:sta
 async function handleRequest(request: DbHostRequest): Promise<unknown> {
   switch (request.kind) {
     case 'init':
+      postLog('debug', 'DB host init started');
       await initializeMainDatabase();
+      postLog('info', 'DB host init completed');
       return { initialized: true };
     case 'query': {
       const db = await getQueryableDatabase();
@@ -323,6 +345,15 @@ async function handleEnvelope(envelope: DbHostRequestEnvelope): Promise<void> {
     const result = await handleRequest(envelope.request);
     postResponse(envelope.id, result);
   } catch (error) {
+    const serializedError = serializeError(error);
+    postLog('error', 'DB host request failed', {
+      error: {
+        ...(serializedError.code ? { code: serializedError.code } : {}),
+        message: serializedError.message,
+        ...(serializedError.name ? { name: serializedError.name } : {}),
+      },
+      requestKind: envelope.request.kind,
+    });
     if (
       activeTransactionId !== null &&
       (envelope.request.kind === 'transaction:commit' ||

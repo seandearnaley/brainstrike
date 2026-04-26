@@ -104,6 +104,22 @@ describe('db-host-entry', () => {
     );
   });
 
+  it('emits source-tagged lifecycle logs from the utility process', async () => {
+    const { parentPort } = installParentPortMock();
+    await import('../../db-host-entry');
+
+    expect(parentPort.postMessage).toHaveBeenCalledWith({
+      context: expect.objectContaining({
+        logSource: 'db-host',
+        pid: process.pid,
+        runtime: 'db-host',
+      }),
+      kind: 'log',
+      level: 'info',
+      message: 'DB host process started',
+    });
+  });
+
   it('rejects non-array query params before calling PGlite', async () => {
     const query = vi.fn(async () => ({ rows: [] }));
     dbMainMocks.getDatabase.mockResolvedValue({ query });

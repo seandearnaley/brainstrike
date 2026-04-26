@@ -88,6 +88,28 @@ describe('LogViewer', () => {
     });
   });
 
+  it('uses explicit log source metadata for forwarded utility process logs', async () => {
+    const logs = [
+      createMockLogRecord({
+        args: ['DB host process started', { logSource: 'db-host', runtime: 'db-host' }],
+        bindings: { runtime: 'electron-main' },
+        message: 'DB host process started',
+        timestamp: 1000,
+      }),
+    ];
+    const logSource = {
+      getInitialRecords: async () => logs,
+      subscribe: () => () => {},
+    };
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('DB host process started')).toBeInTheDocument();
+      expect(screen.getByText('Sources: db-host 1')).toBeInTheDocument();
+    });
+  });
+
   it('exports a diagnostic bundle with runtime source coverage', async () => {
     const logs = [
       createMockLogRecord({
