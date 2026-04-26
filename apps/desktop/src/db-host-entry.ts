@@ -281,6 +281,14 @@ async function execSql(
   return params === undefined ? await db.query(sql) : await db.query(sql, params);
 }
 
+function throwUnknownRequestKind(request: never): never {
+  const kind =
+    request && typeof request === 'object' && 'kind' in request
+      ? (request as { readonly kind?: unknown }).kind
+      : 'unknown';
+  throw new Error(`Unknown DB host request kind: ${String(kind)}`);
+}
+
 async function handleLiveStart(request: Extract<DbHostRequest, { kind: 'live:start' }>) {
   const db = await getQueryableDatabase();
   if (!db.live) {
@@ -410,6 +418,8 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
       await closeDatabase();
       activeTransactionId = null;
       return { closed: true };
+    default:
+      return throwUnknownRequestKind(request);
   }
 }
 
@@ -435,6 +445,9 @@ function drainQueue(): void {
   if (draining) {
     return;
   }
+  // PGlite runs through a single connection in this host. Serial dispatch keeps live-query,
+  // transaction, and reset ordering deterministic; foreground/background fairness happens
+  // in the main-process scheduler before requests reach this utility process.
   const envelope = nextRunnableRequest();
   if (!envelope) {
     return;

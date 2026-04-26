@@ -356,4 +356,28 @@ describe('db-host-entry', () => {
       );
     });
   });
+
+  it('rejects unknown request kinds instead of returning a successful undefined result', async () => {
+    const { listeners, parentPort } = installParentPortMock();
+    await import('../../db-host-entry');
+
+    listeners[0]?.({
+      data: {
+        id: 'future-request',
+        kind: 'request',
+        request: { kind: 'future:protocol-kind' },
+      },
+    });
+    await flushMicrotasks();
+
+    expect(parentPort.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.objectContaining({
+          message: 'Unknown DB host request kind: future:protocol-kind',
+        }),
+        id: 'future-request',
+        ok: false,
+      })
+    );
+  });
 });

@@ -536,6 +536,8 @@ function splitDatabaseWorkOptions(args: readonly unknown[]): {
   readonly databaseWorkOptions: DatabaseWorkOptions | undefined;
   readonly forwardedArgs: unknown[];
 } {
+  // Only an explicit scheduler priority marks the final argument as work options. That keeps
+  // label-only native query option objects flowing through to the wrapped DB unchanged.
   const lastArg = args.at(-1);
   if (!isDatabaseWorkOptions(lastArg)) {
     return { databaseWorkOptions: undefined, forwardedArgs: [...args] };

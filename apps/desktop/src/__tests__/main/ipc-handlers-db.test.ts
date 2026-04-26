@@ -1680,16 +1680,17 @@ describe('database IPC handlers', () => {
 
     it('successfully clears database with valid token', async () => {
       const handler = handlers.get('db:clearAll');
+      let queryMock: ReturnType<typeof vi.fn> | null = null;
 
       // Mock transaction to call the callback immediately
       mockDb.transaction.mockImplementation(async (callback) => {
+        queryMock = vi
+          .fn()
+          .mockResolvedValueOnce({ rows: [{ count: '5' }] }) // chunks count
+          .mockResolvedValueOnce({ rows: [{ count: '3' }] }) // files count
+          .mockResolvedValue(undefined);
         const mockTx = {
-          query: vi
-            .fn()
-            .mockResolvedValueOnce({ rows: [{ count: '5' }] }) // chunks count
-            .mockResolvedValueOnce({ rows: [{ count: '3' }] }) // files count
-            .mockResolvedValueOnce(undefined) // DELETE chunks
-            .mockResolvedValueOnce(undefined), // DELETE files
+          query: queryMock,
         };
         return await callback(mockTx);
       });
@@ -1704,6 +1705,8 @@ describe('database IPC handlers', () => {
         deletedFiles: 3,
         deletedChunks: 5,
       });
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM collection_indexing_stats');
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM embedding_sets');
     });
 
     it('handles database errors gracefully', async () => {

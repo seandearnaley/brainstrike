@@ -145,6 +145,8 @@ function resolveDefaultEntryPath(): string {
 
 function resolveDatabaseRootPathForHost(): string {
   const configuredRootPath = process.env[DB_ROOT_PATH_ENV]?.trim();
+  // Dev shells can leak literal "undefined" environment strings; the host manager itself
+  // always passes a concrete resolved path through createDbHostEnvironment().
   if (configuredRootPath && configuredRootPath.toLowerCase() !== 'undefined') {
     return configuredRootPath;
   }
@@ -283,6 +285,8 @@ class DefaultDbHostManager implements DbHostManager {
     try {
       return await this.#initialization;
     } finally {
+      // Concurrent callers have already received the shared promise above. Clearing here
+      // allows a later failed/closed host to be initialized again by the next caller.
       this.#initialization = null;
     }
   }

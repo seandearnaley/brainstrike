@@ -656,6 +656,11 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
       // Also clear embedding sets and queue to avoid stale state
       try {
+        await tx.query('DELETE FROM collection_indexing_stats');
+      } catch (error) {
+        logger.warn('[DbProvider] Failed to clear collection_indexing_stats:', error);
+      }
+      try {
         await tx.query('DELETE FROM embedding_sets');
       } catch (error) {
         // Tables may not exist in older schema versions - log but don't fail
@@ -706,6 +711,11 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       await tx.query('DELETE FROM job_queue');
     } catch (err) {
       logger.warn('Failed to clear job_queue during reset:', err);
+    }
+    try {
+      await tx.query('DELETE FROM collection_indexing_stats');
+    } catch (err) {
+      logger.warn('Failed to clear collection_indexing_stats during reset:', err);
     }
     try {
       await tx.query('DELETE FROM embedding_sets');
@@ -854,6 +864,11 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         logger.warn('Electron query to clear job_queue failed:', err);
       }
       try {
+        await w.electronAPI.db.query('DELETE FROM collection_indexing_stats');
+      } catch (err) {
+        logger.warn('Electron query to clear collection_indexing_stats failed:', err);
+      }
+      try {
         await w.electronAPI.db.query('DELETE FROM embedding_sets');
       } catch (err) {
         logger.warn('Electron query to clear embedding_sets failed:', err);
@@ -867,6 +882,11 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         await tx.query('DELETE FROM job_queue');
       } catch (err) {
         logger.warn('Failed to clear job_queue (transaction):', err);
+      }
+      try {
+        await tx.query('DELETE FROM collection_indexing_stats');
+      } catch (err) {
+        logger.warn('Failed to clear collection_indexing_stats (transaction):', err);
       }
       try {
         await tx.query('DELETE FROM embedding_sets');

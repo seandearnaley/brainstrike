@@ -1408,6 +1408,9 @@ export function registerIpcHandlers(
           await tx.query('DELETE FROM file_records');
           // Clear embedding sets and any queued jobs
           try {
+            await tx.query('DELETE FROM collection_indexing_stats');
+          } catch {}
+          try {
             await tx.query('DELETE FROM embedding_sets');
           } catch {}
           try {
