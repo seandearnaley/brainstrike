@@ -490,6 +490,25 @@ function splitDatabaseWorkOptions(args: readonly unknown[]): {
   };
 }
 
+function appendDatabaseWorkOptions(
+  forwardedArgs: readonly unknown[],
+  options: DatabaseWorkOptions,
+  scheduler: DatabaseWorkScheduler | null
+): unknown[] {
+  if (scheduler) {
+    return [...forwardedArgs, options];
+  }
+  if (forwardedArgs.length === 1) {
+    return [forwardedArgs[0], undefined, options];
+  }
+  if (forwardedArgs.length === 2) {
+    return [...forwardedArgs, options];
+  }
+  throw new Error(
+    'Cannot apply database work options to an unscheduled DB handle when native query options are already provided.'
+  );
+}
+
 function isObjectRecord(value: unknown): value is Record<PropertyKey, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -553,19 +572,29 @@ function createPriorityOptionsDbHandle<TDatabase extends object & ScheduledDbHan
 ): TDatabase {
   const prioritizedQuery = async <T = unknown>(...args: unknown[]) => {
     const { databaseWorkOptions, forwardedArgs } = splitDatabaseWorkOptions(args);
-    return (await Reflect.apply(db.query, db, [
-      ...forwardedArgs,
-      mergeOptions(priority, databaseWorkOptions),
-    ])) as { rows: T[] };
+    return (await Reflect.apply(
+      db.query,
+      db,
+      appendDatabaseWorkOptions(
+        forwardedArgs,
+        mergeOptions(priority, databaseWorkOptions),
+        scheduler
+      )
+    )) as { rows: T[] };
   };
 
   const prioritizedExec = db.exec
     ? async (...args: unknown[]) => {
         const { databaseWorkOptions, forwardedArgs } = splitDatabaseWorkOptions(args);
-        return await Reflect.apply(db.exec as CallableUnknown, db, [
-          ...forwardedArgs,
-          mergeOptions(priority, databaseWorkOptions),
-        ]);
+        return await Reflect.apply(
+          db.exec as CallableUnknown,
+          db,
+          appendDatabaseWorkOptions(
+            forwardedArgs,
+            mergeOptions(priority, databaseWorkOptions),
+            scheduler
+          )
+        );
       }
     : undefined;
 

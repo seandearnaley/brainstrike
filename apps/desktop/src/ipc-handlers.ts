@@ -630,6 +630,34 @@ function parseDatabaseWorkOptions(value: unknown): DatabaseWorkOptions {
   return options;
 }
 
+function isDatabaseWorkOptionsArgument(value: unknown): value is DatabaseWorkOptions {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const keys = Object.keys(value);
+  return keys.length === 0 || keys.includes('priority') || keys.includes('label');
+}
+
+function resolveSqlParamsAndWorkOptions(
+  channel: string,
+  paramsOrOptions: unknown,
+  maybeOptions: unknown
+): {
+  readonly params: unknown[] | undefined;
+  readonly workOptions: unknown;
+} {
+  if (paramsOrOptions === undefined) {
+    return { params: undefined, workOptions: maybeOptions };
+  }
+  if (Array.isArray(paramsOrOptions)) {
+    return { params: paramsOrOptions, workOptions: maybeOptions };
+  }
+  if (isDatabaseWorkOptionsArgument(paramsOrOptions)) {
+    return { params: undefined, workOptions: paramsOrOptions };
+  }
+  throw new Error(`${channel} parameters must be an array when provided.`);
+}
+
 function getSenderOwnerWindow(event: IpcMainInvokeEvent): BrowserWindow | null {
   if (!event.sender) {
     return null;
@@ -1116,16 +1144,22 @@ export function registerIpcHandlers(
     async (
       event: IpcMainInvokeEvent,
       sql: string,
-      params?: unknown[],
-      workOptions?: DatabaseWorkOptions
-    ) =>
-      runScheduledDatabaseWork(event, options, workOptions, 'db:query', async () =>
+      paramsOrOptions?: unknown[] | DatabaseWorkOptions,
+      maybeOptions?: DatabaseWorkOptions
+    ) => {
+      const { params, workOptions } = resolveSqlParamsAndWorkOptions(
+        'db:query',
+        paramsOrOptions,
+        maybeOptions
+      );
+      return runScheduledDatabaseWork(event, options, workOptions, 'db:query', async () =>
         withCorruptionRecovery(async () => {
           const { getDatabase } = await import('./db-main');
           const db = await getDatabase();
-          return await db.query(sql, params);
+          return params === undefined ? await db.query(sql) : await db.query(sql, params);
         }, 'db:query')
-      )
+      );
+    }
   );
 
   registerHandler(
@@ -1136,13 +1170,16 @@ export function registerIpcHandlers(
       paramsOrOptions?: unknown[] | DatabaseWorkOptions,
       maybeOptions?: DatabaseWorkOptions
     ) => {
-      const params = Array.isArray(paramsOrOptions) ? paramsOrOptions : undefined;
-      const workOptions = Array.isArray(paramsOrOptions) ? maybeOptions : paramsOrOptions;
+      const { params, workOptions } = resolveSqlParamsAndWorkOptions(
+        'db:exec',
+        paramsOrOptions,
+        maybeOptions
+      );
       return runScheduledDatabaseWork(event, options, workOptions, 'db:exec', async () =>
         withCorruptionRecovery(async () => {
           const { getDatabase } = await import('./db-main');
           const db = await getDatabase();
-          return params ? await db.exec(sql, params) : await db.exec(sql);
+          return params === undefined ? await db.exec(sql) : await db.exec(sql, params);
         }, 'db:exec')
       );
     }

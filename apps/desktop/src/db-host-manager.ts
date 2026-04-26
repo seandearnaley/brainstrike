@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { createLogger } from '@brainstrike/utils/logger';
-import { type UtilityProcess, utilityProcess } from 'electron';
+import { app, type UtilityProcess, utilityProcess } from 'electron';
 import type {
   DbHostDiagnosticsResult,
   DbHostInitResult,
@@ -13,6 +13,7 @@ import type {
   DbHostToMainMessage,
   DbHostTransactionStartResult,
 } from './db-host-protocol';
+import { DB_ROOT_PATH_ENV } from './db-runtime-env';
 
 const logger = createLogger('DbHostManager');
 
@@ -105,6 +106,34 @@ function createRequestId(): string {
 
 function resolveDefaultEntryPath(): string {
   return path.join(path.dirname(module.filename), 'db-host-entry.js');
+}
+
+function resolveDatabaseRootPathForHost(): string {
+  const configuredRootPath = process.env[DB_ROOT_PATH_ENV]?.trim();
+  if (configuredRootPath && configuredRootPath.toLowerCase() !== 'undefined') {
+    return configuredRootPath;
+  }
+  if (!app || typeof app.getPath !== 'function') {
+    throw new Error(
+      `Cannot start DB host because Electron app path resolution is unavailable and ${DB_ROOT_PATH_ENV} is not set.`
+    );
+  }
+  if (process.env['NODE_ENV'] === 'test' || process.argv.includes('--test-mode')) {
+    return app.getPath('userData');
+  }
+  const dbDirName = process.env['NODE_ENV'] === 'production' ? 'BrainStrike' : 'BrainStrike-dev';
+  return path.join(app.getPath('documents'), dbDirName);
+}
+
+function createDbHostEnvironment(): Record<string, string> {
+  const environment: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) {
+      environment[key] = value;
+    }
+  }
+  environment[DB_ROOT_PATH_ENV] = resolveDatabaseRootPathForHost();
+  return environment;
 }
 
 function isDbHostToMainMessage(value: unknown): value is DbHostToMainMessage {
@@ -271,6 +300,7 @@ class DefaultDbHostManager implements DbHostManager {
       return this.#host;
     }
     const host = utilityProcess.fork(this.#entryPath, [], {
+      env: createDbHostEnvironment(),
       serviceName: 'brainstrike-db-host',
     });
     host.on('message', (message: unknown) => {

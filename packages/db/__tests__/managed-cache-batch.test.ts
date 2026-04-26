@@ -537,6 +537,90 @@ describe('applyManagedCacheBatch', () => {
     ).rejects.toThrow('Managed cache batch contains duplicate file record id duplicate-id.');
   });
 
+  it('applies replacement-only batches with numeric file metadata successfully', async () => {
+    const now = new Date().toISOString();
+
+    await fileRecordRepository.createWithContent({
+      id: 'replace-only-file',
+      name: 'replace-only.ts',
+      path: 'src/replace-only.ts',
+      size: 10,
+      sourceRootPath: '/workspace/root',
+      createdAt: now,
+      updatedAt: now,
+      content: 'export const version = 1;',
+      contentHash: 'replace-only-old-hash',
+      tokenCount: 5,
+      processedAt: now,
+      embeddingSetId: 'set-1',
+      chunksCount: 1,
+      chunksProcessedAt: now,
+      chunkingStrategy: 'sentence',
+    });
+
+    await fileChunkRepository.insert({
+      id: 'replace-only-chunk',
+      fileRecordId: 'replace-only-file',
+      chunkIndex: 0,
+      content: 'old chunk',
+      contentHash: 'replace-only-chunk-hash',
+      tokenCount: 4,
+      chunkType: 'sentence',
+      chunkSize: 16,
+      embeddingSetId: 'set-1',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await applyManagedCacheBatch(db, {
+      embeddingSetId: 'set-1',
+      changes: [
+        {
+          mode: 'replace',
+          record: {
+            id: 'replace-only-file',
+            name: 'replace-only.ts',
+            path: 'src/replace-only.ts',
+            size: 11,
+            sourceRootPath: '/workspace/root',
+            updatedAt: now,
+            processedAt: now,
+            content: 'export const version = 2;',
+            contentHash: 'replace-only-new-hash',
+            tokenCount: 6,
+          },
+        },
+      ],
+    });
+
+    const replacedRecord = await fileRecordRepository.findById('replace-only-file');
+    const replacementChunks = await fileChunkRepository.findByFileRecordId('replace-only-file');
+    const resetState = await db.query<{
+      chunking_strategy: string | null;
+      chunks_count: number | null;
+      chunks_processed_at: string | null;
+    }>(
+      'SELECT chunks_count, chunks_processed_at, chunking_strategy FROM file_records WHERE id = $1',
+      ['replace-only-file']
+    );
+
+    expect(replacedRecord).toEqual(
+      expect.objectContaining({
+        id: 'replace-only-file',
+        size: 11,
+        content: 'export const version = 2;',
+        contentHash: 'replace-only-new-hash',
+        tokenCount: 6,
+      })
+    );
+    expect(resetState.rows[0]).toEqual({
+      chunking_strategy: null,
+      chunks_count: 0,
+      chunks_processed_at: null,
+    });
+    expect(replacementChunks).toHaveLength(0);
+  });
+
   it('applies import-only batches successfully', async () => {
     const now = new Date().toISOString();
 

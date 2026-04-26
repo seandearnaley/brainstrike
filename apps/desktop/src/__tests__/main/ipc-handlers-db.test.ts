@@ -352,6 +352,30 @@ describe('database IPC handlers', () => {
     expect(result).toBe(rows);
   });
 
+  it('db:query accepts database work options as the second argument when params are omitted', async () => {
+    const handler = handlers.get('db:query');
+    const rows = { rows: [{ id: 1 }] };
+    mockDb.query.mockResolvedValue(rows);
+
+    const result = await handler?.({} as unknown, 'SELECT 1', {
+      label: 'collection page',
+      priority: 'foreground',
+    });
+
+    expect(mockDb.query).toHaveBeenCalledWith('SELECT 1');
+    expect(result).toBe(rows);
+  });
+
+  it('db:query rejects object params before they reach PGlite', async () => {
+    const handler = handlers.get('db:query');
+
+    await expect(
+      handler?.({} as unknown, 'SELECT $1', { value: 'not-array-params' })
+    ).rejects.toThrow('db:query parameters must be an array when provided.');
+
+    expect(mockDb.query).not.toHaveBeenCalled();
+  });
+
   it('db:query throws on error', async () => {
     const handler = handlers.get('db:query');
     const err = new Error('fail');

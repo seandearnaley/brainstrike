@@ -238,6 +238,27 @@ describe('DatabaseWorkScheduler', () => {
     expect(seenPriorities).toEqual(['foreground', 'background', 'background']);
   });
 
+  it('passes database work options as the third query argument when no params are provided', async () => {
+    const rawDb = {
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[], _options?: unknown) => ({
+        rows: [] as T[],
+      })),
+      exec: vi.fn(async (_sql: string, _params?: unknown[], _options?: unknown) => undefined),
+    };
+
+    const background = createPriorityDbHandle(rawDb, 'background');
+
+    await background.query('SELECT background');
+    await background.exec?.('UPDATE background');
+
+    expect(rawDb.query).toHaveBeenCalledWith('SELECT background', undefined, {
+      priority: 'background',
+    });
+    expect(rawDb.exec).toHaveBeenCalledWith('UPDATE background', undefined, {
+      priority: 'background',
+    });
+  });
+
   it('forwards native PGlite query options while consuming database work options', async () => {
     const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
     const nativeQueryOptions = { rowMode: 'array' };

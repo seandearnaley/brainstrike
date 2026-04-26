@@ -40,9 +40,13 @@ class FakeUtilityProcess extends EventEmitter {
 }
 
 const forkMock = vi.hoisted(() => vi.fn());
+const appGetPathMock = vi.hoisted(() =>
+  vi.fn((name: string) => (name === 'documents' ? '/mock/documents' : '/mock/userData'))
+);
 
 vi.mock('electron', () => ({
   app: {
+    getPath: appGetPathMock,
     isPackaged: false,
   },
   utilityProcess: {
@@ -63,11 +67,26 @@ async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
 }
 
+function restoreEnvValue(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+  process.env[key] = value;
+}
+
 describe('DbHostManager', () => {
+  const originalNodeEnv = process.env['NODE_ENV'];
+
   beforeEach(() => {
     vi.resetModules();
+    appGetPathMock.mockClear();
     forkMock.mockReset();
     forkMock.mockImplementation(() => new FakeUtilityProcess());
+  });
+
+  afterEach(() => {
+    restoreEnvValue('NODE_ENV', originalNodeEnv);
   });
 
   it('starts the utility DB host once and routes query requests through it', async () => {
@@ -94,6 +113,25 @@ describe('DbHostManager', () => {
 
     await expect(queryPromise).resolves.toEqual({ rows: [{ value: 'ok' }] });
     expect(forkMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes the resolved desktop database root path to the utility DB host', async () => {
+    process.env['NODE_ENV'] = 'development';
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    void manager.getDiagnostics();
+
+    expect(forkMock).toHaveBeenCalledWith(
+      '/mock/db-host-entry.js',
+      [],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          BRAINSTRIKE_DB_ROOT_PATH: '/mock/documents/BrainStrike-dev',
+        }),
+        serviceName: 'brainstrike-db-host',
+      })
+    );
   });
 
   it('exposes diagnostics from the DB host without creating another host process', async () => {

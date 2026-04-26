@@ -134,6 +134,16 @@ function isEnvelope(value: unknown): value is DbHostRequestEnvelope {
   );
 }
 
+function unwrapParentPortMessage(message: unknown): unknown {
+  if (isEnvelope(message)) {
+    return message;
+  }
+  if (message === null || typeof message !== 'object' || !('data' in message)) {
+    return message;
+  }
+  return (message as { readonly data?: unknown }).data;
+}
+
 function isTransactionRequestForActiveTransaction(request: DbHostRequest): boolean {
   if (activeTransactionId === null) {
     return true;
@@ -159,15 +169,25 @@ async function getQueryableDatabase(): Promise<QueryableDatabase> {
   return (await getDatabase()) as QueryableDatabase;
 }
 
+function requireParamsArray(params: unknown, context: string): readonly unknown[] | undefined {
+  if (params === undefined) {
+    return;
+  }
+  if (Array.isArray(params)) {
+    return params;
+  }
+  throw new Error(`DB host ${context} params must be an array when provided.`);
+}
+
 async function execSql(
   db: QueryableDatabase,
   sql: string,
   params?: readonly unknown[]
 ): Promise<unknown> {
   if (typeof db.exec === 'function') {
-    return await db.exec(sql, params);
+    return params === undefined ? await db.exec(sql) : await db.exec(sql, params);
   }
-  return await db.query(sql, params);
+  return params === undefined ? await db.query(sql) : await db.query(sql, params);
 }
 
 async function handleLiveStart(request: Extract<DbHostRequest, { kind: 'live:start' }>) {
@@ -179,18 +199,19 @@ async function handleLiveStart(request: Extract<DbHostRequest, { kind: 'live:sta
   const listener = (results: DbHostQueryResult) => {
     post({ kind: 'live-update', liveId, results });
   };
+  const params = requireParamsArray(request.payload.params, 'live query');
   const handle =
     request.payload.mode === 'incremental'
       ? await db.live.incrementalQuery?.({
           query: request.payload.query,
-          params: request.payload.params ?? null,
+          params: params ?? null,
           key: request.payload.key ?? '',
           ...(request.payload.offset === undefined ? {} : { offset: request.payload.offset }),
           ...(request.payload.limit === undefined ? {} : { limit: request.payload.limit }),
         })
       : await db.live.query?.({
           query: request.payload.query,
-          params: request.payload.params ?? null,
+          params: params ?? null,
           ...(request.payload.offset === undefined ? {} : { offset: request.payload.offset }),
           ...(request.payload.limit === undefined ? {} : { limit: request.payload.limit }),
         });
@@ -213,11 +234,14 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
       return { initialized: true };
     case 'query': {
       const db = await getQueryableDatabase();
-      return await db.query(request.sql, request.params);
+      const params = requireParamsArray(request.params, 'query');
+      return params === undefined
+        ? await db.query(request.sql)
+        : await db.query(request.sql, params);
     }
     case 'exec': {
       const db = await getQueryableDatabase();
-      return await execSql(db, request.sql, request.params);
+      return await execSql(db, request.sql, requireParamsArray(request.params, 'exec'));
     }
     case 'transaction:start': {
       if (activeTransactionId !== null) {
@@ -231,11 +255,14 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
     }
     case 'transaction:query': {
       const db = await getQueryableDatabase();
-      return await db.query(request.sql, request.params);
+      const params = requireParamsArray(request.params, 'transaction query');
+      return params === undefined
+        ? await db.query(request.sql)
+        : await db.query(request.sql, params);
     }
     case 'transaction:exec': {
       const db = await getQueryableDatabase();
-      return await execSql(db, request.sql, request.params);
+      return await execSql(db, request.sql, requireParamsArray(request.params, 'transaction exec'));
     }
     case 'transaction:commit': {
       const db = await getQueryableDatabase();
@@ -322,10 +349,11 @@ function drainQueue(): void {
 }
 
 parentPort.on('message', (message: unknown) => {
-  if (!isEnvelope(message)) {
+  const envelope = unwrapParentPortMessage(message);
+  if (!isEnvelope(envelope)) {
     postError('unknown', new Error('Malformed DB host request envelope.'));
     return;
   }
-  pendingRequests.push(message);
+  pendingRequests.push(envelope);
   drainQueue();
 });

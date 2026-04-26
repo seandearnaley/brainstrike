@@ -20,6 +20,7 @@ import type {
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app } from 'electron';
+import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV } from './db-runtime-env';
 
 const logger = createLogger('DatabaseMain');
 
@@ -202,7 +203,6 @@ async function getRemoteDbHostManager() {
   return getDbHostManager();
 }
 
-const DB_PROFILE_ENV = 'BRAINSTRIKE_DB_PROFILE' as const;
 const PROFILES_DIRECTORY_NAME = 'profiles' as const;
 const PROFILE_BACKUPS_DIRECTORY_NAME = 'backups' as const;
 const PROFILE_BACKUPS_RETENTION_COUNT = 5 as const;
@@ -440,6 +440,17 @@ function getDatabaseProfile(): string {
 }
 
 function getDatabaseRootPath(): string {
+  const configuredRootPath = process.env[DB_ROOT_PATH_ENV]?.trim();
+  if (configuredRootPath && configuredRootPath.toLowerCase() !== 'undefined') {
+    return configuredRootPath;
+  }
+
+  if (!app || typeof app.getPath !== 'function') {
+    throw new Error(
+      `Desktop database root path is unavailable. ${DB_ROOT_PATH_ENV} must be set in utility process runtime.`
+    );
+  }
+
   if (isIsolatedDesktopTestRun()) {
     return app.getPath('userData');
   }
