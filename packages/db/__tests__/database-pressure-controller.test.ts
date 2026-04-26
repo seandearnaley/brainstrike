@@ -248,4 +248,58 @@ describe('DatabasePressureController', () => {
       waitingReason: null,
     });
   });
+
+  it('clears the pending poll timer when a subscription refresh runs first', async () => {
+    vi.useFakeTimers();
+    try {
+      const baseScheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+      const baseSnapshot = baseScheduler.getSnapshot();
+      const listeners = new Set<(snapshot: DatabaseWorkSchedulerSnapshot) => void>();
+      let reads = 0;
+      const snapshot = (): DatabaseWorkSchedulerSnapshot => {
+        reads += 1;
+        return {
+          ...baseSnapshot,
+          runningPriority: 'foreground',
+        };
+      };
+      const controller = createDatabasePressureController({
+        pollMs: 10,
+        snapshotSource: {
+          getSnapshot: snapshot,
+          subscribe: (listener) => {
+            listeners.add(listener);
+            return () => {
+              listeners.delete(listener);
+            };
+          },
+        },
+      });
+      const abortController = new AbortController();
+      const permit = controller.waitForBackgroundPermit({
+        label: 'embedding claim',
+        signal: abortController.signal,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      for (const listener of listeners) {
+        listener(snapshot());
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+      const readsAfterSubscription = reads;
+
+      await vi.advanceTimersByTimeAsync(9);
+      expect(reads).toBe(readsAfterSubscription);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(reads).toBe(readsAfterSubscription + 1);
+
+      abortController.abort();
+      await expect(permit).rejects.toThrow('Background database permit aborted');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

@@ -216,10 +216,17 @@ export function createDatabasePressureController(
       };
 
       let checking = false;
+      const clearPendingCheck = (): void => {
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = null;
+        }
+      };
       const check = async (): Promise<void> => {
         if (checking) {
           return;
         }
+        clearPendingCheck();
         checking = true;
         let reason: DatabasePressureWaitingReason | null;
         try {

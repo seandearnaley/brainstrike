@@ -317,6 +317,21 @@ describe('DatabaseWorkScheduler', () => {
     expect(rawDb.query).toHaveBeenCalledWith('SELECT native', [], nativeOptions);
   });
 
+  it('does not consume label-only native query options as scheduler options', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    const rawDb = {
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[], _options?: unknown) => ({
+        rows: [] as T[],
+      })),
+    };
+    const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground');
+    const nativeOptions = { label: 'native query label' };
+
+    await scheduled.query('SELECT native', [], nativeOptions);
+
+    expect(rawDb.query).toHaveBeenCalledWith('SELECT native', [], nativeOptions);
+  });
+
   it('does not re-enter the scheduler for queries inside a scheduled transaction', async () => {
     const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
     const seenPriorities: DatabaseWorkPriority[] = [];

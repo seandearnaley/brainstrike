@@ -125,6 +125,16 @@ function createRequestId(): string {
   return `db-host:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`;
 }
 
+function requiresHostTerminationOnTimeout(request: DbHostRequest): boolean {
+  return (
+    request.kind === 'transaction:start' ||
+    request.kind === 'transaction:query' ||
+    request.kind === 'transaction:exec' ||
+    request.kind === 'transaction:commit' ||
+    request.kind === 'transaction:rollback'
+  );
+}
+
 function resolveDefaultEntryPath(): string {
   const currentModuleFilename =
     typeof module.filename === 'string' && module.filename.length > 0
@@ -318,7 +328,9 @@ class DefaultDbHostManager implements DbHostManager {
         const error = new Error(`DB host request timed out: ${request.kind}`);
         this.#pending.delete(id);
         reject(error);
-        this.#terminateHost(error);
+        if (requiresHostTerminationOnTimeout(request)) {
+          this.#terminateHost(error);
+        }
       }, this.#requestTimeoutMs);
       this.#pending.set(id, {
         reject,

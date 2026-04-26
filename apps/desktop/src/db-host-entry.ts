@@ -64,6 +64,11 @@ interface LiveQueryRecord {
   readonly listener: (results: DbHostQueryResult) => void;
 }
 
+interface QueuedRequest {
+  readonly envelope: DbHostRequestEnvelope;
+  readonly sequence: number;
+}
+
 const parentPort = (process as NodeJS.Process & { parentPort?: ParentPortLike | null }).parentPort;
 
 if (!parentPort) {
@@ -73,7 +78,10 @@ if (!parentPort) {
 let activeTransactionId: string | null = null;
 let activeTransactionSequence = 0;
 let draining = false;
-const pendingRequests: DbHostRequestEnvelope[] = [];
+let pendingRequestSequence = 0;
+const pendingControlRequests: QueuedRequest[] = [];
+const pendingGeneralRequests: QueuedRequest[] = [];
+const pendingTransactionRequests: QueuedRequest[] = [];
 const liveQueries = new Map<string, LiveQueryRecord>();
 
 function createTransactionId(): string {
@@ -168,28 +176,84 @@ function unwrapParentPortMessage(message: unknown): unknown {
   return (message as { readonly data?: unknown }).data;
 }
 
-function isTransactionRequestForActiveTransaction(request: DbHostRequest): boolean {
-  if (activeTransactionId === null) {
-    return true;
+function isControlRequest(request: DbHostRequest): boolean {
+  return request.kind === 'diagnostics' || request.kind === 'reset' || request.kind === 'close';
+}
+
+function isTransactionContinuationRequest(request: DbHostRequest): request is Extract<
+  DbHostRequest,
+  {
+    kind: 'transaction:commit' | 'transaction:exec' | 'transaction:query' | 'transaction:rollback';
   }
-  if (request.kind === 'diagnostics' || request.kind === 'reset' || request.kind === 'close') {
-    return true;
-  }
-  if (
+> {
+  return (
     request.kind === 'transaction:query' ||
     request.kind === 'transaction:exec' ||
     request.kind === 'transaction:commit' ||
     request.kind === 'transaction:rollback'
-  ) {
-    return request.transactionId === activeTransactionId;
-  }
-  return false;
+  );
 }
 
-function nextRunnableRequestIndex(): number {
-  return pendingRequests.findIndex(({ request }) =>
-    isTransactionRequestForActiveTransaction(request)
-  );
+function assertActiveTransaction(request: DbHostRequest): void {
+  if (!isTransactionContinuationRequest(request)) {
+    return;
+  }
+  if (activeTransactionId === null) {
+    throw new Error(`No DB transaction is active for request: ${request.kind}`);
+  }
+  if (request.transactionId !== activeTransactionId) {
+    throw new Error(
+      `DB transaction mismatch: active ${activeTransactionId}, received ${request.transactionId}`
+    );
+  }
+}
+
+function enqueueRequest(envelope: DbHostRequestEnvelope): void {
+  const queuedRequest: QueuedRequest = {
+    envelope,
+    sequence: pendingRequestSequence,
+  };
+  pendingRequestSequence += 1;
+  if (isControlRequest(envelope.request)) {
+    pendingControlRequests.push(queuedRequest);
+    return;
+  }
+  if (isTransactionContinuationRequest(envelope.request)) {
+    pendingTransactionRequests.push(queuedRequest);
+    return;
+  }
+  pendingGeneralRequests.push(queuedRequest);
+}
+
+function shiftEarliestRequest(queues: readonly QueuedRequest[][]): DbHostRequestEnvelope | null {
+  let selectedQueue: QueuedRequest[] | null = null;
+  let selectedRequest: QueuedRequest | undefined;
+  for (const queue of queues) {
+    const head = queue[0];
+    if (head && (!selectedRequest || head.sequence < selectedRequest.sequence)) {
+      selectedQueue = queue;
+      selectedRequest = head;
+    }
+  }
+  return selectedQueue?.shift()?.envelope ?? null;
+}
+
+function nextRunnableRequest(): DbHostRequestEnvelope | null {
+  if (activeTransactionId !== null) {
+    return shiftEarliestRequest([pendingControlRequests, pendingTransactionRequests]);
+  }
+  if (
+    pendingControlRequests.length === 0 &&
+    pendingGeneralRequests.length === 0 &&
+    pendingTransactionRequests.length === 0
+  ) {
+    return null;
+  }
+  return shiftEarliestRequest([
+    pendingControlRequests,
+    pendingGeneralRequests,
+    pendingTransactionRequests,
+  ]);
 }
 
 async function getQueryableDatabase(): Promise<QueryableDatabase> {
@@ -284,6 +348,7 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
       return result;
     }
     case 'transaction:query': {
+      assertActiveTransaction(request);
       const db = await getQueryableDatabase();
       const params = requireParamsArray(request.params, 'transaction query');
       return params === undefined
@@ -291,16 +356,19 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
         : await db.query(request.sql, params);
     }
     case 'transaction:exec': {
+      assertActiveTransaction(request);
       const db = await getQueryableDatabase();
       return await execSql(db, request.sql, requireParamsArray(request.params, 'transaction exec'));
     }
     case 'transaction:commit': {
+      assertActiveTransaction(request);
       const db = await getQueryableDatabase();
       await execSql(db, 'COMMIT');
       activeTransactionId = null;
       return { committed: true };
     }
     case 'transaction:rollback': {
+      assertActiveTransaction(request);
       const db = await getQueryableDatabase();
       await execSql(db, 'ROLLBACK');
       activeTransactionId = null;
@@ -367,11 +435,7 @@ function drainQueue(): void {
   if (draining) {
     return;
   }
-  const nextIndex = nextRunnableRequestIndex();
-  if (nextIndex < 0) {
-    return;
-  }
-  const [envelope] = pendingRequests.splice(nextIndex, 1);
+  const envelope = nextRunnableRequest();
   if (!envelope) {
     return;
   }
@@ -388,6 +452,6 @@ parentPort.on('message', (message: unknown) => {
     postError('unknown', new Error('Malformed DB host request envelope.'));
     return;
   }
-  pendingRequests.push(envelope);
+  enqueueRequest(envelope);
   drainQueue();
 });

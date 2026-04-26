@@ -325,7 +325,7 @@ describe('DbHostManager', () => {
     expect(forkMock).toHaveBeenCalledTimes(1);
   });
 
-  it('terminates the utility DB host when a request times out', async () => {
+  it('does not terminate the utility DB host when a non-transaction request times out', async () => {
     vi.useFakeTimers();
     try {
       const { createDbHostManager } = await import('../../db-host-manager');
@@ -341,6 +341,44 @@ describe('DbHostManager', () => {
       const firstHost = latestProcess();
       await vi.advanceTimersByTimeAsync(5);
       await diagnosticsAssertion;
+      expect(firstHost.kill).not.toHaveBeenCalled();
+
+      const nextDiagnosticsPromise = manager.getDiagnostics();
+      expect(forkMock).toHaveBeenCalledTimes(1);
+      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
+        hasDatabaseHandle: true,
+      });
+      await expect(nextDiagnosticsPromise).resolves.toMatchObject({ hasDatabaseHandle: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('terminates the utility DB host when a transaction request times out', async () => {
+    vi.useFakeTimers();
+    try {
+      const { createDbHostManager } = await import('../../db-host-manager');
+      const manager = createDbHostManager({
+        entryPath: '/mock/db-host-entry.js',
+        requestTimeoutMs: 5,
+      });
+      const databasePromise = manager.getDatabase();
+      latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, {
+        initialized: true,
+      });
+      const database = await databasePromise;
+
+      const transactionPromise = database.transaction(async () => 'unreachable');
+      const txStartMessage = latestProcess().messages.at(-1);
+      expect(txStartMessage?.request.kind).toBe('transaction:start');
+      const firstHost = latestProcess();
+      const transactionAssertion = expect(transactionPromise).rejects.toThrow(
+        'DB host request timed out: transaction:start'
+      );
+
+      await vi.advanceTimersByTimeAsync(5);
+
+      await transactionAssertion;
       expect(firstHost.kill).toHaveBeenCalledTimes(1);
 
       const nextDiagnosticsPromise = manager.getDiagnostics();

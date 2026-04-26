@@ -78,8 +78,8 @@ const DEFAULT_PRIORITY_SYMBOL = Symbol.for('brainstrike.databaseWorkDefaultPrior
 
 interface MetricSamples {
   nextIndex: number;
-  readonly ordered: number[];
-  readonly sorted: number[];
+  ordered: number[];
+  sorted: number[];
 }
 
 function createEmptyQueues(): Record<DatabaseWorkPriority, QueuedTask[]> {
@@ -523,7 +523,6 @@ function isDatabaseWorkOptions(value: unknown): value is DatabaseWorkOptions {
     return false;
   }
   if (
-    value['priority'] !== undefined &&
     value['priority'] !== 'foreground' &&
     value['priority'] !== 'normal' &&
     value['priority'] !== 'background'

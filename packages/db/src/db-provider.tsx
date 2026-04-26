@@ -250,7 +250,11 @@ function getRendererDefaultDatabaseWorkPriority(): DatabaseWorkPriority {
 }
 
 function isDatabaseWorkOptions(value: unknown): value is DatabaseWorkOptions {
-  return typeof value === 'object' && value !== null && ('priority' in value || 'label' in value);
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const priority = (value as { readonly priority?: unknown }).priority;
+  return priority === 'foreground' || priority === 'normal' || priority === 'background';
 }
 
 function splitExposedDatabaseWorkOptions(
