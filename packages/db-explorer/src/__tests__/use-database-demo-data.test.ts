@@ -74,6 +74,23 @@ vi.mock('@brainstrike/db', async () => {
 
 const mockedUsePGliteLiveQuery = vi.mocked(usePGliteLiveQuery);
 
+function getRepeatedParameterIndexes(query: string): string[] {
+  const seen = new Set<string>();
+  const repeated = new Set<string>();
+  for (const match of query.matchAll(/\$([0-9]+)/g)) {
+    const index = match[1];
+    if (!index) {
+      continue;
+    }
+    if (seen.has(index)) {
+      repeated.add(index);
+      continue;
+    }
+    seen.add(index);
+  }
+  return Array.from(repeated);
+}
+
 const createRepository = (
   records: FileRecord[] = [],
   count = records.length
@@ -156,7 +173,7 @@ const setupLiveQueries = (
         return disabledResult as ReturnType<typeof mockedUsePGliteLiveQuery>;
       }
 
-      if (queryOptions.query.includes('COUNT(*)::int AS "totalRecords"')) {
+      if (queryOptions.query.includes('AS "totalRecords"')) {
         return totalRecordsResult as ReturnType<typeof mockedUsePGliteLiveQuery>;
       }
       if (queryOptions.query.includes('AS "recordsCount"')) {
@@ -190,7 +207,7 @@ const createMockDatabase = (options?: {
       if (sql.includes('PGlite WASM')) {
         return { rows: [{ location: 'PGlite WASM' }] };
       }
-      if (sql.includes('COUNT(*)::int AS "totalRecords"')) {
+      if (sql.includes('AS "totalRecords"')) {
         return { rows: options?.totalRecordsRows ?? [{ totalRecords: 0 }] };
       }
       if (sql.includes('AS "recordsCount"')) {
@@ -339,8 +356,7 @@ describe('useDatabaseDemoData', () => {
     expect(
       mockedUsePGliteLiveQuery.mock.calls.some(
         ([queryOptions]) =>
-          queryOptions.query.includes('COUNT(*)::int AS "totalRecords"') &&
-          queryOptions.enabled === true
+          queryOptions.query.includes('AS "totalRecords"') && queryOptions.enabled === true
       )
     ).toBe(true);
     expect(
@@ -349,6 +365,29 @@ describe('useDatabaseDemoData', () => {
           queryOptions.query.includes('AS "recordsCount"') && queryOptions.enabled === true
       )
     ).toBe(true);
+  });
+
+  it('does not reuse numbered parameters in PGlite live query SQL', () => {
+    setupLiveQueries();
+
+    renderHook(() =>
+      useDatabaseDemoData({
+        repository: createRepository(),
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database: createMockDatabase(),
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    const liveQuerySql = mockedUsePGliteLiveQuery.mock.calls.map(([queryOptions]) => ({
+      query: queryOptions.query,
+      repeatedParameters: getRepeatedParameterIndexes(queryOptions.query),
+    }));
+
+    expect(liveQuerySql.every(({ repeatedParameters }) => repeatedParameters.length === 0)).toBe(
+      true
+    );
   });
 
   it('uses active collection cache while replacement live queries are loading', async () => {

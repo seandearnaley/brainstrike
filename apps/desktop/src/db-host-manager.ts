@@ -429,10 +429,13 @@ class DefaultDbHostManager implements DbHostManager {
       kind: 'live:start',
       payload: requestPayload,
     }).catch((error: unknown) => {
-      logger.error('DB host live query start failed', {
-        error,
-        ...createLiveQueryDiagnostics(requestPayload),
-      });
+      logger.error(
+        {
+          err: error,
+          ...createLiveQueryDiagnostics(requestPayload),
+        },
+        'DB host live query start failed'
+      );
       throw error;
     });
     const liveQuery = new RemoteLiveQuery<TRecord>(

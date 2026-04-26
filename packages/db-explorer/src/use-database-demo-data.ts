@@ -213,11 +213,13 @@ const FILE_RECORDS_PAGE_QUERY = `
 `.trim();
 
 const FILE_RECORDS_TOTAL_QUERY = `
+  WITH target AS (SELECT $1::text AS embedding_set_id)
   SELECT
-    $1::text AS "embeddingSetId",
-    COUNT(*)::int AS "totalRecords"
-  FROM file_records
-  WHERE embedding_set_id = $1
+    target.embedding_set_id AS "embeddingSetId",
+    COUNT(fr.id)::int AS "totalRecords"
+  FROM target
+  LEFT JOIN file_records fr ON fr.embedding_set_id = target.embedding_set_id
+  GROUP BY target.embedding_set_id
 `.trim();
 
 const COLLECTION_COUNTS_QUERY = `

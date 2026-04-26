@@ -47,6 +47,7 @@ const forkMock = vi.hoisted(() => vi.fn());
 const appGetPathMock = vi.hoisted(() =>
   vi.fn((name: string) => (name === 'documents' ? '/mock/documents' : '/mock/userData'))
 );
+const loggerErrorMock = vi.hoisted(() => vi.fn());
 
 vi.mock('electron', () => ({
   app: {
@@ -57,6 +58,21 @@ vi.mock('electron', () => ({
     fork: forkMock,
   },
 }));
+
+vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
+  return {
+    ...actual,
+    createLogger: () => ({
+      debug: vi.fn(),
+      error: loggerErrorMock,
+      fatal: vi.fn(),
+      info: vi.fn(),
+      trace: vi.fn(),
+      warn: vi.fn(),
+    }),
+  };
+});
 
 function latestProcess(): FakeUtilityProcess {
   const utilityProcess = forkMock.mock.results.at(-1)?.value;
@@ -87,6 +103,7 @@ describe('DbHostManager', () => {
     appGetPathMock.mockClear();
     forkMock.mockReset();
     forkMock.mockImplementation(() => new FakeUtilityProcess());
+    loggerErrorMock.mockReset();
   });
 
   afterEach(() => {
@@ -187,6 +204,33 @@ describe('DbHostManager', () => {
     await expect(livePromise).resolves.toMatchObject({
       initialResults: { rows: [] },
     });
+  });
+
+  it('logs structured live query diagnostics when DB host live start rejects', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+    const databasePromise = manager.getDatabase();
+    latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
+    const database = await databasePromise;
+
+    const livePromise = database.live.query({
+      query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
+      params: ['needle'],
+    });
+    const liveMessage = latestProcess().messages.at(-1);
+    latestProcess().reject(liveMessage as PostedMessage, 'too few arguments for format()');
+
+    await expect(livePromise).rejects.toThrow('too few arguments for format()');
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: expect.any(Error),
+        mode: 'query',
+        paramsCount: 1,
+        queryPreview: "SELECT * FROM file_records WHERE path LIKE '%%' || $1 || '%%'",
+        unescapedPercentRuns: 0,
+      }),
+      'DB host live query start failed'
+    );
   });
 
   it('commits a remote transaction after the callback succeeds', async () => {
