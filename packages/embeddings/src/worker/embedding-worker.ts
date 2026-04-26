@@ -427,6 +427,46 @@ async function resolveIdType(db: IDatabase, table: string): Promise<string> {
   }
 }
 
+type EmbeddingWriteMode = 'vector' | 'raw';
+
+async function resolveEmbeddingWriteMode(db: IDatabase): Promise<EmbeddingWriteMode> {
+  try {
+    const res = await db.query<{ dataType?: unknown; udtName?: unknown }>(
+      `SELECT data_type AS "dataType", udt_name AS "udtName"
+       FROM information_schema.columns
+       WHERE table_name = 'file_chunks'
+         AND column_name = 'embedding'
+       LIMIT 1`
+    );
+    const row = res.rows[0];
+    const columnType = `${String(row?.udtName ?? '')} ${String(row?.dataType ?? '')}`.toLowerCase();
+
+    if (columnType.includes('vector')) {
+      return 'vector';
+    }
+    if (columnType.trim().length > 0) {
+      return 'raw';
+    }
+  } catch (error) {
+    workerLogger.debug('Failed to resolve file_chunks.embedding column type', { error });
+  }
+
+  try {
+    const res = await db.query<{ one: number }>(
+      "SELECT 1 as one FROM pg_extension WHERE extname = 'vector'"
+    );
+    if (Array.isArray(res.rows) && res.rows.length > 0) {
+      return 'vector';
+    }
+  } catch (error) {
+    workerLogger.debug('Failed to detect pgvector extension; treating writes as raw', {
+      error,
+    });
+  }
+
+  return 'raw';
+}
+
 async function updateChunkEmbeddingBatch(
   db: IDatabase,
   updates: Array<{
@@ -435,7 +475,7 @@ async function updateChunkEmbeddingBatch(
     embeddingSetId: string;
     embeddingHash: string;
   }>,
-  vectorEnabled: boolean,
+  writeMode: EmbeddingWriteMode,
   idType: string
 ) {
   if (updates.length === 0) {
@@ -452,7 +492,7 @@ async function updateChunkEmbeddingBatch(
 
   let sql: string;
 
-  if (vectorEnabled) {
+  if (writeMode === 'vector') {
     if (idType === 'uuid') {
       sql = `UPDATE file_chunks AS fc
          SET
@@ -1024,19 +1064,7 @@ export async function startEmbeddingWorker(
     await options.waitForBackgroundPermit?.({ label });
   }
 
-  // Detect pgvector availability once for write path
-  let vectorEnabledForWrites = false;
-  try {
-    const res = await options.db.query<{ one: number }>(
-      "SELECT 1 as one FROM pg_extension WHERE extname = 'vector'"
-    );
-    vectorEnabledForWrites = Array.isArray(res.rows) && res.rows.length > 0;
-  } catch (error) {
-    vectorEnabledForWrites = false;
-    workerLogger.debug('Failed to detect pgvector extension; treating writes as disabled', {
-      error,
-    });
-  }
+  const embeddingWriteMode = await resolveEmbeddingWriteMode(options.db);
 
   // Lightweight metrics for observability
   const metrics = {
@@ -1787,7 +1815,7 @@ export async function startEmbeddingWorker(
 
     if (updates.length > 0) {
       await waitForBackgroundPermit('embedding completion');
-      await updateChunkEmbeddingBatch(options.db, updates, vectorEnabledForWrites, fileChunkIdType);
+      await updateChunkEmbeddingBatch(options.db, updates, embeddingWriteMode, fileChunkIdType);
     }
 
     const completedJobs = await jq.completeBatch(jobCompletions);
