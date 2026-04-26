@@ -35,45 +35,54 @@ export class EmbeddingSetsRepository {
     const defaultName = `${normalizedMetadata.modelId} (${dimensions}D)`;
     const name = metadata?.name ?? defaultName;
 
-    let insertResult: { rows: unknown[] };
-    await this.db.query('BEGIN');
-    try {
-      insertResult = await this.db.query(
-        `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at, name, description, tags, category)
+    const insertResult = await this.db.query(
+      `WITH inserted AS (
+         INSERT INTO embedding_sets (
+           id,
+           model_key,
+           model_id,
+           dimensions,
+           distance,
+           created_at,
+           name,
+           description,
+           tags,
+           category
+         )
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-         RETURNING *`,
-        [
-          id,
-          normalizedMetadata.modelKey,
-          normalizedMetadata.modelId,
-          dimensions,
-          distance,
-          now,
-          name,
-          metadata?.description ?? null,
-          metadata?.tags ?? null,
-          metadata?.category ?? null,
-        ]
-      );
-
-      await this.db.query(
-        `INSERT INTO collection_indexing_stats (embedding_set_id)
-         VALUES ($1)
-         ON CONFLICT (embedding_set_id) DO NOTHING`,
-        [id]
-      );
-      await this.db.query('COMMIT');
-    } catch (error) {
-      try {
-        await this.db.query('ROLLBACK');
-      } catch (rollbackError) {
-        this.logger.error('Failed to rollback embedding set creation', {
-          rollbackError:
-            rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
-        });
-      }
-      throw error;
-    }
+         RETURNING *
+       ),
+       seeded_stats AS (
+         INSERT INTO collection_indexing_stats (
+           embedding_set_id,
+           file_count,
+           chunk_count,
+           embedded_chunk_count,
+           pending_chunk_count,
+           dirty,
+           last_refreshed_at
+         )
+         SELECT id, 0, 0, 0, 0, FALSE, NOW()
+           FROM inserted
+         ON CONFLICT (embedding_set_id) DO NOTHING
+         RETURNING embedding_set_id
+       )
+       SELECT *
+         FROM inserted
+        CROSS JOIN (SELECT COUNT(*) AS seeded_stats_count FROM seeded_stats) seeded_stats_count`,
+      [
+        id,
+        normalizedMetadata.modelKey,
+        normalizedMetadata.modelId,
+        dimensions,
+        distance,
+        now,
+        name,
+        metadata?.description ?? null,
+        metadata?.tags ?? null,
+        metadata?.category ?? null,
+      ]
+    );
 
     if (insertResult.rows.length === 0) {
       throw new Error(

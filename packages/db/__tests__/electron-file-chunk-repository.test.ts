@@ -197,4 +197,16 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     expect(deleted).toBe(3);
     expect(query.mock.calls[1][0]).toBe('DELETE FROM file_chunks');
   });
+
+  it('clears embeddings and refreshes stats in one atomic query', async () => {
+    query.mockResolvedValueOnce({ rows: [{ clearedCount: 3 }] });
+
+    const cleared = await repo.clearEmbeddingsForSet('set-1');
+
+    expect(cleared).toBe(3);
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls[0]?.[0]).toContain('UPDATE file_chunks');
+    expect(query.mock.calls[0]?.[0]).toContain('collection_indexing_stats');
+    expect(query.mock.calls[0]?.[1]).toEqual(['set-1']);
+  });
 });
