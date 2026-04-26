@@ -29,6 +29,7 @@ interface ExtendedSettingsPanelProps extends SettingsPanelProps {
     clearAllData: (() => Promise<unknown>) | null;
     recordsCount: number;
     chunksCount: number;
+    countsPending?: boolean;
     clearing: boolean;
     showClearDialog: boolean;
     setShowClearDialog: (show: boolean) => void;
@@ -542,6 +543,7 @@ export function SettingsPanel({
               className="flex h-7 items-center gap-1"
               disabled={
                 clearDatabaseProps.clearing ||
+                clearDatabaseProps.countsPending ||
                 !clearDatabaseProps.clearAllData ||
                 (clearDatabaseProps.recordsCount === 0 && clearDatabaseProps.chunksCount === 0)
               }
@@ -550,7 +552,7 @@ export function SettingsPanel({
               variant="destructive"
             >
               <Trash2 className="h-3 w-3" />
-              Clear Database
+              {clearDatabaseProps.countsPending ? 'Counts pending' : 'Clear Database'}
             </Button>
           </div>
         </div>

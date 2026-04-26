@@ -1,5 +1,5 @@
 import type { IDatabase, Job } from '@brainstrike/db';
-import { JobQueue } from '@brainstrike/db';
+import { JobQueue, refreshCollectionIndexingStats } from '@brainstrike/db';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { createLogger, generateUUID } from '@brainstrike/utils';
@@ -311,6 +311,7 @@ export interface EmbeddingWorkerOptions {
   stopOnFatalLocalError?: boolean;
   /** Explicit worker URL for streamed local embedding execution in the renderer host. */
   streamingWorkerUrl?: string;
+  waitForBackgroundPermit?: (options: { readonly label: string }) => Promise<void>;
   workerId?: string; // optional
 }
 
@@ -412,18 +413,133 @@ async function loadChunksBatch(db: IDatabase, ids: string[], idType: string) {
 }
 
 async function resolveIdType(db: IDatabase, table: string): Promise<string> {
+  type IdTypeProbe = 'information_schema' | 'pg_catalog';
+  const normalizeType = (value: unknown): 'uuid' | 'text' | null => {
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const normalized = value.toLowerCase();
+    if (normalized === 'uuid') {
+      return 'uuid';
+    }
+    if (normalized === 'text') {
+      return 'text';
+    }
+    return null;
+  };
+  const errors: string[] = [];
+  const recordProbeError = (probe: IdTypeProbe, error: unknown): void => {
+    const message = error instanceof Error ? error.message : String(error);
+    errors.push(`${probe}: ${message}`);
+    workerLogger.error('Failed to resolve id type probe for embedding worker', {
+      message,
+      probe,
+      table,
+    });
+  };
+
   try {
-    // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
-    const res = await db.query<{ data_type: string }>(
-      "SELECT data_type FROM information_schema.columns WHERE table_name = $1 AND column_name = 'id'",
+    const res = await db.query<{ dataType: string }>(
+      `SELECT format_type(a.atttypid, a.atttypmod) AS "dataType"
+         FROM pg_catalog.pg_attribute a
+         JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relname = $1
+          AND a.attname = 'id'
+          AND NOT a.attisdropped
+        LIMIT 1`,
       [table]
     );
-    const type = res.rows[0]?.data_type?.toLowerCase() ?? 'text';
-    return type === 'uuid' ? 'uuid' : 'text';
+    const type = normalizeType(res.rows[0]?.dataType);
+    if (type) {
+      return type;
+    }
   } catch (error) {
-    workerLogger.warn(`Failed to resolve ID type for ${table}, defaulting to text`, { error });
-    return 'text';
+    recordProbeError('pg_catalog', error);
   }
+
+  try {
+    const res = await db.query<{ dataType: string }>(
+      `SELECT data_type AS "dataType"
+         FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = $1
+          AND column_name = 'id'
+        LIMIT 1`,
+      [table]
+    );
+    const type = normalizeType(res.rows[0]?.dataType);
+    if (type) {
+      return type;
+    }
+  } catch (error) {
+    recordProbeError('information_schema', error);
+  }
+
+  const suffix = errors.length > 0 ? ` Details: ${errors.join('; ')}` : '';
+  throw new Error(`Failed to resolve ID type for ${table}.id.${suffix}`);
+}
+
+function readRowString(row: Record<string, unknown> | undefined, keys: readonly string[]): string {
+  if (!row) {
+    return '';
+  }
+
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === 'string') {
+      return value;
+    }
+  }
+
+  return '';
+}
+
+async function assertVectorEmbeddingColumn(db: IDatabase): Promise<void> {
+  try {
+    const res = await db.query<Record<string, unknown>>(
+      `SELECT data_type AS "dataType", udt_name AS "udtName"
+       FROM information_schema.columns
+       WHERE table_name = 'file_chunks'
+         AND column_name = 'embedding'
+       LIMIT 1`
+    );
+    const row = res.rows[0];
+    const columnType = `${readRowString(row, ['udtName', 'udt_name', 'udtname'])} ${readRowString(
+      row,
+      ['dataType', 'data_type', 'datatype']
+    )}`.toLowerCase();
+
+    if (columnType.includes('vector')) {
+      return;
+    }
+    if (columnType.trim().length > 0) {
+      throw new Error(`file_chunks.embedding must be a vector column, found: ${columnType}`);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('must be a vector column')) {
+      throw error;
+    }
+    workerLogger.debug('Failed to resolve file_chunks.embedding column type', { error });
+  }
+
+  try {
+    const res = await db.query<{ one: number }>(
+      "SELECT 1 as one FROM pg_extension WHERE extname = 'vector'"
+    );
+    if (Array.isArray(res.rows) && res.rows.length > 0) {
+      return;
+    }
+  } catch (error) {
+    workerLogger.debug('Failed to detect pgvector extension for embedding writes', {
+      error,
+    });
+  }
+
+  workerLogger.debug(
+    'Could not verify file_chunks.embedding column type; continuing with vector writes because initialized Brainstrike databases require pgvector.'
+  );
 }
 
 async function updateChunkEmbeddingBatch(
@@ -434,7 +550,6 @@ async function updateChunkEmbeddingBatch(
     embeddingSetId: string;
     embeddingHash: string;
   }>,
-  vectorEnabled: boolean,
   idType: string
 ) {
   if (updates.length === 0) {
@@ -451,34 +566,10 @@ async function updateChunkEmbeddingBatch(
 
   let sql: string;
 
-  if (vectorEnabled) {
-    if (idType === 'uuid') {
-      sql = `UPDATE file_chunks AS fc
-         SET
-           embedding = t.embedding::vector,
-           embedding_set_id = t.embedding_set_id,
-           embedding_updated_at = $1,
-           embedding_hash = t.embedding_hash,
-           updated_at = $1
-       FROM unnest($2::uuid[], $3::text[], $4::text[], $5::text[])
-         AS t(id, embedding, embedding_set_id, embedding_hash)
-       WHERE fc.id = t.id`;
-    } else {
-      sql = `UPDATE file_chunks AS fc
-         SET
-           embedding = t.embedding::vector,
-           embedding_set_id = t.embedding_set_id,
-           embedding_updated_at = $1,
-           embedding_hash = t.embedding_hash,
-           updated_at = $1
-       FROM unnest($2::text[], $3::text[], $4::text[], $5::text[])
-         AS t(id, embedding, embedding_set_id, embedding_hash)
-       WHERE fc.id = t.id`;
-    }
-  } else if (idType === 'uuid') {
+  if (idType === 'uuid') {
     sql = `UPDATE file_chunks AS fc
          SET
-           embedding = t.embedding,
+           embedding = t.embedding::vector,
            embedding_set_id = t.embedding_set_id,
            embedding_updated_at = $1,
            embedding_hash = t.embedding_hash,
@@ -489,7 +580,7 @@ async function updateChunkEmbeddingBatch(
   } else {
     sql = `UPDATE file_chunks AS fc
          SET
-           embedding = t.embedding,
+           embedding = t.embedding::vector,
            embedding_set_id = t.embedding_set_id,
            embedding_updated_at = $1,
            embedding_hash = t.embedding_hash,
@@ -1019,19 +1110,11 @@ export async function startEmbeddingWorker(
   const jq = new JobQueue(options.db);
   let running = true;
 
-  // Detect pgvector availability once for write path
-  let vectorEnabledForWrites = false;
-  try {
-    const res = await options.db.query<{ one: number }>(
-      "SELECT 1 as one FROM pg_extension WHERE extname = 'vector'"
-    );
-    vectorEnabledForWrites = Array.isArray(res.rows) && res.rows.length > 0;
-  } catch (error) {
-    vectorEnabledForWrites = false;
-    workerLogger.debug('Failed to detect pgvector extension; treating writes as disabled', {
-      error,
-    });
+  async function waitForBackgroundPermit(label: string): Promise<void> {
+    await options.waitForBackgroundPermit?.({ label });
   }
+
+  await assertVectorEmbeddingColumn(options.db);
 
   // Lightweight metrics for observability
   const metrics = {
@@ -1781,7 +1864,8 @@ export async function startEmbeddingWorker(
     }
 
     if (updates.length > 0) {
-      await updateChunkEmbeddingBatch(options.db, updates, vectorEnabledForWrites, fileChunkIdType);
+      await waitForBackgroundPermit('embedding completion');
+      await updateChunkEmbeddingBatch(options.db, updates, fileChunkIdType);
     }
 
     const completedJobs = await jq.completeBatch(jobCompletions);
@@ -1789,6 +1873,12 @@ export async function startEmbeddingWorker(
     for (const job of completedJobs) {
       completedJobIds.add(job.id);
     }
+
+    await refreshCollectionIndexingStats(
+      options.db,
+      updates.map((update) => update.embeddingSetId),
+      { label: 'embedding completion stats refresh', priority: 'background' }
+    );
 
     return completedJobIds;
   }
@@ -2192,6 +2282,7 @@ export async function startEmbeddingWorker(
   async function processBatch(): Promise<void> {
     const batchStart = performance.now();
     try {
+      await waitForBackgroundPermit('embedding claim');
       // Claim a batch of jobs
       const jobs = (await jq.claimMany({
         queue: queueName,

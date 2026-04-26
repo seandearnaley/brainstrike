@@ -8,26 +8,13 @@ import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui';
 import { createLogger } from '@brainstrike/utils/logger';
-import {
-  lazy,
-  type ReactElement,
-  type ReactNode,
-  Suspense,
-  useCallback,
-  useEffect,
-  useRef,
-} from 'react';
+import { type ReactElement, type ReactNode, useCallback, useEffect, useRef } from 'react';
 import ContextExplorerPageContent from './context-explorer-page-content';
 import SettingsPageContent from './settings/page-content';
 
 const logger = createLogger('DesktopRootLayoutContent');
 const RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS = 15_000;
 const RENDERER_HEAP_DIAGNOSTIC_DELTA_BYTES = 128 * 1024 * 1024;
-
-const LazyEmbeddingJobQueueTracker = lazy(async () => {
-  const module = await import('@brainstrike/vector-management');
-  return { default: module.EmbeddingJobQueueTracker };
-});
 
 interface RendererMemoryPerformance extends Performance {
   memory?: {
@@ -70,9 +57,7 @@ export default function RootLayoutContent() {
   const activeToolsTabRef = useRef<'database-ready' | 'initializing'>(
     db ? 'database-ready' : 'initializing'
   );
-  const queueTrackerMountedRef = useRef(Boolean(db));
   activeToolsTabRef.current = db ? 'database-ready' : 'initializing';
-  queueTrackerMountedRef.current = Boolean(db);
 
   const navigationConfig = navigationItems as NavigationItem[];
   const loadEmbeddingQueue = useCallback(
@@ -123,7 +108,6 @@ export default function RootLayoutContent() {
         totalJSHeapBytes: currentMemory.totalJSHeapSize,
         jsHeapSizeLimitBytes: currentMemory.jsHeapSizeLimit,
         deltaBytes: usedHeapDelta,
-        queueTrackerMounted: queueTrackerMountedRef.current,
       });
     }, RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS);
 
@@ -134,11 +118,6 @@ export default function RootLayoutContent() {
 
   return (
     <TokenCacheWrapper>
-      {db ? (
-        <Suspense fallback={null}>
-          <LazyEmbeddingJobQueueTracker />
-        </Suspense>
-      ) : null}
       <RootLayout {...sharedProps} />
     </TokenCacheWrapper>
   );

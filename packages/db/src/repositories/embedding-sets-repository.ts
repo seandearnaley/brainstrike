@@ -36,9 +36,40 @@ export class EmbeddingSetsRepository {
     const name = metadata?.name ?? defaultName;
 
     const insertResult = await this.db.query(
-      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at, name, description, tags, category)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING *`,
+      `WITH inserted AS (
+         INSERT INTO embedding_sets (
+           id,
+           model_key,
+           model_id,
+           dimensions,
+           distance,
+           created_at,
+           name,
+           description,
+           tags,
+           category
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         RETURNING *
+       ),
+       seeded_stats AS (
+         INSERT INTO collection_indexing_stats (
+           embedding_set_id,
+           file_count,
+           chunk_count,
+           embedded_chunk_count,
+           pending_chunk_count,
+           dirty,
+           last_refreshed_at
+         )
+         SELECT id, 0, 0, 0, 0, FALSE, NOW()
+           FROM inserted
+         ON CONFLICT (embedding_set_id) DO NOTHING
+         RETURNING embedding_set_id
+       )
+       SELECT *
+         FROM inserted
+        CROSS JOIN (SELECT COUNT(*) AS seeded_stats_count FROM seeded_stats) seeded_stats_count`,
       [
         id,
         normalizedMetadata.modelKey,

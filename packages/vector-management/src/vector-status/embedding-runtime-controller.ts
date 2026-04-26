@@ -1,3 +1,4 @@
+import { createPriorityDbHandle } from '@brainstrike/db';
 import { getRegisteredEmbeddingRuntimeConfig } from '@brainstrike/embeddings/runtime-config';
 import type {
   EmbeddingWorkerController,
@@ -18,12 +19,14 @@ export type EmbeddingRuntimeBackfillSource = 'background-indexing' | 'manual';
 
 export interface EmbeddingRuntimeBackfillProgress extends BackgroundRuntimeProgress {
   readonly embeddingSetId: string;
+  readonly source: EmbeddingRuntimeBackfillSource;
 }
 
 export interface EmbeddingRuntimeBackfillInfo {
   readonly embeddingSetId: string;
   readonly progress: { current: number; total: number } | null;
   readonly requestId: string;
+  readonly source: EmbeddingRuntimeBackfillSource;
 }
 
 export type EmbeddingRuntimeStatus = BackgroundRuntimeStatus<'embedding-host' | 'embedding-worker'>;
@@ -77,6 +80,7 @@ interface LocalBackfillState {
   readonly abortController: AbortController;
   progress: { current: number; total: number } | null;
   readonly requestId: string;
+  readonly source: EmbeddingRuntimeBackfillSource;
 }
 
 interface UseEmbeddingRuntimeControllerParams {
@@ -85,6 +89,8 @@ interface UseEmbeddingRuntimeControllerParams {
   readonly reinitEveryN: number;
   readonly service: VectorQueueService | null;
 }
+
+const BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS = 10 * 60 * 1000;
 
 function getEmbeddingHostApi(): EmbeddingHostApi | null {
   if (typeof window === 'undefined') {
@@ -163,6 +169,7 @@ async function enqueueLocalBackfill(args: {
     requestId,
     abortController: backfillAbortController,
     progress: null,
+    source,
   });
 
   try {
@@ -176,11 +183,17 @@ async function enqueueLocalBackfill(args: {
         args.notifyBackfillProgress({
           embeddingSetId: args.embeddingSetId,
           requestId,
+          source,
           stage: 'backfill',
           current: done,
           total,
         });
       },
+      ...(source === 'background-indexing'
+        ? {
+            queueCapacityTimeoutMs: BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
+          }
+        : {}),
       ...(signal ? { signal } : {}),
     });
     return { requestId };
@@ -304,7 +317,7 @@ export function useEmbeddingRuntimeController(
       try {
         const startEmbeddingWorker = await loadStartEmbeddingWorker();
         const controller = await startEmbeddingWorker({
-          db,
+          db: createPriorityDbHandle(db, 'background'),
           enable: true,
           reinitEveryN,
           device: devicePreference,
@@ -409,6 +422,7 @@ export function useEmbeddingRuntimeController(
           ([embeddingSetId, backfill]) => ({
             embeddingSetId,
             requestId: backfill.requestId,
+            source: backfill.source,
             progress: backfill.progress,
           })
         );

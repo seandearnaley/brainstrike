@@ -47,6 +47,21 @@ function compareCollectionsDesc(left: CollectionOption, right: CollectionOption)
   return right.id.localeCompare(left.id);
 }
 
+function toCollectionOption(collection: {
+  createdAt: string;
+  id: string;
+  modelId: string;
+  modelKey: string;
+  name?: string | null;
+}): CollectionOption {
+  return {
+    id: collection.id,
+    name: collection.name?.trim() || collection.modelId,
+    modelKey: collection.modelKey,
+    createdAt: collection.createdAt,
+  };
+}
+
 function getStatusBadge(
   state: ReturnType<typeof useWorkspaceCollectionSyncStatusStore.getState>['state']
 ) {
@@ -160,6 +175,7 @@ export function SearchIndexingSettingsSection() {
   const [collections, setCollections] = useState<CollectionOption[]>([]);
   const [loadingCollections, setLoadingCollections] = useState(false);
   const [collectionsError, setCollectionsError] = useState<string | null>(null);
+  const [collectionsRefreshToken, setCollectionsRefreshToken] = useState(0);
 
   useEffect(() => {
     let disposed = false;
@@ -168,7 +184,9 @@ export function SearchIndexingSettingsSection() {
       setCollections([]);
       setCollectionsError(null);
       setLoadingCollections(false);
-      return;
+      return () => {
+        disposed = true;
+      };
     }
 
     setLoadingCollections(true);
@@ -181,14 +199,7 @@ export function SearchIndexingSettingsSection() {
           return;
         }
         setCollections(
-          results
-            .map((collection) => ({
-              id: collection.id,
-              name: collection.name?.trim() || collection.modelId,
-              modelKey: collection.modelKey,
-              createdAt: collection.createdAt,
-            }))
-            .sort(compareCollectionsDesc)
+          results.map((collection) => toCollectionOption(collection)).sort(compareCollectionsDesc)
         );
       })
       .catch((error) => {
@@ -207,7 +218,20 @@ export function SearchIndexingSettingsSection() {
     return () => {
       disposed = true;
     };
-  }, [repository]);
+  }, [collectionsRefreshToken, repository]);
+
+  useEffect(() => {
+    const handleCollectionRefresh = (): void => {
+      setCollectionsRefreshToken((currentToken) => currentToken + 1);
+    };
+
+    window.addEventListener('brainstrike:embedding-set-updated', handleCollectionRefresh);
+    window.addEventListener('brainstrike:queue-drained', handleCollectionRefresh);
+    return () => {
+      window.removeEventListener('brainstrike:embedding-set-updated', handleCollectionRefresh);
+      window.removeEventListener('brainstrike:queue-drained', handleCollectionRefresh);
+    };
+  }, []);
 
   useEffect(() => {
     if (!(managedCollectionId && !loadingCollections && !collectionsError)) {
@@ -216,12 +240,41 @@ export function SearchIndexingSettingsSection() {
     if (collections.some((collection) => collection.id === managedCollectionId)) {
       return;
     }
-    setManagedCollectionId(null);
+    let disposed = false;
+    void repository
+      ?.getById(managedCollectionId)
+      .then((collection) => {
+        if (disposed) {
+          return;
+        }
+        if (!collection) {
+          setManagedCollectionId(null);
+          return;
+        }
+        setCollections((currentCollections) => {
+          if (currentCollections.some((candidate) => candidate.id === collection.id)) {
+            return currentCollections;
+          }
+          return [...currentCollections, toCollectionOption(collection)].sort(
+            compareCollectionsDesc
+          );
+        });
+      })
+      .catch((error) => {
+        if (disposed) {
+          return;
+        }
+        setCollectionsError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      disposed = true;
+    };
   }, [
     collections,
     collectionsError,
     loadingCollections,
     managedCollectionId,
+    repository,
     setManagedCollectionId,
   ]);
 

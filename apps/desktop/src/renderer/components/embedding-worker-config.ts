@@ -1,18 +1,26 @@
-import type { IDatabase } from '@brainstrike/db';
+import {
+  createDatabasePressureController,
+  getDatabaseWorkScheduler,
+  type IDatabase,
+} from '@brainstrike/db';
 import type { EmbeddingWorkerOptions } from '@brainstrike/embeddings/worker';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('EmbeddingWorkerConfig');
-// Keep the hidden host responsive, but avoid the one-job-at-a-time churn that
-// creates excessive DB/queue pressure during large backfills.
-const DESKTOP_EMBED_CLAIM_BATCH_SIZE = 4;
-// Leave a short gap between claimed batches so the hidden host yields without
-// stretching backfills into a long sequence of tiny bursts.
-const DESKTOP_EMBED_INTER_BATCH_DELAY_MS = 75;
+// Foreground responsiveness wins over raw indexing throughput in desktop mode.
+// Each completed job writes through the main-process PGlite connection, so keep
+// background commits small and leave a deliberate gap between claims.
+const DESKTOP_EMBED_CLAIM_BATCH_SIZE = 1;
+const DESKTOP_EMBED_INTER_BATCH_DELAY_MS = 150;
+const DESKTOP_PRESSURE_POLL_MS = 50;
 
 function parsePositiveIntegerEnv(
-  name: 'VITE_EMBED_CONCURRENCY' | 'VITE_EMBED_LEASE_MS',
+  name:
+    | 'VITE_EMBED_CLAIM_BATCH_SIZE'
+    | 'VITE_EMBED_CONCURRENCY'
+    | 'VITE_EMBED_INTER_BATCH_DELAY_MS'
+    | 'VITE_EMBED_LEASE_MS',
   fallback: number
 ): number {
   const raw = import.meta.env[name];
@@ -26,17 +34,48 @@ function parsePositiveIntegerEnv(
   return parsed;
 }
 
+function createWaitForBackgroundPermit(
+  db: IDatabase
+): EmbeddingWorkerOptions['waitForBackgroundPermit'] {
+  const scheduler = getDatabaseWorkScheduler(db);
+  if (scheduler) {
+    return createDatabasePressureController({ scheduler }).waitForBackgroundPermit;
+  }
+
+  const schedulerSnapshot =
+    typeof window === 'undefined' ? undefined : window.electronAPI?.db?.schedulerSnapshot;
+  if (!schedulerSnapshot) {
+    throw new Error('Desktop embedding worker requires database QoS scheduler snapshots.');
+  }
+
+  return createDatabasePressureController({
+    pollMs: DESKTOP_PRESSURE_POLL_MS,
+    snapshotSource: {
+      getSnapshot: schedulerSnapshot,
+    },
+  }).waitForBackgroundPermit;
+}
+
 export function createEmbeddingWorkerConfig(db: IDatabase): EmbeddingWorkerOptions {
+  const claimBatchSize = parsePositiveIntegerEnv(
+    'VITE_EMBED_CLAIM_BATCH_SIZE',
+    DESKTOP_EMBED_CLAIM_BATCH_SIZE
+  );
   const concurrency = parsePositiveIntegerEnv('VITE_EMBED_CONCURRENCY', 1);
+  const interBatchDelayMs = parsePositiveIntegerEnv(
+    'VITE_EMBED_INTER_BATCH_DELAY_MS',
+    DESKTOP_EMBED_INTER_BATCH_DELAY_MS
+  );
   const leaseMs = parsePositiveIntegerEnv('VITE_EMBED_LEASE_MS', 60_000);
   const modelKey = import.meta.env['VITE_EMBED_MODEL_KEY'];
 
   return {
     db,
-    claimBatchSize: DESKTOP_EMBED_CLAIM_BATCH_SIZE,
+    claimBatchSize,
     concurrency,
-    interBatchDelayMs: DESKTOP_EMBED_INTER_BATCH_DELAY_MS,
+    interBatchDelayMs,
     leaseMs,
+    waitForBackgroundPermit: createWaitForBackgroundPermit(db),
     ...(modelKey ? { modelKey } : {}),
     log: (msg: string, meta?: unknown) => {
       if (meta) {

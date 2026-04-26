@@ -75,11 +75,8 @@ vi.mock('@brainstrike/ui', () => ({
 
 // Mock the status items
 vi.mock('../status-items', () => ({
-  CollectionSyncStatusItem: () => (
-    <div data-testid="collection-sync-status-item">Collection Sync</div>
-  ),
   DatabaseStatusItem: () => <div data-testid="database-status-item">DB Status</div>,
-  QueueStatusItem: () => <div data-testid="queue-status-item">Queue Status</div>,
+  IndexingStatusItem: () => <div data-testid="indexing-status-item">Indexing Status</div>,
 }));
 
 // Mock the file-explorer-hooks package
@@ -120,8 +117,9 @@ describe('AppLayout', () => {
     );
     expect(screen.getByTestId('status-bar')).toBeInTheDocument();
     expect(screen.getByTestId('database-status-item')).toBeInTheDocument();
-    expect(screen.getByTestId('queue-status-item')).toBeInTheDocument();
-    expect(screen.getByTestId('collection-sync-status-item')).toBeInTheDocument();
+    expect(screen.getByTestId('indexing-status-item')).toBeInTheDocument();
+    expect(screen.queryByTestId('queue-status-item')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('collection-sync-status-item')).not.toBeInTheDocument();
   });
 
   it('should pass correct props to NavigationSidebar', () => {

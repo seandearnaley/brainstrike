@@ -1,4 +1,30 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
+
+function installUtilityProcessParentPort(): void {
+  Object.defineProperty(process, 'parentPort', {
+    configurable: true,
+    writable: true,
+    value: {
+      on: vi.fn(),
+      postMessage: vi.fn(),
+    },
+  });
+}
+
+function restoreParentPort(): void {
+  if (originalParentPortDescriptor) {
+    Object.defineProperty(process, 'parentPort', originalParentPortDescriptor);
+    return;
+  }
+
+  Object.defineProperty(process, 'parentPort', {
+    configurable: true,
+    value: undefined,
+    writable: true,
+  });
+}
 
 // Mock fs and electron app path
 const existsSyncMock = vi.fn(() => true);
@@ -85,10 +111,15 @@ describe('db-main lazy-load getDatabase', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    installUtilityProcessParentPort();
     process.env['NODE_ENV'] = 'test';
     process.env['BRAINSTRIKE_DB_PROFILE'] = '';
     existsSyncMock.mockReturnValue(true);
     mkdirSyncMock.mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    restoreParentPort();
   });
 
   it('lazy-loads database on first getDatabase call when uninitialized', async () => {

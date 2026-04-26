@@ -11,6 +11,7 @@ import {
   CardTitle,
   useToast,
 } from '@brainstrike/ui';
+import { LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import type { LoggingSettingsPayload } from '../../../logging-shared';
@@ -58,20 +59,24 @@ export function DesktopLoggingSettings() {
   const setPreferences = useLoggingPreferencesStore((state) => state.setPreferences);
   const logSource = useMemo<LoggingSettingsSectionProps['logSource']>(() => {
     const buffer = getRendererLogBuffer();
+    const loadRecords = (rendererRecords: readonly LogRecord[]) =>
+      loadDesktopLogRecords(rendererRecords);
     return {
-      getInitialRecords: async () => {
-        const rendererRecords = buffer.getRecords();
-        if (!window.logging?.getBufferedLogs) {
-          return rendererRecords;
-        }
-        try {
-          const mainRecords = await window.logging.getBufferedLogs();
-          return [...rendererRecords, ...mainRecords];
-        } catch {
-          return rendererRecords;
-        }
+      getInitialRecords: async () => loadRecords(buffer.getRecords()),
+      subscribe: (handler) => {
+        let disposed = false;
+        const unsubscribe = buffer.subscribe((rendererRecords) => {
+          void loadRecords(rendererRecords).then((records) => {
+            if (!disposed) {
+              handler(records);
+            }
+          });
+        });
+        return () => {
+          disposed = true;
+          unsubscribe();
+        };
       },
-      subscribe: (handler) => buffer.subscribe(handler),
     };
   }, []);
 
@@ -227,6 +232,37 @@ export function DesktopLoggingSettings() {
       runtime="electron-renderer"
     />
   );
+}
+
+async function loadDesktopLogRecords(rendererRecords: readonly LogRecord[]): Promise<LogRecord[]> {
+  const getMainRecords = window.logging?.getBufferedLogs;
+  if (!getMainRecords) {
+    return [
+      ...rendererRecords,
+      createMainLogSourceDiagnostic('Electron main logging bridge is unavailable.'),
+    ];
+  }
+  try {
+    const mainRecords = await getMainRecords();
+    return [...rendererRecords, ...mainRecords];
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return [...rendererRecords, createMainLogSourceDiagnostic(message)];
+  }
+}
+
+function createMainLogSourceDiagnostic(reason: string): LogRecord {
+  return {
+    args: [{ reason }],
+    bindings: {
+      logSource: 'electron-main',
+      runtime: 'electron-renderer',
+    },
+    level: LogLevel.WARN,
+    message: 'Electron main logs unavailable',
+    scope: 'DesktopLoggingSettings',
+    timestamp: Date.now(),
+  };
 }
 
 export default DesktopLoggingSettings;

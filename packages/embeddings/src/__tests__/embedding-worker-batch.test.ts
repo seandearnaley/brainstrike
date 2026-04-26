@@ -209,6 +209,72 @@ describe('Embedding Worker Batch Optimization', () => {
       expect(completedIds).toContain(`job-batch-${i}`);
     }
   });
+
+  it('waits for background database permits before claiming and completing jobs', async () => {
+    const now = new Date().toISOString();
+    const embeddingSetId = 'set-pressure';
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    const compositeKey = formatProviderModelKey('local', modelKey);
+    const fileId = 'file-pressure';
+    const chunkId = 'chunk-pressure';
+    const jobId = 'job-pressure';
+    const waitForBackgroundPermit = vi.fn(async () => undefined);
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, compositeKey, modelKey, 768, 'cosine', now]
+    );
+
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
+      [fileId, 'pressure.ts', '/pressure.ts', 100, 'content', 'hash-pressure', 10, now]
+    );
+
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+      VALUES ($1,$2,0,$3,$4,$5,'text',10,$6,$6)`,
+      [chunkId, fileId, 'content', 'hash-pressure', 10, now]
+    );
+
+    await db.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+      VALUES ($1,'embeddings','embed_chunk', $2, 'queued', $3, 0, 3, 0, $3, $3)`,
+      [
+        jobId,
+        JSON.stringify({
+          chunkId,
+          embeddingSetId,
+          modelKey: compositeKey,
+          expectedDimension: 768,
+        }),
+        now,
+      ]
+    );
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      leaseMs: 2000,
+      modelKey,
+      service: new FakeEmbeddingService(),
+      waitForBackgroundPermit,
+      log: () => {},
+    });
+
+    await waitFor(async () => {
+      const res = await db.query<{ count: number }>(
+        `SELECT count(*) as count FROM job_queue WHERE state = 'succeeded'`
+      );
+      return Number(res.rows[0]?.count) === 1;
+    }, 10_000);
+
+    await controller.stop();
+
+    expect(waitForBackgroundPermit).toHaveBeenCalledWith({ label: 'embedding claim' });
+    expect(waitForBackgroundPermit).toHaveBeenCalledWith({ label: 'embedding completion' });
+  });
 });
 
 // Increase timeouts to reduce flakiness under workspace-wide runs

@@ -1,3 +1,4 @@
+import { createDatabaseWorkScheduler, createScheduledDbHandle } from '@brainstrike/db';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { loggerInfoMock, registryStoreState } = vi.hoisted(() => ({
@@ -28,45 +29,61 @@ vi.mock('@brainstrike/utils/logger', async () => {
 
 import { createEmbeddingWorkerConfig } from '../../../renderer/components/embedding-worker-config';
 
+function createScheduledTestDb() {
+  const db = { query: vi.fn(async () => ({ rows: [] })) };
+  const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+  return {
+    db,
+    scheduledDb: createScheduledDbHandle(db, scheduler, 'background'),
+  };
+}
+
 describe('createEmbeddingWorkerConfig', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    import.meta.env['VITE_EMBED_CLAIM_BATCH_SIZE'] = '';
     import.meta.env['VITE_EMBED_CONCURRENCY'] = '';
+    import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = '';
     import.meta.env['VITE_EMBED_LEASE_MS'] = '';
     import.meta.env['VITE_EMBED_MODEL_KEY'] = '';
   });
 
   it('uses strict defaults when optional env vars are not configured', () => {
-    const db = { query: vi.fn() };
+    const { db, scheduledDb } = createScheduledTestDb();
 
-    const config = createEmbeddingWorkerConfig(db as never);
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
 
     expect(config).toEqual({
-      db,
-      claimBatchSize: 4,
+      db: scheduledDb,
+      claimBatchSize: 1,
       concurrency: 1,
-      interBatchDelayMs: 75,
+      interBatchDelayMs: 150,
       leaseMs: 60_000,
       log: expect.any(Function),
       onDownloadProgress: expect.any(Function),
+      waitForBackgroundPermit: expect.any(Function),
     });
+    expect(db.query).not.toHaveBeenCalled();
   });
 
   it('uses configured env vars and forwards logs and download progress updates', () => {
     import.meta.env['VITE_EMBED_CONCURRENCY'] = '3';
+    import.meta.env['VITE_EMBED_CLAIM_BATCH_SIZE'] = '4';
+    import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = '75';
     import.meta.env['VITE_EMBED_LEASE_MS'] = '45000';
     import.meta.env['VITE_EMBED_MODEL_KEY'] = 'local:test-model';
-    const db = { query: vi.fn() };
+    const { scheduledDb } = createScheduledTestDb();
 
-    const config = createEmbeddingWorkerConfig(db as never);
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
 
     expect(config).toMatchObject({
-      db,
+      db: scheduledDb,
       claimBatchSize: 4,
       concurrency: 3,
       interBatchDelayMs: 75,
       leaseMs: 45_000,
       modelKey: 'local:test-model',
+      waitForBackgroundPermit: expect.any(Function),
     });
 
     config.log?.('Worker started');
@@ -87,6 +104,22 @@ describe('createEmbeddingWorkerConfig', () => {
 
     expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
       'VITE_EMBED_CONCURRENCY must be a positive integer when configured.'
+    );
+  });
+
+  it('fails fast when embed claim batch size is not a positive integer', () => {
+    import.meta.env['VITE_EMBED_CLAIM_BATCH_SIZE'] = '0';
+
+    expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
+      'VITE_EMBED_CLAIM_BATCH_SIZE must be a positive integer when configured.'
+    );
+  });
+
+  it('fails fast when embed inter-batch delay is not a positive integer', () => {
+    import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = 'abc';
+
+    expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
+      'VITE_EMBED_INTER_BATCH_DELAY_MS must be a positive integer when configured.'
     );
   });
 

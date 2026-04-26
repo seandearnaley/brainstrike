@@ -1,6 +1,11 @@
 import { render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { deepEqual, makeLiveQueryKey, usePGliteLiveQuery } from '../src/use-live-query.js';
+import {
+  deepEqual,
+  escapePGliteLiveQueryFormatPercents,
+  makeLiveQueryKey,
+  usePGliteLiveQuery,
+} from '../src/use-live-query.js';
 
 // Mock the database provider
 vi.mock('../src/db-provider.js', () => ({
@@ -72,6 +77,48 @@ describe('usePGliteLiveQuery Performance', () => {
 
     expect(mockQuery).toHaveBeenCalledTimes(1);
   });
+
+  it('escapes literal percent signs before PGlite live query parameter formatting', () => {
+    render(
+      <PercentQueryComponent
+        params={['needle']}
+        query="SELECT * FROM test WHERE name LIKE '%' || $1 || '%'"
+      />
+    );
+
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: "SELECT * FROM test WHERE name LIKE '%%' || $1 || '%%'",
+        params: ['needle'],
+      })
+    );
+  });
+});
+
+function PercentQueryComponent({ params, query }: { params?: unknown[]; query: string }) {
+  usePGliteLiveQuery({
+    query,
+    params,
+  });
+  return null;
+}
+
+describe('escapePGliteLiveQueryFormatPercents', () => {
+  it('escapes literal percents only when live query params are present', () => {
+    const query = "SELECT * FROM test WHERE name LIKE '%' || $1 || '%'";
+
+    expect(escapePGliteLiveQueryFormatPercents(query, ['needle'])).toBe(
+      "SELECT * FROM test WHERE name LIKE '%%' || $1 || '%%'"
+    );
+    expect(escapePGliteLiveQueryFormatPercents(query, [])).toBe(query);
+    expect(escapePGliteLiveQueryFormatPercents(query, null)).toBe(query);
+  });
+
+  it('does not double-escape already escaped live query percents', () => {
+    const query = "SELECT * FROM test WHERE name LIKE '%%' || $1 || '%%'";
+
+    expect(escapePGliteLiveQueryFormatPercents(query, ['needle'])).toBe(query);
+  });
 });
 
 describe('Electron Live Query', () => {
@@ -119,6 +166,24 @@ describe('Electron Live Query', () => {
         expect.objectContaining({
           query: 'SELECT * FROM test',
           params: [1],
+        })
+      );
+    });
+  });
+
+  it('escapes literal percent signs before Electron live query start', async () => {
+    render(
+      <PercentQueryComponent
+        params={['needle']}
+        query="SELECT * FROM test WHERE name LIKE '%' || $1 || '%'"
+      />
+    );
+
+    await vi.waitFor(() => {
+      expect(mockBridge.start).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: "SELECT * FROM test WHERE name LIKE '%%' || $1 || '%%'",
+          params: ['needle'],
         })
       );
     });

@@ -345,6 +345,7 @@ describe('useVectorQueueState', () => {
       controller.emitBackfillProgress({
         embeddingSetId,
         requestId: 'embedding-backfill:test',
+        source: 'manual',
         stage: 'backfill',
         current: 2,
         total: 5,
@@ -352,6 +353,7 @@ describe('useVectorQueueState', () => {
       controller.emitBackfillProgress({
         embeddingSetId,
         requestId: 'embedding-backfill:test',
+        source: 'manual',
         stage: 'backfill',
         current: 5,
         total: 5,
@@ -396,6 +398,7 @@ describe('useVectorQueueState', () => {
       controller.emitBackfillProgress({
         embeddingSetId,
         requestId: 'embedding-backfill:shared',
+        source: 'manual',
         stage: 'backfill',
         current: 3,
         total: 10,
@@ -563,6 +566,7 @@ describe('useVectorQueueState', () => {
     controller.emitBackfillProgress({
       embeddingSetId: 'set-1',
       requestId: 'embedding-backfill:first',
+      source: 'manual',
       stage: 'backfill',
       current: 1,
       total: 10,
@@ -572,6 +576,7 @@ describe('useVectorQueueState', () => {
     controller.emitBackfillProgress({
       embeddingSetId: 'set-1',
       requestId: 'embedding-backfill:second',
+      source: 'manual',
       stage: 'backfill',
       current: 4,
       total: 10,

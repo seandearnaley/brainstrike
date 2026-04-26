@@ -16,6 +16,7 @@ vi.mock('@brainstrike/db', () => ({
 }));
 
 describe('QueueHud', () => {
+  const mockRepairUnclaimableQueued = vi.fn();
   const mockRequeueFailed = vi.fn();
 
   const expectQueueHeading = () => {
@@ -34,8 +35,11 @@ describe('QueueHud', () => {
     vi.stubEnv('EMBED_QUEUE_ENABLED', 'true');
 
     const mockJobQueue = {
+      repairUnclaimableQueued: mockRepairUnclaimableQueued,
       requeueFailed: mockRequeueFailed,
     };
+    mockRepairUnclaimableQueued.mockResolvedValue(0);
+    mockRequeueFailed.mockResolvedValue(0);
 
     (JobQueue as unknown as ReturnType<typeof vi.fn>).mockImplementation(function (
       this: Record<string, unknown>
@@ -127,6 +131,7 @@ describe('QueueHud', () => {
     await user.click(retryButton);
 
     await waitFor(() => {
+      expect(mockRepairUnclaimableQueued).toHaveBeenCalledWith('embeddings', 20);
       expect(mockRequeueFailed).toHaveBeenCalledWith('embeddings', 20);
     });
   });
@@ -159,8 +164,8 @@ describe('QueueHud', () => {
 
     setStoreStats({ queued: 0, running: 0, failed: 3, succeeded: 0 });
 
-    let resolveRequeue!: () => void;
-    const requeuePromise = new Promise<void>((resolve) => {
+    let resolveRequeue!: (value: number) => void;
+    const requeuePromise = new Promise<number>((resolve) => {
       resolveRequeue = resolve;
     });
 
@@ -178,7 +183,7 @@ describe('QueueHud', () => {
       expect(retryButton).toBeDisabled();
     });
 
-    resolveRequeue?.();
+    resolveRequeue?.(3);
 
     // After retry completes, failed is optimistically zeroed → queued becomes 3
     await waitFor(() => {
@@ -264,6 +269,7 @@ describe('QueueHud', () => {
     await user.click(retryButton);
 
     await waitFor(() => {
+      expect(mockRepairUnclaimableQueued).toHaveBeenCalledWith('embeddings', 20);
       expect(mockRequeueFailed).toHaveBeenCalledWith('embeddings', 20);
     });
   });

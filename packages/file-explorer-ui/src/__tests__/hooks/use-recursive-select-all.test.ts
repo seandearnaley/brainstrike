@@ -151,6 +151,48 @@ describe('useRecursiveSelectAll', () => {
     expect(onTreeUpdate).toHaveBeenCalledWith(currentTree);
   });
 
+  it('passes large explicit select-all results through the optimized chunked action', async () => {
+    const currentTree = Array.from({ length: 120 }, (_, index) =>
+      createFileNode({
+        name: `file-${index}.ts`,
+        path: `/file-${index}.ts`,
+        type: 'file',
+      })
+    );
+    const addMultipleSelectedFilesChunked = vi.fn(async () => ({
+      addedCount: 120,
+      cancelled: false,
+      limitReached: false,
+    }));
+
+    const { result } = renderHook(() =>
+      useRecursiveSelectAll({
+        fileSystemAdapter: createMockAdapter({}),
+        getCurrentTree: () => currentTree,
+        onTreeUpdate,
+      })
+    );
+
+    await act(async () =>
+      result.current.selectAllRecursively(
+        currentTree,
+        'folder-1',
+        addMultipleSelectedFiles,
+        120,
+        addMultipleSelectedFilesChunked
+      )
+    );
+
+    expect(addMultipleSelectedFiles).not.toHaveBeenCalled();
+    expect(addMultipleSelectedFilesChunked).toHaveBeenCalledTimes(1);
+    const chunkedCalls = addMultipleSelectedFilesChunked.mock.calls as unknown as [
+      string,
+      string[],
+      { signal?: AbortSignal },
+    ][];
+    expect(chunkedCalls[0]?.[1]).toHaveLength(120);
+  });
+
   it('respects visibility and maxSelectionCount in the canonical query path', async () => {
     const currentTree: IFileNode[] = [
       createFileNode({ name: 'a.ts', path: '/a.ts', type: 'file', isVisible: true }),

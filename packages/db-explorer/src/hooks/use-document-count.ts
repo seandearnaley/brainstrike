@@ -1,5 +1,4 @@
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useMemo, useRef } from 'react';
 
@@ -29,16 +28,14 @@ export const documentCountLogger = logger;
  * ```
  */
 const INDEXED_CHUNK_COUNT_QUERY = `
-  SELECT COUNT(*)::int AS count
-    FROM file_chunks
+  SELECT embedded_chunk_count::int AS count
+    FROM collection_indexing_stats
    WHERE embedding_set_id = $1
-     AND embedding IS NOT NULL
+     AND dirty = FALSE
 `.trim();
 
 export function useIndexedChunkCount(activeCollectionId: string | null): number | undefined {
-  const isImporting = useVectorStatusUIStore((s) => s.isImporting);
-  const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
-  const liveQueryEnabled = Boolean(activeCollectionId) && !isImporting && !isEmbeddingActive;
+  const liveQueryEnabled = Boolean(activeCollectionId);
   const params = useMemo<readonly [string] | undefined>(
     () => (activeCollectionId ? ([activeCollectionId] as const) : undefined),
     [activeCollectionId]
@@ -61,7 +58,7 @@ export function useIndexedChunkCount(activeCollectionId: string | null): number 
     }
     const row = rows[0];
     if (!row) {
-      return 0;
+      return;
     }
     return Number.isFinite(row.count) ? row.count : 0;
   }, [activeCollectionId, error, liveQueryEnabled, rows]);

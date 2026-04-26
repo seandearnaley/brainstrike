@@ -1,4 +1,30 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
+
+function installUtilityProcessParentPort(): void {
+  Object.defineProperty(process, 'parentPort', {
+    configurable: true,
+    value: {
+      on: vi.fn(),
+      postMessage: vi.fn(),
+    },
+    writable: true,
+  });
+}
+
+function restoreParentPort(): void {
+  if (originalParentPortDescriptor) {
+    Object.defineProperty(process, 'parentPort', originalParentPortDescriptor);
+    return;
+  }
+
+  Object.defineProperty(process, 'parentPort', {
+    configurable: true,
+    value: undefined,
+    writable: true,
+  });
+}
 
 const fsMocks = vi.hoisted(() => ({
   closeSync: vi.fn(),
@@ -35,6 +61,7 @@ vi.mock('electron', () => ({
 describe('db-main coverage helpers', () => {
   beforeEach(() => {
     vi.resetModules();
+    installUtilityProcessParentPort();
     fsMocks.existsSync.mockReturnValue(true);
     fsMocks.mkdirSync.mockReset();
     fsMocks.rmSync.mockReset();
@@ -55,6 +82,7 @@ describe('db-main coverage helpers', () => {
 
   afterEach(() => {
     vi.resetModules();
+    restoreParentPort();
   });
 
   it('fails fast when pgvector extension cannot be loaded', async () => {

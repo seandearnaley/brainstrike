@@ -12,6 +12,8 @@ export {
 } from '@brainstrike/text-splitter';
 // Configuration
 export { CHUNKING_CONFIG } from './config/chunking-config.js';
+export * from './database-pressure-controller.js';
+export * from './database-work-scheduler.js';
 export * from './db-provider.js';
 // Drizzle ORM utilities and database wrapper
 export {
@@ -53,6 +55,7 @@ export type {
   ImportProgress,
   ManagedCacheEntryMetadata,
 } from './models/file-record.js';
+export { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
 export type {
   CancelParams,
   ClaimParams,
@@ -85,6 +88,12 @@ export { viewFilterPresets } from './schema/index.js';
 export * from './search/index.js';
 export type { ChunkingOptions, ChunkingResult } from './services/chunking-service.js';
 export { ChunkingService } from './services/chunking-service.js';
+export {
+  type CollectionIndexingStats,
+  getCollectionIndexingStats,
+  markCollectionIndexingStatsDirty,
+  refreshCollectionIndexingStats,
+} from './services/collection-indexing-stats.js';
 export * from './use-drizzle-live-query.js';
 export * from './use-live-query.js';
 export * from './wasm-loader.js';

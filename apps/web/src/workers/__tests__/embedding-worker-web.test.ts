@@ -1,3 +1,4 @@
+import { createDatabaseWorkScheduler, createScheduledDbHandle } from '@brainstrike/db';
 import type { Mock } from 'vitest';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -10,7 +11,11 @@ describe('startEmbeddingWorkerWeb', () => {
     const { startEmbeddingWorker } = await import('@brainstrike/embeddings/worker');
     const { startEmbeddingWorkerWeb } = await import('../embedding-worker-web');
 
-    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const db = createScheduledDbHandle(
+      { query: vi.fn(async () => ({ rows: [] })) },
+      createDatabaseWorkScheduler({ foregroundQuietMs: 0 }),
+      'background'
+    );
     const controller = await startEmbeddingWorkerWeb(db);
     expect(controller).toBeTruthy();
     expect(startEmbeddingWorker).toHaveBeenCalled();
@@ -18,5 +23,6 @@ describe('startEmbeddingWorkerWeb', () => {
     expect(args.enable).toBe(true);
     expect(args.db).toBe(db);
     expect(args.streamingWorkerUrl).toEqual(expect.any(String));
+    expect(args.waitForBackgroundPermit).toEqual(expect.any(Function));
   });
 });

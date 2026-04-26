@@ -112,6 +112,20 @@ const mockChunkLiveQueryResult = {
   refresh: vi.fn().mockResolvedValue(undefined),
 };
 
+const mockCollectionCountLiveQueryResult = {
+  rows: [
+    {
+      embeddingSetId: TEST_COLLECTION_ID,
+      recordsCount: 1,
+      chunksCount: 1,
+      embeddingsCount: 1,
+    },
+  ] as unknown[],
+  loading: false,
+  error: null,
+  refresh: vi.fn().mockResolvedValue(undefined),
+};
+
 const mockDatabase = {
   query: vi.fn().mockResolvedValue({ rows: [{ location: 'PGlite WASM' }] }),
 };
@@ -139,6 +153,9 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     migrations: [],
     usePGliteLiveQuery: (options: { query: string }) => {
       // Return stable object references based on query type
+      if (options.query.includes('FROM collection_indexing_stats')) {
+        return mockCollectionCountLiveQueryResult;
+      }
       if (options.query.includes('FROM file_records')) {
         return mockRecordLiveQueryResult;
       }
@@ -225,7 +242,6 @@ vi.mock('@brainstrike/vector-management', async (importOriginal) => {
       hasDb: true,
     }),
     EmbeddingActionsDropdown: () => <div data-testid="mock-embedding-actions-dropdown" />,
-    EmbeddingStatusBar: () => <div data-testid="mock-embedding-status-bar" />,
   };
 });
 
@@ -441,6 +457,16 @@ describe('DatabaseDemoPanel', () => {
       await waitFor(() => {
         expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
       });
+    });
+
+    it('does not render a panel-local embedding status bar', async () => {
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId('mock-embedding-status-bar')).not.toBeInTheDocument();
     });
 
     it('renders the collection browser view', async () => {

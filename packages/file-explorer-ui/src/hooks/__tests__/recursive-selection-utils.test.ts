@@ -67,6 +67,28 @@ describe('recursive-selection-utils', () => {
     expect(addMultipleSelectedFiles.mock.calls.flatMap((call) => call[1])).toEqual(filePaths);
   });
 
+  it('applies large explicit selections through the optimized chunked store action when available', async () => {
+    const addMultipleSelectedFiles = vi.fn();
+    const addMultipleSelectedFilesChunked = vi.fn(async () => ({
+      addedCount: 120,
+      cancelled: false,
+      limitReached: false,
+    }));
+    const signal = new AbortController().signal;
+    const filePaths = Array.from({ length: 120 }, (_, index) => `/file-${index}.ts`);
+
+    await applyExplicitSelection(filePaths, 'root', addMultipleSelectedFiles, {
+      addMultipleSelectedFilesChunked,
+      signal,
+    });
+
+    expect(addMultipleSelectedFiles).not.toHaveBeenCalled();
+    expect(addMultipleSelectedFilesChunked).toHaveBeenCalledTimes(1);
+    expect(addMultipleSelectedFilesChunked).toHaveBeenCalledWith('root', filePaths, {
+      signal,
+    });
+  });
+
   it('collects ancestor directories in sorted order', () => {
     expect(
       collectAncestorDirectories([

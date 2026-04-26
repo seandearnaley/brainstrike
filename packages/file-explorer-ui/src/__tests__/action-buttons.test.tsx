@@ -151,7 +151,8 @@ describe('ActionButtons', () => {
         createFullyLoadedTree(),
         TEST_FOLDER_ID,
         expect.any(Function),
-        DEFAULT_MAX_SELECTION
+        DEFAULT_MAX_SELECTION,
+        undefined
       );
       expect(props.setSelectedFiles).not.toHaveBeenCalled();
     });

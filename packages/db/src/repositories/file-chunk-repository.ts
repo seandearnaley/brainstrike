@@ -660,19 +660,79 @@ export class FileChunkRepository {
       throw new Error('embeddingSetId is required');
     }
 
-    const result = await this.db.query<{ id: string }>(
-      `UPDATE file_chunks
-       SET embedding = NULL,
-           embedding_updated_at = NULL,
-           embedding_hash = NULL,
-           updated_at = NOW()
-       WHERE embedding_set_id = $1
-         AND embedding IS NOT NULL
-       RETURNING id`,
+    const result = await this.db.query<{ clearedCount: number | string }>(
+      `WITH requested AS (
+         SELECT $1::text AS embedding_set_id
+       ),
+       cleared AS (
+         UPDATE file_chunks
+            SET embedding = NULL,
+                embedding_updated_at = NULL,
+                embedding_hash = NULL,
+                updated_at = NOW()
+           FROM requested
+          WHERE file_chunks.embedding_set_id::text = requested.embedding_set_id
+            AND file_chunks.embedding IS NOT NULL
+          RETURNING file_chunks.id
+       ),
+       aggregated_files AS (
+         SELECT
+           fr.embedding_set_id::text AS embedding_set_id,
+           COUNT(*)::int AS file_count
+         FROM file_records fr
+         JOIN requested r ON r.embedding_set_id = fr.embedding_set_id::text
+         GROUP BY fr.embedding_set_id::text
+       ),
+       aggregated_chunks AS (
+         SELECT
+           c.embedding_set_id::text AS embedding_set_id,
+           COUNT(*)::int AS chunk_count,
+           COUNT(*) FILTER (WHERE c.embedding IS NOT NULL AND cleared.id IS NULL)::int AS embedded_chunk_count,
+           COUNT(*) FILTER (WHERE c.embedding IS NULL OR cleared.id IS NOT NULL)::int AS pending_chunk_count
+         FROM file_chunks c
+         JOIN requested r ON r.embedding_set_id = c.embedding_set_id::text
+         LEFT JOIN cleared ON cleared.id = c.id
+         GROUP BY c.embedding_set_id::text
+       ),
+       refreshed AS (
+         INSERT INTO collection_indexing_stats (
+           embedding_set_id,
+           file_count,
+           chunk_count,
+           embedded_chunk_count,
+           pending_chunk_count,
+           dirty,
+           last_refreshed_at
+         )
+         SELECT
+           s.id,
+           COALESCE(af.file_count, 0) AS file_count,
+           COALESCE(ac.chunk_count, 0) AS chunk_count,
+           COALESCE(ac.embedded_chunk_count, 0) AS embedded_chunk_count,
+           COALESCE(ac.pending_chunk_count, 0) AS pending_chunk_count,
+           FALSE,
+           NOW()
+         FROM embedding_sets s
+         JOIN requested r ON r.embedding_set_id = s.id::text
+         LEFT JOIN aggregated_files af ON af.embedding_set_id = s.id::text
+         LEFT JOIN aggregated_chunks ac ON ac.embedding_set_id = s.id::text
+         ON CONFLICT (embedding_set_id) DO UPDATE SET
+           file_count = EXCLUDED.file_count,
+           chunk_count = EXCLUDED.chunk_count,
+           embedded_chunk_count = EXCLUDED.embedded_chunk_count,
+           pending_chunk_count = EXCLUDED.pending_chunk_count,
+           dirty = FALSE,
+           last_refreshed_at = EXCLUDED.last_refreshed_at
+         RETURNING embedding_set_id
+       )
+       SELECT
+         COUNT(*)::int AS "clearedCount",
+         (SELECT COUNT(*)::int FROM refreshed) AS "refreshedCount"
+       FROM cleared`,
       [embeddingSetId]
     );
 
-    return result.rows.length;
+    return Number(result.rows[0]?.clearedCount ?? 0);
   }
 
   async clearAll(): Promise<number> {

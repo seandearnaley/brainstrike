@@ -761,6 +761,7 @@ export class LocalRuntimeModelCatalogService {
   private readonly now: () => number;
   private readonly logger: LocalRuntimeLogger;
   private readonly cache = new Map<LocalRuntimeId, RuntimeModelCacheEntry>();
+  private readonly inFlightLists = new Map<string, Promise<LocalRuntimeModelCatalogState>>();
   // Per-model cache of resolved Ollama capabilities, keyed by
   // `${baseUrl}::${modelId}`. A short TTL keeps answers fresh when users
   // pull new model revisions locally. Bounded at
@@ -801,9 +802,15 @@ export class LocalRuntimeModelCatalogService {
   public clearCache(runtime?: LocalRuntimeId): void {
     if (runtime) {
       this.cache.delete(runtime);
+      for (const key of this.inFlightLists.keys()) {
+        if (key.startsWith(`${runtime}\u0000`)) {
+          this.inFlightLists.delete(key);
+        }
+      }
       return;
     }
     this.cache.clear();
+    this.inFlightLists.clear();
     this.ollamaCapabilitiesCache.clear();
   }
 
@@ -982,6 +989,62 @@ export class LocalRuntimeModelCatalogService {
       return cached.status;
     }
 
+    const inFlightKey = this.getInFlightListKey(runtime, effectiveBaseUrl, options);
+    if (inFlightKey) {
+      const inFlight = this.inFlightLists.get(inFlightKey);
+      if (inFlight) {
+        return inFlight;
+      }
+    }
+
+    const listPromise = this.listRuntimeModelsUnshared(runtime, options, {
+      cached,
+      effectiveBaseUrl,
+      now,
+    });
+
+    if (!inFlightKey) {
+      return listPromise;
+    }
+
+    this.inFlightLists.set(inFlightKey, listPromise);
+    try {
+      return await listPromise;
+    } finally {
+      if (this.inFlightLists.get(inFlightKey) === listPromise) {
+        this.inFlightLists.delete(inFlightKey);
+      }
+    }
+  }
+
+  private getInFlightListKey(
+    runtime: LocalRuntimeId,
+    effectiveBaseUrl: string,
+    options: ListLocalRuntimeModelsOptions
+  ): string | null {
+    if (options.signal || options.endpoint?.apiToken) {
+      return null;
+    }
+
+    const surface = options.surface ?? 'default';
+    const force = options.force ? 'force' : 'cache';
+    const verify = options.verifyEmbeddingDimensions ? 'verify' : 'no-verify';
+    const maxVerificationModels = options.maxVerificationModels ?? 'default';
+    return [runtime, effectiveBaseUrl, surface, force, verify, String(maxVerificationModels)].join(
+      '\u0000'
+    );
+  }
+
+  private async listRuntimeModelsUnshared(
+    runtime: LocalRuntimeId,
+    options: ListLocalRuntimeModelsOptions,
+    context: {
+      readonly cached: RuntimeModelCacheEntry | undefined;
+      readonly effectiveBaseUrl: string;
+      readonly now: number;
+    }
+  ): Promise<LocalRuntimeModelCatalogState> {
+    const { cached, effectiveBaseUrl, now } = context;
     const probeOptions: ProbeLocalRuntimeOptions = {
       ...(options.force ? { force: true } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
@@ -1239,26 +1302,21 @@ export class LocalRuntimeModelCatalogService {
       lastSuccess: cached?.lastSuccess ?? null,
     });
 
-    // Surface catalog failures so "empty model dropdown while runtime is
-    // reachable" is diagnosable without DevTools. Demote to debug when the
-    // stale cache is still serving last-known models so repeated refreshes
-    // don't spam warnings after a transient outage.
-    if (nextStatus.state === 'stale_cached') {
-      this.logger.debug('local runtime model catalog stale', {
-        runtime,
-        state: nextStatus.state,
-        message: failureMessage,
-        availability: availability.state,
-        consecutiveFailures: nextFailures,
-      });
+    // Surface the first catalog failure so "empty model dropdown while runtime
+    // is reachable" is diagnosable without DevTools. Demote stale-cache and
+    // repeated failures because unavailable local runtimes are normal when the
+    // user does not run Ollama or LM Studio.
+    const catalogFailurePayload = {
+      runtime,
+      state: nextStatus.state,
+      message: failureMessage,
+      availability: availability.state,
+      consecutiveFailures: nextFailures,
+    };
+    if (nextStatus.state === 'stale_cached' || nextFailures > 1) {
+      this.logger.debug('local runtime model catalog failed', catalogFailurePayload);
     } else {
-      this.logger.warn('local runtime model catalog failed', {
-        runtime,
-        state: nextStatus.state,
-        message: failureMessage,
-        availability: availability.state,
-        consecutiveFailures: nextFailures,
-      });
+      this.logger.warn('local runtime model catalog failed', catalogFailurePayload);
     }
 
     return nextStatus;

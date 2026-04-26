@@ -66,13 +66,17 @@ export interface VectorQueueDatabase {
 export interface VectorQueueServiceDependencies {
   chunkRepository: Pick<FileChunkRepository, 'getCoverageForSet' | 'clearEmbeddingsForSet'>;
   db: VectorQueueDatabase;
-  jobQueue: Pick<JobQueue, 'clear' | 'enqueueBatch' | 'getQueueStats' | 'requeueFailed'>;
+  jobQueue: Pick<
+    JobQueue,
+    'clear' | 'enqueueBatch' | 'getQueueStats' | 'repairUnclaimableQueued' | 'requeueFailed'
+  >;
 }
 
 export type BackfillProgressHandler = (done: number, total: number) => void;
 
 export interface BackfillOptions {
   onProgress: BackfillProgressHandler;
+  queueCapacityTimeoutMs?: number;
   signal?: AbortSignal;
 }
 
@@ -89,6 +93,7 @@ const BACKFILL_MAX_QUEUE_DEPTH = 64;
 const BACKFILL_BACKLOG_POLL_MS = 100;
 const BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS = 30_000;
 const BACKFILL_DRAIN_TIMEOUT_MS = 300_000;
+const BACKFILL_QUEUE_RECOVERY_LIMIT = 5000;
 
 function createAbortError(message: string): Error {
   const error = new Error(message);
@@ -385,9 +390,16 @@ export function createVectorQueueService(
 
     async backfill(activeSetId, options) {
       const { onProgress, signal } = options;
+      const queueCapacityTimeoutMs =
+        options.queueCapacityTimeoutMs ?? BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS;
+      if (!Number.isInteger(queueCapacityTimeoutMs) || queueCapacityTimeoutMs <= 0) {
+        throw new Error('queueCapacityTimeoutMs must be a positive integer when configured.');
+      }
       logger.info('Backfill requested', { embeddingSetId: activeSetId });
       throwIfAborted(signal);
       const setMetadata = await resolveEmbeddingSetJobMetadata(db, activeSetId);
+      throwIfAborted(signal);
+      await recoverBackfillQueueState(jobQueue, activeSetId);
       throwIfAborted(signal);
       const total = await countBackfillCandidates(db, activeSetId);
       logger.info('Embedding set metadata resolved for backfill', {
@@ -396,6 +408,14 @@ export function createVectorQueueService(
         expectedDimension: setMetadata.expectedDimension,
         candidates: total,
       });
+      if (total === 0) {
+        const diagnostics = await loadBackfillCandidateDiagnostics(db, activeSetId);
+        logger.warn('Backfill found no eligible chunks', {
+          embeddingSetId: activeSetId,
+          diagnostics,
+        });
+      }
+      const failedBeforeBackfill = (await getEmbeddingSetQueueCounts(db, activeSetId)).failed;
 
       let done = 0;
       let cursor: string | null = null;
@@ -407,7 +427,7 @@ export function createVectorQueueService(
           jobQueue,
           BACKFILL_MAX_QUEUE_DEPTH,
           BACKFILL_BACKLOG_POLL_MS,
-          BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
+          queueCapacityTimeoutMs,
           signal
         );
         const batchLimit = Math.min(BACKFILL_ENQUEUE_BATCH_SIZE, total - done, availableCapacity);
@@ -445,9 +465,10 @@ export function createVectorQueueService(
         BACKFILL_DRAIN_TIMEOUT_MS,
         signal
       );
-      if (drainedCounts.failed > 0) {
+      const failedDuringBackfill = Math.max(0, drainedCounts.failed - failedBeforeBackfill);
+      if (failedDuringBackfill > 0) {
         throw new Error(
-          `Backfill failed for embedding set '${activeSetId}': ${drainedCounts.failed} job(s) failed.`
+          `Backfill failed for embedding set '${activeSetId}': ${failedDuringBackfill} job(s) failed.`
         );
       }
       logger.info('Backfill complete', {
@@ -460,7 +481,15 @@ export function createVectorQueueService(
     },
 
     async retryFailed(limit) {
-      await jobQueue.requeueFailed(EMBEDDINGS_QUEUE, limit);
+      const repairedQueued = await jobQueue.repairUnclaimableQueued(EMBEDDINGS_QUEUE, limit);
+      const requeuedFailed = await jobQueue.requeueFailed(EMBEDDINGS_QUEUE, limit);
+      if (repairedQueued > 0 || requeuedFailed > 0) {
+        logger.warn('Retry recovered embedding queue jobs', {
+          repairedQueued,
+          requeuedFailed,
+          limit,
+        });
+      }
     },
 
     async clearQueue(states) {
@@ -503,6 +532,15 @@ interface BackfillBatchResult {
   selected: number;
 }
 
+interface BackfillCandidateDiagnostics {
+  chunkCount: number;
+  embeddedChunkCount: number;
+  failedJobs: number;
+  fileCount: number;
+  pendingChunkCount: number;
+  queuedOrRunningJobs: number;
+}
+
 async function countBackfillCandidates(
   db: VectorQueueDatabase,
   embeddingSetId: string
@@ -526,6 +564,105 @@ async function countBackfillCandidates(
     [embeddingSetId, EMBEDDINGS_QUEUE]
   );
   return Number(result.rows[0]?.count ?? 0);
+}
+
+async function loadBackfillCandidateDiagnostics(
+  db: VectorQueueDatabase,
+  embeddingSetId: string
+): Promise<BackfillCandidateDiagnostics> {
+  const result = await db.query<{
+    chunkCount: number | string | null;
+    embeddedChunkCount: number | string | null;
+    failedJobs: number | string | null;
+    fileCount: number | string | null;
+    pendingChunkCount: number | string | null;
+    queuedOrRunningJobs: number | string | null;
+  }>(
+    `WITH backfill_candidate_diagnostics AS (
+       SELECT $1::text AS embedding_set_id
+     ),
+     scoped_chunks AS (
+       SELECT c.id, c.embedding
+         FROM file_chunks c
+         JOIN file_records fr ON fr.id = c.file_record_id
+         JOIN backfill_candidate_diagnostics target ON (
+              c.embedding_set_id::text = target.embedding_set_id
+              OR (c.embedding_set_id IS NULL AND fr.embedding_set_id::text = target.embedding_set_id)
+            )
+     )
+     SELECT
+       (
+         SELECT COUNT(*)::int
+           FROM file_records fr
+           JOIN backfill_candidate_diagnostics target
+             ON fr.embedding_set_id::text = target.embedding_set_id
+       ) AS "fileCount",
+       (SELECT COUNT(*)::int FROM scoped_chunks) AS "chunkCount",
+       (
+         SELECT COUNT(*)::int
+           FROM scoped_chunks
+          WHERE embedding IS NULL
+       ) AS "pendingChunkCount",
+       (
+         SELECT COUNT(*)::int
+           FROM scoped_chunks
+          WHERE embedding IS NOT NULL
+       ) AS "embeddedChunkCount",
+       (
+         SELECT COUNT(*)::int
+           FROM job_queue j
+           JOIN backfill_candidate_diagnostics target
+             ON j.payload->>'embeddingSetId' = target.embedding_set_id
+          WHERE j.queue = $2
+            AND j.state IN ('queued','running')
+       ) AS "queuedOrRunningJobs",
+       (
+         SELECT COUNT(*)::int
+           FROM job_queue j
+           JOIN backfill_candidate_diagnostics target
+             ON j.payload->>'embeddingSetId' = target.embedding_set_id
+          WHERE j.queue = $2
+            AND j.state = 'failed'
+       ) AS "failedJobs"`,
+    [embeddingSetId, EMBEDDINGS_QUEUE]
+  );
+  const row = result.rows[0];
+  return {
+    fileCount: Number(row?.fileCount ?? 0),
+    chunkCount: Number(row?.chunkCount ?? 0),
+    pendingChunkCount: Number(row?.pendingChunkCount ?? 0),
+    embeddedChunkCount: Number(row?.embeddedChunkCount ?? 0),
+    queuedOrRunningJobs: Number(row?.queuedOrRunningJobs ?? 0),
+    failedJobs: Number(row?.failedJobs ?? 0),
+  };
+}
+
+async function recoverBackfillQueueState(
+  jobQueue: Pick<JobQueue, 'repairUnclaimableQueued' | 'requeueFailed'>,
+  embeddingSetId: string
+): Promise<void> {
+  const repairedQueued =
+    (await jobQueue.repairUnclaimableQueued(EMBEDDINGS_QUEUE, BACKFILL_QUEUE_RECOVERY_LIMIT, {
+      embeddingSetId,
+    })) ?? 0;
+  const requeuedFailed =
+    (await jobQueue.requeueFailed(EMBEDDINGS_QUEUE, BACKFILL_QUEUE_RECOVERY_LIMIT, {
+      embeddingSetId,
+    })) ?? 0;
+
+  if (repairedQueued === 0 && requeuedFailed === 0) {
+    return;
+  }
+
+  logger.warn('Backfill recovered blocked embedding jobs', {
+    embeddingSetId,
+    repairedQueued,
+    requeuedFailed,
+    recoveryLimit: BACKFILL_QUEUE_RECOVERY_LIMIT,
+    mayHaveRemainingBlockedJobs:
+      repairedQueued >= BACKFILL_QUEUE_RECOVERY_LIMIT ||
+      requeuedFailed >= BACKFILL_QUEUE_RECOVERY_LIMIT,
+  });
 }
 
 async function loadBackfillCandidateBatch(

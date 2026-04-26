@@ -524,6 +524,56 @@ describe('FileChunkRepository', () => {
     });
   });
 
+  describe('clearEmbeddingsForSet', () => {
+    it('does not clear embeddings when the stats refresh statement fails', async () => {
+      const now = new Date().toISOString();
+      await db.query(
+        `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        ['set-1', 'local::model-a', 'model-a', 768, 'cosine', now]
+      );
+      await fileRepository.update('file1', {
+        embeddingSetId: 'set-1',
+        updatedAt: now,
+      });
+      await repository.insert({
+        id: 'clear-failure-chunk',
+        fileRecordId: 'file1',
+        chunkIndex: 0,
+        content: 'Embedded chunk',
+        contentHash: 'clear-failure-hash',
+        tokenCount: 4,
+        chunkType: 'text',
+        chunkSize: 120,
+        embedding: makeVector(768, [[0, 0.1]]),
+        embeddingSetId: 'set-1',
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const failingStatsDb = {
+        exec: db.exec.bind(db),
+        query: async <TRow = unknown>(
+          sql: string,
+          params?: unknown[]
+        ): Promise<{ rows: TRow[] }> => {
+          if (sql.includes('collection_indexing_stats')) {
+            throw new Error('simulated stats refresh failure');
+          }
+          return await db.query<TRow>(sql, params);
+        },
+      };
+      const failingRepository = new FileChunkRepository(failingStatsDb as PGlite);
+
+      await expect(failingRepository.clearEmbeddingsForSet('set-1')).rejects.toThrow(
+        'simulated stats refresh failure'
+      );
+
+      const chunk = await repository.findById('clear-failure-chunk');
+      expect(chunk?.embedding).toEqual(makeVector(768, [[0, 0.1]]));
+    });
+  });
+
   describe('embedding parsing', () => {
     it('should handle null embedding', async () => {
       const chunk: FileChunkInsert = {

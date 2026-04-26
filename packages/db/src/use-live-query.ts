@@ -6,6 +6,9 @@ import type {
 } from '@electric-sql/pglite/live';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePGliteDatabase } from './db-provider.js';
+import { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
+
+export { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
 
 interface BaseLiveQueryOptions {
   /**
@@ -258,7 +261,11 @@ async function subscribeViaPGlite<T>(
     if (!options.key) {
       throw new Error('Live incremental queries require a key column');
     }
-    handle = await live.incrementalQuery(options.query, params ?? undefined, options.key);
+    handle = await live.incrementalQuery(
+      escapePGliteLiveQueryFormatPercents(options.query, params),
+      params ?? undefined,
+      options.key
+    );
   } else {
     const queryOptions: {
       query: string;
@@ -266,7 +273,7 @@ async function subscribeViaPGlite<T>(
       offset?: number;
       limit?: number;
     } = {
-      query: options.query,
+      query: escapePGliteLiveQueryFormatPercents(options.query, params),
       params,
     };
     if (options.offset !== undefined) {
@@ -302,7 +309,7 @@ async function subscribeViaElectron<T>(
 ): Promise<LiveSubscription<T>> {
   const startPayload: ElectronLiveQueryStartOptions = {
     mode: options.mode,
-    query: options.query,
+    query: escapePGliteLiveQueryFormatPercents(options.query, options.params),
     params: options.params ?? null,
   };
   if (options.key) {

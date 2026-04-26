@@ -61,8 +61,16 @@ describe('LogViewer', () => {
 
   it('renders logs from source', async () => {
     const logs = [
-      createMockLogRecord({ message: 'First log', timestamp: 1000 }),
-      createMockLogRecord({ message: 'Second log', timestamp: 2000 }),
+      createMockLogRecord({
+        bindings: { runtime: 'electron-renderer' },
+        message: 'First log',
+        timestamp: 1000,
+      }),
+      createMockLogRecord({
+        bindings: { runtime: 'electron-main' },
+        message: 'Second log',
+        timestamp: 2000,
+      }),
     ];
     const logSource = {
       getInitialRecords: async () => logs,
@@ -74,7 +82,85 @@ describe('LogViewer', () => {
     await waitFor(() => {
       expect(screen.getByText('First log')).toBeInTheDocument();
       expect(screen.getByText('Second log')).toBeInTheDocument();
+      expect(
+        screen.getByText(/Sources: electron-main 1 .* electron-renderer 1/)
+      ).toBeInTheDocument();
     });
+  });
+
+  it('uses explicit log source metadata for forwarded utility process logs', async () => {
+    const logs = [
+      createMockLogRecord({
+        args: ['DB host process started', { logSource: 'db-host', runtime: 'db-host' }],
+        bindings: { runtime: 'electron-main' },
+        message: 'DB host process started',
+        timestamp: 1000,
+      }),
+    ];
+    const logSource = {
+      getInitialRecords: async () => logs,
+      subscribe: () => () => {},
+    };
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('DB host process started')).toBeInTheDocument();
+      expect(screen.getByText('Sources: db-host 1')).toBeInTheDocument();
+    });
+  });
+
+  it('exports a diagnostic bundle with runtime source coverage', async () => {
+    const logs = [
+      createMockLogRecord({
+        bindings: { runtime: 'electron-renderer' },
+        message: 'Renderer log',
+        timestamp: 1000,
+      }),
+      createMockLogRecord({
+        bindings: { runtime: 'electron-main' },
+        message: 'Main log',
+        timestamp: 2000,
+      }),
+    ];
+    const logSource = {
+      getInitialRecords: async () => logs,
+      subscribe: () => () => {},
+    };
+    let exportedBlob: Blob | null = null;
+    const createObjectUrlSpy = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockImplementation((blob: Blob | MediaSource) => {
+        exportedBlob = blob as Blob;
+        return 'blob:logs';
+      });
+    const revokeObjectUrlSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const anchorClickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => {});
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+    await waitFor(() => expect(screen.getByText('Renderer log')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Export Logs' }));
+
+    expect(exportedBlob).not.toBeNull();
+    const exportedText = await exportedBlob!.text();
+    const exportedPayload = JSON.parse(exportedText) as {
+      recordCount: number;
+      records: readonly unknown[];
+      sourceCoverage: Record<string, number>;
+    };
+    expect(exportedPayload.recordCount).toBe(2);
+    expect(exportedPayload.sourceCoverage).toEqual({
+      'electron-main': 1,
+      'electron-renderer': 1,
+    });
+    expect(exportedPayload.records).toHaveLength(2);
+
+    createObjectUrlSpy.mockRestore();
+    revokeObjectUrlSpy.mockRestore();
+    anchorClickSpy.mockRestore();
   });
 
   it('filters logs by search term', async () => {

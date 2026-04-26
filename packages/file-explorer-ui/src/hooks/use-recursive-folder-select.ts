@@ -24,6 +24,7 @@ import {
   selectUseRegex,
 } from '../utils/workspace-filter-selectors';
 import {
+  type AddMultipleSelectedFilesChunked,
   applyExplicitSelection,
   buildQuerySelectionDescriptor,
   collectAncestorDirectories,
@@ -43,6 +44,43 @@ function handleSelectionError(err: unknown, onError?: (error: Error) => void): S
     filePaths: [],
     cancelled: isCancelled,
     ...(isCancelled ? {} : { error: err instanceof Error ? err.message : String(err) }),
+  };
+}
+
+function validateRecursiveFolderSelectionInput(args: {
+  currentSelectionSize: number;
+  fileSystemAdapter: FileSystemAdapter | null | undefined;
+  isStarting: boolean;
+  maxSelectionCount: number;
+  node: IFileNode;
+}):
+  | { availableSlots: number; fileSystemAdapter: FileSystemAdapter; result: null }
+  | {
+      result: SelectionResult;
+    } {
+  if (args.node.type !== 'directory') {
+    return { result: { success: false, filePaths: [], error: 'Node is not a directory' } };
+  }
+
+  const availableSlots = Math.max(0, args.maxSelectionCount - args.currentSelectionSize);
+  if (availableSlots === 0) {
+    return { result: { success: true, filePaths: [] } };
+  }
+
+  if (!args.fileSystemAdapter) {
+    return {
+      result: { success: false, filePaths: [], error: 'File system adapter not ready' },
+    };
+  }
+
+  if (args.isStarting) {
+    return { result: { success: false, filePaths: [], error: 'Operation already in progress' } };
+  }
+
+  return {
+    availableSlots,
+    fileSystemAdapter: args.fileSystemAdapter,
+    result: null,
   };
 }
 
@@ -79,7 +117,8 @@ export interface UseRecursiveFolderSelectReturn {
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
     maxSelectionCount: number,
     currentSelectionSize: number,
-    currentDirectorySelectionSize?: number
+    currentDirectorySelectionSize?: number,
+    addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
   ) => Promise<SelectionResult>;
 }
 
@@ -146,21 +185,20 @@ export function useRecursiveFolderSelect(
       addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
       maxSelectionCount: number,
       currentSelectionSize: number,
-      currentDirectorySelectionSize = 0
+      currentDirectorySelectionSize = 0,
+      addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
     ): Promise<SelectionResult> => {
-      if (node.type !== 'directory') {
-        return { success: false, filePaths: [], error: 'Node is not a directory' };
+      const validation = validateRecursiveFolderSelectionInput({
+        currentSelectionSize,
+        fileSystemAdapter,
+        isStarting: isStartingRef.current,
+        maxSelectionCount,
+        node,
+      });
+      if (validation.result) {
+        return validation.result;
       }
-      const availableSlots = Math.max(0, maxSelectionCount - currentSelectionSize);
-      if (availableSlots === 0) {
-        return { success: true, filePaths: [] };
-      }
-      if (!fileSystemAdapter) {
-        return { success: false, filePaths: [], error: 'File system adapter not ready' };
-      }
-      if (isStartingRef.current) {
-        return { success: false, filePaths: [], error: 'Operation already in progress' };
-      }
+      const availableSlots = validation.availableSlots;
 
       isStartingRef.current = true;
       isLoadingForSelectionRef.current = true;
@@ -176,7 +214,7 @@ export function useRecursiveFolderSelect(
       try {
         const result = await querySelectableFiles({
           roots: [currentNode],
-          fileSystemAdapter,
+          fileSystemAdapter: validation.fileSystemAdapter,
           ...(internalFilterTreeFn ? { filterTreeFn: internalFilterTreeFn } : {}),
           includeFilters,
           excludeFilters,
@@ -234,7 +272,10 @@ export function useRecursiveFolderSelect(
             new Set(result.filePaths)
           );
         } else {
-          await applyExplicitSelection(result.filePaths, folderId, addMultipleSelectedFiles);
+          await applyExplicitSelection(result.filePaths, folderId, addMultipleSelectedFiles, {
+            ...(addMultipleSelectedFilesChunked ? { addMultipleSelectedFilesChunked } : {}),
+            signal: abortController.signal,
+          });
         }
 
         if (hasPersistApi(store)) {

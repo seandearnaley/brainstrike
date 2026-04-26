@@ -1,4 +1,5 @@
 import {
+  refreshCollectionIndexingStats,
   useClearAllData,
   useDbProviderError,
   useEmbeddingSetsRepository,
@@ -38,7 +39,6 @@ import {
   CreateEmbeddingSetDialog,
   DeleteEmbeddingSetDialog,
   EmbeddingActionsDropdown,
-  EmbeddingStatusBar,
   RenameEmbeddingSetDialog,
   useEmbeddingControls,
 } from '@brainstrike/vector-management';
@@ -223,6 +223,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   });
   const {
     collectionCounts,
+    collectionCountsStatus,
     records,
     chunks,
     refreshing,
@@ -234,6 +235,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     recordPagination,
   } = data;
   const activeCollectionCounts = collectionCounts;
+  const activeCollectionCountsPending = collectionCountsStatus === 'pending';
   const previousCollectionIdRef = useRef<string | null>(activeCollectionId);
 
   useEffect(() => {
@@ -262,8 +264,9 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     fileRepository: repository,
   });
 
-  // Embedding controls state for inline dropdown and status bar
-  const { dropdownProps, statusBarProps } = useEmbeddingControls({
+  // Embedding controls state for the action dropdown. Canonical queue/activity
+  // status is rendered by the shared app-shell status bar.
+  const { dropdownProps } = useEmbeddingControls({
     chunkRepository: dbChunkRepository,
     toast,
   });
@@ -290,11 +293,22 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   );
 
   const handleImportComplete = useCallback(
-    (results: EnhancedImportResult[]) => {
-      const handler = createImportCompletionHandler(toast, loadRecords, loadChunks);
-      handler(results);
+    async (results: EnhancedImportResult[]) => {
+      const handler = createImportCompletionHandler(toast, loadRecords, loadChunks, async () => {
+        if (!dbContext) {
+          throw new Error('Import completion stats refresh requires an initialized database.');
+        }
+        if (!activeCollectionId) {
+          throw new Error('Import completion stats refresh requires an active collection.');
+        }
+        await refreshCollectionIndexingStats(dbContext, [activeCollectionId], {
+          label: 'import completion stats refresh',
+          priority: 'foreground',
+        });
+      });
+      await handler(results);
     },
-    [toast, loadRecords, loadChunks]
+    [activeCollectionId, dbContext, toast, loadRecords, loadChunks]
   );
 
   const importFlow = useImportFlow({
@@ -565,6 +579,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                           clearAllData,
                           recordsCount: activeCollectionCounts.records,
                           chunksCount: activeCollectionCounts.chunks,
+                          countsPending: activeCollectionCountsPending,
                           clearing,
                           showClearDialog,
                           setShowClearDialog,
@@ -607,11 +622,15 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
             {/* Action Footer — collection-contextual actions (Export, Import, Embeddings) */}
             <div
-              className="flex flex-shrink-0 items-center justify-end gap-2 border-t bg-background px-4 py-2"
+              className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2 border-t bg-background px-4 py-2"
               data-testid="database-panel-actions"
             >
               <TooltipProvider delayDuration={200}>
-                <ExportDropdown counts={activeCollectionCounts} exportHandlers={exportHandlers} />
+                <ExportDropdown
+                  counts={activeCollectionCounts}
+                  countsStatus={collectionCountsStatus}
+                  exportHandlers={exportHandlers}
+                />
 
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -647,9 +666,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                 <EmbeddingActionsDropdown {...dropdownProps} className="shrink-0" />
               </TooltipProvider>
             </div>
-
-            {/* Embedding Status Bar */}
-            <EmbeddingStatusBar {...statusBarProps} className="border-t" />
           </div>
         </Panel>
 
@@ -686,6 +702,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       <ClearDatabaseDialog
         chunksCount={activeCollectionCounts.chunks}
         clearing={clearing}
+        countsPending={activeCollectionCountsPending}
         onClear={handleClearDatabase}
         recordsCount={activeCollectionCounts.records}
         setShowClearDialog={setShowClearDialog}

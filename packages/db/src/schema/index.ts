@@ -207,6 +207,20 @@ export const embeddingSets = pgTable('embedding_sets', {
   allowDuplicates: boolean('allow_duplicates').default(false),
 });
 
+export const collectionIndexingStats = pgTable(
+  'collection_indexing_stats',
+  {
+    embeddingSetId: text('embedding_set_id').primaryKey(),
+    fileCount: integer('file_count').default(0).notNull(),
+    chunkCount: integer('chunk_count').default(0).notNull(),
+    embeddedChunkCount: integer('embedded_chunk_count').default(0).notNull(),
+    pendingChunkCount: integer('pending_chunk_count').default(0).notNull(),
+    dirty: boolean('dirty').default(false).notNull(),
+    lastRefreshedAt: timestamp('last_refreshed_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('idx_collection_indexing_stats_dirty').on(table.dirty, table.lastRefreshedAt)]
+);
+
 // ============================================================================
 // JOB QUEUE TABLE
 // ============================================================================

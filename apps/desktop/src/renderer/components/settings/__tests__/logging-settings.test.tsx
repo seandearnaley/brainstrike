@@ -6,10 +6,12 @@ import {
   createDefaultLoggingPreferences,
   type LoggingPreferences,
   LogLevel,
+  type LogRecord,
 } from '@brainstrike/utils';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import type { LoggingSettingsPayload } from '../../../../logging-shared';
+import { getRendererLogBuffer } from '../../../log-buffer';
 import { DesktopLoggingSettings } from '../logging-settings';
 
 const toastSpy = vi.fn();
@@ -22,10 +24,33 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
+vi.mock('@tanstack/react-virtual', async () => {
+  const actual =
+    await vi.importActual<typeof import('@tanstack/react-virtual')>('@tanstack/react-virtual');
+  return {
+    ...actual,
+    useVirtualizer: ({ count }: { count: number }) => ({
+      getTotalSize: () => count * 30,
+      getVirtualItems: () =>
+        Array.from({ length: count }, (_, index) => ({
+          end: (index + 1) * 30,
+          index,
+          key: index,
+          measureElement: () => undefined,
+          size: 30,
+          start: index * 30,
+        })),
+      measureElement: () => undefined,
+      scrollToIndex: () => undefined,
+    }),
+  };
+});
+
 declare global {
   interface Window {
     logging?: {
       getPreferences: () => Promise<LoggingSettingsPayload>;
+      getBufferedLogs: () => Promise<LogRecord[]>;
       setPreferences: (preferences: LoggingPreferences) => Promise<LoggingSettingsPayload>;
       selectDestination: () => Promise<string | null>;
       openDestination: (target: string | null) => Promise<boolean>;
@@ -63,6 +88,7 @@ describe('DesktopLoggingSettings', () => {
         preferences,
         capabilities,
       }),
+      getBufferedLogs: vi.fn().mockResolvedValue([]),
       setPreferences: vi.fn(async (nextPreferences: LoggingPreferences) => ({
         preferences: nextPreferences,
         capabilities,
@@ -73,6 +99,7 @@ describe('DesktopLoggingSettings', () => {
   });
 
   afterEach(() => {
+    getRendererLogBuffer().clear();
     window.logging = undefined;
   });
 
@@ -96,6 +123,7 @@ describe('DesktopLoggingSettings', () => {
   it('renders an error card when loading fails', async () => {
     window.logging = {
       getPreferences: vi.fn().mockRejectedValue(new Error('load failed')),
+      getBufferedLogs: vi.fn().mockResolvedValue([]),
       setPreferences: vi.fn(),
       selectDestination: vi.fn(),
       openDestination: vi.fn(),
@@ -108,4 +136,42 @@ describe('DesktopLoggingSettings', () => {
     );
     expect(screen.getByText('load failed')).toBeInTheDocument();
   });
+
+  it('includes Electron main buffered logs in the desktop log viewer source', async () => {
+    getRendererLogBuffer().push(createLogRecord('renderer diagnostic', 'electron-renderer'));
+    window.logging!.getBufferedLogs = vi
+      .fn()
+      .mockResolvedValue([createLogRecord('main diagnostic', 'electron-main')]);
+
+    render(<DesktopLoggingSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByText('renderer diagnostic')).toBeInTheDocument();
+      expect(screen.getByText('main diagnostic')).toBeInTheDocument();
+    });
+  });
+
+  it('renders an explicit diagnostic when Electron main buffered logs cannot be loaded', async () => {
+    getRendererLogBuffer().push(createLogRecord('renderer diagnostic', 'electron-renderer'));
+    window.logging!.getBufferedLogs = vi.fn().mockRejectedValue(new Error('main bridge failed'));
+
+    render(<DesktopLoggingSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByText('renderer diagnostic')).toBeInTheDocument();
+      expect(screen.getByText('Electron main logs unavailable')).toBeInTheDocument();
+      expect(screen.getByText(/main bridge failed/)).toBeInTheDocument();
+    });
+  });
 });
+
+function createLogRecord(message: string, runtime: string): LogRecord {
+  return {
+    args: [],
+    bindings: { runtime },
+    level: LogLevel.INFO,
+    message,
+    scope: 'LoggingSettingsTest',
+    timestamp: Date.now(),
+  };
+}
