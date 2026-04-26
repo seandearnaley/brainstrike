@@ -82,9 +82,17 @@ export interface DatabaseWorkSchedulerSnapshot {
 
 export interface DatabaseWorkPriorityStats {
   readonly completed: number;
+  readonly lastCompletedLabel: string | null;
+  readonly lastStartedLabel: string | null;
+  readonly longestWaitMs: number;
   readonly queued: number;
+  readonly serviceP50Ms: number;
+  readonly serviceP95Ms: number;
   readonly started: number;
+  readonly totalServiceMs: number;
   readonly totalWaitMs: number;
+  readonly waitP50Ms: number;
+  readonly waitP95Ms: number;
 }
 
 /**

@@ -4,6 +4,7 @@ import {
 } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
 import {
   __resetIndexingActivityStoreForTests,
+  type IndexingDatabaseWorkPriorityStats,
   type IndexingDatabaseWorkSnapshot,
   useIndexingActivityStore,
 } from '@brainstrike/preferences/stores/indexing-activity-store';
@@ -11,6 +12,26 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { IndexingStatusItem } from '../status-items/indexing-status-item';
+
+function createPriorityStats(
+  overrides: Partial<IndexingDatabaseWorkPriorityStats> = {}
+): IndexingDatabaseWorkPriorityStats {
+  return {
+    completed: 0,
+    lastCompletedLabel: null,
+    lastStartedLabel: null,
+    longestWaitMs: 0,
+    queued: 0,
+    serviceP50Ms: 0,
+    serviceP95Ms: 0,
+    started: 0,
+    totalServiceMs: 0,
+    totalWaitMs: 0,
+    waitP50Ms: 0,
+    waitP95Ms: 0,
+    ...overrides,
+  };
+}
 
 function createDatabaseWorkSnapshot(
   overrides: Partial<IndexingDatabaseWorkSnapshot> = {}
@@ -25,9 +46,9 @@ function createDatabaseWorkSnapshot(
     lastForegroundAt: null,
     lastStartedAt: null,
     priorityStats: {
-      foreground: { completed: 0, queued: 0, started: 0, totalWaitMs: 0 },
-      normal: { completed: 0, queued: 0, started: 0, totalWaitMs: 0 },
-      background: { completed: 0, queued: 0, started: 0, totalWaitMs: 0 },
+      foreground: createPriorityStats(),
+      normal: createPriorityStats(),
+      background: createPriorityStats(),
     },
     queued: { foreground: 0, normal: 0, background: 0 },
     runningLabel: null,
@@ -137,9 +158,29 @@ describe('IndexingStatusItem', () => {
         lastBackgroundYieldAt: 1000,
         lastForegroundAt: 950,
         priorityStats: {
-          foreground: { completed: 14, queued: 14, started: 14, totalWaitMs: 30 },
-          normal: { completed: 0, queued: 0, started: 0, totalWaitMs: 0 },
-          background: { completed: 9, queued: 14, started: 9, totalWaitMs: 225 },
+          foreground: createPriorityStats({
+            completed: 14,
+            lastCompletedLabel: 'hybrid search',
+            lastStartedLabel: 'hybrid search',
+            queued: 14,
+            serviceP95Ms: 16,
+            started: 14,
+            totalServiceMs: 112,
+            totalWaitMs: 30,
+            waitP95Ms: 8,
+          }),
+          normal: createPriorityStats(),
+          background: createPriorityStats({
+            completed: 9,
+            lastCompletedLabel: 'embedding completion',
+            lastStartedLabel: 'embedding claim',
+            queued: 14,
+            serviceP95Ms: 40,
+            started: 9,
+            totalServiceMs: 260,
+            totalWaitMs: 225,
+            waitP95Ms: 75,
+          }),
         },
         queued: { foreground: 2, normal: 0, background: 5 },
       })
@@ -157,6 +198,10 @@ describe('IndexingStatusItem', () => {
       screen.getByText('14 foreground / 0 normal / 9 background completed')
     ).toBeInTheDocument();
     expect(screen.getByText('3 background yields / 225ms background wait')).toBeInTheDocument();
+    expect(
+      screen.getByText('FG p95 8ms wait / 16ms service · BG p95 75ms wait / 40ms service')
+    ).toBeInTheDocument();
+    expect(screen.getByText('FG hybrid search / BG embedding completion')).toBeInTheDocument();
     expect(screen.getByText(/waiting 75ms/)).toBeInTheDocument();
   });
 });

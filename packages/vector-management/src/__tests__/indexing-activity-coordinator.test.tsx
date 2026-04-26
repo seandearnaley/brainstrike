@@ -4,6 +4,7 @@ import {
 } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
 import {
   __resetIndexingActivityStoreForTests,
+  type IndexingDatabaseWorkPriorityStats,
   type IndexingDatabaseWorkSnapshot,
   useIndexingActivityStore,
 } from '@brainstrike/preferences/stores/indexing-activity-store';
@@ -60,6 +61,26 @@ const liveQueryState: LiveQueryState = {
   error: null,
 };
 
+function createPriorityStats(
+  overrides: Partial<IndexingDatabaseWorkPriorityStats> = {}
+): IndexingDatabaseWorkPriorityStats {
+  return {
+    completed: 0,
+    lastCompletedLabel: null,
+    lastStartedLabel: null,
+    longestWaitMs: 0,
+    queued: 0,
+    serviceP50Ms: 0,
+    serviceP95Ms: 0,
+    started: 0,
+    totalServiceMs: 0,
+    totalWaitMs: 0,
+    waitP50Ms: 0,
+    waitP95Ms: 0,
+    ...overrides,
+  };
+}
+
 function createDatabaseWorkSnapshot(
   overrides: Partial<IndexingDatabaseWorkSnapshot> = {}
 ): IndexingDatabaseWorkSnapshot {
@@ -73,9 +94,9 @@ function createDatabaseWorkSnapshot(
     lastForegroundAt: null,
     lastStartedAt: null,
     priorityStats: {
-      foreground: { completed: 0, queued: 0, started: 0, totalWaitMs: 0 },
-      normal: { completed: 0, queued: 0, started: 0, totalWaitMs: 0 },
-      background: { completed: 0, queued: 0, started: 0, totalWaitMs: 0 },
+      foreground: createPriorityStats(),
+      normal: createPriorityStats(),
+      background: createPriorityStats(),
     },
     queued: { foreground: 0, normal: 0, background: 0 },
     runningLabel: null,

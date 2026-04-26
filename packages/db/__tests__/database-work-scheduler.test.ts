@@ -116,10 +116,61 @@ describe('DatabaseWorkScheduler', () => {
     expect(scheduler.getSnapshot()).toMatchObject({
       queued: { background: 0, foreground: 0, normal: 0 },
       priorityStats: {
-        foreground: { completed: 1, queued: 1, started: 1 },
+        foreground: {
+          completed: 1,
+          lastCompletedLabel: 'collection search',
+          lastStartedLabel: 'collection search',
+          queued: 1,
+          started: 1,
+        },
         normal: { completed: 0, queued: 0, started: 0 },
-        background: { completed: 1, queued: 1, started: 1 },
+        background: {
+          completed: 1,
+          lastCompletedLabel: 'embedding claim',
+          lastStartedLabel: 'embedding claim',
+          queued: 1,
+          started: 1,
+        },
       },
+    });
+  });
+
+  it('tracks rolling wait and service metrics by priority', async () => {
+    const waits = [3, 9, 20, 40];
+    const services = [7, 11, 13, 17];
+    let now = 100;
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0, now: () => now });
+    const gate = Promise.resolve();
+
+    for (const [index, waitMs] of waits.entries()) {
+      const serviceMs = services[index];
+      if (serviceMs === undefined) {
+        throw new Error(`Missing service duration for wait ${waitMs}.`);
+      }
+      const scheduledAt = now;
+      const run = scheduler.run(
+        async () => {
+          await gate;
+          now += serviceMs;
+        },
+        { priority: 'background', label: `embedding batch ${index + 1}` }
+      );
+      now = scheduledAt + waitMs;
+      await run;
+      now += 1;
+    }
+
+    expect(scheduler.getSnapshot().priorityStats.background).toMatchObject({
+      completed: 4,
+      longestWaitMs: 40,
+      serviceP50Ms: 11,
+      serviceP95Ms: 17,
+      totalServiceMs: 48,
+      totalWaitMs: 72,
+      waitP50Ms: 9,
+      waitP95Ms: 40,
+      lastCompletedLabel: 'embedding batch 4',
+      lastStartedLabel: 'embedding batch 4',
     });
   });
 

@@ -22,9 +22,17 @@ export interface DatabaseWorkSchedulerSnapshot {
 
 export interface DatabaseWorkPriorityStats {
   readonly completed: number;
+  readonly lastCompletedLabel: string | null;
+  readonly lastStartedLabel: string | null;
+  readonly longestWaitMs: number;
   readonly queued: number;
+  readonly serviceP50Ms: number;
+  readonly serviceP95Ms: number;
   readonly started: number;
+  readonly totalServiceMs: number;
   readonly totalWaitMs: number;
+  readonly waitP50Ms: number;
+  readonly waitP95Ms: number;
 }
 
 export interface DatabaseWorkSchedulerOptions {
@@ -63,6 +71,7 @@ type CallableUnknown = (...args: unknown[]) => unknown;
 
 const PRIORITY_ORDER: readonly DatabaseWorkPriority[] = ['foreground', 'normal', 'background'];
 const DEFAULT_FOREGROUND_QUIET_MS = 75;
+const METRICS_WINDOW_SIZE = 64;
 const SCHEDULER_SYMBOL = Symbol.for('brainstrike.databaseWorkScheduler');
 const DEFAULT_PRIORITY_SYMBOL = Symbol.for('brainstrike.databaseWorkDefaultPriority');
 
@@ -85,10 +94,24 @@ function createQueuedCounts(
 }
 
 function createEmptyPriorityStats(): Record<DatabaseWorkPriority, DatabaseWorkPriorityStats> {
+  const emptyStats = (): DatabaseWorkPriorityStats => ({
+    completed: 0,
+    lastCompletedLabel: null,
+    lastStartedLabel: null,
+    longestWaitMs: 0,
+    queued: 0,
+    serviceP50Ms: 0,
+    serviceP95Ms: 0,
+    started: 0,
+    totalServiceMs: 0,
+    totalWaitMs: 0,
+    waitP50Ms: 0,
+    waitP95Ms: 0,
+  });
   return {
-    foreground: { completed: 0, queued: 0, started: 0, totalWaitMs: 0 },
-    normal: { completed: 0, queued: 0, started: 0, totalWaitMs: 0 },
-    background: { completed: 0, queued: 0, started: 0, totalWaitMs: 0 },
+    foreground: emptyStats(),
+    normal: emptyStats(),
+    background: emptyStats(),
   };
 }
 
@@ -102,16 +125,38 @@ function clonePriorityStats(
   };
 }
 
-function incrementPriorityStat(
+function createEmptyMetricSamples(): Record<DatabaseWorkPriority, number[]> {
+  return {
+    foreground: [],
+    normal: [],
+    background: [],
+  };
+}
+
+function calculatePercentile(samples: readonly number[], percentile: number): number {
+  if (samples.length === 0) {
+    return 0;
+  }
+  const sorted = [...samples].sort((a, b) => a - b);
+  const index = Math.max(0, Math.ceil(percentile * sorted.length) - 1);
+  return sorted[index] ?? 0;
+}
+
+function addMetricSample(samples: number[], value: number): void {
+  samples.push(value);
+  if (samples.length > METRICS_WINDOW_SIZE) {
+    samples.shift();
+  }
+}
+
+function patchPriorityStat(
   stats: Record<DatabaseWorkPriority, DatabaseWorkPriorityStats>,
   priority: DatabaseWorkPriority,
-  key: keyof DatabaseWorkPriorityStats,
-  amount: number
+  patch: Partial<DatabaseWorkPriorityStats>
 ): void {
-  const current = stats[priority];
   stats[priority] = {
-    ...current,
-    [key]: current[key] + amount,
+    ...stats[priority],
+    ...patch,
   };
 }
 
@@ -135,6 +180,8 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
   readonly #now: () => number;
   readonly #priorityStats = createEmptyPriorityStats();
   readonly #queues = createEmptyQueues();
+  readonly #serviceSamples = createEmptyMetricSamples();
+  readonly #waitSamples = createEmptyMetricSamples();
   #backgroundWaitingSince: number | null = null;
   #backgroundYieldCount = 0;
   #drainTimer: ReturnType<typeof setTimeout> | null = null;
@@ -143,6 +190,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
   #lastForegroundAt: number | null = null;
   #lastStartedAt: number | null = null;
   #running = false;
+  #runningStartedAt: number | null = null;
   #runningLabel: string | null = null;
   #runningPriority: DatabaseWorkPriority | null = null;
 
@@ -177,7 +225,9 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
       this.#lastForegroundAt = enqueuedAt;
     }
 
-    incrementPriorityStat(this.#priorityStats, priority, 'queued', 1);
+    patchPriorityStat(this.#priorityStats, priority, {
+      queued: this.#priorityStats[priority].queued + 1,
+    });
     if (
       priority === 'background' &&
       (this.#runningPriority === 'foreground' || this.#runningPriority === 'normal')
@@ -274,13 +324,8 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
       if (task) {
         const now = this.#now();
         this.#lastStartedAt = now;
-        incrementPriorityStat(this.#priorityStats, priority, 'started', 1);
-        incrementPriorityStat(
-          this.#priorityStats,
-          priority,
-          'totalWaitMs',
-          Math.max(0, now - task.enqueuedAt)
-        );
+        this.#runningStartedAt = now;
+        this.#recordTaskStarted(task, now);
         if (priority === 'background') {
           this.#clearBackgroundWaiting();
         }
@@ -331,9 +376,11 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     } catch (error) {
       task.reject(error);
     } finally {
-      this.#lastCompletedAt = this.#now();
-      incrementPriorityStat(this.#priorityStats, task.priority, 'completed', 1);
+      const completedAt = this.#now();
+      this.#lastCompletedAt = completedAt;
+      this.#recordTaskCompleted(task, this.#runningStartedAt ?? completedAt, completedAt);
       this.#running = false;
+      this.#runningStartedAt = null;
       this.#runningPriority = null;
       this.#runningLabel = null;
       this.#emit();
@@ -342,6 +389,35 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     if (hasQueuedWork(this.#queues)) {
       this.#scheduleDrain(this.#nextDelayMs());
     }
+  }
+
+  #recordTaskStarted(task: QueuedTask, startedAt: number): void {
+    const waitMs = Math.max(0, startedAt - task.enqueuedAt);
+    const waitSamples = this.#waitSamples[task.priority];
+    addMetricSample(waitSamples, waitMs);
+    const current = this.#priorityStats[task.priority];
+    patchPriorityStat(this.#priorityStats, task.priority, {
+      lastStartedLabel: task.label,
+      longestWaitMs: Math.max(current.longestWaitMs, waitMs),
+      started: current.started + 1,
+      totalWaitMs: current.totalWaitMs + waitMs,
+      waitP50Ms: calculatePercentile(waitSamples, 0.5),
+      waitP95Ms: calculatePercentile(waitSamples, 0.95),
+    });
+  }
+
+  #recordTaskCompleted(task: QueuedTask, startedAt: number, completedAt: number): void {
+    const serviceMs = Math.max(0, completedAt - startedAt);
+    const serviceSamples = this.#serviceSamples[task.priority];
+    addMetricSample(serviceSamples, serviceMs);
+    const current = this.#priorityStats[task.priority];
+    patchPriorityStat(this.#priorityStats, task.priority, {
+      completed: current.completed + 1,
+      lastCompletedLabel: task.label,
+      serviceP50Ms: calculatePercentile(serviceSamples, 0.5),
+      serviceP95Ms: calculatePercentile(serviceSamples, 0.95),
+      totalServiceMs: current.totalServiceMs + serviceMs,
+    });
   }
 }
 

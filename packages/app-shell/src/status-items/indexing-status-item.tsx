@@ -121,6 +121,32 @@ function formatDatabaseYieldSummary(snapshot: IndexingActivitySnapshot): string 
   return `${databaseWork.backgroundYieldCount} background yield${databaseWork.backgroundYieldCount === 1 ? '' : 's'} / ${waitMs}ms background wait`;
 }
 
+function formatDatabaseLatencySummary(snapshot: IndexingActivitySnapshot): string {
+  const databaseWork = snapshot.databaseWork;
+  if (!databaseWork) {
+    return 'No latency data';
+  }
+  const foreground = databaseWork.priorityStats.foreground;
+  const background = databaseWork.priorityStats.background;
+  return `FG p95 ${Math.round(foreground.waitP95Ms)}ms wait / ${Math.round(foreground.serviceP95Ms)}ms service · BG p95 ${Math.round(background.waitP95Ms)}ms wait / ${Math.round(background.serviceP95Ms)}ms service`;
+}
+
+function formatDatabaseLabelSummary(snapshot: IndexingActivitySnapshot): string {
+  const databaseWork = snapshot.databaseWork;
+  if (!databaseWork) {
+    return 'No label data';
+  }
+  const foreground =
+    databaseWork.priorityStats.foreground.lastCompletedLabel ??
+    databaseWork.priorityStats.foreground.lastStartedLabel ??
+    'none';
+  const background =
+    databaseWork.priorityStats.background.lastCompletedLabel ??
+    databaseWork.priorityStats.background.lastStartedLabel ??
+    'none';
+  return `FG ${foreground} / BG ${background}`;
+}
+
 function formatPhase(snapshot: IndexingActivitySnapshot): string {
   if (!snapshot.phase) {
     return snapshot.status === 'idle' ? 'Idle' : 'Unknown';
@@ -212,6 +238,16 @@ export function IndexingStatusItem() {
           <div className="flex justify-between gap-3">
             <dt className="text-muted-foreground">DB yields</dt>
             <dd className="max-w-[250px] text-right">{formatDatabaseYieldSummary(snapshot)}</dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-muted-foreground">DB latency</dt>
+            <dd className="max-w-[250px] text-right">{formatDatabaseLatencySummary(snapshot)}</dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-muted-foreground">DB labels</dt>
+            <dd className="max-w-[250px] truncate text-right">
+              {formatDatabaseLabelSummary(snapshot)}
+            </dd>
           </div>
           <div className="flex justify-between gap-3">
             <dt className="text-muted-foreground">Updated</dt>
