@@ -249,6 +249,45 @@ describe('DatabasePressureController', () => {
     });
   });
 
+  it('ignores queued subscription checks after a permit has already rejected', async () => {
+    const baseScheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    const baseSnapshot = baseScheduler.getSnapshot();
+    let reads = 0;
+    let listener: (() => void) | null = null;
+    const controller = createDatabasePressureController({
+      snapshotSource: {
+        getSnapshot: async () => {
+          reads += 1;
+          if (reads === 1) {
+            return {
+              ...baseSnapshot,
+              runningPriority: 'foreground',
+            };
+          }
+          throw new Error('scheduler unavailable');
+        },
+        subscribe: (next) => {
+          listener = next;
+          return () => {
+            listener = null;
+          };
+        },
+      },
+    });
+
+    const permit = controller.waitForBackgroundPermit({ label: 'embedding claim' });
+    await Promise.resolve();
+    await Promise.resolve();
+    const queuedListener = listener;
+    listener?.();
+    await expect(permit).rejects.toThrow('scheduler unavailable');
+
+    queuedListener?.();
+    await Promise.resolve();
+
+    expect(reads).toBe(2);
+  });
+
   it('clears the pending poll timer when a subscription refresh runs first', async () => {
     vi.useFakeTimers();
     try {

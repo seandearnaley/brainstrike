@@ -190,7 +190,12 @@ export function createDatabasePressureController(
         permitOptions.signal?.removeEventListener('abort', onAbort);
       };
 
+      let settled = false;
       const finish = (): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
         cleanup();
         snapshot = {
           ...snapshot,
@@ -204,6 +209,10 @@ export function createDatabasePressureController(
       };
 
       const onAbort = (): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
         cleanup();
         snapshot = {
           ...snapshot,
@@ -215,6 +224,22 @@ export function createDatabasePressureController(
         reject(new Error('Background database permit aborted'));
       };
 
+      const fail = (error: unknown): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        snapshot = {
+          ...snapshot,
+          permitWaiting: false,
+          permitWaitingSince: null,
+          waitingLabel: null,
+          waitingReason: null,
+        };
+        reject(error);
+      };
+
       let checking = false;
       const clearPendingCheck = (): void => {
         if (timeout) {
@@ -223,7 +248,7 @@ export function createDatabasePressureController(
         }
       };
       const check = async (): Promise<void> => {
-        if (checking) {
+        if (checking || settled) {
           return;
         }
         clearPendingCheck();
@@ -233,18 +258,13 @@ export function createDatabasePressureController(
           reason = await readWaitingReason();
         } catch (error) {
           checking = false;
-          cleanup();
-          snapshot = {
-            ...snapshot,
-            permitWaiting: false,
-            permitWaitingSince: null,
-            waitingLabel: null,
-            waitingReason: null,
-          };
-          reject(error);
+          fail(error);
           return;
         }
         checking = false;
+        if (settled) {
+          return;
+        }
         if (!reason) {
           finish();
           return;
