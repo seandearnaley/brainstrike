@@ -1,0 +1,479 @@
+import path from 'node:path';
+import { createLogger } from '@brainstrike/utils/logger';
+import { type UtilityProcess, utilityProcess } from 'electron';
+import type {
+  DbHostDiagnosticsResult,
+  DbHostInitResult,
+  DbHostLiveStartResult,
+  DbHostQueryResult,
+  DbHostRequest,
+  DbHostRequestEnvelope,
+  DbHostResponseEnvelope,
+  DbHostSerializedError,
+  DbHostToMainMessage,
+  DbHostTransactionStartResult,
+} from './db-host-protocol';
+
+const logger = createLogger('DbHostManager');
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
+export interface RemoteDbTransaction {
+  readonly exec: (sql: string, params?: readonly unknown[]) => Promise<unknown>;
+  readonly query: <TRecord = unknown>(
+    sql: string,
+    params?: readonly unknown[]
+  ) => Promise<DbHostQueryResult<TRecord>>;
+}
+
+export interface RemoteDbLiveQuery<TRecord = unknown> {
+  readonly initialResults: DbHostQueryResult<TRecord>;
+  readonly refresh: (options?: {
+    readonly limit?: number;
+    readonly offset?: number;
+  }) => Promise<void>;
+  readonly subscribe: (listener: (results: DbHostQueryResult<TRecord>) => void) => void;
+  readonly unsubscribe: (listener?: (results: DbHostQueryResult<TRecord>) => void) => Promise<void>;
+}
+
+export interface RemoteDbClient extends RemoteDbTransaction {
+  readonly live: {
+    readonly incrementalQuery: <TRecord = unknown>(
+      payload:
+        | {
+            readonly key: string;
+            readonly limit?: number;
+            readonly offset?: number;
+            readonly params?: readonly unknown[] | null;
+            readonly query: string;
+          }
+        | string,
+      params?: readonly unknown[] | null,
+      key?: string
+    ) => Promise<RemoteDbLiveQuery<TRecord>>;
+    readonly query: <TRecord = unknown>(
+      payload:
+        | {
+            readonly limit?: number;
+            readonly offset?: number;
+            readonly params?: readonly unknown[] | null;
+            readonly query: string;
+          }
+        | string,
+      params?: readonly unknown[] | null
+    ) => Promise<RemoteDbLiveQuery<TRecord>>;
+  };
+  readonly transaction: <TResult>(
+    fn: (tx: RemoteDbTransaction) => Promise<TResult>
+  ) => Promise<TResult>;
+}
+
+export interface DbHostManager {
+  readonly applyManagedCacheBatch: (payload: unknown) => Promise<void>;
+  readonly close: () => Promise<void>;
+  readonly getDatabase: () => Promise<RemoteDbClient>;
+  readonly getDiagnostics: () => Promise<DbHostDiagnosticsResult>;
+  readonly reset: () => Promise<void>;
+}
+
+export interface DbHostManagerOptions {
+  readonly entryPath?: string;
+  readonly requestTimeoutMs?: number;
+}
+
+interface PendingRequest {
+  readonly reject: (reason: unknown) => void;
+  readonly resolve: (value: unknown) => void;
+  readonly timer: ReturnType<typeof setTimeout>;
+}
+
+function toError(error: DbHostSerializedError): Error {
+  const normalized = new Error(error.message);
+  normalized.name = error.name ?? 'DbHostError';
+  if (error.stack) {
+    normalized.stack = error.stack;
+  }
+  if (error.code) {
+    (normalized as Error & { code?: string }).code = error.code;
+  }
+  return normalized;
+}
+
+function createRequestId(): string {
+  return `db-host:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`;
+}
+
+function resolveDefaultEntryPath(): string {
+  return path.join(path.dirname(module.filename), 'db-host-entry.js');
+}
+
+function isDbHostToMainMessage(value: unknown): value is DbHostToMainMessage {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    'kind' in value &&
+    typeof (value as { kind?: unknown }).kind === 'string'
+  );
+}
+
+class RemoteLiveQuery<TRecord = unknown> implements RemoteDbLiveQuery<TRecord> {
+  readonly #listeners = new Set<(results: DbHostQueryResult<TRecord>) => void>();
+  readonly #manager: DefaultDbHostManager;
+  readonly #liveId: string;
+  #stopped = false;
+  initialResults: DbHostQueryResult<TRecord>;
+
+  constructor(
+    manager: DefaultDbHostManager,
+    liveId: string,
+    initialResults: DbHostQueryResult<TRecord>
+  ) {
+    this.#manager = manager;
+    this.#liveId = liveId;
+    this.initialResults = initialResults;
+  }
+
+  subscribe(listener: (results: DbHostQueryResult<TRecord>) => void): void {
+    if (this.#stopped) {
+      return;
+    }
+    this.#listeners.add(listener);
+  }
+
+  async refresh(options?: { readonly limit?: number; readonly offset?: number }): Promise<void> {
+    if (this.#stopped) {
+      return;
+    }
+    const request: DbHostRequest = {
+      kind: 'live:refresh',
+      liveId: this.#liveId,
+      ...(options?.limit === undefined ? {} : { limit: options.limit }),
+      ...(options?.offset === undefined ? {} : { offset: options.offset }),
+    };
+    await this.#manager.send(request);
+  }
+
+  async unsubscribe(listener?: (results: DbHostQueryResult<TRecord>) => void): Promise<void> {
+    if (listener) {
+      this.#listeners.delete(listener);
+      if (this.#listeners.size > 0) {
+        return;
+      }
+    }
+    if (this.#stopped) {
+      return;
+    }
+    this.#stopped = true;
+    this.#manager.unregisterLiveQuery(this.#liveId);
+    await this.#manager.send({ kind: 'live:stop', liveId: this.#liveId });
+  }
+
+  acceptUpdate(results: DbHostQueryResult<TRecord>): void {
+    if (this.#stopped) {
+      return;
+    }
+    this.initialResults = results;
+    for (const listener of this.#listeners) {
+      listener(results);
+    }
+  }
+}
+
+class DefaultDbHostManager implements DbHostManager {
+  readonly #entryPath: string;
+  readonly #liveQueries = new Map<string, RemoteLiveQuery<unknown>>();
+  readonly #pending = new Map<string, PendingRequest>();
+  readonly #requestTimeoutMs: number;
+  #client: RemoteDbClient | null = null;
+  #host: UtilityProcess | null = null;
+  #initialization: Promise<RemoteDbClient> | null = null;
+
+  constructor(options: DbHostManagerOptions = {}) {
+    this.#entryPath = options.entryPath ?? resolveDefaultEntryPath();
+    this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  }
+
+  async getDatabase(): Promise<RemoteDbClient> {
+    if (this.#client) {
+      return this.#client;
+    }
+    if (this.#initialization) {
+      return await this.#initialization;
+    }
+    this.#initialization = this.#initialize();
+    try {
+      return await this.#initialization;
+    } finally {
+      this.#initialization = null;
+    }
+  }
+
+  async getDiagnostics(): Promise<DbHostDiagnosticsResult> {
+    const result = await this.send<DbHostDiagnosticsResult>({ kind: 'diagnostics' });
+    return {
+      ...result,
+      hostPid: this.#host?.pid ?? null,
+    };
+  }
+
+  async reset(): Promise<void> {
+    await this.send({ kind: 'reset' });
+    this.#client = null;
+  }
+
+  async close(): Promise<void> {
+    if (!this.#host) {
+      return;
+    }
+    try {
+      await this.send({ kind: 'close' });
+    } finally {
+      this.#rejectAll(new Error('DB host closed.'));
+      this.#host.kill();
+      this.#host = null;
+      this.#client = null;
+      this.#liveQueries.clear();
+    }
+  }
+
+  async applyManagedCacheBatch(payload: unknown): Promise<void> {
+    await this.send({ kind: 'managed-cache:apply-batch', payload });
+  }
+
+  async send<TResult = unknown>(request: DbHostRequest): Promise<TResult> {
+    const host = this.#ensureHost();
+    const id = createRequestId();
+    const envelope: DbHostRequestEnvelope = { id, kind: 'request', request };
+    return await new Promise<TResult>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.#pending.delete(id);
+        reject(new Error(`DB host request timed out: ${request.kind}`));
+      }, this.#requestTimeoutMs);
+      this.#pending.set(id, {
+        reject,
+        resolve: resolve as (value: unknown) => void,
+        timer,
+      });
+      host.postMessage(envelope);
+    });
+  }
+
+  registerLiveQuery(liveId: string, query: RemoteLiveQuery<unknown>): void {
+    this.#liveQueries.set(liveId, query);
+  }
+
+  unregisterLiveQuery(liveId: string): void {
+    this.#liveQueries.delete(liveId);
+  }
+
+  #ensureHost(): UtilityProcess {
+    if (this.#host) {
+      return this.#host;
+    }
+    const host = utilityProcess.fork(this.#entryPath, [], {
+      serviceName: 'brainstrike-db-host',
+    });
+    host.on('message', (message: unknown) => {
+      this.#acceptMessage(message);
+    });
+    host.on('exit', (code) => {
+      this.#host = null;
+      this.#client = null;
+      this.#liveQueries.clear();
+      this.#rejectAll(new Error(`DB host exited with code ${code}.`));
+    });
+    host.on('error', (type, location) => {
+      logger.error('DB host process error', { type, location });
+    });
+    this.#host = host;
+    return host;
+  }
+
+  async #initialize(): Promise<RemoteDbClient> {
+    await this.send<DbHostInitResult>({ kind: 'init' });
+    this.#client = this.#createClient();
+    return this.#client;
+  }
+
+  #createClient(): RemoteDbClient {
+    return {
+      exec: async (sql, params) =>
+        await this.send({ kind: 'exec', sql, ...(params ? { params } : {}) }),
+      live: {
+        incrementalQuery: async <TRecord = unknown>(
+          payload:
+            | {
+                readonly key: string;
+                readonly limit?: number;
+                readonly offset?: number;
+                readonly params?: readonly unknown[] | null;
+                readonly query: string;
+              }
+            | string,
+          params?: readonly unknown[] | null,
+          key?: string
+        ) =>
+          await this.#startLiveQuery<TRecord>(
+            typeof payload === 'string'
+              ? {
+                  mode: 'incremental',
+                  query: payload,
+                  ...(params === undefined || params === null ? {} : { params }),
+                  ...(key === undefined ? {} : { key }),
+                }
+              : { ...payload, mode: 'incremental' }
+          ),
+        query: async <TRecord = unknown>(
+          payload:
+            | {
+                readonly limit?: number;
+                readonly offset?: number;
+                readonly params?: readonly unknown[] | null;
+                readonly query: string;
+              }
+            | string,
+          params?: readonly unknown[] | null
+        ) =>
+          await this.#startLiveQuery<TRecord>(
+            typeof payload === 'string'
+              ? {
+                  mode: 'query',
+                  query: payload,
+                  ...(params === undefined || params === null ? {} : { params }),
+                }
+              : { ...payload, mode: 'query' }
+          ),
+      },
+      query: async <TRecord = unknown>(sql: string, params?: readonly unknown[]) =>
+        await this.send<DbHostQueryResult<TRecord>>({
+          kind: 'query',
+          sql,
+          ...(params ? { params } : {}),
+        }),
+      transaction: async <TResult>(fn: (tx: RemoteDbTransaction) => Promise<TResult>) =>
+        await this.#transaction(fn),
+    };
+  }
+
+  async #startLiveQuery<TRecord>(payload: {
+    readonly key?: string;
+    readonly limit?: number;
+    readonly mode: 'query' | 'incremental';
+    readonly offset?: number;
+    readonly params?: readonly unknown[] | null;
+    readonly query: string;
+  }): Promise<RemoteLiveQuery<TRecord>> {
+    const result = await this.send<DbHostLiveStartResult>({
+      kind: 'live:start',
+      payload: {
+        query: payload.query,
+        mode: payload.mode,
+        ...(payload.params === undefined || payload.params === null
+          ? {}
+          : { params: payload.params }),
+        ...(payload.key === undefined ? {} : { key: payload.key }),
+        ...(payload.limit === undefined ? {} : { limit: payload.limit }),
+        ...(payload.offset === undefined ? {} : { offset: payload.offset }),
+      },
+    });
+    const liveQuery = new RemoteLiveQuery<TRecord>(
+      this,
+      result.liveId,
+      result.initialResults as DbHostQueryResult<TRecord>
+    );
+    this.registerLiveQuery(result.liveId, liveQuery as RemoteLiveQuery<unknown>);
+    return liveQuery;
+  }
+
+  async #transaction<TResult>(fn: (tx: RemoteDbTransaction) => Promise<TResult>): Promise<TResult> {
+    const { transactionId } = await this.send<DbHostTransactionStartResult>({
+      kind: 'transaction:start',
+    });
+    const tx: RemoteDbTransaction = {
+      exec: async (sql, params) =>
+        await this.send({
+          kind: 'transaction:exec',
+          transactionId,
+          sql,
+          ...(params ? { params } : {}),
+        }),
+      query: async <TRecord = unknown>(sql: string, params?: readonly unknown[]) =>
+        await this.send<DbHostQueryResult<TRecord>>({
+          kind: 'transaction:query',
+          transactionId,
+          sql,
+          ...(params ? { params } : {}),
+        }),
+    };
+    try {
+      const result = await fn(tx);
+      await this.send({ kind: 'transaction:commit', transactionId });
+      return result;
+    } catch (error) {
+      try {
+        await this.send({ kind: 'transaction:rollback', transactionId });
+      } catch (rollbackError) {
+        logger.warn('Failed to roll back remote DB transaction', {
+          error: rollbackError,
+          transactionId,
+        });
+      }
+      throw error;
+    }
+  }
+
+  #acceptMessage(message: unknown): void {
+    if (!isDbHostToMainMessage(message)) {
+      logger.warn('Ignored malformed DB host message', { message });
+      return;
+    }
+    if (message.kind === 'log') {
+      logger[message.level](message.message, message.context ?? {});
+      return;
+    }
+    if (message.kind === 'live-update') {
+      this.#liveQueries.get(message.liveId)?.acceptUpdate(message.results);
+      return;
+    }
+    this.#acceptResponse(message);
+  }
+
+  #acceptResponse(message: DbHostResponseEnvelope): void {
+    const pending = this.#pending.get(message.id);
+    if (!pending) {
+      return;
+    }
+    this.#pending.delete(message.id);
+    clearTimeout(pending.timer);
+    if (message.ok) {
+      pending.resolve(message.result);
+      return;
+    }
+    pending.reject(toError(message.error));
+  }
+
+  #rejectAll(error: Error): void {
+    for (const [id, pending] of this.#pending) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+      this.#pending.delete(id);
+    }
+  }
+}
+
+let defaultManager: DbHostManager | null = null;
+
+export function createDbHostManager(options?: DbHostManagerOptions): DbHostManager {
+  return new DefaultDbHostManager(options);
+}
+
+export function getDbHostManager(): DbHostManager {
+  if (!defaultManager) {
+    defaultManager = createDbHostManager();
+  }
+  return defaultManager;
+}
+
+export function resetDbHostManagerForTests(): void {
+  defaultManager = null;
+}

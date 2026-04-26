@@ -75,6 +75,9 @@
   "include": [
     "src/main.ts",
     "src/preload.ts",
+    "src/db-host-entry.ts",
+    "src/db-host-manager.ts",
+    "src/db-host-protocol.ts",
     "src/db-main.ts",
     "src/ipc-handlers.ts",
     "src/ipc-secrets.ts",

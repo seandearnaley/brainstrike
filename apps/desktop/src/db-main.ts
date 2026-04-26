@@ -188,6 +188,20 @@ const mutableState: DatabaseMutableState = {
   dbProcessLockPath: null,
 };
 
+function isUtilityProcessRuntime(): boolean {
+  const candidate = (process as NodeJS.Process & { parentPort?: unknown }).parentPort;
+  return (
+    Boolean(candidate) &&
+    typeof candidate === 'object' &&
+    typeof (candidate as { postMessage?: unknown }).postMessage === 'function'
+  );
+}
+
+async function getRemoteDbHostManager() {
+  const { getDbHostManager } = await import('./db-host-manager');
+  return getDbHostManager();
+}
+
 const DB_PROFILE_ENV = 'BRAINSTRIKE_DB_PROFILE' as const;
 const PROFILES_DIRECTORY_NAME = 'profiles' as const;
 const PROFILE_BACKUPS_DIRECTORY_NAME = 'backups' as const;
@@ -826,7 +840,7 @@ async function attemptCorruptionRecovery(context: string): Promise<void> {
     `Recoverable database corruption detected during ${context}. Attempting auto-recovery...`
   );
   await safeCloseDatabase();
-  await resetLocalDatabase();
+  await resetLocalDatabaseInternal();
   logger.info('Database reset complete. Retrying initialization...');
 }
 
@@ -955,7 +969,7 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
  * Concurrent callers share a single in-flight initialization.
  */
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
-export async function initializeMainDatabase(retryAfterCorruption = true): Promise<any> {
+async function initializeLocalMainDatabase(retryAfterCorruption = true): Promise<any> {
   if (db) {
     return db;
   }
@@ -978,10 +992,10 @@ export async function initializeMainDatabase(retryAfterCorruption = true): Promi
  * Automatically initializes if not already done (lazy loading)
  */
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
-export async function getDatabase(): Promise<any> {
+async function getLocalDatabase(): Promise<any> {
   if (!db) {
     logger.debug('Lazy-loading database (triggered by IPC usage)');
-    await initializeMainDatabase();
+    await initializeLocalMainDatabase();
   }
   return db;
 }
@@ -989,7 +1003,7 @@ export async function getDatabase(): Promise<any> {
 /**
  * Close the database connection
  */
-export async function closeDatabase(): Promise<void> {
+async function closeLocalDatabase(): Promise<void> {
   try {
     if (db) {
       const currentDatabase = db as PGliteInstanceShape;
@@ -1009,8 +1023,13 @@ export async function closeDatabase(): Promise<void> {
 
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
 export async function reinitializeDatabase(): Promise<any> {
-  await closeDatabase();
-  return await initializeMainDatabase();
+  if (!isUtilityProcessRuntime()) {
+    const manager = await getRemoteDbHostManager();
+    await manager.close();
+    return await manager.getDatabase();
+  }
+  await closeLocalDatabase();
+  return await initializeLocalMainDatabase();
 }
 
 /**
@@ -1019,15 +1038,15 @@ export async function reinitializeDatabase(): Promise<any> {
  * This is meant to be called from IPC handlers when they catch corruption errors.
  */
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time
-export async function handleRuntimeCorruption(context: string): Promise<any> {
+async function handleLocalRuntimeCorruption(context: string): Promise<any> {
   mutableState.runtimeCorruptionRecoveryCount += 1;
   mutableState.lastRuntimeCorruptionAt = new Date().toISOString();
   mutableState.lastRuntimeCorruptionContext = context;
   logger.warn(`Runtime corruption detected during ${context}. Resetting database...`);
   await safeCloseDatabase();
-  await resetLocalDatabase();
+  await resetLocalDatabaseInternal();
   logger.info('Database reset complete after runtime corruption. Reinitializing...');
-  return await initializeMainDatabase(false);
+  return await initializeLocalMainDatabase(false);
 }
 
 /**
@@ -1035,10 +1054,10 @@ export async function handleRuntimeCorruption(context: string): Promise<any> {
  * This deletes the profile-scoped pgdata and lock files while leaving other profiles untouched.
  * Next access will lazily recreate and migrate from scratch.
  */
-export async function resetLocalDatabase(): Promise<void> {
+async function resetLocalDatabaseInternal(): Promise<void> {
   // Ensure any existing handle is closed
   try {
-    await closeDatabase();
+    await closeLocalDatabase();
   } catch {
     // ignore
   }
@@ -1077,4 +1096,55 @@ export async function resetLocalDatabase(): Promise<void> {
     logger.error('Failed to recreate database directory:', err);
     throw err;
   }
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: compatibility facade for local PGlite and remote DB host clients
+export async function initializeMainDatabase(retryAfterCorruption = true): Promise<any> {
+  if (isUtilityProcessRuntime()) {
+    return await initializeLocalMainDatabase(retryAfterCorruption);
+  }
+  const manager = await getRemoteDbHostManager();
+  return await manager.getDatabase();
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: compatibility facade for local PGlite and remote DB host clients
+export async function getDatabase(): Promise<any> {
+  if (isUtilityProcessRuntime()) {
+    return await getLocalDatabase();
+  }
+  const manager = await getRemoteDbHostManager();
+  return await manager.getDatabase();
+}
+
+export async function closeDatabase(): Promise<void> {
+  if (isUtilityProcessRuntime()) {
+    await closeLocalDatabase();
+    return;
+  }
+  const manager = await getRemoteDbHostManager();
+  await manager.close();
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: compatibility facade for local PGlite and remote DB host clients
+export async function handleRuntimeCorruption(context: string): Promise<any> {
+  if (isUtilityProcessRuntime()) {
+    return await handleLocalRuntimeCorruption(context);
+  }
+  mutableState.runtimeCorruptionRecoveryCount += 1;
+  mutableState.lastRuntimeCorruptionAt = new Date().toISOString();
+  mutableState.lastRuntimeCorruptionContext = context;
+  logger.warn(`Runtime corruption detected during ${context}. Resetting DB host database...`);
+  const manager = await getRemoteDbHostManager();
+  await manager.reset();
+  logger.info('DB host reset complete after runtime corruption. Reinitializing...');
+  return await manager.getDatabase();
+}
+
+export async function resetLocalDatabase(): Promise<void> {
+  if (isUtilityProcessRuntime()) {
+    await resetLocalDatabaseInternal();
+    return;
+  }
+  const manager = await getRemoteDbHostManager();
+  await manager.reset();
 }

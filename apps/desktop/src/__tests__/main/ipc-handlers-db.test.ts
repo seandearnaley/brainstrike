@@ -28,6 +28,7 @@ const {
   handleRuntimeCorruptionMock,
   resetLocalDatabaseMock,
   getDatabaseDiagnosticsMock,
+  getDbHostManagerMock,
   enqueueEmbeddingBackfillMock,
   embeddingHostIsHostWindowMock,
   embeddingHostEnsureStartedMock,
@@ -122,6 +123,10 @@ const {
     lastRuntimeCorruptionAt: null,
     lastRuntimeCorruptionContext: null,
   }));
+  const getDbHostManagerMock = vi.fn(() => ({
+    applyManagedCacheBatch: applyManagedCacheBatchMock,
+    getDiagnostics: getDatabaseDiagnosticsMock,
+  }));
   return {
     handlers,
     mockDb,
@@ -134,6 +139,7 @@ const {
     handleRuntimeCorruptionMock,
     resetLocalDatabaseMock,
     getDatabaseDiagnosticsMock,
+    getDbHostManagerMock,
     enqueueEmbeddingBackfillMock,
     embeddingHostIsHostWindowMock,
     embeddingHostEnsureStartedMock,
@@ -224,6 +230,10 @@ vi.mock('../../db-main', () => ({
   handleRuntimeCorruption: handleRuntimeCorruptionMock,
   resetLocalDatabase: resetLocalDatabaseMock,
   getDatabaseDiagnostics: getDatabaseDiagnosticsMock,
+}));
+
+vi.mock('../../db-host-manager', () => ({
+  getDbHostManager: getDbHostManagerMock,
 }));
 
 vi.mock('../../embedding-backfill', () => ({
@@ -447,7 +457,7 @@ describe('database IPC handlers', () => {
     await expect(handler?.({} as unknown, 'BAD')).rejects.toThrow(err);
   });
 
-  it('db:managed-cache:apply-batch validates payload and delegates to the shared batch helper', async () => {
+  it('db:managed-cache:apply-batch validates payload and delegates to the DB host', async () => {
     const handler = handlers.get('db:managed-cache:apply-batch');
     const payload = {
       embeddingSetId: 'set-1',
@@ -472,8 +482,9 @@ describe('database IPC handlers', () => {
 
     await handler?.({} as unknown, payload);
 
-    expect(getDatabaseMock).toHaveBeenCalled();
-    expect(applyManagedCacheBatchMock).toHaveBeenCalledWith(mockDb, payload);
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+    expect(getDbHostManagerMock).toHaveBeenCalled();
+    expect(applyManagedCacheBatchMock).toHaveBeenCalledWith(payload);
   });
 
   it('schedules db:managed-cache:apply-batch as background when requested', async () => {
@@ -513,7 +524,7 @@ describe('database IPC handlers', () => {
       await background;
 
       expect(order).toEqual(['query', 'batch']);
-      expect(applyManagedCacheBatchMock).toHaveBeenCalledWith(mockDb, payload);
+      expect(applyManagedCacheBatchMock).toHaveBeenCalledWith(payload);
     } finally {
       vi.useRealTimers();
     }
@@ -531,6 +542,7 @@ describe('database IPC handlers', () => {
     ).rejects.toThrow();
 
     expect(getDatabaseMock).not.toHaveBeenCalled();
+    expect(getDbHostManagerMock).not.toHaveBeenCalled();
     expect(applyManagedCacheBatchMock).not.toHaveBeenCalled();
     expect(isCorruptionErrorMock).not.toHaveBeenCalled();
     expect(handleRuntimeCorruptionMock).not.toHaveBeenCalled();
@@ -545,8 +557,9 @@ describe('database IPC handlers', () => {
 
     await handler?.({} as unknown, payload);
 
-    expect(getDatabaseMock).toHaveBeenCalled();
-    expect(applyManagedCacheBatchMock).toHaveBeenCalledWith(mockDb, payload);
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+    expect(getDbHostManagerMock).toHaveBeenCalled();
+    expect(applyManagedCacheBatchMock).toHaveBeenCalledWith(payload);
   });
 
   it('embedding-host:enqueue-backfill runs backfill in main and streams progress', async () => {
@@ -1506,7 +1519,7 @@ describe('database IPC handlers', () => {
     process.env['NODE_ENV'] = originalEnv;
   });
 
-  it('db:diagnostics returns main-process diagnostics snapshot', async () => {
+  it('db:diagnostics returns DB-host diagnostics snapshot', async () => {
     const handler = handlers.get('db:diagnostics');
     if (!handler) {
       throw new Error('handler not registered');
@@ -1514,6 +1527,7 @@ describe('database IPC handlers', () => {
 
     const result = await handler({} as unknown);
 
+    expect(getDbHostManagerMock).toHaveBeenCalledTimes(1);
     expect(getDatabaseDiagnosticsMock).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
       databaseProfile: 'test',
@@ -1545,7 +1559,7 @@ describe('database IPC handlers', () => {
     expect(result).toEqual({
       success: true,
       message: 'Database connection successful',
-      dbLocation: 'Main Process',
+      dbLocation: 'DB Host',
     });
   });
 
@@ -1558,7 +1572,7 @@ describe('database IPC handlers', () => {
     expect(result).toEqual({
       success: false,
       message: 'Database connection failed: oops',
-      dbLocation: 'Main Process',
+      dbLocation: 'DB Host',
     });
   });
 

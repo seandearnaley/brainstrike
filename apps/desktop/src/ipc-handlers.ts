@@ -1,6 +1,5 @@
 import path from 'node:path';
 import {
-  applyManagedCacheBatch,
   createDatabaseWorkScheduler,
   createScheduledDbHandle,
   type DatabaseWorkOptions,
@@ -1263,8 +1262,8 @@ export function registerIpcHandlers(
   });
 
   registerHandler('db:diagnostics', async (_e: IpcMainInvokeEvent) => {
-    const { getDatabaseDiagnostics } = await import('./db-main');
-    return getDatabaseDiagnostics();
+    const { getDbHostManager } = await import('./db-host-manager');
+    return await getDbHostManager().getDiagnostics();
   });
 
   registerHandler('db:scheduler:snapshot', async (_e: IpcMainInvokeEvent) =>
@@ -1282,9 +1281,8 @@ export function registerIpcHandlers(
         DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL,
         async () =>
           withCorruptionRecovery(async () => {
-            const { getDatabase } = await import('./db-main');
-            const db = await getDatabase();
-            await applyManagedCacheBatch(db, parsedPayload);
+            const { getDbHostManager } = await import('./db-host-manager');
+            await getDbHostManager().applyManagedCacheBatch(parsedPayload);
           }, DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL)
       );
     }
@@ -1300,14 +1298,14 @@ export function registerIpcHandlers(
         return {
           success: true,
           message: 'Database connection successful',
-          dbLocation: 'Main Process',
+          dbLocation: 'DB Host',
         };
       }, 'db:test');
     } catch (error) {
       return {
         success: false,
         message: `Database connection failed: ${error instanceof Error ? error.message : String(error)}`,
-        dbLocation: 'Main Process',
+        dbLocation: 'DB Host',
       };
     }
   });
