@@ -394,6 +394,62 @@ describe('vector-queue-service', () => {
     vi.useRealTimers();
   });
 
+  it('honors a configured queue capacity timeout', async () => {
+    vi.useFakeTimers();
+    const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 64, running: 0, failed: 0, succeeded: 0 },
+      ]),
+      clear: vi.fn(),
+      requeueFailed: vi.fn(),
+    };
+
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [
+              {
+                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+                modelId: 'Xenova/all-MiniLM-L6-v2',
+                dimensions: 384,
+              },
+            ],
+          } as { rows: unknown[] };
+        }
+        if (sql.includes('COUNT(*)::int AS count')) {
+          return { rows: [{ count: 1 }] } as { rows: unknown[] };
+        }
+        return { rows: [] } as { rows: unknown[] };
+      }) as VectorQueueDatabase['query'],
+    };
+
+    const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
+      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
+      clearEmbeddingsForSet: vi.fn(async () => 0),
+    };
+
+    const service = createVectorQueueService({
+      db,
+      jobQueue,
+      chunkRepository,
+    });
+
+    const backfillPromise = service.backfill('set-1', {
+      onProgress: vi.fn(),
+      queueCapacityTimeoutMs: 50,
+    });
+    const rejection = expect(backfillPromise).rejects.toThrow(
+      'Backfill timed out while waiting for queue capacity below 64 jobs.'
+    );
+    await vi.advanceTimersByTimeAsync(100);
+
+    await rejection;
+    expect(jobQueue.enqueueBatch).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
   it('backfill aborts cleanly while waiting for queue capacity', async () => {
     vi.useFakeTimers();
     const abortController = new AbortController();

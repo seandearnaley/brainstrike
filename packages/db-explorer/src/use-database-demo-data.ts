@@ -1008,9 +1008,11 @@ export function useDatabaseDemoData({
     schemaReady,
   ]);
 
-  const resolvedRecords = liveQueryEnabled ? records : cachedRecords;
-  const resolvedTotalRecords = liveQueryEnabled ? liveTotalRecords : cachedTotalRecords;
-  const resolvedCollectionCounts = liveQueryEnabled ? liveCollectionCounts : cachedCollectionCounts;
+  const resolvedRecords = liveQueryEnabled && !recordsLoading ? records : cachedRecords;
+  const resolvedTotalRecords =
+    liveQueryEnabled && !totalRecordsLoading ? liveTotalRecords : cachedTotalRecords;
+  const resolvedCollectionCounts =
+    liveQueryEnabled && !collectionCountsLoading ? liveCollectionCounts : cachedCollectionCounts;
   const pageDataDiagnosticSignatureRef = useRef<string | null>(null);
 
   const loadFileChunkSummaries = useCallback(

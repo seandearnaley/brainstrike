@@ -90,6 +90,8 @@ interface UseEmbeddingRuntimeControllerParams {
   readonly service: VectorQueueService | null;
 }
 
+const BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS = 10 * 60 * 1000;
+
 function getEmbeddingHostApi(): EmbeddingHostApi | null {
   if (typeof window === 'undefined') {
     return null;
@@ -187,6 +189,11 @@ async function enqueueLocalBackfill(args: {
           total,
         });
       },
+      ...(source === 'background-indexing'
+        ? {
+            queueCapacityTimeoutMs: BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
+          }
+        : {}),
       ...(signal ? { signal } : {}),
     });
     return { requestId };

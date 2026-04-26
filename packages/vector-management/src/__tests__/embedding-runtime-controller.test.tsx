@@ -408,6 +408,7 @@ describe('useEmbeddingRuntimeController', () => {
       'set-1',
       expect.objectContaining({
         onProgress: expect.any(Function),
+        queueCapacityTimeoutMs: 600_000,
         signal: expect.any(AbortSignal),
       })
     );

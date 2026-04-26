@@ -108,6 +108,7 @@ const LIVE_FLUSH_BACKGROUND_INTERVAL_MS = 2000;
 const LIVE_FLUSH_FOREGROUND_INTERVAL_MS = 200;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES = 4;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS = 250;
+const BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS = 10 * 60 * 1000;
 interface EmbeddingBackfillInFlightState {
   progress: { current: number; total: number } | null;
   requestId: string;
@@ -352,6 +353,11 @@ async function runDesktopEmbeddingBackfill(params: {
         },
         progressIntervalBatches: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES,
         progressIntervalMs: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS,
+        ...(source === 'background-indexing'
+          ? {
+              queueCapacityTimeoutMs: BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
+            }
+          : {}),
       }
     );
     return { requestId: backfillRequestId };

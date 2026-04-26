@@ -73,6 +73,7 @@ export type BackfillProgressHandler = (done: number, total: number) => void;
 
 export interface BackfillOptions {
   onProgress: BackfillProgressHandler;
+  queueCapacityTimeoutMs?: number;
   signal?: AbortSignal;
 }
 
@@ -385,6 +386,11 @@ export function createVectorQueueService(
 
     async backfill(activeSetId, options) {
       const { onProgress, signal } = options;
+      const queueCapacityTimeoutMs =
+        options.queueCapacityTimeoutMs ?? BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS;
+      if (!Number.isInteger(queueCapacityTimeoutMs) || queueCapacityTimeoutMs <= 0) {
+        throw new Error('queueCapacityTimeoutMs must be a positive integer when configured.');
+      }
       logger.info('Backfill requested', { embeddingSetId: activeSetId });
       throwIfAborted(signal);
       const setMetadata = await resolveEmbeddingSetJobMetadata(db, activeSetId);
@@ -407,7 +413,7 @@ export function createVectorQueueService(
           jobQueue,
           BACKFILL_MAX_QUEUE_DEPTH,
           BACKFILL_BACKLOG_POLL_MS,
-          BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
+          queueCapacityTimeoutMs,
           signal
         );
         const batchLimit = Math.min(BACKFILL_ENQUEUE_BATCH_SIZE, total - done, availableCapacity);

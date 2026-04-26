@@ -96,15 +96,20 @@ const createChunkRepository = (chunks: FileChunk[]): DrizzleFileChunkRepository 
 const setupLiveQueries = (
   options: {
     collectionCounts?: Record<string, unknown>[];
+    collectionCountsLoading?: boolean;
     records?: Record<string, unknown>[];
+    recordsLoading?: boolean;
     recordError?: Error | null;
     totalRecords?: Record<string, unknown>[];
+    totalRecordsLoading?: boolean;
   } = {}
 ) => {
   const {
     records = [],
+    recordsLoading = false,
     recordError = null,
     totalRecords = [{ totalRecords: records.length }],
+    totalRecordsLoading = false,
     collectionCounts = [
       {
         recordsCount: records.length,
@@ -112,6 +117,7 @@ const setupLiveQueries = (
         embeddingsCount: 0,
       },
     ],
+    collectionCountsLoading = false,
   } = options;
   const recordRefresh = vi.fn().mockResolvedValue(undefined);
   const totalRecordsRefresh = vi.fn().mockResolvedValue(undefined);
@@ -119,19 +125,19 @@ const setupLiveQueries = (
 
   const recordResult = {
     rows: records,
-    loading: false,
+    loading: recordsLoading,
     error: recordError,
     refresh: recordRefresh,
   };
   const totalRecordsResult = {
     rows: totalRecords,
-    loading: false,
+    loading: totalRecordsLoading,
     error: null,
     refresh: totalRecordsRefresh,
   };
   const collectionCountsResult = {
     rows: collectionCounts,
-    loading: false,
+    loading: collectionCountsLoading,
     error: null,
     refresh: collectionCountsRefresh,
   };
@@ -343,6 +349,88 @@ describe('useDatabaseDemoData', () => {
           queryOptions.query.includes('AS "recordsCount"') && queryOptions.enabled === true
       )
     ).toBe(true);
+  });
+
+  it('uses active collection cache while replacement live queries are loading', async () => {
+    mockVectorStatusUIStore.schemaVerified = true;
+    mockVectorStatusUIStore.cachedFileData = {
+      collectionCounts: {
+        records: 3,
+        chunks: 30,
+        embeddings: 12,
+      },
+      collectionId: 'set-2',
+      page: 0,
+      pageSize: 50,
+      records: [
+        {
+          id: 'set-2-record',
+          name: 'active.ts',
+          path: '/active.ts',
+          size: 12,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+          contentHash: 'active-hash',
+          tokenCount: 1,
+          processedAt: null,
+          chunksProcessedAt: null,
+          chunksCount: 30,
+          embeddedChunksCount: 12,
+          chunkingStrategy: null,
+          hasEmbedding: false,
+          embeddingSetId: 'set-2',
+        },
+      ],
+      chunks: [],
+      totalRecords: 3,
+    };
+    setupLiveQueries({
+      records: [
+        {
+          id: 'set-1-stale-record',
+          name: 'stale.ts',
+          path: '/stale.ts',
+          size: 24,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+          contentHash: 'stale-hash',
+          tokenCount: 2,
+          processedAt: null,
+          chunksProcessedAt: null,
+          chunksCount: 1000,
+          embeddedChunksCount: 999,
+          chunkingStrategy: null,
+          hasEmbedding: true,
+          embeddingSetId: 'set-1',
+        },
+      ],
+      recordsLoading: true,
+      totalRecords: [{ totalRecords: 999 }],
+      totalRecordsLoading: true,
+      collectionCounts: [{ recordsCount: 999, chunksCount: 1000, embeddingsCount: 999 }],
+      collectionCountsLoading: true,
+    });
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository: createRepository(),
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database: createMockDatabase(),
+        activeCollectionId: 'set-2',
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.refreshing).toBe(true);
+    });
+    expect(result.current.records.map((record) => record.id)).toEqual(['set-2-record']);
+    expect(result.current.recordPagination.totalRecords).toBe(3);
+    expect(result.current.collectionCounts).toEqual({
+      records: 3,
+      chunks: 30,
+      embeddings: 12,
+    });
   });
 
   it('uses the canonical four-parameter record query when fetching import snapshots', async () => {

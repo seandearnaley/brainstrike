@@ -693,6 +693,15 @@ describe('database IPC handlers', () => {
     const snapshot = getDesktopDatabaseWorkSchedulerSnapshot();
     expect(snapshot.priorityStats.background.completed).toBe(1);
     expect(snapshot.priorityStats.foreground.completed).toBe(0);
+    expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(Object),
+      'set-123',
+      expect.any(Function),
+      expect.objectContaining({
+        queueCapacityTimeoutMs: 600_000,
+      })
+    );
     expect(result).toEqual({
       requestId: expect.stringMatching(/^background-indexing-backfill:/),
     });
