@@ -387,7 +387,12 @@ class DefaultDbHostManager implements DbHostManager {
   }
 
   async #initialize(): Promise<RemoteDbClient> {
-    await this.send<DbHostInitResult>({ kind: 'init' });
+    try {
+      await this.send<DbHostInitResult>({ kind: 'init' });
+    } catch (error) {
+      this.#terminateHost(error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
     this.#client = this.#createClient();
     return this.#client;
   }
