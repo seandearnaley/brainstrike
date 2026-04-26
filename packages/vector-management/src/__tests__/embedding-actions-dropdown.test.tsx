@@ -161,6 +161,17 @@ describe('EmbeddingActionsDropdown', () => {
       });
     });
 
+    it('names the retry action as stalled recovery when failed jobs are blocking queued work', async () => {
+      const user = userEvent.setup();
+      renderDropdown({ failedCount: 5, queueCounts: { queued: 5, running: 0 } });
+
+      await user.click(screen.getByRole('button', { name: 'More embedding actions' }));
+
+      expect(
+        await screen.findByRole('menuitem', { name: /retry failed & stalled/i })
+      ).toBeVisible();
+    });
+
     it('calls onRetryFailed when clicked', async () => {
       const user = userEvent.setup();
       const onRetryFailed = vi.fn().mockResolvedValue(undefined);

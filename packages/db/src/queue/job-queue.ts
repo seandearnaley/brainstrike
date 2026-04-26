@@ -113,6 +113,10 @@ export interface FailBatchParams {
   terminal?: boolean;
 }
 
+export interface QueueRetryOptions {
+  embeddingSetId?: string;
+}
+
 export interface CancelParams {
   id: string;
   leaseToken?: string;
@@ -1193,23 +1197,71 @@ export class JobQueue {
     return removed;
   }
 
-  async requeueFailed(queue?: string, limit = 20): Promise<number> {
+  async requeueFailed(
+    queue?: string,
+    limit = 20,
+    options: QueueRetryOptions = {}
+  ): Promise<number> {
     const now = new Date().toISOString();
     const params: unknown[] = [now, limit];
-    let queueClause = '';
+    const conditions = ["state = 'failed'"];
     if (queue) {
-      queueClause = 'AND queue = $3';
       params.push(queue);
+      conditions.push(`queue = $${params.length}`);
+    }
+    if (options.embeddingSetId) {
+      params.push(options.embeddingSetId);
+      conditions.push(`payload->>'embeddingSetId' = $${params.length}`);
     }
     const res = await this.db.query<{ count: string }>(
       `WITH cte AS (
         SELECT id FROM job_queue
-        WHERE state = 'failed' ${queueClause}
+        WHERE ${conditions.join(' AND ')}
         ORDER BY updated_at DESC
         LIMIT $2
       ), upd AS (
         UPDATE job_queue SET
           state = 'queued',
+          attempts = 0,
+          run_at = $1,
+          backoff_ms = 0,
+          leased_until = NULL,
+          lease_token = NULL,
+          error = NULL,
+          updated_at = $1
+        WHERE id IN (SELECT id FROM cte)
+        RETURNING 1
+      ) SELECT COUNT(*)::text as count FROM upd`,
+      params
+    );
+    return Number(res.rows[0]?.count ?? 0);
+  }
+
+  async repairUnclaimableQueued(
+    queue?: string,
+    limit = 20,
+    options: QueueRetryOptions = {}
+  ): Promise<number> {
+    const now = new Date().toISOString();
+    const params: unknown[] = [now, limit];
+    const conditions = ["state = 'queued'", 'attempts >= max_attempts'];
+    if (queue) {
+      params.push(queue);
+      conditions.push(`queue = $${params.length}`);
+    }
+    if (options.embeddingSetId) {
+      params.push(options.embeddingSetId);
+      conditions.push(`payload->>'embeddingSetId' = $${params.length}`);
+    }
+    const res = await this.db.query<{ count: string }>(
+      `WITH cte AS (
+        SELECT id FROM job_queue
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY updated_at DESC
+        LIMIT $2
+      ), upd AS (
+        UPDATE job_queue SET
+          attempts = 0,
           run_at = $1,
           backoff_ms = 0,
           leased_until = NULL,

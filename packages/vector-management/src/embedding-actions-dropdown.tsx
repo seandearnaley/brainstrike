@@ -123,6 +123,10 @@ export function EmbeddingActionsDropdown({
   const isRetryDisabled = !hasDb || failedCount === 0;
   const isClearDisabled = !hasDb;
   const isWipeDisabled = !hasDb;
+  const retryLabel =
+    failedCount > 0 && queueCounts.queued > 0 && queueCounts.running === 0
+      ? 'Retry Failed & Stalled'
+      : 'Retry Failed';
 
   const buttonText = getBackfillButtonText(
     startingWorker,
@@ -210,7 +214,7 @@ export function EmbeddingActionsDropdown({
                 onClick={() => invokeAsyncAction(onRetryFailed)}
               >
                 <RotateCcw className="mr-2 h-3.5 w-3.5" />
-                <span>Retry Failed</span>
+                <span>{retryLabel}</span>
                 {failedCount > 0 && (
                   <span className="ml-auto text-muted-foreground text-xs">({failedCount})</span>
                 )}

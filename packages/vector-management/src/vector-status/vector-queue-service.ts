@@ -66,7 +66,10 @@ export interface VectorQueueDatabase {
 export interface VectorQueueServiceDependencies {
   chunkRepository: Pick<FileChunkRepository, 'getCoverageForSet' | 'clearEmbeddingsForSet'>;
   db: VectorQueueDatabase;
-  jobQueue: Pick<JobQueue, 'clear' | 'enqueueBatch' | 'getQueueStats' | 'requeueFailed'>;
+  jobQueue: Pick<
+    JobQueue,
+    'clear' | 'enqueueBatch' | 'getQueueStats' | 'repairUnclaimableQueued' | 'requeueFailed'
+  >;
 }
 
 export type BackfillProgressHandler = (done: number, total: number) => void;
@@ -90,6 +93,7 @@ const BACKFILL_MAX_QUEUE_DEPTH = 64;
 const BACKFILL_BACKLOG_POLL_MS = 100;
 const BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS = 30_000;
 const BACKFILL_DRAIN_TIMEOUT_MS = 300_000;
+const BACKFILL_QUEUE_RECOVERY_LIMIT = 5000;
 
 function createAbortError(message: string): Error {
   const error = new Error(message);
@@ -395,6 +399,8 @@ export function createVectorQueueService(
       throwIfAborted(signal);
       const setMetadata = await resolveEmbeddingSetJobMetadata(db, activeSetId);
       throwIfAborted(signal);
+      await recoverBackfillQueueState(jobQueue, activeSetId);
+      throwIfAborted(signal);
       const total = await countBackfillCandidates(db, activeSetId);
       logger.info('Embedding set metadata resolved for backfill', {
         embeddingSetId: activeSetId,
@@ -475,7 +481,15 @@ export function createVectorQueueService(
     },
 
     async retryFailed(limit) {
-      await jobQueue.requeueFailed(EMBEDDINGS_QUEUE, limit);
+      const repairedQueued = await jobQueue.repairUnclaimableQueued(EMBEDDINGS_QUEUE, limit);
+      const requeuedFailed = await jobQueue.requeueFailed(EMBEDDINGS_QUEUE, limit);
+      if (repairedQueued > 0 || requeuedFailed > 0) {
+        logger.warn('Retry recovered embedding queue jobs', {
+          repairedQueued,
+          requeuedFailed,
+          limit,
+        });
+      }
     },
 
     async clearQueue(states) {
@@ -621,6 +635,34 @@ async function loadBackfillCandidateDiagnostics(
     queuedOrRunningJobs: Number(row?.queuedOrRunningJobs ?? 0),
     failedJobs: Number(row?.failedJobs ?? 0),
   };
+}
+
+async function recoverBackfillQueueState(
+  jobQueue: Pick<JobQueue, 'repairUnclaimableQueued' | 'requeueFailed'>,
+  embeddingSetId: string
+): Promise<void> {
+  const repairedQueued =
+    (await jobQueue.repairUnclaimableQueued(EMBEDDINGS_QUEUE, BACKFILL_QUEUE_RECOVERY_LIMIT, {
+      embeddingSetId,
+    })) ?? 0;
+  const requeuedFailed =
+    (await jobQueue.requeueFailed(EMBEDDINGS_QUEUE, BACKFILL_QUEUE_RECOVERY_LIMIT, {
+      embeddingSetId,
+    })) ?? 0;
+
+  if (repairedQueued === 0 && requeuedFailed === 0) {
+    return;
+  }
+
+  logger.warn('Backfill recovered blocked embedding jobs', {
+    embeddingSetId,
+    repairedQueued,
+    requeuedFailed,
+    recoveryLimit: BACKFILL_QUEUE_RECOVERY_LIMIT,
+    mayHaveRemainingBlockedJobs:
+      repairedQueued >= BACKFILL_QUEUE_RECOVERY_LIMIT ||
+      requeuedFailed >= BACKFILL_QUEUE_RECOVERY_LIMIT,
+  });
 }
 
 async function loadBackfillCandidateBatch(

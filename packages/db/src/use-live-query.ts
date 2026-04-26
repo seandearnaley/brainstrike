@@ -182,6 +182,16 @@ export function makeLiveQueryKey(...args: readonly unknown[]): string {
   return JSON.stringify(args);
 }
 
+export function escapePGliteLiveQueryFormatPercents(
+  query: string,
+  params: readonly unknown[] | null | undefined
+): string {
+  if (!(params && params.length > 0)) {
+    return query;
+  }
+  return query.replaceAll('%', '%%');
+}
+
 function useStableParams<T>(value: T, strategy: 'json' | 'deep'): T {
   const ref = useRef<T>(value);
   const keyRef = useRef<string>('');
@@ -258,7 +268,11 @@ async function subscribeViaPGlite<T>(
     if (!options.key) {
       throw new Error('Live incremental queries require a key column');
     }
-    handle = await live.incrementalQuery(options.query, params ?? undefined, options.key);
+    handle = await live.incrementalQuery(
+      escapePGliteLiveQueryFormatPercents(options.query, params),
+      params ?? undefined,
+      options.key
+    );
   } else {
     const queryOptions: {
       query: string;
@@ -266,7 +280,7 @@ async function subscribeViaPGlite<T>(
       offset?: number;
       limit?: number;
     } = {
-      query: options.query,
+      query: escapePGliteLiveQueryFormatPercents(options.query, params),
       params,
     };
     if (options.offset !== undefined) {
@@ -302,7 +316,7 @@ async function subscribeViaElectron<T>(
 ): Promise<LiveSubscription<T>> {
   const startPayload: ElectronLiveQueryStartOptions = {
     mode: options.mode,
-    query: options.query,
+    query: escapePGliteLiveQueryFormatPercents(options.query, options.params),
     params: options.params ?? null,
   };
   if (options.key) {
