@@ -1356,6 +1356,36 @@ describe('database IPC handlers', () => {
     expect(liveHandle.unsubscribe).toHaveBeenCalled();
   });
 
+  it('db:live-query:start escapes literal percents when params are present', async () => {
+    const handler = handlers.get('db:live-query:start');
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const liveHandle = {
+      initialResults: { rows: [] },
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      refresh: vi.fn(),
+    };
+    mockDb.live.query.mockResolvedValue(liveHandle);
+
+    await handler(
+      { sender: { id: 23, isDestroyed: () => false, send: vi.fn(), once: vi.fn() } } as unknown,
+      {
+        query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
+        params: ['needle'],
+      }
+    );
+
+    expect(mockDb.live.query).toHaveBeenCalledWith({
+      query: "SELECT * FROM file_records WHERE path LIKE '%%' || $1 || '%%'",
+      params: ['needle'],
+      offset: undefined,
+      limit: undefined,
+    });
+  });
+
   it('db:live-query:start registers a single destroyed listener per webContents', async () => {
     const handler = handlers.get('db:live-query:start');
     if (!handler) {

@@ -6,6 +6,9 @@ import type {
 } from '@electric-sql/pglite/live';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePGliteDatabase } from './db-provider.js';
+import { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
+
+export { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
 
 interface BaseLiveQueryOptions {
   /**
@@ -180,16 +183,6 @@ export function deepEqual(a: unknown, b: unknown): boolean {
  */
 export function makeLiveQueryKey(...args: readonly unknown[]): string {
   return JSON.stringify(args);
-}
-
-export function escapePGliteLiveQueryFormatPercents(
-  query: string,
-  params: readonly unknown[] | null | undefined
-): string {
-  if (!(params && params.length > 0)) {
-    return query;
-  }
-  return query.replaceAll('%', '%%');
 }
 
 function useStableParams<T>(value: T, strategy: 'json' | 'deep'): T {

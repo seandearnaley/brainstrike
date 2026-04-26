@@ -7,6 +7,7 @@ import {
   type DatabaseWorkScheduler,
   type DatabaseWorkSchedulerOptions,
   type DatabaseWorkSchedulerSnapshot,
+  escapePGliteLiveQueryFormatPercents,
   JobQueue,
   parseManagedCacheBatchArgs,
 } from '@brainstrike/db';
@@ -762,7 +763,7 @@ async function createLiveQueryHandle(
       throw new Error('Live incremental queries require a key column');
     }
     return await db.live.incrementalQuery({
-      query: payload.query,
+      query: escapePGliteLiveQueryFormatPercents(payload.query, payload.params),
       params: payload.params ?? null,
       key: payload.key,
       offset: payload.offset,
@@ -770,7 +771,7 @@ async function createLiveQueryHandle(
     });
   }
   return await db.live.query({
-    query: payload.query,
+    query: escapePGliteLiveQueryFormatPercents(payload.query, payload.params),
     params: payload.params ?? null,
     offset: payload.offset,
     limit: payload.limit,

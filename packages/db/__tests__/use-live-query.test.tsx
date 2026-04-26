@@ -113,6 +113,12 @@ describe('escapePGliteLiveQueryFormatPercents', () => {
     expect(escapePGliteLiveQueryFormatPercents(query, [])).toBe(query);
     expect(escapePGliteLiveQueryFormatPercents(query, null)).toBe(query);
   });
+
+  it('does not double-escape already escaped live query percents', () => {
+    const query = "SELECT * FROM test WHERE name LIKE '%%' || $1 || '%%'";
+
+    expect(escapePGliteLiveQueryFormatPercents(query, ['needle'])).toBe(query);
+  });
 });
 
 describe('Electron Live Query', () => {

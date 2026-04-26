@@ -1,4 +1,8 @@
-import { applyManagedCacheBatch, parseManagedCacheBatchArgs } from '@brainstrike/db';
+import {
+  applyManagedCacheBatch,
+  escapePGliteLiveQueryFormatPercents,
+  parseManagedCacheBatchArgs,
+} from '@brainstrike/db';
 import type {
   DbHostLiveStartResult,
   DbHostQueryResult,
@@ -200,17 +204,18 @@ async function handleLiveStart(request: Extract<DbHostRequest, { kind: 'live:sta
     post({ kind: 'live-update', liveId, results });
   };
   const params = requireParamsArray(request.payload.params, 'live query');
+  const query = escapePGliteLiveQueryFormatPercents(request.payload.query, params);
   const handle =
     request.payload.mode === 'incremental'
       ? await db.live.incrementalQuery?.({
-          query: request.payload.query,
+          query,
           params: params ?? null,
           key: request.payload.key ?? '',
           ...(request.payload.offset === undefined ? {} : { offset: request.payload.offset }),
           ...(request.payload.limit === undefined ? {} : { limit: request.payload.limit }),
         })
       : await db.live.query?.({
-          query: request.payload.query,
+          query,
           params: params ?? null,
           ...(request.payload.offset === undefined ? {} : { offset: request.payload.offset }),
           ...(request.payload.limit === undefined ? {} : { limit: request.payload.limit }),

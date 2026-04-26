@@ -57,6 +57,8 @@ function installParentPortMock(): {
 async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 describe('db-host-entry', () => {
@@ -130,6 +132,48 @@ describe('db-host-entry', () => {
         id: 'query-request',
         kind: 'response',
         ok: false,
+      })
+    );
+  });
+
+  it('escapes literal percents for live query params before calling PGlite', async () => {
+    const liveQuery = vi.fn(async () => ({
+      initialResults: { rows: [] },
+      refresh: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    }));
+    dbMainMocks.getDatabase.mockResolvedValue({
+      live: { query: liveQuery },
+      query: vi.fn(async () => ({ rows: [] })),
+    });
+    const { listeners, parentPort } = installParentPortMock();
+    await import('../../db-host-entry');
+
+    listeners[0]?.({
+      data: {
+        id: 'live-start-request',
+        kind: 'request',
+        request: {
+          kind: 'live:start',
+          payload: {
+            query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
+            params: ['needle'],
+          },
+        },
+      },
+    });
+    await flushMicrotasks();
+
+    expect(liveQuery).toHaveBeenCalledWith({
+      query: "SELECT * FROM file_records WHERE path LIKE '%%' || $1 || '%%'",
+      params: ['needle'],
+    });
+    expect(parentPort.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'live-start-request',
+        kind: 'response',
+        ok: true,
       })
     );
   });
