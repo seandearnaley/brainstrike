@@ -194,6 +194,76 @@ describe('vector-queue-service', () => {
     expect(counts).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 2 });
   });
 
+  it('loads candidate diagnostics when backfill has no eligible chunks', async () => {
+    const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      enqueueBatch: vi.fn(),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+      ]),
+      clear: vi.fn(),
+      requeueFailed: vi.fn(),
+    };
+
+    const queries: string[] = [];
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async (sql: string) => {
+        queries.push(sql);
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [
+              {
+                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+                modelId: 'Xenova/all-MiniLM-L6-v2',
+                dimensions: 384,
+              },
+            ],
+          } as { rows: unknown[] };
+        }
+        if (sql.includes('COUNT(*)::int AS count')) {
+          return { rows: [{ count: 0 }] } as { rows: unknown[] };
+        }
+        if (sql.includes('backfill_candidate_diagnostics')) {
+          return {
+            rows: [
+              {
+                fileCount: 1,
+                chunkCount: 0,
+                pendingChunkCount: 0,
+                embeddedChunkCount: 0,
+                queuedOrRunningJobs: 0,
+                failedJobs: 0,
+              },
+            ],
+          } as { rows: unknown[] };
+        }
+        if (sql.includes(`payload->>'embeddingSetId' = $2`)) {
+          return {
+            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 0 }],
+          } as { rows: unknown[] };
+        }
+        return { rows: [] } as { rows: unknown[] };
+      }) as VectorQueueDatabase['query'],
+    };
+
+    const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
+      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
+      clearEmbeddingsForSet: vi.fn(async () => 0),
+    };
+
+    const service = createVectorQueueService({
+      db,
+      jobQueue,
+      chunkRepository,
+    });
+
+    await service.backfill('set-1', {
+      onProgress: vi.fn(),
+    });
+
+    expect(jobQueue.enqueueBatch).not.toHaveBeenCalled();
+    expect(queries.some((sql) => sql.includes('backfill_candidate_diagnostics'))).toBe(true);
+  });
+
   it('backfill splits large enqueue work into cooperative batches', async () => {
     const queueStatsSequence = [
       { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },

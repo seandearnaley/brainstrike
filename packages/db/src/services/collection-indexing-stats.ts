@@ -172,7 +172,7 @@ export async function refreshCollectionIndexingStats(
           FALSE,
           NOW()
         FROM embedding_sets s
-        JOIN requested r ON r.embedding_set_id = s.id
+        JOIN requested r ON r.embedding_set_id = s.id::text
         ON CONFLICT (embedding_set_id) DO UPDATE SET
           file_count = EXCLUDED.file_count,
           chunk_count = EXCLUDED.chunk_count,

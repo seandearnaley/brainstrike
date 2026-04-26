@@ -402,6 +402,13 @@ export function createVectorQueueService(
         expectedDimension: setMetadata.expectedDimension,
         candidates: total,
       });
+      if (total === 0) {
+        const diagnostics = await loadBackfillCandidateDiagnostics(db, activeSetId);
+        logger.warn('Backfill found no eligible chunks', {
+          embeddingSetId: activeSetId,
+          diagnostics,
+        });
+      }
       const failedBeforeBackfill = (await getEmbeddingSetQueueCounts(db, activeSetId)).failed;
 
       let done = 0;
@@ -511,6 +518,15 @@ interface BackfillBatchResult {
   selected: number;
 }
 
+interface BackfillCandidateDiagnostics {
+  chunkCount: number;
+  embeddedChunkCount: number;
+  failedJobs: number;
+  fileCount: number;
+  pendingChunkCount: number;
+  queuedOrRunningJobs: number;
+}
+
 async function countBackfillCandidates(
   db: VectorQueueDatabase,
   embeddingSetId: string
@@ -534,6 +550,77 @@ async function countBackfillCandidates(
     [embeddingSetId, EMBEDDINGS_QUEUE]
   );
   return Number(result.rows[0]?.count ?? 0);
+}
+
+async function loadBackfillCandidateDiagnostics(
+  db: VectorQueueDatabase,
+  embeddingSetId: string
+): Promise<BackfillCandidateDiagnostics> {
+  const result = await db.query<{
+    chunkCount: number | string | null;
+    embeddedChunkCount: number | string | null;
+    failedJobs: number | string | null;
+    fileCount: number | string | null;
+    pendingChunkCount: number | string | null;
+    queuedOrRunningJobs: number | string | null;
+  }>(
+    `WITH backfill_candidate_diagnostics AS (
+       SELECT $1::text AS embedding_set_id
+     ),
+     scoped_chunks AS (
+       SELECT c.id, c.embedding
+         FROM file_chunks c
+         JOIN file_records fr ON fr.id = c.file_record_id
+         JOIN backfill_candidate_diagnostics target ON (
+              c.embedding_set_id::text = target.embedding_set_id
+              OR (c.embedding_set_id IS NULL AND fr.embedding_set_id::text = target.embedding_set_id)
+            )
+     )
+     SELECT
+       (
+         SELECT COUNT(*)::int
+           FROM file_records fr
+           JOIN backfill_candidate_diagnostics target
+             ON fr.embedding_set_id::text = target.embedding_set_id
+       ) AS "fileCount",
+       (SELECT COUNT(*)::int FROM scoped_chunks) AS "chunkCount",
+       (
+         SELECT COUNT(*)::int
+           FROM scoped_chunks
+          WHERE embedding IS NULL
+       ) AS "pendingChunkCount",
+       (
+         SELECT COUNT(*)::int
+           FROM scoped_chunks
+          WHERE embedding IS NOT NULL
+       ) AS "embeddedChunkCount",
+       (
+         SELECT COUNT(*)::int
+           FROM job_queue j
+           JOIN backfill_candidate_diagnostics target
+             ON j.payload->>'embeddingSetId' = target.embedding_set_id
+          WHERE j.queue = $2
+            AND j.state IN ('queued','running')
+       ) AS "queuedOrRunningJobs",
+       (
+         SELECT COUNT(*)::int
+           FROM job_queue j
+           JOIN backfill_candidate_diagnostics target
+             ON j.payload->>'embeddingSetId' = target.embedding_set_id
+          WHERE j.queue = $2
+            AND j.state = 'failed'
+       ) AS "failedJobs"`,
+    [embeddingSetId, EMBEDDINGS_QUEUE]
+  );
+  const row = result.rows[0];
+  return {
+    fileCount: Number(row?.fileCount ?? 0),
+    chunkCount: Number(row?.chunkCount ?? 0),
+    pendingChunkCount: Number(row?.pendingChunkCount ?? 0),
+    embeddedChunkCount: Number(row?.embeddedChunkCount ?? 0),
+    queuedOrRunningJobs: Number(row?.queuedOrRunningJobs ?? 0),
+    failedJobs: Number(row?.failedJobs ?? 0),
+  };
 }
 
 async function loadBackfillCandidateBatch(
