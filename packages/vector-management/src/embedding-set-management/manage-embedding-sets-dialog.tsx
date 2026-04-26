@@ -217,14 +217,12 @@ export function ManageEmbeddingSetsDialog({
                 s.description,
                 s.tags,
                 s.category,
-                COUNT(DISTINCT fr.id) AS "fileCount",
-                COUNT(c.id) AS "chunkCount",
-                COUNT(c.id) FILTER (WHERE c.embedding IS NOT NULL) AS "embeddingCount",
-                MAX(c.updated_at) AS "lastEmbeddedAt"
+                COALESCE(stats.file_count, 0) AS "fileCount",
+                COALESCE(stats.chunk_count, 0) AS "chunkCount",
+                COALESCE(stats.embedded_chunk_count, 0) AS "embeddingCount",
+                stats.last_refreshed_at AS "lastEmbeddedAt"
            FROM embedding_sets s
-           LEFT JOIN file_chunks c ON c.embedding_set_id = s.id
-           LEFT JOIN file_records fr ON fr.embedding_set_id = s.id
-       GROUP BY s.id, s.model_key, s.model_id, s.dimensions, s.distance, s.created_at, s.name, s.description, s.tags, s.category
+           LEFT JOIN collection_indexing_stats stats ON stats.embedding_set_id = s.id
        ORDER BY s.created_at DESC`
       );
 

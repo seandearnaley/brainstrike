@@ -11,6 +11,8 @@ export interface EmbeddingSetEventCollection {
   modelId: string;
   modelKey: string;
   name: string | null;
+  statsAvailable?: boolean;
+  statsLastRefreshedAt?: string | null;
   tags: string | null;
 }
 

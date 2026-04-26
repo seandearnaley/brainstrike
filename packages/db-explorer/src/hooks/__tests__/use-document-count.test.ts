@@ -61,19 +61,19 @@ describe('useIndexedChunkCount', () => {
     expect(result.current).toBe(42);
     expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        query: expect.stringContaining('COUNT(*)'),
+        query: expect.stringContaining('FROM collection_indexing_stats'),
         params: ['collection-1'],
         enabled: true,
       })
     );
   });
 
-  it('returns zero when live query has no rows', () => {
+  it('returns undefined when stats are not available yet', () => {
     mockLiveQueryState.rows = [];
 
     const { result } = renderHook(() => useIndexedChunkCount('collection-1'));
 
-    expect(result.current).toBe(0);
+    expect(result.current).toBeUndefined();
   });
 
   it('returns undefined when live query errors', () => {

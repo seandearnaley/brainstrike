@@ -309,6 +309,8 @@ export function CreateEmbeddingSetDialog({
           fileCount: 0,
           chunkCount: 0,
           embeddingCount: 0,
+          statsAvailable: false,
+          statsLastRefreshedAt: null,
         },
       });
 

@@ -1,5 +1,5 @@
 import type { IDatabase, Job } from '@brainstrike/db';
-import { JobQueue } from '@brainstrike/db';
+import { JobQueue, refreshCollectionIndexingStats } from '@brainstrike/db';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { createLogger, generateUUID } from '@brainstrike/utils';
@@ -1789,6 +1789,12 @@ export async function startEmbeddingWorker(
     for (const job of completedJobs) {
       completedJobIds.add(job.id);
     }
+
+    await refreshCollectionIndexingStats(
+      options.db,
+      updates.map((update) => update.embeddingSetId),
+      { label: 'embedding completion stats refresh', priority: 'background' }
+    );
 
     return completedJobIds;
   }

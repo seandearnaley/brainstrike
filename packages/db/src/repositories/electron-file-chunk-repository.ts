@@ -5,6 +5,7 @@ import type {
   FileChunkInsert,
   FileChunkUpdate,
 } from '../models/file-chunk';
+import { refreshCollectionIndexingStats } from '../services/collection-indexing-stats.js';
 import {
   appendColumn,
   appendColumnIfDefined,
@@ -651,6 +652,11 @@ export class ElectronFileChunkRepository {
        RETURNING id`,
       [embeddingSetId]
     );
+
+    await refreshCollectionIndexingStats(this.db, [embeddingSetId], {
+      label: 'clear embeddings stats refresh',
+      priority: 'background',
+    });
 
     return result.rows.length;
   }
