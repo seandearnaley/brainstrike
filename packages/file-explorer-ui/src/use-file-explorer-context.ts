@@ -20,6 +20,7 @@ import {
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
 import { useOptionalFileTreeContext } from './file-tree-provider';
+import type { AddMultipleSelectedFilesChunked } from './hooks/recursive-selection-utils';
 import {
   type RestorationProgress,
   useExpandedPathRestoration,
@@ -124,7 +125,8 @@ interface UseFileExplorerReturn {
     filteredTree: IFileNode[],
     folderId: string,
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
-    maxSelectionCount: number
+    maxSelectionCount: number,
+    addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
   ) => Promise<{
     success: boolean;
     filePaths: string[];
@@ -140,7 +142,8 @@ interface UseFileExplorerReturn {
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
     maxSelectionCount: number,
     currentSelectionSize: number,
-    currentDirectorySelectionSize?: number
+    currentDirectorySelectionSize?: number,
+    addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
   ) => Promise<{ success: boolean; filePaths: string[]; cancelled?: boolean; error?: string }>;
   /**
    * Set the access loading state.

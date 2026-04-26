@@ -22,6 +22,7 @@ import { Button, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from
 import { CheckCheck, X } from 'lucide-react';
 import * as React from 'react';
 import { useCallback, useMemo } from 'react';
+import type { AddMultipleSelectedFilesChunked } from './hooks/recursive-selection-utils';
 import type { SelectAllResult } from './hooks/use-recursive-select-all';
 
 // NOTE: `| undefined` on optional props is required due to exactOptionalPropertyTypes: true in tsconfig.
@@ -29,6 +30,8 @@ import type { SelectAllResult } from './hooks/use-recursive-select-all';
 export interface ActionButtonsProps {
   /** Add multiple selected files (used by recursive selection) */
   addMultipleSelectedFiles?: ((folderId: string, paths: string[]) => void) | undefined;
+  /** Add multiple selected files with cooperative chunking for large recursive selections. */
+  addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked | undefined;
   /** Cancel the current recursive selection operation */
   cancelSelectAll?: (() => void) | undefined;
   currentFolderId: string | null;
@@ -54,7 +57,8 @@ export interface ActionButtonsProps {
         filteredTree: IFileNode[],
         folderId: string,
         addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
-        maxSelectionCount: number
+        maxSelectionCount: number,
+        addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
       ) => Promise<SelectAllResult>)
     | undefined;
   selectedFilePaths: Set<string>;
@@ -78,6 +82,7 @@ export const ActionButtons = React.memo(
     cancelSelectAll,
     isLoadingForSelectAll = false,
     addMultipleSelectedFiles,
+    addMultipleSelectedFilesChunked,
     visibleFilePaths,
   }: ActionButtonsProps) => {
     /**
@@ -94,10 +99,17 @@ export const ActionButtons = React.memo(
           filteredTree,
           folderId,
           addMultipleSelectedFiles,
-          maxSelectionCount
+          maxSelectionCount,
+          addMultipleSelectedFilesChunked
         );
       },
-      [selectAllRecursively, addMultipleSelectedFiles, filteredTree, maxSelectionCount]
+      [
+        selectAllRecursively,
+        addMultipleSelectedFiles,
+        filteredTree,
+        maxSelectionCount,
+        addMultipleSelectedFilesChunked,
+      ]
     );
 
     /**

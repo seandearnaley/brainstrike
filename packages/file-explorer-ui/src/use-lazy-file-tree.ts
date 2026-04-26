@@ -26,6 +26,7 @@ import {
   useRecursiveFolderSelect,
   useRecursiveSelectAll,
 } from './hooks';
+import type { AddMultipleSelectedFilesChunked } from './hooks/recursive-selection-utils';
 import type { ExpandAllExecutorArgs, ExpandAllExecutorResult } from './hooks/use-expand-all';
 import { getRootFolderId } from './utils/get-root-folder-id';
 import {
@@ -547,7 +548,8 @@ export interface UseLazyFileTreeReturn {
     filteredTree: IFileNode[],
     folderId: string,
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
-    maxSelectionCount: number
+    maxSelectionCount: number,
+    addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
   ) => Promise<{
     success: boolean;
     filePaths: string[];
@@ -562,7 +564,9 @@ export interface UseLazyFileTreeReturn {
     folderId: string,
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
     maxSelectionCount: number,
-    currentSelectionSize: number
+    currentSelectionSize: number,
+    currentDirectorySelectionSize?: number,
+    addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
   ) => Promise<{ success: boolean; filePaths: string[]; cancelled?: boolean; error?: string }>;
   /** Loading progress for recursive selection (if available) */
   selectionLoadingProgress: { loaded: number; total: number } | null;
