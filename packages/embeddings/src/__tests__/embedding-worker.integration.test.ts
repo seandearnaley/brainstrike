@@ -227,6 +227,14 @@ describe('embedding-worker', () => {
 
     const dbWithUnavailableExtensionProbe: IDatabase = {
       query: async <T = unknown>(sql: string, params?: unknown[]) => {
+        if (
+          /FROM\s+information_schema\.columns/i.test(sql) &&
+          /column_name\s*=\s*'embedding'/i.test(sql)
+        ) {
+          return {
+            rows: [{ data_type: 'USER-DEFINED', udt_name: 'vector' }] as T[],
+          };
+        }
         if (/FROM\s+pg_extension/i.test(sql)) {
           return { rows: [] as T[] };
         }

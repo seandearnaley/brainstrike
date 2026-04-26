@@ -429,9 +429,24 @@ async function resolveIdType(db: IDatabase, table: string): Promise<string> {
 
 type EmbeddingWriteMode = 'vector' | 'raw';
 
+function readRowString(row: Record<string, unknown> | undefined, keys: readonly string[]): string {
+  if (!row) {
+    return '';
+  }
+
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === 'string') {
+      return value;
+    }
+  }
+
+  return '';
+}
+
 async function resolveEmbeddingWriteMode(db: IDatabase): Promise<EmbeddingWriteMode> {
   try {
-    const res = await db.query<{ dataType?: unknown; udtName?: unknown }>(
+    const res = await db.query<Record<string, unknown>>(
       `SELECT data_type AS "dataType", udt_name AS "udtName"
        FROM information_schema.columns
        WHERE table_name = 'file_chunks'
@@ -439,7 +454,10 @@ async function resolveEmbeddingWriteMode(db: IDatabase): Promise<EmbeddingWriteM
        LIMIT 1`
     );
     const row = res.rows[0];
-    const columnType = `${String(row?.udtName ?? '')} ${String(row?.dataType ?? '')}`.toLowerCase();
+    const columnType = `${readRowString(row, ['udtName', 'udt_name', 'udtname'])} ${readRowString(
+      row,
+      ['dataType', 'data_type', 'datatype']
+    )}`.toLowerCase();
 
     if (columnType.includes('vector')) {
       return 'vector';
