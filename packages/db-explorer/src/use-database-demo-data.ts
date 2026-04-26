@@ -876,6 +876,12 @@ export function useDatabaseDemoData({
       : 'pending';
   }, [activeCollectionId, collectionCountRows, collectionCountsLoading]);
 
+  const refreshCollectionCountsInBackground = useCallback(() => {
+    void refreshCollectionCountsQuery().catch((error: unknown) => {
+      logger.warn('Failed to refresh collection counts', { error });
+    });
+  }, [refreshCollectionCountsQuery]);
+
   // biome-ignore lint/plugin: This syncs live query results to cache, not fetching data
   useEffect(() => {
     if (
@@ -1170,11 +1176,8 @@ export function useDatabaseDemoData({
     await runManualRefresh(async () => {
       try {
         if (liveQueryEnabled) {
-          await Promise.all([
-            refreshRecordsQuery(),
-            refreshTotalRecordsQuery(),
-            refreshCollectionCountsQuery(),
-          ]);
+          refreshCollectionCountsInBackground();
+          await Promise.all([refreshRecordsQuery(), refreshTotalRecordsQuery()]);
         } else {
           await fetchSnapshot({
             includeRecords: true,
@@ -1200,7 +1203,7 @@ export function useDatabaseDemoData({
     fetchSnapshot,
     database,
     liveQueryEnabled,
-    refreshCollectionCountsQuery,
+    refreshCollectionCountsInBackground,
     refreshRecordsQuery,
     refreshTotalRecordsQuery,
     runManualRefresh,
@@ -1316,11 +1319,8 @@ export function useDatabaseDemoData({
 
     await runManualRefresh(async () => {
       if (liveQueryEnabled) {
-        await Promise.all([
-          refreshRecordsQuery(),
-          refreshTotalRecordsQuery(),
-          refreshCollectionCountsQuery(),
-        ]);
+        refreshCollectionCountsInBackground();
+        await Promise.all([refreshRecordsQuery(), refreshTotalRecordsQuery()]);
         return;
       }
       await fetchSnapshot({
@@ -1334,7 +1334,7 @@ export function useDatabaseDemoData({
     database,
     fetchSnapshot,
     liveQueryEnabled,
-    refreshCollectionCountsQuery,
+    refreshCollectionCountsInBackground,
     refreshRecordsQuery,
     refreshTotalRecordsQuery,
     runManualRefresh,
@@ -1626,12 +1626,7 @@ export function useDatabaseDemoData({
     };
   }, [database]);
 
-  const refreshing =
-    manualRefreshing ||
-    recordsLoading ||
-    totalRecordsLoading ||
-    collectionCountsLoading ||
-    fallbackLoading;
+  const refreshing = manualRefreshing || recordsLoading || totalRecordsLoading || fallbackLoading;
 
   // Sync local dbInfo state to global store for status bar
   useEffect(() => {

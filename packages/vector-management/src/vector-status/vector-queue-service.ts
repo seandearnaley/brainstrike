@@ -402,6 +402,7 @@ export function createVectorQueueService(
         expectedDimension: setMetadata.expectedDimension,
         candidates: total,
       });
+      const failedBeforeBackfill = (await getEmbeddingSetQueueCounts(db, activeSetId)).failed;
 
       let done = 0;
       let cursor: string | null = null;
@@ -451,9 +452,10 @@ export function createVectorQueueService(
         BACKFILL_DRAIN_TIMEOUT_MS,
         signal
       );
-      if (drainedCounts.failed > 0) {
+      const failedDuringBackfill = Math.max(0, drainedCounts.failed - failedBeforeBackfill);
+      if (failedDuringBackfill > 0) {
         throw new Error(
-          `Backfill failed for embedding set '${activeSetId}': ${drainedCounts.failed} job(s) failed.`
+          `Backfill failed for embedding set '${activeSetId}': ${failedDuringBackfill} job(s) failed.`
         );
       }
       logger.info('Backfill complete', {

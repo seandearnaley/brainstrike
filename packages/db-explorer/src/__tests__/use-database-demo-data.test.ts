@@ -551,6 +551,54 @@ describe('useDatabaseDemoData', () => {
     });
   });
 
+  it('does not block the collection file list while only collection stats are pending', async () => {
+    mockVectorStatusUIStore.schemaVerified = true;
+    setupLiveQueries({
+      records: [
+        {
+          id: 'record-1',
+          name: 'active.ts',
+          path: '/active.ts',
+          size: 12,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+          contentHash: 'active-hash',
+          tokenCount: 1,
+          processedAt: null,
+          chunksProcessedAt: null,
+          chunksCount: 1,
+          embeddedChunksCount: 0,
+          chunkingStrategy: null,
+          hasEmbedding: false,
+          embeddingSetId: 'set-1',
+        },
+      ],
+      recordsLoading: false,
+      totalRecords: [{ embeddingSetId: 'set-1', totalRecords: 1 }],
+      totalRecordsLoading: false,
+      collectionCounts: [],
+      collectionCountsLoading: true,
+    });
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository: createRepository(),
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database: createMockDatabase(),
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.records.map((record) => record.id)).toEqual(['record-1']);
+    });
+    expect(result.current.collectionCountsStatus).toBe('pending');
+    await waitFor(() => {
+      expect(result.current.refreshing).toBe(false);
+    });
+  });
+
   it('uses the canonical four-parameter record query when fetching import snapshots', async () => {
     mockVectorStatusUIStore.schemaVerified = true;
     mockVectorStatusUIStore.isImporting = true;

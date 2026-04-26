@@ -1,4 +1,5 @@
 import {
+  refreshCollectionIndexingStats,
   useClearAllData,
   useDbProviderError,
   useEmbeddingSetsRepository,
@@ -292,11 +293,22 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   );
 
   const handleImportComplete = useCallback(
-    (results: EnhancedImportResult[]) => {
-      const handler = createImportCompletionHandler(toast, loadRecords, loadChunks);
-      handler(results);
+    async (results: EnhancedImportResult[]) => {
+      const handler = createImportCompletionHandler(toast, loadRecords, loadChunks, async () => {
+        if (!dbContext) {
+          throw new Error('Import completion stats refresh requires an initialized database.');
+        }
+        if (!activeCollectionId) {
+          throw new Error('Import completion stats refresh requires an active collection.');
+        }
+        await refreshCollectionIndexingStats(dbContext, [activeCollectionId], {
+          label: 'import completion stats refresh',
+          priority: 'foreground',
+        });
+      });
+      await handler(results);
     },
-    [toast, loadRecords, loadChunks]
+    [activeCollectionId, dbContext, toast, loadRecords, loadChunks]
   );
 
   const importFlow = useImportFlow({

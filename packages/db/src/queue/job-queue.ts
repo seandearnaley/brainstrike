@@ -133,21 +133,75 @@ export class JobQueue {
     return new JobQueue(db, this.defaults);
   }
 
+  private normalizeIdType(value: unknown): 'uuid' | 'text' | null {
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const normalized = value.toLowerCase();
+    if (normalized === 'uuid') {
+      return 'uuid';
+    }
+    if (normalized === 'text') {
+      return 'text';
+    }
+    return null;
+  }
+
+  private async resolveIdTypeFromPgCatalog(): Promise<'uuid' | 'text' | null> {
+    const res = await this.db.query<{ data_type: string }>(
+      `SELECT format_type(a.atttypid, a.atttypmod) AS data_type
+         FROM pg_catalog.pg_attribute a
+         JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relname = 'job_queue'
+          AND a.attname = 'id'
+          AND NOT a.attisdropped
+        LIMIT 1`
+    );
+    return this.normalizeIdType(res.rows[0]?.data_type);
+  }
+
+  private async resolveIdTypeFromInformationSchema(): Promise<'uuid' | 'text' | null> {
+    const res = await this.db.query<{ data_type: string }>(
+      `SELECT data_type
+         FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'job_queue'
+          AND column_name = 'id'
+        LIMIT 1`
+    );
+    return this.normalizeIdType(res.rows[0]?.data_type);
+  }
+
   private async getOrResolveIdType(): Promise<'uuid' | 'text'> {
     if (this.idType) {
       return this.idType;
     }
+    const errors: string[] = [];
+
     try {
-      const res = await this.db.query<{ data_type: string }>(
-        "SELECT data_type FROM information_schema.columns WHERE table_name = 'job_queue' AND column_name = 'id'"
-      );
-      const type = res.rows[0]?.data_type?.toLowerCase() ?? 'text';
-      this.idType = type === 'uuid' ? 'uuid' : 'text';
+      const type = await this.resolveIdTypeFromPgCatalog();
+      if (type) {
+        this.idType = type;
+        return this.idType;
+      }
     } catch (error) {
-      logger.warn('Failed to resolve ID type for job_queue, defaulting to text', { error });
-      this.idType = 'text';
+      errors.push(error instanceof Error ? error.message : String(error));
     }
-    return this.idType as 'uuid' | 'text';
+
+    try {
+      const type = await this.resolveIdTypeFromInformationSchema();
+      if (type) {
+        this.idType = type;
+        return this.idType;
+      }
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+
+    const suffix = errors.length > 0 ? ` Details: ${errors.join('; ')}` : '';
+    throw new Error(`Failed to resolve ID type for job_queue.id.${suffix}`);
   }
 
   private validateIdType(idType: string): asserts idType is 'uuid' | 'text' {

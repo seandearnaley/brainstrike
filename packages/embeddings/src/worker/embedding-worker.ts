@@ -413,18 +413,62 @@ async function loadChunksBatch(db: IDatabase, ids: string[], idType: string) {
 }
 
 async function resolveIdType(db: IDatabase, table: string): Promise<string> {
+  const normalizeType = (value: unknown): 'uuid' | 'text' | null => {
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const normalized = value.toLowerCase();
+    if (normalized === 'uuid') {
+      return 'uuid';
+    }
+    if (normalized === 'text') {
+      return 'text';
+    }
+    return null;
+  };
+  const errors: string[] = [];
+
   try {
-    // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
-    const res = await db.query<{ data_type: string }>(
-      "SELECT data_type FROM information_schema.columns WHERE table_name = $1 AND column_name = 'id'",
+    const res = await db.query<{ dataType: string }>(
+      `SELECT format_type(a.atttypid, a.atttypmod) AS "dataType"
+         FROM pg_catalog.pg_attribute a
+         JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relname = $1
+          AND a.attname = 'id'
+          AND NOT a.attisdropped
+        LIMIT 1`,
       [table]
     );
-    const type = res.rows[0]?.data_type?.toLowerCase() ?? 'text';
-    return type === 'uuid' ? 'uuid' : 'text';
+    const type = normalizeType(res.rows[0]?.dataType);
+    if (type) {
+      return type;
+    }
   } catch (error) {
-    workerLogger.warn(`Failed to resolve ID type for ${table}, defaulting to text`, { error });
-    return 'text';
+    errors.push(error instanceof Error ? error.message : String(error));
   }
+
+  try {
+    const res = await db.query<{ dataType: string }>(
+      `SELECT data_type AS "dataType"
+         FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = $1
+          AND column_name = 'id'
+        LIMIT 1`,
+      [table]
+    );
+    const type = normalizeType(res.rows[0]?.dataType);
+    if (type) {
+      return type;
+    }
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : String(error));
+  }
+
+  const suffix = errors.length > 0 ? ` Details: ${errors.join('; ')}` : '';
+  throw new Error(`Failed to resolve ID type for ${table}.id.${suffix}`);
 }
 
 function readRowString(row: Record<string, unknown> | undefined, keys: readonly string[]): string {

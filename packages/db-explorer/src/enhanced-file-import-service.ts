@@ -54,7 +54,7 @@ interface EnhancedFileImportOptions {
   chunkTokenLimit?: number;
   embeddingQueue?: QueueAdapter | null;
   enableChunking?: boolean;
-  onComplete?: (results: EnhancedImportResult[]) => void;
+  onComplete?: (results: EnhancedImportResult[]) => Promise<void> | void;
   onError?: (error: Error) => void;
   onProgress?: (progress: EnhancedImportProgress) => void;
   resolveTargetEmbeddingSetId?: () => string | null;
@@ -226,7 +226,7 @@ async function runImportFlow({
       results.map((result) => result.id)
     );
 
-    options.onComplete?.(results);
+    await options.onComplete?.(results);
   } catch (error) {
     if (controller.signal.aborted) {
       logger.info('Import aborted', { error });

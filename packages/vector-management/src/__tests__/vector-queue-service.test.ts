@@ -295,6 +295,68 @@ describe('vector-queue-service', () => {
       requeueFailed: vi.fn(),
     };
 
+    let setQueueCountCalls = 0;
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [
+              {
+                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+                modelId: 'Xenova/all-MiniLM-L6-v2',
+                dimensions: 384,
+              },
+            ],
+          } as { rows: unknown[] };
+        }
+        if (sql.includes('COUNT(*)::int AS count')) {
+          return { rows: [{ count: 1 }] } as { rows: unknown[] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          return {
+            rows: [{ id: '1', fileRecordId: '10', contentHash: 'hash-1' }],
+          } as { rows: unknown[] };
+        }
+        if (sql.includes(`payload->>'embeddingSetId' = $2`)) {
+          setQueueCountCalls += 1;
+          return {
+            rows: [
+              setQueueCountCalls === 1
+                ? { queued: 0, running: 0, failed: 0, succeeded: 0 }
+                : { queued: 0, running: 0, failed: 1, succeeded: 0 },
+            ],
+          } as { rows: unknown[] };
+        }
+        return { rows: [] } as { rows: unknown[] };
+      }) as VectorQueueDatabase['query'],
+    };
+
+    const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
+      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
+      clearEmbeddingsForSet: vi.fn(async () => 0),
+    };
+
+    const service = createVectorQueueService({
+      db,
+      jobQueue,
+      chunkRepository,
+    });
+
+    await expect(service.backfill('set-1', { onProgress: vi.fn() })).rejects.toThrow(
+      "Backfill failed for embedding set 'set-1': 1 job(s) failed."
+    );
+  });
+
+  it('does not fail a new backfill because of historical failed jobs for the same set', async () => {
+    const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 1, running: 0, failed: 1, succeeded: 0 },
+      ]),
+      clear: vi.fn(),
+      requeueFailed: vi.fn(),
+    };
+
     const db: VectorQueueDatabase = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes('FROM embedding_sets')) {
@@ -318,7 +380,7 @@ describe('vector-queue-service', () => {
         }
         if (sql.includes(`payload->>'embeddingSetId' = $2`)) {
           return {
-            rows: [{ queued: 0, running: 0, failed: 1, succeeded: 0 }],
+            rows: [{ queued: 0, running: 0, failed: 1, succeeded: 1 }],
           } as { rows: unknown[] };
         }
         return { rows: [] } as { rows: unknown[] };
@@ -336,9 +398,12 @@ describe('vector-queue-service', () => {
       chunkRepository,
     });
 
-    await expect(service.backfill('set-1', { onProgress: vi.fn() })).rejects.toThrow(
-      "Backfill failed for embedding set 'set-1': 1 job(s) failed."
-    );
+    await expect(service.backfill('set-1', { onProgress: vi.fn() })).resolves.toEqual({
+      queued: 0,
+      running: 0,
+      failed: 1,
+      succeeded: 1,
+    });
   });
 
   it('backfill fails fast when queue capacity never becomes available', async () => {
