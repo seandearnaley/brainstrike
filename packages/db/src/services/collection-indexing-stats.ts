@@ -1,4 +1,4 @@
-import { type DatabaseWorkOptions, getDatabaseWorkScheduler } from '../database-work-scheduler';
+import { type DatabaseWorkOptions, getDatabaseWorkScheduler } from '../database-work-scheduler.js';
 
 export interface CollectionIndexingStats {
   readonly chunkCount: number;
