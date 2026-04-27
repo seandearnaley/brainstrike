@@ -1,6 +1,6 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { getTableName } from 'drizzle-orm';
-import migrationsManifest from '../drizzle/migrations.json';
+import migrationsManifest from '../drizzle/migrations.json' with { type: 'json' };
 import { models, providers } from '../schema/index.js';
 
 export type DbMigrationAuthorityId = 'drizzle-migration-runner' | 'legacy-migration-runner';
