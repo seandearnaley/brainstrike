@@ -20,9 +20,9 @@ export interface DbMigrationAuthoritySnapshot {
 
 export interface ProviderModelCatalogSchemaAudit {
   readonly drizzleSchemaTables: readonly ['providers', 'models'];
-  readonly generatedManifestTables: readonly ['model_registry'];
+  readonly generatedManifestFinalTables: readonly ['providers', 'models'];
   readonly productionTables: readonly ['providers', 'models'];
-  readonly status: 'drizzle-schema-reconciled-production-manifest-unreconciled';
+  readonly status: 'drizzle-schema-and-manifest-reconciled';
 }
 
 const PRODUCTION_MIGRATION_AUTHORITY: DbMigrationAuthorityRecord = {
@@ -92,9 +92,9 @@ export function getProviderModelCatalogSchemaAudit(): ProviderModelCatalogSchema
 
   return {
     drizzleSchemaTables: ['providers', 'models'],
-    generatedManifestTables: ['model_registry'],
+    generatedManifestFinalTables: ['providers', 'models'],
     productionTables: ['providers', 'models'],
-    status: 'drizzle-schema-reconciled-production-manifest-unreconciled',
+    status: 'drizzle-schema-and-manifest-reconciled',
   };
 }
 

@@ -30,7 +30,7 @@ describe('DB migration authority', () => {
 
     expect(audit.productionTables).toEqual(['providers', 'models']);
     expect(audit.drizzleSchemaTables).toEqual(['providers', 'models']);
-    expect(audit.generatedManifestTables).toEqual(['model_registry']);
-    expect(audit.status).toBe('drizzle-schema-reconciled-production-manifest-unreconciled');
+    expect(audit.generatedManifestFinalTables).toEqual(['providers', 'models']);
+    expect(audit.status).toBe('drizzle-schema-and-manifest-reconciled');
   });
 });

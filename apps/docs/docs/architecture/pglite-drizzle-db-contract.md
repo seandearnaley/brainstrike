@@ -46,14 +46,15 @@ Drizzle schema now maps the production `providers/models` tables, so repository
 work can use the production catalog shape without depending on the old
 `model_registry` spike table.
 
-The generated Drizzle migration manifest still describes `model_registry` for
-that area. That manifest is therefore schema-validation-only and must not become
-the production migration authority until it is regenerated or bridged through an
-explicit migration cutover.
+The generated Drizzle migration manifest now ends with `providers/models` as the
+catalog tables and drops the old `model_registry` spike table from its final
+schema. It remains schema-validation-only because it does not own production
+runtime initialization or production catalog seeding.
 
 The coded baseline records this as
-`schema-reconciled-manifest-unreconciled`: production schema is represented in
-Drizzle code, but drizzle-kit generated SQL is not production-canonical.
+`schema-and-manifest-reconciled`: production schema is represented in Drizzle
+code and in the final generated Drizzle manifest shape, but the legacy
+MigrationRunner is still the only production migration authority.
 
 ## Required Contract
 

@@ -56,7 +56,9 @@ describe('Drizzle Migration Runner', () => {
       expect(tableNames).toContain('embedding_sets');
       expect(tableNames).toContain('job_queue');
       expect(tableNames).toContain('token_cache');
-      expect(tableNames).toContain('model_registry');
+      expect(tableNames).toContain('providers');
+      expect(tableNames).toContain('models');
+      expect(tableNames).not.toContain('model_registry');
       expect(tableNames).toContain('__drizzle_migrations');
     });
 
