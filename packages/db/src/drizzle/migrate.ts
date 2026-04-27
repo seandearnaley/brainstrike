@@ -140,11 +140,12 @@ function getErrorMessage(error: unknown): string {
 
 function isMissingDrizzleMigrationsLedgerError(error: unknown): boolean {
   const code = getErrorCode(error);
+  const message = getErrorMessage(error);
+
   if (code !== null) {
-    return code === '42P01';
+    return code === '42P01' && message.includes(MIGRATIONS_TABLE);
   }
 
-  const message = getErrorMessage(error);
   return (
     message.includes(`relation "${MIGRATIONS_TABLE}" does not exist`) ||
     message.includes(`table "${MIGRATIONS_TABLE}" does not exist`) ||

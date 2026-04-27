@@ -211,6 +211,20 @@ describe('Drizzle Migration Runner', () => {
       );
     });
 
+    it('does not treat unrelated undefined-table errors as a missing Drizzle ledger', async () => {
+      const unrelatedMissingTableError = new Error('relation "other_table" does not exist');
+      Object.assign(unrelatedMissingTableError, { code: '42P01' });
+
+      const query = vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockRejectedValueOnce(unrelatedMissingTableError);
+
+      await expect(getMigrationStatus({ query } as unknown as PGlite)).rejects.toThrow(
+        'relation "other_table" does not exist'
+      );
+    });
+
     it('refuses status diagnostics against a production legacy migration ledger', async () => {
       await db.query(`
         CREATE TABLE "_migrations" (
