@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-27T13:58:20.228Z",
+  "generatedAt": "2026-04-27T14:08:22.748Z",
   "finalSnapshotTables": [
     "collection_indexing_stats",
     "embedding_cache",
@@ -74,8 +74,8 @@
     {
       "version": "7",
       "name": "0009_great_polaris",
-      "sql": "ALTER TABLE \"models\" ALTER COLUMN \"created_at\" SET DEFAULT CURRENT_TIMESTAMP;--> statement-breakpoint\nALTER TABLE \"models\" ALTER COLUMN \"updated_at\" SET DEFAULT CURRENT_TIMESTAMP;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"created_at\" SET DEFAULT CURRENT_TIMESTAMP;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"updated_at\" SET DEFAULT CURRENT_TIMESTAMP;\n",
-      "hash": "c9bf4df6c2e3e740e2483879e0db645615e457bd5001c8322b777943394133df"
+      "sql": "-- Snapshot correction: 0008 now creates these defaults as expressions, but this\n-- migration preserves the generated Drizzle manifest history.\nALTER TABLE \"models\" ALTER COLUMN \"created_at\" SET DEFAULT CURRENT_TIMESTAMP;--> statement-breakpoint\nALTER TABLE \"models\" ALTER COLUMN \"updated_at\" SET DEFAULT CURRENT_TIMESTAMP;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"created_at\" SET DEFAULT CURRENT_TIMESTAMP;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"updated_at\" SET DEFAULT CURRENT_TIMESTAMP;\n",
+      "hash": "ad0540668df979cdfaa0d70c04114fe6495f38da62d101d3da34dc9fad9791e6"
     }
   ]
 }

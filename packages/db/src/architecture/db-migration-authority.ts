@@ -127,11 +127,10 @@ export async function assertNoConflictingMigrationLedger(db: Pick<PGlite, 'query
     SELECT tablename
     FROM pg_tables
     WHERE schemaname = 'public'
-      AND tablename IN ('_migrations', '__drizzle_migrations')
+      AND tablename = '__drizzle_migrations'
   `);
-  const tableNames = new Set(ledgers.rows.map((row) => row.tablename));
 
-  if (tableNames.has('__drizzle_migrations')) {
+  if (ledgers.rows.length > 0) {
     throw new Error(
       'Drizzle migration ledger "__drizzle_migrations" exists without an explicit migration bridge.'
     );

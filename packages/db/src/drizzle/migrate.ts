@@ -231,6 +231,8 @@ export async function getMigrationStatus(db: PGlite): Promise<{
   const manifest = migrationsManifest as MigrationManifest;
   const allMigrations = [...manifest.migrations, ...customMigrations];
 
+  await assertNoProductionMigrationLedger(db);
+
   try {
     await ensureMigrationsTable(db);
     const applied = await getAppliedMigrations(db);

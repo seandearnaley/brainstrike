@@ -180,6 +180,20 @@ describe('Drizzle Migration Runner', () => {
       expect(status.pending.length).toBe(status.total);
     });
 
+    it('refuses status diagnostics against a production legacy migration ledger', async () => {
+      await db.query(`
+        CREATE TABLE "_migrations" (
+          id SERIAL PRIMARY KEY,
+          version INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          checksum TEXT NOT NULL,
+          applied_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        )
+      `);
+
+      await expect(getMigrationStatus(db)).rejects.toThrow('legacy production migration ledger');
+    });
+
     it('should return no pending migrations after running', async () => {
       await runMigrations(db);
 
