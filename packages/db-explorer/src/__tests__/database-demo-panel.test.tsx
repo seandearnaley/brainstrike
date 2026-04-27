@@ -515,10 +515,15 @@ describe('DatabaseDemoPanel', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Chunking Studio')).toBeInTheDocument();
-        expect(screen.getByText('Routing plan')).toBeInTheDocument();
-        expect(screen.getByText('Code module')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Routing plan/i })).toBeInTheDocument();
         // Factory Reset was moved to global Preferences; it should not appear in Import Settings
         expect(screen.queryByText('Factory Reset')).not.toBeInTheDocument();
+      });
+
+      // Routing plan is collapsed by default; expand to verify the route preview renders.
+      await user.click(screen.getByRole('button', { name: /Routing plan/i }));
+      await waitFor(() => {
+        expect(screen.getByText('Code module')).toBeInTheDocument();
       });
     }, 10_000);
 
