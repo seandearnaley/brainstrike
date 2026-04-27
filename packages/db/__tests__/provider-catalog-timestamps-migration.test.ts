@@ -32,17 +32,25 @@ interface ProviderModelTimestampRow {
   provider_updated_at: string;
 }
 
-const LEGACY_PROVIDER_CREATED_AT = '2026-04-27T12:34:56.789Z';
-const LEGACY_PROVIDER_UPDATED_AT = '2026-04-27T13:45:01.123Z';
-const LEGACY_MODEL_CREATED_AT = '2026-04-26T08:15:00.500Z';
-const LEGACY_MODEL_UPDATED_AT = '2026-04-26T09:30:10.250Z';
+const LEGACY_PROVIDER_CREATED_AT = '2026-04-27T12:34:56.789123Z';
+const LEGACY_PROVIDER_UPDATED_AT = '2026-04-27T13:45:01.123456Z';
+const LEGACY_MODEL_CREATED_AT = '2026-04-26T08:15:00.500789Z';
+const LEGACY_MODEL_UPDATED_AT = '2026-04-26T09:30:10.250987Z';
 
 function epochSeconds(value: string): number {
-  return new Date(value).getTime() / 1000;
+  const isoMatch =
+    /^(?<wholeSecond>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(?<fraction>\d+))?Z$/.exec(value);
+  if (!isoMatch?.groups) {
+    throw new Error(`Unsupported ISO timestamp fixture: ${value}`);
+  }
+  const wholeSecondEpoch = Date.parse(`${isoMatch.groups.wholeSecond}Z`) / 1000;
+  const fractionalSeconds =
+    isoMatch.groups.fraction === undefined ? 0 : Number(`0.${isoMatch.groups.fraction}`);
+  return wholeSecondEpoch + fractionalSeconds;
 }
 
 function expectEpochCloseTo(actual: number | string, expectedIso: string): void {
-  expect(Number(actual)).toBeCloseTo(epochSeconds(expectedIso), 3);
+  expect(Number(actual)).toBeCloseTo(epochSeconds(expectedIso), 6);
 }
 
 describe('provider catalog timestamp migration', () => {

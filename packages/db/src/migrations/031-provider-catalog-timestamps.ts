@@ -23,18 +23,18 @@ export const migration031ProviderCatalogTimestamps: Migration = {
   down: `
     ALTER TABLE models
       ALTER COLUMN created_at DROP DEFAULT,
-      ALTER COLUMN created_at TYPE TEXT USING to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+      ALTER COLUMN created_at TYPE TEXT USING to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
       ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP,
       ALTER COLUMN updated_at DROP DEFAULT,
-      ALTER COLUMN updated_at TYPE TEXT USING to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+      ALTER COLUMN updated_at TYPE TEXT USING to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
       ALTER COLUMN updated_at SET DEFAULT CURRENT_TIMESTAMP;
 
     ALTER TABLE providers
       ALTER COLUMN created_at DROP DEFAULT,
-      ALTER COLUMN created_at TYPE TEXT USING to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+      ALTER COLUMN created_at TYPE TEXT USING to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
       ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP,
       ALTER COLUMN updated_at DROP DEFAULT,
-      ALTER COLUMN updated_at TYPE TEXT USING to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+      ALTER COLUMN updated_at TYPE TEXT USING to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
       ALTER COLUMN updated_at SET DEFAULT CURRENT_TIMESTAMP;
   `,
 };
