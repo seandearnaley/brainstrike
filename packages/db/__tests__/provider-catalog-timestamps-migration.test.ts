@@ -9,6 +9,10 @@ interface ColumnTypeRow {
   table_name: string;
 }
 
+interface CountRow {
+  count: number | string;
+}
+
 interface TimestampEpochRow {
   created_epoch: number | string;
   updated_epoch: number | string;
@@ -86,6 +90,27 @@ describe('provider catalog timestamp migration', () => {
       `,
       [LEGACY_MODEL_CREATED_AT, LEGACY_MODEL_UPDATED_AT]
     );
+
+    const preparedRows = await db.query<CountRow>(
+      `
+        SELECT COUNT(*)::int AS count
+        FROM providers
+        INNER JOIN models ON models.provider_id = providers.id
+        WHERE providers.id = 'openai'
+          AND providers.created_at = $1
+          AND providers.updated_at = $2
+          AND models.id = 'gpt-5.2'
+          AND models.created_at = $3
+          AND models.updated_at = $4
+      `,
+      [
+        LEGACY_PROVIDER_CREATED_AT,
+        LEGACY_PROVIDER_UPDATED_AT,
+        LEGACY_MODEL_CREATED_AT,
+        LEGACY_MODEL_UPDATED_AT,
+      ]
+    );
+    expect(Number(preparedRows.rows[0]?.count ?? 0)).toBe(1);
 
     const migration = migrations.find((candidate) => candidate.version === 31);
     expect(migration).toBeDefined();
