@@ -4,6 +4,7 @@ import {
   getDbMigrationAuthoritySnapshot,
   getProviderModelCatalogSchemaAudit,
 } from '../src/architecture/db-migration-authority.js';
+import migrationsManifest from '../src/drizzle/migrations.json';
 import { models, providers } from '../src/schema/index.js';
 
 describe('DB migration authority', () => {
@@ -32,5 +33,11 @@ describe('DB migration authority', () => {
     expect(audit.drizzleSchemaTables).toEqual(['providers', 'models']);
     expect(audit.generatedManifestFinalTables).toEqual(['providers', 'models']);
     expect(audit.status).toBe('drizzle-schema-and-manifest-reconciled');
+  });
+
+  it('derives the generated manifest final tables from the exported Drizzle snapshot', () => {
+    expect(migrationsManifest.finalSnapshotTables).toContain('providers');
+    expect(migrationsManifest.finalSnapshotTables).toContain('models');
+    expect(migrationsManifest.finalSnapshotTables).not.toContain('model_registry');
   });
 });

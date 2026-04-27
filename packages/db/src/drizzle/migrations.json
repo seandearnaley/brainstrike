@@ -1,6 +1,21 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-27T13:17:51.258Z",
+  "generatedAt": "2026-04-27T13:39:03.332Z",
+  "finalSnapshotTables": [
+    "collection_indexing_stats",
+    "embedding_cache",
+    "embedding_sets",
+    "file_chunks",
+    "file_records",
+    "file_token_cache",
+    "job_queue",
+    "models",
+    "providers",
+    "selection_snapshot_files",
+    "selection_snapshots",
+    "token_cache",
+    "view_filter_presets"
+  ],
   "migrations": [
     {
       "version": "7",
