@@ -44,6 +44,21 @@ interface AppliedMigration {
 
 const MIGRATIONS_TABLE = '__drizzle_migrations';
 
+async function assertNoProductionMigrationLedger(db: PGlite): Promise<void> {
+  const ledgers = await db.query<{ tablename: string }>(`
+    SELECT tablename
+    FROM pg_tables
+    WHERE schemaname = 'public'
+      AND tablename = '_migrations'
+  `);
+
+  if (ledgers.rows.length > 0) {
+    throw new Error(
+      'Refusing to run Drizzle schema-validation migrations against a legacy production migration ledger.'
+    );
+  }
+}
+
 /**
  * Ensures the migrations tracking table exists
  */
@@ -166,6 +181,8 @@ export async function runMigrations(
   const appliedMigrations: string[] = [];
 
   try {
+    await assertNoProductionMigrationLedger(db);
+
     if (enableVector) {
       await db.query('CREATE EXTENSION IF NOT EXISTS vector');
     }
@@ -213,6 +230,8 @@ export async function getMigrationStatus(db: PGlite): Promise<{
 }> {
   const manifest = migrationsManifest as MigrationManifest;
   const allMigrations = [...manifest.migrations, ...customMigrations];
+
+  await assertNoProductionMigrationLedger(db);
 
   try {
     await ensureMigrationsTable(db);

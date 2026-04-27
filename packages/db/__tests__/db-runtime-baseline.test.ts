@@ -29,8 +29,9 @@ describe('Brainstrike DB runtime baseline', () => {
     expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.schemaDrift).toContainEqual({
       id: 'provider-model-catalog',
       productionTables: ['providers', 'models'],
-      drizzleTables: ['model_registry'],
-      status: 'unreconciled',
+      drizzleGeneratedManifestFinalTables: ['providers', 'models'],
+      drizzleSchemaTables: ['providers', 'models'],
+      status: 'schema-and-manifest-reconciled',
     });
   });
 
@@ -58,6 +59,7 @@ describe('Brainstrike DB runtime baseline', () => {
     expect(doc).toContain('_migrations');
     expect(doc).toContain('__drizzle_migrations');
     expect(doc).toContain('providers/models');
-    expect(doc).toContain('model_registry');
+    expect(doc).toContain('Drizzle schema now maps the production `providers/models` tables');
+    expect(doc).toContain('generated Drizzle migration manifest now ends with `providers/models`');
   });
 });
