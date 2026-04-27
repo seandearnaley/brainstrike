@@ -6,7 +6,6 @@
  */
 
 import type { ResolvedChunkingStrategy } from '@brainstrike/text-splitter';
-import { sql } from 'drizzle-orm';
 import {
   boolean,
   customType,
@@ -353,8 +352,6 @@ export const embeddingCache = pgTable(
 // PROVIDER AND MODEL CATALOG TABLES
 // ============================================================================
 
-// Mirrors the current production catalog DDL. BST-529 tracks normalizing these
-// text timestamp columns to timestamptz through an explicit production migration.
 export const providers = pgTable(
   'providers',
   {
@@ -363,8 +360,8 @@ export const providers = pgTable(
     icon: text('icon'),
     isEnabled: boolean('is_enabled').default(false).notNull(),
     sortOrder: integer('sort_order').default(0).notNull(),
-    createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-    updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [index('idx_providers_sort_order').on(table.sortOrder)]
 );
@@ -385,8 +382,8 @@ export const models = pgTable(
     capabilities: jsonb('capabilities').$type<Record<string, unknown> | null>(),
     parameters: jsonb('parameters').$type<Record<string, unknown> | null>(),
     sortOrder: integer('sort_order').default(0).notNull(),
-    createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-    updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index('idx_models_provider_id').on(table.providerId),
