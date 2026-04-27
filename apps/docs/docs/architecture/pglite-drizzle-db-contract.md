@@ -37,17 +37,23 @@ No new runtime should introduce silent dual-ledger migration behavior. A future
 cutover must explicitly choose one production authority or define a staged
 compatibility bridge.
 
-## Known Schema Drift
+## Provider/Model Catalog Drift
 
 The hand-authored app migrations create and seed the provider/model catalog with
 `providers/models`.
 
-The current Drizzle schema and generated manifest still describe
-`model_registry` for that area. That `providers/models` versus `model_registry`
-drift must be reconciled before Drizzle migrations can become canonical.
-The coded baseline intentionally records current drift as `unreconciled`; expand
-that status only when the migration authority work has an explicit reconciled
-state to represent.
+Drizzle schema now maps the production `providers/models` tables, so repository
+work can use the production catalog shape without depending on the old
+`model_registry` spike table.
+
+The generated Drizzle migration manifest still describes `model_registry` for
+that area. That manifest is therefore schema-validation-only and must not become
+the production migration authority until it is regenerated or bridged through an
+explicit migration cutover.
+
+The coded baseline records this as
+`schema-reconciled-manifest-unreconciled`: production schema is represented in
+Drizzle code, but drizzle-kit generated SQL is not production-canonical.
 
 ## Required Contract
 

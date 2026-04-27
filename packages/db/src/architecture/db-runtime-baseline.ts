@@ -22,10 +22,11 @@ export interface DbRuntimeBaseline {
     readonly productionLedger: '_migrations';
   };
   readonly schemaDrift: readonly {
-    readonly drizzleTables: readonly string[];
+    readonly drizzleGeneratedManifestTables: readonly string[];
+    readonly drizzleSchemaTables: readonly string[];
     readonly id: string;
     readonly productionTables: readonly string[];
-    readonly status: 'unreconciled';
+    readonly status: 'schema-reconciled-manifest-unreconciled';
   }[];
   readonly web: {
     readonly owner: 'visible-renderer-direct-pglite';
@@ -49,8 +50,9 @@ export const BRAINSTRIKE_DB_RUNTIME_BASELINE: DbRuntimeBaseline = {
     {
       id: 'provider-model-catalog',
       productionTables: ['providers', 'models'],
-      drizzleTables: ['model_registry'],
-      status: 'unreconciled',
+      drizzleSchemaTables: ['providers', 'models'],
+      drizzleGeneratedManifestTables: ['model_registry'],
+      status: 'schema-reconciled-manifest-unreconciled',
     },
   ],
   web: {
