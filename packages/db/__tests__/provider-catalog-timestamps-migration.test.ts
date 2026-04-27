@@ -1,0 +1,164 @@
+import type { PGlite } from '@electric-sql/pglite';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { MigrationRunner, migrations } from '../src/migrations/index.js';
+import { wasmLoader } from '../src/wasm-loader.js';
+
+interface ColumnTypeRow {
+  column_name: string;
+  data_type: string;
+  table_name: string;
+}
+
+interface TimestampEpochRow {
+  created_epoch: number | string;
+  updated_epoch: number | string;
+}
+
+interface ProviderModelReadRow {
+  model_id: string;
+  model_updated_type: string;
+  provider_id: string;
+  provider_updated_type: string;
+}
+
+const LEGACY_PROVIDER_CREATED_AT = '2026-04-27T12:34:56.789Z';
+const LEGACY_PROVIDER_UPDATED_AT = '2026-04-27T13:45:01.123Z';
+const LEGACY_MODEL_CREATED_AT = '2026-04-26T08:15:00.500Z';
+const LEGACY_MODEL_UPDATED_AT = '2026-04-26T09:30:10.250Z';
+
+function epochSeconds(value: string): number {
+  return new Date(value).getTime() / 1000;
+}
+
+function expectEpochCloseTo(actual: number | string, expectedIso: string): void {
+  expect(Number(actual)).toBeCloseTo(epochSeconds(expectedIso), 3);
+}
+
+describe('provider catalog timestamp migration', () => {
+  let db: PGlite;
+  let runner: MigrationRunner;
+
+  beforeEach(async () => {
+    const dataDir = `/tmp/pglite-test-provider-catalog-timestamps-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 9)}`;
+    db = await wasmLoader.createPGlite(dataDir);
+    runner = new MigrationRunner(db);
+    await runner.initialize();
+  });
+
+  afterEach(async () => {
+    await db.close();
+  });
+
+  it('normalizes provider and model catalog timestamps to timestamptz without losing existing data', {
+    timeout: 60_000,
+  }, async () => {
+    await runner.up(migrations.filter((migration) => migration.version < 31));
+
+    const beforeTypes = await db.query<ColumnTypeRow>(`
+      SELECT table_name, column_name, data_type
+      FROM information_schema.columns
+      WHERE table_name IN ('providers', 'models')
+        AND column_name IN ('created_at', 'updated_at')
+      ORDER BY table_name, column_name
+    `);
+    expect(beforeTypes.rows).toEqual([
+      { table_name: 'models', column_name: 'created_at', data_type: 'text' },
+      { table_name: 'models', column_name: 'updated_at', data_type: 'text' },
+      { table_name: 'providers', column_name: 'created_at', data_type: 'text' },
+      { table_name: 'providers', column_name: 'updated_at', data_type: 'text' },
+    ]);
+
+    await db.query(
+      `
+        UPDATE providers
+        SET created_at = $1, updated_at = $2
+        WHERE id = 'openai'
+      `,
+      [LEGACY_PROVIDER_CREATED_AT, LEGACY_PROVIDER_UPDATED_AT]
+    );
+    await db.query(
+      `
+        UPDATE models
+        SET created_at = $1, updated_at = $2
+        WHERE id = 'gpt-5.2'
+      `,
+      [LEGACY_MODEL_CREATED_AT, LEGACY_MODEL_UPDATED_AT]
+    );
+
+    const migration = migrations.find((candidate) => candidate.version === 31);
+    expect(migration).toBeDefined();
+    if (!migration) {
+      throw new Error('Migration 031 is missing');
+    }
+    await runner.runMigration(migration);
+
+    const afterTypes = await db.query<ColumnTypeRow>(`
+      SELECT table_name, column_name, data_type
+      FROM information_schema.columns
+      WHERE table_name IN ('providers', 'models')
+        AND column_name IN ('created_at', 'updated_at')
+      ORDER BY table_name, column_name
+    `);
+    expect(afterTypes.rows).toEqual([
+      { table_name: 'models', column_name: 'created_at', data_type: 'timestamp with time zone' },
+      { table_name: 'models', column_name: 'updated_at', data_type: 'timestamp with time zone' },
+      {
+        table_name: 'providers',
+        column_name: 'created_at',
+        data_type: 'timestamp with time zone',
+      },
+      {
+        table_name: 'providers',
+        column_name: 'updated_at',
+        data_type: 'timestamp with time zone',
+      },
+    ]);
+
+    const providerTime = await db.query<TimestampEpochRow>(`
+      SELECT
+        EXTRACT(EPOCH FROM created_at) AS created_epoch,
+        EXTRACT(EPOCH FROM updated_at) AS updated_epoch
+      FROM providers
+      WHERE id = 'openai'
+    `);
+    expectEpochCloseTo(
+      providerTime.rows[0]?.created_epoch ?? Number.NaN,
+      LEGACY_PROVIDER_CREATED_AT
+    );
+    expectEpochCloseTo(
+      providerTime.rows[0]?.updated_epoch ?? Number.NaN,
+      LEGACY_PROVIDER_UPDATED_AT
+    );
+
+    const modelTime = await db.query<TimestampEpochRow>(`
+      SELECT
+        EXTRACT(EPOCH FROM created_at) AS created_epoch,
+        EXTRACT(EPOCH FROM updated_at) AS updated_epoch
+      FROM models
+      WHERE id = 'gpt-5.2'
+    `);
+    expectEpochCloseTo(modelTime.rows[0]?.created_epoch ?? Number.NaN, LEGACY_MODEL_CREATED_AT);
+    expectEpochCloseTo(modelTime.rows[0]?.updated_epoch ?? Number.NaN, LEGACY_MODEL_UPDATED_AT);
+
+    const catalogRead = await db.query<ProviderModelReadRow>(`
+      SELECT
+        providers.id AS provider_id,
+        models.id AS model_id,
+        pg_typeof(providers.updated_at)::text AS provider_updated_type,
+        pg_typeof(models.updated_at)::text AS model_updated_type
+      FROM providers
+      INNER JOIN models ON models.provider_id = providers.id
+      WHERE providers.id = 'openai' AND models.id = 'gpt-5.2'
+    `);
+    expect(catalogRead.rows).toEqual([
+      {
+        provider_id: 'openai',
+        model_id: 'gpt-5.2',
+        provider_updated_type: 'timestamp with time zone',
+        model_updated_type: 'timestamp with time zone',
+      },
+    ]);
+  });
+});

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-27T14:08:22.748Z",
+  "generatedAt": "2026-04-27T21:58:16.854Z",
   "finalSnapshotTables": [
     "collection_indexing_stats",
     "embedding_cache",
@@ -76,6 +76,12 @@
       "name": "0009_great_polaris",
       "sql": "-- Snapshot correction: 0008 now creates these defaults as expressions, but this\n-- migration preserves the generated Drizzle manifest history.\nALTER TABLE \"models\" ALTER COLUMN \"created_at\" SET DEFAULT CURRENT_TIMESTAMP;--> statement-breakpoint\nALTER TABLE \"models\" ALTER COLUMN \"updated_at\" SET DEFAULT CURRENT_TIMESTAMP;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"created_at\" SET DEFAULT CURRENT_TIMESTAMP;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"updated_at\" SET DEFAULT CURRENT_TIMESTAMP;\n",
       "hash": "ad0540668df979cdfaa0d70c04114fe6495f38da62d101d3da34dc9fad9791e6"
+    },
+    {
+      "version": "7",
+      "name": "0010_harsh_titanium_man",
+      "sql": "ALTER TABLE \"models\" ALTER COLUMN \"created_at\" DROP DEFAULT;--> statement-breakpoint\nALTER TABLE \"models\" ALTER COLUMN \"created_at\" SET DATA TYPE timestamp with time zone USING \"created_at\"::timestamp with time zone;--> statement-breakpoint\nALTER TABLE \"models\" ALTER COLUMN \"created_at\" SET DEFAULT now();--> statement-breakpoint\nALTER TABLE \"models\" ALTER COLUMN \"updated_at\" DROP DEFAULT;--> statement-breakpoint\nALTER TABLE \"models\" ALTER COLUMN \"updated_at\" SET DATA TYPE timestamp with time zone USING \"updated_at\"::timestamp with time zone;--> statement-breakpoint\nALTER TABLE \"models\" ALTER COLUMN \"updated_at\" SET DEFAULT now();--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"created_at\" DROP DEFAULT;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"created_at\" SET DATA TYPE timestamp with time zone USING \"created_at\"::timestamp with time zone;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"created_at\" SET DEFAULT now();--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"updated_at\" DROP DEFAULT;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"updated_at\" SET DATA TYPE timestamp with time zone USING \"updated_at\"::timestamp with time zone;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"updated_at\" SET DEFAULT now();\n",
+      "hash": "8b2ca684a2d6478bfa77788c830b262af1dece8c3f22ee0631cf2a4a62ba7fc8"
     }
   ]
 }

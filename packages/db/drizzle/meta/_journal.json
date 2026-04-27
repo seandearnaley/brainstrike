@@ -71,6 +71,13 @@
       "when": 1777295867534,
       "tag": "0009_great_polaris",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1777326945260,
+      "tag": "0010_harsh_titanium_man",
+      "breakpoints": true
     }
   ]
 }
