@@ -635,10 +635,12 @@ export class InMemoryTreeAdapter implements TreeAdapter {
     }
 
     // Add implicit parent directories
+    // OPTIMIZATION: Avoid intermediate array allocations from split()
     for (const path of this.files.keys()) {
-      const parts = path.split('/');
-      for (let i = 1; i < parts.length; i++) {
-        this.directories.add(parts.slice(0, i).join('/'));
+      let idx = path.indexOf('/');
+      while (idx !== -1) {
+        this.directories.add(path.slice(0, idx));
+        idx = path.indexOf('/', idx + 1);
       }
     }
   }
@@ -652,10 +654,20 @@ export class InMemoryTreeAdapter implements TreeAdapter {
     const normalizedRoot = root.replace(/\/$/, '');
 
     for (const path of this.files.keys()) {
-      if (path === normalizedRoot || path.startsWith(`${normalizedRoot}/`)) {
+      // OPTIMIZATION: Avoid template string allocation, and use indexOf for zero-allocation depth count
+      if (
+        path === normalizedRoot ||
+        (path.length > normalizedRoot.length &&
+          path.charCodeAt(normalizedRoot.length) === 47 &&
+          path.startsWith(normalizedRoot))
+      ) {
         if (maxDepth !== undefined) {
-          const relativePath = path.slice(normalizedRoot.length + 1);
-          const depth = relativePath.split('/').length - 1;
+          let depth = 0;
+          let idx = path.indexOf('/', normalizedRoot.length + 1);
+          while (idx !== -1) {
+            depth++;
+            idx = path.indexOf('/', idx + 1);
+          }
           if (depth > maxDepth) {
             continue;
           }
