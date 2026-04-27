@@ -197,6 +197,26 @@ function Disclosure({
   );
 }
 
+/**
+ * Pill rendered inside TooltipContent. The tooltip surface is dark
+ * (bg-foreground), so badges must use inverse colors to stay readable.
+ * Using sibling-colored Badge variants here would render dark-on-dark.
+ */
+function TooltipChip({ children, emphasis }: { children: ReactNode; emphasis?: boolean }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded-full border px-1.5 py-0.5 font-medium text-[10px]',
+        emphasis
+          ? 'border-background/0 bg-background text-foreground'
+          : 'border-background/30 bg-background/10 text-background'
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
 interface PresetPillProps {
   isActive: boolean;
   onSelect: (id: ChunkingPresetSelection) => void;
@@ -228,29 +248,17 @@ function PresetPill({ preset, isActive, onSelect }: PresetPillProps) {
         </button>
       </TooltipTrigger>
       <TooltipContent className="max-w-xs space-y-1.5" side="bottom">
-        <div className="flex items-center gap-1.5 font-medium">
+        <div className="flex items-center gap-1.5 font-medium text-background">
           <PresetIcon className="h-3.5 w-3.5" presetId={preset.id} />
           {preset.label}
-          {preset.isDefault ? (
-            <Badge className="ml-1 text-[10px]" variant="secondary">
-              Default
-            </Badge>
-          ) : null}
+          {preset.isDefault ? <TooltipChip>Default</TooltipChip> : null}
         </div>
-        <p className="text-muted-foreground text-xs leading-5">{preset.description}</p>
+        <p className="text-[11px] text-background/85 leading-5">{preset.description}</p>
         <div className="flex flex-wrap gap-1 pt-1">
-          <Badge className="text-[10px]" variant={preset.adaptiveRouting ? 'secondary' : 'outline'}>
-            {preset.adaptiveRouting ? 'Adaptive' : 'Fixed'}
-          </Badge>
-          <Badge className="text-[10px]" variant="outline">
-            {preset.strategy}
-          </Badge>
-          <Badge className="text-[10px]" variant="outline">
-            {preset.chunkSize} size
-          </Badge>
-          <Badge className="text-[10px]" variant="outline">
-            {preset.tokenLimit} cap
-          </Badge>
+          <TooltipChip emphasis>{preset.adaptiveRouting ? 'Adaptive' : 'Fixed'}</TooltipChip>
+          <TooltipChip>{preset.strategy}</TooltipChip>
+          <TooltipChip>{preset.chunkSize} size</TooltipChip>
+          <TooltipChip>{preset.tokenLimit} cap</TooltipChip>
         </div>
       </TooltipContent>
     </Tooltip>
