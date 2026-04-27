@@ -45,6 +45,9 @@ The hand-authored app migrations create and seed the provider/model catalog with
 The current Drizzle schema and generated manifest still describe
 `model_registry` for that area. That `providers/models` versus `model_registry`
 drift must be reconciled before Drizzle migrations can become canonical.
+The coded baseline intentionally records current drift as `unreconciled`; expand
+that status only when the migration authority work has an explicit reconciled
+state to represent.
 
 ## Required Contract
 

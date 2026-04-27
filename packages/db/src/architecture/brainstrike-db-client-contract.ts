@@ -83,21 +83,28 @@ export function getMissingBrainstrikeDbClientCapabilities(
     return BRAINSTRIKE_DB_CLIENT_CAPABILITIES;
   }
 
-  return BRAINSTRIKE_DB_CLIENT_CAPABILITIES.filter((capability) => {
-    switch (capability) {
-      case 'live-query':
-        return !hasLiveQueryCapability(candidate);
-      case 'close':
-      case 'diagnostics':
-      case 'exec':
-      case 'query':
-      case 'reset':
-      case 'transaction':
-        return !hasFunctionProperty(candidate, capability);
-      default:
-        return false;
-    }
-  });
+  return BRAINSTRIKE_DB_CLIENT_CAPABILITIES.filter((capability) =>
+    isBrainstrikeDbClientCapabilityMissing(candidate, capability)
+  );
+}
+
+function isBrainstrikeDbClientCapabilityMissing(
+  candidate: Record<PropertyKey, unknown>,
+  capability: BrainstrikeDbClientCapability
+): boolean {
+  switch (capability) {
+    case 'live-query':
+      return !hasLiveQueryCapability(candidate);
+    case 'close':
+    case 'diagnostics':
+    case 'exec':
+    case 'query':
+    case 'reset':
+    case 'transaction':
+      return !hasFunctionProperty(candidate, capability);
+    default:
+      return assertUnreachableDbClientCapability(capability);
+  }
 }
 
 function hasLiveQueryCapability(candidate: Record<PropertyKey, unknown>): boolean {
@@ -118,5 +125,9 @@ function hasFunctionProperty(
 }
 
 function isObjectRecord(value: unknown): value is Record<PropertyKey, unknown> {
-  return typeof value === 'object' && value !== null;
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function assertUnreachableDbClientCapability(value: never): never {
+  throw new Error(`Unhandled Brainstrike DB client capability: ${String(value)}`);
 }

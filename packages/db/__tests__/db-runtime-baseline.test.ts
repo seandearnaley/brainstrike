@@ -1,9 +1,12 @@
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   BRAINSTRIKE_DB_RUNTIME_BASELINE,
   getDbRuntimeBaselineDependencyIds,
 } from '../src/architecture/db-runtime-baseline.js';
+
+const testDir = dirname(fileURLToPath(import.meta.url));
 
 describe('Brainstrike DB runtime baseline', () => {
   it('records the current desktop and web DB ownership model', () => {
@@ -41,8 +44,8 @@ describe('Brainstrike DB runtime baseline', () => {
 
   it('has an architecture note matching the coded baseline', () => {
     const docsPath = resolve(
-      process.cwd(),
-      '../../apps/docs/docs/architecture/pglite-drizzle-db-contract.md'
+      testDir,
+      '../../../apps/docs/docs/architecture/pglite-drizzle-db-contract.md'
     );
     const doc = readFileSync(docsPath, 'utf8');
 
