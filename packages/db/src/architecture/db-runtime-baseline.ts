@@ -11,7 +11,7 @@ export interface DbRuntimeBaseline {
     readonly storage: 'filesystem-backed-profile';
   };
   readonly migrations: {
-    readonly drizzleIsProductionCanonical: boolean;
+    readonly drizzleIsProductionCanonical: false;
     readonly drizzleLedger: '__drizzle_migrations';
     readonly productionAuthority: 'legacy-migration-runner';
     readonly productionLedger: '_migrations';

@@ -1,3 +1,7 @@
+import type {
+  BrainstrikeDbClient,
+  BrainstrikeDbTransactionClient,
+} from '../src/architecture/brainstrike-db-client-contract.js';
 import {
   BRAINSTRIKE_DB_CLIENT_CAPABILITIES,
   getMissingBrainstrikeDbClientCapabilities,
@@ -32,13 +36,19 @@ describe('Brainstrike DB client contract', () => {
   });
 
   it('accepts a complete structural client', () => {
-    const completeClient = {
-      query: async () => ({ rows: [] }),
+    const txClient: BrainstrikeDbTransactionClient = {
+      query: async <TRecord = unknown>() => ({ rows: [] as readonly TRecord[] }),
       exec: async () => undefined,
-      transaction: async <T>(fn: () => Promise<T>) => fn(),
+    };
+
+    const completeClient = {
+      ...txClient,
+      transaction: async <TResult>(
+        callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
+      ) => callback(txClient),
       live: {
-        query: async () => ({
-          initialResults: { rows: [] },
+        query: async <TRecord = unknown>() => ({
+          initialResults: { rows: [] as readonly TRecord[] },
           refresh: async () => undefined,
           subscribe: () => undefined,
           unsubscribe: async () => undefined,
@@ -47,7 +57,7 @@ describe('Brainstrike DB client contract', () => {
       diagnostics: async () => ({}),
       reset: async () => undefined,
       close: async () => undefined,
-    };
+    } satisfies BrainstrikeDbClient;
 
     expect(getMissingBrainstrikeDbClientCapabilities(completeClient)).toEqual([]);
   });

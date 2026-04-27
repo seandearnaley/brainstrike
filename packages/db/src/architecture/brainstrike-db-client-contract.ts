@@ -70,7 +70,7 @@ export interface BrainstrikeDbClient extends BrainstrikeDbTransactionClient {
       options: BrainstrikeLiveQueryOptions
     ) => Promise<BrainstrikeLiveQueryHandle<TRecord>>;
   };
-  readonly reset: () => Promise<unknown>;
+  readonly reset: () => Promise<void>;
   readonly transaction: <TResult>(
     callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
   ) => Promise<TResult>;
