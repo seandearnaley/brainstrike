@@ -25,6 +25,13 @@ interface ProviderModelReadRow {
   provider_updated_type: string;
 }
 
+interface ProviderModelTimestampRow {
+  model_created_at: string;
+  model_updated_at: string;
+  provider_created_at: string;
+  provider_updated_at: string;
+}
+
 const LEGACY_PROVIDER_CREATED_AT = '2026-04-27T12:34:56.789Z';
 const LEGACY_PROVIDER_UPDATED_AT = '2026-04-27T13:45:01.123Z';
 const LEGACY_MODEL_CREATED_AT = '2026-04-26T08:15:00.500Z';
@@ -183,6 +190,36 @@ describe('provider catalog timestamp migration', () => {
         model_id: 'gpt-5.2',
         provider_updated_type: 'timestamp with time zone',
         model_updated_type: 'timestamp with time zone',
+      },
+    ]);
+
+    await runner.rollback(migration);
+
+    const downTypes = await db.query<ColumnTypeRow>(`
+      SELECT table_name, column_name, data_type
+      FROM information_schema.columns
+      WHERE table_name IN ('providers', 'models')
+        AND column_name IN ('created_at', 'updated_at')
+      ORDER BY table_name, column_name
+    `);
+    expect(downTypes.rows).toEqual(beforeTypes.rows);
+
+    const rolledBackCatalogRead = await db.query<ProviderModelTimestampRow>(`
+      SELECT
+        providers.created_at AS provider_created_at,
+        providers.updated_at AS provider_updated_at,
+        models.created_at AS model_created_at,
+        models.updated_at AS model_updated_at
+      FROM providers
+      INNER JOIN models ON models.provider_id = providers.id
+      WHERE providers.id = 'openai' AND models.id = 'gpt-5.2'
+    `);
+    expect(rolledBackCatalogRead.rows).toEqual([
+      {
+        provider_created_at: LEGACY_PROVIDER_CREATED_AT,
+        provider_updated_at: LEGACY_PROVIDER_UPDATED_AT,
+        model_created_at: LEGACY_MODEL_CREATED_AT,
+        model_updated_at: LEGACY_MODEL_UPDATED_AT,
       },
     ]);
   });
