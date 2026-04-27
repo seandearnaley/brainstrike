@@ -121,6 +121,15 @@ describe('Drizzle Migration Runner', () => {
       expect(result.appliedMigrations).toContain('0009_great_polaris');
     });
 
+    it('does not create provider catalog rows with string-literal timestamp defaults', () => {
+      const catalogMigration = migrationsManifest.migrations.find(
+        (migration) => migration.name === '0008_gifted_unus'
+      );
+
+      expect(catalogMigration?.sql).toContain('DEFAULT CURRENT_TIMESTAMP');
+      expect(catalogMigration?.sql).not.toContain("DEFAULT 'CURRENT_TIMESTAMP'");
+    });
+
     it('should call onMigrationStart and onMigrationComplete callbacks', async () => {
       const onStart = vi.fn();
       const onComplete = vi.fn();

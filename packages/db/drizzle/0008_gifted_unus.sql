@@ -20,8 +20,8 @@ CREATE TABLE "models" (
 	"capabilities" jsonb,
 	"parameters" jsonb,
 	"sort_order" integer DEFAULT 0 NOT NULL,
-	"created_at" text DEFAULT 'CURRENT_TIMESTAMP' NOT NULL,
-	"updated_at" text DEFAULT 'CURRENT_TIMESTAMP' NOT NULL
+	"created_at" text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	"updated_at" text DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "providers" (
@@ -30,8 +30,8 @@ CREATE TABLE "providers" (
 	"icon" text,
 	"is_enabled" boolean DEFAULT false NOT NULL,
 	"sort_order" integer DEFAULT 0 NOT NULL,
-	"created_at" text DEFAULT 'CURRENT_TIMESTAMP' NOT NULL,
-	"updated_at" text DEFAULT 'CURRENT_TIMESTAMP' NOT NULL
+	"created_at" text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	"updated_at" text DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 --> statement-breakpoint
 DROP TABLE "model_registry" CASCADE;--> statement-breakpoint

@@ -353,6 +353,8 @@ export const embeddingCache = pgTable(
 // PROVIDER AND MODEL CATALOG TABLES
 // ============================================================================
 
+// Mirrors the current production catalog DDL. BST-529 tracks normalizing these
+// text timestamp columns to timestamptz through an explicit production migration.
 export const providers = pgTable(
   'providers',
   {

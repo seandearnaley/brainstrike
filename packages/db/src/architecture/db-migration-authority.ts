@@ -83,8 +83,15 @@ export function assertSingleProductionMigrationAuthority(
 export function getProviderModelCatalogSchemaAudit(): ProviderModelCatalogSchemaAudit {
   const drizzleSchemaTables = [getTableName(providers), getTableName(models)];
   const finalSnapshotTables = new Set(migrationsManifest.finalSnapshotTables);
+  const [schemaProvidersTable, schemaModelsTable] = drizzleSchemaTables;
+  const generatedProvidersTable = migrationsManifest.finalSnapshotTables.find(
+    (tableName) => tableName === 'providers'
+  );
+  const generatedModelsTable = migrationsManifest.finalSnapshotTables.find(
+    (tableName) => tableName === 'models'
+  );
 
-  if (drizzleSchemaTables[0] !== 'providers' || drizzleSchemaTables[1] !== 'models') {
+  if (schemaProvidersTable !== 'providers' || schemaModelsTable !== 'models') {
     throw new Error(
       `Provider/model Drizzle schema drifted from production tables: ${drizzleSchemaTables.join(
         ', '
@@ -92,7 +99,7 @@ export function getProviderModelCatalogSchemaAudit(): ProviderModelCatalogSchema
     );
   }
 
-  if (!(finalSnapshotTables.has('providers') && finalSnapshotTables.has('models'))) {
+  if (generatedProvidersTable !== 'providers' || generatedModelsTable !== 'models') {
     throw new Error(
       `Provider/model Drizzle generated manifest drifted from production tables: ${Array.from(
         finalSnapshotTables
@@ -105,15 +112,16 @@ export function getProviderModelCatalogSchemaAudit(): ProviderModelCatalogSchema
   }
 
   return {
-    drizzleSchemaTables: ['providers', 'models'],
-    generatedManifestFinalTables: ['providers', 'models'],
+    drizzleSchemaTables: [schemaProvidersTable, schemaModelsTable],
+    generatedManifestFinalTables: [generatedProvidersTable, generatedModelsTable],
     productionTables: ['providers', 'models'],
     status: 'drizzle-schema-and-manifest-reconciled',
   };
 }
 
 // This guard lives on the production bootstrap path. Drizzle migration execution remains
-// schema-validation-only and is not part of runtime startup.
+// schema-validation-only and is not part of runtime startup, so the inverse production-ledger
+// guard belongs to any future Drizzle promotion instead of this production bootstrap path.
 export async function assertNoConflictingMigrationLedger(db: Pick<PGlite, 'query'>): Promise<void> {
   const ledgers = await db.query<{ tablename: string }>(`
     SELECT tablename
