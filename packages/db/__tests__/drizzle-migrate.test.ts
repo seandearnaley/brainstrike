@@ -180,6 +180,37 @@ describe('Drizzle Migration Runner', () => {
       expect(status.pending.length).toBe(status.total);
     });
 
+    it('returns all migrations as pending when the Drizzle ledger is missing during diagnostics', async () => {
+      const missingLedgerError = new Error('relation "__drizzle_migrations" does not exist');
+      Object.assign(missingLedgerError, { code: '42P01' });
+
+      const query = vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockRejectedValueOnce(missingLedgerError);
+
+      const status = await getMigrationStatus({ query } as unknown as PGlite);
+
+      expect(status.total).toBeGreaterThan(0);
+      expect(status.applied).toBe(0);
+      expect(status.pending).toHaveLength(status.total);
+    });
+
+    it('does not report all migrations as pending when status diagnostics fail unexpectedly', async () => {
+      const diagnosticError = new Error('permission denied for schema public');
+      Object.assign(diagnosticError, { code: '42501' });
+
+      const query = vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockRejectedValueOnce(diagnosticError);
+
+      await expect(getMigrationStatus({ query } as unknown as PGlite)).rejects.toThrow(
+        'permission denied for schema public'
+      );
+    });
+
     it('refuses status diagnostics against a production legacy migration ledger', async () => {
       await db.query(`
         CREATE TABLE "_migrations" (

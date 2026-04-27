@@ -121,6 +121,37 @@ function splitStatements(sql: string): string[] {
     .filter((stmt) => stmt.length > 0);
 }
 
+function getErrorCode(error: unknown): string | null {
+  if (typeof error !== 'object' || error === null || !('code' in error)) {
+    return null;
+  }
+
+  const code = (error as { readonly code?: unknown }).code;
+  return typeof code === 'string' ? code : null;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
+function isMissingDrizzleMigrationsLedgerError(error: unknown): boolean {
+  const code = getErrorCode(error);
+  if (code !== null) {
+    return code === '42P01';
+  }
+
+  const message = getErrorMessage(error);
+  return (
+    message.includes(`relation "${MIGRATIONS_TABLE}" does not exist`) ||
+    message.includes(`table "${MIGRATIONS_TABLE}" does not exist`) ||
+    message.includes(`no such table: ${MIGRATIONS_TABLE}`)
+  );
+}
+
 /**
  * Applies a single migration within a transaction.
  * Handles rollback on failure and preserves the original error.
@@ -244,8 +275,12 @@ export async function getMigrationStatus(db: PGlite): Promise<{
       applied: applied.size,
       pending,
     };
-  } catch {
-    // Table doesn't exist yet, all migrations are pending
+  } catch (error) {
+    if (!isMissingDrizzleMigrationsLedgerError(error)) {
+      throw error;
+    }
+
+    // Ledger table is absent, so no Drizzle validation migrations have been recorded.
     return {
       total: allMigrations.length,
       applied: 0,
