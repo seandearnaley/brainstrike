@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-27T13:52:04.758Z",
+  "generatedAt": "2026-04-27T13:58:20.228Z",
   "finalSnapshotTables": [
     "collection_indexing_stats",
     "embedding_cache",

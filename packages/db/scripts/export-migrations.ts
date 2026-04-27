@@ -43,9 +43,8 @@ function extractMigrations(migrationsDir: string): Migration[] {
   let journal: { entries: Array<{ idx: number; version: string; tag: string }> };
   try {
     journal = JSON.parse(readFileSync(journalPath, 'utf-8'));
-  } catch {
-    console.error('Could not read migration journal at:', journalPath);
-    process.exit(1);
+  } catch (error) {
+    throw new Error(`Could not read migration journal at ${journalPath}`, { cause: error });
   }
 
   // Sort by index to ensure correct order
@@ -76,9 +75,8 @@ function extractFinalSnapshotTables(migrationsDir: string): string[] {
   let journal: { entries: Array<{ idx: number; tag: string }> };
   try {
     journal = JSON.parse(readFileSync(journalPath, 'utf-8'));
-  } catch {
-    console.error('Could not read migration journal at:', journalPath);
-    process.exit(1);
+  } catch (error) {
+    throw new Error(`Could not read migration journal at ${journalPath}`, { cause: error });
   }
 
   const latestEntry = [...journal.entries].sort((a, b) => b.idx - a.idx)[0];
@@ -93,9 +91,10 @@ function extractFinalSnapshotTables(migrationsDir: string): string[] {
   let snapshot: { tables?: Record<string, { name?: unknown }> };
   try {
     snapshot = JSON.parse(readFileSync(snapshotPath, 'utf-8'));
-  } catch {
-    console.error('Could not read final migration snapshot at:', snapshotPath);
-    process.exit(1);
+  } catch (error) {
+    throw new Error(`Could not read final migration snapshot at ${snapshotPath}`, {
+      cause: error,
+    });
   }
 
   return Object.values(snapshot.tables ?? {})
@@ -126,4 +125,9 @@ function main() {
   console.log('Migration versions:', migrations.map((m) => m.name).join(', '));
 }
 
-main();
+try {
+  main();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+}

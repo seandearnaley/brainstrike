@@ -130,6 +130,32 @@ describe('Drizzle Migration Runner', () => {
       expect(catalogMigration?.sql).not.toContain("DEFAULT 'CURRENT_TIMESTAMP'");
     });
 
+    it('refuses to run against a production legacy migration ledger', async () => {
+      await db.query(`
+        CREATE TABLE "_migrations" (
+          id SERIAL PRIMARY KEY,
+          version INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          checksum TEXT NOT NULL,
+          applied_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        )
+      `);
+
+      const result = await runMigrations(db);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('legacy production migration ledger');
+
+      const drizzleLedger = await db.query<{ tablename: string }>(`
+        SELECT tablename
+        FROM pg_tables
+        WHERE schemaname = 'public'
+          AND tablename = '__drizzle_migrations'
+      `);
+
+      expect(drizzleLedger.rows).toHaveLength(0);
+    });
+
     it('should call onMigrationStart and onMigrationComplete callbacks', async () => {
       const onStart = vi.fn();
       const onComplete = vi.fn();
