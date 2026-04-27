@@ -8,6 +8,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { vector } from '@electric-sql/pglite/vector';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getMigrationStatus, resetMigrations, runMigrations } from '../src/drizzle/migrate.js';
+import migrationsManifest from '../src/drizzle/migrations.json';
 
 describe('Drizzle Migration Runner', () => {
   let db: PGlite;
@@ -71,6 +72,53 @@ describe('Drizzle Migration Runner', () => {
       const second = await runMigrations(db);
       expect(second.success).toBe(true);
       expect(second.appliedMigrations).toHaveLength(0);
+    });
+
+    it('continues when collection indexing stats already exists from the custom migration path', async () => {
+      const catalogMigrationIndex = migrationsManifest.migrations.findIndex(
+        (migration) => migration.name === '0008_gifted_unus'
+      );
+      expect(catalogMigrationIndex).toBeGreaterThan(0);
+
+      await db.query(`
+        CREATE TABLE "__drizzle_migrations" (
+          id SERIAL PRIMARY KEY,
+          hash TEXT NOT NULL UNIQUE,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        )
+      `);
+
+      for (const migration of migrationsManifest.migrations.slice(0, catalogMigrationIndex)) {
+        await db.query(`INSERT INTO "__drizzle_migrations" (hash) VALUES ($1)`, [migration.hash]);
+      }
+
+      await db.query(
+        `INSERT INTO "__drizzle_migrations" (hash) VALUES ('custom-030-collection-indexing-stats')`
+      );
+
+      await db.query('CREATE TABLE "model_registry" ("id" uuid PRIMARY KEY)');
+      await db.query(`
+        CREATE TABLE collection_indexing_stats (
+          embedding_set_id TEXT PRIMARY KEY,
+          file_count INTEGER NOT NULL DEFAULT 0,
+          chunk_count INTEGER NOT NULL DEFAULT 0,
+          embedded_chunk_count INTEGER NOT NULL DEFAULT 0,
+          pending_chunk_count INTEGER NOT NULL DEFAULT 0,
+          dirty BOOLEAN NOT NULL DEFAULT FALSE,
+          last_refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await db.query(`
+        CREATE INDEX idx_collection_indexing_stats_dirty
+          ON collection_indexing_stats(dirty, last_refreshed_at)
+      `);
+
+      const result = await runMigrations(db);
+
+      expect(result.success).toBe(true);
+      expect(result.error).toBeUndefined();
+      expect(result.appliedMigrations).toContain('0008_gifted_unus');
+      expect(result.appliedMigrations).toContain('0009_great_polaris');
     });
 
     it('should call onMigrationStart and onMigrationComplete callbacks', async () => {

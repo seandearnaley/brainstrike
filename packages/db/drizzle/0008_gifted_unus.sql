@@ -1,4 +1,4 @@
-CREATE TABLE "collection_indexing_stats" (
+CREATE TABLE IF NOT EXISTS "collection_indexing_stats" (
 	"embedding_set_id" text PRIMARY KEY NOT NULL,
 	"file_count" integer DEFAULT 0 NOT NULL,
 	"chunk_count" integer DEFAULT 0 NOT NULL,
@@ -36,7 +36,7 @@ CREATE TABLE "providers" (
 --> statement-breakpoint
 DROP TABLE "model_registry" CASCADE;--> statement-breakpoint
 ALTER TABLE "models" ADD CONSTRAINT "models_provider_id_providers_id_fk" FOREIGN KEY ("provider_id") REFERENCES "public"."providers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "idx_collection_indexing_stats_dirty" ON "collection_indexing_stats" USING btree ("dirty","last_refreshed_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_collection_indexing_stats_dirty" ON "collection_indexing_stats" USING btree ("dirty","last_refreshed_at");--> statement-breakpoint
 CREATE INDEX "idx_models_provider_id" ON "models" USING btree ("provider_id");--> statement-breakpoint
 CREATE INDEX "idx_models_sort_order" ON "models" USING btree ("sort_order");--> statement-breakpoint
 CREATE INDEX "idx_providers_sort_order" ON "providers" USING btree ("sort_order");
