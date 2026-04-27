@@ -241,11 +241,9 @@ describe('DrizzleEmbeddingSetsRepository', () => {
 
     it('repairs legacy malformed metadata using the model registry', async () => {
       await client.query(
-        `CREATE TABLE IF NOT EXISTS models (
-          id TEXT PRIMARY KEY,
-          provider_id TEXT NOT NULL,
-          name TEXT NOT NULL
-        )`
+        `INSERT INTO providers (id, name, is_enabled, sort_order)
+         VALUES ('local', 'Local Models', true, 4)
+         ON CONFLICT (id) DO NOTHING`
       );
       await client.query(
         `INSERT INTO models (id, provider_id, name)
