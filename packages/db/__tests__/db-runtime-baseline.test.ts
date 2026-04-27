@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -47,6 +47,10 @@ describe('Brainstrike DB runtime baseline', () => {
       testDir,
       '../../../apps/docs/docs/architecture/pglite-drizzle-db-contract.md'
     );
+    expect(
+      existsSync(docsPath),
+      'Architecture doc must exist at apps/docs/docs/architecture/pglite-drizzle-db-contract.md'
+    ).toBe(true);
     const doc = readFileSync(docsPath, 'utf8');
 
     expect(doc).toContain('utilityProcess DB host');

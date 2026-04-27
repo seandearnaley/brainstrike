@@ -6,6 +6,11 @@ export type DbRuntimeBaselineDependencyId =
 export type DbRuntimeBaselineWorkstream = 'drizzle-cutover' | 'web-pglite-worker';
 
 export interface DbRuntimeBaseline {
+  /**
+   * This interface is intentionally a frozen architecture snapshot. When the
+   * runtime baseline changes, update the type and value together so downstream
+   * workstreams acknowledge the new state explicitly.
+   */
   readonly desktop: {
     readonly owner: 'electron-utility-process';
     readonly storage: 'filesystem-backed-profile';

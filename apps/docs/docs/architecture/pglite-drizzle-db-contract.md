@@ -54,11 +54,16 @@ state to represent.
 The shared Brainstrike DB client contract needs to cover:
 
 - `query`
-- `exec`
+- `exec`, which resolves without exposing implementation-specific command
+  results
 - `transaction`
-- live query start, refresh, and stop
-- diagnostics
+- live query start, refresh, listener cleanup, and terminal disposal
+- diagnostics with an explicit `ok` state plus optional message/details
 - reset and close semantics
+
+Live-query listener cleanup and live-query disposal are separate operations:
+removing one UI listener must not silently tear down the underlying live query,
+while disposal is the terminal runtime cleanup path.
 
 Desktop utilityProcess and web worker/direct implementations should conform to
 that contract before broad Drizzle or web PGliteWorker work proceeds.

@@ -50,11 +50,11 @@ describe('Brainstrike DB client contract', () => {
         query: async <TRecord = unknown>() => ({
           initialResults: { rows: [] as readonly TRecord[] },
           refresh: async () => undefined,
-          subscribe: () => undefined,
-          unsubscribe: async () => undefined,
+          subscribe: () => () => undefined,
+          dispose: async () => undefined,
         }),
       },
-      diagnostics: async () => ({}),
+      diagnostics: async () => ({ ok: true }),
       reset: async () => undefined,
       close: async () => undefined,
     } satisfies BrainstrikeDbClient;

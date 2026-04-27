@@ -21,6 +21,12 @@ export interface BrainstrikeDbQueryResult<TRecord = unknown> {
   readonly rows: readonly TRecord[];
 }
 
+export interface BrainstrikeDbDiagnosticsSnapshot {
+  readonly details?: Record<string, unknown>;
+  readonly message?: string;
+  readonly ok: boolean;
+}
+
 export interface BrainstrikeDbWorkOptions {
   readonly label?: string;
   readonly priority?: 'background' | 'foreground' | 'normal';
@@ -35,15 +41,15 @@ export interface BrainstrikeLiveQueryOptions {
 }
 
 export interface BrainstrikeLiveQueryHandle<TRecord = unknown> {
+  readonly dispose: () => Promise<void>;
   readonly initialResults: BrainstrikeDbQueryResult<TRecord>;
   readonly refresh: (options?: {
     readonly limit?: number;
     readonly offset?: number;
   }) => Promise<void>;
-  readonly subscribe: (listener: (results: BrainstrikeDbQueryResult<TRecord>) => void) => void;
-  readonly unsubscribe: (
-    listener?: (results: BrainstrikeDbQueryResult<TRecord>) => void
-  ) => Promise<void>;
+  readonly subscribe: (
+    listener: (results: BrainstrikeDbQueryResult<TRecord>) => void
+  ) => () => void;
 }
 
 export interface BrainstrikeDbTransactionClient {
@@ -51,7 +57,7 @@ export interface BrainstrikeDbTransactionClient {
     sql: string,
     params?: readonly unknown[],
     options?: BrainstrikeDbWorkOptions
-  ) => Promise<unknown>;
+  ) => Promise<void>;
   readonly query: <TRecord = unknown>(
     sql: string,
     params?: readonly unknown[],
@@ -61,7 +67,7 @@ export interface BrainstrikeDbTransactionClient {
 
 export interface BrainstrikeDbClient extends BrainstrikeDbTransactionClient {
   readonly close: () => Promise<void>;
-  readonly diagnostics: () => Promise<unknown>;
+  readonly diagnostics: () => Promise<BrainstrikeDbDiagnosticsSnapshot>;
   readonly live: {
     readonly incrementalQuery?: <TRecord = unknown>(
       options: BrainstrikeLiveQueryOptions & { readonly key: string }
