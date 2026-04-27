@@ -28,7 +28,16 @@ import {
   SquareIcon,
 } from 'lucide-react';
 import * as m from 'motion/react-m';
-import { type FC, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type FC,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 // @assistant-ui/styles v0.3.x consolidated all styles into index.css
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
@@ -411,12 +420,14 @@ const ExpandableMessageContent: FC<{
   }, [collapsedHeight, children]);
 
   const collapsed = hasOverflow && !expanded;
+  const contentId = useId();
 
   return (
     <div className={cn(className, 'bs-expandable-message')} data-testid={testId}>
       <m.div
         animate={{ maxHeight: collapsed ? collapsedHeight : contentHeight }}
         className="bs-expandable-message-body"
+        id={contentId}
         initial={false}
         ref={contentRef}
         transition={{ duration: 0.18, ease: 'easeOut' }}
@@ -426,7 +437,9 @@ const ExpandableMessageContent: FC<{
       {collapsed ? <div aria-hidden="true" className="bs-expandable-message-fade" /> : null}
       {hasOverflow ? (
         <button
+          aria-controls={contentId}
           aria-expanded={expanded}
+          aria-label={expanded ? 'Show less message content' : 'Show more message content'}
           className="bs-expandable-message-toggle"
           onClick={() => setExpanded((current) => !current)}
           type="button"

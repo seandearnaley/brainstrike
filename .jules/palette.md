@@ -19,3 +19,7 @@
 
 **Learning:** Icon-only action buttons in lists (like Edit/Delete in `CollectionPickerItem`) sometimes lack `aria-label` attributes and use `size="sm"` with custom width/height/padding classes instead of the standard `size="icon"` which is designed specifically for square icon buttons.
 **Action:** Always provide descriptive `aria-label` attributes for icon-only action buttons and prefer `size="icon"` over manually overriding `size="sm"` padding/dimensions when rendering purely icon-based buttons.
+
+## 2025-02-13 - Missing ARIA Controls on Expansion Buttons
+**Learning:** Collapsible sections like `LocalChainOfThought` and `ExpandableMessageContent` use native `<button>` tags to toggle `aria-expanded` and render content conditionally, but they often omit the `aria-controls` attribute linking them to a static `id` on their content container. This is a common accessibility gap in custom Radix/framer-motion wrappers in this app.
+**Action:** When auditing custom toggle or accordion-like components, ensure the target content container receives an explicitly assigned `id` (via `useId()`) and the triggering button references it with `aria-controls`.
