@@ -1,3 +1,4 @@
+import type { PGlite } from '@electric-sql/pglite';
 import { getTableName } from 'drizzle-orm';
 import { models, providers } from '../schema/index.js';
 
@@ -95,4 +96,20 @@ export function getProviderModelCatalogSchemaAudit(): ProviderModelCatalogSchema
     productionTables: ['providers', 'models'],
     status: 'drizzle-schema-reconciled-production-manifest-unreconciled',
   };
+}
+
+export async function assertNoConflictingMigrationLedger(db: Pick<PGlite, 'query'>): Promise<void> {
+  const ledgers = await db.query<{ tablename: string }>(`
+    SELECT tablename
+    FROM pg_tables
+    WHERE schemaname = 'public'
+      AND tablename IN ('_migrations', '__drizzle_migrations')
+  `);
+  const tableNames = new Set(ledgers.rows.map((row) => row.tablename));
+
+  if (tableNames.has('__drizzle_migrations')) {
+    throw new Error(
+      'Drizzle migration ledger "__drizzle_migrations" exists without an explicit migration bridge.'
+    );
+  }
 }
