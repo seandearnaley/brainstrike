@@ -27,7 +27,7 @@ function parseWorkerInitOptions(options: unknown): BrainstrikePGliteWorkerInitOp
 void worker({
   async init(options) {
     const workerOptions = parseWorkerInitOptions(options);
-    // The worker protocol includes coordination fields; only storage/runtime options belong in PGlite.
+    // PGlite engine extensions run here; client-side extensions are installed by PGliteWorker.
     const pgliteOptions: PGliteOptions = {
       extensions: { vector },
     };

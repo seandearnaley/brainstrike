@@ -1,6 +1,7 @@
 import { createLogger, isDevEnv, setupHMR } from '@brainstrike/utils';
 import type { Extension } from '@electric-sql/pglite';
 import { PGlite } from '@electric-sql/pglite';
+import type { LiveNamespace } from '@electric-sql/pglite/live';
 import type { PGliteWorker, PGliteWorkerOptions } from '@electric-sql/pglite/worker';
 
 type VectorExtension = Extension;
@@ -12,7 +13,7 @@ export interface PGliteLeaderChangeSource {
 }
 
 export type PGliteRuntimeClient = Pick<PGlite, 'close' | 'exec' | 'query' | 'transaction'> & {
-  readonly live?: unknown;
+  readonly live?: Pick<LiveNamespace, 'query'>;
 };
 
 type BrowserPGliteWorkerClient = PGliteWorker & PGliteRuntimeClient & PGliteLeaderChangeSource;

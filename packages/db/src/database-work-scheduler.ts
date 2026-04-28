@@ -75,6 +75,8 @@ const DEFAULT_FOREGROUND_QUIET_MS = 75;
 const METRICS_WINDOW_SIZE = 64;
 const SCHEDULER_SYMBOL = Symbol.for('brainstrike.databaseWorkScheduler');
 const DEFAULT_PRIORITY_SYMBOL = Symbol.for('brainstrike.databaseWorkDefaultPriority');
+// PGliteWorker listener methods use private fields, so they need the raw worker receiver.
+// Keep this narrow: methods listed here bypass the scheduler proxy by design.
 const RAW_RECEIVER_METHODS = new Set<PropertyKey>(['offLeaderChange', 'onLeaderChange']);
 const rawReceiverMethodCache = new WeakMap<object, Map<PropertyKey, CallableUnknown>>();
 
