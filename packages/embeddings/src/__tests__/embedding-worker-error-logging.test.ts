@@ -262,4 +262,49 @@ describe('embedding-worker error logging', () => {
     );
     expect(readinessChecks).toHaveLength(0);
   });
+
+  it('reports the configured claim batch size when claim-size resolution fails', async () => {
+    const metricLogs: Record<string, unknown>[] = [];
+    let resolverCalls = 0;
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      claimBatchSize: 4,
+      leaseMs: 1000,
+      metricsIntervalMs: 5000,
+      resolveClaimBatchSize: async () => {
+        resolverCalls += 1;
+        if (resolverCalls === 1) {
+          return 2;
+        }
+        throw new Error('resolver unavailable');
+      },
+      log: (event, meta) => {
+        if (event === 'worker_metrics') {
+          metricLogs.push(meta as Record<string, unknown>);
+        }
+      },
+    });
+
+    try {
+      await waitFor(async () => resolverCalls >= 2, 10_000);
+      await waitFor(
+        async () =>
+          metricLogs.some(
+            (entry) => entry['effectiveClaimBatchSizeError'] === 'resolver unavailable'
+          ),
+        10_000
+      );
+    } finally {
+      await controller.stop();
+    }
+
+    const errorMetric = metricLogs.find(
+      (entry) => entry['effectiveClaimBatchSizeError'] === 'resolver unavailable'
+    );
+    expect(errorMetric).toMatchObject({
+      effectiveClaimBatchSize: 4,
+      effectiveClaimBatchSizeError: 'resolver unavailable',
+    });
+  });
 });

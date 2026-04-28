@@ -1140,6 +1140,7 @@ export async function startEmbeddingWorker(
       lastClaimBatchSizeError = null;
       return effectiveClaimBatchSize;
     } catch (error) {
+      lastClaimBatchSize = claimBatchSize;
       lastClaimBatchSizeError = error instanceof Error ? error.message : String(error);
       throw error;
     }
