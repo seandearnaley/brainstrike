@@ -76,6 +76,7 @@ const METRICS_WINDOW_SIZE = 64;
 const SCHEDULER_SYMBOL = Symbol.for('brainstrike.databaseWorkScheduler');
 const DEFAULT_PRIORITY_SYMBOL = Symbol.for('brainstrike.databaseWorkDefaultPriority');
 const RAW_RECEIVER_METHODS = new Set<PropertyKey>(['offLeaderChange', 'onLeaderChange']);
+const rawReceiverMethodCache = new WeakMap<object, Map<PropertyKey, CallableUnknown>>();
 
 interface MetricSamples {
   nextIndex: number;
@@ -204,7 +205,24 @@ function getRawReceiverMethod(target: object, property: PropertyKey): CallableUn
   if (typeof method !== 'function') {
     return null;
   }
-  return (...args: unknown[]) => Reflect.apply(method, target, args) as unknown;
+  let targetMethods = rawReceiverMethodCache.get(target);
+  if (!targetMethods) {
+    targetMethods = new Map<PropertyKey, CallableUnknown>();
+    rawReceiverMethodCache.set(target, targetMethods);
+  }
+  const cached = targetMethods.get(property);
+  if (cached) {
+    return cached;
+  }
+  const wrapper = (...args: unknown[]) => {
+    const currentMethod = Reflect.get(target, property, target);
+    if (typeof currentMethod !== 'function') {
+      throw new TypeError(`Raw receiver method ${String(property)} is no longer callable`);
+    }
+    return Reflect.apply(currentMethod, target, args) as unknown;
+  };
+  targetMethods.set(property, wrapper);
+  return wrapper;
 }
 
 function patchPriorityStat(

@@ -112,6 +112,52 @@ describe('wasmLoader browser worker host', () => {
     await expect(Promise.all([first, second])).resolves.toEqual([workerClient, workerClient]);
   });
 
+  it('removes the pending worker promise after successful startup', async () => {
+    const { wasmLoader } = await import('../src/wasm-loader');
+
+    await wasmLoader.createPGliteClient('idb://web');
+
+    const internals = wasmLoader as unknown as {
+      workerClientPromises: Map<string, Promise<unknown>>;
+    };
+    expect(internals.workerClientPromises.size).toBe(0);
+  });
+
+  it('closes an in-flight worker client during disposeAll', async () => {
+    const workerClient = {
+      close: vi.fn().mockResolvedValue(undefined),
+      live: { query: vi.fn() },
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      transaction: vi.fn(),
+    };
+    let resolveCreate: (client: typeof workerClient) => void = () => {};
+    pgliteWorkerCreate.mockImplementation(
+      () =>
+        new Promise<typeof workerClient>((resolve) => {
+          resolveCreate = resolve;
+        })
+    );
+    const { wasmLoader } = await import('../src/wasm-loader');
+
+    const createPromise = wasmLoader.createPGliteClient('idb://web');
+    await waitForMockCall(pgliteWorkerCreate);
+
+    let disposed = false;
+    const disposePromise = wasmLoader.disposeAll().then(() => {
+      disposed = true;
+    });
+    await Promise.resolve();
+    expect(disposed).toBe(false);
+
+    resolveCreate(workerClient);
+    await expect(createPromise).rejects.toThrow(
+      'PGlite worker client startup was disposed before completion'
+    );
+    await disposePromise;
+
+    expect(workerClient.close).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps memory databases on direct PGlite for unit and integration tests', async () => {
     const { wasmLoader } = await import('../src/wasm-loader');
 

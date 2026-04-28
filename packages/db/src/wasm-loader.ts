@@ -173,10 +173,16 @@ class WasmLoader {
 
     try {
       const db = await workerClientPromise;
+      if (this.workerClientPromises.get(cacheKey) !== workerClientPromise) {
+        throw new Error('PGlite worker client startup was disposed before completion');
+      }
+      this.workerClientPromises.delete(cacheKey);
       this.workerCache.set(cacheKey, db);
       return db;
     } catch (error) {
-      this.workerClientPromises.delete(cacheKey);
+      if (this.workerClientPromises.get(cacheKey) === workerClientPromise) {
+        this.workerClientPromises.delete(cacheKey);
+      }
       throw error;
     }
   }
@@ -262,22 +268,44 @@ class WasmLoader {
   async disposeAll(): Promise<void> {
     const entries = Array.from(this.dbCache.entries());
     const workerEntries = Array.from(this.workerCache.entries());
+    const pendingWorkerEntries = Array.from(this.workerClientPromises.entries());
     this.dbCache.clear();
     this.workerCache.clear();
     this.workerClientPromises.clear();
     this.wasmLoadPromise = null;
     this.isLoaded = false;
 
-    await Promise.all(
-      [...entries, ...workerEntries].map(async ([cacheKey, db]) => {
-        try {
-          await db.close();
-          logger.info('HMR dispose: closed cached PGlite instance', { cacheKey });
-        } catch (err) {
-          logger.warn('HMR dispose: failed to close PGlite instance', { cacheKey, error: err });
-        }
-      })
-    );
+    const closeResolvedDb = async (cacheKey: string, db: PGliteRuntimeClient): Promise<void> => {
+      try {
+        this.workerCache.delete(cacheKey);
+        await db.close();
+        logger.info('HMR dispose: closed cached PGlite instance', { cacheKey });
+      } catch (err) {
+        logger.warn('HMR dispose: failed to close PGlite instance', { cacheKey, error: err });
+      }
+    };
+
+    const closePendingWorkerDb = async (
+      cacheKey: string,
+      db: Promise<BrowserPGliteWorkerClient>
+    ): Promise<void> => {
+      try {
+        const resolvedDb = await db;
+        this.workerCache.delete(cacheKey);
+        await resolvedDb.close();
+        logger.info('HMR dispose: closed cached PGlite instance', { cacheKey });
+      } catch (err) {
+        logger.warn('HMR dispose: failed to close PGlite instance', { cacheKey, error: err });
+      }
+    };
+
+    await Promise.all([
+      ...entries.map(async ([cacheKey, db]) => await closeResolvedDb(cacheKey, db)),
+      ...workerEntries.map(async ([cacheKey, db]) => await closeResolvedDb(cacheKey, db)),
+      ...pendingWorkerEntries.map(
+        async ([cacheKey, db]) => await closePendingWorkerDb(cacheKey, db)
+      ),
+    ]);
   }
 
   /**
