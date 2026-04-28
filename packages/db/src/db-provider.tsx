@@ -25,7 +25,7 @@ import { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-
 import { ElectronFileChunkRepository } from './repositories/electron-file-chunk-repository.js';
 import { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
 import type { IDatabase } from './repositories/interfaces.js';
-import { wasmLoader } from './wasm-loader.js';
+import { type PGliteRuntimeClient, wasmLoader } from './wasm-loader.js';
 
 const logger = createLogger('DbProvider');
 
@@ -40,9 +40,9 @@ function logDatabaseError(message: string, error: unknown): void {
  */
 type DbConnection =
   | { kind: 'ipc'; bridge: ElectronDatabaseAPI }
-  | { kind: 'direct'; db: PGlite; dataDir: string };
+  | { kind: 'direct'; db: PGliteRuntimeClient; dataDir: string };
 
-async function closeDirectConnection(db: PGlite, dataDir: string): Promise<void> {
+async function closeDirectConnection(db: PGliteRuntimeClient, dataDir: string): Promise<void> {
   try {
     if (dataDir.startsWith('idb://')) {
       await wasmLoader.closeCached(dataDir);
@@ -58,7 +58,7 @@ async function closeDirectConnection(db: PGlite, dataDir: string): Promise<void>
 }
 
 async function purgeAndCloseDirectDb(
-  db: PGlite,
+  db: PGliteRuntimeClient,
   dataDir: string,
   purgeTablesTx: (tx: { query: (sql: string) => Promise<unknown> }) => Promise<void>
 ): Promise<void> {
@@ -483,7 +483,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     async (cancelled: { value: boolean }) => {
       logger.debug('Using direct PGlite connection');
 
-      const db = await wasmLoader.createPGlite(resolvedPath);
+      const db = await wasmLoader.createPGliteClient(resolvedPath);
       connectionRef.current = { kind: 'direct', db, dataDir: resolvedPath };
 
       const scheduledDb = createScheduledDbHandle(
