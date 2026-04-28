@@ -46,7 +46,7 @@ describe('Drizzle database utilities integration', () => {
     }
   });
 
-  it('routes transaction failures through the raw worker-compatible client', async () => {
+  it('routes transaction callback failures through the raw worker-compatible client', async () => {
     const rollbackEvents: string[] = [];
     const client = createWorkerCompatibleClient({
       onTransactionRollback: () => rollbackEvents.push('rollback'),
@@ -58,6 +58,8 @@ describe('Drizzle database utilities integration', () => {
       return;
     }
 
+    // The real PGlite/PGliteWorker client owns transactional integrity. This
+    // bridge test proves Drizzle routes callback failures through that client.
     await expect(
       drizzleDb.transaction(async (tx) => {
         await tx.execute(sql`insert into job_queue (id) values (${1})`);
