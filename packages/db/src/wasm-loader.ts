@@ -62,6 +62,8 @@ class WasmLoader {
   private isLoaded = false;
   private readonly dbCache: Map<string, PGlite> = new Map();
   private readonly workerCache: Map<string, BrowserPGliteWorkerClient> = new Map();
+  private readonly workerClientPromises: Map<string, Promise<BrowserPGliteWorkerClient>> =
+    new Map();
 
   private constructor() {}
 
@@ -153,8 +155,6 @@ class WasmLoader {
       return await this.createPGlite(normalizedDataDir);
     }
 
-    await this.ensureWasmLoaded();
-
     const cacheKey = normalizedDataDir || 'default';
     const cached = this.workerCache.get(cacheKey);
     if (cached) {
@@ -162,28 +162,48 @@ class WasmLoader {
       return cached;
     }
 
+    const pending = this.workerClientPromises.get(cacheKey);
+    if (pending) {
+      logger.info('Reusing pending PGlite worker client', { cacheKey });
+      return await pending;
+    }
+
+    const workerClientPromise = this.createBrowserWorkerClient(normalizedDataDir);
+    this.workerClientPromises.set(cacheKey, workerClientPromise);
+
+    try {
+      const db = await workerClientPromise;
+      this.workerCache.set(cacheKey, db);
+      return db;
+    } catch (error) {
+      this.workerClientPromises.delete(cacheKey);
+      throw error;
+    }
+  }
+
+  private async createBrowserWorkerClient(dataDir: string): Promise<BrowserPGliteWorkerClient> {
+    await this.ensureWasmLoaded();
     const live = await loadLiveExtension();
     const { PGliteWorker } = await import('@electric-sql/pglite/worker');
     const worker = new Worker(new URL('./pglite-worker-entry.ts', import.meta.url), {
       type: 'module',
     });
-    const options: PGliteWorkerOptions<{ live: LiveExtension }> = {
-      dataDir: normalizedDataDir,
-      extensions: { live },
-      id: `brainstrike-db:${normalizedDataDir}`,
-      relaxedDurability: true,
-    };
-    const db: BrowserPGliteWorkerClient = await PGliteWorker.create(worker, options);
-    this.workerCache.set(cacheKey, db);
-    return db;
+    try {
+      const options: PGliteWorkerOptions<{ live: LiveExtension }> = {
+        dataDir,
+        extensions: { live },
+        id: `brainstrike-db:${dataDir}`,
+        relaxedDurability: true,
+      };
+      return await PGliteWorker.create(worker, options);
+    } catch (error) {
+      worker.terminate();
+      throw error;
+    }
   }
 
   private shouldUseBrowserWorkerHost(dataDir: string | undefined): dataDir is string {
-    return (
-      typeof window !== 'undefined' &&
-      typeof Worker !== 'undefined' &&
-      this.requiresBrowserWorkerHost(dataDir)
-    );
+    return typeof Worker !== 'undefined' && this.requiresBrowserWorkerHost(dataDir);
   }
 
   private requiresBrowserWorkerHost(dataDir: string | undefined): dataDir is string {
@@ -211,14 +231,26 @@ class WasmLoader {
       }
     }
 
+    const pendingWorkerDb = this.workerClientPromises.get(cacheKey);
     const workerDb = this.workerCache.get(cacheKey);
     if (workerDb) {
       this.workerCache.delete(cacheKey);
+      this.workerClientPromises.delete(cacheKey);
       try {
         await workerDb.close();
         logger.info('Closed and removed cached PGlite worker client', { cacheKey });
       } catch (err) {
         logger.warn('Failed to close cached PGlite worker client', { cacheKey, error: err });
+      }
+    } else if (pendingWorkerDb) {
+      this.workerClientPromises.delete(cacheKey);
+      try {
+        const pendingDb = await pendingWorkerDb;
+        this.workerCache.delete(cacheKey);
+        await pendingDb.close();
+        logger.info('Closed pending PGlite worker client', { cacheKey });
+      } catch (err) {
+        logger.warn('Failed to close pending PGlite worker client', { cacheKey, error: err });
       }
     }
   }
@@ -232,6 +264,7 @@ class WasmLoader {
     const workerEntries = Array.from(this.workerCache.entries());
     this.dbCache.clear();
     this.workerCache.clear();
+    this.workerClientPromises.clear();
     this.wasmLoadPromise = null;
     this.isLoaded = false;
 

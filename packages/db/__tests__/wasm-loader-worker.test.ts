@@ -4,6 +4,16 @@ const workerConstructor = vi.fn();
 const pgliteConstructor = vi.fn();
 const pgliteWorkerCreate = vi.fn();
 
+async function waitForMockCall(mock: typeof pgliteWorkerCreate): Promise<void> {
+  for (let index = 0; index < 20; index += 1) {
+    if (mock.mock.calls.length > 0) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error('Timed out waiting for mock call');
+}
+
 vi.mock('@electric-sql/pglite', () => ({
   PGlite: pgliteConstructor,
 }));
@@ -73,6 +83,33 @@ describe('wasmLoader browser worker host', () => {
       id: 'brainstrike-db:idb://web',
       relaxedDurability: true,
     });
+  });
+
+  it('deduplicates concurrent worker client creation for the same IndexedDB path', async () => {
+    const workerClient = {
+      close: vi.fn().mockResolvedValue(undefined),
+      live: { query: vi.fn() },
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      transaction: vi.fn(),
+    };
+    let resolveCreate: (client: typeof workerClient) => void = () => {};
+    pgliteWorkerCreate.mockImplementation(
+      () =>
+        new Promise<typeof workerClient>((resolve) => {
+          resolveCreate = resolve;
+        })
+    );
+    const { wasmLoader } = await import('../src/wasm-loader');
+
+    const first = wasmLoader.createPGliteClient('idb://web');
+    const second = wasmLoader.createPGliteClient('idb://web');
+    await waitForMockCall(pgliteWorkerCreate);
+
+    expect(workerConstructor).toHaveBeenCalledTimes(1);
+    expect(pgliteWorkerCreate).toHaveBeenCalledTimes(1);
+
+    resolveCreate(workerClient);
+    await expect(Promise.all([first, second])).resolves.toEqual([workerClient, workerClient]);
   });
 
   it('keeps memory databases on direct PGlite for unit and integration tests', async () => {

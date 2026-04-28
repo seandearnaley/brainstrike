@@ -1,3 +1,4 @@
+import { createLogger } from '@brainstrike/utils';
 import type {
   LiveNamespace,
   LiveQuery,
@@ -9,6 +10,8 @@ import { usePGliteDatabase } from './db-provider.js';
 import { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
 
 export { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
+
+const logger = createLogger('UsePGliteLiveQuery');
 
 interface BaseLiveQueryOptions {
   /**
@@ -444,7 +447,11 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
         unsubscribe();
         return;
       }
-      leaderSource.offLeaderChange?.(listener);
+      if (leaderSource.offLeaderChange) {
+        leaderSource.offLeaderChange(listener);
+        return;
+      }
+      logger.warn('PGlite leader-change listener could not be removed');
     };
   }, [db]);
 

@@ -8,9 +8,32 @@ type BrainstrikePGliteWorkerInitOptions = Pick<PGliteOptions, 'dataDir' | 'relax
   readonly meta?: unknown;
 };
 
+function parseWorkerInitOptions(options: unknown): BrainstrikePGliteWorkerInitOptions {
+  if (typeof options !== 'object' || options === null) {
+    throw new Error('PGlite worker init options must be an object');
+  }
+  const candidate = options as Record<string, unknown>;
+  const dataDir = candidate['dataDir'];
+  if (dataDir !== undefined && typeof dataDir !== 'string') {
+    throw new Error('PGlite worker dataDir must be a string when provided');
+  }
+  const relaxedDurability = candidate['relaxedDurability'];
+  if (relaxedDurability !== undefined && typeof relaxedDurability !== 'boolean') {
+    throw new Error('PGlite worker relaxedDurability must be a boolean when provided');
+  }
+  const id = candidate['id'];
+  const meta = candidate['meta'];
+  return {
+    ...(dataDir === undefined ? {} : { dataDir }),
+    ...(relaxedDurability === undefined ? {} : { relaxedDurability }),
+    ...(typeof id === 'string' ? { id } : {}),
+    ...(meta === undefined ? {} : { meta }),
+  };
+}
+
 void worker({
   async init(options) {
-    const workerOptions = options as BrainstrikePGliteWorkerInitOptions;
+    const workerOptions = parseWorkerInitOptions(options);
     // The worker protocol includes coordination fields; only storage/runtime options belong in PGlite.
     const pgliteOptions: PGliteOptions = {
       extensions: { vector },

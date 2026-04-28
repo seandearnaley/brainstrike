@@ -6,7 +6,7 @@ test.describe('Web DB worker startup', { tag: '@smoke' }, () => {
     const errors: string[] = [];
 
     page.on('pageerror', (error) => {
-      errors.push(`pageerror: ${error.message}`);
+      errors.push(`pageerror: ${error.stack ?? error.message}`);
     });
     page.on('console', (message) => {
       if (message.type() === 'error') {
