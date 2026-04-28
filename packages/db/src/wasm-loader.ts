@@ -1,9 +1,21 @@
 import { createLogger, isDevEnv, setupHMR } from '@brainstrike/utils';
-import type { Extension, PGliteOptions } from '@electric-sql/pglite';
+import type { Extension } from '@electric-sql/pglite';
 import { PGlite } from '@electric-sql/pglite';
+import type { PGliteWorker, PGliteWorkerOptions } from '@electric-sql/pglite/worker';
 
 type VectorExtension = Extension;
 type LiveExtension = Extension;
+
+export interface PGliteLeaderChangeSource {
+  readonly offLeaderChange: (listener: () => void) => void;
+  readonly onLeaderChange: (listener: () => void) => (() => void) | undefined;
+}
+
+export type PGliteRuntimeClient = Pick<PGlite, 'close' | 'exec' | 'query' | 'transaction'> & {
+  readonly live?: unknown;
+};
+
+type BrowserPGliteWorkerClient = PGliteWorker & PGliteRuntimeClient & PGliteLeaderChangeSource;
 
 const logger = createLogger('WasmLoader');
 
@@ -49,7 +61,7 @@ class WasmLoader {
   private wasmLoadPromise: Promise<void> | null = null;
   private isLoaded = false;
   private readonly dbCache: Map<string, PGlite> = new Map();
-  private readonly workerCache: Map<string, PGlite> = new Map();
+  private readonly workerCache: Map<string, BrowserPGliteWorkerClient> = new Map();
 
   private constructor() {}
 
@@ -132,7 +144,7 @@ class WasmLoader {
     return db;
   }
 
-  async createPGliteClient(dataDir?: string): Promise<PGlite> {
+  async createPGliteClient(dataDir?: string): Promise<PGliteRuntimeClient> {
     const normalizedDataDir = dataDir === ':memory:' ? 'memory://' : dataDir;
     if (this.requiresBrowserWorkerHost(normalizedDataDir) && typeof Worker === 'undefined') {
       throw new Error('Browser IndexedDB PGlite requires Worker support');
@@ -152,16 +164,16 @@ class WasmLoader {
 
     const live = await loadLiveExtension();
     const { PGliteWorker } = await import('@electric-sql/pglite/worker');
-    const worker = new Worker(new URL('./pglite-worker-entry.js', import.meta.url), {
+    const worker = new Worker(new URL('./pglite-worker-entry.ts', import.meta.url), {
       type: 'module',
     });
-    const options: PGliteOptions & { id: string } = {
+    const options: PGliteWorkerOptions<{ live: LiveExtension }> = {
       dataDir: normalizedDataDir,
       extensions: { live },
       id: `brainstrike-db:${normalizedDataDir}`,
       relaxedDurability: true,
     };
-    const db = (await PGliteWorker.create(worker, options)) as unknown as PGlite;
+    const db: BrowserPGliteWorkerClient = await PGliteWorker.create(worker, options);
     this.workerCache.set(cacheKey, db);
     return db;
   }
