@@ -79,13 +79,16 @@ function getForegroundLatencyReason(
   serviceP95ThresholdMs: number
 ): DatabasePressureWaitingReason | null {
   const foregroundStats = snapshot.priorityStats.foreground;
+  const normalStats = snapshot.priorityStats.normal;
   const lastForegroundPressureAt = snapshot.lastForegroundAt ?? 0;
   if (lastForegroundPressureAt <= 0 || now - lastForegroundPressureAt > pressureWindowMs) {
     return null;
   }
   if (
     foregroundStats.waitP95Ms > waitP95ThresholdMs ||
-    foregroundStats.serviceP95Ms > serviceP95ThresholdMs
+    foregroundStats.serviceP95Ms > serviceP95ThresholdMs ||
+    normalStats.waitP95Ms > waitP95ThresholdMs ||
+    normalStats.serviceP95Ms > serviceP95ThresholdMs
   ) {
     return 'foreground-latency';
   }

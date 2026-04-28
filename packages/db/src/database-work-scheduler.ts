@@ -303,7 +303,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
   run<T>(work: () => Promise<T>, options: DatabaseWorkOptions = {}): Promise<T> {
     const priority = normalizePriority(options.priority);
     const enqueuedAt = this.#now();
-    if (priority === 'foreground') {
+    if (priority === 'foreground' || priority === 'normal') {
       this.#lastForegroundAt = enqueuedAt;
     }
 

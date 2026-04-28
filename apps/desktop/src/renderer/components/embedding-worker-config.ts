@@ -16,6 +16,7 @@ const DESKTOP_IDLE_EMBED_CLAIM_BATCH_SIZE = 4;
 const DESKTOP_PRESSURED_EMBED_CLAIM_BATCH_SIZE = 1;
 const DESKTOP_EMBED_INTER_BATCH_DELAY_MS = 75;
 const DESKTOP_PRESSURE_POLL_MS = 50;
+const DESKTOP_SCHEDULER_SNAPSHOT_CACHE_MS = 10;
 const DESKTOP_FOREGROUND_PRESSURE_WINDOW_MS = 1500;
 const DESKTOP_FOREGROUND_WAIT_P95_THRESHOLD_MS = 75;
 const DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS = 120;
@@ -52,7 +53,34 @@ function createPressureSnapshotSource(db: IDatabase): DatabasePressureSnapshotSo
   }
 
   return {
-    getSnapshot: schedulerSnapshot,
+    getSnapshot: createCachedSchedulerSnapshotReader(schedulerSnapshot),
+  };
+}
+
+function createCachedSchedulerSnapshotReader(
+  readSnapshot: () => DatabaseWorkSchedulerSnapshot | Promise<DatabaseWorkSchedulerSnapshot>
+): () => Promise<DatabaseWorkSchedulerSnapshot> {
+  let cachedSnapshot: DatabaseWorkSchedulerSnapshot | null = null;
+  let cachedAt = 0;
+  let pendingSnapshot: Promise<DatabaseWorkSchedulerSnapshot> | null = null;
+  return async () => {
+    const now = Date.now();
+    if (cachedSnapshot && now - cachedAt <= DESKTOP_SCHEDULER_SNAPSHOT_CACHE_MS) {
+      return cachedSnapshot;
+    }
+    if (pendingSnapshot) {
+      return pendingSnapshot;
+    }
+    pendingSnapshot = Promise.resolve(readSnapshot()).then((snapshot) => {
+      cachedSnapshot = snapshot;
+      cachedAt = Date.now();
+      return snapshot;
+    });
+    try {
+      return await pendingSnapshot;
+    } finally {
+      pendingSnapshot = null;
+    }
   };
 }
 
@@ -82,9 +110,12 @@ function hasForegroundDatabasePressure(snapshot: DatabaseWorkSchedulerSnapshot):
     now - snapshot.lastForegroundAt <= DESKTOP_FOREGROUND_PRESSURE_WINDOW_MS
   ) {
     const foregroundStats = snapshot.priorityStats.foreground;
+    const normalStats = snapshot.priorityStats.normal;
     return (
       foregroundStats.waitP95Ms > DESKTOP_FOREGROUND_WAIT_P95_THRESHOLD_MS ||
-      foregroundStats.serviceP95Ms > DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS
+      foregroundStats.serviceP95Ms > DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS ||
+      normalStats.waitP95Ms > DESKTOP_FOREGROUND_WAIT_P95_THRESHOLD_MS ||
+      normalStats.serviceP95Ms > DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS
     );
   }
   return false;

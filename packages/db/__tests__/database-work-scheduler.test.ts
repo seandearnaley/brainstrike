@@ -66,6 +66,37 @@ describe('DatabaseWorkScheduler', () => {
     }
   });
 
+  it('treats normal-priority work as foreground-visible for the quiet window', async () => {
+    vi.useFakeTimers();
+    try {
+      const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 50 });
+      const events: string[] = [];
+
+      await scheduler.run(
+        async () => {
+          events.push('normal');
+        },
+        { priority: 'normal', label: 'collection count refresh' }
+      );
+
+      const background = scheduler.run(
+        async () => {
+          events.push('background');
+        },
+        { priority: 'background', label: 'embedding claim' }
+      );
+
+      await vi.advanceTimersByTimeAsync(49);
+      expect(events).toEqual(['normal']);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await background;
+      expect(events).toEqual(['normal', 'background']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('preserves FIFO order within the same priority', async () => {
     const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
     const events: string[] = [];

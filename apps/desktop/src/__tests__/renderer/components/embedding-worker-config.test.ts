@@ -81,6 +81,27 @@ describe('createEmbeddingWorkerConfig', () => {
     await expect(config.resolveClaimBatchSize?.()).resolves.toBe(4);
   });
 
+  it('shares a recent Electron scheduler snapshot between permit and claim-size checks', async () => {
+    const { scheduledDb } = createScheduledTestDb();
+    const snapshot = getDatabaseWorkScheduler(scheduledDb)?.getSnapshot();
+    if (!snapshot) {
+      throw new Error('Test scheduled DB handle did not expose its scheduler.');
+    }
+    const schedulerSnapshot = vi.fn(async () => snapshot);
+    Object.assign(window.electronAPI, {
+      db: {
+        schedulerSnapshot,
+      },
+    });
+
+    const config = createEmbeddingWorkerConfig({ query: vi.fn() } as never);
+
+    await config.waitForBackgroundPermit?.({ label: 'embedding claim' });
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(4);
+
+    expect(schedulerSnapshot).toHaveBeenCalledTimes(1);
+  });
+
   it('shrinks desktop claims while foreground database work is running', async () => {
     const { scheduledDb } = createScheduledTestDb();
     const scheduler = getDatabaseWorkScheduler(scheduledDb);
@@ -127,6 +148,31 @@ describe('createEmbeddingWorkerConfig', () => {
     );
 
     expect(scheduler.getSnapshot().priorityStats.foreground.serviceP95Ms).toBeGreaterThan(120);
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+  });
+
+  it('shrinks desktop claims after recent high-latency normal database work', async () => {
+    let now = 1000;
+    const { scheduledDb } = createScheduledTestDb({
+      foregroundQuietMs: 0,
+      now: () => now,
+    });
+    const scheduler = getDatabaseWorkScheduler(scheduledDb);
+    if (!scheduler) {
+      throw new Error('Test scheduled DB handle did not expose its scheduler.');
+    }
+
+    await scheduler.run(
+      async () => {
+        now += 130;
+      },
+      { priority: 'normal', label: 'collection count refresh' }
+    );
+
+    expect(scheduler.getSnapshot().priorityStats.normal.serviceP95Ms).toBeGreaterThan(120);
 
     const config = createEmbeddingWorkerConfig(scheduledDb as never);
 
