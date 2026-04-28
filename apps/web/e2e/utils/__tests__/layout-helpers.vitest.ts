@@ -10,6 +10,32 @@ import {
 } from '../layout-helpers';
 
 describe('layout-helpers (unit)', () => {
+  async function withCiEnv<T>(isCI: boolean, callback: () => Promise<T> | T): Promise<T> {
+    const originalCI = process.env['CI'];
+    const originalGitHubActions = process.env['GITHUB_ACTIONS'];
+    const hadCI = Object.hasOwn(process.env, 'CI');
+    const hadGitHubActions = Object.hasOwn(process.env, 'GITHUB_ACTIONS');
+
+    process.env['CI'] = isCI ? 'true' : 'false';
+    process.env['GITHUB_ACTIONS'] = isCI ? 'true' : 'false';
+
+    try {
+      return await callback();
+    } finally {
+      if (hadCI) {
+        process.env['CI'] = originalCI;
+      } else {
+        Reflect.deleteProperty(process.env, 'CI');
+      }
+
+      if (hadGitHubActions) {
+        process.env['GITHUB_ACTIONS'] = originalGitHubActions;
+      } else {
+        Reflect.deleteProperty(process.env, 'GITHUB_ACTIONS');
+      }
+    }
+  }
+
   it('getPanelElements returns expected locators', () => {
     const locator = vi.fn((sel: string) => ({ sel }));
     const page = {
@@ -70,9 +96,6 @@ describe('layout-helpers (unit)', () => {
   });
 
   it('logs CI diagnostics when panel-id selector fallback is missing', async () => {
-    const originalCI = process.env['CI'];
-    const hadCI = Object.hasOwn(process.env, 'CI');
-    process.env['CI'] = 'true';
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     let waitForSelectorCallCount = 0;
     const page = {
@@ -92,16 +115,11 @@ describe('layout-helpers (unit)', () => {
     } as unknown as Page;
 
     try {
-      await waitForAppLoad(page, 10_000);
+      await withCiEnv(true, () => waitForAppLoad(page, 10_000));
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('main-content selector missing after readiness check')
       );
     } finally {
-      if (hadCI) {
-        process.env['CI'] = originalCI;
-      } else {
-        Reflect.deleteProperty(process.env, 'CI');
-      }
       warnSpy.mockRestore();
     }
   });
@@ -128,7 +146,7 @@ describe('layout-helpers (unit)', () => {
     expect(evalCalls.join('\n')).toContain('tools-panel.v1');
   });
 
-  it('waitForDatabaseReady resolves only after the connected status is present', async () => {
+  it('waitForDatabaseReady applies the local timeout floor', async () => {
     const handle = {
       dispose: vi.fn(async () => undefined),
       jsonValue: vi.fn(async () => 'connected'),
@@ -137,10 +155,27 @@ describe('layout-helpers (unit)', () => {
       waitForFunction: vi.fn(async () => handle),
     } as unknown as Page;
 
-    await waitForDatabaseReady(page, 10_000);
+    await withCiEnv(false, () => waitForDatabaseReady(page, 10_000));
 
     expect(page.waitForFunction).toHaveBeenCalledWith(expect.any(Function), null, {
       timeout: 20_000,
+    });
+    expect(handle.dispose).toHaveBeenCalled();
+  });
+
+  it('waitForDatabaseReady applies the CI timeout floor', async () => {
+    const handle = {
+      dispose: vi.fn(async () => undefined),
+      jsonValue: vi.fn(async () => 'connected'),
+    };
+    const page = {
+      waitForFunction: vi.fn(async () => handle),
+    } as unknown as Page;
+
+    await withCiEnv(true, () => waitForDatabaseReady(page, 10_000));
+
+    expect(page.waitForFunction).toHaveBeenCalledWith(expect.any(Function), null, {
+      timeout: 55_000,
     });
     expect(handle.dispose).toHaveBeenCalled();
   });
