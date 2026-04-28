@@ -1122,7 +1122,7 @@ export async function startEmbeddingWorker(
     await options.waitForBackgroundPermit?.({ label });
   }
 
-  async function resolveEffectiveClaimBatchSize(): Promise<number> {
+  async function resolveEffectiveClaimBatchSize(): Promise<number | null> {
     if (!options.resolveClaimBatchSize) {
       lastClaimBatchSize = claimBatchSize;
       lastClaimBatchSizeError = null;
@@ -1143,7 +1143,7 @@ export async function startEmbeddingWorker(
       // Resolver failures skip this claim poll; report the configured ceiling, not a stale value.
       lastClaimBatchSize = claimBatchSize;
       lastClaimBatchSizeError = error instanceof Error ? error.message : String(error);
-      throw error;
+      return null;
     }
   }
 
@@ -2364,6 +2364,10 @@ export async function startEmbeddingWorker(
     try {
       await waitForBackgroundPermit('embedding claim');
       const effectiveClaimBatchSize = await resolveEffectiveClaimBatchSize();
+      if (effectiveClaimBatchSize === null) {
+        await sleep(1000);
+        return;
+      }
       // Claim a batch of jobs
       const jobs = (await jq.claimMany({
         queue: queueName,

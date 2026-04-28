@@ -306,5 +306,8 @@ describe('embedding-worker error logging', () => {
       effectiveClaimBatchSize: 4,
       effectiveClaimBatchSizeError: 'resolver unavailable',
     });
+    expect(
+      loggerCalls.error.some(([message]) => message === 'Critical worker error in processBatch')
+    ).toBe(false);
   });
 });
