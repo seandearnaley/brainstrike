@@ -104,13 +104,13 @@ function getSettingsStore(): ElectronStore<DesktopSettingsStoreSchema> | null {
 function createDesktopDefaultPreferences(): LoggingPreferences {
   const logPath = getLogFilePath();
   return createDefaultLoggingPreferences({
-    level: LogLevel.DEBUG,
+    level: LogLevel.INFO,
     consoleLevel: LogLevel.WARN,
     includeTimestamp: true,
     file: {
       enabled: !disableFileLogs && Boolean(logPath),
       destination: logPath ?? null,
-      level: LogLevel.DEBUG,
+      level: LogLevel.INFO,
       append: true,
       mkdir: true,
     },
@@ -152,7 +152,19 @@ function areLoggingPreferencesEqual(left: LoggingPreferences, right: LoggingPref
 function migrateStoredLoggingPreferences(stored: LoggingPreferences): LoggingPreferences {
   const sanitizedStored = sanitizeDesktopPreferences(stored);
   const legacyDefaults = sanitizeDesktopPreferences(createLegacyDesktopDefaultPreferences());
-  if (areLoggingPreferencesEqual(sanitizedStored, legacyDefaults)) {
+  const currentDefaults = createDesktopDefaultPreferences();
+  const debugFileDefaults = sanitizeDesktopPreferences({
+    ...currentDefaults,
+    level: LogLevel.DEBUG,
+    file: {
+      ...currentDefaults.file,
+      level: LogLevel.DEBUG,
+    },
+  });
+  if (
+    areLoggingPreferencesEqual(sanitizedStored, legacyDefaults) ||
+    areLoggingPreferencesEqual(sanitizedStored, debugFileDefaults)
+  ) {
     return sanitizeDesktopPreferences(createDesktopDefaultPreferences());
   }
   return sanitizedStored;

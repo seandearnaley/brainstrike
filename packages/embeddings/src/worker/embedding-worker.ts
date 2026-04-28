@@ -326,6 +326,7 @@ export interface EmbeddingWorkerController {
 }
 
 const DEFAULT_CLAIM_BATCH_SIZE = 50;
+const CLAIM_SIZE_RESOLVER_FAILURE_BACKOFF_MS = 1000;
 
 function resolvePositiveIntegerOption(
   value: number | undefined,
@@ -2365,7 +2366,7 @@ export async function startEmbeddingWorker(
       await waitForBackgroundPermit('embedding claim');
       const effectiveClaimBatchSize = await resolveEffectiveClaimBatchSize();
       if (effectiveClaimBatchSize === null) {
-        await sleep(1000);
+        await sleep(CLAIM_SIZE_RESOLVER_FAILURE_BACKOFF_MS);
         return;
       }
       // Claim a batch of jobs

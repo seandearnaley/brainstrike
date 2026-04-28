@@ -75,6 +75,8 @@ function hasForegroundDatabasePressure(snapshot: DatabaseWorkSchedulerSnapshot):
   }
   // The stats window is intentionally evaluated after the scheduler quiet
   // window: recent foreground work always wins, even if latency samples are low.
+  // If the scheduler quiet window is tuned longer than this desktop stats
+  // window, the quiet-window branch deliberately owns that full period.
   if (
     snapshot.lastForegroundAt !== null &&
     now - snapshot.lastForegroundAt <= DESKTOP_FOREGROUND_PRESSURE_WINDOW_MS
