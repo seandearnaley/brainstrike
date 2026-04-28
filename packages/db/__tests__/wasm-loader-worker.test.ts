@@ -14,6 +14,16 @@ async function waitForMockCall(mock: typeof pgliteWorkerCreate): Promise<void> {
   throw new Error('Timed out waiting for mock call');
 }
 
+async function waitForMockCallCount(mock: typeof pgliteWorkerCreate, count: number): Promise<void> {
+  for (let index = 0; index < 20; index += 1) {
+    if (mock.mock.calls.length >= count) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error(`Timed out waiting for ${count} mock calls`);
+}
+
 vi.mock('@electric-sql/pglite', () => ({
   PGlite: pgliteConstructor,
 }));
@@ -160,6 +170,55 @@ describe('wasmLoader browser worker host', () => {
     await disposePromise;
 
     expect(workerClient.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks replacement worker startup while closeCached is closing an in-flight worker', async () => {
+    const firstWorkerClient = {
+      close: vi.fn().mockResolvedValue(undefined),
+      live: { query: vi.fn() },
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      transaction: vi.fn(),
+    };
+    const secondWorkerClient = {
+      close: vi.fn().mockResolvedValue(undefined),
+      live: { query: vi.fn() },
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      transaction: vi.fn(),
+    };
+    const resolveCreateCalls: Array<(client: typeof firstWorkerClient) => void> = [];
+    pgliteWorkerCreate.mockImplementation(
+      () =>
+        new Promise<typeof firstWorkerClient>((resolve) => {
+          resolveCreateCalls.push(resolve);
+        })
+    );
+    const { wasmLoader } = await import('../src/wasm-loader');
+
+    const firstCreatePromise = wasmLoader.createPGliteClient('idb://web');
+    await waitForMockCall(pgliteWorkerCreate);
+
+    const closePromise = wasmLoader.closeCached('idb://web');
+    await Promise.resolve();
+    const internals = wasmLoader as unknown as {
+      workerClientPromises: Map<string, Promise<unknown>>;
+    };
+    expect(internals.workerClientPromises.has('idb://web')).toBe(false);
+    const secondCreatePromise = wasmLoader.createPGliteClient('idb://web');
+    await Promise.resolve();
+
+    expect(pgliteWorkerCreate).toHaveBeenCalledTimes(1);
+
+    resolveCreateCalls[0]?.(firstWorkerClient);
+    await expect(firstCreatePromise).rejects.toThrow(
+      'PGlite worker client startup was disposed before completion'
+    );
+    await closePromise;
+    await waitForMockCallCount(pgliteWorkerCreate, 2);
+
+    expect(pgliteWorkerCreate).toHaveBeenCalledTimes(2);
+    resolveCreateCalls[1]?.(secondWorkerClient);
+    await expect(secondCreatePromise).resolves.toBe(secondWorkerClient);
+    expect(firstWorkerClient.close).toHaveBeenCalledTimes(1);
   });
 
   it('keeps memory databases on direct PGlite for unit and integration tests', async () => {

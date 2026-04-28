@@ -3,10 +3,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { vector } from '@electric-sql/pglite/vector';
 import { worker } from '@electric-sql/pglite/worker';
 
-type BrainstrikePGliteWorkerInitOptions = Pick<PGliteOptions, 'dataDir' | 'relaxedDurability'> & {
-  readonly id?: string;
-  readonly meta?: unknown;
-};
+type BrainstrikePGliteWorkerInitOptions = Pick<PGliteOptions, 'dataDir' | 'relaxedDurability'>;
 
 function parseWorkerInitOptions(options: unknown): BrainstrikePGliteWorkerInitOptions {
   if (typeof options !== 'object' || options === null) {
@@ -21,13 +18,9 @@ function parseWorkerInitOptions(options: unknown): BrainstrikePGliteWorkerInitOp
   if (relaxedDurability !== undefined && typeof relaxedDurability !== 'boolean') {
     throw new Error('PGlite worker relaxedDurability must be a boolean when provided');
   }
-  const id = candidate['id'];
-  const meta = candidate['meta'];
   return {
     ...(dataDir === undefined ? {} : { dataDir }),
     ...(relaxedDurability === undefined ? {} : { relaxedDurability }),
-    ...(typeof id === 'string' ? { id } : {}),
-    ...(meta === undefined ? {} : { meta }),
   };
 }
 
