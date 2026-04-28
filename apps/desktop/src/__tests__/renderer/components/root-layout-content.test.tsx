@@ -5,8 +5,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 let RootLayoutContent: React.ComponentType;
 
-const { loggerInfoMock } = vi.hoisted(() => ({
+const { loggerInfoMock, loggerWarnMock } = vi.hoisted(() => ({
   loggerInfoMock: vi.fn(),
+  loggerWarnMock: vi.fn(),
 }));
 
 const createQueueStub = (): QueueAdapter => {
@@ -155,7 +156,7 @@ vi.mock('@brainstrike/utils/logger', async () => {
     createLogger: () => ({
       info: loggerInfoMock,
       debug: vi.fn(),
-      warn: vi.fn(),
+      warn: loggerWarnMock,
       error: vi.fn(),
     }),
   };
@@ -262,7 +263,7 @@ describe('RootLayoutContent', () => {
 
     const { rerender, unmount } = render(<RootLayoutContent />);
 
-    expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+    expect(setIntervalSpy).toHaveBeenCalledTimes(2);
 
     currentDb = {
       query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
@@ -278,7 +279,7 @@ describe('RootLayoutContent', () => {
     ).memory.usedJSHeapSize = 129 * 1024 * 1024;
 
     rerender(<RootLayoutContent />);
-    expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+    expect(setIntervalSpy).toHaveBeenCalledTimes(2);
     expect(clearIntervalSpy).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(15_000);
@@ -291,6 +292,48 @@ describe('RootLayoutContent', () => {
     );
 
     unmount();
-    expect(clearIntervalSpy).toHaveBeenCalledTimes(1);
+    expect(clearIntervalSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('logs visible renderer frame stalls with the latest database readiness state', () => {
+    vi.useFakeTimers();
+    Object.defineProperty(globalThis.performance, 'memory', {
+      configurable: true,
+      value: {
+        usedJSHeapSize: 100,
+        totalJSHeapSize: 200,
+        jsHeapSizeLimit: 300,
+      },
+    });
+    let rafCallback: FrameRequestCallback | null = null;
+    const requestAnimationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback: FrameRequestCallback) => {
+        rafCallback = callback;
+        return 1;
+      });
+    const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame');
+
+    currentDb = {
+      query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
+    };
+    const { unmount } = render(<RootLayoutContent />);
+
+    expect(requestAnimationFrameSpy).toHaveBeenCalled();
+    rafCallback?.(0);
+    rafCallback?.(650);
+    vi.advanceTimersByTime(15_000);
+
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      'Desktop visible renderer frame health degraded',
+      expect.objectContaining({
+        activeToolsTab: 'database-ready',
+        maxFrameGapMs: 650,
+        usedJSHeapBytes: 100,
+      })
+    );
+
+    unmount();
+    expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(1);
   });
 });

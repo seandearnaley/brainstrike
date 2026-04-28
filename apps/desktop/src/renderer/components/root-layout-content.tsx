@@ -15,6 +15,9 @@ import SettingsPageContent from './settings/page-content';
 const logger = createLogger('DesktopRootLayoutContent');
 const RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS = 15_000;
 const RENDERER_HEAP_DIAGNOSTIC_DELTA_BYTES = 128 * 1024 * 1024;
+const RENDERER_FRAME_DIAGNOSTIC_INTERVAL_MS = 15_000;
+const RENDERER_FRAME_STALL_INFO_THRESHOLD_MS = 250;
+const RENDERER_FRAME_STALL_WARN_THRESHOLD_MS = 500;
 
 interface RendererMemoryPerformance extends Performance {
   memory?: {
@@ -112,6 +115,72 @@ export default function RootLayoutContent() {
     }, RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS);
 
     return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window.requestAnimationFrame !== 'function') {
+      return;
+    }
+
+    const performanceWithMemory = globalThis.performance as RendererMemoryPerformance | undefined;
+    let animationFrameId: number | null = null;
+    let previousFrameTime: number | null = null;
+    let maxFrameGapMs = 0;
+    let frameCount = 0;
+    let stalledFrameCount = 0;
+
+    const resetFrameWindow = () => {
+      maxFrameGapMs = 0;
+      frameCount = 0;
+      stalledFrameCount = 0;
+    };
+
+    const sampleFrame: FrameRequestCallback = (timestamp) => {
+      if (previousFrameTime !== null) {
+        const frameGapMs = timestamp - previousFrameTime;
+        maxFrameGapMs = Math.max(maxFrameGapMs, frameGapMs);
+        if (frameGapMs >= RENDERER_FRAME_STALL_INFO_THRESHOLD_MS) {
+          stalledFrameCount += 1;
+        }
+      }
+      previousFrameTime = timestamp;
+      frameCount += 1;
+      animationFrameId = window.requestAnimationFrame(sampleFrame);
+    };
+
+    animationFrameId = window.requestAnimationFrame(sampleFrame);
+
+    const intervalId = window.setInterval(() => {
+      if (maxFrameGapMs < RENDERER_FRAME_STALL_INFO_THRESHOLD_MS) {
+        resetFrameWindow();
+        return;
+      }
+
+      const currentMemory = performanceWithMemory?.memory;
+      const payload = {
+        activeToolsTab: activeToolsTabRef.current,
+        maxFrameGapMs: Math.round(maxFrameGapMs),
+        frameCount,
+        stalledFrameCount,
+        usedJSHeapBytes: currentMemory?.usedJSHeapSize ?? null,
+        totalJSHeapBytes: currentMemory?.totalJSHeapSize ?? null,
+        jsHeapSizeLimitBytes: currentMemory?.jsHeapSizeLimit ?? null,
+      };
+
+      if (maxFrameGapMs >= RENDERER_FRAME_STALL_WARN_THRESHOLD_MS) {
+        logger.warn('Desktop visible renderer frame health degraded', payload);
+      } else {
+        logger.info('Desktop visible renderer frame health degraded', payload);
+      }
+      resetFrameWindow();
+    }, RENDERER_FRAME_DIAGNOSTIC_INTERVAL_MS);
+
+    return () => {
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
+      }
       window.clearInterval(intervalId);
     };
   }, []);

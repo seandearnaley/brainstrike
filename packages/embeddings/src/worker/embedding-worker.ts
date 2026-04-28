@@ -1372,6 +1372,10 @@ export async function startEmbeddingWorker(
     const shouldReinitialize = forceReinit || targetModelId !== activeModelId;
     const shouldInitializeCurrentModel = !localServiceInitialized;
 
+    if (!(shouldReinitialize || shouldInitializeCurrentModel)) {
+      return;
+    }
+
     workerLogger.debug('ensureLocalModel check', {
       targetModelId,
       activeModelId,
@@ -1379,10 +1383,6 @@ export async function startEmbeddingWorker(
       shouldInitializeCurrentModel,
       forceReinit,
     });
-
-    if (!(shouldReinitialize || shouldInitializeCurrentModel)) {
-      return;
-    }
 
     assertLocalModelSwitchAllowed(targetModelId);
     failFastOnLatchedLocalModelInitializationFailure(
