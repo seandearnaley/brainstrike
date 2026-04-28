@@ -23,6 +23,7 @@ type BrowserPGliteWorkerClient = PGliteWorker & PGliteRuntimeClient & PGliteLead
 const logger = createLogger('WasmLoader');
 
 interface PendingBrowserWorkerStartup {
+  readonly closeResolved: (db: BrowserPGliteWorkerClient) => Promise<boolean>;
   readonly dispose: () => void;
   readonly promise: Promise<BrowserPGliteWorkerClient>;
 }
@@ -213,6 +214,7 @@ class WasmLoader {
 
   private createBrowserWorkerStartup(dataDir: string): PendingBrowserWorkerStartup {
     let disposed = false;
+    let resolvedClientClosed = false;
     let worker: Worker | null = null;
     let rejectDisposed: (reason: Error) => void = () => undefined;
     const disposedPromise = new Promise<never>((_, reject) => {
@@ -246,7 +248,7 @@ class WasmLoader {
               return;
             }
             try {
-              await db.close();
+              await closeResolved(db);
             } catch (err) {
               logger.warn('Failed to close late PGlite worker startup', { dataDir, error: err });
             }
@@ -262,6 +264,7 @@ class WasmLoader {
     })();
 
     return {
+      closeResolved,
       dispose: () => {
         if (disposed) {
           return;
@@ -272,6 +275,15 @@ class WasmLoader {
       },
       promise,
     };
+
+    async function closeResolved(db: BrowserPGliteWorkerClient): Promise<boolean> {
+      if (resolvedClientClosed) {
+        return false;
+      }
+      resolvedClientClosed = true;
+      await db.close();
+      return true;
+    }
   }
 
   private shouldUseBrowserWorkerHost(dataDir: string | undefined): dataDir is string {
@@ -320,8 +332,10 @@ class WasmLoader {
       try {
         const pendingDb = await pendingWorkerStartup.promise;
         this.workerCache.delete(cacheKey);
-        await pendingDb.close();
-        logger.info('Closed pending PGlite worker client', { cacheKey });
+        const closed = await pendingWorkerStartup.closeResolved(pendingDb);
+        if (closed) {
+          logger.info('Closed pending PGlite worker client', { cacheKey });
+        }
       } catch (err) {
         if (isWorkerStartupDisposedError(err)) {
           logger.info('Disposed pending PGlite worker client startup', { cacheKey });
@@ -362,8 +376,10 @@ class WasmLoader {
       startup.dispose();
       try {
         const resolvedDb = await startup.promise;
-        await resolvedDb.close();
-        logger.info('HMR dispose: closed cached PGlite instance', { cacheKey });
+        const closed = await startup.closeResolved(resolvedDb);
+        if (closed) {
+          logger.info('HMR dispose: closed cached PGlite instance', { cacheKey });
+        }
       } catch (err) {
         if (isWorkerStartupDisposedError(err)) {
           logger.info('HMR dispose: disposed pending PGlite worker startup', { cacheKey });
