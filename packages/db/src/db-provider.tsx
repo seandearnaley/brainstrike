@@ -483,7 +483,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     async (cancelled: { value: boolean }) => {
       logger.debug('Using direct PGlite connection');
 
-      const db = await wasmLoader.createPGlite(resolvedPath);
+      const db = await wasmLoader.createPGliteClient(resolvedPath);
       connectionRef.current = { kind: 'direct', db, dataDir: resolvedPath };
 
       const scheduledDb = createScheduledDbHandle(

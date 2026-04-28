@@ -1,5 +1,5 @@
 import { createLogger, isDevEnv, setupHMR } from '@brainstrike/utils';
-import type { Extension } from '@electric-sql/pglite';
+import type { Extension, PGliteOptions } from '@electric-sql/pglite';
 import { PGlite } from '@electric-sql/pglite';
 
 type VectorExtension = Extension;
@@ -49,6 +49,7 @@ class WasmLoader {
   private wasmLoadPromise: Promise<void> | null = null;
   private isLoaded = false;
   private readonly dbCache: Map<string, PGlite> = new Map();
+  private readonly workerCache: Map<string, PGlite> = new Map();
 
   private constructor() {}
 
@@ -131,6 +132,54 @@ class WasmLoader {
     return db;
   }
 
+  async createPGliteClient(dataDir?: string): Promise<PGlite> {
+    const normalizedDataDir = dataDir === ':memory:' ? 'memory://' : dataDir;
+    if (this.requiresBrowserWorkerHost(normalizedDataDir) && typeof Worker === 'undefined') {
+      throw new Error('Browser IndexedDB PGlite requires Worker support');
+    }
+    if (!this.shouldUseBrowserWorkerHost(normalizedDataDir)) {
+      return await this.createPGlite(normalizedDataDir);
+    }
+
+    await this.ensureWasmLoaded();
+
+    const cacheKey = normalizedDataDir || 'default';
+    const cached = this.workerCache.get(cacheKey);
+    if (cached) {
+      logger.info('Reusing cached PGlite worker client', { cacheKey });
+      return cached;
+    }
+
+    const live = await loadLiveExtension();
+    const { PGliteWorker } = await import('@electric-sql/pglite/worker');
+    const worker = new Worker(new URL('./pglite-worker-entry.js', import.meta.url), {
+      type: 'module',
+    });
+    const options: PGliteOptions & { id: string } = {
+      dataDir: normalizedDataDir,
+      extensions: { live },
+      id: `brainstrike-db:${normalizedDataDir}`,
+      relaxedDurability: true,
+    };
+    const db = (await PGliteWorker.create(worker, options)) as unknown as PGlite;
+    this.workerCache.set(cacheKey, db);
+    return db;
+  }
+
+  private shouldUseBrowserWorkerHost(dataDir: string | undefined): dataDir is string {
+    return (
+      typeof window !== 'undefined' &&
+      typeof Worker !== 'undefined' &&
+      this.requiresBrowserWorkerHost(dataDir)
+    );
+  }
+
+  private requiresBrowserWorkerHost(dataDir: string | undefined): dataDir is string {
+    return (
+      typeof window !== 'undefined' && typeof dataDir === 'string' && dataDir.startsWith('idb://')
+    );
+  }
+
   /**
    * Closes and removes a cached PGlite instance.
    * Use this during cleanup to properly release resources.
@@ -149,6 +198,17 @@ class WasmLoader {
         logger.warn('Failed to close cached PGlite instance', { cacheKey, error: err });
       }
     }
+
+    const workerDb = this.workerCache.get(cacheKey);
+    if (workerDb) {
+      this.workerCache.delete(cacheKey);
+      try {
+        await workerDb.close();
+        logger.info('Closed and removed cached PGlite worker client', { cacheKey });
+      } catch (err) {
+        logger.warn('Failed to close cached PGlite worker client', { cacheKey, error: err });
+      }
+    }
   }
 
   /**
@@ -157,12 +217,14 @@ class WasmLoader {
    */
   async disposeAll(): Promise<void> {
     const entries = Array.from(this.dbCache.entries());
+    const workerEntries = Array.from(this.workerCache.entries());
     this.dbCache.clear();
+    this.workerCache.clear();
     this.wasmLoadPromise = null;
     this.isLoaded = false;
 
     await Promise.all(
-      entries.map(async ([cacheKey, db]) => {
+      [...entries, ...workerEntries].map(async ([cacheKey, db]) => {
         try {
           await db.close();
           logger.info('HMR dispose: closed cached PGlite instance', { cacheKey });

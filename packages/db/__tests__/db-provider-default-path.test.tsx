@@ -4,12 +4,29 @@ import { act, renderHook } from '@testing-library/react';
 import type React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const pgliteWorkerCreate = vi.fn();
+const workerConstructor = vi.fn();
+
 vi.mock('@electric-sql/pglite', () => ({
   PGlite: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
     this.query = vi.fn();
     this.exec = vi.fn();
     this.close = vi.fn().mockResolvedValue(undefined);
   }),
+}));
+
+vi.mock('@electric-sql/pglite/live', () => ({
+  live: {},
+}));
+
+vi.mock('@electric-sql/pglite/vector', () => ({
+  vector: {},
+}));
+
+vi.mock('@electric-sql/pglite/worker', () => ({
+  PGliteWorker: {
+    create: pgliteWorkerCreate,
+  },
 }));
 
 vi.mock('../src/migrations/bootstrap', () => ({
@@ -26,6 +43,33 @@ function wrapper({ children }: { children: React.ReactNode }) {
 describe('DbProvider default dbPath', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.defineProperty(globalThis, 'Worker', {
+      configurable: true,
+      value: workerConstructor,
+      writable: true,
+    });
+    workerConstructor.mockImplementation(function WorkerMock(
+      this: Record<string, unknown>,
+      url: URL,
+      options: WorkerOptions
+    ) {
+      this.url = url;
+      this.options = options;
+      this.terminate = vi.fn();
+    });
+    pgliteWorkerCreate.mockResolvedValue({
+      close: vi.fn().mockResolvedValue(undefined),
+      exec: vi.fn().mockResolvedValue(undefined),
+      live: { query: vi.fn() },
+      query: vi.fn().mockResolvedValue({ rows: [{ '?column?': 1 }] }),
+      transaction: vi.fn().mockImplementation(
+        async (fn: (tx: unknown) => Promise<unknown>) =>
+          await fn({
+            exec: vi.fn().mockResolvedValue(undefined),
+            query: vi.fn().mockResolvedValue({ rows: [] }),
+          })
+      ),
+    });
   });
 
   it('uses idb://app in browser environments', async () => {
@@ -38,24 +82,13 @@ describe('DbProvider default dbPath', () => {
         { wrapper }
       );
     });
-    // Check that PGlite was called with the expected path
-    // The second call should be the actual DbProvider usage, the first might be from WasmLoader
-    const calls = (PGlite as unknown as { mock: { calls: unknown[][] } }).mock.calls;
-    expect(
-      calls.some((call) => {
-        if (!Array.isArray(call)) {
-          return false;
-        }
-        const arg = call?.[0];
-        if (typeof arg === 'string') {
-          return arg === 'idb://app';
-        }
-        if (typeof arg === 'object' && arg !== null && 'dataDir' in arg) {
-          return (arg as { dataDir?: unknown }).dataDir === 'idb://app';
-        }
-        return false;
+    expect(PGlite).not.toHaveBeenCalled();
+    expect(pgliteWorkerCreate).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        dataDir: 'idb://app',
       })
-    ).toBe(true);
+    );
   });
 
   it('getDefaultDbPath respects runtime', () => {

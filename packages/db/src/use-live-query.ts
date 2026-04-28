@@ -98,6 +98,11 @@ type LiveSource =
   | { kind: 'pglite'; live: LiveNamespace }
   | { kind: 'electron'; bridge: ElectronLiveBridge };
 
+interface LeaderChangeSource {
+  offLeaderChange?: (callback: () => void) => void;
+  onLeaderChange: (callback: () => void) => (() => void) | undefined;
+}
+
 function isObjectLike(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
@@ -238,6 +243,26 @@ function getLiveNamespace(db: ReturnType<typeof usePGliteDatabase>): LiveNamespa
   return null;
 }
 
+function getLeaderChangeSource(
+  db: ReturnType<typeof usePGliteDatabase>
+): LeaderChangeSource | null {
+  const raw = (db as { raw?: unknown } | null)?.raw;
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const candidate = raw as { offLeaderChange?: unknown; onLeaderChange?: unknown };
+  if (typeof candidate.onLeaderChange !== 'function') {
+    return null;
+  }
+  const source: LeaderChangeSource = {
+    onLeaderChange: candidate.onLeaderChange as LeaderChangeSource['onLeaderChange'],
+  };
+  if (typeof candidate.offLeaderChange === 'function') {
+    source.offLeaderChange = candidate.offLeaderChange as (callback: () => void) => void;
+  }
+  return source;
+}
+
 function resolveLiveSource(db: ReturnType<typeof usePGliteDatabase>): LiveSource | null {
   const directLive = getLiveNamespace(db);
   if (directLive) {
@@ -366,6 +391,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
 ): LiveQueryHookResult<T> {
   const db = usePGliteDatabase();
   const source = useMemo(() => resolveLiveSource(db), [db]);
+  const [leaderRevision, setLeaderRevision] = useState(0);
   const hasCacheKey = options.cacheKey !== undefined;
   // When cacheKey is provided, skip expensive deep/JSON comparison — the caller
   // guarantees that cacheKey changes iff the query deps change.
@@ -395,6 +421,24 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
   const hasKey = !requiresKey || typeof options.key === 'string';
   const enabled = Boolean(options.enabled ?? true) && Boolean(source) && (!requiresKey || hasKey);
   const select = options.select;
+
+  useEffect(() => {
+    const leaderSource = getLeaderChangeSource(db);
+    if (!leaderSource) {
+      return;
+    }
+    const listener = () => {
+      setLeaderRevision((revision) => revision + 1);
+    };
+    const unsubscribe = leaderSource.onLeaderChange(listener);
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+        return;
+      }
+      leaderSource.offLeaderChange?.(listener);
+    };
+  }, [db]);
 
   // biome-ignore lint/plugin: Live query subscription management - async data with cleanup
   // biome-ignore lint/correctness/useExhaustiveDependencies: paramsDep intentionally drives re-subscription timing via the dep array — the effect reads actual params from effectiveParamsRef
@@ -471,6 +515,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     options.key,
     options.limit,
     options.offset,
+    leaderRevision,
     paramsDep,
     options.query,
     // select intentionally omitted to prevent re-subscription
