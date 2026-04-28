@@ -140,6 +140,7 @@ describe('wasmLoader browser worker host', () => {
     const { wasmLoader } = await import('../src/wasm-loader');
 
     const createPromise = wasmLoader.createPGliteClient('idb://web');
+    const sharedPendingPromise = wasmLoader.createPGliteClient('idb://web');
     await waitForMockCall(pgliteWorkerCreate);
 
     let disposed = false;
@@ -151,6 +152,9 @@ describe('wasmLoader browser worker host', () => {
 
     resolveCreate(workerClient);
     await expect(createPromise).rejects.toThrow(
+      'PGlite worker client startup was disposed before completion'
+    );
+    await expect(sharedPendingPromise).rejects.toThrow(
       'PGlite worker client startup was disposed before completion'
     );
     await disposePromise;

@@ -165,19 +165,18 @@ class WasmLoader {
     const pending = this.workerClientPromises.get(cacheKey);
     if (pending) {
       logger.info('Reusing pending PGlite worker client', { cacheKey });
-      return await pending;
+      return await this.awaitActiveWorkerClient(cacheKey, pending);
     }
 
     const workerClientPromise = this.createBrowserWorkerClient(normalizedDataDir);
     this.workerClientPromises.set(cacheKey, workerClientPromise);
 
     try {
-      const db = await workerClientPromise;
-      if (this.workerClientPromises.get(cacheKey) !== workerClientPromise) {
-        throw new Error('PGlite worker client startup was disposed before completion');
+      const db = await this.awaitActiveWorkerClient(cacheKey, workerClientPromise);
+      if (this.workerClientPromises.get(cacheKey) === workerClientPromise) {
+        this.workerClientPromises.delete(cacheKey);
+        this.workerCache.set(cacheKey, db);
       }
-      this.workerClientPromises.delete(cacheKey);
-      this.workerCache.set(cacheKey, db);
       return db;
     } catch (error) {
       if (this.workerClientPromises.get(cacheKey) === workerClientPromise) {
@@ -185,6 +184,20 @@ class WasmLoader {
       }
       throw error;
     }
+  }
+
+  private async awaitActiveWorkerClient(
+    cacheKey: string,
+    workerClientPromise: Promise<BrowserPGliteWorkerClient>
+  ): Promise<BrowserPGliteWorkerClient> {
+    const db = await workerClientPromise;
+    if (this.workerClientPromises.get(cacheKey) === workerClientPromise) {
+      return db;
+    }
+    if (this.workerCache.get(cacheKey) === db) {
+      return db;
+    }
+    throw new Error('PGlite worker client startup was disposed before completion');
   }
 
   private async createBrowserWorkerClient(dataDir: string): Promise<BrowserPGliteWorkerClient> {
@@ -277,7 +290,6 @@ class WasmLoader {
 
     const closeResolvedDb = async (cacheKey: string, db: PGliteRuntimeClient): Promise<void> => {
       try {
-        this.workerCache.delete(cacheKey);
         await db.close();
         logger.info('HMR dispose: closed cached PGlite instance', { cacheKey });
       } catch (err) {
@@ -291,7 +303,6 @@ class WasmLoader {
     ): Promise<void> => {
       try {
         const resolvedDb = await db;
-        this.workerCache.delete(cacheKey);
         await resolvedDb.close();
         logger.info('HMR dispose: closed cached PGlite instance', { cacheKey });
       } catch (err) {
