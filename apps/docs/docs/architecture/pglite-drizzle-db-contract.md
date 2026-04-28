@@ -86,3 +86,16 @@ proceeds.
 
 No fallback should silently hide missing DB capabilities. If a runtime cannot
 support part of the contract, it should report an unavailable/error state.
+
+## Drizzle Adapter Bridge
+
+`drizzle-orm` is pinned to exact `0.45.2` because `drizzleFromHandle()` bridges a
+PGliteWorker-compatible raw execution client into Drizzle's concrete PGlite
+adapter. That bridge is intentionally narrow: it only accepts explicit
+`DbHandle.raw` clients that expose `query`, `exec`, and `transaction`, and it is
+covered by integration tests for the adapter calls used today.
+
+Do not widen the dependency range or upgrade Drizzle as routine dependency
+churn. Any Drizzle upgrade must re-audit the adapter's PGlite method usage and
+either prove the raw execution-client bridge is still valid or replace it with a
+first-class Drizzle driver/client adapter.

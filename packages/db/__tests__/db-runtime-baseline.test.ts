@@ -67,5 +67,6 @@ describe('Brainstrike DB runtime baseline', () => {
     expect(doc).toContain('providers/models');
     expect(doc).toContain('Drizzle schema now maps the production `providers/models` tables');
     expect(doc).toContain('generated Drizzle migration manifest now ends with `providers/models`');
+    expect(doc).toContain('`drizzle-orm` is pinned to exact `0.45.2`');
   });
 });
