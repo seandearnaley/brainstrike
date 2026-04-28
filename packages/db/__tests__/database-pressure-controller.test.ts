@@ -215,6 +215,26 @@ describe('DatabasePressureController', () => {
     ).toBe('foreground-quiet-window');
   });
 
+  it('reports normal-priority quiet-window pressure distinctly', () => {
+    const now = 1050;
+    const baseScheduler = createDatabaseWorkScheduler({
+      foregroundQuietMs: 50,
+      now: () => now,
+    });
+    const baseSnapshot = baseScheduler.getSnapshot();
+
+    expect(
+      getDatabasePressureWaitingReason(
+        {
+          ...baseSnapshot,
+          lastNormalAt: 1000,
+          snapshotAt: now,
+        },
+        now
+      )
+    ).toBe('normal-quiet-window');
+  });
+
   it('does not let background completions extend stale foreground latency pressure', async () => {
     let now = 10_000;
     const baseScheduler = createDatabaseWorkScheduler({

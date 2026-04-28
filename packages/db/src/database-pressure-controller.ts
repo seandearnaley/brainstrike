@@ -8,7 +8,8 @@ export type DatabasePressureWaitingReason =
   | 'foreground-queued'
   | 'foreground-quiet-window'
   | 'foreground-running'
-  | 'normal-latency';
+  | 'normal-latency'
+  | 'normal-quiet-window';
 
 export interface DatabasePressurePermitOptions {
   readonly label?: string;
@@ -137,7 +138,7 @@ export function getDatabasePressureWaitingReason(
     return 'foreground-quiet-window';
   }
   if (snapshot.lastNormalAt !== null && now - snapshot.lastNormalAt <= snapshot.foregroundQuietMs) {
-    return 'foreground-quiet-window';
+    return 'normal-quiet-window';
   }
   return getForegroundLatencyReason(
     snapshot,
