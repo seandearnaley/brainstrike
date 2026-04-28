@@ -59,14 +59,15 @@ function createPressureSnapshotSource(db: IDatabase): DatabasePressureSnapshotSo
 }
 
 function createCachedSchedulerSnapshotReader(
-  readSnapshot: () => DatabaseWorkSchedulerSnapshot | Promise<DatabaseWorkSchedulerSnapshot>
+  readSnapshot: () => DatabaseWorkSchedulerSnapshot | Promise<DatabaseWorkSchedulerSnapshot>,
+  now: () => number = () => Date.now()
 ): () => Promise<DatabaseWorkSchedulerSnapshot> {
   let cachedSnapshot: DatabaseWorkSchedulerSnapshot | null = null;
   let cachedAt = 0;
   let pendingSnapshot: Promise<DatabaseWorkSchedulerSnapshot> | null = null;
   return async () => {
-    const now = Date.now();
-    if (cachedSnapshot && now - cachedAt <= DESKTOP_SCHEDULER_SNAPSHOT_CACHE_MS) {
+    const readAt = now();
+    if (cachedSnapshot && readAt - cachedAt <= DESKTOP_SCHEDULER_SNAPSHOT_CACHE_MS) {
       return cachedSnapshot;
     }
     if (pendingSnapshot) {
@@ -76,7 +77,7 @@ function createCachedSchedulerSnapshotReader(
     cachedAt = 0;
     pendingSnapshot = Promise.resolve(readSnapshot()).then((snapshot) => {
       cachedSnapshot = snapshot;
-      cachedAt = Date.now();
+      cachedAt = now();
       return snapshot;
     });
     try {

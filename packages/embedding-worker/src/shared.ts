@@ -115,8 +115,7 @@ export function computeInitialBatchSize(totalInputs: number, preferredMax?: numb
     return 1;
   }
   const capped = preferredMax ?? 16;
-  const heuristic = Math.ceil(totalInputs / 8);
-  return Math.max(1, Math.min(capped, heuristic));
+  return Math.max(1, Math.min(capped, totalInputs));
 }
 
 export function normalizeProgress(value: number): number {

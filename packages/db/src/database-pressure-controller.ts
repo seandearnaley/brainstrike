@@ -7,7 +7,8 @@ export type DatabasePressureWaitingReason =
   | 'foreground-latency'
   | 'foreground-queued'
   | 'foreground-quiet-window'
-  | 'foreground-running';
+  | 'foreground-running'
+  | 'normal-latency';
 
 export interface DatabasePressurePermitOptions {
   readonly label?: string;
@@ -99,7 +100,7 @@ function getForegroundLatencyReason(
     now - snapshot.lastNormalAt <= pressureWindowMs &&
     (normalStats.waitP95Ms > waitP95ThresholdMs || normalStats.serviceP95Ms > serviceP95ThresholdMs)
   ) {
-    return 'foreground-latency';
+    return 'normal-latency';
   }
   return null;
 }

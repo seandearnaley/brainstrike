@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createDatabasePressureController } from '../src/database-pressure-controller';
+import {
+  createDatabasePressureController,
+  getDatabasePressureWaitingReason,
+} from '../src/database-pressure-controller';
 import {
   createDatabaseWorkScheduler,
   type DatabaseWorkSchedulerSnapshot,
@@ -182,7 +185,7 @@ describe('DatabasePressureController', () => {
     await Promise.resolve();
     expect(controller.getSnapshot()).toMatchObject({
       permitWaiting: true,
-      waitingReason: 'foreground-latency',
+      waitingReason: 'normal-latency',
     });
 
     now += 501;
@@ -190,6 +193,26 @@ describe('DatabasePressureController', () => {
       listener(snapshot());
     }
     await expect(permit).resolves.toBeUndefined();
+  });
+
+  it('treats the quiet-window boundary as active foreground pressure', () => {
+    const now = 1050;
+    const baseScheduler = createDatabaseWorkScheduler({
+      foregroundQuietMs: 50,
+      now: () => now,
+    });
+    const baseSnapshot = baseScheduler.getSnapshot();
+
+    expect(
+      getDatabasePressureWaitingReason(
+        {
+          ...baseSnapshot,
+          lastForegroundAt: 1000,
+          snapshotAt: now,
+        },
+        now
+      )
+    ).toBe('foreground-quiet-window');
   });
 
   it('does not let background completions extend stale foreground latency pressure', async () => {
