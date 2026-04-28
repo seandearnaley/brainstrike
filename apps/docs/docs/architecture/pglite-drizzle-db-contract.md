@@ -61,13 +61,18 @@ MigrationRunner is still the only production migration authority.
 
 ## Required Contract
 
-The shared Brainstrike DB client contract needs to cover:
+The shared Brainstrike DB contract has two layers.
+
+The execution client covers:
 
 - `query`
 - `exec`, which resolves without exposing implementation-specific command
   results
 - `transaction`
 - live query start, refresh, listener cleanup, and terminal disposal
+
+The runtime host covers:
+
 - diagnostics with an explicit `ok` state plus optional message/details
 - reset and close semantics
 

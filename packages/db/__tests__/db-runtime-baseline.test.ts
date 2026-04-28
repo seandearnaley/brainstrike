@@ -62,6 +62,8 @@ describe('Brainstrike DB runtime baseline', () => {
     expect(doc).toContain('legacy MigrationRunner');
     expect(doc).toContain('_migrations');
     expect(doc).toContain('__drizzle_migrations');
+    expect(doc).toContain('The execution client covers:');
+    expect(doc).toContain('The runtime host covers:');
     expect(doc).toContain('providers/models');
     expect(doc).toContain('Drizzle schema now maps the production `providers/models` tables');
     expect(doc).toContain('generated Drizzle migration manifest now ends with `providers/models`');
