@@ -61,7 +61,7 @@ describe('createEmbeddingWorkerConfig', () => {
 
     expect(config).toMatchObject({
       db: scheduledDb,
-      claimBatchSize: 16,
+      claimBatchSize: 4,
       concurrency: 1,
       interBatchDelayMs: 75,
       leaseMs: 60_000,
@@ -78,7 +78,7 @@ describe('createEmbeddingWorkerConfig', () => {
 
     const config = createEmbeddingWorkerConfig(scheduledDb as never);
 
-    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(4);
   });
 
   it('shrinks desktop claims while foreground database work is running', async () => {
@@ -153,7 +153,7 @@ describe('createEmbeddingWorkerConfig', () => {
 
     const config = createEmbeddingWorkerConfig(scheduledDb as never);
 
-    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(4);
   });
 
   it('uses configured env vars and forwards logs and download progress updates', () => {
