@@ -31,7 +31,7 @@ export function drizzle(pglite: PGlite): DrizzleDb {
 }
 
 /**
- * Type guard to check if a database handle contains a raw PGlite instance
+ * Type guard to check if a database handle contains a raw PGlite-compatible execution client
  */
 export function hasPGliteRaw(db: unknown): db is { raw: PGliteCompatibleClient } {
   return (
@@ -53,7 +53,7 @@ function isPGliteCompatibleClient(value: unknown): value is PGliteCompatibleClie
 }
 
 /**
- * Extract PGlite instance from a database handle if available
+ * Extract a PGlite-compatible execution client from a database handle if available
  */
 export function extractPGlite(db: unknown): PGliteCompatibleClient | null {
   if (hasPGliteRaw(db)) {
