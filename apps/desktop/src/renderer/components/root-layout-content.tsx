@@ -137,6 +137,13 @@ export default function RootLayoutContent() {
     };
 
     const sampleFrame: FrameRequestCallback = (timestamp) => {
+      if (document.visibilityState !== 'visible') {
+        previousFrameTime = null;
+        resetFrameWindow();
+        animationFrameId = window.requestAnimationFrame(sampleFrame);
+        return;
+      }
+
       if (previousFrameTime !== null) {
         const frameGapMs = timestamp - previousFrameTime;
         maxFrameGapMs = Math.max(maxFrameGapMs, frameGapMs);
@@ -152,6 +159,12 @@ export default function RootLayoutContent() {
     animationFrameId = window.requestAnimationFrame(sampleFrame);
 
     const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') {
+        previousFrameTime = null;
+        resetFrameWindow();
+        return;
+      }
+
       if (maxFrameGapMs < RENDERER_FRAME_STALL_WARN_THRESHOLD_MS) {
         resetFrameWindow();
         return;

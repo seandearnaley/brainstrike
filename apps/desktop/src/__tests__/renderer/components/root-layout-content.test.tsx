@@ -177,6 +177,10 @@ describe('RootLayoutContent', () => {
     globalThis.performance,
     'memory'
   );
+  const originalVisibilityStateDescriptor = Object.getOwnPropertyDescriptor(
+    document,
+    'visibilityState'
+  );
 
   beforeAll(async () => {
     RootLayoutContent = (await import('../../../renderer/components/root-layout-content')).default;
@@ -192,9 +196,12 @@ describe('RootLayoutContent', () => {
     vi.useRealTimers();
     if (originalPerformanceMemoryDescriptor) {
       Object.defineProperty(globalThis.performance, 'memory', originalPerformanceMemoryDescriptor);
-      return;
+    } else {
+      Reflect.deleteProperty(globalThis.performance, 'memory');
     }
-    Reflect.deleteProperty(globalThis.performance, 'memory');
+    if (originalVisibilityStateDescriptor) {
+      Object.defineProperty(document, 'visibilityState', originalVisibilityStateDescriptor);
+    }
   });
 
   it('should render without crashing', () => {
@@ -357,6 +364,32 @@ describe('RootLayoutContent', () => {
       'Desktop visible renderer frame health degraded',
       expect.anything()
     );
+    expect(loggerWarnMock).not.toHaveBeenCalledWith(
+      'Desktop visible renderer frame health degraded',
+      expect.anything()
+    );
+  });
+
+  it('does not report frame gaps while the visible renderer is hidden', () => {
+    vi.useFakeTimers();
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+    let rafCallback: FrameRequestCallback | null = null;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(
+      (callback: FrameRequestCallback) => {
+        rafCallback = callback;
+        return 1;
+      }
+    );
+
+    render(<RootLayoutContent />);
+
+    rafCallback?.(0);
+    rafCallback?.(2000);
+    vi.advanceTimersByTime(15_000);
+
     expect(loggerWarnMock).not.toHaveBeenCalledWith(
       'Desktop visible renderer frame health degraded',
       expect.anything()
