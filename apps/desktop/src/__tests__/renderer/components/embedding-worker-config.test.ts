@@ -1,4 +1,8 @@
-import { createDatabaseWorkScheduler, createScheduledDbHandle } from '@brainstrike/db';
+import {
+  createDatabaseWorkScheduler,
+  createScheduledDbHandle,
+  getDatabaseWorkScheduler,
+} from '@brainstrike/db';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { loggerInfoMock, registryStoreState } = vi.hoisted(() => ({
@@ -53,17 +57,53 @@ describe('createEmbeddingWorkerConfig', () => {
 
     const config = createEmbeddingWorkerConfig(scheduledDb as never);
 
-    expect(config).toEqual({
+    expect(config).toMatchObject({
       db: scheduledDb,
-      claimBatchSize: 1,
+      claimBatchSize: 16,
       concurrency: 1,
-      interBatchDelayMs: 150,
+      interBatchDelayMs: 75,
       leaseMs: 60_000,
       log: expect.any(Function),
       onDownloadProgress: expect.any(Function),
+      resolveClaimBatchSize: expect.any(Function),
       waitForBackgroundPermit: expect.any(Function),
     });
     expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it('uses the idle desktop claim batch when no foreground database work is active', async () => {
+    const { scheduledDb } = createScheduledTestDb();
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
+  });
+
+  it('shrinks desktop claims while foreground database work is running', async () => {
+    const { scheduledDb } = createScheduledTestDb();
+    const scheduler = getDatabaseWorkScheduler(scheduledDb);
+    if (!scheduler) {
+      throw new Error('Test scheduled DB handle did not expose its scheduler.');
+    }
+    let releaseForegroundWork!: () => void;
+    const foregroundWork = scheduler.run(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseForegroundWork = resolve;
+        }),
+      { priority: 'foreground', label: 'test foreground query' }
+    );
+
+    await vi.waitFor(() => {
+      expect(scheduler.getSnapshot().runningPriority).toBe('foreground');
+    });
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+
+    releaseForegroundWork();
+    await foregroundWork;
   });
 
   it('uses configured env vars and forwards logs and download progress updates', () => {

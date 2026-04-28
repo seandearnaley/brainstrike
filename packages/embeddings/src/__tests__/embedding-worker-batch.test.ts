@@ -275,6 +275,28 @@ describe('Embedding Worker Batch Optimization', () => {
     expect(waitForBackgroundPermit).toHaveBeenCalledWith({ label: 'embedding claim' });
     expect(waitForBackgroundPermit).toHaveBeenCalledWith({ label: 'embedding completion' });
   });
+
+  it('uses a resolved claim batch size when polling the queue', async () => {
+    const claimManySpy = vi.spyOn(JobQueue.prototype, 'claimMany');
+    const resolveClaimBatchSize = vi.fn(async () => 3);
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      claimBatchSize: 10,
+      concurrency: 1,
+      leaseMs: 2000,
+      modelKey: 'jinaai/jina-embeddings-v2-base-code',
+      resolveClaimBatchSize,
+      service: new FakeEmbeddingService(),
+      log: () => {},
+    });
+
+    await waitFor(async () => claimManySpy.mock.calls.length > 0, 10_000);
+    await controller.stop();
+
+    expect(resolveClaimBatchSize).toHaveBeenCalled();
+    expect(claimManySpy.mock.calls[0]?.[0]).toMatchObject({ limit: 3 });
+  });
 });
 
 // Increase timeouts to reduce flakiness under workspace-wide runs

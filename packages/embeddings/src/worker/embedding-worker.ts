@@ -302,6 +302,12 @@ export interface EmbeddingWorkerOptions {
   onWorkerActivityChange?: (active: boolean) => void;
   queue?: string; // default: 'embeddings'
   reinitEveryN?: number; // reinitialize service every N successes (default disabled unless env/option set)
+  /**
+   * Optional per-poll effective claim size. The returned value is capped by
+   * claimBatchSize so callers can adapt to foreground pressure without
+   * bypassing the configured maximum burst size.
+   */
+  resolveClaimBatchSize?: () => number | Promise<number>;
   service?: EmbeddingService; // optional DI for tests or custom backends
   /**
    * When true, a fatal local-model initialization/execution error stops the
@@ -1057,6 +1063,7 @@ export async function startEmbeddingWorker(
   const initializeLocalModelOnStart = options.initializeLocalModelOnStart ?? true;
   let activeModelId = modelResolution.modelId;
   let activeCompositeKey = modelResolution.compositeKey;
+  let lastClaimBatchSize = claimBatchSize;
   const workerId = options.workerId ?? `embed-worker-${generateUUID().slice(0, 8)}`;
   let service: EmbeddingService;
   let modelConfig: ModelConfig | null = null;
@@ -1112,6 +1119,19 @@ export async function startEmbeddingWorker(
 
   async function waitForBackgroundPermit(label: string): Promise<void> {
     await options.waitForBackgroundPermit?.({ label });
+  }
+
+  async function resolveEffectiveClaimBatchSize(): Promise<number> {
+    if (!options.resolveClaimBatchSize) {
+      return claimBatchSize;
+    }
+    const resolved = await options.resolveClaimBatchSize();
+    const requestedClaimBatchSize = resolvePositiveIntegerOption(
+      resolved,
+      'resolveClaimBatchSize',
+      claimBatchSize
+    );
+    return Math.min(requestedClaimBatchSize, claimBatchSize);
   }
 
   await assertVectorEmbeddingColumn(options.db);
@@ -2283,12 +2303,14 @@ export async function startEmbeddingWorker(
     const batchStart = performance.now();
     try {
       await waitForBackgroundPermit('embedding claim');
+      const effectiveClaimBatchSize = await resolveEffectiveClaimBatchSize();
+      lastClaimBatchSize = effectiveClaimBatchSize;
       // Claim a batch of jobs
       const jobs = (await jq.claimMany({
         queue: queueName,
         leaseMs,
         workerId,
-        limit: claimBatchSize,
+        limit: effectiveClaimBatchSize,
       })) as ClaimedJob[];
 
       if (jobs.length === 0) {
@@ -2353,6 +2375,7 @@ export async function startEmbeddingWorker(
         avgDurationMs: Math.round(avgMs),
         concurrency,
         claimBatchSize,
+        effectiveClaimBatchSize: lastClaimBatchSize,
         interBatchDelayMs,
         queue: queueName,
         modelKey: activeCompositeKey,
