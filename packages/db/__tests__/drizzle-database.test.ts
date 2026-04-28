@@ -21,14 +21,14 @@ describe('Drizzle database utilities', () => {
     expect(drizzleMock).toHaveBeenCalledWith(rawClient);
   });
 
-  it('creates Drizzle from a direct PGlite-compatible runtime client', async () => {
+  it('does not create Drizzle from an unwrapped structural client', async () => {
     const { drizzleFromHandle } = await import('../src/drizzle/database.js');
     const directClient = createPGliteCompatibleClient();
 
     const result = drizzleFromHandle(directClient);
 
-    expect(result).toEqual({ client: directClient });
-    expect(drizzleMock).toHaveBeenCalledWith(directClient);
+    expect(result).toBeNull();
+    expect(drizzleMock).not.toHaveBeenCalled();
   });
 
   it('returns null for partial query-only handles', async () => {

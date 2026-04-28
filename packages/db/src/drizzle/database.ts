@@ -59,9 +59,6 @@ export function extractPGlite(db: unknown): PGliteCompatibleClient | null {
   if (hasPGliteRaw(db)) {
     return db.raw;
   }
-  if (isPGliteCompatibleClient(db)) {
-    return db;
-  }
   return null;
 }
 
@@ -81,8 +78,9 @@ export function drizzleFromHandle(dbHandle: unknown): DrizzleDb | null {
   const pglite = extractPGlite(dbHandle);
   if (pglite) {
     // Drizzle's PGlite adapter is typed to the concrete PGlite class, while
-    // worker and scheduled clients expose the same query/exec/transaction
-    // execution surface structurally. The guard above is the runtime contract.
+    // DbHandle.raw may expose a scheduled PGliteWorker-compatible client with
+    // the same query/exec/transaction execution surface. Keep this bridge
+    // explicit to DbHandle.raw so arbitrary structural objects are not accepted.
     return drizzle(pglite as unknown as PGlite);
   }
   return null;

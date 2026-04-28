@@ -118,9 +118,23 @@ export function getMissingBrainstrikeDbRuntimeHostCapabilities(
     return BRAINSTRIKE_DB_RUNTIME_HOST_CAPABILITIES;
   }
 
-  return BRAINSTRIKE_DB_RUNTIME_HOST_CAPABILITIES.filter(
-    (capability) => !hasFunctionProperty(candidate, capability)
+  return BRAINSTRIKE_DB_RUNTIME_HOST_CAPABILITIES.filter((capability) =>
+    isBrainstrikeDbRuntimeHostCapabilityMissing(candidate, capability)
   );
+}
+
+function isBrainstrikeDbRuntimeHostCapabilityMissing(
+  candidate: Record<PropertyKey, unknown>,
+  capability: BrainstrikeDbRuntimeHostCapability
+): boolean {
+  switch (capability) {
+    case 'close':
+    case 'diagnostics':
+    case 'reset':
+      return !hasFunctionProperty(candidate, capability);
+    default:
+      return assertUnreachableDbRuntimeHostCapability(capability);
+  }
 }
 
 function hasLiveQueryCapability(candidate: Record<PropertyKey, unknown>): boolean {
@@ -146,4 +160,8 @@ function isObjectRecord(value: unknown): value is Record<PropertyKey, unknown> {
 
 function assertUnreachableDbClientCapability(value: never): never {
   throw new Error(`Unhandled Brainstrike DB client capability: ${String(value)}`);
+}
+
+function assertUnreachableDbRuntimeHostCapability(value: never): never {
+  throw new Error(`Unhandled Brainstrike DB runtime host capability: ${String(value)}`);
 }
