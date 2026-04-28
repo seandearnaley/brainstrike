@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const workerConstructor = vi.fn();
 const pgliteConstructor = vi.fn();
 const pgliteWorkerCreate = vi.fn();
+interface MockWorkerInstance {
+  terminate: ReturnType<typeof vi.fn>;
+}
 
 async function waitForMockCall(mock: typeof pgliteWorkerCreate): Promise<void> {
   for (let index = 0; index < 20; index += 1) {
@@ -128,51 +131,40 @@ describe('wasmLoader browser worker host', () => {
     await wasmLoader.createPGliteClient('idb://web');
 
     const internals = wasmLoader as unknown as {
-      workerClientPromises: Map<string, Promise<unknown>>;
+      workerClientStartups: Map<string, unknown>;
     };
-    expect(internals.workerClientPromises.size).toBe(0);
+    expect(internals.workerClientStartups.size).toBe(0);
   });
 
-  it('closes an in-flight worker client during disposeAll', async () => {
+  it('terminates an in-flight worker startup during disposeAll', async () => {
     const workerClient = {
       close: vi.fn().mockResolvedValue(undefined),
       live: { query: vi.fn() },
       query: vi.fn().mockResolvedValue({ rows: [] }),
       transaction: vi.fn(),
     };
-    let resolveCreate: (client: typeof workerClient) => void = () => {};
-    pgliteWorkerCreate.mockImplementation(
-      () =>
-        new Promise<typeof workerClient>((resolve) => {
-          resolveCreate = resolve;
-        })
-    );
+    pgliteWorkerCreate.mockImplementation(() => new Promise<typeof workerClient>(() => undefined));
     const { wasmLoader } = await import('../src/wasm-loader');
 
     const createPromise = wasmLoader.createPGliteClient('idb://web');
     const sharedPendingPromise = wasmLoader.createPGliteClient('idb://web');
     await waitForMockCall(pgliteWorkerCreate);
 
-    let disposed = false;
-    const disposePromise = wasmLoader.disposeAll().then(() => {
-      disposed = true;
-    });
-    await Promise.resolve();
-    expect(disposed).toBe(false);
+    await expect(wasmLoader.disposeAll()).resolves.toBeUndefined();
 
-    resolveCreate(workerClient);
     await expect(createPromise).rejects.toThrow(
       'PGlite worker client startup was disposed before completion'
     );
     await expect(sharedPendingPromise).rejects.toThrow(
       'PGlite worker client startup was disposed before completion'
     );
-    await disposePromise;
 
-    expect(workerClient.close).toHaveBeenCalledTimes(1);
+    const workerInstance = workerConstructor.mock.instances[0] as MockWorkerInstance;
+    expect(workerInstance.terminate).toHaveBeenCalledTimes(1);
+    expect(workerClient.close).not.toHaveBeenCalled();
   });
 
-  it('blocks replacement worker startup while closeCached is closing an in-flight worker', async () => {
+  it('terminates an unresolved worker startup before creating a replacement client', async () => {
     const firstWorkerClient = {
       close: vi.fn().mockResolvedValue(undefined),
       live: { query: vi.fn() },
@@ -197,28 +189,25 @@ describe('wasmLoader browser worker host', () => {
     const firstCreatePromise = wasmLoader.createPGliteClient('idb://web');
     await waitForMockCall(pgliteWorkerCreate);
 
-    const closePromise = wasmLoader.closeCached('idb://web');
-    await Promise.resolve();
+    await expect(wasmLoader.closeCached('idb://web')).resolves.toBeUndefined();
     const internals = wasmLoader as unknown as {
-      workerClientPromises: Map<string, Promise<unknown>>;
+      workerClientStartups: Map<string, unknown>;
     };
-    expect(internals.workerClientPromises.has('idb://web')).toBe(false);
-    const secondCreatePromise = wasmLoader.createPGliteClient('idb://web');
-    await Promise.resolve();
-
-    expect(pgliteWorkerCreate).toHaveBeenCalledTimes(1);
-
-    resolveCreateCalls[0]?.(firstWorkerClient);
+    expect(internals.workerClientStartups.has('idb://web')).toBe(false);
+    const firstWorkerInstance = workerConstructor.mock.instances[0] as MockWorkerInstance;
+    expect(firstWorkerInstance.terminate).toHaveBeenCalledTimes(1);
     await expect(firstCreatePromise).rejects.toThrow(
       'PGlite worker client startup was disposed before completion'
     );
-    await closePromise;
-    await waitForMockCallCount(pgliteWorkerCreate, 2);
 
+    const secondCreatePromise = wasmLoader.createPGliteClient('idb://web');
+    await Promise.resolve();
+
+    await waitForMockCallCount(pgliteWorkerCreate, 2);
     expect(pgliteWorkerCreate).toHaveBeenCalledTimes(2);
     resolveCreateCalls[1]?.(secondWorkerClient);
     await expect(secondCreatePromise).resolves.toBe(secondWorkerClient);
-    expect(firstWorkerClient.close).toHaveBeenCalledTimes(1);
+    expect(firstWorkerClient.close).not.toHaveBeenCalled();
   });
 
   it('keeps memory databases on direct PGlite for unit and integration tests', async () => {
