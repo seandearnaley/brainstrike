@@ -79,7 +79,7 @@ function resolveSource(options: DatabasePressureControllerOptions): DatabasePres
   return source;
 }
 
-function getForegroundLatencyReason(
+function getLatencyPressureReason(
   snapshot: DatabaseWorkSchedulerSnapshot,
   now: number,
   pressureWindowMs: number,
@@ -140,7 +140,7 @@ export function getDatabasePressureWaitingReason(
   if (snapshot.lastNormalAt !== null && now - snapshot.lastNormalAt <= snapshot.foregroundQuietMs) {
     return 'normal-quiet-window';
   }
-  return getForegroundLatencyReason(
+  return getLatencyPressureReason(
     snapshot,
     now,
     policy.foregroundPressureWindowMs,

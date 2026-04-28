@@ -71,6 +71,7 @@ function createCachedSchedulerSnapshotReader(
       return cachedSnapshot;
     }
     if (pendingSnapshot) {
+      // Concurrent permit and claim-size checks intentionally share one IPC read.
       return pendingSnapshot;
     }
     cachedSnapshot = null;

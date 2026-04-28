@@ -114,6 +114,8 @@ export function computeInitialBatchSize(totalInputs: number, preferredMax?: numb
   if (totalInputs <= 1) {
     return 1;
   }
+  // Preserve caller-sized small batches; memory ceilings belong in preferredMax
+  // so desktop claim batches do not collapse into single-input GPU calls.
   const capped = preferredMax ?? 16;
   return Math.max(1, Math.min(capped, totalInputs));
 }
