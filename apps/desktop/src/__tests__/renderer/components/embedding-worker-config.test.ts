@@ -33,9 +33,11 @@ vi.mock('@brainstrike/utils/logger', async () => {
 
 import { createEmbeddingWorkerConfig } from '../../../renderer/components/embedding-worker-config';
 
-function createScheduledTestDb() {
+function createScheduledTestDb(
+  options: Parameters<typeof createDatabaseWorkScheduler>[0] = { foregroundQuietMs: 0 }
+) {
   const db = { query: vi.fn(async () => ({ rows: [] })) };
-  const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+  const scheduler = createDatabaseWorkScheduler(options);
   return {
     db,
     scheduledDb: createScheduledDbHandle(db, scheduler, 'background'),
@@ -104,6 +106,54 @@ describe('createEmbeddingWorkerConfig', () => {
 
     releaseForegroundWork();
     await foregroundWork;
+  });
+
+  it('shrinks desktop claims after recent high-latency foreground database work', async () => {
+    let now = Date.now() - 100;
+    const { scheduledDb } = createScheduledTestDb({
+      foregroundQuietMs: 0,
+      now: () => now,
+    });
+    const scheduler = getDatabaseWorkScheduler(scheduledDb);
+    if (!scheduler) {
+      throw new Error('Test scheduled DB handle did not expose its scheduler.');
+    }
+
+    await scheduler.run(
+      async () => {
+        now += 130;
+      },
+      { priority: 'foreground', label: 'slow foreground query' }
+    );
+
+    expect(scheduler.getSnapshot().priorityStats.foreground.serviceP95Ms).toBeGreaterThan(120);
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+  });
+
+  it('keeps the configured idle desktop claim batch after low-latency foreground work', async () => {
+    let now = Date.now() - 100;
+    const { scheduledDb } = createScheduledTestDb({
+      foregroundQuietMs: 0,
+      now: () => now,
+    });
+    const scheduler = getDatabaseWorkScheduler(scheduledDb);
+    if (!scheduler) {
+      throw new Error('Test scheduled DB handle did not expose its scheduler.');
+    }
+
+    await scheduler.run(
+      async () => {
+        now += 20;
+      },
+      { priority: 'foreground', label: 'fast foreground query' }
+    );
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
   });
 
   it('uses configured env vars and forwards logs and download progress updates', () => {

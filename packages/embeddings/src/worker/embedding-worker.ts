@@ -1063,7 +1063,7 @@ export async function startEmbeddingWorker(
   const initializeLocalModelOnStart = options.initializeLocalModelOnStart ?? true;
   let activeModelId = modelResolution.modelId;
   let activeCompositeKey = modelResolution.compositeKey;
-  let lastClaimBatchSize: number | null = claimBatchSize;
+  let lastClaimBatchSize = claimBatchSize;
   let lastClaimBatchSizeError: string | null = null;
   const workerId = options.workerId ?? `embed-worker-${generateUUID().slice(0, 8)}`;
   let service: EmbeddingService;
@@ -1140,7 +1140,6 @@ export async function startEmbeddingWorker(
       lastClaimBatchSizeError = null;
       return effectiveClaimBatchSize;
     } catch (error) {
-      lastClaimBatchSize = null;
       lastClaimBatchSizeError = error instanceof Error ? error.message : String(error);
       throw error;
     }

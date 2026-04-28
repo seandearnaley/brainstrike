@@ -55,6 +55,9 @@ function createPressureSnapshotSource(db: IDatabase): DatabasePressureSnapshotSo
 }
 
 function hasForegroundDatabasePressure(snapshot: DatabaseWorkSchedulerSnapshot): boolean {
+  // Normal priority is treated as foreground-visible pressure in the desktop
+  // embedding host: it is used for user-facing DB work that should still run
+  // ahead of background embedding claims.
   if (snapshot.runningPriority === 'foreground' || snapshot.runningPriority === 'normal') {
     return true;
   }
