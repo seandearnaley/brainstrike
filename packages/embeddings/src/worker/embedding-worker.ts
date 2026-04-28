@@ -1140,6 +1140,7 @@ export async function startEmbeddingWorker(
       lastClaimBatchSizeError = null;
       return effectiveClaimBatchSize;
     } catch (error) {
+      // Resolver failures skip this claim poll; report the configured ceiling, not a stale value.
       lastClaimBatchSize = claimBatchSize;
       lastClaimBatchSizeError = error instanceof Error ? error.message : String(error);
       throw error;
@@ -2073,6 +2074,7 @@ export async function startEmbeddingWorker(
           const succeededIds = new Set(heartbeatedJobs.map((j) => j.id));
 
           for (const job of activeJobs) {
+            // Streaming completions can land while heartbeatBatch awaits the DB host.
             if (completedJobs.has(job.id)) {
               continue;
             }
