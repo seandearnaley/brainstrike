@@ -75,6 +75,7 @@ describe('wasmLoader browser worker host', () => {
 
     pgliteWorkerCreate.mockResolvedValue({
       close: vi.fn().mockResolvedValue(undefined),
+      exec: vi.fn().mockResolvedValue(undefined),
       live: { query: vi.fn() },
       query: vi.fn().mockResolvedValue({ rows: [] }),
       transaction: vi.fn(),
@@ -96,6 +97,16 @@ describe('wasmLoader browser worker host', () => {
       id: 'brainstrike-db:idb://web',
       relaxedDurability: true,
     });
+  });
+
+  it('returns a worker client that satisfies the shared DB execution contract', async () => {
+    const { getMissingBrainstrikeDbClientCapabilities, wasmLoader } = await import(
+      '../src/index.js'
+    );
+
+    const client = await wasmLoader.createPGliteClient('idb://web');
+
+    expect(getMissingBrainstrikeDbClientCapabilities(client)).toEqual([]);
   });
 
   it('deduplicates concurrent worker client creation for the same IndexedDB path', async () => {
