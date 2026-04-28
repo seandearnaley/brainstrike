@@ -224,18 +224,31 @@ describe('PGliteWorker live query leader changes', () => {
       unsubscribe: mockUnsubscribe,
     });
 
-    (usePGliteDatabase as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      raw: {
-        live: {
-          incrementalQuery: mockQuery,
-          query: mockQuery,
-        },
-        onLeaderChange: (listener: () => void) => {
-          leaderChangeListener = listener;
-          return mockUnsubscribeLeader;
-        },
+    interface MockWorkerRaw {
+      readonly live: {
+        readonly incrementalQuery: typeof mockQuery;
+        readonly query: typeof mockQuery;
+      };
+      readonly marker: 'worker-raw';
+      onLeaderChange(this: MockWorkerRaw, listener: () => void): () => void;
+    }
+
+    const raw: MockWorkerRaw = {
+      live: {
+        incrementalQuery: mockQuery,
+        query: mockQuery,
       },
-    });
+      marker: 'worker-raw',
+      onLeaderChange(listener: () => void) {
+        if (this.marker !== 'worker-raw') {
+          throw new Error('PGliteWorker onLeaderChange must be called with worker receiver');
+        }
+        leaderChangeListener = listener;
+        return mockUnsubscribeLeader;
+      },
+    };
+
+    (usePGliteDatabase as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ raw });
   });
 
   afterEach(() => {

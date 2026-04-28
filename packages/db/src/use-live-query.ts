@@ -254,11 +254,19 @@ function getLeaderChangeSource(
   if (typeof candidate.onLeaderChange !== 'function') {
     return null;
   }
+  const onLeaderChange = candidate.onLeaderChange as (
+    this: typeof raw,
+    callback: () => void
+  ) => (() => void) | undefined;
   const source: LeaderChangeSource = {
-    onLeaderChange: candidate.onLeaderChange as LeaderChangeSource['onLeaderChange'],
+    onLeaderChange: (callback) => onLeaderChange.call(raw, callback),
   };
   if (typeof candidate.offLeaderChange === 'function') {
-    source.offLeaderChange = candidate.offLeaderChange as (callback: () => void) => void;
+    const offLeaderChange = candidate.offLeaderChange as (
+      this: typeof raw,
+      callback: () => void
+    ) => void;
+    source.offLeaderChange = (callback) => offLeaderChange.call(raw, callback);
   }
   return source;
 }

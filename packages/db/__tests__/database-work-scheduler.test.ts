@@ -474,4 +474,32 @@ describe('DatabaseWorkScheduler', () => {
     expect(liveHandle.refresh).toHaveBeenCalledTimes(1);
     expect(seenPriorities).toEqual(['foreground', 'foreground']);
   });
+
+  it('binds worker leader-change methods to the raw database target', () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    const unsubscribe = vi.fn();
+    const listener = vi.fn();
+    class RawWorkerDb {
+      readonly query = vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
+        rows: [] as T[],
+      }));
+
+      readonly #marker = 'raw-worker';
+
+      onLeaderChange(callback: () => void) {
+        if (this.#marker !== 'raw-worker') {
+          throw new Error('leader-change method must use raw receiver');
+        }
+        callback();
+        return unsubscribe;
+      }
+    }
+
+    const rawDb = new RawWorkerDb();
+    const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground') as typeof rawDb;
+    const result = scheduled.onLeaderChange(listener);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(result).toBe(unsubscribe);
+  });
 });

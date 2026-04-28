@@ -75,6 +75,7 @@ const DEFAULT_FOREGROUND_QUIET_MS = 75;
 const METRICS_WINDOW_SIZE = 64;
 const SCHEDULER_SYMBOL = Symbol.for('brainstrike.databaseWorkScheduler');
 const DEFAULT_PRIORITY_SYMBOL = Symbol.for('brainstrike.databaseWorkDefaultPriority');
+const RAW_RECEIVER_METHODS = new Set<PropertyKey>(['offLeaderChange', 'onLeaderChange']);
 
 interface MetricSamples {
   nextIndex: number;
@@ -193,6 +194,17 @@ function addMetricSample(samples: MetricSamples, value: number): void {
     removeMetricSample(samples.sorted, replaced);
   }
   samples.sorted.splice(findMetricInsertIndex(samples.sorted, value), 0, value);
+}
+
+function getRawReceiverMethod(target: object, property: PropertyKey): CallableUnknown | null {
+  if (!RAW_RECEIVER_METHODS.has(property)) {
+    return null;
+  }
+  const method = Reflect.get(target, property, target);
+  if (typeof method !== 'function') {
+    return null;
+  }
+  return (...args: unknown[]) => Reflect.apply(method, target, args) as unknown;
 }
 
 function patchPriorityStat(
@@ -693,6 +705,10 @@ function createPriorityOptionsDbHandle<TDatabase extends object & ScheduledDbHan
       if (property === DEFAULT_PRIORITY_SYMBOL) {
         return priority;
       }
+      const rawReceiverMethod = getRawReceiverMethod(target, property);
+      if (rawReceiverMethod) {
+        return rawReceiverMethod;
+      }
       return Reflect.get(target, property, receiver);
     },
   });
@@ -763,6 +779,10 @@ export function createScheduledDbHandle<TDatabase extends object & ScheduledDbHa
       }
       if (property === DEFAULT_PRIORITY_SYMBOL) {
         return defaultPriority;
+      }
+      const rawReceiverMethod = getRawReceiverMethod(target, property);
+      if (rawReceiverMethod) {
+        return rawReceiverMethod;
       }
       return Reflect.get(target, property, receiver);
     },
