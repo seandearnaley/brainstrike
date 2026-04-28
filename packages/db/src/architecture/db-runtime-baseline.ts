@@ -29,9 +29,9 @@ export interface DbRuntimeBaseline {
     readonly status: 'schema-and-manifest-reconciled';
   }[];
   readonly web: {
-    readonly owner: 'visible-renderer-direct-pglite';
+    readonly directPgliteScope: 'tests-memory-and-non-browser-utilities';
+    readonly owner: 'pglite-worker-db-host';
     readonly storage: 'idb';
-    readonly targetOwner: 'pglite-worker-db-host';
   };
 }
 
@@ -56,9 +56,9 @@ export const BRAINSTRIKE_DB_RUNTIME_BASELINE: DbRuntimeBaseline = {
     },
   ],
   web: {
-    owner: 'visible-renderer-direct-pglite',
+    directPgliteScope: 'tests-memory-and-non-browser-utilities',
+    owner: 'pglite-worker-db-host',
     storage: 'idb',
-    targetOwner: 'pglite-worker-db-host',
   },
 } as const;
 

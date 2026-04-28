@@ -12,8 +12,10 @@ describe('Brainstrike DB runtime baseline', () => {
   it('records the current desktop and web DB ownership model', () => {
     expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.desktop.owner).toBe('electron-utility-process');
     expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.desktop.storage).toBe('filesystem-backed-profile');
-    expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.web.owner).toBe('visible-renderer-direct-pglite');
-    expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.web.targetOwner).toBe('pglite-worker-db-host');
+    expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.web.owner).toBe('pglite-worker-db-host');
+    expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.web.directPgliteScope).toBe(
+      'tests-memory-and-non-browser-utilities'
+    );
   });
 
   it('records that legacy migrations are still the production authority', () => {
@@ -55,6 +57,8 @@ describe('Brainstrike DB runtime baseline', () => {
     const doc = readFileSync(docsPath, 'utf8');
 
     expect(doc).toContain('utilityProcess DB host');
+    expect(doc).toContain('Web owns PGlite in a browser PGliteWorker DB host');
+    expect(doc).toContain('Direct PGlite remains scoped to tests, memory-only databases');
     expect(doc).toContain('legacy MigrationRunner');
     expect(doc).toContain('_migrations');
     expect(doc).toContain('__drizzle_migrations');
