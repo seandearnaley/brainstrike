@@ -143,6 +143,25 @@ describe('createEmbeddingWorkerConfig', () => {
     }
   });
 
+  it('coalesces synchronous Electron scheduler snapshot failures', async () => {
+    const schedulerSnapshot = vi.fn(() => {
+      throw new Error('scheduler crashed synchronously');
+    });
+    Object.assign(window.electronAPI, {
+      db: {
+        schedulerSnapshot,
+      },
+    });
+
+    const config = createEmbeddingWorkerConfig({ query: vi.fn() } as never);
+    const firstRead = config.resolveClaimBatchSize?.();
+    const secondRead = config.resolveClaimBatchSize?.();
+
+    await expect(firstRead).rejects.toThrow('scheduler crashed synchronously');
+    await expect(secondRead).rejects.toThrow('scheduler crashed synchronously');
+    expect(schedulerSnapshot).toHaveBeenCalledTimes(1);
+  });
+
   it('shrinks desktop claims while foreground database work is running', async () => {
     const { scheduledDb } = createScheduledTestDb();
     const scheduler = getDatabaseWorkScheduler(scheduledDb);

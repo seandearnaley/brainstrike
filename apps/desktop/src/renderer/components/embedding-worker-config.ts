@@ -76,11 +76,13 @@ function createCachedSchedulerSnapshotReader(
     }
     cachedSnapshot = null;
     cachedAt = 0;
-    pendingSnapshot = Promise.resolve(readSnapshot()).then((snapshot) => {
-      cachedSnapshot = snapshot;
-      cachedAt = now();
-      return snapshot;
-    });
+    pendingSnapshot = Promise.resolve()
+      .then(readSnapshot)
+      .then((snapshot) => {
+        cachedSnapshot = snapshot;
+        cachedAt = now();
+        return snapshot;
+      });
     try {
       return await pendingSnapshot;
     } finally {

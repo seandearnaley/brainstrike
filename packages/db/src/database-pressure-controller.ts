@@ -137,6 +137,8 @@ export function getDatabasePressureWaitingReason(
   ) {
     return 'foreground-quiet-window';
   }
+  // Normal priority is foreground-visible DB work, so it uses the same
+  // post-activity quiet window while keeping a distinct diagnostic reason.
   if (snapshot.lastNormalAt !== null && now - snapshot.lastNormalAt <= snapshot.foregroundQuietMs) {
     return 'normal-quiet-window';
   }
