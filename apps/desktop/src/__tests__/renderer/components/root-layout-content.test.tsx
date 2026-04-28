@@ -336,4 +336,30 @@ describe('RootLayoutContent', () => {
     unmount();
     expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(1);
   });
+
+  it('does not log expected short startup frame gaps as degraded health', () => {
+    vi.useFakeTimers();
+    let rafCallback: FrameRequestCallback | null = null;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(
+      (callback: FrameRequestCallback) => {
+        rafCallback = callback;
+        return 1;
+      }
+    );
+
+    render(<RootLayoutContent />);
+
+    rafCallback?.(0);
+    rafCallback?.(300);
+    vi.advanceTimersByTime(15_000);
+
+    expect(loggerInfoMock).not.toHaveBeenCalledWith(
+      'Desktop visible renderer frame health degraded',
+      expect.anything()
+    );
+    expect(loggerWarnMock).not.toHaveBeenCalledWith(
+      'Desktop visible renderer frame health degraded',
+      expect.anything()
+    );
+  });
 });

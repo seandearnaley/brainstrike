@@ -16,7 +16,6 @@ const logger = createLogger('DesktopRootLayoutContent');
 const RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS = 15_000;
 const RENDERER_HEAP_DIAGNOSTIC_DELTA_BYTES = 128 * 1024 * 1024;
 const RENDERER_FRAME_DIAGNOSTIC_INTERVAL_MS = 15_000;
-const RENDERER_FRAME_STALL_INFO_THRESHOLD_MS = 250;
 const RENDERER_FRAME_STALL_WARN_THRESHOLD_MS = 500;
 
 interface RendererMemoryPerformance extends Performance {
@@ -141,7 +140,7 @@ export default function RootLayoutContent() {
       if (previousFrameTime !== null) {
         const frameGapMs = timestamp - previousFrameTime;
         maxFrameGapMs = Math.max(maxFrameGapMs, frameGapMs);
-        if (frameGapMs >= RENDERER_FRAME_STALL_INFO_THRESHOLD_MS) {
+        if (frameGapMs >= RENDERER_FRAME_STALL_WARN_THRESHOLD_MS) {
           stalledFrameCount += 1;
         }
       }
@@ -153,7 +152,7 @@ export default function RootLayoutContent() {
     animationFrameId = window.requestAnimationFrame(sampleFrame);
 
     const intervalId = window.setInterval(() => {
-      if (maxFrameGapMs < RENDERER_FRAME_STALL_INFO_THRESHOLD_MS) {
+      if (maxFrameGapMs < RENDERER_FRAME_STALL_WARN_THRESHOLD_MS) {
         resetFrameWindow();
         return;
       }
@@ -169,11 +168,7 @@ export default function RootLayoutContent() {
         jsHeapSizeLimitBytes: currentMemory?.jsHeapSizeLimit ?? null,
       };
 
-      if (maxFrameGapMs >= RENDERER_FRAME_STALL_WARN_THRESHOLD_MS) {
-        logger.warn('Desktop visible renderer frame health degraded', payload);
-      } else {
-        logger.info('Desktop visible renderer frame health degraded', payload);
-      }
+      logger.warn('Desktop visible renderer frame health degraded', payload);
       resetFrameWindow();
     }, RENDERER_FRAME_DIAGNOSTIC_INTERVAL_MS);
 
