@@ -69,7 +69,7 @@ function hasForegroundDatabasePressure(snapshot: DatabaseWorkSchedulerSnapshot):
   const now = snapshot.snapshotAt;
   if (
     snapshot.lastForegroundAt !== null &&
-    now - snapshot.lastForegroundAt < snapshot.foregroundQuietMs
+    now - snapshot.lastForegroundAt <= snapshot.foregroundQuietMs
   ) {
     return true;
   }

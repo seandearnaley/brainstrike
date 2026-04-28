@@ -133,6 +133,28 @@ describe('createEmbeddingWorkerConfig', () => {
     await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
   });
 
+  it('shrinks desktop claims at the foreground quiet-window boundary', async () => {
+    let now = 1000;
+    const { scheduledDb } = createScheduledTestDb({
+      foregroundQuietMs: 50,
+      now: () => now,
+    });
+    const scheduler = getDatabaseWorkScheduler(scheduledDb);
+    if (!scheduler) {
+      throw new Error('Test scheduled DB handle did not expose its scheduler.');
+    }
+
+    await scheduler.run(async () => undefined, {
+      priority: 'foreground',
+      label: 'foreground quiet boundary',
+    });
+    now += 50;
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+  });
+
   it('keeps the configured idle desktop claim batch after low-latency foreground work', async () => {
     let now = 1000;
     const { scheduledDb } = createScheduledTestDb({
