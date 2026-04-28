@@ -218,6 +218,8 @@ class WasmLoader {
     const disposedPromise = new Promise<never>((_, reject) => {
       rejectDisposed = reject;
     });
+    // The rejection is also consumed by Promise.race below; attach this eagerly
+    // so dispose-before-race cannot surface as an unhandled rejection.
     void disposedPromise.catch(() => undefined);
 
     const promise = (async () => {

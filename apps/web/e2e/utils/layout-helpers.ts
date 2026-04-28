@@ -354,7 +354,7 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
       // The readiness selector above already validated visible app content.
     });
 
-  await waitForDatabaseReady(page, effectiveTimeout);
+  await waitForDatabaseReady(page, timeout);
 }
 
 /**
