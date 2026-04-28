@@ -395,4 +395,42 @@ describe('RootLayoutContent', () => {
       expect.anything()
     );
   });
+
+  it('resets frame-gap tracking immediately when document visibility changes', () => {
+    vi.useFakeTimers();
+    let rafCallback: FrameRequestCallback | null = null;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(
+      (callback: FrameRequestCallback) => {
+        rafCallback = callback;
+        return 1;
+      }
+    );
+
+    render(<RootLayoutContent />);
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+    rafCallback?.(0);
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+    rafCallback?.(2000);
+    vi.advanceTimersByTime(15_000);
+
+    expect(loggerWarnMock).not.toHaveBeenCalledWith(
+      'Desktop visible renderer frame health degraded',
+      expect.anything()
+    );
+  });
 });

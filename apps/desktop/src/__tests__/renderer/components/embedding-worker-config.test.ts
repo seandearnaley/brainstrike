@@ -102,6 +102,47 @@ describe('createEmbeddingWorkerConfig', () => {
     expect(schedulerSnapshot).toHaveBeenCalledTimes(1);
   });
 
+  it('does not reuse an expired Electron scheduler snapshot after a read failure', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1000);
+      const { scheduledDb } = createScheduledTestDb();
+      const scheduler = getDatabaseWorkScheduler(scheduledDb);
+      const idleSnapshot = scheduler?.getSnapshot();
+      if (!idleSnapshot) {
+        throw new Error('Test scheduled DB handle did not expose its scheduler.');
+      }
+      const pressuredSnapshot = {
+        ...idleSnapshot,
+        queued: {
+          ...idleSnapshot.queued,
+          foreground: 1,
+        },
+      };
+      const schedulerSnapshot = vi
+        .fn()
+        .mockResolvedValueOnce(idleSnapshot)
+        .mockRejectedValueOnce(new Error('scheduler unavailable'))
+        .mockResolvedValueOnce(pressuredSnapshot);
+      Object.assign(window.electronAPI, {
+        db: {
+          schedulerSnapshot,
+        },
+      });
+
+      const config = createEmbeddingWorkerConfig({ query: vi.fn() } as never);
+
+      await expect(config.resolveClaimBatchSize?.()).resolves.toBe(4);
+      vi.setSystemTime(1011);
+      await expect(config.resolveClaimBatchSize?.()).rejects.toThrow('scheduler unavailable');
+      await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+
+      expect(schedulerSnapshot).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('shrinks desktop claims while foreground database work is running', async () => {
     const { scheduledDb } = createScheduledTestDb();
     const scheduler = getDatabaseWorkScheduler(scheduledDb);

@@ -54,6 +54,7 @@ export interface IndexingDatabaseWorkSnapshot {
   readonly lastBackgroundYieldAt: number | null;
   readonly lastCompletedAt: number | null;
   readonly lastForegroundAt: number | null;
+  readonly lastNormalAt: number | null;
   readonly lastStartedAt: number | null;
   readonly priorityStats: Record<IndexingDatabaseWorkPriority, IndexingDatabaseWorkPriorityStats>;
   readonly queued: Record<IndexingDatabaseWorkPriority, number>;

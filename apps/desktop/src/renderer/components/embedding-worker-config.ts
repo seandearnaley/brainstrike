@@ -2,6 +2,7 @@ import {
   createDatabasePressureController,
   type DatabasePressureSnapshotSource,
   type DatabaseWorkSchedulerSnapshot,
+  getDatabasePressureWaitingReason,
   getDatabaseWorkScheduler,
   type IDatabase,
 } from '@brainstrike/db';
@@ -71,6 +72,8 @@ function createCachedSchedulerSnapshotReader(
     if (pendingSnapshot) {
       return pendingSnapshot;
     }
+    cachedSnapshot = null;
+    cachedAt = 0;
     pendingSnapshot = Promise.resolve(readSnapshot()).then((snapshot) => {
       cachedSnapshot = snapshot;
       cachedAt = Date.now();
@@ -85,40 +88,17 @@ function createCachedSchedulerSnapshotReader(
 }
 
 function hasForegroundDatabasePressure(snapshot: DatabaseWorkSchedulerSnapshot): boolean {
-  // Normal priority is treated as foreground-visible pressure in the desktop
-  // embedding host: it is used for user-facing DB work that should still run
-  // ahead of background embedding claims.
-  if (snapshot.runningPriority === 'foreground' || snapshot.runningPriority === 'normal') {
-    return true;
-  }
-  if (snapshot.queued.foreground > 0 || snapshot.queued.normal > 0) {
-    return true;
-  }
-  const now = snapshot.snapshotAt;
-  if (
-    snapshot.lastForegroundAt !== null &&
-    now - snapshot.lastForegroundAt <= snapshot.foregroundQuietMs
-  ) {
-    return true;
-  }
   // The stats window is intentionally evaluated after the scheduler quiet
   // window: recent foreground work always wins, even if latency samples are low.
   // If the scheduler quiet window is tuned longer than this desktop stats
   // window, the quiet-window branch deliberately owns that full period.
-  if (
-    snapshot.lastForegroundAt !== null &&
-    now - snapshot.lastForegroundAt <= DESKTOP_FOREGROUND_PRESSURE_WINDOW_MS
-  ) {
-    const foregroundStats = snapshot.priorityStats.foreground;
-    const normalStats = snapshot.priorityStats.normal;
-    return (
-      foregroundStats.waitP95Ms > DESKTOP_FOREGROUND_WAIT_P95_THRESHOLD_MS ||
-      foregroundStats.serviceP95Ms > DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS ||
-      normalStats.waitP95Ms > DESKTOP_FOREGROUND_WAIT_P95_THRESHOLD_MS ||
-      normalStats.serviceP95Ms > DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS
-    );
-  }
-  return false;
+  return (
+    getDatabasePressureWaitingReason(snapshot, snapshot.snapshotAt, {
+      foregroundPressureWindowMs: DESKTOP_FOREGROUND_PRESSURE_WINDOW_MS,
+      foregroundServiceP95ThresholdMs: DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS,
+      foregroundWaitP95ThresholdMs: DESKTOP_FOREGROUND_WAIT_P95_THRESHOLD_MS,
+    }) !== null
+  );
 }
 
 function createDesktopPressureControls(

@@ -45,6 +45,7 @@ function createDatabaseWorkSnapshot(
     lastBackgroundYieldAt: null,
     lastCompletedAt: null,
     lastForegroundAt: null,
+    lastNormalAt: null,
     lastStartedAt: null,
     priorityStats: {
       foreground: createPriorityStats(),

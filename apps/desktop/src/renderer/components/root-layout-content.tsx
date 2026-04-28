@@ -158,6 +158,12 @@ export default function RootLayoutContent() {
 
     animationFrameId = window.requestAnimationFrame(sampleFrame);
 
+    const handleVisibilityChange = () => {
+      previousFrameTime = null;
+      resetFrameWindow();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     const intervalId = window.setInterval(() => {
       if (document.visibilityState !== 'visible') {
         previousFrameTime = null;
@@ -189,6 +195,7 @@ export default function RootLayoutContent() {
       if (animationFrameId !== null) {
         window.cancelAnimationFrame(animationFrameId);
       }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.clearInterval(intervalId);
     };
   }, []);

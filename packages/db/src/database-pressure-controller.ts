@@ -46,6 +46,12 @@ export interface DatabasePressureControllerOptions {
   readonly snapshotSource?: DatabasePressureSnapshotSource;
 }
 
+export interface DatabasePressurePolicyOptions {
+  readonly foregroundPressureWindowMs?: number;
+  readonly foregroundServiceP95ThresholdMs?: number;
+  readonly foregroundWaitP95ThresholdMs?: number;
+}
+
 const DEFAULT_FOREGROUND_PRESSURE_WINDOW_MS = 1500;
 const DEFAULT_FOREGROUND_SERVICE_P95_THRESHOLD_MS = 120;
 const DEFAULT_FOREGROUND_WAIT_P95_THRESHOLD_MS = 75;
@@ -80,33 +86,43 @@ function getForegroundLatencyReason(
 ): DatabasePressureWaitingReason | null {
   const foregroundStats = snapshot.priorityStats.foreground;
   const normalStats = snapshot.priorityStats.normal;
-  const lastForegroundPressureAt = snapshot.lastForegroundAt ?? 0;
-  if (lastForegroundPressureAt <= 0 || now - lastForegroundPressureAt > pressureWindowMs) {
-    return null;
+  if (
+    snapshot.lastForegroundAt !== null &&
+    now - snapshot.lastForegroundAt <= pressureWindowMs &&
+    (foregroundStats.waitP95Ms > waitP95ThresholdMs ||
+      foregroundStats.serviceP95Ms > serviceP95ThresholdMs)
+  ) {
+    return 'foreground-latency';
   }
   if (
-    foregroundStats.waitP95Ms > waitP95ThresholdMs ||
-    foregroundStats.serviceP95Ms > serviceP95ThresholdMs ||
-    normalStats.waitP95Ms > waitP95ThresholdMs ||
-    normalStats.serviceP95Ms > serviceP95ThresholdMs
+    snapshot.lastNormalAt !== null &&
+    now - snapshot.lastNormalAt <= pressureWindowMs &&
+    (normalStats.waitP95Ms > waitP95ThresholdMs || normalStats.serviceP95Ms > serviceP95ThresholdMs)
   ) {
     return 'foreground-latency';
   }
   return null;
 }
 
-function getWaitingReason(
+function resolvePolicyOptions(
+  options: DatabasePressurePolicyOptions
+): Required<DatabasePressurePolicyOptions> {
+  return {
+    foregroundPressureWindowMs:
+      options.foregroundPressureWindowMs ?? DEFAULT_FOREGROUND_PRESSURE_WINDOW_MS,
+    foregroundServiceP95ThresholdMs:
+      options.foregroundServiceP95ThresholdMs ?? DEFAULT_FOREGROUND_SERVICE_P95_THRESHOLD_MS,
+    foregroundWaitP95ThresholdMs:
+      options.foregroundWaitP95ThresholdMs ?? DEFAULT_FOREGROUND_WAIT_P95_THRESHOLD_MS,
+  };
+}
+
+export function getDatabasePressureWaitingReason(
   snapshot: DatabaseWorkSchedulerSnapshot,
   now: number,
-  options: Required<
-    Pick<
-      DatabasePressureControllerOptions,
-      | 'foregroundPressureWindowMs'
-      | 'foregroundServiceP95ThresholdMs'
-      | 'foregroundWaitP95ThresholdMs'
-    >
-  >
+  options: DatabasePressurePolicyOptions = {}
 ): DatabasePressureWaitingReason | null {
+  const policy = resolvePolicyOptions(options);
   if (snapshot.runningPriority === 'foreground' || snapshot.runningPriority === 'normal') {
     return 'foreground-running';
   }
@@ -115,16 +131,19 @@ function getWaitingReason(
   }
   if (
     snapshot.lastForegroundAt !== null &&
-    now - snapshot.lastForegroundAt < snapshot.foregroundQuietMs
+    now - snapshot.lastForegroundAt <= snapshot.foregroundQuietMs
   ) {
+    return 'foreground-quiet-window';
+  }
+  if (snapshot.lastNormalAt !== null && now - snapshot.lastNormalAt <= snapshot.foregroundQuietMs) {
     return 'foreground-quiet-window';
   }
   return getForegroundLatencyReason(
     snapshot,
     now,
-    options.foregroundPressureWindowMs,
-    options.foregroundWaitP95ThresholdMs,
-    options.foregroundServiceP95ThresholdMs
+    policy.foregroundPressureWindowMs,
+    policy.foregroundWaitP95ThresholdMs,
+    policy.foregroundServiceP95ThresholdMs
   );
 }
 
@@ -134,19 +153,12 @@ export function createDatabasePressureController(
   const source = resolveSource(options);
   const now = options.now ?? (() => Date.now());
   const pollMs = Math.max(1, options.pollMs ?? DEFAULT_POLL_MS);
-  const policy = {
-    foregroundPressureWindowMs:
-      options.foregroundPressureWindowMs ?? DEFAULT_FOREGROUND_PRESSURE_WINDOW_MS,
-    foregroundServiceP95ThresholdMs:
-      options.foregroundServiceP95ThresholdMs ?? DEFAULT_FOREGROUND_SERVICE_P95_THRESHOLD_MS,
-    foregroundWaitP95ThresholdMs:
-      options.foregroundWaitP95ThresholdMs ?? DEFAULT_FOREGROUND_WAIT_P95_THRESHOLD_MS,
-  };
+  const policy = resolvePolicyOptions(options);
   let snapshot = createInitialSnapshot();
 
   const getSnapshot = (): DatabasePressureControllerSnapshot => ({ ...snapshot });
   const readWaitingReason = async (): Promise<DatabasePressureWaitingReason | null> =>
-    getWaitingReason(await source.getSnapshot(), now(), policy);
+    getDatabasePressureWaitingReason(await source.getSnapshot(), now(), policy);
 
   const waitForBackgroundPermit = async (
     permitOptions: DatabasePressurePermitOptions = {}

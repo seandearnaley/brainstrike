@@ -48,6 +48,10 @@ describe('foreground database responsiveness smoke', () => {
 
       now += 50;
       await vi.advanceTimersByTimeAsync(50);
+      expect(controller.getSnapshot().permitWaiting).toBe(true);
+
+      now += 1;
+      await vi.advanceTimersByTimeAsync(5);
       await expect(permit).resolves.toBeUndefined();
     } finally {
       vi.useRealTimers();

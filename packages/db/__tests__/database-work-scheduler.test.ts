@@ -66,7 +66,7 @@ describe('DatabaseWorkScheduler', () => {
     }
   });
 
-  it('treats normal-priority work as foreground-visible for the quiet window', async () => {
+  it('does not treat normal-priority work as scheduler foreground quiet-window pressure', async () => {
     vi.useFakeTimers();
     try {
       const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 50 });
@@ -86,10 +86,6 @@ describe('DatabaseWorkScheduler', () => {
         { priority: 'background', label: 'embedding claim' }
       );
 
-      await vi.advanceTimersByTimeAsync(49);
-      expect(events).toEqual(['normal']);
-
-      await vi.advanceTimersByTimeAsync(1);
       await background;
       expect(events).toEqual(['normal', 'background']);
     } finally {
