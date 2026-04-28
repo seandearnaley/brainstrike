@@ -7,6 +7,17 @@ import {
 } from '../src/database-work-scheduler';
 
 describe('DatabaseWorkScheduler', () => {
+  it('stamps snapshots with the scheduler clock', () => {
+    let now = 1000;
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0, now: () => now });
+
+    expect(scheduler.getSnapshot().snapshotAt).toBe(1000);
+
+    now = 1750;
+
+    expect(scheduler.getSnapshot().snapshotAt).toBe(1750);
+  });
+
   it('runs foreground work before queued background work during the quiet window', async () => {
     vi.useFakeTimers();
     try {

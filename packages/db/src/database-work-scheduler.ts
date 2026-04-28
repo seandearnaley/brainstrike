@@ -19,6 +19,7 @@ export interface DatabaseWorkSchedulerSnapshot {
   readonly queued: Record<DatabaseWorkPriority, number>;
   readonly runningLabel: string | null;
   readonly runningPriority: DatabaseWorkPriority | null;
+  readonly snapshotAt: number;
 }
 
 export interface DatabaseWorkPriorityStats {
@@ -295,6 +296,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
       queued: createQueuedCounts(this.#queues),
       runningLabel: this.#runningLabel,
       runningPriority: this.#runningPriority,
+      snapshotAt: now,
     };
   }
 

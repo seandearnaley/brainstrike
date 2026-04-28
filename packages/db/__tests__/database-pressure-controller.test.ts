@@ -87,6 +87,7 @@ describe('DatabasePressureController', () => {
       ...baseSnapshot,
       lastCompletedAt: 10_000,
       lastForegroundAt: 10_000,
+      snapshotAt: now,
       priorityStats: {
         ...baseSnapshot.priorityStats,
         foreground: {
@@ -148,6 +149,7 @@ describe('DatabasePressureController', () => {
       ...baseSnapshot,
       lastCompletedAt: now,
       lastForegroundAt: 9000,
+      snapshotAt: now,
       priorityStats: {
         ...baseSnapshot.priorityStats,
         background: {

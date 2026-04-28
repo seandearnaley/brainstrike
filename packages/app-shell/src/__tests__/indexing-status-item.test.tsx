@@ -54,6 +54,7 @@ function createDatabaseWorkSnapshot(
     queued: { foreground: 0, normal: 0, background: 0 },
     runningLabel: null,
     runningPriority: null,
+    snapshotAt: 0,
     ...overrides,
   };
 }

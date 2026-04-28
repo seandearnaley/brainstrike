@@ -109,7 +109,7 @@ describe('createEmbeddingWorkerConfig', () => {
   });
 
   it('shrinks desktop claims after recent high-latency foreground database work', async () => {
-    let now = Date.now() - 100;
+    let now = 1000;
     const { scheduledDb } = createScheduledTestDb({
       foregroundQuietMs: 0,
       now: () => now,
@@ -134,7 +134,7 @@ describe('createEmbeddingWorkerConfig', () => {
   });
 
   it('keeps the configured idle desktop claim batch after low-latency foreground work', async () => {
-    let now = Date.now() - 100;
+    let now = 1000;
     const { scheduledDb } = createScheduledTestDb({
       foregroundQuietMs: 0,
       now: () => now,

@@ -79,6 +79,7 @@ export interface DatabaseWorkSchedulerSnapshot {
   readonly queued: Record<DatabaseWorkPriority, number>;
   readonly runningLabel: string | null;
   readonly runningPriority: DatabaseWorkPriority | null;
+  readonly snapshotAt: number;
 }
 
 export interface DatabaseWorkPriorityStats {

@@ -59,6 +59,7 @@ export interface IndexingDatabaseWorkSnapshot {
   readonly queued: Record<IndexingDatabaseWorkPriority, number>;
   readonly runningLabel: string | null;
   readonly runningPriority: IndexingDatabaseWorkPriority | null;
+  readonly snapshotAt: number;
 }
 
 export interface IndexingDatabaseWorkPriorityStats {
