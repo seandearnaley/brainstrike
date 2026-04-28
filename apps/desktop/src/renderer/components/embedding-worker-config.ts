@@ -68,6 +68,8 @@ function hasForegroundDatabasePressure(snapshot: DatabaseWorkSchedulerSnapshot):
   ) {
     return true;
   }
+  // The stats window is intentionally evaluated after the scheduler quiet
+  // window: recent foreground work always wins, even if latency samples are low.
   if (
     snapshot.lastForegroundAt !== null &&
     now - snapshot.lastForegroundAt <= DESKTOP_FOREGROUND_PRESSURE_WINDOW_MS
