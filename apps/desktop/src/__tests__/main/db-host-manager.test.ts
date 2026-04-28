@@ -141,6 +141,20 @@ describe('DbHostManager', () => {
     expect(forkMock).toHaveBeenCalledTimes(1);
   });
 
+  it('returns a remote client that satisfies the shared DB execution contract', async () => {
+    const { getMissingBrainstrikeDbClientCapabilities } = await import('@brainstrike/db');
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+
+    const databasePromise = manager.getDatabase();
+    const initMessage = latestProcess().messages.at(-1);
+    latestProcess().reply(initMessage as PostedMessage, { initialized: true });
+
+    const database = await databasePromise;
+
+    expect(getMissingBrainstrikeDbClientCapabilities(database)).toEqual([]);
+  });
+
   it('passes the resolved desktop database root path to the utility DB host', async () => {
     process.env['NODE_ENV'] = 'development';
     const { createDbHostManager } = await import('../../db-host-manager');
