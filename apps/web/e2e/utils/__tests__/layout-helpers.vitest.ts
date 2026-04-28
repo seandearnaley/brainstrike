@@ -6,6 +6,7 @@ import {
   resolveNetworkIdleTimeout,
   resolveWaitForAppLoadTimeout,
   waitForAppLoad,
+  waitForDatabaseReady,
 } from '../layout-helpers';
 
 describe('layout-helpers (unit)', () => {
@@ -31,6 +32,10 @@ describe('layout-helpers (unit)', () => {
     const page = {
       waitForLoadState: vi.fn(async (state: string) => void loadStates.push(state)),
       waitForSelector: vi.fn(async (sel: string) => void waited.push(sel)),
+      waitForFunction: vi.fn(async () => ({
+        dispose: vi.fn(async () => undefined),
+        jsonValue: vi.fn(async () => 'connected'),
+      })),
       // CI debug listeners (no-op in unit tests)
       on: vi.fn(),
     } as unknown as Page;
@@ -78,6 +83,10 @@ describe('layout-helpers (unit)', () => {
           throw new Error('selector missing');
         }
       }),
+      waitForFunction: vi.fn(async () => ({
+        dispose: vi.fn(async () => undefined),
+        jsonValue: vi.fn(async () => 'connected'),
+      })),
       evaluate: vi.fn(async () => 'mock'),
       on: vi.fn(),
     } as unknown as Page;
@@ -104,6 +113,10 @@ describe('layout-helpers (unit)', () => {
       reload: vi.fn(async () => {}),
       waitForLoadState: vi.fn(async () => {}),
       waitForSelector: vi.fn(async () => {}),
+      waitForFunction: vi.fn(async () => ({
+        dispose: vi.fn(async () => undefined),
+        jsonValue: vi.fn(async () => 'connected'),
+      })),
       // CI debug listeners (no-op in unit tests)
       on: vi.fn(),
     } as unknown as Page;
@@ -113,5 +126,37 @@ describe('layout-helpers (unit)', () => {
     expect(evalCalls.join('\n')).toContain('panel-layout-store.v1');
     expect(evalCalls.join('\n')).toContain('context-explorer-layout-store.v1');
     expect(evalCalls.join('\n')).toContain('tools-panel.v1');
+  });
+
+  it('waitForDatabaseReady resolves only after the connected status is present', async () => {
+    const handle = {
+      dispose: vi.fn(async () => undefined),
+      jsonValue: vi.fn(async () => 'connected'),
+    };
+    const page = {
+      waitForFunction: vi.fn(async () => handle),
+    } as unknown as Page;
+
+    await waitForDatabaseReady(page, 10_000);
+
+    expect(page.waitForFunction).toHaveBeenCalledWith(expect.any(Function), null, {
+      timeout: 20_000,
+    });
+    expect(handle.dispose).toHaveBeenCalled();
+  });
+
+  it('waitForDatabaseReady fails loudly when the database reaches disconnected state', async () => {
+    const handle = {
+      dispose: vi.fn(async () => undefined),
+      jsonValue: vi.fn(async () => 'disconnected'),
+    };
+    const page = {
+      waitForFunction: vi.fn(async () => handle),
+    } as unknown as Page;
+
+    await expect(waitForDatabaseReady(page, 10_000)).rejects.toThrow(
+      'Database failed to initialize'
+    );
+    expect(handle.dispose).toHaveBeenCalled();
   });
 });
