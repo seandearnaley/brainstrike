@@ -44,6 +44,21 @@ interface AppliedMigration {
 
 const MIGRATIONS_TABLE = '__drizzle_migrations';
 
+async function assertNoProductionMigrationLedger(db: PGlite): Promise<void> {
+  const ledgers = await db.query<{ tablename: string }>(`
+    SELECT tablename
+    FROM pg_tables
+    WHERE schemaname = 'public'
+      AND tablename = '_migrations'
+  `);
+
+  if (ledgers.rows.length > 0) {
+    throw new Error(
+      'Refusing to run Drizzle schema-validation migrations against a legacy production migration ledger.'
+    );
+  }
+}
+
 /**
  * Ensures the migrations tracking table exists
  */
@@ -106,6 +121,38 @@ function splitStatements(sql: string): string[] {
     .filter((stmt) => stmt.length > 0);
 }
 
+function getErrorCode(error: unknown): string | null {
+  if (typeof error !== 'object' || error === null || !('code' in error)) {
+    return null;
+  }
+
+  const code = (error as { readonly code?: unknown }).code;
+  return typeof code === 'string' ? code : null;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
+function isMissingDrizzleMigrationsLedgerError(error: unknown): boolean {
+  const code = getErrorCode(error);
+  const message = getErrorMessage(error);
+
+  if (code !== null) {
+    return code === '42P01' && message.includes(MIGRATIONS_TABLE);
+  }
+
+  return (
+    message.includes(`relation "${MIGRATIONS_TABLE}" does not exist`) ||
+    message.includes(`table "${MIGRATIONS_TABLE}" does not exist`) ||
+    message.includes(`no such table: ${MIGRATIONS_TABLE}`)
+  );
+}
+
 /**
  * Applies a single migration within a transaction.
  * Handles rollback on failure and preserves the original error.
@@ -166,6 +213,8 @@ export async function runMigrations(
   const appliedMigrations: string[] = [];
 
   try {
+    await assertNoProductionMigrationLedger(db);
+
     if (enableVector) {
       await db.query('CREATE EXTENSION IF NOT EXISTS vector');
     }
@@ -214,6 +263,8 @@ export async function getMigrationStatus(db: PGlite): Promise<{
   const manifest = migrationsManifest as MigrationManifest;
   const allMigrations = [...manifest.migrations, ...customMigrations];
 
+  await assertNoProductionMigrationLedger(db);
+
   try {
     await ensureMigrationsTable(db);
     const applied = await getAppliedMigrations(db);
@@ -225,8 +276,12 @@ export async function getMigrationStatus(db: PGlite): Promise<{
       applied: applied.size,
       pending,
     };
-  } catch {
-    // Table doesn't exist yet, all migrations are pending
+  } catch (error) {
+    if (!isMissingDrizzleMigrationsLedgerError(error)) {
+      throw error;
+    }
+
+    // Ledger table is absent, so no Drizzle validation migrations have been recorded.
     return {
       total: allMigrations.length,
       applied: 0,

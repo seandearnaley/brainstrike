@@ -111,6 +111,37 @@ export function resolveNetworkIdleTimeout(isCI: boolean): number {
   return isCI ? DEFAULT_CI_NETWORK_IDLE_TIMEOUT_MS : DEFAULT_LOCAL_NETWORK_IDLE_TIMEOUT_MS;
 }
 
+type DatabaseReadyState = 'connected' | 'disconnected';
+
+export async function waitForDatabaseReady(page: Page, timeout = 10_000): Promise<void> {
+  const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
+  const effectiveTimeout = resolveWaitForAppLoadTimeout(timeout, isCI);
+  const statusHandle = await page.waitForFunction(
+    (): DatabaseReadyState | null => {
+      if (document.querySelector('[data-testid="status-bar-db-connected"]')) {
+        return 'connected';
+      }
+
+      if (document.querySelector('[data-testid="status-bar-db-disconnected"]')) {
+        return 'disconnected';
+      }
+
+      return null;
+    },
+    null,
+    { timeout: effectiveTimeout }
+  );
+
+  const status = (await statusHandle.jsonValue()) as DatabaseReadyState | null;
+  await statusHandle.dispose();
+
+  if (status === 'connected') {
+    return;
+  }
+
+  throw new Error('Database failed to initialize before the app became test-ready.');
+}
+
 async function getPlaywrightExpect(): Promise<PlaywrightExpect> {
   if (!cachedExpect) {
     try {
@@ -322,6 +353,8 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
       // Some environments expose the main shell without explicit panel IDs.
       // The readiness selector above already validated visible app content.
     });
+
+  await waitForDatabaseReady(page, timeout);
 }
 
 /**

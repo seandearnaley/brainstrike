@@ -75,6 +75,10 @@ const DEFAULT_FOREGROUND_QUIET_MS = 75;
 const METRICS_WINDOW_SIZE = 64;
 const SCHEDULER_SYMBOL = Symbol.for('brainstrike.databaseWorkScheduler');
 const DEFAULT_PRIORITY_SYMBOL = Symbol.for('brainstrike.databaseWorkDefaultPriority');
+// PGliteWorker listener methods use private fields, so they need the raw worker receiver.
+// Keep this narrow: methods listed here bypass the scheduler proxy by design.
+const RAW_RECEIVER_METHODS = new Set<PropertyKey>(['offLeaderChange', 'onLeaderChange']);
+const rawReceiverMethodCache = new WeakMap<object, Map<PropertyKey, CallableUnknown>>();
 
 interface MetricSamples {
   nextIndex: number;
@@ -193,6 +197,34 @@ function addMetricSample(samples: MetricSamples, value: number): void {
     removeMetricSample(samples.sorted, replaced);
   }
   samples.sorted.splice(findMetricInsertIndex(samples.sorted, value), 0, value);
+}
+
+function getRawReceiverMethod(target: object, property: PropertyKey): CallableUnknown | null {
+  if (!RAW_RECEIVER_METHODS.has(property)) {
+    return null;
+  }
+  const method = Reflect.get(target, property, target);
+  if (typeof method !== 'function') {
+    return null;
+  }
+  let targetMethods = rawReceiverMethodCache.get(target);
+  if (!targetMethods) {
+    targetMethods = new Map<PropertyKey, CallableUnknown>();
+    rawReceiverMethodCache.set(target, targetMethods);
+  }
+  const cached = targetMethods.get(property);
+  if (cached) {
+    return cached;
+  }
+  const wrapper = (...args: unknown[]) => {
+    const currentMethod = Reflect.get(target, property, target);
+    if (typeof currentMethod !== 'function') {
+      throw new TypeError(`Raw receiver method ${String(property)} is no longer callable`);
+    }
+    return Reflect.apply(currentMethod, target, args) as unknown;
+  };
+  targetMethods.set(property, wrapper);
+  return wrapper;
 }
 
 function patchPriorityStat(
@@ -693,6 +725,10 @@ function createPriorityOptionsDbHandle<TDatabase extends object & ScheduledDbHan
       if (property === DEFAULT_PRIORITY_SYMBOL) {
         return priority;
       }
+      const rawReceiverMethod = getRawReceiverMethod(target, property);
+      if (rawReceiverMethod) {
+        return rawReceiverMethod;
+      }
       return Reflect.get(target, property, receiver);
     },
   });
@@ -763,6 +799,10 @@ export function createScheduledDbHandle<TDatabase extends object & ScheduledDbHa
       }
       if (property === DEFAULT_PRIORITY_SYMBOL) {
         return defaultPriority;
+      }
+      const rawReceiverMethod = getRawReceiverMethod(target, property);
+      if (rawReceiverMethod) {
+        return rawReceiverMethod;
       }
       return Reflect.get(target, property, receiver);
     },

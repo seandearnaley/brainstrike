@@ -18,7 +18,7 @@
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/workers": "workspace:*",
-    "drizzle-orm": "^0.45.2",
+    "drizzle-orm": "0.45.2",
     "react-hotkeys-hook": "^5.2.4"
   },
   "devDependencies": {

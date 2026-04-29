@@ -11,6 +11,7 @@ import {
   customType,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -348,24 +349,46 @@ export const embeddingCache = pgTable(
 );
 
 // ============================================================================
-// MODEL REGISTRY TABLE
+// PROVIDER AND MODEL CATALOG TABLES
 // ============================================================================
 
-export const modelRegistry = pgTable(
-  'model_registry',
+export const providers = pgTable(
+  'providers',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    modelKey: text('model_key').notNull().unique(),
-    modelId: text('model_id').notNull(),
-    displayName: text('display_name'),
-    provider: text('provider'),
-    dimensions: integer('dimensions'),
-    maxTokens: integer('max_tokens'),
-    metadata: text('metadata'), // JSON string
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    icon: text('icon'),
+    isEnabled: boolean('is_enabled').default(false).notNull(),
+    sortOrder: integer('sort_order').default(0).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [index('idx_model_registry_model_key').on(table.modelKey)]
+  (table) => [index('idx_providers_sort_order').on(table.sortOrder)]
+);
+
+export const models = pgTable(
+  'models',
+  {
+    id: text('id').primaryKey(),
+    providerId: text('provider_id')
+      .notNull()
+      .references(() => providers.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description'),
+    tagline: text('tagline'),
+    bestFor: jsonb('best_for').$type<readonly string[] | null>(),
+    icon: text('icon'),
+    isEnabled: boolean('is_enabled').default(false).notNull(),
+    capabilities: jsonb('capabilities').$type<Record<string, unknown> | null>(),
+    parameters: jsonb('parameters').$type<Record<string, unknown> | null>(),
+    sortOrder: integer('sort_order').default(0).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('idx_models_provider_id').on(table.providerId),
+    index('idx_models_sort_order').on(table.sortOrder),
+  ]
 );
 
 // ============================================================================
@@ -436,8 +459,11 @@ export type NewTokenCacheEntry = typeof tokenCache.$inferInsert;
 export type FileTokenCacheEntry = typeof fileTokenCache.$inferSelect;
 export type NewFileTokenCacheEntry = typeof fileTokenCache.$inferInsert;
 
-export type ModelRegistryEntry = typeof modelRegistry.$inferSelect;
-export type NewModelRegistryEntry = typeof modelRegistry.$inferInsert;
+export type Provider = typeof providers.$inferSelect;
+export type NewProvider = typeof providers.$inferInsert;
+
+export type Model = typeof models.$inferSelect;
+export type NewModel = typeof models.$inferInsert;
 
 export type EmbeddingCacheEntry = typeof embeddingCache.$inferSelect;
 export type NewEmbeddingCacheEntry = typeof embeddingCache.$inferInsert;

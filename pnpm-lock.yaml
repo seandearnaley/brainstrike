@@ -902,7 +902,7 @@ importers:
         specifier: ^0.4.4
         version: 0.4.4
       drizzle-orm:
-        specifier: ^0.45.2
+        specifier: 0.45.2
         version: 0.45.2(@electric-sql/pglite@0.4.4)
       react:
         specifier: ^19.2.4
@@ -1316,7 +1316,7 @@ importers:
         specifier: workspace:*
         version: link:../workers
       drizzle-orm:
-        specifier: ^0.45.2
+        specifier: 0.45.2
         version: 0.45.2(@electric-sql/pglite@0.4.4)
       react:
         specifier: ^19.2.4

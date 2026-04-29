@@ -1,11 +1,32 @@
 import { createLogger, isDevEnv, setupHMR } from '@brainstrike/utils';
 import type { Extension } from '@electric-sql/pglite';
 import { PGlite } from '@electric-sql/pglite';
+import type { LiveNamespace } from '@electric-sql/pglite/live';
+import type { PGliteWorker, PGliteWorkerOptions } from '@electric-sql/pglite/worker';
 
 type VectorExtension = Extension;
 type LiveExtension = Extension;
+const WORKER_STARTUP_DISPOSED_MESSAGE =
+  'PGlite worker client startup was disposed before completion';
+
+export interface PGliteLeaderChangeSource {
+  readonly offLeaderChange: (listener: () => void) => void;
+  readonly onLeaderChange: (listener: () => void) => (() => void) | undefined;
+}
+
+export type PGliteRuntimeClient = Pick<PGlite, 'close' | 'exec' | 'query' | 'transaction'> & {
+  readonly live?: Pick<LiveNamespace, 'query'>;
+};
+
+type BrowserPGliteWorkerClient = PGliteWorker & PGliteRuntimeClient & PGliteLeaderChangeSource;
 
 const logger = createLogger('WasmLoader');
+
+interface PendingBrowserWorkerStartup {
+  readonly closeResolved: (db: BrowserPGliteWorkerClient) => Promise<boolean>;
+  readonly dispose: () => void;
+  readonly promise: Promise<BrowserPGliteWorkerClient>;
+}
 
 let cachedVectorPromise: Promise<VectorExtension> | null = null;
 let cachedLivePromise: Promise<LiveExtension> | null = null;
@@ -44,11 +65,17 @@ async function loadLiveExtension(): Promise<LiveExtension> {
   return cachedLivePromise;
 }
 
+function isWorkerStartupDisposedError(error: unknown): boolean {
+  return error instanceof Error && error.message === WORKER_STARTUP_DISPOSED_MESSAGE;
+}
+
 class WasmLoader {
   private static instance: WasmLoader;
   private wasmLoadPromise: Promise<void> | null = null;
   private isLoaded = false;
   private readonly dbCache: Map<string, PGlite> = new Map();
+  private readonly workerCache: Map<string, BrowserPGliteWorkerClient> = new Map();
+  private readonly workerClientStartups: Map<string, PendingBrowserWorkerStartup> = new Map();
 
   private constructor() {}
 
@@ -131,6 +158,144 @@ class WasmLoader {
     return db;
   }
 
+  async createPGliteClient(dataDir?: string): Promise<PGliteRuntimeClient> {
+    const normalizedDataDir = dataDir === ':memory:' ? 'memory://' : dataDir;
+    if (this.requiresBrowserWorkerHost(normalizedDataDir) && typeof Worker === 'undefined') {
+      throw new Error('Browser IndexedDB PGlite requires Worker support');
+    }
+    if (!this.shouldUseBrowserWorkerHost(normalizedDataDir)) {
+      return await this.createPGlite(normalizedDataDir);
+    }
+
+    const cacheKey = normalizedDataDir || 'default';
+    const cached = this.workerCache.get(cacheKey);
+    if (cached) {
+      logger.info('Reusing cached PGlite worker client', { cacheKey });
+      return cached;
+    }
+
+    const pending = this.workerClientStartups.get(cacheKey);
+    if (pending) {
+      logger.info('Reusing pending PGlite worker client', { cacheKey });
+      return await this.awaitActiveWorkerClient(cacheKey, pending);
+    }
+
+    const workerClientStartup = this.createBrowserWorkerStartup(normalizedDataDir);
+    this.workerClientStartups.set(cacheKey, workerClientStartup);
+
+    try {
+      const db = await this.awaitActiveWorkerClient(cacheKey, workerClientStartup);
+      if (this.workerClientStartups.get(cacheKey) === workerClientStartup) {
+        this.workerClientStartups.delete(cacheKey);
+        this.workerCache.set(cacheKey, db);
+      }
+      return db;
+    } catch (error) {
+      if (this.workerClientStartups.get(cacheKey) === workerClientStartup) {
+        this.workerClientStartups.delete(cacheKey);
+      }
+      throw error;
+    }
+  }
+
+  private async awaitActiveWorkerClient(
+    cacheKey: string,
+    workerClientStartup: PendingBrowserWorkerStartup
+  ): Promise<BrowserPGliteWorkerClient> {
+    const db = await workerClientStartup.promise;
+    if (this.workerClientStartups.get(cacheKey) === workerClientStartup) {
+      return db;
+    }
+    if (this.workerCache.get(cacheKey) === db) {
+      return db;
+    }
+    throw new Error(WORKER_STARTUP_DISPOSED_MESSAGE);
+  }
+
+  private createBrowserWorkerStartup(dataDir: string): PendingBrowserWorkerStartup {
+    let disposed = false;
+    let resolvedClientClosed = false;
+    let worker: Worker | null = null;
+    let rejectDisposed: (reason: Error) => void = () => undefined;
+    const disposedPromise = new Promise<never>((_, reject) => {
+      rejectDisposed = reject;
+    });
+    // The rejection is also consumed by Promise.race below; attach this eagerly
+    // so dispose-before-race cannot surface as an unhandled rejection.
+    void disposedPromise.catch(() => undefined);
+
+    const promise = (async () => {
+      await this.ensureWasmLoaded();
+      const live = await loadLiveExtension();
+      const { PGliteWorker } = await import('@electric-sql/pglite/worker');
+      if (disposed) {
+        throw new Error(WORKER_STARTUP_DISPOSED_MESSAGE);
+      }
+      worker = new Worker(new URL('./pglite-worker-entry.ts', import.meta.url), {
+        type: 'module',
+      });
+      try {
+        const options: PGliteWorkerOptions<{ live: LiveExtension }> = {
+          dataDir,
+          extensions: { live },
+          id: `brainstrike-db:${dataDir}`,
+          relaxedDurability: true,
+        };
+        const workerClientPromise = PGliteWorker.create(worker, options);
+        void workerClientPromise
+          .then(async (db) => {
+            if (!disposed) {
+              return;
+            }
+            try {
+              await closeResolved(db);
+            } catch (err) {
+              logger.warn('Failed to close late PGlite worker startup', { dataDir, error: err });
+            }
+          })
+          .catch(() => undefined);
+        return await Promise.race([workerClientPromise, disposedPromise]);
+      } catch (error) {
+        if (!disposed) {
+          worker.terminate();
+        }
+        throw error;
+      }
+    })();
+
+    return {
+      closeResolved,
+      dispose: () => {
+        if (disposed) {
+          return;
+        }
+        disposed = true;
+        worker?.terminate();
+        rejectDisposed(new Error(WORKER_STARTUP_DISPOSED_MESSAGE));
+      },
+      promise,
+    };
+
+    async function closeResolved(db: BrowserPGliteWorkerClient): Promise<boolean> {
+      if (resolvedClientClosed) {
+        return false;
+      }
+      resolvedClientClosed = true;
+      await db.close();
+      return true;
+    }
+  }
+
+  private shouldUseBrowserWorkerHost(dataDir: string | undefined): dataDir is string {
+    return typeof Worker !== 'undefined' && this.requiresBrowserWorkerHost(dataDir);
+  }
+
+  private requiresBrowserWorkerHost(dataDir: string | undefined): dataDir is string {
+    return (
+      typeof window !== 'undefined' && typeof dataDir === 'string' && dataDir.startsWith('idb://')
+    );
+  }
+
   /**
    * Closes and removes a cached PGlite instance.
    * Use this during cleanup to properly release resources.
@@ -149,6 +314,36 @@ class WasmLoader {
         logger.warn('Failed to close cached PGlite instance', { cacheKey, error: err });
       }
     }
+
+    const pendingWorkerStartup = this.workerClientStartups.get(cacheKey);
+    const workerDb = this.workerCache.get(cacheKey);
+    if (workerDb) {
+      this.workerCache.delete(cacheKey);
+      this.workerClientStartups.delete(cacheKey);
+      try {
+        await workerDb.close();
+        logger.info('Closed and removed cached PGlite worker client', { cacheKey });
+      } catch (err) {
+        logger.warn('Failed to close cached PGlite worker client', { cacheKey, error: err });
+      }
+    } else if (pendingWorkerStartup) {
+      this.workerClientStartups.delete(cacheKey);
+      pendingWorkerStartup.dispose();
+      try {
+        const pendingDb = await pendingWorkerStartup.promise;
+        this.workerCache.delete(cacheKey);
+        const closed = await pendingWorkerStartup.closeResolved(pendingDb);
+        if (closed) {
+          logger.info('Closed pending PGlite worker client', { cacheKey });
+        }
+      } catch (err) {
+        if (isWorkerStartupDisposedError(err)) {
+          logger.info('Disposed pending PGlite worker client startup', { cacheKey });
+        } else {
+          logger.warn('Failed to close pending PGlite worker client', { cacheKey, error: err });
+        }
+      }
+    }
   }
 
   /**
@@ -157,20 +352,50 @@ class WasmLoader {
    */
   async disposeAll(): Promise<void> {
     const entries = Array.from(this.dbCache.entries());
+    const workerEntries = Array.from(this.workerCache.entries());
+    const pendingWorkerEntries = Array.from(this.workerClientStartups.entries());
     this.dbCache.clear();
+    this.workerCache.clear();
+    this.workerClientStartups.clear();
     this.wasmLoadPromise = null;
     this.isLoaded = false;
 
-    await Promise.all(
-      entries.map(async ([cacheKey, db]) => {
-        try {
-          await db.close();
+    const closeResolvedDb = async (cacheKey: string, db: PGliteRuntimeClient): Promise<void> => {
+      try {
+        await db.close();
+        logger.info('HMR dispose: closed cached PGlite instance', { cacheKey });
+      } catch (err) {
+        logger.warn('HMR dispose: failed to close PGlite instance', { cacheKey, error: err });
+      }
+    };
+
+    const closePendingWorkerDb = async (
+      cacheKey: string,
+      startup: PendingBrowserWorkerStartup
+    ): Promise<void> => {
+      startup.dispose();
+      try {
+        const resolvedDb = await startup.promise;
+        const closed = await startup.closeResolved(resolvedDb);
+        if (closed) {
           logger.info('HMR dispose: closed cached PGlite instance', { cacheKey });
-        } catch (err) {
+        }
+      } catch (err) {
+        if (isWorkerStartupDisposedError(err)) {
+          logger.info('HMR dispose: disposed pending PGlite worker startup', { cacheKey });
+        } else {
           logger.warn('HMR dispose: failed to close PGlite instance', { cacheKey, error: err });
         }
-      })
-    );
+      }
+    };
+
+    await Promise.all([
+      ...entries.map(async ([cacheKey, db]) => await closeResolvedDb(cacheKey, db)),
+      ...workerEntries.map(async ([cacheKey, db]) => await closeResolvedDb(cacheKey, db)),
+      ...pendingWorkerEntries.map(
+        async ([cacheKey, db]) => await closePendingWorkerDb(cacheKey, db)
+      ),
+    ]);
   }
 
   /**

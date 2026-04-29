@@ -8,6 +8,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { vector } from '@electric-sql/pglite/vector';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getMigrationStatus, resetMigrations, runMigrations } from '../src/drizzle/migrate.js';
+import migrationsManifest from '../src/drizzle/migrations.json';
 
 describe('Drizzle Migration Runner', () => {
   let db: PGlite;
@@ -56,7 +57,9 @@ describe('Drizzle Migration Runner', () => {
       expect(tableNames).toContain('embedding_sets');
       expect(tableNames).toContain('job_queue');
       expect(tableNames).toContain('token_cache');
-      expect(tableNames).toContain('model_registry');
+      expect(tableNames).toContain('providers');
+      expect(tableNames).toContain('models');
+      expect(tableNames).not.toContain('model_registry');
       expect(tableNames).toContain('__drizzle_migrations');
     });
 
@@ -69,6 +72,88 @@ describe('Drizzle Migration Runner', () => {
       const second = await runMigrations(db);
       expect(second.success).toBe(true);
       expect(second.appliedMigrations).toHaveLength(0);
+    });
+
+    it('continues when collection indexing stats already exists from the custom migration path', async () => {
+      const catalogMigrationIndex = migrationsManifest.migrations.findIndex(
+        (migration) => migration.name === '0008_gifted_unus'
+      );
+      expect(catalogMigrationIndex).toBeGreaterThan(0);
+
+      await db.query(`
+        CREATE TABLE "__drizzle_migrations" (
+          id SERIAL PRIMARY KEY,
+          hash TEXT NOT NULL UNIQUE,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        )
+      `);
+
+      for (const migration of migrationsManifest.migrations.slice(0, catalogMigrationIndex)) {
+        await db.query(`INSERT INTO "__drizzle_migrations" (hash) VALUES ($1)`, [migration.hash]);
+      }
+
+      await db.query(
+        `INSERT INTO "__drizzle_migrations" (hash) VALUES ('custom-030-collection-indexing-stats')`
+      );
+
+      await db.query('CREATE TABLE "model_registry" ("id" uuid PRIMARY KEY)');
+      await db.query(`
+        CREATE TABLE collection_indexing_stats (
+          embedding_set_id TEXT PRIMARY KEY,
+          file_count INTEGER NOT NULL DEFAULT 0,
+          chunk_count INTEGER NOT NULL DEFAULT 0,
+          embedded_chunk_count INTEGER NOT NULL DEFAULT 0,
+          pending_chunk_count INTEGER NOT NULL DEFAULT 0,
+          dirty BOOLEAN NOT NULL DEFAULT FALSE,
+          last_refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await db.query(`
+        CREATE INDEX idx_collection_indexing_stats_dirty
+          ON collection_indexing_stats(dirty, last_refreshed_at)
+      `);
+
+      const result = await runMigrations(db);
+
+      expect(result.success).toBe(true);
+      expect(result.error).toBeUndefined();
+      expect(result.appliedMigrations).toContain('0008_gifted_unus');
+      expect(result.appliedMigrations).toContain('0009_great_polaris');
+    });
+
+    it('does not create provider catalog rows with string-literal timestamp defaults', () => {
+      const catalogMigration = migrationsManifest.migrations.find(
+        (migration) => migration.name === '0008_gifted_unus'
+      );
+
+      expect(catalogMigration?.sql).toContain('DEFAULT CURRENT_TIMESTAMP');
+      expect(catalogMigration?.sql).not.toContain("DEFAULT 'CURRENT_TIMESTAMP'");
+    });
+
+    it('refuses to run against a production legacy migration ledger', async () => {
+      await db.query(`
+        CREATE TABLE "_migrations" (
+          id SERIAL PRIMARY KEY,
+          version INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          checksum TEXT NOT NULL,
+          applied_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        )
+      `);
+
+      const result = await runMigrations(db);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('legacy production migration ledger');
+
+      const drizzleLedger = await db.query<{ tablename: string }>(`
+        SELECT tablename
+        FROM pg_tables
+        WHERE schemaname = 'public'
+          AND tablename = '__drizzle_migrations'
+      `);
+
+      expect(drizzleLedger.rows).toHaveLength(0);
     });
 
     it('should call onMigrationStart and onMigrationComplete callbacks', async () => {
@@ -93,6 +178,65 @@ describe('Drizzle Migration Runner', () => {
       expect(status.total).toBeGreaterThan(0);
       expect(status.applied).toBe(0);
       expect(status.pending.length).toBe(status.total);
+    });
+
+    it('returns all migrations as pending when the Drizzle ledger is missing during diagnostics', async () => {
+      const missingLedgerError = new Error('relation "__drizzle_migrations" does not exist');
+      Object.assign(missingLedgerError, { code: '42P01' });
+
+      const query = vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockRejectedValueOnce(missingLedgerError);
+
+      const status = await getMigrationStatus({ query } as unknown as PGlite);
+
+      expect(status.total).toBeGreaterThan(0);
+      expect(status.applied).toBe(0);
+      expect(status.pending).toHaveLength(status.total);
+    });
+
+    it('does not report all migrations as pending when status diagnostics fail unexpectedly', async () => {
+      const diagnosticError = new Error('permission denied for schema public');
+      Object.assign(diagnosticError, { code: '42501' });
+
+      const query = vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockRejectedValueOnce(diagnosticError);
+
+      await expect(getMigrationStatus({ query } as unknown as PGlite)).rejects.toThrow(
+        'permission denied for schema public'
+      );
+    });
+
+    it('does not treat unrelated undefined-table errors as a missing Drizzle ledger', async () => {
+      const unrelatedMissingTableError = new Error('relation "other_table" does not exist');
+      Object.assign(unrelatedMissingTableError, { code: '42P01' });
+
+      const query = vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockRejectedValueOnce(unrelatedMissingTableError);
+
+      await expect(getMigrationStatus({ query } as unknown as PGlite)).rejects.toThrow(
+        'relation "other_table" does not exist'
+      );
+    });
+
+    it('refuses status diagnostics against a production legacy migration ledger', async () => {
+      await db.query(`
+        CREATE TABLE "_migrations" (
+          id SERIAL PRIMARY KEY,
+          version INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          checksum TEXT NOT NULL,
+          applied_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        )
+      `);
+
+      await expect(getMigrationStatus(db)).rejects.toThrow('legacy production migration ledger');
     });
 
     it('should return no pending migrations after running', async () => {

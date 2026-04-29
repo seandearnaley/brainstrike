@@ -57,6 +57,27 @@
       "when": 1776124562958,
       "tag": "0007_lovely_white_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777295748401,
+      "tag": "0008_gifted_unus",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1777295867534,
+      "tag": "0009_great_polaris",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1777326945260,
+      "tag": "0010_harsh_titanium_man",
+      "breakpoints": true
     }
   ]
 }

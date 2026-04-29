@@ -1,6 +1,21 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-15T04:54:57.933Z",
+  "generatedAt": "2026-04-27T21:58:16.854Z",
+  "finalSnapshotTables": [
+    "collection_indexing_stats",
+    "embedding_cache",
+    "embedding_sets",
+    "file_chunks",
+    "file_records",
+    "file_token_cache",
+    "job_queue",
+    "models",
+    "providers",
+    "selection_snapshot_files",
+    "selection_snapshots",
+    "token_cache",
+    "view_filter_presets"
+  ],
   "migrations": [
     {
       "version": "7",
@@ -49,6 +64,24 @@
       "name": "0007_lovely_white_queen",
       "sql": "ALTER TABLE \"file_records\" ADD COLUMN \"source_root_path\" text;--> statement-breakpoint\nCREATE INDEX \"idx_file_records_source_root_path\" ON \"file_records\" USING btree (\"source_root_path\");--> statement-breakpoint\nCREATE UNIQUE INDEX \"idx_file_records_cache_identity\" ON \"file_records\" USING btree (\"embedding_set_id\",\"source_root_path\",\"path\") WHERE \"file_records\".\"embedding_set_id\" IS NOT NULL AND \"file_records\".\"source_root_path\" IS NOT NULL;\n",
       "hash": "3936d5b922b640b77a752d186dfc6db52c05913a3e1072bf833b01f0fb09cd64"
+    },
+    {
+      "version": "7",
+      "name": "0008_gifted_unus",
+      "sql": "CREATE TABLE IF NOT EXISTS \"collection_indexing_stats\" (\n\t\"embedding_set_id\" text PRIMARY KEY NOT NULL,\n\t\"file_count\" integer DEFAULT 0 NOT NULL,\n\t\"chunk_count\" integer DEFAULT 0 NOT NULL,\n\t\"embedded_chunk_count\" integer DEFAULT 0 NOT NULL,\n\t\"pending_chunk_count\" integer DEFAULT 0 NOT NULL,\n\t\"dirty\" boolean DEFAULT false NOT NULL,\n\t\"last_refreshed_at\" timestamp with time zone DEFAULT now() NOT NULL\n);\n--> statement-breakpoint\nCREATE TABLE \"models\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"provider_id\" text NOT NULL,\n\t\"name\" text NOT NULL,\n\t\"description\" text,\n\t\"tagline\" text,\n\t\"best_for\" jsonb,\n\t\"icon\" text,\n\t\"is_enabled\" boolean DEFAULT false NOT NULL,\n\t\"capabilities\" jsonb,\n\t\"parameters\" jsonb,\n\t\"sort_order\" integer DEFAULT 0 NOT NULL,\n\t\"created_at\" text DEFAULT CURRENT_TIMESTAMP NOT NULL,\n\t\"updated_at\" text DEFAULT CURRENT_TIMESTAMP NOT NULL\n);\n--> statement-breakpoint\nCREATE TABLE \"providers\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"name\" text NOT NULL,\n\t\"icon\" text,\n\t\"is_enabled\" boolean DEFAULT false NOT NULL,\n\t\"sort_order\" integer DEFAULT 0 NOT NULL,\n\t\"created_at\" text DEFAULT CURRENT_TIMESTAMP NOT NULL,\n\t\"updated_at\" text DEFAULT CURRENT_TIMESTAMP NOT NULL\n);\n--> statement-breakpoint\nDROP TABLE \"model_registry\" CASCADE;--> statement-breakpoint\nALTER TABLE \"models\" ADD CONSTRAINT \"models_provider_id_providers_id_fk\" FOREIGN KEY (\"provider_id\") REFERENCES \"public\".\"providers\"(\"id\") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint\nCREATE INDEX IF NOT EXISTS \"idx_collection_indexing_stats_dirty\" ON \"collection_indexing_stats\" USING btree (\"dirty\",\"last_refreshed_at\");--> statement-breakpoint\nCREATE INDEX \"idx_models_provider_id\" ON \"models\" USING btree (\"provider_id\");--> statement-breakpoint\nCREATE INDEX \"idx_models_sort_order\" ON \"models\" USING btree (\"sort_order\");--> statement-breakpoint\nCREATE INDEX \"idx_providers_sort_order\" ON \"providers\" USING btree (\"sort_order\");\n",
+      "hash": "e4e648dd96c559bdbaa6c553c66fad4c1a638c87dab085983d55f8f049916f51"
+    },
+    {
+      "version": "7",
+      "name": "0009_great_polaris",
+      "sql": "-- Snapshot correction: 0008 now creates these defaults as expressions, but this\n-- migration preserves the generated Drizzle manifest history.\nALTER TABLE \"models\" ALTER COLUMN \"created_at\" SET DEFAULT CURRENT_TIMESTAMP;--> statement-breakpoint\nALTER TABLE \"models\" ALTER COLUMN \"updated_at\" SET DEFAULT CURRENT_TIMESTAMP;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"created_at\" SET DEFAULT CURRENT_TIMESTAMP;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"updated_at\" SET DEFAULT CURRENT_TIMESTAMP;\n",
+      "hash": "ad0540668df979cdfaa0d70c04114fe6495f38da62d101d3da34dc9fad9791e6"
+    },
+    {
+      "version": "7",
+      "name": "0010_harsh_titanium_man",
+      "sql": "ALTER TABLE \"models\" ALTER COLUMN \"created_at\" DROP DEFAULT;--> statement-breakpoint\nALTER TABLE \"models\" ALTER COLUMN \"created_at\" SET DATA TYPE timestamp with time zone USING \"created_at\"::timestamp with time zone;--> statement-breakpoint\nALTER TABLE \"models\" ALTER COLUMN \"created_at\" SET DEFAULT now();--> statement-breakpoint\nALTER TABLE \"models\" ALTER COLUMN \"updated_at\" DROP DEFAULT;--> statement-breakpoint\nALTER TABLE \"models\" ALTER COLUMN \"updated_at\" SET DATA TYPE timestamp with time zone USING \"updated_at\"::timestamp with time zone;--> statement-breakpoint\nALTER TABLE \"models\" ALTER COLUMN \"updated_at\" SET DEFAULT now();--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"created_at\" DROP DEFAULT;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"created_at\" SET DATA TYPE timestamp with time zone USING \"created_at\"::timestamp with time zone;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"created_at\" SET DEFAULT now();--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"updated_at\" DROP DEFAULT;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"updated_at\" SET DATA TYPE timestamp with time zone USING \"updated_at\"::timestamp with time zone;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"updated_at\" SET DEFAULT now();\n",
+      "hash": "8b2ca684a2d6478bfa77788c830b262af1dece8c3f22ee0631cf2a4a62ba7fc8"
     }
   ]
 }

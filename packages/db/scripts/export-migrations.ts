@@ -20,6 +20,7 @@ interface Migration {
 }
 
 interface MigrationManifest {
+  finalSnapshotTables: string[];
   generatedAt: string;
   migrations: Migration[];
   version: 1;
@@ -42,9 +43,8 @@ function extractMigrations(migrationsDir: string): Migration[] {
   let journal: { entries: Array<{ idx: number; version: string; tag: string }> };
   try {
     journal = JSON.parse(readFileSync(journalPath, 'utf-8'));
-  } catch {
-    console.error('Could not read migration journal at:', journalPath);
-    process.exit(1);
+  } catch (error) {
+    throw new Error(`Could not read migration journal at ${journalPath}`, { cause: error });
   }
 
   // Sort by index to ensure correct order
@@ -69,6 +69,40 @@ function extractMigrations(migrationsDir: string): Migration[] {
   return migrations;
 }
 
+function extractFinalSnapshotTables(migrationsDir: string): string[] {
+  const journalPath = join(migrationsDir, 'meta', '_journal.json');
+
+  let journal: { entries: Array<{ idx: number; tag: string }> };
+  try {
+    journal = JSON.parse(readFileSync(journalPath, 'utf-8'));
+  } catch (error) {
+    throw new Error(`Could not read migration journal at ${journalPath}`, { cause: error });
+  }
+
+  const latestEntry = [...journal.entries].sort((a, b) => b.idx - a.idx)[0];
+
+  if (!latestEntry) {
+    return [];
+  }
+
+  const snapshotFileName = `${latestEntry.idx.toString().padStart(4, '0')}_snapshot.json`;
+  const snapshotPath = join(migrationsDir, 'meta', snapshotFileName);
+
+  let snapshot: { tables?: Record<string, { name?: unknown }> };
+  try {
+    snapshot = JSON.parse(readFileSync(snapshotPath, 'utf-8'));
+  } catch (error) {
+    throw new Error(`Could not read final migration snapshot at ${snapshotPath}`, {
+      cause: error,
+    });
+  }
+
+  return Object.values(snapshot.tables ?? {})
+    .map((table) => table.name)
+    .filter((name): name is string => typeof name === 'string' && name.length > 0)
+    .sort((left, right) => left.localeCompare(right));
+}
+
 function main() {
   const packageRoot = resolve(import.meta.dirname, '..');
   const migrationsDir = join(packageRoot, 'drizzle');
@@ -77,10 +111,12 @@ function main() {
   console.log('Exporting migrations from:', migrationsDir);
 
   const migrations = extractMigrations(migrationsDir);
+  const finalSnapshotTables = extractFinalSnapshotTables(migrationsDir);
 
   const manifest: MigrationManifest = {
     version: 1,
     generatedAt: new Date().toISOString(),
+    finalSnapshotTables,
     migrations,
   };
 
@@ -89,4 +125,9 @@ function main() {
   console.log('Migration versions:', migrations.map((m) => m.name).join(', '));
 }
 
-main();
+try {
+  main();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+}

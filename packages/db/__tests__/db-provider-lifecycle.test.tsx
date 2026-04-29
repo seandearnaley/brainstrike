@@ -185,7 +185,9 @@ describe('DbProvider lifecycle', () => {
 
     it('calls wasmLoader.closeCached for IDB-backed databases in production', async () => {
       const mockDb = createMockDb();
-      vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
+      vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGliteClient').mockResolvedValue(
+        mockDb as unknown as Awaited<ReturnType<typeof wasmLoaderModule.wasmLoader.createPGlite>>
+      );
       vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
       vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(false);
       const closeCachedSpy = vi

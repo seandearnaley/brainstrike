@@ -23,6 +23,7 @@ const sidebars = {
         'architecture/web-app',
         'architecture/desktop-app',
         'architecture/data-model',
+        'architecture/pglite-drizzle-db-contract',
         'architecture/deployment',
       ],
     },

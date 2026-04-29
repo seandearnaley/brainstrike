@@ -10,6 +10,9 @@ export {
   type ResolvedChunkingStrategy,
   resolveChunkingStrategyForFile,
 } from '@brainstrike/text-splitter';
+export * from './architecture/brainstrike-db-client-contract.js';
+export * from './architecture/db-migration-authority.js';
+export * from './architecture/db-runtime-baseline.js';
 // Configuration
 export { CHUNKING_CONFIG } from './config/chunking-config.js';
 export * from './database-pressure-controller.js';
@@ -78,8 +81,12 @@ export * from './repositories/index.js';
 // Schema types for view filter presets
 export type {
   EmbeddingCacheEntry,
+  Model,
   NewEmbeddingCacheEntry,
+  NewModel,
+  NewProvider,
   NewViewFilterPreset,
+  Provider,
   ViewFilterPreset,
 } from './schema/index.js';
 // Schema table for view filter presets (needed for live queries)
