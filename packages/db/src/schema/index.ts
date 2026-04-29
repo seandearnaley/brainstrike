@@ -104,7 +104,11 @@ const textTimestamp = customType<{
     return value.toISOString();
   },
   fromDriver(value: string): Date {
-    return new Date(value);
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      throw new Error(`textTimestamp: invalid stored value "${value}"`);
+    }
+    return date;
   },
 });
 

@@ -96,6 +96,18 @@ describe('DrizzleTokenCacheStore', () => {
       expect(updated?.createdAt).toMatch(isoUtcTextTimestamp);
       expect(updated?.updatedAt).toMatch(isoUtcTextTimestamp);
     });
+
+    it('rejects malformed stored text timestamps when reading rows', async () => {
+      await store.set(createEntry({ filePath: 'src/file.ts', tokenCount: 100 }));
+      await client.query(
+        `UPDATE file_token_cache SET created_at = 'CURRENT_TIMESTAMP' WHERE folder_id = $1 AND file_path = $2`,
+        [testFolderId, 'src/file.ts']
+      );
+
+      await expect(store.get(testFolderId, 'src/file.ts')).rejects.toThrow(
+        'textTimestamp: invalid stored value "CURRENT_TIMESTAMP"'
+      );
+    });
   });
 
   describe('file path validation', () => {
