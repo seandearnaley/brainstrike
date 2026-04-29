@@ -99,7 +99,7 @@ describe('CreateEmbeddingSetDialog', () => {
     );
 
     expect(screen.getByText('Create Search Collection')).toBeInTheDocument();
-    expect(screen.getByText('Model Configuration')).toBeInTheDocument();
+    expect(screen.getByText('Model')).toBeInTheDocument();
     expect(screen.getByTestId('model-picker')).toBeInTheDocument();
 
     await waitFor(() => {
@@ -281,6 +281,56 @@ describe('CreateEmbeddingSetDialog', () => {
     await waitFor(() => {
       expect(nameInput).toHaveValue('Text Embedding 3 Small (4)');
     });
+  });
+
+  it('submits the form when the user presses Enter inside an input', async () => {
+    const user = userEvent.setup({ delay: null });
+    (mockRepository.getOrCreateSet as Mock).mockResolvedValue({ id: 'enter-set-id' });
+
+    render(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          models={mockModels}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={mockProviders}
+          repository={mockRepository}
+        />
+      </>
+    );
+
+    const nameInput = screen.getByLabelText(/Name/i);
+    await waitFor(() => {
+      expect(nameInput).toHaveValue('Text Embedding 3 Small');
+    });
+
+    nameInput.focus();
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => {
+      expect(mockRepository.getOrCreateSet).toHaveBeenCalled();
+    });
+  });
+
+  it('renders the dialog with a constrained max-width so it never spans the full screen on desktop', () => {
+    render(
+      <CreateEmbeddingSetDialog
+        models={mockModels}
+        onOpenChange={mockOnOpenChange}
+        onSetCreated={mockOnSetCreated}
+        open={true}
+        providers={mockProviders}
+        repository={mockRepository}
+      />
+    );
+
+    // Find the dialog content by role; it should have a sm:max-w utility that
+    // caps the panel below 600px so it never renders edge-to-edge on a wide viewport.
+    const dialogContent = screen.getByRole('dialog');
+    const className = dialogContent.className;
+    expect(className).toMatch(/sm:max-w-\[(?:[1-5]\d{2})px\]|sm:max-w-(?:sm|md|lg)/);
   });
 
   it('persists the raw provider model id for local registry models', async () => {

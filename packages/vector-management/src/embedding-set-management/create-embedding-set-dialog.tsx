@@ -354,142 +354,173 @@ export function CreateEmbeddingSetDialog({
     return parts.join(' · ');
   };
 
+  const canSubmit =
+    !creating && hasModelOptions && Boolean(formData.selectedModel) && formData.name.trim() !== '';
+
+  // Note: handler typed inline via the JSX prop; React 19 typings deprecate the
+  // standalone FormEvent/FormEventHandler aliases.
+  const handleSubmit = (event: { preventDefault: () => void }) => {
+    event.preventDefault();
+    if (!canSubmit) {
+      return;
+    }
+    void handleCreate();
+  };
+
   return (
     <Dialog onOpenChange={handleOpenChange} open={open}>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-[520px]">
+        <DialogHeader className="border-b px-6 pt-6 pb-4">
           <DialogTitle>Create Search Collection</DialogTitle>
           <DialogDescription>
-            Collections let you search the same files with different AI models. For example, use a
-            code-optimized model for technical docs and a general model for business content. Each
-            collection is optimized for specific search needs.
+            A collection pairs your files with one embedding model so you can search them with the
+            best tool for the job.
           </DialogDescription>
         </DialogHeader>
 
         {hasModelOptions || isLoading ? (
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label className="font-medium text-sm" htmlFor="model">
-                Model Configuration
-              </Label>
-              <ModelPicker
-                disabled={!hasModelOptions || creating || isLoading}
-                mode="single"
-                models={models}
-                modelType="embedding"
-                onChange={(value: string | string[]) => {
-                  const modelKey = value as string;
-                  const selectedModel = models.find((m) => m.id === modelKey);
-                  // Only auto-fill name if it's empty or was auto-generated
-                  const shouldAutoFillName = formData.name === '';
-                  if (shouldAutoFillName && selectedModel) {
-                    const uniqueName = generateUniqueName(selectedModel.name, existingNames);
-                    dispatch({
-                      type: 'set_form_data',
-                      formData: { ...formData, selectedModel: modelKey, name: uniqueName },
-                    });
-                  } else {
-                    dispatch({ type: 'set_form_field', field: 'selectedModel', value: modelKey });
+          <form
+            className="flex min-h-0 flex-col"
+            id="create-embedding-set-form"
+            onSubmit={handleSubmit}
+          >
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
+              <div className="space-y-2">
+                <Label className="font-medium text-sm" htmlFor="model">
+                  Model
+                </Label>
+                <ModelPicker
+                  disabled={!hasModelOptions || creating || isLoading}
+                  mode="single"
+                  models={models}
+                  modelType="embedding"
+                  onChange={(value: string | string[]) => {
+                    const modelKey = value as string;
+                    const selectedModel = models.find((m) => m.id === modelKey);
+                    // Only auto-fill name if it's empty or was auto-generated
+                    const shouldAutoFillName = formData.name === '';
+                    if (shouldAutoFillName && selectedModel) {
+                      const uniqueName = generateUniqueName(selectedModel.name, existingNames);
+                      dispatch({
+                        type: 'set_form_data',
+                        formData: { ...formData, selectedModel: modelKey, name: uniqueName },
+                      });
+                    } else {
+                      dispatch({ type: 'set_form_field', field: 'selectedModel', value: modelKey });
+                    }
+                  }}
+                  placeholder={isLoading ? 'Loading models...' : 'Select an embedding model'}
+                  providers={providers}
+                  searchable={false}
+                  value={formData.selectedModel}
+                />
+                {selectedModelInfo && (
+                  <p className="text-muted-foreground text-xs">
+                    {formatModelDescription(selectedModelInfo)}
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label className="font-medium text-sm" htmlFor="name">
+                  Name <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  disabled={creating}
+                  id="name"
+                  onChange={(e) =>
+                    dispatch({ type: 'set_form_field', field: 'name', value: e.target.value })
                   }
-                }}
-                placeholder={isLoading ? 'Loading models...' : 'Select an embedding model'}
-                providers={providers}
-                searchable={false}
-                value={formData.selectedModel}
-              />
-              {selectedModelInfo && (
-                <p className="mt-2 text-muted-foreground text-xs">
-                  {formatModelDescription(selectedModelInfo)}
-                </p>
-              )}
+                  placeholder="e.g., Code Embeddings"
+                  value={formData.name}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="font-medium text-sm" htmlFor="description">
+                  Description
+                </Label>
+                <Input
+                  disabled={creating}
+                  id="description"
+                  onChange={(e) =>
+                    dispatch({
+                      type: 'set_form_field',
+                      field: 'description',
+                      value: e.target.value,
+                    })
+                  }
+                  placeholder="What this collection is for"
+                  value={formData.description}
+                />
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="font-medium text-sm" htmlFor="tags">
+                    Tags
+                  </Label>
+                  <Input
+                    disabled={creating}
+                    id="tags"
+                    onChange={(e) =>
+                      dispatch({ type: 'set_form_field', field: 'tags', value: e.target.value })
+                    }
+                    placeholder="code, docs, analysis"
+                    value={formData.tags}
+                  />
+                  <p className="text-[11px] text-muted-foreground">Comma-separated</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="font-medium text-sm" htmlFor="category">
+                    Category
+                  </Label>
+                  <Input
+                    disabled={creating}
+                    id="category"
+                    onChange={(e) =>
+                      dispatch({
+                        type: 'set_form_field',
+                        field: 'category',
+                        value: e.target.value,
+                      })
+                    }
+                    placeholder="e.g., development"
+                    value={formData.category}
+                  />
+                </div>
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label className="font-medium text-sm" htmlFor="name">
-                Name <span className="text-destructive">*</span>
-              </Label>
-              <Input
+            <DialogFooter className="border-t px-6 py-4">
+              <Button
                 disabled={creating}
-                id="name"
-                onChange={(e) =>
-                  dispatch({ type: 'set_form_field', field: 'name', value: e.target.value })
-                }
-                placeholder="e.g., Code Embeddings, General Purpose, etc."
-                value={formData.name}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label className="font-medium text-sm" htmlFor="description">
-                Description
-              </Label>
-              <Input
-                disabled={creating}
-                id="description"
-                onChange={(e) =>
-                  dispatch({ type: 'set_form_field', field: 'description', value: e.target.value })
-                }
-                placeholder="Describe the purpose of this collection"
-                value={formData.description}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label className="font-medium text-sm" htmlFor="tags">
-                Tags
-              </Label>
-              <Input
-                disabled={creating}
-                id="tags"
-                onChange={(e) =>
-                  dispatch({ type: 'set_form_field', field: 'tags', value: e.target.value })
-                }
-                placeholder="Comma-separated tags (e.g., code, programming, analysis)"
-                value={formData.tags}
-              />
-              <p className="text-muted-foreground text-xs">Use commas to separate multiple tags</p>
-            </div>
-
-            <div className="space-y-2">
-              <Label className="font-medium text-sm" htmlFor="category">
-                Category
-              </Label>
-              <Input
-                disabled={creating}
-                id="category"
-                onChange={(e) =>
-                  dispatch({ type: 'set_form_field', field: 'category', value: e.target.value })
-                }
-                placeholder="e.g., development, documentation, general-text"
-                value={formData.category}
-              />
-            </div>
-          </div>
+                onClick={() => handleOpenChange(false)}
+                type="button"
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              <Button disabled={!canSubmit} type="submit">
+                {creating ? 'Creating...' : 'Create Collection'}
+              </Button>
+            </DialogFooter>
+          </form>
         ) : (
-          <div className="rounded-md border border-dashed bg-muted/30 px-4 py-6 text-muted-foreground text-sm">
-            Enable at least one embedding model in Settings to create a collection.
-          </div>
+          <>
+            <div className="px-6 py-5">
+              <div className="rounded-md border border-dashed bg-muted/30 px-4 py-6 text-muted-foreground text-sm">
+                Enable at least one embedding model in Settings to create a collection.
+              </div>
+            </div>
+            <DialogFooter className="border-t px-6 py-4">
+              <Button onClick={() => handleOpenChange(false)} type="button" variant="outline">
+                Close
+              </Button>
+            </DialogFooter>
+          </>
         )}
-
-        <DialogFooter>
-          <Button
-            disabled={creating}
-            onClick={() => handleOpenChange(false)}
-            type="button"
-            variant="outline"
-          >
-            Cancel
-          </Button>
-          <Button
-            disabled={
-              creating || !hasModelOptions || !formData.selectedModel || !formData.name.trim()
-            }
-            onClick={handleCreate}
-            type="button"
-          >
-            {creating ? 'Creating...' : 'Create Collection'}
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
