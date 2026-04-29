@@ -511,6 +511,12 @@ export type NewTokenCacheEntry = typeof tokenCache.$inferInsert;
 export type FileTokenCacheEntry = typeof fileTokenCache.$inferSelect;
 export type NewFileTokenCacheEntry = typeof fileTokenCache.$inferInsert;
 
+export type FileTag = typeof fileTags.$inferSelect;
+export type NewFileTag = typeof fileTags.$inferInsert;
+
+export type FileRelationship = typeof fileRelationships.$inferSelect;
+export type NewFileRelationship = typeof fileRelationships.$inferInsert;
+
 export type Provider = typeof providers.$inferSelect;
 export type NewProvider = typeof providers.$inferInsert;
 
