@@ -818,6 +818,8 @@ export function useDatabaseDemoData({
     ),
     query: FILE_RECORDS_PAGE_QUERY,
     ...(recordQueryParams ? { params: recordQueryParams } : {}),
+    mode: 'incremental',
+    key: 'id',
     enabled: liveQueryEnabled,
     clearOnDisable: true,
   });
@@ -839,6 +841,8 @@ export function useDatabaseDemoData({
     cacheKey: makeLiveQueryKey('file-record-collection-counts', activeCollectionId),
     query: COLLECTION_COUNTS_QUERY,
     ...(collectionCountsQueryParams ? { params: collectionCountsQueryParams } : {}),
+    mode: 'incremental',
+    key: 'embeddingSetId',
     enabled: liveQueryEnabled,
   });
 
