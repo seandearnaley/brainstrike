@@ -328,6 +328,7 @@ describe('Drizzle Migration Runner', () => {
       expect(result.error).toContain(
         'Brainstrike DB is greenfield; stale "__drizzle_migrations" databases must be reset instead of migrated.'
       );
+      expect(result.error).toContain('Unknown migration hashes (1 stale out of 1 applied)');
       expect(result.appliedMigrations).toHaveLength(0);
     });
 
@@ -430,6 +431,39 @@ describe('Drizzle Migration Runner', () => {
         "INSERT INTO migration_notes (body)\n        VALUES (E'it\\'s -- not a comment; still string text')",
         'SELECT 1',
       ]);
+    });
+
+    it('does not treat positional placeholders as dollar-quoted blocks', () => {
+      const messages: string[] = [];
+      const unsubscribe = addLogListener((record) => {
+        if (record.scope === 'DrizzleMigrate' && typeof record.message === 'string') {
+          messages.push(record.message);
+        }
+      });
+
+      let statements: string[];
+      try {
+        statements = splitMigrationStatements(`
+          INSERT INTO migration_notes (id, body) VALUES ($1, $2);
+          DO $body$
+          BEGIN
+            PERFORM 1;
+          END;
+          $body$;
+        `);
+      } finally {
+        unsubscribe();
+      }
+
+      expect(statements).toEqual([
+        'INSERT INTO migration_notes (id, body) VALUES ($1, $2)',
+        `DO $body$
+          BEGIN
+            PERFORM 1;
+          END;
+          $body$`,
+      ]);
+      expect(messages).not.toContain('Malformed dollar-quoted block in migration SQL');
     });
 
     it('does not protect dollar-quote markers that start inside single-quoted strings', () => {

@@ -88,7 +88,7 @@ function assertNoStaleDrizzleMigrationLedger(
   }
 
   throw new Error(
-    `Brainstrike DB is greenfield; stale "${MIGRATIONS_TABLE}" databases must be reset instead of migrated. Unknown migration hashes: ${staleHashes.join(', ')}`
+    `Brainstrike DB is greenfield; stale "${MIGRATIONS_TABLE}" databases must be reset instead of migrated. Unknown migration hashes (${staleHashes.length} stale out of ${applied.size} applied): ${staleHashes.join(', ')}`
   );
 }
 
@@ -227,17 +227,20 @@ function readDollarQuoteTag(input: string, index: number): string | null {
     return null;
   }
 
-  const closingDollarIndex = input.indexOf('$', index + 1);
-  if (closingDollarIndex === -1) {
+  const firstTagCharacter = input[index + 1];
+  if (firstTagCharacter === '$') {
+    return '$$';
+  }
+  if (firstTagCharacter === undefined || !/[A-Za-z_]/.test(firstTagCharacter)) {
     return null;
   }
 
-  const tag = input.slice(index + 1, closingDollarIndex);
-  if (tag.length > 0 && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(tag)) {
-    return null;
+  let cursor = index + 2;
+  while (cursor < input.length && /[A-Za-z0-9_]/.test(input[cursor] ?? '')) {
+    cursor += 1;
   }
 
-  return input.slice(index, closingDollarIndex + 1);
+  return input[cursor] === '$' ? input.slice(index, cursor + 1) : null;
 }
 
 function consumeSingleQuote(
