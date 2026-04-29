@@ -174,7 +174,6 @@ const FILE_RECORDS_PAGE_QUERY = `
       fr.chunks_processed_at,
       fr.chunks_count,
       fr.chunking_strategy,
-      fr.embedding,
       fr.embedding_set_id
     FROM file_records fr
     WHERE fr.embedding_set_id = $1
@@ -205,7 +204,7 @@ const FILE_RECORDS_PAGE_QUERY = `
     pr.chunks_count AS "chunksCount",
     COALESCE(ecc.embedded_chunk_count, 0) AS "embeddedChunksCount",
     pr.chunking_strategy AS "chunkingStrategy",
-    (pr.embedding IS NOT NULL) AS "hasEmbedding",
+    (COALESCE(ecc.embedded_chunk_count, 0) > 0) AS "hasEmbedding",
     pr.embedding_set_id AS "embeddingSetId"
   FROM page_records pr
   LEFT JOIN embedded_chunk_counts ecc ON ecc.file_record_id = pr.id

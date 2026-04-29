@@ -390,6 +390,28 @@ describe('useDatabaseDemoData', () => {
     );
   });
 
+  it('does not select a file-record embedding column from the collection page live query', () => {
+    setupLiveQueries();
+
+    renderHook(() =>
+      useDatabaseDemoData({
+        repository: createRepository(),
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database: createMockDatabase(),
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    const recordQuery = mockedUsePGliteLiveQuery.mock.calls
+      .map(([queryOptions]) => queryOptions.query)
+      .find((query) => query.includes('FROM file_records fr') && query.includes('LIMIT $2'));
+
+    expect(recordQuery).toBeDefined();
+    expect(recordQuery).not.toMatch(/\bfr\.embedding\b(?!_)/);
+    expect(recordQuery).not.toMatch(/\bpr\.embedding\b(?!_)/);
+  });
+
   it('uses active collection cache while replacement live queries are loading', async () => {
     mockVectorStatusUIStore.schemaVerified = true;
     mockVectorStatusUIStore.cachedFileData = {
