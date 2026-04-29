@@ -3,6 +3,7 @@ import {
   assertSingleProductionMigrationAuthority,
   getDbMigrationAuthoritySnapshot,
   getDrizzleProductionCompatibilityAudit,
+  getDrizzleProductionCompatibilityAuditForColumnTypes,
   getProviderModelCatalogSchemaAudit,
 } from '../src/architecture/db-migration-authority.js';
 import migrationsManifest from '../src/drizzle/migrations.json';
@@ -54,6 +55,20 @@ describe('DB migration authority', () => {
         },
       ])
     );
+  });
+
+  it('keeps blockers active when generated snapshot columns are missing', () => {
+    const audit = getDrizzleProductionCompatibilityAuditForColumnTypes({});
+
+    expect(audit.canPromote).toBe(false);
+    expect(audit.status).toBe('blocked-by-production-schema-drift');
+    expect(audit.blockers).toContainEqual({
+      column: 'id',
+      drizzleType: 'uuid',
+      productionType: 'text',
+      reason: 'runtime file and collection identifiers are arbitrary text, not UUIDs',
+      table: 'file_records',
+    });
   });
 
   it('maps the Drizzle provider/model catalog schema to the production tables', () => {

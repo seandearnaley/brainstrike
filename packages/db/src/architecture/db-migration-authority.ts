@@ -40,6 +40,10 @@ export interface DrizzleProductionCompatibilityAudit {
   readonly status: 'blocked-by-production-schema-drift' | 'schema-compatible';
 }
 
+export type DrizzleFinalSnapshotColumnTypes = Readonly<
+  Record<string, Readonly<Record<string, string>>>
+>;
+
 const PRODUCTION_MIGRATION_AUTHORITY: DbMigrationAuthorityRecord = {
   allowedProductionUse: true,
   id: 'legacy-migration-runner',
@@ -178,35 +182,32 @@ export function getProviderModelCatalogSchemaAudit(): ProviderModelCatalogSchema
   };
 }
 
-function getGeneratedMigrationSql(): string {
-  return migrationsManifest.migrations.map((migration) => migration.sql).join('\n');
-}
+export function getDrizzleProductionCompatibilityAuditForColumnTypes(
+  finalSnapshotColumnTypes: DrizzleFinalSnapshotColumnTypes
+): DrizzleProductionCompatibilityAudit {
+  const blockers = DRIZZLE_PRODUCTION_COMPATIBILITY_BLOCKERS.filter((blocker) => {
+    const generatedType = finalSnapshotColumnTypes[blocker.table]?.[blocker.column];
 
-function generatedManifestContainsColumnType(
-  blocker: DrizzleProductionCompatibilityBlocker
-): boolean {
-  const sql = getGeneratedMigrationSql();
-  const tableStart = sql.indexOf(`CREATE TABLE "${blocker.table}"`);
+    // Missing generated metadata is unsafe for a promotion gate. Keep the blocker active
+    // unless the generated final snapshot explicitly proves the production-compatible type.
+    if (generatedType === undefined) {
+      return true;
+    }
 
-  if (tableStart === -1) {
-    return false;
-  }
-
-  const tableEnd = sql.indexOf(');\n', tableStart);
-  const tableSql = tableEnd === -1 ? sql.slice(tableStart) : sql.slice(tableStart, tableEnd);
-  return tableSql.includes(`"${blocker.column}" ${blocker.drizzleType}`);
-}
-
-export function getDrizzleProductionCompatibilityAudit(): DrizzleProductionCompatibilityAudit {
-  const blockers = DRIZZLE_PRODUCTION_COMPATIBILITY_BLOCKERS.filter((blocker) =>
-    generatedManifestContainsColumnType(blocker)
-  );
+    return generatedType !== blocker.productionType;
+  });
 
   return {
     blockers,
     canPromote: blockers.length === 0,
     status: blockers.length === 0 ? 'schema-compatible' : 'blocked-by-production-schema-drift',
   };
+}
+
+export function getDrizzleProductionCompatibilityAudit(): DrizzleProductionCompatibilityAudit {
+  return getDrizzleProductionCompatibilityAuditForColumnTypes(
+    migrationsManifest.finalSnapshotColumnTypes
+  );
 }
 
 // This guard lives on the production bootstrap path. Drizzle migration execution remains
