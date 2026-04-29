@@ -591,99 +591,123 @@ describe('Drizzle Migration Runner', () => {
       );
     });
 
-    it('should return no pending migrations after running', async () => {
-      await runMigrations(db);
+    it(
+      'should return no pending migrations after running',
+      async () => {
+        await runMigrations(db);
 
-      const status = await getMigrationStatus(db);
+        const status = await getMigrationStatus(db);
 
-      expect(status.total).toBeGreaterThan(0);
-      expect(status.applied).toBe(status.total);
-      expect(status.pending).toHaveLength(0);
-    });
+        expect(status.total).toBeGreaterThan(0);
+        expect(status.applied).toBe(status.total);
+        expect(status.pending).toHaveLength(0);
+      },
+      MIGRATION_RUN_TIMEOUT_MS
+    );
   });
 
   describe('resetMigrations', () => {
-    it('should drop all tables', async () => {
-      // First run migrations
-      await runMigrations(db);
+    it(
+      'should drop all tables',
+      async () => {
+        // First run migrations
+        await runMigrations(db);
 
-      // Verify tables exist
-      let tables = await db.query<{ tablename: string }>(`
+        // Verify tables exist
+        let tables = await db.query<{ tablename: string }>(`
         SELECT tablename FROM pg_tables WHERE schemaname = 'public'
       `);
-      expect(tables.rows.length).toBeGreaterThan(0);
+        expect(tables.rows.length).toBeGreaterThan(0);
 
-      // Reset
-      await resetMigrations(db);
+        // Reset
+        await resetMigrations(db);
 
-      // Verify tables are gone
-      tables = await db.query(`
+        // Verify tables are gone
+        tables = await db.query(`
         SELECT tablename FROM pg_tables WHERE schemaname = 'public'
       `);
-      expect(tables.rows).toHaveLength(0);
-    });
+        expect(tables.rows).toHaveLength(0);
+      },
+      MIGRATION_RUN_TIMEOUT_MS
+    );
   });
 
   describe('Schema validation', () => {
-    it('should create file_records with correct columns', async () => {
-      await runMigrations(db);
+    it(
+      'should create file_records with correct columns',
+      async () => {
+        await runMigrations(db);
 
-      const columns = await db.query<{ column_name: string }>(`
+        const columns = await db.query<{ column_name: string }>(`
         SELECT column_name FROM information_schema.columns
         WHERE table_name = 'file_records'
         ORDER BY ordinal_position
       `);
 
-      const columnNames = columns.rows.map((c) => c.column_name);
+        const columnNames = columns.rows.map((c) => c.column_name);
 
-      expect(columnNames).toContain('id');
-      expect(columnNames).toContain('name');
-      expect(columnNames).toContain('path');
-      expect(columnNames).toContain('size');
-      expect(columnNames).toContain('content');
-      expect(columnNames).toContain('content_hash');
-      expect(columnNames).toContain('embedding_set_id');
-      expect(columnNames).toContain('source_root_path');
-    });
+        expect(columnNames).toContain('id');
+        expect(columnNames).toContain('name');
+        expect(columnNames).toContain('path');
+        expect(columnNames).toContain('size');
+        expect(columnNames).toContain('content');
+        expect(columnNames).toContain('content_hash');
+        expect(columnNames).toContain('embedding_set_id');
+        expect(columnNames).toContain('source_root_path');
+      },
+      MIGRATION_RUN_TIMEOUT_MS
+    );
 
-    it('should create file_chunks with vector column', async () => {
-      await runMigrations(db);
+    it(
+      'should create file_chunks with vector column',
+      async () => {
+        await runMigrations(db);
 
-      const columns = await db.query<{ column_name: string; udt_name: string }>(`
+        const columns = await db.query<{ column_name: string; udt_name: string }>(`
         SELECT column_name, udt_name FROM information_schema.columns
         WHERE table_name = 'file_chunks'
       `);
 
-      const embeddingColumn = columns.rows.find((c) => c.column_name === 'embedding');
-      expect(embeddingColumn).toBeDefined();
-      expect(embeddingColumn?.udt_name).toBe('vector');
-    });
+        const embeddingColumn = columns.rows.find((c) => c.column_name === 'embedding');
+        expect(embeddingColumn).toBeDefined();
+        expect(embeddingColumn?.udt_name).toBe('vector');
+      },
+      MIGRATION_RUN_TIMEOUT_MS
+    );
 
-    it('should create proper foreign key constraint', async () => {
-      await runMigrations(db);
+    it(
+      'should create proper foreign key constraint',
+      async () => {
+        await runMigrations(db);
 
-      const fks = await db.query<{ constraint_name: string }>(`
+        const fks = await db.query<{ constraint_name: string }>(`
         SELECT constraint_name FROM information_schema.table_constraints
         WHERE table_name = 'file_chunks'
         AND constraint_type = 'FOREIGN KEY'
       `);
 
-      expect(fks.rows.length).toBeGreaterThan(0);
-      expect(fks.rows[0]?.constraint_name).toContain('file_record_id');
-    });
+        expect(fks.rows.length).toBeGreaterThan(0);
+        expect(fks.rows[0]?.constraint_name).toContain('file_record_id');
+      },
+      MIGRATION_RUN_TIMEOUT_MS
+    );
 
-    it('creates the managed-cache identity unique index for file records', async () => {
-      await runMigrations(db);
+    it(
+      'creates the managed-cache identity unique index for file records',
+      async () => {
+        await runMigrations(db);
 
-      const indexes = await db.query<{ indexname: string }>(`
+        const indexes = await db.query<{ indexname: string }>(`
         SELECT indexname FROM pg_indexes
         WHERE schemaname = 'public'
           AND tablename = 'file_records'
           AND indexname = 'idx_file_records_cache_identity'
       `);
 
-      expect(indexes.rows).toHaveLength(1);
-      expect(indexes.rows[0]?.indexname).toBe('idx_file_records_cache_identity');
-    });
+        expect(indexes.rows).toHaveLength(1);
+        expect(indexes.rows[0]?.indexname).toBe('idx_file_records_cache_identity');
+      },
+      MIGRATION_RUN_TIMEOUT_MS
+    );
   });
 });
