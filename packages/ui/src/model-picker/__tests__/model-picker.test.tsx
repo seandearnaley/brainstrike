@@ -431,9 +431,9 @@ describe('ModelPicker', () => {
       expect(popover).not.toBeNull();
       const className = (popover as HTMLElement).className;
 
-      // Either max-w-[...vw...] or max-w-[calc(100vw...)] are acceptable; what matters
-      // is that the width is bounded by the viewport, not just a fixed pixel count.
-      expect(className).toMatch(/max-w-\[(?:[^\]]*v[wh]|calc\([^\]]*v[wh])/);
+      // The popover must be bounded by the viewport — either via max-w-[...vw...]
+      // or via a w-[...] expression that includes a viewport unit (e.g. min(400px,calc(100vw-2rem))).
+      expect(className).toMatch(/(?:max-w|w)-\[(?:[^\]]*v[wh]|calc\([^\]]*v[wh])/);
     });
 
     // Popover modal=true conflicts with parent Dialog modal=true (FocusScope fights).

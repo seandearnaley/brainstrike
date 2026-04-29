@@ -260,9 +260,8 @@ export function CreateEmbeddingSetDialog({
     return () => {
       cancelled = true;
     };
-    // We intentionally only re-run this on open / initialization — not on every
-    // nameDirty flip — so that typing doesn't refire the query.
-    // biome-ignore lint/correctness/useExhaustiveDependencies: see above
+    // Intentionally excludes nameDirty: refining only runs once at open time,
+    // and re-running on every keystroke would defeat the purpose.
   }, [open, hasInitialized, repository, models]);
 
   const validateCreateInputs = (): boolean => {
@@ -364,16 +363,9 @@ export function CreateEmbeddingSetDialog({
     }
   };
 
-  // Picker dropdown already groups models by provider, so the cost / "Free (local)"
-  // prefix was redundant — and its conditional presence read as a layout shift.
-  // Show only the model's own description when available.
-  const formatModelDescription = (model: ModelPickerModel) => model.description ?? '';
-
   const canSubmit =
     !creating && hasModelOptions && Boolean(formData.selectedModel) && formData.name.trim() !== '';
 
-  // Note: handler typed inline via the JSX prop; React 19 typings deprecate the
-  // standalone FormEvent/FormEventHandler aliases.
   const handleSubmit = (event: { preventDefault: () => void }) => {
     event.preventDefault();
     if (!canSubmit) {
@@ -424,7 +416,7 @@ export function CreateEmbeddingSetDialog({
                 className="min-h-[1.25rem] text-muted-foreground text-xs leading-5"
                 data-testid="model-picker-description-slot"
               >
-                {selectedModelInfo ? formatModelDescription(selectedModelInfo) : null}
+                {selectedModelInfo?.description ?? null}
               </div>
             </div>
 

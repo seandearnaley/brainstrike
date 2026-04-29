@@ -91,8 +91,8 @@ export function ModelPicker({
         className={cn(
           // Match shadcn/ui Popover styling so it looks the same as the portaled variant.
           'data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 origin-(--radix-popover-content-transform-origin) rounded-md border bg-popover text-popover-foreground shadow-md outline-hidden data-[state=closed]:animate-out data-[state=open]:animate-in',
-          // z-[60] keeps content above DialogContent (z-[51]); fluid width caps to viewport on mobile.
-          'pointer-events-auto z-[60] w-[min(400px,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] p-0'
+          // z-[60] keeps content above DialogContent (z-[51]); width caps at 400 or viewport-2rem.
+          'pointer-events-auto z-[60] w-[min(400px,calc(100vw-2rem))] p-0'
         )}
         data-slot="popover-content"
         sideOffset={4}
