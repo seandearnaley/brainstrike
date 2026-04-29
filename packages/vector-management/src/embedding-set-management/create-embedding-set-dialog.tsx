@@ -369,7 +369,7 @@ export function CreateEmbeddingSetDialog({
 
   return (
     <Dialog onOpenChange={handleOpenChange} open={open}>
-      <DialogContent className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-[520px]">
+      <DialogContent className="flex max-h-[85vh] w-[min(460px,calc(100vw-2rem))] max-w-[min(460px,calc(100vw-2rem))] flex-col gap-0 p-0 sm:max-w-[460px]">
         <DialogHeader className="border-b px-6 pt-6 pb-4">
           <DialogTitle>Create Search Collection</DialogTitle>
           <DialogDescription>

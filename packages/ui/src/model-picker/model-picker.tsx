@@ -1,5 +1,6 @@
+import * as PopoverPrimitive from '@radix-ui/react-popover';
 import * as React from 'react';
-import { Popover, PopoverContent, PopoverTrigger } from '../popover';
+import { cn } from '../lib/utils';
 import { useTheme } from '../theme-provider';
 import { ModelPickerContent } from './model-picker-content';
 import { ModelPickerTrigger } from './model-picker-trigger';
@@ -63,8 +64,8 @@ export function ModelPicker({
   return (
     // modal=false so the picker composes inside parent Radix Dialogs (also modal)
     // without dueling FocusScopes that steal focus and block item selection.
-    <Popover modal={false} onOpenChange={setOpen} open={open}>
-      <PopoverTrigger asChild>
+    <PopoverPrimitive.Root modal={false} onOpenChange={setOpen} open={open}>
+      <PopoverPrimitive.Trigger asChild>
         {renderTrigger ? (
           renderTrigger({ value, models, providers, placeholder, disabled })
         ) : (
@@ -77,12 +78,24 @@ export function ModelPicker({
             value={value}
           />
         )}
-      </PopoverTrigger>
-      <PopoverContent
+      </PopoverPrimitive.Trigger>
+      {/*
+        Rendered in-tree (no Portal) so it stays inside the parent Dialog's
+        RemoveScroll allow-list — otherwise the dialog's scroll lock kills
+        wheel events on the dropdown. Popper still uses position:fixed, so
+        the content escapes any ancestor overflow:hidden visually.
+      */}
+      <PopoverPrimitive.Content
         align="start"
         aria-describedby="model-picker-description"
-        // z-[60] keeps the popover above DialogContent (z-[51]); fluid width caps to viewport on mobile.
-        className="pointer-events-auto z-[60] w-[min(400px,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] p-0"
+        className={cn(
+          // Match shadcn/ui Popover styling so it looks the same as the portaled variant.
+          'data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 origin-(--radix-popover-content-transform-origin) rounded-md border bg-popover text-popover-foreground shadow-md outline-hidden data-[state=closed]:animate-out data-[state=open]:animate-in',
+          // z-[60] keeps content above DialogContent (z-[51]); fluid width caps to viewport on mobile.
+          'pointer-events-auto z-[60] w-[min(400px,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] p-0'
+        )}
+        data-slot="popover-content"
+        sideOffset={4}
       >
         <span className="sr-only" id="model-picker-description">
           Select a model from the list
@@ -97,7 +110,7 @@ export function ModelPicker({
           selectedValues={selectedValues}
           theme={resolvedTheme}
         />
-      </PopoverContent>
-    </Popover>
+      </PopoverPrimitive.Content>
+    </PopoverPrimitive.Root>
   );
 }

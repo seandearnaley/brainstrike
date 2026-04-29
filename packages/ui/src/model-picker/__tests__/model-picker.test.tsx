@@ -452,5 +452,24 @@ describe('ModelPicker', () => {
       // pointer-events:none locked by Radix's RemoveScroll wrapper.
       expect(document.body.style.pointerEvents).not.toBe('none');
     });
+
+    // The popover MUST NOT render inside Radix's body-level Portal when used
+    // under a modal Dialog. The dialog's RemoveScroll wraps a fixed DOM target
+    // and discards wheel events on anything portaled outside that target,
+    // which made the dropdown impossible to scroll. Rendering in-tree (with
+    // floating-ui position:fixed) keeps the popover inside the dialog's
+    // RemoveScroll allow-list so the wheel works.
+    it('does not portal popover content to document.body (so it inherits Dialog scroll allowance)', () => {
+      const { container } = render(<ModelPicker models={models} providers={providers} />);
+      fireEvent.click(screen.getByRole('combobox'));
+
+      const popover = document.querySelector('[data-slot="popover-content"]');
+      expect(popover).not.toBeNull();
+
+      // The render's container is detached from document.body in JSDOM only as a
+      // descendant. If the popover is portaled to body, it's a sibling of the
+      // render container, not a descendant. We assert it's a descendant.
+      expect(container.contains(popover)).toBe(true);
+    });
   });
 });
