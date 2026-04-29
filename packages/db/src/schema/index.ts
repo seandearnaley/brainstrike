@@ -1,8 +1,8 @@
 /**
- * Drizzle ORM Schema - Spike/PoC
+ * Production-canonical Drizzle schema for Brainstrike's local PGlite database.
  *
- * This is a minimal schema to validate Drizzle + PGlite integration
- * in both browser and Electron contexts.
+ * Runtime migrations, repository types, and compatibility audits derive their
+ * table contracts from this module for both browser and Electron contexts.
  */
 
 import type { ResolvedChunkingStrategy } from '@brainstrike/text-splitter';

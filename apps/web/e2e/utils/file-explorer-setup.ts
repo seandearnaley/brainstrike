@@ -88,5 +88,5 @@ export async function reloadExplorer(
   options: { readonly waitForDatabase?: boolean } = {}
 ): Promise<void> {
   await page.reload({ waitUntil: 'load' });
-  await waitForAppLoad(page, 10_000, { waitForDatabase: options.waitForDatabase ?? false });
+  await waitForAppLoad(page, { waitForDatabase: options.waitForDatabase ?? false });
 }

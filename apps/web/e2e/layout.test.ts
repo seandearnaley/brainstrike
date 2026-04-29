@@ -84,10 +84,10 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
   test.describe('Panel Layout Basics', () => {
     test.beforeEach(async ({ page }) => {
       await page.goto('/');
-      await waitForAppLoad(page, 10_000, { waitForDatabase: false });
+      await waitForAppLoad(page, { waitForDatabase: false });
       await resetAppState(page);
       await page.reload();
-      await waitForAppLoad(page, 10_000, { waitForDatabase: false });
+      await waitForAppLoad(page, { waitForDatabase: false });
     });
 
     test('should display default panel layout correctly', async ({ page }) => {
@@ -97,7 +97,7 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
     test('should recover from corrupted layout storage on reload', async ({ page }) => {
       await corruptLayoutStorage(page);
       await page.reload();
-      await waitForAppLoad(page, 10_000, { waitForDatabase: false });
+      await waitForAppLoad(page, { waitForDatabase: false });
       await verifyDefaultLayout(page);
     });
 
@@ -118,7 +118,7 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
       });
 
       await page.reload();
-      await waitForAppLoad(page, 10_000, { waitForDatabase: false });
+      await waitForAppLoad(page, { waitForDatabase: false });
       await verifyDefaultLayout(page);
     });
 

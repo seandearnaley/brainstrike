@@ -44,11 +44,11 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
     await mockBrowserApis(page, 'test-root', tree, { clipboard: true });
 
     await page.goto('/');
-    await waitForAppLoad(page, 10_000, { waitForDatabase: false });
+    await waitForAppLoad(page, { waitForDatabase: false });
     await resetAppState(page);
     await seedWorkspaceFocusedShellLayout(page);
     await page.reload();
-    await waitForAppLoad(page, 10_000, { waitForDatabase: false });
+    await waitForAppLoad(page, { waitForDatabase: false });
   });
 
   test('should complete the full file selection and context generation workflow', async ({

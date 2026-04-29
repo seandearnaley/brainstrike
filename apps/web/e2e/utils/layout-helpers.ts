@@ -114,6 +114,7 @@ export function resolveNetworkIdleTimeout(isCI: boolean): number {
 type DatabaseReadyState = 'connected' | 'disconnected';
 
 export interface WaitForAppLoadOptions {
+  readonly timeoutMs?: number;
   readonly waitForDatabase?: boolean;
 }
 
@@ -242,18 +243,28 @@ export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promi
  * In CI with vite preview (production build), React needs time to hydrate after
  * the initial HTML loads. This function handles the full hydration cycle.
  */
+export async function waitForAppLoad(page: Page, options?: WaitForAppLoadOptions): Promise<void>;
 export async function waitForAppLoad(
   page: Page,
-  timeout = 10_000,
+  timeout?: number,
+  options?: WaitForAppLoadOptions
+): Promise<void>;
+export async function waitForAppLoad(
+  page: Page,
+  timeoutOrOptions: number | WaitForAppLoadOptions = {},
   options: WaitForAppLoadOptions = {}
-) {
-  const { waitForDatabase = true } = options;
+): Promise<void> {
+  const resolvedOptions =
+    typeof timeoutOrOptions === 'number'
+      ? { ...options, timeoutMs: timeoutOrOptions }
+      : timeoutOrOptions;
+  const { timeoutMs = 10_000, waitForDatabase = true } = resolvedOptions;
   const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
   // Contract:
   // - Local runs use a 20s floor to tolerate hydration + initial panel layout.
   // - CI runs use a 55s floor for slower runners and production bundle startup.
   // Caller-provided timeout can only raise these floors, never lower them.
-  const effectiveTimeout = resolveWaitForAppLoadTimeout(timeout, isCI);
+  const effectiveTimeout = resolveWaitForAppLoadTimeout(timeoutMs, isCI);
   const panelReadySelector = [
     AGENT_MIDDLE_PANEL_SELECTOR,
     AGENT_MAIN_PANEL_SELECTOR,
@@ -367,7 +378,7 @@ export async function waitForAppLoad(
     });
 
   if (waitForDatabase) {
-    await waitForDatabaseReady(page, timeout);
+    await waitForDatabaseReady(page, timeoutMs);
   }
 }
 
@@ -430,7 +441,7 @@ export async function resetLayoutState(
   // Wait for the page to finish navigating before continuing.
   // Using 'load' to ensure JS bundles are loaded before checking React elements.
   await page.reload({ waitUntil: 'load' });
-  await waitForAppLoad(page, 10_000, options);
+  await waitForAppLoad(page, options);
 }
 
 /**

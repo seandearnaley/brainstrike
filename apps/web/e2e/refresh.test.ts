@@ -13,10 +13,10 @@ test.describe('Refresh Workflow', { tag: '@smoke' }, () => {
     await mockBrowserApis(page, 'test-root', tree);
 
     await page.goto('/');
-    await waitForAppLoad(page, 10_000, { waitForDatabase: false });
+    await waitForAppLoad(page, { waitForDatabase: false });
     await resetAppState(page);
     await page.reload();
-    await waitForAppLoad(page, 10_000, { waitForDatabase: false });
+    await waitForAppLoad(page, { waitForDatabase: false });
   });
 
   test('should refresh file tree and show toast', async ({ page }) => {

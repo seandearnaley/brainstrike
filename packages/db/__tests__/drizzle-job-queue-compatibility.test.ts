@@ -51,4 +51,31 @@ describe('Drizzle schema JobQueue compatibility', () => {
     const statsAfterCompletion = await queue.getQueueStats('embeddings');
     expect(statsAfterCompletion[0]?.succeeded).toBe(1);
   });
+
+  it('preserves nullable payloads through queue claim and completion', async () => {
+    const queue = new JobQueue(db);
+
+    const job = await queue.enqueue({
+      queue: 'embeddings',
+      jobType: 'embed_chunk',
+      payload: null,
+    });
+
+    expect(job.payload).toBeNull();
+
+    const claimed = await queue.claim({ queue: 'embeddings', leaseMs: 5000 });
+    expect(claimed).not.toBeNull();
+    if (!claimed) {
+      throw new Error('Expected null-payload job to be claimed.');
+    }
+    expect(claimed.payload).toBeNull();
+
+    const completed = await queue.complete({
+      id: claimed.id,
+      leaseToken: claimed.lease_token,
+    });
+
+    expect(completed?.payload).toBeNull();
+    expect(completed?.state).toBe('succeeded');
+  });
 });

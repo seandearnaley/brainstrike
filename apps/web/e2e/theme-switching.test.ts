@@ -39,10 +39,10 @@ async function activateAppearanceThemeButton(
 test.describe('Theme Switching', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await waitForAppLoad(page, 10_000, { waitForDatabase: false });
+    await waitForAppLoad(page, { waitForDatabase: false });
     await resetAppState(page);
     await page.reload();
-    await waitForAppLoad(page, 10_000, { waitForDatabase: false });
+    await waitForAppLoad(page, { waitForDatabase: false });
   });
 
   test('should switch themes via settings page and persist across navigation', {

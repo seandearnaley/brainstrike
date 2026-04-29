@@ -100,12 +100,33 @@ describe('layout-helpers (unit)', () => {
       on: vi.fn(),
     } as unknown as Page;
 
-    await waitForAppLoad(page, 10_000, { waitForDatabase: false });
+    await waitForAppLoad(page, { waitForDatabase: false });
 
     expect(page.waitForLoadState).toHaveBeenCalledWith('load', expect.any(Object));
     expect(loadStates).not.toContain('networkidle');
     expect(page.waitForSelector).toHaveBeenCalled();
     expect(page.waitForFunction).not.toHaveBeenCalled();
+  });
+
+  it('waitForAppLoad accepts timeout inside the options object', async () => {
+    const page = {
+      waitForLoadState: vi.fn(async () => undefined),
+      waitForSelector: vi.fn(async () => undefined),
+      waitForFunction: vi.fn(async () => ({
+        dispose: vi.fn(async () => undefined),
+        jsonValue: vi.fn(async () => 'connected'),
+      })),
+      on: vi.fn(),
+    } as unknown as Page;
+
+    await withCiEnv(false, () =>
+      waitForAppLoad(page, {
+        timeoutMs: 30_000,
+        waitForDatabase: false,
+      })
+    );
+
+    expect(page.waitForLoadState).toHaveBeenCalledWith('load', { timeout: 30_000 });
   });
 
   it('enforces timeout floors for local and CI app load waits', () => {
