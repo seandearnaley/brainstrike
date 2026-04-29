@@ -60,7 +60,7 @@ const NON_PRODUCTION_MIGRATION_AUTHORITIES: readonly DbMigrationAuthorityRecord[
   },
 ] as const;
 
-const DRIZZLE_PRODUCTION_COMPATIBILITY_BLOCKERS = [
+const DRIZZLE_PRODUCTION_TYPE_ASSERTIONS = [
   {
     column: 'id',
     drizzleType: 'uuid',
@@ -206,7 +206,7 @@ export function getProviderModelCatalogSchemaAudit(): ProviderModelCatalogSchema
 export function getDrizzleProductionCompatibilityAuditForColumnTypes(
   finalSnapshotColumnTypes: DrizzleFinalSnapshotColumnTypes
 ): DrizzleProductionCompatibilityAudit {
-  const blockers = DRIZZLE_PRODUCTION_COMPATIBILITY_BLOCKERS.filter((blocker) => {
+  const blockers = DRIZZLE_PRODUCTION_TYPE_ASSERTIONS.filter((blocker) => {
     const generatedType = finalSnapshotColumnTypes[blocker.table]?.[blocker.column];
 
     // Missing generated metadata is unsafe for a promotion gate. Keep the blocker active

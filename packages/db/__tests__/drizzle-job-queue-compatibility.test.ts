@@ -32,15 +32,19 @@ describe('Drizzle schema JobQueue compatibility', () => {
     expect(job.payload).toEqual({ chunkId: 'chunk-1', embeddingSetId: 'set-alpha' });
 
     const claimed = await queue.claim({ queue: 'embeddings', leaseMs: 5000 });
-    expect(claimed?.id).toBe(job.id);
-    expect(claimed?.state).toBe('running');
+    expect(claimed).not.toBeNull();
+    if (!claimed) {
+      throw new Error('Expected queued job to be claimed.');
+    }
+    expect(claimed.id).toBe(job.id);
+    expect(claimed.state).toBe('running');
 
     const statsWhileRunning = await queue.getQueueStats('embeddings');
     expect(statsWhileRunning[0]?.running).toBe(1);
 
     const completed = await queue.complete({
-      id: claimed?.id ?? '',
-      leaseToken: claimed?.lease_token ?? '',
+      id: claimed.id,
+      leaseToken: claimed.lease_token,
     });
     expect(completed?.state).toBe('succeeded');
 
