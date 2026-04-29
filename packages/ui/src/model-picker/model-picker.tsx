@@ -61,7 +61,9 @@ export function ModelPicker({
   const selectedValues = Array.isArray(value) ? value : value ? [value] : [];
 
   return (
-    <Popover modal={true} onOpenChange={setOpen} open={open}>
+    // modal=false so the picker composes inside parent Radix Dialogs (also modal)
+    // without dueling FocusScopes that steal focus and block item selection.
+    <Popover modal={false} onOpenChange={setOpen} open={open}>
       <PopoverTrigger asChild>
         {renderTrigger ? (
           renderTrigger({ value, models, providers, placeholder, disabled })
@@ -79,7 +81,8 @@ export function ModelPicker({
       <PopoverContent
         align="start"
         aria-describedby="model-picker-description"
-        className="pointer-events-auto w-[400px] p-0"
+        // z-[60] keeps the popover above DialogContent (z-[51]); fluid width caps to viewport on mobile.
+        className="pointer-events-auto z-[60] w-[min(400px,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] p-0"
       >
         <span className="sr-only" id="model-picker-description">
           Select a model from the list
