@@ -120,6 +120,9 @@ function customMigration(hash: string, migration: LegacyMigration): Migration {
   };
 }
 
+// Append-only by design. Once a custom migration hash can be written to the
+// Drizzle ledger, removing or rewriting it must make greenfield startup fail
+// through the stale-hash guard rather than guessing a compatible history.
 const customMigrations: Migration[] = [
   customMigration('custom-015-model-registry-seed', migration015ModelRegistry),
   customMigration('custom-020-local-llm-models', migration020LocalLlmModels),
@@ -195,6 +198,10 @@ function extractDollarQuotedBlocks(sql: string): DollarQuotedBlockReplacement {
         index = blockEnd - 1;
         continue;
       }
+      logger.warn('Malformed dollar-quoted block in migration SQL', {
+        index,
+        tag: openingTag,
+      });
     }
 
     sanitizedSql += char;

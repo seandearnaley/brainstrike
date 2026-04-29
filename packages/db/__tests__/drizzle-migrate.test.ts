@@ -4,6 +4,7 @@
  * Tests the browser-compatible migration runner.
  */
 
+import { addLogListener } from '@brainstrike/utils';
 import { PGlite } from '@electric-sql/pglite';
 import { vector } from '@electric-sql/pglite/vector';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -382,6 +383,28 @@ describe('Drizzle Migration Runner', () => {
         "SELECT '$body$'",
         'SELECT 1',
       ]);
+    });
+
+    it('warns when a dollar-quoted SQL block is missing its closing tag', () => {
+      const messages: string[] = [];
+      const unsubscribe = addLogListener((record) => {
+        if (record.scope === 'DrizzleMigrate' && typeof record.message === 'string') {
+          messages.push(record.message);
+        }
+      });
+
+      try {
+        splitMigrationStatements(`
+          DO $body$
+          BEGIN
+            RAISE NOTICE 'unterminated';
+          END;
+        `);
+      } finally {
+        unsubscribe();
+      }
+
+      expect(messages).toContain('Malformed dollar-quoted block in migration SQL');
     });
   });
 

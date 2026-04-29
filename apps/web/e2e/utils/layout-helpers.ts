@@ -244,6 +244,9 @@ export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promi
  * the initial HTML loads. This function handles the full hydration cycle.
  */
 export async function waitForAppLoad(page: Page, options?: WaitForAppLoadOptions): Promise<void>;
+/**
+ * @deprecated Prefer `waitForAppLoad(page, { timeoutMs, waitForDatabase })`.
+ */
 export async function waitForAppLoad(
   page: Page,
   timeout?: number,
