@@ -18,6 +18,7 @@ export interface DbRuntimeBaseline {
   readonly migrations: {
     readonly drizzleIsProductionCanonical: false;
     readonly drizzleLedger: '__drizzle_migrations';
+    readonly drizzlePromotionGate: 'blocked-by-production-schema-drift';
     readonly productionAuthority: 'legacy-migration-runner';
     readonly productionLedger: '_migrations';
   };
@@ -43,6 +44,7 @@ export const BRAINSTRIKE_DB_RUNTIME_BASELINE: DbRuntimeBaseline = {
   migrations: {
     drizzleIsProductionCanonical: false,
     drizzleLedger: '__drizzle_migrations',
+    drizzlePromotionGate: 'blocked-by-production-schema-drift',
     productionAuthority: 'legacy-migration-runner',
     productionLedger: '_migrations',
   },

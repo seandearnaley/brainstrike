@@ -26,6 +26,20 @@ export interface ProviderModelCatalogSchemaAudit {
   readonly status: 'drizzle-schema-and-manifest-reconciled';
 }
 
+export interface DrizzleProductionCompatibilityBlocker {
+  readonly column: string;
+  readonly drizzleType: string;
+  readonly productionType: string;
+  readonly reason: string;
+  readonly table: string;
+}
+
+export interface DrizzleProductionCompatibilityAudit {
+  readonly blockers: readonly DrizzleProductionCompatibilityBlocker[];
+  readonly canPromote: boolean;
+  readonly status: 'blocked-by-production-schema-drift' | 'schema-compatible';
+}
+
 const PRODUCTION_MIGRATION_AUTHORITY: DbMigrationAuthorityRecord = {
   allowedProductionUse: true,
   id: 'legacy-migration-runner',
@@ -41,6 +55,51 @@ const NON_PRODUCTION_MIGRATION_AUTHORITIES: readonly DbMigrationAuthorityRecord[
     status: 'schema-validation-only',
   },
 ] as const;
+
+const DRIZZLE_PRODUCTION_COMPATIBILITY_BLOCKERS = [
+  {
+    column: 'id',
+    drizzleType: 'uuid',
+    productionType: 'text',
+    reason: 'runtime file and collection identifiers are arbitrary text, not UUIDs',
+    table: 'file_records',
+  },
+  {
+    column: 'id',
+    drizzleType: 'uuid',
+    productionType: 'text',
+    reason: 'runtime file and collection identifiers are arbitrary text, not UUIDs',
+    table: 'file_chunks',
+  },
+  {
+    column: 'id',
+    drizzleType: 'uuid',
+    productionType: 'text',
+    reason: 'runtime file and collection identifiers are arbitrary text, not UUIDs',
+    table: 'embedding_sets',
+  },
+  {
+    column: 'id',
+    drizzleType: 'uuid',
+    productionType: 'text',
+    reason: 'queue job identifiers are generated and retried as text IDs',
+    table: 'job_queue',
+  },
+  {
+    column: 'payload',
+    drizzleType: 'text',
+    productionType: 'jsonb',
+    reason: 'queue diagnostics and retry code use JSONB operators',
+    table: 'job_queue',
+  },
+  {
+    column: 'run_at',
+    drizzleType: 'timestamp with time zone',
+    productionType: 'text',
+    reason: 'production queue scheduling stores portable text timestamps',
+    table: 'job_queue',
+  },
+] as const satisfies readonly DrizzleProductionCompatibilityBlocker[];
 
 export function getDbMigrationAuthoritySnapshot(): DbMigrationAuthoritySnapshot {
   return {
@@ -119,9 +178,40 @@ export function getProviderModelCatalogSchemaAudit(): ProviderModelCatalogSchema
   };
 }
 
+function getGeneratedMigrationSql(): string {
+  return migrationsManifest.migrations.map((migration) => migration.sql).join('\n');
+}
+
+function generatedManifestContainsColumnType(
+  blocker: DrizzleProductionCompatibilityBlocker
+): boolean {
+  const sql = getGeneratedMigrationSql();
+  const tableStart = sql.indexOf(`CREATE TABLE "${blocker.table}"`);
+
+  if (tableStart === -1) {
+    return false;
+  }
+
+  const tableEnd = sql.indexOf(');\n', tableStart);
+  const tableSql = tableEnd === -1 ? sql.slice(tableStart) : sql.slice(tableStart, tableEnd);
+  return tableSql.includes(`"${blocker.column}" ${blocker.drizzleType}`);
+}
+
+export function getDrizzleProductionCompatibilityAudit(): DrizzleProductionCompatibilityAudit {
+  const blockers = DRIZZLE_PRODUCTION_COMPATIBILITY_BLOCKERS.filter((blocker) =>
+    generatedManifestContainsColumnType(blocker)
+  );
+
+  return {
+    blockers,
+    canPromote: blockers.length === 0,
+    status: blockers.length === 0 ? 'schema-compatible' : 'blocked-by-production-schema-drift',
+  };
+}
+
 // This guard lives on the production bootstrap path. Drizzle migration execution remains
-// schema-validation-only and is not part of runtime startup, so the inverse production-ledger
-// guard belongs to any future Drizzle promotion instead of this production bootstrap path.
+// schema-validation-only and is not part of runtime startup until the compatibility audit
+// is green, so any Drizzle ledger on a production database is an explicit conflict.
 export async function assertNoConflictingMigrationLedger(db: Pick<PGlite, 'query'>): Promise<void> {
   const ledgers = await db.query<{ tablename: string }>(`
     SELECT tablename
@@ -132,7 +222,7 @@ export async function assertNoConflictingMigrationLedger(db: Pick<PGlite, 'query
 
   if (ledgers.rows.length > 0) {
     throw new Error(
-      'Drizzle migration ledger "__drizzle_migrations" exists without an explicit migration bridge.'
+      'Drizzle migration ledger "__drizzle_migrations" exists before Drizzle is schema-compatible for production.'
     );
   }
 }

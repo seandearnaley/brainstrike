@@ -36,9 +36,8 @@ describe('production migration authority guard', () => {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
       )
     `);
-
     await expect(migrate(db)).rejects.toThrow(
-      'Drizzle migration ledger "__drizzle_migrations" exists without an explicit migration bridge.'
+      'Drizzle migration ledger "__drizzle_migrations" exists before Drizzle is schema-compatible for production.'
     );
 
     const productionLedger = await db.query<{ count: number }>(`

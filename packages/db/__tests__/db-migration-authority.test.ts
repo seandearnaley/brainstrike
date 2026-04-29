@@ -2,13 +2,14 @@ import { getTableName } from 'drizzle-orm';
 import {
   assertSingleProductionMigrationAuthority,
   getDbMigrationAuthoritySnapshot,
+  getDrizzleProductionCompatibilityAudit,
   getProviderModelCatalogSchemaAudit,
 } from '../src/architecture/db-migration-authority.js';
 import migrationsManifest from '../src/drizzle/migrations.json';
 import { models, providers } from '../src/schema/index.js';
 
 describe('DB migration authority', () => {
-  it('keeps one production migration authority while Drizzle migrations remain non-production', () => {
+  it('keeps the legacy runner as production authority until Drizzle is schema-compatible', () => {
     const snapshot = getDbMigrationAuthoritySnapshot();
 
     expect(snapshot.production.id).toBe('legacy-migration-runner');
@@ -21,6 +22,38 @@ describe('DB migration authority', () => {
     });
 
     expect(() => assertSingleProductionMigrationAuthority(snapshot)).not.toThrow();
+  });
+
+  it('blocks Drizzle production promotion on concrete schema incompatibilities', () => {
+    const audit = getDrizzleProductionCompatibilityAudit();
+
+    expect(audit.canPromote).toBe(false);
+    expect(audit.status).toBe('blocked-by-production-schema-drift');
+    expect(audit.blockers).toEqual(
+      expect.arrayContaining([
+        {
+          column: 'id',
+          drizzleType: 'uuid',
+          productionType: 'text',
+          reason: 'runtime file and collection identifiers are arbitrary text, not UUIDs',
+          table: 'file_records',
+        },
+        {
+          column: 'payload',
+          drizzleType: 'text',
+          productionType: 'jsonb',
+          reason: 'queue diagnostics and retry code use JSONB operators',
+          table: 'job_queue',
+        },
+        {
+          column: 'run_at',
+          drizzleType: 'timestamp with time zone',
+          productionType: 'text',
+          reason: 'production queue scheduling stores portable text timestamps',
+          table: 'job_queue',
+        },
+      ])
+    );
   });
 
   it('maps the Drizzle provider/model catalog schema to the production tables', () => {
