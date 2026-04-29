@@ -18,6 +18,7 @@ import { migration023FixLocalProviderEnabled } from '../migrations/023-fix-local
 import { migration024FixLlmToolCalling } from '../migrations/024-fix-llm-tool-calling.js';
 import { migration025UpdateProviderModels2026 } from '../migrations/025-update-provider-models-2026.js';
 import { migration026UpdateProviderModels2026V2 } from '../migrations/026-update-provider-models-2026-v2.js';
+import { migration027ViewFilterPresets } from '../migrations/027-view-filter-presets.js';
 import { migration028GemmaLocalLlm } from '../migrations/028-gemma-local-llm.js';
 import { migration030CollectionIndexingStats } from '../migrations/030-collection-indexing-stats.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
@@ -134,6 +135,7 @@ const customMigrations: Migration[] = [
     'custom-026-update-provider-models-2026-v2',
     migration026UpdateProviderModels2026V2
   ),
+  customMigration('custom-027-view-filter-presets-seed', migration027ViewFilterPresets),
   customMigration('custom-028-gemma-local-llm', migration028GemmaLocalLlm),
   customMigration('custom-030-collection-indexing-stats', migration030CollectionIndexingStats),
 ];

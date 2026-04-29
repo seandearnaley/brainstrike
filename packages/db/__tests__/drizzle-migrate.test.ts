@@ -109,6 +109,30 @@ describe('Drizzle Migration Runner', () => {
     );
 
     it(
+      'seeds the production view filter presets for greenfield databases',
+      async () => {
+        await runMigrations(db);
+
+        const presets = await db.query<{ is_default: boolean; name: string }>(`
+        SELECT name, is_default
+        FROM view_filter_presets
+        ORDER BY sort_order
+      `);
+
+        expect(presets.rows).toEqual([
+          { name: 'TypeScript/JavaScript', is_default: true },
+          { name: 'All Code', is_default: true },
+          { name: 'Documentation', is_default: true },
+          { name: 'Config Files', is_default: true },
+          { name: 'Styles', is_default: true },
+          { name: 'Tests', is_default: true },
+          { name: 'All Files', is_default: true },
+        ]);
+      },
+      MIGRATION_RUN_TIMEOUT_MS
+    );
+
+    it(
       'should not re-apply already applied migrations',
       async () => {
         // Run migrations first time
