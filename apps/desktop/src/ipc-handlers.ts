@@ -110,6 +110,9 @@ const LIVE_FLUSH_FOREGROUND_INTERVAL_MS = 200;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES = 4;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS = 250;
 const BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS = 10 * 60 * 1000;
+// Manual and background-indexing backfills are both user-visible indexing work,
+// but neither should occupy the foreground UI database lane.
+const EMBEDDING_BACKFILL_DATABASE_PRIORITY: DatabaseWorkPriority = 'background';
 interface EmbeddingBackfillInFlightState {
   progress: { current: number; total: number } | null;
   requestId: string;
@@ -325,14 +328,17 @@ async function runDesktopEmbeddingBackfill(params: {
 
     const { getDatabase } = await import('./db-main');
     const db = await getDatabase();
-    const backfillPriority: DatabaseWorkPriority = 'background';
     logger.info('Desktop embedding backfill scheduling resolved', {
       embeddingSetId: normalizedEmbeddingSetId,
-      priority: backfillPriority,
+      priority: EMBEDDING_BACKFILL_DATABASE_PRIORITY,
       requestId: backfillRequestId,
       source,
     });
-    const scheduledDb = createScheduledDbHandle(db, desktopDatabaseWorkScheduler, backfillPriority);
+    const scheduledDb = createScheduledDbHandle(
+      db,
+      desktopDatabaseWorkScheduler,
+      EMBEDDING_BACKFILL_DATABASE_PRIORITY
+    );
     const jobQueue = new JobQueue(scheduledDb);
 
     await enqueueEmbeddingBackfill(
