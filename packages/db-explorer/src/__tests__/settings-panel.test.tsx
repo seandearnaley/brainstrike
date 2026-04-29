@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { SettingsPanel } from '../components/settings-panel';
@@ -124,8 +124,11 @@ describe('SettingsPanel', () => {
     expect(screen.getByLabelText(/^Chunk size$/)).toBeInTheDocument();
   });
 
-  it('clamps token cap input to the supported bounds', async () => {
-    const user = userEvent.setup();
+  it('clamps token cap input to the supported bounds', () => {
+    // Uses fireEvent.change rather than userEvent.type because the clamp
+    // semantics are about the final value of the input — userEvent.type would
+    // fire one change event per digit and exercise the clamp on intermediate
+    // values, which is a different contract.
     const setChunkTokenLimit = vi.fn();
 
     render(
@@ -137,20 +140,13 @@ describe('SettingsPanel', () => {
       />
     );
 
-    const tokenCapInput = screen.getByLabelText(/^Token cap$/) as HTMLInputElement;
-    expect(tokenCapInput).toBeDefined();
+    const tokenCapInput = screen.getByLabelText(/^Token cap$/);
 
     fireEvent.change(tokenCapInput, { target: { value: '999999' } });
     fireEvent.change(tokenCapInput, { target: { value: '0' } });
 
     expect(setChunkTokenLimit).toHaveBeenNthCalledWith(1, 16_384);
     expect(setChunkTokenLimit).toHaveBeenNthCalledWith(2, 512);
-
-    // Avoid unused-import warning for `within`/`user` in narrower runs.
-    expect(
-      within(tokenCapInput.parentElement as HTMLElement).queryAllByRole('spinbutton').length
-    ).toBeGreaterThan(0);
-    void user;
   });
 
   it('hides routing plan behind a disclosure', async () => {
