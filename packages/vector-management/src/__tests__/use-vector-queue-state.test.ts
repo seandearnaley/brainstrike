@@ -339,7 +339,7 @@ describe('useVectorQueueState', () => {
     expect(result.current.telemetryTrend).toHaveLength(1);
   });
 
-  it('uses incremental live queries only for keyed queue detail rows', () => {
+  it('uses incremental live queries only for stable keyed queue detail rows', () => {
     renderHook(() =>
       useVectorQueueState({
         service: createMockService(),
@@ -365,7 +365,7 @@ describe('useVectorQueueState', () => {
     );
 
     expect(queueCountsCall).not.toHaveProperty('mode', 'incremental');
-    expect(lastErrorCall).toEqual(expect.objectContaining({ mode: 'incremental', key: 'id' }));
+    expect(lastErrorCall).not.toHaveProperty('mode', 'incremental');
     expect(latencyCall).toEqual(expect.objectContaining({ mode: 'incremental', key: 'id' }));
     expect(coverageCall).not.toHaveProperty('mode', 'incremental');
   });

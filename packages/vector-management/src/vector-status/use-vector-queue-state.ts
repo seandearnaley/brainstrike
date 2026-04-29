@@ -106,7 +106,7 @@ const THROUGHPUT_QUERY = `
 `.trim();
 
 const LAST_ERROR_QUERY = `
-  SELECT id, error
+  SELECT error
     FROM job_queue
    WHERE queue = $1
      AND state = 'failed'
@@ -156,7 +156,6 @@ interface ThroughputRow {
 
 interface LastErrorRow {
   error: string | null;
-  id: string;
 }
 
 interface LatencyRow {
@@ -494,8 +493,6 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     cacheKey: makeLiveQueryKey('last-error', EMBEDDINGS_QUEUE),
     query: LAST_ERROR_QUERY,
     params: EMBEDDINGS_QUEUE_PARAMS,
-    mode: 'incremental',
-    key: 'id',
     enabled: liveQueryEnabled,
   });
 
