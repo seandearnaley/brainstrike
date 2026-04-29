@@ -17,6 +17,8 @@ import {
 import migrationsManifest from '../src/drizzle/migrations.json';
 
 const MIGRATION_RUN_TIMEOUT_MS = 30_000;
+const PREVIOUS_MAGICAL_SENTINEL_HASH =
+  '5145d47f81fab2dfcd7cc142f5556cf901b20c5493fe08cfd5020139353a2541';
 
 describe('Drizzle Migration Runner', () => {
   let db: PGlite;
@@ -308,6 +310,28 @@ describe('Drizzle Migration Runner', () => {
       expect(result.error).toContain(
         'Brainstrike DB is greenfield; stale "__drizzle_migrations" databases must be reset instead of migrated.'
       );
+      expect(result.appliedMigrations).toHaveLength(0);
+    });
+
+    it('refuses the previous magical sentinel hash after the greenfield snapshot rewrite', async () => {
+      await db.query(`
+        CREATE TABLE "__drizzle_migrations" (
+          id SERIAL PRIMARY KEY,
+          hash TEXT NOT NULL UNIQUE,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        )
+      `);
+      await db.query(`INSERT INTO "__drizzle_migrations" (hash) VALUES ($1)`, [
+        PREVIOUS_MAGICAL_SENTINEL_HASH,
+      ]);
+
+      const result = await runMigrations(db);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain(
+        'Brainstrike DB is greenfield; stale "__drizzle_migrations" databases must be reset instead of migrated.'
+      );
+      expect(result.error).toContain(PREVIOUS_MAGICAL_SENTINEL_HASH);
       expect(result.appliedMigrations).toHaveLength(0);
     });
 
