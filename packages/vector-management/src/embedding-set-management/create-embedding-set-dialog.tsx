@@ -122,14 +122,18 @@ interface FormState {
     selectedModel: string;
   };
   hasInitialized: boolean;
+  // True once the user has manually edited the name. Once set, model changes no
+  // longer auto-rewrite the name — we respect what the user typed.
+  nameDirty: boolean;
 }
 
 type FormAction =
   | { type: 'set_creating'; creating: boolean }
-  | { type: 'set_form_field'; field: string; value: string }
-  | { type: 'set_form_data'; formData: FormState['formData'] }
-  | { type: 'set_existing_names'; names: Set<string> }
-  | { type: 'set_initialized'; names: Set<string>; selectedModel: string; name: string }
+  | { type: 'set_field'; field: 'description' | 'tags' | 'category'; value: string }
+  | { type: 'edit_name'; value: string }
+  | { type: 'select_model'; modelId: string; autoName: string | null }
+  | { type: 'refine_existing_names'; names: Set<string>; refinedName: string | null }
+  | { type: 'init_with_model'; modelId: string; name: string }
   | { type: 'reset' };
 
 const INITIAL_FORM_STATE: FormState = {
@@ -137,23 +141,47 @@ const INITIAL_FORM_STATE: FormState = {
   formData: { name: '', description: '', tags: '', category: '', selectedModel: '' },
   existingNames: new Set(),
   hasInitialized: false,
+  nameDirty: false,
 };
 
 function formReducer(state: FormState, action: FormAction): FormState {
   switch (action.type) {
     case 'set_creating':
       return { ...state, creating: action.creating };
-    case 'set_form_field':
+    case 'set_field':
       return { ...state, formData: { ...state.formData, [action.field]: action.value } };
-    case 'set_form_data':
-      return { ...state, formData: action.formData };
-    case 'set_existing_names':
-      return { ...state, existingNames: action.names };
-    case 'set_initialized':
+    case 'edit_name':
+      // User-driven name change — flips nameDirty so future model selections won't overwrite it.
+      return {
+        ...state,
+        formData: { ...state.formData, name: action.value },
+        nameDirty: true,
+      };
+    case 'select_model':
+      // Model picked. autoName is non-null when the user hasn't yet typed in the name field.
+      return {
+        ...state,
+        formData: {
+          ...state.formData,
+          selectedModel: action.modelId,
+          name: action.autoName ?? state.formData.name,
+        },
+      };
+    case 'refine_existing_names':
+      // Async refinement after findAll(); only updates the auto-name if the user hasn't typed.
       return {
         ...state,
         existingNames: action.names,
-        formData: { ...state.formData, selectedModel: action.selectedModel, name: action.name },
+        formData:
+          action.refinedName === null
+            ? state.formData
+            : { ...state.formData, name: action.refinedName },
+      };
+    case 'init_with_model':
+      // Synchronous open-time initialization: seeds model + name immediately, no flash.
+      return {
+        ...state,
+        formData: { ...state.formData, selectedModel: action.modelId, name: action.name },
         hasInitialized: true,
       };
     case 'reset':
@@ -172,12 +200,11 @@ export function CreateEmbeddingSetDialog({
 }: CreateEmbeddingSetDialogProps) {
   const { toast } = useToast();
   const [formState, dispatch] = useReducer(formReducer, INITIAL_FORM_STATE);
-  const { creating, formData, existingNames, hasInitialized } = formState;
+  const { creating, formData, existingNames, hasInitialized, nameDirty } = formState;
 
   const selectedModelInfo = models.find((m) => m.id === formData.selectedModel);
   const hasModelOptions = models.length > 0;
 
-  // Handle dialog open/close and reset state when closing
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
       dispatch({ type: 'reset' });
@@ -185,57 +212,58 @@ export function CreateEmbeddingSetDialog({
     onOpenChange(newOpen);
   };
 
-  // Fetch existing names AND auto-fill form when dialog opens
-  // Combined into single effect to avoid race conditions
+  // Phase 1 (synchronous): the moment the dialog opens with models available,
+  // seed the form with the first model's id + name. This eliminates the
+  // empty-then-populate flash that would otherwise show before findAll resolves.
   useEffect(() => {
     if (!(open && hasModelOptions) || hasInitialized) {
       return;
     }
-
     const firstModel = models[0];
     if (!firstModel) {
       return;
     }
+    dispatch({
+      type: 'init_with_model',
+      modelId: firstModel.id,
+      name: firstModel.name,
+    });
+  }, [open, hasModelOptions, models, hasInitialized]);
 
+  // Phase 2 (asynchronous): refine the auto-name with collision detection by
+  // querying existing collections. Runs in the background; if the user hasn't
+  // typed a custom name yet, the suffix gets appended silently.
+  useEffect(() => {
+    if (!(open && hasInitialized && repository)) {
+      return;
+    }
     let cancelled = false;
-
-    const initializeForm = async () => {
-      // Fetch existing collection names for collision detection
+    void (async () => {
       let collectionNames = new Set<string>();
-      if (repository) {
-        try {
-          const collections = await repository.findAll();
-          collectionNames = new Set(
-            collections.map((c) => c.name).filter((n): n is string => n !== null)
-          );
-        } catch (error) {
-          // Gracefully handle errors - collision detection is a nice-to-have
-          logger.warn('Failed to fetch existing collection names', { error });
-        }
+      try {
+        const collections = await repository.findAll();
+        collectionNames = new Set(
+          collections.map((c) => c.name).filter((n): n is string => n !== null)
+        );
+      } catch (error) {
+        logger.warn('Failed to fetch existing collection names', { error });
       }
-
       if (cancelled) {
         return;
       }
-
-      // Generate unique name using the model's display name
-      const baseName = firstModel.name;
-      const uniqueName = generateUniqueName(baseName, collectionNames);
-
-      dispatch({
-        type: 'set_initialized',
-        names: collectionNames,
-        selectedModel: firstModel.id,
-        name: uniqueName,
-      });
-    };
-
-    void initializeForm();
-
+      const firstModel = models[0];
+      // Only refine the name if the user hasn't started typing.
+      const refinedName =
+        !nameDirty && firstModel ? generateUniqueName(firstModel.name, collectionNames) : null;
+      dispatch({ type: 'refine_existing_names', names: collectionNames, refinedName });
+    })();
     return () => {
       cancelled = true;
     };
-  }, [open, hasModelOptions, models, repository, hasInitialized]);
+    // We intentionally only re-run this on open / initialization — not on every
+    // nameDirty flip — so that typing doesn't refire the query.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: see above
+  }, [open, hasInitialized, repository, models]);
 
   const validateCreateInputs = (): boolean => {
     if (!(repository && selectedModelInfo)) {
@@ -367,8 +395,8 @@ export function CreateEmbeddingSetDialog({
         </DialogHeader>
 
         {hasModelOptions || isLoading ? (
-          <form className="space-y-5" id="create-embedding-set-form" onSubmit={handleSubmit}>
-            <div className="space-y-2">
+          <form className="grid gap-5" id="create-embedding-set-form" onSubmit={handleSubmit}>
+            <div className="grid gap-2">
               <Label className="font-medium text-sm" htmlFor="model">
                 Model
               </Label>
@@ -379,25 +407,19 @@ export function CreateEmbeddingSetDialog({
                 modelType="embedding"
                 onChange={(value: string | string[]) => {
                   const modelKey = value as string;
-                  const selectedModel = models.find((m) => m.id === modelKey);
-                  // Only auto-fill name if it's empty or was auto-generated
-                  const shouldAutoFillName = formData.name === '';
-                  if (shouldAutoFillName && selectedModel) {
-                    const uniqueName = generateUniqueName(selectedModel.name, existingNames);
-                    dispatch({
-                      type: 'set_form_data',
-                      formData: { ...formData, selectedModel: modelKey, name: uniqueName },
-                    });
-                  } else {
-                    dispatch({ type: 'set_form_field', field: 'selectedModel', value: modelKey });
-                  }
+                  const picked = models.find((m) => m.id === modelKey);
+                  // If the user hasn't typed in the name field yet, regenerate
+                  // the auto-name from the newly selected model. Otherwise
+                  // preserve whatever the user typed.
+                  const autoName =
+                    !nameDirty && picked ? generateUniqueName(picked.name, existingNames) : null;
+                  dispatch({ type: 'select_model', modelId: modelKey, autoName });
                 }}
                 placeholder={isLoading ? 'Loading models...' : 'Select an embedding model'}
                 providers={providers}
                 searchable={false}
                 value={formData.selectedModel}
               />
-              {/* Reserve vertical space so swapping between hosted / local models never shifts subsequent fields. */}
               <div
                 className="min-h-[1.25rem] text-muted-foreground text-xs leading-5"
                 data-testid="model-picker-description-slot"
@@ -406,22 +428,20 @@ export function CreateEmbeddingSetDialog({
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="grid gap-2">
               <Label className="font-medium text-sm" htmlFor="name">
                 Name <span className="text-destructive">*</span>
               </Label>
               <Input
                 disabled={creating}
                 id="name"
-                onChange={(e) =>
-                  dispatch({ type: 'set_form_field', field: 'name', value: e.target.value })
-                }
+                onChange={(e) => dispatch({ type: 'edit_name', value: e.target.value })}
                 placeholder="e.g., Code Embeddings"
                 value={formData.name}
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="grid gap-2">
               <Label className="font-medium text-sm" htmlFor="description">
                 Description
               </Label>
@@ -429,11 +449,7 @@ export function CreateEmbeddingSetDialog({
                 disabled={creating}
                 id="description"
                 onChange={(e) =>
-                  dispatch({
-                    type: 'set_form_field',
-                    field: 'description',
-                    value: e.target.value,
-                  })
+                  dispatch({ type: 'set_field', field: 'description', value: e.target.value })
                 }
                 placeholder="What this collection is for"
                 value={formData.description}
@@ -441,7 +457,7 @@ export function CreateEmbeddingSetDialog({
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
+              <div className="grid gap-2">
                 <Label className="font-medium text-sm" htmlFor="tags">
                   Tags
                 </Label>
@@ -449,7 +465,7 @@ export function CreateEmbeddingSetDialog({
                   disabled={creating}
                   id="tags"
                   onChange={(e) =>
-                    dispatch({ type: 'set_form_field', field: 'tags', value: e.target.value })
+                    dispatch({ type: 'set_field', field: 'tags', value: e.target.value })
                   }
                   placeholder="code, docs, analysis"
                   value={formData.tags}
@@ -459,7 +475,7 @@ export function CreateEmbeddingSetDialog({
                 </p>
               </div>
 
-              <div className="space-y-2">
+              <div className="grid gap-2">
                 <Label className="font-medium text-sm" htmlFor="category">
                   Category
                 </Label>
@@ -467,11 +483,7 @@ export function CreateEmbeddingSetDialog({
                   disabled={creating}
                   id="category"
                   onChange={(e) =>
-                    dispatch({
-                      type: 'set_form_field',
-                      field: 'category',
-                      value: e.target.value,
-                    })
+                    dispatch({ type: 'set_field', field: 'category', value: e.target.value })
                   }
                   placeholder="e.g., development"
                   value={formData.category}

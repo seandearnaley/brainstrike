@@ -357,6 +357,88 @@ describe('CreateEmbeddingSetDialog', () => {
     expect(slot.className).toMatch(/min-h-\[/);
   });
 
+  it('seeds the name input synchronously on open (no empty-then-populate flash)', () => {
+    // Render with the dialog already open. Do NOT use async findBy/waitFor —
+    // if there's a flash, the name will be empty on the first paint and this
+    // test will fail. The first-paint value must already be the model name.
+    render(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          models={mockModels}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={mockProviders}
+          repository={mockRepository}
+        />
+      </>
+    );
+
+    // Synchronous query: the name should already be filled from the first model.
+    const nameInput = screen.getByLabelText(/Name/i) as HTMLInputElement;
+    expect(nameInput.value).toBe('Text Embedding 3 Small');
+  });
+
+  it('updates the auto-generated name when the user changes models without having typed', async () => {
+    const user = userEvent.setup({ delay: null });
+    render(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          models={mockModels}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={mockProviders}
+          repository={mockRepository}
+        />
+      </>
+    );
+
+    const nameInput = screen.getByLabelText(/Name/i) as HTMLInputElement;
+    await waitFor(() => expect(nameInput.value).toBe('Text Embedding 3 Small'));
+
+    // User changes the model BEFORE typing — name should track the new model.
+    await user.selectOptions(
+      screen.getByTestId('model-picker-select'),
+      'local::Xenova/all-MiniLM-L6-v2'
+    );
+    expect(nameInput.value).toBe('all-MiniLM-L6-v2');
+  });
+
+  it('preserves a manually-edited name when the user changes models', async () => {
+    const user = userEvent.setup({ delay: null });
+    render(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          models={mockModels}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={mockProviders}
+          repository={mockRepository}
+        />
+      </>
+    );
+
+    const nameInput = screen.getByLabelText(/Name/i) as HTMLInputElement;
+    await waitFor(() => expect(nameInput.value).toBe('Text Embedding 3 Small'));
+
+    // User types — flips isDirty.
+    await user.clear(nameInput);
+    await user.type(nameInput, 'My Custom Collection');
+    expect(nameInput.value).toBe('My Custom Collection');
+
+    // Switching models must NOT clobber the user's name.
+    await user.selectOptions(
+      screen.getByTestId('model-picker-select'),
+      'local::Xenova/all-MiniLM-L6-v2'
+    );
+    expect(nameInput.value).toBe('My Custom Collection');
+  });
+
   it('does not render the padlock / cost badge under the model picker for any model', async () => {
     // Models cover both cases: a hosted model with a price AND a local model.
     // The slot must never render the badge prefix in either case.
@@ -463,8 +545,10 @@ describe('CreateEmbeddingSetDialog', () => {
       'Xenova/all-MiniLM-L6-v2',
       384,
       'cosine',
+      // The user did not type in the name field, so the auto-name follows the
+      // newly selected local model.
       expect.objectContaining({
-        name: 'Text Embedding 3 Small',
+        name: 'all-MiniLM-L6-v2',
       })
     );
   });
