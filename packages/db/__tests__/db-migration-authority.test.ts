@@ -47,6 +47,20 @@ describe('DB migration authority', () => {
           table: 'job_queue',
         },
         {
+          column: 'file_record_id',
+          drizzleType: 'uuid',
+          productionType: 'text',
+          reason: 'chunk foreign keys reference text file record IDs in production',
+          table: 'file_chunks',
+        },
+        {
+          column: 'embedding_set_id',
+          drizzleType: 'uuid',
+          productionType: 'text',
+          reason: 'collection references use text embedding set IDs in production',
+          table: 'file_records',
+        },
+        {
           column: 'run_at',
           drizzleType: 'timestamp with time zone',
           productionType: 'text',

@@ -27,6 +27,15 @@ interface MigrationManifest {
   version: 1;
 }
 
+interface DrizzleSnapshotTable {
+  columns?: Record<string, { type?: unknown }>;
+  name?: unknown;
+}
+
+interface DrizzleSnapshot {
+  tables?: Record<string, DrizzleSnapshotTable>;
+}
+
 /**
  * Compute a cryptographic hash for migration content verification.
  * Uses SHA-256 for collision resistance and integrity verification.
@@ -111,9 +120,7 @@ function extractFinalSnapshotColumnTypes(migrationsDir: string): Record<string, 
   return columnTypes;
 }
 
-function readFinalSnapshot(migrationsDir: string): {
-  tables?: Record<string, { columns?: Record<string, { type?: unknown }>; name?: unknown }>;
-} {
+function readFinalSnapshot(migrationsDir: string): DrizzleSnapshot {
   const journalPath = join(migrationsDir, 'meta', '_journal.json');
 
   let journal: { entries: Array<{ idx: number; tag: string }> };

@@ -76,11 +76,32 @@ const DRIZZLE_PRODUCTION_COMPATIBILITY_BLOCKERS = [
     table: 'file_chunks',
   },
   {
+    column: 'file_record_id',
+    drizzleType: 'uuid',
+    productionType: 'text',
+    reason: 'chunk foreign keys reference text file record IDs in production',
+    table: 'file_chunks',
+  },
+  {
+    column: 'embedding_set_id',
+    drizzleType: 'uuid',
+    productionType: 'text',
+    reason: 'collection references use text embedding set IDs in production',
+    table: 'file_chunks',
+  },
+  {
     column: 'id',
     drizzleType: 'uuid',
     productionType: 'text',
     reason: 'runtime file and collection identifiers are arbitrary text, not UUIDs',
     table: 'embedding_sets',
+  },
+  {
+    column: 'embedding_set_id',
+    drizzleType: 'uuid',
+    productionType: 'text',
+    reason: 'collection references use text embedding set IDs in production',
+    table: 'file_records',
   },
   {
     column: 'id',
