@@ -108,6 +108,8 @@ const textTimestamp = customType<{
   },
 });
 
+const textTimestampNow = sql`to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+
 // ============================================================================
 // FILE RECORDS TABLE
 // ============================================================================
@@ -120,8 +122,8 @@ export const fileRecords = pgTable(
     path: text('path').notNull(),
     sourceRootPath: text('source_root_path'),
     size: integer('size').notNull(),
-    createdAt: textTimestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-    updatedAt: textTimestamp('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+    createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
+    updatedAt: textTimestamp('updated_at').default(textTimestampNow).notNull(),
     content: text('content'),
     contentHash: text('content_hash'),
     tokenCount: integer('token_count'),
@@ -164,8 +166,8 @@ export const fileChunks = pgTable(
     // Full-text search tsvector - auto-updated by database trigger
     // GIN-indexed for fast ts_query lookups
     contentTsvector: tsvector('content_tsvector'),
-    createdAt: textTimestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-    updatedAt: textTimestamp('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+    createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
+    updatedAt: textTimestamp('updated_at').default(textTimestampNow).notNull(),
   },
   (table) => [
     index('idx_file_chunks_file_record_id').on(table.fileRecordId),
@@ -215,7 +217,7 @@ export const embeddingSets = pgTable('embedding_sets', {
   modelId: text('model_id').notNull(),
   dimensions: integer('dimensions').notNull(),
   distance: text('distance').$type<'cosine' | 'l2' | 'ip'>().default('cosine'),
-  createdAt: textTimestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
   name: text('name'),
   description: text('description'),
   tags: text('tags'),
@@ -252,7 +254,7 @@ export const jobQueue = pgTable(
       .$type<'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'expired'>()
       .default('queued')
       .notNull(),
-    runAt: textTimestamp('run_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+    runAt: textTimestamp('run_at').default(textTimestampNow).notNull(),
     attempts: integer('attempts').default(0).notNull(),
     maxAttempts: integer('max_attempts').default(5).notNull(),
     backoffMs: integer('backoff_ms').default(0).notNull(),
@@ -261,8 +263,8 @@ export const jobQueue = pgTable(
     workerId: text('worker_id'),
     dedupeKey: text('dedupe_key'),
     error: text('error'),
-    createdAt: textTimestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-    updatedAt: textTimestamp('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+    createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
+    updatedAt: textTimestamp('updated_at').default(textTimestampNow).notNull(),
   },
   (table) => [
     index('idx_job_queue_state_run_at').on(table.state, table.runAt),
@@ -306,8 +308,8 @@ export const fileTokenCache = pgTable(
     tokenCount: integer('token_count').notNull(),
     countingMode: text('counting_mode').$type<'accurate' | 'heuristic'>().notNull(),
     modelEncoding: text('model_encoding'),
-    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
-    updatedAt: text('updated_at').notNull().default('CURRENT_TIMESTAMP'),
+    createdAt: text('created_at').notNull().default(textTimestampNow),
+    updatedAt: text('updated_at').notNull().default(textTimestampNow),
   },
   (table) => ({
     folderPathUnique: uniqueIndex('idx_file_token_cache_folder_path_unique').on(
@@ -329,7 +331,7 @@ export const fileTags = pgTable(
       .notNull()
       .references(() => fileRecords.id, { onDelete: 'cascade' }),
     tag: text('tag').notNull(),
-    createdAt: textTimestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+    createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
   },
   (table) => [
     uniqueIndex('idx_file_tags_unique').on(table.fileId, table.tag),
@@ -349,7 +351,7 @@ export const fileRelationships = pgTable(
       .references(() => fileRecords.id, { onDelete: 'cascade' }),
     relationshipType: text('relationship_type').notNull(),
     metadata: jsonb('metadata').$type<Record<string, unknown> | null>(),
-    createdAt: textTimestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+    createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
   },
   (table) => [
     index('idx_file_relationships_source').on(table.sourceId),

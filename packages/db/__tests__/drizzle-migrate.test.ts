@@ -165,6 +165,50 @@ describe('Drizzle Migration Runner', () => {
       expect(catalogMigration?.sql).not.toContain("DEFAULT 'CURRENT_TIMESTAMP'");
     });
 
+    it('uses ISO UTC text defaults for text timestamp columns', async () => {
+      await runMigrations(db);
+
+      await db.query(`
+        INSERT INTO file_records (id, name, path, size)
+        VALUES ('default-timestamp-file', 'default.txt', '/default.txt', 10)
+      `);
+      await db.query(`
+        INSERT INTO job_queue (id, queue, job_type, payload)
+        VALUES ('default-timestamp-job', 'embedding', 'embed-chunk', '{}'::jsonb)
+      `);
+      await db.query(`
+        INSERT INTO file_token_cache (
+          folder_id,
+          file_path,
+          content_hash,
+          file_size,
+          token_count,
+          counting_mode
+        )
+        VALUES ('folder', '/default.txt', 'hash', 10, 4, 'fast')
+      `);
+
+      const result = await db.query<{
+        file_created_at: string;
+        job_run_at: string;
+        token_cache_created_at: string;
+      }>(`
+        SELECT
+          (SELECT created_at FROM file_records WHERE id = 'default-timestamp-file') AS file_created_at,
+          (SELECT run_at FROM job_queue WHERE id = 'default-timestamp-job') AS job_run_at,
+          (
+            SELECT created_at
+            FROM file_token_cache
+            WHERE folder_id = 'folder' AND file_path = '/default.txt'
+          ) AS token_cache_created_at
+      `);
+
+      const isoUtcTextTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+      expect(result.rows[0]?.file_created_at).toMatch(isoUtcTextTimestamp);
+      expect(result.rows[0]?.job_run_at).toMatch(isoUtcTextTimestamp);
+      expect(result.rows[0]?.token_cache_created_at).toMatch(isoUtcTextTimestamp);
+    });
+
     it('refuses to run against a reset-required legacy migration ledger', async () => {
       await db.query(`
         CREATE TABLE "_migrations" (
@@ -229,6 +273,19 @@ describe('Drizzle Migration Runner', () => {
           -- This comment is function body text and must not be stripped.
         END;
         $body$ LANGUAGE plpgsql`,
+        'SELECT 1',
+      ]);
+    });
+
+    it('preserves line-comment markers inside escaped string literals', () => {
+      const statements = splitMigrationStatements(`
+        INSERT INTO migration_notes (body)
+        VALUES (E'it\\'s -- not a comment; still string text');
+        SELECT 1;
+      `);
+
+      expect(statements).toEqual([
+        "INSERT INTO migration_notes (body)\n        VALUES (E'it\\'s -- not a comment; still string text')",
         'SELECT 1',
       ]);
     });

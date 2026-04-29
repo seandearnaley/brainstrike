@@ -92,88 +92,39 @@ function requireStringMigrationSql(
   throw new Error(`Drizzle migration "${name}" must be a SQL string.`);
 }
 
+function customMigration(
+  hash: string,
+  migration: {
+    readonly name: string;
+    readonly up: string | ((db: PGlite) => Promise<void>);
+    readonly version: number;
+  }
+): Migration {
+  return {
+    hash,
+    name: migration.name,
+    sql: requireStringMigrationSql(migration.name, migration.up),
+    version: String(migration.version),
+  };
+}
+
 const customMigrations: Migration[] = [
-  {
-    hash: 'custom-015-model-registry-seed',
-    name: migration015ModelRegistry.name,
-    sql: requireStringMigrationSql(migration015ModelRegistry.name, migration015ModelRegistry.up),
-    version: String(migration015ModelRegistry.version),
-  },
-  {
-    hash: 'custom-020-local-llm-models',
-    name: migration020LocalLlmModels.name,
-    sql: requireStringMigrationSql(migration020LocalLlmModels.name, migration020LocalLlmModels.up),
-    version: String(migration020LocalLlmModels.version),
-  },
-  {
-    hash: 'custom-021-rename-transformers-to-local',
-    name: migration021RenameTransformersToLocal.name,
-    sql: requireStringMigrationSql(
-      migration021RenameTransformersToLocal.name,
-      migration021RenameTransformersToLocal.up
-    ),
-    version: String(migration021RenameTransformersToLocal.version),
-  },
-  {
-    hash: 'custom-022-enable-default-embedding-models',
-    name: migration022EnableDefaultEmbeddingModels.name,
-    sql: requireStringMigrationSql(
-      migration022EnableDefaultEmbeddingModels.name,
-      migration022EnableDefaultEmbeddingModels.up
-    ),
-    version: String(migration022EnableDefaultEmbeddingModels.version),
-  },
-  {
-    hash: 'custom-023-fix-local-provider-enabled',
-    name: migration023FixLocalProviderEnabled.name,
-    sql: requireStringMigrationSql(
-      migration023FixLocalProviderEnabled.name,
-      migration023FixLocalProviderEnabled.up
-    ),
-    version: String(migration023FixLocalProviderEnabled.version),
-  },
-  {
-    hash: 'custom-024-fix-llm-tool-calling',
-    name: migration024FixLlmToolCalling.name,
-    sql: requireStringMigrationSql(
-      migration024FixLlmToolCalling.name,
-      migration024FixLlmToolCalling.up
-    ),
-    version: String(migration024FixLlmToolCalling.version),
-  },
-  {
-    hash: 'custom-025-update-provider-models-2026',
-    name: migration025UpdateProviderModels2026.name,
-    sql: requireStringMigrationSql(
-      migration025UpdateProviderModels2026.name,
-      migration025UpdateProviderModels2026.up
-    ),
-    version: String(migration025UpdateProviderModels2026.version),
-  },
-  {
-    hash: 'custom-026-update-provider-models-2026-v2',
-    name: migration026UpdateProviderModels2026V2.name,
-    sql: requireStringMigrationSql(
-      migration026UpdateProviderModels2026V2.name,
-      migration026UpdateProviderModels2026V2.up
-    ),
-    version: String(migration026UpdateProviderModels2026V2.version),
-  },
-  {
-    hash: 'custom-028-gemma-local-llm',
-    name: migration028GemmaLocalLlm.name,
-    sql: requireStringMigrationSql(migration028GemmaLocalLlm.name, migration028GemmaLocalLlm.up),
-    version: String(migration028GemmaLocalLlm.version),
-  },
-  {
-    hash: 'custom-030-collection-indexing-stats',
-    name: migration030CollectionIndexingStats.name,
-    sql: requireStringMigrationSql(
-      migration030CollectionIndexingStats.name,
-      migration030CollectionIndexingStats.up
-    ),
-    version: String(migration030CollectionIndexingStats.version),
-  },
+  customMigration('custom-015-model-registry-seed', migration015ModelRegistry),
+  customMigration('custom-020-local-llm-models', migration020LocalLlmModels),
+  customMigration('custom-021-rename-transformers-to-local', migration021RenameTransformersToLocal),
+  customMigration(
+    'custom-022-enable-default-embedding-models',
+    migration022EnableDefaultEmbeddingModels
+  ),
+  customMigration('custom-023-fix-local-provider-enabled', migration023FixLocalProviderEnabled),
+  customMigration('custom-024-fix-llm-tool-calling', migration024FixLlmToolCalling),
+  customMigration('custom-025-update-provider-models-2026', migration025UpdateProviderModels2026),
+  customMigration(
+    'custom-026-update-provider-models-2026-v2',
+    migration026UpdateProviderModels2026V2
+  ),
+  customMigration('custom-028-gemma-local-llm', migration028GemmaLocalLlm),
+  customMigration('custom-030-collection-indexing-stats', migration030CollectionIndexingStats),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PATTERN = /\$([A-Za-z_][A-Za-z0-9_]*)?\$[\s\S]*?\$\1\$/g;
@@ -182,6 +133,11 @@ const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
 interface DollarQuotedBlockReplacement {
   readonly blocks: readonly string[];
   readonly sql: string;
+}
+
+interface SingleQuotedStringScanState {
+  inSingleQuotedString: boolean;
+  singleQuotedStringUsesBackslashEscapes: boolean;
 }
 
 function extractDollarQuotedBlocks(sql: string): DollarQuotedBlockReplacement {
@@ -201,23 +157,61 @@ function restoreDollarQuotedBlocks(sql: string, blocks: readonly string[]): stri
   );
 }
 
+function consumeSingleQuote(
+  input: string,
+  quoteIndex: number,
+  state: SingleQuotedStringScanState
+): number {
+  const next = input[quoteIndex + 1];
+  if (state.inSingleQuotedString && next === "'") {
+    return quoteIndex + 1;
+  }
+  if (!state.inSingleQuotedString) {
+    state.singleQuotedStringUsesBackslashEscapes = isEscapedSqlStringStart(input, quoteIndex);
+  }
+  state.inSingleQuotedString = !state.inSingleQuotedString;
+  if (!state.inSingleQuotedString) {
+    state.singleQuotedStringUsesBackslashEscapes = false;
+  }
+  return quoteIndex;
+}
+
+function isEscapedSqlStringStart(line: string, quoteIndex: number): boolean {
+  if (quoteIndex === 0) {
+    return false;
+  }
+  const prefix = line[quoteIndex - 1] ?? '';
+  const prefixBefore = quoteIndex > 1 ? (line[quoteIndex - 2] ?? '') : '';
+  return (
+    (prefix === 'E' || prefix === 'e') && (quoteIndex === 1 || !/[A-Za-z0-9_]/.test(prefixBefore))
+  );
+}
+
 function stripLineCommentFromLine(line: string): string {
-  let inSingleQuotedString = false;
+  const state: SingleQuotedStringScanState = {
+    inSingleQuotedString: false,
+    singleQuotedStringUsesBackslashEscapes: false,
+  };
 
   for (let index = 0; index < line.length; index += 1) {
     const char = line[index];
     const next = line[index + 1];
 
     if (char === "'") {
-      if (inSingleQuotedString && next === "'") {
-        index += 1;
-        continue;
-      }
-      inSingleQuotedString = !inSingleQuotedString;
+      index = consumeSingleQuote(line, index, state);
       continue;
     }
 
-    if (!inSingleQuotedString && char === '-' && next === '-') {
+    if (
+      state.inSingleQuotedString &&
+      state.singleQuotedStringUsesBackslashEscapes &&
+      char === '\\'
+    ) {
+      index += 1;
+      continue;
+    }
+
+    if (!state.inSingleQuotedString && char === '-' && next === '-') {
       return line.slice(0, index);
     }
   }
@@ -236,24 +230,36 @@ function stripLineComments(sql: string): string {
 function splitSemicolonDelimitedStatements(sql: string): string[] {
   const statements: string[] = [];
   let current = '';
-  let inSingleQuotedString = false;
+  const state: SingleQuotedStringScanState = {
+    inSingleQuotedString: false,
+    singleQuotedStringUsesBackslashEscapes: false,
+  };
 
   for (let index = 0; index < sql.length; index += 1) {
     const char = sql[index];
     const next = sql[index + 1];
 
     if (char === "'") {
-      current += char;
-      if (inSingleQuotedString && next === "'") {
-        current += next;
-        index += 1;
-        continue;
-      }
-      inSingleQuotedString = !inSingleQuotedString;
+      const nextIndex = consumeSingleQuote(sql, index, state);
+      current += sql.slice(index, nextIndex + 1);
+      index = nextIndex;
       continue;
     }
 
-    if (char === ';' && !inSingleQuotedString) {
+    if (
+      state.inSingleQuotedString &&
+      state.singleQuotedStringUsesBackslashEscapes &&
+      char === '\\'
+    ) {
+      current += char;
+      if (next !== undefined) {
+        current += next;
+        index += 1;
+      }
+      continue;
+    }
+
+    if (char === ';' && !state.inSingleQuotedString) {
       const statement = current.trim();
       if (statement.length > 0) {
         statements.push(statement);
