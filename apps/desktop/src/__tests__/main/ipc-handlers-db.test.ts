@@ -667,6 +667,48 @@ describe('database IPC handlers', () => {
     });
   });
 
+  it('embedding-host:enqueue-backfill schedules manual backfill DB work outside the foreground lane', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    mockDb.query.mockResolvedValue({ rows: [] });
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (db: { query: (sql: string, params?: unknown[]) => Promise<unknown> }) => {
+        await db.query('manual backfill queue refill', []);
+        return {
+          queued: 0,
+          running: 0,
+          failed: 0,
+          succeeded: 0,
+        };
+      }
+    );
+
+    const { getDesktopDatabaseWorkSchedulerSnapshot } = await import('../../ipc-handlers');
+
+    const result = await handler({ sender } as unknown, {
+      embeddingSetId: 'set-123',
+      source: 'manual',
+    });
+
+    const snapshot = getDesktopDatabaseWorkSchedulerSnapshot();
+    expect(snapshot.priorityStats.foreground.completed).toBe(0);
+    expect(snapshot.priorityStats.normal.completed).toBe(0);
+    expect(snapshot.priorityStats.background.completed).toBe(1);
+    expect(result).toEqual({
+      requestId: expect.stringMatching(/^embedding-backfill:/),
+    });
+  });
+
   it('embedding-host:enqueue-backfill schedules background indexing backfill DB work as background', async () => {
     const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
     if (!handler) {

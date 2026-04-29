@@ -325,8 +325,13 @@ async function runDesktopEmbeddingBackfill(params: {
 
     const { getDatabase } = await import('./db-main');
     const db = await getDatabase();
-    const backfillPriority: DatabaseWorkPriority =
-      source === 'background-indexing' ? 'background' : 'foreground';
+    const backfillPriority: DatabaseWorkPriority = 'background';
+    logger.info('Desktop embedding backfill scheduling resolved', {
+      embeddingSetId: normalizedEmbeddingSetId,
+      priority: backfillPriority,
+      requestId: backfillRequestId,
+      source,
+    });
     const scheduledDb = createScheduledDbHandle(db, desktopDatabaseWorkScheduler, backfillPriority);
     const jobQueue = new JobQueue(scheduledDb);
 

@@ -11,9 +11,10 @@ import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-reg
 import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('EmbeddingWorkerConfig');
-// Keep desktop bursts small enough that WebGPU work in the hidden embedding
-// host yields back to the visible renderer frequently under sustained backfill.
-const DESKTOP_IDLE_EMBED_CLAIM_BATCH_SIZE = 4;
+// Desktop local embedding runs in a hidden renderer backed by the DB scheduler.
+// Use WebGPU-sized batches when the scheduler is idle, then collapse to one-at-a-time
+// under foreground pressure so browsing/searching remains foreground-first.
+const DESKTOP_IDLE_EMBED_CLAIM_BATCH_SIZE = 16;
 const DESKTOP_PRESSURED_EMBED_CLAIM_BATCH_SIZE = 1;
 const DESKTOP_EMBED_INTER_BATCH_DELAY_MS = 75;
 const DESKTOP_PRESSURE_POLL_MS = 50;
