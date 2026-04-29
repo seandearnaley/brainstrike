@@ -369,8 +369,9 @@ export function CreateEmbeddingSetDialog({
 
   return (
     <Dialog onOpenChange={handleOpenChange} open={open}>
-      <DialogContent className="flex max-h-[85vh] w-[min(460px,calc(100vw-2rem))] max-w-[min(460px,calc(100vw-2rem))] flex-col gap-0 p-0 sm:max-w-[460px]">
-        <DialogHeader className="border-b px-6 pt-6 pb-4">
+      <DialogContent className="max-h-[90vh] w-[min(460px,calc(100vw-2rem))] max-w-[min(460px,calc(100vw-2rem))] overflow-y-auto sm:max-w-[460px]">
+        {/* pr-10 reserves a gutter for the absolutely-positioned close X so it never overlaps the title. */}
+        <DialogHeader className="pr-10">
           <DialogTitle>Create Search Collection</DialogTitle>
           <DialogDescription>
             A collection pairs your files with one embedding model so you can search them with the
@@ -379,121 +380,121 @@ export function CreateEmbeddingSetDialog({
         </DialogHeader>
 
         {hasModelOptions || isLoading ? (
-          <form
-            className="flex min-h-0 flex-col"
-            id="create-embedding-set-form"
-            onSubmit={handleSubmit}
-          >
-            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
-              <div className="space-y-2">
-                <Label className="font-medium text-sm" htmlFor="model">
-                  Model
-                </Label>
-                <ModelPicker
-                  disabled={!hasModelOptions || creating || isLoading}
-                  mode="single"
-                  models={models}
-                  modelType="embedding"
-                  onChange={(value: string | string[]) => {
-                    const modelKey = value as string;
-                    const selectedModel = models.find((m) => m.id === modelKey);
-                    // Only auto-fill name if it's empty or was auto-generated
-                    const shouldAutoFillName = formData.name === '';
-                    if (shouldAutoFillName && selectedModel) {
-                      const uniqueName = generateUniqueName(selectedModel.name, existingNames);
-                      dispatch({
-                        type: 'set_form_data',
-                        formData: { ...formData, selectedModel: modelKey, name: uniqueName },
-                      });
-                    } else {
-                      dispatch({ type: 'set_form_field', field: 'selectedModel', value: modelKey });
-                    }
-                  }}
-                  placeholder={isLoading ? 'Loading models...' : 'Select an embedding model'}
-                  providers={providers}
-                  searchable={false}
-                  value={formData.selectedModel}
-                />
-                {selectedModelInfo && (
-                  <p className="text-muted-foreground text-xs">
-                    {formatModelDescription(selectedModelInfo)}
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label className="font-medium text-sm" htmlFor="name">
-                  Name <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  disabled={creating}
-                  id="name"
-                  onChange={(e) =>
-                    dispatch({ type: 'set_form_field', field: 'name', value: e.target.value })
-                  }
-                  placeholder="e.g., Code Embeddings"
-                  value={formData.name}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label className="font-medium text-sm" htmlFor="description">
-                  Description
-                </Label>
-                <Input
-                  disabled={creating}
-                  id="description"
-                  onChange={(e) =>
+          <form className="space-y-5" id="create-embedding-set-form" onSubmit={handleSubmit}>
+            <div className="space-y-2">
+              <Label className="font-medium text-sm" htmlFor="model">
+                Model
+              </Label>
+              <ModelPicker
+                disabled={!hasModelOptions || creating || isLoading}
+                mode="single"
+                models={models}
+                modelType="embedding"
+                onChange={(value: string | string[]) => {
+                  const modelKey = value as string;
+                  const selectedModel = models.find((m) => m.id === modelKey);
+                  // Only auto-fill name if it's empty or was auto-generated
+                  const shouldAutoFillName = formData.name === '';
+                  if (shouldAutoFillName && selectedModel) {
+                    const uniqueName = generateUniqueName(selectedModel.name, existingNames);
                     dispatch({
-                      type: 'set_form_field',
-                      field: 'description',
-                      value: e.target.value,
-                    })
+                      type: 'set_form_data',
+                      formData: { ...formData, selectedModel: modelKey, name: uniqueName },
+                    });
+                  } else {
+                    dispatch({ type: 'set_form_field', field: 'selectedModel', value: modelKey });
                   }
-                  placeholder="What this collection is for"
-                  value={formData.description}
-                />
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label className="font-medium text-sm" htmlFor="tags">
-                    Tags
-                  </Label>
-                  <Input
-                    disabled={creating}
-                    id="tags"
-                    onChange={(e) =>
-                      dispatch({ type: 'set_form_field', field: 'tags', value: e.target.value })
-                    }
-                    placeholder="code, docs, analysis"
-                    value={formData.tags}
-                  />
-                  <p className="text-[11px] text-muted-foreground">Comma-separated</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="font-medium text-sm" htmlFor="category">
-                    Category
-                  </Label>
-                  <Input
-                    disabled={creating}
-                    id="category"
-                    onChange={(e) =>
-                      dispatch({
-                        type: 'set_form_field',
-                        field: 'category',
-                        value: e.target.value,
-                      })
-                    }
-                    placeholder="e.g., development"
-                    value={formData.category}
-                  />
-                </div>
+                }}
+                placeholder={isLoading ? 'Loading models...' : 'Select an embedding model'}
+                providers={providers}
+                searchable={false}
+                value={formData.selectedModel}
+              />
+              {/* Reserve vertical space so swapping between hosted / local models never shifts subsequent fields. */}
+              <div
+                className="min-h-[1.25rem] text-muted-foreground text-xs leading-5"
+                data-testid="model-picker-description-slot"
+              >
+                {selectedModelInfo ? formatModelDescription(selectedModelInfo) : null}
               </div>
             </div>
 
-            <DialogFooter className="border-t px-6 py-4">
+            <div className="space-y-2">
+              <Label className="font-medium text-sm" htmlFor="name">
+                Name <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                disabled={creating}
+                id="name"
+                onChange={(e) =>
+                  dispatch({ type: 'set_form_field', field: 'name', value: e.target.value })
+                }
+                placeholder="e.g., Code Embeddings"
+                value={formData.name}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="font-medium text-sm" htmlFor="description">
+                Description
+              </Label>
+              <Input
+                disabled={creating}
+                id="description"
+                onChange={(e) =>
+                  dispatch({
+                    type: 'set_form_field',
+                    field: 'description',
+                    value: e.target.value,
+                  })
+                }
+                placeholder="What this collection is for"
+                value={formData.description}
+              />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label className="font-medium text-sm" htmlFor="tags">
+                  Tags
+                </Label>
+                <Input
+                  disabled={creating}
+                  id="tags"
+                  onChange={(e) =>
+                    dispatch({ type: 'set_form_field', field: 'tags', value: e.target.value })
+                  }
+                  placeholder="code, docs, analysis"
+                  value={formData.tags}
+                />
+                <p className="min-h-[1rem] text-[11px] text-muted-foreground leading-4">
+                  Comma-separated
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="font-medium text-sm" htmlFor="category">
+                  Category
+                </Label>
+                <Input
+                  disabled={creating}
+                  id="category"
+                  onChange={(e) =>
+                    dispatch({
+                      type: 'set_form_field',
+                      field: 'category',
+                      value: e.target.value,
+                    })
+                  }
+                  placeholder="e.g., development"
+                  value={formData.category}
+                />
+                {/* Empty-but-reserved slot keeps the two columns visually balanced. */}
+                <p className="min-h-[1rem] text-[11px] text-muted-foreground leading-4" />
+              </div>
+            </div>
+
+            <DialogFooter className="pt-2">
               <Button
                 disabled={creating}
                 onClick={() => handleOpenChange(false)}
@@ -509,12 +510,10 @@ export function CreateEmbeddingSetDialog({
           </form>
         ) : (
           <>
-            <div className="px-6 py-5">
-              <div className="rounded-md border border-dashed bg-muted/30 px-4 py-6 text-muted-foreground text-sm">
-                Enable at least one embedding model in Settings to create a collection.
-              </div>
+            <div className="rounded-md border border-dashed bg-muted/30 px-4 py-6 text-muted-foreground text-sm">
+              Enable at least one embedding model in Settings to create a collection.
             </div>
-            <DialogFooter className="border-t px-6 py-4">
+            <DialogFooter>
               <Button onClick={() => handleOpenChange(false)} type="button" variant="outline">
                 Close
               </Button>

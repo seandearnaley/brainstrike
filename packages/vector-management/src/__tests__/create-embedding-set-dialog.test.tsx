@@ -333,6 +333,51 @@ describe('CreateEmbeddingSetDialog', () => {
     expect(className).toMatch(/sm:max-w-\[(?:[1-5]\d{2})px\]|sm:max-w-(?:sm|md|lg)/);
   });
 
+  // Layout-shift guard: the model description below the picker is conditional and used to
+  // change the form's height when the user picked a local model. The slot must reserve
+  // vertical space (min-h) so swapping models can never push subsequent fields down.
+  it('reserves a fixed-height slot beneath the model picker so changing models does not shift layout', async () => {
+    render(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          models={mockModels}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={mockProviders}
+          repository={mockRepository}
+        />
+      </>
+    );
+
+    // The slot should be present even when no model description is rendered;
+    // identifiable via a stable test id and carry a min-h utility.
+    const slot = await screen.findByTestId('model-picker-description-slot');
+    expect(slot.className).toMatch(/min-h-\[/);
+  });
+
+  it('gives the dialog header right-side gutter so the close X cannot overlap the title', () => {
+    render(
+      <CreateEmbeddingSetDialog
+        models={mockModels}
+        onOpenChange={mockOnOpenChange}
+        onSetCreated={mockOnSetCreated}
+        open={true}
+        providers={mockProviders}
+        repository={mockRepository}
+      />
+    );
+
+    // shadcn/ui's DialogPrimitive.Close is positioned `top-4 right-4`. The
+    // dialog title needs its own right padding so long titles never collide
+    // with the close button.
+    const title = screen.getByText('Create Search Collection');
+    const header = title.closest('[data-slot="dialog-header"]') as HTMLElement | null;
+    expect(header).not.toBeNull();
+    expect((header as HTMLElement).className).toMatch(/pr-(?:8|9|10|12)/);
+  });
+
   it('persists the raw provider model id for local registry models', async () => {
     const user = userEvent.setup({ delay: null });
     (mockRepository.getOrCreateSet as Mock).mockResolvedValue({ id: 'new-local-set-id' });
