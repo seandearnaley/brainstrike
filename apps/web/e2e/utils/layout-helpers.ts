@@ -284,23 +284,26 @@ export async function waitForAppLoad(
   // Using 'load' instead of 'domcontentloaded' to ensure JS has loaded
   await page.waitForLoadState('load', { timeout: effectiveTimeout });
 
-  // Best-effort wait for network to settle - important for production builds
-  // that may have deferred script loading. Use short timeout since apps with
-  // background workers often never reach networkidle state.
-  const networkIdleTimeout = resolveNetworkIdleTimeout(isCI);
-  await page.waitForLoadState('networkidle', { timeout: networkIdleTimeout }).catch((error) => {
-    // networkidle timeout is expected when app has background activity - continue
-    if (isCI) {
-      const errorMessage = resolveErrorMessage(error);
-      console.warn(
-        `[waitForAppLoad] networkidle wait exceeded ${networkIdleTimeout}ms; continuing. ${errorMessage}`
-      );
-      logWarn('waitForAppLoad networkidle timeout', {
-        timeoutMs: networkIdleTimeout,
-        error: errorMessage,
-      });
-    }
-  });
+  if (waitForDatabase) {
+    // Best-effort wait for network to settle - important for production builds
+    // that may have deferred script loading. Shell-only tests intentionally skip
+    // this because greenfield DB worker startup keeps background network work
+    // alive and can consume the entire Playwright test budget.
+    const networkIdleTimeout = resolveNetworkIdleTimeout(isCI);
+    await page.waitForLoadState('networkidle', { timeout: networkIdleTimeout }).catch((error) => {
+      // networkidle timeout is expected when app has background activity - continue
+      if (isCI) {
+        const errorMessage = resolveErrorMessage(error);
+        console.warn(
+          `[waitForAppLoad] networkidle wait exceeded ${networkIdleTimeout}ms; continuing. ${errorMessage}`
+        );
+        logWarn('waitForAppLoad networkidle timeout', {
+          timeoutMs: networkIdleTimeout,
+          error: errorMessage,
+        });
+      }
+    });
+  }
 
   // Wait for the main layout structure to be present
   // Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
@@ -414,7 +417,10 @@ export async function activateSidebarNavigation(
 /**
  * Clear layout state and reload page with clean state
  */
-export async function resetLayoutState(page: Page): Promise<void> {
+export async function resetLayoutState(
+  page: Page,
+  options: WaitForAppLoadOptions = {}
+): Promise<void> {
   await page.evaluate(() => {
     localStorage.removeItem('brainstrike.agent-sidebar-tab.v1');
     localStorage.removeItem('panel-layout-store.v1');
@@ -424,7 +430,7 @@ export async function resetLayoutState(page: Page): Promise<void> {
   // Wait for the page to finish navigating before continuing.
   // Using 'load' to ensure JS bundles are loaded before checking React elements.
   await page.reload({ waitUntil: 'load' });
-  await waitForAppLoad(page);
+  await waitForAppLoad(page, 10_000, options);
 }
 
 /**

@@ -89,8 +89,9 @@ describe('layout-helpers (unit)', () => {
   });
 
   it('waitForAppLoad can wait for shell readiness without blocking on database startup', async () => {
+    const loadStates: string[] = [];
     const page = {
-      waitForLoadState: vi.fn(async () => undefined),
+      waitForLoadState: vi.fn(async (state: string) => void loadStates.push(state)),
       waitForSelector: vi.fn(async () => undefined),
       waitForFunction: vi.fn(async () => ({
         dispose: vi.fn(async () => undefined),
@@ -102,6 +103,7 @@ describe('layout-helpers (unit)', () => {
     await waitForAppLoad(page, 10_000, { waitForDatabase: false });
 
     expect(page.waitForLoadState).toHaveBeenCalledWith('load', expect.any(Object));
+    expect(loadStates).not.toContain('networkidle');
     expect(page.waitForSelector).toHaveBeenCalled();
     expect(page.waitForFunction).not.toHaveBeenCalled();
   });

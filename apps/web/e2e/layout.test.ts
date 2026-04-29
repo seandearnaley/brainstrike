@@ -23,7 +23,7 @@ import {
 test.describe('Application Layout', { tag: '@smoke' }, () => {
   test('should render the main layout correctly', async ({ page }) => {
     const home = new HomePage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
 
     // Ensure the main content area is visible
     await expect(page.locator('main')).toBeVisible();
@@ -36,7 +36,7 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
 
   test('should have working sidebar navigation', async ({ page }) => {
     const home = new HomePage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
 
     // Ensure both buttons are present initially
     await expect(home.contextExplorerNavButton).toBeVisible();
@@ -84,10 +84,10 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
   test.describe('Panel Layout Basics', () => {
     test.beforeEach(async ({ page }) => {
       await page.goto('/');
-      await waitForAppLoad(page);
+      await waitForAppLoad(page, 10_000, { waitForDatabase: false });
       await resetAppState(page);
       await page.reload();
-      await waitForAppLoad(page);
+      await waitForAppLoad(page, 10_000, { waitForDatabase: false });
     });
 
     test('should display default panel layout correctly', async ({ page }) => {
@@ -97,7 +97,7 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
     test('should recover from corrupted layout storage on reload', async ({ page }) => {
       await corruptLayoutStorage(page);
       await page.reload();
-      await waitForAppLoad(page);
+      await waitForAppLoad(page, 10_000, { waitForDatabase: false });
       await verifyDefaultLayout(page);
     });
 
@@ -118,7 +118,7 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
       });
 
       await page.reload();
-      await waitForAppLoad(page);
+      await waitForAppLoad(page, 10_000, { waitForDatabase: false });
       await verifyDefaultLayout(page);
     });
 

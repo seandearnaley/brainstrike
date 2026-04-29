@@ -13,11 +13,11 @@ test.describe('File Tabbed Editor', { tag: '@smoke' }, () => {
     await mockBrowserApis(page, 'test-root', tree);
 
     await page.goto('/');
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, 10_000, { waitForDatabase: false });
     await resetAppState(page);
     await seedWorkspaceFocusedShellLayout(page);
     await page.reload();
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, 10_000, { waitForDatabase: false });
   });
 
   test('should open file in tabbed editor', async ({ page }) => {
