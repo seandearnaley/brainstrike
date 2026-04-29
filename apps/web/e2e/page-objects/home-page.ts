@@ -13,7 +13,7 @@ export class HomePage {
 
   async goto(options?: WaitForAppLoadOptions): Promise<void> {
     await this.page.goto('/');
-    await waitForAppLoad(this.page, 10_000, options);
+    await waitForAppLoad(this.page, { ...options, timeoutMs: options?.timeoutMs ?? 10_000 });
   }
 
   /**

@@ -243,25 +243,11 @@ export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promi
  * In CI with vite preview (production build), React needs time to hydrate after
  * the initial HTML loads. This function handles the full hydration cycle.
  */
-export async function waitForAppLoad(page: Page, options?: WaitForAppLoadOptions): Promise<void>;
-/**
- * @deprecated Prefer `waitForAppLoad(page, { timeoutMs, waitForDatabase })`.
- */
 export async function waitForAppLoad(
   page: Page,
-  timeout?: number,
-  options?: WaitForAppLoadOptions
-): Promise<void>;
-export async function waitForAppLoad(
-  page: Page,
-  timeoutOrOptions: number | WaitForAppLoadOptions = {},
   options: WaitForAppLoadOptions = {}
 ): Promise<void> {
-  const resolvedOptions =
-    typeof timeoutOrOptions === 'number'
-      ? { ...options, timeoutMs: timeoutOrOptions }
-      : timeoutOrOptions;
-  const { timeoutMs = 10_000, waitForDatabase = true } = resolvedOptions;
+  const { timeoutMs = 10_000, waitForDatabase = true } = options;
   const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
   // Contract:
   // - Local runs use a 20s floor to tolerate hydration + initial panel layout.

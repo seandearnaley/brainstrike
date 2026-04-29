@@ -202,6 +202,11 @@ function extractDollarQuotedBlocks(sql: string): DollarQuotedBlockReplacement {
         index,
         tag: openingTag,
       });
+      const block = sql.slice(index);
+      const blockIndex = blocks.push(block) - 1;
+      sanitizedSql += `${DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX}${blockIndex}__`;
+      index = sql.length - 1;
+      continue;
     }
 
     sanitizedSql += char;

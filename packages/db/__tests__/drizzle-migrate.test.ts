@@ -406,6 +406,21 @@ describe('Drizzle Migration Runner', () => {
 
       expect(messages).toContain('Malformed dollar-quoted block in migration SQL');
     });
+
+    it('keeps an unterminated dollar-quoted block as one malformed statement', () => {
+      const statements = splitMigrationStatements(`
+        DO $body$
+        BEGIN
+          PERFORM 1;
+        END;
+        SELECT 1;
+      `);
+
+      expect(statements).toHaveLength(1);
+      expect(statements[0]).toContain('PERFORM 1;');
+      expect(statements[0]).toContain('END;');
+      expect(statements[0]).toContain('SELECT 1;');
+    });
   });
 
   describe('getMigrationStatus', () => {

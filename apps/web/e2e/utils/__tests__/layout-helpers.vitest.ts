@@ -65,7 +65,7 @@ describe('layout-helpers (unit)', () => {
       // CI debug listeners (no-op in unit tests)
       on: vi.fn(),
     } as unknown as Page;
-    await waitForAppLoad(page, 10_000);
+    await waitForAppLoad(page, { timeoutMs: 10_000 });
     // Using 'load' instead of 'domcontentloaded' to ensure JS bundles are loaded
     // before checking React elements (important for CI with vite preview)
     expect(loadStates).toContain('load');
@@ -157,7 +157,7 @@ describe('layout-helpers (unit)', () => {
     } as unknown as Page;
 
     try {
-      await withCiEnv(true, () => waitForAppLoad(page, 10_000));
+      await withCiEnv(true, () => waitForAppLoad(page, { timeoutMs: 10_000 }));
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('main-content selector missing after readiness check')
       );
