@@ -289,6 +289,23 @@ describe('Drizzle Migration Runner', () => {
         'SELECT 1',
       ]);
     });
+
+    it('does not protect dollar-quote markers that start inside single-quoted strings', () => {
+      const statements = splitMigrationStatements(`
+        INSERT INTO migration_notes (body)
+        VALUES ('literal $body$ is not a block');
+        SELECT 1;
+        SELECT '$body$';
+        SELECT 1;
+      `);
+
+      expect(statements).toEqual([
+        "INSERT INTO migration_notes (body)\n        VALUES ('literal $body$ is not a block')",
+        'SELECT 1',
+        "SELECT '$body$'",
+        'SELECT 1',
+      ]);
+    });
   });
 
   describe('getMigrationStatus', () => {

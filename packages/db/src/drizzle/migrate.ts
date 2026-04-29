@@ -20,6 +20,7 @@ import { migration025UpdateProviderModels2026 } from '../migrations/025-update-p
 import { migration026UpdateProviderModels2026V2 } from '../migrations/026-update-provider-models-2026-v2.js';
 import { migration028GemmaLocalLlm } from '../migrations/028-gemma-local-llm.js';
 import { migration030CollectionIndexingStats } from '../migrations/030-collection-indexing-stats.js';
+import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
 // Using import attribute for Node.js 22+ ESM compatibility
@@ -82,28 +83,23 @@ async function recordMigration(db: PGlite, hash: string): Promise<void> {
   await db.query(`INSERT INTO "${MIGRATIONS_TABLE}" (hash) VALUES ($1)`, [hash]);
 }
 
-function requireStringMigrationSql(
-  name: string,
-  sql: string | ((db: PGlite) => Promise<void>)
-): string {
-  if (typeof sql === 'string') {
-    return sql;
-  }
-  throw new Error(`Drizzle migration "${name}" must be a SQL string.`);
+type SqlBackedMigration = LegacyMigration & {
+  readonly up: string;
+};
+
+function isSqlBackedMigration(migration: LegacyMigration): migration is SqlBackedMigration {
+  return typeof migration.up === 'string';
 }
 
-function customMigration(
-  hash: string,
-  migration: {
-    readonly name: string;
-    readonly up: string | ((db: PGlite) => Promise<void>);
-    readonly version: number;
+function customMigration(hash: string, migration: LegacyMigration): Migration {
+  if (!isSqlBackedMigration(migration)) {
+    throw new Error(`Drizzle migration "${migration.name}" must be a SQL string.`);
   }
-): Migration {
+
   return {
     hash,
     name: migration.name,
-    sql: requireStringMigrationSql(migration.name, migration.up),
+    sql: migration.up,
     version: String(migration.version),
   };
 }
@@ -127,7 +123,6 @@ const customMigrations: Migration[] = [
   customMigration('custom-030-collection-indexing-stats', migration030CollectionIndexingStats),
 ];
 
-const DOLLAR_QUOTED_BLOCK_PATTERN = /\$([A-Za-z_][A-Za-z0-9_]*)?\$[\s\S]*?\$\1\$/g;
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
 
 interface DollarQuotedBlockReplacement {
@@ -142,10 +137,51 @@ interface SingleQuotedStringScanState {
 
 function extractDollarQuotedBlocks(sql: string): DollarQuotedBlockReplacement {
   const blocks: string[] = [];
-  const sanitizedSql = sql.replace(DOLLAR_QUOTED_BLOCK_PATTERN, (block: string) => {
-    const index = blocks.push(block) - 1;
-    return `${DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX}${index}__`;
-  });
+  let sanitizedSql = '';
+  const state: SingleQuotedStringScanState = {
+    inSingleQuotedString: false,
+    singleQuotedStringUsesBackslashEscapes: false,
+  };
+
+  for (let index = 0; index < sql.length; index += 1) {
+    const char = sql[index];
+    const next = sql[index + 1];
+
+    if (char === "'") {
+      const nextIndex = consumeSingleQuote(sql, index, state);
+      sanitizedSql += sql.slice(index, nextIndex + 1);
+      index = nextIndex;
+      continue;
+    }
+
+    if (
+      state.inSingleQuotedString &&
+      state.singleQuotedStringUsesBackslashEscapes &&
+      char === '\\'
+    ) {
+      sanitizedSql += char;
+      if (next !== undefined) {
+        sanitizedSql += next;
+        index += 1;
+      }
+      continue;
+    }
+
+    const openingTag = state.inSingleQuotedString ? null : readDollarQuoteTag(sql, index);
+    if (openingTag !== null) {
+      const closingTagIndex = sql.indexOf(openingTag, index + openingTag.length);
+      if (closingTagIndex !== -1) {
+        const blockEnd = closingTagIndex + openingTag.length;
+        const block = sql.slice(index, blockEnd);
+        const blockIndex = blocks.push(block) - 1;
+        sanitizedSql += `${DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX}${blockIndex}__`;
+        index = blockEnd - 1;
+        continue;
+      }
+    }
+
+    sanitizedSql += char;
+  }
 
   return { blocks, sql: sanitizedSql };
 }
@@ -153,8 +189,26 @@ function extractDollarQuotedBlocks(sql: string): DollarQuotedBlockReplacement {
 function restoreDollarQuotedBlocks(sql: string, blocks: readonly string[]): string {
   return sql.replace(
     new RegExp(`${DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX}(\\d+)__`, 'g'),
-    (_placeholder: string, index: string) => blocks[Number(index)] ?? _placeholder
+    (placeholder: string, index: string) => blocks[Number(index)] ?? placeholder
   );
+}
+
+function readDollarQuoteTag(input: string, index: number): string | null {
+  if (input[index] !== '$') {
+    return null;
+  }
+
+  const closingDollarIndex = input.indexOf('$', index + 1);
+  if (closingDollarIndex === -1) {
+    return null;
+  }
+
+  const tag = input.slice(index + 1, closingDollarIndex);
+  if (tag.length > 0 && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(tag)) {
+    return null;
+  }
+
+  return input.slice(index, closingDollarIndex + 1);
 }
 
 function consumeSingleQuote(
