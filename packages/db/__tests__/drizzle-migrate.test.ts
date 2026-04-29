@@ -237,6 +237,25 @@ describe('Drizzle Migration Runner', () => {
       expect(drizzleLedger.rows).toHaveLength(0);
     });
 
+    it('refuses to run against a stale Drizzle migration ledger', async () => {
+      await db.query(`
+        CREATE TABLE "__drizzle_migrations" (
+          id SERIAL PRIMARY KEY,
+          hash TEXT NOT NULL UNIQUE,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        )
+      `);
+      await db.query(`INSERT INTO "__drizzle_migrations" (hash) VALUES ('stale-hash')`);
+
+      const result = await runMigrations(db);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain(
+        'Brainstrike DB is greenfield; stale "__drizzle_migrations" databases must be reset instead of migrated.'
+      );
+      expect(result.appliedMigrations).toHaveLength(0);
+    });
+
     it('should call onMigrationStart and onMigrationComplete callbacks', async () => {
       const onStart = vi.fn();
       const onComplete = vi.fn();

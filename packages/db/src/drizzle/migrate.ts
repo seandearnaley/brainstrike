@@ -76,6 +76,21 @@ async function getAppliedMigrations(db: PGlite): Promise<Set<string>> {
   return new Set(result.rows.map((row) => row.hash));
 }
 
+function assertNoStaleDrizzleMigrationLedger(
+  applied: ReadonlySet<string>,
+  migrations: readonly Migration[]
+): void {
+  const knownHashes = new Set(migrations.map((migration) => migration.hash));
+  const staleHashes = [...applied].filter((hash) => !knownHashes.has(hash));
+  if (staleHashes.length === 0) {
+    return;
+  }
+
+  throw new Error(
+    `Brainstrike DB is greenfield; stale "${MIGRATIONS_TABLE}" databases must be reset instead of migrated. Unknown migration hashes: ${staleHashes.join(', ')}`
+  );
+}
+
 /**
  * Records a migration as applied
  */
@@ -439,6 +454,8 @@ export async function runMigrations(
     await ensureMigrationsTable(db);
     const applied = await getAppliedMigrations(db);
     const manifest = migrationsManifest as MigrationManifest;
+    const allMigrations = [...manifest.migrations, ...customMigrations];
+    assertNoStaleDrizzleMigrationLedger(applied, allMigrations);
 
     for (const migration of manifest.migrations) {
       if (applied.has(migration.hash)) {
@@ -485,6 +502,7 @@ export async function getMigrationStatus(db: PGlite): Promise<{
   try {
     await ensureMigrationsTable(db);
     const applied = await getAppliedMigrations(db);
+    assertNoStaleDrizzleMigrationLedger(applied, allMigrations);
 
     const pending = allMigrations.filter((m) => !applied.has(m.hash)).map((m) => m.name);
 
