@@ -1,3 +1,4 @@
+import { addLogListener, LogLevel } from '@brainstrike/utils/logger';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migrate } from '../src/migrations/bootstrap';
@@ -51,6 +52,31 @@ describe('Bulk Import with Batching', () => {
     // Verify all files were actually inserted
     const allRecords = await repository.findAll();
     expect(allRecords).toHaveLength(3);
+  });
+
+  it('does not emit per-batch info logs for small bulk imports', async () => {
+    const infoMessages: string[] = [];
+    const unsubscribe = addLogListener((record) => {
+      if (record.level === LogLevel.INFO && record.scope === 'DB:FileRecordRepository') {
+        infoMessages.push(record.message ?? '');
+      }
+    });
+
+    try {
+      await repository.bulkImport([
+        {
+          name: 'file1.txt',
+          path: '/path/to/file1.txt',
+          size: 100,
+          content: 'Content for file 1',
+        },
+      ]);
+    } finally {
+      unsubscribe();
+    }
+
+    expect(infoMessages).not.toContain('Starting bulk import');
+    expect(infoMessages).not.toContain('Bulk import complete');
   });
 
   it('should detect duplicate files by content hash across batches', async () => {

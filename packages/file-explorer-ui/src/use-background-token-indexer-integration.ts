@@ -1345,15 +1345,29 @@ export function useBackgroundTokenIndexerIntegration({
             });
           }
 
-          if (emitLargeSelectionDiagnostics) {
-            logger.info('Background token indexing dispatched Electron batch', {
+          logger.debug('Background token indexing dispatched Electron batch', {
+            batchSize: TOKEN_INDEXER_IO_BATCH_SIZE,
+            batchFilesReady: electronFilesReady.length,
+            electronBytesRead,
+            electronFilesRead,
+            elapsedMs: Date.now() - electronStartedAt,
+            estimatedElectronBytes,
+            remainingFiles: Math.max(electronFilesToRead.length - (i + batch.length), 0),
+            yieldedBatchCount: electronYieldedBatches,
+          });
+
+          if (
+            emitLargeSelectionDiagnostics &&
+            i + TOKEN_INDEXER_IO_BATCH_SIZE >= electronFilesToRead.length
+          ) {
+            logger.info('Background token indexing dispatched Electron batches', {
               batchSize: TOKEN_INDEXER_IO_BATCH_SIZE,
-              batchFilesReady: electronFilesReady.length,
               electronBytesRead,
               electronFilesRead,
               elapsedMs: Date.now() - electronStartedAt,
               estimatedElectronBytes,
-              remainingFiles: Math.max(electronFilesToRead.length - (i + batch.length), 0),
+              queuedFiles: electronFilesToRead.length,
+              remainingFiles: 0,
               yieldedBatchCount: electronYieldedBatches,
             });
           }

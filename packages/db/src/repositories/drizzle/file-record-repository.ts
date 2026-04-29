@@ -21,6 +21,7 @@ import { fileRecords } from '../../schema/index.js';
 type DrizzleDb = PgliteDatabase;
 
 const logger = createLogger('DrizzleFileRecordRepository');
+const BULK_IMPORT_INFO_LOG_THRESHOLD = 100;
 
 /**
  * Allowed fields for updates - prevents accidental ID updates
@@ -394,8 +395,10 @@ export class DrizzleFileRecordRepository {
   ): Promise<FileImportResult[]> {
     const BATCH_SIZE = 100;
     const startTime = Date.now();
+    const logBulkImportInfo = requests.length >= BULK_IMPORT_INFO_LOG_THRESHOLD;
+    const logBulkImport = logBulkImportInfo ? logger.info.bind(logger) : logger.debug.bind(logger);
 
-    logger.info('Starting bulk import', {
+    logBulkImport('Starting bulk import', {
       totalFiles: requests.length,
       batchSize: BATCH_SIZE,
     });
@@ -444,7 +447,7 @@ export class DrizzleFileRecordRepository {
     const successCount = results.filter((r) => r.imported || r.existed).length;
     const errorCount = results.filter((r) => r.error).length;
 
-    logger.info('Bulk import complete', {
+    logBulkImport('Bulk import complete', {
       totalFiles: requests.length,
       successCount,
       errorCount,
