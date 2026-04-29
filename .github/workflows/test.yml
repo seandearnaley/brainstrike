@@ -34,7 +34,9 @@ jobs:
     name: Lint, Type Check & Unit Tests
     if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Affected coverage can still exercise PGlite-backed integration suites; keep the
+    # job ceiling above the longest package-level unit run without masking hangs.
+    timeout-minutes: 60
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
@@ -115,7 +117,9 @@ jobs:
 
       - name: Run unit tests with coverage
         id: unit-tests
-        timeout-minutes: 30
+        # This step owns the heavy affected coverage slice. The surrounding job
+        # timeout leaves room for install, build, and report upload overhead.
+        timeout-minutes: 45
         run: |
           START=$SECONDS
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$GITHUB_BASE_REF" ]; then

@@ -302,6 +302,12 @@ export interface EmbeddingWorkerOptions {
   onWorkerActivityChange?: (active: boolean) => void;
   queue?: string; // default: 'embeddings'
   reinitEveryN?: number; // reinitialize service every N successes (default disabled unless env/option set)
+  /**
+   * Optional per-poll effective claim size. The returned value is capped by
+   * claimBatchSize so callers can adapt to foreground pressure without
+   * bypassing the configured maximum burst size.
+   */
+  resolveClaimBatchSize?: () => number | Promise<number>;
   service?: EmbeddingService; // optional DI for tests or custom backends
   /**
    * When true, a fatal local-model initialization/execution error stops the
@@ -320,6 +326,7 @@ export interface EmbeddingWorkerController {
 }
 
 const DEFAULT_CLAIM_BATCH_SIZE = 50;
+const CLAIM_SIZE_RESOLVER_FAILURE_BACKOFF_MS = 1000;
 
 function resolvePositiveIntegerOption(
   value: number | undefined,
@@ -1057,6 +1064,8 @@ export async function startEmbeddingWorker(
   const initializeLocalModelOnStart = options.initializeLocalModelOnStart ?? true;
   let activeModelId = modelResolution.modelId;
   let activeCompositeKey = modelResolution.compositeKey;
+  let lastClaimBatchSize = claimBatchSize;
+  let lastClaimBatchSizeError: string | null = null;
   const workerId = options.workerId ?? `embed-worker-${generateUUID().slice(0, 8)}`;
   let service: EmbeddingService;
   let modelConfig: ModelConfig | null = null;
@@ -1112,6 +1121,31 @@ export async function startEmbeddingWorker(
 
   async function waitForBackgroundPermit(label: string): Promise<void> {
     await options.waitForBackgroundPermit?.({ label });
+  }
+
+  async function resolveEffectiveClaimBatchSize(): Promise<number | null> {
+    if (!options.resolveClaimBatchSize) {
+      lastClaimBatchSize = claimBatchSize;
+      lastClaimBatchSizeError = null;
+      return claimBatchSize;
+    }
+    try {
+      const resolved = await options.resolveClaimBatchSize();
+      const requestedClaimBatchSize = resolvePositiveIntegerOption(
+        resolved,
+        'resolveClaimBatchSize',
+        claimBatchSize
+      );
+      const effectiveClaimBatchSize = Math.min(requestedClaimBatchSize, claimBatchSize);
+      lastClaimBatchSize = effectiveClaimBatchSize;
+      lastClaimBatchSizeError = null;
+      return effectiveClaimBatchSize;
+    } catch (error) {
+      // Resolver failures skip this claim poll; report the configured ceiling, not a stale value.
+      lastClaimBatchSize = claimBatchSize;
+      lastClaimBatchSizeError = error instanceof Error ? error.message : String(error);
+      return null;
+    }
   }
 
   await assertVectorEmbeddingColumn(options.db);
@@ -1341,6 +1375,10 @@ export async function startEmbeddingWorker(
     const shouldReinitialize = forceReinit || targetModelId !== activeModelId;
     const shouldInitializeCurrentModel = !localServiceInitialized;
 
+    if (!(shouldReinitialize || shouldInitializeCurrentModel)) {
+      return;
+    }
+
     workerLogger.debug('ensureLocalModel check', {
       targetModelId,
       activeModelId,
@@ -1348,10 +1386,6 @@ export async function startEmbeddingWorker(
       shouldInitializeCurrentModel,
       forceReinit,
     });
-
-    if (!(shouldReinitialize || shouldInitializeCurrentModel)) {
-      return;
-    }
 
     assertLocalModelSwitchAllowed(targetModelId);
     failFastOnLatchedLocalModelInitializationFailure(
@@ -1829,7 +1863,8 @@ export async function startEmbeddingWorker(
 
   async function completeBatch(
     toProcess: LoadedChunkItem[],
-    embeddings: number[][]
+    embeddings: number[][],
+    onJobsCompleted?: (jobIds: Set<string>) => void
   ): Promise<Set<string>> {
     // Validate batch size consistency before processing
     if (toProcess.length !== embeddings.length) {
@@ -1873,6 +1908,7 @@ export async function startEmbeddingWorker(
     for (const job of completedJobs) {
       completedJobIds.add(job.id);
     }
+    onJobsCompleted?.(completedJobIds);
 
     await refreshCollectionIndexingStats(
       options.db,
@@ -1886,9 +1922,10 @@ export async function startEmbeddingWorker(
   async function completeBatchAndTrack(
     toProcess: LoadedChunkItem[],
     embeddings: number[][],
-    completedJobIds: Set<string>
+    completedJobIds: Set<string>,
+    onJobsCompleted?: (jobIds: Set<string>) => void
   ): Promise<void> {
-    const newlyCompleted = await completeBatch(toProcess, embeddings);
+    const newlyCompleted = await completeBatch(toProcess, embeddings, onJobsCompleted);
     for (const id of newlyCompleted) {
       completedJobIds.add(id);
     }
@@ -1902,7 +1939,8 @@ export async function startEmbeddingWorker(
     toProcess: LoadedChunkItem[],
     expectedDimension: number,
     completedJobIds: Set<string>,
-    checkLease: () => boolean
+    checkLease: () => boolean,
+    onJobsCompleted?: (jobIds: Set<string>) => void
   ): Promise<void> {
     const modelKey = jobModel.compositeKey;
     const cacheHits = await lookupCacheHits(toProcess, modelKey);
@@ -1916,7 +1954,12 @@ export async function startEmbeddingWorker(
         throw new Error('Lease lost during processing');
       }
       const cachedEmbeddings = reconstructResults(cacheHitItems, cacheHits, [], modelKey);
-      await completeBatchAndTrack(cacheHitItems, cachedEmbeddings, completedJobIds);
+      await completeBatchAndTrack(
+        cacheHitItems,
+        cachedEmbeddings,
+        completedJobIds,
+        onJobsCompleted
+      );
     }
 
     if (cacheMisses.length === 0) {
@@ -1952,7 +1995,7 @@ export async function startEmbeddingWorker(
             return result.embedding;
           });
 
-          await completeBatchAndTrack(batchItems, embeddings, completedJobIds);
+          await completeBatchAndTrack(batchItems, embeddings, completedJobIds, onJobsCompleted);
           storeToCacheAsync(batchItems, embeddings, modelKey, expectedDimension);
         }
       );
@@ -2003,10 +2046,11 @@ export async function startEmbeddingWorker(
   }
 
   function startHeartbeat(jobs: ClaimedJob[], onLeaseLost: (job: ClaimedJob) => void) {
+    const completedJobs = new Set<string>();
     const lostJobs = new Set<string>();
     let isHeartbeating = false;
 
-    return setInterval(() => {
+    const timer = setInterval(() => {
       // Prevent overlapping heartbeats (race condition protection)
       if (isHeartbeating) {
         return;
@@ -2015,7 +2059,9 @@ export async function startEmbeddingWorker(
 
       (async () => {
         try {
-          const activeJobs = jobs.filter((job) => !lostJobs.has(job.id));
+          const activeJobs = jobs.filter(
+            (job) => !(completedJobs.has(job.id) || lostJobs.has(job.id))
+          );
           if (activeJobs.length === 0) {
             return;
           }
@@ -2029,6 +2075,10 @@ export async function startEmbeddingWorker(
           const succeededIds = new Set(heartbeatedJobs.map((j) => j.id));
 
           for (const job of activeJobs) {
+            // Streaming completions can land while heartbeatBatch awaits the DB host.
+            if (completedJobs.has(job.id)) {
+              continue;
+            }
             if (!succeededIds.has(job.id)) {
               workerLogger.error('Heartbeat failed: lease lost', { jobId: job.id });
               lostJobs.add(job.id);
@@ -2042,12 +2092,24 @@ export async function startEmbeddingWorker(
         log('worker_heartbeat_error', { count: jobs.length, error: String(err) });
       });
     }, heartbeatMs);
+
+    return {
+      markCompleted(jobIds: Iterable<string>): void {
+        for (const jobId of jobIds) {
+          completedJobs.add(jobId);
+        }
+      },
+      stop(): void {
+        clearInterval(timer);
+      },
+    };
   }
 
   async function processJobGroup(
     jobs: ClaimedJob[],
     jobModel: ReturnType<typeof resolveJobModel>,
-    checkLease: () => boolean
+    checkLease: () => boolean,
+    onJobsCompleted?: (jobIds: Set<string>) => void
   ) {
     const { toProcess, completed } = await loadAndFilterChunks(jobs, jobModel);
     const completedJobIds = new Set<string>(completed.map((item) => item.job.id));
@@ -2057,7 +2119,7 @@ export async function startEmbeddingWorker(
         throw new Error('Lease lost during processing');
       }
 
-      await markAlreadyCompleted(completed, completedJobIds);
+      await markAlreadyCompleted(completed, completedJobIds, onJobsCompleted);
 
       if (toProcess.length === 0) {
         return;
@@ -2075,7 +2137,8 @@ export async function startEmbeddingWorker(
           toProcess,
           expectedDimension,
           completedJobIds,
-          checkLease
+          checkLease,
+          onJobsCompleted
         );
       } else {
         const embeddings = await generateEmbeddingsForGroup(jobModel, toProcess, expectedDimension);
@@ -2084,7 +2147,7 @@ export async function startEmbeddingWorker(
           throw new Error('Lease lost during processing');
         }
 
-        await completeBatchAndTrack(toProcess, embeddings, completedJobIds);
+        await completeBatchAndTrack(toProcess, embeddings, completedJobIds, onJobsCompleted);
         await maybeReinitialize();
       }
     } catch (err) {
@@ -2102,7 +2165,8 @@ export async function startEmbeddingWorker(
    */
   async function markAlreadyCompleted(
     completed: Array<{ job: ClaimedJob }>,
-    completedJobIds: Set<string>
+    completedJobIds: Set<string>,
+    onJobsCompleted?: (jobIds: Set<string>) => void
   ) {
     if (completed.length === 0) {
       return;
@@ -2110,9 +2174,12 @@ export async function startEmbeddingWorker(
     await jq.completeBatch(
       completed.map((item) => ({ id: item.job.id, leaseToken: item.job.lease_token }))
     );
+    const newlyCompleted = new Set<string>();
     for (const item of completed) {
       completedJobIds.add(item.job.id);
+      newlyCompleted.add(item.job.id);
     }
+    onJobsCompleted?.(newlyCompleted);
     metrics.jobsProcessed += completed.length;
     processedSinceInit += completed.length;
   }
@@ -2154,7 +2221,11 @@ export async function startEmbeddingWorker(
   function createLeaseTracker(
     jobs: ClaimedJob[],
     checkLeaseOverride?: () => boolean
-  ): { checkLease: () => boolean; dispose: () => void } {
+  ): {
+    checkLease: () => boolean;
+    dispose: () => void;
+    markCompleted: (jobIds: Iterable<string>) => void;
+  } {
     let leaseLost = false;
     const checkLease = checkLeaseOverride ?? (() => leaseLost);
     const hb =
@@ -2167,8 +2238,11 @@ export async function startEmbeddingWorker(
       checkLease,
       dispose: () => {
         if (hb) {
-          clearInterval(hb);
+          hb.stop();
         }
+      },
+      markCompleted: (jobIds: Iterable<string>) => {
+        hb?.markCompleted(jobIds);
       },
     };
   }
@@ -2191,7 +2265,8 @@ export async function startEmbeddingWorker(
 
   async function processGroup(
     jobs: ClaimedJob[],
-    checkLeaseOverride?: () => boolean
+    checkLeaseOverride?: () => boolean,
+    onJobsCompleted?: (jobIds: Set<string>) => void
   ): Promise<void> {
     if (jobs.length === 0) {
       return;
@@ -2203,9 +2278,13 @@ export async function startEmbeddingWorker(
     }
 
     const lease = createLeaseTracker(jobs, checkLeaseOverride);
+    const markJobsCompleted = (jobIds: Set<string>) => {
+      lease.markCompleted(jobIds);
+      onJobsCompleted?.(jobIds);
+    };
 
     try {
-      await processJobGroup(jobs, jobModel, lease.checkLease);
+      await processJobGroup(jobs, jobModel, lease.checkLease, markJobsCompleted);
     } catch (error) {
       await handleGroupError(error, jobs, lease.checkLease);
     } finally {
@@ -2253,10 +2332,12 @@ export async function startEmbeddingWorker(
           });
           continue;
         }
-        await processGroup(group, checkLease);
+        await processGroup(group, checkLease, (jobIds) => {
+          batchHeartbeat.markCompleted(jobIds);
+        });
       }
     } finally {
-      clearInterval(batchHeartbeat);
+      batchHeartbeat.stop();
     }
   }
 
@@ -2283,12 +2364,17 @@ export async function startEmbeddingWorker(
     const batchStart = performance.now();
     try {
       await waitForBackgroundPermit('embedding claim');
+      const effectiveClaimBatchSize = await resolveEffectiveClaimBatchSize();
+      if (effectiveClaimBatchSize === null) {
+        await sleep(CLAIM_SIZE_RESOLVER_FAILURE_BACKOFF_MS);
+        return;
+      }
       // Claim a batch of jobs
       const jobs = (await jq.claimMany({
         queue: queueName,
         leaseMs,
         workerId,
-        limit: claimBatchSize,
+        limit: effectiveClaimBatchSize,
       })) as ClaimedJob[];
 
       if (jobs.length === 0) {
@@ -2353,6 +2439,8 @@ export async function startEmbeddingWorker(
         avgDurationMs: Math.round(avgMs),
         concurrency,
         claimBatchSize,
+        effectiveClaimBatchSize: lastClaimBatchSize,
+        effectiveClaimBatchSizeError: lastClaimBatchSizeError,
         interBatchDelayMs,
         queue: queueName,
         modelKey: activeCompositeKey,

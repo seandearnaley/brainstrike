@@ -137,9 +137,11 @@ describe('Embedding Worker - Enhanced Coverage', () => {
       expect(computeInitialBatchSize(1536)).toBeGreaterThan(0);
     });
 
-    it('should use heuristic batching for small dimensions', () => {
-      expect(computeInitialBatchSize(2)).toBe(1);
-      expect(computeInitialBatchSize(10)).toBe(2);
+    it('should keep small embedding requests in one inference batch up to the cap', () => {
+      expect(computeInitialBatchSize(2)).toBe(2);
+      expect(computeInitialBatchSize(4)).toBe(4);
+      expect(computeInitialBatchSize(10)).toBe(10);
+      expect(computeInitialBatchSize(20)).toBe(16);
     });
 
     it('should handle edge case of dimension 0', () => {

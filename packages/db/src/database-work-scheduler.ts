@@ -14,11 +14,13 @@ export interface DatabaseWorkSchedulerSnapshot {
   readonly lastBackgroundYieldAt: number | null;
   readonly lastCompletedAt: number | null;
   readonly lastForegroundAt: number | null;
+  readonly lastNormalAt: number | null;
   readonly lastStartedAt: number | null;
   readonly priorityStats: Record<DatabaseWorkPriority, DatabaseWorkPriorityStats>;
   readonly queued: Record<DatabaseWorkPriority, number>;
   readonly runningLabel: string | null;
   readonly runningPriority: DatabaseWorkPriority | null;
+  readonly snapshotAt: number;
 }
 
 export interface DatabaseWorkPriorityStats {
@@ -267,6 +269,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
   #lastBackgroundYieldAt: number | null = null;
   #lastCompletedAt: number | null = null;
   #lastForegroundAt: number | null = null;
+  #lastNormalAt: number | null = null;
   #lastStartedAt: number | null = null;
   #running = false;
   #runningStartedAt: number | null = null;
@@ -290,11 +293,13 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
       lastBackgroundYieldAt: this.#lastBackgroundYieldAt,
       lastCompletedAt: this.#lastCompletedAt,
       lastForegroundAt: this.#lastForegroundAt,
+      lastNormalAt: this.#lastNormalAt,
       lastStartedAt: this.#lastStartedAt,
       priorityStats: clonePriorityStats(this.#priorityStats),
       queued: createQueuedCounts(this.#queues),
       runningLabel: this.#runningLabel,
       runningPriority: this.#runningPriority,
+      snapshotAt: now,
     };
   }
 
@@ -303,6 +308,9 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     const enqueuedAt = this.#now();
     if (priority === 'foreground') {
       this.#lastForegroundAt = enqueuedAt;
+    }
+    if (priority === 'normal') {
+      this.#lastNormalAt = enqueuedAt;
     }
 
     patchPriorityStat(this.#priorityStats, priority, {
