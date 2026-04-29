@@ -1,0 +1,8 @@
+/*
+ * vector-management source directive
+ * Ensures Tailwind v4 scans this package's components for utility classes.
+ * Without this, classes used only here (e.g. gap-5, min-h-[1.25rem]) are
+ * never generated and the app silently falls back to default styling.
+ */
+
+@source "./src";

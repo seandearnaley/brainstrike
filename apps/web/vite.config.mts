@@ -165,6 +165,10 @@ export default defineConfig({
         __dirname,
         '../../packages/file-explorer-ui/styles.css'
       ),
+      '@brainstrike/vector-management/styles.css': path.resolve(
+        __dirname,
+        '../../packages/vector-management/styles.css'
+      ),
       '@brainstrike/ui/styles.css': path.resolve(__dirname, '../../packages/ui/styles.css'),
       '@brainstrike/ui/globals.css': path.resolve(__dirname, '../../packages/ui/src/globals.css'),
       // Source alias to ensure consistent React Compiler transforms and HMR
