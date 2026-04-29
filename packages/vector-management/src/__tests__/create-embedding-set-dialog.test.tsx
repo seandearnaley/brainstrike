@@ -357,6 +357,58 @@ describe('CreateEmbeddingSetDialog', () => {
     expect(slot.className).toMatch(/min-h-\[/);
   });
 
+  it('does not render the padlock / cost badge under the model picker for any model', async () => {
+    // Models cover both cases: a hosted model with a price AND a local model.
+    // The slot must never render the badge prefix in either case.
+    const modelsWithPrice: ModelPickerModel[] = [
+      {
+        id: 'openai::text-embedding-3-small',
+        modelId: 'text-embedding-3-small',
+        providerId: 'openai',
+        name: 'Text Embedding 3 Small',
+        description: 'Efficient embedding model',
+        pricePer1MTokensInput: 0.02,
+        capabilities: { type: 'embedding', defaultDimension: 1536 },
+      },
+      {
+        id: 'local::Xenova/all-MiniLM-L6-v2',
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        providerId: 'local',
+        name: 'all-MiniLM-L6-v2',
+        description: 'Local embedding model',
+        capabilities: { type: 'embedding', defaultDimension: 384 },
+      },
+    ];
+
+    const user = userEvent.setup({ delay: null });
+    render(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          models={modelsWithPrice}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={mockProviders}
+          repository={mockRepository}
+        />
+      </>
+    );
+
+    await screen.findByDisplayValue('Text Embedding 3 Small');
+    const slot = screen.getByTestId('model-picker-description-slot');
+
+    // Hosted model with a price: must NOT show the cost badge.
+    expect(slot.textContent ?? '').not.toMatch(/🔒|💰|Free \(local\)|\/1M tokens/);
+
+    // Switch to the local model — must NOT show the padlock badge either.
+    await user.selectOptions(
+      screen.getByTestId('model-picker-select'),
+      'local::Xenova/all-MiniLM-L6-v2'
+    );
+    expect(slot.textContent ?? '').not.toMatch(/🔒|💰|Free \(local\)|\/1M tokens/);
+  });
+
   it('gives the dialog header right-side gutter so the close X cannot overlap the title', () => {
     render(
       <CreateEmbeddingSetDialog

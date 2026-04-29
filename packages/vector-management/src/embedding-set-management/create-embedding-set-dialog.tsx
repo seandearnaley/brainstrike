@@ -336,23 +336,10 @@ export function CreateEmbeddingSetDialog({
     }
   };
 
-  const formatModelDescription = (model: ModelPickerModel) => {
-    const parts: string[] = [];
-
-    // Add cost indicator
-    if (model.pricePer1MTokensInput !== undefined) {
-      parts.push(`💰 $${model.pricePer1MTokensInput.toFixed(2)}/1M tokens`);
-    } else if (model.providerId === 'local' || model.providerId === 'transformers') {
-      parts.push('🔒 Free (local)');
-    }
-
-    // Add model description if available
-    if (model.description) {
-      parts.push(model.description);
-    }
-
-    return parts.join(' · ');
-  };
+  // Picker dropdown already groups models by provider, so the cost / "Free (local)"
+  // prefix was redundant — and its conditional presence read as a layout shift.
+  // Show only the model's own description when available.
+  const formatModelDescription = (model: ModelPickerModel) => model.description ?? '';
 
   const canSubmit =
     !creating && hasModelOptions && Boolean(formData.selectedModel) && formData.name.trim() !== '';
