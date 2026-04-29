@@ -1009,8 +1009,10 @@ export async function startEmbeddingWorker(
   workerLogger.info('startEmbeddingWorker: START', {
     hasDb: !!options.db,
     modelKey: options.modelKey,
+    claimBatchSize: options.claimBatchSize,
     concurrency: options.concurrency,
     device: options.device,
+    interBatchDelayMs: options.interBatchDelayMs,
   });
 
   const log =

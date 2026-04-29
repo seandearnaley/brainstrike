@@ -61,7 +61,7 @@ describe('createEmbeddingWorkerConfig', () => {
 
     expect(config).toMatchObject({
       db: scheduledDb,
-      claimBatchSize: 4,
+      claimBatchSize: 16,
       concurrency: 1,
       interBatchDelayMs: 75,
       leaseMs: 60_000,
@@ -78,7 +78,7 @@ describe('createEmbeddingWorkerConfig', () => {
 
     const config = createEmbeddingWorkerConfig(scheduledDb as never);
 
-    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(4);
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
   });
 
   it('shares a recent Electron scheduler snapshot between permit and claim-size checks', async () => {
@@ -97,7 +97,7 @@ describe('createEmbeddingWorkerConfig', () => {
     const config = createEmbeddingWorkerConfig({ query: vi.fn() } as never);
 
     await config.waitForBackgroundPermit?.({ label: 'embedding claim' });
-    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(4);
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
 
     expect(schedulerSnapshot).toHaveBeenCalledTimes(1);
   });
@@ -132,7 +132,7 @@ describe('createEmbeddingWorkerConfig', () => {
 
       const config = createEmbeddingWorkerConfig({ query: vi.fn() } as never);
 
-      await expect(config.resolveClaimBatchSize?.()).resolves.toBe(4);
+      await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
       vi.setSystemTime(1011);
       await expect(config.resolveClaimBatchSize?.()).rejects.toThrow('scheduler unavailable');
       await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
@@ -281,7 +281,7 @@ describe('createEmbeddingWorkerConfig', () => {
 
     const config = createEmbeddingWorkerConfig(scheduledDb as never);
 
-    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(4);
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
   });
 
   it('uses configured env vars and forwards logs and download progress updates', () => {
