@@ -113,6 +113,11 @@ export function resolveNetworkIdleTimeout(isCI: boolean): number {
 
 type DatabaseReadyState = 'connected' | 'disconnected';
 
+export interface WaitForAppLoadOptions {
+  readonly timeoutMs?: number;
+  readonly waitForDatabase?: boolean;
+}
+
 export async function waitForDatabaseReady(page: Page, timeout = 10_000): Promise<void> {
   const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
   const effectiveTimeout = resolveWaitForAppLoadTimeout(timeout, isCI);
@@ -238,13 +243,17 @@ export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promi
  * In CI with vite preview (production build), React needs time to hydrate after
  * the initial HTML loads. This function handles the full hydration cycle.
  */
-export async function waitForAppLoad(page: Page, timeout = 10_000) {
+export async function waitForAppLoad(
+  page: Page,
+  options: WaitForAppLoadOptions = {}
+): Promise<void> {
+  const { timeoutMs = 10_000, waitForDatabase = true } = options;
   const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
   // Contract:
   // - Local runs use a 20s floor to tolerate hydration + initial panel layout.
   // - CI runs use a 55s floor for slower runners and production bundle startup.
   // Caller-provided timeout can only raise these floors, never lower them.
-  const effectiveTimeout = resolveWaitForAppLoadTimeout(timeout, isCI);
+  const effectiveTimeout = resolveWaitForAppLoadTimeout(timeoutMs, isCI);
   const panelReadySelector = [
     AGENT_MIDDLE_PANEL_SELECTOR,
     AGENT_MAIN_PANEL_SELECTOR,
@@ -275,23 +284,26 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
   // Using 'load' instead of 'domcontentloaded' to ensure JS has loaded
   await page.waitForLoadState('load', { timeout: effectiveTimeout });
 
-  // Best-effort wait for network to settle - important for production builds
-  // that may have deferred script loading. Use short timeout since apps with
-  // background workers often never reach networkidle state.
-  const networkIdleTimeout = resolveNetworkIdleTimeout(isCI);
-  await page.waitForLoadState('networkidle', { timeout: networkIdleTimeout }).catch((error) => {
-    // networkidle timeout is expected when app has background activity - continue
-    if (isCI) {
-      const errorMessage = resolveErrorMessage(error);
-      console.warn(
-        `[waitForAppLoad] networkidle wait exceeded ${networkIdleTimeout}ms; continuing. ${errorMessage}`
-      );
-      logWarn('waitForAppLoad networkidle timeout', {
-        timeoutMs: networkIdleTimeout,
-        error: errorMessage,
-      });
-    }
-  });
+  if (waitForDatabase) {
+    // Best-effort wait for network to settle - important for production builds
+    // that may have deferred script loading. Shell-only tests intentionally skip
+    // this because greenfield DB worker startup keeps background network work
+    // alive and can consume the entire Playwright test budget.
+    const networkIdleTimeout = resolveNetworkIdleTimeout(isCI);
+    await page.waitForLoadState('networkidle', { timeout: networkIdleTimeout }).catch((error) => {
+      // networkidle timeout is expected when app has background activity - continue
+      if (isCI) {
+        const errorMessage = resolveErrorMessage(error);
+        console.warn(
+          `[waitForAppLoad] networkidle wait exceeded ${networkIdleTimeout}ms; continuing. ${errorMessage}`
+        );
+        logWarn('waitForAppLoad networkidle timeout', {
+          timeoutMs: networkIdleTimeout,
+          error: errorMessage,
+        });
+      }
+    });
+  }
 
   // Wait for the main layout structure to be present
   // Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
@@ -354,7 +366,9 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
       // The readiness selector above already validated visible app content.
     });
 
-  await waitForDatabaseReady(page, timeout);
+  if (waitForDatabase) {
+    await waitForDatabaseReady(page, timeoutMs);
+  }
 }
 
 /**
@@ -403,7 +417,10 @@ export async function activateSidebarNavigation(
 /**
  * Clear layout state and reload page with clean state
  */
-export async function resetLayoutState(page: Page): Promise<void> {
+export async function resetLayoutState(
+  page: Page,
+  options: WaitForAppLoadOptions = {}
+): Promise<void> {
   await page.evaluate(() => {
     localStorage.removeItem('brainstrike.agent-sidebar-tab.v1');
     localStorage.removeItem('panel-layout-store.v1');
@@ -413,7 +430,7 @@ export async function resetLayoutState(page: Page): Promise<void> {
   // Wait for the page to finish navigating before continuing.
   // Using 'load' to ensure JS bundles are loaded before checking React elements.
   await page.reload({ waitUntil: 'load' });
-  await waitForAppLoad(page);
+  await waitForAppLoad(page, options);
 }
 
 /**

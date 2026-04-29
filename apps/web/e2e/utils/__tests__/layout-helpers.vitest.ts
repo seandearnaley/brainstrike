@@ -65,7 +65,7 @@ describe('layout-helpers (unit)', () => {
       // CI debug listeners (no-op in unit tests)
       on: vi.fn(),
     } as unknown as Page;
-    await waitForAppLoad(page, 10_000);
+    await waitForAppLoad(page, { timeoutMs: 10_000 });
     // Using 'load' instead of 'domcontentloaded' to ensure JS bundles are loaded
     // before checking React elements (important for CI with vite preview)
     expect(loadStates).toContain('load');
@@ -85,6 +85,48 @@ describe('layout-helpers (unit)', () => {
           selector.includes('#main-content-panel')
       )
     ).toBe(true);
+    expect(page.waitForFunction).toHaveBeenCalled();
+  });
+
+  it('waitForAppLoad can wait for shell readiness without blocking on database startup', async () => {
+    const loadStates: string[] = [];
+    const page = {
+      waitForLoadState: vi.fn(async (state: string) => void loadStates.push(state)),
+      waitForSelector: vi.fn(async () => undefined),
+      waitForFunction: vi.fn(async () => ({
+        dispose: vi.fn(async () => undefined),
+        jsonValue: vi.fn(async () => 'connected'),
+      })),
+      on: vi.fn(),
+    } as unknown as Page;
+
+    await waitForAppLoad(page, { waitForDatabase: false });
+
+    expect(page.waitForLoadState).toHaveBeenCalledWith('load', expect.any(Object));
+    expect(loadStates).not.toContain('networkidle');
+    expect(page.waitForSelector).toHaveBeenCalled();
+    expect(page.waitForFunction).not.toHaveBeenCalled();
+  });
+
+  it('waitForAppLoad accepts timeout inside the options object', async () => {
+    const page = {
+      waitForLoadState: vi.fn(async () => undefined),
+      waitForSelector: vi.fn(async () => undefined),
+      waitForFunction: vi.fn(async () => ({
+        dispose: vi.fn(async () => undefined),
+        jsonValue: vi.fn(async () => 'connected'),
+      })),
+      on: vi.fn(),
+    } as unknown as Page;
+
+    await withCiEnv(false, () =>
+      waitForAppLoad(page, {
+        timeoutMs: 30_000,
+        waitForDatabase: false,
+      })
+    );
+
+    expect(page.waitForLoadState).toHaveBeenCalledWith('load', { timeout: 30_000 });
   });
 
   it('enforces timeout floors for local and CI app load waits', () => {
@@ -115,7 +157,7 @@ describe('layout-helpers (unit)', () => {
     } as unknown as Page;
 
     try {
-      await withCiEnv(true, () => waitForAppLoad(page, 10_000));
+      await withCiEnv(true, () => waitForAppLoad(page, { timeoutMs: 10_000 }));
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('main-content selector missing after readiness check')
       );

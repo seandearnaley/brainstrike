@@ -5,6 +5,7 @@ import {
 import type { FileToIndex } from '@brainstrike/token-cache/background-indexer';
 import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
+import { addLogListener, LogLevel } from '@brainstrike/utils/logger';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileTreeIndexContextValue } from '../file-tree-provider';
@@ -850,6 +851,65 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
       expect(indexFilesMock).toHaveBeenCalledTimes(2);
       expect(indexFilesMock.mock.calls[1]?.[0]).toHaveLength(8);
+    });
+
+    it('summarizes large Electron token indexing at info without per-batch info logs', async () => {
+      const { keys } = createElectronTree(257);
+      const infoMessages: string[] = [];
+      const unsubscribe = addLogListener((record) => {
+        if (
+          record.level === LogLevel.INFO &&
+          record.scope === 'BackgroundTokenIndexerIntegration'
+        ) {
+          infoMessages.push(record.message ?? '');
+        }
+      });
+      const electronFileReader = vi.fn(async () => 'content');
+      mockFileTreeIndexContext = {
+        getHandle: vi.fn((_folderId, path) => ({
+          electronHandle: {
+            kind: 'file' as const,
+            name: path,
+            path: `/repo/${path}`,
+            platform: 'electron' as const,
+          },
+          fileName: path,
+          fileSize: 128,
+        })),
+        getNode: vi.fn(() => undefined),
+        stats: { totalDirectories: 0, totalFiles: 257, totalNodes: 257 },
+        version: 1,
+      };
+
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: [],
+          selectedFiles: new Set(),
+          electronFileReader,
+          onTokenResolved: vi.fn(),
+        })
+      );
+
+      try {
+        await act(async () => {
+          const indexing = result.current.triggerIndexing(keys);
+          await vi.runAllTimersAsync();
+          await indexing;
+        });
+      } finally {
+        unsubscribe();
+      }
+
+      expect(
+        infoMessages.filter(
+          (message) => message === 'Background token indexing dispatched Electron batch'
+        )
+      ).toHaveLength(0);
+      expect(
+        infoMessages.filter(
+          (message) => message === 'Background token indexing dispatched Electron batches'
+        )
+      ).toHaveLength(1);
     });
 
     it('dispatches selection-driven token counting even while embedding is active', () => {

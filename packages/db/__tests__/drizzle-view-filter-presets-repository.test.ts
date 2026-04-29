@@ -26,49 +26,34 @@ describe('DrizzleViewFilterPresetsRepository', () => {
   });
 
   it('finds defaults and sorts them by sort order', async () => {
-    await db.insert(viewFilterPresets).values([
-      {
-        id: '00000000-0000-0000-0000-000000000101',
-        name: 'Default A',
-        description: null,
-        icon: 'file',
-        includes: ['*.ts'],
-        excludes: [],
-        useRegex: false,
-        isDefault: true,
-        sortOrder: 2,
-      },
-      {
-        id: '00000000-0000-0000-0000-000000000102',
-        name: 'Default B',
-        description: null,
-        icon: 'file-code',
-        includes: ['*.tsx'],
-        excludes: [],
-        useRegex: false,
-        isDefault: true,
-        sortOrder: 1,
-      },
-      {
-        id: '00000000-0000-0000-0000-000000000103',
-        name: 'Custom',
-        description: null,
-        icon: 'settings',
-        includes: ['*.json'],
-        excludes: [],
-        useRegex: false,
-        isDefault: false,
-        sortOrder: 3,
-      },
-    ]);
+    await db.insert(viewFilterPresets).values({
+      id: '00000000-0000-0000-0000-000000000103',
+      name: 'Custom',
+      description: null,
+      icon: 'settings',
+      includes: ['*.json'],
+      excludes: [],
+      useRegex: false,
+      isDefault: false,
+      sortOrder: 8,
+    });
 
     const defaults = await repository.getDefaults();
     const all = await repository.findAll();
 
-    expect(defaults.length).toBe(2);
+    expect(defaults.length).toBe(7);
     expect(defaults.every((preset) => preset.isDefault)).toBe(true);
-    expect(defaults.map((preset) => preset.sortOrder)).toEqual([1, 2]);
-    expect(all.length).toBe(3);
+    expect(defaults.map((preset) => preset.name)).toEqual([
+      'TypeScript/JavaScript',
+      'All Code',
+      'Documentation',
+      'Config Files',
+      'Styles',
+      'Tests',
+      'All Files',
+    ]);
+    expect(defaults.map((preset) => preset.sortOrder)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(all.length).toBe(8);
   });
 
   it('creates presets with defaults and increments sort order from existing rows', async () => {
@@ -82,7 +67,7 @@ describe('DrizzleViewFilterPresetsRepository', () => {
     expect(created.icon).toBe('file');
     expect(created.useRegex).toBe(false);
     expect(created.isDefault).toBe(false);
-    expect(created.sortOrder).toBe(1);
+    expect(created.sortOrder).toBe(8);
 
     const createdSecond = await repository.create({
       name: 'Regex Preset',
@@ -93,7 +78,7 @@ describe('DrizzleViewFilterPresetsRepository', () => {
       useRegex: true,
     });
 
-    expect(createdSecond.sortOrder).toBe(2);
+    expect(createdSecond.sortOrder).toBe(9);
     expect(createdSecond.description).toBe('Regex only');
     expect(createdSecond.icon).toBe('flask-conical');
     expect(createdSecond.useRegex).toBe(true);

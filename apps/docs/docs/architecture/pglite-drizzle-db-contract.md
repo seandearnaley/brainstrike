@@ -5,7 +5,8 @@ title: PGlite and Drizzle DB Contract
 # PGlite and Drizzle DB Contract
 
 This note records the current database runtime baseline after the desktop DB host,
-web PGliteWorker host, and Drizzle schema compatibility audit work.
+web PGliteWorker host, Drizzle schema compatibility audit, and greenfield
+Drizzle migration cutover work.
 
 ## Current Runtime Ownership
 
@@ -27,27 +28,21 @@ connections.
 
 ## Migration Authority
 
-The legacy MigrationRunner remains the production migration authority.
-Production initialization records applied migrations in `_migrations`.
+Drizzle migration runner is the production migration authority. Greenfield
+runtime initialization records applied migrations in `__drizzle_migrations`.
 
-Drizzle migration runner remains schema-validation-only. It writes
-`__drizzle_migrations` only in explicit validation contexts, not in runtime
-startup. Promotion to production is currently
-`blocked-by-production-schema-drift`: generated Drizzle migrations still create
-core runtime tables with incompatible ID, timestamp, and queue payload types.
-
-No runtime may introduce silent dual-ledger migration behavior. If
-`__drizzle_migrations` exists on the production bootstrap path, startup fails
-hard with actionable diagnostics rather than guessing which ledger is
-authoritative.
+Brainstrike is still greenfield, so no user data has to be migrated from the
+legacy hand-authored migration ledger. A legacy `_migrations` database is
+reset-required: startup fails hard and asks for a fresh database instead of
+bridging, guessing, or silently running dual ledgers.
 
 ## Provider/Model Catalog Drift
 
 The hand-authored app migrations create and seed the provider/model catalog with
 `providers/models`.
 
-Drizzle schema now maps the production `providers/models` tables, so repository
-work can use the production catalog shape without depending on the old
+Drizzle schema maps the production `providers/models` tables, so repository work
+can use the production catalog shape without depending on the old
 `model_registry` spike table.
 
 The generated Drizzle migration manifest now ends with `providers/models` as the
@@ -58,9 +53,10 @@ The coded baseline records this as
 `schema-and-manifest-reconciled`: production schema is represented in Drizzle
 code and in the final generated Drizzle manifest shape for these catalog tables.
 
-This does not mean the full generated Drizzle migration manifest is production
-compatible. The migration authority audit separately blocks Drizzle promotion
-until the core file, collection, and job queue table shapes match production.
+The full generated Drizzle migration manifest matches the audited
+production-compatible shape for the core file, collection, job queue, token
+cache, and legacy relationship tables. Drizzle production authority is active
+for fresh runtime databases.
 
 ## Required Contract
 

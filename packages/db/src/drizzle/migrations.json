@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-29T02:10:48.683Z",
+  "generatedAt": "2026-04-29T11:31:29.013Z",
   "finalSnapshotColumnTypes": {
     "collection_indexing_stats": {
       "chunk_count": "integer",
@@ -24,11 +24,11 @@
     "embedding_sets": {
       "allow_duplicates": "boolean",
       "category": "text",
-      "created_at": "timestamp with time zone",
+      "created_at": "text",
       "description": "text",
       "dimensions": "integer",
       "distance": "text",
-      "id": "uuid",
+      "id": "text",
       "model_id": "text",
       "model_key": "text",
       "name": "text",
@@ -41,62 +41,76 @@
       "content": "text",
       "content_hash": "text",
       "content_tsvector": "tsvector",
-      "created_at": "timestamp with time zone",
+      "created_at": "text",
       "embedding": "vector",
       "embedding_hash": "text",
-      "embedding_set_id": "uuid",
-      "embedding_updated_at": "timestamp with time zone",
-      "file_record_id": "uuid",
-      "id": "uuid",
+      "embedding_set_id": "text",
+      "embedding_updated_at": "text",
+      "file_record_id": "text",
+      "id": "text",
       "token_count": "integer",
-      "updated_at": "timestamp with time zone"
+      "updated_at": "text"
     },
     "file_records": {
       "chunking_strategy": "text",
       "chunks_count": "integer",
-      "chunks_processed_at": "timestamp with time zone",
+      "chunks_processed_at": "text",
       "content": "text",
       "content_hash": "text",
-      "created_at": "timestamp with time zone",
-      "embedding_set_id": "uuid",
-      "id": "uuid",
+      "created_at": "text",
+      "embedding_set_id": "text",
+      "id": "text",
       "name": "text",
       "path": "text",
-      "processed_at": "timestamp with time zone",
+      "processed_at": "text",
       "size": "integer",
       "source_root_path": "text",
       "token_count": "integer",
-      "updated_at": "timestamp with time zone"
+      "updated_at": "text"
+    },
+    "file_relationships": {
+      "created_at": "text",
+      "id": "text",
+      "metadata": "jsonb",
+      "relationship_type": "text",
+      "source_id": "text",
+      "target_id": "text"
+    },
+    "file_tags": {
+      "created_at": "text",
+      "file_id": "text",
+      "id": "text",
+      "tag": "text"
     },
     "file_token_cache": {
       "content_hash": "text",
       "counting_mode": "text",
       "created_at": "text",
       "file_path": "text",
-      "file_size": "text",
+      "file_size": "bigint",
       "folder_id": "text",
       "id": "integer",
       "model_encoding": "text",
-      "mtime_ms": "text",
+      "mtime_ms": "bigint",
       "token_count": "integer",
       "updated_at": "text"
     },
     "job_queue": {
       "attempts": "integer",
       "backoff_ms": "integer",
-      "created_at": "timestamp with time zone",
+      "created_at": "text",
       "dedupe_key": "text",
       "error": "text",
-      "id": "uuid",
+      "id": "text",
       "job_type": "text",
       "lease_token": "text",
-      "leased_until": "timestamp with time zone",
+      "leased_until": "text",
       "max_attempts": "integer",
-      "payload": "text",
+      "payload": "jsonb",
       "queue": "text",
-      "run_at": "timestamp with time zone",
+      "run_at": "text",
       "state": "text",
-      "updated_at": "timestamp with time zone",
+      "updated_at": "text",
       "worker_id": "text"
     },
     "models": {
@@ -159,6 +173,8 @@
     "embedding_sets",
     "file_chunks",
     "file_records",
+    "file_relationships",
+    "file_tags",
     "file_token_cache",
     "job_queue",
     "models",
@@ -178,8 +194,8 @@
     {
       "version": "7",
       "name": "0001_magical_sentinel",
-      "sql": "CREATE TABLE \"file_token_cache\" (\n\t\"id\" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name \"file_token_cache_id_seq\" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),\n\t\"folder_id\" text NOT NULL,\n\t\"file_path\" text NOT NULL,\n\t\"content_hash\" text NOT NULL,\n\t\"file_size\" text NOT NULL,\n\t\"mtime_ms\" text,\n\t\"token_count\" integer NOT NULL,\n\t\"counting_mode\" text NOT NULL,\n\t\"model_encoding\" text,\n\t\"created_at\" text DEFAULT 'CURRENT_TIMESTAMP' NOT NULL,\n\t\"updated_at\" text DEFAULT 'CURRENT_TIMESTAMP' NOT NULL\n);\n--> statement-breakpoint\nCREATE INDEX \"idx_file_token_cache_lookup\" ON \"file_token_cache\" USING btree (\"folder_id\",\"file_path\");--> statement-breakpoint\nCREATE INDEX \"idx_file_token_cache_hash\" ON \"file_token_cache\" USING btree (\"content_hash\");--> statement-breakpoint\nCREATE INDEX \"idx_file_token_cache_folder\" ON \"file_token_cache\" USING btree (\"folder_id\");--> statement-breakpoint\nCREATE INDEX \"idx_file_token_cache_mode\" ON \"file_token_cache\" USING btree (\"folder_id\",\"counting_mode\");",
-      "hash": "5145d47f81fab2dfcd7cc142f5556cf901b20c5493fe08cfd5020139353a2541"
+      "sql": "CREATE TABLE \"file_token_cache\" (\n\t\"id\" integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name \"file_token_cache_id_seq\" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),\n\t\"folder_id\" text NOT NULL,\n\t\"file_path\" text NOT NULL,\n\t\"content_hash\" text NOT NULL,\n\t\"file_size\" text NOT NULL,\n\t\"mtime_ms\" text,\n\t\"token_count\" integer NOT NULL,\n\t\"counting_mode\" text NOT NULL,\n\t\"model_encoding\" text,\n\t\"created_at\" text DEFAULT to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') NOT NULL,\n\t\"updated_at\" text DEFAULT to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') NOT NULL\n);\n--> statement-breakpoint\nCREATE INDEX \"idx_file_token_cache_lookup\" ON \"file_token_cache\" USING btree (\"folder_id\",\"file_path\");--> statement-breakpoint\nCREATE INDEX \"idx_file_token_cache_hash\" ON \"file_token_cache\" USING btree (\"content_hash\");--> statement-breakpoint\nCREATE INDEX \"idx_file_token_cache_folder\" ON \"file_token_cache\" USING btree (\"folder_id\");--> statement-breakpoint\nCREATE INDEX \"idx_file_token_cache_mode\" ON \"file_token_cache\" USING btree (\"folder_id\",\"counting_mode\");",
+      "hash": "140586ce491d1f878e91141fd20e14af5b4bbab4b04474ed8d9f4683e7c8d141"
     },
     {
       "version": "7",
@@ -234,6 +250,12 @@
       "name": "0010_harsh_titanium_man",
       "sql": "ALTER TABLE \"models\" ALTER COLUMN \"created_at\" DROP DEFAULT;--> statement-breakpoint\nALTER TABLE \"models\" ALTER COLUMN \"created_at\" SET DATA TYPE timestamp with time zone USING \"created_at\"::timestamp with time zone;--> statement-breakpoint\nALTER TABLE \"models\" ALTER COLUMN \"created_at\" SET DEFAULT now();--> statement-breakpoint\nALTER TABLE \"models\" ALTER COLUMN \"updated_at\" DROP DEFAULT;--> statement-breakpoint\nALTER TABLE \"models\" ALTER COLUMN \"updated_at\" SET DATA TYPE timestamp with time zone USING \"updated_at\"::timestamp with time zone;--> statement-breakpoint\nALTER TABLE \"models\" ALTER COLUMN \"updated_at\" SET DEFAULT now();--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"created_at\" DROP DEFAULT;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"created_at\" SET DATA TYPE timestamp with time zone USING \"created_at\"::timestamp with time zone;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"created_at\" SET DEFAULT now();--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"updated_at\" DROP DEFAULT;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"updated_at\" SET DATA TYPE timestamp with time zone USING \"updated_at\"::timestamp with time zone;--> statement-breakpoint\nALTER TABLE \"providers\" ALTER COLUMN \"updated_at\" SET DEFAULT now();\n",
       "hash": "8b2ca684a2d6478bfa77788c830b262af1dece8c3f22ee0631cf2a4a62ba7fc8"
+    },
+    {
+      "version": "7",
+      "name": "0011_exotic_nicolaos",
+      "sql": "CREATE TABLE \"file_relationships\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"source_id\" text NOT NULL,\n\t\"target_id\" text NOT NULL,\n\t\"relationship_type\" text NOT NULL,\n\t\"metadata\" jsonb,\n\t\"created_at\" text DEFAULT to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') NOT NULL\n);\n--> statement-breakpoint\nCREATE TABLE \"file_tags\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"file_id\" text NOT NULL,\n\t\"tag\" text NOT NULL,\n\t\"created_at\" text DEFAULT to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') NOT NULL\n);\n--> statement-breakpoint\nALTER TABLE \"file_chunks\" DROP CONSTRAINT IF EXISTS \"file_chunks_file_record_id_file_records_id_fk\";--> statement-breakpoint\nALTER TABLE \"embedding_sets\" ALTER COLUMN \"id\" SET DATA TYPE text;--> statement-breakpoint\nALTER TABLE \"embedding_sets\" ALTER COLUMN \"id\" DROP DEFAULT;--> statement-breakpoint\nALTER TABLE \"embedding_sets\" ALTER COLUMN \"created_at\" SET DATA TYPE text;--> statement-breakpoint\nALTER TABLE \"embedding_sets\" ALTER COLUMN \"created_at\" SET DEFAULT to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"');--> statement-breakpoint\nALTER TABLE \"file_chunks\" ALTER COLUMN \"id\" SET DATA TYPE text;--> statement-breakpoint\nALTER TABLE \"file_chunks\" ALTER COLUMN \"id\" DROP DEFAULT;--> statement-breakpoint\nALTER TABLE \"file_chunks\" ALTER COLUMN \"file_record_id\" SET DATA TYPE text;--> statement-breakpoint\nALTER TABLE \"file_chunks\" ALTER COLUMN \"embedding_set_id\" SET DATA TYPE text;--> statement-breakpoint\nALTER TABLE \"file_chunks\" ALTER COLUMN \"embedding_updated_at\" SET DATA TYPE text;--> statement-breakpoint\nALTER TABLE \"file_chunks\" ALTER COLUMN \"created_at\" SET DATA TYPE text;--> statement-breakpoint\nALTER TABLE \"file_chunks\" ALTER COLUMN \"created_at\" SET DEFAULT to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"');--> statement-breakpoint\nALTER TABLE \"file_chunks\" ALTER COLUMN \"updated_at\" SET DATA TYPE text;--> statement-breakpoint\nALTER TABLE \"file_chunks\" ALTER COLUMN \"updated_at\" SET DEFAULT to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"');--> statement-breakpoint\nALTER TABLE \"file_records\" ALTER COLUMN \"id\" SET DATA TYPE text;--> statement-breakpoint\nALTER TABLE \"file_records\" ALTER COLUMN \"id\" DROP DEFAULT;--> statement-breakpoint\nALTER TABLE \"file_records\" ALTER COLUMN \"created_at\" SET DATA TYPE text;--> statement-breakpoint\nALTER TABLE \"file_records\" ALTER COLUMN \"created_at\" SET DEFAULT to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"');--> statement-breakpoint\nALTER TABLE \"file_records\" ALTER COLUMN \"updated_at\" SET DATA TYPE text;--> statement-breakpoint\nALTER TABLE \"file_records\" ALTER COLUMN \"updated_at\" SET DEFAULT to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"');--> statement-breakpoint\nALTER TABLE \"file_records\" ALTER COLUMN \"processed_at\" SET DATA TYPE text;--> statement-breakpoint\nALTER TABLE \"file_records\" ALTER COLUMN \"embedding_set_id\" SET DATA TYPE text;--> statement-breakpoint\nALTER TABLE \"file_records\" ALTER COLUMN \"chunks_processed_at\" SET DATA TYPE text;--> statement-breakpoint\nALTER TABLE \"file_token_cache\" ALTER COLUMN \"file_size\" SET DATA TYPE bigint USING \"file_size\"::bigint;--> statement-breakpoint\nALTER TABLE \"file_token_cache\" ALTER COLUMN \"mtime_ms\" SET DATA TYPE bigint USING \"mtime_ms\"::bigint;--> statement-breakpoint\nALTER TABLE \"job_queue\" ALTER COLUMN \"id\" SET DATA TYPE text;--> statement-breakpoint\nALTER TABLE \"job_queue\" ALTER COLUMN \"id\" DROP DEFAULT;--> statement-breakpoint\nALTER TABLE \"job_queue\" ALTER COLUMN \"payload\" SET DATA TYPE jsonb USING \"payload\"::jsonb;--> statement-breakpoint\nALTER TABLE \"job_queue\" ALTER COLUMN \"payload\" DROP NOT NULL;--> statement-breakpoint\nALTER TABLE \"job_queue\" ALTER COLUMN \"run_at\" SET DATA TYPE text;--> statement-breakpoint\nALTER TABLE \"job_queue\" ALTER COLUMN \"run_at\" SET DEFAULT to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"');--> statement-breakpoint\nALTER TABLE \"job_queue\" ALTER COLUMN \"max_attempts\" SET DEFAULT 5;--> statement-breakpoint\nALTER TABLE \"job_queue\" ALTER COLUMN \"backoff_ms\" SET DEFAULT 0;--> statement-breakpoint\nALTER TABLE \"job_queue\" ALTER COLUMN \"leased_until\" SET DATA TYPE text;--> statement-breakpoint\nALTER TABLE \"job_queue\" ALTER COLUMN \"created_at\" SET DATA TYPE text;--> statement-breakpoint\nALTER TABLE \"job_queue\" ALTER COLUMN \"created_at\" SET DEFAULT to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"');--> statement-breakpoint\nALTER TABLE \"job_queue\" ALTER COLUMN \"updated_at\" SET DATA TYPE text;--> statement-breakpoint\nALTER TABLE \"job_queue\" ALTER COLUMN \"updated_at\" SET DEFAULT to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"');--> statement-breakpoint\nALTER TABLE \"file_chunks\" ADD CONSTRAINT \"file_chunks_file_record_id_file_records_id_fk\" FOREIGN KEY (\"file_record_id\") REFERENCES \"public\".\"file_records\"(\"id\") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint\nALTER TABLE \"file_relationships\" ADD CONSTRAINT \"file_relationships_source_id_file_records_id_fk\" FOREIGN KEY (\"source_id\") REFERENCES \"public\".\"file_records\"(\"id\") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint\nALTER TABLE \"file_relationships\" ADD CONSTRAINT \"file_relationships_target_id_file_records_id_fk\" FOREIGN KEY (\"target_id\") REFERENCES \"public\".\"file_records\"(\"id\") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint\nALTER TABLE \"file_tags\" ADD CONSTRAINT \"file_tags_file_id_file_records_id_fk\" FOREIGN KEY (\"file_id\") REFERENCES \"public\".\"file_records\"(\"id\") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint\nCREATE INDEX \"idx_file_relationships_source\" ON \"file_relationships\" USING btree (\"source_id\");--> statement-breakpoint\nCREATE INDEX \"idx_file_relationships_target\" ON \"file_relationships\" USING btree (\"target_id\");--> statement-breakpoint\nCREATE INDEX \"idx_file_relationships_type\" ON \"file_relationships\" USING btree (\"relationship_type\");--> statement-breakpoint\nCREATE UNIQUE INDEX \"idx_file_relationships_unique\" ON \"file_relationships\" USING btree (\"source_id\",\"target_id\",\"relationship_type\");--> statement-breakpoint\nCREATE UNIQUE INDEX \"idx_file_tags_unique\" ON \"file_tags\" USING btree (\"file_id\",\"tag\");--> statement-breakpoint\nCREATE INDEX \"idx_file_tags_tag\" ON \"file_tags\" USING btree (\"tag\");\n",
+      "hash": "f8fd5b309aff5102dc8e2cf99701a777be2d3828b7fee7843586c04f7236873e"
     }
   ]
 }

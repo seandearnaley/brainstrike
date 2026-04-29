@@ -18,16 +18,16 @@ describe('Brainstrike DB runtime baseline', () => {
     );
   });
 
-  it('records that Drizzle migrations are blocked from production authority until compatible', () => {
+  it('records Drizzle as the greenfield production migration authority', () => {
     expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.migrations.productionAuthority).toBe(
-      'legacy-migration-runner'
+      'drizzle-migration-runner'
     );
-    expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.migrations.productionLedger).toBe('_migrations');
+    expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.migrations.productionLedger).toBe(
+      '__drizzle_migrations'
+    );
     expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.migrations.drizzleLedger).toBe('__drizzle_migrations');
-    expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.migrations.drizzlePromotionGate).toBe(
-      'blocked-by-production-schema-drift'
-    );
-    expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.migrations.drizzleIsProductionCanonical).toBe(false);
+    expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.migrations.legacyLedgerPolicy).toBe('reset-required');
+    expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.migrations.drizzleIsProductionCanonical).toBe(true);
   });
 
   it('records known schema drift between hand-authored migrations and Drizzle schema', () => {
@@ -62,15 +62,15 @@ describe('Brainstrike DB runtime baseline', () => {
     expect(doc).toContain('utilityProcess DB host');
     expect(doc).toContain('Web owns PGlite in a browser PGliteWorker DB host');
     expect(doc).toContain('Direct PGlite remains scoped to tests, memory-only databases');
-    expect(doc).toContain('legacy MigrationRunner remains the production migration authority');
-    expect(doc).toContain('Drizzle migration runner remains schema-validation-only');
-    expect(doc).toContain('blocked-by-production-schema-drift');
+    expect(doc).toContain('Drizzle migration runner is the production migration authority');
+    expect(doc).toContain('runtime initialization records applied migrations');
+    expect(doc).toContain('legacy `_migrations` database is\nreset-required');
     expect(doc).toContain('_migrations');
     expect(doc).toContain('__drizzle_migrations');
     expect(doc).toContain('The execution client covers:');
     expect(doc).toContain('The runtime host covers:');
     expect(doc).toContain('providers/models');
-    expect(doc).toContain('Drizzle schema now maps the production `providers/models` tables');
+    expect(doc).toContain('Drizzle schema maps the production `providers/models` tables');
     expect(doc).toContain('generated Drizzle migration manifest now ends with `providers/models`');
     expect(doc).toContain('`drizzle-orm` is pinned to exact `0.45.2`');
   });

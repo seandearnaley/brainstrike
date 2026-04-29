@@ -16,11 +16,11 @@ export interface DbRuntimeBaseline {
     readonly storage: 'filesystem-backed-profile';
   };
   readonly migrations: {
-    readonly drizzleIsProductionCanonical: false;
+    readonly drizzleIsProductionCanonical: true;
     readonly drizzleLedger: '__drizzle_migrations';
-    readonly drizzlePromotionGate: 'blocked-by-production-schema-drift';
-    readonly productionAuthority: 'legacy-migration-runner';
-    readonly productionLedger: '_migrations';
+    readonly legacyLedgerPolicy: 'reset-required';
+    readonly productionAuthority: 'drizzle-migration-runner';
+    readonly productionLedger: '__drizzle_migrations';
   };
   readonly schemaDrift: readonly {
     readonly drizzleGeneratedManifestFinalTables: readonly string[];
@@ -42,11 +42,11 @@ export const BRAINSTRIKE_DB_RUNTIME_BASELINE: DbRuntimeBaseline = {
     storage: 'filesystem-backed-profile',
   },
   migrations: {
-    drizzleIsProductionCanonical: false,
+    drizzleIsProductionCanonical: true,
     drizzleLedger: '__drizzle_migrations',
-    drizzlePromotionGate: 'blocked-by-production-schema-drift',
-    productionAuthority: 'legacy-migration-runner',
-    productionLedger: '_migrations',
+    legacyLedgerPolicy: 'reset-required',
+    productionAuthority: 'drizzle-migration-runner',
+    productionLedger: '__drizzle_migrations',
   },
   schemaDrift: [
     {

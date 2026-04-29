@@ -584,14 +584,14 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'CURRENT_TIMESTAMP'"
+          "default": "to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')"
         },
         "updated_at": {
           "name": "updated_at",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'CURRENT_TIMESTAMP'"
+          "default": "to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')"
         }
       },
       "indexes": {

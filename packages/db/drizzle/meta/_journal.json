@@ -78,6 +78,13 @@
       "when": 1777326945260,
       "tag": "0010_harsh_titanium_man",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1777433807756,
+      "tag": "0011_exotic_nicolaos",
+      "breakpoints": true
     }
   ]
 }
