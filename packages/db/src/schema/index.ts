@@ -311,16 +311,13 @@ export const fileTokenCache = pgTable(
     createdAt: text('created_at').notNull().default(textTimestampNow),
     updatedAt: text('updated_at').notNull().default(textTimestampNow),
   },
-  (table) => ({
-    folderPathUnique: uniqueIndex('idx_file_token_cache_folder_path_unique').on(
-      table.folderId,
-      table.filePath
-    ),
-    lookupIdx: index('idx_file_token_cache_lookup').on(table.folderId, table.filePath),
-    hashIdx: index('idx_file_token_cache_hash').on(table.contentHash),
-    folderIdx: index('idx_file_token_cache_folder').on(table.folderId),
-    modeIdx: index('idx_file_token_cache_mode').on(table.folderId, table.countingMode),
-  })
+  (table) => [
+    uniqueIndex('idx_file_token_cache_folder_path_unique').on(table.folderId, table.filePath),
+    index('idx_file_token_cache_lookup').on(table.folderId, table.filePath),
+    index('idx_file_token_cache_hash').on(table.contentHash),
+    index('idx_file_token_cache_folder').on(table.folderId),
+    index('idx_file_token_cache_mode').on(table.folderId, table.countingMode),
+  ]
 );
 
 export const fileTags = pgTable(
@@ -354,6 +351,11 @@ export const fileRelationships = pgTable(
     createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
   },
   (table) => [
+    uniqueIndex('idx_file_relationships_unique').on(
+      table.sourceId,
+      table.targetId,
+      table.relationshipType
+    ),
     index('idx_file_relationships_source').on(table.sourceId),
     index('idx_file_relationships_target').on(table.targetId),
     index('idx_file_relationships_type').on(table.relationshipType),

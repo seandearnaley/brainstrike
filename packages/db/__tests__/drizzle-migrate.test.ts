@@ -86,6 +86,24 @@ describe('Drizzle Migration Runner', () => {
     );
 
     it(
+      'creates a unique file relationship edge index',
+      async () => {
+        await runMigrations(db);
+
+        const indexes = await db.query<{ indexname: string }>(`
+          SELECT indexname
+          FROM pg_indexes
+          WHERE schemaname = 'public'
+            AND tablename = 'file_relationships'
+            AND indexname = 'idx_file_relationships_unique'
+        `);
+
+        expect(indexes.rows).toEqual([{ indexname: 'idx_file_relationships_unique' }]);
+      },
+      MIGRATION_RUN_TIMEOUT_MS
+    );
+
+    it(
       'seeds the production provider and model catalog for greenfield databases',
       async () => {
         await runMigrations(db);

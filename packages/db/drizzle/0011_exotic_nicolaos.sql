@@ -59,5 +59,6 @@ ALTER TABLE "file_tags" ADD CONSTRAINT "file_tags_file_id_file_records_id_fk" FO
 CREATE INDEX "idx_file_relationships_source" ON "file_relationships" USING btree ("source_id");--> statement-breakpoint
 CREATE INDEX "idx_file_relationships_target" ON "file_relationships" USING btree ("target_id");--> statement-breakpoint
 CREATE INDEX "idx_file_relationships_type" ON "file_relationships" USING btree ("relationship_type");--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_file_relationships_unique" ON "file_relationships" USING btree ("source_id","target_id","relationship_type");--> statement-breakpoint
 CREATE UNIQUE INDEX "idx_file_tags_unique" ON "file_tags" USING btree ("file_id","tag");--> statement-breakpoint
 CREATE INDEX "idx_file_tags_tag" ON "file_tags" USING btree ("tag");
