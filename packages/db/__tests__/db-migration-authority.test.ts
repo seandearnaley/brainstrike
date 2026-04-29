@@ -10,15 +10,15 @@ import migrationsManifest from '../src/drizzle/migrations.json';
 import { models, providers } from '../src/schema/index.js';
 
 describe('DB migration authority', () => {
-  it('keeps the legacy runner as production authority until Drizzle is schema-compatible', () => {
+  it('records Drizzle as the greenfield production migration authority', () => {
     const snapshot = getDbMigrationAuthoritySnapshot();
 
-    expect(snapshot.production.id).toBe('legacy-migration-runner');
-    expect(snapshot.production.ledger).toBe('_migrations');
+    expect(snapshot.production.id).toBe('drizzle-migration-runner');
+    expect(snapshot.production.ledger).toBe('__drizzle_migrations');
     expect(snapshot.nonProduction).toContainEqual({
       allowedProductionUse: false,
-      id: 'drizzle-migration-runner',
-      ledger: '__drizzle_migrations',
+      id: 'legacy-migration-runner',
+      ledger: '_migrations',
       status: 'schema-validation-only',
     });
 

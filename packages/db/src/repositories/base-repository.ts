@@ -61,6 +61,21 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       values.push(record.sourceRootPath);
     }
 
+    if (record.tokenCount !== undefined) {
+      fields.push('token_count');
+      values.push(record.tokenCount);
+    }
+
+    if (record.chunksCount !== undefined) {
+      fields.push('chunks_count');
+      values.push(record.chunksCount);
+    }
+
+    if (record.chunkingStrategy !== undefined) {
+      fields.push('chunking_strategy');
+      values.push(record.chunkingStrategy);
+    }
+
     const placeholders = fields.map((_, i) => `$${i + 1}`).join(', ');
     const sql = `INSERT INTO ${this.tableName} (${fields.join(', ')}) VALUES (${placeholders})`;
 

@@ -63,6 +63,28 @@ describe('Drizzle Migration Runner', () => {
       expect(tableNames).toContain('__drizzle_migrations');
     });
 
+    it('seeds the production provider and model catalog for greenfield databases', async () => {
+      await runMigrations(db);
+
+      const localProvider = await db.query<{ id: string; is_enabled: boolean }>(
+        "SELECT id, is_enabled FROM providers WHERE id = 'local'"
+      );
+      const localEmbeddingModel = await db.query<{ id: string; provider_id: string }>(
+        "SELECT id, provider_id FROM models WHERE id = 'Xenova/all-MiniLM-L6-v2'"
+      );
+      const localLlmModel = await db.query<{ id: string; provider_id: string }>(
+        "SELECT id, provider_id FROM models WHERE id = 'onnx-community/gemma-4-E2B-it-ONNX'"
+      );
+
+      expect(localProvider.rows).toEqual([{ id: 'local', is_enabled: true }]);
+      expect(localEmbeddingModel.rows).toEqual([
+        { id: 'Xenova/all-MiniLM-L6-v2', provider_id: 'local' },
+      ]);
+      expect(localLlmModel.rows).toEqual([
+        { id: 'onnx-community/gemma-4-E2B-it-ONNX', provider_id: 'local' },
+      ]);
+    });
+
     it('should not re-apply already applied migrations', async () => {
       // Run migrations first time
       const first = await runMigrations(db);
@@ -138,7 +160,7 @@ describe('Drizzle Migration Runner', () => {
       expect(catalogMigration?.sql).not.toContain("DEFAULT 'CURRENT_TIMESTAMP'");
     });
 
-    it('refuses to run against a production legacy migration ledger', async () => {
+    it('refuses to run against a reset-required legacy migration ledger', async () => {
       await db.query(`
         CREATE TABLE "_migrations" (
           id SERIAL PRIMARY KEY,
@@ -152,7 +174,9 @@ describe('Drizzle Migration Runner', () => {
       const result = await runMigrations(db);
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('legacy production migration ledger');
+      expect(result.error).toContain(
+        'Brainstrike DB is greenfield; legacy "_migrations" databases must be reset instead of migrated.'
+      );
 
       const drizzleLedger = await db.query<{ tablename: string }>(`
         SELECT tablename
@@ -233,7 +257,7 @@ describe('Drizzle Migration Runner', () => {
       );
     });
 
-    it('refuses status diagnostics against a production legacy migration ledger', async () => {
+    it('refuses status diagnostics against a reset-required legacy migration ledger', async () => {
       await db.query(`
         CREATE TABLE "_migrations" (
           id SERIAL PRIMARY KEY,
@@ -244,7 +268,9 @@ describe('Drizzle Migration Runner', () => {
         )
       `);
 
-      await expect(getMigrationStatus(db)).rejects.toThrow('legacy production migration ledger');
+      await expect(getMigrationStatus(db)).rejects.toThrow(
+        'Brainstrike DB is greenfield; legacy "_migrations" databases must be reset instead of migrated.'
+      );
     });
 
     it('should return no pending migrations after running', async () => {

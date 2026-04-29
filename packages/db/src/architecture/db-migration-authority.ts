@@ -46,16 +46,16 @@ export type DrizzleFinalSnapshotColumnTypes = Readonly<
 
 const PRODUCTION_MIGRATION_AUTHORITY: DbMigrationAuthorityRecord = {
   allowedProductionUse: true,
-  id: 'legacy-migration-runner',
-  ledger: '_migrations',
+  id: 'drizzle-migration-runner',
+  ledger: '__drizzle_migrations',
   status: 'production-canonical',
 };
 
 const NON_PRODUCTION_MIGRATION_AUTHORITIES: readonly DbMigrationAuthorityRecord[] = [
   {
     allowedProductionUse: false,
-    id: 'drizzle-migration-runner',
-    ledger: '__drizzle_migrations',
+    id: 'legacy-migration-runner',
+    ledger: '_migrations',
     status: 'schema-validation-only',
   },
 ] as const;
@@ -231,20 +231,18 @@ export function getDrizzleProductionCompatibilityAudit(): DrizzleProductionCompa
   );
 }
 
-// This guard lives on the production bootstrap path. Drizzle migration execution remains
-// schema-validation-only and is not part of runtime startup until the compatibility audit
-// is green, so any Drizzle ledger on a production database is an explicit conflict.
-export async function assertNoConflictingMigrationLedger(db: Pick<PGlite, 'query'>): Promise<void> {
+export const GREENFIELD_LEGACY_MIGRATION_LEDGER_ERROR =
+  'Brainstrike DB is greenfield; legacy "_migrations" databases must be reset instead of migrated.';
+
+export async function assertNoLegacyMigrationLedger(db: Pick<PGlite, 'query'>): Promise<void> {
   const ledgers = await db.query<{ tablename: string }>(`
     SELECT tablename
     FROM pg_tables
     WHERE schemaname = 'public'
-      AND tablename = '__drizzle_migrations'
+      AND tablename = '_migrations'
   `);
 
   if (ledgers.rows.length > 0) {
-    throw new Error(
-      'Drizzle migration ledger "__drizzle_migrations" exists before the legacy migration bridge is production-authorized.'
-    );
+    throw new Error(GREENFIELD_LEGACY_MIGRATION_LEDGER_ERROR);
   }
 }

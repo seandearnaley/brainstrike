@@ -120,7 +120,10 @@ export class DrizzleFileRecordRepository {
       sourceRootPath: record.sourceRootPath ?? null,
       createdAt: new Date(record.createdAt),
       updatedAt: new Date(record.updatedAt),
+      tokenCount: record.tokenCount ?? null,
       embeddingSetId: record.embeddingSetId ?? null,
+      chunksCount: record.chunksCount ?? null,
+      chunkingStrategy: record.chunkingStrategy ?? null,
     });
   }
 

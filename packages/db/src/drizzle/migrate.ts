@@ -9,6 +9,16 @@
 
 import { createLogger } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
+import { assertNoLegacyMigrationLedger } from '../architecture/db-migration-authority.js';
+import { migration015ModelRegistry } from '../migrations/015-model-registry.js';
+import { migration020LocalLlmModels } from '../migrations/020-local-llm-models.js';
+import { migration021RenameTransformersToLocal } from '../migrations/021-rename-transformers-to-local.js';
+import { migration022EnableDefaultEmbeddingModels } from '../migrations/022-enable-default-embedding-models.js';
+import { migration023FixLocalProviderEnabled } from '../migrations/023-fix-local-provider-enabled.js';
+import { migration024FixLlmToolCalling } from '../migrations/024-fix-llm-tool-calling.js';
+import { migration025UpdateProviderModels2026 } from '../migrations/025-update-provider-models-2026.js';
+import { migration026UpdateProviderModels2026V2 } from '../migrations/026-update-provider-models-2026-v2.js';
+import { migration028GemmaLocalLlm } from '../migrations/028-gemma-local-llm.js';
 import { migration030CollectionIndexingStats } from '../migrations/030-collection-indexing-stats.js';
 
 // Import the pre-compiled migrations manifest
@@ -43,21 +53,6 @@ interface AppliedMigration {
 }
 
 const MIGRATIONS_TABLE = '__drizzle_migrations';
-
-async function assertNoProductionMigrationLedger(db: PGlite): Promise<void> {
-  const ledgers = await db.query<{ tablename: string }>(`
-    SELECT tablename
-    FROM pg_tables
-    WHERE schemaname = 'public'
-      AND tablename = '_migrations'
-  `);
-
-  if (ledgers.rows.length > 0) {
-    throw new Error(
-      'Refusing to run Drizzle schema-validation migrations against a legacy production migration ledger.'
-    );
-  }
-}
 
 /**
  * Ensures the migrations tracking table exists
@@ -99,6 +94,78 @@ function requireStringMigrationSql(
 
 const customMigrations: Migration[] = [
   {
+    hash: 'custom-015-model-registry-seed',
+    name: migration015ModelRegistry.name,
+    sql: requireStringMigrationSql(migration015ModelRegistry.name, migration015ModelRegistry.up),
+    version: String(migration015ModelRegistry.version),
+  },
+  {
+    hash: 'custom-020-local-llm-models',
+    name: migration020LocalLlmModels.name,
+    sql: requireStringMigrationSql(migration020LocalLlmModels.name, migration020LocalLlmModels.up),
+    version: String(migration020LocalLlmModels.version),
+  },
+  {
+    hash: 'custom-021-rename-transformers-to-local',
+    name: migration021RenameTransformersToLocal.name,
+    sql: requireStringMigrationSql(
+      migration021RenameTransformersToLocal.name,
+      migration021RenameTransformersToLocal.up
+    ),
+    version: String(migration021RenameTransformersToLocal.version),
+  },
+  {
+    hash: 'custom-022-enable-default-embedding-models',
+    name: migration022EnableDefaultEmbeddingModels.name,
+    sql: requireStringMigrationSql(
+      migration022EnableDefaultEmbeddingModels.name,
+      migration022EnableDefaultEmbeddingModels.up
+    ),
+    version: String(migration022EnableDefaultEmbeddingModels.version),
+  },
+  {
+    hash: 'custom-023-fix-local-provider-enabled',
+    name: migration023FixLocalProviderEnabled.name,
+    sql: requireStringMigrationSql(
+      migration023FixLocalProviderEnabled.name,
+      migration023FixLocalProviderEnabled.up
+    ),
+    version: String(migration023FixLocalProviderEnabled.version),
+  },
+  {
+    hash: 'custom-024-fix-llm-tool-calling',
+    name: migration024FixLlmToolCalling.name,
+    sql: requireStringMigrationSql(
+      migration024FixLlmToolCalling.name,
+      migration024FixLlmToolCalling.up
+    ),
+    version: String(migration024FixLlmToolCalling.version),
+  },
+  {
+    hash: 'custom-025-update-provider-models-2026',
+    name: migration025UpdateProviderModels2026.name,
+    sql: requireStringMigrationSql(
+      migration025UpdateProviderModels2026.name,
+      migration025UpdateProviderModels2026.up
+    ),
+    version: String(migration025UpdateProviderModels2026.version),
+  },
+  {
+    hash: 'custom-026-update-provider-models-2026-v2',
+    name: migration026UpdateProviderModels2026V2.name,
+    sql: requireStringMigrationSql(
+      migration026UpdateProviderModels2026V2.name,
+      migration026UpdateProviderModels2026V2.up
+    ),
+    version: String(migration026UpdateProviderModels2026V2.version),
+  },
+  {
+    hash: 'custom-028-gemma-local-llm',
+    name: migration028GemmaLocalLlm.name,
+    sql: requireStringMigrationSql(migration028GemmaLocalLlm.name, migration028GemmaLocalLlm.up),
+    version: String(migration028GemmaLocalLlm.version),
+  },
+  {
     hash: 'custom-030-collection-indexing-stats',
     name: migration030CollectionIndexingStats.name,
     sql: requireStringMigrationSql(
@@ -113,12 +180,79 @@ const customMigrations: Migration[] = [
  * Splits migration SQL into individual statements
  * Handles the --> statement-breakpoint marker from drizzle-kit
  */
+function stripLineComments(sql: string): string {
+  let result = '';
+  let inSingleQuotedString = false;
+
+  for (let index = 0; index < sql.length; index += 1) {
+    const char = sql[index];
+    const next = sql[index + 1];
+
+    if (!inSingleQuotedString && char === '-' && next === '-') {
+      while (index < sql.length && sql[index] !== '\n') {
+        index += 1;
+      }
+      result += '\n';
+      continue;
+    }
+
+    if (char === "'") {
+      result += char;
+      if (inSingleQuotedString && next === "'") {
+        result += next;
+        index += 1;
+        continue;
+      }
+      inSingleQuotedString = !inSingleQuotedString;
+      continue;
+    }
+
+    result += char;
+  }
+
+  return result;
+}
+
+function splitSemicolonDelimitedStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let current = '';
+  let inSingleQuotedString = false;
+
+  for (let index = 0; index < sql.length; index += 1) {
+    const char = sql[index];
+    const next = sql[index + 1];
+
+    if (char === "'") {
+      current += char;
+      if (inSingleQuotedString && next === "'") {
+        current += next;
+        index += 1;
+        continue;
+      }
+      inSingleQuotedString = !inSingleQuotedString;
+      continue;
+    }
+
+    if (char === ';' && !inSingleQuotedString) {
+      const statement = current.trim();
+      if (statement.length > 0) {
+        statements.push(statement);
+      }
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  const statement = current.trim();
+  return statement.length > 0 ? [...statements, statement] : statements;
+}
+
 function splitStatements(sql: string): string[] {
-  // drizzle-kit uses --> statement-breakpoint as delimiter
   return sql
     .split('--> statement-breakpoint')
-    .map((stmt) => stmt.trim())
-    .filter((stmt) => stmt.length > 0);
+    .flatMap((block) => splitSemicolonDelimitedStatements(stripLineComments(block)));
 }
 
 function getErrorCode(error: unknown): string | null {
@@ -213,7 +347,7 @@ export async function runMigrations(
   const appliedMigrations: string[] = [];
 
   try {
-    await assertNoProductionMigrationLedger(db);
+    await assertNoLegacyMigrationLedger(db);
 
     if (enableVector) {
       await db.query('CREATE EXTENSION IF NOT EXISTS vector');
@@ -263,7 +397,7 @@ export async function getMigrationStatus(db: PGlite): Promise<{
   const manifest = migrationsManifest as MigrationManifest;
   const allMigrations = [...manifest.migrations, ...customMigrations];
 
-  await assertNoProductionMigrationLedger(db);
+  await assertNoLegacyMigrationLedger(db);
 
   try {
     await ensureMigrationsTable(db);

@@ -14,7 +14,7 @@ describe('production migration authority guard', () => {
     await db.close();
   });
 
-  it('initializes an empty database with only the production migration ledger', async () => {
+  it('initializes an empty database with only the Drizzle production migration ledger', async () => {
     await migrate(db);
 
     const ledgers = await db.query<{ tablename: string }>(`
@@ -25,27 +25,29 @@ describe('production migration authority guard', () => {
       ORDER BY tablename
     `);
 
-    expect(ledgers.rows.map((row) => row.tablename)).toEqual(['_migrations']);
+    expect(ledgers.rows.map((row) => row.tablename)).toEqual(['__drizzle_migrations']);
   });
 
-  it('refuses to run legacy production migrations over a Drizzle-ledger database', async () => {
+  it('refuses to run greenfield Drizzle migrations over a legacy-ledger database', async () => {
     await db.query(`
-      CREATE TABLE "__drizzle_migrations" (
+      CREATE TABLE "_migrations" (
         id SERIAL PRIMARY KEY,
-        hash TEXT NOT NULL UNIQUE,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+        version INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        checksum TEXT NOT NULL,
+        applied_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
       )
     `);
     await expect(migrate(db)).rejects.toThrow(
-      'Drizzle migration ledger "__drizzle_migrations" exists before the legacy migration bridge is production-authorized.'
+      'Brainstrike DB is greenfield; legacy "_migrations" databases must be reset instead of migrated.'
     );
 
-    const productionLedger = await db.query<{ count: number }>(`
+    const drizzleLedger = await db.query<{ count: number }>(`
       SELECT COUNT(*)::int AS count
       FROM pg_tables
       WHERE schemaname = 'public'
-        AND tablename = '_migrations'
+        AND tablename = '__drizzle_migrations'
     `);
-    expect(productionLedger.rows[0]?.count).toBe(0);
+    expect(drizzleLedger.rows[0]?.count).toBe(0);
   });
 });
