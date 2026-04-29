@@ -80,6 +80,22 @@ describe('DrizzleTokenCacheStore', () => {
       const found = await store.get(testFolderId, 'src/file.ts');
       expect(found?.tokenCount).toBe(200);
     });
+
+    it('returns ISO UTC text timestamps after insert and conflict update', async () => {
+      const isoUtcTextTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+      await store.set(createEntry({ filePath: 'src/file.ts', tokenCount: 100 }));
+      const inserted = await store.get(testFolderId, 'src/file.ts');
+
+      expect(inserted?.createdAt).toMatch(isoUtcTextTimestamp);
+      expect(inserted?.updatedAt).toMatch(isoUtcTextTimestamp);
+
+      await store.set(createEntry({ filePath: 'src/file.ts', tokenCount: 200 }));
+      const updated = await store.get(testFolderId, 'src/file.ts');
+
+      expect(updated?.createdAt).toMatch(isoUtcTextTimestamp);
+      expect(updated?.updatedAt).toMatch(isoUtcTextTimestamp);
+    });
   });
 
   describe('file path validation', () => {

@@ -108,7 +108,7 @@ const textTimestamp = customType<{
   },
 });
 
-const textTimestampNow = sql`to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+export const textTimestampNow = sql`to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 
 // ============================================================================
 // FILE RECORDS TABLE
@@ -308,8 +308,8 @@ export const fileTokenCache = pgTable(
     tokenCount: integer('token_count').notNull(),
     countingMode: text('counting_mode').$type<'accurate' | 'heuristic'>().notNull(),
     modelEncoding: text('model_encoding'),
-    createdAt: text('created_at').notNull().default(textTimestampNow),
-    updatedAt: text('updated_at').notNull().default(textTimestampNow),
+    createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),
+    updatedAt: textTimestamp('updated_at').default(textTimestampNow).notNull(),
   },
   (table) => [
     uniqueIndex('idx_file_token_cache_folder_path_unique').on(table.folderId, table.filePath),
