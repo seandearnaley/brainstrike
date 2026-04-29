@@ -6,7 +6,9 @@
  */
 
 import type { ResolvedChunkingStrategy } from '@brainstrike/text-splitter';
+import { sql } from 'drizzle-orm';
 import {
+  bigint,
   boolean,
   customType,
   index,
@@ -91,6 +93,21 @@ const vector = customType<{
   },
 });
 
+const textTimestamp = customType<{
+  data: Date;
+  driverData: string;
+}>({
+  dataType() {
+    return 'text';
+  },
+  toDriver(value: Date): string {
+    return value.toISOString();
+  },
+  fromDriver(value: string): Date {
+    return new Date(value);
+  },
+});
+
 // ============================================================================
 // FILE RECORDS TABLE
 // ============================================================================
@@ -98,19 +115,19 @@ const vector = customType<{
 export const fileRecords = pgTable(
   'file_records',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
+    id: text('id').primaryKey(),
     name: text('name').notNull(),
     path: text('path').notNull(),
     sourceRootPath: text('source_root_path'),
     size: integer('size').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    createdAt: textTimestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updatedAt: textTimestamp('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
     content: text('content'),
     contentHash: text('content_hash'),
     tokenCount: integer('token_count'),
-    processedAt: timestamp('processed_at', { withTimezone: true }),
-    embeddingSetId: uuid('embedding_set_id'),
-    chunksProcessedAt: timestamp('chunks_processed_at', { withTimezone: true }),
+    processedAt: textTimestamp('processed_at'),
+    embeddingSetId: text('embedding_set_id'),
+    chunksProcessedAt: textTimestamp('chunks_processed_at'),
     chunksCount: integer('chunks_count'),
     chunkingStrategy: text('chunking_strategy').$type<ResolvedChunkingStrategy>(),
   },
@@ -129,8 +146,8 @@ export const fileRecords = pgTable(
 export const fileChunks = pgTable(
   'file_chunks',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    fileRecordId: uuid('file_record_id')
+    id: text('id').primaryKey(),
+    fileRecordId: text('file_record_id')
       .notNull()
       .references(() => fileRecords.id, { onDelete: 'cascade' }),
     chunkIndex: integer('chunk_index').notNull(),
@@ -141,16 +158,14 @@ export const fileChunks = pgTable(
     chunkSize: integer('chunk_size'),
     // Flexible vector column (dimensions determined at runtime)
     embedding: vector('embedding'),
-    embeddingSetId: uuid('embedding_set_id'),
-    embeddingUpdatedAt: timestamp('embedding_updated_at', {
-      withTimezone: true,
-    }),
+    embeddingSetId: text('embedding_set_id'),
+    embeddingUpdatedAt: textTimestamp('embedding_updated_at'),
     embeddingHash: text('embedding_hash'),
     // Full-text search tsvector - auto-updated by database trigger
     // GIN-indexed for fast ts_query lookups
     contentTsvector: tsvector('content_tsvector'),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    createdAt: textTimestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updatedAt: textTimestamp('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
   },
   (table) => [
     index('idx_file_chunks_file_record_id').on(table.fileRecordId),
@@ -195,12 +210,12 @@ export const selectionSnapshotFiles = pgTable(
 // ============================================================================
 
 export const embeddingSets = pgTable('embedding_sets', {
-  id: uuid('id').defaultRandom().primaryKey(),
+  id: text('id').primaryKey(),
   modelKey: text('model_key').notNull(),
   modelId: text('model_id').notNull(),
   dimensions: integer('dimensions').notNull(),
   distance: text('distance').$type<'cosine' | 'l2' | 'ip'>().default('cosine'),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  createdAt: textTimestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
   name: text('name'),
   description: text('description'),
   tags: text('tags'),
@@ -229,25 +244,25 @@ export const collectionIndexingStats = pgTable(
 export const jobQueue = pgTable(
   'job_queue',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
+    id: text('id').primaryKey(),
     queue: text('queue').notNull(),
     jobType: text('job_type').notNull(),
-    payload: text('payload').notNull(), // JSON string
+    payload: jsonb('payload').$type<unknown>(),
     state: text('state')
       .$type<'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'expired'>()
       .default('queued')
       .notNull(),
-    runAt: timestamp('run_at', { withTimezone: true }).defaultNow().notNull(),
+    runAt: textTimestamp('run_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
     attempts: integer('attempts').default(0).notNull(),
-    maxAttempts: integer('max_attempts').default(3).notNull(),
-    backoffMs: integer('backoff_ms').default(1000).notNull(),
+    maxAttempts: integer('max_attempts').default(5).notNull(),
+    backoffMs: integer('backoff_ms').default(0).notNull(),
     leaseToken: text('lease_token'),
-    leasedUntil: timestamp('leased_until', { withTimezone: true }),
+    leasedUntil: textTimestamp('leased_until'),
     workerId: text('worker_id'),
     dedupeKey: text('dedupe_key'),
     error: text('error'),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    createdAt: textTimestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updatedAt: textTimestamp('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
   },
   (table) => [
     index('idx_job_queue_state_run_at').on(table.state, table.runAt),
@@ -286,8 +301,8 @@ export const fileTokenCache = pgTable(
     folderId: text('folder_id').notNull(),
     filePath: text('file_path').notNull(),
     contentHash: text('content_hash').notNull(),
-    fileSize: text('file_size').notNull(), // BIGINT comes as string
-    mtimeMs: text('mtime_ms'), // BIGINT comes as string
+    fileSize: bigint('file_size', { mode: 'number' }).notNull(),
+    mtimeMs: bigint('mtime_ms', { mode: 'number' }),
     tokenCount: integer('token_count').notNull(),
     countingMode: text('counting_mode').$type<'accurate' | 'heuristic'>().notNull(),
     modelEncoding: text('model_encoding'),
@@ -304,6 +319,43 @@ export const fileTokenCache = pgTable(
     folderIdx: index('idx_file_token_cache_folder').on(table.folderId),
     modeIdx: index('idx_file_token_cache_mode').on(table.folderId, table.countingMode),
   })
+);
+
+export const fileTags = pgTable(
+  'file_tags',
+  {
+    id: text('id').primaryKey(),
+    fileId: text('file_id')
+      .notNull()
+      .references(() => fileRecords.id, { onDelete: 'cascade' }),
+    tag: text('tag').notNull(),
+    createdAt: textTimestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_file_tags_unique').on(table.fileId, table.tag),
+    index('idx_file_tags_tag').on(table.tag),
+  ]
+);
+
+export const fileRelationships = pgTable(
+  'file_relationships',
+  {
+    id: text('id').primaryKey(),
+    sourceId: text('source_id')
+      .notNull()
+      .references(() => fileRecords.id, { onDelete: 'cascade' }),
+    targetId: text('target_id')
+      .notNull()
+      .references(() => fileRecords.id, { onDelete: 'cascade' }),
+    relationshipType: text('relationship_type').notNull(),
+    metadata: jsonb('metadata').$type<Record<string, unknown> | null>(),
+    createdAt: textTimestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  },
+  (table) => [
+    index('idx_file_relationships_source').on(table.sourceId),
+    index('idx_file_relationships_target').on(table.targetId),
+    index('idx_file_relationships_type').on(table.relationshipType),
+  ]
 );
 
 // ============================================================================

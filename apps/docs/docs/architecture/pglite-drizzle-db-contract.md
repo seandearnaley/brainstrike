@@ -33,8 +33,10 @@ Production initialization records applied migrations in `_migrations`.
 Drizzle migration runner remains schema-validation-only. It writes
 `__drizzle_migrations` only in explicit validation contexts, not in runtime
 startup. Promotion to production is currently
-`blocked-by-production-schema-drift`: generated Drizzle migrations still create
-core runtime tables with incompatible ID, timestamp, and queue payload types.
+`schema-compatible-awaiting-legacy-bridge`: the generated Drizzle final schema
+matches the production runtime table shapes, but runtime authority still needs
+the explicit `_migrations` to `__drizzle_migrations` bridge before Drizzle can
+own production startup.
 
 No runtime may introduce silent dual-ledger migration behavior. If
 `__drizzle_migrations` exists on the production bootstrap path, startup fails
@@ -58,9 +60,10 @@ The coded baseline records this as
 `schema-and-manifest-reconciled`: production schema is represented in Drizzle
 code and in the final generated Drizzle manifest shape for these catalog tables.
 
-This does not mean the full generated Drizzle migration manifest is production
-compatible. The migration authority audit separately blocks Drizzle promotion
-until the core file, collection, and job queue table shapes match production.
+The full generated Drizzle migration manifest now matches the audited
+production-compatible shape for the core file, collection, job queue, token
+cache, and legacy relationship tables. Drizzle production authority is still
+deferred until the explicit legacy ledger bridge is implemented.
 
 ## Required Contract
 

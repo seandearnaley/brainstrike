@@ -244,7 +244,7 @@ export async function assertNoConflictingMigrationLedger(db: Pick<PGlite, 'query
 
   if (ledgers.rows.length > 0) {
     throw new Error(
-      'Drizzle migration ledger "__drizzle_migrations" exists before Drizzle is schema-compatible for production.'
+      'Drizzle migration ledger "__drizzle_migrations" exists before the legacy migration bridge is production-authorized.'
     );
   }
 }

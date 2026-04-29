@@ -37,7 +37,7 @@ describe('production migration authority guard', () => {
       )
     `);
     await expect(migrate(db)).rejects.toThrow(
-      'Drizzle migration ledger "__drizzle_migrations" exists before Drizzle is schema-compatible for production.'
+      'Drizzle migration ledger "__drizzle_migrations" exists before the legacy migration bridge is production-authorized.'
     );
 
     const productionLedger = await db.query<{ count: number }>(`

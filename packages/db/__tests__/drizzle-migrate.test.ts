@@ -87,16 +87,24 @@ describe('Drizzle Migration Runner', () => {
           created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
         )
       `);
+      await db.query('CREATE EXTENSION IF NOT EXISTS vector');
 
       for (const migration of migrationsManifest.migrations.slice(0, catalogMigrationIndex)) {
+        const statements = migration.sql
+          .split('--> statement-breakpoint')
+          .map((statement) => statement.trim())
+          .filter((statement) => statement.length > 0);
+
+        for (const statement of statements) {
+          await db.query(statement);
+        }
+
         await db.query(`INSERT INTO "__drizzle_migrations" (hash) VALUES ($1)`, [migration.hash]);
       }
 
       await db.query(
         `INSERT INTO "__drizzle_migrations" (hash) VALUES ('custom-030-collection-indexing-stats')`
       );
-
-      await db.query('CREATE TABLE "model_registry" ("id" uuid PRIMARY KEY)');
       await db.query(`
         CREATE TABLE collection_indexing_stats (
           embedding_set_id TEXT PRIMARY KEY,
