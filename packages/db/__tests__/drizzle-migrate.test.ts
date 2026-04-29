@@ -7,7 +7,12 @@
 import { PGlite } from '@electric-sql/pglite';
 import { vector } from '@electric-sql/pglite/vector';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getMigrationStatus, resetMigrations, runMigrations } from '../src/drizzle/migrate.js';
+import {
+  getMigrationStatus,
+  resetMigrations,
+  runMigrations,
+  splitMigrationStatements,
+} from '../src/drizzle/migrate.js';
 import migrationsManifest from '../src/drizzle/migrations.json';
 
 describe('Drizzle Migration Runner', () => {
@@ -200,6 +205,32 @@ describe('Drizzle Migration Runner', () => {
       expect(onStart).toHaveBeenCalled();
       expect(onComplete).toHaveBeenCalled();
       expect(onStart.mock.calls.length).toBe(onComplete.mock.calls.length);
+    });
+  });
+
+  describe('splitMigrationStatements', () => {
+    it('preserves semicolons and comments inside dollar-quoted SQL blocks', () => {
+      const statements = splitMigrationStatements(`
+        CREATE FUNCTION test_fn()
+        RETURNS void AS $body$
+        BEGIN
+          RAISE NOTICE 'hello; world';
+          -- This comment is function body text and must not be stripped.
+        END;
+        $body$ LANGUAGE plpgsql;
+        SELECT 1;
+      `);
+
+      expect(statements).toEqual([
+        `CREATE FUNCTION test_fn()
+        RETURNS void AS $body$
+        BEGIN
+          RAISE NOTICE 'hello; world';
+          -- This comment is function body text and must not be stripped.
+        END;
+        $body$ LANGUAGE plpgsql`,
+        'SELECT 1',
+      ]);
     });
   });
 

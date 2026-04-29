@@ -176,30 +176,40 @@ const customMigrations: Migration[] = [
   },
 ];
 
-/**
- * Splits migration SQL into individual statements
- * Handles the --> statement-breakpoint marker from drizzle-kit
- */
-function stripLineComments(sql: string): string {
-  let result = '';
+const DOLLAR_QUOTED_BLOCK_PATTERN = /\$([A-Za-z_][A-Za-z0-9_]*)?\$[\s\S]*?\$\1\$/g;
+const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
+
+interface DollarQuotedBlockReplacement {
+  readonly blocks: readonly string[];
+  readonly sql: string;
+}
+
+function extractDollarQuotedBlocks(sql: string): DollarQuotedBlockReplacement {
+  const blocks: string[] = [];
+  const sanitizedSql = sql.replace(DOLLAR_QUOTED_BLOCK_PATTERN, (block: string) => {
+    const index = blocks.push(block) - 1;
+    return `${DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX}${index}__`;
+  });
+
+  return { blocks, sql: sanitizedSql };
+}
+
+function restoreDollarQuotedBlocks(sql: string, blocks: readonly string[]): string {
+  return sql.replace(
+    new RegExp(`${DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX}(\\d+)__`, 'g'),
+    (_placeholder: string, index: string) => blocks[Number(index)] ?? _placeholder
+  );
+}
+
+function stripLineCommentFromLine(line: string): string {
   let inSingleQuotedString = false;
 
-  for (let index = 0; index < sql.length; index += 1) {
-    const char = sql[index];
-    const next = sql[index + 1];
-
-    if (!inSingleQuotedString && char === '-' && next === '-') {
-      while (index < sql.length && sql[index] !== '\n') {
-        index += 1;
-      }
-      result += '\n';
-      continue;
-    }
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
 
     if (char === "'") {
-      result += char;
       if (inSingleQuotedString && next === "'") {
-        result += next;
         index += 1;
         continue;
       }
@@ -207,10 +217,20 @@ function stripLineComments(sql: string): string {
       continue;
     }
 
-    result += char;
+    if (!inSingleQuotedString && char === '-' && next === '-') {
+      return line.slice(0, index);
+    }
   }
 
-  return result;
+  return line;
+}
+
+/**
+ * Splits migration SQL into individual statements
+ * Handles the --> statement-breakpoint marker from drizzle-kit
+ */
+function stripLineComments(sql: string): string {
+  return sql.split('\n').map(stripLineCommentFromLine).join('\n');
 }
 
 function splitSemicolonDelimitedStatements(sql: string): string[] {
@@ -249,10 +269,13 @@ function splitSemicolonDelimitedStatements(sql: string): string[] {
   return statement.length > 0 ? [...statements, statement] : statements;
 }
 
-function splitStatements(sql: string): string[] {
-  return sql
+export function splitMigrationStatements(sql: string): string[] {
+  const { blocks, sql: sanitizedSql } = extractDollarQuotedBlocks(sql);
+
+  return sanitizedSql
     .split('--> statement-breakpoint')
-    .flatMap((block) => splitSemicolonDelimitedStatements(stripLineComments(block)));
+    .flatMap((block) => splitSemicolonDelimitedStatements(stripLineComments(block)))
+    .map((statement) => restoreDollarQuotedBlocks(statement, blocks));
 }
 
 function getErrorCode(error: unknown): string | null {
@@ -295,7 +318,7 @@ async function applySingleMigration(db: PGlite, migration: Migration): Promise<v
   try {
     await db.query('BEGIN');
 
-    const statements = splitStatements(migration.sql);
+    const statements = splitMigrationStatements(migration.sql);
     for (const statement of statements) {
       await db.query(statement);
     }
