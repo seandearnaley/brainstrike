@@ -397,6 +397,28 @@ describe('Drizzle Migration Runner', () => {
       ]);
     });
 
+    it('preserves anonymous dollar-quoted SQL blocks', () => {
+      const statements = splitMigrationStatements(`
+        DO $$
+        BEGIN
+          PERFORM 1;
+          PERFORM 2;
+        END;
+        $$;
+        SELECT 1;
+      `);
+
+      expect(statements).toEqual([
+        `DO $$
+        BEGIN
+          PERFORM 1;
+          PERFORM 2;
+        END;
+        $$`,
+        'SELECT 1',
+      ]);
+    });
+
     it('preserves line-comment markers inside escaped string literals', () => {
       const statements = splitMigrationStatements(`
         INSERT INTO migration_notes (body)
