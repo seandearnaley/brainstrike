@@ -88,4 +88,17 @@ describe('DB migration authority', () => {
     expect(migrationsManifest.finalSnapshotTables).toContain('models');
     expect(migrationsManifest.finalSnapshotTables).not.toContain('model_registry');
   });
+
+  it('exports final snapshot column types in deterministic order', () => {
+    const tableNames = Object.keys(migrationsManifest.finalSnapshotColumnTypes);
+
+    expect(tableNames).toEqual([...tableNames].sort((left, right) => left.localeCompare(right)));
+
+    for (const columnTypes of Object.values(migrationsManifest.finalSnapshotColumnTypes)) {
+      const columnNames = Object.keys(columnTypes);
+      expect(columnNames).toEqual(
+        [...columnNames].sort((left, right) => left.localeCompare(right))
+      );
+    }
+  });
 });

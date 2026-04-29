@@ -83,13 +83,23 @@ function extractFinalSnapshotColumnTypes(migrationsDir: string): Record<string, 
   const finalSnapshot = readFinalSnapshot(migrationsDir);
   const columnTypes: Record<string, Record<string, string>> = {};
 
-  for (const table of Object.values(finalSnapshot.tables ?? {})) {
+  const sortedTables = Object.values(finalSnapshot.tables ?? {}).sort((left, right) => {
+    const leftName = typeof left.name === 'string' ? left.name : '';
+    const rightName = typeof right.name === 'string' ? right.name : '';
+    return leftName.localeCompare(rightName);
+  });
+
+  for (const table of sortedTables) {
     if (typeof table.name !== 'string' || table.name.length === 0) {
       continue;
     }
 
     const tableColumnTypes: Record<string, string> = {};
-    for (const [columnName, column] of Object.entries(table.columns ?? {})) {
+    const sortedColumns = Object.entries(table.columns ?? {}).sort(([leftName], [rightName]) =>
+      leftName.localeCompare(rightName)
+    );
+
+    for (const [columnName, column] of sortedColumns) {
       if (typeof column.type === 'string' && column.type.length > 0) {
         tableColumnTypes[columnName] = column.type;
       }
