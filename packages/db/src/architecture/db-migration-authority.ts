@@ -26,6 +26,24 @@ export interface ProviderModelCatalogSchemaAudit {
   readonly status: 'drizzle-schema-and-manifest-reconciled';
 }
 
+export interface DrizzleProductionCompatibilityBlocker {
+  readonly column: string;
+  readonly drizzleType: string;
+  readonly productionType: string;
+  readonly reason: string;
+  readonly table: string;
+}
+
+export interface DrizzleProductionCompatibilityAudit {
+  readonly blockers: readonly DrizzleProductionCompatibilityBlocker[];
+  readonly canPromote: boolean;
+  readonly status: 'blocked-by-production-schema-drift' | 'schema-compatible';
+}
+
+export type DrizzleFinalSnapshotColumnTypes = Readonly<
+  Record<string, Readonly<Record<string, string>>>
+>;
+
 const PRODUCTION_MIGRATION_AUTHORITY: DbMigrationAuthorityRecord = {
   allowedProductionUse: true,
   id: 'legacy-migration-runner',
@@ -41,6 +59,72 @@ const NON_PRODUCTION_MIGRATION_AUTHORITIES: readonly DbMigrationAuthorityRecord[
     status: 'schema-validation-only',
   },
 ] as const;
+
+const DRIZZLE_PRODUCTION_COMPATIBILITY_BLOCKERS = [
+  {
+    column: 'id',
+    drizzleType: 'uuid',
+    productionType: 'text',
+    reason: 'runtime file and collection identifiers are arbitrary text, not UUIDs',
+    table: 'file_records',
+  },
+  {
+    column: 'id',
+    drizzleType: 'uuid',
+    productionType: 'text',
+    reason: 'runtime file and collection identifiers are arbitrary text, not UUIDs',
+    table: 'file_chunks',
+  },
+  {
+    column: 'file_record_id',
+    drizzleType: 'uuid',
+    productionType: 'text',
+    reason: 'chunk foreign keys reference text file record IDs in production',
+    table: 'file_chunks',
+  },
+  {
+    column: 'embedding_set_id',
+    drizzleType: 'uuid',
+    productionType: 'text',
+    reason: 'collection references use text embedding set IDs in production',
+    table: 'file_chunks',
+  },
+  {
+    column: 'id',
+    drizzleType: 'uuid',
+    productionType: 'text',
+    reason: 'runtime file and collection identifiers are arbitrary text, not UUIDs',
+    table: 'embedding_sets',
+  },
+  {
+    column: 'embedding_set_id',
+    drizzleType: 'uuid',
+    productionType: 'text',
+    reason: 'collection references use text embedding set IDs in production',
+    table: 'file_records',
+  },
+  {
+    column: 'id',
+    drizzleType: 'uuid',
+    productionType: 'text',
+    reason: 'queue job identifiers are generated and retried as text IDs',
+    table: 'job_queue',
+  },
+  {
+    column: 'payload',
+    drizzleType: 'text',
+    productionType: 'jsonb',
+    reason: 'queue diagnostics and retry code use JSONB operators',
+    table: 'job_queue',
+  },
+  {
+    column: 'run_at',
+    drizzleType: 'timestamp with time zone',
+    productionType: 'text',
+    reason: 'production queue scheduling stores portable text timestamps',
+    table: 'job_queue',
+  },
+] as const satisfies readonly DrizzleProductionCompatibilityBlocker[];
 
 export function getDbMigrationAuthoritySnapshot(): DbMigrationAuthoritySnapshot {
   return {
@@ -119,9 +203,37 @@ export function getProviderModelCatalogSchemaAudit(): ProviderModelCatalogSchema
   };
 }
 
+export function getDrizzleProductionCompatibilityAuditForColumnTypes(
+  finalSnapshotColumnTypes: DrizzleFinalSnapshotColumnTypes
+): DrizzleProductionCompatibilityAudit {
+  const blockers = DRIZZLE_PRODUCTION_COMPATIBILITY_BLOCKERS.filter((blocker) => {
+    const generatedType = finalSnapshotColumnTypes[blocker.table]?.[blocker.column];
+
+    // Missing generated metadata is unsafe for a promotion gate. Keep the blocker active
+    // unless the generated final snapshot explicitly proves the production-compatible type.
+    if (generatedType === undefined) {
+      return true;
+    }
+
+    return generatedType !== blocker.productionType;
+  });
+
+  return {
+    blockers,
+    canPromote: blockers.length === 0,
+    status: blockers.length === 0 ? 'schema-compatible' : 'blocked-by-production-schema-drift',
+  };
+}
+
+export function getDrizzleProductionCompatibilityAudit(): DrizzleProductionCompatibilityAudit {
+  return getDrizzleProductionCompatibilityAuditForColumnTypes(
+    migrationsManifest.finalSnapshotColumnTypes
+  );
+}
+
 // This guard lives on the production bootstrap path. Drizzle migration execution remains
-// schema-validation-only and is not part of runtime startup, so the inverse production-ledger
-// guard belongs to any future Drizzle promotion instead of this production bootstrap path.
+// schema-validation-only and is not part of runtime startup until the compatibility audit
+// is green, so any Drizzle ledger on a production database is an explicit conflict.
 export async function assertNoConflictingMigrationLedger(db: Pick<PGlite, 'query'>): Promise<void> {
   const ledgers = await db.query<{ tablename: string }>(`
     SELECT tablename
@@ -132,7 +244,7 @@ export async function assertNoConflictingMigrationLedger(db: Pick<PGlite, 'query
 
   if (ledgers.rows.length > 0) {
     throw new Error(
-      'Drizzle migration ledger "__drizzle_migrations" exists without an explicit migration bridge.'
+      'Drizzle migration ledger "__drizzle_migrations" exists before Drizzle is schema-compatible for production.'
     );
   }
 }

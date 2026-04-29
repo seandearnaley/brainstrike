@@ -2,13 +2,15 @@ import { getTableName } from 'drizzle-orm';
 import {
   assertSingleProductionMigrationAuthority,
   getDbMigrationAuthoritySnapshot,
+  getDrizzleProductionCompatibilityAudit,
+  getDrizzleProductionCompatibilityAuditForColumnTypes,
   getProviderModelCatalogSchemaAudit,
 } from '../src/architecture/db-migration-authority.js';
 import migrationsManifest from '../src/drizzle/migrations.json';
 import { models, providers } from '../src/schema/index.js';
 
 describe('DB migration authority', () => {
-  it('keeps one production migration authority while Drizzle migrations remain non-production', () => {
+  it('keeps the legacy runner as production authority until Drizzle is schema-compatible', () => {
     const snapshot = getDbMigrationAuthoritySnapshot();
 
     expect(snapshot.production.id).toBe('legacy-migration-runner');
@@ -21,6 +23,66 @@ describe('DB migration authority', () => {
     });
 
     expect(() => assertSingleProductionMigrationAuthority(snapshot)).not.toThrow();
+  });
+
+  it('blocks Drizzle production promotion on concrete schema incompatibilities', () => {
+    const audit = getDrizzleProductionCompatibilityAudit();
+
+    expect(audit.canPromote).toBe(false);
+    expect(audit.status).toBe('blocked-by-production-schema-drift');
+    expect(audit.blockers).toEqual(
+      expect.arrayContaining([
+        {
+          column: 'id',
+          drizzleType: 'uuid',
+          productionType: 'text',
+          reason: 'runtime file and collection identifiers are arbitrary text, not UUIDs',
+          table: 'file_records',
+        },
+        {
+          column: 'payload',
+          drizzleType: 'text',
+          productionType: 'jsonb',
+          reason: 'queue diagnostics and retry code use JSONB operators',
+          table: 'job_queue',
+        },
+        {
+          column: 'file_record_id',
+          drizzleType: 'uuid',
+          productionType: 'text',
+          reason: 'chunk foreign keys reference text file record IDs in production',
+          table: 'file_chunks',
+        },
+        {
+          column: 'embedding_set_id',
+          drizzleType: 'uuid',
+          productionType: 'text',
+          reason: 'collection references use text embedding set IDs in production',
+          table: 'file_records',
+        },
+        {
+          column: 'run_at',
+          drizzleType: 'timestamp with time zone',
+          productionType: 'text',
+          reason: 'production queue scheduling stores portable text timestamps',
+          table: 'job_queue',
+        },
+      ])
+    );
+  });
+
+  it('keeps blockers active when generated snapshot columns are missing', () => {
+    const audit = getDrizzleProductionCompatibilityAuditForColumnTypes({});
+
+    expect(audit.canPromote).toBe(false);
+    expect(audit.status).toBe('blocked-by-production-schema-drift');
+    expect(audit.blockers).toContainEqual({
+      column: 'id',
+      drizzleType: 'uuid',
+      productionType: 'text',
+      reason: 'runtime file and collection identifiers are arbitrary text, not UUIDs',
+      table: 'file_records',
+    });
   });
 
   it('maps the Drizzle provider/model catalog schema to the production tables', () => {
@@ -39,5 +101,18 @@ describe('DB migration authority', () => {
     expect(migrationsManifest.finalSnapshotTables).toContain('providers');
     expect(migrationsManifest.finalSnapshotTables).toContain('models');
     expect(migrationsManifest.finalSnapshotTables).not.toContain('model_registry');
+  });
+
+  it('exports final snapshot column types in deterministic order', () => {
+    const tableNames = Object.keys(migrationsManifest.finalSnapshotColumnTypes);
+
+    expect(tableNames).toEqual([...tableNames].sort((left, right) => left.localeCompare(right)));
+
+    for (const columnTypes of Object.values(migrationsManifest.finalSnapshotColumnTypes)) {
+      const columnNames = Object.keys(columnTypes);
+      expect(columnNames).toEqual(
+        [...columnNames].sort((left, right) => left.localeCompare(right))
+      );
+    }
   });
 });

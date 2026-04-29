@@ -18,12 +18,15 @@ describe('Brainstrike DB runtime baseline', () => {
     );
   });
 
-  it('records that legacy migrations are still the production authority', () => {
+  it('records that Drizzle migrations are blocked from production authority until compatible', () => {
     expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.migrations.productionAuthority).toBe(
       'legacy-migration-runner'
     );
     expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.migrations.productionLedger).toBe('_migrations');
     expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.migrations.drizzleLedger).toBe('__drizzle_migrations');
+    expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.migrations.drizzlePromotionGate).toBe(
+      'blocked-by-production-schema-drift'
+    );
     expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.migrations.drizzleIsProductionCanonical).toBe(false);
   });
 
@@ -59,7 +62,9 @@ describe('Brainstrike DB runtime baseline', () => {
     expect(doc).toContain('utilityProcess DB host');
     expect(doc).toContain('Web owns PGlite in a browser PGliteWorker DB host');
     expect(doc).toContain('Direct PGlite remains scoped to tests, memory-only databases');
-    expect(doc).toContain('legacy MigrationRunner');
+    expect(doc).toContain('legacy MigrationRunner remains the production migration authority');
+    expect(doc).toContain('Drizzle migration runner remains schema-validation-only');
+    expect(doc).toContain('blocked-by-production-schema-drift');
     expect(doc).toContain('_migrations');
     expect(doc).toContain('__drizzle_migrations');
     expect(doc).toContain('The execution client covers:');
