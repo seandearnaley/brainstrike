@@ -85,6 +85,25 @@ describe('layout-helpers (unit)', () => {
           selector.includes('#main-content-panel')
       )
     ).toBe(true);
+    expect(page.waitForFunction).toHaveBeenCalled();
+  });
+
+  it('waitForAppLoad can wait for shell readiness without blocking on database startup', async () => {
+    const page = {
+      waitForLoadState: vi.fn(async () => undefined),
+      waitForSelector: vi.fn(async () => undefined),
+      waitForFunction: vi.fn(async () => ({
+        dispose: vi.fn(async () => undefined),
+        jsonValue: vi.fn(async () => 'connected'),
+      })),
+      on: vi.fn(),
+    } as unknown as Page;
+
+    await waitForAppLoad(page, 10_000, { waitForDatabase: false });
+
+    expect(page.waitForLoadState).toHaveBeenCalledWith('load', expect.any(Object));
+    expect(page.waitForSelector).toHaveBeenCalled();
+    expect(page.waitForFunction).not.toHaveBeenCalled();
   });
 
   it('enforces timeout floors for local and CI app load waits', () => {

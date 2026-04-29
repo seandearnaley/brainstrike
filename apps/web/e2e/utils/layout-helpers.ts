@@ -113,6 +113,10 @@ export function resolveNetworkIdleTimeout(isCI: boolean): number {
 
 type DatabaseReadyState = 'connected' | 'disconnected';
 
+export interface WaitForAppLoadOptions {
+  readonly waitForDatabase?: boolean;
+}
+
 export async function waitForDatabaseReady(page: Page, timeout = 10_000): Promise<void> {
   const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
   const effectiveTimeout = resolveWaitForAppLoadTimeout(timeout, isCI);
@@ -238,7 +242,12 @@ export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promi
  * In CI with vite preview (production build), React needs time to hydrate after
  * the initial HTML loads. This function handles the full hydration cycle.
  */
-export async function waitForAppLoad(page: Page, timeout = 10_000) {
+export async function waitForAppLoad(
+  page: Page,
+  timeout = 10_000,
+  options: WaitForAppLoadOptions = {}
+) {
+  const { waitForDatabase = true } = options;
   const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
   // Contract:
   // - Local runs use a 20s floor to tolerate hydration + initial panel layout.
@@ -354,7 +363,9 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
       // The readiness selector above already validated visible app content.
     });
 
-  await waitForDatabaseReady(page, timeout);
+  if (waitForDatabase) {
+    await waitForDatabaseReady(page, timeout);
+  }
 }
 
 /**

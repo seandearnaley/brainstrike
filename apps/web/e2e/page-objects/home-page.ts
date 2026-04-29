@@ -2,6 +2,7 @@ import type { Locator, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 import {
   contextExplorerActiveNavLocator,
+  type WaitForAppLoadOptions,
   waitForAppLoad,
   waitForContextExplorerPage,
   waitForSettingsPage,
@@ -10,9 +11,9 @@ import {
 export class HomePage {
   constructor(public readonly page: Page) {}
 
-  async goto(): Promise<void> {
+  async goto(options?: WaitForAppLoadOptions): Promise<void> {
     await this.page.goto('/');
-    await waitForAppLoad(this.page);
+    await waitForAppLoad(this.page, 10_000, options);
   }
 
   /**
