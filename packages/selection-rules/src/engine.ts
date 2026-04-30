@@ -476,7 +476,8 @@ export class SelectionRuleEngine {
     for (const path of selection) {
       let excluded = false;
       for (const root of rule.roots) {
-        if (path === root || path.startsWith(`${root}/`)) {
+        // Opt: use length and boundary check to avoid string allocation
+        if (path === root || (path.startsWith(root) && path.charCodeAt(root.length) === 47)) {
           excluded = true;
           break;
         }
@@ -636,9 +637,10 @@ export class InMemoryTreeAdapter implements TreeAdapter {
 
     // Add implicit parent directories
     for (const path of this.files.keys()) {
-      const parts = path.split('/');
-      for (let i = 1; i < parts.length; i++) {
-        this.directories.add(parts.slice(0, i).join('/'));
+      let idx = path.indexOf('/');
+      while (idx !== -1) {
+        this.directories.add(path.slice(0, idx));
+        idx = path.indexOf('/', idx + 1);
       }
     }
   }
@@ -650,12 +652,22 @@ export class InMemoryTreeAdapter implements TreeAdapter {
   getFilesUnderRoot(root: string, maxDepth?: number): Iterable<string> {
     const result: string[] = [];
     const normalizedRoot = root.replace(/\/$/, '');
+    const rootLen = normalizedRoot.length;
 
     for (const path of this.files.keys()) {
-      if (path === normalizedRoot || path.startsWith(`${normalizedRoot}/`)) {
+      // Opt: use length and boundary check to avoid string allocation
+      if (
+        path === normalizedRoot ||
+        (path.startsWith(normalizedRoot) && path.charCodeAt(rootLen) === 47)
+      ) {
         if (maxDepth !== undefined) {
-          const relativePath = path.slice(normalizedRoot.length + 1);
-          const depth = relativePath.split('/').length - 1;
+          const relativePath = path.slice(rootLen + 1);
+          let depth = 0;
+          let idx = relativePath.indexOf('/');
+          while (idx !== -1) {
+            depth++;
+            idx = relativePath.indexOf('/', idx + 1);
+          }
           if (depth > maxDepth) {
             continue;
           }
