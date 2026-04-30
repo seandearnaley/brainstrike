@@ -4,6 +4,13 @@
  * These cover the relocation of the Quick Filters (filter input + Embedded
  * toggle) into the toolbar itself, plus the container-query-driven collapse
  * behavior used when the parent panel is narrow.
+ *
+ * Caveat for future maintainers: several assertions match Tailwind container-
+ * query class strings via regex (e.g. `@\[\d+px\]\/cb-toolbar:flex`). This is
+ * the best available approach because happy-dom doesn't evaluate container
+ * queries — but it does mean these tests are coupled to Tailwind's class
+ * syntax. If a Tailwind major upgrade renames the `@[Npx]/<name>:` syntax,
+ * these regexes are the first place to look for mysterious failures.
  */
 
 import { fireEvent, render, screen } from '@testing-library/react';

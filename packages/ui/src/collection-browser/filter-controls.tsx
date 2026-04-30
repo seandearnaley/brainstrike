@@ -34,38 +34,33 @@ export const FilterControls = React.memo(function FilterControls({
   toggleClassName,
   compact = false,
 }: FilterControlsProps) {
-  // Pin the latest filters to a ref so the callbacks below are stable across
-  // renders. Two payoffs: (1) the memoized FilterChip stops re-rendering on
-  // every keystroke in the search input, and (2) callbacks always read the
-  // freshest snapshot, avoiding the spread-stale-closure pattern when two
-  // filter changes fire in rapid succession.
-  //
-  // Caveat: this stability still depends on the parent passing a stable
-  // `onFiltersChange` reference. If a future caller passes an inline arrow
-  // (`onFiltersChange={(f) => set(f)}`), the callbacks below will rebuild
-  // each render and FilterChip will re-render along with them. Today's only
-  // caller (CollectionBrowserView) uses a useCallback-wrapped handler.
+  // Pin BOTH props to refs so the callbacks below have empty dep arrays and
+  // their identities never change for the lifetime of this component.
+  // Payoffs: (1) the memoized FilterChip never re-renders due to callback
+  // churn, regardless of how callers wire `onFiltersChange` (including inline
+  // arrows like `onFiltersChange={(f) => set(f)}`), and (2) callbacks always
+  // read the freshest snapshot, avoiding spread-stale-closure when two filter
+  // changes fire in rapid succession before the next render.
   const filtersRef = React.useRef(filters);
   filtersRef.current = filters;
+  const onFiltersChangeRef = React.useRef(onFiltersChange);
+  onFiltersChangeRef.current = onFiltersChange;
 
-  const handleSearchChange = React.useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      onFiltersChange({ ...filtersRef.current, searchQuery: e.target.value });
-    },
-    [onFiltersChange]
-  );
+  const handleSearchChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    onFiltersChangeRef.current({ ...filtersRef.current, searchQuery: e.target.value });
+  }, []);
 
   const handleClearSearch = React.useCallback(() => {
-    onFiltersChange({ ...filtersRef.current, searchQuery: '' });
-  }, [onFiltersChange]);
+    onFiltersChangeRef.current({ ...filtersRef.current, searchQuery: '' });
+  }, []);
 
   const handleToggleEmbedded = React.useCallback(() => {
     const current = filtersRef.current;
-    onFiltersChange({
+    onFiltersChangeRef.current({
       ...current,
       embeddingStatus: current.embeddingStatus === 'complete' ? 'all' : 'complete',
     });
-  }, [onFiltersChange]);
+  }, []);
 
   const isEmbeddedActive = filters.embeddingStatus === 'complete';
   const inputHeight = compact ? 'h-8' : 'h-9';

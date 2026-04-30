@@ -134,6 +134,44 @@ describe('FilterControls', () => {
     expect(chipRenderCount).toBe(1);
   });
 
+  it('does not re-render the FilterChip even when the parent passes a fresh onFiltersChange each render', () => {
+    // Defensive guarantee: callbacks inside FilterControls are pinned to
+    // refs and have empty dep arrays, so their identities don't churn even
+    // if a careless parent inlines `onFiltersChange={(f) => set(f)}`. This
+    // test simulates that worst case and verifies the chip still doesn't
+    // re-render on unrelated filter changes.
+    chipRenderCount = 0;
+
+    const { rerender } = render(
+      <FilterControls
+        filters={createFilters({ searchQuery: '' })}
+        onFiltersChange={() => {
+          /* unstable: a fresh function each render */
+        }}
+      />
+    );
+    expect(chipRenderCount).toBe(1);
+
+    rerender(
+      <FilterControls
+        filters={createFilters({ searchQuery: 'a' })}
+        onFiltersChange={() => {
+          /* fresh again */
+        }}
+      />
+    );
+    rerender(
+      <FilterControls
+        filters={createFilters({ searchQuery: 'ab' })}
+        onFiltersChange={() => {
+          /* and again */
+        }}
+      />
+    );
+
+    expect(chipRenderCount).toBe(1);
+  });
+
   it('re-renders the FilterChip when embeddingStatus actually changes', () => {
     // Negative control: when the chip's own state (active prop) changes, it
     // SHOULD re-render. This protects against an over-aggressive memo bug
