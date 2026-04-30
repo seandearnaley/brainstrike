@@ -125,6 +125,7 @@ describe('FactoryResetPanel', () => {
 
   describe('user interactions', () => {
     it('shows confirmation dialog when button is clicked', () => {
+      mockConfirm.mockReturnValue(false);
       render(<FactoryResetPanel doFactoryReset={vi.fn().mockResolvedValue(undefined)} />);
 
       const button = screen.getByTestId('factory-reset-button');
@@ -168,9 +169,13 @@ describe('FactoryResetPanel', () => {
     });
 
     it('disables button while reset is running', async () => {
-      const mockDoFactoryReset = vi
-        .fn()
-        .mockImplementation(() => new Promise((resolve) => setTimeout(resolve, 100)));
+      let resolveReset: (() => void) | undefined;
+      const mockDoFactoryReset = vi.fn().mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveReset = resolve;
+          })
+      );
 
       render(<FactoryResetPanel doFactoryReset={mockDoFactoryReset} />);
 
@@ -181,6 +186,13 @@ describe('FactoryResetPanel', () => {
 
       await waitFor(() => {
         expect(button.disabled).toBe(true);
+      });
+      if (!resolveReset) {
+        throw new Error('Expected factory reset promise resolver to be captured');
+      }
+      resolveReset();
+      await waitFor(() => {
+        expect(mockReload).toHaveBeenCalled();
       });
     });
 
