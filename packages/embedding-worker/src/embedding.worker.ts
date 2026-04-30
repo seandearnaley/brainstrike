@@ -116,6 +116,18 @@ type FeatureExtractor = FeatureExtractionPipeline &
     }
   ) => Promise<unknown>);
 
+function disposeFeatureExtractorBestEffort(extractor: FeatureExtractor): void {
+  try {
+    if (typeof extractor.dispose !== 'function') {
+      return;
+    }
+
+    extractor.dispose();
+  } catch {
+    // Disposal must not mask the pipeline load failure that triggered cleanup.
+  }
+}
+
 interface PipelineCacheEntry {
   readonly cacheKey: string;
   /** Monotonic timestamp (via `now()`) — reserved for future diagnostics. */
@@ -603,9 +615,7 @@ async function loadPipeline(
         try {
           await initWebGpuDeviceGuard();
         } catch (guardError) {
-          if (typeof result.dispose === 'function') {
-            result.dispose();
-          }
+          disposeFeatureExtractorBestEffort(result as FeatureExtractor);
           throw guardError;
         }
       }
