@@ -1639,6 +1639,15 @@ describe('database IPC handlers', () => {
         userDataPath: expect.any(String),
       })
     );
+    const resetOptions = resetDesktopApplicationDataMock.mock.calls[0]?.[0] as
+      | { resetDatabaseProfile?: () => Promise<void> }
+      | undefined;
+    if (typeof resetOptions?.resetDatabaseProfile !== 'function') {
+      throw new Error('resetDatabaseProfile callback was not passed to desktop reset');
+    }
+    await resetOptions.resetDatabaseProfile();
+    expect(resetLocalDatabaseMock).toHaveBeenCalledTimes(1);
+    expect(closeDatabaseMock).not.toHaveBeenCalled();
 
     resetDesktopApplicationDataMock.mockRejectedValueOnce(new Error('fail reset'));
     await expect(handler({} as unknown)).resolves.toEqual({

@@ -582,7 +582,6 @@ async function handleResetLocal(): Promise<{ success: boolean; message?: string 
     await resetDesktopApplicationData({
       resetDatabaseProfile: async () => {
         await resetLocalDatabase();
-        await closeDatabase();
       },
       stopBackgroundRuntimes: async () => {
         await Promise.all([

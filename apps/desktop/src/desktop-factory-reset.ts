@@ -89,6 +89,7 @@ export async function resetDesktopApplicationData({
     throw new DesktopApplicationDataDeletionError(deletionFailures);
   }
 
+  // Ensure Electron has a userData directory to write into on the next boot.
   mkdirSync(userDataPath, { recursive: true });
 
   logger.warn('Desktop application data reset completed', {
