@@ -526,9 +526,8 @@ describe('embedding worker runtime', () => {
     vi.stubGlobal('navigator', { gpu: {} });
     await setOrtWebGpuDevice(null);
 
-    const disposeMock = vi.fn(() => {
-      throw new Error('dispose failed');
-    });
+    const disposeCatchMock = vi.fn();
+    const disposeMock = vi.fn(() => ({ catch: disposeCatchMock }));
     pipelineMock.mockResolvedValue(
       Object.assign(async () => new Float32Array([0.2, 0.8]), { dispose: disposeMock })
     );
@@ -543,6 +542,7 @@ describe('embedding worker runtime', () => {
       })
     ).rejects.toThrow('WebGPU pipeline loaded without a usable ORT WebGPU device');
     expect(disposeMock).toHaveBeenCalledTimes(1);
+    expect(disposeCatchMock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects WebGPU embedding when ORT returns an invalid device object', async () => {

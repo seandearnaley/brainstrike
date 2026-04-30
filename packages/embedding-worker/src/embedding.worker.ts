@@ -116,13 +116,31 @@ type FeatureExtractor = FeatureExtractionPipeline &
     }
   ) => Promise<unknown>);
 
+interface CatchableCleanup {
+  catch(onRejected: () => void): unknown;
+}
+
+function isCatchableCleanup(value: unknown): value is CatchableCleanup {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'catch' in value &&
+    typeof value.catch === 'function'
+  );
+}
+
 function disposeFeatureExtractorBestEffort(extractor: FeatureExtractor): void {
   try {
     if (typeof extractor.dispose !== 'function') {
       return;
     }
 
-    extractor.dispose();
+    const cleanupResult = (extractor.dispose as () => unknown).call(extractor);
+    if (!isCatchableCleanup(cleanupResult)) {
+      return;
+    }
+
+    cleanupResult.catch(() => {});
   } catch {
     // Disposal must not mask the pipeline load failure that triggered cleanup.
   }
