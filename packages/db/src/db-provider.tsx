@@ -750,7 +750,6 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       throw new Error('Electron database reset bridge is unavailable.');
     }
 
-    await w.electronAPI.db.clearAll?.('CONFIRM_CLEAR_DATABASE');
     const res = await w.electronAPI.db.resetLocal();
     if (!res?.success) {
       throw new Error(res?.message ?? 'Electron database reset failed.');

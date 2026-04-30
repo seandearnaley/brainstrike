@@ -195,4 +195,46 @@ describe('DbProvider factoryReset', () => {
     await expect(result.current.reset?.()).rejects.toThrow('disk reset failed');
     expect(createPGliteSpy).not.toHaveBeenCalled();
   });
+
+  it('uses desktop resetLocal as the canonical hard reset without pre-clearing tables', async () => {
+    const clearAll = vi.fn(async () => {
+      throw new Error('clearAll should not run before resetLocal');
+    });
+    const resetLocal = vi.fn(async () => ({ success: true }));
+    installElectronDbBridge({
+      clearAll,
+      diagnostics: vi.fn(async () => null),
+      exec: vi.fn(async () => undefined),
+      ping: vi.fn(async () => ({ success: true })),
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('SELECT 1 FROM pg_extension')) {
+          return { rows: [{ '?column?': 1 }] };
+        }
+        return { rows: [] };
+      }),
+      resetLocal,
+      test: vi.fn(async () => ({ message: 'ok', success: true })),
+    });
+
+    const { result } = renderHook(
+      () => ({
+        repo: useFileRecordRepository(),
+        reset: useFactoryReset(),
+      }),
+      { wrapper: electronIpcWrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.repo).not.toBeNull();
+        expect(result.current.reset).not.toBeNull();
+      },
+      { timeout: 5000 }
+    );
+
+    await expect(result.current.reset?.()).resolves.toBeUndefined();
+    expect(clearAll).not.toHaveBeenCalled();
+    expect(resetLocal).toHaveBeenCalledTimes(1);
+    expect(createPGliteSpy).not.toHaveBeenCalled();
+  });
 });

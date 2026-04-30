@@ -1,6 +1,6 @@
 import { useFactoryReset } from '@brainstrike/db';
 import { Button, Label, useToast } from '@brainstrike/ui';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { clearPersistentUiState } from './factory-reset-helpers';
 
 export interface FactoryResetPanelProps {
@@ -27,7 +27,10 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
   const { toast } = useToast();
   const providerFactoryReset = useFactoryReset();
   const [running, setRunning] = useState(false);
-  const resetFn = doFactoryReset ?? providerFactoryReset;
+  const resetFn = useMemo(
+    () => doFactoryReset ?? providerFactoryReset,
+    [doFactoryReset, providerFactoryReset]
+  );
   const desktopResetAvailable = getDesktopResetBridge() !== null;
   const resetAvailable = desktopResetAvailable || typeof resetFn === 'function';
 
