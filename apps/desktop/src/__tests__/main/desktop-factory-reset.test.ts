@@ -5,7 +5,7 @@ const fsMocks = vi.hoisted(() => ({
   existsSync: vi.fn(() => true),
   mkdirSync: vi.fn(),
   readdirSync: vi.fn(() => []),
-  rmSync: vi.fn(),
+  rm: vi.fn(async () => undefined),
 }));
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -14,6 +14,15 @@ vi.mock('node:fs', async (importOriginal) => {
     ...mod,
     ...fsMocks,
     default: { ...mod.default, ...fsMocks },
+  };
+});
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...mod,
+    rm: fsMocks.rm,
+    default: { ...mod.default, rm: fsMocks.rm },
   };
 });
 
@@ -41,23 +50,23 @@ describe('resetDesktopApplicationData', () => {
     expect(stopOrder).toBeLessThan(resetOrder);
     expect(resetDatabaseProfile).toHaveBeenCalledTimes(1);
     expect(fsMocks.readdirSync).toHaveBeenCalledWith('/mock/userData');
-    expect(fsMocks.rmSync).toHaveBeenCalledWith(path.join('/mock/userData', 'Cache'), {
+    expect(fsMocks.rm).toHaveBeenCalledWith(path.join('/mock/userData', 'Cache'), {
       force: true,
       recursive: true,
     });
-    expect(fsMocks.rmSync).toHaveBeenCalledWith(path.join('/mock/userData', 'IndexedDB'), {
+    expect(fsMocks.rm).toHaveBeenCalledWith(path.join('/mock/userData', 'IndexedDB'), {
       force: true,
       recursive: true,
     });
-    expect(fsMocks.rmSync).toHaveBeenCalledWith(path.join('/mock/userData', 'Local Storage'), {
+    expect(fsMocks.rm).toHaveBeenCalledWith(path.join('/mock/userData', 'Local Storage'), {
       force: true,
       recursive: true,
     });
-    expect(fsMocks.rmSync).toHaveBeenCalledWith(path.join('/mock/userData', 'mcp'), {
+    expect(fsMocks.rm).toHaveBeenCalledWith(path.join('/mock/userData', 'mcp'), {
       force: true,
       recursive: true,
     });
-    expect(fsMocks.rmSync).not.toHaveBeenCalledWith(path.join('/mock/userData', 'logs'), {
+    expect(fsMocks.rm).not.toHaveBeenCalledWith(path.join('/mock/userData', 'logs'), {
       force: true,
       recursive: true,
     });
@@ -89,14 +98,14 @@ describe('resetDesktopApplicationData', () => {
     ).rejects.toThrow('embedding host refused to stop');
 
     expect(resetDatabaseProfile).not.toHaveBeenCalled();
-    expect(fsMocks.rmSync).not.toHaveBeenCalled();
+    expect(fsMocks.rm).not.toHaveBeenCalled();
   });
 
   it('attempts every user data entry before failing when one delete fails', async () => {
     const stopBackgroundRuntimes = vi.fn(async () => undefined);
     const resetDatabaseProfile = vi.fn(async () => undefined);
     const deleteError = new Error('IndexedDB is locked');
-    fsMocks.rmSync.mockImplementation((targetPath: string) => {
+    fsMocks.rm.mockImplementation(async (targetPath: string) => {
       if (targetPath === path.join('/mock/userData', 'IndexedDB')) {
         throw deleteError;
       }
@@ -111,23 +120,23 @@ describe('resetDesktopApplicationData', () => {
       })
     ).rejects.toThrow('Desktop factory reset failed to delete 1 userData entry');
 
-    expect(fsMocks.rmSync).toHaveBeenCalledWith(path.join('/mock/userData', 'Cache'), {
+    expect(fsMocks.rm).toHaveBeenCalledWith(path.join('/mock/userData', 'Cache'), {
       force: true,
       recursive: true,
     });
-    expect(fsMocks.rmSync).toHaveBeenCalledWith(path.join('/mock/userData', 'IndexedDB'), {
+    expect(fsMocks.rm).toHaveBeenCalledWith(path.join('/mock/userData', 'IndexedDB'), {
       force: true,
       recursive: true,
     });
-    expect(fsMocks.rmSync).toHaveBeenCalledWith(path.join('/mock/userData', 'Local Storage'), {
+    expect(fsMocks.rm).toHaveBeenCalledWith(path.join('/mock/userData', 'Local Storage'), {
       force: true,
       recursive: true,
     });
-    expect(fsMocks.rmSync).toHaveBeenCalledWith(path.join('/mock/userData', 'mcp'), {
+    expect(fsMocks.rm).toHaveBeenCalledWith(path.join('/mock/userData', 'mcp'), {
       force: true,
       recursive: true,
     });
-    expect(fsMocks.rmSync).toHaveBeenCalledTimes(4);
+    expect(fsMocks.rm).toHaveBeenCalledTimes(4);
     expect(fsMocks.mkdirSync).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/utils/logger';
 
@@ -69,7 +70,7 @@ export async function resetDesktopApplicationData({
       continue;
     }
     try {
-      rmSync(targetPath, { recursive: true, force: true });
+      await rm(targetPath, { recursive: true, force: true });
       deletedPaths.push(targetPath);
     } catch (error: unknown) {
       deletionFailures.push({ error, targetPath });
