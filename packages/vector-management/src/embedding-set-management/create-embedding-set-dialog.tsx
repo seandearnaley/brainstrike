@@ -132,7 +132,12 @@ type FormAction =
   | { type: 'set_field'; field: 'description' | 'tags' | 'category'; value: string }
   | { type: 'edit_name'; value: string }
   | { type: 'select_model'; modelId: string; autoName: string | null }
-  | { type: 'refine_existing_names'; names: Set<string>; refinedName: string | null }
+  | {
+      type: 'refine_existing_names';
+      names: Set<string>;
+      baseModelId: string | null;
+      baseName: string | null;
+    }
   | { type: 'init_with_model'; modelId: string; name: string }
   | { type: 'reset' };
 
@@ -167,16 +172,25 @@ function formReducer(state: FormState, action: FormAction): FormState {
           name: action.autoName ?? state.formData.name,
         },
       };
-    case 'refine_existing_names':
-      // Async refinement after findAll(); only updates the auto-name if the user hasn't typed.
+    case 'refine_existing_names': {
+      // Async findAll() may resolve long after dispatch was queued. Re-check
+      // live state here — not values captured by the effect's closure — so
+      // a slow query can't clobber a name the user typed or roll back to an
+      // older model the user has since switched away from.
+      const next = { ...state, existingNames: action.names };
+      const stillOnSameModel =
+        action.baseModelId !== null && action.baseModelId === state.formData.selectedModel;
+      if (state.nameDirty || !(stillOnSameModel && action.baseName)) {
+        return next;
+      }
       return {
-        ...state,
-        existingNames: action.names,
-        formData:
-          action.refinedName === null
-            ? state.formData
-            : { ...state.formData, name: action.refinedName },
+        ...next,
+        formData: {
+          ...state.formData,
+          name: generateUniqueName(action.baseName, action.names),
+        },
       };
+    }
     case 'init_with_model':
       // Synchronous open-time initialization: seeds model + name immediately, no flash.
       return {
@@ -251,17 +265,20 @@ export function CreateEmbeddingSetDialog({
       if (cancelled) {
         return;
       }
+      // Hand the raw inputs to the reducer; it inspects live state at apply
+      // time to decide whether the user has typed or switched models since
+      // this query started, and skips the refinement if so.
       const firstModel = models[0];
-      // Only refine the name if the user hasn't started typing.
-      const refinedName =
-        !nameDirty && firstModel ? generateUniqueName(firstModel.name, collectionNames) : null;
-      dispatch({ type: 'refine_existing_names', names: collectionNames, refinedName });
+      dispatch({
+        type: 'refine_existing_names',
+        names: collectionNames,
+        baseModelId: firstModel?.id ?? null,
+        baseName: firstModel?.name ?? null,
+      });
     })();
     return () => {
       cancelled = true;
     };
-    // Intentionally excludes nameDirty: refining only runs once at open time,
-    // and re-running on every keystroke would defeat the purpose.
   }, [open, hasInitialized, repository, models]);
 
   const validateCreateInputs = (): boolean => {
@@ -480,8 +497,8 @@ export function CreateEmbeddingSetDialog({
                   placeholder="e.g., development"
                   value={formData.category}
                 />
-                {/* Empty-but-reserved slot keeps the two columns visually balanced. */}
-                <p className="min-h-[1rem] text-[11px] text-muted-foreground leading-4" />
+                {/* Empty-but-reserved spacer keeps the two columns visually balanced. */}
+                <div aria-hidden="true" className="min-h-[1rem]" />
               </div>
             </div>
 

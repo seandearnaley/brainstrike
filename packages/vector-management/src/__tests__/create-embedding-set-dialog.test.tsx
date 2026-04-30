@@ -407,6 +407,99 @@ describe('CreateEmbeddingSetDialog', () => {
     expect(nameInput.value).toBe('all-MiniLM-L6-v2');
   });
 
+  // P1 regression: when findAll() is slow, the async refinement used to capture
+  // `nameDirty: false` and `models[0]` at open-time, then dispatch later. If the
+  // user typed a custom name (or switched models) in that window, the late
+  // dispatch would clobber their input. Reducer must check live state instead.
+  it('does not overwrite a name the user typed during a slow findAll()', async () => {
+    let resolveFindAll: (collections: { name: string }[]) => void = () => {};
+    const slowFindAll = new Promise<{ name: string }[]>((resolve) => {
+      resolveFindAll = resolve;
+    });
+    const slowRepository = {
+      getOrCreateSet: vi.fn(),
+      findAll: vi.fn().mockReturnValue(slowFindAll),
+    } as unknown as IEmbeddingSetsRepository;
+
+    const user = userEvent.setup({ delay: null });
+    render(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          models={mockModels}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={mockProviders}
+          repository={slowRepository}
+        />
+      </>
+    );
+
+    // Phase-1 sync seed gives us the initial auto-name immediately.
+    const nameInput = screen.getByLabelText(/Name/i) as HTMLInputElement;
+    expect(nameInput.value).toBe('Text Embedding 3 Small');
+
+    // User types a custom name BEFORE findAll() resolves.
+    await user.clear(nameInput);
+    await user.type(nameInput, 'My Custom Collection');
+    expect(nameInput.value).toBe('My Custom Collection');
+
+    // findAll() resolves with names that would normally bump the auto-name to "(2)".
+    // The late refinement must NOT clobber the user's typed value.
+    resolveFindAll([{ name: 'Text Embedding 3 Small' }]);
+    // Drain the microtask queue so the effect's async resumes and any (buggy)
+    // refine dispatch lands. Then assert the user's input survived.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(nameInput.value).toBe('My Custom Collection');
+  });
+
+  // P1 sibling case: same race, but user changes the model instead of typing.
+  // The refinement was computed against the original models[0] but should not
+  // apply if the currently-selected model has changed.
+  it('does not overwrite the auto-name with a different model when findAll() lands late', async () => {
+    let resolveFindAll: (collections: { name: string }[]) => void = () => {};
+    const slowFindAll = new Promise<{ name: string }[]>((resolve) => {
+      resolveFindAll = resolve;
+    });
+    const slowRepository = {
+      getOrCreateSet: vi.fn(),
+      findAll: vi.fn().mockReturnValue(slowFindAll),
+    } as unknown as IEmbeddingSetsRepository;
+
+    const user = userEvent.setup({ delay: null });
+    render(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          models={mockModels}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={mockProviders}
+          repository={slowRepository}
+        />
+      </>
+    );
+
+    const nameInput = screen.getByLabelText(/Name/i) as HTMLInputElement;
+    expect(nameInput.value).toBe('Text Embedding 3 Small');
+
+    // User switches models BEFORE findAll() resolves. The auto-name follows.
+    await user.selectOptions(
+      screen.getByTestId('model-picker-select'),
+      'local::Xenova/all-MiniLM-L6-v2'
+    );
+    expect(nameInput.value).toBe('all-MiniLM-L6-v2');
+
+    // The captured "first model" was openai. findAll() resolves and returns a
+    // collision against that name. The refinement must NOT roll the picker
+    // back to "Text Embedding 3 Small (2)".
+    resolveFindAll([{ name: 'Text Embedding 3 Small' }]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(nameInput.value).toBe('all-MiniLM-L6-v2');
+  });
+
   it('preserves a manually-edited name when the user changes models', async () => {
     const user = userEvent.setup({ delay: null });
     render(
