@@ -129,6 +129,7 @@ const setupLiveQueries = (
     totalRecordsLoading = false,
     collectionCounts = [
       {
+        embeddingsetid: 'set-1',
         recordsCount: records.length,
         chunksCount: 0,
         embeddingsCount: 0,
@@ -324,7 +325,9 @@ describe('useDatabaseDemoData', () => {
         },
       ],
       totalRecords: [{ totalRecords: 1 }],
-      collectionCounts: [{ recordsCount: 1, chunksCount: 2, embeddingsCount: 1 }],
+      collectionCounts: [
+        { embeddingsetid: 'set-1', recordsCount: 1, chunksCount: 2, embeddingsCount: 1 },
+      ],
     });
 
     const { result } = renderHook(() =>
@@ -440,6 +443,7 @@ describe('useDatabaseDemoData', () => {
     );
     expect(totalAggregateCall?.[0]).not.toHaveProperty('mode', 'incremental');
     expect(collectionStatsCall?.[0].query).toContain('AS embeddingsetid');
+    expect(collectionStatsCall?.[0].query).not.toContain('AS "embeddingSetId"');
     expect(collectionStatsCall?.[0]).toEqual(
       expect.objectContaining({ mode: 'incremental', key: 'embeddingsetid' })
     );
@@ -501,7 +505,9 @@ describe('useDatabaseDemoData', () => {
       recordsLoading: true,
       totalRecords: [{ totalRecords: 999 }],
       totalRecordsLoading: true,
-      collectionCounts: [{ recordsCount: 999, chunksCount: 1000, embeddingsCount: 999 }],
+      collectionCounts: [
+        { embeddingsetid: 'set-1', recordsCount: 999, chunksCount: 1000, embeddingsCount: 999 },
+      ],
       collectionCountsLoading: true,
     });
 
@@ -585,7 +591,7 @@ describe('useDatabaseDemoData', () => {
       totalRecordsLoading: false,
       collectionCounts: [
         {
-          embeddingSetId: 'set-1',
+          embeddingsetid: 'set-1',
           recordsCount: 999,
           chunksCount: 1000,
           embeddingsCount: 999,

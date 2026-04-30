@@ -115,7 +115,7 @@ const mockChunkLiveQueryResult = {
 const mockCollectionCountLiveQueryResult = {
   rows: [
     {
-      embeddingSetId: TEST_COLLECTION_ID,
+      embeddingsetid: TEST_COLLECTION_ID,
       recordsCount: 1,
       chunksCount: 1,
       embeddingsCount: 1,
