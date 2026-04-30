@@ -39,6 +39,12 @@ export const FilterControls = React.memo(function FilterControls({
   // every keystroke in the search input, and (2) callbacks always read the
   // freshest snapshot, avoiding the spread-stale-closure pattern when two
   // filter changes fire in rapid succession.
+  //
+  // Caveat: this stability still depends on the parent passing a stable
+  // `onFiltersChange` reference. If a future caller passes an inline arrow
+  // (`onFiltersChange={(f) => set(f)}`), the callbacks below will rebuild
+  // each render and FilterChip will re-render along with them. Today's only
+  // caller (CollectionBrowserView) uses a useCallback-wrapped handler.
   const filtersRef = React.useRef(filters);
   filtersRef.current = filters;
 

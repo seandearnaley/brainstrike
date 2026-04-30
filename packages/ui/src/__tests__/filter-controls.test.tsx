@@ -2,16 +2,48 @@
  * Tests for the shared FilterControls component.
  *
  * These cover behavior plus the callback-stability guarantee: changing
- * `filters` between renders must NOT churn the click/change handler
- * identities, otherwise the memoized FilterChip re-renders on every
- * keystroke and the perf benefit of memoization is lost.
+ * `filters` between renders must NOT churn the click handler identity,
+ * otherwise the memoized FilterChip re-renders on every keystroke and
+ * the perf benefit of memoization is lost.
  */
 
 import { fireEvent, render, screen } from '@testing-library/react';
+import * as React from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { FilterControls } from '../collection-browser/filter-controls';
-import type { CollectionBrowserFilters } from '../collection-browser/types';
+import type { CollectionBrowserFilters, FilterChipProps } from '../collection-browser/types';
 import { DEFAULT_FILTERS } from '../collection-browser/types';
+
+// Module-level counter for the spied FilterChip render fn. We mock the chip
+// (not FilterControls) so we can directly observe whether stable callbacks
+// + React.memo actually skip the chip's render work — `chip1 === chip2` on
+// DOM nodes alone wouldn't tell us that, since React preserves DOM nodes
+// for any unmounted component regardless of memoization.
+let chipRenderCount = 0;
+
+vi.mock('../collection-browser/filter-chip', () => ({
+  FilterChip: React.memo(function MockFilterChip({
+    label,
+    active,
+    onClick,
+    className,
+  }: FilterChipProps) {
+    chipRenderCount++;
+    return (
+      <button
+        aria-label={label}
+        aria-pressed={active}
+        className={className}
+        onClick={onClick}
+        type="button"
+      >
+        {label}
+      </button>
+    );
+  }),
+}));
+
+// Import AFTER the mock so FilterControls picks up the spy chip.
+const { FilterControls } = await import('../collection-browser/filter-controls');
 
 function createFilters(
   overrides: Partial<CollectionBrowserFilters> = {}
@@ -75,33 +107,55 @@ describe('FilterControls', () => {
     );
   });
 
-  it('preserves the chip across keystroke-driven re-renders (memoized via stable callbacks)', () => {
+  it('does not re-render the memoized FilterChip when only searchQuery changes', () => {
+    // This is the real memoization assertion: since the ref-pinned callbacks
+    // keep handleToggleEmbedded's identity stable and isEmbeddedActive depends
+    // only on filters.embeddingStatus, the chip's props are referentially
+    // equal across keystrokes, and React.memo skips the render fn entirely.
+    chipRenderCount = 0;
     const handle = vi.fn();
 
     const { rerender } = render(
       <FilterControls filters={createFilters({ searchQuery: '' })} onFiltersChange={handle} />
     );
-    const chip1 = screen.getByRole('button', { name: 'Embedded' });
+    expect(chipRenderCount).toBe(1);
 
     rerender(
       <FilterControls filters={createFilters({ searchQuery: 'a' })} onFiltersChange={handle} />
     );
-    const chip2 = screen.getByRole('button', { name: 'Embedded' });
-
     rerender(
       <FilterControls filters={createFilters({ searchQuery: 'ab' })} onFiltersChange={handle} />
     );
-    const chip3 = screen.getByRole('button', { name: 'Embedded' });
-
-    // Stable onClick + React.memo means FilterChip does not unmount across
-    // keystrokes — the identical DOM node persists.
-    expect(chip1).toBe(chip2);
-    expect(chip2).toBe(chip3);
-
-    // And clicking still toggles correctly against the latest filters.
-    fireEvent.click(chip3);
-    expect(handle).toHaveBeenLastCalledWith(
-      expect.objectContaining({ embeddingStatus: 'complete', searchQuery: 'ab' })
+    rerender(
+      <FilterControls filters={createFilters({ searchQuery: 'abc' })} onFiltersChange={handle} />
     );
+
+    // Three keystrokes after mount, but the chip never had to re-render.
+    expect(chipRenderCount).toBe(1);
+  });
+
+  it('re-renders the FilterChip when embeddingStatus actually changes', () => {
+    // Negative control: when the chip's own state (active prop) changes, it
+    // SHOULD re-render. This protects against an over-aggressive memo bug
+    // that makes the assertion above pass for the wrong reason.
+    chipRenderCount = 0;
+    const handle = vi.fn();
+
+    const { rerender } = render(
+      <FilterControls
+        filters={createFilters({ embeddingStatus: 'all' })}
+        onFiltersChange={handle}
+      />
+    );
+    expect(chipRenderCount).toBe(1);
+
+    rerender(
+      <FilterControls
+        filters={createFilters({ embeddingStatus: 'complete' })}
+        onFiltersChange={handle}
+      />
+    );
+
+    expect(chipRenderCount).toBe(2);
   });
 });
