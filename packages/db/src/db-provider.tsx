@@ -746,22 +746,18 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     if (!(useElectronIPC && w?.electronAPI?.db)) {
       return false;
     }
-    try {
-      await w.electronAPI.db.clearAll?.('CONFIRM_CLEAR_DATABASE');
-    } catch (err) {
-      logger.warn('Electron clearAll during reset failed:', err);
+    if (typeof w.electronAPI.db.resetLocal !== 'function') {
+      throw new Error('Electron database reset bridge is unavailable.');
     }
-    try {
-      const res = await w.electronAPI.db.resetLocal?.();
-      if (res?.success) {
-        // Don't reload here - let the caller handle clearing UI state and reloading
-        // This ensures clearPersistentUiState() runs before the page reloads
-        return true;
-      }
-    } catch (err) {
-      logger.warn('Electron resetLocal during reset failed:', err);
+
+    await w.electronAPI.db.clearAll?.('CONFIRM_CLEAR_DATABASE');
+    const res = await w.electronAPI.db.resetLocal();
+    if (!res?.success) {
+      throw new Error(res?.message ?? 'Electron database reset failed.');
     }
-    return false;
+    // Don't reload here - let the caller handle clearing UI state and reloading.
+    // This ensures clearPersistentUiState() runs before the page reloads.
+    return true;
   }, [useElectronIPC]);
 
   const purgeAndClosePGlite = useCallback(async () => {
@@ -912,22 +908,12 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       initializeDatabase,
       vectorEnabled,
       factoryReset: async () => {
-        // Try Electron hard reset and return if successful
-        // Caller (factory-reset-panel) will handle clearing UI state and reloading
-        try {
-          const handled = await tryElectronHardReset();
-          if (handled) {
-            logger.info('[DbProvider] Electron hard reset completed');
-            return;
-          }
-        } catch (err) {
-          logger.warn(
-            '[DbProvider] Electron hard reset failed, falling back to PGlite reset:',
-            err
-          );
+        const handled = await tryElectronHardReset();
+        if (handled) {
+          logger.info('[DbProvider] Electron hard reset completed');
+          return;
         }
 
-        // Fallback: direct PGlite purge and recreate
         await resetPGliteState();
       },
       clearQueuesAndEmbeddingSets: async () => {

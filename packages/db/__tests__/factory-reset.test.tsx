@@ -55,6 +55,22 @@ function wrapper({ children }: { children: React.ReactNode }) {
   return <DbProvider dbPath="memory://">{children}</DbProvider>;
 }
 
+function electronIpcWrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <DbProvider dbPath="memory://" useElectronIPC={true}>
+      {children}
+    </DbProvider>
+  );
+}
+
+function installElectronDbBridge(db: unknown): void {
+  Object.defineProperty(window, 'electronAPI', {
+    configurable: true,
+    value: { db },
+    writable: true,
+  });
+}
+
 describe('DbProvider factoryReset', () => {
   let createdDbs: MockDb[];
   let createPGliteSpy: ReturnType<typeof vi.spyOn>;
@@ -76,6 +92,11 @@ describe('DbProvider factoryReset', () => {
   });
 
   afterEach(() => {
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: undefined,
+      writable: true,
+    });
     vi.restoreAllMocks();
   });
 
@@ -137,5 +158,41 @@ describe('DbProvider factoryReset', () => {
     expect(initialDb.close).toHaveBeenCalledTimes(1);
     expect(createPGliteSpy).toHaveBeenCalledTimes(2);
     expect(createdDbs).toHaveLength(2);
+  });
+
+  it('surfaces desktop hard reset failure instead of falling back to direct PGlite', async () => {
+    installElectronDbBridge({
+      clearAll: vi.fn(async () => ({ success: true })),
+      diagnostics: vi.fn(async () => null),
+      exec: vi.fn(async () => undefined),
+      ping: vi.fn(async () => ({ success: true })),
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('SELECT 1 FROM pg_extension')) {
+          return { rows: [{ '?column?': 1 }] };
+        }
+        return { rows: [] };
+      }),
+      resetLocal: vi.fn(async () => ({ success: false, message: 'disk reset failed' })),
+      test: vi.fn(async () => ({ message: 'ok', success: true })),
+    });
+
+    const { result } = renderHook(
+      () => ({
+        repo: useFileRecordRepository(),
+        reset: useFactoryReset(),
+      }),
+      { wrapper: electronIpcWrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.repo).not.toBeNull();
+        expect(result.current.reset).not.toBeNull();
+      },
+      { timeout: 5000 }
+    );
+
+    await expect(result.current.reset?.()).rejects.toThrow('disk reset failed');
+    expect(createPGliteSpy).not.toHaveBeenCalled();
   });
 });

@@ -20,6 +20,7 @@ import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow, noteNextWindowReload } from './create-window';
 import { closeDatabase, resetLocalDatabase } from './db-main';
+import { resetDesktopApplicationData } from './desktop-factory-reset';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
@@ -577,13 +578,24 @@ async function runShutdownStep(
 }
 
 async function handleResetLocal(): Promise<{ success: boolean; message?: string }> {
-  // Note: Embedding worker runs in renderer, not main process, so no need to stop it here
-
   try {
-    await resetLocalDatabase();
+    await resetDesktopApplicationData({
+      resetDatabaseProfile: async () => {
+        await resetLocalDatabase();
+        await closeDatabase();
+      },
+      stopBackgroundRuntimes: async () => {
+        await Promise.all([
+          embeddingHostManager.stop(),
+          chunkingHostManager.stop(),
+          llmHostManager.stop(),
+        ]);
+      },
+      userDataPath: app.getPath('userData'),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    logger.error('Failed to reset local database:', error);
+    logger.error('Failed to reset desktop application data:', error);
     return { success: false, message };
   }
 

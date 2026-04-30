@@ -1160,6 +1160,6 @@ export async function resetLocalDatabase(): Promise<void> {
     await resetLocalDatabaseInternal();
     return;
   }
-  const manager = await getRemoteDbHostManager();
-  await manager.reset();
+  await closeRemoteDbHostManager();
+  await resetLocalDatabaseInternal();
 }

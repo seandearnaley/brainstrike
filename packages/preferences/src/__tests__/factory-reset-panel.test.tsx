@@ -55,6 +55,11 @@ describe('FactoryResetPanel', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: undefined,
+      writable: true,
+    });
 
     // Reset default mocks
     mockUseFactoryReset.mockReturnValue(null);
@@ -73,7 +78,7 @@ describe('FactoryResetPanel', () => {
       expect(screen.getByText('Factory Reset')).toBeInTheDocument();
       expect(
         screen.getByText(
-          /Clears all files, embeddings, queues, and local preferences\. The app will reload after the reset completes\./
+          /Irreversibly deletes local data, stored folders, API keys, tool settings, runtime caches, and UI state from this device\. Diagnostic logs may be preserved\./
         )
       ).toBeInTheDocument();
       expect(screen.getByTestId('factory-reset-button')).toBeInTheDocument();
@@ -87,9 +92,10 @@ describe('FactoryResetPanel', () => {
 
       expect(
         screen.getByText(
-          /Database-level reset is unavailable, so this will only clear the UI state before reloading\./
+          /Factory reset is unavailable until the database is ready\. Restart the app if this does not clear\./
         )
       ).toBeInTheDocument();
+      expect(screen.getByTestId('factory-reset-button')).toBeDisabled();
     });
 
     it('hides warning when provider reset is available', () => {
@@ -100,7 +106,7 @@ describe('FactoryResetPanel', () => {
 
       expect(
         screen.queryByText(
-          /Database-level reset is unavailable, so this will only clear the UI state before reloading\./
+          /Factory reset is unavailable until the database is ready\. Restart the app if this does not clear\./
         )
       ).not.toBeInTheDocument();
     });
@@ -111,7 +117,7 @@ describe('FactoryResetPanel', () => {
 
       expect(
         screen.queryByText(
-          /Database-level reset is unavailable, so this will only clear the UI state before reloading\./
+          /Factory reset is unavailable until the database is ready\. Restart the app if this does not clear\./
         )
       ).not.toBeInTheDocument();
     });
@@ -119,13 +125,13 @@ describe('FactoryResetPanel', () => {
 
   describe('user interactions', () => {
     it('shows confirmation dialog when button is clicked', () => {
-      render(<FactoryResetPanel />);
+      render(<FactoryResetPanel doFactoryReset={vi.fn().mockResolvedValue(undefined)} />);
 
       const button = screen.getByTestId('factory-reset-button');
       fireEvent.click(button);
 
       expect(mockConfirm).toHaveBeenCalledWith(
-        'Factory Reset will wipe all data (files, chunks, embedding sets, job queue), dispose embeddings, and reload the database. Continue?'
+        'Factory Reset will irreversibly delete local files, chunks, embeddings, queues, stored folders, API keys, tool settings, model/runtime caches, and UI state from this device. Diagnostic logs may be preserved. Continue?'
       );
     });
 
@@ -191,6 +197,33 @@ describe('FactoryResetPanel', () => {
       });
 
       expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: true });
+    });
+
+    it('calls the desktop reset bridge after clearing renderer storage', async () => {
+      const resetLocal = vi.fn().mockResolvedValue({ success: true });
+      Object.defineProperty(window, 'electronAPI', {
+        configurable: true,
+        value: {
+          db: { resetLocal },
+        },
+        writable: true,
+      });
+      mockUseFactoryReset.mockReturnValue(null);
+
+      render(<FactoryResetPanel doFactoryReset={null} />);
+
+      fireEvent.click(screen.getByTestId('factory-reset-button'));
+
+      await waitFor(() => {
+        expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: false });
+        expect(resetLocal).toHaveBeenCalled();
+      });
+      const clearOrder = mockClearPersistentUiState.mock.invocationCallOrder[0];
+      const resetOrder = resetLocal.mock.invocationCallOrder[0];
+      if (clearOrder === undefined || resetOrder === undefined) {
+        throw new Error('Expected clear and reset invocation order to be recorded');
+      }
+      expect(clearOrder).toBeLessThan(resetOrder);
     });
 
     it('reloads the page after successful reset', async () => {
@@ -261,7 +294,7 @@ describe('FactoryResetPanel', () => {
   });
 
   describe('reset flow without any reset function', () => {
-    it('still clears UI state and reloads when no reset function is available', async () => {
+    it('does not offer a UI-only fallback when no reset function is available', async () => {
       mockUseFactoryReset.mockReturnValue(null);
 
       render(<FactoryResetPanel doFactoryReset={null} />);
@@ -269,10 +302,9 @@ describe('FactoryResetPanel', () => {
       const button = screen.getByTestId('factory-reset-button');
       fireEvent.click(button);
 
-      await waitFor(() => {
-        expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: false });
-        expect(mockReload).toHaveBeenCalled();
-      });
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockClearPersistentUiState).not.toHaveBeenCalled();
+      expect(mockReload).not.toHaveBeenCalled();
     });
   });
 
