@@ -549,8 +549,7 @@ function watchDeviceLoss(device: GpuDeviceHandle): void {
 async function initWebGpuDeviceGuard(): Promise<void> {
   const device = await getOrtWebGpuDevice();
   if (!device) {
-    debugLog('GPU guard could not obtain ORT WebGPU device');
-    return;
+    throw new Error('WebGPU pipeline loaded without a usable ORT WebGPU device');
   }
   debugLog('GPU guard acquired device and attached keep-alive plus loss watcher');
   startKeepAlive(device);
