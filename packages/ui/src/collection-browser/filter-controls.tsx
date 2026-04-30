@@ -16,7 +16,7 @@ import type { CollectionBrowserFilters } from './types';
 
 export interface FilterControlsProps {
   className?: string;
-  /** Compact mode reduces internal spacing — used inside the toolbar row */
+  /** Compact mode shrinks the input height to h-8 (vs h-9) — used inside the toolbar row */
   compact?: boolean;
   filters: CollectionBrowserFilters;
   /** className applied directly to the input wrapper for container-query control */
