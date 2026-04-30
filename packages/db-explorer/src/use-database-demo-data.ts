@@ -891,8 +891,10 @@ export function useDatabaseDemoData({
       return 'pending';
     }
     const firstRow = collectionCountRows[0];
-    return activeCollectionId &&
-      collectionCountsRowBelongsToCollection(firstRow, activeCollectionId)
+    if (!(activeCollectionId && firstRow)) {
+      return 'pending';
+    }
+    return collectionCountsRowBelongsToCollection(firstRow, activeCollectionId)
       ? 'ready'
       : 'pending';
   }, [activeCollectionId, collectionCountRows, collectionCountsLoading]);
