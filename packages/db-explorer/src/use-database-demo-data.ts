@@ -223,7 +223,9 @@ const FILE_RECORDS_TOTAL_QUERY = `
 
 const COLLECTION_COUNTS_QUERY = `
   SELECT
-    embedding_set_id AS "embeddingSetId",
+    -- PGlite incremental live queries join on an unquoted key column, so this
+    -- identity field must stay lowercase.
+    embedding_set_id AS embeddingsetid,
     file_count AS "recordsCount",
     chunk_count AS "chunksCount",
     embedded_chunk_count AS "embeddingsCount"
@@ -298,8 +300,8 @@ interface FileRecordsTotalRow {
 
 interface CollectionCountsRow {
   chunksCount: number | null;
-  embeddingSetId?: string | null;
   embeddingsCount: number | null;
+  embeddingsetid?: string | null;
   recordsCount: number | null;
 }
 
@@ -582,6 +584,13 @@ function recordsBelongToCollection(
   );
 }
 
+function collectionCountsRowBelongsToCollection(
+  row: CollectionCountsRow | null | undefined,
+  collectionId: string
+): boolean {
+  return row?.embeddingsetid === collectionId;
+}
+
 function mapCollectionCountsRow(row: CollectionCountsRow): DatabaseCollectionCounts {
   return {
     records: normalizeCount(row.recordsCount),
@@ -608,7 +617,7 @@ function cacheCollectionCountsForCollection(args: {
   rows: readonly CollectionCountsRow[];
 }): void {
   const countsRow = args.rows[0];
-  if (!(countsRow && rowBelongsToCollection(countsRow, args.collectionId))) {
+  if (!(countsRow && collectionCountsRowBelongsToCollection(countsRow, args.collectionId))) {
     return;
   }
   args.cache.set(args.collectionId, mapCollectionCountsRow(countsRow));
@@ -818,6 +827,8 @@ export function useDatabaseDemoData({
     ),
     query: FILE_RECORDS_PAGE_QUERY,
     ...(recordQueryParams ? { params: recordQueryParams } : {}),
+    mode: 'incremental',
+    key: 'id',
     enabled: liveQueryEnabled,
     clearOnDisable: true,
   });
@@ -839,6 +850,8 @@ export function useDatabaseDemoData({
     cacheKey: makeLiveQueryKey('file-record-collection-counts', activeCollectionId),
     query: COLLECTION_COUNTS_QUERY,
     ...(collectionCountsQueryParams ? { params: collectionCountsQueryParams } : {}),
+    mode: 'incremental',
+    key: 'embeddingsetid',
     enabled: liveQueryEnabled,
   });
 
@@ -862,7 +875,13 @@ export function useDatabaseDemoData({
   const liveTotalRecordsReady = liveTotalRecords !== null;
   const liveCollectionCounts = useMemo<DatabaseCollectionCounts>(() => {
     const firstRow = collectionCountRows[0];
-    if (!(activeCollectionId && firstRow && rowBelongsToCollection(firstRow, activeCollectionId))) {
+    if (
+      !(
+        activeCollectionId &&
+        firstRow &&
+        collectionCountsRowBelongsToCollection(firstRow, activeCollectionId)
+      )
+    ) {
       return { records: 0, chunks: 0, embeddings: 0 };
     }
     return mapCollectionCountsRow(firstRow);
@@ -872,7 +891,10 @@ export function useDatabaseDemoData({
       return 'pending';
     }
     const firstRow = collectionCountRows[0];
-    return activeCollectionId && firstRow && rowBelongsToCollection(firstRow, activeCollectionId)
+    if (!(activeCollectionId && firstRow)) {
+      return 'pending';
+    }
+    return collectionCountsRowBelongsToCollection(firstRow, activeCollectionId)
       ? 'ready'
       : 'pending';
   }, [activeCollectionId, collectionCountRows, collectionCountsLoading]);

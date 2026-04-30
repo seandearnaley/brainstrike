@@ -122,6 +122,17 @@ describe('useCollections', () => {
       );
     });
 
+    it('uses incremental live query mode keyed by collection id', () => {
+      renderHook(() => useCollections(mockDb as any));
+
+      expect(usePGliteLiveQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mode: 'incremental',
+          key: 'id',
+        })
+      );
+    });
+
     it('should disable live query when schema is not verified', () => {
       mockStoreState.schemaVerified = false;
 

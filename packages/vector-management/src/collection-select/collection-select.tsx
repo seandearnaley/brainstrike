@@ -397,6 +397,8 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
   } = usePGliteLiveQuery<CollectionRow>({
     cacheKey: makeLiveQueryKey('collections'),
     query: COLLECTIONS_QUERY,
+    mode: 'incremental',
+    key: 'id',
     enabled: liveQueryEnabled,
   });
 
