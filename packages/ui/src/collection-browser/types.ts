@@ -113,7 +113,14 @@ export const DEFAULT_FILTERS: CollectionBrowserFilters = {
 export interface FilterChipProps {
   /** Whether the chip is active/selected */
   active: boolean;
-  /** Custom class name (passes through `cn`, so `undefined` is a no-op) */
+  /**
+   * Custom class name. Passes through `cn`, so `undefined` is a no-op.
+   *
+   * The explicit `| undefined` is required (not redundant) because this repo
+   * sets `exactOptionalPropertyTypes: true` — without it, callers couldn't
+   * write `className={maybeString}` where `maybeString` may be `undefined`
+   * and would have to fall back to a conditional spread.
+   */
   className?: string | undefined;
   /** Whether the chip is disabled */
   disabled?: boolean;

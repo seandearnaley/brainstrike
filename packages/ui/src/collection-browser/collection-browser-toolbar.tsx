@@ -81,6 +81,15 @@ export const CollectionBrowserToolbar = React.memo(function CollectionBrowserToo
 
       <div className="flex shrink-0 items-center gap-0.5">
         {filterUi && (
+          // Note on resize: the trigger gets `display: none` via container
+          // queries when the panel widens past the chip breakpoint. Radix
+          // portals the PopoverContent to the body, so it doesn't inherit
+          // the trigger's hidden state. In practice this self-corrects:
+          // resizing the panel requires a pointerdown on the splitter (which
+          // sits outside PopoverContent), and Radix's default
+          // `onPointerDownOutside` closes the popover on any such event.
+          // Programmatic width changes that don't involve a pointerdown
+          // would leave the popover stranded — none exist in this app today.
           <Popover>
             <PopoverTrigger asChild>
               <Button
