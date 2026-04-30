@@ -439,8 +439,9 @@ describe('useDatabaseDemoData', () => {
       expect.objectContaining({ mode: 'incremental', key: 'id' })
     );
     expect(totalAggregateCall?.[0]).not.toHaveProperty('mode', 'incremental');
+    expect(collectionStatsCall?.[0].query).toContain('AS embeddingsetid');
     expect(collectionStatsCall?.[0]).toEqual(
-      expect.objectContaining({ mode: 'incremental', key: 'embeddingSetId' })
+      expect.objectContaining({ mode: 'incremental', key: 'embeddingsetid' })
     );
   });
 

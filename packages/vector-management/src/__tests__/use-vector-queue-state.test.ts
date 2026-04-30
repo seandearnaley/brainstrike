@@ -357,6 +357,12 @@ describe('useVectorQueueState', () => {
       (options) =>
         options.query.includes('ORDER BY updated_at DESC') && options.query.includes('LIMIT 1')
     );
+    const activeSetQueueCountsCall = liveQueryCalls.find((options) =>
+      options.query.includes("payload->>'embeddingSetId'")
+    );
+    const throughputCall = liveQueryCalls.find((options) =>
+      options.query.includes("INTERVAL '60 seconds'")
+    );
     const latencyCall = liveQueryCalls.find((options) =>
       options.query.includes("INTERVAL '5 minutes'")
     );
@@ -366,6 +372,8 @@ describe('useVectorQueueState', () => {
 
     expect(queueCountsCall).not.toHaveProperty('mode', 'incremental');
     expect(lastErrorCall).not.toHaveProperty('mode', 'incremental');
+    expect(activeSetQueueCountsCall).not.toHaveProperty('mode', 'incremental');
+    expect(throughputCall).not.toHaveProperty('mode', 'incremental');
     expect(latencyCall).toEqual(expect.objectContaining({ mode: 'incremental', key: 'id' }));
     expect(coverageCall).not.toHaveProperty('mode', 'incremental');
   });

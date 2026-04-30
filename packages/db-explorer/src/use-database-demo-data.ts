@@ -223,6 +223,9 @@ const FILE_RECORDS_TOTAL_QUERY = `
 
 const COLLECTION_COUNTS_QUERY = `
   SELECT
+    -- PGlite incremental live queries join on an unquoted key column, so the
+    -- identity column must be lowercase while the UI keeps the camelCase row field.
+    embedding_set_id AS embeddingsetid,
     embedding_set_id AS "embeddingSetId",
     file_count AS "recordsCount",
     chunk_count AS "chunksCount",
@@ -842,7 +845,7 @@ export function useDatabaseDemoData({
     query: COLLECTION_COUNTS_QUERY,
     ...(collectionCountsQueryParams ? { params: collectionCountsQueryParams } : {}),
     mode: 'incremental',
-    key: 'embeddingSetId',
+    key: 'embeddingsetid',
     enabled: liveQueryEnabled,
   });
 
