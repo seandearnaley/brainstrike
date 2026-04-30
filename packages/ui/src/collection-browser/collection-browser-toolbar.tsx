@@ -22,9 +22,14 @@ const GROUP_BY_OPTIONS: { value: GroupByKey; label: string }[] = [
 // Container-query breakpoints that drive collapse of the inline filter UI.
 // The toolbar root is `@container/cb-toolbar`, so these refer to its inline width.
 // Class strings must be written literally so the Tailwind JIT can detect them.
+//
+// Invariant: the popover trigger must stay visible until BOTH inline controls
+// (input AND chip) are visible. Otherwise there's a width range where the
+// Embedded toggle is unreachable. The popover hide breakpoint therefore tracks
+// the LAST inline control to appear, which is currently the chip at 460px.
 const INLINE_INPUT_VISIBLE = 'hidden @[360px]/cb-toolbar:flex';
 const INLINE_CHIP_VISIBLE = 'hidden @[460px]/cb-toolbar:inline-flex';
-const POPOVER_TRIGGER_HIDDEN_AT_WIDE = '@[360px]/cb-toolbar:hidden';
+const POPOVER_TRIGGER_HIDDEN_AT_WIDE = '@[460px]/cb-toolbar:hidden';
 
 export const CollectionBrowserToolbar = React.memo(function CollectionBrowserToolbar({
   filters,
@@ -49,7 +54,9 @@ export const CollectionBrowserToolbar = React.memo(function CollectionBrowserToo
     );
   }, [filters]);
 
-  const showFilterUi = Boolean(filters && onFiltersChange);
+  // Single narrowing point — downstream JSX uses `filterUi` so TS knows
+  // `filters` and `onFiltersChange` are non-null without re-checking.
+  const filterUi = filters && onFiltersChange ? { filters, onFiltersChange } : null;
   const popoverFilterLabel = hasActiveFilters ? 'Filters (active)' : 'Filters';
 
   return (
@@ -59,13 +66,13 @@ export const CollectionBrowserToolbar = React.memo(function CollectionBrowserToo
         className
       )}
     >
-      {showFilterUi && filters && onFiltersChange ? (
+      {filterUi ? (
         <FilterControls
           className="min-w-0 flex-1"
           compact
-          filters={filters}
+          filters={filterUi.filters}
           inputContainerClassName={INLINE_INPUT_VISIBLE}
-          onFiltersChange={onFiltersChange}
+          onFiltersChange={filterUi.onFiltersChange}
           toggleClassName={INLINE_CHIP_VISIBLE}
         />
       ) : (
@@ -73,7 +80,7 @@ export const CollectionBrowserToolbar = React.memo(function CollectionBrowserToo
       )}
 
       <div className="flex shrink-0 items-center gap-0.5">
-        {showFilterUi && filters && onFiltersChange && (
+        {filterUi && (
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -96,8 +103,8 @@ export const CollectionBrowserToolbar = React.memo(function CollectionBrowserToo
             <PopoverContent align="end" className="w-72">
               <FilterControls
                 className="flex-col items-stretch gap-3"
-                filters={filters}
-                onFiltersChange={onFiltersChange}
+                filters={filterUi.filters}
+                onFiltersChange={filterUi.onFiltersChange}
               />
             </PopoverContent>
           </Popover>
@@ -105,7 +112,7 @@ export const CollectionBrowserToolbar = React.memo(function CollectionBrowserToo
 
         {(onExpandAll || onCollapseAll) && (
           <>
-            {showFilterUi && <div className="mx-0.5 h-5 w-px bg-border" />}
+            {filterUi && <div className="mx-0.5 h-5 w-px bg-border" />}
             {onExpandAll && (
               <Button
                 aria-label="Expand all"

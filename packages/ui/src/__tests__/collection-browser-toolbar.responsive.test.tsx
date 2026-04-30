@@ -200,4 +200,24 @@ describe('CollectionBrowserToolbar - narrow-width filter popover', () => {
     const popoverTrigger = screen.getByRole('button', { name: /filters \(active\)/i });
     expect(popoverTrigger).toBeInTheDocument();
   });
+
+  it('keeps the filter popover available until the inline Embedded chip appears (no functional gap)', () => {
+    render(<CollectionBrowserToolbar filters={createFilters()} onFiltersChange={vi.fn()} />);
+
+    const chip = screen.getByRole('button', { name: 'Embedded' });
+    const popoverTrigger = screen.getByRole('button', { name: /filters/i });
+
+    const chipMatch = chip.className.match(/@\[(\d+)px\]\/cb-toolbar:inline-flex/);
+    const popoverMatch = popoverTrigger.className.match(/@\[(\d+)px\]\/cb-toolbar:hidden/);
+
+    expect(chipMatch).not.toBeNull();
+    expect(popoverMatch).not.toBeNull();
+
+    const chipBreakpoint = Number(chipMatch?.[1]);
+    const popoverBreakpoint = Number(popoverMatch?.[1]);
+
+    // The popover must NOT disappear before the inline chip appears, otherwise
+    // there's a width range where the Embedded toggle is unreachable.
+    expect(popoverBreakpoint).toBeGreaterThanOrEqual(chipBreakpoint);
+  });
 });

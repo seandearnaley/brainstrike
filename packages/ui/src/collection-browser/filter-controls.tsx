@@ -89,9 +89,9 @@ export const FilterControls = React.memo(function FilterControls({
       </div>
       <FilterChip
         active={isEmbeddedActive}
+        className={toggleClassName}
         label="Embedded"
         onClick={handleToggleEmbedded}
-        {...(toggleClassName ? { className: toggleClassName } : {})}
       />
     </div>
   );

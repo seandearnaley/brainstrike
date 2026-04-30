@@ -113,8 +113,8 @@ export const DEFAULT_FILTERS: CollectionBrowserFilters = {
 export interface FilterChipProps {
   /** Whether the chip is active/selected */
   active: boolean;
-  /** Custom class name */
-  className?: string;
+  /** Custom class name (passes through `cn`, so `undefined` is a no-op) */
+  className?: string | undefined;
   /** Whether the chip is disabled */
   disabled?: boolean;
   /** Icon to show (optional) */
