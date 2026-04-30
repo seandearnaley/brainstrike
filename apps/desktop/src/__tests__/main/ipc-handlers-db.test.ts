@@ -7,11 +7,16 @@ import {
 } from '../../embedding-host-shared';
 
 function createWindowWithWebContents(sender: {
+  id?: number;
+  isDestroyed?: () => boolean;
   send: (...args: unknown[]) => unknown;
 }): BrowserWindow {
   return {
     isDestroyed: () => false,
-    webContents: sender,
+    webContents: {
+      ...sender,
+      isDestroyed: sender.isDestroyed ?? (() => false),
+    },
   } as unknown as BrowserWindow;
 }
 
@@ -27,6 +32,8 @@ const {
   isCorruptionErrorMock,
   handleRuntimeCorruptionMock,
   resetLocalDatabaseMock,
+  closeDatabaseMock,
+  resetDesktopApplicationDataMock,
   getDatabaseDiagnosticsMock,
   getDbHostManagerMock,
   enqueueEmbeddingBackfillMock,
@@ -75,6 +82,11 @@ const {
   const isCorruptionErrorMock = vi.fn(() => false);
   const handleRuntimeCorruptionMock = vi.fn();
   const resetLocalDatabaseMock = vi.fn();
+  const closeDatabaseMock = vi.fn();
+  const resetDesktopApplicationDataMock = vi.fn(async () => ({
+    deletedPaths: [],
+    preservedPaths: [],
+  }));
   const enqueueEmbeddingBackfillMock = vi.fn();
   const embeddingHostIsHostWindowMock = vi.fn(() => false);
   const embeddingHostEnsureStartedMock = vi.fn(async () => ({
@@ -138,6 +150,8 @@ const {
     isCorruptionErrorMock,
     handleRuntimeCorruptionMock,
     resetLocalDatabaseMock,
+    closeDatabaseMock,
+    resetDesktopApplicationDataMock,
     getDatabaseDiagnosticsMock,
     getDbHostManagerMock,
     enqueueEmbeddingBackfillMock,
@@ -180,10 +194,13 @@ vi.mock('electron', async () => {
   const mockBrowserWindowInstance = {
     once: vi.fn(),
     on: vi.fn(),
+    removeListener: vi.fn(),
+    destroy: vi.fn(),
     show: vi.fn(),
     loadFile: vi.fn(),
     loadURL: vi.fn(),
     maximize: vi.fn(),
+    isDestroyed: vi.fn(() => false),
     isFullScreen: vi.fn(() => false),
     isMaximized: vi.fn(() => false),
     getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1536, height: 800 })),
@@ -229,11 +246,16 @@ vi.mock('../../db-main', () => ({
   isCorruptionError: isCorruptionErrorMock,
   handleRuntimeCorruption: handleRuntimeCorruptionMock,
   resetLocalDatabase: resetLocalDatabaseMock,
+  closeDatabase: closeDatabaseMock,
   getDatabaseDiagnostics: getDatabaseDiagnosticsMock,
 }));
 
 vi.mock('../../db-host-manager', () => ({
   getDbHostManager: getDbHostManagerMock,
+}));
+
+vi.mock('../../desktop-factory-reset', () => ({
+  resetDesktopApplicationData: resetDesktopApplicationDataMock,
 }));
 
 vi.mock('../../embedding-backfill', () => ({
@@ -1599,16 +1621,35 @@ describe('database IPC handlers', () => {
     });
   });
 
-  it('db:resetLocal returns success and errors', async () => {
+  it('db:resetLocal delegates desktop application data reset and returns errors', async () => {
     const handler = handlers.get('db:resetLocal');
     if (!handler) {
       throw new Error('handler not registered');
     }
 
-    resetLocalDatabaseMock.mockResolvedValueOnce(undefined);
+    resetDesktopApplicationDataMock.mockResolvedValueOnce({
+      deletedPaths: [],
+      preservedPaths: [],
+    });
     await expect(handler({} as unknown)).resolves.toEqual({ success: true });
+    expect(resetDesktopApplicationDataMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resetDatabaseProfile: expect.any(Function),
+        stopBackgroundRuntimes: expect.any(Function),
+        userDataPath: expect.any(String),
+      })
+    );
+    const resetOptions = resetDesktopApplicationDataMock.mock.calls[0]?.[0] as
+      | { resetDatabaseProfile?: () => Promise<void> }
+      | undefined;
+    if (typeof resetOptions?.resetDatabaseProfile !== 'function') {
+      throw new Error('resetDatabaseProfile callback was not passed to desktop reset');
+    }
+    await resetOptions.resetDatabaseProfile();
+    expect(resetLocalDatabaseMock).toHaveBeenCalledTimes(1);
+    expect(closeDatabaseMock).not.toHaveBeenCalled();
 
-    resetLocalDatabaseMock.mockRejectedValueOnce(new Error('fail reset'));
+    resetDesktopApplicationDataMock.mockRejectedValueOnce(new Error('fail reset'));
     await expect(handler({} as unknown)).resolves.toEqual({
       success: false,
       message: 'fail reset',
