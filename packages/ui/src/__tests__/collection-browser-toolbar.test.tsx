@@ -68,6 +68,30 @@ describe('CollectionBrowserToolbar', () => {
     expect(screen.getByRole('button', { name: 'Filters (active)' })).toHaveClass('bg-accent');
   });
 
+  it('marks filter popover trigger active when node type membership differs at same size', () => {
+    // Exercises the `.some()` membership-diff branch of hasActiveFilters
+    // independently of the `.size` check: same count as the default set
+    // (4 entries) but with `unknown` swapped in for `collection`.
+    render(
+      <CollectionBrowserToolbar
+        filters={{
+          embeddingStatus: 'all',
+          nodeTypes: new Set<CollectionNodeType>([
+            'file',
+            'chunk',
+            'embedding',
+            'unknown' as CollectionNodeType,
+          ]),
+          searchMatchesOnly: false,
+          searchQuery: '',
+        }}
+        onFiltersChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: 'Filters (active)' })).toHaveClass('bg-accent');
+  });
+
   it('calls multi-select toggle handler with the next state', () => {
     const onMultiSelectToggle = vi.fn();
 
