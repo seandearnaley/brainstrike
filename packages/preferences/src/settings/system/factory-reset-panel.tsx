@@ -48,12 +48,12 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
     try {
       setRunning(true);
       if (desktopResetBridge) {
-        // Clear live renderer stores before main deletes Electron userData from disk.
-        await clearPersistentUiState({ skipIndexedDb: false });
         const result = await desktopResetBridge();
         if (!result.success) {
           throw new Error(result.message ?? 'Desktop factory reset failed.');
         }
+        // Clear live renderer stores after main confirms the destructive reset completed.
+        await clearPersistentUiState({ skipIndexedDb: false });
       } else {
         // Direct web/PGlite reset must close/delete the active DB before IndexedDB cleanup.
         if (typeof resetFn !== 'function') {

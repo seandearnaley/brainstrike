@@ -199,7 +199,7 @@ describe('FactoryResetPanel', () => {
       expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: true });
     });
 
-    it('calls the desktop reset bridge after clearing renderer storage', async () => {
+    it('clears renderer storage after the desktop reset bridge succeeds', async () => {
       const resetLocal = vi.fn().mockResolvedValue({ success: true });
       Object.defineProperty(window, 'electronAPI', {
         configurable: true,
@@ -215,15 +215,45 @@ describe('FactoryResetPanel', () => {
       fireEvent.click(screen.getByTestId('factory-reset-button'));
 
       await waitFor(() => {
-        expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: false });
         expect(resetLocal).toHaveBeenCalled();
+        expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: false });
       });
       const clearOrder = mockClearPersistentUiState.mock.invocationCallOrder[0];
       const resetOrder = resetLocal.mock.invocationCallOrder[0];
       if (clearOrder === undefined || resetOrder === undefined) {
         throw new Error('Expected clear and reset invocation order to be recorded');
       }
-      expect(clearOrder).toBeLessThan(resetOrder);
+      expect(resetOrder).toBeLessThan(clearOrder);
+    });
+
+    it('does not clear renderer storage when the desktop reset bridge fails', async () => {
+      const resetLocal = vi.fn().mockResolvedValue({
+        success: false,
+        message: 'desktop reset failed',
+      });
+      Object.defineProperty(window, 'electronAPI', {
+        configurable: true,
+        value: {
+          db: { resetLocal },
+        },
+        writable: true,
+      });
+      mockUseFactoryReset.mockReturnValue(null);
+
+      render(<FactoryResetPanel doFactoryReset={null} />);
+
+      fireEvent.click(screen.getByTestId('factory-reset-button'));
+
+      await waitFor(() => {
+        expect(mockToast).toHaveBeenCalledWith({
+          title: 'Factory Reset Failed',
+          description: 'Error: desktop reset failed',
+          variant: 'destructive',
+        });
+      });
+
+      expect(mockClearPersistentUiState).not.toHaveBeenCalled();
+      expect(mockReload).not.toHaveBeenCalled();
     });
 
     it('reloads the page after successful reset', async () => {
