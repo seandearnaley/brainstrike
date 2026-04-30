@@ -4,12 +4,11 @@ import { CollectionBrowserToolbar } from '../collection-browser/collection-brows
 import type { CollectionNodeType } from '../collection-browser/types';
 
 describe('CollectionBrowserToolbar', () => {
-  it('renders grid controls as icon buttons at the collection level', () => {
+  it('renders grid controls as icon buttons', () => {
     render(
       <CollectionBrowserToolbar
         onCollapseAll={vi.fn()}
         onExpandAll={vi.fn()}
-        onFilterVisibleChange={vi.fn()}
         onGroupByChange={vi.fn()}
         onMultiSelectToggle={vi.fn()}
       />
@@ -17,7 +16,6 @@ describe('CollectionBrowserToolbar', () => {
 
     expect(screen.getByRole('button', { name: 'Expand all' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Collapse all' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Toggle filters' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Toggle multi-select' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Group by' })).toBeInTheDocument();
   });
@@ -34,72 +32,54 @@ describe('CollectionBrowserToolbar', () => {
     expect(onCollapseAll).toHaveBeenCalled();
   });
 
-  it('uses aria-pressed for active filters and multi-select', () => {
+  it('uses aria-pressed for active multi-select', () => {
     render(
       <CollectionBrowserToolbar
         filters={{
           embeddingStatus: 'all',
-          nodeTypes: new Set(['collection', 'file', 'chunk']),
+          nodeTypes: new Set(['collection', 'file', 'chunk', 'embedding']),
           searchMatchesOnly: false,
           searchQuery: '',
         }}
-        isFilterVisible={false}
         multiSelectEnabled
-        onFilterVisibleChange={vi.fn()}
+        onFiltersChange={vi.fn()}
         onMultiSelectToggle={vi.fn()}
       />
     );
-
-    const filterToggle = screen.getByRole('button', { name: 'Toggle filters (active)' });
-    expect(filterToggle).toHaveAttribute('aria-pressed', 'false');
-    expect(filterToggle).toHaveClass('bg-accent');
 
     const multiSelectToggle = screen.getByRole('button', { name: 'Toggle multi-select' });
     expect(multiSelectToggle).toHaveAttribute('aria-pressed', 'true');
     expect(multiSelectToggle).toHaveClass('bg-accent');
   });
 
-  it('marks filters active when node type membership changes without changing size', () => {
+  it('marks filter popover trigger active when node type membership is reduced', () => {
     render(
       <CollectionBrowserToolbar
         filters={{
           embeddingStatus: 'all',
-          nodeTypes: new Set<CollectionNodeType>([
-            'file',
-            'chunk',
-            'embedding',
-            'unknown' as CollectionNodeType,
-          ]),
+          nodeTypes: new Set<CollectionNodeType>(['file', 'chunk', 'embedding']),
           searchMatchesOnly: false,
           searchQuery: '',
         }}
-        isFilterVisible={false}
-        onFilterVisibleChange={vi.fn()}
+        onFiltersChange={vi.fn()}
       />
     );
 
-    expect(screen.getByRole('button', { name: 'Toggle filters (active)' })).toHaveClass(
-      'bg-accent'
-    );
+    expect(screen.getByRole('button', { name: 'Filters (active)' })).toHaveClass('bg-accent');
   });
 
-  it('calls toolbar toggle handlers with the next state', () => {
-    const onFilterVisibleChange = vi.fn();
+  it('calls multi-select toggle handler with the next state', () => {
     const onMultiSelectToggle = vi.fn();
 
     render(
       <CollectionBrowserToolbar
-        isFilterVisible={false}
         multiSelectEnabled={false}
-        onFilterVisibleChange={onFilterVisibleChange}
         onMultiSelectToggle={onMultiSelectToggle}
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Toggle filters' }));
     fireEvent.click(screen.getByRole('button', { name: 'Toggle multi-select' }));
 
-    expect(onFilterVisibleChange).toHaveBeenCalledWith(true);
     expect(onMultiSelectToggle).toHaveBeenCalledWith(true);
   });
 

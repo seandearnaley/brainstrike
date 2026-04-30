@@ -215,7 +215,6 @@ describe('collection-browser-store', () => {
       expect(state.searchConfigLimit).toBe(20);
       expect(state.searchConfigDistanceMetric).toBe('cosine');
       expect(state.searchConfigExpanded).toBe(false);
-      expect(state.isFilterVisible).toBe(false);
     });
 
     it('updates semantic search state', () => {
@@ -226,7 +225,6 @@ describe('collection-browser-store', () => {
       store.setSearchConfigLimit(5);
       store.setSearchConfigDistanceMetric('l2');
       store.setSearchConfigExpanded(true);
-      store.setIsFilterVisible(true);
 
       const state = useCollectionBrowserStore.getState();
       expect(state.searchMode).toBe('quick');
@@ -235,7 +233,6 @@ describe('collection-browser-store', () => {
       expect(state.searchConfigLimit).toBe(5);
       expect(state.searchConfigDistanceMetric).toBe('l2');
       expect(state.searchConfigExpanded).toBe(true);
-      expect(state.isFilterVisible).toBe(true);
     });
   });
 
@@ -258,7 +255,6 @@ describe('collection-browser-store', () => {
       store.setSearchConfigLimit(5);
       store.setSearchConfigDistanceMetric('l2');
       store.setSearchConfigExpanded(true);
-      store.setIsFilterVisible(true);
 
       // Reset
       store.reset();
@@ -279,7 +275,6 @@ describe('collection-browser-store', () => {
       expect(state.searchConfigLimit).toBe(20);
       expect(state.searchConfigDistanceMetric).toBe('cosine');
       expect(state.searchConfigExpanded).toBe(false);
-      expect(state.isFilterVisible).toBe(false);
     });
   });
 
