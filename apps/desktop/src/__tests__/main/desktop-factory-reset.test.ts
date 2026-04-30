@@ -91,4 +91,43 @@ describe('resetDesktopApplicationData', () => {
     expect(resetDatabaseProfile).not.toHaveBeenCalled();
     expect(fsMocks.rmSync).not.toHaveBeenCalled();
   });
+
+  it('attempts every user data entry before failing when one delete fails', async () => {
+    const stopBackgroundRuntimes = vi.fn(async () => undefined);
+    const resetDatabaseProfile = vi.fn(async () => undefined);
+    const deleteError = new Error('IndexedDB is locked');
+    fsMocks.rmSync.mockImplementation((targetPath: string) => {
+      if (targetPath === path.join('/mock/userData', 'IndexedDB')) {
+        throw deleteError;
+      }
+    });
+    const { resetDesktopApplicationData } = await import('../../desktop-factory-reset');
+
+    await expect(
+      resetDesktopApplicationData({
+        resetDatabaseProfile,
+        stopBackgroundRuntimes,
+        userDataPath: '/mock/userData',
+      })
+    ).rejects.toThrow('Desktop factory reset failed to delete 1 userData entry');
+
+    expect(fsMocks.rmSync).toHaveBeenCalledWith(path.join('/mock/userData', 'Cache'), {
+      force: true,
+      recursive: true,
+    });
+    expect(fsMocks.rmSync).toHaveBeenCalledWith(path.join('/mock/userData', 'IndexedDB'), {
+      force: true,
+      recursive: true,
+    });
+    expect(fsMocks.rmSync).toHaveBeenCalledWith(path.join('/mock/userData', 'Local Storage'), {
+      force: true,
+      recursive: true,
+    });
+    expect(fsMocks.rmSync).toHaveBeenCalledWith(path.join('/mock/userData', 'mcp'), {
+      force: true,
+      recursive: true,
+    });
+    expect(fsMocks.rmSync).toHaveBeenCalledTimes(4);
+    expect(fsMocks.mkdirSync).not.toHaveBeenCalled();
+  });
 });

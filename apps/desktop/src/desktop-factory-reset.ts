@@ -17,6 +17,22 @@ export interface ResetDesktopApplicationDataResult {
   preservedPaths: string[];
 }
 
+interface UserDataDeletionFailure {
+  error: unknown;
+  targetPath: string;
+}
+
+class DesktopApplicationDataDeletionError extends Error {
+  readonly failures: readonly UserDataDeletionFailure[];
+
+  constructor(failures: readonly UserDataDeletionFailure[]) {
+    const entryLabel = failures.length === 1 ? 'entry' : 'entries';
+    super(`Desktop factory reset failed to delete ${failures.length} userData ${entryLabel}`);
+    this.name = 'DesktopApplicationDataDeletionError';
+    this.failures = failures;
+  }
+}
+
 function isPreservedUserDataEntry(entryName: string): boolean {
   return PRESERVED_USER_DATA_ENTRY_NAMES.includes(
     entryName as (typeof PRESERVED_USER_DATA_ENTRY_NAMES)[number]
@@ -44,6 +60,7 @@ export async function resetDesktopApplicationData({
 
   const deletedPaths: string[] = [];
   const preservedPaths: string[] = [];
+  const deletionFailures: UserDataDeletionFailure[] = [];
 
   for (const entryName of listUserDataEntries(userDataPath)) {
     const targetPath = path.join(userDataPath, entryName);
@@ -51,8 +68,25 @@ export async function resetDesktopApplicationData({
       preservedPaths.push(targetPath);
       continue;
     }
-    rmSync(targetPath, { recursive: true, force: true });
-    deletedPaths.push(targetPath);
+    try {
+      rmSync(targetPath, { recursive: true, force: true });
+      deletedPaths.push(targetPath);
+    } catch (error: unknown) {
+      deletionFailures.push({ error, targetPath });
+    }
+  }
+
+  if (deletionFailures.length > 0) {
+    logger.error('Desktop application data reset failed to delete entries', {
+      deletedPaths,
+      deletionFailures: deletionFailures.map((failure) => ({
+        error: failure.error instanceof Error ? failure.error.message : String(failure.error),
+        targetPath: failure.targetPath,
+      })),
+      preservedPaths,
+      userDataPath,
+    });
+    throw new DesktopApplicationDataDeletionError(deletionFailures);
   }
 
   mkdirSync(userDataPath, { recursive: true });
