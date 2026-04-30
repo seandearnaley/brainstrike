@@ -87,4 +87,25 @@ describe('FileFilterBar', () => {
     expect(input).toHaveValue('');
     expect(screen.queryByRole('button', { name: /clear/i })).not.toBeInTheDocument();
   });
+
+  describe('visual consistency with collection-browser filter input', () => {
+    it('renders a leading search icon for visual consistency', () => {
+      const { container } = render(<FileFilterBar {...defaultProps} />);
+      // lucide Search icon — class is added by lucide-react automatically
+      const searchIcon = container.querySelector('svg.lucide-search');
+      expect(searchIcon).toBeInTheDocument();
+    });
+
+    it('uses the compact h-8 input height to match the toolbar filter input', () => {
+      render(<FileFilterBar {...defaultProps} />);
+      const input = screen.getByRole('textbox');
+      expect(input.className).toMatch(/\bh-8\b/);
+    });
+
+    it('uses pl-9 to leave room for the leading search icon', () => {
+      render(<FileFilterBar {...defaultProps} />);
+      const input = screen.getByRole('textbox');
+      expect(input.className).toMatch(/\bpl-9\b/);
+    });
+  });
 });

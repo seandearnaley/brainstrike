@@ -25,8 +25,6 @@ interface CollectionBrowserData {
   groupBy: GroupByKey;
   /** Width of the inspector panel as a percentage (0-100) */
   inspectorWidth: number;
-  /** Whether the filter bar is visible */
-  isFilterVisible: boolean;
   /** Whether the inspector panel is collapsed */
   isInspectorCollapsed: boolean;
   /** Whether multi-select mode is enabled */
@@ -86,8 +84,6 @@ interface CollectionBrowserActions {
   setInspectorCollapsed: (collapsed: boolean) => void;
   /** Set the width of the inspector panel */
   setInspectorWidth: (width: number) => void;
-  /** Set filter bar visibility */
-  setIsFilterVisible: (visible: boolean) => void;
   /** Set multi-select mode */
   setMultiSelectEnabled: (enabled: boolean) => void;
   /** Set enabled node types */
@@ -160,7 +156,6 @@ const DEFAULT_STATE: CollectionBrowserData = {
   searchConfigFtsWeight: 1.0,
   searchConfigExpanded: false,
   searchPanelExpanded: false,
-  isFilterVisible: false,
   groupBy: 'none',
   showCheckbox: false,
   multiSelectEnabled: false,
@@ -313,8 +308,6 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
 
       setSearchPanelExpanded: (expanded) => set({ searchPanelExpanded: expanded }),
 
-      setIsFilterVisible: (visible) => set({ isFilterVisible: visible }),
-
       setGroupBy: (groupBy) => set({ groupBy }),
 
       setShowCheckbox: (show) => set({ showCheckbox: show }),
@@ -350,7 +343,6 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         searchConfigFtsWeight: s.searchConfigFtsWeight,
         searchConfigExpanded: s.searchConfigExpanded,
         searchPanelExpanded: s.searchPanelExpanded,
-        isFilterVisible: s.isFilterVisible,
         // Persist grouping preference, but keep multi-select UI mode session-scoped.
         groupBy: s.groupBy,
       }),
@@ -388,7 +380,6 @@ export const collectionBrowserSelectors = {
   }),
   searchConfigExpanded: (s: CollectionBrowserStore) => s.searchConfigExpanded,
   searchPanelExpanded: (s: CollectionBrowserStore) => s.searchPanelExpanded,
-  isFilterVisible: (s: CollectionBrowserStore) => s.isFilterVisible,
   groupBy: (s: CollectionBrowserStore) => s.groupBy,
   showCheckbox: (s: CollectionBrowserStore) => s.showCheckbox,
   multiSelectEnabled: (s: CollectionBrowserStore) => s.multiSelectEnabled,
