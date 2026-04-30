@@ -600,7 +600,14 @@ async function loadPipeline(
       // pipeline() returns because ONNX Runtime creates the device during session
       // creation inside pipeline().
       if (device === 'webgpu') {
-        await initWebGpuDeviceGuard();
+        try {
+          await initWebGpuDeviceGuard();
+        } catch (guardError) {
+          if (typeof result.dispose === 'function') {
+            result.dispose();
+          }
+          throw guardError;
+        }
       }
 
       return result as FeatureExtractor;
