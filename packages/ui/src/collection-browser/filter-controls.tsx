@@ -34,23 +34,32 @@ export const FilterControls = React.memo(function FilterControls({
   toggleClassName,
   compact = false,
 }: FilterControlsProps) {
+  // Pin the latest filters to a ref so the callbacks below are stable across
+  // renders. Two payoffs: (1) the memoized FilterChip stops re-rendering on
+  // every keystroke in the search input, and (2) callbacks always read the
+  // freshest snapshot, avoiding the spread-stale-closure pattern when two
+  // filter changes fire in rapid succession.
+  const filtersRef = React.useRef(filters);
+  filtersRef.current = filters;
+
   const handleSearchChange = React.useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      onFiltersChange({ ...filters, searchQuery: e.target.value });
+      onFiltersChange({ ...filtersRef.current, searchQuery: e.target.value });
     },
-    [filters, onFiltersChange]
+    [onFiltersChange]
   );
 
   const handleClearSearch = React.useCallback(() => {
-    onFiltersChange({ ...filters, searchQuery: '' });
-  }, [filters, onFiltersChange]);
+    onFiltersChange({ ...filtersRef.current, searchQuery: '' });
+  }, [onFiltersChange]);
 
   const handleToggleEmbedded = React.useCallback(() => {
+    const current = filtersRef.current;
     onFiltersChange({
-      ...filters,
-      embeddingStatus: filters.embeddingStatus === 'complete' ? 'all' : 'complete',
+      ...current,
+      embeddingStatus: current.embeddingStatus === 'complete' ? 'all' : 'complete',
     });
-  }, [filters, onFiltersChange]);
+  }, [onFiltersChange]);
 
   const isEmbeddedActive = filters.embeddingStatus === 'complete';
   const inputHeight = compact ? 'h-8' : 'h-9';
