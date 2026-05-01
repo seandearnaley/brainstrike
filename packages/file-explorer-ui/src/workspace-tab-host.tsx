@@ -677,13 +677,18 @@ const WorkspaceBody = memo<WorkspaceBodyProps>(function WorkspaceBody({
   tabStatuses,
   isRestoring,
 }) {
-  // Resolve the active app and memoize its rendered body keyed on the app reference.
-  // The body re-renders only when the active app changes — not on every fileContents /
-  // tabStatuses tick — and a future extraApps consumer that returns an inline-lambda
-  // tree from render() won't trigger spurious remounts of its subtree.
+  // Resolve the active app and memoize its rendered body keyed on the active app's id.
+  // We deliberately key on `activeApp?.id` (a stable string) rather than `activeApp`
+  // itself: the parent's `apps` array is rebuilt by useMemo when extraApps changes,
+  // and `apps.find(...)` returns a fresh object each render, so a dep on `activeApp`
+  // would never bail. Keying on the id means the body genuinely re-renders only when
+  // the active app actually switches — and a future extraApps consumer that returns
+  // an inline-lambda tree from render() won't trigger spurious remounts of its subtree.
   const activeApp =
     selection.kind === 'app' ? apps.find((a) => a.id === selection.appId) : undefined;
-  const activeAppBody = useMemo(() => activeApp?.render() ?? null, [activeApp]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: id is the stable key; the
+  // render fn is deliberately re-resolved through the latest activeApp closure.
+  const activeAppBody = useMemo(() => activeApp?.render() ?? null, [activeApp?.id]);
 
   if (selection.kind === 'app') {
     if (!activeApp) {
