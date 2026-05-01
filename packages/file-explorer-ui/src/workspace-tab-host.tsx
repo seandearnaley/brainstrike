@@ -103,13 +103,17 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     };
   }, []);
 
-  // tabsRef lets the click handlers below look up the latest tab without re-creating
-  // themselves on every tab open/close. Stable handler identity is what makes the
-  // FileTabButton memo wrap actually bail on shallow-equal props.
+  // tabsRef + tabStatusesRef let the click handlers below look up the latest tab
+  // without re-creating themselves on every tab open/close or restoration tick.
+  // Stable handler identity is what makes the FileTabButton memo wrap actually bail
+  // on shallow-equal props (tabStatuses changes frequently during restoration; binding
+  // it as a useCallback dep would re-register every hotkey on every status update).
   const tabsRef = useRef(tabs);
+  const tabStatusesRef = useRef(tabStatuses);
   useEffect(() => {
     tabsRef.current = tabs;
-  }, [tabs]);
+    tabStatusesRef.current = tabStatuses;
+  }, [tabs, tabStatuses]);
 
   const ensurePermissionForTab = useCallback(
     async (compositeKey: string): Promise<void> => {
@@ -145,7 +149,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         return;
       }
       try {
-        const status = tabStatuses.get(tab.compositeKey);
+        const status = tabStatusesRef.current.get(tab.compositeKey);
         if (status?.status === 'needs-permission') {
           await ensurePermissionForTab(tab.compositeKey);
         }
@@ -167,7 +171,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         });
       }
     },
-    [tabStatuses, ensurePermissionForTab, setActiveTab, selectFile]
+    [ensurePermissionForTab, setActiveTab, selectFile]
   );
 
   const handleSelectApp = useCallback(
@@ -588,9 +592,13 @@ interface WorkspaceBodyProps {
 }
 
 /**
- * Memoized so that file-content-load ticks (which update fileContents/loadingFiles in
- * the parent) don't trigger an extra reconciliation pass through the active app body
- * when nothing observable to this branch actually changed.
+ * Memoized as a low-cost guard against unrelated parent state churn. Note that
+ * `fileContents`, `loadingFiles`, and `tabStatuses` are fresh references on every
+ * file-content-load tick, so the shallow-equal bail does NOT fire on those — the
+ * memo only saves work when the parent re-renders for some other reason (selection
+ * change, prop change). For per-tab content stability we'd need to project a
+ * per-tab slice up here; today the inner `FileTabBody` handles its own subtree
+ * efficiently enough that the extra projection isn't worth it.
  */
 const WorkspaceBody = memo<WorkspaceBodyProps>(function WorkspaceBody({
   apps,
@@ -810,7 +818,9 @@ function getDisplayContent(raw: string): { text: string; truncated: boolean } {
     return { text: raw, truncated: false };
   }
   const suffix = '\n\n… truncated for display …';
-  let end = MAX_DOM_CHARS - suffix.length;
+  // Math.max guards against a future where suffix grows past MAX_DOM_CHARS — slice()
+  // would silently flip the index sign and produce surprising output otherwise.
+  let end = Math.max(0, MAX_DOM_CHARS - suffix.length);
   // Avoid splitting a UTF-16 surrogate pair (e.g. emoji or supplementary CJK at the
   // cut boundary) which would render as a replacement character.
   const HighSurrogateStart = 0xd8_00;

@@ -1609,16 +1609,23 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
   } = useFileTreeSelection();
 
   /**
-   * VS Code-style click semantics: clicking a file row opens it as a workspace tab.
-   * Selection (the checkbox) stays the dedicated multi-select affordance for context
-   * export, so users can build selections without opening every file as a tab.
+   * VS Code-style open semantics. The mouse and keyboard paths are intentionally
+   * routed through different DOM nodes for different reasons — both end up calling
+   * `openFileInTab` with the same compositeKey:
    *
-   * Keyboard opening is handled by TreeTable's row selection callback: when a focused
-   * file row receives Enter/Space, OptimizedFileTree routes the selected row id through
-   * the same open-file path as this mouse handler. We intentionally do NOT mark this
-   * label `role="button"` because the parent TreeTable row already owns treegrid row
-   * semantics, and nesting interactive roles confuses some screen reader + browser
-   * combos (e.g. "file.txt, button, tree item").
+   * - Mouse: this `handleFileNameClick` fires on the file-name span. We
+   *   `stopPropagation()` so the click does NOT bubble to the parent TreeTable row,
+   *   which would otherwise also fire `onSelect` and trigger a duplicate open.
+   * - Keyboard: TreeTable's row owns focus. Enter/Space on a focused file row fires
+   *   TreeTable's `onSelect`, which the parent `OptimizedFileTree` wires to
+   *   `handleTreeRowSelect` → `openFileInTab`.
+   *
+   * Selection (the per-row checkbox) is the multi-select affordance for context
+   * export and is independent of both paths.
+   *
+   * a11y: we deliberately do NOT mark this label `role="button"` because the parent
+   * TreeTable row already owns treegrid row semantics; nesting interactive roles
+   * announces awkwardly on some screen-reader + browser combos.
    */
   const handleFileNameClick = useEventCallback((event: MouseEvent<HTMLDivElement>) => {
     event.stopPropagation();
