@@ -324,7 +324,14 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
       if (selection.kind === 'file') {
         e.preventDefault();
         handleCloseFileTab(selection.tabId);
+        return;
       }
+      // Electron + non-file selection (Context Explorer or another pinned app):
+      // intentional no-op. We do NOT preventDefault, so the host (Electron's window
+      // accelerator or the BrowserWindow's default) keeps owning Ctrl/Cmd+W. This
+      // matches VS Code's behavior — closing the *editor* only makes sense when an
+      // editor is focused; on the welcome/explorer surface the chord falls through
+      // to the surrounding app to do whatever it normally does (close the window).
     },
     {}, // no options; the deps array is the 4th arg (v5 signature is keys, cb, options?, deps?)
     [selection, handleCloseFileTab]

@@ -216,6 +216,13 @@ export const useTabManagerStore = create<TabManagerStore>()(
           tabs: [],
           activeTabId: null,
         };
+        // Future v3+ migrations: replace this with a per-version chain (e.g.
+        //   if (version < 2) ps = migrateV1ToV2(ps);
+        //   if (version < 3) ps = migrateV2ToV3(ps);
+        //   return ps;
+        // ) and bump STORE_VERSION accordingly. The current `>= 2` guard means we
+        // skip *all* migrations once we hit v2, which is fine while v2 is the
+        // latest but would silently skip a v3 pass if added without updating here.
         if (version >= 2) {
           return ps;
         }
