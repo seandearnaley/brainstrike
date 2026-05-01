@@ -1602,9 +1602,13 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
    * a11y: this is a mouse-only affordance today. We intentionally do NOT mark the
    * label `role="button"` because the parent TreeTable row is already a `treeitem`
    * and nesting interactive roles confuses some screen reader + browser combos
-   * (e.g. "file.txt, button, tree item"). Keyboard activation will be wired through
-   * the parent TreeTable's `selectionMode="single"` + `onSelect` in a follow-up so
-   * Enter on a focused row opens the file via the same code path as a click.
+   * (e.g. "file.txt, button, tree item").
+   *
+   * TODO(a11y-keyboard-open): wire keyboard activation through the parent TreeTable
+   * by switching `selectionMode` from "none" to "single" and routing its `onSelect`
+   * callback to `openFileInTab`. That makes Enter on a focused row open the file via
+   * the same code path as a mouse click, closing the keyboard-only gap. Tracked as a
+   * follow-up so it doesn't ship hidden in this refactor.
    */
   const handleFileNameClick = useEventCallback(() => {
     if (fileNode.type !== 'file' || !openFileInTab) {

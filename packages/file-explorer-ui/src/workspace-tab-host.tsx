@@ -7,15 +7,7 @@ import { Button, cn, useIdeFileEditor } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { AlertCircle, File, LayoutGrid, Loader2, LockKeyhole, X } from 'lucide-react';
-import {
-  memo,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-} from 'react';
+import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { FileExplorerMiddlePanelBase } from './file-explorer-middle-panel-base';
 import { type FileTab, useTabManager } from './hooks/use-tab-manager';
@@ -198,10 +190,13 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
 
   // Register openFileInTab so the FileExplorer side panel can drive opens.
   // Sync the latest snapshots into refs so the open-file callback can read them without
-  // listing them as deps (which would re-register on every load tick).
+  // listing them as deps (which would re-register on every load tick). useEffect (not
+  // useLayoutEffect) is correct here: the refs are only consulted asynchronously from
+  // the user-click handler — there's no layout-phase reader that needs the new value
+  // before paint.
   const fileContentsRef = useRef(fileContents);
   const loadingFilesRef = useRef(loadingFiles);
-  useLayoutEffect(() => {
+  useEffect(() => {
     fileContentsRef.current = fileContents;
     loadingFilesRef.current = loadingFiles;
   }, [fileContents, loadingFiles]);
