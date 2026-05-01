@@ -12,7 +12,16 @@ export interface WorkspaceApp {
   readonly id: string;
   /** Short label rendered next to the icon in the tab strip. */
   readonly label: string;
-  /** Renders the app's body in the workspace area. */
+  /**
+   * Renders the app's body in the workspace area.
+   *
+   * Contract: this function is invoked inline on every host re-render (not behind a
+   * memoization boundary), so it should be cheap and idempotent — typically just
+   * `() => <SomeComponent />`. React reconciles the same element type across calls,
+   * so a stable component identity inside `render()` avoids remounts; if your app
+   * needs expensive setup, do it inside that component (with `useEffect`/`useMemo`)
+   * rather than in `render()` itself.
+   */
   readonly render: () => ReactNode;
 }
 

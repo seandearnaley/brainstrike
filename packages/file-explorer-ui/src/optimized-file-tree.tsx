@@ -1682,7 +1682,7 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
       <div
         {...(fileNode.type === 'file'
           ? {
-              className: 'flex min-w-0 flex-1 cursor-pointer items-center',
+              className: 'group/file-row flex min-w-0 flex-1 cursor-pointer items-center',
               onClick: handleFileNameClick,
             }
           : { className: 'flex min-w-0 flex-1 items-center' })}
@@ -1690,7 +1690,9 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
         {fileNode.isSymbolicLink && (
           <Link2Icon className="mr-1.5 h-4 w-4 flex-shrink-0 text-blue-500" />
         )}
-        <span className="truncate text-sm leading-4">{fileNode.name}</span>
+        <span className="truncate text-sm leading-4 group-hover/file-row:underline">
+          {fileNode.name}
+        </span>
         {isRuleSelected ? <span className="sr-only">Selected by rule</span> : null}
         {fileNode.type === 'directory' && fileNode.isDepthTruncated && (
           <MoreHorizontalIcon className="ml-1.5 h-4 w-4 flex-shrink-0 text-gray-500" />

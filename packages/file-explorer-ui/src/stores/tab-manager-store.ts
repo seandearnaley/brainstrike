@@ -18,7 +18,13 @@ interface TabManagerData {
 
 interface TabManagerActions {
   clearTabs: () => void;
-  closeTab: (tabId: string) => void;
+  /**
+   * Close a tab and return the resulting active tab id (or null if no tabs remain).
+   * Returning the successor makes the contract explicit so callers don't need to read
+   * `useTabManagerStore.getState().activeTabId` immediately after — eliminating the
+   * implicit dependency on Zustand's synchronous `set` semantics.
+   */
+  closeTab: (tabId: string) => string | null;
   openTab: (path: string, tabId: string, compositeKey: string) => void;
   setActiveTab: (tabId: string) => void;
   setTabError: (tabId: string, error: string) => void;
@@ -124,17 +130,19 @@ export const useTabManagerStore = create<TabManagerStore>()(
       },
 
       closeTab: (tabId) => {
+        let nextActive: string | null = null;
         set((state) => {
           const newTabs = state.tabs.filter((t) => t.id !== tabId);
-          let nextActive = state.activeTabId;
+          nextActive = state.activeTabId;
           if (state.activeTabId === tabId) {
-            // choose next tab in list or previous
+            // Choose next tab in list or previous
             const prevIndex = state.tabs.findIndex((t) => t.id === tabId);
             const candidate = newTabs[prevIndex] || newTabs[prevIndex - 1] || null;
             nextActive = candidate ? candidate.id : null;
           }
           return { tabs: newTabs, activeTabId: nextActive };
         });
+        return nextActive;
       },
 
       setActiveTab: (tabId) => set({ activeTabId: tabId }),

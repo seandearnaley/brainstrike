@@ -12,7 +12,6 @@ import { useHotkeys } from 'react-hotkeys-hook';
 import { FileExplorerMiddlePanelBase } from './file-explorer-middle-panel-base';
 import { type FileTab, useTabManager } from './hooks/use-tab-manager';
 import { useEditorViewStateStore } from './stores/editor-view-state-store';
-import { useTabManagerStore } from './stores/tab-manager-store';
 import {
   useWorkspaceTabSelectionStore,
   type WorkspaceTabSelection,
@@ -137,27 +136,18 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
 
   const handleCloseFileTab = useCallback(
     (tabId: string) => {
-      // Single source of truth: tab-manager-store.closeTab already computes and commits
-      // the successor activeTabId. We let it run, then mirror the result into the
-      // workspace selection. This avoids duplicated index-based successor logic that
-      // would drift if either implementation changed.
-      //
-      // Implicit contract: this relies on Zustand's `set` being synchronous, so the
-      // store's activeTabId is up-to-date by the time `closeTab(...)` returns. If
-      // closeTab were ever made async (e.g. wrapped in unstable_batchedUpdates or a
-      // future Zustand version), this `getState()` read would observe stale state and
-      // we'd need to switch to either a return-value contract or a subscription.
-      //
-      // We read the current selection from the store directly (instead of closing over
-      // the `selection` value) so this callback's identity stays stable across selection
-      // changes — that keeps a future React.memo wrap of FileTabButton effective.
+      // closeTab returns the successor activeTabId (or null if no tabs remain), so we
+      // mirror that into the workspace selection without any implicit dependency on
+      // Zustand's synchronous-set contract. We read selection from the store directly
+      // (instead of closing over `selection`) so this callback's identity stays stable
+      // across selection changes — keeping a future React.memo wrap of FileTabButton
+      // effective.
       const currentSelection = useWorkspaceTabSelectionStore.getState().selection;
       const closingActive = currentSelection.kind === 'file' && currentSelection.tabId === tabId;
-      closeTab(tabId);
+      const successorId = closeTab(tabId);
       if (!closingActive) {
         return;
       }
-      const successorId = useTabManagerStore.getState().activeTabId;
       if (successorId === null) {
         selectApp(CONTEXT_EXPLORER_APP_ID);
       } else {
