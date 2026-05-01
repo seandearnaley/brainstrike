@@ -201,6 +201,7 @@ describe('CodeEmbeddingCLI basics', () => {
       '-- IMPORTANT: string literal escaping below requires standard_conforming_strings = on.'
     );
     expect(sql).toContain('SET standard_conforming_strings = on;');
+    expect(sql).toContain('RESET standard_conforming_strings;');
     expect(sql).not.toContain('$code$const value');
     expect(sql).not.toContain('Reilly$code$');
     expect(sql).toContain(

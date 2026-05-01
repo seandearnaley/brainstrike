@@ -451,6 +451,8 @@ export class CodeEmbeddingCLI {
           'SET standard_conforming_strings = on;',
           '',
           sqlStatements.join('\n\n'),
+          '',
+          'RESET standard_conforming_strings;',
         ].join('\n');
         fs.writeFileSync(outputPath, sqlContent);
         break;
