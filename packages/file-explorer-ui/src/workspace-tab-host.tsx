@@ -368,13 +368,24 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     [cycleFileTab]
   );
 
+  // Explicit Close-All handler: route the workspace selection back to Context Explorer
+  // at the call site instead of relying on the dead-selection effect to detect the
+  // orphaned tabId on the next render. The effect still serves as a safety net for
+  // silent-eviction and external-close paths, but making the bulk-close path explicit
+  // keeps the behavior obvious and robust against future changes that might suppress
+  // the effect.
+  const handleCloseAllFileTabs = useCallback(() => {
+    clearTabs();
+    handleSelectApp(CONTEXT_EXPLORER_APP_ID);
+  }, [clearTabs, handleSelectApp]);
+
   return (
     <div className={cn('flex h-full flex-col bg-background', className)}>
       <WorkspaceTabStrip
         apps={apps}
         getTabStatusMessage={getStatusMessage}
         loadingFiles={loadingFiles}
-        onCloseAllFileTabs={clearTabs}
+        onCloseAllFileTabs={handleCloseAllFileTabs}
         onCloseFileTab={handleCloseFileTab}
         onSelectApp={handleSelectApp}
         onSelectFileTab={handleSelectFileTab}

@@ -1629,7 +1629,10 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
    */
   const handleFileNameClick = useEventCallback((event: MouseEvent<HTMLDivElement>) => {
     event.stopPropagation();
-    if (fileNode.type !== 'file' || !openFileInTab) {
+    // folderId guard: the FileTreeSelectionContext provider falls back to '' when
+    // upstream folderId is undefined (line ~2200). An empty folderId would produce
+    // a malformed compositeKey like '|@|src/index.ts'; skip the open instead.
+    if (fileNode.type !== 'file' || !openFileInTab || !folderId) {
       return;
     }
     openFileInTab(encodeFileSelection(folderId, fileNode.path));
@@ -1868,7 +1871,9 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const { openFileInTab } = useIdeFileEditor();
     const handleTreeRowSelect = useCallback(
       (nodeId: string | null): void => {
-        if (!(nodeId && openFileInTab)) {
+        // Same folderId guard as the mouse path — a falsy folderId would compose a
+        // malformed compositeKey like '|@|src/index.ts'.
+        if (!(nodeId && openFileInTab && folderId)) {
           return;
         }
         const fileNode = fileNodeByPath.get(nodeId);

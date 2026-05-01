@@ -74,12 +74,23 @@ function migrateLegacyTabKey(name: string): string | null {
       activeTabId?: string | null;
     };
     const migrated: PersistedState = {
+      // Filter out malformed legacy entries before stringifying — without this, a
+      // missing field would produce String(undefined) === 'undefined' and create a
+      // phantom tab with that literal id. Unlikely on existing installs but cheap
+      // insurance for any localStorage tampering or partial-write corruption.
       tabs: Array.isArray(parsed.tabs)
-        ? parsed.tabs.map((t) => ({
-            id: String(t.id),
-            path: String(t.path),
-            compositeKey: String(t.compositeKey),
-          }))
+        ? parsed.tabs
+            .filter(
+              (t): t is { id: string; path: string; compositeKey: string } =>
+                typeof t?.id === 'string' &&
+                typeof t.path === 'string' &&
+                typeof t.compositeKey === 'string'
+            )
+            .map((t) => ({
+              id: t.id,
+              path: t.path,
+              compositeKey: t.compositeKey,
+            }))
         : [],
       activeTabId: (parsed.activeTabId ?? null) as string | null,
     };
