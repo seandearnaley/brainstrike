@@ -4,6 +4,24 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { createEmbeddingCacheRepository } from '../src/index.js';
 
+async function waitForAssertion(assertion: () => void): Promise<void> {
+  const startedAt = Date.now();
+  let lastError: unknown;
+  while (Date.now() - startedAt < 1000) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+  throw new Error('Timed out waiting for assertion.');
+}
+
 describe('createEmbeddingCacheRepository', () => {
   let client: PGlite;
 
@@ -117,5 +135,36 @@ describe('createEmbeddingCacheRepository', () => {
     expect(queries).toHaveLength(1);
     expect(queries[0]).toContain('WITH oldest AS');
     expect(queries[0]).toContain('DELETE FROM embedding_cache');
+  });
+
+  it('chunks access-time updates for large batch cache hits', async () => {
+    const queries: string[] = [];
+    const db = {
+      query: async <T = unknown>(sql: string, params?: unknown[]) => {
+        queries.push(sql);
+        return client.query<T>(sql, params);
+      },
+    };
+    const repo = createEmbeddingCacheRepository(db);
+    const entries = Array.from({ length: 101 }, (_value, index) => ({
+      contentHash: `content-${index}`,
+      dimensions: 4,
+      embedding: [0.1, 0.2, 0.3, 0.4],
+      modelKey: 'local:test-model',
+    }));
+
+    await repo.setBatch(entries);
+    queries.length = 0;
+
+    const hits = await repo.getBatch(
+      entries.map((entry) => ({ contentHash: entry.contentHash, modelKey: entry.modelKey }))
+    );
+    expect(hits.size).toBe(101);
+    await waitForAssertion(() => {
+      const accessUpdateQueries = queries.filter((query) =>
+        query.includes('SET accessed_at = $1, access_count = access_count + 1')
+      );
+      expect(accessUpdateQueries).toHaveLength(2);
+    });
   });
 });

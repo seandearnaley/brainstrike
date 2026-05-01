@@ -92,6 +92,8 @@ export class EmbeddingCacheMaintenanceController {
         });
       }
 
+      this.#maintainedGeneration = generationToMaintain;
+
       const stats = await this.#cache.getStats?.();
       if (stats) {
         this.#logger.log('embedding_cache_stats', {
@@ -102,8 +104,6 @@ export class EmbeddingCacheMaintenanceController {
           totalHits: stats.totalHits,
         });
       }
-
-      this.#maintainedGeneration = generationToMaintain;
     } catch (error) {
       this.#logger.warn('Embedding cache maintenance failed', { error });
     }

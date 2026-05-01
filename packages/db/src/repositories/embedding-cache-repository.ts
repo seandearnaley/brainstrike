@@ -384,14 +384,16 @@ export class EmbeddingCacheRepository {
     if (ids.length === 0) {
       return;
     }
-    await this.db.query(
-      `
-        UPDATE embedding_cache
-        SET accessed_at = $1, access_count = access_count + 1
-        WHERE id IN (${buildPlaceholders(2, ids.length)})
-      `,
-      [new Date(), ...ids]
-    );
+    for (const chunk of chunkArray(ids, MAX_BATCH_SIZE)) {
+      await this.db.query(
+        `
+          UPDATE embedding_cache
+          SET accessed_at = $1, access_count = access_count + 1
+          WHERE id IN (${buildPlaceholders(2, chunk.length)})
+        `,
+        [new Date(), ...chunk]
+      );
+    }
   }
 }
 

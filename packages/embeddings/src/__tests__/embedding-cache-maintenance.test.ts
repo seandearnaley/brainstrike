@@ -102,4 +102,33 @@ describe('EmbeddingCacheMaintenanceController', () => {
     expect(evictIfNeeded).toHaveBeenCalledTimes(2);
     expect(warn).not.toHaveBeenCalled();
   });
+
+  it('does not repeat eviction after stats logging fails for an already-maintained generation', async () => {
+    const cache: EmbeddingCacheInterface = {
+      evictIfNeeded: vi.fn(async () => ({ evicted: 0, needed: false, totalEntries: 1 })),
+      get: async () => ({ hit: false, entry: null }),
+      getBatch: async () => new Map(),
+      getStats: vi.fn(async () => {
+        throw new Error('stats unavailable');
+      }),
+      set: async () => {},
+      setBatch: async () => 0,
+    };
+    const evictIfNeeded = cache.evictIfNeeded;
+    if (!evictIfNeeded) {
+      throw new Error('Expected evictIfNeeded to be defined.');
+    }
+    const controller = new EmbeddingCacheMaintenanceController(cache, {
+      log: vi.fn(),
+      warn: vi.fn(),
+    });
+
+    controller.trackCacheWrite(Promise.resolve(1));
+    await controller.flushPendingWrites();
+
+    await controller.run('queue-idle');
+    await controller.run('queue-idle');
+
+    expect(evictIfNeeded).toHaveBeenCalledTimes(1);
+  });
 });
