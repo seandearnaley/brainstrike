@@ -36,7 +36,7 @@ test.describe('File Tabbed Editor', { tag: '@smoke' }, () => {
     const fileLabel = fileTree.getByText('example.ts', { exact: true });
     await fileLabel.scrollIntoViewIfNeeded();
     await expect(fileLabel).toBeVisible();
-    await fileLabel.click({ force: true });
+    await fileLabel.click();
 
     // File should now open as a workspace tab in the main Context Explorer surface.
     const tab = page.getByRole('tab', { name: /example\.ts/ }).first();
@@ -48,7 +48,8 @@ test.describe('File Tabbed Editor', { tag: '@smoke' }, () => {
     await expect(closeButton).toBeVisible();
     await closeButton.click();
 
-    // Should return to empty state
-    await expect(page.getByText('No file selected')).toBeVisible();
+    // Should return to the default workspace app after closing the last file tab.
+    await expect(page.getByRole('tab', { name: /example\.ts/ })).toHaveCount(0);
+    await expect(page.getByTestId('workspace-app-tab-context-explorer')).toBeVisible();
   });
 });
