@@ -301,6 +301,12 @@ test('runCli rejects flags without explicit values', async () => {
 
     assert.equal(exitCode, 1);
     assert.match(errors.join('\n'), /--summary requires a value/);
+
+    errors.length = 0;
+    const singleDashExitCode = await runCli(['--summary', '-o']);
+
+    assert.equal(singleDashExitCode, 1);
+    assert.match(errors.join('\n'), /--summary requires a value/);
   } finally {
     console.error = originalConsoleError;
   }

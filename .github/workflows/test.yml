@@ -128,12 +128,14 @@ jobs:
         timeout-minutes: 45
         run: |
           START=$SECONDS
+          rm -rf .turbo/runs
+          mkdir -p .turbo/runs
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$GITHUB_BASE_REF" ]; then
             echo "Running affected unit coverage for PR against origin/${GITHUB_BASE_REF}"
-            pnpm turbo run test --filter="...[origin/${GITHUB_BASE_REF}]" --concurrency=4 --summarize turbo-test-summary.json --log-order=grouped --cache-dir=.turbo -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text
+            pnpm turbo run test --filter="...[origin/${GITHUB_BASE_REF}]" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text
           else
             echo "Running full unit coverage"
-            TURBO_TEST_MODE=coverage pnpm turbo run test --concurrency=4 --summarize turbo-test-summary.json --log-order=grouped --cache-dir=.turbo -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text
+            pnpm turbo run test --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text
           fi
 
           COVERAGE_FILES=$(find packages apps -type f -path "*/coverage/coverage-final.json" | wc -l | tr -d ' ')
@@ -268,7 +270,7 @@ jobs:
         run: |
           set +e
           : > turbo-test-timings.md
-          pnpm ci:timing-summary -- --summary turbo-test-summary.json --task test --warn-ms 1200000 --fail-ms 1800000 --total-warn-ms 1500000 --total-fail-ms 1800000 --output turbo-test-timings.md
+          pnpm ci:timing-summary -- --runs-dir .turbo/runs --task test --warn-ms 1200000 --fail-ms 1800000 --total-warn-ms 1500000 --total-fail-ms 1800000 --output turbo-test-timings.md
           STATUS=$?
           set -e
           if [ -s turbo-test-timings.md ]; then

@@ -192,7 +192,7 @@ function readFlagValue(args, name) {
     return undefined;
   }
   const value = args[index + 1];
-  if (value === undefined || value.startsWith('--')) {
+  if (value === undefined || value.startsWith('-')) {
     throw new Error(`${name} requires a value`);
   }
   return value;
