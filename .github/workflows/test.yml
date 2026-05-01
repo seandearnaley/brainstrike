@@ -160,11 +160,11 @@ jobs:
           exit "$STATUS"
 
       - name: Enforce package coverage thresholds
-        if: steps.unit-tests.outputs.has_coverage == 'true'
+        if: always() && steps.unit-tests.outputs.has_coverage == 'true'
         run: pnpm coverage:enforce
 
       - name: Comment PR with Coverage Summary
-        if: steps.unit-tests.outputs.has_coverage == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        if: always() && steps.unit-tests.outputs.has_coverage == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
