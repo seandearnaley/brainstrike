@@ -97,10 +97,12 @@ export function createSafeJsonStateStorage(options: CreateOptions): SafeJsonStat
     getItem: (name: string) => {
       const direct = fromLocalStorage(name);
       if (direct !== null) {
-        const validated = validateOrEvictJson(name, direct);
-        if (validated !== null) {
-          return validated;
-        }
+        // The current key existed (even if corrupted). validateOrEvictJson clears the
+        // bad entry on failure, so the next load will see "missing" and run the
+        // migration cleanly. Returning null here — rather than falling through to
+        // `migrateOnGet` — prevents silently restoring legacy data over what the user
+        // last had under the current key.
+        return validateOrEvictJson(name, direct);
       }
       const migrated = migrateOnGet?.(name);
       if (migrated !== null && migrated !== undefined) {

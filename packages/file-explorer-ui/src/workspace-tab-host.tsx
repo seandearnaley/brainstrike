@@ -21,9 +21,6 @@ import { CONTEXT_EXPLORER_APP_ID, type WorkspaceApp } from './workspace-app';
 
 const logger = createLogger('WorkspaceTabHost');
 
-/** Hard cap on how much text we paint into the DOM per panel. Beyond this we truncate visibly. */
-const MAX_DOM_CHARS = 200_000;
-
 const CONTEXT_EXPLORER_APP: WorkspaceApp = {
   id: CONTEXT_EXPLORER_APP_ID,
   label: 'Context Explorer',
@@ -696,6 +693,9 @@ function getFileName(path: string): string {
   const last = path.split('/').pop();
   return last && last.length > 0 ? last : path;
 }
+
+/** Hard cap on how much text we paint into the DOM per panel. Beyond this we truncate visibly. */
+const MAX_DOM_CHARS = 200_000;
 
 function getDisplayContent(raw: string): { text: string; truncated: boolean } {
   if (raw.length <= MAX_DOM_CHARS) {

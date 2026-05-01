@@ -45,6 +45,22 @@ describe('createSafeJsonStateStorage', () => {
     expect(storage.getItem(KEY)).toBe(migrated);
   });
 
+  it('does NOT fall through to migrateOnGet when the current key was corrupted', () => {
+    // If the user had data under the current key (even if it later got corrupted), we
+    // should not silently restore legacy data on top of their cleared state — let the
+    // store's defaults kick in. The corrupted entry has already been evicted, so a
+    // subsequent reload will see "missing" and run the migration cleanly.
+    localStorage.setItem(KEY, '{not valid json');
+    const migrated = JSON.stringify({ migrated: 'should-not-surface' });
+    const storage = createSafeJsonStateStorage({
+      scope: 'test',
+      migrateOnGet: () => migrated,
+    });
+    expect(storage.getItem(KEY)).toBeNull();
+    // Current key was evicted by validateOrEvictJson
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
   it('drops a migrateOnGet result that is not valid JSON', () => {
     const storage = createSafeJsonStateStorage({
       scope: 'test',
