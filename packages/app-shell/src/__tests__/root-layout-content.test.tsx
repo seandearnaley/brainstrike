@@ -19,8 +19,8 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 
 vi.mock('@brainstrike/file-explorer-ui', () => ({
   FileExplorerLeftPanel: () => <div data-testid="file-explorer-left-panel" />,
-  TabbedFileEditorPanel: ({ className }: { className?: string }) => (
-    <div className={className} data-testid="tabbed-file-editor-panel" />
+  WorkspaceTabHost: ({ className }: { className?: string }) => (
+    <div className={className} data-testid="workspace-tab-host" />
   ),
   FileTreeProvider: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="file-tree-provider">{children}</div>

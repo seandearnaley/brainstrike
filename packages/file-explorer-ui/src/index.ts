@@ -52,3 +52,5 @@ export { processDirectoryEntry } from './utils/process-directory-entry';
 export { processFileEntry } from './utils/process-file-entry';
 export { readFullTree, readFullTreeWithOptions } from './utils/read-full-tree';
 export * from './view-filter-preset-dropdown';
+export * from './workspace-app';
+export * from './workspace-tab-host';
