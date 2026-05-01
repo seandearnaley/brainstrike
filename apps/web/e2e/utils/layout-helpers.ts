@@ -498,7 +498,13 @@ export async function verifyDefaultLayout(page: Page, expectedState: DefaultLayo
     await expect(elements.hideRightPanelButton).toBeVisible();
   }
 
-  // Console should be hidden by default
-  await expect(elements.consolePanel).not.toBeVisible();
-  await expect(elements.showConsoleShim).toBeVisible();
+  // The legacy console/file-editor panel is optional: workspace-tabs promotes file
+  // tabs into the main Context Explorer surface, so newer builds do not render the
+  // console panel or its show shim at all.
+  if ((await elements.consolePanel.count()) > 0) {
+    await expect(elements.consolePanel).not.toBeVisible();
+  }
+  if ((await elements.showConsoleShim.count()) > 0) {
+    await expect(elements.showConsoleShim).toBeVisible();
+  }
 }
