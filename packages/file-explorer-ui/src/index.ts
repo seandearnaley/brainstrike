@@ -24,7 +24,6 @@ export * from './loading-overlay';
 export { default as NodeCheckbox } from './node-checkbox';
 export { default as NodeIcon } from './node-icon';
 export { default as OptimizedFileTree } from './optimized-file-tree';
-export { default as OptimizedFileTreeRow } from './optimized-file-tree-row';
 export * from './preview-panel';
 export * from './restoration-status';
 export * from './scanning-status';

@@ -8,6 +8,7 @@ import {
   type TreeNode,
   TreeTable,
   type TreeTableColumn,
+  useIdeFileEditor,
 } from '@brainstrike/ui';
 import { memoizedFileExplorer as fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -31,8 +32,10 @@ import {
   useOptionalFileTreeNormalizedContext,
 } from './file-tree-provider';
 import { useWorkerFlattenedTree } from './hooks/use-worker-flattened-tree';
-// TODO(BST-312): extract ROW_HEIGHT into a shared constant and retire legacy row component.
-import { ROW_HEIGHT } from './optimized-file-tree-row';
+
+/** Pixel height of one virtualized tree row. */
+const ROW_HEIGHT = 32;
+
 import {
   getQuerySelectionMatchingCount,
   getSelectionCount,
@@ -1589,6 +1592,26 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
     selectedFilePaths,
     selectionModel,
   } = useFileTreeSelection();
+  const { openFileInTab } = useIdeFileEditor();
+
+  /**
+   * VS Code-style click semantics: clicking a file row opens it as a workspace tab.
+   * Selection (the checkbox) stays the dedicated multi-select affordance for context
+   * export, so users can build selections without opening every file as a tab.
+   */
+  const handleFileNameClick = useEventCallback(() => {
+    if (fileNode.type !== 'file' || !openFileInTab) {
+      return;
+    }
+    openFileInTab(encodeFileSelection(folderId, fileNode.path));
+  });
+
+  const handleFileNameKeyDown = useEventCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleFileNameClick();
+    }
+  });
 
   const selectionState = computeNodeSelectionState(
     rowData,
@@ -1647,7 +1670,17 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
         />
       </div>
 
-      <div className="flex min-w-0 flex-1 items-center">
+      <div
+        {...(fileNode.type === 'file'
+          ? {
+              className: 'flex min-w-0 flex-1 cursor-pointer items-center',
+              onClick: handleFileNameClick,
+              onKeyDown: handleFileNameKeyDown,
+              role: 'button' as const,
+              tabIndex: -1,
+            }
+          : { className: 'flex min-w-0 flex-1 items-center' })}
+      >
         {fileNode.isSymbolicLink && (
           <Link2Icon className="mr-1.5 h-4 w-4 flex-shrink-0 text-blue-500" />
         )}

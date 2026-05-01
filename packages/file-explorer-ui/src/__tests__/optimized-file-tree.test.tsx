@@ -2411,4 +2411,55 @@ describe('OptimizedFileTree', () => {
       expect(fileTreeTelemetry.columnsRebuildCount).toBe(0);
     });
   });
+
+  describe('opening files via row click (VS Code semantics)', () => {
+    it('clicking a file row opens it in a workspace tab', async () => {
+      const uiModule = await import('@brainstrike/ui');
+      const openFileInTab = vi.fn();
+      vi.spyOn(uiModule, 'useIdeFileEditor').mockReturnValue({
+        openFileInTab,
+        registerOpenFileInTab: vi.fn(),
+      });
+
+      await act(async () => {
+        render(
+          <FileExplorerTestWrapper>
+            <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+          </FileExplorerTestWrapper>
+        );
+      });
+
+      const fileLabel = await screen.findByText('test.txt');
+      await act(async () => {
+        fireEvent.click(fileLabel);
+      });
+
+      expect(openFileInTab).toHaveBeenCalledTimes(1);
+      expect(openFileInTab).toHaveBeenCalledWith(encodeFileSelection('root', '/test.txt'));
+    });
+
+    it('clicking a directory row does NOT open a tab', async () => {
+      const uiModule = await import('@brainstrike/ui');
+      const openFileInTab = vi.fn();
+      vi.spyOn(uiModule, 'useIdeFileEditor').mockReturnValue({
+        openFileInTab,
+        registerOpenFileInTab: vi.fn(),
+      });
+
+      await act(async () => {
+        render(
+          <FileExplorerTestWrapper>
+            <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+          </FileExplorerTestWrapper>
+        );
+      });
+
+      const dirLabel = await screen.findByText('src');
+      await act(async () => {
+        fireEvent.click(dirLabel);
+      });
+
+      expect(openFileInTab).not.toHaveBeenCalled();
+    });
+  });
 });
