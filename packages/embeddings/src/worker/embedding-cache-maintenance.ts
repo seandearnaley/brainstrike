@@ -54,24 +54,26 @@ export class EmbeddingCacheMaintenanceController {
   }
 
   async run(reason: 'queue-idle'): Promise<void> {
-    if (this.#activeMaintenance) {
-      await this.#activeMaintenance;
-      if (
-        this.#pendingCacheWrites.size > 0 ||
-        this.#cacheWriteGeneration !== this.#maintainedGeneration
-      ) {
-        await this.run(reason);
+    while (true) {
+      if (this.#activeMaintenance) {
+        await this.#activeMaintenance;
+      } else {
+        const maintenance = this.#runExclusive(reason).finally(() => {
+          if (this.#activeMaintenance === maintenance) {
+            this.#activeMaintenance = null;
+          }
+        });
+        this.#activeMaintenance = maintenance;
+        await maintenance;
       }
-      return;
-    }
 
-    const maintenance = this.#runExclusive(reason).finally(() => {
-      if (this.#activeMaintenance === maintenance) {
-        this.#activeMaintenance = null;
+      if (
+        this.#pendingCacheWrites.size === 0 &&
+        this.#cacheWriteGeneration === this.#maintainedGeneration
+      ) {
+        return;
       }
-    });
-    this.#activeMaintenance = maintenance;
-    await maintenance;
+    }
   }
 
   async #runExclusive(reason: 'queue-idle'): Promise<void> {

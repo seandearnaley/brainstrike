@@ -112,6 +112,17 @@ async function waitFor(
   }
 }
 
+function deferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
 /**
  * Helper to setup test data in database
  */
@@ -234,6 +245,50 @@ describe('embedding-worker: cache operations', () => {
     // but the critical assertion is that the job succeeded despite cache failure
 
     await controller.stop();
+  });
+
+  it('flushes pending cache writes before worker stop resolves', async () => {
+    const pendingCacheWrite = deferred<number>();
+    const cacheWithPendingWrite: EmbeddingCacheInterface = {
+      get: async () => ({ hit: false, entry: null }),
+      getBatch: async () => new Map(),
+      set: async () => {},
+      setBatch: vi.fn(() => pendingCacheWrite.promise),
+    };
+
+    await setupTestData(db, {
+      embeddingSetId: 'cache-stop-flush-set',
+      modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+      modelId: 'jinaai/jina-embeddings-v2-base-code',
+      dimensions: 768,
+      fileId: 'cache-stop-flush-file',
+      chunkId: 'cache-stop-flush-chunk',
+      jobId: 'cache-stop-flush-job',
+    });
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      leaseMs: 5000,
+      modelKey: 'jinaai/jina-embeddings-v2-base-code',
+      service: new FakeEmbeddingService(),
+      embeddingCache: cacheWithPendingWrite,
+      log: () => {},
+    });
+
+    await waitFor(async () => vi.mocked(cacheWithPendingWrite.setBatch).mock.calls.length > 0);
+
+    const stopPromise = controller.stop().then(() => 'stopped' as const);
+    const stopState = await Promise.race([
+      stopPromise,
+      new Promise<'pending'>((resolve) => setTimeout(() => resolve('pending'), 250)),
+    ]);
+
+    expect(stopState).toBe('pending');
+
+    pendingCacheWrite.resolve(1);
+
+    await expect(stopPromise).resolves.toBe('stopped');
   });
 
   it('uses cache hits to avoid regenerating embeddings', async () => {

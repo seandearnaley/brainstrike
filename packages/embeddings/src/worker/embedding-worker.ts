@@ -1742,6 +1742,10 @@ export async function startEmbeddingWorker(
     await embeddingCacheMaintenance?.run(reason);
   }
 
+  async function flushEmbeddingCacheWrites(): Promise<void> {
+    await embeddingCacheMaintenance?.flushPendingWrites();
+  }
+
   // BST-170: Helper to lookup cache hits
   async function lookupCacheHits(
     items: LoadedChunkItem[],
@@ -2487,6 +2491,7 @@ export async function startEmbeddingWorker(
       running = false;
       reportWorkerActivity(false);
       await Promise.race([Promise.allSettled(loops).then(() => {}), sleep(leaseMs)]);
+      await flushEmbeddingCacheWrites();
       try {
         await service.dispose();
       } catch (error) {

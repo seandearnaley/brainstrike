@@ -89,7 +89,7 @@ describe('EmbeddingCacheMaintenanceController', () => {
     firstMaintenance.resolve({ evicted: 0, needed: false, totalEntries: 1 });
     await maintenance;
 
-    expect(evictIfNeeded).toHaveBeenCalledTimes(1);
+    expect(evictIfNeeded).toHaveBeenCalledTimes(2);
 
     vi.mocked(evictIfNeeded).mockResolvedValue({
       evicted: 0,
