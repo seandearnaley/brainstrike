@@ -1556,6 +1556,12 @@ interface FileTreeSelectionContextValue {
   folderId: string;
   isDirectorySelectionLocked: boolean;
   maxSelectionCount: number;
+  /**
+   * Opens a file as a workspace tab. Hoisted into the shared selection context so each
+   * virtualized row reuses the parent's single useIdeFileEditor subscription instead of
+   * paying for one per visible row.
+   */
+  openFileInTab: ((compositeKey: string) => void) | undefined;
   querySelectionManifest: FileExplorerState['querySelectionManifest'];
   selectedCount: number;
   selectedDirectoryCounts: Map<string, number>;
@@ -1595,13 +1601,13 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
     folderId,
     isDirectorySelectionLocked,
     maxSelectionCount,
+    openFileInTab,
     querySelectionManifest,
     selectedCount,
     selectedDirectoryCounts,
     selectedFilePaths,
     selectionModel,
   } = useFileTreeSelection();
-  const { openFileInTab } = useIdeFileEditor();
 
   /**
    * VS Code-style click semantics: clicking a file row opens it as a workspace tab.
@@ -2183,6 +2189,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         folderId: folderId ?? '',
         isDirectorySelectionLocked: Boolean(isLoadingForSelection),
         maxSelectionCount,
+        openFileInTab,
         selectedCount,
         selectedDirectoryCounts,
         selectedFilePaths,
@@ -2194,6 +2201,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         folderId,
         isLoadingForSelection,
         maxSelectionCount,
+        openFileInTab,
         querySelectionManifest,
         selectedCount,
         selectedDirectoryCounts,

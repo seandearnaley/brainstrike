@@ -265,6 +265,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         handleCloseFileTab(selection.tabId);
       }
     },
+    undefined,
     [selection, handleCloseFileTab]
   );
   const cycleFileTab = useCallback(
@@ -293,6 +294,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
       e.preventDefault();
       cycleFileTab('prev');
     },
+    undefined,
     [cycleFileTab]
   );
   useHotkeys(
@@ -301,6 +303,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
       e.preventDefault();
       cycleFileTab('next');
     },
+    undefined,
     [cycleFileTab]
   );
 
@@ -523,7 +526,12 @@ interface WorkspaceBodyProps {
   readonly tabs: FileTab[];
 }
 
-function WorkspaceBody({
+/**
+ * Memoized so that file-content-load ticks (which update fileContents/loadingFiles in
+ * the parent) don't trigger an extra reconciliation pass through the active app body
+ * when nothing observable to this branch actually changed.
+ */
+const WorkspaceBody = memo(function WorkspaceBody({
   apps,
   selection,
   tabs,
@@ -573,7 +581,7 @@ function WorkspaceBody({
       />
     </div>
   );
-}
+});
 
 interface FileTabBodyProps {
   readonly content: string | undefined;
