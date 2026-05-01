@@ -191,6 +191,10 @@ function readFlagValue(args, name) {
   return args[index + 1];
 }
 
+function commandIncludesTask(command, task) {
+  return command.split(/\s+/).includes(task);
+}
+
 export async function runCli(args = process.argv.slice(2)) {
   const runsDir = readFlagValue(args, '--runs-dir') ?? DEFAULT_RUNS_DIR;
   const explicitSummary = readFlagValue(args, '--summary');
@@ -228,7 +232,9 @@ export async function runCli(args = process.argv.slice(2)) {
     console.error(annotations);
   }
 
-  return summary.hasFailures || summary.tasks.length === 0 ? 1 : 0;
+  const noMatchingTasksFromDifferentCommand =
+    summary.tasks.length === 0 && !commandIncludesTask(summary.command, summary.task);
+  return summary.hasFailures || noMatchingTasksFromDifferentCommand ? 1 : 0;
 }
 
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : null;

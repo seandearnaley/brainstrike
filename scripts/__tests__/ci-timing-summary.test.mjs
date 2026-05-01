@@ -213,6 +213,33 @@ test('runCli returns non-zero when the summary has no matching task', async () =
   }
 });
 
+test('runCli allows a no-op Turbo run for the requested task', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-turbo-cli-noop-'));
+  try {
+    const summaryPath = path.join(dir, 'summary.json');
+    const outputPath = path.join(dir, 'summary.md');
+    await writeFile(
+      summaryPath,
+      JSON.stringify({
+        execution: {
+          command: 'turbo run test',
+          startTime: 1_000,
+          endTime: 2_000,
+          success: true,
+        },
+        tasks: [],
+      })
+    );
+
+    const exitCode = await runCli(['--summary', summaryPath, '--task', 'test', '--output', outputPath]);
+
+    assert.equal(exitCode, 0);
+    assert.match(await readFile(outputPath, 'utf8'), /No `test` tasks were found/);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
 test('runCli reports the summary path when JSON parsing fails', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-turbo-cli-invalid-'));
   const originalConsoleError = console.error;
