@@ -146,9 +146,15 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
   const handleCloseFileTab = useCallback(
     (tabId: string) => {
       // Single source of truth: tab-manager-store.closeTab already computes and commits
-      // the successor activeTabId synchronously. We let it run, then mirror the result
-      // into the workspace selection. This avoids the prior duplicated index-based
-      // successor logic (which could drift if either implementation changed).
+      // the successor activeTabId. We let it run, then mirror the result into the
+      // workspace selection. This avoids duplicated index-based successor logic that
+      // would drift if either implementation changed.
+      //
+      // Implicit contract: this relies on Zustand's `set` being synchronous, so the
+      // store's activeTabId is up-to-date by the time `closeTab(...)` returns. If
+      // closeTab were ever made async (e.g. wrapped in unstable_batchedUpdates or a
+      // future Zustand version), this `getState()` read would observe stale state and
+      // we'd need to switch to either a return-value contract or a subscription.
       const closingActive = selection.kind === 'file' && selection.tabId === tabId;
       closeTab(tabId);
       if (!closingActive) {
@@ -461,7 +467,7 @@ function FileTabButton({
         type="button"
       >
         <FileTabIcon isLoading={isLoading} status={status} />
-        <span className="max-w-[16ch] truncate">{fileName}</span>
+        <span className="max-w-[20ch] truncate">{fileName}</span>
       </button>
       <Button
         aria-label={`Close ${fileName}`}
