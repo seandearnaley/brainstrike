@@ -131,6 +131,13 @@ export const useTabManagerStore = create<TabManagerStore>()(
       },
 
       closeTab: (tabId) => {
+        // NOTE: this relies on Zustand's `set` being synchronous — `nextActive` is
+        // assigned inside the updater and read after the call returns. Zustand has
+        // always run state updates synchronously, but if a future middleware or
+        // version ever batched `set` asynchronously, this read would observe the
+        // initial null and the return contract would silently break. If that ever
+        // becomes a concern, compute `nextActive` against `get()` before calling
+        // `set`, or use a snapshot subscription.
         let nextActive: string | null = null;
         set((state) => {
           const newTabs = state.tabs.filter((t) => t.id !== tabId);
