@@ -173,15 +173,15 @@ export async function findLatestTurboSummary(runsDir = DEFAULT_RUNS_DIR) {
     }
     throw error;
   }
-  const candidates = [];
-  for (const entry of entries) {
-    if (!(entry.isFile() && entry.name.endsWith('.json'))) {
-      continue;
-    }
-    const filePath = path.join(runsDir, entry.name);
-    const fileStat = await stat(filePath);
-    candidates.push({ filePath, mtimeMs: fileStat.mtimeMs });
-  }
+  const candidates = await Promise.all(
+    entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+      .map(async (entry) => {
+        const filePath = path.join(runsDir, entry.name);
+        const fileStat = await stat(filePath);
+        return { filePath, mtimeMs: fileStat.mtimeMs };
+      })
+  );
   candidates.sort((left, right) => right.mtimeMs - left.mtimeMs);
   return candidates[0]?.filePath ?? null;
 }

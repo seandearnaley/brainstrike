@@ -264,7 +264,7 @@ jobs:
           retention-days: 1
 
       - name: Report Turbo test task timings
-        if: always() && steps.unit-tests.outcome != 'skipped'
+        if: ${{ !cancelled() && steps.unit-tests.outcome != 'skipped' }}
         run: |
           set +e
           : > turbo-test-timings.md
@@ -279,7 +279,7 @@ jobs:
           exit "$STATUS"
 
       - name: Append timing table footer
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "_Check the step timings above for optimization opportunities._" >> $GITHUB_STEP_SUMMARY
