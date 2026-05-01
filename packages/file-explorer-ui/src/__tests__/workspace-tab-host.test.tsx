@@ -476,6 +476,53 @@ describe('WorkspaceTabHost', () => {
     __resetTabManagerStoreForTests();
   });
 
+  it('"Close All Tabs" overflow action clears every file tab and routes to Context Explorer', async () => {
+    const tabModule = await import('../hooks/use-tab-manager');
+    vi.mocked(tabModule.useTabManager).mockRestore();
+
+    const user = userEvent.setup();
+    __resetTabManagerStoreForTests();
+    const store = useTabManagerStore.getState();
+    store.openTab('src/a.ts', 'folderA|@|src/a.ts', 'folderA|@|src/a.ts');
+    store.openTab('src/b.ts', 'folderA|@|src/b.ts', 'folderA|@|src/b.ts');
+    useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/b.ts');
+
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost />
+      </FileExplorerTestWrapper>
+    );
+
+    await user.click(await screen.findByRole('button', { name: /more tab actions/i }));
+    await user.click(await screen.findByRole('menuitem', { name: /close all tabs/i }));
+
+    await waitFor(() => {
+      expect(useTabManagerStore.getState().tabs).toEqual([]);
+    });
+    // Workspace selection routes back to Context Explorer when the active tab vanishes.
+    await waitFor(() => {
+      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+        kind: 'app',
+        appId: 'context-explorer',
+      });
+    });
+
+    __resetTabManagerStoreForTests();
+  });
+
+  it('"Close All Tabs" is disabled when no file tabs are open', async () => {
+    const user = userEvent.setup();
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost />
+      </FileExplorerTestWrapper>
+    );
+
+    await user.click(await screen.findByRole('button', { name: /more tab actions/i }));
+    const closeAll = await screen.findByRole('menuitem', { name: /close all tabs/i });
+    expect(closeAll).toHaveAttribute('aria-disabled', 'true');
+  });
+
   it('accepts an extensible apps list — additional pinned apps render in tab order', async () => {
     const customApp: WorkspaceApp = {
       id: 'demo-app',

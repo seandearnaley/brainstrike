@@ -3,10 +3,26 @@ import {
   type TabFileStatus,
   useTabFileRestoration,
 } from '@brainstrike/file-explorer-hooks';
-import { Button, cn, useIdeFileEditor } from '@brainstrike/ui';
+import {
+  Button,
+  cn,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  useIdeFileEditor,
+} from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
-import { AlertCircle, File, LayoutGrid, Loader2, LockKeyhole, X } from 'lucide-react';
+import {
+  AlertCircle,
+  File,
+  LayoutGrid,
+  Loader2,
+  LockKeyhole,
+  MoreHorizontal,
+  X,
+} from 'lucide-react';
 import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { FileExplorerMiddlePanelBase } from './file-explorer-middle-panel-base';
@@ -62,7 +78,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     return list;
   }, [extraApps]);
 
-  const { tabs, openTab, closeTab, setActiveTab } = useTabManager();
+  const { tabs, openTab, closeTab, setActiveTab, clearTabs } = useTabManager();
   const { fileContents, loadingFiles, loadFileContent, fileTree, canLoadWithoutTree } =
     useFileExplorer();
 
@@ -358,6 +374,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         apps={apps}
         getTabStatusMessage={getStatusMessage}
         loadingFiles={loadingFiles}
+        onCloseAllFileTabs={clearTabs}
         onCloseFileTab={handleCloseFileTab}
         onSelectApp={handleSelectApp}
         onSelectFileTab={handleSelectFileTab}
@@ -386,6 +403,8 @@ interface WorkspaceTabStripProps {
   readonly apps: readonly WorkspaceApp[];
   readonly getTabStatusMessage: (compositeKey: string) => string | null;
   readonly loadingFiles: Set<string>;
+  /** Clear all file tabs at once. Surfaced via the overflow menu next to the tab strip. */
+  readonly onCloseAllFileTabs: () => void;
   readonly onCloseFileTab: (tabId: string) => void;
   readonly onSelectApp: (appId: string) => void;
   readonly onSelectFileTab: (tabId: string) => void | Promise<void>;
@@ -403,6 +422,7 @@ function WorkspaceTabStrip({
   tabStatuses,
   onSelectFileTab,
   onCloseFileTab,
+  onCloseAllFileTabs,
   getTabStatusMessage,
 }: WorkspaceTabStripProps) {
   return (
@@ -430,9 +450,8 @@ function WorkspaceTabStrip({
           const isLoading = loadingFiles.has(tab.compositeKey);
           const statusMessage = getTabStatusMessage(tab.compositeKey);
           // FileTabButton receives the parent handlers verbatim and dispatches them with
-          // its own tab.id internally — no per-render arrow-closure recreation, so a
-          // future React.memo wrap stays effective. (The parent handlers themselves are
-          // stable via useCallback.)
+          // its own tab.id internally — no per-render arrow-closure recreation, so the
+          // memo wrap on FileTabButton bails on shallow-equal props.
           return (
             <FileTabButton
               isActive={isActive}
@@ -447,6 +466,43 @@ function WorkspaceTabStrip({
           );
         })}
       </div>
+      <TabStripOverflowMenu hasFileTabs={tabs.length > 0} onCloseAll={onCloseAllFileTabs} />
+    </div>
+  );
+}
+
+interface TabStripOverflowMenuProps {
+  readonly hasFileTabs: boolean;
+  readonly onCloseAll: () => void;
+}
+
+/**
+ * "More actions" affordance at the right edge of the tab strip. Mirrors the menu the
+ * old TabbedFileEditor surfaced — currently just hosts "Close All Tabs", but the
+ * structure is here so future bulk actions (e.g. "Close Others", "Pin Tab") can slot
+ * in without rewiring the strip.
+ */
+function TabStripOverflowMenu({ hasFileTabs, onCloseAll }: TabStripOverflowMenuProps) {
+  return (
+    <div className="flex flex-shrink-0 items-center border-border border-l px-1">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            aria-label="More tab actions"
+            className="h-7 w-7 rounded-sm"
+            size="icon"
+            title="More tab actions"
+            variant="ghost"
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
+          <DropdownMenuItem disabled={!hasFileTabs} onSelect={onCloseAll}>
+            Close All Tabs
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
