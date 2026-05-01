@@ -47,7 +47,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     [extraApps]
   );
 
-  const { tabs, activeTabId, openTab, closeTab, setActiveTab } = useTabManager();
+  const { tabs, openTab, closeTab, setActiveTab } = useTabManager();
   const { fileContents, loadingFiles, loadFileContent, fileTree, canLoadWithoutTree } =
     useFileExplorer();
 
@@ -239,16 +239,15 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     registerOpenFileInTab(handleOpenFileInTab);
   }, [registerOpenFileInTab, handleOpenFileInTab]);
 
-  const isDesktopRenderer = isElectronRenderer();
-
   // Hotkeys: Electron gets VS Code-style ctrl/cmd+w for closing the active editor tab.
   // Web intentionally leaves the browser's native close-tab shortcut untouched.
   // Deps array (4th arg) is required by react-hotkeys-hook v5 to avoid stale closures —
-  // without it the callback would capture the first render's selection.
+  // without it the callback would capture the first render's selection. Platform check
+  // hoisted to module scope (IS_DESKTOP_RENDERER) since it's session-stable.
   useHotkeys(
     'ctrl+w, cmd+w',
     (e) => {
-      if (!isDesktopRenderer) {
+      if (!IS_DESKTOP_RENDERER) {
         return;
       }
       if (selection.kind === 'file') {
@@ -256,7 +255,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         handleCloseFileTab(selection.tabId);
       }
     },
-    [isDesktopRenderer, selection, handleCloseFileTab]
+    [selection, handleCloseFileTab]
   );
   const cycleFileTab = useCallback(
     (direction: 'next' | 'prev') => {
@@ -298,7 +297,6 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
   return (
     <div className={cn('flex h-full flex-col bg-background', className)}>
       <WorkspaceTabStrip
-        activeFileTabId={activeTabId}
         apps={apps}
         getTabStatusMessage={getStatusMessage}
         loadingFiles={loadingFiles}
@@ -327,7 +325,6 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
 WorkspaceTabHost.displayName = 'WorkspaceTabHost';
 
 interface WorkspaceTabStripProps {
-  readonly activeFileTabId: string | null;
   readonly apps: readonly WorkspaceApp[];
   readonly getTabStatusMessage: (compositeKey: string) => string | null;
   readonly loadingFiles: Set<string>;
@@ -709,12 +706,14 @@ function getFileName(path: string): string {
   return last && last.length > 0 ? last : path;
 }
 
-function isElectronRenderer(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    typeof (window as Window & { electronAPI?: unknown }).electronAPI !== 'undefined'
-  );
-}
+/**
+ * Whether this bundle is running inside the Electron renderer (the desktop app exposes
+ * `window.electronAPI` via preload). Evaluated once at module load — the answer never
+ * changes during a session, so there's no point re-checking on every host render.
+ */
+const IS_DESKTOP_RENDERER =
+  typeof window !== 'undefined' &&
+  typeof (window as Window & { electronAPI?: unknown }).electronAPI !== 'undefined';
 
 /** Hard cap on how much text we paint into the DOM per panel. Beyond this we truncate visibly. */
 const MAX_DOM_CHARS = 200_000;
