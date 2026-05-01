@@ -124,4 +124,28 @@ describe('scheduled database maintenance', () => {
       )
     ).rejects.toThrow('vacuum exploded');
   });
+
+  it('keeps already-pruned terminal jobs when vacuum fails', async () => {
+    const queue = new JobQueue(db);
+    await createJobWithState(db, queue, 'succeeded', OLD_ISO);
+    await createJobWithState(db, queue, 'failed', RECENT_ISO);
+    const failingVacuumDb = {
+      query: db.query.bind(db),
+      exec: vi.fn(async (sql: string) => {
+        if (sql.startsWith('VACUUM')) {
+          throw new Error('vacuum exploded after prune');
+        }
+        return await db.exec(sql);
+      }),
+    };
+
+    await expect(
+      runScheduledDatabaseMaintenance(failingVacuumDb, {
+        now: () => new Date(NOW_ISO),
+        terminalJobRetentionMs: 60 * 60 * 1000,
+      })
+    ).rejects.toThrow('vacuum exploded after prune');
+
+    expect(await countJobs(db)).toBe(1);
+  });
 });

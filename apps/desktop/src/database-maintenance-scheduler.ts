@@ -7,6 +7,8 @@ import {
   type ScheduledDatabaseMaintenanceResult,
 } from '@brainstrike/db';
 
+const DEFAULT_DATABASE_MAINTENANCE_INITIAL_DELAY_MS = 30_000;
+
 interface SchedulerSnapshot {
   readonly queued: Record<DatabaseWorkPriority, number>;
   readonly runningPriority: DatabaseWorkPriority | null;
@@ -54,6 +56,7 @@ export interface DesktopDatabaseMaintenanceScheduler {
 export interface DesktopDatabaseMaintenanceSchedulerOptions {
   readonly getDatabase: () => Promise<MaintenanceDb>;
   readonly getSchedulerSnapshot: () => SchedulerSnapshot;
+  readonly initialDelayMs?: number;
   readonly intervalMs?: number;
   readonly logger: MaintenanceLogger;
   readonly maintenanceOptions?: ScheduledDatabaseMaintenanceOptions;
@@ -73,6 +76,14 @@ function resolveIntervalMs(intervalMs: number | undefined): number {
     throw new Error('Desktop database maintenance intervalMs must be a positive number.');
   }
   return resolvedIntervalMs;
+}
+
+function resolveInitialDelayMs(initialDelayMs: number | undefined): number {
+  const resolvedInitialDelayMs = initialDelayMs ?? DEFAULT_DATABASE_MAINTENANCE_INITIAL_DELAY_MS;
+  if (!Number.isFinite(resolvedInitialDelayMs) || resolvedInitialDelayMs < 0) {
+    throw new Error('Desktop database maintenance initialDelayMs must be a non-negative number.');
+  }
+  return resolvedInitialDelayMs;
 }
 
 function hasQueuedDatabaseWork(snapshot: SchedulerSnapshot): boolean {
@@ -101,10 +112,12 @@ function createSkippedResult(
 export function createDesktopDatabaseMaintenanceScheduler(
   options: DesktopDatabaseMaintenanceSchedulerOptions
 ): DesktopDatabaseMaintenanceScheduler {
+  const initialDelayMs = resolveInitialDelayMs(options.initialDelayMs);
   const intervalMs = resolveIntervalMs(options.intervalMs);
   const now = options.now ?? (() => new Date());
   const runMaintenance = options.runMaintenance ?? runScheduledDatabaseMaintenance;
   let maintenanceInFlight: Promise<DesktopDatabaseMaintenanceRunResult> | null = null;
+  let initialTimer: ReturnType<typeof setTimeout> | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
 
   const runOnce = async (): Promise<DesktopDatabaseMaintenanceRunResult> => {
@@ -165,6 +178,13 @@ export function createDesktopDatabaseMaintenanceScheduler(
       if (timer !== null) {
         return;
       }
+      initialTimer = setTimeout(() => {
+        initialTimer = null;
+        void runOnce().catch((error: unknown) => {
+          options.logger.error({ error }, 'Scheduled database maintenance failed');
+        });
+      }, initialDelayMs);
+      initialTimer.unref?.();
       timer = setInterval(() => {
         void runOnce().catch((error: unknown) => {
           options.logger.error({ error }, 'Scheduled database maintenance failed');
@@ -173,6 +193,10 @@ export function createDesktopDatabaseMaintenanceScheduler(
       timer.unref?.();
     },
     stop: () => {
+      if (initialTimer !== null) {
+        clearTimeout(initialTimer);
+        initialTimer = null;
+      }
       if (timer === null) {
         return;
       }

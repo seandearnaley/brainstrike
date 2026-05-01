@@ -11,6 +11,7 @@ const TERMINAL_JOB_STATES = [
   'canceled',
 ] as const satisfies readonly JobState[];
 const ACTIVE_JOB_STATE_SET: ReadonlySet<JobState> = new Set(ACTIVE_JOB_STATES);
+const VACUUM_TABLE_NAME_PATTERN = /^[a-z_][a-z0-9_]*$/u;
 
 export type ScheduledDatabaseMaintenanceStatus = 'completed' | 'skipped';
 export type ScheduledDatabaseMaintenanceSkipReason = 'active-job-queue';
@@ -81,7 +82,7 @@ function resolveTerminalJobRetentionMs(options: ScheduledDatabaseMaintenanceOpti
 function resolveVacuumTables(options: ScheduledDatabaseMaintenanceOptions): readonly string[] {
   const tables = options.vacuumTables ?? DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES;
   for (const table of tables) {
-    if (!/^[a-z_][a-z0-9_]*$/u.test(table)) {
+    if (!VACUUM_TABLE_NAME_PATTERN.test(table)) {
       throw new Error(`Invalid database maintenance VACUUM table: ${table}`);
     }
   }
@@ -125,6 +126,9 @@ async function vacuumTables(
   tables: readonly string[]
 ): Promise<readonly string[]> {
   for (const table of tables) {
+    if (!VACUUM_TABLE_NAME_PATTERN.test(table)) {
+      throw new Error(`Invalid database maintenance VACUUM table: ${table}`);
+    }
     if (typeof db.exec === 'function') {
       await db.exec(`VACUUM ${table}`);
     } else {
@@ -159,6 +163,8 @@ export async function runScheduledDatabaseMaintenance(
   }
 
   const olderThanIso = new Date(startedAtMs - retentionMs).toISOString();
+  // VACUUM cannot be wrapped in a normal transaction. If VACUUM fails after pruning,
+  // the next idle maintenance pass retries VACUUM; deleted terminal rows stay deleted.
   const prunedTerminalJobs = await pruneTerminalJobs(db, olderThanIso);
   const vacuumedTables = await vacuumTables(db, vacuumTableNames);
   const completedAtDate = resolveNow(options);

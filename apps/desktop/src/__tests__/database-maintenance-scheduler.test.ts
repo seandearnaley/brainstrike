@@ -147,4 +147,43 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
     resolveMaintenance?.(COMPLETED_MAINTENANCE_RESULT);
     await firstRun;
   });
+
+  it('runs an initial pass after the configured startup delay', async () => {
+    vi.useFakeTimers();
+    try {
+      const runScheduledWork = vi.fn(
+        async <TResult>(
+          _options: DatabaseWorkOptions,
+          work: () => Promise<TResult>
+        ): Promise<TResult> => await work()
+      );
+      const scheduler = createDesktopDatabaseMaintenanceScheduler({
+        getDatabase: vi.fn(async () => ({ query: vi.fn() })),
+        getSchedulerSnapshot: () => ({
+          queued: createQueuedCounts(),
+          runningPriority: null,
+        }),
+        initialDelayMs: 250,
+        intervalMs: 10_000,
+        logger: {
+          debug: vi.fn(),
+          error: vi.fn(),
+          info: vi.fn(),
+        },
+        runMaintenance: vi.fn(async () => COMPLETED_MAINTENANCE_RESULT),
+        runScheduledWork,
+      });
+
+      scheduler.start();
+      await vi.advanceTimersByTimeAsync(249);
+      expect(runScheduledWork).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(runScheduledWork).toHaveBeenCalledTimes(1);
+
+      scheduler.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
