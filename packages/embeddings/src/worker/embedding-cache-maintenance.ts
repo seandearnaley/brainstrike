@@ -21,6 +21,7 @@ export class EmbeddingCacheMaintenanceController {
   readonly #cache: EmbeddingCacheMaintenanceCache;
   readonly #logger: EmbeddingCacheMaintenanceLogger;
   readonly #pendingCacheWrites = new Set<Promise<void>>();
+  #activeMaintenance: Promise<void> | null = null;
   #cacheWriteGeneration = 0;
   #maintainedGeneration = 0;
 
@@ -53,6 +54,27 @@ export class EmbeddingCacheMaintenanceController {
   }
 
   async run(reason: 'queue-idle'): Promise<void> {
+    if (this.#activeMaintenance) {
+      await this.#activeMaintenance;
+      if (
+        this.#pendingCacheWrites.size > 0 ||
+        this.#cacheWriteGeneration !== this.#maintainedGeneration
+      ) {
+        await this.run(reason);
+      }
+      return;
+    }
+
+    const maintenance = this.#runExclusive(reason).finally(() => {
+      if (this.#activeMaintenance === maintenance) {
+        this.#activeMaintenance = null;
+      }
+    });
+    this.#activeMaintenance = maintenance;
+    await maintenance;
+  }
+
+  async #runExclusive(reason: 'queue-idle'): Promise<void> {
     await this.flushPendingWrites();
     const generationToMaintain = this.#cacheWriteGeneration;
     if (generationToMaintain === this.#maintainedGeneration) {

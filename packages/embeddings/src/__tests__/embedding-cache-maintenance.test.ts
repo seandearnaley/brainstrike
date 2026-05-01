@@ -14,6 +14,46 @@ function deferred<T>(): {
 }
 
 describe('EmbeddingCacheMaintenanceController', () => {
+  it('serializes concurrent idle maintenance calls', async () => {
+    const firstMaintenance = deferred<{ needed: boolean; evicted: number; totalEntries: number }>();
+    const cache: EmbeddingCacheInterface = {
+      evictIfNeeded: vi.fn(() => firstMaintenance.promise),
+      get: async () => ({ hit: false, entry: null }),
+      getBatch: async () => new Map(),
+      getStats: vi.fn(async () => ({
+        newestAccessedAt: null,
+        oldestAccessedAt: null,
+        totalEntries: 1,
+        totalHits: 0,
+      })),
+      set: async () => {},
+      setBatch: async () => 0,
+    };
+    const evictIfNeeded = cache.evictIfNeeded;
+    if (!evictIfNeeded) {
+      throw new Error('Expected evictIfNeeded to be defined.');
+    }
+    const controller = new EmbeddingCacheMaintenanceController(cache, {
+      log: vi.fn(),
+      warn: vi.fn(),
+    });
+
+    controller.trackCacheWrite(Promise.resolve(1));
+    await controller.flushPendingWrites();
+
+    const firstRun = controller.run('queue-idle');
+    await Promise.resolve();
+    const secondRun = controller.run('queue-idle');
+    await Promise.resolve();
+
+    expect(evictIfNeeded).toHaveBeenCalledTimes(1);
+
+    firstMaintenance.resolve({ evicted: 0, needed: false, totalEntries: 1 });
+    await Promise.all([firstRun, secondRun]);
+
+    expect(evictIfNeeded).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps a concurrent cache write dirty when it resolves during maintenance', async () => {
     const firstMaintenance = deferred<{ needed: boolean; evicted: number; totalEntries: number }>();
     const cache: EmbeddingCacheInterface = {
