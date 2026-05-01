@@ -54,6 +54,7 @@ export class EmbeddingCacheMaintenanceController {
   }
 
   async run(reason: 'queue-idle'): Promise<void> {
+    let iteration = 0;
     while (true) {
       if (this.#activeMaintenance) {
         await this.#activeMaintenance;
@@ -73,6 +74,9 @@ export class EmbeddingCacheMaintenanceController {
       ) {
         return;
       }
+
+      iteration += 1;
+      this.#logger.log('embedding_cache_maintenance_retry', { iteration, reason });
     }
   }
 
@@ -83,19 +87,25 @@ export class EmbeddingCacheMaintenanceController {
       return;
     }
 
+    const eviction = await this.#cache.evictIfNeeded?.().catch((error: unknown) => {
+      this.#logger.warn('Embedding cache eviction failed', { error, reason });
+      return null;
+    });
+    if (eviction === null) {
+      return;
+    }
+    if (eviction) {
+      this.#logger.log('embedding_cache_eviction', {
+        evicted: eviction.evicted,
+        needed: eviction.needed,
+        reason,
+        totalEntries: eviction.totalEntries,
+      });
+    }
+
+    this.#maintainedGeneration = generationToMaintain;
+
     try {
-      const eviction = await this.#cache.evictIfNeeded?.();
-      if (eviction) {
-        this.#logger.log('embedding_cache_eviction', {
-          evicted: eviction.evicted,
-          needed: eviction.needed,
-          reason,
-          totalEntries: eviction.totalEntries,
-        });
-      }
-
-      this.#maintainedGeneration = generationToMaintain;
-
       const stats = await this.#cache.getStats?.();
       if (stats) {
         this.#logger.log('embedding_cache_stats', {
@@ -107,7 +117,7 @@ export class EmbeddingCacheMaintenanceController {
         });
       }
     } catch (error) {
-      this.#logger.warn('Embedding cache maintenance failed', { error });
+      this.#logger.warn('Embedding cache stats logging failed', { error, reason });
     }
   }
 }

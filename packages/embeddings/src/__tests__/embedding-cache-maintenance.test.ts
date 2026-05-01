@@ -100,6 +100,10 @@ describe('EmbeddingCacheMaintenanceController', () => {
     await controller.run('queue-idle');
 
     expect(evictIfNeeded).toHaveBeenCalledTimes(2);
+    expect(log).toHaveBeenCalledWith('embedding_cache_maintenance_retry', {
+      iteration: 1,
+      reason: 'queue-idle',
+    });
     expect(warn).not.toHaveBeenCalled();
   });
 
@@ -118,9 +122,10 @@ describe('EmbeddingCacheMaintenanceController', () => {
     if (!evictIfNeeded) {
       throw new Error('Expected evictIfNeeded to be defined.');
     }
+    const warn = vi.fn();
     const controller = new EmbeddingCacheMaintenanceController(cache, {
       log: vi.fn(),
-      warn: vi.fn(),
+      warn,
     });
 
     controller.trackCacheWrite(Promise.resolve(1));
@@ -130,5 +135,9 @@ describe('EmbeddingCacheMaintenanceController', () => {
     await controller.run('queue-idle');
 
     expect(evictIfNeeded).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith('Embedding cache stats logging failed', {
+      error: expect.any(Error),
+      reason: 'queue-idle',
+    });
   });
 });

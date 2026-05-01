@@ -212,6 +212,8 @@ export class EmbeddingCacheRepository {
         VALUES ($1, $2, $3, $4::vector, $5, $6, $7, 1)
         ON CONFLICT (content_hash, model_key)
         DO UPDATE SET
+          -- First value wins for a content/model key. Model changes must use a new model_key
+          -- or explicit deleteByModel invalidation; reads still refresh LRU metadata.
           accessed_at = EXCLUDED.accessed_at,
           access_count = embedding_cache.access_count + 1
         RETURNING id, content_hash, model_key, embedding::text AS embedding, dimensions,
@@ -273,6 +275,8 @@ export class EmbeddingCacheRepository {
           VALUES ${valuesSql.join(', ')}
           ON CONFLICT (content_hash, model_key)
           DO UPDATE SET
+            -- First value wins for a content/model key. Model changes must use a new model_key
+            -- or explicit deleteByModel invalidation; reads still refresh LRU metadata.
             accessed_at = EXCLUDED.accessed_at,
             access_count = embedding_cache.access_count + 1
           RETURNING id
