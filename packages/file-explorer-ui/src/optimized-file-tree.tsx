@@ -2217,6 +2217,21 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           data-testid="file-tree-scroll-container"
         >
           <div className="relative h-full" data-testid="file-tree">
+            {/*
+              selectionMode="single" + selectedId={null} is intentional: we use the
+              tree's keyboard-driven `onSelect` callback as a one-shot "activate this
+              row" gesture (Enter/Space → open file as a tab), not as a persistent
+              selection state. The actual multi-select state for context export lives
+              on the per-row LightweightCheckbox.
+
+              a11y trade-off: every row therefore announces aria-selected="false",
+              which is correct ARIA for a row in a selectable tree — but a future
+              full screen-reader audit (VoiceOver / NVDA) should confirm the
+              checkbox-state announcement isn't preceded by redundant "not selected"
+              chatter on rapid arrow-key navigation. If it is, the cleanest fix is
+              to either teach TreeTable to opt out of aria-selected, or to maintain
+              a real selectedId that follows the focused row.
+            */}
             <TreeTable
               ariaLabel="File tree"
               className="file-tree h-full min-h-0 flex-1"
