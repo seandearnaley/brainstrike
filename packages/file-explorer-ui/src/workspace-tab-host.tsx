@@ -193,6 +193,22 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     [closeTab, handleSelectApp, selectFile]
   );
 
+  // If the workspace was pointing at a file tab that no longer exists (silent
+  // eviction at MAX_TABS, external close, store reset, etc.), route back to
+  // Context Explorer so the visible state matches the persisted selection.
+  // WorkspaceBody handles the "tab not found" case by rendering NoFileTabSelected,
+  // but leaving the selection store pointing at a dead id makes downstream
+  // operations (cycle, close, hotkey targets) act on stale references.
+  useEffect(() => {
+    if (selection.kind !== 'file') {
+      return;
+    }
+    if (tabs.some((t) => t.id === selection.tabId)) {
+      return;
+    }
+    selectApp(CONTEXT_EXPLORER_APP_ID);
+  }, [selection, tabs, selectApp]);
+
   // Auto-load active file content when tabs/file tree become ready.
   // biome-ignore lint/plugin: reactive content load — necessary side effect on activation
   useEffect(() => {
@@ -570,19 +586,26 @@ const WorkspaceBody = memo<WorkspaceBodyProps>(function WorkspaceBody({
   tabStatuses,
   isRestoring,
 }) {
+  // Resolve the active app and memoize its rendered body keyed on the app reference.
+  // The body re-renders only when the active app changes — not on every fileContents /
+  // tabStatuses tick — and a future extraApps consumer that returns an inline-lambda
+  // tree from render() won't trigger spurious remounts of its subtree.
+  const activeApp =
+    selection.kind === 'app' ? apps.find((a) => a.id === selection.appId) : undefined;
+  const activeAppBody = useMemo(() => activeApp?.render() ?? null, [activeApp]);
+
   if (selection.kind === 'app') {
-    const app = apps.find((a) => a.id === selection.appId);
-    if (!app) {
+    if (!activeApp) {
       return <MissingAppFallback />;
     }
     return (
       <div
-        aria-labelledby={`workspace-app-tab-${app.id}`}
+        aria-labelledby={`workspace-app-tab-${activeApp.id}`}
         className="h-full"
-        id={`workspace-app-panel-${app.id}`}
+        id={`workspace-app-panel-${activeApp.id}`}
         role="tabpanel"
       >
-        {app.render()}
+        {activeAppBody}
       </div>
     );
   }
