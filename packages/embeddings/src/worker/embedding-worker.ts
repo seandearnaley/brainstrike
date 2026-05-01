@@ -36,6 +36,11 @@ export interface EmbeddingCacheInterface {
   evictIfNeeded?: () => Promise<{ needed: boolean; evicted: number; totalEntries: number }>;
 
   /**
+   * Flush pending LRU access-time updates before worker shutdown.
+   */
+  flushPendingAccessTimeUpdates?: () => Promise<void>;
+
+  /**
    * Get a cached embedding by content hash and model key.
    * Returns hit: true with the entry if found, or hit: false if not cached.
    */
@@ -1744,6 +1749,7 @@ export async function startEmbeddingWorker(
 
   async function flushEmbeddingCacheWrites(): Promise<void> {
     await embeddingCacheMaintenance?.flushPendingWrites();
+    await options.embeddingCache?.flushPendingAccessTimeUpdates?.();
   }
 
   // BST-170: Helper to lookup cache hits

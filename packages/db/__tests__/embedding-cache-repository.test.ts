@@ -22,6 +22,17 @@ async function waitForAssertion(assertion: () => void): Promise<void> {
   throw new Error('Timed out waiting for assertion.');
 }
 
+function deferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
 describe('createEmbeddingCacheRepository', () => {
   let client: PGlite;
 
@@ -166,5 +177,82 @@ describe('createEmbeddingCacheRepository', () => {
       );
       expect(accessUpdateQueries).toHaveLength(2);
     });
+  });
+
+  it('rejects malformed timestamp values from cache rows', async () => {
+    const db = {
+      query: async <T = unknown>(sql: string): Promise<{ rows: T[] }> => {
+        if (sql.includes('SELECT id, content_hash')) {
+          return {
+            rows: [
+              {
+                access_count: 1,
+                accessed_at: 'not-a-date',
+                content_hash: 'content-a',
+                created_at: new Date(),
+                dimensions: 4,
+                embedding: '[0.1,0.2,0.3,0.4]',
+                id: 'cache-row-a',
+                model_key: 'local:test-model',
+              } as T,
+            ],
+          };
+        }
+        return { rows: [] };
+      },
+    };
+    const repo = createEmbeddingCacheRepository(db);
+
+    await expect(repo.get('content-a', 'local:test-model')).rejects.toThrow(
+      'Embedding cache accessed_at has invalid date value'
+    );
+  });
+
+  it('flushes pending access-time updates', async () => {
+    const pendingAccessUpdate = deferred<{ rows: unknown[] }>();
+    let updateStarted = false;
+    const db = {
+      query: async <T = unknown>(sql: string): Promise<{ rows: T[] }> => {
+        if (sql.includes('SELECT id, content_hash')) {
+          return {
+            rows: [
+              {
+                access_count: 1,
+                accessed_at: new Date(),
+                content_hash: 'content-a',
+                created_at: new Date(),
+                dimensions: 4,
+                embedding: '[0.1,0.2,0.3,0.4]',
+                id: 'cache-row-a',
+                model_key: 'local:test-model',
+              } as T,
+            ],
+          };
+        }
+        if (sql.includes('UPDATE embedding_cache')) {
+          updateStarted = true;
+          return pendingAccessUpdate.promise as Promise<{ rows: T[] }>;
+        }
+        return { rows: [] };
+      },
+    };
+    const repo = createEmbeddingCacheRepository(db);
+
+    await repo.get('content-a', 'local:test-model');
+    await waitForAssertion(() => {
+      expect(updateStarted).toBe(true);
+    });
+
+    const flushPromise = repo.flushPendingAccessTimeUpdates().then(() => 'flushed' as const);
+    const flushState = await Promise.race([
+      flushPromise,
+      new Promise<'pending'>((resolve) => setTimeout(() => resolve('pending'), 50)),
+    ]);
+
+    expect(flushState).toBe('pending');
+
+    pendingAccessUpdate.resolve({ rows: [] });
+
+    await expect(flushPromise).resolves.toBe('flushed');
   });
 });

@@ -249,7 +249,9 @@ describe('embedding-worker: cache operations', () => {
 
   it('flushes pending cache writes before worker stop resolves', async () => {
     const pendingCacheWrite = deferred<number>();
+    const pendingAccessTimeFlush = deferred<void>();
     const cacheWithPendingWrite: EmbeddingCacheInterface = {
+      flushPendingAccessTimeUpdates: vi.fn(() => pendingAccessTimeFlush.promise),
       get: async () => ({ hit: false, entry: null }),
       getBatch: async () => new Map(),
       set: async () => {},
@@ -287,6 +289,16 @@ describe('embedding-worker: cache operations', () => {
     expect(stopState).toBe('pending');
 
     pendingCacheWrite.resolve(1);
+
+    const stopAfterCacheWriteState = await Promise.race([
+      stopPromise,
+      new Promise<'pending'>((resolve) => setTimeout(() => resolve('pending'), 50)),
+    ]);
+
+    expect(stopAfterCacheWriteState).toBe('pending');
+    expect(cacheWithPendingWrite.flushPendingAccessTimeUpdates).toHaveBeenCalledTimes(1);
+
+    pendingAccessTimeFlush.resolve();
 
     await expect(stopPromise).resolves.toBe('stopped');
   });

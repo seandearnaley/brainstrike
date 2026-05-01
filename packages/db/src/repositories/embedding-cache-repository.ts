@@ -49,8 +49,12 @@ function toVectorLiteral(embedding: readonly number[], label: string): string {
   return `[${embedding.join(',')}]`;
 }
 
-function parseDate(value: Date | string): Date {
-  return value instanceof Date ? value : new Date(value);
+function parseDate(value: Date | string, label: string): Date {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Embedding cache ${label} has invalid date value: ${String(value)}.`);
+  }
+  return date;
 }
 
 function parseInteger(value: number | string, label: string): number {
@@ -69,9 +73,9 @@ function mapRow(row: EmbeddingCacheRow): EmbeddingCacheEntry {
 
   return {
     accessCount: parseInteger(row.access_count, 'access_count'),
-    accessedAt: parseDate(row.accessed_at),
+    accessedAt: parseDate(row.accessed_at, 'accessed_at'),
     contentHash: row.content_hash,
-    createdAt: parseDate(row.created_at),
+    createdAt: parseDate(row.created_at, 'created_at'),
     dimensions: parseInteger(row.dimensions, 'dimensions'),
     embedding,
     id: row.id,
@@ -98,6 +102,7 @@ export class EmbeddingCacheRepository {
     failedAccessTimeUpdates: 0,
     failedBatchAccessTimeUpdates: 0,
   };
+  private readonly pendingAccessTimeUpdates = new Set<Promise<void>>();
 
   constructor(
     private readonly db: IDatabase,
@@ -113,6 +118,13 @@ export class EmbeddingCacheRepository {
   resetMetrics(): void {
     this.metrics.failedAccessTimeUpdates = 0;
     this.metrics.failedBatchAccessTimeUpdates = 0;
+  }
+
+  async flushPendingAccessTimeUpdates(): Promise<void> {
+    if (this.pendingAccessTimeUpdates.size === 0) {
+      return;
+    }
+    await Promise.allSettled([...this.pendingAccessTimeUpdates]);
   }
 
   async get(contentHash: string, modelKey: string): Promise<EmbeddingCacheLookupResult> {
@@ -131,12 +143,9 @@ export class EmbeddingCacheRepository {
       return { entry: null, hit: false };
     }
 
-    this.updateAccessTime(row.id).catch((error: unknown) => {
-      this.metrics.failedAccessTimeUpdates += 1;
-      this.logger.warn('Failed to update embedding cache access time', {
-        error: error instanceof Error ? error.message : String(error),
-        id: row.id,
-      });
+    this.trackAccessTimeUpdate(this.updateAccessTime(row.id), {
+      id: row.id,
+      mode: 'single',
     });
 
     return { entry: mapRow(row), hit: true };
@@ -178,12 +187,9 @@ export class EmbeddingCacheRepository {
     }
 
     if (idsToUpdate.length > 0) {
-      this.batchUpdateAccessTime(idsToUpdate).catch((error: unknown) => {
-        this.metrics.failedBatchAccessTimeUpdates += 1;
-        this.logger.warn('Failed to update embedding cache batch access times', {
-          count: idsToUpdate.length,
-          error: error instanceof Error ? error.message : String(error),
-        });
+      this.trackAccessTimeUpdate(this.batchUpdateAccessTime(idsToUpdate), {
+        count: idsToUpdate.length,
+        mode: 'batch',
       });
     }
 
@@ -362,11 +368,41 @@ export class EmbeddingCacheRepository {
     `);
     const row = result.rows[0];
     return {
-      newestAccessedAt: row?.newest_accessed_at ? parseDate(row.newest_accessed_at) : null,
-      oldestAccessedAt: row?.oldest_accessed_at ? parseDate(row.oldest_accessed_at) : null,
+      newestAccessedAt: row?.newest_accessed_at
+        ? parseDate(row.newest_accessed_at, 'newest_accessed_at')
+        : null,
+      oldestAccessedAt: row?.oldest_accessed_at
+        ? parseDate(row.oldest_accessed_at, 'oldest_accessed_at')
+        : null,
       totalEntries: parseInteger(row?.total_entries ?? 0, 'total_entries'),
       totalHits: parseInteger(row?.total_hits ?? 0, 'total_hits'),
     };
+  }
+
+  private trackAccessTimeUpdate(
+    update: Promise<void>,
+    context: { count?: number; id?: string; mode: 'batch' | 'single' }
+  ): void {
+    const tracked = update
+      .catch((error: unknown) => {
+        if (context.mode === 'batch') {
+          this.metrics.failedBatchAccessTimeUpdates += 1;
+          this.logger.warn('Failed to update embedding cache batch access times', {
+            count: context.count,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return;
+        }
+        this.metrics.failedAccessTimeUpdates += 1;
+        this.logger.warn('Failed to update embedding cache access time', {
+          error: error instanceof Error ? error.message : String(error),
+          id: context.id,
+        });
+      })
+      .finally(() => {
+        this.pendingAccessTimeUpdates.delete(tracked);
+      });
+    this.pendingAccessTimeUpdates.add(tracked);
   }
 
   private async updateAccessTime(id: string): Promise<void> {
