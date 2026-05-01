@@ -4,6 +4,7 @@
 
 import {
   createDatabasePressureController,
+  createEmbeddingCacheRepository,
   getDatabaseWorkScheduler,
   type IDatabase,
 } from '@brainstrike/db';
@@ -20,6 +21,7 @@ export async function startEmbeddingWorkerWeb(db: IDatabase): Promise<EmbeddingW
   // On web, the env default may be false; allow explicit runtime start from UI.
   return startEmbeddingWorker({
     db,
+    embeddingCache: createEmbeddingCacheRepository(db),
     enable: true,
     streamingWorkerUrl: resolveEmbeddingWorkerUrlHref(),
     waitForBackgroundPermit: pressureController.waitForBackgroundPermit,

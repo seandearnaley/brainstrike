@@ -21,6 +21,7 @@ import type {
   ModelConfig,
 } from '../types';
 import { FALLBACK_MODEL_CONFIG } from '../types';
+import { EmbeddingCacheMaintenanceController } from './embedding-cache-maintenance';
 
 /**
  * Interface for embedding cache operations.
@@ -28,6 +29,17 @@ import { FALLBACK_MODEL_CONFIG } from '../types';
  * BST-170: Content-level embedding deduplication.
  */
 export interface EmbeddingCacheInterface {
+  /**
+   * Evict stale entries when cache size exceeds its configured cap.
+   * Called cooperatively after the embedding queue drains.
+   */
+  evictIfNeeded?: () => Promise<{ needed: boolean; evicted: number; totalEntries: number }>;
+
+  /**
+   * Flush pending LRU access-time updates before worker shutdown.
+   */
+  flushPendingAccessTimeUpdates?: () => Promise<void>;
+
   /**
    * Get a cached embedding by content hash and model key.
    * Returns hit: true with the entry if found, or hit: false if not cached.
@@ -44,6 +56,16 @@ export interface EmbeddingCacheInterface {
   getBatch(
     requests: ReadonlyArray<{ contentHash: string; modelKey: string }>
   ): Promise<Map<string, CachedEmbedding>>;
+
+  /**
+   * Return cache diagnostics for worker metrics/log output.
+   */
+  getStats?: () => Promise<{
+    newestAccessedAt: Date | null;
+    oldestAccessedAt: Date | null;
+    totalEntries: number;
+    totalHits: number;
+  }>;
 
   /**
    * Store an embedding in the cache.
@@ -1710,6 +1732,26 @@ export async function startEmbeddingWorker(
     payload: EmbedChunkPayload;
   }
 
+  const embeddingCacheMaintenance = options.embeddingCache
+    ? new EmbeddingCacheMaintenanceController(options.embeddingCache, {
+        log,
+        warn: (message, meta) => workerLogger.warn(message, meta),
+      })
+    : null;
+
+  function trackCacheWrite(write: Promise<number>): void {
+    embeddingCacheMaintenance?.trackCacheWrite(write);
+  }
+
+  async function runEmbeddingCacheMaintenance(reason: 'queue-idle'): Promise<void> {
+    await embeddingCacheMaintenance?.run(reason);
+  }
+
+  async function flushEmbeddingCacheWrites(): Promise<void> {
+    await embeddingCacheMaintenance?.flushPendingWrites();
+    await options.embeddingCache?.flushPendingAccessTimeUpdates?.();
+  }
+
   // BST-170: Helper to lookup cache hits
   async function lookupCacheHits(
     items: LoadedChunkItem[],
@@ -1745,7 +1787,7 @@ export async function startEmbeddingWorker(
     });
   }
 
-  // BST-170: Helper to store embeddings to cache (fire-and-forget)
+  // BST-170: Helper to store embeddings to cache without failing embedding completion.
   function storeToCacheAsync(
     items: LoadedChunkItem[],
     embeddings: number[][],
@@ -1766,9 +1808,7 @@ export async function startEmbeddingWorker(
       })
       .filter((e): e is NonNullable<typeof e> => e !== null);
 
-    cache.setBatch(entries).catch((err) => {
-      workerLogger.warn('Failed to cache embeddings', { error: err });
-    });
+    trackCacheWrite(cache.setBatch(entries));
   }
 
   // BST-170: Helper to reconstruct results combining cache hits and generated
@@ -2353,6 +2393,7 @@ export async function startEmbeddingWorker(
         workerLogger.error('Scheduled embedding service reinitialization failed', { error });
       }
     }
+    await runEmbeddingCacheMaintenance('queue-idle');
     // Silent on empty polls - this happens constantly during idle
     await sleep(400); // idle backoff
   }
@@ -2456,6 +2497,7 @@ export async function startEmbeddingWorker(
       running = false;
       reportWorkerActivity(false);
       await Promise.race([Promise.allSettled(loops).then(() => {}), sleep(leaseMs)]);
+      await flushEmbeddingCacheWrites();
       try {
         await service.dispose();
       } catch (error) {
