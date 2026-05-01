@@ -693,8 +693,12 @@ const WorkspaceBody = memo<WorkspaceBodyProps>(function WorkspaceBody({
   // an inline-lambda tree from render() won't trigger spurious remounts of its subtree.
   const activeApp =
     selection.kind === 'app' ? apps.find((a) => a.id === selection.appId) : undefined;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: id is the stable key; the
-  // render fn is deliberately re-resolved through the latest activeApp closure.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keying on `activeApp?.id`
+  // is the stable identity here; the render fn is deliberately re-resolved through the
+  // latest activeApp closure. Safety contract: this assumes WorkspaceApp.id is unique
+  // across `apps`, which the dev-mode assertion in the apps useMemo above enforces. If
+  // duplicate ids ever leak past dev-mode, two different apps could share a memo cell
+  // and render the wrong body — keep the assertion and the keying in sync.
   const activeAppBody = useMemo(() => activeApp?.render() ?? null, [activeApp?.id]);
 
   if (selection.kind === 'app') {
