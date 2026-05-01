@@ -6,7 +6,6 @@ import {
   AGENT_MIDDLE_PANEL_SELECTOR,
   AGENT_SIDEBAR_PANEL_SELECTOR,
   AGENT_WORKSPACE_PANEL_SELECTOR,
-  CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR,
   CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
   CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR,
   CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR,
@@ -136,46 +135,27 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
       await togglePanelVisibility(elements.showAgentPanelShim, elements.leftPanel, true);
     });
 
-    test('should allow toggling console panel visibility', async ({ page }) => {
-      const elements = getPanelElements(page);
-
-      // Initially hidden
-      await expect(elements.consolePanel).not.toBeVisible();
-      await expect(elements.showConsoleShim).toBeVisible();
-
-      // Show console (now tabbed file editor)
-      await togglePanelVisibility(elements.showConsoleShim, elements.consolePanel, true);
-      await expect(page.getByText('No files open')).toBeVisible();
-      await expect(
-        page.getByText('Click on a file in Context Explorer to open it here')
-      ).toBeVisible();
-
-      // Hide console
-      await togglePanelVisibility(elements.hideConsoleButton, elements.consolePanel, false);
+    test('should render workspace tab host in the main Context Explorer surface', async ({
+      page,
+    }) => {
+      await expect(page.getByTestId('workspace-app-tab-context-explorer')).toBeVisible();
+      await expect(page.getByRole('tabpanel', { name: /context explorer/i })).toBeVisible();
+      await expect(page.getByTestId('show-console-panel')).toHaveCount(0);
     });
 
     test('should have resizable panels', async ({ page }) => {
-      const elements = getPanelElements(page);
-
       // Verify the main left/right panel divider is present.
       // In current react-resizable-panels markup, this separator is vertical.
       const verticalResizeHandles = page.locator('[role="separator"][aria-orientation="vertical"]');
       await expect(verticalResizeHandles.first()).toBeVisible();
 
-      // Show console to get vertical resize handle
-      await elements.showConsoleShim.click();
-      await expect(elements.consolePanel).toBeVisible();
-
-      // Console divider between main content and console is horizontal.
-      const horizontalResizeHandles = page.locator(
-        '[role="separator"][aria-orientation="horizontal"]'
-      );
-      await expect(horizontalResizeHandles.first()).toBeVisible();
+      // The workspace-tabs surface removed the nested console/file-editor panel, so
+      // only the main left/right shell divider is required here.
+      await expect(page.locator('[data-testid="show-console-panel"]')).toHaveCount(0);
     });
 
     test('should maintain panel structure integrity', async ({ page }) => {
       const elements = getPanelElements(page);
-      await elements.showConsoleShim.click();
       await ensureRightPanelVisible(page);
       await elements.hideRightPanelButton.click();
       await elements.showRightPanelShim.click();
@@ -189,7 +169,7 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
       await expect(page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR)).toBeAttached();
       await expect(page.locator(CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR)).toBeAttached();
       await expect(page.locator(CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR)).toBeAttached();
-      await expect(page.locator(CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR)).toBeAttached();
+      await expect(page.getByTestId('workspace-app-tab-context-explorer')).toBeAttached();
 
       // Verify the shell still exposes the expected nested resizable groups.
       // The exact count can vary with wrapper groups created by the panel library,
@@ -204,14 +184,10 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
       await elements.hideAgentPanelButton.click();
       await expect(elements.showAgentPanelShim).toBeVisible();
 
-      await elements.showConsoleShim.click();
-      await expect(elements.consolePanel).toBeVisible();
+      await expect(page.getByTestId('show-console-panel')).toHaveCount(0);
 
       await elements.showAgentPanelShim.click();
       await expect(elements.leftPanel).toBeVisible();
-
-      await elements.hideConsoleButton.click();
-      await expect(elements.consolePanel).not.toBeVisible();
 
       await verifyDefaultLayout(page);
 
