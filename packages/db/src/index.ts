@@ -101,6 +101,16 @@ export {
   markCollectionIndexingStatsDirty,
   refreshCollectionIndexingStats,
 } from './services/collection-indexing-stats.js';
+export {
+  DEFAULT_DATABASE_MAINTENANCE_INTERVAL_MS,
+  DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
+  DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES,
+  runScheduledDatabaseMaintenance,
+  type ScheduledDatabaseMaintenanceOptions,
+  type ScheduledDatabaseMaintenanceResult,
+  type ScheduledDatabaseMaintenanceSkipReason,
+  type ScheduledDatabaseMaintenanceStatus,
+} from './services/scheduled-database-maintenance.js';
 export * from './use-drizzle-live-query.js';
 export * from './use-live-query.js';
 export * from './wasm-loader.js';
