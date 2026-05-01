@@ -54,7 +54,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     [extraApps]
   );
 
-  const { tabs, activeTabId, openTab, closeTab, setActiveTab, clearTabs } = useTabManager();
+  const { tabs, activeTabId, openTab, closeTab, setActiveTab } = useTabManager();
   const { fileContents, loadingFiles, loadFileContent, fileTree, canLoadWithoutTree } =
     useFileExplorer();
 
@@ -250,7 +250,6 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
           fileContents={fileContents}
           isRestoring={isRestoring}
           loadingFiles={loadingFiles}
-          onCloseAllFileTabs={tabs.length > 0 ? clearTabs : undefined}
           selection={selection}
           tabStatuses={tabStatuses}
           tabs={tabs}
@@ -447,7 +446,6 @@ interface WorkspaceBodyProps {
   readonly fileContents: { [key: string]: string };
   readonly isRestoring: boolean;
   readonly loadingFiles: Set<string>;
-  readonly onCloseAllFileTabs: (() => void) | undefined;
   readonly selection: WorkspaceTabSelection;
   readonly tabStatuses: Map<string, TabFileStatus>;
   readonly tabs: FileTab[];
