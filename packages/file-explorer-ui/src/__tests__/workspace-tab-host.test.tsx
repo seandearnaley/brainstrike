@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { LayoutGrid } from 'lucide-react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UseTabManagerReturn } from '../hooks/use-tab-manager';
+import { __resetTabManagerStoreForTests, useTabManagerStore } from '../stores/tab-manager-store';
 import {
   __resetWorkspaceTabSelectionStoreForTests,
   useWorkspaceTabSelectionStore,
@@ -280,43 +281,18 @@ describe('WorkspaceTabHost', () => {
   });
 
   it('closing the active file tab hops to the next sibling tab, not back to Context Explorer', async () => {
-    const user = userEvent.setup();
-    const closeTab = vi.fn();
+    // Use the REAL tab-manager store so closeTab's successor logic actually runs and we
+    // verify the workspace selection consumes the store's authoritative activeTabId.
     const tabModule = await import('../hooks/use-tab-manager');
-    vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
-      tabs: [
-        {
-          id: 'folderA|@|src/a.ts',
-          path: 'src/a.ts',
-          compositeKey: 'folderA|@|src/a.ts',
-          content: null,
-          isLoading: false,
-        },
-        {
-          id: 'folderA|@|src/b.ts',
-          path: 'src/b.ts',
-          compositeKey: 'folderA|@|src/b.ts',
-          content: null,
-          isLoading: false,
-        },
-        {
-          id: 'folderA|@|src/c.ts',
-          path: 'src/c.ts',
-          compositeKey: 'folderA|@|src/c.ts',
-          content: null,
-          isLoading: false,
-        },
-      ],
-      activeTabId: 'folderA|@|src/b.ts',
-      openTab: vi.fn(),
-      closeTab,
-      setActiveTab: vi.fn(),
-      updateTabContent: vi.fn(),
-      setTabLoading: vi.fn(),
-      setTabError: vi.fn(),
-      clearTabs: vi.fn(),
-    });
+    vi.mocked(tabModule.useTabManager).mockRestore();
 
+    const user = userEvent.setup();
+    __resetTabManagerStoreForTests();
+    const store = useTabManagerStore.getState();
+    store.openTab('src/a.ts', 'folderA|@|src/a.ts', 'folderA|@|src/a.ts');
+    store.openTab('src/b.ts', 'folderA|@|src/b.ts', 'folderA|@|src/b.ts');
+    store.openTab('src/c.ts', 'folderA|@|src/c.ts', 'folderA|@|src/c.ts');
+    useTabManagerStore.getState().setActiveTab('folderA|@|src/b.ts');
     useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/b.ts');
 
     render(
@@ -328,39 +304,29 @@ describe('WorkspaceTabHost', () => {
     const closeButton = await screen.findByRole('button', { name: /close b\.ts/i });
     await user.click(closeButton);
 
-    expect(closeTab).toHaveBeenCalledWith('folderA|@|src/b.ts');
-    // Should hop to c.ts (the row that took the closed position), not back to Context Explorer
+    // tab-manager-store's closeTab moves activeTabId to the row that took the closed position
+    await waitFor(() => {
+      expect(useTabManagerStore.getState().activeTabId).toBe('folderA|@|src/c.ts');
+    });
+    // Workspace selection mirrors that — not Context Explorer
     await waitFor(() => {
       expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
         kind: 'file',
         tabId: 'folderA|@|src/c.ts',
       });
     });
+
+    __resetTabManagerStoreForTests();
   });
 
   it('closing the last file tab falls back to Context Explorer', async () => {
-    const user = userEvent.setup();
     const tabModule = await import('../hooks/use-tab-manager');
-    vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
-      tabs: [
-        {
-          id: 'folderA|@|src/only.ts',
-          path: 'src/only.ts',
-          compositeKey: 'folderA|@|src/only.ts',
-          content: null,
-          isLoading: false,
-        },
-      ],
-      activeTabId: 'folderA|@|src/only.ts',
-      openTab: vi.fn(),
-      closeTab: vi.fn(),
-      setActiveTab: vi.fn(),
-      updateTabContent: vi.fn(),
-      setTabLoading: vi.fn(),
-      setTabError: vi.fn(),
-      clearTabs: vi.fn(),
-    });
+    vi.mocked(tabModule.useTabManager).mockRestore();
 
+    const user = userEvent.setup();
+    __resetTabManagerStoreForTests();
+    const store = useTabManagerStore.getState();
+    store.openTab('src/only.ts', 'folderA|@|src/only.ts', 'folderA|@|src/only.ts');
     useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/only.ts');
 
     render(
@@ -373,11 +339,16 @@ describe('WorkspaceTabHost', () => {
     await user.click(closeButton);
 
     await waitFor(() => {
+      expect(useTabManagerStore.getState().activeTabId).toBeNull();
+    });
+    await waitFor(() => {
       expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
         kind: 'app',
         appId: 'context-explorer',
       });
     });
+
+    __resetTabManagerStoreForTests();
   });
 
   it('accepts an extensible apps list — additional pinned apps render in tab order', async () => {

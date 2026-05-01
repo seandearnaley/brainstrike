@@ -16,6 +16,7 @@ import { useHotkeys } from 'react-hotkeys-hook';
 import { FileExplorerMiddlePanelBase } from './file-explorer-middle-panel-base';
 import { type FileTab, useTabManager } from './hooks/use-tab-manager';
 import { useEditorViewStateStore } from './stores/editor-view-state-store';
+import { useTabManagerStore } from './stores/tab-manager-store';
 import {
   useWorkspaceTabSelectionStore,
   type WorkspaceTabSelection,
@@ -131,26 +132,23 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
 
   const handleCloseFileTab = useCallback(
     (tabId: string) => {
-      // Mirror the tab-manager-store's successor logic so the workspace selection
-      // hops to the next sibling file tab (VS Code semantics) instead of ejecting back
-      // to Context Explorer when other tabs remain.
+      // Single source of truth: tab-manager-store.closeTab already computes and commits
+      // the successor activeTabId synchronously. We let it run, then mirror the result
+      // into the workspace selection. This avoids the prior duplicated index-based
+      // successor logic (which could drift if either implementation changed).
       const closingActive = selection.kind === 'file' && selection.tabId === tabId;
-      const closingIndex = tabs.findIndex((t) => t.id === tabId);
-      const remaining = tabs.filter((t) => t.id !== tabId);
-      const successor = remaining[closingIndex] ?? remaining[closingIndex - 1] ?? null;
-
       closeTab(tabId);
-
       if (!closingActive) {
         return;
       }
-      if (successor) {
-        selectFile(successor.id);
-      } else {
+      const successorId = useTabManagerStore.getState().activeTabId;
+      if (successorId === null) {
         selectApp(CONTEXT_EXPLORER_APP_ID);
+      } else {
+        selectFile(successorId);
       }
     },
-    [closeTab, selection, selectApp, selectFile, tabs]
+    [closeTab, selection, selectApp, selectFile]
   );
 
   // Auto-load active file content when tabs/file tree become ready.
