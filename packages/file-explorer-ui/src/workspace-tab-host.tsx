@@ -42,25 +42,25 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
   className,
   extraApps,
 }) {
-  const apps = useMemo<readonly WorkspaceApp[]>(
-    () => [CONTEXT_EXPLORER_APP, ...(extraApps ?? [])],
-    [extraApps]
-  );
-
-  // Dev-mode assertion: WorkspaceApp.id is used as a tab dom id and as the persistence
-  // key for the active app, so collisions cause silent UI bugs (clicking one tab
-  // selects another) rather than visible errors. Catch them at registration time.
-  if (process.env['NODE_ENV'] !== 'production') {
-    const seen = new Set<string>();
-    for (const app of apps) {
-      if (seen.has(app.id)) {
-        logger.error('Duplicate WorkspaceApp id detected — apps must have unique ids', {
-          duplicateId: app.id,
-        });
+  const apps = useMemo<readonly WorkspaceApp[]>(() => {
+    const list = [CONTEXT_EXPLORER_APP, ...(extraApps ?? [])];
+    // Dev-mode assertion: WorkspaceApp.id is used as a tab dom id and as the persistence
+    // key for the active app, so collisions cause silent UI bugs (clicking one tab
+    // selects another) rather than visible errors. Folded into the apps useMemo so the
+    // check fires once per registry change rather than once per render.
+    if (process.env['NODE_ENV'] !== 'production') {
+      const seen = new Set<string>();
+      for (const app of list) {
+        if (seen.has(app.id)) {
+          logger.error('Duplicate WorkspaceApp id detected — apps must have unique ids', {
+            duplicateId: app.id,
+          });
+        }
+        seen.add(app.id);
       }
-      seen.add(app.id);
     }
-  }
+    return list;
+  }, [extraApps]);
 
   const { tabs, openTab, closeTab, setActiveTab } = useTabManager();
   const { fileContents, loadingFiles, loadFileContent, fileTree, canLoadWithoutTree } =
@@ -483,7 +483,13 @@ interface FileTabButtonProps {
   readonly tab: FileTab;
 }
 
-function FileTabButton({
+/**
+ * Memoized so an unrelated parent re-render (e.g. fileContents tick during a background
+ * file load) doesn't reconcile every visible file tab. The handler props are
+ * `(tabId) => …` shapes the parent passes verbatim — stable refs, so memo bails
+ * cleanly when isActive/isLoading/status/statusMessage/tab are unchanged.
+ */
+const FileTabButton = memo<FileTabButtonProps>(function FileTabButton({
   tab,
   isActive,
   isLoading,
@@ -491,7 +497,7 @@ function FileTabButton({
   statusMessage,
   onSelect,
   onClose,
-}: FileTabButtonProps) {
+}) {
   const fileName = getFileName(tab.path);
   const tabButtonId = `workspace-file-tab-${tab.id}`;
   const panelId = `workspace-file-panel-${tab.id}`;
@@ -542,7 +548,7 @@ function FileTabButton({
       </Button>
     </div>
   );
-}
+});
 
 interface FileTabIconProps {
   readonly isLoading: boolean;
