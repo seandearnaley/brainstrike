@@ -58,6 +58,12 @@ jobs:
           echo "| Step | Duration |" >> $GITHUB_STEP_SUMMARY
           echo "|------|----------|" >> $GITHUB_STEP_SUMMARY
 
+      - name: Test CI utility scripts
+        run: |
+          START=$SECONDS
+          pnpm test:scripts
+          echo "| CI utility scripts | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
+
       - name: Lint
         run: |
           START=$SECONDS
@@ -122,12 +128,14 @@ jobs:
         timeout-minutes: 45
         run: |
           START=$SECONDS
+          rm -rf .turbo/runs
+          mkdir -p .turbo/runs
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$GITHUB_BASE_REF" ]; then
             echo "Running affected unit coverage for PR against origin/${GITHUB_BASE_REF}"
             pnpm turbo run test --filter="...[origin/${GITHUB_BASE_REF}]" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text
           else
             echo "Running full unit coverage"
-            pnpm run test:coverage
+            pnpm turbo run test --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text
           fi
 
           COVERAGE_FILES=$(find packages apps -type f -path "*/coverage/coverage-final.json" | wc -l | tr -d ' ')
@@ -257,8 +265,23 @@ jobs:
           path: coverage-bundle.tar
           retention-days: 1
 
+      - name: Report Turbo test task timings
+        if: ${{ !cancelled() && steps.unit-tests.outcome != 'skipped' }}
+        run: |
+          set +e
+          : > turbo-test-timings.md
+          pnpm ci:timing-summary -- --runs-dir .turbo/runs --task test --warn-ms 1200000 --fail-ms 1800000 --total-warn-ms 1500000 --total-fail-ms 1800000 --output turbo-test-timings.md
+          STATUS=$?
+          set -e
+          if [ -s turbo-test-timings.md ]; then
+            cat turbo-test-timings.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No Turbo timing summary was generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$STATUS"
+
       - name: Append timing table footer
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "_Check the step timings above for optimization opportunities._" >> $GITHUB_STEP_SUMMARY
