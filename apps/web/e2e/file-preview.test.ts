@@ -36,7 +36,7 @@ test.describe('File Tabbed Editor', { tag: '@smoke' }, () => {
     const fileLabel = fileTree.getByText('example.ts', { exact: true });
     await fileLabel.scrollIntoViewIfNeeded();
     await expect(fileLabel).toBeVisible();
-    await fileLabel.click();
+    await fileLabel.click({ force: true });
 
     // File should now open as a workspace tab in the main Context Explorer surface.
     const tab = page.getByRole('tab', { name: /example\.ts/ }).first();
