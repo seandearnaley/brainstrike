@@ -11,7 +11,7 @@ describe('tab-manager-store migration', () => {
     } catch {}
   });
 
-  it('migrates from legacy key fileEditorTabs.v1 to tab-manager.v1', async () => {
+  it('migrates from legacy key fileEditorTabs.v1 to tab-manager.v1 (compositeKey-based ids)', async () => {
     const legacy = {
       tabs: [
         { id: 'a', path: '/src/a.ts', compositeKey: 'a' },
@@ -37,5 +37,36 @@ describe('tab-manager-store migration', () => {
     // New key should exist; old key removed
     expect(localStorage.getItem('tab-manager.v1')).toBeTruthy();
     expect(localStorage.getItem('fileEditorTabs.v1')).toBeNull();
+  });
+
+  it('v1 → v2: collapses prefixed tabIds (`<root>:<compositeKey>`) to compositeKey', async () => {
+    const v1 = {
+      state: {
+        tabs: [
+          {
+            id: 'root-folder-abc:folderA|@|src/index.ts',
+            path: 'src/index.ts',
+            compositeKey: 'folderA|@|src/index.ts',
+          },
+          {
+            id: 'root-folder-abc:folderA|@|src/app.ts',
+            path: 'src/app.ts',
+            compositeKey: 'folderA|@|src/app.ts',
+          },
+        ],
+        activeTabId: 'root-folder-abc:folderA|@|src/index.ts',
+      },
+      version: 1,
+    };
+    localStorage.setItem('tab-manager.v1', JSON.stringify(v1));
+
+    const persistApi = (
+      useTabManagerStore as unknown as { persist?: { rehydrate?: () => Promise<void> } }
+    ).persist;
+    await persistApi?.rehydrate?.();
+
+    const state = useTabManagerStore.getState();
+    expect(state.tabs.map((t) => t.id)).toEqual(['folderA|@|src/index.ts', 'folderA|@|src/app.ts']);
+    expect(state.activeTabId).toBe('folderA|@|src/index.ts');
   });
 });

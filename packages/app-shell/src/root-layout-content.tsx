@@ -1,7 +1,6 @@
 import {
   FileExplorerLeftPanel,
   FileTreeProvider,
-  TabbedFileEditorPanel,
   useFileSystem,
 } from '@brainstrike/file-explorer-ui';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
@@ -171,18 +170,15 @@ function ContextExplorerSurface({
     () => contextExplorerLeftPanelContent ?? <FileExplorerLeftPanel />,
     [contextExplorerLeftPanelContent]
   );
-  const consoleContent = useMemo(() => <TabbedFileEditorPanel className="h-full" />, []);
 
   return (
     <FileTreeWrapper>
       {/* The outer shell owns workspace-vs-assistant geometry; this nested provider owns
-          the route-local context explorer panes inside that workspace surface. */}
+          the route-local context explorer panes inside that workspace surface. The
+          editor area itself hosts the Context Explorer app and any open file tabs;
+          there is no longer a south "console" panel. */}
       <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
-        <IdeLayout
-          consoleContent={consoleContent}
-          leftPanelContent={resolvedLeftPanelContent}
-          panelIdPrefix="context-explorer"
-        >
+        <IdeLayout leftPanelContent={resolvedLeftPanelContent} panelIdPrefix="context-explorer">
           {contextExplorerPageContent}
         </IdeLayout>
       </PanelLayoutProvider>

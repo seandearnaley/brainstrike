@@ -215,12 +215,36 @@ export const useTabManagerStore = create<TabManagerStore>()(
     }),
     {
       name: STORE_NAME,
-      version: 1,
+      version: 2,
       storage,
       partialize: (s): PersistedState => ({
         tabs: s.tabs.map((t) => ({ id: t.id, path: t.path, compositeKey: t.compositeKey })),
         activeTabId: s.activeTabId,
       }),
+      // v1 → v2: legacy tabIds were `${rootFolderId}:${compositeKey}` to dedupe per-folder.
+      // The compositeKey already encodes folder identity, so we collapse the tabId to the
+      // compositeKey itself. This makes opens stable across reloads on web (where the
+      // rootDirectoryHandle's identity does not survive page reloads).
+      migrate: (persisted, version) => {
+        const ps = (persisted as PersistedState | undefined) ?? {
+          tabs: [],
+          activeTabId: null,
+        };
+        if (version >= 2) {
+          return ps;
+        }
+        const remap = new Map<string, string>();
+        const tabs = ps.tabs.map((t) => {
+          const nextId = t.compositeKey;
+          if (t.id !== nextId) {
+            remap.set(t.id, nextId);
+          }
+          return { id: nextId, path: t.path, compositeKey: t.compositeKey };
+        });
+        const activeTabId =
+          ps.activeTabId === null ? null : (remap.get(ps.activeTabId) ?? ps.activeTabId);
+        return { tabs, activeTabId };
+      },
       merge: (persisted, current) => {
         const ps = (persisted as unknown as PersistedState) || { tabs: [], activeTabId: null };
         const reconstructed: FileTabState[] = ps.tabs.map((t) => ({
