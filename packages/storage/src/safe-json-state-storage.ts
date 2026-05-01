@@ -72,17 +72,48 @@ export function createSafeJsonStateStorage(options: CreateOptions): SafeJsonStat
     }
   };
 
+  /**
+   * Verify a candidate string parses as JSON before handing it to Zustand. If parsing
+   * fails (corrupted entry from a partial write, manual DevTools edit, etc.) we clear
+   * the bad value so the store self-heals on the next session — without this, the
+   * corrupted entry would fail JSON.parse on every page load until manually cleared.
+   */
+  const validateOrEvictJson = (name: string, value: string): string | null => {
+    try {
+      JSON.parse(value);
+      return value;
+    } catch (err) {
+      logger.warn('Corrupted JSON in localStorage; clearing key for self-heal', {
+        key: name,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      removeLocalStorage(name);
+      memory.delete(name);
+      return null;
+    }
+  };
+
   return {
     getItem: (name: string) => {
       const direct = fromLocalStorage(name);
       if (direct !== null) {
-        return direct;
+        const validated = validateOrEvictJson(name, direct);
+        if (validated !== null) {
+          return validated;
+        }
       }
       const migrated = migrateOnGet?.(name);
       if (migrated !== null && migrated !== undefined) {
-        return migrated;
+        const validated = validateOrEvictJson(name, migrated);
+        if (validated !== null) {
+          return validated;
+        }
       }
-      return memory.get(name) ?? null;
+      const fromMemory = memory.get(name);
+      if (fromMemory !== undefined) {
+        return validateOrEvictJson(name, fromMemory);
+      }
+      return null;
     },
     setItem: (name: string, value: string) => {
       const persisted = writeLocalStorage(name, value);

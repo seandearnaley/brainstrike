@@ -112,15 +112,25 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
       if (!tab) {
         return;
       }
-      const status = tabStatuses.get(tab.compositeKey);
-      if (status?.status === 'needs-permission') {
-        await ensurePermissionForTab(tab.compositeKey);
+      try {
+        const status = tabStatuses.get(tab.compositeKey);
+        if (status?.status === 'needs-permission') {
+          await ensurePermissionForTab(tab.compositeKey);
+        }
+        if (!isMountedRef.current) {
+          return;
+        }
+        setActiveTab(tabId);
+        selectFile(tabId);
+      } catch (err) {
+        // Belt-and-suspenders: ensurePermissionForTab already swallows its own errors,
+        // but this catch ensures a rogue throw (e.g. from a future codepath) never
+        // surfaces as an unhandled rejection through the caller's `void` invocation.
+        logger.error('Tab selection failed', {
+          tabId,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
-      if (!isMountedRef.current) {
-        return;
-      }
-      setActiveTab(tabId);
-      selectFile(tabId);
     },
     [tabs, tabStatuses, ensurePermissionForTab, setActiveTab, selectFile]
   );
@@ -137,7 +147,12 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
       // closeTab were ever made async (e.g. wrapped in unstable_batchedUpdates or a
       // future Zustand version), this `getState()` read would observe stale state and
       // we'd need to switch to either a return-value contract or a subscription.
-      const closingActive = selection.kind === 'file' && selection.tabId === tabId;
+      //
+      // We read the current selection from the store directly (instead of closing over
+      // the `selection` value) so this callback's identity stays stable across selection
+      // changes — that keeps a future React.memo wrap of FileTabButton effective.
+      const currentSelection = useWorkspaceTabSelectionStore.getState().selection;
+      const closingActive = currentSelection.kind === 'file' && currentSelection.tabId === tabId;
       closeTab(tabId);
       if (!closingActive) {
         return;
@@ -149,7 +164,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         selectFile(successorId);
       }
     },
-    [closeTab, selection, selectApp, selectFile]
+    [closeTab, selectApp, selectFile]
   );
 
   // Auto-load active file content when tabs/file tree become ready.
