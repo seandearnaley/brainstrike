@@ -473,3 +473,40 @@ it('renders query-covered empty loaded directories as unchecked and without limi
   expect(checkbox).not.toBeChecked();
   expect(checkbox).not.toBeDisabled();
 });
+
+it('clicking the file name opens the file in a tab via the IDE editor context', async () => {
+  const store = createStore();
+  vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+  const openFileInTab = vi.fn();
+  const uiModule = await import('@brainstrike/ui');
+  vi.spyOn(uiModule, 'useIdeFileEditor').mockReturnValue({
+    openFileInTab,
+    registerOpenFileInTab: vi.fn(),
+  });
+
+  render(<OptimizedFileTreeRow {...baseFileProps} />);
+
+  const fileName = screen.getByText('file.ts');
+  await userEvent.click(fileName);
+
+  expect(openFileInTab).toHaveBeenCalledTimes(1);
+  expect(openFileInTab).toHaveBeenCalledWith(encodeFileSelection('root', '/file.ts'));
+});
+
+it('clicking a directory name does not open it as a tab', async () => {
+  const store = createStore();
+  vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+  const openFileInTab = vi.fn();
+  const uiModule = await import('@brainstrike/ui');
+  vi.spyOn(uiModule, 'useIdeFileEditor').mockReturnValue({
+    openFileInTab,
+    registerOpenFileInTab: vi.fn(),
+  });
+
+  render(<OptimizedFileTreeRow {...baseDirProps} />);
+
+  const dirName = screen.getByText('dir');
+  await userEvent.click(dirName);
+
+  expect(openFileInTab).not.toHaveBeenCalled();
+});

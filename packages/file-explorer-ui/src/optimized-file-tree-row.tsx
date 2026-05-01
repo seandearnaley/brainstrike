@@ -1,6 +1,6 @@
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { EXPAND_COLLAPSE_TEST_ID } from '@brainstrike/types';
-import { LightweightCheckbox } from '@brainstrike/ui';
+import { LightweightCheckbox, useIdeFileEditor } from '@brainstrike/ui';
 import { memoizedFileExplorer as fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
@@ -32,6 +32,68 @@ import {
   isDirectoryCoveredByQuerySelection,
   isQuerySelectionPathSelected,
 } from './utils/selection-projection';
+
+/**
+ * Build the JSX attributes for the inner row container, branching on file vs directory.
+ * Pulled out of the row body to keep the outer component below the cognitive-complexity cap.
+ */
+function buildRowAttrs(input: {
+  depth: number;
+  nodeType: IFileNode['type'];
+  handleFileNameClick: () => void;
+  handleFileNameKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
+}): {
+  className: string;
+  onClick: (() => void) | undefined;
+  onKeyDown: ((event: KeyboardEvent<HTMLDivElement>) => void) | undefined;
+  role: 'button' | undefined;
+  style: CSSProperties;
+  tabIndex: number | undefined;
+} {
+  const isFile = input.nodeType === 'file';
+  return {
+    className: isFile
+      ? 'flex cursor-pointer items-center rounded py-1.5 transition-colors duration-150 hover:bg-accent'
+      : 'flex items-center rounded py-1.5 transition-colors duration-150 hover:bg-accent',
+    onClick: isFile ? input.handleFileNameClick : undefined,
+    onKeyDown: isFile ? input.handleFileNameKeyDown : undefined,
+    role: isFile ? 'button' : undefined,
+    style: { paddingLeft: input.depth * 20 + 8 },
+    tabIndex: isFile ? -1 : undefined,
+  };
+}
+
+/**
+ * Hook for file-row click handlers that open files as workspace tabs (VS Code semantics).
+ * Returns no-op handlers for directories so callers can wire unconditionally.
+ */
+function useFileOpenHandlers(
+  node: IFileNode,
+  folderId: string
+): {
+  handleFileNameClick: () => void;
+  handleFileNameKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
+} {
+  const { openFileInTab } = useIdeFileEditor();
+  const handleFileNameClick = useCallback(() => {
+    if (node.type !== 'file' || !openFileInTab) {
+      return;
+    }
+    openFileInTab(encodeFileSelection(folderId, node.path));
+  }, [node.type, node.path, folderId, openFileInTab]);
+
+  const handleFileNameKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        handleFileNameClick();
+      }
+    },
+    [handleFileNameClick]
+  );
+
+  return { handleFileNameClick, handleFileNameKeyDown };
+}
 
 interface TreeNodeIconProps {
   isExpanded: boolean;
@@ -478,6 +540,8 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       isQuerySelectionReady,
     ]);
 
+    const { handleFileNameClick, handleFileNameKeyDown } = useFileOpenHandlers(node, folderId);
+
     const handleExpansionToggle = useCallback(async () => {
       // For lazy loading: if directory children haven't been loaded yet, load them first
       // Check loadState rather than children because adapters may set children: [] initially
@@ -573,9 +637,17 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         style={style}
         tabIndex={0}
       >
+        {/* File rows act as buttons (role="button", tabIndex=-1); the row already hosts a
+            checkbox and a chevron <button>, so we can't nest it inside another <button>.
+            attrs are spread so biome's a11y rule against handlers on plain <div> doesn't
+            fire — role="button" makes this semantically interactive anyway. */}
         <div
-          className="flex items-center rounded py-1.5 transition-colors duration-150 hover:bg-accent"
-          style={{ paddingLeft: depth * 20 + 8 }}
+          {...buildRowAttrs({
+            depth,
+            nodeType: node.type,
+            handleFileNameClick,
+            handleFileNameKeyDown,
+          })}
         >
           {/* Chevron button with fixed width for consistent alignment */}
           <div className="flex w-6 flex-shrink-0 items-center justify-center">
