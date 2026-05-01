@@ -84,4 +84,38 @@ describe('createEmbeddingCacheRepository', () => {
     expect(eviction).toEqual({ evicted: 2, needed: true, totalEntries: 3 });
     expect(finalStats.totalEntries).toBe(1);
   });
+
+  it('evicts oldest entries with a single query-handle round trip', async () => {
+    const queries: string[] = [];
+    const db = {
+      query: async <T = unknown>(sql: string, params?: unknown[]) => {
+        queries.push(sql);
+        return client.query<T>(sql, params);
+      },
+    };
+    const repo = createEmbeddingCacheRepository(db);
+
+    await repo.setBatch([
+      {
+        contentHash: 'content-a',
+        dimensions: 4,
+        embedding: [0.1, 0.2, 0.3, 0.4],
+        modelKey: 'local:test-model',
+      },
+      {
+        contentHash: 'content-b',
+        dimensions: 4,
+        embedding: [0.5, 0.6, 0.7, 0.8],
+        modelKey: 'local:test-model',
+      },
+    ]);
+    queries.length = 0;
+
+    const evicted = await repo.evictOldest(1);
+
+    expect(evicted).toBe(1);
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toContain('WITH oldest AS');
+    expect(queries[0]).toContain('DELETE FROM embedding_cache');
+  });
 });

@@ -21,6 +21,7 @@ import type {
   ModelConfig,
 } from '../types';
 import { FALLBACK_MODEL_CONFIG } from '../types';
+import { EmbeddingCacheMaintenanceController } from './embedding-cache-maintenance';
 
 /**
  * Interface for embedding cache operations.
@@ -1726,73 +1727,19 @@ export async function startEmbeddingWorker(
     payload: EmbedChunkPayload;
   }
 
-  const pendingCacheWrites = new Set<Promise<void>>();
-  let embeddingCacheDirty = false;
-
-  function serializeCacheDate(value: Date | null): string | null {
-    return value ? value.toISOString() : null;
-  }
-
-  async function flushPendingCacheWrites(): Promise<void> {
-    if (pendingCacheWrites.size === 0) {
-      return;
-    }
-    await Promise.allSettled([...pendingCacheWrites]);
-  }
+  const embeddingCacheMaintenance = options.embeddingCache
+    ? new EmbeddingCacheMaintenanceController(options.embeddingCache, {
+        log,
+        warn: (message, meta) => workerLogger.warn(message, meta),
+      })
+    : null;
 
   function trackCacheWrite(write: Promise<number>): void {
-    const tracked = write
-      .then((stored) => {
-        if (stored > 0) {
-          embeddingCacheDirty = true;
-        }
-      })
-      .catch((err: unknown) => {
-        workerLogger.warn('Failed to cache embeddings', { error: err });
-      })
-      .finally(() => {
-        pendingCacheWrites.delete(tracked);
-      });
-    pendingCacheWrites.add(tracked);
+    embeddingCacheMaintenance?.trackCacheWrite(write);
   }
 
   async function runEmbeddingCacheMaintenance(reason: 'queue-idle'): Promise<void> {
-    const cache = options.embeddingCache;
-    if (!cache) {
-      return;
-    }
-
-    await flushPendingCacheWrites();
-    if (!embeddingCacheDirty) {
-      return;
-    }
-
-    try {
-      const eviction = await cache.evictIfNeeded?.();
-      if (eviction) {
-        log('embedding_cache_eviction', {
-          evicted: eviction.evicted,
-          needed: eviction.needed,
-          reason,
-          totalEntries: eviction.totalEntries,
-        });
-      }
-
-      const stats = await cache.getStats?.();
-      if (stats) {
-        log('embedding_cache_stats', {
-          newestAccessedAt: serializeCacheDate(stats.newestAccessedAt),
-          oldestAccessedAt: serializeCacheDate(stats.oldestAccessedAt),
-          reason,
-          totalEntries: stats.totalEntries,
-          totalHits: stats.totalHits,
-        });
-      }
-
-      embeddingCacheDirty = false;
-    } catch (error) {
-      workerLogger.warn('Embedding cache maintenance failed', { error });
-    }
+    await embeddingCacheMaintenance?.run(reason);
   }
 
   // BST-170: Helper to lookup cache hits

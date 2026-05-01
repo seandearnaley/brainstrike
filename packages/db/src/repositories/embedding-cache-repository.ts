@@ -279,31 +279,23 @@ export class EmbeddingCacheRepository {
     return stored;
   }
 
-  async evictOldest(maxEntries: number): Promise<number> {
-    if (maxEntries <= 0) {
+  async evictOldest(count: number): Promise<number> {
+    if (count <= 0) {
       return 0;
     }
-    const oldest = await this.db.query<{ id: string }>(
-      `
-        SELECT id
-        FROM embedding_cache
-        ORDER BY accessed_at ASC
-        LIMIT $1
-      `,
-      [maxEntries]
-    );
-    if (oldest.rows.length === 0) {
-      return 0;
-    }
-
-    const ids = oldest.rows.map((row) => row.id);
     const deleted = await this.db.query<{ id: string }>(
       `
+        WITH oldest AS (
+          SELECT id
+          FROM embedding_cache
+          ORDER BY accessed_at ASC
+          LIMIT $1
+        )
         DELETE FROM embedding_cache
-        WHERE id IN (${buildPlaceholders(1, ids.length)})
+        WHERE id IN (SELECT id FROM oldest)
         RETURNING id
       `,
-      ids
+      [count]
     );
     return deleted.rows.length;
   }
