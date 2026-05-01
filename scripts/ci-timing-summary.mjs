@@ -109,16 +109,6 @@ export function parseTurboSummary(summaryJson, options = {}) {
   };
 }
 
-function markdownStatus(status) {
-  if (status === 'fail') {
-    return 'fail';
-  }
-  if (status === 'warn') {
-    return 'warn';
-  }
-  return 'ok';
-}
-
 export function renderMarkdownSummary(summary) {
   const lines = [
     `## Turbo ${summary.task} Task Durations`,
@@ -142,7 +132,7 @@ export function renderMarkdownSummary(summary) {
   lines.push('', '| Task | Duration | Cache | Status |', '|---|---:|---|---|');
   for (const task of summary.tasks) {
     lines.push(
-      `| \`${task.taskId}\` | ${formatDuration(task.durationMs)} | ${task.cacheStatus} | ${markdownStatus(task.status)} |`
+      `| \`${task.taskId}\` | ${formatDuration(task.durationMs)} | ${task.cacheStatus} | ${task.status} |`
     );
   }
 
@@ -171,7 +161,15 @@ export function renderGitHubAnnotations(summary) {
 }
 
 export async function findLatestTurboSummary(runsDir = DEFAULT_RUNS_DIR) {
-  const entries = await readdir(runsDir, { withFileTypes: true });
+  let entries;
+  try {
+    entries = await readdir(runsDir, { withFileTypes: true });
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return null;
+    }
+    throw error;
+  }
   const candidates = [];
   for (const entry of entries) {
     if (!(entry.isFile() && entry.name.endsWith('.json'))) {
@@ -209,7 +207,14 @@ export async function runCli(args = process.argv.slice(2)) {
     return 1;
   }
 
-  const summaryJson = JSON.parse(await readFile(summaryPath, 'utf8'));
+  let summaryJson;
+  try {
+    summaryJson = JSON.parse(await readFile(summaryPath, 'utf8'));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to parse Turbo summary JSON at ${summaryPath}: ${message}`);
+    return 1;
+  }
   const summary = parseTurboSummary(summaryJson, { task, warnMs, failMs, totalWarnMs, totalFailMs });
   const markdown = renderMarkdownSummary(summary);
   const annotations = renderGitHubAnnotations(summary);

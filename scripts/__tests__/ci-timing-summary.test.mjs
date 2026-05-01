@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -129,13 +129,20 @@ test('findLatestTurboSummary returns the newest JSON file', async () => {
     const older = path.join(dir, 'older.json');
     const newer = path.join(dir, 'newer.json');
     await writeFile(older, '{}');
-    await new Promise((resolve) => setTimeout(resolve, 5));
     await writeFile(newer, '{}');
+    await utimes(older, new Date('2026-01-01T00:00:00Z'), new Date('2026-01-01T00:00:00Z'));
+    await utimes(newer, new Date('2026-01-01T00:00:10Z'), new Date('2026-01-01T00:00:10Z'));
 
     assert.equal(await findLatestTurboSummary(dir), newer);
   } finally {
     await rm(dir, { force: true, recursive: true });
   }
+});
+
+test('findLatestTurboSummary returns null when the runs directory is missing', async () => {
+  const dir = path.join(tmpdir(), `brainstrike-missing-runs-${Date.now()}`);
+
+  assert.equal(await findLatestTurboSummary(dir), null);
 });
 
 test('runCli writes markdown and returns non-zero when fail threshold is crossed', async () => {
@@ -202,6 +209,27 @@ test('runCli returns non-zero when the summary has no matching task', async () =
     assert.equal(exitCode, 1);
     assert.match(await readFile(outputPath, 'utf8'), /No `test` tasks were found/);
   } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test('runCli reports the summary path when JSON parsing fails', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-turbo-cli-invalid-'));
+  const originalConsoleError = console.error;
+  const errors = [];
+  console.error = (message) => {
+    errors.push(String(message));
+  };
+  try {
+    const summaryPath = path.join(dir, 'summary.json');
+    await writeFile(summaryPath, '{not valid json');
+
+    const exitCode = await runCli(['--summary', summaryPath, '--task', 'test']);
+
+    assert.equal(exitCode, 1);
+    assert.match(errors.join('\n'), new RegExp(summaryPath.replaceAll('/', '\\/')));
+  } finally {
+    console.error = originalConsoleError;
     await rm(dir, { force: true, recursive: true });
   }
 });
