@@ -21,7 +21,16 @@ import {
   Loader2,
   MoreHorizontal as MoreHorizontalIcon,
 } from 'lucide-react';
-import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
+import {
+  createContext,
+  type MouseEvent,
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+} from 'react';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
@@ -1599,18 +1608,15 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
    * Selection (the checkbox) stays the dedicated multi-select affordance for context
    * export, so users can build selections without opening every file as a tab.
    *
-   * a11y: this is a mouse-only affordance today. We intentionally do NOT mark the
-   * label `role="button"` because the parent TreeTable row is already a `treeitem`
-   * and nesting interactive roles confuses some screen reader + browser combos
-   * (e.g. "file.txt, button, tree item").
-   *
-   * TODO(a11y-keyboard-open): wire keyboard activation through the parent TreeTable
-   * by switching `selectionMode` from "none" to "single" and routing its `onSelect`
-   * callback to `openFileInTab`. That makes Enter on a focused row open the file via
-   * the same code path as a mouse click, closing the keyboard-only gap. Tracked as a
-   * follow-up so it doesn't ship hidden in this refactor.
+   * Keyboard opening is handled by TreeTable's row selection callback: when a focused
+   * file row receives Enter/Space, OptimizedFileTree routes the selected row id through
+   * the same open-file path as this mouse handler. We intentionally do NOT mark this
+   * label `role="button"` because the parent TreeTable row already owns treegrid row
+   * semantics, and nesting interactive roles confuses some screen reader + browser
+   * combos (e.g. "file.txt, button, tree item").
    */
-  const handleFileNameClick = useEventCallback(() => {
+  const handleFileNameClick = useEventCallback((event: MouseEvent<HTMLDivElement>) => {
+    event.stopPropagation();
     if (fileNode.type !== 'file' || !openFileInTab) {
       return;
     }
@@ -1674,11 +1680,7 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
         />
       </div>
 
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: see handleFileNameClick comment.
-            The parent TreeTable row owns the `treeitem` semantics; nesting `role="button"`
-            here would announce as "file.txt, button, tree item" on some screen readers.
-            Keyboard activation is intentionally deferred to the planned TreeTable.onSelect
-            follow-up so a single, well-known affordance (Enter on focused row) handles it. */}
+      {/* The parent TreeTable row owns treegrid semantics; avoid adding a nested button role here. */}
       <div
         {...(fileNode.type === 'file'
           ? {
@@ -1850,6 +1852,21 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       }
       return nodeMap;
     }, [treeRows]);
+
+    const { openFileInTab } = useIdeFileEditor();
+    const handleTreeRowSelect = useCallback(
+      (nodeId: string | null): void => {
+        if (!(nodeId && openFileInTab)) {
+          return;
+        }
+        const fileNode = fileNodeByPath.get(nodeId);
+        if (fileNode?.type !== 'file') {
+          return;
+        }
+        openFileInTab(encodeFileSelection(folderId, fileNode.path));
+      },
+      [fileNodeByPath, folderId, openFileInTab]
+    );
 
     const renderedExpandedDirectoryPaths = useMemo(() => {
       const nextExpandedPaths = new Set<string>();
@@ -2200,10 +2217,12 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
               maxHeight="none"
               nodes={treeRows}
               nodesArePreFlattened={true}
+              onSelect={handleTreeRowSelect}
               onToggleExpand={handleToggleExpand}
               overscan={10}
               rowHeight={ROW_HEIGHT}
-              selectionMode="none"
+              selectedId={null}
+              selectionMode="single"
               showHeader={false}
               windowingStrategy="virtual"
             />

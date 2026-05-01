@@ -67,6 +67,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
 
   // Track in-flight permission requests to ignore double-clicks.
   const permissionRequestsInProgressRef = useRef<Set<string>>(new Set());
+  const selectionIntentRef = useRef(0);
   // Guard async post-await work against firing on an unmounted component (the
   // permission prompt can resolve seconds after the user navigates away).
   const isMountedRef = useRef(true);
@@ -104,6 +105,8 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
 
   const handleSelectFileTab = useCallback(
     async (tabId: string) => {
+      const intent = selectionIntentRef.current + 1;
+      selectionIntentRef.current = intent;
       const tab = tabs.find((t) => t.id === tabId);
       if (!tab) {
         return;
@@ -114,6 +117,9 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
           await ensurePermissionForTab(tab.compositeKey);
         }
         if (!isMountedRef.current) {
+          return;
+        }
+        if (selectionIntentRef.current !== intent) {
           return;
         }
         setActiveTab(tabId);
@@ -131,6 +137,14 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     [tabs, tabStatuses, ensurePermissionForTab, setActiveTab, selectFile]
   );
 
+  const handleSelectApp = useCallback(
+    (appId: string) => {
+      selectionIntentRef.current += 1;
+      selectApp(appId);
+    },
+    [selectApp]
+  );
+
   const handleCloseFileTab = useCallback(
     (tabId: string) => {
       // closeTab returns the successor activeTabId (or null if no tabs remain), so we
@@ -146,12 +160,12 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         return;
       }
       if (successorId === null) {
-        selectApp(CONTEXT_EXPLORER_APP_ID);
+        handleSelectApp(CONTEXT_EXPLORER_APP_ID);
       } else {
         selectFile(successorId);
       }
     },
-    [closeTab, selectApp, selectFile]
+    [closeTab, handleSelectApp, selectFile]
   );
 
   // Auto-load active file content when tabs/file tree become ready.
@@ -225,23 +239,24 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     registerOpenFileInTab(handleOpenFileInTab);
   }, [registerOpenFileInTab, handleOpenFileInTab]);
 
-  // Hotkeys: ctrl/cmd+w closes the active file tab; ctrl/cmd+pageup/down cycles file tabs.
-  // The cmd+w binding intentionally only fires when a file tab is selected — when the
-  // workspace is on Context Explorer (or another app tab), the browser's native
-  // close-tab default fires instead. This matches VS Code's "close active editor"
-  // semantics and is the gesture users expect from an IDE-like surface; the
-  // asymmetry with browser default is the cost of that affordance.
+  const isDesktopRenderer = isElectronRenderer();
+
+  // Hotkeys: Electron gets VS Code-style ctrl/cmd+w for closing the active editor tab.
+  // Web intentionally leaves the browser's native close-tab shortcut untouched.
   // Deps array (4th arg) is required by react-hotkeys-hook v5 to avoid stale closures —
   // without it the callback would capture the first render's selection.
   useHotkeys(
     'ctrl+w, cmd+w',
     (e) => {
+      if (!isDesktopRenderer) {
+        return;
+      }
       if (selection.kind === 'file') {
         e.preventDefault();
         handleCloseFileTab(selection.tabId);
       }
     },
-    [selection, handleCloseFileTab]
+    [isDesktopRenderer, selection, handleCloseFileTab]
   );
   const cycleFileTab = useCallback(
     (direction: 'next' | 'prev') => {
@@ -288,7 +303,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         getTabStatusMessage={getStatusMessage}
         loadingFiles={loadingFiles}
         onCloseFileTab={handleCloseFileTab}
-        onSelectApp={selectApp}
+        onSelectApp={handleSelectApp}
         onSelectFileTab={handleSelectFileTab}
         selection={selection}
         tabStatuses={tabStatuses}
@@ -692,6 +707,13 @@ function MissingAppFallback({ appId }: MissingAppFallbackProps) {
 function getFileName(path: string): string {
   const last = path.split('/').pop();
   return last && last.length > 0 ? last : path;
+}
+
+function isElectronRenderer(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof (window as Window & { electronAPI?: unknown }).electronAPI !== 'undefined'
+  );
 }
 
 /** Hard cap on how much text we paint into the DOM per panel. Beyond this we truncate visibly. */

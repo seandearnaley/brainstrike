@@ -13,9 +13,9 @@ export interface SafeJsonStateStorage {
 
 interface CreateOptions {
   /**
-   * Optional pre-write hook. If it returns a non-null string, that value is stored under
-   * `name` instead of the original `value`. Used by tab-manager-store to perform a
-   * one-time migration from a legacy localStorage key.
+   * Optional read-time hook. If it returns valid JSON, that value is persisted under
+   * `name` and returned. Used by tab-manager-store to perform a one-time migration
+   * from a legacy localStorage key.
    */
   readonly migrateOnGet?: (name: string) => string | null;
   /** Logger scope used for write/remove failure warnings. */
@@ -108,6 +108,10 @@ export function createSafeJsonStateStorage(options: CreateOptions): SafeJsonStat
       if (migrated !== null && migrated !== undefined) {
         const validated = validateOrEvictJson(name, migrated);
         if (validated !== null) {
+          const persisted = writeLocalStorage(name, validated);
+          if (!persisted) {
+            memory.set(name, validated);
+          }
           return validated;
         }
       }

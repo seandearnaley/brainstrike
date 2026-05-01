@@ -1,5 +1,5 @@
 import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LayoutGrid } from 'lucide-react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -174,6 +174,77 @@ describe('WorkspaceTabHost', () => {
         kind: 'file',
         tabId: 'folderA|@|src/index.ts',
       });
+    });
+  });
+
+  it('does not let a resolved permission prompt override a newer tab selection', async () => {
+    const user = userEvent.setup();
+    const setActiveTab = vi.fn();
+    let resolvePermission: ((granted: boolean) => void) | undefined;
+    const requestTabPermission = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolvePermission = resolve;
+        })
+    );
+    vi.mocked(useTabFileRestoration).mockReturnValue({
+      tabStatuses: new Map<string, TabFileStatus>([
+        ['folderA|@|src/a.ts', { compositeKey: 'folderA|@|src/a.ts', status: 'needs-permission' }],
+      ]),
+      requestTabPermission,
+      restoreTabs: vi.fn().mockResolvedValue(undefined),
+      needsUserAction: () => false,
+      getStatusMessage: () => null,
+      isRestoring: false,
+    });
+
+    const tabModule = await import('../hooks/use-tab-manager');
+    vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      tabs: [
+        {
+          id: 'folderA|@|src/a.ts',
+          path: 'src/a.ts',
+          compositeKey: 'folderA|@|src/a.ts',
+          content: null,
+          isLoading: false,
+        },
+        {
+          id: 'folderA|@|src/b.ts',
+          path: 'src/b.ts',
+          compositeKey: 'folderA|@|src/b.ts',
+          content: null,
+          isLoading: false,
+        },
+      ],
+      activeTabId: null,
+      openTab: vi.fn(),
+      closeTab: vi.fn(),
+      setActiveTab,
+      updateTabContent: vi.fn(),
+      setTabLoading: vi.fn(),
+      setTabError: vi.fn(),
+      clearTabs: vi.fn(),
+    });
+
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost />
+      </FileExplorerTestWrapper>
+    );
+
+    await user.click(await screen.findByRole('tab', { name: /a\.ts/i }));
+    await user.click(await screen.findByRole('tab', { name: /b\.ts/i }));
+
+    expect(setActiveTab).toHaveBeenCalledWith('folderA|@|src/b.ts');
+    await act(async () => {
+      resolvePermission?.(true);
+      await Promise.resolve();
+    });
+
+    expect(setActiveTab).not.toHaveBeenCalledWith('folderA|@|src/a.ts');
+    expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+      kind: 'file',
+      tabId: 'folderA|@|src/b.ts',
     });
   });
 

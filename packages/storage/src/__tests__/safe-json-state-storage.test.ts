@@ -45,6 +45,16 @@ describe('createSafeJsonStateStorage', () => {
     expect(storage.getItem(KEY)).toBe(migrated);
   });
 
+  it('persists a valid migrateOnGet result to the current key', () => {
+    const migrated = JSON.stringify({ migrated: true });
+    const storage = createSafeJsonStateStorage({
+      scope: 'test',
+      migrateOnGet: () => migrated,
+    });
+    expect(storage.getItem(KEY)).toBe(migrated);
+    expect(localStorage.getItem(KEY)).toBe(migrated);
+  });
+
   it('does NOT fall through to migrateOnGet when the current key was corrupted', () => {
     // If the user had data under the current key (even if it later got corrupted), we
     // should not silently restore legacy data on top of their cleared state — let the

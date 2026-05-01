@@ -21,8 +21,7 @@ interface TabManagerActions {
   /**
    * Close a tab and return the resulting active tab id (or null if no tabs remain).
    * Returning the successor makes the contract explicit so callers don't need to read
-   * `useTabManagerStore.getState().activeTabId` immediately after — eliminating the
-   * implicit dependency on Zustand's synchronous `set` semantics.
+   * `useTabManagerStore.getState().activeTabId` immediately after closing.
    */
   closeTab: (tabId: string) => string | null;
   openTab: (path: string, tabId: string, compositeKey: string) => void;
@@ -123,6 +122,8 @@ export const useTabManagerStore = create<TabManagerStore>()(
           };
           const nextTabs = [...state.tabs, newTab];
           if (nextTabs.length > MAX_TABS) {
+            // TODO(tab-eviction-ux): surface a toast or visual cue when the oldest
+            // tab is evicted so a 21st open does not look like a disappearing tab.
             nextTabs.shift();
           }
           return { tabs: nextTabs, activeTabId: tabId };

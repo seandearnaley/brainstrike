@@ -100,6 +100,43 @@ describe('OptimizedFileTree', () => {
     expect(treeGrid).toBeInTheDocument();
   });
 
+  it('opens a focused file row with keyboard activation', async () => {
+    const openFileInTab = vi.fn();
+    const uiModule = await import('@brainstrike/ui');
+    const useIdeFileEditorSpy = vi.spyOn(uiModule, 'useIdeFileEditor').mockReturnValue({
+      openFileInTab,
+      registerOpenFileInTab: vi.fn(),
+    });
+    const fileOnlyTree: IFileNode[] = [
+      {
+        name: 'test.txt',
+        path: '/test.txt',
+        type: 'file',
+        isVisible: true,
+        handle: {} as FileSystemFileHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+      },
+    ];
+
+    try {
+      render(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree fileTree={fileOnlyTree} folderId="root" loadingFiles={new Set()} />
+        </FileExplorerTestWrapper>
+      );
+
+      const treeGrid = screen.getByRole('treegrid', { name: 'File tree' });
+      fireEvent.keyDown(treeGrid, { key: 'ArrowDown' });
+      fireEvent.keyDown(treeGrid, { key: 'Enter' });
+
+      expect(openFileInTab).toHaveBeenCalledWith(encodeFileSelection('root', '/test.txt'));
+    } finally {
+      useIdeFileEditorSpy.mockRestore();
+    }
+  });
+
   it('deduplicates child-load requests when expand is retriggered during loading', async () => {
     let resolveLoad: (() => void) | undefined;
     const onLoadChildren = vi.fn(
