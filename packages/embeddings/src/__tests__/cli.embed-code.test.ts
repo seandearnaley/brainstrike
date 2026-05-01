@@ -204,4 +204,33 @@ describe('CodeEmbeddingCLI basics', () => {
       "VALUES ('src/$code$/unsafe''s:file.ts:1-3', 'src/$code$/unsafe''file.ts', 'type''script', 1, 3, 'const value = ''$code$'';\nSELECT $$broken$$;\nO''Reilly', '[0.1,0.2,0.3]'::vector, 'model''key', '2026-04-29T19:12:19.086Z');"
     );
   });
+
+  it('rejects pgvector SQL text fields containing NUL bytes', async () => {
+    const { CodeEmbeddingCLI } = await import('../cli/embed-code');
+    type CodeEmbeddingForSave = Parameters<CodeEmbeddingCLIType['saveEmbeddings']>[0][number];
+    const cli = new CodeEmbeddingCLI({
+      rootDir: '/proj',
+      format: 'pgvector',
+      output: path.join('/tmp', 'embeddings.sql'),
+      modelConfig: FALLBACK_MODEL_CONFIG,
+    });
+    const embedding = {
+      id: 'src/file.ts:1-1',
+      filePath: 'src/file.ts',
+      language: 'typescript',
+      startLine: 1,
+      endLine: 1,
+      content: 'const value = "\\0";\0',
+      embedding: [0.1],
+      dimensions: 1,
+      model: 'model-key',
+      timestamp: '2026-04-29T19:12:19.086Z',
+    } satisfies CodeEmbeddingForSave;
+
+    writeFileSync.mockClear();
+    await expect(cli.saveEmbeddings([embedding])).rejects.toThrow(
+      'PostgreSQL string literals cannot contain NUL bytes'
+    );
+    expect(writeFileSync).not.toHaveBeenCalled();
+  });
 });

@@ -133,6 +133,9 @@ interface CodeEmbedding {
  * Requires those scripts to set standard_conforming_strings = on before execution.
  */
 function toPostgresStringLiteral(value: string): string {
+  if (value.includes('\0')) {
+    throw new Error('PostgreSQL string literals cannot contain NUL bytes');
+  }
   return `'${value.replaceAll("'", "''")}'`;
 }
 
