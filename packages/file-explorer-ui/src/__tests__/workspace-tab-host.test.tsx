@@ -248,6 +248,60 @@ describe('WorkspaceTabHost', () => {
     });
   });
 
+  it('uses the current selection when restoration closes a stale tab', async () => {
+    let closeRestoredTab: ((tabId: string) => void) | undefined;
+    vi.mocked(useTabFileRestoration).mockImplementation((_tabs, onCloseTab) => {
+      closeRestoredTab = onCloseTab;
+      return {
+        tabStatuses: new Map<string, TabFileStatus>(),
+        requestTabPermission: vi.fn().mockResolvedValue(true),
+        restoreTabs: vi.fn().mockResolvedValue(undefined),
+        needsUserAction: () => false,
+        getStatusMessage: () => null,
+        isRestoring: false,
+      };
+    });
+
+    const closeTab = vi.fn(() => null);
+    const tabModule = await import('../hooks/use-tab-manager');
+    vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      tabs: [
+        {
+          id: 'folderA|@|src/a.ts',
+          path: 'src/a.ts',
+          compositeKey: 'folderA|@|src/a.ts',
+          content: null,
+          isLoading: false,
+        },
+      ],
+      activeTabId: 'folderA|@|src/a.ts',
+      openTab: vi.fn(),
+      closeTab,
+      setActiveTab: vi.fn(),
+      updateTabContent: vi.fn(),
+      setTabLoading: vi.fn(),
+      setTabError: vi.fn(),
+      clearTabs: vi.fn(),
+    });
+
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost />
+      </FileExplorerTestWrapper>
+    );
+
+    useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/a.ts');
+    act(() => {
+      closeRestoredTab?.('folderA|@|src/a.ts');
+    });
+
+    expect(closeTab).toHaveBeenCalledWith('folderA|@|src/a.ts');
+    expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+      kind: 'app',
+      appId: 'context-explorer',
+    });
+  });
+
   it('clicking the Context Explorer tab swaps back to the preview body', async () => {
     const user = userEvent.setup();
     // Start in file mode

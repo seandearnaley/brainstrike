@@ -54,20 +54,30 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
   const selection = useWorkspaceTabSelectionStore((s) => s.selection);
   const selectApp = useWorkspaceTabSelectionStore((s) => s.selectApp);
   const selectFile = useWorkspaceTabSelectionStore((s) => s.selectFile);
+  const selectionIntentRef = useRef(0);
 
   // Restoration plumbing: surfaces persisted-tab status (restored / needs-permission / not-found).
   const { tabStatuses, requestTabPermission, getStatusMessage, isRestoring } =
     useTabFileRestoration(tabs, (tabId: string) => {
-      closeTab(tabId);
-      // If the closed tab was active in the workspace, fall back to Context Explorer.
-      if (selection.kind === 'file' && selection.tabId === tabId) {
+      // Restoration can close stale/missing tabs after any render. Read the current
+      // selection at callback time so a stale closure does not route the workspace away
+      // from the user's active tab.
+      const currentSelection = useWorkspaceTabSelectionStore.getState().selection;
+      const closingActive = currentSelection.kind === 'file' && currentSelection.tabId === tabId;
+      const successorId = closeTab(tabId);
+      if (!closingActive) {
+        return;
+      }
+      if (successorId === null) {
+        selectionIntentRef.current += 1;
         selectApp(CONTEXT_EXPLORER_APP_ID);
+      } else {
+        selectFile(successorId);
       }
     });
 
   // Track in-flight permission requests to ignore double-clicks.
   const permissionRequestsInProgressRef = useRef<Set<string>>(new Set());
-  const selectionIntentRef = useRef(0);
   // Guard async post-await work against firing on an unmounted component (the
   // permission prompt can resolve seconds after the user navigates away).
   const isMountedRef = useRef(true);
@@ -525,7 +535,7 @@ function WorkspaceBody({
   if (selection.kind === 'app') {
     const app = apps.find((a) => a.id === selection.appId);
     if (!app) {
-      return <MissingAppFallback appId={selection.appId} />;
+      return <MissingAppFallback />;
     }
     return (
       <div
@@ -688,15 +698,11 @@ function NoFileTabSelected() {
   );
 }
 
-interface MissingAppFallbackProps {
-  readonly appId: string;
-}
-
-function MissingAppFallback({ appId }: MissingAppFallbackProps) {
+function MissingAppFallback() {
   return (
     <div className="flex h-full flex-col items-center justify-center p-4 text-center text-muted-foreground">
       <p className="font-semibold">App unavailable</p>
-      <p className="text-sm">No registered workspace app matches "{appId}".</p>
+      <p className="text-sm">No registered workspace app matches the saved selection.</p>
     </div>
   );
 }
