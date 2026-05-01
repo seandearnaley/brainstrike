@@ -531,7 +531,7 @@ interface WorkspaceBodyProps {
  * the parent) don't trigger an extra reconciliation pass through the active app body
  * when nothing observable to this branch actually changed.
  */
-const WorkspaceBody = memo(function WorkspaceBody({
+const WorkspaceBody = memo<WorkspaceBodyProps>(function WorkspaceBody({
   apps,
   selection,
   tabs,
@@ -539,7 +539,7 @@ const WorkspaceBody = memo(function WorkspaceBody({
   loadingFiles,
   tabStatuses,
   isRestoring,
-}: WorkspaceBodyProps) {
+}) {
   if (selection.kind === 'app') {
     const app = apps.find((a) => a.id === selection.appId);
     if (!app) {
