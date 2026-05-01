@@ -19,7 +19,11 @@ import { startAssistantServer } from './assistant-server';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow, noteNextWindowReload } from './create-window';
-import { closeDatabase, resetLocalDatabase } from './db-main';
+import {
+  createDesktopDatabaseMaintenanceScheduler,
+  type DesktopDatabaseMaintenanceScheduler,
+} from './database-maintenance-scheduler';
+import { closeDatabase, getDatabase, resetLocalDatabase } from './db-main';
 import { resetDesktopApplicationData } from './desktop-factory-reset';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
@@ -27,7 +31,12 @@ import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
-import { registerIpcHandlers, setBackgrounded } from './ipc-handlers';
+import {
+  getDesktopDatabaseWorkSchedulerSnapshot,
+  registerIpcHandlers,
+  runDesktopScheduledDatabaseWork,
+  setBackgrounded,
+} from './ipc-handlers';
 import { registerLlmHostIpcHandlers } from './ipc-llm-host';
 import { registerMcpIpcHandlers } from './ipc-mcp';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
@@ -542,6 +551,7 @@ let unregisterChunkingHostIpcHandlers: null | (() => void) = null;
 let unregisterEmbeddingHostIpcHandlers: null | (() => void) = null;
 let unregisterLlmHostIpcHandlers: null | (() => void) = null;
 let unregisterLoggingIpcHandlers: null | (() => void) = null;
+let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
 let gracefulShutdownPromise: Promise<void> | null = null;
@@ -666,6 +676,8 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
     }
 
     const databaseFailure = await runShutdownStep('database', async () => {
+      desktopDatabaseMaintenanceScheduler?.stop();
+      desktopDatabaseMaintenanceScheduler = null;
       await closeDatabase();
     });
     if (databaseFailure) {
@@ -723,6 +735,13 @@ const storage = new ElectronStorageAdapter();
 const chunkingHostManager = new ChunkingHostManager();
 const embeddingHostManager = new EmbeddingHostManager();
 const llmHostManager = new LlmHostManager();
+
+desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler({
+  getDatabase,
+  getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
+  logger,
+  runScheduledWork: runDesktopScheduledDatabaseWork,
+});
 
 unregisterLoggingIpcHandlers = registerLoggingIpcHandlers({
   getState: getLoggingSettingsPayload,
@@ -881,6 +900,8 @@ if (singleInstanceLockAcquired) {
       registerToolsIpcHandlers();
       registerRuntimeIpcHandlers();
       logger.debug('Ready-dependent IPC handlers registered successfully');
+      desktopDatabaseMaintenanceScheduler?.start();
+      logger.debug('Scheduled desktop database maintenance started');
 
       // Setup security before creating windows
       setupSecurity();
