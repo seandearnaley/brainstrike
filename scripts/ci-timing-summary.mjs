@@ -15,12 +15,14 @@ function asNumber(value, fallback) {
 }
 
 function normalizeOptions(options = {}) {
+  const warnMs = asNumber(options.warnMs, DEFAULT_WARN_MS);
+  const failMs = asNumber(options.failMs, DEFAULT_FAIL_MS);
   return {
     task: options.task ?? DEFAULT_TASK,
-    warnMs: asNumber(options.warnMs, DEFAULT_WARN_MS),
-    failMs: asNumber(options.failMs, DEFAULT_FAIL_MS),
-    totalWarnMs: asNumber(options.totalWarnMs, options.warnMs ?? DEFAULT_WARN_MS),
-    totalFailMs: asNumber(options.totalFailMs, options.failMs ?? DEFAULT_FAIL_MS),
+    warnMs,
+    failMs,
+    totalWarnMs: asNumber(options.totalWarnMs, warnMs),
+    totalFailMs: asNumber(options.totalFailMs, failMs),
   };
 }
 
@@ -229,7 +231,7 @@ export async function runCli(args = process.argv.slice(2)) {
     console.log(markdown);
   }
   if (annotations) {
-    console.error(annotations);
+    console.log(annotations);
   }
 
   const noMatchingTasksFromDifferentCommand =

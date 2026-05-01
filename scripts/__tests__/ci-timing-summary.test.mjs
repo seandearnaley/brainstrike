@@ -81,6 +81,25 @@ test('parseTurboSummary flags total Turbo time threshold breaches', () => {
   assert.equal(summary.hasFailures, true);
 });
 
+test('parseTurboSummary coerces total threshold fallbacks from task thresholds', () => {
+  const summary = parseTurboSummary(
+    {
+      execution: {
+        command: 'turbo run test',
+        startTime: 1_000,
+        endTime: 31_000,
+        success: true,
+      },
+      tasks: [task('@brainstrike/db#test', 'test', 1_000, 2_000)],
+    },
+    { task: 'test', warnMs: '20000', failMs: '30000' }
+  );
+
+  assert.equal(summary.totalWarnMs, 20_000);
+  assert.equal(summary.totalFailMs, 30_000);
+  assert.equal(summary.totalStatus, 'fail');
+});
+
 test('renderMarkdownSummary includes slowest tasks without workflow commands', () => {
   const summary = parseTurboSummary(
     {
@@ -148,7 +167,12 @@ test('findLatestTurboSummary returns null when the runs directory is missing', a
 test('runCli writes markdown and returns non-zero when fail threshold is crossed', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-turbo-cli-'));
   const originalConsoleError = console.error;
+  const originalConsoleLog = console.log;
+  const logs = [];
   console.error = () => {};
+  console.log = (message) => {
+    logs.push(String(message));
+  };
   try {
     const summaryPath = path.join(dir, 'summary.json');
     const outputPath = path.join(dir, 'summary.md');
@@ -179,9 +203,13 @@ test('runCli writes markdown and returns non-zero when fail threshold is crossed
     ]);
 
     assert.equal(exitCode, 1);
-    assert.match(await readFile(outputPath, 'utf8'), /@brainstrike\/db#test/);
+    const markdown = await readFile(outputPath, 'utf8');
+    assert.match(markdown, /@brainstrike\/db#test/);
+    assert.doesNotMatch(markdown, /::error/);
+    assert.match(logs.join('\n'), /::error title=Slow Turbo task::@brainstrike\/db#test/);
   } finally {
     console.error = originalConsoleError;
+    console.log = originalConsoleLog;
     await rm(dir, { force: true, recursive: true });
   }
 });
