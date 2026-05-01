@@ -289,7 +289,19 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
   const { registerOpenFileInTab } = useIdeFileEditor();
   const handleOpenFileInTab = useCallback(
     (compositeKey: string) => {
-      const { path } = decodeFileSelection(compositeKey);
+      // Decode defensively — keys come from trusted internal callers today, but a
+      // malformed key would otherwise propagate as an unhandled error from the click
+      // event. FileTabBody wraps the same call in try/catch; mirror that here.
+      let path: string;
+      try {
+        ({ path } = decodeFileSelection(compositeKey));
+      } catch (err) {
+        logger.error('Invalid compositeKey passed to openFileInTab', {
+          compositeKey,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return;
+      }
       // tabId is the compositeKey itself — stable across reloads (it already encodes the
       // folder identity), unlike the legacy `${rootFolderId}:${compositeKey}` form.
       const tabId = compositeKey;

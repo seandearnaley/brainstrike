@@ -108,6 +108,39 @@ function migrateLegacyTabKey(name: string): string | null {
   }
 }
 
+/**
+ * v1 → v2: legacy tabIds were `${rootFolderId}:${compositeKey}` to dedupe per-folder.
+ * The compositeKey already encodes folder identity, so we collapse the tabId to the
+ * compositeKey itself. This makes opens stable across reloads on web (where the
+ * rootDirectoryHandle's identity does not survive page reloads). Also dedupes any
+ * cross-rootFolderId duplicates and remaps activeTabId.
+ */
+function migrateV1ToV2(ps: PersistedState): PersistedState {
+  const remap = new Map<string, string>();
+  const seen = new Set<string>();
+  const tabs: PersistedTab[] = [];
+  for (const t of ps.tabs) {
+    const nextId = t.compositeKey;
+    if (t.id !== nextId) {
+      remap.set(t.id, nextId);
+    }
+    // Dedupe by compositeKey: in v1 a user could have the same file opened under
+    // different rootFolderId prefixes; collapsing to compositeKey would otherwise
+    // produce duplicate ids (and React-key conflicts). Keep the first occurrence.
+    if (seen.has(nextId)) {
+      continue;
+    }
+    seen.add(nextId);
+    tabs.push({ id: nextId, path: t.path, compositeKey: t.compositeKey });
+  }
+  const remappedActive =
+    ps.activeTabId === null ? null : (remap.get(ps.activeTabId) ?? ps.activeTabId);
+  // If the originally-active id deduped away, fall back to the first remaining tab.
+  const activeTabId =
+    remappedActive !== null && seen.has(remappedActive) ? remappedActive : (tabs[0]?.id ?? null);
+  return { tabs, activeTabId };
+}
+
 const storage = createJSONStorage(() =>
   createSafeJsonStateStorage({
     scope: 'TabManagerStore',
@@ -207,50 +240,21 @@ export const useTabManagerStore = create<TabManagerStore>()(
         tabs: s.tabs.map((t) => ({ id: t.id, path: t.path, compositeKey: t.compositeKey })),
         activeTabId: s.activeTabId,
       }),
-      // v1 → v2: legacy tabIds were `${rootFolderId}:${compositeKey}` to dedupe per-folder.
-      // The compositeKey already encodes folder identity, so we collapse the tabId to the
-      // compositeKey itself. This makes opens stable across reloads on web (where the
-      // rootDirectoryHandle's identity does not survive page reloads).
+      // Migrations are written as a per-version chain so adding a v3 step is purely
+      // additive — no need to update an existing guard. Future shape:
+      //   let next = ps;
+      //   if (version < 2) next = migrateV1ToV2(next);
+      //   if (version < 3) next = migrateV2ToV3(next);
+      //   return next;
       migrate: (persisted, version) => {
-        const ps = (persisted as PersistedState | undefined) ?? {
+        let ps = (persisted as PersistedState | undefined) ?? {
           tabs: [],
           activeTabId: null,
         };
-        // Future v3+ migrations: replace this with a per-version chain (e.g.
-        //   if (version < 2) ps = migrateV1ToV2(ps);
-        //   if (version < 3) ps = migrateV2ToV3(ps);
-        //   return ps;
-        // ) and bump STORE_VERSION accordingly. The current `>= 2` guard means we
-        // skip *all* migrations once we hit v2, which is fine while v2 is the
-        // latest but would silently skip a v3 pass if added without updating here.
-        if (version >= 2) {
-          return ps;
+        if (version < 2) {
+          ps = migrateV1ToV2(ps);
         }
-        const remap = new Map<string, string>();
-        const seen = new Set<string>();
-        const tabs: PersistedTab[] = [];
-        for (const t of ps.tabs) {
-          const nextId = t.compositeKey;
-          if (t.id !== nextId) {
-            remap.set(t.id, nextId);
-          }
-          // Dedupe by compositeKey: in v1 a user could have the same file opened under
-          // different rootFolderId prefixes; collapsing to compositeKey would otherwise
-          // produce duplicate ids (and React-key conflicts). Keep the first occurrence.
-          if (seen.has(nextId)) {
-            continue;
-          }
-          seen.add(nextId);
-          tabs.push({ id: nextId, path: t.path, compositeKey: t.compositeKey });
-        }
-        const remappedActive =
-          ps.activeTabId === null ? null : (remap.get(ps.activeTabId) ?? ps.activeTabId);
-        // If the originally-active id deduped away, fall back to the first remaining tab.
-        const activeTabId =
-          remappedActive !== null && seen.has(remappedActive)
-            ? remappedActive
-            : (tabs[0]?.id ?? null);
-        return { tabs, activeTabId };
+        return ps;
       },
       merge: (persisted, current) => {
         const ps = (persisted as unknown as PersistedState) || { tabs: [], activeTabId: null };

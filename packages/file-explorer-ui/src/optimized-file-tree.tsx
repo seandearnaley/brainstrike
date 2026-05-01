@@ -1697,8 +1697,11 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
 
       {/* The parent TreeTable row owns treegrid semantics; avoid adding a nested button role here. */}
       <div
-        {...(fileNode.type === 'file'
+        {...(fileNode.type === 'file' && openFileInTab
           ? {
+              // cursor-pointer + hover underline only when the click actually does
+              // something: if openFileInTab isn't registered (no IdeFileEditor host
+              // wired up), the visual affordance would lie about the row's behavior.
               className: 'group/file-row flex min-w-0 flex-1 cursor-pointer items-center',
               onClick: handleFileNameClick,
             }
