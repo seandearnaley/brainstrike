@@ -412,9 +412,19 @@ export class CodeEmbeddingCLI {
       case 'csv': {
         const csvHeader =
           'id,file_path,language,start_line,end_line,dimensions,model,timestamp,content,embedding\n';
-        const csvRows = embeddings.map(
-          (e) =>
-            `${toCsvCell(e.id)},${toCsvCell(e.filePath)},${toCsvCell(e.language)},${e.startLine},${e.endLine},${e.dimensions},${toCsvCell(e.model)},${toCsvCell(e.timestamp)},${toCsvCell(e.content)},${toCsvCell(`[${e.embedding.join(',')}]`)}`
+        const csvRows = embeddings.map((e) =>
+          [
+            toCsvCell(e.id),
+            toCsvCell(e.filePath),
+            toCsvCell(e.language),
+            e.startLine,
+            e.endLine,
+            e.dimensions,
+            toCsvCell(e.model),
+            toCsvCell(e.timestamp),
+            toCsvCell(e.content),
+            toCsvCell(`[${e.embedding.join(',')}]`),
+          ].join(',')
         );
         fs.writeFileSync(outputPath, csvHeader + csvRows.join('\n'));
         break;
