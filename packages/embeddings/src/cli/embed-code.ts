@@ -444,7 +444,14 @@ export class CodeEmbeddingCLI {
           ].join(' ');
         });
 
-        const sqlContent = `-- Code embeddings generated at ${new Date().toISOString()}\n-- Total embeddings: ${embeddings.length}\n\nSET standard_conforming_strings = on;\n\n${sqlStatements.join('\n\n')}`;
+        const sqlContent = [
+          `-- Code embeddings generated at ${new Date().toISOString()}`,
+          `-- Total embeddings: ${embeddings.length}`,
+          '-- IMPORTANT: string literal escaping below requires standard_conforming_strings = on.',
+          'SET standard_conforming_strings = on;',
+          '',
+          sqlStatements.join('\n\n'),
+        ].join('\n');
         fs.writeFileSync(outputPath, sqlContent);
         break;
       }

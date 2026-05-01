@@ -197,6 +197,9 @@ describe('CodeEmbeddingCLI basics', () => {
     const lastWrite = writeFileSync.mock.calls.at(-1);
     expect(lastWrite).toBeDefined();
     const sql = String(lastWrite?.[1]);
+    expect(sql).toContain(
+      '-- IMPORTANT: string literal escaping below requires standard_conforming_strings = on.'
+    );
     expect(sql).toContain('SET standard_conforming_strings = on;');
     expect(sql).not.toContain('$code$const value');
     expect(sql).not.toContain('Reilly$code$');
