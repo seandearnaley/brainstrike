@@ -17,6 +17,9 @@ export function parseArgs(args = process.argv.slice(2)) {
   let coverage = true;
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
+    if (arg === '--') {
+      continue;
+    }
     if (arg === '--package') {
       const value = args[index + 1];
       if (!value || value.startsWith('-')) {

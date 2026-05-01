@@ -21,6 +21,13 @@ test('parseArgs accepts explicit packages and no-coverage mode', () => {
   assert.deepEqual(options.packages, ['@brainstrike/web']);
 });
 
+test('parseArgs ignores pnpm run option separators', () => {
+  const options = parseArgs(['--', '--package', '@brainstrike/web']);
+
+  assert.equal(options.coverage, true);
+  assert.deepEqual(options.packages, ['@brainstrike/web']);
+});
+
 test('buildProfileCommand appends import duration profiling to package scripts', () => {
   const [command, args] = buildProfileCommand('@brainstrike/app-shell', { coverage: true });
 
