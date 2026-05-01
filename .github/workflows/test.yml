@@ -31,7 +31,7 @@ env:
 jobs:
   # Fast-fail checks that run in parallel
   checks:
-    name: Lint, Type Check & Unit Tests
+    name: Checks (${{ matrix.phase }})
     if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     # Affected coverage can still exercise PGlite-backed integration suites; keep the
@@ -41,6 +41,10 @@ jobs:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
+    strategy:
+      fail-fast: false
+      matrix:
+        phase: [static, unit-coverage]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -59,18 +63,21 @@ jobs:
           echo "|------|----------|" >> $GITHUB_STEP_SUMMARY
 
       - name: Test CI utility scripts
+        if: matrix.phase == 'static'
         run: |
           START=$SECONDS
           pnpm test:scripts
           echo "| CI utility scripts | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
 
       - name: Lint
+        if: matrix.phase == 'static'
         run: |
           START=$SECONDS
           pnpm run lint
           echo "| Lint | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
 
       - name: Type check
+        if: matrix.phase == 'static'
         run: |
           START=$SECONDS
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$GITHUB_BASE_REF" ]; then
@@ -82,7 +89,22 @@ jobs:
           fi
           echo "| Type check | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
 
+      - name: Report Turbo type-check diagnostics
+        if: ${{ !cancelled() && matrix.phase == 'static' }}
+        run: |
+          set +e
+          pnpm ci:turbo-diagnostics -- --task type-check --output turbo-type-check-diagnostics.md
+          STATUS=$?
+          set -e
+          if [ -s turbo-type-check-diagnostics.md ]; then
+            cat turbo-type-check-diagnostics.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No Turbo type-check diagnostics were generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$STATUS"
+
       - name: Build all packages
+        if: matrix.phase == 'static'
         run: |
           START=$SECONDS
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$GITHUB_BASE_REF" ]; then
@@ -94,7 +116,22 @@ jobs:
           fi
           echo "| Build | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
 
+      - name: Report Turbo build diagnostics
+        if: ${{ !cancelled() && matrix.phase == 'static' }}
+        run: |
+          set +e
+          pnpm ci:turbo-diagnostics -- --task build --output turbo-build-diagnostics.md
+          STATUS=$?
+          set -e
+          if [ -s turbo-build-diagnostics.md ]; then
+            cat turbo-build-diagnostics.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No Turbo build diagnostics were generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$STATUS"
+
       - name: Validate CSS bundle
+        if: matrix.phase == 'static'
         run: |
           # Check CSS bundle size (must be >= 50kB)
           CSS_SIZE=$(find apps/web/dist/assets -name '*.css' -exec cat {} + | wc -c)
@@ -118,10 +155,12 @@ jobs:
           fi
 
       - name: Clear coverage directories
+        if: matrix.phase == 'unit-coverage'
         run: |
           find packages apps -type d -name "coverage" -maxdepth 3 -prune -exec rm -rf {} +
 
       - name: Run unit tests with coverage
+        if: matrix.phase == 'unit-coverage'
         id: unit-tests
         # This step owns the heavy affected coverage slice. The surrounding job
         # timeout leaves room for install, build, and report upload overhead.
@@ -132,10 +171,10 @@ jobs:
           mkdir -p .turbo/runs
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$GITHUB_BASE_REF" ]; then
             echo "Running affected unit coverage for PR against origin/${GITHUB_BASE_REF}"
-            pnpm turbo run test --filter="...[origin/${GITHUB_BASE_REF}]" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text
+            pnpm turbo run test:coverage --filter="...[origin/${GITHUB_BASE_REF}]" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo
           else
             echo "Running full unit coverage"
-            pnpm turbo run test --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text
+            pnpm turbo run test:coverage --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo
           fi
 
           COVERAGE_FILES=$(find packages apps -type f -path "*/coverage/coverage-final.json" | wc -l | tr -d ' ')
@@ -148,15 +187,16 @@ jobs:
           fi
           echo "| Test | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
         env:
+          COVERAGE: "true"
           NODE_ENV: "test"
           TURBO_TEST_MODE: "coverage"
 
       - name: Enforce package coverage thresholds
-        if: steps.unit-tests.outputs.has_coverage == 'true'
+        if: matrix.phase == 'unit-coverage' && steps.unit-tests.outputs.has_coverage == 'true'
         run: pnpm coverage:enforce
 
       - name: Comment PR with Coverage Summary
-        if: steps.unit-tests.outputs.has_coverage == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        if: matrix.phase == 'unit-coverage' && steps.unit-tests.outputs.has_coverage == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -246,6 +286,7 @@ jobs:
             });
 
       - name: Bundle coverage files
+        if: matrix.phase == 'unit-coverage'
         run: |
           set -e
           mkdir -p coverage-bundle
@@ -259,6 +300,7 @@ jobs:
           echo "Bundled $(find coverage-bundle -name '*.json' 2>/dev/null | wc -l) coverage files"
 
       - name: Upload coverage bundle
+        if: matrix.phase == 'unit-coverage'
         uses: actions/upload-artifact@v7
         with:
           name: unit-coverage
@@ -266,17 +308,31 @@ jobs:
           retention-days: 1
 
       - name: Report Turbo test task timings
-        if: ${{ !cancelled() && steps.unit-tests.outcome != 'skipped' }}
+        if: ${{ !cancelled() && matrix.phase == 'unit-coverage' && steps.unit-tests.outcome != 'skipped' }}
         run: |
           set +e
           : > turbo-test-timings.md
-          pnpm ci:timing-summary -- --runs-dir .turbo/runs --task test --warn-ms 1200000 --fail-ms 1800000 --total-warn-ms 1500000 --total-fail-ms 1800000 --output turbo-test-timings.md
+          pnpm ci:timing-summary -- --runs-dir .turbo/runs --task test:coverage --warn-ms 1200000 --fail-ms 1800000 --total-warn-ms 1500000 --total-fail-ms 1800000 --output turbo-test-timings.md
           STATUS=$?
           set -e
           if [ -s turbo-test-timings.md ]; then
             cat turbo-test-timings.md >> "$GITHUB_STEP_SUMMARY"
           else
             echo "No Turbo timing summary was generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$STATUS"
+
+      - name: Report Turbo unit coverage diagnostics
+        if: ${{ !cancelled() && matrix.phase == 'unit-coverage' && steps.unit-tests.outcome != 'skipped' }}
+        run: |
+          set +e
+          pnpm ci:turbo-diagnostics -- --runs-dir .turbo/runs --task test:coverage --output turbo-unit-coverage-diagnostics.md
+          STATUS=$?
+          set -e
+          if [ -s turbo-unit-coverage-diagnostics.md ]; then
+            cat turbo-unit-coverage-diagnostics.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No Turbo unit coverage diagnostics were generated." >> "$GITHUB_STEP_SUMMARY"
           fi
           exit "$STATUS"
 
