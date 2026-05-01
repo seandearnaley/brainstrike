@@ -288,3 +288,19 @@ test('runCli reports the summary path when JSON parsing fails', async () => {
     await rm(dir, { force: true, recursive: true });
   }
 });
+
+test('runCli rejects flags without explicit values', async () => {
+  const originalConsoleError = console.error;
+  const errors = [];
+  console.error = (message) => {
+    errors.push(String(message));
+  };
+  try {
+    const exitCode = await runCli(['--summary', '--task', 'test']);
+
+    assert.equal(exitCode, 1);
+    assert.match(errors.join('\n'), /--summary requires a value/);
+  } finally {
+    console.error = originalConsoleError;
+  }
+});

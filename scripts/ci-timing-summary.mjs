@@ -190,7 +190,11 @@ function readFlagValue(args, name) {
   if (index === -1) {
     return undefined;
   }
-  return args[index + 1];
+  const value = args[index + 1];
+  if (value === undefined || value.startsWith('--')) {
+    throw new Error(`${name} requires a value`);
+  }
+  return value;
 }
 
 function commandIncludesTask(command, task) {
@@ -198,14 +202,28 @@ function commandIncludesTask(command, task) {
 }
 
 export async function runCli(args = process.argv.slice(2)) {
-  const runsDir = readFlagValue(args, '--runs-dir') ?? DEFAULT_RUNS_DIR;
-  const explicitSummary = readFlagValue(args, '--summary');
-  const task = readFlagValue(args, '--task') ?? DEFAULT_TASK;
-  const warnMs = asNumber(readFlagValue(args, '--warn-ms'), DEFAULT_WARN_MS);
-  const failMs = asNumber(readFlagValue(args, '--fail-ms'), DEFAULT_FAIL_MS);
-  const totalWarnMs = asNumber(readFlagValue(args, '--total-warn-ms'), warnMs);
-  const totalFailMs = asNumber(readFlagValue(args, '--total-fail-ms'), failMs);
-  const output = readFlagValue(args, '--output');
+  let runsDir;
+  let explicitSummary;
+  let task;
+  let warnMs;
+  let failMs;
+  let totalWarnMs;
+  let totalFailMs;
+  let output;
+  try {
+    runsDir = readFlagValue(args, '--runs-dir') ?? DEFAULT_RUNS_DIR;
+    explicitSummary = readFlagValue(args, '--summary');
+    task = readFlagValue(args, '--task') ?? DEFAULT_TASK;
+    warnMs = asNumber(readFlagValue(args, '--warn-ms'), DEFAULT_WARN_MS);
+    failMs = asNumber(readFlagValue(args, '--fail-ms'), DEFAULT_FAIL_MS);
+    totalWarnMs = asNumber(readFlagValue(args, '--total-warn-ms'), warnMs);
+    totalFailMs = asNumber(readFlagValue(args, '--total-fail-ms'), failMs);
+    output = readFlagValue(args, '--output');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    return 1;
+  }
   const summaryPath = explicitSummary ?? (await findLatestTurboSummary(runsDir));
 
   if (!summaryPath) {
