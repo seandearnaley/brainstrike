@@ -32,6 +32,11 @@ export {
   ElectronFileRecordRepository,
 } from './electron-file-record-repository.js';
 export { ElectronViewFilterPresetsRepository } from './electron-view-filter-presets-repository.js';
+export {
+  type CreateEmbeddingCacheRepositoryOptions,
+  createEmbeddingCacheRepository,
+  EmbeddingCacheRepository,
+} from './embedding-cache-repository.js';
 export { EmbeddingSetsRepository } from './embedding-sets-repository.js';
 export { FileChunkRepository } from './file-chunk-repository.js';
 export { FileRecordRepository } from './file-record-repository.js';

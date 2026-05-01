@@ -29,6 +29,12 @@ import { FALLBACK_MODEL_CONFIG } from '../types';
  */
 export interface EmbeddingCacheInterface {
   /**
+   * Evict stale entries when cache size exceeds its configured cap.
+   * Called cooperatively after the embedding queue drains.
+   */
+  evictIfNeeded?: () => Promise<{ needed: boolean; evicted: number; totalEntries: number }>;
+
+  /**
    * Get a cached embedding by content hash and model key.
    * Returns hit: true with the entry if found, or hit: false if not cached.
    */
@@ -44,6 +50,16 @@ export interface EmbeddingCacheInterface {
   getBatch(
     requests: ReadonlyArray<{ contentHash: string; modelKey: string }>
   ): Promise<Map<string, CachedEmbedding>>;
+
+  /**
+   * Return cache diagnostics for worker metrics/log output.
+   */
+  getStats?: () => Promise<{
+    newestAccessedAt: Date | null;
+    oldestAccessedAt: Date | null;
+    totalEntries: number;
+    totalHits: number;
+  }>;
 
   /**
    * Store an embedding in the cache.
@@ -1710,6 +1726,75 @@ export async function startEmbeddingWorker(
     payload: EmbedChunkPayload;
   }
 
+  const pendingCacheWrites = new Set<Promise<void>>();
+  let embeddingCacheDirty = false;
+
+  function serializeCacheDate(value: Date | null): string | null {
+    return value ? value.toISOString() : null;
+  }
+
+  async function flushPendingCacheWrites(): Promise<void> {
+    if (pendingCacheWrites.size === 0) {
+      return;
+    }
+    await Promise.allSettled([...pendingCacheWrites]);
+  }
+
+  function trackCacheWrite(write: Promise<number>): void {
+    const tracked = write
+      .then((stored) => {
+        if (stored > 0) {
+          embeddingCacheDirty = true;
+        }
+      })
+      .catch((err: unknown) => {
+        workerLogger.warn('Failed to cache embeddings', { error: err });
+      })
+      .finally(() => {
+        pendingCacheWrites.delete(tracked);
+      });
+    pendingCacheWrites.add(tracked);
+  }
+
+  async function runEmbeddingCacheMaintenance(reason: 'queue-idle'): Promise<void> {
+    const cache = options.embeddingCache;
+    if (!cache) {
+      return;
+    }
+
+    await flushPendingCacheWrites();
+    if (!embeddingCacheDirty) {
+      return;
+    }
+
+    try {
+      const eviction = await cache.evictIfNeeded?.();
+      if (eviction) {
+        log('embedding_cache_eviction', {
+          evicted: eviction.evicted,
+          needed: eviction.needed,
+          reason,
+          totalEntries: eviction.totalEntries,
+        });
+      }
+
+      const stats = await cache.getStats?.();
+      if (stats) {
+        log('embedding_cache_stats', {
+          newestAccessedAt: serializeCacheDate(stats.newestAccessedAt),
+          oldestAccessedAt: serializeCacheDate(stats.oldestAccessedAt),
+          reason,
+          totalEntries: stats.totalEntries,
+          totalHits: stats.totalHits,
+        });
+      }
+
+      embeddingCacheDirty = false;
+    } catch (error) {
+      workerLogger.warn('Embedding cache maintenance failed', { error });
+    }
+  }
+
   // BST-170: Helper to lookup cache hits
   async function lookupCacheHits(
     items: LoadedChunkItem[],
@@ -1745,7 +1830,7 @@ export async function startEmbeddingWorker(
     });
   }
 
-  // BST-170: Helper to store embeddings to cache (fire-and-forget)
+  // BST-170: Helper to store embeddings to cache without failing embedding completion.
   function storeToCacheAsync(
     items: LoadedChunkItem[],
     embeddings: number[][],
@@ -1766,9 +1851,7 @@ export async function startEmbeddingWorker(
       })
       .filter((e): e is NonNullable<typeof e> => e !== null);
 
-    cache.setBatch(entries).catch((err) => {
-      workerLogger.warn('Failed to cache embeddings', { error: err });
-    });
+    trackCacheWrite(cache.setBatch(entries));
   }
 
   // BST-170: Helper to reconstruct results combining cache hits and generated
@@ -2353,6 +2436,7 @@ export async function startEmbeddingWorker(
         workerLogger.error('Scheduled embedding service reinitialization failed', { error });
       }
     }
+    await runEmbeddingCacheMaintenance('queue-idle');
     // Silent on empty polls - this happens constantly during idle
     await sleep(400); // idle backoff
   }
