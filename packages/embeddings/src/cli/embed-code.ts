@@ -147,6 +147,9 @@ export class CodeEmbeddingCLI {
       verbose: false,
       ...config,
     };
+    if ((this.config.chunkOverlap ?? 10) >= (this.config.maxLines ?? 100)) {
+      throw new Error('chunkOverlap must be less than maxLines');
+    }
     this.service = new SimpleEmbeddingService();
   }
 
@@ -413,7 +416,7 @@ export class CodeEmbeddingCLI {
           return `INSERT INTO code_embeddings (id, file_path, language, start_line, end_line, content, embedding, model, created_at) VALUES (${toPostgresStringLiteral(e.id)}, ${toPostgresStringLiteral(e.filePath)}, ${toPostgresStringLiteral(e.language)}, ${e.startLine}, ${e.endLine}, ${toPostgresStringLiteral(e.content)}, ${toPostgresStringLiteral(vectorString)}::vector, ${toPostgresStringLiteral(e.model)}, ${toPostgresStringLiteral(e.timestamp)});`;
         });
 
-        const sqlContent = `-- Code embeddings generated at ${new Date().toISOString()}\n-- Total embeddings: ${embeddings.length}\n\n${sqlStatements.join('\n\n')}`;
+        const sqlContent = `-- Code embeddings generated at ${new Date().toISOString()}\n-- Total embeddings: ${embeddings.length}\n\nSET standard_conforming_strings = on;\n\n${sqlStatements.join('\n\n')}`;
         fs.writeFileSync(outputPath, sqlContent);
         break;
       }

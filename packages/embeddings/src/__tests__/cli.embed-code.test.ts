@@ -61,6 +61,21 @@ describe('CodeEmbeddingCLI basics', () => {
     expect(cli.detectLanguage('x.tsx')).toBe('typescript');
   });
 
+  it('rejects chunk overlap values that cannot advance between chunks', async () => {
+    const { CodeEmbeddingCLI } = await import('../cli/embed-code');
+
+    expect(
+      () =>
+        new CodeEmbeddingCLI({
+          rootDir: '.',
+          format: 'json',
+          maxLines: 2,
+          chunkOverlap: 2,
+          modelConfig: FALLBACK_MODEL_CONFIG,
+        })
+    ).toThrow('chunkOverlap must be less than maxLines');
+  });
+
   it('processes files and saves JSON and CSV outputs', async () => {
     const { CodeEmbeddingCLI } = await import('../cli/embed-code');
     const cli = new CodeEmbeddingCLI({
@@ -133,6 +148,7 @@ describe('CodeEmbeddingCLI basics', () => {
     const lastWrite = writeFileSync.mock.calls.at(-1);
     expect(lastWrite).toBeDefined();
     const sql = String(lastWrite?.[1]);
+    expect(sql).toContain('SET standard_conforming_strings = on;');
     expect(sql).not.toContain('$code$const value');
     expect(sql).not.toContain('Reilly$code$');
     expect(sql).toContain(
