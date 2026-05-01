@@ -47,6 +47,21 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     [extraApps]
   );
 
+  // Dev-mode assertion: WorkspaceApp.id is used as a tab dom id and as the persistence
+  // key for the active app, so collisions cause silent UI bugs (clicking one tab
+  // selects another) rather than visible errors. Catch them at registration time.
+  if (process.env['NODE_ENV'] !== 'production') {
+    const seen = new Set<string>();
+    for (const app of apps) {
+      if (seen.has(app.id)) {
+        logger.error('Duplicate WorkspaceApp id detected — apps must have unique ids', {
+          duplicateId: app.id,
+        });
+      }
+      seen.add(app.id);
+    }
+  }
+
   const { tabs, openTab, closeTab, setActiveTab } = useTabManager();
   const { fileContents, loadingFiles, loadFileContent, fileTree, canLoadWithoutTree } =
     useFileExplorer();
@@ -384,15 +399,17 @@ function WorkspaceTabStrip({
           const status = tabStatuses.get(tab.compositeKey);
           const isLoading = loadingFiles.has(tab.compositeKey);
           const statusMessage = getTabStatusMessage(tab.compositeKey);
+          // FileTabButton receives the parent handlers verbatim and dispatches them with
+          // its own tab.id internally — no per-render arrow-closure recreation, so a
+          // future React.memo wrap stays effective. (The parent handlers themselves are
+          // stable via useCallback.)
           return (
             <FileTabButton
               isActive={isActive}
               isLoading={isLoading}
               key={tab.id}
-              onClose={() => onCloseFileTab(tab.id)}
-              onSelect={() => {
-                void onSelectFileTab(tab.id);
-              }}
+              onClose={onCloseFileTab}
+              onSelect={onSelectFileTab}
               status={status}
               statusMessage={statusMessage}
               tab={tab}
@@ -437,8 +454,14 @@ function AppTabButton({ app, isActive, onSelect }: AppTabButtonProps) {
 interface FileTabButtonProps {
   readonly isActive: boolean;
   readonly isLoading: boolean;
-  readonly onClose: () => void;
-  readonly onSelect: () => void;
+  /**
+   * Handlers receive the tab id as their argument. Wiring the dispatch *inside* the
+   * child (not via an inline arrow in the parent's `.map`) keeps the props stable
+   * across parent re-renders so a future `React.memo` wrap on FileTabButton stays
+   * effective.
+   */
+  readonly onClose: (tabId: string) => void;
+  readonly onSelect: (tabId: string) => void | Promise<void>;
   readonly status: TabFileStatus | undefined;
   readonly statusMessage: string | null;
   readonly tab: FileTab;
@@ -456,6 +479,16 @@ function FileTabButton({
   const fileName = getFileName(tab.path);
   const tabButtonId = `workspace-file-tab-${tab.id}`;
   const panelId = `workspace-file-panel-${tab.id}`;
+  const handleSelect = useCallback(() => {
+    void onSelect(tab.id);
+  }, [onSelect, tab.id]);
+  const handleClose = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.stopPropagation();
+      onClose(tab.id);
+    },
+    [onClose, tab.id]
+  );
   return (
     <div
       className={cn(
@@ -473,7 +506,7 @@ function FileTabButton({
         )}
         data-testid={tabButtonId}
         id={tabButtonId}
-        onClick={onSelect}
+        onClick={handleSelect}
         role="tab"
         title={statusMessage ?? fileName}
         type="button"
@@ -484,10 +517,7 @@ function FileTabButton({
       <Button
         aria-label={`Close ${fileName}`}
         className="mr-1 h-6 w-6 flex-shrink-0 rounded-sm"
-        onClick={(e) => {
-          e.stopPropagation();
-          onClose();
-        }}
+        onClick={handleClose}
         size="icon"
         title={`Close ${fileName}`}
         variant="ghost"

@@ -32,38 +32,45 @@ export function createSafeJsonStateStorage(options: CreateOptions): SafeJsonStat
   const { scope, migrateOnGet } = options;
   const logger = createLogger(scope);
   const memory = new Map<string, string>();
+  // Whether localStorage is reachable in this environment. The answer is fixed for the
+  // lifetime of the storage instance (SSR/jsdom sandboxes can't gain localStorage
+  // mid-session), so check once instead of on every accessor call.
+  const hasLocalStorage = typeof localStorage !== 'undefined';
 
   const fromLocalStorage = (key: string): string | null => {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        return localStorage.getItem(key);
-      }
-    } catch {
-      // SSR or sandbox without localStorage; fall back silently — log on writes only.
+    if (!hasLocalStorage) {
+      return null;
     }
-    return null;
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      // Sandbox or revoked-permission edge case; log on writes only.
+      return null;
+    }
   };
 
   const writeLocalStorage = (key: string, value: string): boolean => {
+    if (!hasLocalStorage) {
+      return false;
+    }
     try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(key, value);
-        return true;
-      }
+      localStorage.setItem(key, value);
+      return true;
     } catch (err) {
       logger.warn('localStorage.setItem failed; falling back to in-memory storage', {
         key,
         error: err instanceof Error ? err.message : String(err),
       });
+      return false;
     }
-    return false;
   };
 
   const removeLocalStorage = (key: string): void => {
+    if (!hasLocalStorage) {
+      return;
+    }
     try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.removeItem(key);
-      }
+      localStorage.removeItem(key);
     } catch (err) {
       logger.warn('localStorage.removeItem failed', {
         key,
