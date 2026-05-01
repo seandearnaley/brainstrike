@@ -417,7 +417,14 @@ export class CodeEmbeddingCLI {
         // Generate SQL for PostgreSQL with pgvector extension
         const sqlStatements = embeddings.map((e) => {
           const vectorString = `[${e.embedding.join(',')}]`;
-          return `INSERT INTO code_embeddings (id, file_path, language, start_line, end_line, content, embedding, model, created_at) VALUES (${toPostgresStringLiteral(e.id)}, ${toPostgresStringLiteral(e.filePath)}, ${toPostgresStringLiteral(e.language)}, ${e.startLine}, ${e.endLine}, ${toPostgresStringLiteral(e.content)}, ${toPostgresStringLiteral(vectorString)}::vector, ${toPostgresStringLiteral(e.model)}, ${toPostgresStringLiteral(e.timestamp)});`;
+          return [
+            'INSERT INTO code_embeddings',
+            '(id, file_path, language, start_line, end_line, content, embedding, model, created_at)',
+            `VALUES (${toPostgresStringLiteral(e.id)}, ${toPostgresStringLiteral(e.filePath)}, ${toPostgresStringLiteral(e.language)},`,
+            `${e.startLine}, ${e.endLine}, ${toPostgresStringLiteral(e.content)},`,
+            `${toPostgresStringLiteral(vectorString)}::vector, ${toPostgresStringLiteral(e.model)},`,
+            `${toPostgresStringLiteral(e.timestamp)});`,
+          ].join(' ');
         });
 
         const sqlContent = `-- Code embeddings generated at ${new Date().toISOString()}\n-- Total embeddings: ${embeddings.length}\n\nSET standard_conforming_strings = on;\n\n${sqlStatements.join('\n\n')}`;
