@@ -149,27 +149,12 @@ jobs:
           NODE_ENV: "test"
           TURBO_TEST_MODE: "coverage"
 
-      - name: Report Turbo test task timings
-        if: always() && steps.unit-tests.outcome != 'skipped'
-        run: |
-          set +e
-          : > turbo-test-timings.md
-          pnpm ci:timing-summary -- --task test --warn-ms 1200000 --fail-ms 1800000 --total-warn-ms 1500000 --total-fail-ms 1800000 --output turbo-test-timings.md
-          STATUS=$?
-          set -e
-          if [ -s turbo-test-timings.md ]; then
-            cat turbo-test-timings.md >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "No Turbo timing summary was generated." >> "$GITHUB_STEP_SUMMARY"
-          fi
-          exit "$STATUS"
-
       - name: Enforce package coverage thresholds
-        if: always() && steps.unit-tests.outputs.has_coverage == 'true'
+        if: steps.unit-tests.outputs.has_coverage == 'true'
         run: pnpm coverage:enforce
 
       - name: Comment PR with Coverage Summary
-        if: always() && steps.unit-tests.outputs.has_coverage == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        if: steps.unit-tests.outputs.has_coverage == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -277,6 +262,21 @@ jobs:
           name: unit-coverage
           path: coverage-bundle.tar
           retention-days: 1
+
+      - name: Report Turbo test task timings
+        if: always() && steps.unit-tests.outcome != 'skipped'
+        run: |
+          set +e
+          : > turbo-test-timings.md
+          pnpm ci:timing-summary -- --task test --warn-ms 1200000 --fail-ms 1800000 --total-warn-ms 1500000 --total-fail-ms 1800000 --output turbo-test-timings.md
+          STATUS=$?
+          set -e
+          if [ -s turbo-test-timings.md ]; then
+            cat turbo-test-timings.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No Turbo timing summary was generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$STATUS"
 
       - name: Append timing table footer
         if: always()

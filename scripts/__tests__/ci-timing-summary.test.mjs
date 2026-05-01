@@ -33,6 +33,7 @@ test('formatDuration renders compact seconds and minutes', () => {
   assert.equal(formatDuration(999), '999ms');
   assert.equal(formatDuration(12_345), '12.3s');
   assert.equal(formatDuration(185_000), '3m 5s');
+  assert.equal(formatDuration(119_500), '2m 0s');
 });
 
 test('parseTurboSummary sorts task timings and flags threshold breaches', () => {
