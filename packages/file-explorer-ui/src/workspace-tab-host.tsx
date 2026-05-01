@@ -723,5 +723,18 @@ function getDisplayContent(raw: string): { text: string; truncated: boolean } {
     return { text: raw, truncated: false };
   }
   const suffix = '\n\n… truncated for display …';
-  return { text: raw.slice(0, MAX_DOM_CHARS - suffix.length) + suffix, truncated: true };
+  let end = MAX_DOM_CHARS - suffix.length;
+  // Avoid splitting a UTF-16 surrogate pair (e.g. emoji or supplementary CJK at the
+  // cut boundary) which would render as a replacement character.
+  const HighSurrogateStart = 0xd8_00;
+  const HighSurrogateEnd = 0xdb_ff;
+  if (
+    end > 0 &&
+    end < raw.length &&
+    raw.charCodeAt(end - 1) >= HighSurrogateStart &&
+    raw.charCodeAt(end - 1) <= HighSurrogateEnd
+  ) {
+    end -= 1;
+  }
+  return { text: raw.slice(0, end) + suffix, truncated: true };
 }

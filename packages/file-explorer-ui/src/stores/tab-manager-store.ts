@@ -1,6 +1,9 @@
 import { createSafeJsonStateStorage } from '@brainstrike/storage';
+import { createLogger } from '@brainstrike/utils/logger';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+
+const logger = createLogger('TabManagerStore');
 
 export interface FileTabState {
   compositeKey: string;
@@ -103,7 +106,7 @@ const storage = createJSONStorage(() =>
 
 export const useTabManagerStore = create<TabManagerStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       tabs: [],
       activeTabId: null,
 
@@ -124,6 +127,13 @@ export const useTabManagerStore = create<TabManagerStore>()(
           if (nextTabs.length > MAX_TABS) {
             // TODO(tab-eviction-ux): surface a toast or visual cue when the oldest
             // tab is evicted so a 21st open does not look like a disappearing tab.
+            // Until then, log a warning so the silent eviction is at least debuggable.
+            const evicted = nextTabs[0];
+            logger.warn('Tab limit reached; evicting oldest tab', {
+              evictedId: evicted?.id,
+              evictedPath: evicted?.path,
+              limit: MAX_TABS,
+            });
             nextTabs.shift();
           }
           return { tabs: nextTabs, activeTabId: tabId };
@@ -131,25 +141,20 @@ export const useTabManagerStore = create<TabManagerStore>()(
       },
 
       closeTab: (tabId) => {
-        // NOTE: this relies on Zustand's `set` being synchronous — `nextActive` is
-        // assigned inside the updater and read after the call returns. Zustand has
-        // always run state updates synchronously, but if a future middleware or
-        // version ever batched `set` asynchronously, this read would observe the
-        // initial null and the return contract would silently break. If that ever
-        // becomes a concern, compute `nextActive` against `get()` before calling
-        // `set`, or use a snapshot subscription.
-        let nextActive: string | null = null;
-        set((state) => {
-          const newTabs = state.tabs.filter((t) => t.id !== tabId);
-          nextActive = state.activeTabId;
-          if (state.activeTabId === tabId) {
-            // Choose next tab in list or previous
-            const prevIndex = state.tabs.findIndex((t) => t.id === tabId);
-            const candidate = newTabs[prevIndex] || newTabs[prevIndex - 1] || null;
-            nextActive = candidate ? candidate.id : null;
-          }
-          return { tabs: newTabs, activeTabId: nextActive };
-        });
+        // Compute the successor against the snapshot from get() so the value we return
+        // never depends on observing post-set state — this used to reach into the
+        // updater closure via a let-mutation, which was correct but coupled the return
+        // contract to Zustand's synchronous-set internals. Reading first, then setting,
+        // makes the contract entirely explicit.
+        const state = get();
+        const newTabs = state.tabs.filter((t) => t.id !== tabId);
+        let nextActive = state.activeTabId;
+        if (state.activeTabId === tabId) {
+          const prevIndex = state.tabs.findIndex((t) => t.id === tabId);
+          const candidate = newTabs[prevIndex] || newTabs[prevIndex - 1] || null;
+          nextActive = candidate ? candidate.id : null;
+        }
+        set({ tabs: newTabs, activeTabId: nextActive });
         return nextActive;
       },
 
