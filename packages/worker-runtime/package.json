@@ -31,7 +31,8 @@
     "dev": "tsup src/index.ts --format esm,cjs --out-dir dist --watch",
     "lint": "pnpm -w lint --filter @brainstrike/worker-runtime",
     "test": "vitest run",
-    "type-check": "tsc --noEmit -p tsconfig.json"
+    "type-check": "tsc --noEmit -p tsconfig.json",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
   },
   "sideEffects": false,
   "turbo": {

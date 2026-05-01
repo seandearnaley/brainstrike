@@ -61,7 +61,7 @@
     "clean": "rimraf dist",
     "lint": "pnpm run --dir=../.. lint",
     "test": "vitest run",
-    "test:coverage": "pnpm -w test:coverage",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "types": "dist/index.d.ts"
