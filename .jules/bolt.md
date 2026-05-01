@@ -44,3 +44,7 @@
 ## 2026-04-03 - Replacing string.split with native indexOf for chunking hot paths
 **Learning:** For hot paths such as `splitByBlankLines`, `String.prototype.split(/\r?\n/)` eagerly allocates an intermediate array of every line, which increases garbage collection pressure on large text bodies. Even where a downstream API still needs a line array, centralizing the scan logic makes behavior fixes easier to apply consistently.
 **Action:** Replace repeated `.split()` line scanning with a shared `indexOf('\n')` loop that only normalizes `\r` when it precedes an actual newline. Use that helper for streaming blank-line splitting and for any call sites that still need to materialize line arrays.
+
+## 2024-05-01 - Optimize MigrationRunner verify method
+**Learning:** In `@brainstrike/db`'s `MigrationRunner`, verifying multiple migrations previously involved an N+1 iterative query inside a loop (`SELECT checksum FROM _migrations WHERE version = $1`). This was causing significant overhead since database round trips are expensive, even with a local SQLite/PGlite database.
+**Action:** Replace iterative DB lookups with a single batched query using the `WHERE column = ANY($1)` syntax combined with an array of values (`versions`), mapping the result to a JavaScript `Map` for subsequent O(1) in-memory lookups.
