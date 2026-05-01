@@ -1,3 +1,4 @@
+import { createSafeJsonStateStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -38,109 +39,62 @@ interface PersistedState {
 }
 
 const STORE_NAME = 'tab-manager.v1' as const;
+const LEGACY_STORE_KEY = 'fileEditorTabs.v1' as const;
 const MAX_TABS = 20;
 
-const storage = createJSONStorage(() => {
-  // Safe storage wrapper for SSR/tests with one-time migration from legacy key
-  const memory = new Map<string, string>();
-  const LegacyKey = 'fileEditorTabs.v1';
-
-  const fromLocalStorage = (key: string): string | null => {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        return localStorage.getItem(key);
-      }
-    } catch {}
+/**
+ * One-time migration from the pre-rename `fileEditorTabs.v1` key into the canonical
+ * `tab-manager.v1` shape. Wired into the shared safe-state-storage's `migrateOnGet`
+ * hook so a clean install never pays the cost.
+ */
+function migrateLegacyTabKey(name: string): string | null {
+  if (name !== STORE_NAME || typeof localStorage === 'undefined') {
     return null;
-  };
-
-  const writeLocalStorage = (key: string, value: string) => {
+  }
+  let legacy: string | null = null;
+  try {
+    legacy = localStorage.getItem(LEGACY_STORE_KEY);
+  } catch {
+    return null;
+  }
+  if (!legacy) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(legacy) as {
+      tabs?: Array<{ id: string; path: string; compositeKey: string }>;
+      activeTabId?: string | null;
+    };
+    const migrated: PersistedState = {
+      tabs: Array.isArray(parsed.tabs)
+        ? parsed.tabs.map((t) => ({
+            id: String(t.id),
+            path: String(t.path),
+            compositeKey: String(t.compositeKey),
+          }))
+        : [],
+      activeTabId: (parsed.activeTabId ?? null) as string | null,
+    };
+    const wrapped = JSON.stringify({ state: migrated, version: 1 });
     try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(key, value);
-      }
-    } catch {}
-  };
-
-  const removeLocalStorage = (key: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.removeItem(key);
-      }
-    } catch {}
-  };
-
-  const migrateIfNeeded = (name: string): string | null => {
-    if (name !== STORE_NAME) {
-      return null;
-    }
-    const legacy = fromLocalStorage(LegacyKey);
-    if (!legacy) {
-      return null;
-    }
-    try {
-      const parsed = JSON.parse(legacy) as {
-        tabs?: Array<{ id: string; path: string; compositeKey: string }>;
-        activeTabId?: string | null;
-      };
-      const migrated: PersistedState = {
-        tabs: Array.isArray(parsed.tabs)
-          ? parsed.tabs.map((t) => ({
-              id: String(t.id),
-              path: String(t.path),
-              compositeKey: String(t.compositeKey),
-            }))
-          : [],
-        activeTabId: (parsed.activeTabId ?? null) as string | null,
-      };
-      const wrapped = JSON.stringify({ state: migrated, version: 1 });
-      writeLocalStorage(name, wrapped);
-      removeLocalStorage(LegacyKey);
-      return wrapped;
+      localStorage.setItem(name, wrapped);
+      localStorage.removeItem(LEGACY_STORE_KEY);
     } catch {
-      return null;
+      // If we can't persist the migrated value, still return it so the runtime store
+      // hydrates correctly for this session.
     }
-  };
+    return wrapped;
+  } catch {
+    return null;
+  }
+}
 
-  const ensureValidJson = (name: string, value: string | null): string | null => {
-    if (value === null) {
-      return null;
-    }
-    try {
-      JSON.parse(value);
-      return value;
-    } catch {
-      removeLocalStorage(name);
-      memory.delete(name);
-      return null;
-    }
-  };
-
-  return {
-    getItem: (name: string) => {
-      const direct = ensureValidJson(name, fromLocalStorage(name));
-      if (direct !== null) {
-        return direct;
-      }
-      const migrated = migrateIfNeeded(name);
-      const validatedMigrated = ensureValidJson(name, migrated);
-      if (validatedMigrated !== null) {
-        return validatedMigrated;
-      }
-      return ensureValidJson(name, memory.get(name) ?? null);
-    },
-    setItem: (name: string, value: string) => {
-      writeLocalStorage(name, value);
-      if (!fromLocalStorage(name)) {
-        memory.set(name, value);
-      }
-    },
-    removeItem: (name: string) => {
-      removeLocalStorage(name);
-      memory.delete(name);
-    },
-  };
-});
+const storage = createJSONStorage(() =>
+  createSafeJsonStateStorage({
+    scope: 'TabManagerStore',
+    migrateOnGet: migrateLegacyTabKey,
+  })
+);
 
 export const useTabManagerStore = create<TabManagerStore>()(
   persist(

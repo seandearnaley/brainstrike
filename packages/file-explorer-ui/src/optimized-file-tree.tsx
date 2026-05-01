@@ -1598,19 +1598,19 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
    * VS Code-style click semantics: clicking a file row opens it as a workspace tab.
    * Selection (the checkbox) stays the dedicated multi-select affordance for context
    * export, so users can build selections without opening every file as a tab.
+   *
+   * a11y: this is a mouse-only affordance today. We intentionally do NOT mark the
+   * label `role="button"` because the parent TreeTable row is already a `treeitem`
+   * and nesting interactive roles confuses some screen reader + browser combos
+   * (e.g. "file.txt, button, tree item"). Keyboard activation will be wired through
+   * the parent TreeTable's `selectionMode="single"` + `onSelect` in a follow-up so
+   * Enter on a focused row opens the file via the same code path as a click.
    */
   const handleFileNameClick = useEventCallback(() => {
     if (fileNode.type !== 'file' || !openFileInTab) {
       return;
     }
     openFileInTab(encodeFileSelection(folderId, fileNode.path));
-  });
-
-  const handleFileNameKeyDown = useEventCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      handleFileNameClick();
-    }
   });
 
   const selectionState = computeNodeSelectionState(
@@ -1670,22 +1670,16 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
         />
       </div>
 
-      {/*
-        a11y note: this clickable label uses tabIndex: -1 so it doesn't introduce a second
-        tab stop alongside the surrounding TreeTable treeitem (the tree owns roving
-        tabindex). Keyboard-only users currently can't activate "open in tab" without a
-        prior mouse click — TreeTable's selectionMode is "none", so its onSelect callback
-        doesn't fire on Enter/Space. Follow-up: switch the file tree to selectionMode
-        "single" and wire onSelect to openFileInTab so keyboard activation matches mouse.
-      */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: see handleFileNameClick comment.
+            The parent TreeTable row owns the `treeitem` semantics; nesting `role="button"`
+            here would announce as "file.txt, button, tree item" on some screen readers.
+            Keyboard activation is intentionally deferred to the planned TreeTable.onSelect
+            follow-up so a single, well-known affordance (Enter on focused row) handles it. */}
       <div
         {...(fileNode.type === 'file'
           ? {
               className: 'flex min-w-0 flex-1 cursor-pointer items-center',
               onClick: handleFileNameClick,
-              onKeyDown: handleFileNameKeyDown,
-              role: 'button' as const,
-              tabIndex: -1,
             }
           : { className: 'flex min-w-0 flex-1 items-center' })}
       >
