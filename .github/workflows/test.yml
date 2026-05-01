@@ -153,7 +153,7 @@ jobs:
         if: always() && steps.unit-tests.outcome != 'skipped'
         run: |
           set -o pipefail
-          pnpm ci:timing-summary -- --task test --warn-ms 1200000 --fail-ms 1800000 | tee -a "$GITHUB_STEP_SUMMARY"
+          pnpm ci:timing-summary -- --task test --warn-ms 1200000 --fail-ms 1800000 --total-warn-ms 1500000 --total-fail-ms 1800000 | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Enforce package coverage thresholds
         if: steps.unit-tests.outputs.has_coverage == 'true'

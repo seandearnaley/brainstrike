@@ -8,6 +8,7 @@ import {
   findLatestTurboSummary,
   formatDuration,
   parseTurboSummary,
+  renderGitHubAnnotations,
   renderMarkdownSummary,
   runCli,
 } from '../ci-timing-summary.mjs';
@@ -62,7 +63,25 @@ test('parseTurboSummary sorts task timings and flags threshold breaches', () => 
   assert.equal(summary.hasFailures, true);
 });
 
-test('renderMarkdownSummary includes slowest tasks and failure annotations', () => {
+test('parseTurboSummary flags total Turbo time threshold breaches', () => {
+  const summary = parseTurboSummary(
+    {
+      execution: {
+        command: 'turbo run test',
+        startTime: 1_000,
+        endTime: 181_000,
+        success: true,
+      },
+      tasks: [task('@brainstrike/db#test', 'test', 1_000, 2_000)],
+    },
+    { task: 'test', totalFailMs: 120_000 }
+  );
+
+  assert.equal(summary.totalStatus, 'fail');
+  assert.equal(summary.hasFailures, true);
+});
+
+test('renderMarkdownSummary includes slowest tasks without workflow commands', () => {
   const summary = parseTurboSummary(
     {
       execution: {
@@ -80,7 +99,28 @@ test('renderMarkdownSummary includes slowest tasks and failure annotations', () 
 
   assert.match(markdown, /## Turbo test Task Durations/);
   assert.match(markdown, /@brainstrike\/db#test/);
-  assert.match(markdown, /::error title=Slow Turbo task::@brainstrike\/db#test took 3m 0s/);
+  assert.doesNotMatch(markdown, /::error/);
+});
+
+test('renderGitHubAnnotations reports total and task threshold breaches', () => {
+  const summary = parseTurboSummary(
+    {
+      execution: {
+        command: 'turbo run test',
+        startTime: 1_000,
+        endTime: 181_000,
+        success: true,
+      },
+      tasks: [task('@brainstrike/db#test', 'test', 1_000, 181_000)],
+    },
+    { task: 'test', failMs: 120_000, totalFailMs: 120_000 }
+  );
+
+  const annotations = renderGitHubAnnotations(summary);
+
+  assert.match(renderMarkdownSummary(summary), /Total Turbo time: 3m 0s \(fail\)/);
+  assert.match(annotations, /::error title=Slow Turbo run::turbo run test took 3m 0s/);
+  assert.match(annotations, /::error title=Slow Turbo task::@brainstrike\/db#test took 3m 0s/);
 });
 
 test('findLatestTurboSummary returns the newest JSON file', async () => {
@@ -100,6 +140,8 @@ test('findLatestTurboSummary returns the newest JSON file', async () => {
 
 test('runCli writes markdown and returns non-zero when fail threshold is crossed', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-turbo-cli-'));
+  const originalConsoleError = console.error;
+  console.error = () => {};
   try {
     const summaryPath = path.join(dir, 'summary.json');
     const outputPath = path.join(dir, 'summary.md');
@@ -132,6 +174,7 @@ test('runCli writes markdown and returns non-zero when fail threshold is crossed
     assert.equal(exitCode, 1);
     assert.match(await readFile(outputPath, 'utf8'), /@brainstrike\/db#test/);
   } finally {
+    console.error = originalConsoleError;
     await rm(dir, { force: true, recursive: true });
   }
 });

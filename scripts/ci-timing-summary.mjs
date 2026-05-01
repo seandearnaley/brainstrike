@@ -19,6 +19,8 @@ function normalizeOptions(options = {}) {
     task: options.task ?? DEFAULT_TASK,
     warnMs: asNumber(options.warnMs, DEFAULT_WARN_MS),
     failMs: asNumber(options.failMs, DEFAULT_FAIL_MS),
+    totalWarnMs: asNumber(options.totalWarnMs, options.warnMs ?? DEFAULT_WARN_MS),
+    totalFailMs: asNumber(options.totalFailMs, options.failMs ?? DEFAULT_FAIL_MS),
   };
 }
 
@@ -83,16 +85,27 @@ export function parseTurboSummary(summaryJson, options = {}) {
     typeof summaryJson?.execution?.endTime === 'number'
       ? summaryJson.execution.endTime - summaryJson.execution.startTime
       : null;
+  const totalStatus =
+    executionDurationMs === null
+      ? 'unknown'
+      : classifyDuration(
+          executionDurationMs,
+          resolvedOptions.totalWarnMs,
+          resolvedOptions.totalFailMs
+        );
 
   return {
     command: String(summaryJson?.execution?.command ?? 'unknown'),
     task: resolvedOptions.task,
     warnMs: resolvedOptions.warnMs,
     failMs: resolvedOptions.failMs,
+    totalWarnMs: resolvedOptions.totalWarnMs,
+    totalFailMs: resolvedOptions.totalFailMs,
     executionDurationMs,
+    totalStatus,
     tasks: parsedTasks,
-    hasFailures: parsedTasks.some((task) => task.status === 'fail'),
-    hasWarnings: parsedTasks.some((task) => task.status === 'warn'),
+    hasFailures: totalStatus === 'fail' || parsedTasks.some((task) => task.status === 'fail'),
+    hasWarnings: totalStatus === 'warn' || parsedTasks.some((task) => task.status === 'warn'),
   };
 }
 
@@ -112,10 +125,13 @@ export function renderMarkdownSummary(summary) {
     '',
     `Command: \`${summary.command}\``,
     `Warn threshold: ${formatDuration(summary.warnMs)} | Fail threshold: ${formatDuration(summary.failMs)}`,
+    `Total warn threshold: ${formatDuration(summary.totalWarnMs)} | Total fail threshold: ${formatDuration(summary.totalFailMs)}`,
   ];
 
   if (typeof summary.executionDurationMs === 'number') {
-    lines.push(`Total Turbo time: ${formatDuration(summary.executionDurationMs)}`);
+    lines.push(
+      `Total Turbo time: ${formatDuration(summary.executionDurationMs)} (${summary.totalStatus})`
+    );
   }
 
   if (summary.tasks.length === 0) {
@@ -127,6 +143,19 @@ export function renderMarkdownSummary(summary) {
   for (const task of summary.tasks) {
     lines.push(
       `| \`${task.taskId}\` | ${formatDuration(task.durationMs)} | ${task.cacheStatus} | ${markdownStatus(task.status)} |`
+    );
+  }
+
+  return lines.join('\n');
+}
+
+export function renderGitHubAnnotations(summary) {
+  const lines = [];
+  if (typeof summary.executionDurationMs === 'number' && summary.totalStatus !== 'ok') {
+    const annotation = summary.totalStatus === 'fail' ? 'error' : 'warning';
+    const title = summary.totalStatus === 'fail' ? 'Slow Turbo run' : 'Elevated Turbo run duration';
+    lines.push(
+      `::${annotation} title=${title}::${summary.command} took ${formatDuration(summary.executionDurationMs)}`
     );
   }
 
@@ -170,6 +199,8 @@ export async function runCli(args = process.argv.slice(2)) {
   const task = readFlagValue(args, '--task') ?? DEFAULT_TASK;
   const warnMs = asNumber(readFlagValue(args, '--warn-ms'), DEFAULT_WARN_MS);
   const failMs = asNumber(readFlagValue(args, '--fail-ms'), DEFAULT_FAIL_MS);
+  const totalWarnMs = asNumber(readFlagValue(args, '--total-warn-ms'), warnMs);
+  const totalFailMs = asNumber(readFlagValue(args, '--total-fail-ms'), failMs);
   const output = readFlagValue(args, '--output');
   const summaryPath = explicitSummary ?? (await findLatestTurboSummary(runsDir));
 
@@ -179,13 +210,17 @@ export async function runCli(args = process.argv.slice(2)) {
   }
 
   const summaryJson = JSON.parse(await readFile(summaryPath, 'utf8'));
-  const summary = parseTurboSummary(summaryJson, { task, warnMs, failMs });
+  const summary = parseTurboSummary(summaryJson, { task, warnMs, failMs, totalWarnMs, totalFailMs });
   const markdown = renderMarkdownSummary(summary);
+  const annotations = renderGitHubAnnotations(summary);
 
   if (output) {
     await writeFile(output, `${markdown}\n`);
   } else {
     console.log(markdown);
+  }
+  if (annotations) {
+    console.error(annotations);
   }
 
   return summary.hasFailures || summary.tasks.length === 0 ? 1 : 0;
