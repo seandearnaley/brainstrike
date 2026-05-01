@@ -89,12 +89,39 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
 
   // Track in-flight permission requests to ignore double-clicks.
   const permissionRequestsInProgressRef = useRef<Set<string>>(new Set());
+  // Guard async post-await work against firing on an unmounted component (the
+  // permission prompt can resolve seconds after the user navigates away).
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
-  const handleSelectApp = useCallback(
-    (appId: string) => {
-      selectApp(appId);
+  const ensurePermissionForTab = useCallback(
+    async (compositeKey: string): Promise<void> => {
+      // Permission requests must happen synchronously from the user gesture; the
+      // in-flight Set dedupes double-clicks so we don't fire two prompts.
+      if (permissionRequestsInProgressRef.current.has(compositeKey)) {
+        return;
+      }
+      permissionRequestsInProgressRef.current.add(compositeKey);
+      try {
+        const granted = await requestTabPermission(compositeKey);
+        if (isMountedRef.current && granted) {
+          void loadFileContent(compositeKey);
+        }
+      } catch (err) {
+        logger.error('Failed to request file permission', {
+          compositeKey,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      } finally {
+        permissionRequestsInProgressRef.current.delete(compositeKey);
+      }
     },
-    [selectApp]
+    [requestTabPermission, loadFileContent]
   );
 
   const handleSelectFileTab = useCallback(
@@ -104,30 +131,16 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         return;
       }
       const status = tabStatuses.get(tab.compositeKey);
-      // Permission requests must happen synchronously from the user gesture.
-      if (
-        status?.status === 'needs-permission' &&
-        !permissionRequestsInProgressRef.current.has(tab.compositeKey)
-      ) {
-        permissionRequestsInProgressRef.current.add(tab.compositeKey);
-        try {
-          const granted = await requestTabPermission(tab.compositeKey);
-          if (granted) {
-            void loadFileContent(tab.compositeKey);
-          }
-        } catch (err) {
-          logger.error('Failed to request file permission', {
-            compositeKey: tab.compositeKey,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        } finally {
-          permissionRequestsInProgressRef.current.delete(tab.compositeKey);
-        }
+      if (status?.status === 'needs-permission') {
+        await ensurePermissionForTab(tab.compositeKey);
+      }
+      if (!isMountedRef.current) {
+        return;
       }
       setActiveTab(tabId);
       selectFile(tabId);
     },
-    [tabs, tabStatuses, requestTabPermission, loadFileContent, setActiveTab, selectFile]
+    [tabs, tabStatuses, ensurePermissionForTab, setActiveTab, selectFile]
   );
 
   const handleCloseFileTab = useCallback(
@@ -282,7 +295,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         getTabStatusMessage={getStatusMessage}
         loadingFiles={loadingFiles}
         onCloseFileTab={handleCloseFileTab}
-        onSelectApp={handleSelectApp}
+        onSelectApp={selectApp}
         onSelectFileTab={handleSelectFileTab}
         selection={selection}
         tabStatuses={tabStatuses}
@@ -632,8 +645,9 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
     );
   }
 
-  const { text, truncated } = getDisplayContent(content);
-
+  // Short-circuit before truncation: the inaccessible branch renders the full `content`
+  // verbatim, so running getDisplayContent first would do throwaway work and (for a very
+  // verbose error message above MAX_DOM_CHARS) produce an unused truncated string.
   if (content.startsWith(INACCESSIBLE_CONTENT_PREFIX)) {
     return (
       <div className="h-full overflow-auto p-4">
@@ -645,6 +659,8 @@ function FileTabBody({ tab, content, isLoading, isRestoring, status }: FileTabBo
       </div>
     );
   }
+
+  const { text, truncated } = getDisplayContent(content);
 
   return (
     <pre
