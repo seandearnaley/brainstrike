@@ -1,0 +1,164 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { test } from 'node:test';
+
+import {
+  findLatestTurboSummary,
+  formatDuration,
+  parseTurboSummary,
+  renderMarkdownSummary,
+  runCli,
+} from '../ci-timing-summary.mjs';
+
+function task(taskId, taskName, startTime, endTime, status = 'MISS') {
+  return {
+    taskId,
+    task: taskName,
+    package: taskId.split('#')[0],
+    cache: {
+      status,
+    },
+    execution: {
+      startTime,
+      endTime,
+      exitCode: 0,
+    },
+  };
+}
+
+test('formatDuration renders compact seconds and minutes', () => {
+  assert.equal(formatDuration(999), '999ms');
+  assert.equal(formatDuration(12_345), '12.3s');
+  assert.equal(formatDuration(185_000), '3m 5s');
+});
+
+test('parseTurboSummary sorts task timings and flags threshold breaches', () => {
+  const summary = parseTurboSummary(
+    {
+      execution: {
+        command: 'turbo run test',
+        startTime: 1_000,
+        endTime: 190_000,
+        success: true,
+      },
+      tasks: [
+        task('@brainstrike/fast#test', 'test', 5_000, 7_000, 'HIT'),
+        task('@brainstrike/db#test', 'test', 10_000, 190_000),
+        task('@brainstrike/web#build', 'build', 1_000, 2_500),
+      ],
+    },
+    { task: 'test', warnMs: 30_000, failMs: 120_000 }
+  );
+
+  assert.deepEqual(
+    summary.tasks.map((entry) => entry.taskId),
+    ['@brainstrike/db#test', '@brainstrike/fast#test']
+  );
+  assert.equal(summary.tasks[0].durationMs, 180_000);
+  assert.equal(summary.tasks[0].status, 'fail');
+  assert.equal(summary.tasks[1].cacheStatus, 'HIT');
+  assert.equal(summary.hasFailures, true);
+});
+
+test('renderMarkdownSummary includes slowest tasks and failure annotations', () => {
+  const summary = parseTurboSummary(
+    {
+      execution: {
+        command: 'turbo run test',
+        startTime: 1_000,
+        endTime: 190_000,
+        success: true,
+      },
+      tasks: [task('@brainstrike/db#test', 'test', 10_000, 190_000)],
+    },
+    { task: 'test', warnMs: 30_000, failMs: 120_000 }
+  );
+
+  const markdown = renderMarkdownSummary(summary);
+
+  assert.match(markdown, /## Turbo test Task Durations/);
+  assert.match(markdown, /@brainstrike\/db#test/);
+  assert.match(markdown, /::error title=Slow Turbo task::@brainstrike\/db#test took 3m 0s/);
+});
+
+test('findLatestTurboSummary returns the newest JSON file', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-turbo-runs-'));
+  try {
+    const older = path.join(dir, 'older.json');
+    const newer = path.join(dir, 'newer.json');
+    await writeFile(older, '{}');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await writeFile(newer, '{}');
+
+    assert.equal(await findLatestTurboSummary(dir), newer);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test('runCli writes markdown and returns non-zero when fail threshold is crossed', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-turbo-cli-'));
+  try {
+    const summaryPath = path.join(dir, 'summary.json');
+    const outputPath = path.join(dir, 'summary.md');
+    await writeFile(
+      summaryPath,
+      JSON.stringify({
+        execution: {
+          command: 'turbo run test',
+          startTime: 1_000,
+          endTime: 190_000,
+          success: true,
+        },
+        tasks: [task('@brainstrike/db#test', 'test', 10_000, 190_000)],
+      })
+    );
+
+    const exitCode = await runCli([
+      '--summary',
+      summaryPath,
+      '--task',
+      'test',
+      '--warn-ms',
+      '30000',
+      '--fail-ms',
+      '120000',
+      '--output',
+      outputPath,
+    ]);
+
+    assert.equal(exitCode, 1);
+    assert.match(await readFile(outputPath, 'utf8'), /@brainstrike\/db#test/);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test('runCli returns non-zero when the summary has no matching task', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-turbo-cli-empty-'));
+  try {
+    const summaryPath = path.join(dir, 'summary.json');
+    const outputPath = path.join(dir, 'summary.md');
+    await writeFile(
+      summaryPath,
+      JSON.stringify({
+        execution: {
+          command: 'turbo run build',
+          startTime: 1_000,
+          endTime: 2_000,
+          success: true,
+        },
+        tasks: [task('@brainstrike/db#build', 'build', 1_000, 2_000)],
+      })
+    );
+
+    const exitCode = await runCli(['--summary', summaryPath, '--task', 'test', '--output', outputPath]);
+
+    assert.equal(exitCode, 1);
+    assert.match(await readFile(outputPath, 'utf8'), /No `test` tasks were found/);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
