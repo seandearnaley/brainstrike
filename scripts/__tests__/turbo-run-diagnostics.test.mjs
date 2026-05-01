@@ -97,3 +97,19 @@ test('runCli writes diagnostics markdown', async () => {
     await rm(dir, { force: true, recursive: true });
   }
 });
+
+test('runCli rejects duplicate flags', async () => {
+  const originalConsoleError = console.error;
+  const errors = [];
+  console.error = (message) => {
+    errors.push(String(message));
+  };
+  try {
+    const exitCode = await runCli(['--task', 'test', '--task', 'build']);
+
+    assert.equal(exitCode, 1);
+    assert.match(errors.join('\n'), /--task can only be provided once/);
+  } finally {
+    console.error = originalConsoleError;
+  }
+});

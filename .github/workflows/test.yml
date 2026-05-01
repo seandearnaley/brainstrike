@@ -93,7 +93,7 @@ jobs:
         if: ${{ !cancelled() && matrix.phase == 'static' }}
         run: |
           set +e
-          pnpm ci:turbo-diagnostics -- --task type-check --output turbo-type-check-diagnostics.md
+          pnpm ci:turbo-diagnostics -- --runs-dir .turbo/runs --task type-check --output turbo-type-check-diagnostics.md
           STATUS=$?
           set -e
           if [ -s turbo-type-check-diagnostics.md ]; then
@@ -120,7 +120,7 @@ jobs:
         if: ${{ !cancelled() && matrix.phase == 'static' }}
         run: |
           set +e
-          pnpm ci:turbo-diagnostics -- --task build --output turbo-build-diagnostics.md
+          pnpm ci:turbo-diagnostics -- --runs-dir .turbo/runs --task build --output turbo-build-diagnostics.md
           STATUS=$?
           set -e
           if [ -s turbo-build-diagnostics.md ]; then

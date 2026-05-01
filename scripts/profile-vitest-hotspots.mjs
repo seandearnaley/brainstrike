@@ -62,7 +62,10 @@ function runCommand(command, args, env) {
     });
 
     child.on('close', (code) => resolve(code ?? 1));
-    child.on('error', () => resolve(1));
+    child.on('error', (error) => {
+      console.error(`Failed to spawn ${command}: ${error.message}`);
+      resolve(1);
+    });
   });
 }
 

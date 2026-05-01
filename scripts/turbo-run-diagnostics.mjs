@@ -14,6 +14,9 @@ function readFlagValue(args, name) {
   if (index === -1) {
     return undefined;
   }
+  if (args.indexOf(name, index + 1) !== -1) {
+    throw new Error(`${name} can only be provided once`);
+  }
   const value = args[index + 1];
   if (value === undefined || value.startsWith('-')) {
     throw new Error(`${name} requires a value`);
