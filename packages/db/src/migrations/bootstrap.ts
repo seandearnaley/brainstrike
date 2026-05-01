@@ -1,6 +1,9 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { runMigrations } from '../drizzle/migrate.js';
 
+export const PGVECTOR_EXTENSION_PRESENCE_QUERY =
+  "SELECT 1 FROM pg_extension WHERE extname = 'vector'";
+
 /**
  * Production migration bootstrap for greenfield Brainstrike databases.
  */

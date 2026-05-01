@@ -19,7 +19,7 @@ import {
   type ScheduledDbHandle,
 } from './database-work-scheduler.js';
 import { type DrizzleDb, drizzle } from './drizzle/database.js';
-import { migrate } from './migrations/bootstrap.js';
+import { migrate, PGVECTOR_EXTENSION_PRESENCE_QUERY } from './migrations/bootstrap.js';
 import { DrizzleFileChunkRepository } from './repositories/drizzle/file-chunk-repository.js';
 import { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-repository.js';
 import { ElectronFileChunkRepository } from './repositories/electron-file-chunk-repository.js';
@@ -438,7 +438,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       let hasVector = false;
       let diagnostics: DatabaseDiagnosticsSnapshot | null = null;
       try {
-        const res = await electronDB.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
+        const res = await electronDB.query(PGVECTOR_EXTENSION_PRESENCE_QUERY);
         hasVector = Array.isArray(res.rows) && res.rows.length > 0;
       } catch (error) {
         diagnostics = await getElectronDiagnostics(electronDB);
@@ -497,9 +497,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       // Check if pgvector extension is available
       let hasVector = false;
       try {
-        const result = await scheduledDb.query(
-          "SELECT 1 FROM pg_extension WHERE extname = 'vector'"
-        );
+        const result = await scheduledDb.query(PGVECTOR_EXTENSION_PRESENCE_QUERY);
         hasVector = result.rows.length > 0;
         logger.debug('pgvector extension detected', { available: hasVector });
       } catch (err) {
