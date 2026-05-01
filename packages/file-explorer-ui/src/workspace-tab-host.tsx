@@ -1,4 +1,8 @@
-import { type TabFileStatus, useTabFileRestoration } from '@brainstrike/file-explorer-hooks';
+import {
+  INACCESSIBLE_CONTENT_PREFIX,
+  type TabFileStatus,
+  useTabFileRestoration,
+} from '@brainstrike/file-explorer-hooks';
 import { Button, cn, useIdeFileEditor } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
@@ -28,20 +32,6 @@ const logger = createLogger('WorkspaceTabHost');
 
 /** Hard cap on how much text we paint into the DOM per panel. Beyond this we truncate visibly. */
 const MAX_DOM_CHARS = 200_000;
-
-/**
- * Sentinel content prefix written by `use-shared-file-content-loading` and
- * `use-file-content-loading` when a file handle exists but is unreadable
- * (permission missing, folder mismatch, etc.). Pattern-matching on raw content
- * is brittle — TODO(BST-XXX): replace with a structured status (e.g. an
- * 'inaccessible' entry on the tabStatuses map produced by
- * use-tab-file-restoration) so producers and consumers share a typed contract
- * instead of an English-prose prefix. Mirrors the same prefix used by
- * `app-shell/.../workspace-collection-sync-service.ts` and
- * `file-explorer-ui/.../use-persistent-token-cache.ts`; consolidating those is
- * part of the same follow-up.
- */
-const INACCESSIBLE_CONTENT_PREFIX = 'File not accessible';
 
 const CONTEXT_EXPLORER_APP: WorkspaceApp = {
   id: CONTEXT_EXPLORER_APP_ID,
