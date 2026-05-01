@@ -175,7 +175,7 @@ export function createDesktopDatabaseMaintenanceScheduler(
   return {
     runOnce,
     start: () => {
-      if (timer !== null) {
+      if (initialTimer !== null || timer !== null) {
         return;
       }
       initialTimer = setTimeout(() => {
@@ -183,14 +183,14 @@ export function createDesktopDatabaseMaintenanceScheduler(
         void runOnce().catch((error: unknown) => {
           options.logger.error({ error }, 'Scheduled database maintenance failed');
         });
+        timer = setInterval(() => {
+          void runOnce().catch((error: unknown) => {
+            options.logger.error({ error }, 'Scheduled database maintenance failed');
+          });
+        }, intervalMs);
+        timer.unref?.();
       }, initialDelayMs);
       initialTimer.unref?.();
-      timer = setInterval(() => {
-        void runOnce().catch((error: unknown) => {
-          options.logger.error({ error }, 'Scheduled database maintenance failed');
-        });
-      }, intervalMs);
-      timer.unref?.();
     },
     stop: () => {
       if (initialTimer !== null) {
