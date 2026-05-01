@@ -301,6 +301,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
   useHotkeys(
     'ctrl+w, cmd+w',
     (e) => {
+      // Web: native Ctrl/Cmd+W closes the browser tab; do not intercept.
       if (!isDesktopRenderer()) {
         return;
       }
@@ -309,7 +310,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         handleCloseFileTab(selection.tabId);
       }
     },
-    undefined,
+    {}, // no options; the deps array is the 4th arg (v5 signature is keys, cb, options?, deps?)
     [selection, handleCloseFileTab]
   );
   const cycleFileTab = useCallback(
@@ -338,7 +339,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
       e.preventDefault();
       cycleFileTab('prev');
     },
-    undefined,
+    {},
     [cycleFileTab]
   );
   useHotkeys(
@@ -347,7 +348,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
       e.preventDefault();
       cycleFileTab('next');
     },
-    undefined,
+    {},
     [cycleFileTab]
   );
 
