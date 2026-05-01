@@ -305,3 +305,36 @@ test('runCli rejects flags without explicit values', async () => {
     console.error = originalConsoleError;
   }
 });
+
+test('runCli reports output write failures', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-turbo-cli-output-'));
+  const originalConsoleError = console.error;
+  const errors = [];
+  console.error = (message) => {
+    errors.push(String(message));
+  };
+  try {
+    const summaryPath = path.join(dir, 'summary.json');
+    const outputPath = path.join(dir, 'missing', 'summary.md');
+    await writeFile(
+      summaryPath,
+      JSON.stringify({
+        execution: {
+          command: 'turbo run test',
+          startTime: 1_000,
+          endTime: 2_000,
+          success: true,
+        },
+        tasks: [task('@brainstrike/db#test', 'test', 1_000, 2_000)],
+      })
+    );
+
+    const exitCode = await runCli(['--summary', summaryPath, '--task', 'test', '--output', outputPath]);
+
+    assert.equal(exitCode, 1);
+    assert.match(errors.join('\n'), new RegExp(outputPath.replaceAll('/', '\\/')));
+  } finally {
+    console.error = originalConsoleError;
+    await rm(dir, { force: true, recursive: true });
+  }
+});

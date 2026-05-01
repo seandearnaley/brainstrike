@@ -245,7 +245,13 @@ export async function runCli(args = process.argv.slice(2)) {
   const annotations = renderGitHubAnnotations(summary);
 
   if (output) {
-    await writeFile(output, `${markdown}\n`);
+    try {
+      await writeFile(output, `${markdown}\n`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to write Turbo timing summary to ${output}: ${message}`);
+      return 1;
+    }
   } else {
     console.log(markdown);
   }
