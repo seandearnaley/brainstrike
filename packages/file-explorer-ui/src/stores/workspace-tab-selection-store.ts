@@ -82,6 +82,25 @@ const storage = createJSONStorage(() => {
   };
 });
 
+/**
+ * Validate the persisted selection shape. localStorage can be tampered with from DevTools or
+ * corrupted across versions — without this guard, `{ kind: 'file' }` (no tabId) would crash
+ * any consumer reading `selection.tabId`. Falls back to the default on any malformed payload.
+ */
+function coerceSelection(value: unknown): WorkspaceTabSelection {
+  if (typeof value !== 'object' || value === null) {
+    return DEFAULT_SELECTION;
+  }
+  const candidate = value as Partial<WorkspaceTabSelection>;
+  if (candidate.kind === 'file' && typeof candidate.tabId === 'string') {
+    return { kind: 'file', tabId: candidate.tabId };
+  }
+  if (candidate.kind === 'app' && typeof candidate.appId === 'string') {
+    return { kind: 'app', appId: candidate.appId };
+  }
+  return DEFAULT_SELECTION;
+}
+
 export const useWorkspaceTabSelectionStore = create<WorkspaceTabSelectionState>()(
   persist(
     (set) => ({
@@ -94,6 +113,10 @@ export const useWorkspaceTabSelectionStore = create<WorkspaceTabSelectionState>(
       version: 1,
       storage,
       partialize: (s) => ({ selection: s.selection }),
+      merge: (persisted, current) => {
+        const ps = (persisted ?? {}) as { selection?: unknown };
+        return { ...current, selection: coerceSelection(ps.selection) };
+      },
     }
   )
 );
