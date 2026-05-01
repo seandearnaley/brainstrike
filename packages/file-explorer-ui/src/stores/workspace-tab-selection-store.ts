@@ -1,6 +1,9 @@
+import { createLogger } from '@brainstrike/utils/logger';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { CONTEXT_EXPLORER_APP_ID } from '../workspace-app';
+
+const logger = createLogger('WorkspaceTabSelectionStore');
 
 export type WorkspaceTabSelection =
   | { kind: 'app'; appId: string }
@@ -33,12 +36,22 @@ const storage = createJSONStorage(() => {
     return null;
   };
 
-  const writeLocalStorage = (key: string, value: string): void => {
+  const writeLocalStorage = (key: string, value: string): boolean => {
     try {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem(key, value);
+        return true;
       }
-    } catch {}
+    } catch (err) {
+      // Quota exceeded, private-browsing, etc. — surface in logs so users who lose tab
+      // selection on reload can find a root cause; the in-memory fallback below keeps
+      // the current session working.
+      logger.warn('localStorage.setItem failed; falling back to in-memory storage', {
+        key,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return false;
   };
 
   const removeLocalStorage = (key: string): void => {
@@ -46,14 +59,19 @@ const storage = createJSONStorage(() => {
       if (typeof localStorage !== 'undefined') {
         localStorage.removeItem(key);
       }
-    } catch {}
+    } catch (err) {
+      logger.warn('localStorage.removeItem failed', {
+        key,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   };
 
   return {
     getItem: (name: string) => fromLocalStorage(name) ?? memory.get(name) ?? null,
     setItem: (name: string, value: string) => {
-      writeLocalStorage(name, value);
-      if (!fromLocalStorage(name)) {
+      const persisted = writeLocalStorage(name, value);
+      if (!persisted) {
         memory.set(name, value);
       }
     },

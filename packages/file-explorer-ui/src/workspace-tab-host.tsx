@@ -117,13 +117,26 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
 
   const handleCloseFileTab = useCallback(
     (tabId: string) => {
+      // Mirror the tab-manager-store's successor logic so the workspace selection
+      // hops to the next sibling file tab (VS Code semantics) instead of ejecting back
+      // to Context Explorer when other tabs remain.
+      const closingActive = selection.kind === 'file' && selection.tabId === tabId;
+      const closingIndex = tabs.findIndex((t) => t.id === tabId);
+      const remaining = tabs.filter((t) => t.id !== tabId);
+      const successor = remaining[closingIndex] ?? remaining[closingIndex - 1] ?? null;
+
       closeTab(tabId);
-      // After closing, if this was the selected file, route back to Context Explorer.
-      if (selection.kind === 'file' && selection.tabId === tabId) {
+
+      if (!closingActive) {
+        return;
+      }
+      if (successor) {
+        selectFile(successor.id);
+      } else {
         selectApp(CONTEXT_EXPLORER_APP_ID);
       }
     },
-    [closeTab, selection, selectApp]
+    [closeTab, selection, selectApp, selectFile, tabs]
   );
 
   // Auto-load active file content when tabs/file tree become ready.
@@ -163,14 +176,14 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
   ]);
 
   // Register openFileInTab so the FileExplorer side panel can drive opens.
-  // Sync the latest snapshots into refs every render so the open-file callback can read
-  // them without listing them as deps (which would re-register on every load tick).
+  // Sync the latest snapshots into refs so the open-file callback can read them without
+  // listing them as deps (which would re-register on every load tick).
   const fileContentsRef = useRef(fileContents);
   const loadingFilesRef = useRef(loadingFiles);
   useLayoutEffect(() => {
     fileContentsRef.current = fileContents;
     loadingFilesRef.current = loadingFiles;
-  });
+  }, [fileContents, loadingFiles]);
 
   const { registerOpenFileInTab } = useIdeFileEditor();
   const handleOpenFileInTab = useCallback(
@@ -200,12 +213,18 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
   // close-tab default fires instead. This matches VS Code's "close active editor"
   // semantics and is the gesture users expect from an IDE-like surface; the
   // asymmetry with browser default is the cost of that affordance.
-  useHotkeys('ctrl+w, cmd+w', (e) => {
-    if (selection.kind === 'file') {
-      e.preventDefault();
-      handleCloseFileTab(selection.tabId);
-    }
-  });
+  // Deps array (4th arg) is required by react-hotkeys-hook v5 to avoid stale closures —
+  // without it the callback would capture the first render's selection.
+  useHotkeys(
+    'ctrl+w, cmd+w',
+    (e) => {
+      if (selection.kind === 'file') {
+        e.preventDefault();
+        handleCloseFileTab(selection.tabId);
+      }
+    },
+    [selection, handleCloseFileTab]
+  );
   const cycleFileTab = useCallback(
     (direction: 'next' | 'prev') => {
       if (tabs.length < 2 || selection.kind !== 'file') {
@@ -226,14 +245,22 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     },
     [tabs, selection, handleSelectFileTab]
   );
-  useHotkeys('ctrl+pageup, cmd+pageup', (e) => {
-    e.preventDefault();
-    cycleFileTab('prev');
-  });
-  useHotkeys('ctrl+pagedown, cmd+pagedown', (e) => {
-    e.preventDefault();
-    cycleFileTab('next');
-  });
+  useHotkeys(
+    'ctrl+pageup, cmd+pageup',
+    (e) => {
+      e.preventDefault();
+      cycleFileTab('prev');
+    },
+    [cycleFileTab]
+  );
+  useHotkeys(
+    'ctrl+pagedown, cmd+pagedown',
+    (e) => {
+      e.preventDefault();
+      cycleFileTab('next');
+    },
+    [cycleFileTab]
+  );
 
   return (
     <div className={cn('flex h-full flex-col bg-background', className)}>

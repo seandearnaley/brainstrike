@@ -279,6 +279,107 @@ describe('WorkspaceTabHost', () => {
     expect(screen.queryByText(/file not found or unable to load/i)).not.toBeInTheDocument();
   });
 
+  it('closing the active file tab hops to the next sibling tab, not back to Context Explorer', async () => {
+    const user = userEvent.setup();
+    const closeTab = vi.fn();
+    const tabModule = await import('../hooks/use-tab-manager');
+    vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      tabs: [
+        {
+          id: 'folderA|@|src/a.ts',
+          path: 'src/a.ts',
+          compositeKey: 'folderA|@|src/a.ts',
+          content: null,
+          isLoading: false,
+        },
+        {
+          id: 'folderA|@|src/b.ts',
+          path: 'src/b.ts',
+          compositeKey: 'folderA|@|src/b.ts',
+          content: null,
+          isLoading: false,
+        },
+        {
+          id: 'folderA|@|src/c.ts',
+          path: 'src/c.ts',
+          compositeKey: 'folderA|@|src/c.ts',
+          content: null,
+          isLoading: false,
+        },
+      ],
+      activeTabId: 'folderA|@|src/b.ts',
+      openTab: vi.fn(),
+      closeTab,
+      setActiveTab: vi.fn(),
+      updateTabContent: vi.fn(),
+      setTabLoading: vi.fn(),
+      setTabError: vi.fn(),
+      clearTabs: vi.fn(),
+    });
+
+    useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/b.ts');
+
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost />
+      </FileExplorerTestWrapper>
+    );
+
+    const closeButton = await screen.findByRole('button', { name: /close b\.ts/i });
+    await user.click(closeButton);
+
+    expect(closeTab).toHaveBeenCalledWith('folderA|@|src/b.ts');
+    // Should hop to c.ts (the row that took the closed position), not back to Context Explorer
+    await waitFor(() => {
+      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+        kind: 'file',
+        tabId: 'folderA|@|src/c.ts',
+      });
+    });
+  });
+
+  it('closing the last file tab falls back to Context Explorer', async () => {
+    const user = userEvent.setup();
+    const tabModule = await import('../hooks/use-tab-manager');
+    vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      tabs: [
+        {
+          id: 'folderA|@|src/only.ts',
+          path: 'src/only.ts',
+          compositeKey: 'folderA|@|src/only.ts',
+          content: null,
+          isLoading: false,
+        },
+      ],
+      activeTabId: 'folderA|@|src/only.ts',
+      openTab: vi.fn(),
+      closeTab: vi.fn(),
+      setActiveTab: vi.fn(),
+      updateTabContent: vi.fn(),
+      setTabLoading: vi.fn(),
+      setTabError: vi.fn(),
+      clearTabs: vi.fn(),
+    });
+
+    useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/only.ts');
+
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost />
+      </FileExplorerTestWrapper>
+    );
+
+    const closeButton = await screen.findByRole('button', { name: /close only\.ts/i });
+    await user.click(closeButton);
+
+    await waitFor(() => {
+      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+        kind: 'app',
+        appId: 'context-explorer',
+      });
+    });
+  });
+
   it('accepts an extensible apps list — additional pinned apps render in tab order', async () => {
     const customApp: WorkspaceApp = {
       id: 'demo-app',
