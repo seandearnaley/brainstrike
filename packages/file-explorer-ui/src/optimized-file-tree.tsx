@@ -1670,6 +1670,14 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
         />
       </div>
 
+      {/*
+        a11y note: this clickable label uses tabIndex: -1 so it doesn't introduce a second
+        tab stop alongside the surrounding TreeTable treeitem (the tree owns roving
+        tabindex). Keyboard-only users currently can't activate "open in tab" without a
+        prior mouse click — TreeTable's selectionMode is "none", so its onSelect callback
+        doesn't fire on Enter/Space. Follow-up: switch the file tree to selectionMode
+        "single" and wire onSelect to openFileInTab so keyboard activation matches mouse.
+      */}
       <div
         {...(fileNode.type === 'file'
           ? {

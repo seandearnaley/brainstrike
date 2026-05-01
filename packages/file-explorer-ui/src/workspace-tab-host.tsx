@@ -163,12 +163,12 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
   ]);
 
   // Register openFileInTab so the FileExplorer side panel can drive opens.
+  // Sync the latest snapshots into refs every render so the open-file callback can read
+  // them without listing them as deps (which would re-register on every load tick).
   const fileContentsRef = useRef(fileContents);
   const loadingFilesRef = useRef(loadingFiles);
   useLayoutEffect(() => {
     fileContentsRef.current = fileContents;
-  });
-  useLayoutEffect(() => {
     loadingFilesRef.current = loadingFiles;
   });
 
@@ -195,6 +195,11 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
   }, [registerOpenFileInTab, handleOpenFileInTab]);
 
   // Hotkeys: ctrl/cmd+w closes the active file tab; ctrl/cmd+pageup/down cycles file tabs.
+  // The cmd+w binding intentionally only fires when a file tab is selected — when the
+  // workspace is on Context Explorer (or another app tab), the browser's native
+  // close-tab default fires instead. This matches VS Code's "close active editor"
+  // semantics and is the gesture users expect from an IDE-like surface; the
+  // asymmetry with browser default is the cost of that affordance.
   useHotkeys('ctrl+w, cmd+w', (e) => {
     if (selection.kind === 'file') {
       e.preventDefault();
