@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { findLatestTurboSummary, formatDuration } from './ci-timing-summary.mjs';
 
 const DEFAULT_RUNS_DIR = '.turbo/runs';
-const DEFAULT_TASK = 'test';
+const DEFAULT_TASK = 'test:coverage';
 const DEFAULT_TOP_LIMIT = 10;
 
 function readFlagValue(args, name) {

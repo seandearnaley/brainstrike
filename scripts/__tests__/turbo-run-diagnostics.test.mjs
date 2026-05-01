@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -69,6 +69,16 @@ test('renderMarkdownDiagnostics includes cache, slow task, and hash sections', (
   assert.match(markdown, /### Global Hash Inputs/);
 });
 
+test('parseTurboDiagnostics defaults to coverage task diagnostics', () => {
+  const diagnostics = parseTurboDiagnostics({
+    execution: { command: 'turbo run test:coverage' },
+    tasks: [task('@brainstrike/db#test:coverage', 'test:coverage', 1_000, 2_000)],
+  });
+
+  assert.equal(diagnostics.task, 'test:coverage');
+  assert.deepEqual(diagnostics.packages, ['@brainstrike/db']);
+});
+
 test('runCli writes diagnostics markdown', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-turbo-diagnostics-'));
   try {
@@ -98,6 +108,38 @@ test('runCli writes diagnostics markdown', async () => {
   }
 });
 
+test('runCli reads latest summary from runs directory', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-turbo-diagnostics-runs-'));
+  try {
+    const olderPath = path.join(dir, 'older.json');
+    const newerPath = path.join(dir, 'newer.json');
+    await writeFile(
+      olderPath,
+      JSON.stringify({
+        execution: { command: 'turbo run build' },
+        tasks: [task('@brainstrike/db#build', 'build', 1_000, 2_000)],
+      })
+    );
+    await writeFile(
+      newerPath,
+      JSON.stringify({
+        execution: { command: 'turbo run test:coverage' },
+        tasks: [task('@brainstrike/db#test:coverage', 'test:coverage', 1_000, 2_000)],
+      })
+    );
+    await utimes(olderPath, new Date('2026-01-01T00:00:00Z'), new Date('2026-01-01T00:00:00Z'));
+    await utimes(newerPath, new Date('2026-01-01T00:00:10Z'), new Date('2026-01-01T00:00:10Z'));
+
+    const outputPath = path.join(dir, 'diagnostics.md');
+    const exitCode = await runCli(['--runs-dir', dir, '--output', outputPath]);
+
+    assert.equal(exitCode, 0);
+    assert.match(await readFile(outputPath, 'utf8'), /@brainstrike\/db#test:coverage/);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
 test('runCli rejects duplicate flags', async () => {
   const originalConsoleError = console.error;
   const errors = [];
@@ -109,6 +151,22 @@ test('runCli rejects duplicate flags', async () => {
 
     assert.equal(exitCode, 1);
     assert.match(errors.join('\n'), /--task can only be provided once/);
+  } finally {
+    console.error = originalConsoleError;
+  }
+});
+
+test('runCli rejects duplicate flags after another invalid flag value', async () => {
+  const originalConsoleError = console.error;
+  const errors = [];
+  console.error = (message) => {
+    errors.push(String(message));
+  };
+  try {
+    const exitCode = await runCli(['--task', '--summary', '--summary', 'foo']);
+
+    assert.equal(exitCode, 1);
+    assert.match(errors.join('\n'), /--summary can only be provided once/);
   } finally {
     console.error = originalConsoleError;
   }
