@@ -771,6 +771,13 @@ export function getDesktopDatabaseWorkSchedulerSnapshot(): DatabaseWorkScheduler
   return desktopDatabaseWorkScheduler.getSnapshot();
 }
 
+export function runDesktopScheduledDatabaseWork<T>(
+  options: DatabaseWorkOptions,
+  operation: () => Promise<T>
+): Promise<T> {
+  return desktopDatabaseWorkScheduler.run(operation, options);
+}
+
 export function resetDesktopDatabaseWorkSchedulerForTests(
   options?: DatabaseWorkSchedulerOptions
 ): void {
