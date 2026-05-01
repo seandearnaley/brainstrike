@@ -209,15 +209,29 @@ export const useTabManagerStore = create<TabManagerStore>()(
           return ps;
         }
         const remap = new Map<string, string>();
-        const tabs = ps.tabs.map((t) => {
+        const seen = new Set<string>();
+        const tabs: PersistedTab[] = [];
+        for (const t of ps.tabs) {
           const nextId = t.compositeKey;
           if (t.id !== nextId) {
             remap.set(t.id, nextId);
           }
-          return { id: nextId, path: t.path, compositeKey: t.compositeKey };
-        });
-        const activeTabId =
+          // Dedupe by compositeKey: in v1 a user could have the same file opened under
+          // different rootFolderId prefixes; collapsing to compositeKey would otherwise
+          // produce duplicate ids (and React-key conflicts). Keep the first occurrence.
+          if (seen.has(nextId)) {
+            continue;
+          }
+          seen.add(nextId);
+          tabs.push({ id: nextId, path: t.path, compositeKey: t.compositeKey });
+        }
+        const remappedActive =
           ps.activeTabId === null ? null : (remap.get(ps.activeTabId) ?? ps.activeTabId);
+        // If the originally-active id deduped away, fall back to the first remaining tab.
+        const activeTabId =
+          remappedActive !== null && seen.has(remappedActive)
+            ? remappedActive
+            : (tabs[0]?.id ?? null);
         return { tabs, activeTabId };
       },
       merge: (persisted, current) => {

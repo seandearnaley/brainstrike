@@ -103,6 +103,14 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     };
   }, []);
 
+  // tabsRef lets the click handlers below look up the latest tab without re-creating
+  // themselves on every tab open/close. Stable handler identity is what makes the
+  // FileTabButton memo wrap actually bail on shallow-equal props.
+  const tabsRef = useRef(tabs);
+  useEffect(() => {
+    tabsRef.current = tabs;
+  }, [tabs]);
+
   const ensurePermissionForTab = useCallback(
     async (compositeKey: string): Promise<void> => {
       // Permission requests must happen synchronously from the user gesture; the
@@ -132,7 +140,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
     async (tabId: string) => {
       const intent = selectionIntentRef.current + 1;
       selectionIntentRef.current = intent;
-      const tab = tabs.find((t) => t.id === tabId);
+      const tab = tabsRef.current.find((t) => t.id === tabId);
       if (!tab) {
         return;
       }
@@ -159,7 +167,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
         });
       }
     },
-    [tabs, tabStatuses, ensurePermissionForTab, setActiveTab, selectFile]
+    [tabStatuses, ensurePermissionForTab, setActiveTab, selectFile]
   );
 
   const handleSelectApp = useCallback(
@@ -283,12 +291,13 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
   // Hotkeys: Electron gets VS Code-style ctrl/cmd+w for closing the active editor tab.
   // Web intentionally leaves the browser's native close-tab shortcut untouched.
   // Deps array (4th arg) is required by react-hotkeys-hook v5 to avoid stale closures —
-  // without it the callback would capture the first render's selection. Platform check
-  // hoisted to module scope (IS_DESKTOP_RENDERER) since it's session-stable.
+  // without it the callback would capture the first render's selection. The platform
+  // check runs lazily inside the handler so the answer reflects the actual state at
+  // keystroke time (preload may set window.electronAPI after this module loads).
   useHotkeys(
     'ctrl+w, cmd+w',
     (e) => {
-      if (!IS_DESKTOP_RENDERER) {
+      if (!isDesktopRenderer()) {
         return;
       }
       if (selection.kind === 'file') {
@@ -781,12 +790,17 @@ function getFileName(path: string): string {
 
 /**
  * Whether this bundle is running inside the Electron renderer (the desktop app exposes
- * `window.electronAPI` via preload). Evaluated once at module load — the answer never
- * changes during a session, so there's no point re-checking on every host render.
+ * `window.electronAPI` via preload). Called from event handlers, not module init —
+ * evaluating at module-load time would race against the preload script, leaving the
+ * value `false` for an entire session if this module imports before preload completes.
+ * The cost of a lazy property check on each Cmd+W press is negligible.
  */
-const IS_DESKTOP_RENDERER =
-  typeof window !== 'undefined' &&
-  typeof (window as Window & { electronAPI?: unknown }).electronAPI !== 'undefined';
+function isDesktopRenderer(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof (window as Window & { electronAPI?: unknown }).electronAPI !== 'undefined'
+  );
+}
 
 /** Hard cap on how much text we paint into the DOM per panel. Beyond this we truncate visibly. */
 const MAX_DOM_CHARS = 200_000;
