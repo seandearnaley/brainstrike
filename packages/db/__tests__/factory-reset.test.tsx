@@ -30,7 +30,7 @@ interface MockDb {
 
 function createMockDb(): MockDb {
   const query: QueryMock = vi.fn(async (sql: string) => {
-    if (sql.includes('SELECT 1 FROM pg_extension')) {
+    if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
       return { rows: [{ '?column?': 1 }] };
     }
     return { rows: [] };
@@ -167,7 +167,7 @@ describe('DbProvider factoryReset', () => {
       exec: vi.fn(async () => undefined),
       ping: vi.fn(async () => ({ success: true })),
       query: vi.fn(async (sql: string) => {
-        if (sql.includes('SELECT 1 FROM pg_extension')) {
+        if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
           return { rows: [{ '?column?': 1 }] };
         }
         return { rows: [] };
@@ -207,7 +207,7 @@ describe('DbProvider factoryReset', () => {
       exec: vi.fn(async () => undefined),
       ping: vi.fn(async () => ({ success: true })),
       query: vi.fn(async (sql: string) => {
-        if (sql.includes('SELECT 1 FROM pg_extension')) {
+        if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
           return { rows: [{ '?column?': 1 }] };
         }
         return { rows: [] };

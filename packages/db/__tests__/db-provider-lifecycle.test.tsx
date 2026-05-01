@@ -24,7 +24,7 @@ interface MockDb {
 
 function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
   const baseQuery: QueryMock = vi.fn(async (sql: string) => {
-    if (sql.includes('SELECT 1 FROM pg_extension')) {
+    if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
       return { rows: [{ '?column?': 1 }] };
     }
     return { rows: [] };
@@ -50,7 +50,7 @@ interface MockIpcBridge {
 function createMockIpcBridge(): MockIpcBridge {
   return {
     query: vi.fn(async (sql: string) => {
-      if (sql.includes('SELECT 1 FROM pg_extension')) {
+      if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
         return { rows: [{ '?column?': 1 }] };
       }
       return { rows: [] };
@@ -151,7 +151,7 @@ describe('DbProvider lifecycle', () => {
       // to reproduce the original bug where unmount called bridge.close()
       const bridge: Record<string, Mock> = {
         query: vi.fn(async (sql: string) => {
-          if (sql.includes('SELECT 1 FROM pg_extension')) {
+          if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
             return { rows: [{ '?column?': 1 }] };
           }
           return { rows: [] };
