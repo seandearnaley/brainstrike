@@ -61,6 +61,22 @@ describe('CodeEmbeddingCLI basics', () => {
     expect(cli.detectLanguage('x.tsx')).toBe('typescript');
   });
 
+  it('preserves explicit zero chunk overlap', async () => {
+    const { CodeEmbeddingCLI } = await import('../cli/embed-code');
+    const cli = new CodeEmbeddingCLI({
+      rootDir: '.',
+      format: 'json',
+      maxLines: 2,
+      chunkOverlap: 0,
+      modelConfig: FALLBACK_MODEL_CONFIG,
+    });
+
+    expect(cli.splitIntoChunks('a\nb\nc', 'file.ts')).toEqual([
+      { content: 'a\nb', startLine: 1, endLine: 2 },
+      { content: 'c', startLine: 3, endLine: 3 },
+    ]);
+  });
+
   it('rejects chunk overlap values that cannot advance between chunks', async () => {
     const { CodeEmbeddingCLI } = await import('../cli/embed-code');
 
@@ -119,6 +135,39 @@ describe('CodeEmbeddingCLI basics', () => {
       embeddings.map((e) => ({ ...e, embedding: [0.1, 0.2, 0.3], content: 'x' }))
     );
     expect(writeFileSync).toHaveBeenCalled();
+  });
+
+  it('escapes quotes in every CSV text field', async () => {
+    const { CodeEmbeddingCLI } = await import('../cli/embed-code');
+    type CodeEmbeddingForSave = Parameters<CodeEmbeddingCLIType['saveEmbeddings']>[0][number];
+    const cli = new CodeEmbeddingCLI({
+      rootDir: '/proj',
+      format: 'csv',
+      output: path.join('/tmp', 'embeddings.csv'),
+      modelConfig: FALLBACK_MODEL_CONFIG,
+    });
+    const embedding = {
+      id: 'id"1',
+      filePath: 'src/"quoted".ts',
+      language: 'type"script',
+      startLine: 1,
+      endLine: 1,
+      content: 'const label = "quoted";',
+      embedding: [0.1],
+      dimensions: 1,
+      model: 'model"key',
+      timestamp: '2026-04-29T19:12:19.086Z',
+    } satisfies CodeEmbeddingForSave;
+
+    writeFileSync.mockClear();
+    await cli.saveEmbeddings([embedding]);
+
+    const lastWrite = writeFileSync.mock.calls.at(-1);
+    expect(lastWrite).toBeDefined();
+    const csv = String(lastWrite?.[1]);
+    expect(csv).toContain(
+      '"id""1","src/""quoted"".ts","type""script",1,1,1,"model""key","2026-04-29T19:12:19.086Z","const label = ""quoted"";","[0.1]"'
+    );
   });
 
   it('serializes pgvector SQL text fields without dollar-quote delimiters', async () => {

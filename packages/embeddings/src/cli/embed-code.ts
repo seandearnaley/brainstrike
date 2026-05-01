@@ -132,6 +132,10 @@ function toPostgresStringLiteral(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
+function toCsvCell(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
 /**
  * CLI tool for embedding code files
  */
@@ -227,8 +231,8 @@ export class CodeEmbeddingCLI {
   }> {
     const lines = content.split('\n');
     const chunks: Array<{ content: string; startLine: number; endLine: number }> = [];
-    const maxLines = this.config.maxLines || 100;
-    const overlap = this.config.chunkOverlap || 10;
+    const maxLines = this.config.maxLines ?? 100;
+    const overlap = this.config.chunkOverlap ?? 10;
 
     let startLine = 0;
 
@@ -403,7 +407,7 @@ export class CodeEmbeddingCLI {
           'id,file_path,language,start_line,end_line,dimensions,model,timestamp,content,embedding\n';
         const csvRows = embeddings.map(
           (e) =>
-            `"${e.id}","${e.filePath}","${e.language}",${e.startLine},${e.endLine},${e.dimensions},"${e.model}","${e.timestamp}","${e.content.replace(/"/g, '""')}","[${e.embedding.join(',')}]"`
+            `${toCsvCell(e.id)},${toCsvCell(e.filePath)},${toCsvCell(e.language)},${e.startLine},${e.endLine},${e.dimensions},${toCsvCell(e.model)},${toCsvCell(e.timestamp)},${toCsvCell(e.content)},${toCsvCell(`[${e.embedding.join(',')}]`)}`
         );
         fs.writeFileSync(outputPath, csvHeader + csvRows.join('\n'));
         break;
