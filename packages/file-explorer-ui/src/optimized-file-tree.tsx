@@ -41,16 +41,15 @@ import {
   useOptionalFileTreeNormalizedContext,
 } from './file-tree-provider';
 import { useWorkerFlattenedTree } from './hooks/use-worker-flattened-tree';
-
-/** Pixel height of one virtualized tree row. */
-const ROW_HEIGHT = 32;
-
 import {
   getQuerySelectionMatchingCount,
   getSelectionCount,
   isDirectoryCoveredByQuerySelection,
   isQuerySelectionPathSelected,
 } from './utils/selection-projection';
+
+/** Pixel height of one virtualized tree row. */
+const ROW_HEIGHT = 32;
 
 interface IOptimizedFileTreeProps {
   /** Cancel loading for a directory (called on collapse) */
