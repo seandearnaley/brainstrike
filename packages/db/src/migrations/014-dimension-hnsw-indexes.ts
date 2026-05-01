@@ -1,11 +1,10 @@
-import type { PGlite } from '@electric-sql/pglite';
 import {
   createDimensionIndex,
   dropAllDimensionIndexes,
   getDistinctDimensions,
   hnswParams,
 } from './dimension-index-helpers.js';
-import type { Migration } from './migration-runner';
+import type { Migration, MigrationTransactionalDb } from './migration-runner';
 
 /**
  * Common embedding dimensions to pre-create indexes for.
@@ -36,7 +35,7 @@ const COMMON_DIMENSIONS = [768, 1024, 1536] as const;
 export const migration014DimensionHnswIndexes: Migration = {
   version: 14,
   name: 'dimension_hnsw_indexes',
-  up: async (db: PGlite) => {
+  up: async (db: MigrationTransactionalDb) => {
     // Check if pgvector extension is available
     const vectorCheck = await db.query<{ one: number }>(
       "SELECT 1 as one FROM pg_extension WHERE extname = 'vector'"
@@ -74,7 +73,7 @@ export const migration014DimensionHnswIndexes: Migration = {
       }
     }
   },
-  down: async (db: PGlite) => {
+  down: async (db: MigrationTransactionalDb) => {
     // Collect all dimensions that might have indexes
     const dimensionsToClean = new Set<number>([...COMMON_DIMENSIONS]);
 
