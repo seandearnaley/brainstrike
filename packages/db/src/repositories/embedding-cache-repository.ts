@@ -424,6 +424,7 @@ export class EmbeddingCacheRepository {
     if (ids.length === 0) {
       return;
     }
+    const accessedAt = new Date();
     for (const chunk of chunkArray(ids, MAX_BATCH_SIZE)) {
       await this.db.query(
         `
@@ -431,7 +432,7 @@ export class EmbeddingCacheRepository {
           SET accessed_at = $1, access_count = access_count + 1
           WHERE id IN (${buildPlaceholders(2, chunk.length)})
         `,
-        [new Date(), ...chunk]
+        [accessedAt, ...chunk]
       );
     }
   }

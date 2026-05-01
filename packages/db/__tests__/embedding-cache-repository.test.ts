@@ -150,9 +150,13 @@ describe('createEmbeddingCacheRepository', () => {
 
   it('chunks access-time updates for large batch cache hits', async () => {
     const queries: string[] = [];
+    const accessUpdateParams: unknown[][] = [];
     const db = {
       query: async <T = unknown>(sql: string, params?: unknown[]) => {
         queries.push(sql);
+        if (sql.includes('SET accessed_at = $1, access_count = access_count + 1')) {
+          accessUpdateParams.push(params ?? []);
+        }
         return client.query<T>(sql, params);
       },
     };
@@ -177,6 +181,8 @@ describe('createEmbeddingCacheRepository', () => {
       );
       expect(accessUpdateQueries).toHaveLength(2);
     });
+    expect(accessUpdateParams).toHaveLength(2);
+    expect(accessUpdateParams[0]?.[0]).toBe(accessUpdateParams[1]?.[0]);
   });
 
   it('rejects malformed timestamp values from cache rows', async () => {
