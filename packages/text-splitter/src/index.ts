@@ -304,10 +304,10 @@ function assertSeparators(separators: string[]): void {
 
 function resolveSeparators(separators?: string[]): string[] {
   if (!separators) {
-    return [...DEFAULT_SEPARATORS];
+    return DEFAULT_SEPARATORS;
   }
   assertSeparators(separators);
-  return [...separators];
+  return separators;
 }
 
 function createSeparatorRegex(separator: string, flags: string): RegExp {
@@ -437,8 +437,13 @@ function splitByLengthWithOverlap(text: string, chunkSize: number, chunkOverlap:
   return chunks;
 }
 
-function selectSeparator(text: string, separators: string[], isSeparatorRegex: boolean): number {
-  for (let index = 0; index < separators.length; index += 1) {
+function selectSeparator(
+  text: string,
+  separators: string[],
+  startIndex: number,
+  isSeparatorRegex: boolean
+): number {
+  for (let index = startIndex; index < separators.length; index += 1) {
     const separator = separators[index];
     if (separator === undefined) {
       continue;
@@ -454,13 +459,14 @@ function splitIntoAtomicSegments(
   text: string,
   separators: string[],
   chunkSize: number,
-  isSeparatorRegex: boolean
+  isSeparatorRegex: boolean,
+  startIndex = 0
 ): string[] {
   if (text.length <= chunkSize) {
     return [text];
   }
 
-  const separatorIndex = selectSeparator(text, separators, isSeparatorRegex);
+  const separatorIndex = selectSeparator(text, separators, startIndex, isSeparatorRegex);
   const separator = separators[separatorIndex];
   if (separator === undefined) {
     throw new Error('separator resolution produced an invalid index');
@@ -470,7 +476,8 @@ function splitIntoAtomicSegments(
     return splitByLength(text, chunkSize);
   }
 
-  const remainingSeparators = separators.slice(separatorIndex + 1);
+  const nextStartIndex = separatorIndex + 1;
+  const hasRemainingSeparators = nextStartIndex < separators.length;
   const pieces = splitBySeparator(text, separator, isSeparatorRegex);
   const segments: string[] = [];
 
@@ -482,12 +489,12 @@ function splitIntoAtomicSegments(
       segments.push(piece);
       continue;
     }
-    if (remainingSeparators.length === 0) {
+    if (!hasRemainingSeparators) {
       segments.push(...splitByLength(piece, chunkSize));
       continue;
     }
     segments.push(
-      ...splitIntoAtomicSegments(piece, remainingSeparators, chunkSize, isSeparatorRegex)
+      ...splitIntoAtomicSegments(piece, separators, chunkSize, isSeparatorRegex, nextStartIndex)
     );
   }
 
@@ -499,43 +506,53 @@ function mergeAtomicSegments(
   chunkSize: number,
   chunkOverlap: number
 ): string[] {
-  const normalizedSegments = atomicSegments.filter((segment) => segment.length > 0);
-  if (normalizedSegments.length === 0) {
-    return [];
-  }
-
   const chunks: string[] = [];
-  const currentSegments: string[] = [];
+  // Sliding window over atomicSegments: [head, tail) are currently in the window.
+  // Advancing `head` instead of Array.shift() keeps eviction O(1) per step;
+  // the previous shift-loop was O(N) per evicted segment on a window that can
+  // grow to hundreds of pieces for large documents.
+  const window: string[] = [];
+  let head = 0;
   let currentLength = 0;
 
   const flushCurrentChunk = (): void => {
-    const chunk = currentSegments.join('').trim();
+    let buffer = '';
+    for (let i = head; i < window.length; i += 1) {
+      buffer += window[i];
+    }
+    const chunk = buffer.trim();
     if (chunk.length > 0) {
       chunks.push(chunk);
     }
   };
 
-  for (const segment of normalizedSegments) {
-    if (currentLength + segment.length > chunkSize && currentSegments.length > 0) {
+  for (const segment of atomicSegments) {
+    if (segment.length === 0) {
+      continue;
+    }
+
+    if (currentLength + segment.length > chunkSize && head < window.length) {
       flushCurrentChunk();
 
       while (
-        currentLength > chunkOverlap ||
-        (currentLength + segment.length > chunkSize && currentLength > 0)
+        head < window.length &&
+        (currentLength > chunkOverlap ||
+          (currentLength + segment.length > chunkSize && currentLength > 0))
       ) {
-        const removedSegment = currentSegments.shift();
+        const removedSegment = window[head];
         if (removedSegment === undefined) {
           throw new Error('segment merge state became inconsistent');
         }
         currentLength -= removedSegment.length;
+        head += 1;
       }
     }
 
-    currentSegments.push(segment);
+    window.push(segment);
     currentLength += segment.length;
   }
 
-  if (currentSegments.length > 0) {
+  if (head < window.length) {
     flushCurrentChunk();
   }
 
@@ -581,87 +598,50 @@ function getFileExtension(filePath: string): string {
   return normalized.slice(lastDot + 1);
 }
 
+const STRATEGY_SEPARATORS: Readonly<Record<ResolvedChunkingStrategy, string[]>> = {
+  character: [''],
+  token: ['\n\n', '\n', '. ', '; ', ' ', ''],
+  sentence: ['\n\n', '\n', '. ', '! ', '? ', '; ', ': ', ' ', ''],
+  markdown: [
+    '\n# ',
+    '\n## ',
+    '\n### ',
+    '\n#### ',
+    '\n```',
+    '\n- ',
+    '\n* ',
+    '\n> ',
+    '\n\n',
+    '\n',
+    '. ',
+    ' ',
+    '',
+  ],
+  'semantic-markdown': ['\n## ', '\n### ', '\n#### ', '\n\n', '\n', '. ', ' ', ''],
+  html: ['</section>', '</article>', '</main>', '</div>', '</p>', '</li>', '<br', '\n', ' ', ''],
+  json: ['},\n', '},', '],\n', '],', ',\n', '\n', ' ', ''],
+  latex: [
+    '\n\\chapter{',
+    '\n\\section{',
+    '\n\\subsection{',
+    '\n\\subsubsection{',
+    '\n\\begin{',
+    '\n\n',
+    '\n',
+    ' ',
+    '',
+  ],
+  recursive: DEFAULT_SEPARATORS,
+};
+
 function getStrategySeparators(
   strategy: ResolvedChunkingStrategy,
   custom?: string[]
 ): { isSeparatorRegex: boolean; separators: string[] } {
   if (custom?.length) {
-    return { separators: [...custom], isSeparatorRegex: false };
+    return { separators: custom, isSeparatorRegex: false };
   }
-
-  switch (strategy) {
-    case 'character':
-      return { separators: [''], isSeparatorRegex: false };
-    case 'token':
-      return { separators: ['\n\n', '\n', '. ', '; ', ' ', ''], isSeparatorRegex: false };
-    case 'sentence':
-      return {
-        separators: ['\n\n', '\n', '. ', '! ', '? ', '; ', ': ', ' ', ''],
-        isSeparatorRegex: false,
-      };
-    case 'markdown':
-      return {
-        separators: [
-          '\n# ',
-          '\n## ',
-          '\n### ',
-          '\n#### ',
-          '\n```',
-          '\n- ',
-          '\n* ',
-          '\n> ',
-          '\n\n',
-          '\n',
-          '. ',
-          ' ',
-          '',
-        ],
-        isSeparatorRegex: false,
-      };
-    case 'semantic-markdown':
-      return {
-        separators: ['\n## ', '\n### ', '\n#### ', '\n\n', '\n', '. ', ' ', ''],
-        isSeparatorRegex: false,
-      };
-    case 'html':
-      return {
-        separators: [
-          '</section>',
-          '</article>',
-          '</main>',
-          '</div>',
-          '</p>',
-          '</li>',
-          '<br',
-          '\n',
-          ' ',
-          '',
-        ],
-        isSeparatorRegex: false,
-      };
-    case 'json':
-      return {
-        separators: ['},\n', '},', '],\n', '],', ',\n', '\n', ' ', ''],
-        isSeparatorRegex: false,
-      };
-    case 'latex':
-      return {
-        separators: [
-          '\n\\chapter{',
-          '\n\\section{',
-          '\n\\subsection{',
-          '\n\\subsubsection{',
-          '\n\\begin{',
-          '\n\n',
-          '\n',
-          ' ',
-          '',
-        ],
-        isSeparatorRegex: false,
-      };
-    case 'recursive':
-      return { separators: [...DEFAULT_SEPARATORS], isSeparatorRegex: false };
-  }
+  return { separators: STRATEGY_SEPARATORS[strategy], isSeparatorRegex: false };
 }
 
 function splitMarkdownSemantically(

@@ -453,40 +453,42 @@ export function getTopLevelFunctionRanges(ast: AstNode | null): FunctionRange[] 
   return ranges;
 }
 
+const CODE_SEPARATORS: readonly string[] = [
+  '\n\n',
+  '\nexport default ',
+  '\nexport class ',
+  '\nclass ',
+  '\nexport function ',
+  '\nfunction ',
+  '\nexport const ',
+  '\nconst ',
+  '\nlet ',
+  '\nvar ',
+  '\nexport interface ',
+  '\ninterface ',
+  '\ntype ',
+  '\nimport ',
+  '\ndescribe(',
+  '\nit(',
+  '\nelse ',
+  '\ntry {',
+  '\ncatch (',
+  '\nfinally {',
+  '\nswitch (',
+  '\n}',
+  '\n};',
+  '\n',
+  ';',
+  ',',
+  ' ',
+  '',
+];
+
 export function getCodeSeparators(custom?: string[]): string[] {
   if (custom?.length) {
     return custom;
   }
-  return [
-    '\n\n',
-    '\nexport default ',
-    '\nexport class ',
-    '\nclass ',
-    '\nexport function ',
-    '\nfunction ',
-    '\nexport const ',
-    '\nconst ',
-    '\nlet ',
-    '\nvar ',
-    '\nexport interface ',
-    '\ninterface ',
-    '\ntype ',
-    '\nimport ',
-    '\ndescribe(',
-    '\nit(',
-    '\nelse ',
-    '\ntry {',
-    '\ncatch (',
-    '\nfinally {',
-    '\nswitch (',
-    '\n}',
-    '\n};',
-    '\n',
-    ';',
-    ',',
-    ' ',
-    '',
-  ];
+  return CODE_SEPARATORS as string[];
 }
 
 export async function splitCodeByFunctionRanges(
