@@ -736,6 +736,14 @@ export async function chunkContent(
     separators: ['\n\n', '\n', '. ', ' ', ''],
   });
 
+  // Hoist the tokenizer dispatch out of the per-chunk loop. The previous shape
+  // re-evaluated `useTokenTrueSizing && tokenUtilsModule` per chunk and per
+  // sub-chunk; here we pick once and reuse a stable callback.
+  const accurateModule = useTokenTrueSizing ? tokenUtilsModule : null;
+  const countTokens = accurateModule
+    ? (text: string) => accurateModule.countTokensAccurate(text)
+    : (text: string) => Promise.resolve(estimateTokenCount(text));
+
   for (const g of groups) {
     for (const txt of g.pieces) {
       const c = txt?.trim();
@@ -743,12 +751,8 @@ export async function chunkContent(
         continue;
       }
 
-      const tokenCount =
-        useTokenTrueSizing && tokenUtilsModule
-          ? await tokenUtilsModule.countTokensAccurate(c)
-          : estimateTokenCount(c);
+      const tokenCount = await countTokens(c);
 
-      // Handle oversized chunks - reuse splitter, use estimates for sub-chunks
       if (tokenCount > maxSafeTokens) {
         const subPieces = await reSplitChunker.splitText(c);
 
@@ -757,13 +761,12 @@ export async function chunkContent(
           if (!subC) {
             continue;
           }
-          const subTokenCount =
-            useTokenTrueSizing && tokenUtilsModule
-              ? await tokenUtilsModule.countTokensAccurate(subC)
-              : estimateTokenCount(subC);
+          // Sub-chunks come straight out of the recursive splitter constrained
+          // by char count; the heuristic is good enough and skips a tiktoken
+          // call per sub-piece.
           pendingChunks.push({
             content: subC,
-            tokenCount: subTokenCount,
+            tokenCount: estimateTokenCount(subC),
             chunkType: 'text',
           });
         }
