@@ -106,15 +106,8 @@ function resolveProviderFromComposite(
 }
 
 function shouldReadAssistantTestOverrides(): boolean {
-  if (typeof window === 'undefined') {
-    return globalThis.process?.env?.['NODE_ENV'] === 'test';
-  }
-  return (
-    globalThis.process?.env?.['ELECTRON_IS_E2E_TEST'] === 'true' ||
-    globalThis.process?.env?.['NODE_ENV'] === 'test' ||
-    (window.__brainstrike_e2e_enable_settings_test_api__ === true &&
-      window.navigator.webdriver === true)
-  );
+  const env = globalThis.process?.env;
+  return env?.['ELECTRON_IS_E2E_TEST'] === 'true' || env?.['NODE_ENV'] === 'test';
 }
 
 const SHOULD_READ_ASSISTANT_TEST_OVERRIDES = shouldReadAssistantTestOverrides();
@@ -950,8 +943,10 @@ export function AssistantUiPanelWrapper({
   memoryResourceId: memoryResourceIdOverride,
   memoryThreadId,
 }: AssistantUiPanelWrapperProps) {
+  const configuredProvidersTestOverride = readAssistantConfiguredProvidersTestOverride();
+  const configuredProvidersTestOverrideKey = configuredProvidersTestOverride?.join('\0') ?? null;
   const [configuredProviders, setConfiguredProviders] = useState<SupportedProvider[]>(
-    () => initialProviders ?? [...(readAssistantConfiguredProvidersTestOverride() ?? [])]
+    () => initialProviders ?? [...(configuredProvidersTestOverride ?? [])]
   );
   const [localRuntimeStatuses, setLocalRuntimeStatuses] = useState<LocalRuntimeStatusMap | null>(
     null
@@ -1708,9 +1703,8 @@ export function AssistantUiPanelWrapper({
         return;
       }
 
-      const configuredProvidersOverride = readAssistantConfiguredProvidersTestOverride();
-      if (configuredProvidersOverride) {
-        setConfiguredProviders([...configuredProvidersOverride]);
+      if (configuredProvidersTestOverride) {
+        setConfiguredProviders([...configuredProvidersTestOverride]);
         return;
       }
 
@@ -1727,7 +1721,7 @@ export function AssistantUiPanelWrapper({
       cancelled = true;
     };
     // secretsVersion triggers re-check when API keys are added/removed
-  }, [initialProviders, getAvailableProviders, secretsVersion]);
+  }, [initialProviders, configuredProvidersTestOverrideKey, getAvailableProviders, secretsVersion]);
 
   useEffect(() => {
     let cancelled = false;

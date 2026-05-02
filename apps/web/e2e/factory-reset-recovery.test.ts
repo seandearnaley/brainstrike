@@ -110,11 +110,14 @@ test.describe('Factory Reset recovery (web)', () => {
             return 'cleared';
           }
           const parsed = JSON.parse(raw) as { state?: { accurateCounting?: unknown } };
-          return parsed.state?.accurateCounting === false ? 'stale-disabled' : 'default';
+          if (parsed.state?.accurateCounting === true) {
+            return 'default';
+          }
+          return parsed.state?.accurateCounting === false ? 'stale-disabled' : 'unexpected';
         },
-        { message: 'expected factory reset to remove the stale disabled token preference' }
+        { message: 'expected factory reset to re-persist the default token preference' }
       )
-      .not.toBe('stale-disabled');
+      .toBe('default');
 
     await openTokenCountingSettings(page);
 

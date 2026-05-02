@@ -4,6 +4,7 @@ import { waitForAppLoad } from './layout-helpers';
 import { type FileTree, mockBrowserApis } from './mock-fs';
 
 const LOCAL_ASSISTANT_MODEL_ID = 'onnx-community/gemma-4-E2B-it-ONNX';
+const ASSISTANT_PREFERENCES_STORAGE_VERSION = 5;
 
 interface AssistantWorkspaceOptions {
   readonly clipboard?: boolean;
@@ -21,125 +22,132 @@ export async function openAssistantWorkspace(
   options: AssistantWorkspaceOptions = {}
 ): Promise<void> {
   if (options.enableLocalAssistantModel === true) {
-    await page.addInitScript((modelId: string) => {
-      // Runtime signals: make the production bundle take the automated test path.
-      const runtimeGlobal = globalThis as typeof globalThis & {
-        process?: { env?: Record<string, string | undefined> };
-      };
-      runtimeGlobal.process = {
-        ...(runtimeGlobal.process ?? {}),
-        env: {
-          ...(runtimeGlobal.process?.env ?? {}),
-          // biome-ignore lint/style/useNamingConvention: process.env uses conventional uppercase names
-          NODE_ENV: 'test',
-        },
-      };
-
-      Object.defineProperty(navigator, 'webdriver', {
-        configurable: true,
-        get: () => true,
-      });
-
-      if (!('gpu' in navigator)) {
-        Object.defineProperty(navigator, 'gpu', {
-          configurable: true,
-          value: {
-            async requestAdapter() {
-              return {
-                info: {
-                  architecture: 'test',
-                  description: 'Mock WebGPU adapter for assistant E2E tests',
-                  device: 'mock-webgpu',
-                  vendor: 'playwright',
-                },
-                limits: {
-                  maxBufferSize: 1_073_741_824,
-                  maxStorageBufferBindingSize: 1_073_741_824,
-                },
-              };
-            },
+    await page.addInitScript(
+      (fixture: { modelId: string; preferencesVersion: number }) => {
+        // Runtime signals: make the production bundle take the automated test path.
+        const { modelId, preferencesVersion } = fixture;
+        const runtimeGlobal = globalThis as typeof globalThis & {
+          process?: { env?: Record<string, string | undefined> };
+        };
+        runtimeGlobal.process = {
+          ...(runtimeGlobal.process ?? {}),
+          env: {
+            ...(runtimeGlobal.process?.env ?? {}),
+            // biome-ignore lint/style/useNamingConvention: process.env uses conventional uppercase names
+            NODE_ENV: 'test',
           },
-        });
-      }
+        };
 
-      // Persisted preferences: select the mocked browser-local assistant model.
-      const selectedModel = `local::${modelId}`;
-      const browserWindow = window as Window & {
-        assistant?: {
-          getUrl: () => Promise<string>;
-          url: string;
-        };
-        secrets?: {
-          getKey: () => Promise<null>;
-          list: () => Promise<string[]>;
-        };
-      };
-      window.localStorage.setItem(
-        'assistant-preferences.v1',
-        JSON.stringify({
-          state: {
-            enabledModelsByProvider: { local: [modelId] },
-            modelsByProvider: { local: modelId },
-            providerSettings: {
-              lmstudio: { localRuntimeEnabled: 'off' },
-              ollama: { localRuntimeEnabled: 'off' },
+        Object.defineProperty(navigator, 'webdriver', {
+          configurable: true,
+          get: () => true,
+        });
+
+        if (!('gpu' in navigator)) {
+          Object.defineProperty(navigator, 'gpu', {
+            configurable: true,
+            value: {
+              async requestAdapter() {
+                return {
+                  info: {
+                    architecture: 'test',
+                    description: 'Mock WebGPU adapter for assistant E2E tests',
+                    device: 'mock-webgpu',
+                    vendor: 'playwright',
+                  },
+                  limits: {
+                    maxBufferSize: 1_073_741_824,
+                    maxStorageBufferBindingSize: 1_073_741_824,
+                  },
+                };
+              },
             },
-            selectedProvider: 'local',
+          });
+        }
+
+        // Persisted preferences: select the mocked browser-local assistant model.
+        const selectedModel = `local::${modelId}`;
+        const browserWindow = window as Window & {
+          assistant?: {
+            getUrl: () => Promise<string>;
+            url: string;
+          };
+          secrets?: {
+            getKey: () => Promise<null>;
+            list: () => Promise<string[]>;
+          };
+        };
+        window.localStorage.setItem(
+          'assistant-preferences.v1',
+          JSON.stringify({
+            state: {
+              enabledModelsByProvider: { local: [modelId] },
+              modelsByProvider: { local: modelId },
+              providerSettings: {
+                lmstudio: { localRuntimeEnabled: 'off' },
+                ollama: { localRuntimeEnabled: 'off' },
+              },
+              selectedProvider: 'local',
+              selectedModel,
+            },
+            version: preferencesVersion,
+          })
+        );
+
+        // Desktop bridge stubs: satisfy assistant setup without hosted provider keys.
+        browserWindow.assistant = {
+          getUrl: async () => 'http://127.0.0.1:0',
+          url: 'http://127.0.0.1:0',
+        };
+        browserWindow.secrets = {
+          getKey: async () => null,
+          list: async () => ['local'],
+        };
+
+        // Settings override API: seed registry/provider state before React mounts.
+        window.__brainstrike_e2e_enable_settings_test_api__ = true;
+        window.__brainstrikePendingSettingsTestOverrides__ = {
+          accurateRuntimeAvailable: true,
+          assistant: {
+            configuredProviders: ['local'],
             selectedModel,
           },
-          version: 5,
-        })
-      );
-
-      // Desktop bridge stubs: satisfy assistant setup without hosted provider keys.
-      browserWindow.assistant = {
-        getUrl: async () => 'http://127.0.0.1:0',
-        url: 'http://127.0.0.1:0',
-      };
-      browserWindow.secrets = {
-        getKey: async () => null,
-        list: async () => ['local'],
-      };
-
-      // Settings override API: seed registry/provider state before React mounts.
-      window.__brainstrike_e2e_enable_settings_test_api__ = true;
-      window.__brainstrikePendingSettingsTestOverrides__ = {
-        accurateRuntimeAvailable: true,
-        assistant: {
-          configuredProviders: ['local'],
-          selectedModel,
-        },
-        modelRegistry: {
-          snapshot: {
-            downloadedModels: { [modelId]: true },
-            models: [
-              {
-                bestFor: ['assistant'],
-                capabilities: { type: 'llm', streaming: false },
-                description: 'Mocked local assistant model for E2E tests',
-                icon: null,
-                id: modelId,
-                isEnabled: true,
-                name: 'Gemma 4 E2B',
-                parameters: null,
-                providerId: 'local',
-                sortOrder: 0,
-                tagline: 'E2E local assistant model',
-              },
-            ],
-            providers: [
-              {
-                icon: null,
-                id: 'local',
-                isEnabled: true,
-                name: 'Local (Browser)',
-                sortOrder: 0,
-              },
-            ],
+          modelRegistry: {
+            snapshot: {
+              downloadedModels: { [modelId]: true },
+              models: [
+                {
+                  bestFor: ['assistant'],
+                  capabilities: { type: 'llm', streaming: false },
+                  description: 'Mocked local assistant model for E2E tests',
+                  icon: null,
+                  id: modelId,
+                  isEnabled: true,
+                  name: 'Gemma 4 E2B',
+                  parameters: null,
+                  providerId: 'local',
+                  sortOrder: 0,
+                  tagline: 'E2E local assistant model',
+                },
+              ],
+              providers: [
+                {
+                  icon: null,
+                  id: 'local',
+                  isEnabled: true,
+                  name: 'Local (Browser)',
+                  sortOrder: 0,
+                },
+              ],
+            },
           },
-        },
-      };
-    }, LOCAL_ASSISTANT_MODEL_ID);
+        };
+      },
+      {
+        modelId: LOCAL_ASSISTANT_MODEL_ID,
+        preferencesVersion: ASSISTANT_PREFERENCES_STORAGE_VERSION,
+      }
+    );
   }
 
   await mockBrowserApis(
