@@ -20,7 +20,7 @@ export async function openAssistantWorkspace(
   page: Page,
   options: AssistantWorkspaceOptions = {}
 ): Promise<void> {
-  if (options.enableLocalAssistantModel ?? true) {
+  if (options.enableLocalAssistantModel === true) {
     await page.addInitScript((modelId: string) => {
       const runtimeGlobal = globalThis as typeof globalThis & {
         process?: { env?: Record<string, string | undefined> };

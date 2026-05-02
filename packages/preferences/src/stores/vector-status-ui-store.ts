@@ -195,40 +195,66 @@ function getElectronStorageBridge(): ElectronStorageBridge | null {
   return bridge;
 }
 
-/**
- * Storage adapter with fallback to in-memory for SSR/tests
- * Uses safe storage utility with proper error logging
- */
+function readLocalStorage(): Storage | undefined {
+  try {
+    return typeof window === 'undefined' ? undefined : window.localStorage;
+  } catch {
+    return;
+  }
+}
+
+function removeStoredValue(storage: Storage | undefined, key: string): void {
+  try {
+    storage?.removeItem(key);
+  } catch {
+    // Best effort: blocked storage should not make cleanup flows fail.
+  }
+}
+
 function createVectorStatusBrowserStorage(): StateStorage {
   const memory = new Map<string, string>();
 
   return {
     getItem: (key) => {
+      const raw = readLocalStorage()?.getItem(key) ?? memory.get(key) ?? null;
+      if (raw === null) {
+        return null;
+      }
+
       try {
-        return window.localStorage.getItem(key) ?? memory.get(key) ?? null;
+        JSON.parse(raw);
+        return raw;
       } catch {
-        return memory.get(key) ?? null;
+        removeStoredValue(readLocalStorage(), key);
+        memory.delete(key);
+        return null;
       }
     },
     setItem: (key, value) => {
-      try {
-        window.localStorage.setItem(key, value);
-        return;
-      } catch {
-        memory.set(key, value);
+      const storage = readLocalStorage();
+      if (storage) {
+        try {
+          storage.setItem(key, value);
+          return;
+        } catch {
+          // Fall through to in-memory storage for quota/private-mode failures.
+        }
       }
+      memory.set(key, value);
     },
     removeItem: (key) => {
-      try {
-        window.localStorage.removeItem(key);
-      } catch {
-        // Keep the in-memory cleanup below as the fallback path.
-      }
+      removeStoredValue(readLocalStorage(), key);
       memory.delete(key);
     },
   };
 }
 
+/**
+ * Keep this browser fallback local instead of importing the shared helper.
+ * In the production bundle, Zustand eagerly initializes storage during module
+ * evaluation; importing the shared helper here can reintroduce the preference
+ * chunk cycle that made storage unavailable on web boot.
+ */
 function createVectorStatusUIStorage(): StateStorage {
   const electronStorage = getElectronStorageBridge();
   if (electronStorage) {

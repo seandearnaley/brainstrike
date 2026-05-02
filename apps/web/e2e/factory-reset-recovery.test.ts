@@ -76,7 +76,27 @@ test.describe('Factory Reset recovery (web)', () => {
     await expect(tokenToggle).toHaveAttribute('aria-checked', 'false');
 
     await settings.openCategory(/Factory Reset/i, 'factory-reset');
+    await page.addInitScript((storageKey: string) => {
+      const browserWindow = window as Window & {
+        __brainstrikeTokenPreferencesAtBoot?: string | null;
+      };
+      browserWindow.__brainstrikeTokenPreferencesAtBoot = window.localStorage.getItem(storageKey);
+    }, TOKEN_PREFERENCES_STORAGE_KEY);
     await confirmFactoryResetAndWaitForReload(page);
+
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const browserWindow = window as Window & {
+              __brainstrikeTokenPreferencesAtBoot?: string | null;
+            };
+            return browserWindow.__brainstrikeTokenPreferencesAtBoot;
+          }),
+        { message: 'expected factory reset to clear token preferences before reload boot' }
+      )
+      .toBeNull();
+
     await expect
       .poll(
         async () => {

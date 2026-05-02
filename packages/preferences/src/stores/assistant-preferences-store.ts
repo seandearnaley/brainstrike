@@ -111,6 +111,14 @@ function readBrowserStorage(): Storage | undefined {
   }
 }
 
+function removeStoredValue(storage: Storage | undefined, key: string): void {
+  try {
+    storage?.removeItem(key);
+  } catch {
+    // Best effort: blocked storage should not make cleanup flows fail.
+  }
+}
+
 function createAssistantPreferencesStorage(): StateStorage {
   const memory = new Map<string, string>();
 
@@ -125,7 +133,7 @@ function createAssistantPreferencesStorage(): StateStorage {
         JSON.parse(raw);
         return raw;
       } catch {
-        readBrowserStorage()?.removeItem(key);
+        removeStoredValue(readBrowserStorage(), key);
         memory.delete(key);
         return null;
       }
@@ -143,7 +151,7 @@ function createAssistantPreferencesStorage(): StateStorage {
       memory.set(key, value);
     },
     removeItem: (key) => {
-      readBrowserStorage()?.removeItem(key);
+      removeStoredValue(readBrowserStorage(), key);
       memory.delete(key);
     },
   };
@@ -776,8 +784,10 @@ function buildMigratedSelectedModel(
 }
 
 /**
- * Storage adapter with fallback to in-memory for SSR/tests
- * Uses safe storage utility with proper error logging
+ * Keep this store's state storage local instead of importing the shared helper.
+ * In the production bundle, Zustand eagerly initializes storage during module
+ * evaluation; importing the shared helper here can reintroduce the preference
+ * chunk cycle that made storage unavailable on web boot.
  */
 const storage = createJSONStorage(() => createAssistantPreferencesStorage());
 

@@ -8,6 +8,14 @@ function readLocalStorage(): Storage | undefined {
   }
 }
 
+function removeStoredValue(storage: Storage | undefined, key: string): void {
+  try {
+    storage?.removeItem(key);
+  } catch {
+    // Best effort: blocked storage should not make cleanup flows fail.
+  }
+}
+
 export function createBrowserJsonStorage(): StateStorage {
   const memory = new Map<string, string>();
 
@@ -22,7 +30,7 @@ export function createBrowserJsonStorage(): StateStorage {
         JSON.parse(raw);
         return raw;
       } catch {
-        readLocalStorage()?.removeItem(key);
+        removeStoredValue(readLocalStorage(), key);
         memory.delete(key);
         return null;
       }
@@ -40,7 +48,7 @@ export function createBrowserJsonStorage(): StateStorage {
       memory.set(key, value);
     },
     removeItem: (key) => {
-      readLocalStorage()?.removeItem(key);
+      removeStoredValue(readLocalStorage(), key);
       memory.delete(key);
     },
   };
