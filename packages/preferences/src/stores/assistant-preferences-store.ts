@@ -130,6 +130,7 @@ function createAssistantPreferencesStorage(): StateStorage {
       }
 
       try {
+        // Validation-only; Zustand's createJSONStorage parses the raw value.
         JSON.parse(raw);
         return raw;
       } catch {

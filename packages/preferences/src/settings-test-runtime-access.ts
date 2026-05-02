@@ -47,6 +47,16 @@ interface PersistedAssistantPreferences {
   };
 }
 
+const SETTINGS_TEST_SUPPORTED_PROVIDERS = new Set<string>([
+  'anthropic',
+  'google',
+  'lmstudio',
+  'local',
+  'ollama',
+  'openai',
+  'openrouter',
+] satisfies readonly SupportedProvider[]);
+
 declare global {
   interface Window {
     // biome-ignore lint/style/useNamingConvention: E2E init-script flag uses double underscores by convention
@@ -116,7 +126,9 @@ function resolveProviderFromCompositeModel(
     return;
   }
   const provider = compositeModel.slice(0, separatorIndex);
-  return provider as SupportedProvider;
+  return SETTINGS_TEST_SUPPORTED_PROVIDERS.has(provider)
+    ? (provider as SupportedProvider)
+    : undefined;
 }
 
 export function getAccurateRuntimeAvailabilityTestOverride(): boolean | null | undefined {

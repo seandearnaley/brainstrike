@@ -48,6 +48,16 @@ describe('settings-test-runtime-access', () => {
     expect(getAssistantConfiguredProvidersTestOverride()).toBeUndefined();
   });
 
+  it('ignores persisted assistant models with unsupported providers', () => {
+    window.localStorage.setItem(
+      'assistant-preferences.v1',
+      JSON.stringify({ state: { selectedModel: 'unsupported::model-id' }, version: 5 })
+    );
+
+    expect(getAssistantSelectedModelTestOverride()).toBe('unsupported::model-id');
+    expect(getAssistantConfiguredProvidersTestOverride()).toBeUndefined();
+  });
+
   it('returns model registry snapshot overrides', () => {
     window.__brainstrikePendingSettingsTestOverrides__ = {
       modelRegistry: {

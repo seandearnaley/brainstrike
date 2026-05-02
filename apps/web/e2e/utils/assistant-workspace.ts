@@ -160,7 +160,7 @@ export async function openAssistantWorkspace(
     timeout: 15_000,
   });
 
-  if (options.enableLocalAssistantModel ?? true) {
+  if (options.enableLocalAssistantModel === true) {
     await expect(page.locator('#assistant-input')).toBeEnabled({ timeout: 15_000 });
   }
 }
