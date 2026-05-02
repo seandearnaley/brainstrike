@@ -117,14 +117,16 @@ function shouldReadAssistantTestOverrides(): boolean {
   );
 }
 
+const SHOULD_READ_ASSISTANT_TEST_OVERRIDES = shouldReadAssistantTestOverrides();
+
 function readAssistantConfiguredProvidersTestOverride(): readonly SupportedProvider[] | undefined {
-  return shouldReadAssistantTestOverrides()
+  return SHOULD_READ_ASSISTANT_TEST_OVERRIDES
     ? getAssistantConfiguredProvidersTestOverride()
     : undefined;
 }
 
 function readAssistantSelectedModelTestOverride(): string | null | undefined {
-  return shouldReadAssistantTestOverrides() ? getAssistantSelectedModelTestOverride() : undefined;
+  return SHOULD_READ_ASSISTANT_TEST_OVERRIDES ? getAssistantSelectedModelTestOverride() : undefined;
 }
 
 function formatToolLabel(toolId: string): string {
@@ -1760,11 +1762,11 @@ export function AssistantUiPanelWrapper({
   }, [getLocalRuntimeStatuses]);
 
   useEffect(() => {
-    if (!selectedModelTestOverride || getSelectedModel() === selectedModelTestOverride) {
+    if (!selectedModelTestOverride || selectedModel === selectedModelTestOverride) {
       return;
     }
     setModel(selectedModelTestOverride);
-  }, [getSelectedModel, selectedModelTestOverride, setModel]);
+  }, [selectedModel, selectedModelTestOverride, setModel]);
 
   useEffect(() => {
     if (!localRuntimeStatuses) {
