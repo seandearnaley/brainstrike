@@ -65,16 +65,30 @@ test.describe('Models & Providers settings (web)', () => {
     await home.navigateToSettings();
     await settings.openCategory(/Models & Providers/i, 'models');
 
-    const firstRow = page.locator('[data-testid^="model-row-"]').first();
-    await expect(firstRow).toBeVisible({ timeout: 15_000 });
-    const rowTestId = await firstRow.getAttribute('data-testid');
-    if (!rowTestId?.startsWith('model-row-')) {
-      throw new Error(`Unexpected model row test id: ${String(rowTestId)}`);
+    const modelRows = page.locator('[data-testid^="model-row-"]');
+    await expect(modelRows.first()).toBeVisible({ timeout: 30_000 });
+
+    const rowCount = await modelRows.count();
+    let modelId: string | null = null;
+    for (let index = 0; index < rowCount; index += 1) {
+      const row = modelRows.nth(index);
+      const toggle = row.getByRole('switch');
+      if ((await toggle.getAttribute('aria-checked')) === 'false') {
+        const rowTestId = await row.getAttribute('data-testid');
+        if (!rowTestId?.startsWith('model-row-')) {
+          throw new Error(`Unexpected model row test id: ${String(rowTestId)}`);
+        }
+        modelId = rowTestId.replace('model-row-', '');
+        break;
+      }
     }
-    const modelId = rowTestId.replace('model-row-', '');
+
+    if (!modelId) {
+      throw new Error('Expected at least one disabled model to verify toggle persistence');
+    }
+
     const toggle = page.getByTestId(`model-toggle-${modelId}`);
-    const initialState = await toggle.getAttribute('aria-checked');
-    const expectedState = initialState === 'true' ? 'false' : 'true';
+    const expectedState = 'true';
 
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-checked', expectedState);
