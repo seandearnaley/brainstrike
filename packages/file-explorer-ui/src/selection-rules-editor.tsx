@@ -26,6 +26,7 @@ import {
   Label,
   ScrollArea,
 } from '@brainstrike/ui';
+import { generateUUID } from '@brainstrike/utils';
 import { Info, Minus, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { useFileExplorerStoreSelector } from './file-explorer-provider';
@@ -46,14 +47,9 @@ interface PatternInput {
   pattern: string;
 }
 
-/** Generate a unique ID for patterns */
-function generateId(): string {
-  return crypto.randomUUID();
-}
-
 /** Convert an array of strings to PatternInput objects */
 function stringsToPatternInputs(strings: string[]): PatternInput[] {
-  return strings.map((s) => ({ id: generateId(), pattern: s }));
+  return strings.map((s) => ({ id: generateUUID(), pattern: s }));
 }
 
 /** Empty result for parseExistingRules */
@@ -110,7 +106,7 @@ function buildRuleSet(
 
   if (validIncludePatterns.length > 0) {
     const includeRule: GlobIncludeRule = {
-      id: generateId(),
+      id: generateUUID(),
       type: 'glob-include',
       patterns: validIncludePatterns,
       label: 'Include patterns',
@@ -126,7 +122,7 @@ function buildRuleSet(
 
   if (validExcludeRoots.length > 0) {
     const rootExcludeRule: RootExcludeRule = {
-      id: generateId(),
+      id: generateUUID(),
       type: 'root-exclude',
       roots: validExcludeRoots,
       label: 'Exclude directories',
@@ -144,7 +140,7 @@ function buildRuleSet(
 
   if (validExcludePatterns.length > 0) {
     const excludeRule: GlobExcludeRule = {
-      id: generateId(),
+      id: generateUUID(),
       type: 'glob-exclude',
       patterns: validExcludePatterns,
       label: 'Exclude patterns',
@@ -190,7 +186,7 @@ const RulesEditorContent: React.FC<{
   onApplyDefaults,
 }) => {
   const addIncludePattern = () => {
-    onIncludePatternsChange([...includePatterns, { id: generateId(), pattern: '' }]);
+    onIncludePatternsChange([...includePatterns, { id: generateUUID(), pattern: '' }]);
   };
 
   const removeIncludePattern = (id: string) => {
@@ -202,7 +198,7 @@ const RulesEditorContent: React.FC<{
   };
 
   const addExcludePattern = () => {
-    onExcludePatternsChange([...excludePatterns, { id: generateId(), pattern: '' }]);
+    onExcludePatternsChange([...excludePatterns, { id: generateUUID(), pattern: '' }]);
   };
 
   const removeExcludePattern = (id: string) => {
@@ -214,7 +210,7 @@ const RulesEditorContent: React.FC<{
   };
 
   const addExcludeRoot = () => {
-    onExcludeRootsChange([...excludeRoots, { id: generateId(), pattern: '' }]);
+    onExcludeRootsChange([...excludeRoots, { id: generateUUID(), pattern: '' }]);
   };
 
   const removeExcludeRoot = (id: string) => {
@@ -520,24 +516,24 @@ const RulesEditorContainer: React.FC<{
   const handleApplyDefaults = useCallback(() => {
     // Add default include patterns
     const defaultIncludes: PatternInput[] = DEFAULT_INCLUDE_PATTERNS.map((pattern: string) => ({
-      id: generateId(),
+      id: generateUUID(),
       pattern,
     }));
 
     // Add default exclude roots
     const defaultRoots: PatternInput[] = DEFAULT_EXCLUDE_ROOTS.map((root: string) => ({
-      id: generateId(),
+      id: generateUUID(),
       pattern: root,
     }));
 
     // Default test file exclusions
     const defaultExcludes: PatternInput[] = [
-      { id: generateId(), pattern: '**/*.test.ts' },
-      { id: generateId(), pattern: '**/*.test.tsx' },
-      { id: generateId(), pattern: '**/*.spec.ts' },
-      { id: generateId(), pattern: '**/*.spec.tsx' },
-      { id: generateId(), pattern: '**/__tests__/**' },
-      { id: generateId(), pattern: '**/__mocks__/**' },
+      { id: generateUUID(), pattern: '**/*.test.ts' },
+      { id: generateUUID(), pattern: '**/*.test.tsx' },
+      { id: generateUUID(), pattern: '**/*.spec.ts' },
+      { id: generateUUID(), pattern: '**/*.spec.tsx' },
+      { id: generateUUID(), pattern: '**/__tests__/**' },
+      { id: generateUUID(), pattern: '**/__mocks__/**' },
     ];
 
     setIncludePatterns(defaultIncludes);
