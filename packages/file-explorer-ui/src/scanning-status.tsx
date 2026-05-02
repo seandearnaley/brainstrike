@@ -106,7 +106,11 @@ export const ScanningStatus: React.FC<ScanningStatusProps> = React.memo(
               <span className="shrink-0 text-muted-foreground text-xs">{percentage}%</span>
             )}
           </div>
-          <Progress className="h-1" value={isCancelling ? 0 : percentage} />
+          <Progress
+            aria-label="File scanning progress"
+            className="h-1"
+            value={isCancelling ? 0 : percentage}
+          />
           {displayPath && (
             <span className="truncate text-muted-foreground text-xs" title={currentPath}>
               {displayPath}

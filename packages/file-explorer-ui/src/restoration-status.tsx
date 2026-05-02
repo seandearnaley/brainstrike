@@ -82,6 +82,7 @@ export const RestorationStatus: React.FC<RestorationStatusProps> = React.memo(
             </span>
           </div>
           <Progress
+            aria-label="Folder restoration progress"
             className="h-1 bg-amber-200 dark:bg-amber-800 [&>div]:bg-amber-500"
             value={percentage}
           />
