@@ -428,7 +428,7 @@ function isNonEmptyString(value: unknown): value is string {
 
 function addValuesToSet(target: Set<string>, values: Iterable<string>): void {
   for (const value of values) {
-    if (value.length > 0) {
+    if (isNonEmptyString(value)) {
       target.add(value);
     }
   }
@@ -443,6 +443,7 @@ function getBuiltInLocalPreferenceModelIds(
 // Browser-local models are DB-backed in the split assistant chunk; the registry id is the
 // authoritative runtime id when static provider metadata has not produced a usable id yet.
 function getEnabledBuiltInLocalRegistryModelIds(
+  downloadedModels: Readonly<Record<string, boolean>>,
   registryModels: readonly {
     capabilities: { type?: unknown };
     id: unknown;
@@ -456,7 +457,8 @@ function getEnabledBuiltInLocalRegistryModelIds(
       model.providerId === 'local' &&
       model.isEnabled === true &&
       model.capabilities.type === 'llm' &&
-      isNonEmptyString(model.id)
+      isNonEmptyString(model.id) &&
+      downloadedModels[model.id] === true
     ) {
       modelIds.push(model.id);
     }
@@ -1017,6 +1019,7 @@ export function AssistantUiPanelWrapper({
   // Load model registry from DB for local provider models
   useEnsureModelRegistry();
   const registryModels = useModelRegistryStore((state) => state.models);
+  const downloadedModels = useModelRegistryStore((state) => state.downloadedModels);
   const registryError = useModelRegistryStore((state) => state.error);
   const toggleModelInDb = useModelRegistryStore((state) => state.toggleModel);
   const db = usePGliteDatabase();
@@ -1082,10 +1085,18 @@ export function AssistantUiPanelWrapper({
   );
   const enabledBuiltInLocalModelIds = useMemo(() => {
     const modelIds = new Set<string>();
-    addValuesToSet(modelIds, getBuiltInLocalPreferenceModelIds(enabledModelsByProvider));
-    addValuesToSet(modelIds, getEnabledBuiltInLocalRegistryModelIds(registryModels));
+    addValuesToSet(
+      modelIds,
+      getBuiltInLocalPreferenceModelIds(enabledModelsByProvider).filter(
+        (modelId) => downloadedModels[modelId] === true
+      )
+    );
+    addValuesToSet(
+      modelIds,
+      getEnabledBuiltInLocalRegistryModelIds(downloadedModels, registryModels)
+    );
     return [...modelIds];
-  }, [enabledModelsByProvider, registryModels]);
+  }, [downloadedModels, enabledModelsByProvider, registryModels]);
 
   const runtimeLlmModelsByProvider = useMemo<
     Partial<Record<LocalRuntimeProviderId, readonly LlmProviderModelDefinition[]>>
@@ -1909,7 +1920,9 @@ export function AssistantUiPanelWrapper({
     setModel(`local::${localModel}`);
   }, [configuredProviders, enabledBuiltInLocalModelIds, enabledModelIds, selectedModel, setModel]);
 
-  // Reconcile selection whenever providers or enabled models change
+  // Reconcile selection whenever providers or enabled models change.
+  // Keep this after the built-in local seeding effect above so a downloaded
+  // browser-local registry model can become the initial selection first.
   // Using useEffect (not useLayoutEffect) because we're mutating external state (Zustand store)
   // React will properly batch these updates and handle them in the commit phase
   useEffect(() => {

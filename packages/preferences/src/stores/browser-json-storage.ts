@@ -21,7 +21,8 @@ export function createBrowserJsonStorage(): StateStorage {
 
   return {
     getItem: (key) => {
-      const raw = readLocalStorage()?.getItem(key) ?? memory.get(key) ?? null;
+      const storage = readLocalStorage();
+      const raw = storage?.getItem(key) ?? memory.get(key) ?? null;
       if (raw === null) {
         return null;
       }
@@ -31,7 +32,7 @@ export function createBrowserJsonStorage(): StateStorage {
         JSON.parse(raw);
         return raw;
       } catch {
-        removeStoredValue(readLocalStorage(), key);
+        removeStoredValue(storage, key);
         memory.delete(key);
         return null;
       }

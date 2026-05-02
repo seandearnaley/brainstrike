@@ -99,7 +99,7 @@ function readSettingsTestOverrides(): SettingsE2ETestOverrides | undefined {
   return window.__brainstrikePendingSettingsTestOverrides__;
 }
 
-function readPersistedAssistantSelectedModelForTests(): string | null | undefined {
+function readPersistedAssistantSelectedModelForTests(): string | undefined {
   if (!shouldReadSettingsTestOverrides()) {
     return;
   }
@@ -110,14 +110,14 @@ function readPersistedAssistantSelectedModelForTests(): string | null | undefine
       return;
     }
     const parsed = JSON.parse(raw) as PersistedAssistantPreferences;
-    return typeof parsed.state?.selectedModel === 'string' ? parsed.state.selectedModel : null;
+    return typeof parsed.state?.selectedModel === 'string' ? parsed.state.selectedModel : undefined;
   } catch {
     return;
   }
 }
 
 function resolveProviderFromCompositeModel(
-  compositeModel: string | null | undefined
+  compositeModel: string | undefined
 ): SupportedProvider | undefined {
   if (!compositeModel) {
     return;

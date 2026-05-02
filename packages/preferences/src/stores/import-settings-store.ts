@@ -33,7 +33,6 @@ const STORE_VERSION = 7 as const;
 
 /**
  * Storage adapter with fallback to in-memory for SSR/tests
- * Uses safe storage utility with proper error logging
  */
 const storage = createJSONStorage(() => createBrowserJsonStorage());
 
