@@ -56,4 +56,17 @@ describe('browser PGlite storage benchmark harness', () => {
     );
     expect(statements.join('\n')).toContain('ORDER BY embedding <->');
   });
+
+  it('fails fast for invalid benchmark row counts', async () => {
+    await expect(
+      runBrowserPGliteStorageBenchmark({
+        createClient: async (): Promise<BrowserPGliteStorageBenchmarkClient> => ({
+          exec: async () => undefined,
+          query: async () => ({ rows: [] }),
+        }),
+        rows: 0,
+        selections: [{ dataDir: 'idb://bench', reason: 'requested-indexeddb', storage: 'idb' }],
+      })
+    ).rejects.toThrow('Expected a positive integer row count, got 0');
+  });
 });

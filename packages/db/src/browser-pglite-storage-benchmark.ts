@@ -42,6 +42,7 @@ export async function runBrowserPGliteStorageBenchmark({
   rows = DEFAULT_BENCHMARK_ROWS,
   selections,
 }: BrowserPGliteStorageBenchmarkAdapter): Promise<BrowserPGliteStorageBenchmarkResult[]> {
+  const benchmarkRows = toPositiveInteger(rows);
   const results: BrowserPGliteStorageBenchmarkResult[] = [];
 
   for (const selection of selections) {
@@ -73,11 +74,11 @@ export async function runBrowserPGliteStorageBenchmark({
       });
 
       await measureStep(clock, steps, 'file-record-insert', async () => {
-        await client.exec(buildFileRecordInsert(rows));
+        await client.exec(buildFileRecordInsert(benchmarkRows));
       });
 
       await measureStep(clock, steps, 'chunk-record-insert', async () => {
-        await client.exec(buildChunkRecordInsert(rows));
+        await client.exec(buildChunkRecordInsert(benchmarkRows));
       });
 
       await measureStep(clock, steps, 'count-query', async () => {
@@ -103,7 +104,7 @@ export async function runBrowserPGliteStorageBenchmark({
     results.push({
       dataDir: selection.dataDir,
       reason: selection.reason,
-      rows,
+      rows: benchmarkRows,
       steps,
       storage: selection.storage,
       totalMs: clock() - startedAt,
@@ -156,8 +157,8 @@ function buildChunkRecordInsert(rows: number): string {
 }
 
 function toPositiveInteger(value: number): number {
-  if (!Number.isFinite(value) || value < 1) {
-    return DEFAULT_BENCHMARK_ROWS;
+  if (!Number.isInteger(value) || value < 1) {
+    throw new RangeError(`Expected a positive integer row count, got ${value}`);
   }
-  return Math.floor(value);
+  return value;
 }

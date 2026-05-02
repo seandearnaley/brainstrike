@@ -6,6 +6,7 @@ import type { PGliteWorker, PGliteWorkerOptions } from '@electric-sql/pglite/wor
 import {
   isBrowserPersistentPGliteDataDir,
   isIndexedDbPGliteDataDir,
+  isOpfsAhpPGliteDataDir,
 } from './browser-pglite-storage.js';
 
 type VectorExtension = Extension;
@@ -124,6 +125,9 @@ class WasmLoader {
 
     // Normalize in-memory indicator: map legacy ':memory:' to 'memory://'
     const normalizedDataDir = dataDir === ':memory:' ? 'memory://' : dataDir;
+    if (typeof window !== 'undefined' && isOpfsAhpPGliteDataDir(normalizedDataDir)) {
+      throw new Error('Browser OPFS AHP PGlite requires the PGlite worker host');
+    }
 
     // Use cache key for persistent databases to prevent double-open in dev mode
     // (React Strict Mode + HMR can cause multiple mounts without proper cleanup)
@@ -243,7 +247,7 @@ class WasmLoader {
           dataDir,
           extensions: { live },
           id: `brainstrike-db:${dataDir}`,
-          ...(isIndexedDbPGliteDataDir(dataDir) ? { relaxedDurability: true } : {}),
+          relaxedDurability: isIndexedDbPGliteDataDir(dataDir),
         };
         const workerClientPromise = PGliteWorker.create(worker, options);
         void workerClientPromise

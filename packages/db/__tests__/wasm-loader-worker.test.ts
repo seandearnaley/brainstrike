@@ -112,7 +112,18 @@ describe('wasmLoader browser worker host', () => {
         live: { name: 'live-extension' },
       },
       id: 'brainstrike-db:opfs-ahp://web',
+      relaxedDurability: false,
     });
+  });
+
+  it('rejects direct browser PGlite construction for OPFS AHP paths', async () => {
+    const { wasmLoader } = await import('../src/wasm-loader');
+
+    await expect(wasmLoader.createPGlite('opfs-ahp://web')).rejects.toThrow(
+      'Browser OPFS AHP PGlite requires the PGlite worker host'
+    );
+
+    expect(pgliteConstructor).not.toHaveBeenCalled();
   });
 
   it('returns a worker client that satisfies the shared DB execution contract', async () => {
