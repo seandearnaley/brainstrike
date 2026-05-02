@@ -244,6 +244,7 @@ export function CreateEmbeddingSetDialog({
   const { toast } = useToast();
   const [formState, dispatch] = useReducer(formReducer, INITIAL_FORM_STATE);
   const { creating, formData, existingNames, hasInitialized, nameDirty } = formState;
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
   const nameDirtyRef = useRef(false);
 
   const selectedModelInfo = models.find((m) => m.id === formData.selectedModel);
@@ -293,13 +294,14 @@ export function CreateEmbeddingSetDialog({
       } catch (error) {
         logger.warn('Failed to fetch existing collection names', { error });
       }
-      if (cancelled || nameDirtyRef.current) {
+      const firstModel = models[0];
+      const liveNameValue = nameInputRef.current?.value ?? '';
+      if (cancelled || nameDirtyRef.current || liveNameValue !== (firstModel?.name ?? '')) {
         return;
       }
       // Hand the raw inputs to the reducer; it inspects live state at apply
       // time to decide whether the user has typed or switched models since
       // this query started, and skips the refinement if so.
-      const firstModel = models[0];
       dispatch({
         type: 'refine_existing_names',
         names: collectionNames,
@@ -494,6 +496,7 @@ export function CreateEmbeddingSetDialog({
                   nameDirtyRef.current = true;
                 }}
                 placeholder="e.g., Code Embeddings"
+                ref={nameInputRef}
                 value={formData.name}
               />
             </div>
