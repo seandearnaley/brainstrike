@@ -385,52 +385,117 @@ test.describe('File Explorer', () => {
       },
     };
 
-    const bootstrapOptions: ExplorerBootstrapOptions = {
-      tree,
-      projectName: 'test-project',
-      resetSettings: true,
-      clearStorageKeys: ['panel-layout-store.v1'],
-      waitForDatabase: true,
-    };
+    test.describe('default tree', () => {
+      const bootstrapOptions: ExplorerBootstrapOptions = {
+        tree,
+        projectName: 'test-project',
+        resetSettings: true,
+        clearStorageKeys: ['panel-layout-store.v1'],
+      };
 
-    let explorer: FileExplorerPage;
+      let explorer: FileExplorerPage;
 
-    test.beforeEach(async ({ page }) => {
-      explorer = await bootstrapFileExplorer(page, bootstrapOptions);
+      test.beforeEach(async ({ page }) => {
+        explorer = await bootstrapFileExplorer(page, bootstrapOptions);
 
-      await expect(page.getByText('No directory selected')).toBeVisible({ timeout: 15_000 });
-      await expect(page.getByText('No files selected')).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByText('No directory selected')).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByText('No files selected')).toBeVisible({ timeout: 15_000 });
 
-      await explorer.selectRoot();
+        await explorer.selectRoot();
 
-      await expect(explorer.filterInput).toBeVisible({ timeout: 10_000 });
-      await expect(explorer.noDirectoryText).not.toBeVisible();
-      await expect(explorer.fileTree).toBeVisible();
-    });
+        await expect(explorer.filterInput).toBeVisible({ timeout: 10_000 });
+        await expect(explorer.noDirectoryText).not.toBeVisible();
+        await expect(explorer.fileTree).toBeVisible();
+      });
 
-    test('keeps the preset trigger enabled when view filters first appear', async ({ page }) => {
-      await openViewFilters(page);
-      await getPresetTrigger(page);
-    });
+      test('keeps the preset trigger enabled when view filters first appear', async ({ page }) => {
+        await openViewFilters(page);
+        await getPresetTrigger(page);
+      });
 
-    test('loads presets and applies a selected preset from the dropdown', async ({ page }) => {
-      await openViewFilters(page);
+      test('loads presets and applies a selected preset from the dropdown', async ({ page }) => {
+        await openViewFilters(page);
 
-      const presetTrigger = await getPresetTrigger(page);
-      await presetTrigger.click();
+        const presetTrigger = await getPresetTrigger(page);
+        await presetTrigger.click();
 
-      await expect(page.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
+        await expect(page.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
 
-      const documentationOption = page.getByRole('button', { name: /documentation/i }).first();
-      await expect(documentationOption).toBeVisible({ timeout: 10_000 });
-      await documentationOption.click();
+        const documentationOption = page.getByRole('button', { name: /documentation/i }).first();
+        await expect(documentationOption).toBeVisible({ timeout: 10_000 });
+        await documentationOption.click();
 
-      await expect(
-        page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR).getByRole('button', {
-          name: /documentation/i,
-        })
-      ).toBeVisible({ timeout: 10_000 });
-      await expect(page.getByText('Select filter...')).toHaveCount(0);
+        await expect(
+          page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR).getByRole('button', {
+            name: /documentation/i,
+          })
+        ).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByText('Select filter...')).toHaveCount(0);
+      });
+
+      test('does not stay stuck on loading presets after opening the dropdown', async ({
+        page,
+      }) => {
+        await openViewFilters(page);
+
+        const presetTrigger = await getPresetTrigger(page);
+        await presetTrigger.click();
+
+        await expect(page.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
+        await expect(page.getByRole('button', { name: /documentation/i }).first()).toBeVisible({
+          timeout: 10_000,
+        });
+      });
+
+      const scenarios: FilterScenario[] = [
+        {
+          title: 'matches files by substring',
+          query: 'Button',
+          expectedVisible: ['Button.tsx', 'Button.test.tsx'],
+          expectedHidden: ['utils.ts', 'package.json'],
+        },
+        {
+          title: 'filters down to test files',
+          query: '.test',
+          expectedVisible: ['Button.test.tsx', 'utils.test.ts'],
+          expectedHidden: ['Button.tsx', 'utils.ts'],
+        },
+        {
+          title: 'supports negation syntax',
+          query: 'utils -test',
+          expectedVisible: ['utils.ts'],
+          expectedHidden: ['utils.test.ts', 'Button.tsx'],
+        },
+        {
+          title: 'clearing the filter restores the tree',
+          query: '',
+          expectedVisible: ['Button.tsx', 'utils.ts'],
+          expectedHidden: [],
+          before: async ({ explorer }) => {
+            await explorer.filterInput.fill('Button');
+            await expect(explorer.fileTree.getByText('Button.tsx')).toBeVisible();
+            await expect(explorer.fileTree.getByText('utils.ts')).not.toBeVisible();
+          },
+        },
+      ];
+
+      for (const scenario of scenarios) {
+        test(scenario.title, async ({ page }) => {
+          if (scenario.before) {
+            await scenario.before({ page, explorer });
+          }
+
+          await explorer.filterInput.fill(scenario.query);
+
+          for (const fileName of scenario.expectedVisible) {
+            await expect(explorer.fileTree.getByText(fileName)).toBeVisible();
+          }
+
+          for (const fileName of scenario.expectedHidden) {
+            await expect(explorer.fileTree.getByText(fileName)).not.toBeVisible();
+          }
+        });
+      }
     });
 
     test('keeps root Select All and single-click expansion aligned with the TypeScript/JavaScript preset', async ({
@@ -461,7 +526,6 @@ test.describe('File Explorer', () => {
         projectName: 'filtered-select-all-project',
         resetSettings: true,
         clearStorageKeys: ['panel-layout-store.v1'],
-        waitForDatabase: true,
       });
 
       await filteredExplorer.selectRoot();
@@ -520,68 +584,6 @@ test.describe('File Explorer', () => {
       ).toBeChecked();
       await expect(filteredExplorer.fileTree.getByText('notes.txt')).not.toBeVisible();
     });
-
-    test('does not stay stuck on loading presets after opening the dropdown', async ({ page }) => {
-      await openViewFilters(page);
-
-      const presetTrigger = await getPresetTrigger(page);
-      await presetTrigger.click();
-
-      await expect(page.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
-      await expect(page.getByRole('button', { name: /documentation/i }).first()).toBeVisible({
-        timeout: 10_000,
-      });
-    });
-
-    const scenarios: FilterScenario[] = [
-      {
-        title: 'matches files by substring',
-        query: 'Button',
-        expectedVisible: ['Button.tsx', 'Button.test.tsx'],
-        expectedHidden: ['utils.ts', 'package.json'],
-      },
-      {
-        title: 'filters down to test files',
-        query: '.test',
-        expectedVisible: ['Button.test.tsx', 'utils.test.ts'],
-        expectedHidden: ['Button.tsx', 'utils.ts'],
-      },
-      {
-        title: 'supports negation syntax',
-        query: 'utils -test',
-        expectedVisible: ['utils.ts'],
-        expectedHidden: ['utils.test.ts', 'Button.tsx'],
-      },
-      {
-        title: 'clearing the filter restores the tree',
-        query: '',
-        expectedVisible: ['Button.tsx', 'utils.ts'],
-        expectedHidden: [],
-        before: async ({ explorer }) => {
-          await explorer.filterInput.fill('Button');
-          await expect(explorer.fileTree.getByText('Button.tsx')).toBeVisible();
-          await expect(explorer.fileTree.getByText('utils.ts')).not.toBeVisible();
-        },
-      },
-    ];
-
-    for (const scenario of scenarios) {
-      test(scenario.title, async ({ page }) => {
-        if (scenario.before) {
-          await scenario.before({ page, explorer });
-        }
-
-        await explorer.filterInput.fill(scenario.query);
-
-        for (const fileName of scenario.expectedVisible) {
-          await expect(explorer.fileTree.getByText(fileName)).toBeVisible();
-        }
-
-        for (const fileName of scenario.expectedHidden) {
-          await expect(explorer.fileTree.getByText(fileName)).not.toBeVisible();
-        }
-      });
-    }
   });
 
   test.describe('settings persistence', () => {
