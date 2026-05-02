@@ -255,6 +255,7 @@ function createVectorStatusBrowserStorage(): StateStorage {
  * In the production bundle, Zustand eagerly initializes storage during module
  * evaluation; importing the shared helper here can reintroduce the preference
  * chunk cycle that made storage unavailable on web boot.
+ * Keep behavior in sync with createBrowserJsonStorage in browser-json-storage.ts.
  */
 function createVectorStatusUIStorage(): StateStorage {
   const electronStorage = getElectronStorageBridge();

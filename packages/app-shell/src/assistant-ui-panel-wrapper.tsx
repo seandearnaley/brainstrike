@@ -105,6 +105,28 @@ function resolveProviderFromComposite(
   return candidate && isSupportedProvider(candidate) ? candidate : null;
 }
 
+function shouldReadAssistantTestOverrides(): boolean {
+  if (typeof window === 'undefined') {
+    return globalThis.process?.env?.['NODE_ENV'] === 'test';
+  }
+  return (
+    globalThis.process?.env?.['ELECTRON_IS_E2E_TEST'] === 'true' ||
+    globalThis.process?.env?.['NODE_ENV'] === 'test' ||
+    (window.__brainstrike_e2e_enable_settings_test_api__ === true &&
+      window.navigator.webdriver === true)
+  );
+}
+
+function readAssistantConfiguredProvidersTestOverride(): readonly SupportedProvider[] | undefined {
+  return shouldReadAssistantTestOverrides()
+    ? getAssistantConfiguredProvidersTestOverride()
+    : undefined;
+}
+
+function readAssistantSelectedModelTestOverride(): string | null | undefined {
+  return shouldReadAssistantTestOverrides() ? getAssistantSelectedModelTestOverride() : undefined;
+}
+
 function formatToolLabel(toolId: string): string {
   const name = toolId.split('.').pop() ?? toolId;
   const spaced = name
@@ -927,7 +949,7 @@ export function AssistantUiPanelWrapper({
   memoryThreadId,
 }: AssistantUiPanelWrapperProps) {
   const [configuredProviders, setConfiguredProviders] = useState<SupportedProvider[]>(
-    () => initialProviders ?? [...(getAssistantConfiguredProvidersTestOverride() ?? [])]
+    () => initialProviders ?? [...(readAssistantConfiguredProvidersTestOverride() ?? [])]
   );
   const [localRuntimeStatuses, setLocalRuntimeStatuses] = useState<LocalRuntimeStatusMap | null>(
     null
@@ -972,7 +994,7 @@ export function AssistantUiPanelWrapper({
   const registryError = useModelRegistryStore((state) => state.error);
   const toggleModelInDb = useModelRegistryStore((state) => state.toggleModel);
   const db = usePGliteDatabase();
-  const selectedModelTestOverride = getAssistantSelectedModelTestOverride();
+  const selectedModelTestOverride = readAssistantSelectedModelTestOverride();
   const tokenCache = useOptionalTokenCacheContext();
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
@@ -1684,7 +1706,7 @@ export function AssistantUiPanelWrapper({
         return;
       }
 
-      const configuredProvidersOverride = getAssistantConfiguredProvidersTestOverride();
+      const configuredProvidersOverride = readAssistantConfiguredProvidersTestOverride();
       if (configuredProvidersOverride) {
         setConfiguredProviders([...configuredProvidersOverride]);
         return;

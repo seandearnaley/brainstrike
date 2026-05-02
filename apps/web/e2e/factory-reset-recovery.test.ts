@@ -97,6 +97,8 @@ test.describe('Factory Reset recovery (web)', () => {
       )
       .toBeNull();
 
+    // Stores may re-persist defaults during the reload; the init-script assertion
+    // above verifies the destructive reset removed the stale key before boot.
     await expect
       .poll(
         async () => {

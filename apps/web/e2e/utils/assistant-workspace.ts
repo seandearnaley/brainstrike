@@ -22,6 +22,7 @@ export async function openAssistantWorkspace(
 ): Promise<void> {
   if (options.enableLocalAssistantModel === true) {
     await page.addInitScript((modelId: string) => {
+      // Runtime signals: make the production bundle take the automated test path.
       const runtimeGlobal = globalThis as typeof globalThis & {
         process?: { env?: Record<string, string | undefined> };
       };
@@ -61,6 +62,7 @@ export async function openAssistantWorkspace(
         });
       }
 
+      // Persisted preferences: select the mocked browser-local assistant model.
       const selectedModel = `local::${modelId}`;
       const browserWindow = window as Window & {
         assistant?: {
@@ -89,6 +91,7 @@ export async function openAssistantWorkspace(
         })
       );
 
+      // Desktop bridge stubs: satisfy assistant setup without hosted provider keys.
       browserWindow.assistant = {
         getUrl: async () => 'http://127.0.0.1:0',
         url: 'http://127.0.0.1:0',
@@ -98,6 +101,7 @@ export async function openAssistantWorkspace(
         list: async () => ['local'],
       };
 
+      // Settings override API: seed registry/provider state before React mounts.
       window.__brainstrike_e2e_enable_settings_test_api__ = true;
       window.__brainstrikePendingSettingsTestOverrides__ = {
         accurateRuntimeAvailable: true,
