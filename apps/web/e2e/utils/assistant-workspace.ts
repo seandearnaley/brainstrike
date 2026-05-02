@@ -1,3 +1,4 @@
+import type { ModelRegistrySnapshotOverride } from '@brainstrike/preferences/settings-test-runtime-access';
 import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/preferences/stores/assistant-preferences-store';
 import { expect, type Page } from '@playwright/test';
 import { resetAppState } from './app-state';
@@ -17,125 +18,141 @@ const DEFAULT_ASSISTANT_TREE: FileTree = {
   'README.md': '# Assistant workspace fixture',
 };
 
+interface LocalAssistantModelFixture {
+  readonly assistantPreferences: {
+    readonly state: {
+      readonly enabledModelsByProvider: { readonly local: readonly string[] };
+      readonly modelsByProvider: { readonly local: string };
+      readonly providerSettings: {
+        readonly lmstudio: { readonly localRuntimeEnabled: 'off' };
+        readonly ollama: { readonly localRuntimeEnabled: 'off' };
+      };
+      readonly selectedModel: string;
+      readonly selectedProvider: 'local';
+    };
+    readonly version: number;
+  };
+  readonly modelRegistrySnapshot: ModelRegistrySnapshotOverride;
+}
+
+function createLocalAssistantModelFixture(): LocalAssistantModelFixture {
+  const selectedModel = `local::${LOCAL_ASSISTANT_MODEL_ID}`;
+
+  return {
+    assistantPreferences: {
+      state: {
+        enabledModelsByProvider: { local: [LOCAL_ASSISTANT_MODEL_ID] },
+        modelsByProvider: { local: LOCAL_ASSISTANT_MODEL_ID },
+        providerSettings: {
+          lmstudio: { localRuntimeEnabled: 'off' },
+          ollama: { localRuntimeEnabled: 'off' },
+        },
+        selectedProvider: 'local',
+        selectedModel,
+      },
+      version: ASSISTANT_PREFERENCES_STORE_VERSION,
+    },
+    modelRegistrySnapshot: {
+      downloadedModels: { [LOCAL_ASSISTANT_MODEL_ID]: true },
+      models: [
+        {
+          bestFor: ['assistant'],
+          capabilities: { type: 'llm', streaming: false },
+          description: 'Mocked local assistant model for E2E tests',
+          icon: null,
+          id: LOCAL_ASSISTANT_MODEL_ID,
+          isEnabled: true,
+          name: 'Gemma 4 E2B',
+          parameters: null,
+          providerId: 'local',
+          sortOrder: 0,
+          tagline: 'E2E local assistant model',
+        },
+      ],
+      providers: [
+        {
+          icon: null,
+          id: 'local',
+          isEnabled: true,
+          name: 'Local (Browser)',
+          sortOrder: 0,
+        },
+      ],
+    },
+  };
+}
+
 export async function openAssistantWorkspace(
   page: Page,
   options: AssistantWorkspaceOptions = {}
 ): Promise<void> {
   if (options.enableLocalAssistantModel === true) {
-    await page.addInitScript(
-      (fixture: { modelId: string; preferencesVersion: number }) => {
-        const { modelId, preferencesVersion } = fixture;
+    await page.addInitScript((fixture: LocalAssistantModelFixture) => {
+      const { assistantPreferences, modelRegistrySnapshot } = fixture;
 
-        // Runtime signals: explicit opt-in for automated settings hooks.
-        Object.defineProperty(navigator, 'webdriver', {
+      // Runtime signals: explicit opt-in for automated settings hooks.
+      Object.defineProperty(navigator, 'webdriver', {
+        configurable: true,
+        get: () => true,
+      });
+
+      if (!('gpu' in navigator)) {
+        Object.defineProperty(navigator, 'gpu', {
           configurable: true,
-          get: () => true,
+          value: {
+            async requestAdapter() {
+              return {
+                info: {
+                  architecture: 'test',
+                  description: 'Mock WebGPU adapter for assistant E2E tests',
+                  device: 'mock-webgpu',
+                  vendor: 'playwright',
+                },
+                limits: {
+                  maxBufferSize: 1_073_741_824,
+                  maxStorageBufferBindingSize: 1_073_741_824,
+                },
+              };
+            },
+          },
         });
-
-        if (!('gpu' in navigator)) {
-          Object.defineProperty(navigator, 'gpu', {
-            configurable: true,
-            value: {
-              async requestAdapter() {
-                return {
-                  info: {
-                    architecture: 'test',
-                    description: 'Mock WebGPU adapter for assistant E2E tests',
-                    device: 'mock-webgpu',
-                    vendor: 'playwright',
-                  },
-                  limits: {
-                    maxBufferSize: 1_073_741_824,
-                    maxStorageBufferBindingSize: 1_073_741_824,
-                  },
-                };
-              },
-            },
-          });
-        }
-
-        // Persisted preferences: select the mocked browser-local assistant model.
-        const selectedModel = `local::${modelId}`;
-        const browserWindow = window as Window & {
-          assistant?: {
-            getUrl: () => Promise<string>;
-            url: string;
-          };
-          secrets?: {
-            getKey: () => Promise<null>;
-            list: () => Promise<string[]>;
-          };
-        };
-        window.localStorage.setItem(
-          'assistant-preferences.v1',
-          JSON.stringify({
-            state: {
-              enabledModelsByProvider: { local: [modelId] },
-              modelsByProvider: { local: modelId },
-              providerSettings: {
-                lmstudio: { localRuntimeEnabled: 'off' },
-                ollama: { localRuntimeEnabled: 'off' },
-              },
-              selectedProvider: 'local',
-              selectedModel,
-            },
-            version: preferencesVersion,
-          })
-        );
-
-        // Desktop bridge stubs: satisfy assistant setup without hosted provider keys.
-        browserWindow.assistant = {
-          getUrl: async () => 'http://127.0.0.1:0',
-          url: 'http://127.0.0.1:0',
-        };
-        browserWindow.secrets = {
-          getKey: async () => null,
-          list: async () => ['local'],
-        };
-
-        // Settings override API: seed registry/provider state before React mounts.
-        window.__brainstrike_e2e_enable_settings_test_api__ = true;
-        window.__brainstrikePendingSettingsTestOverrides__ = {
-          accurateRuntimeAvailable: true,
-          assistant: {
-            configuredProviders: ['local'],
-          },
-          modelRegistry: {
-            snapshot: {
-              downloadedModels: { [modelId]: true },
-              models: [
-                {
-                  bestFor: ['assistant'],
-                  capabilities: { type: 'llm', streaming: false },
-                  description: 'Mocked local assistant model for E2E tests',
-                  icon: null,
-                  id: modelId,
-                  isEnabled: true,
-                  name: 'Gemma 4 E2B',
-                  parameters: null,
-                  providerId: 'local',
-                  sortOrder: 0,
-                  tagline: 'E2E local assistant model',
-                },
-              ],
-              providers: [
-                {
-                  icon: null,
-                  id: 'local',
-                  isEnabled: true,
-                  name: 'Local (Browser)',
-                  sortOrder: 0,
-                },
-              ],
-            },
-          },
-        };
-      },
-      {
-        modelId: LOCAL_ASSISTANT_MODEL_ID,
-        preferencesVersion: ASSISTANT_PREFERENCES_STORE_VERSION,
       }
-    );
+
+      // Persisted preferences: select the mocked browser-local assistant model.
+      const browserWindow = window as Window & {
+        assistant?: {
+          getUrl: () => Promise<string>;
+          url: string;
+        };
+        secrets?: {
+          getKey: () => Promise<null>;
+          list: () => Promise<string[]>;
+        };
+      };
+      window.localStorage.setItem('assistant-preferences.v1', JSON.stringify(assistantPreferences));
+
+      // Desktop bridge stubs: satisfy assistant setup without hosted provider keys.
+      browserWindow.assistant = {
+        getUrl: async () => 'http://127.0.0.1:0',
+        url: 'http://127.0.0.1:0',
+      };
+      browserWindow.secrets = {
+        getKey: async () => null,
+        list: async () => ['local'],
+      };
+
+      // Settings override API: seed registry/provider state before React mounts.
+      window.__brainstrike_e2e_enable_settings_test_api__ = true;
+      window.__brainstrikePendingSettingsTestOverrides__ = {
+        accurateRuntimeAvailable: true,
+        assistant: {
+          configuredProviders: ['local'],
+        },
+        modelRegistry: {
+          snapshot: modelRegistrySnapshot,
+        },
+      };
+    }, createLocalAssistantModelFixture());
   }
 
   await mockBrowserApis(

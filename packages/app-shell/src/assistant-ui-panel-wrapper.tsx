@@ -426,9 +426,9 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
 }
 
-function addValuesToSet(target: Set<string>, values: Iterable<unknown>): void {
+function addValuesToSet(target: Set<string>, values: Iterable<string>): void {
   for (const value of values) {
-    if (isNonEmptyString(value)) {
+    if (value.length > 0) {
       target.add(value);
     }
   }
@@ -1896,8 +1896,10 @@ export function AssistantUiPanelWrapper({
     [getSelectedModel, isModelEnabled, providerHasEnabledModels, selectModelForProvider]
   );
 
+  // This runs before the general reconciliation effect below so the built-in
+  // browser-local registry model can seed the initial local selection first.
   useEffect(() => {
-    if (selectedModel || !configuredProviders.includes('local')) {
+    if (selectedModel !== null || !configuredProviders.includes('local')) {
       return;
     }
     const localModel = enabledBuiltInLocalModelIds[0];
