@@ -16,7 +16,7 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
-import { useEffect, useReducer } from 'react';
+import { type FormEvent, useEffect, useReducer } from 'react';
 import { dispatchEmbeddingSetUpdated } from '../collection-select/embedding-set-events';
 import { setActiveEmbeddingSetId } from '../vector-preferences';
 
@@ -107,6 +107,21 @@ function buildMetadata(formData: {
   }
 
   return metadata;
+}
+
+function readSubmittedFormData(form: HTMLFormElement): {
+  name: string;
+  description: string;
+  tags: string;
+  category: string;
+} {
+  const submitted = new FormData(form);
+  return {
+    name: String(submitted.get('name') ?? ''),
+    description: String(submitted.get('description') ?? ''),
+    tags: String(submitted.get('tags') ?? ''),
+    category: String(submitted.get('category') ?? ''),
+  };
 }
 
 const logger = createLogger('CreateEmbeddingSetDialog');
@@ -281,7 +296,12 @@ export function CreateEmbeddingSetDialog({
     };
   }, [open, hasInitialized, repository, models]);
 
-  const validateCreateInputs = (): boolean => {
+  const validateCreateInputs = (submittedFormData: {
+    name: string;
+    description: string;
+    tags: string;
+    category: string;
+  }): boolean => {
     if (!(repository && selectedModelInfo)) {
       toast({
         title: 'Error',
@@ -291,7 +311,7 @@ export function CreateEmbeddingSetDialog({
       return false;
     }
 
-    if (!formData.name.trim()) {
+    if (!submittedFormData.name.trim()) {
       toast({
         title: 'Validation Error',
         description: 'Please provide a name for the embedding set',
@@ -303,8 +323,13 @@ export function CreateEmbeddingSetDialog({
     return true;
   };
 
-  const handleCreate = async () => {
-    if (!(validateCreateInputs() && repository && selectedModelInfo)) {
+  const handleCreate = async (submittedFormData: {
+    name: string;
+    description: string;
+    tags: string;
+    category: string;
+  }) => {
+    if (!(validateCreateInputs(submittedFormData) && repository && selectedModelInfo)) {
       return;
     }
 
@@ -323,7 +348,7 @@ export function CreateEmbeddingSetDialog({
     dispatch({ type: 'set_creating', creating: true });
     let createdSet: EmbeddingSet | null = null;
     try {
-      const metadata = buildMetadata(formData);
+      const metadata = buildMetadata(submittedFormData);
 
       const newSet = await repository.getOrCreateSet(
         modelKey,
@@ -360,7 +385,7 @@ export function CreateEmbeddingSetDialog({
 
       toast({
         title: 'Success',
-        description: `Created embedding set: ${formData.name}`,
+        description: `Created embedding set: ${metadata.name}`,
       });
 
       dispatch({ type: 'reset' });
@@ -383,12 +408,13 @@ export function CreateEmbeddingSetDialog({
   const canSubmit =
     !creating && hasModelOptions && Boolean(formData.selectedModel) && formData.name.trim() !== '';
 
-  const handleSubmit = (event: { preventDefault: () => void }) => {
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const submittedFormData = readSubmittedFormData(event.currentTarget);
     if (!canSubmit) {
       return;
     }
-    void handleCreate();
+    void handleCreate(submittedFormData);
   };
 
   return (
@@ -444,6 +470,7 @@ export function CreateEmbeddingSetDialog({
               <Input
                 disabled={creating}
                 id="name"
+                name="name"
                 onChange={(e) => dispatch({ type: 'edit_name', value: e.target.value })}
                 placeholder="e.g., Code Embeddings"
                 value={formData.name}
@@ -457,6 +484,7 @@ export function CreateEmbeddingSetDialog({
               <Input
                 disabled={creating}
                 id="description"
+                name="description"
                 onChange={(e) =>
                   dispatch({ type: 'set_field', field: 'description', value: e.target.value })
                 }
@@ -473,6 +501,7 @@ export function CreateEmbeddingSetDialog({
                 <Input
                   disabled={creating}
                   id="tags"
+                  name="tags"
                   onChange={(e) =>
                     dispatch({ type: 'set_field', field: 'tags', value: e.target.value })
                   }
@@ -491,6 +520,7 @@ export function CreateEmbeddingSetDialog({
                 <Input
                   disabled={creating}
                   id="category"
+                  name="category"
                   onChange={(e) =>
                     dispatch({ type: 'set_field', field: 'category', value: e.target.value })
                   }

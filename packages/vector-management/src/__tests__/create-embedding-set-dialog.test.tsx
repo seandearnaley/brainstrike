@@ -1,6 +1,6 @@
 import type { IEmbeddingSetsRepository } from '@brainstrike/db';
 import { type ModelPickerModel, type ModelPickerProvider, Toaster } from '@brainstrike/ui';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { CreateEmbeddingSetDialog } from '../embedding-set-management/create-embedding-set-dialog';
@@ -82,6 +82,14 @@ describe('CreateEmbeddingSetDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
+
+  function setInputValueWithoutReactChange(input: HTMLInputElement, value: string): void {
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    if (!descriptor?.set) {
+      throw new Error('HTMLInputElement value setter is unavailable');
+    }
+    descriptor.set.call(input, value);
+  }
 
   it('renders correctly when open', async () => {
     render(
@@ -178,6 +186,50 @@ describe('CreateEmbeddingSetDialog', () => {
     // Verify callback
     await waitFor(() => {
       expect(mockOnSetCreated).toHaveBeenCalledWith('new-set-id', createdSet);
+    });
+  });
+
+  it('submits the current form field values when reducer state has not observed the last input yet', async () => {
+    const createdSet = { id: 'submitted-set-id' };
+    (mockRepository.getOrCreateSet as Mock).mockResolvedValue(createdSet);
+
+    render(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          models={mockModels}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={mockProviders}
+          repository={mockRepository}
+        />
+      </>
+    );
+
+    const nameInput = screen.getByLabelText(/Name/i) as HTMLInputElement;
+    await waitFor(() => {
+      expect(nameInput).toHaveValue('Text Embedding 3 Small');
+    });
+
+    setInputValueWithoutReactChange(nameInput, 'Submitted DOM Name');
+
+    const form = nameInput.closest('form');
+    if (!form) {
+      throw new Error('Create collection form was not found');
+    }
+    fireEvent.submit(form);
+
+    await waitFor(() => {
+      expect(mockRepository.getOrCreateSet).toHaveBeenCalledWith(
+        'openai::text-embedding-3-small',
+        'text-embedding-3-small',
+        1536,
+        'cosine',
+        expect.objectContaining({
+          name: 'Submitted DOM Name',
+        })
+      );
     });
   });
 
