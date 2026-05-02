@@ -237,6 +237,71 @@ describe('CreateEmbeddingSetDialog', () => {
     });
   });
 
+  it('preserves a name typed before models finish loading', async () => {
+    const user = userEvent.setup({ delay: null });
+    const createdSet = {
+      id: 'late-model-set-id',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      dimensions: 384,
+      distance: 'cosine' as const,
+      createdAt: '2026-05-02T00:00:00.000Z',
+      name: 'Late Typed Collection',
+    };
+    (mockRepository.getOrCreateSet as Mock).mockResolvedValue(createdSet);
+
+    const { rerender } = render(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          isLoading={true}
+          models={[]}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={[]}
+          repository={mockRepository}
+        />
+      </>
+    );
+
+    await user.type(screen.getByLabelText(/Name/i), 'Late Typed Collection');
+    expect(screen.getByText('Create Collection')).toBeDisabled();
+
+    rerender(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          models={[mockModels[1]!]}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={mockProviders}
+          repository={mockRepository}
+        />
+      </>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Create Collection')).toBeEnabled();
+    });
+    expect(screen.getByLabelText(/Name/i)).toHaveValue('Late Typed Collection');
+
+    await user.click(screen.getByText('Create Collection'));
+
+    await waitFor(() => {
+      expect(mockRepository.getOrCreateSet).toHaveBeenCalledWith(
+        'local::Xenova/all-MiniLM-L6-v2',
+        'Xenova/all-MiniLM-L6-v2',
+        384,
+        'cosine',
+        expect.objectContaining({
+          name: 'Late Typed Collection',
+        })
+      );
+    });
+  });
+
   it('validates required fields', async () => {
     const user = userEvent.setup();
 
