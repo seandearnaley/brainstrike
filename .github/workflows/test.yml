@@ -342,7 +342,8 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "_Check the step timings above for optimization opportunities._" >> $GITHUB_STEP_SUMMARY
 
-  # Dynamic matrix: fewer shards on PRs, full shards on main
+  # Dynamic matrix: web E2E uses the same functional project and shard count on
+  # PRs and main so the merge gate proves the suite that runs after merge.
   determine-matrix:
     name: Determine E2E Matrix
     if: github.event_name != 'workflow_dispatch'
@@ -358,8 +359,8 @@ jobs:
         id: set-matrix
         run: |
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            echo 'web-shards=["1","2"]' >> "$GITHUB_OUTPUT"
-            echo 'web-shard-total=["2"]' >> "$GITHUB_OUTPUT"
+            echo 'web-shards=["1","2","3","4"]' >> "$GITHUB_OUTPUT"
+            echo 'web-shard-total=["4"]' >> "$GITHUB_OUTPUT"
             echo 'desktop-shards=["1","2"]' >> "$GITHUB_OUTPUT"
             echo 'desktop-shard-total=["2"]' >> "$GITHUB_OUTPUT"
           else
@@ -547,15 +548,9 @@ jobs:
         timeout-minutes: 30
         run: |
           cd apps/web
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            echo "Running smoke E2E tests for PR"
-            PROJECT="smoke"
-          else
-            echo "Running full E2E tests for main"
-            PROJECT="functional"
-          fi
+          echo "Running functional E2E tests"
           unset NO_COLOR
-          pnpm exec playwright test --project=$PROJECT --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          pnpm exec playwright test --project=functional --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           NODE_ENV: "production"
           PORT: "8080"
