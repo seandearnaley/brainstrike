@@ -776,6 +776,28 @@ export function getChunkingPreset(id: ChunkingPresetId): ChunkingPresetDefinitio
   return preset;
 }
 
+const EXTENSION_STRATEGY_MAP = new Map<string, ResolvedChunkingStrategy>([
+  ['md', 'semantic-markdown'],
+  ['mdx', 'semantic-markdown'],
+  ['markdown', 'semantic-markdown'],
+  ['rst', 'semantic-markdown'],
+  ['adoc', 'semantic-markdown'],
+  ['asciidoc', 'semantic-markdown'],
+  ['html', 'html'],
+  ['htm', 'html'],
+  ['xhtml', 'html'],
+  ['xml', 'html'],
+  ['svg', 'html'],
+  ['json', 'json'],
+  ['jsonl', 'json'],
+  ['ndjson', 'json'],
+  ['geojson', 'json'],
+  ['ipynb', 'json'],
+  ['tex', 'latex'],
+  ['latex', 'latex'],
+  ['bib', 'latex'],
+]);
+
 export function resolveChunkingStrategyForFile(
   filePath: string,
   requested: ChunkingStrategy = 'auto'
@@ -788,38 +810,7 @@ export function resolveChunkingStrategyForFile(
   if (CODE_EXTENSIONS.has(extension)) {
     return 'recursive';
   }
-  if (
-    extension === 'md' ||
-    extension === 'mdx' ||
-    extension === 'markdown' ||
-    extension === 'rst' ||
-    extension === 'adoc' ||
-    extension === 'asciidoc'
-  ) {
-    return 'semantic-markdown';
-  }
-  if (
-    extension === 'html' ||
-    extension === 'htm' ||
-    extension === 'xhtml' ||
-    extension === 'xml' ||
-    extension === 'svg'
-  ) {
-    return 'html';
-  }
-  if (
-    extension === 'json' ||
-    extension === 'jsonl' ||
-    extension === 'ndjson' ||
-    extension === 'geojson' ||
-    extension === 'ipynb'
-  ) {
-    return 'json';
-  }
-  if (extension === 'tex' || extension === 'latex' || extension === 'bib') {
-    return 'latex';
-  }
-  return 'sentence';
+  return EXTENSION_STRATEGY_MAP.get(extension) ?? 'sentence';
 }
 
 export function resolveEffectiveChunkingStrategy({
