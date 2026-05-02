@@ -101,7 +101,7 @@ function shortenSegment(segment: string, maxChars: number): string {
 }
 
 /**
- * Show only the trailing two segments of a path, prefixed with `…/` when truncated.
+ * Show only the trailing two segments of a path, prefixed with `.../` when truncated.
  * Used for compact progress indicators where horizontal space is tight.
  */
 export function formatTrailingPathSegments(path: string): string {
