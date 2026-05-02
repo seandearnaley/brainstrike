@@ -100,6 +100,15 @@ function shortenSegment(segment: string, maxChars: number): string {
   return `${segment.slice(0, head)}…${segment.slice(-tail)}`;
 }
 
+/**
+ * Show only the trailing two segments of a path, prefixed with `…/` when truncated.
+ * Used for compact progress indicators where horizontal space is tight.
+ */
+export function formatTrailingPathSegments(path: string): string {
+  const parts = path.split('/');
+  return parts.length > 2 ? `.../${parts.slice(-2).join('/')}` : path;
+}
+
 export function splitFilePath(filePath: string): SplitFilePathResult {
   const normalized = stripTrailingSlashes(normalizeSeparators(filePath));
   const lastSlashIndex = normalized.lastIndexOf('/');
