@@ -79,7 +79,8 @@
     "test": "vitest run",
     "test:integration": "VITEST_RUN_INTEGRATION=true vitest run --testNamePattern=\"integration\"",
     "test:watch": "vitest --watch",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
   },
   "types": "dist/index.d.ts"
 }

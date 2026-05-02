@@ -32,9 +32,10 @@
     },
     // --- Test Task --- //
     "test": {
-      // Ensures the package is built before tests are run.
+      // Unit tests import package source directly, but workspace dependencies may
+      // still need their generated declarations/artifacts.
       "dependsOn": [
-        "build"
+        "^build"
       ],
       // Tests can be sensitive to NODE_ENV, but build cache should not be globally invalidated by it.
       // TURBO_TEST_MODE differentiates plain test runs from coverage runs for cache keys.
@@ -42,12 +43,9 @@
         "NODE_ENV",
         "TURBO_TEST_MODE"
       ],
-      // Tests may emit coverage/test artifacts when invoked with coverage flags.
-      // Declaring these outputs lets Turbo restore artifacts on cache hits.
-      "outputs": [
-        "coverage/**",
-        "test-results/**"
-      ],
+      // Plain unit tests do not produce stable artifacts. Coverage is handled by
+      // the separate test:coverage task so coverage CLI args don't hash build tasks.
+      "outputs": [],
       // Only show logs from cache misses and errors
       "outputLogs": "new-only"
     },
@@ -155,13 +153,14 @@
     },
     // --- Test:Coverage Task --- //
     "test:coverage": {
-      // Kept for package-level coverage entry points; CI currently invokes `test` with coverage flags.
-      // Ensures the package is built before coverage tests are run.
+      // Runs package-local Vitest coverage scripts. Keeping coverage flags inside
+      // this task avoids Turborepo passthrough args invalidating dependency builds.
       "dependsOn": [
-        "build"
+        "^build"
       ],
       // Coverage runs should hash NODE_ENV + explicit test mode without invalidating unrelated tasks globally.
       "env": [
+        "COVERAGE",
         "NODE_ENV",
         "TURBO_TEST_MODE"
       ],

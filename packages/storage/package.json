@@ -37,7 +37,7 @@
     "dev": "tsc --build --watch --preserveWatchOutput --verbose & tsup --watch",
     "test": "vitest run --project unit",
     "test:browser": "vitest run --project browser",
-    "test:coverage": "pnpm -w test:coverage",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
