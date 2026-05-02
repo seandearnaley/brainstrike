@@ -23,10 +23,12 @@ test.describe('Models & Providers settings (web)', () => {
     const settings = new SettingsPage(page);
     await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
-    await settings.openCategory(/Models & Providers/i, 'models');
+    const modelsContent = await settings.openCategory(/Models & Providers/i, 'models');
 
-    await expect(page.getByText('Error loading models')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText('Model registry unavailable for test')).toBeVisible({
+    const registryError = modelsContent.getByTestId('model-registry-error');
+    await expect(registryError).toBeVisible({ timeout: 15_000 });
+    await expect(registryError.getByText('Error loading models', { exact: true })).toBeVisible();
+    await expect(registryError.getByText('Model registry unavailable for test')).toBeVisible({
       timeout: 15_000,
     });
 
@@ -92,12 +94,16 @@ test.describe('Models & Providers settings (web)', () => {
 
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-checked', expectedState);
+    await expect(toggle).toBeEnabled({ timeout: 15_000 });
     await page.getByRole('button', { name: 'Refresh model registry' }).click();
     await expect(page.getByTestId(`model-toggle-${modelId}`)).toHaveAttribute(
       'aria-checked',
       expectedState,
       { timeout: 15_000 }
     );
+    await expect(page.getByTestId(`model-toggle-${modelId}`)).toBeEnabled({
+      timeout: 15_000,
+    });
 
     await page.reload();
     await home.navigateToSettings();
