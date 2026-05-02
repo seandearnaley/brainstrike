@@ -526,6 +526,7 @@ test.describe('File Explorer', () => {
         projectName: 'filtered-select-all-project',
         resetSettings: true,
         clearStorageKeys: ['panel-layout-store.v1'],
+        waitForDatabase: true,
       });
 
       await filteredExplorer.selectRoot();
