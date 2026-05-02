@@ -8,7 +8,7 @@ const APPROVAL_TOOL_ID = 'brainstrike.selectRootTreeFiles';
 async function openToolsSettings(page: import('@playwright/test').Page): Promise<SettingsPage> {
   const home = new HomePage(page);
   const settings = new SettingsPage(page);
-  await home.goto();
+  await home.goto({ waitForDatabase: false });
   await home.navigateToSettings();
   await settings.openCategory(/AI Tools/i, 'ai-tools');
   return settings;
@@ -65,7 +65,7 @@ test.describe('AI Tools and System Diagnostics settings (web)', () => {
   }) => {
     const home = new HomePage(page);
     const settings = new SettingsPage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
     await settings.openCategory(/System Diagnostics/i, 'system-diagnostics');
 

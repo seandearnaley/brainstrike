@@ -51,7 +51,7 @@ test.describe('Background indexing settings (web)', () => {
   test('lets users change the indexing policy from settings', async ({ page }) => {
     const home = new HomePage(page);
 
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await openSearchIndexingSettings(page);
 
     await expect(
@@ -72,7 +72,7 @@ test.describe('Background indexing settings (web)', () => {
     const collectionName = `Managed Cache ${Date.now()}`;
     const home = new HomePage(page);
 
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await ensureDatabasePanelVisible(page);
     await createCollection(page, collectionName);
 
@@ -88,7 +88,7 @@ test.describe('Background indexing settings (web)', () => {
     const collectionName = `Managed Import Guard ${Date.now()}`;
     const home = new HomePage(page);
 
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await ensureDatabasePanelVisible(page);
     await createCollection(page, collectionName);
 

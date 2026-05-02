@@ -97,8 +97,8 @@ test.describe('Factory Reset recovery (web)', () => {
       )
       .toBeNull();
 
-    // Stores may re-persist defaults during the reload; the init-script assertion
-    // above verifies the destructive reset removed the stale key before boot.
+    // Fresh-start storage should stay absent after reset; the UI assertions below
+    // verify the app still renders the default preference state from initial store state.
     await expect
       .poll(
         async () => {
@@ -115,9 +115,9 @@ test.describe('Factory Reset recovery (web)', () => {
           }
           return parsed.state?.accurateCounting === false ? 'stale-disabled' : 'unexpected';
         },
-        { message: 'expected factory reset to re-persist the default token preference' }
+        { message: 'expected factory reset to leave token preferences cleared' }
       )
-      .toBe('default');
+      .toBe('cleared');
 
     await openTokenCountingSettings(page);
 

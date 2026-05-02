@@ -19,7 +19,7 @@ const CONTEXT_EXPLORER_LAYOUT_STORE_KEY = 'context-explorer-layout-store.v1' as 
 
 async function reloadAndWait(page: Page): Promise<void> {
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await waitForAppLoad(page);
+  await waitForAppLoad(page, { waitForDatabase: false });
 }
 
 interface PersistedPanelLayout {
@@ -72,7 +72,7 @@ test.describe('IDE Layout Persistence', () => {
     // Clear any existing layout state to start fresh
     await resetAppState(page);
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
   });
 
   test.describe('Panel Visibility Persistence', () => {

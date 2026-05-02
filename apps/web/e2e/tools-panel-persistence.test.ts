@@ -5,10 +5,10 @@ import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
 test.describe('Agent sidebar database access', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
     await resetAppState(page);
     await page.reload();
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
   });
 
   test('keeps the database tab available across sidebar hide/show and reload', async ({ page }) => {
@@ -47,7 +47,7 @@ test.describe('Agent sidebar database access', () => {
     await expect(page.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });
 
     await page.reload();
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
     if (await elements.showAgentPanelShim.isVisible().catch(() => false)) {
       await elements.showAgentPanelShim.click();
     }
