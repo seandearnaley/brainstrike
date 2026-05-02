@@ -44,3 +44,7 @@
 ## 2026-04-03 - Replacing string.split with native indexOf for chunking hot paths
 **Learning:** For hot paths such as `splitByBlankLines`, `String.prototype.split(/\r?\n/)` eagerly allocates an intermediate array of every line, which increases garbage collection pressure on large text bodies. Even where a downstream API still needs a line array, centralizing the scan logic makes behavior fixes easier to apply consistently.
 **Action:** Replace repeated `.split()` line scanning with a shared `indexOf('\n')` loop that only normalizes `\r` when it precedes an actual newline. Use that helper for streaming blank-line splitting and for any call sites that still need to materialize line arrays.
+
+## 2024-05-02 - String Matching Optimization in File Selection Engine
+**Learning:** Hot loops that evaluate directory paths (e.g. `path.startsWith(root + '/')`) or count path depth using intermediate arrays (`relativePath.split('/').length`) cause massive garbage collection overhead when invoked over tens of thousands of paths.
+**Action:** Replace template literal interpolation for boundaries with explicit length checks (`path.charCodeAt(length) === 47`) and use native `indexOf` search instead of `split()` memory allocations.
