@@ -391,6 +391,7 @@ test.describe('File Explorer', () => {
         projectName: 'test-project',
         resetSettings: true,
         clearStorageKeys: ['panel-layout-store.v1'],
+        waitForDatabase: true,
       };
 
       let explorer: FileExplorerPage;
