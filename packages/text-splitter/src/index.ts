@@ -304,10 +304,13 @@ function assertSeparators(separators: string[]): void {
 
 function resolveSeparators(separators?: string[]): string[] {
   if (!separators) {
-    return DEFAULT_SEPARATORS;
+    // Defensive copy: callers receive an owned array they can pass on without
+    // risking mutation back to the module-level DEFAULT_SEPARATORS constant.
+    // The single per-splitText allocation is trivial.
+    return [...DEFAULT_SEPARATORS];
   }
   assertSeparators(separators);
-  return separators;
+  return [...separators];
 }
 
 function createSeparatorRegex(separator: string, flags: string): RegExp {
@@ -639,9 +642,11 @@ function getStrategySeparators(
   custom?: string[]
 ): { isSeparatorRegex: boolean; separators: string[] } {
   if (custom?.length) {
-    return { separators: custom, isSeparatorRegex: false };
+    return { separators: [...custom], isSeparatorRegex: false };
   }
-  return { separators: STRATEGY_SEPARATORS[strategy], isSeparatorRegex: false };
+  // Copy the shared table entry so the caller can't mutate the module-level
+  // STRATEGY_SEPARATORS through the returned reference.
+  return { separators: [...STRATEGY_SEPARATORS[strategy]], isSeparatorRegex: false };
 }
 
 function splitMarkdownSemantically(

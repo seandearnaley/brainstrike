@@ -486,9 +486,12 @@ const CODE_SEPARATORS: readonly string[] = [
 
 export function getCodeSeparators(custom?: string[]): string[] {
   if (custom?.length) {
-    return custom;
+    return [...custom];
   }
-  return CODE_SEPARATORS as string[];
+  // Copy the shared CODE_SEPARATORS so callers can't mutate the constant
+  // through the returned reference; preserves readonly safety without
+  // changing the public string[] return type.
+  return [...CODE_SEPARATORS];
 }
 
 export async function splitCodeByFunctionRanges(

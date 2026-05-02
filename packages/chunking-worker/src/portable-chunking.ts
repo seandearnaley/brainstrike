@@ -775,12 +775,13 @@ export async function chunkContent(
           if (!subC) {
             continue;
           }
-          // Sub-chunks come straight out of the recursive splitter constrained
-          // by char count; the heuristic is good enough and skips a tiktoken
-          // call per sub-piece.
+          // Reuse the hoisted dispatch so callers who opted into
+          // tokenTrueSizing keep getting accurate counts on sub-pieces too —
+          // downstream budget enforcement depends on those numbers being
+          // tight, not on a faster-but-loose char/4 heuristic.
           pendingChunks.push({
             content: subC,
-            tokenCount: estimateTokenCount(subC),
+            tokenCount: await countTokens(subC),
             chunkType: 'text',
           });
         }

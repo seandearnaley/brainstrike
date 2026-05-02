@@ -162,6 +162,8 @@ async function loadMissingFileContents(
 
   // Reads are independent; run them concurrently and collect errors in a
   // single batch so the import waits on the slowest file rather than the sum.
+  // Tick the tracker on each completion (not start) so the UI reflects the
+  // last-finished filename instead of a stale "starting to load N" display.
   const errorBatch: ErrorEntry[] = [];
   const results = await Promise.all(
     pending.map(async (pendingFile) => {
@@ -199,6 +201,8 @@ async function loadMissingFileContents(
           error: resolveReadError(error),
         });
         return null;
+      } finally {
+        tracker.update(tracker.errorCount, pendingFile.name);
       }
     })
   );
