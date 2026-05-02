@@ -22,6 +22,9 @@ async function createCollection(page: Page, collectionName: string): Promise<voi
   await dialog.getByRole('button', { name: 'Create Collection' }).click();
 
   await expect(dialog).toBeHidden({ timeout: 15_000 });
+  await expect(page.getByRole('option').filter({ hasText: collectionName }).first()).toBeVisible({
+    timeout: 15_000,
+  });
 }
 
 async function openSearchIndexingSettings(page: Page): Promise<void> {
