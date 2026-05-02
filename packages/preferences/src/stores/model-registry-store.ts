@@ -304,6 +304,12 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
             enabled,
             providerId,
           ]);
+
+          set((state) => ({
+            providers: state.providers.map((p) =>
+              p.id === providerId ? { ...p, isEnabled: enabled } : p
+            ),
+          }));
         } catch (error) {
           logger.error('Failed to toggle provider', error);
           // Revert on error
@@ -322,6 +328,10 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
             enabled,
             modelId,
           ]);
+
+          set((state) => ({
+            models: state.models.map((m) => (m.id === modelId ? { ...m, isEnabled: enabled } : m)),
+          }));
         } catch (error) {
           logger.error('Failed to toggle model', error);
           void get().fetchRegistry(db);

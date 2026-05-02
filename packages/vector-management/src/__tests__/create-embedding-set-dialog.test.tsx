@@ -128,7 +128,8 @@ describe('CreateEmbeddingSetDialog', () => {
     timeout: 15_000,
   }, async () => {
     const user = userEvent.setup({ delay: null }); // Disable delay for faster tests
-    (mockRepository.getOrCreateSet as Mock).mockResolvedValue({ id: 'new-set-id' });
+    const createdSet = { id: 'new-set-id' };
+    (mockRepository.getOrCreateSet as Mock).mockResolvedValue(createdSet);
 
     render(
       <>
@@ -176,7 +177,7 @@ describe('CreateEmbeddingSetDialog', () => {
 
     // Verify callback
     await waitFor(() => {
-      expect(mockOnSetCreated).toHaveBeenCalledWith('new-set-id');
+      expect(mockOnSetCreated).toHaveBeenCalledWith('new-set-id', createdSet);
     });
   });
 

@@ -1,4 +1,4 @@
-import type { IEmbeddingSetsRepository } from '@brainstrike/db';
+import type { EmbeddingSet, IEmbeddingSetsRepository } from '@brainstrike/db';
 import { parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
 import {
   Button,
@@ -46,7 +46,7 @@ interface CreateEmbeddingSetDialogProps {
   isLoading?: boolean;
   models: ModelPickerModel[];
   onOpenChange: (open: boolean) => void;
-  onSetCreated?: (setId: string) => void;
+  onSetCreated?: (setId: string, set: EmbeddingSet) => void;
   open: boolean;
   providers: ModelPickerProvider[];
   repository: IEmbeddingSetsRepository | null;
@@ -321,7 +321,7 @@ export function CreateEmbeddingSetDialog({
     const distance = 'cosine'; // Default for now
 
     dispatch({ type: 'set_creating', creating: true });
-    let newSetId: string | null = null;
+    let createdSet: EmbeddingSet | null = null;
     try {
       const metadata = buildMetadata(formData);
 
@@ -333,7 +333,7 @@ export function CreateEmbeddingSetDialog({
         metadata
       );
 
-      newSetId = newSet.id;
+      createdSet = newSet;
       setActiveEmbeddingSetId(newSet.id);
 
       dispatchEmbeddingSetUpdated({
@@ -375,8 +375,8 @@ export function CreateEmbeddingSetDialog({
       });
       return;
     }
-    if (newSetId) {
-      onSetCreated?.(newSetId);
+    if (createdSet) {
+      onSetCreated?.(createdSet.id, createdSet);
     }
   };
 
