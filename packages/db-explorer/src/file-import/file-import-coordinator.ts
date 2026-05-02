@@ -160,31 +160,31 @@ async function loadMissingFileContents(
     });
   }
 
-  for (const pendingFile of pending) {
-    tracker.update(tracker.errorCount, pendingFile.name);
+  // Reads are independent; run them concurrently and collect errors in a
+  // single batch so the import waits on the slowest file rather than the sum.
+  const errorBatch: ErrorEntry[] = [];
+  const results = await Promise.all(
+    pending.map(async (pendingFile) => {
+      try {
+        if (pendingFile.fileNode) {
+          const content = await readTextFile(pendingFile.fileNode, fileSystem);
+          return createImportRequest(pendingFile.fileNode, content, embeddingSetId);
+        }
 
-    try {
-      if (pendingFile.fileNode) {
-        const content = await readTextFile(pendingFile.fileNode, fileSystem);
-        requests.push(createImportRequest(pendingFile.fileNode, content, embeddingSetId));
-        continue;
-      }
+        const resolved = await fileSystem.readFileBySelection?.(
+          pendingFile.folderId,
+          pendingFile.path
+        );
+        if (!resolved) {
+          errorBatch.push({
+            file: pendingFile.path,
+            error: 'File not found in tree and no cached content available',
+          });
+          return null;
+        }
 
-      const resolved = await fileSystem.readFileBySelection?.(
-        pendingFile.folderId,
-        pendingFile.path
-      );
-      if (!resolved) {
-        tracker.addError({
-          file: pendingFile.path,
-          error: 'File not found in tree and no cached content available',
-        });
-        continue;
-      }
-
-      validateTextContent(resolved.path, resolved.content);
-      requests.push(
-        createImportRequest(
+        validateTextContent(resolved.path, resolved.content);
+        return createImportRequest(
           {
             name: resolved.name,
             path: resolved.path,
@@ -192,16 +192,25 @@ async function loadMissingFileContents(
           },
           resolved.content,
           embeddingSetId
-        )
-      );
-    } catch (error) {
-      tracker.addError({
-        file: pendingFile.path,
-        error: resolveReadError(error),
-      });
+        );
+      } catch (error) {
+        errorBatch.push({
+          file: pendingFile.path,
+          error: resolveReadError(error),
+        });
+        return null;
+      }
+    })
+  );
+
+  for (const request of results) {
+    if (request !== null) {
+      requests.push(request);
     }
   }
-
+  if (errorBatch.length > 0) {
+    tracker.addErrors(errorBatch);
+  }
   tracker.clearCurrent();
 
   return requests;
