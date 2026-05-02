@@ -24,8 +24,7 @@ import type {
   OpenAiReasoningSummary,
 } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
-import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import {
   getLocalRuntimeStatusTestOverride,
@@ -103,6 +102,52 @@ type Store = AssistantPreferencesData & AssistantPreferencesActions;
 
 const STORE_NAME = 'assistant-preferences.v1' as const;
 const STORE_VERSION = 5;
+
+function readBrowserStorage(): Storage | undefined {
+  try {
+    return typeof window === 'undefined' ? undefined : window.localStorage;
+  } catch {
+    return;
+  }
+}
+
+function createAssistantPreferencesStorage(): StateStorage {
+  const memory = new Map<string, string>();
+
+  return {
+    getItem: (key) => {
+      const raw = readBrowserStorage()?.getItem(key) ?? memory.get(key) ?? null;
+      if (raw === null) {
+        return null;
+      }
+
+      try {
+        JSON.parse(raw);
+        return raw;
+      } catch {
+        readBrowserStorage()?.removeItem(key);
+        memory.delete(key);
+        return null;
+      }
+    },
+    setItem: (key, value) => {
+      const storage = readBrowserStorage();
+      if (storage) {
+        try {
+          storage.setItem(key, value);
+          return;
+        } catch {
+          // Fall back to memory for quota/private-mode failures.
+        }
+      }
+      memory.set(key, value);
+    },
+    removeItem: (key) => {
+      readBrowserStorage()?.removeItem(key);
+      memory.delete(key);
+    },
+  };
+}
 
 const SUPPORTED_PROVIDERS = listProviders().map(
   (provider: ProviderDefinition) => provider.id
@@ -734,7 +779,7 @@ function buildMigratedSelectedModel(
  * Storage adapter with fallback to in-memory for SSR/tests
  * Uses safe storage utility with proper error logging
  */
-const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
+const storage = createJSONStorage(() => createAssistantPreferencesStorage());
 
 function ensureEnabledModels(
   enabledModelsByProvider: EnabledModelsMap,

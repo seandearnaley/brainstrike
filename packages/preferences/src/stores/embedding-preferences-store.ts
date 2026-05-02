@@ -1,7 +1,7 @@
 import type { EmbeddingProviderType } from '@brainstrike/embeddings/provider-core';
-import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { createBrowserJsonStorage } from './browser-json-storage';
 
 /**
  * Map of enabled models per provider
@@ -122,7 +122,7 @@ function migrateEmbeddingModelList(
  * Storage adapter with fallback to in-memory for SSR/tests
  * Uses safe storage utility with proper error logging
  */
-const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
+const storage = createJSONStorage(() => createBrowserJsonStorage());
 
 /**
  * Ensure enabled models array exists for a provider

@@ -705,37 +705,6 @@ test.describe('File Explorer', () => {
   });
 
   test.describe('Select All across unexpanded subfolders', () => {
-    /**
-     * Pins token counting to deterministic heuristic mode (ceil(content.length / 4))
-     * so that the TokenSummaryBar totals are stable across runs / tokenizer revisions.
-     * Mirrors the persisted shape of the `useTokenPreferencesStore` zustand store.
-     */
-    async function pinHeuristicTokenCounting(page: Page): Promise<void> {
-      await page.addInitScript(() => {
-        try {
-          window.localStorage.setItem(
-            'token-preferences.v1',
-            JSON.stringify({ state: { accurateCounting: false }, version: 1 })
-          );
-        } catch {
-          // SafeStorage adapter swallows quota errors at runtime; tests do the
-          // same so that storage hardening cannot mask the real assertion below.
-        }
-      });
-    }
-
-    /**
-     * Heuristic token count used by both the indexer worker and the preview-panel
-     * fallback path. Kept inline so the expected fixture totals are obviously
-     * derivable from file content alone.
-     */
-    function heuristicTokens(content: string): number {
-      if (content.length === 0) {
-        return 0;
-      }
-      return Math.max(1, Math.ceil(content.length / 4));
-    }
-
     test('counts tokens for files inside unexpanded subfolders after Select All (web parity with desktop)', async ({
       page,
     }) => {
@@ -748,18 +717,13 @@ test.describe('File Explorer', () => {
         browserLogs.push(`[pageerror] ${err.message}`);
       });
       // Files live exclusively inside nested subfolders so the bug shows up as
-      // a stalled "0+ estimating…" total rather than partial credit from the
-      // top-level files. Content lengths are picked so heuristic token math
-      // stays trivially auditable. We use `.ts` extensions so the files match
-      // the default View Filter include set (which excludes plain text files);
-      // otherwise the recursive selection scan would skip them and we would be
-      // measuring filter behavior, not the indexer fix.
-      const shallowContent = 'abcdefgh'; // length 8 → 2 heuristic tokens
-      const deepContent = 'abcdefghijklmnop'; // length 16 → 4 heuristic tokens
-      const expectedTokens = heuristicTokens(shallowContent) + heuristicTokens(deepContent);
+      // a stalled or partial token total rather than partial credit from any
+      // top-level files. Single-character fixture contents keep the expected
+      // total stable in both heuristic and WASM token-counting modes.
+      const shallowContent = 'a';
+      const deepContent = 'b';
+      const expectedTokens = 2;
       const expectedSelectedFiles = 2;
-
-      await pinHeuristicTokenCounting(page);
 
       const explorer = await bootstrapFileExplorer(page, {
         resetSettings: true,

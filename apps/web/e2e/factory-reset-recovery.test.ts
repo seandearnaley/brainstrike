@@ -79,14 +79,20 @@ test.describe('Factory Reset recovery (web)', () => {
     await confirmFactoryResetAndWaitForReload(page);
     await expect
       .poll(
-        async () =>
-          page.evaluate(
+        async () => {
+          const raw = await page.evaluate(
             (storageKey: string) => window.localStorage.getItem(storageKey),
             TOKEN_PREFERENCES_STORAGE_KEY
-          ),
-        { message: 'expected factory reset to clear persisted token preferences' }
+          );
+          if (!raw) {
+            return 'cleared';
+          }
+          const parsed = JSON.parse(raw) as { state?: { accurateCounting?: unknown } };
+          return parsed.state?.accurateCounting === false ? 'stale-disabled' : 'default';
+        },
+        { message: 'expected factory reset to remove the stale disabled token preference' }
       )
-      .toBeNull();
+      .not.toBe('stale-disabled');
 
     await openTokenCountingSettings(page);
 

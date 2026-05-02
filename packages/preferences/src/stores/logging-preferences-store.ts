@@ -3,9 +3,9 @@ import {
   createDefaultLoggingPreferences,
   type LoggingPreferences,
 } from '@brainstrike/utils/logging-preferences';
-import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { createBrowserJsonStorage } from './browser-json-storage';
 
 type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends readonly unknown[]
@@ -55,7 +55,7 @@ function mergeLoggingPreferences(
  * Storage adapter with fallback to in-memory for SSR/tests
  * Uses safe storage utility with proper error logging
  */
-const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
+const storage = createJSONStorage(() => createBrowserJsonStorage());
 
 export const useLoggingPreferencesStore = create<LoggingPreferencesState>()(
   persist(

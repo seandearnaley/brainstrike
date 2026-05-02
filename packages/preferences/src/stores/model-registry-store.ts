@@ -1,7 +1,6 @@
 import { LocalLlmBackend } from '@brainstrike/agent/local-llm';
 import type { IDatabase } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
-import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { isLocalModelProviderId } from '../models/local-model-utils';
@@ -9,6 +8,7 @@ import {
   getModelRegistryFetchErrorTestOverride,
   getModelRegistrySnapshotTestOverride,
 } from '../settings-test-runtime-access';
+import { createBrowserJsonStorage } from './browser-json-storage';
 
 const logger = createLogger('ModelRegistryStore');
 let registryLoadPromise: Promise<void> | null = null;
@@ -353,7 +353,7 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
     }),
     {
       name: 'model-registry-storage',
-      storage: createJSONStorage(() => createSafeJsonStorageAdapter()),
+      storage: createJSONStorage(() => createBrowserJsonStorage()),
       partialize: (state) => ({
         modelCacheDir: state.modelCacheDir,
         downloadedModels: state.downloadedModels,

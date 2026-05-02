@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import { FileExplorerPage } from './page-objects/file-explorer-page';
 import { resetAppState, seedWorkspaceFocusedShellLayout } from './utils/app-state';
-import { getPanelElements, togglePanelVisibility, waitForAppLoad } from './utils/layout-helpers';
+import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
 import type { FileTree } from './utils/mock-fs';
 
 const ROOT_NAME = 'persistent-root';
@@ -115,30 +115,7 @@ async function setupOpfsDirectoryPicker(
   );
 }
 
-async function ensureConsolePanelVisible(page: Page): Promise<void> {
-  const elements = getPanelElements(page);
-  const isVisible = await elements.consolePanel.isVisible().catch(() => false);
-  if (isVisible) {
-    return;
-  }
-  if (await elements.showConsoleShim.isVisible().catch(() => false)) {
-    await togglePanelVisibility(elements.showConsoleShim, elements.consolePanel, true);
-  }
-}
-
-async function ensureConsolePanelHidden(page: Page): Promise<void> {
-  const elements = getPanelElements(page);
-  const isVisible = await elements.consolePanel.isVisible().catch(() => false);
-  if (!isVisible) {
-    return;
-  }
-  if (await elements.hideConsoleButton.isVisible().catch(() => false)) {
-    await togglePanelVisibility(elements.hideConsoleButton, elements.consolePanel, false);
-  }
-}
-
 async function openPreviewFile(page: Page, fileName: string): Promise<void> {
-  await ensureConsolePanelHidden(page);
   const rowButton = getPanelElements(page)
     .rightPanel.getByRole('button', { name: fileName })
     .first();
@@ -334,9 +311,7 @@ test.describe('File Explorer persistence (web)', () => {
 
     await openPreviewFile(page, 'alpha.ts');
 
-    const elements = getPanelElements(page);
-    await ensureConsolePanelVisible(page);
-    const tabButton = elements.consolePanel.getByRole('button', { name: /alpha\.ts/ }).first();
+    const tabButton = page.getByRole('tab', { name: /alpha\.ts/ }).first();
     await expect(tabButton).toBeVisible();
     await expect(page.getByText('alpha content')).toBeVisible();
 
@@ -345,9 +320,7 @@ test.describe('File Explorer persistence (web)', () => {
 
     await restoreAccessIfNeeded(page, explorer);
 
-    await ensureConsolePanelVisible(page);
-    await expect(elements.consolePanel).toBeVisible();
-    await expect(elements.consolePanel.getByRole('button', { name: /alpha\.ts/ })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /alpha\.ts/ })).toBeVisible();
     await expect(page.getByText('alpha content')).toBeVisible({ timeout: 15_000 });
   });
 
@@ -396,7 +369,7 @@ test.describe('File Explorer persistence (web)', () => {
     await expect(page.getByText('1/10')).toBeVisible();
 
     await openPreviewFile(page, 'beta.ts');
-    await ensureConsolePanelVisible(page);
+    await expect(page.getByRole('tab', { name: /beta\.ts/ })).toBeVisible();
     await expect(page.getByText('beta content')).toBeVisible({ timeout: 15_000 });
   });
 

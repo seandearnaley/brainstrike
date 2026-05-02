@@ -35,6 +35,10 @@ import {
   useSelectionManager,
 } from '@brainstrike/file-explorer-ui';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
+import {
+  getAssistantConfiguredProvidersTestOverride,
+  getAssistantSelectedModelTestOverride,
+} from '@brainstrike/preferences/settings-test-runtime-access';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/preferences/stores/assistant-memory-preferences-store';
 import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
@@ -923,7 +927,7 @@ export function AssistantUiPanelWrapper({
   memoryThreadId,
 }: AssistantUiPanelWrapperProps) {
   const [configuredProviders, setConfiguredProviders] = useState<SupportedProvider[]>(
-    () => initialProviders ?? []
+    () => initialProviders ?? [...(getAssistantConfiguredProvidersTestOverride() ?? [])]
   );
   const [localRuntimeStatuses, setLocalRuntimeStatuses] = useState<LocalRuntimeStatusMap | null>(
     null
@@ -968,6 +972,7 @@ export function AssistantUiPanelWrapper({
   const registryError = useModelRegistryStore((state) => state.error);
   const toggleModelInDb = useModelRegistryStore((state) => state.toggleModel);
   const db = usePGliteDatabase();
+  const selectedModelTestOverride = getAssistantSelectedModelTestOverride();
   const tokenCache = useOptionalTokenCacheContext();
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
@@ -1011,23 +1016,27 @@ export function AssistantUiPanelWrapper({
     return false;
   }, [db, dbError, dbInitializing, registryError]);
 
-  const enabledModelIds = useMemo(
-    () =>
-      buildEnabledModelIdSet({
-        shouldFallbackToPreferences,
-        configuredProviders,
-        enabledModelsByProvider,
-        registryEnabledModelIds,
-        localRuntimeModels,
-      }),
-    [
+  const enabledModelIds = useMemo(() => {
+    const enabledIds = buildEnabledModelIdSet({
+      shouldFallbackToPreferences,
       configuredProviders,
       enabledModelsByProvider,
-      localRuntimeModels,
       registryEnabledModelIds,
-      shouldFallbackToPreferences,
-    ]
-  );
+      localRuntimeModels,
+    });
+    const selectedModelOverrideName = resolveModelNameFromComposite(selectedModelTestOverride);
+    if (selectedModelOverrideName) {
+      enabledIds.add(selectedModelOverrideName);
+    }
+    return enabledIds;
+  }, [
+    configuredProviders,
+    enabledModelsByProvider,
+    localRuntimeModels,
+    registryEnabledModelIds,
+    selectedModelTestOverride,
+    shouldFallbackToPreferences,
+  ]);
 
   const runtimeLlmModelsByProvider = useMemo<
     Partial<Record<LocalRuntimeProviderId, readonly LlmProviderModelDefinition[]>>
@@ -1059,7 +1068,7 @@ export function AssistantUiPanelWrapper({
     selectedThreadDraftRuntime?.provider && selectedThreadDraftRuntime.model
       ? `${selectedThreadDraftRuntime.provider}::${selectedThreadDraftRuntime.model}`
       : undefined;
-  const currentModel = selectedDraftModel ?? selectedModel;
+  const currentModel = selectedDraftModel ?? selectedModel ?? selectedModelTestOverride;
   const selectedProvider = useMemo(
     () => resolveProviderFromComposite(currentModel),
     [currentModel]
@@ -1675,6 +1684,12 @@ export function AssistantUiPanelWrapper({
         return;
       }
 
+      const configuredProvidersOverride = getAssistantConfiguredProvidersTestOverride();
+      if (configuredProvidersOverride) {
+        setConfiguredProviders([...configuredProvidersOverride]);
+        return;
+      }
+
       const providers = await getAvailableProviders();
       if (cancelled) {
         return;
@@ -1721,6 +1736,13 @@ export function AssistantUiPanelWrapper({
       cancelled = true;
     };
   }, [getLocalRuntimeStatuses]);
+
+  useEffect(() => {
+    if (!selectedModelTestOverride || getSelectedModel() === selectedModelTestOverride) {
+      return;
+    }
+    setModel(selectedModelTestOverride);
+  }, [getSelectedModel, selectedModelTestOverride, setModel]);
 
   useEffect(() => {
     if (!localRuntimeStatuses) {

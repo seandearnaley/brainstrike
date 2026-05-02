@@ -4,9 +4,7 @@ import { getFileTree } from './utils/file-tree-locators';
 import {
   CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
   contextExplorerActiveNavLocator,
-  getPanelElements,
   resetLayoutState,
-  togglePanelVisibility,
   waitForAppLoad,
 } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
@@ -71,10 +69,6 @@ test.describe('Panel State Preservation', () => {
     const testCheckbox = fileTree.getByRole('checkbox', { name: 'Select test.ts' });
     await testCheckbox.click({ force: true });
     await expect(testCheckbox).toBeChecked();
-
-    // Preserve selected-file state while toggling panels.
-    const elements = getPanelElements(page);
-    await togglePanelVisibility(elements.showConsoleShim, elements.consolePanel, true);
 
     // Hide the left panel
     const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');

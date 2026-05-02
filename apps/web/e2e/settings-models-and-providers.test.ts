@@ -66,11 +66,15 @@ test.describe('Models & Providers settings (web)', () => {
     const modelId = rowTestId.replace('model-row-', '');
     const toggle = page.getByTestId(`model-toggle-${modelId}`);
     const initialState = await toggle.getAttribute('aria-checked');
+    const expectedState = initialState === 'true' ? 'false' : 'true';
 
     await toggle.click();
-    await expect(toggle).toHaveAttribute(
+    await expect(toggle).toHaveAttribute('aria-checked', expectedState);
+    await page.getByRole('button', { name: 'Refresh model registry' }).click();
+    await expect(page.getByTestId(`model-toggle-${modelId}`)).toHaveAttribute(
       'aria-checked',
-      initialState === 'true' ? 'false' : 'true'
+      expectedState,
+      { timeout: 15_000 }
     );
 
     await page.reload();
@@ -79,7 +83,7 @@ test.describe('Models & Providers settings (web)', () => {
 
     await expect(page.getByTestId(`model-toggle-${modelId}`)).toHaveAttribute(
       'aria-checked',
-      initialState === 'true' ? 'false' : 'true'
+      expectedState
     );
   });
 });

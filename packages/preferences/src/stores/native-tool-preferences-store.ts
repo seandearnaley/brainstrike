@@ -1,6 +1,5 @@
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/tool-metadata';
-import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
 type NativeToolStateMap = Record<string, boolean>;
@@ -20,7 +19,37 @@ export type NativeToolPreferencesStore = NativeToolPreferencesData & NativeToolP
 
 const STORE_NAME = 'native-tool-preferences.v1' as const;
 
-const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
+function createNativeToolPreferencesStorage(): StateStorage {
+  const memory = new Map<string, string>();
+
+  return {
+    getItem: (key) => {
+      try {
+        return window.localStorage.getItem(key) ?? memory.get(key) ?? null;
+      } catch {
+        return memory.get(key) ?? null;
+      }
+    },
+    setItem: (key, value) => {
+      try {
+        window.localStorage.setItem(key, value);
+        return;
+      } catch {
+        memory.set(key, value);
+      }
+    },
+    removeItem: (key) => {
+      try {
+        window.localStorage.removeItem(key);
+      } catch {
+        // Keep the in-memory cleanup below as the fallback path.
+      }
+      memory.delete(key);
+    },
+  };
+}
+
+const storage = createJSONStorage(() => createNativeToolPreferencesStorage());
 
 const KNOWN_NATIVE_TOOL_IDS = new Set(Object.keys(NATIVE_TOOL_DEFAULTS));
 
