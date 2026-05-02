@@ -19,6 +19,12 @@ import {
 import { CHUNKING_CONFIG, type CodeLanguage } from './chunking-config';
 import type { ChunkingRequestOptions, ChunkType, PortableChunk } from './shared';
 
+const BINARY_DETECTION_PROBE_BYTES = 4096;
+const REPETITIVE_CONTENT_LINE_THRESHOLD = 1000;
+const REPETITIVE_CONTENT_UNIQUE_RATIO = 0.1;
+const CHARS_PER_TOKEN_SAMPLE_BYTES = 10_000;
+const CHARS_PER_TOKEN_MAX = 8;
+
 export interface PortableChunkingResult {
   avgTokensPerChunk: number;
   chunks: PortableChunk[];
@@ -141,7 +147,7 @@ function shouldSkipChunking(
   }
 
   // Skip binary-like content early (NUL bytes in the first few KB)
-  const probeWindow = content.slice(0, 4096);
+  const probeWindow = content.slice(0, BINARY_DETECTION_PROBE_BYTES);
   if (probeWindow.includes('\u0000')) {
     return { skip: true, reason: 'Binary content detected (NUL bytes present)' };
   }
@@ -160,7 +166,10 @@ function shouldSkipChunking(
   const allLines = content.split('\n');
   const uniqueLines = new Set(allLines).size;
   const totalLines = allLines.length;
-  if (totalLines > 1000 && uniqueLines / totalLines < 0.1) {
+  if (
+    totalLines > REPETITIVE_CONTENT_LINE_THRESHOLD &&
+    uniqueLines / totalLines < REPETITIVE_CONTENT_UNIQUE_RATIO
+  ) {
     return {
       skip: true,
       reason: 'Highly repetitive content (likely generated file)',
@@ -308,15 +317,20 @@ function adjustChunkingForFileType(
   return { maxTokens, overlap };
 }
 
-/**
- * Generate a content hash using Web Crypto API (works in workers).
- */
+const HEX_BYTE_TABLE: readonly string[] = Array.from({ length: 256 }, (_, byte) =>
+  byte.toString(16).padStart(2, '0')
+);
+
 async function generateContentHash(content: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(content);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  const bytes = new Uint8Array(hashBuffer);
+  let hex = '';
+  for (const byte of bytes) {
+    hex += HEX_BYTE_TABLE[byte];
+  }
+  return hex;
 }
 
 function estimateTokenCount(text: string): number {
@@ -328,14 +342,14 @@ async function computeCharsPerToken(
   useAccurate: boolean,
   tokenUtilsModule: TokenUtilsLiteModule | null
 ): Promise<number> {
-  const sample = content.slice(0, Math.min(10_000, content.length));
+  const sample = content.slice(0, Math.min(CHARS_PER_TOKEN_SAMPLE_BYTES, content.length));
   const tokens =
     useAccurate && tokenUtilsModule
       ? await tokenUtilsModule.countTokensAccurate(sample)
       : estimateTokenCount(sample);
   if (Number.isFinite(tokens) && tokens > 0) {
     const measured = sample.length / tokens;
-    return Math.max(1, Math.min(8, measured));
+    return Math.max(1, Math.min(CHARS_PER_TOKEN_MAX, measured));
   }
   if (useAccurate) {
     // The worker path is intentionally fail-fast here. Unlike the service path,
