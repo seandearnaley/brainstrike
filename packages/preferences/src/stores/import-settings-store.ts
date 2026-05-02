@@ -1,8 +1,8 @@
 import type { ChunkingPresetSelection, ChunkingStrategy } from '@brainstrike/text-splitter';
 import { getChunkingPreset, isChunkingStrategy } from '@brainstrike/text-splitter';
-import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { createBrowserJsonStorage } from './browser-json-storage';
 import { useTokenPreferencesStore } from './token-preferences-store';
 
 interface ImportSettingsData {
@@ -33,9 +33,8 @@ const STORE_VERSION = 7 as const;
 
 /**
  * Storage adapter with fallback to in-memory for SSR/tests
- * Uses safe storage utility with proper error logging
  */
-const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
+const storage = createJSONStorage(() => createBrowserJsonStorage());
 
 const getAccurateCountingPreference = () => useTokenPreferencesStore.getState().accurateCounting;
 const DEFAULT_CHUNKING_PRESET = getChunkingPreset('balanced');

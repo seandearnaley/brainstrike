@@ -2,6 +2,8 @@ import type {
   LocalRuntimeAvailabilityState,
   LocalRuntimeId,
 } from '@brainstrike/agent/local-runtime';
+import type { SupportedProvider } from '@brainstrike/agent/provider-metadata';
+import { ASSISTANT_PREFERENCES_STORE_NAME } from './stores/assistant-preferences-store';
 import type { DbModel, DbProvider } from './stores/model-registry-store';
 
 export interface ModelRegistrySnapshotOverride {
@@ -17,6 +19,9 @@ export interface LocalRuntimeTestOverrides {
 
 export interface SettingsE2ETestOverrides {
   readonly accurateRuntimeAvailable?: boolean | null;
+  readonly assistant?: {
+    readonly configuredProviders?: readonly SupportedProvider[];
+  };
   readonly localRuntime?: LocalRuntimeTestOverrides;
   readonly modelRegistry?: {
     readonly cacheDirectorySelection?: {
@@ -35,6 +40,24 @@ export type CacheDirectorySelectionTestOverrideResolution =
   | { readonly kind: 'error'; readonly message: string }
   | { readonly kind: 'cancelled' }
   | { readonly kind: 'selected'; readonly path: string };
+
+interface PersistedAssistantPreferences {
+  readonly state?: {
+    readonly selectedModel?: unknown;
+  };
+}
+
+const SETTINGS_TEST_SUPPORTED_PROVIDERS = new Set<string>([
+  'anthropic',
+  'cohere',
+  'google',
+  'lmstudio',
+  'local',
+  'ollama',
+  'openai',
+  'openrouter',
+  'voyage',
+] satisfies readonly SupportedProvider[]);
 
 declare global {
   interface Window {
@@ -77,8 +100,53 @@ function readSettingsTestOverrides(): SettingsE2ETestOverrides | undefined {
   return window.__brainstrikePendingSettingsTestOverrides__;
 }
 
+function readPersistedAssistantSelectedModelForTests(): string | undefined {
+  if (!shouldReadSettingsTestOverrides()) {
+    return;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(ASSISTANT_PREFERENCES_STORE_NAME);
+    if (!raw) {
+      return;
+    }
+    const parsed = JSON.parse(raw) as PersistedAssistantPreferences;
+    return typeof parsed.state?.selectedModel === 'string' ? parsed.state.selectedModel : undefined;
+  } catch {
+    return;
+  }
+}
+
+function resolveProviderFromCompositeModel(
+  compositeModel: string | undefined
+): SupportedProvider | undefined {
+  if (!compositeModel) {
+    return;
+  }
+  const separatorIndex = compositeModel.indexOf('::');
+  if (separatorIndex <= 0) {
+    return;
+  }
+  const provider = compositeModel.slice(0, separatorIndex);
+  return SETTINGS_TEST_SUPPORTED_PROVIDERS.has(provider)
+    ? (provider as SupportedProvider)
+    : undefined;
+}
+
 export function getAccurateRuntimeAvailabilityTestOverride(): boolean | null | undefined {
   return readSettingsTestOverrides()?.accurateRuntimeAvailable;
+}
+
+export function getAssistantConfiguredProvidersTestOverride():
+  | readonly SupportedProvider[]
+  | undefined {
+  const explicitProviders = readSettingsTestOverrides()?.assistant?.configuredProviders;
+  if (explicitProviders) {
+    return explicitProviders;
+  }
+
+  const provider = resolveProviderFromCompositeModel(readPersistedAssistantSelectedModelForTests());
+  return provider ? [provider] : undefined;
 }
 
 export function getLocalRuntimeStatusTestOverride(

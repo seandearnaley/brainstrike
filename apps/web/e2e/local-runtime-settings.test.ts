@@ -125,7 +125,10 @@ test.describe('Local Runtimes settings (web)', () => {
 
     const urlInput = page.getByTestId('local-runtime-url-input-ollama');
     await urlInput.fill('http://gpu.lan:11434');
-    await page.getByTestId('local-runtime-url-save-ollama').click();
+    const saveButton = page.getByTestId('local-runtime-url-save-ollama');
+    await expect(saveButton).toBeEnabled();
+    await saveButton.click();
+    await expect(saveButton).toBeDisabled({ timeout: 10_000 });
 
     await page.reload();
     await home.navigateToSettings();

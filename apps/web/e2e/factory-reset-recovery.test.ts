@@ -76,17 +76,48 @@ test.describe('Factory Reset recovery (web)', () => {
     await expect(tokenToggle).toHaveAttribute('aria-checked', 'false');
 
     await settings.openCategory(/Factory Reset/i, 'factory-reset');
+    await page.addInitScript((storageKey: string) => {
+      const browserWindow = window as Window & {
+        __brainstrikeTokenPreferencesAtBoot?: string | null;
+      };
+      browserWindow.__brainstrikeTokenPreferencesAtBoot = window.localStorage.getItem(storageKey);
+    }, TOKEN_PREFERENCES_STORAGE_KEY);
     await confirmFactoryResetAndWaitForReload(page);
+
     await expect
       .poll(
-        async () =>
-          page.evaluate(
-            (storageKey: string) => window.localStorage.getItem(storageKey),
-            TOKEN_PREFERENCES_STORAGE_KEY
-          ),
-        { message: 'expected factory reset to clear persisted token preferences' }
+        () =>
+          page.evaluate(() => {
+            const browserWindow = window as Window & {
+              __brainstrikeTokenPreferencesAtBoot?: string | null;
+            };
+            return browserWindow.__brainstrikeTokenPreferencesAtBoot;
+          }),
+        { message: 'expected factory reset to clear token preferences before reload boot' }
       )
       .toBeNull();
+
+    // Stores may re-persist defaults during the reload; the init-script assertion
+    // above verifies the destructive reset removed the stale key before boot.
+    await expect
+      .poll(
+        async () => {
+          const raw = await page.evaluate(
+            (storageKey: string) => window.localStorage.getItem(storageKey),
+            TOKEN_PREFERENCES_STORAGE_KEY
+          );
+          if (!raw) {
+            return 'cleared';
+          }
+          const parsed = JSON.parse(raw) as { state?: { accurateCounting?: unknown } };
+          if (parsed.state?.accurateCounting === true) {
+            return 'default';
+          }
+          return parsed.state?.accurateCounting === false ? 'stale-disabled' : 'unexpected';
+        },
+        { message: 'expected factory reset to re-persist the default token preference' }
+      )
+      .toBe('default');
 
     await openTokenCountingSettings(page);
 
