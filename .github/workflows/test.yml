@@ -556,7 +556,7 @@ jobs:
           BASE_URL: "http://127.0.0.1:8080"
 
       - name: Bundle blob report
-        if: always()
+        if: failure()
         run: |
           set -e
           cd apps/web
@@ -569,7 +569,7 @@ jobs:
           fi
 
       - name: Upload blob report
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: blob-report-${{ matrix.shardIndex }}
@@ -652,7 +652,7 @@ jobs:
           ELECTRON_DISABLE_GPU: "1"
 
       - name: Bundle blob report (desktop shard)
-        if: always()
+        if: failure()
         run: |
           set -e
           cd apps/desktop
@@ -665,7 +665,7 @@ jobs:
           fi
 
       - name: Upload blob report (desktop shard)
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: desktop-blob-report-${{ matrix.shardIndex }}
@@ -750,7 +750,7 @@ jobs:
           ELECTRON_DISABLE_GPU: "1"
 
       - name: Bundle blob report (desktop shard)
-        if: always()
+        if: failure()
         run: |
           set -e
           cd apps/desktop
@@ -763,7 +763,7 @@ jobs:
           fi
 
       - name: Upload blob report (desktop shard)
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: desktop-blob-report-${{ matrix.shardIndex }}
@@ -846,7 +846,7 @@ jobs:
           ELECTRON_DISABLE_GPU: "1"
 
       - name: Bundle blob report (desktop backgrounding)
-        if: always()
+        if: failure()
         run: |
           set -e
           cd apps/desktop
@@ -859,7 +859,7 @@ jobs:
           fi
 
       - name: Upload blob report (desktop backgrounding)
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: desktop-backgrounding-blob-report
@@ -926,7 +926,7 @@ jobs:
             find all-blob-reports -type d -name "blob-report" | wc -l
           else
             echo "reports-exist=false" >> $GITHUB_OUTPUT
-            echo "No blob reports found - E2E tests may have failed"
+            echo "No blob reports found - shard jobs either passed without diagnostic upload or produced no report"
           fi
 
       - name: Merge Playwright reports
@@ -1011,7 +1011,7 @@ jobs:
           path: |
             coverage/
             playwright-report-merged/
-          retention-days: 7
+          retention-days: 1
           if-no-files-found: warn
 
   # Optional checks that don't block merging
