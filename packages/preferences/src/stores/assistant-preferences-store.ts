@@ -101,7 +101,8 @@ interface AssistantPreferencesActions {
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
 
 const STORE_NAME = 'assistant-preferences.v1' as const;
-const STORE_VERSION = 5;
+export const ASSISTANT_PREFERENCES_STORE_VERSION = 5;
+const STORE_VERSION = ASSISTANT_PREFERENCES_STORE_VERSION;
 
 function readBrowserStorage(): Storage | undefined {
   try {

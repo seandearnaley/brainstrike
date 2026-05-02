@@ -1000,6 +1000,7 @@ export function AssistantUiPanelWrapper({
   const mcpTools = mcpState.tools;
   const mcpLoading = mcpState.loading;
   const isMountedRef = useRef(true);
+  const appliedSelectedModelTestOverrideRef = useRef<string | null>(null);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -1756,9 +1757,17 @@ export function AssistantUiPanelWrapper({
   }, [getLocalRuntimeStatuses]);
 
   useEffect(() => {
-    if (!selectedModelTestOverride || selectedModel === selectedModelTestOverride) {
+    if (!selectedModelTestOverride) {
+      appliedSelectedModelTestOverrideRef.current = null;
       return;
     }
+    if (
+      selectedModel === selectedModelTestOverride ||
+      appliedSelectedModelTestOverrideRef.current === selectedModelTestOverride
+    ) {
+      return;
+    }
+    appliedSelectedModelTestOverrideRef.current = selectedModelTestOverride;
     setModel(selectedModelTestOverride);
   }, [selectedModel, selectedModelTestOverride, setModel]);
 

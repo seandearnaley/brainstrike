@@ -1,10 +1,10 @@
+import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/preferences/stores/assistant-preferences-store';
 import { expect, type Page } from '@playwright/test';
 import { resetAppState } from './app-state';
 import { waitForAppLoad } from './layout-helpers';
 import { type FileTree, mockBrowserApis } from './mock-fs';
 
 const LOCAL_ASSISTANT_MODEL_ID = 'onnx-community/gemma-4-E2B-it-ONNX';
-const ASSISTANT_PREFERENCES_STORAGE_VERSION = 5;
 
 interface AssistantWorkspaceOptions {
   readonly clipboard?: boolean;
@@ -145,7 +145,7 @@ export async function openAssistantWorkspace(
       },
       {
         modelId: LOCAL_ASSISTANT_MODEL_ID,
-        preferencesVersion: ASSISTANT_PREFERENCES_STORAGE_VERSION,
+        preferencesVersion: ASSISTANT_PREFERENCES_STORE_VERSION,
       }
     );
   }
