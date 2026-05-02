@@ -190,6 +190,7 @@ describe('CreateEmbeddingSetDialog', () => {
   });
 
   it('submits the current form field values when reducer state has not observed the last input yet', async () => {
+    const user = userEvent.setup({ delay: null });
     const createdSet = { id: 'submitted-set-id' };
     (mockRepository.getOrCreateSet as Mock).mockResolvedValue(createdSet);
 
@@ -211,6 +212,9 @@ describe('CreateEmbeddingSetDialog', () => {
     await waitFor(() => {
       expect(nameInput).toHaveValue('Text Embedding 3 Small');
     });
+
+    await user.clear(nameInput);
+    expect(nameInput).toHaveValue('');
 
     setInputValueWithoutReactChange(nameInput, 'Submitted DOM Name');
 
@@ -505,6 +509,41 @@ describe('CreateEmbeddingSetDialog', () => {
     // refine dispatch lands. Then assert the user's input survived.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(nameInput.value).toBe('My Custom Collection');
+  });
+
+  it('does not overwrite a name after the input is dirtied before reducer state settles', async () => {
+    let resolveFindAll: (collections: { name: string }[]) => void = () => {};
+    const slowFindAll = new Promise<{ name: string }[]>((resolve) => {
+      resolveFindAll = resolve;
+    });
+    const slowRepository = {
+      getOrCreateSet: vi.fn(),
+      findAll: vi.fn().mockReturnValue(slowFindAll),
+    } as unknown as IEmbeddingSetsRepository;
+
+    render(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          models={mockModels}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={mockProviders}
+          repository={slowRepository}
+        />
+      </>
+    );
+
+    const nameInput = screen.getByLabelText(/Name/i) as HTMLInputElement;
+    expect(nameInput.value).toBe('Text Embedding 3 Small');
+
+    setInputValueWithoutReactChange(nameInput, 'Native Input Collection');
+    fireEvent.input(nameInput);
+
+    resolveFindAll([{ name: 'Text Embedding 3 Small' }]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(nameInput.value).toBe('Native Input Collection');
   });
 
   // P1 sibling case: same race, but user changes the model instead of typing.
