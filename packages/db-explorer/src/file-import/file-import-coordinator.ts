@@ -160,11 +160,12 @@ async function loadMissingFileContents(
     });
   }
 
-  // Reads are independent; run them concurrently and collect errors in a
-  // single batch so the import waits on the slowest file rather than the sum.
-  // Tick the tracker on each completion (not start) so the UI reflects the
-  // last-finished filename instead of a stale "starting to load N" display.
-  const errorBatch: ErrorEntry[] = [];
+  // Reads are independent; run them concurrently so the import waits on the
+  // slowest file rather than the sum. Errors are reported via `addError`
+  // (singular) the moment they happen so `tracker.errorCount` and any
+  // progress UI reading the live error count stay current during the parallel
+  // window — batching errors until after `Promise.all` would freeze the
+  // displayed count at its pre-loop value.
   const results = await Promise.all(
     pending.map(async (pendingFile) => {
       try {
@@ -178,7 +179,7 @@ async function loadMissingFileContents(
           pendingFile.path
         );
         if (!resolved) {
-          errorBatch.push({
+          tracker.addError({
             file: pendingFile.path,
             error: 'File not found in tree and no cached content available',
           });
@@ -196,7 +197,7 @@ async function loadMissingFileContents(
           embeddingSetId
         );
       } catch (error) {
-        errorBatch.push({
+        tracker.addError({
           file: pendingFile.path,
           error: resolveReadError(error),
         });
@@ -211,9 +212,6 @@ async function loadMissingFileContents(
     if (request !== null) {
       requests.push(request);
     }
-  }
-  if (errorBatch.length > 0) {
-    tracker.addErrors(errorBatch);
   }
   tracker.clearCurrent();
 
