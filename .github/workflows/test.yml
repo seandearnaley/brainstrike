@@ -359,13 +359,13 @@ jobs:
         id: set-matrix
         run: |
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            echo 'web-shards=["1","2","3","4"]' >> "$GITHUB_OUTPUT"
-            echo 'web-shard-total=["4"]' >> "$GITHUB_OUTPUT"
+            echo 'web-shards=["1","2","3","4","5","6","7","8"]' >> "$GITHUB_OUTPUT"
+            echo 'web-shard-total=["8"]' >> "$GITHUB_OUTPUT"
             echo 'desktop-shards=["1","2"]' >> "$GITHUB_OUTPUT"
             echo 'desktop-shard-total=["2"]' >> "$GITHUB_OUTPUT"
           else
-            echo 'web-shards=["1","2","3","4"]' >> "$GITHUB_OUTPUT"
-            echo 'web-shard-total=["4"]' >> "$GITHUB_OUTPUT"
+            echo 'web-shards=["1","2","3","4","5","6","7","8"]' >> "$GITHUB_OUTPUT"
+            echo 'web-shard-total=["8"]' >> "$GITHUB_OUTPUT"
             echo 'desktop-shards=["1","2","3","4"]' >> "$GITHUB_OUTPUT"
             echo 'desktop-shard-total=["4"]' >> "$GITHUB_OUTPUT"
           fi
@@ -550,7 +550,7 @@ jobs:
           cd apps/web
           echo "Running functional E2E tests"
           unset NO_COLOR
-          pnpm exec playwright test --project=functional --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          pnpm exec playwright test --project=functional --workers=1 --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           NODE_ENV: "production"
           PORT: "8080"
