@@ -87,10 +87,9 @@ async function getCollectionSummaryCounts(
   collectionName: string
 ): Promise<CollectionSummaryCounts> {
   const databasePanel = page.getByTestId('database-demo-panel');
-  const option = page.getByRole('option').filter({ hasText: collectionName }).first();
-  if (!(await option.isVisible().catch(() => false))) {
-    await databasePanel.getByRole('combobox').first().click();
-  }
+  const collectionList = databasePanel.getByRole('listbox', { name: 'Search Collection' });
+  await expect(collectionList).toBeVisible({ timeout: 15_000 });
+  const option = collectionList.getByRole('option').filter({ hasText: collectionName }).first();
   await expect(option).toBeVisible({ timeout: 15_000 });
   const text = await option.innerText();
   return parseCollectionSummaryCounts(text);
