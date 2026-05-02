@@ -524,11 +524,13 @@ function buildEnabledModelIdSet(options: {
     addValuesToSet(enabledIds, options.registryEnabledModelIds);
   }
 
-  addBuiltInLocalPreferenceModelIds(
-    enabledIds,
-    options.configuredProviders,
-    options.enabledModelsByProvider
-  );
+  if (!options.shouldFallbackToPreferences) {
+    addBuiltInLocalPreferenceModelIds(
+      enabledIds,
+      options.configuredProviders,
+      options.enabledModelsByProvider
+    );
+  }
   addRuntimeCatalogEnabledLlmModelIds(enabledIds, options.localRuntimeModels);
   return enabledIds;
 }
@@ -1907,25 +1909,26 @@ export function AssistantUiPanelWrapper({
     [getSelectedModel, isModelEnabled, providerHasEnabledModels, selectModelForProvider]
   );
 
-  // This runs before the general reconciliation effect below so the built-in
-  // browser-local registry model can seed the initial local selection first.
-  useEffect(() => {
+  const seedBuiltInLocalModelSelection = useCallback((): boolean => {
     if (selectedModel !== null || !configuredProviders.includes('local')) {
-      return;
+      return false;
     }
     const localModel = enabledBuiltInLocalModelIds[0];
     if (!(localModel && enabledModelIds.has(localModel))) {
-      return;
+      return false;
     }
     setModel(`local::${localModel}`);
+    return true;
   }, [configuredProviders, enabledBuiltInLocalModelIds, enabledModelIds, selectedModel, setModel]);
 
   // Reconcile selection whenever providers or enabled models change.
-  // Keep this after the built-in local seeding effect above so a downloaded
-  // browser-local registry model can become the initial selection first.
   // Using useEffect (not useLayoutEffect) because we're mutating external state (Zustand store)
   // React will properly batch these updates and handle them in the commit phase
   useEffect(() => {
+    if (seedBuiltInLocalModelSelection()) {
+      return;
+    }
+
     const currentProvider = getSelectedProvider();
     if (shouldSkipSelectionReconcile(currentProvider)) {
       return;
@@ -1972,6 +1975,7 @@ export function AssistantUiPanelWrapper({
     getSelectedProvider,
     clearModel,
     providerHasEnabledModels,
+    seedBuiltInLocalModelSelection,
     selectModelForProvider,
     shouldSkipSelectionReconcile,
   ]);

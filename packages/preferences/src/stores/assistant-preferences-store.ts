@@ -102,8 +102,9 @@ interface AssistantPreferencesActions {
 
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
 
-const STORE_NAME = 'assistant-preferences.v1' as const;
+export const ASSISTANT_PREFERENCES_STORE_NAME = 'assistant-preferences.v1' as const;
 export const ASSISTANT_PREFERENCES_STORE_VERSION = 5;
+const STORE_NAME = ASSISTANT_PREFERENCES_STORE_NAME;
 const STORE_VERSION = ASSISTANT_PREFERENCES_STORE_VERSION;
 
 const SUPPORTED_PROVIDERS = listProviders().map(

@@ -3,6 +3,7 @@ import type {
   LocalRuntimeId,
 } from '@brainstrike/agent/local-runtime';
 import type { SupportedProvider } from '@brainstrike/agent/provider-metadata';
+import { ASSISTANT_PREFERENCES_STORE_NAME } from './stores/assistant-preferences-store';
 import type { DbModel, DbProvider } from './stores/model-registry-store';
 
 export interface ModelRegistrySnapshotOverride {
@@ -105,7 +106,7 @@ function readPersistedAssistantSelectedModelForTests(): string | undefined {
   }
 
   try {
-    const raw = window.localStorage.getItem('assistant-preferences.v1');
+    const raw = window.localStorage.getItem(ASSISTANT_PREFERENCES_STORE_NAME);
     if (!raw) {
       return;
     }
