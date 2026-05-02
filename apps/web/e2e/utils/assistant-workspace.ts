@@ -24,20 +24,9 @@ export async function openAssistantWorkspace(
   if (options.enableLocalAssistantModel === true) {
     await page.addInitScript(
       (fixture: { modelId: string; preferencesVersion: number }) => {
-        // Runtime signals: make the production bundle take the automated test path.
         const { modelId, preferencesVersion } = fixture;
-        const runtimeGlobal = globalThis as typeof globalThis & {
-          process?: { env?: Record<string, string | undefined> };
-        };
-        runtimeGlobal.process = {
-          ...(runtimeGlobal.process ?? {}),
-          env: {
-            ...(runtimeGlobal.process?.env ?? {}),
-            // biome-ignore lint/style/useNamingConvention: process.env uses conventional uppercase names
-            NODE_ENV: 'test',
-          },
-        };
 
+        // Runtime signals: explicit opt-in for automated settings hooks.
         Object.defineProperty(navigator, 'webdriver', {
           configurable: true,
           get: () => true,
@@ -110,7 +99,6 @@ export async function openAssistantWorkspace(
           accurateRuntimeAvailable: true,
           assistant: {
             configuredProviders: ['local'],
-            selectedModel,
           },
           modelRegistry: {
             snapshot: {

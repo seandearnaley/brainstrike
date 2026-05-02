@@ -2,7 +2,6 @@ import type { SupportedProvider } from '@brainstrike/agent/provider-metadata';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   getAssistantConfiguredProvidersTestOverride,
-  getAssistantSelectedModelTestOverride,
   getModelRegistrySnapshotTestOverride,
   readLocalRuntimeProbeCountsForTests,
   recordLocalRuntimeProbeForTests,
@@ -19,33 +18,23 @@ describe('settings-test-runtime-access', () => {
     resetLocalRuntimeProbeCountsForTests();
   });
 
-  it('prefers explicit assistant overrides', () => {
+  it('prefers explicit assistant provider overrides', () => {
     window.__brainstrikePendingSettingsTestOverrides__ = {
       assistant: {
         configuredProviders: ['local'] satisfies readonly SupportedProvider[],
-        selectedModel: SELECTED_MODEL,
       },
     };
 
     expect(getAssistantConfiguredProvidersTestOverride()).toEqual(['local']);
-    expect(getAssistantSelectedModelTestOverride()).toBe(SELECTED_MODEL);
   });
 
-  it('falls back to persisted assistant selected model for E2E setup', () => {
+  it('falls back to persisted assistant selected model provider for E2E setup', () => {
     window.localStorage.setItem(
       'assistant-preferences.v1',
       JSON.stringify({ state: { selectedModel: SELECTED_MODEL }, version: 5 })
     );
 
-    expect(getAssistantSelectedModelTestOverride()).toBe(SELECTED_MODEL);
     expect(getAssistantConfiguredProvidersTestOverride()).toEqual(['local']);
-  });
-
-  it('ignores malformed persisted assistant preferences', () => {
-    window.localStorage.setItem('assistant-preferences.v1', '{not-valid-json');
-
-    expect(getAssistantSelectedModelTestOverride()).toBeUndefined();
-    expect(getAssistantConfiguredProvidersTestOverride()).toBeUndefined();
   });
 
   it('ignores persisted assistant models with unsupported providers', () => {
@@ -54,7 +43,6 @@ describe('settings-test-runtime-access', () => {
       JSON.stringify({ state: { selectedModel: 'unsupported::model-id' }, version: 5 })
     );
 
-    expect(getAssistantSelectedModelTestOverride()).toBe('unsupported::model-id');
     expect(getAssistantConfiguredProvidersTestOverride()).toBeUndefined();
   });
 

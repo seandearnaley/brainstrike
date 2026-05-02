@@ -24,12 +24,14 @@ import type {
   OpenAiReasoningSummary,
 } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
-import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import {
+  getAssistantConfiguredProvidersTestOverride,
   getLocalRuntimeStatusTestOverride,
   recordLocalRuntimeProbeForTests,
 } from '../settings-test-runtime-access';
+import { createBrowserJsonStorage } from './browser-json-storage';
 
 const logger = createLogger('AssistantPreferencesStore');
 
@@ -103,61 +105,6 @@ type Store = AssistantPreferencesData & AssistantPreferencesActions;
 const STORE_NAME = 'assistant-preferences.v1' as const;
 export const ASSISTANT_PREFERENCES_STORE_VERSION = 5;
 const STORE_VERSION = ASSISTANT_PREFERENCES_STORE_VERSION;
-
-function readBrowserStorage(): Storage | undefined {
-  try {
-    return typeof window === 'undefined' ? undefined : window.localStorage;
-  } catch {
-    return;
-  }
-}
-
-function removeStoredValue(storage: Storage | undefined, key: string): void {
-  try {
-    storage?.removeItem(key);
-  } catch {
-    // Best effort: blocked storage should not make cleanup flows fail.
-  }
-}
-
-function createAssistantPreferencesStorage(): StateStorage {
-  const memory = new Map<string, string>();
-
-  return {
-    getItem: (key) => {
-      const raw = readBrowserStorage()?.getItem(key) ?? memory.get(key) ?? null;
-      if (raw === null) {
-        return null;
-      }
-
-      try {
-        // Validation-only; Zustand's createJSONStorage parses the raw value.
-        JSON.parse(raw);
-        return raw;
-      } catch {
-        removeStoredValue(readBrowserStorage(), key);
-        memory.delete(key);
-        return null;
-      }
-    },
-    setItem: (key, value) => {
-      const storage = readBrowserStorage();
-      if (storage) {
-        try {
-          storage.setItem(key, value);
-          return;
-        } catch {
-          // Fall back to memory for quota/private-mode failures.
-        }
-      }
-      memory.set(key, value);
-    },
-    removeItem: (key) => {
-      removeStoredValue(readBrowserStorage(), key);
-      memory.delete(key);
-    },
-  };
-}
 
 const SUPPORTED_PROVIDERS = listProviders().map(
   (provider: ProviderDefinition) => provider.id
@@ -785,14 +732,7 @@ function buildMigratedSelectedModel(
   return fallback ? `${parsedSelected.provider}${MODEL_KEY_DELIMITER}${fallback}` : null;
 }
 
-/**
- * Keep this store's state storage local instead of importing the shared helper.
- * In the production bundle, Zustand eagerly initializes storage during module
- * evaluation; importing the shared helper here can reintroduce the preference
- * chunk cycle that made storage unavailable on web boot.
- * Keep behavior in sync with createBrowserJsonStorage in browser-json-storage.ts.
- */
-const storage = createJSONStorage(() => createAssistantPreferencesStorage());
+const storage = createJSONStorage(() => createBrowserJsonStorage());
 
 function ensureEnabledModels(
   enabledModelsByProvider: EnabledModelsMap,
@@ -1012,6 +952,11 @@ export const useAssistantPreferencesStore = create<Store>()(
       },
 
       getAvailableProviders: async () => {
+        const providersTestOverride = getAssistantConfiguredProvidersTestOverride();
+        if (providersTestOverride) {
+          return orderProvidersByRegistry(new Set(providersTestOverride));
+        }
+
         const combined = new Set<SupportedProvider>(STATIC_NO_KEY_PROVIDERS);
         const { providerSettings } = get();
         const [providersWithSavedKeys, detectedRuntimeProviders] = await Promise.all([

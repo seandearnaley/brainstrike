@@ -20,7 +20,6 @@ export interface SettingsE2ETestOverrides {
   readonly accurateRuntimeAvailable?: boolean | null;
   readonly assistant?: {
     readonly configuredProviders?: readonly SupportedProvider[];
-    readonly selectedModel?: string | null;
   };
   readonly localRuntime?: LocalRuntimeTestOverrides;
   readonly modelRegistry?: {
@@ -49,12 +48,14 @@ interface PersistedAssistantPreferences {
 
 const SETTINGS_TEST_SUPPORTED_PROVIDERS = new Set<string>([
   'anthropic',
+  'cohere',
   'google',
   'lmstudio',
   'local',
   'ollama',
   'openai',
   'openrouter',
+  'voyage',
 ] satisfies readonly SupportedProvider[]);
 
 declare global {
@@ -145,13 +146,6 @@ export function getAssistantConfiguredProvidersTestOverride():
 
   const provider = resolveProviderFromCompositeModel(readPersistedAssistantSelectedModelForTests());
   return provider ? [provider] : undefined;
-}
-
-export function getAssistantSelectedModelTestOverride(): string | null | undefined {
-  return (
-    readSettingsTestOverrides()?.assistant?.selectedModel ??
-    readPersistedAssistantSelectedModelForTests()
-  );
 }
 
 export function getLocalRuntimeStatusTestOverride(

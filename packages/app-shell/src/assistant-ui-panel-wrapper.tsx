@@ -35,10 +35,6 @@ import {
   useSelectionManager,
 } from '@brainstrike/file-explorer-ui';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
-import {
-  getAssistantConfiguredProvidersTestOverride,
-  getAssistantSelectedModelTestOverride,
-} from '@brainstrike/preferences/settings-test-runtime-access';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/preferences/stores/assistant-memory-preferences-store';
 import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
@@ -103,23 +99,6 @@ function resolveProviderFromComposite(
   const parts = composite.split('::');
   const candidate = parts.length === 2 ? parts[0] : null;
   return candidate && isSupportedProvider(candidate) ? candidate : null;
-}
-
-function shouldReadAssistantTestOverrides(): boolean {
-  const env = globalThis.process?.env;
-  return env?.['ELECTRON_IS_E2E_TEST'] === 'true' || env?.['NODE_ENV'] === 'test';
-}
-
-const SHOULD_READ_ASSISTANT_TEST_OVERRIDES = shouldReadAssistantTestOverrides();
-
-function readAssistantConfiguredProvidersTestOverride(): readonly SupportedProvider[] | undefined {
-  return SHOULD_READ_ASSISTANT_TEST_OVERRIDES
-    ? getAssistantConfiguredProvidersTestOverride()
-    : undefined;
-}
-
-function readAssistantSelectedModelTestOverride(): string | null | undefined {
-  return SHOULD_READ_ASSISTANT_TEST_OVERRIDES ? getAssistantSelectedModelTestOverride() : undefined;
 }
 
 function formatToolLabel(toolId: string): string {
@@ -443,10 +422,46 @@ function toRuntimeProviderModels(
   }));
 }
 
-function addValuesToSet(target: Set<string>, values: Iterable<string>): void {
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function addValuesToSet(target: Set<string>, values: Iterable<unknown>): void {
   for (const value of values) {
-    target.add(value);
+    if (isNonEmptyString(value)) {
+      target.add(value);
+    }
   }
+}
+
+function getBuiltInLocalPreferenceModelIds(
+  enabledModelsByProvider: Record<SupportedProvider, string[]>
+): string[] {
+  return (enabledModelsByProvider.local ?? []).filter(isNonEmptyString);
+}
+
+// Browser-local models are DB-backed in the split assistant chunk; the registry id is the
+// authoritative runtime id when static provider metadata has not produced a usable id yet.
+function getEnabledBuiltInLocalRegistryModelIds(
+  registryModels: readonly {
+    capabilities: { type?: unknown };
+    id: unknown;
+    isEnabled: unknown;
+    providerId: unknown;
+  }[]
+): string[] {
+  const modelIds: string[] = [];
+  for (const model of registryModels) {
+    if (
+      model.providerId === 'local' &&
+      model.isEnabled === true &&
+      model.capabilities.type === 'llm' &&
+      isNonEmptyString(model.id)
+    ) {
+      modelIds.push(model.id);
+    }
+  }
+  return modelIds;
 }
 
 function addPreferenceEnabledModelIds(
@@ -458,6 +473,17 @@ function addPreferenceEnabledModelIds(
     const enabledModels = enabledModelsByProvider[providerId] ?? [];
     addValuesToSet(target, enabledModels);
   }
+}
+
+function addBuiltInLocalPreferenceModelIds(
+  target: Set<string>,
+  configuredProviders: readonly SupportedProvider[],
+  enabledModelsByProvider: Record<SupportedProvider, string[]>
+): void {
+  if (!configuredProviders.includes('local')) {
+    return;
+  }
+  addValuesToSet(target, getBuiltInLocalPreferenceModelIds(enabledModelsByProvider));
 }
 
 function addRuntimeCatalogEnabledLlmModelIds(
@@ -496,6 +522,11 @@ function buildEnabledModelIdSet(options: {
     addValuesToSet(enabledIds, options.registryEnabledModelIds);
   }
 
+  addBuiltInLocalPreferenceModelIds(
+    enabledIds,
+    options.configuredProviders,
+    options.enabledModelsByProvider
+  );
   addRuntimeCatalogEnabledLlmModelIds(enabledIds, options.localRuntimeModels);
   return enabledIds;
 }
@@ -943,10 +974,8 @@ export function AssistantUiPanelWrapper({
   memoryResourceId: memoryResourceIdOverride,
   memoryThreadId,
 }: AssistantUiPanelWrapperProps) {
-  const configuredProvidersTestOverride = readAssistantConfiguredProvidersTestOverride();
-  const configuredProvidersTestOverrideKey = configuredProvidersTestOverride?.join('\0') ?? null;
   const [configuredProviders, setConfiguredProviders] = useState<SupportedProvider[]>(
-    () => initialProviders ?? [...(configuredProvidersTestOverride ?? [])]
+    () => initialProviders ?? []
   );
   const [localRuntimeStatuses, setLocalRuntimeStatuses] = useState<LocalRuntimeStatusMap | null>(
     null
@@ -991,7 +1020,6 @@ export function AssistantUiPanelWrapper({
   const registryError = useModelRegistryStore((state) => state.error);
   const toggleModelInDb = useModelRegistryStore((state) => state.toggleModel);
   const db = usePGliteDatabase();
-  const selectedModelTestOverride = readAssistantSelectedModelTestOverride();
   const tokenCache = useOptionalTokenCacheContext();
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
@@ -1000,7 +1028,6 @@ export function AssistantUiPanelWrapper({
   const mcpTools = mcpState.tools;
   const mcpLoading = mcpState.loading;
   const isMountedRef = useRef(true);
-  const appliedSelectedModelTestOverrideRef = useRef<string | null>(null);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -1036,27 +1063,29 @@ export function AssistantUiPanelWrapper({
     return false;
   }, [db, dbError, dbInitializing, registryError]);
 
-  const enabledModelIds = useMemo(() => {
-    const enabledIds = buildEnabledModelIdSet({
-      shouldFallbackToPreferences,
+  const enabledModelIds = useMemo(
+    () =>
+      buildEnabledModelIdSet({
+        shouldFallbackToPreferences,
+        configuredProviders,
+        enabledModelsByProvider,
+        registryEnabledModelIds,
+        localRuntimeModels,
+      }),
+    [
       configuredProviders,
       enabledModelsByProvider,
-      registryEnabledModelIds,
       localRuntimeModels,
-    });
-    const selectedModelOverrideName = resolveModelNameFromComposite(selectedModelTestOverride);
-    if (selectedModelOverrideName) {
-      enabledIds.add(selectedModelOverrideName);
-    }
-    return enabledIds;
-  }, [
-    configuredProviders,
-    enabledModelsByProvider,
-    localRuntimeModels,
-    registryEnabledModelIds,
-    selectedModelTestOverride,
-    shouldFallbackToPreferences,
-  ]);
+      registryEnabledModelIds,
+      shouldFallbackToPreferences,
+    ]
+  );
+  const enabledBuiltInLocalModelIds = useMemo(() => {
+    const modelIds = new Set<string>();
+    addValuesToSet(modelIds, getBuiltInLocalPreferenceModelIds(enabledModelsByProvider));
+    addValuesToSet(modelIds, getEnabledBuiltInLocalRegistryModelIds(registryModels));
+    return [...modelIds];
+  }, [enabledModelsByProvider, registryModels]);
 
   const runtimeLlmModelsByProvider = useMemo<
     Partial<Record<LocalRuntimeProviderId, readonly LlmProviderModelDefinition[]>>
@@ -1088,7 +1117,7 @@ export function AssistantUiPanelWrapper({
     selectedThreadDraftRuntime?.provider && selectedThreadDraftRuntime.model
       ? `${selectedThreadDraftRuntime.provider}::${selectedThreadDraftRuntime.model}`
       : undefined;
-  const currentModel = selectedDraftModel ?? selectedModel ?? selectedModelTestOverride;
+  const currentModel = selectedDraftModel ?? selectedModel;
   const selectedProvider = useMemo(
     () => resolveProviderFromComposite(currentModel),
     [currentModel]
@@ -1672,27 +1701,31 @@ export function AssistantUiPanelWrapper({
 
   const providerHasEnabledModels = useCallback(
     (provider: SupportedProvider) => {
+      if (provider === 'local' && enabledBuiltInLocalModelIds.length > 0) {
+        return true;
+      }
       const modelDefinitions = getProviderLlmModels(provider);
       return modelDefinitions.some((model: LlmProviderModelDefinition) =>
         enabledModelIds.has(model.id)
       );
     },
-    [enabledModelIds, getProviderLlmModels]
+    [enabledBuiltInLocalModelIds, enabledModelIds, getProviderLlmModels]
   );
 
   const selectModelForProvider = useCallback(
     (provider: SupportedProvider) => {
-      const modelToSelect = resolveProviderModelSelection({
-        getProviderLlmModels,
-        isModelEnabled,
-        provider,
-      });
+      const modelToSelect =
+        resolveProviderModelSelection({
+          getProviderLlmModels,
+          isModelEnabled,
+          provider,
+        }) ?? (provider === 'local' ? enabledBuiltInLocalModelIds[0] : undefined);
       if (!modelToSelect) {
         return;
       }
       setModel(`${provider}::${modelToSelect}`);
     },
-    [getProviderLlmModels, isModelEnabled, setModel]
+    [enabledBuiltInLocalModelIds, getProviderLlmModels, isModelEnabled, setModel]
   );
 
   useEffect(() => {
@@ -1701,11 +1734,6 @@ export function AssistantUiPanelWrapper({
     const loadProviders = async () => {
       if (initialProviders !== undefined) {
         setConfiguredProviders(initialProviders);
-        return;
-      }
-
-      if (configuredProvidersTestOverride) {
-        setConfiguredProviders([...configuredProvidersTestOverride]);
         return;
       }
 
@@ -1722,7 +1750,7 @@ export function AssistantUiPanelWrapper({
       cancelled = true;
     };
     // secretsVersion triggers re-check when API keys are added/removed
-  }, [initialProviders, configuredProvidersTestOverrideKey, getAvailableProviders, secretsVersion]);
+  }, [initialProviders, getAvailableProviders, secretsVersion]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1755,21 +1783,6 @@ export function AssistantUiPanelWrapper({
       cancelled = true;
     };
   }, [getLocalRuntimeStatuses]);
-
-  useEffect(() => {
-    if (!selectedModelTestOverride) {
-      appliedSelectedModelTestOverrideRef.current = null;
-      return;
-    }
-    if (
-      selectedModel === selectedModelTestOverride ||
-      appliedSelectedModelTestOverrideRef.current === selectedModelTestOverride
-    ) {
-      return;
-    }
-    appliedSelectedModelTestOverrideRef.current = selectedModelTestOverride;
-    setModel(selectedModelTestOverride);
-  }, [selectedModel, selectedModelTestOverride, setModel]);
 
   useEffect(() => {
     if (!localRuntimeStatuses) {
@@ -1882,6 +1895,17 @@ export function AssistantUiPanelWrapper({
       }),
     [getSelectedModel, isModelEnabled, providerHasEnabledModels, selectModelForProvider]
   );
+
+  useEffect(() => {
+    if (selectedModel || !configuredProviders.includes('local')) {
+      return;
+    }
+    const localModel = enabledBuiltInLocalModelIds[0];
+    if (!(localModel && enabledModelIds.has(localModel))) {
+      return;
+    }
+    setModel(`local::${localModel}`);
+  }, [configuredProviders, enabledBuiltInLocalModelIds, enabledModelIds, selectedModel, setModel]);
 
   // Reconcile selection whenever providers or enabled models change
   // Using useEffect (not useLayoutEffect) because we're mutating external state (Zustand store)
