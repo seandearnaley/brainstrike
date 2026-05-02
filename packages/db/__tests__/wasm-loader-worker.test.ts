@@ -99,6 +99,22 @@ describe('wasmLoader browser worker host', () => {
     });
   });
 
+  it('creates worker-owned PGlite for browser OPFS AHP paths', async () => {
+    const { wasmLoader } = await import('../src/wasm-loader');
+
+    await wasmLoader.createPGliteClient('opfs-ahp://web');
+
+    expect(pgliteConstructor).not.toHaveBeenCalled();
+    expect(workerConstructor).toHaveBeenCalledWith(expect.any(URL), { type: 'module' });
+    expect(pgliteWorkerCreate).toHaveBeenCalledWith(expect.any(Object), {
+      dataDir: 'opfs-ahp://web',
+      extensions: {
+        live: { name: 'live-extension' },
+      },
+      id: 'brainstrike-db:opfs-ahp://web',
+    });
+  });
+
   it('returns a worker client that satisfies the shared DB execution contract', async () => {
     const { getMissingBrainstrikeDbClientCapabilities, wasmLoader } = await import(
       '../src/index.js'

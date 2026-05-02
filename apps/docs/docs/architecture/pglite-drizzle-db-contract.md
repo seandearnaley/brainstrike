@@ -19,6 +19,17 @@ Web owns PGlite in a browser PGliteWorker DB host. The visible renderer uses the
 shared DB client/runtime layer and must not own the IndexedDB-backed PGlite WASM
 runtime directly.
 
+IndexedDB remains the default web storage backend. This follows the current
+PGlite browser guidance: IndexedDB is supported across Chrome, Safari, and
+Firefox, while OPFS AHP is worker-only and is not supported by Safari. Brainstrike
+is greenfield, so no user data migration blocks changing this later, but browser
+compatibility still makes IDB the deterministic default today.
+
+OPFS AHP is supported only as an explicit opt-in browser-worker storage backend.
+The runtime treats both `idb://` and `opfs-ahp://` as browser persistent storage
+that must be owned by the PGliteWorker host. OPFS requests fall back to IDB when
+the browser lacks Worker or OPFS directory support.
+
 Direct PGlite remains scoped to tests, memory-only databases, and explicitly
 non-browser utility paths. It is not the production web app runtime owner.
 

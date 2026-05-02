@@ -183,7 +183,10 @@ describe('DbProvider lifecycle', () => {
       };
     }
 
-    it('calls wasmLoader.closeCached for IDB-backed databases in production', async () => {
+    it.each([
+      'idb://testdb',
+      'opfs-ahp://testdb',
+    ])('calls wasmLoader.closeCached for %s browser persistent databases in production', async (dbPath) => {
       const mockDb = createMockDb();
       vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGliteClient').mockResolvedValue(
         mockDb as unknown as Awaited<ReturnType<typeof wasmLoaderModule.wasmLoader.createPGlite>>
@@ -195,7 +198,7 @@ describe('DbProvider lifecycle', () => {
         .mockResolvedValue(undefined);
 
       const { result, unmount } = renderHook(() => useFileRecordRepository(), {
-        wrapper: directWrapper('idb://testdb'),
+        wrapper: directWrapper(dbPath),
       });
 
       await waitFor(() => expect(result.current).toBeDefined(), {
@@ -204,11 +207,10 @@ describe('DbProvider lifecycle', () => {
 
       unmount();
 
-      // closeDirectConnection should call wasmLoader.closeCached for idb:// paths
-      await waitFor(() => expect(closeCachedSpy).toHaveBeenCalledWith('idb://testdb'), {
+      await waitFor(() => expect(closeCachedSpy).toHaveBeenCalledWith(dbPath), {
         timeout: 1000,
       });
-      // db.close() should NOT be called for IDB paths
+      // db.close() should NOT be called directly for cached browser storage paths
       expect(mockDb.close).not.toHaveBeenCalled();
     });
 
