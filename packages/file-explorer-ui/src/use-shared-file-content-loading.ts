@@ -706,13 +706,10 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
       setError(null);
 
       try {
-        const requests: FileReadRequest[] = [];
-        for (const key of compositeKeys) {
-          const req = await prepareFileRead(key);
-          if (req) {
-            requests.push(req);
-          }
-        }
+        const prepared = await Promise.all(compositeKeys.map((key) => prepareFileRead(key)));
+        const requests: FileReadRequest[] = prepared.filter(
+          (req): req is FileReadRequest => req !== null
+        );
 
         logger.debug('Prepared file read requests', {
           requestedFiles: compositeKeys.length,
