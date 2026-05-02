@@ -136,7 +136,7 @@ function buildFileRecordInsert(rows: number): string {
       '/benchmark/file-' || series::text || '.md',
       'hash-' || series::text,
       128 + series
-    FROM generate_series(1, ${toPositiveInteger(rows)}) AS series;
+    FROM generate_series(1, ${rows}) AS series;
   `;
 }
 
@@ -152,7 +152,7 @@ function buildChunkRecordInsert(rows: number): string {
         (((series + 3) % 10)::float / 10)::text || ',' ||
         (((series + 6) % 10)::float / 10)::text ||
       ']')::vector
-    FROM generate_series(1, ${toPositiveInteger(rows)}) AS series;
+    FROM generate_series(1, ${rows}) AS series;
   `;
 }
 

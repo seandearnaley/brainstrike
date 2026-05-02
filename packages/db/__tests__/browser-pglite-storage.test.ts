@@ -18,6 +18,20 @@ describe('browser PGlite storage selection', () => {
     );
   });
 
+  it('distinguishes explicit IndexedDB selection from the default recommendation', () => {
+    expect(
+      getRecommendedBrowserPGliteStorage({
+        hasOpfsDirectory: true,
+        hasWorker: true,
+        requestedStorage: 'idb',
+      })
+    ).toEqual({
+      dataDir: 'idb://app',
+      reason: 'requested-indexeddb',
+      storage: 'idb',
+    });
+  });
+
   it('allows OPFS AHP as an explicit worker-only opt-in when supported', () => {
     expect(
       getRecommendedBrowserPGliteStorage({

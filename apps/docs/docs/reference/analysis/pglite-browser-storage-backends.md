@@ -44,6 +44,12 @@ The harness is intentionally adapter-based so the web app can create isolated
 benchmark clients with `wasmLoader.createPGliteClient()` and close them after
 each backend run.
 
+The worker host sets `relaxedDurability: true` for IndexedDB and
+`relaxedDurability: false` for OPFS AHP. This is intentional: IndexedDB needs the
+relaxed write path to avoid blocking on whole-file flushes, while OPFS AHP is an
+experimental opt-in backend and should benchmark against explicit strict
+durability unless a future measured change says otherwise.
+
 ## Current Recommendation
 
 Keep IndexedDB as default. Use OPFS AHP only for explicit local experiments or a
