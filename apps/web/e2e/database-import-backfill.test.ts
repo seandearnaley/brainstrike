@@ -241,9 +241,7 @@ async function createCollection(page: Page, collectionName: string): Promise<voi
   await createButton.click();
 
   await expect(dialog).toBeHidden({ timeout: 15_000 });
-  await expect(page.getByRole('option').filter({ hasText: collectionName }).first()).toBeVisible({
-    timeout: 15_000,
-  });
+  await expect(databasePanel.getByText(collectionName).first()).toBeVisible({ timeout: 15_000 });
 }
 
 async function selectFilesForImport(page: Page, expectedSelectedCount: number): Promise<void> {

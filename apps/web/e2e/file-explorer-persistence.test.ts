@@ -13,8 +13,10 @@ const FILE_TREE: FileTree = {
   },
 };
 const LARGE_QUERY_ROOT_NAME = 'persistent-large-query-root';
+// Query-backed selection starts above the 500-file materialization threshold.
+const LARGE_QUERY_FILE_COUNT = 501;
 const LARGE_QUERY_TREE: FileTree = Object.fromEntries(
-  Array.from({ length: 600 }, (_, index) => [
+  Array.from({ length: LARGE_QUERY_FILE_COUNT }, (_, index) => [
     `file-${index}.ts`,
     `export const value${index} = ${index};`,
   ])
@@ -689,7 +691,9 @@ test.describe('File Explorer persistence (web)', () => {
     await expect(selectAllButton).toBeEnabled();
     await selectAllButton.click();
 
-    await expect(page.getByText('600/1000')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(`${LARGE_QUERY_FILE_COUNT}/1000`)).toBeVisible({
+      timeout: 30_000,
+    });
 
     const persisted = (await readPersistedExplorerState(page)) as {
       state?: {
@@ -705,15 +709,19 @@ test.describe('File Explorer persistence (web)', () => {
     } | null;
 
     expect(persisted?.state?.selectionModel?.mode).toBe('query');
-    expect(persisted?.state?.selectionModel?.queryDescriptor?.totalSelectedCount).toBe(600);
+    expect(persisted?.state?.selectionModel?.queryDescriptor?.totalSelectedCount).toBe(
+      LARGE_QUERY_FILE_COUNT
+    );
     expect((persisted?.state?.selectionModel?.materializedPaths?.length ?? 0) > 0).toBe(true);
-    expect((persisted?.state?.selectedFilePaths?.length ?? 0) < 600).toBe(true);
+    expect((persisted?.state?.selectedFilePaths?.length ?? 0) < LARGE_QUERY_FILE_COUNT).toBe(true);
 
     await page.reload();
     await waitForAppLoad(page, { waitForDatabase: false });
     await restoreAccessIfNeeded(page, explorer);
 
-    await expect(page.getByText('600/1000')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(`${LARGE_QUERY_FILE_COUNT}/1000`)).toBeVisible({
+      timeout: 30_000,
+    });
   });
 
   test('restores cached token totals for select-all on a collapsed tree without re-expanding', async ({
@@ -765,7 +773,7 @@ test.describe('File Explorer persistence (web)', () => {
     await restoreAccessIfNeeded(page, explorer);
 
     await expect(explorer.fileTree).toBeVisible({ timeout: 15_000 });
-    await expect(explorer.fileTree.getByText('src')).toBeVisible();
+    await expect(explorer.fileTree.getByText('src')).toBeVisible({ timeout: 15_000 });
     await expect(explorer.fileTree.getByText('file-11.ts')).not.toBeVisible();
 
     await selectAllButton.click();

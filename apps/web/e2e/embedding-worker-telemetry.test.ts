@@ -13,7 +13,7 @@ test.describe('Embedding Worker Telemetry', { tag: '@smoke' }, () => {
     const panelTimeout = isCI ? 20_000 : 8000;
     const home = new HomePage(page);
 
-    await home.goto({ waitForDatabase: false });
+    await home.goto();
     await ensureRightPanelVisible(page);
 
     // Navigate to Database tab (BST-311: Vectors tab merged into Database)

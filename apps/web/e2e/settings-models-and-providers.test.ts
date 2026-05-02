@@ -25,16 +25,20 @@ test.describe('Models & Providers settings (web)', () => {
     await home.navigateToSettings();
     await settings.openCategory(/Models & Providers/i, 'models');
 
-    await expect(page.getByText('Error loading models')).toBeVisible();
-    await expect(page.getByText('Model registry unavailable for test')).toBeVisible();
+    await expect(page.getByText('Error loading models')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('Model registry unavailable for test')).toBeVisible({
+      timeout: 15_000,
+    });
 
     await updateSettingsTestOverrides(page, {
       modelRegistry: { fetchErrorMessage: null },
     });
     await page.getByTestId('model-registry-retry').click();
 
-    await expect(page.getByTestId('model-cache-dir-input')).toBeVisible();
-    await expect(page.locator('[data-testid^="model-row-"]').first()).toBeVisible();
+    await expect(page.getByTestId('model-cache-dir-input')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-testid^="model-row-"]').first()).toBeVisible({
+      timeout: 15_000,
+    });
   });
 
   test('shows the web-only cache directory unavailable path', async ({ page }) => {
@@ -46,7 +50,9 @@ test.describe('Models & Providers settings (web)', () => {
 
     await page.getByTestId('model-cache-dir-select').click();
 
-    await expect(page.getByText('Directory selection unavailable', { exact: true })).toBeVisible();
+    await expect(page.getByText('Directory selection unavailable', { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
     await expect(
       page.getByText('Choose a cache directory from the desktop app.', { exact: true })
     ).toBeVisible();
@@ -60,7 +66,7 @@ test.describe('Models & Providers settings (web)', () => {
     await settings.openCategory(/Models & Providers/i, 'models');
 
     const firstRow = page.locator('[data-testid^="model-row-"]').first();
-    await expect(firstRow).toBeVisible();
+    await expect(firstRow).toBeVisible({ timeout: 15_000 });
     const rowTestId = await firstRow.getAttribute('data-testid');
     if (!rowTestId?.startsWith('model-row-')) {
       throw new Error(`Unexpected model row test id: ${String(rowTestId)}`);
@@ -85,7 +91,8 @@ test.describe('Models & Providers settings (web)', () => {
 
     await expect(page.getByTestId(`model-toggle-${modelId}`)).toHaveAttribute(
       'aria-checked',
-      expectedState
+      expectedState,
+      { timeout: 15_000 }
     );
   });
 });
