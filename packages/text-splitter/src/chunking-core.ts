@@ -118,6 +118,11 @@ export const DEFAULT_LARGE_STRUCTURED_PATTERNS = [
 
 const CHAR_CR = 13;
 
+const BINARY_DETECTION_PROBE_BYTES = 4096;
+const REPETITIVE_CONTENT_LINE_THRESHOLD = 1000;
+const REPETITIVE_CONTENT_UNIQUE_RATIO = 0.1;
+const FUNCTION_RANGE_OVERSIZE_TOLERANCE = 1.25;
+
 function forEachLine(text: string, visitLine: (line: string) => void): void {
   let lineStart = 0;
 
@@ -194,7 +199,7 @@ export function shouldSkipChunking(
     return { skip: true, reason: 'Empty file content' };
   }
 
-  const probeWindow = content.slice(0, 4096);
+  const probeWindow = content.slice(0, BINARY_DETECTION_PROBE_BYTES);
   if (probeWindow.includes('\u0000')) {
     return { skip: true, reason: 'Binary content detected (NUL bytes present)' };
   }
@@ -209,7 +214,10 @@ export function shouldSkipChunking(
   }
 
   const { totalLines, uniqueLines } = countUniqueLines(content);
-  if (totalLines > 1000 && uniqueLines / totalLines < 0.1) {
+  if (
+    totalLines > REPETITIVE_CONTENT_LINE_THRESHOLD &&
+    uniqueLines / totalLines < REPETITIVE_CONTENT_UNIQUE_RATIO
+  ) {
     return {
       skip: true,
       reason: 'Highly repetitive content (likely generated file)',
@@ -507,7 +515,7 @@ export async function splitCodeByFunctionRanges(
     if (!trimmed) {
       return;
     }
-    if (trimmed.length <= options.maxChars * 1.25) {
+    if (trimmed.length <= options.maxChars * FUNCTION_RANGE_OVERSIZE_TOLERANCE) {
       pieces.push(trimmed);
       return;
     }

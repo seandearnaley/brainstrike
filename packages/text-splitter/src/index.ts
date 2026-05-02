@@ -274,15 +274,20 @@ const ROUTE_PREVIEW_CANDIDATES: readonly Omit<ChunkingRoutePreview, 'resolvedStr
   },
 ] as const;
 
-function assertPositiveInteger(value: number, label: string): void {
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new Error(`${label} must be a positive integer`);
+function assertInteger(value: number, label: string, allowZero: boolean): void {
+  if (!Number.isInteger(value) || (allowZero ? value < 0 : value <= 0)) {
+    throw new Error(`${label} must be a ${allowZero ? 'non-negative' : 'positive'} integer`);
   }
 }
 
-function assertNonNegativeInteger(value: number, label: string): void {
-  if (!Number.isInteger(value) || value < 0) {
-    throw new Error(`${label} must be a non-negative integer`);
+function assertSplitOptions(text: unknown, chunkSize: number, chunkOverlap: number): void {
+  if (typeof text !== 'string') {
+    throw new Error('text must be a string');
+  }
+  assertInteger(chunkSize, 'chunkSize', false);
+  assertInteger(chunkOverlap, 'chunkOverlap', true);
+  if (chunkOverlap >= chunkSize) {
+    throw new Error('chunkOverlap must be smaller than chunkSize');
   }
 }
 
@@ -731,16 +736,7 @@ export function splitTextRecursively(
   text: string,
   options: RecursiveTextSplitterOptions
 ): string[] {
-  if (typeof text !== 'string') {
-    throw new Error('text must be a string');
-  }
-
-  assertPositiveInteger(options.chunkSize, 'chunkSize');
-  assertNonNegativeInteger(options.chunkOverlap, 'chunkOverlap');
-
-  if (options.chunkOverlap >= options.chunkSize) {
-    throw new Error('chunkOverlap must be smaller than chunkSize');
-  }
+  assertSplitOptions(text, options.chunkSize, options.chunkOverlap);
 
   const separators = resolveSeparators(options.separators);
   const atomicSegments = splitIntoAtomicSegments(
@@ -754,16 +750,7 @@ export function splitTextRecursively(
 }
 
 export function splitTextByStrategy(text: string, options: StrategyTextSplitterOptions): string[] {
-  if (typeof text !== 'string') {
-    throw new Error('text must be a string');
-  }
-
-  assertPositiveInteger(options.chunkSize, 'chunkSize');
-  assertNonNegativeInteger(options.chunkOverlap, 'chunkOverlap');
-
-  if (options.chunkOverlap >= options.chunkSize) {
-    throw new Error('chunkOverlap must be smaller than chunkSize');
-  }
+  assertSplitOptions(text, options.chunkSize, options.chunkOverlap);
 
   switch (options.strategy) {
     case 'character':
