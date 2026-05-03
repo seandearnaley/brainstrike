@@ -19,6 +19,8 @@ test('parseArgs reads retention options and dry-run mode', () => {
       '48',
       '--cache-keep-recent-per-key',
       '1',
+      '--delete-concurrency',
+      '4',
       '--dry-run',
     ],
     {}
@@ -28,6 +30,7 @@ test('parseArgs reads retention options and dry-run mode', () => {
     artifactMaxAgeHours: 12,
     cacheKeepRecentPerKey: 1,
     cacheMaxAgeHours: 48,
+    deleteConcurrency: 4,
     dryRun: true,
     repo: 'owner/repo',
   });
@@ -74,6 +77,10 @@ test('parseArgs rejects invalid retention values', () => {
   );
   assert.throws(
     () => parseArgs(['--repo', 'owner/repo', '--artifact-max-age-hours', '0'], {}),
+    /positive number/
+  );
+  assert.throws(
+    () => parseArgs(['--repo', 'owner/repo', '--delete-concurrency', '0'], {}),
     /positive number/
   );
 });

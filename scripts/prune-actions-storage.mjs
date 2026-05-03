@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 const DEFAULT_ARTIFACT_MAX_AGE_HOURS = 24;
 const DEFAULT_CACHE_MAX_AGE_HOURS = 72;
 const DEFAULT_CACHE_KEEP_RECENT_PER_KEY = 2;
+const DEFAULT_DELETE_CONCURRENCY = 8;
 
 function readFlagValue(args, name) {
   const index = args.indexOf(name);
@@ -62,6 +63,11 @@ export function parseArgs(args = process.argv.slice(2), env = process.env) {
       readFlagValue(args, '--cache-max-age-hours'),
       DEFAULT_CACHE_MAX_AGE_HOURS,
       '--cache-max-age-hours'
+    ),
+    deleteConcurrency: readPositiveInteger(
+      readFlagValue(args, '--delete-concurrency'),
+      DEFAULT_DELETE_CONCURRENCY,
+      '--delete-concurrency'
     ),
     dryRun,
     repo,
@@ -212,6 +218,29 @@ function summarizeBytes(items) {
   return items.reduce((total, item) => total + bytes(item.size_in_bytes ?? item.sizeInBytes), 0);
 }
 
+async function deleteInBatches(items, concurrency, deleteItem, label) {
+  let nextIndex = 0;
+  let deleted = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const item = items[nextIndex];
+      nextIndex++;
+      await deleteItem(item);
+      deleted++;
+      if (deleted % 100 === 0 || deleted === items.length) {
+        console.log(`Deleted ${deleted}/${items.length} ${label}`);
+      }
+    }
+  }
+
+  const workers = Array.from(
+    { length: Math.min(concurrency, Math.max(items.length, 1)) },
+    () => worker()
+  );
+  await Promise.all(workers);
+}
+
 export async function runCli(args = process.argv.slice(2), env = process.env) {
   let options;
   try {
@@ -247,12 +276,18 @@ export async function runCli(args = process.argv.slice(2), env = process.env) {
     return 0;
   }
 
-  for (const artifact of artifactsToDelete) {
-    await deleteArtifact(apiUrl, options.repo, token, artifact.id);
-  }
-  for (const cache of cachesToDelete) {
-    await deleteCache(apiUrl, options.repo, token, cache.id);
-  }
+  await deleteInBatches(
+    artifactsToDelete,
+    options.deleteConcurrency,
+    (artifact) => deleteArtifact(apiUrl, options.repo, token, artifact.id),
+    'artifacts'
+  );
+  await deleteInBatches(
+    cachesToDelete,
+    options.deleteConcurrency,
+    (cache) => deleteCache(apiUrl, options.repo, token, cache.id),
+    'caches'
+  );
   return 0;
 }
 

@@ -28,6 +28,7 @@ jobs:
           node scripts/prune-actions-storage.mjs \
             --artifact-max-age-hours 24 \
             --cache-max-age-hours 72 \
-            --cache-keep-recent-per-key 2
+            --cache-keep-recent-per-key 2 \
+            --delete-concurrency 8
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
