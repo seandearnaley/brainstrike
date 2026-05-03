@@ -13,6 +13,7 @@ test('extractJob returns a single workflow job block', () => {
   const e2e = extractJob(workflowSource, 'e2e');
 
   assert.ok(e2e);
+  assert.match(e2e, /^  e2e:$/m);
   assert.match(e2e, /name: E2E Tests/);
   assert.doesNotMatch(e2e, /^  e2e-stateful:/m);
 });

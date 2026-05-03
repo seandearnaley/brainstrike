@@ -11,7 +11,7 @@ function extractBlock(source, startPattern, nextPattern) {
     return null;
   }
 
-  const rest = source.slice(start + 1);
+  const rest = source.slice(start);
   const next = rest.search(nextPattern);
   return next === -1 ? rest : rest.slice(0, next);
 }
@@ -73,6 +73,8 @@ export function validateWorkflowContracts(source) {
     failures
   );
 
+  // Shard count is intentionally enforced in the workflow and this lint so CI
+  // wall-time/cost changes are reviewed as explicit contract changes.
   const determineMatrix = extractJob(source, 'determine-matrix');
   if (!determineMatrix) {
     failures.push('Missing determine-matrix job.');
