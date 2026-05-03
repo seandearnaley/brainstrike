@@ -18,6 +18,15 @@ test('extractJob returns a single workflow job block', () => {
   assert.doesNotMatch(e2e, /^  e2e-stateful:/m);
 });
 
+test('extractJob treats job names as literal text', () => {
+  const source = ['jobs:', '  e2e.test:', '    name: Literal job', '  e2e-test:', '    name: Other job'].join('\n');
+  const job = extractJob(source, 'e2e.test');
+
+  assert.ok(job);
+  assert.match(job, /^  e2e\.test:$/m);
+  assert.doesNotMatch(job, /name: Other job/);
+});
+
 test('current workflow satisfies CI cost and E2E routing contracts', () => {
   assert.deepEqual(validateWorkflowContracts(workflowSource), []);
 });
