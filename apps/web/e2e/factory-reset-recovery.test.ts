@@ -26,7 +26,7 @@ async function confirmFactoryResetAndWaitForReload(page: Page): Promise<void> {
   await waitForAppLoad(page);
 }
 
-test.describe('Factory Reset recovery (web)', () => {
+test.describe('Factory Reset recovery (web) @destructive', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await resetAppState(page);

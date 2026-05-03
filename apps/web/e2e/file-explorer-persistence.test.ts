@@ -674,7 +674,7 @@ test.describe('File Explorer persistence (web)', () => {
     }
 
     await page.goto('/');
-    await waitForAppLoad(page, { waitForDatabase: false });
+    await waitForAppLoad(page);
 
     if (!(await supportsOpfs(page))) {
       test.skip(true, 'OPFS not available in this environment');
@@ -716,7 +716,7 @@ test.describe('File Explorer persistence (web)', () => {
     expect((persisted?.state?.selectedFilePaths?.length ?? 0) < LARGE_QUERY_FILE_COUNT).toBe(true);
 
     await page.reload();
-    await waitForAppLoad(page, { waitForDatabase: false });
+    await waitForAppLoad(page);
     await restoreAccessIfNeeded(page, explorer);
 
     await expect(page.getByText(`${LARGE_QUERY_FILE_COUNT}/1000`)).toBeVisible({
@@ -733,7 +733,7 @@ test.describe('File Explorer persistence (web)', () => {
     }
 
     await page.goto('/');
-    await waitForAppLoad(page, { waitForDatabase: false });
+    await waitForAppLoad(page);
 
     if (!(await supportsOpfs(page))) {
       test.skip(true, 'OPFS not available in this environment');
@@ -769,7 +769,7 @@ test.describe('File Explorer persistence (web)', () => {
     await expect(explorer.fileTree.getByText('file-11.ts')).not.toBeVisible();
 
     await page.reload();
-    await waitForAppLoad(page, { waitForDatabase: false });
+    await waitForAppLoad(page);
     await restoreAccessIfNeeded(page, explorer);
 
     await expect(explorer.fileTree).toBeVisible({ timeout: 15_000 });

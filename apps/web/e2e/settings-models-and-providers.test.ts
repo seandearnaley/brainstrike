@@ -6,12 +6,14 @@ import { expect, test } from './fixtures/web-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { resetAppState } from './utils/app-state';
+import { waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('Models & Providers settings (web)', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await resetAppState(page);
     await page.reload();
+    await waitForAppLoad(page);
   });
 
   test('shows a registry load error and recovers on retry', async ({ page }) => {
@@ -21,7 +23,7 @@ test.describe('Models & Providers settings (web)', () => {
 
     const home = new HomePage(page);
     const settings = new SettingsPage(page);
-    await home.goto({ waitForDatabase: false });
+    await home.goto();
     await home.navigateToSettings();
     const modelsContent = await settings.openCategory(/Models & Providers/i, 'models');
 
@@ -46,7 +48,7 @@ test.describe('Models & Providers settings (web)', () => {
   test('shows the web-only cache directory unavailable path', async ({ page }) => {
     const home = new HomePage(page);
     const settings = new SettingsPage(page);
-    await home.goto({ waitForDatabase: false });
+    await home.goto();
     await home.navigateToSettings();
     await settings.openCategory(/Models & Providers/i, 'models');
 
@@ -63,7 +65,7 @@ test.describe('Models & Providers settings (web)', () => {
   test('persists a model toggle across reload', async ({ page }) => {
     const home = new HomePage(page);
     const settings = new SettingsPage(page);
-    await home.goto({ waitForDatabase: false });
+    await home.goto();
     await home.navigateToSettings();
     await settings.openCategory(/Models & Providers/i, 'models');
 
@@ -106,6 +108,7 @@ test.describe('Models & Providers settings (web)', () => {
     });
 
     await page.reload();
+    await waitForAppLoad(page);
     await home.navigateToSettings();
     await settings.openCategory(/Models & Providers/i, 'models');
 

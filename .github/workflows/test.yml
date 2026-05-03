@@ -507,6 +507,8 @@ jobs:
 
   # E2E tests run in parallel with sharding. Keep PR coverage complete, but use
   # fewer jobs with two Playwright workers each to reduce repeated runner setup.
+  # Origin-destructive reset flows are excluded here and covered by
+  # e2e-destructive so they cannot delete another worker's active IndexedDB.
   e2e:
     name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     if: github.event_name != 'workflow_dispatch'
@@ -565,7 +567,7 @@ jobs:
           cd apps/web
           echo "Running functional E2E tests"
           unset NO_COLOR
-          pnpm exec playwright test --project=functional --workers=2 --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          pnpm exec playwright test --project=functional --workers=2 --grep-invert "@destructive" --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           NODE_ENV: "production"
           PORT: "8080"
@@ -590,6 +592,87 @@ jobs:
         with:
           name: blob-report-${{ matrix.shardIndex }}
           path: apps/web/blob-report-${{ matrix.shardIndex }}.tar
+          retention-days: 1
+          if-no-files-found: warn
+
+  e2e-destructive:
+    name: E2E Destructive Tests
+    if: github.event_name != 'workflow_dispatch'
+    needs: [prepare-web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      TURBO_CACHE_DIR: .turbo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+
+      - name: Build workspace dependencies (Turbo remote cache hit from prepare-web)
+        run: pnpm run build --filter @brainstrike/web
+
+      - name: Download web dist
+        uses: actions/download-artifact@v8
+        with:
+          name: web-dist
+          path: apps/web/dist/
+
+      - name: Get Playwright version
+        id: playwright-version
+        run: |
+          version=$(node -p "require('./apps/web/package.json').devDependencies['@playwright/test']")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright browsers and dependencies
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Playwright system dependencies only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
+
+      - name: Run destructive E2E tests
+        timeout-minutes: 15
+        run: |
+          cd apps/web
+          echo "Running destructive functional E2E tests in isolation"
+          unset NO_COLOR
+          pnpm exec playwright test --project=functional --workers=1 --grep "@destructive"
+        env:
+          NODE_ENV: "production"
+          PORT: "8080"
+          BASE_URL: "http://127.0.0.1:8080"
+
+      - name: Bundle blob report
+        if: failure()
+        run: |
+          set -e
+          cd apps/web
+          if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
+            tar -cvf destructive-blob-report.tar blob-report/
+            ls -lh destructive-blob-report.tar
+            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
+          else
+            echo "No destructive blob report found"
+          fi
+
+      - name: Upload blob report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: destructive-blob-report
+          path: apps/web/destructive-blob-report.tar
           retention-days: 1
           if-no-files-found: warn
 
