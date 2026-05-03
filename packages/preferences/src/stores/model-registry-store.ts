@@ -61,6 +61,11 @@ interface ModelRegistryState {
   toggleProvider: (db: IDatabase, providerId: string, enabled: boolean) => Promise<void>;
 }
 
+interface DurableDatabase extends IDatabase {
+  readonly raw?: unknown;
+  readonly syncToFs?: () => Promise<void>;
+}
+
 // Raw DB types
 interface RawProvider {
   icon: string | null;
@@ -125,6 +130,23 @@ function parseDbModel(row: RawModel): DbModel {
 
 function isLocalModel(model: DbModel): boolean {
   return isLocalModelProviderId(model.providerId);
+}
+
+async function syncDurableDatabaseWrites(db: IDatabase): Promise<void> {
+  const durableDb = db as DurableDatabase;
+  if (typeof durableDb.syncToFs === 'function') {
+    await durableDb.syncToFs();
+    return;
+  }
+
+  const raw = durableDb.raw;
+  // Some scheduled/browser handles expose syncToFs directly; wrapped DB handles keep it on raw.
+  if (raw && typeof raw === 'object' && 'syncToFs' in raw) {
+    const syncToFs = (raw as { readonly syncToFs?: unknown }).syncToFs;
+    if (typeof syncToFs === 'function') {
+      await Reflect.apply(syncToFs, raw, []);
+    }
+  }
 }
 
 async function resolveDownloadedFlag(
@@ -304,6 +326,7 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
             enabled,
             providerId,
           ]);
+          await syncDurableDatabaseWrites(db);
 
           set((state) => ({
             providers: state.providers.map((p) =>
@@ -328,6 +351,7 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
             enabled,
             modelId,
           ]);
+          await syncDurableDatabaseWrites(db);
 
           set((state) => ({
             models: state.models.map((m) => (m.id === modelId ? { ...m, isEnabled: enabled } : m)),

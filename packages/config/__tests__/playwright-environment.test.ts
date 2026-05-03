@@ -56,6 +56,39 @@ describe('playwright-environment helpers', () => {
     expect(getRetryCount({ isCodex: false, isGitHubActions: false, isCI: false })).toBe(0);
   });
 
+  it('keeps GitHub Actions on two workers without same-file parallelism', () => {
+    const originalCI = process.env['CI'];
+    const originalGH = process.env['GITHUB_ACTIONS'];
+    const originalCodex = process.env['CODEX_ENV'];
+
+    try {
+      process.env['CI'] = 'true';
+      process.env['GITHUB_ACTIONS'] = 'true';
+      Reflect.deleteProperty(process.env, 'CODEX_ENV');
+
+      const cfg = getEnvironmentConfig();
+
+      expect(cfg.workers).toBe(2);
+      expect(cfg.fullyParallel).toBe(false);
+    } finally {
+      if (typeof originalCI === 'string') {
+        process.env['CI'] = originalCI;
+      } else {
+        Reflect.deleteProperty(process.env, 'CI');
+      }
+      if (typeof originalGH === 'string') {
+        process.env['GITHUB_ACTIONS'] = originalGH;
+      } else {
+        Reflect.deleteProperty(process.env, 'GITHUB_ACTIONS');
+      }
+      if (typeof originalCodex === 'string') {
+        process.env['CODEX_ENV'] = originalCodex;
+      } else {
+        Reflect.deleteProperty(process.env, 'CODEX_ENV');
+      }
+    }
+  });
+
   it('global timeout policy differs between CI and local', () => {
     expect(getGlobalTimeout({ isCodex: true, isGitHubActions: false, isCI: true })).toBeGreaterThan(
       0

@@ -29,22 +29,17 @@ env:
 # CI environment variable is already set by GitHub Actions
 
 jobs:
-  # Fast-fail checks that run in parallel
+  # Fast-fail static checks. Unit coverage is a separate job so browser/E2E
+  # preparation can start as soon as lint/type/build validation passes.
   checks:
-    name: Checks (${{ matrix.phase }})
+    name: Checks (static)
     if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
-    # Affected coverage can still exercise PGlite-backed integration suites; keep the
-    # job ceiling above the longest package-level unit run without masking hangs.
-    timeout-minutes: 60
+    timeout-minutes: 40
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
-    strategy:
-      fail-fast: false
-      matrix:
-        phase: [static, unit-coverage]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -63,21 +58,18 @@ jobs:
           echo "|------|----------|" >> $GITHUB_STEP_SUMMARY
 
       - name: Test CI utility scripts
-        if: matrix.phase == 'static'
         run: |
           START=$SECONDS
           pnpm test:scripts
           echo "| CI utility scripts | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
 
       - name: Lint
-        if: matrix.phase == 'static'
         run: |
           START=$SECONDS
           pnpm run lint
           echo "| Lint | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
 
       - name: Type check
-        if: matrix.phase == 'static'
         run: |
           START=$SECONDS
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$GITHUB_BASE_REF" ]; then
@@ -90,7 +82,7 @@ jobs:
           echo "| Type check | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
 
       - name: Report Turbo type-check diagnostics
-        if: ${{ !cancelled() && matrix.phase == 'static' }}
+        if: ${{ !cancelled() }}
         run: |
           set +e
           pnpm ci:turbo-diagnostics -- --runs-dir .turbo/runs --task type-check --output turbo-type-check-diagnostics.md
@@ -104,7 +96,6 @@ jobs:
           exit "$STATUS"
 
       - name: Build all packages
-        if: matrix.phase == 'static'
         run: |
           START=$SECONDS
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$GITHUB_BASE_REF" ]; then
@@ -117,7 +108,7 @@ jobs:
           echo "| Build | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
 
       - name: Report Turbo build diagnostics
-        if: ${{ !cancelled() && matrix.phase == 'static' }}
+        if: ${{ !cancelled() }}
         run: |
           set +e
           pnpm ci:turbo-diagnostics -- --runs-dir .turbo/runs --task build --output turbo-build-diagnostics.md
@@ -131,7 +122,6 @@ jobs:
           exit "$STATUS"
 
       - name: Validate CSS bundle
-        if: matrix.phase == 'static'
         run: |
           # Check CSS bundle size (must be >= 50kB)
           CSS_SIZE=$(find apps/web/dist/assets -name '*.css' -exec cat {} + | wc -c)
@@ -154,13 +144,45 @@ jobs:
             echo "No duplicate CSS layers detected"
           fi
 
+      - name: Append timing table footer
+        if: ${{ !cancelled() }}
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_Check the step timings above for optimization opportunities._" >> $GITHUB_STEP_SUMMARY
+
+  unit_coverage:
+    name: Checks (unit-coverage)
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # Affected coverage can still exercise PGlite-backed integration suites; keep the
+    # job ceiling above the longest package-level unit run without masking hangs.
+    timeout-minutes: 60
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      TURBO_CACHE_DIR: .turbo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+        with:
+          skip-electron: 'false'
+
+      - name: Initialize timing table
+        run: |
+          echo "## CI Step Durations" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Duration |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|----------|" >> $GITHUB_STEP_SUMMARY
+
       - name: Clear coverage directories
-        if: matrix.phase == 'unit-coverage'
         run: |
           find packages apps -type d -name "coverage" -maxdepth 3 -prune -exec rm -rf {} +
 
       - name: Run unit tests with coverage
-        if: matrix.phase == 'unit-coverage'
         id: unit-tests
         # This step owns the heavy affected coverage slice. The surrounding job
         # timeout leaves room for install, build, and report upload overhead.
@@ -192,11 +214,25 @@ jobs:
           TURBO_TEST_MODE: "coverage"
 
       - name: Enforce package coverage thresholds
-        if: matrix.phase == 'unit-coverage' && steps.unit-tests.outputs.has_coverage == 'true'
+        if: steps.unit-tests.outputs.has_coverage == 'true'
         run: pnpm coverage:enforce
 
+      - name: Generate merged coverage report
+        if: steps.unit-tests.outputs.has_coverage == 'true'
+        run: |
+          pnpm coverage:merge -- --quiet packages apps
+          pnpm coverage:report
+
+      - name: Upload coverage to Codecov
+        if: steps.unit-tests.outputs.has_coverage == 'true'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          fail_ci_if_error: false
+
       - name: Comment PR with Coverage Summary
-        if: matrix.phase == 'unit-coverage' && steps.unit-tests.outputs.has_coverage == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        if: steps.unit-tests.outputs.has_coverage == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -286,7 +322,6 @@ jobs:
             });
 
       - name: Bundle coverage files
-        if: matrix.phase == 'unit-coverage'
         run: |
           set -e
           mkdir -p coverage-bundle
@@ -300,7 +335,6 @@ jobs:
           echo "Bundled $(find coverage-bundle -name '*.json' 2>/dev/null | wc -l) coverage files"
 
       - name: Upload coverage bundle
-        if: matrix.phase == 'unit-coverage'
         uses: actions/upload-artifact@v7
         with:
           name: unit-coverage
@@ -308,7 +342,7 @@ jobs:
           retention-days: 1
 
       - name: Report Turbo test task timings
-        if: ${{ !cancelled() && matrix.phase == 'unit-coverage' && steps.unit-tests.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.unit-tests.outcome != 'skipped' }}
         run: |
           set +e
           : > turbo-test-timings.md
@@ -323,7 +357,7 @@ jobs:
           exit "$STATUS"
 
       - name: Report Turbo unit coverage diagnostics
-        if: ${{ !cancelled() && matrix.phase == 'unit-coverage' && steps.unit-tests.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.unit-tests.outcome != 'skipped' }}
         run: |
           set +e
           pnpm ci:turbo-diagnostics -- --runs-dir .turbo/runs --task test:coverage --output turbo-unit-coverage-diagnostics.md
@@ -344,6 +378,8 @@ jobs:
 
   # Dynamic matrix: web E2E uses the same functional project and shard count on
   # PRs and main so the merge gate proves the suite that runs after merge.
+  # Four shards with two Playwright workers each keeps the same total browser
+  # concurrency as the old eight single-worker shards while halving per-job setup.
   determine-matrix:
     name: Determine E2E Matrix
     if: github.event_name != 'workflow_dispatch'
@@ -358,8 +394,8 @@ jobs:
       - name: Set shard matrix
         id: set-matrix
         run: |
-          echo 'web-shards=["1","2","3","4","5","6","7","8"]' >> "$GITHUB_OUTPUT"
-          echo 'web-shard-total=["8"]' >> "$GITHUB_OUTPUT"
+          echo 'web-shards=["1","2","3","4"]' >> "$GITHUB_OUTPUT"
+          echo 'web-shard-total=["4"]' >> "$GITHUB_OUTPUT"
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             echo 'desktop-shards=["1","2"]' >> "$GITHUB_OUTPUT"
             echo 'desktop-shard-total=["2"]' >> "$GITHUB_OUTPUT"
@@ -486,10 +522,13 @@ jobs:
           path: |
             packages/*/test-results/**/*.zip
             packages/*/test-results/**/*.png
-          retention-days: 7
+          retention-days: 1
           if-no-files-found: ignore
 
-  # E2E tests run in parallel with sharding
+  # E2E tests run in parallel with sharding. Keep PR coverage complete, but use
+  # fewer jobs with two Playwright workers each to reduce repeated runner setup.
+  # Origin-destructive reset flows and storage/import-heavy stateful specs are
+  # excluded here and covered by isolated lanes below.
   e2e:
     name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     if: github.event_name != 'workflow_dispatch'
@@ -548,8 +587,7 @@ jobs:
           cd apps/web
           echo "Running functional E2E tests"
           unset NO_COLOR
-          # Keep one browser worker per shard to avoid cross-test local-first DB and OPFS interference.
-          pnpm exec playwright test --project=functional --workers=1 --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          pnpm exec playwright test --project=functional --workers=2 --grep-invert "@destructive|@stateful" --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           NODE_ENV: "production"
           PORT: "8080"
@@ -574,6 +612,176 @@ jobs:
         with:
           name: blob-report-${{ matrix.shardIndex }}
           path: apps/web/blob-report-${{ matrix.shardIndex }}.tar
+          retention-days: 1
+          if-no-files-found: warn
+
+  e2e-stateful:
+    name: E2E Stateful Tests (${{ matrix.group }})
+    if: github.event_name != 'workflow_dispatch'
+    needs: [prepare-web, determine-matrix]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      TURBO_CACHE_DIR: .turbo
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: import
+            testFiles: e2e/database-import-backfill.test.ts
+          - group: browser-state
+            testFiles: e2e/background-indexing-settings.test.ts e2e/file-explorer-persistence.test.ts e2e/settings-models-and-providers.test.ts e2e/assistant-ui-panel.test.ts
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+
+      - name: Build workspace dependencies (Turbo remote cache hit from prepare-web)
+        run: pnpm run build --filter @brainstrike/web
+
+      - name: Download web dist
+        uses: actions/download-artifact@v8
+        with:
+          name: web-dist
+          path: apps/web/dist/
+
+      - name: Get Playwright version
+        id: playwright-version
+        run: |
+          version=$(node -p "require('./apps/web/package.json').devDependencies['@playwright/test']")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright browsers and dependencies
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Playwright system dependencies only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
+
+      - name: Run stateful E2E tests
+        timeout-minutes: 25
+        run: |
+          cd apps/web
+          echo "Running stateful functional E2E tests with one worker per runner"
+          unset NO_COLOR
+          pnpm exec playwright test --project=functional --workers=1 --grep "@stateful" ${{ matrix.testFiles }}
+        env:
+          NODE_ENV: "production"
+          PORT: "8080"
+          BASE_URL: "http://127.0.0.1:8080"
+
+      - name: Bundle blob report
+        if: failure()
+        run: |
+          set -e
+          cd apps/web
+          if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
+            tar -cvf stateful-blob-report-${{ matrix.group }}.tar blob-report/
+            ls -lh stateful-blob-report-${{ matrix.group }}.tar
+            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
+          else
+            echo "No stateful blob report found for ${{ matrix.group }}"
+          fi
+
+      - name: Upload blob report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stateful-blob-report-${{ matrix.group }}
+          path: apps/web/stateful-blob-report-${{ matrix.group }}.tar
+          retention-days: 1
+          if-no-files-found: warn
+
+  e2e-destructive:
+    name: E2E Destructive Tests
+    if: github.event_name != 'workflow_dispatch'
+    needs: [prepare-web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      TURBO_CACHE_DIR: .turbo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+
+      - name: Build workspace dependencies (Turbo remote cache hit from prepare-web)
+        run: pnpm run build --filter @brainstrike/web
+
+      - name: Download web dist
+        uses: actions/download-artifact@v8
+        with:
+          name: web-dist
+          path: apps/web/dist/
+
+      - name: Get Playwright version
+        id: playwright-version
+        run: |
+          version=$(node -p "require('./apps/web/package.json').devDependencies['@playwright/test']")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright browsers and dependencies
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Playwright system dependencies only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
+
+      - name: Run destructive E2E tests
+        timeout-minutes: 15
+        run: |
+          cd apps/web
+          echo "Running destructive functional E2E tests in isolation"
+          unset NO_COLOR
+          pnpm exec playwright test --project=functional --workers=1 --grep "@destructive"
+        env:
+          NODE_ENV: "production"
+          PORT: "8080"
+          BASE_URL: "http://127.0.0.1:8080"
+
+      - name: Bundle blob report
+        if: failure()
+        run: |
+          set -e
+          cd apps/web
+          if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
+            tar -cvf destructive-blob-report.tar blob-report/
+            ls -lh destructive-blob-report.tar
+            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
+          else
+            echo "No destructive blob report found"
+          fi
+
+      - name: Upload blob report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: destructive-blob-report
+          path: apps/web/destructive-blob-report.tar
           retention-days: 1
           if-no-files-found: warn
 
@@ -872,16 +1080,13 @@ jobs:
   # (PR runs -pr, main/push runs -main). The OR condition handles this correctly.
   merge-reports:
     name: Merge Test Reports
-    if: github.event_name != 'workflow_dispatch' && always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.desktop-e2e-pr.result == 'success' || needs.desktop-e2e-main.result == 'success')
-    needs: [checks, e2e, desktop-e2e-pr, desktop-e2e-main]
+    if: github.event_name != 'workflow_dispatch' && always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.e2e-stateful.result == 'success' || needs.e2e-destructive.result == 'success' || needs.desktop-e2e-pr.result == 'success' || needs.desktop-e2e-main.result == 'success')
+    needs: [checks, e2e, e2e-stateful, e2e-destructive, desktop-e2e-pr, desktop-e2e-main]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
 
       - name: Download blob reports
         id: download-reports
@@ -929,6 +1134,10 @@ jobs:
             echo "No blob reports found - shard jobs either passed without diagnostic upload or produced no report"
           fi
 
+      - name: Setup monorepo
+        if: steps.check-reports.outputs.reports-exist == 'true'
+        uses: ./.github/actions/setup-monorepo
+
       - name: Merge Playwright reports
         if: steps.check-reports.outputs.reports-exist == 'true'
         run: |
@@ -958,59 +1167,12 @@ jobs:
           echo "Starting merge process..."
           pnpm exec playwright merge-reports --config playwright-merge.config.js merged-blob-reports
 
-      - name: Download unit test coverage
-        uses: actions/download-artifact@v8
-        with:
-          name: unit-coverage
-          path: .
-
-      - name: Extract coverage bundle
-        run: |
-          tar -xvf coverage-bundle.tar
-          mv coverage-bundle unit-coverage
-          echo "Extracted $(find unit-coverage -name '*.json' | wc -l) coverage files"
-
-      - name: Merge all coverage reports
-        if: always()
-        run: |
-          # Find and merge all coverage files
-          echo "Finding coverage files..."
-          if [ -d "unit-coverage" ]; then
-            find unit-coverage -name "coverage-final.json" -type f
-
-            # Create .nyc_output directory
-            mkdir -p .nyc_output
-
-            # Merge coverage if files exist
-            if find unit-coverage -name "coverage-final.json" -type f | head -1 | grep -q .; then
-              echo "Merging coverage files..."
-              pnpm coverage:merge -- --quiet unit-coverage
-
-              # Generate reports
-              pnpm coverage:report
-              echo "Coverage reports generated successfully"
-            else
-              echo "No coverage files found to merge"
-            fi
-          else
-            echo "No unit-coverage directory found"
-          fi
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/lcov.info
-          fail_ci_if_error: false
-
       - name: Upload final test results
-        if: always()
+        if: steps.check-reports.outputs.reports-exist == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: all-test-results
-          path: |
-            coverage/
-            playwright-report-merged/
+          path: playwright-report-merged/
           retention-days: 1
           if-no-files-found: warn
 

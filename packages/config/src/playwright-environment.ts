@@ -137,7 +137,9 @@ export const getEnvironmentConfig = (): EnvironmentConfig => {
     // This prevents X server/display issues in containerized CI environments
     // Local development can override with --headed flag if needed
     headless: true,
-    fullyParallel: !env.isCodex, // Codex should avoid parallel execution
+    // Keep multiple workers in CI, but do not run tests from the same file concurrently.
+    // Stateful browser specs share expensive origin-level surfaces like OPFS and app boot.
+    fullyParallel: !env.isCI,
   };
 };
 

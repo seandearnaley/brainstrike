@@ -14,19 +14,19 @@ async function openTokenCountingSettings(page: Page): Promise<void> {
   await settings.openCategory(/Token Counting/i, 'token-counting');
 }
 
-async function confirmFactoryResetAndWaitForReload(page: Page): Promise<void> {
-  const reloadPromise = page.waitForEvent('load');
-  await Promise.all([
-    page.waitForEvent('dialog').then(async (dialog) => {
-      await dialog.accept();
-    }),
-    page.getByTestId('factory-reset-button').click(),
-  ]);
-  await reloadPromise;
-  await waitForAppLoad(page);
-}
+test.describe('Factory Reset recovery (web) @destructive', () => {
+  async function confirmFactoryResetAndWaitForReload(page: Page): Promise<void> {
+    const reloadPromise = page.waitForEvent('load');
+    await Promise.all([
+      page.waitForEvent('dialog').then(async (dialog) => {
+        await dialog.accept();
+      }),
+      page.getByTestId('factory-reset-button').click(),
+    ]);
+    await reloadPromise;
+    await waitForAppLoad(page);
+  }
 
-test.describe('Factory Reset recovery (web)', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await resetAppState(page);

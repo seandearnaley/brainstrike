@@ -413,6 +413,52 @@ describe('model-registry-store', () => {
       );
     });
 
+    it('waits for durable filesystem sync when the database exposes it', async () => {
+      const model = createMockModel({ id: 'model-1', isEnabled: false });
+      const events: string[] = [];
+      useModelRegistryStore.setState({ models: [model] });
+
+      const mockDb = {
+        query: vi.fn(async () => {
+          events.push('query');
+          return { rows: [] };
+        }),
+        syncToFs: vi.fn(async () => {
+          events.push('sync');
+        }),
+      };
+
+      await useModelRegistryStore.getState().toggleModel(mockDb as never, 'model-1', true);
+
+      expect(events).toEqual(['query', 'sync']);
+      expect(mockDb.syncToFs).toHaveBeenCalledTimes(1);
+    });
+
+    it('waits for durable filesystem sync through the raw database handle', async () => {
+      const model = createMockModel({ id: 'model-1', isEnabled: false });
+      useModelRegistryStore.setState({ models: [model] });
+
+      const events: string[] = [];
+      const raw = {
+        marker: 'raw-sync-receiver',
+        syncToFs: vi.fn(async function (this: { readonly marker: string }) {
+          events.push(this.marker);
+        }),
+      };
+      const mockDb = {
+        query: vi.fn(async () => {
+          events.push('query');
+          return { rows: [] };
+        }),
+        raw,
+      };
+
+      await useModelRegistryStore.getState().toggleModel(mockDb as never, 'model-1', true);
+
+      expect(events).toEqual(['query', 'raw-sync-receiver']);
+      expect(raw.syncToFs).toHaveBeenCalledTimes(1);
+    });
+
     it('keeps the committed toggle state if a registry refresh races the update', async () => {
       const model = createMockModel({ id: 'model-1', isEnabled: false });
       useModelRegistryStore.setState({ models: [model] });
@@ -463,6 +509,21 @@ describe('model-registry-store', () => {
         'UPDATE providers SET is_enabled = $1, updated_at = NOW() WHERE id = $2',
         [true, 'provider-1']
       );
+    });
+
+    it('waits for durable filesystem sync when a provider is toggled', async () => {
+      const provider = createMockProvider({ id: 'provider-1', isEnabled: false });
+      useModelRegistryStore.setState({ providers: [provider] });
+
+      const syncToFs = vi.fn().mockResolvedValue(undefined);
+      const mockDb = {
+        query: vi.fn().mockResolvedValue({ rows: [] }),
+        syncToFs,
+      };
+
+      await useModelRegistryStore.getState().toggleProvider(mockDb as never, 'provider-1', true);
+
+      expect(syncToFs).toHaveBeenCalledTimes(1);
     });
 
     it('keeps the committed toggle state if a registry refresh races the update', async () => {

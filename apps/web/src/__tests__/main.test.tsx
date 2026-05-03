@@ -5,12 +5,16 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 // Utility to dynamically import the main entry after setting up mocks
 const importMain = () => import('../main');
 
+const dbProviderMock = vi.hoisted(() =>
+  vi.fn(({ children }: { readonly children: React.ReactNode }) => children)
+);
+
 vi.mock('react-helmet-async', () => ({
   HelmetProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 vi.mock('@brainstrike/db', () => ({
-  DbProvider: ({ children }: { children: React.ReactNode }) => children,
+  DbProvider: dbProviderMock,
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   usePGliteDatabase: vi.fn(() => null),
 }));
@@ -166,12 +170,14 @@ vi.mock('../app/settings/page-content', () => ({
 describe('main entry file', () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.restoreAllMocks();
     vi.clearAllMocks();
     vi.unstubAllEnvs();
     mockLoggingStoreState.hasHydrated = true;
     mockLoggingStoreState.preferences = { level: 'debug', consoleLevel: 'debug' };
     initializeQueueTelemetrySinkMock.mockReturnValue(null);
     Reflect.deleteProperty(window, '__BRAINSTRIKE_WEB_REACT_ROOT__');
+    window.sessionStorage.clear();
   });
 
   test('throws an error when root element is missing', async () => {
@@ -183,6 +189,7 @@ describe('main entry file', () => {
     const rootElement = document.createElement('div');
     rootElement.id = 'root';
     vi.spyOn(document, 'getElementById').mockReturnValue(rootElement);
+    vi.spyOn(window.navigator, 'webdriver', 'get').mockReturnValue(false);
 
     const renderMock = vi.fn();
     const createRootMock = vi.fn(() => ({ render: renderMock }));
@@ -202,6 +209,55 @@ describe('main entry file', () => {
 
     // Verify mocked routing components render without crashing
     expect(screen.getByTestId('root-layout')).toBeInTheDocument();
+  }, 60_000);
+
+  test('uses the standard web database path outside Playwright automation', async () => {
+    const rootElement = document.createElement('div');
+    rootElement.id = 'root';
+    vi.spyOn(document, 'getElementById').mockReturnValue(rootElement);
+    vi.spyOn(window.navigator, 'webdriver', 'get').mockReturnValue(false);
+
+    const renderMock = vi.fn();
+    vi.doMock('react-dom/client', () => ({
+      __esModule: true,
+      default: { createRoot: vi.fn(() => ({ render: renderMock })) },
+    }));
+
+    await importMain();
+
+    const element = renderMock.mock.calls[0]?.[0] as ReactElement;
+    render(element);
+
+    expect(dbProviderMock).toHaveBeenCalledWith(
+      expect.objectContaining({ dbPath: 'idb://web' }),
+      undefined
+    );
+  }, 60_000);
+
+  test('isolates the web database path for Playwright automation', async () => {
+    const rootElement = document.createElement('div');
+    rootElement.id = 'root';
+    vi.spyOn(document, 'getElementById').mockReturnValue(rootElement);
+    vi.spyOn(window.navigator, 'webdriver', 'get').mockReturnValue(true);
+    vi.spyOn(window.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000001');
+
+    const renderMock = vi.fn();
+    vi.doMock('react-dom/client', () => ({
+      __esModule: true,
+      default: { createRoot: vi.fn(() => ({ render: renderMock })) },
+    }));
+
+    await importMain();
+
+    const expectedPath = 'idb://web-e2e-00000000-0000-4000-8000-000000000001';
+    const element = renderMock.mock.calls[0]?.[0] as ReactElement;
+    render(element);
+
+    expect(dbProviderMock).toHaveBeenCalledWith(
+      expect.objectContaining({ dbPath: expectedPath }),
+      undefined
+    );
+    expect(window.sessionStorage.getItem('brainstrike.e2e.dbPath.v1')).toBe(expectedPath);
   }, 60_000);
 
   test('reuses existing React root when already initialized', async () => {
