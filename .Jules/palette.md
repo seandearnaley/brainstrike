@@ -1,0 +1,3 @@
+## 2024-05-03 - Add accessible labels to prompt editor form fields
+**Learning:** Found that custom sliders and tag inputs using complex nested structures inside a React Dialog lacked proper \`htmlFor\` and \`id\` mappings, leaving screen readers without context for the controls. Similarly, icon-only toggle buttons for tags did not have \`aria-hidden="true"\` on the internal SVG, creating redundant or confusing announcements.
+**Action:** When creating custom inputs or using Radix primitives, always explicitly link \`Label\` \`htmlFor\` to the underlying \`input\` \`id\`, and ensure purely visual SVGs within icon buttons receive \`aria-hidden="true"\`.

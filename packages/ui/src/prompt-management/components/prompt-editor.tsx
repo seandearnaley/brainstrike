@@ -210,11 +210,12 @@ export function PromptEditor({
 
             <div className="space-y-4">
               <div className="flex justify-between">
-                <Label>Temperature</Label>
+                <Label htmlFor="temperature-slider">Temperature</Label>
                 <span className="text-muted-foreground text-xs">{temperature}</span>
               </div>
               <input
                 className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-secondary accent-primary"
+                id="temperature-slider"
                 max="2"
                 min="0"
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -234,7 +235,7 @@ export function PromptEditor({
             </div>
 
             <div className="space-y-2">
-              <Label>Tags</Label>
+              <Label htmlFor="tag-input">Tags</Label>
               <div className="mb-2 flex flex-wrap gap-2">
                 {tags.map((tag) => (
                   <Badge
@@ -258,6 +259,7 @@ export function PromptEditor({
               <div className="flex gap-2">
                 <Input
                   className="h-8 text-sm"
+                  id="tag-input"
                   onChange={(e) =>
                     dispatch({ type: 'SET_FIELD', field: 'tagInput', value: e.target.value })
                   }
@@ -270,13 +272,14 @@ export function PromptEditor({
                   value={tagInput}
                 />
                 <Button
+                  aria-label="Add tag"
                   className="h-8 w-8 p-0"
                   onClick={addTag}
                   size="sm"
                   type="button"
                   variant="outline"
                 >
-                  <Plus className="h-4 w-4" />
+                  <Plus aria-hidden="true" className="h-4 w-4" />
                 </Button>
               </div>
             </div>
