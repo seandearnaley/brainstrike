@@ -16,6 +16,9 @@ const destructiveFlowPatterns = [
   },
 ];
 
+const destructiveTitlePattern =
+  /\btest(?:\.describe)?(?:\.(?:only|serial|skip|fixme))?\s*\(\s*(["'`])[^"'`]*@destructive[^"'`]*\1/;
+
 async function listTestFiles(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
   const files = await Promise.all(
@@ -38,7 +41,7 @@ const failures = [];
 
 for (const file of await listTestFiles(e2eDir)) {
   const source = await readFile(file, 'utf8');
-  if (/@destructive\b/.test(source)) {
+  if (destructiveTitlePattern.test(source)) {
     continue;
   }
 
@@ -53,7 +56,7 @@ for (const file of await listTestFiles(e2eDir)) {
 if (failures.length > 0) {
   console.error('E2E destructive tag check failed.');
   console.error(
-    'Factory-reset E2E flows must include @destructive so they run in the isolated single-worker destructive job.'
+    'Factory-reset E2E flows must include @destructive in a Playwright test or describe title so they run in the isolated single-worker destructive job.'
   );
   for (const failure of failures) {
     console.error(`- ${failure.file}: matched ${failure.label}`);

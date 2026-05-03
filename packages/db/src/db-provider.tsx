@@ -115,7 +115,7 @@ async function loadDrizzleViewFilterPresetsRepository() {
 export interface DbHandle extends IDatabase {
   exec?: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
   readonly raw?: unknown;
-  syncToFs?: () => Promise<void>;
+  readonly syncToFs?: () => Promise<void>;
 }
 
 interface QueryExecutor {
@@ -125,7 +125,7 @@ interface QueryExecutor {
     params?: unknown[],
     options?: unknown
   ) => Promise<{ rows: T[] }>;
-  syncToFs?: () => Promise<void>;
+  readonly syncToFs?: () => Promise<void>;
   transaction?: <T>(fn: (tx: QueryExecutor) => Promise<T>) => Promise<T>;
 }
 
@@ -214,20 +214,21 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
     const result = await executor.query(sql, forwarded.params, forwarded.options);
     return { rows: result.rows as T[] };
   };
+  const syncToFs =
+    typeof executor.syncToFs === 'function'
+      ? async () => {
+          await executor.syncToFs?.();
+        }
+      : undefined;
   const handle: DbHandle = {
     query,
+    ...(syncToFs ? { syncToFs } : {}),
   };
 
   if (typeof executor.exec === 'function') {
     handle.exec = async (sql: string, params?: unknown[], options?: unknown) => {
       const forwarded = splitExposedDatabaseWorkOptions(params, options);
       return await executor.exec?.(sql, forwarded.params, forwarded.options);
-    };
-  }
-
-  if (typeof executor.syncToFs === 'function') {
-    handle.syncToFs = async () => {
-      await executor.syncToFs?.();
     };
   }
 
