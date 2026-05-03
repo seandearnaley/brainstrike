@@ -140,6 +140,7 @@ async function syncDurableDatabaseWrites(db: IDatabase): Promise<void> {
   }
 
   const raw = durableDb.raw;
+  // Some scheduled/browser handles expose syncToFs directly; wrapped DB handles keep it on raw.
   if (raw && typeof raw === 'object' && 'syncToFs' in raw) {
     const syncToFs = (raw as { readonly syncToFs?: unknown }).syncToFs;
     if (typeof syncToFs === 'function') {
