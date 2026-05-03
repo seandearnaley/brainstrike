@@ -651,11 +651,20 @@ export class InMemoryTreeAdapter implements TreeAdapter {
     const result: string[] = [];
     const normalizedRoot = root.replace(/\/$/, '');
 
+    // ⚡ Bolt: Avoid template literal string allocation and intermediate array creation from split()
     for (const path of this.files.keys()) {
-      if (path === normalizedRoot || path.startsWith(`${normalizedRoot}/`)) {
+      if (
+        path === normalizedRoot ||
+        (path.startsWith(normalizedRoot) && path.charCodeAt(normalizedRoot.length) === 47)
+      ) {
         if (maxDepth !== undefined) {
           const relativePath = path.slice(normalizedRoot.length + 1);
-          const depth = relativePath.split('/').length - 1;
+          let depth = 0;
+          let idx = relativePath.indexOf('/');
+          while (idx !== -1) {
+            depth++;
+            idx = relativePath.indexOf('/', idx + 1);
+          }
           if (depth > maxDepth) {
             continue;
           }

@@ -44,3 +44,6 @@
 ## 2026-04-03 - Replacing string.split with native indexOf for chunking hot paths
 **Learning:** For hot paths such as `splitByBlankLines`, `String.prototype.split(/\r?\n/)` eagerly allocates an intermediate array of every line, which increases garbage collection pressure on large text bodies. Even where a downstream API still needs a line array, centralizing the scan logic makes behavior fixes easier to apply consistently.
 **Action:** Replace repeated `.split()` line scanning with a shared `indexOf('\n')` loop that only normalizes `\r` when it precedes an actual newline. Use that helper for streaming blank-line splitting and for any call sites that still need to materialize line arrays.
+## 2024-05-03 - [File Traversal Performance]
+**Learning:** In highly recursive or deep file traversal loops (like in `selection-rules/engine.ts`), memory allocation for template strings (`${normalizedRoot}/`) and intermediate arrays from `.split('/')` can cause significant garbage collection pauses. Node.js V8 does not fully optimize away these allocations.
+**Action:** Use `.charCodeAt(length)` for prefix boundary checks and `indexOf('/')` in a `while` loop instead of `.split('/')` to avoid intermediate object/array allocations. Ensure Biome linting rules (`noAssignInExpressions`) are met by assigning variables inside the loop body, not the condition.
