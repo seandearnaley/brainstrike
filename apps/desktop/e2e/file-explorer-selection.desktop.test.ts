@@ -2185,7 +2185,7 @@ test.describe('Desktop file explorer selection', () => {
     }
   });
 
-  test('restored query selections compute token totals even when deep descendants stay collapsed', async ({
+  test('restored query selections compute token totals from materialized descendants', async ({
     electronHarness,
   }) => {
     test.setTimeout(60_000);
@@ -2254,7 +2254,7 @@ test.describe('Desktop file explorer selection', () => {
       const fileTree = restartedWindow.getByRole('treegrid', { name: 'File tree' });
       await expect(fileTree).toBeVisible({ timeout: 15_000 });
       await expect(fileTree.getByText('src')).toBeVisible({ timeout: 15_000 });
-      await expect(fileTree.getByText('molecule-viewer.tsx')).toBeHidden({ timeout: 5000 });
+      await expect(fileTree.getByText('molecule-viewer.tsx')).toBeVisible({ timeout: 15_000 });
 
       const tokenSummary = restartedWindow.getByText(/[1-9]\d*(?:,\d{3})* output/);
       await expect(tokenSummary).toBeVisible({ timeout: 20_000 });

@@ -322,7 +322,10 @@ test.describe('Database Persistence', () => {
 
     await expandImportSettings(activeWindow);
     await selectChunkingPreset(activeWindow, /^Docs/);
-    await expect(activeWindow.getByText('Preset linked')).toBeVisible({ timeout: 10_000 });
+    const activePreset = activeWindow.getByTestId('chunking-active-preset');
+    await expect(activePreset).toBeVisible({ timeout: 10_000 });
+    await expect(activePreset).toContainText('Docs', { timeout: 10_000 });
+    await expect(activePreset).toContainText('semantic-markdown', { timeout: 10_000 });
 
     await expect
       .poll(async () => await readImportSettingsState(activeWindow), {

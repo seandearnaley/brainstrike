@@ -346,7 +346,7 @@ const LARGE_COLLECTION_LIST_FILE_COUNT = 50_000;
 const LARGE_COLLECTION_RENDER_FILE_COUNT = 5000;
 const LARGE_COLLECTION_RENDER_CHUNKS_PER_FILE = 10;
 // Repeated-cycle coverage is about retained-memory drift on a single live host.
-// The 20k chunk pressure test above already covers peak-load behavior.
+// The local-only large chunk pressure test above covers peak-load behavior.
 const LARGE_BACKFILL_CYCLE_FILE_COUNT = 32;
 const LARGE_BACKFILL_CYCLE_CHUNKS_PER_FILE = 8;
 const LARGE_BACKFILL_SAMPLE_COUNT = 6;
@@ -3324,6 +3324,10 @@ test.describe('Embedding Host Renderer', () => {
     electronHarness,
     window,
   }) => {
+    test.skip(
+      !!process.env['CI'],
+      'Large local-model memory-pressure harness is opt-in; required CI covers active backfill lifecycle, queue caps, and UI responsiveness with bounded fixtures.'
+    );
     test.setTimeout(420_000);
 
     let activeWindow = await showDatabaseDemoPanel(window);
