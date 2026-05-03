@@ -1,5 +1,5 @@
 import { LocalLlmBackend } from '@brainstrike/agent/local-llm';
-import type { IDatabase } from '@brainstrike/db';
+import type { DbHandle, IDatabase } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -57,12 +57,8 @@ interface ModelRegistryState {
   setDownloading: (modelId: string, isDownloading: boolean) => void;
   setDownloadProgress: (modelId: string, progress: number) => void;
   setModelCacheDir: (dir: string) => void;
-  toggleModel: (db: IDatabase, modelId: string, enabled: boolean) => Promise<void>;
-  toggleProvider: (db: IDatabase, providerId: string, enabled: boolean) => Promise<void>;
-}
-
-interface DurableDatabase extends IDatabase {
-  readonly syncToFs?: () => Promise<void>;
+  toggleModel: (db: DbHandle, modelId: string, enabled: boolean) => Promise<void>;
+  toggleProvider: (db: DbHandle, providerId: string, enabled: boolean) => Promise<void>;
 }
 
 // Raw DB types
@@ -131,11 +127,8 @@ function isLocalModel(model: DbModel): boolean {
   return isLocalModelProviderId(model.providerId);
 }
 
-async function syncDurableDatabaseWrites(db: IDatabase): Promise<void> {
-  const durableDb = db as DurableDatabase;
-  if (typeof durableDb.syncToFs === 'function') {
-    await durableDb.syncToFs();
-  }
+async function syncDurableDatabaseWrites(db: DbHandle): Promise<void> {
+  await db.syncToFs?.();
 }
 
 async function resolveDownloadedFlag(
