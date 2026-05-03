@@ -62,7 +62,6 @@ interface ModelRegistryState {
 }
 
 interface DurableDatabase extends IDatabase {
-  readonly raw?: unknown;
   readonly syncToFs?: () => Promise<void>;
 }
 
@@ -136,16 +135,6 @@ async function syncDurableDatabaseWrites(db: IDatabase): Promise<void> {
   const durableDb = db as DurableDatabase;
   if (typeof durableDb.syncToFs === 'function') {
     await durableDb.syncToFs();
-    return;
-  }
-
-  const raw = durableDb.raw;
-  // Some scheduled/browser handles expose syncToFs directly; wrapped DB handles keep it on raw.
-  if (raw && typeof raw === 'object' && 'syncToFs' in raw) {
-    const syncToFs = (raw as { readonly syncToFs?: unknown }).syncToFs;
-    if (typeof syncToFs === 'function') {
-      await Reflect.apply(syncToFs, raw, []);
-    }
   }
 }
 

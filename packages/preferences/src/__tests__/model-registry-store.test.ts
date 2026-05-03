@@ -434,7 +434,7 @@ describe('model-registry-store', () => {
       expect(mockDb.syncToFs).toHaveBeenCalledTimes(1);
     });
 
-    it('waits for durable filesystem sync through the raw database handle', async () => {
+    it('does not bypass the database handle boundary to sync a raw handle', async () => {
       const model = createMockModel({ id: 'model-1', isEnabled: false });
       useModelRegistryStore.setState({ models: [model] });
 
@@ -455,8 +455,8 @@ describe('model-registry-store', () => {
 
       await useModelRegistryStore.getState().toggleModel(mockDb as never, 'model-1', true);
 
-      expect(events).toEqual(['query', 'raw-sync-receiver']);
-      expect(raw.syncToFs).toHaveBeenCalledTimes(1);
+      expect(events).toEqual(['query']);
+      expect(raw.syncToFs).not.toHaveBeenCalled();
     });
 
     it('keeps the committed toggle state if a registry refresh races the update', async () => {
