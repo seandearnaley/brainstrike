@@ -8,7 +8,7 @@ import { resetAppState } from './utils/app-state';
 async function openTokenCountingSettings(page: Page) {
   const home = new HomePage(page);
   const settings = new SettingsPage(page);
-  await home.goto();
+  await home.goto({ waitForDatabase: false });
   await home.navigateToSettings();
   await settings.openCategory(/Token Counting/i, 'token-counting');
   return settings;
@@ -63,7 +63,7 @@ test.describe('Token Counting settings (web)', () => {
     await installSettingsTestOverrides(page, { accurateRuntimeAvailable: true });
     const home = new HomePage(page);
     const settings = new SettingsPage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
     await settings.openCategory(/Token Counting/i, 'token-counting');
 

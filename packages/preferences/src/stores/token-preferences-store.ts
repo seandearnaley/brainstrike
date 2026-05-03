@@ -1,6 +1,6 @@
-import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { createBrowserJsonStorage } from './browser-json-storage';
 
 interface TokenPreferencesData {
   accurateCounting: boolean;
@@ -14,11 +14,7 @@ export type TokenPreferencesStore = TokenPreferencesData & TokenPreferencesActio
 
 const STORE_NAME = 'token-preferences.v1' as const;
 
-/**
- * Storage adapter with fallback to in-memory for SSR/tests
- * Uses safe storage utility with proper error logging
- */
-const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
+const storage = createJSONStorage(() => createBrowserJsonStorage());
 
 export const useTokenPreferencesStore = create<TokenPreferencesStore>()(
   persist(

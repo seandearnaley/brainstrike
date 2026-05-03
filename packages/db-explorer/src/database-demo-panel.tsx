@@ -1,4 +1,5 @@
 import {
+  type EmbeddingSet,
   refreshCollectionIndexingStats,
   useClearAllData,
   useDbProviderError,
@@ -16,7 +17,10 @@ import { useLocalRuntimeEmbeddingModelCatalog } from '@brainstrike/preferences/h
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
+import {
+  type CachedCollection,
+  useVectorStatusUIStore,
+} from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import {
   Button,
@@ -75,6 +79,24 @@ import { useImportFlow } from './use-import-flow';
 
 interface DatabaseDemoPanelProps {
   embeddingQueue?: QueueAdapter | null;
+}
+
+function collectionCacheSnapshotFromEmbeddingSet(set: EmbeddingSet): CachedCollection {
+  return {
+    id: set.id,
+    modelKey: set.modelKey,
+    modelId: set.modelId,
+    dimensions: set.dimensions,
+    distance: set.distance,
+    createdAt: set.createdAt,
+    name: set.name ?? null,
+    description: set.description ?? null,
+    tags: set.tags ?? null,
+    category: set.category ?? null,
+    fileCount: 0,
+    chunkCount: 0,
+    embeddingCount: 0,
+  };
 }
 
 interface DatabaseDemoImportTestSnapshot {
@@ -172,6 +194,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   // Use Zustand store directly as single source of truth for collection selection and import state
   const activeCollectionId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
   const setActiveCollectionId = useVectorStatusUIStore((s) => s.setActiveEmbeddingSetId);
+  const upsertCachedCollection = useVectorStatusUIStore((s) => s.upsertCachedCollection);
   const setIsImporting = useVectorStatusUIStore((s) => s.setIsImporting);
   const managedCollectionId = useBackgroundIndexingPreferencesStore((s) => s.managedCollectionId);
   const isManagedCollection = Boolean(
@@ -719,12 +742,10 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
               collectionDialogs.closeCreateDialog();
             }
           }}
-          onSetCreated={(newSetId?: string) => {
-            if (newSetId) {
-              handleCollectionChange(newSetId);
-            }
+          onSetCreated={(newSetId: string, newSet: EmbeddingSet) => {
+            upsertCachedCollection(collectionCacheSnapshotFromEmbeddingSet(newSet));
+            handleCollectionChange(newSetId);
             collectionDialogs.closeCreateDialog();
-            // Reload collections (SearchCollectionSelector listens to event)
           }}
           open={collectionDialogs.createCollectionOpen}
           providers={availableProviders}

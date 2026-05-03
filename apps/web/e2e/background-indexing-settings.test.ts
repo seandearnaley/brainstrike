@@ -22,8 +22,12 @@ async function createCollection(page: Page, collectionName: string): Promise<voi
   await dialog.getByRole('button', { name: 'Create Collection' }).click();
 
   await expect(dialog).toBeHidden({ timeout: 15_000 });
-  await expect(page.getByRole('option').filter({ hasText: collectionName }).first()).toBeVisible({
-    timeout: 15_000,
+  const collectionList = databasePanel.getByRole('listbox', { name: 'Search Collection' });
+  await expect(collectionList).toBeVisible({ timeout: 15_000 });
+  await expect(
+    collectionList.getByRole('option').filter({ hasText: collectionName }).first()
+  ).toBeVisible({
+    timeout: 30_000,
   });
 }
 
@@ -38,7 +42,9 @@ async function openSearchIndexingSettings(page: Page): Promise<void> {
 
 async function selectManagedCollection(page: Page, collectionName: string): Promise<void> {
   await page.locator('#managed-cache-collection').click();
-  await page.getByRole('option', { name: collectionName }).click();
+  const option = page.getByRole('option', { name: collectionName });
+  await expect(option).toBeVisible({ timeout: 30_000 });
+  await option.click();
 }
 
 test.describe('Background indexing settings (web)', () => {
@@ -51,7 +57,7 @@ test.describe('Background indexing settings (web)', () => {
   test('lets users change the indexing policy from settings', async ({ page }) => {
     const home = new HomePage(page);
 
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await openSearchIndexingSettings(page);
 
     await expect(

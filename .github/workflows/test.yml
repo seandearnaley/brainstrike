@@ -342,7 +342,8 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "_Check the step timings above for optimization opportunities._" >> $GITHUB_STEP_SUMMARY
 
-  # Dynamic matrix: fewer shards on PRs, full shards on main
+  # Dynamic matrix: web E2E uses the same functional project and shard count on
+  # PRs and main so the merge gate proves the suite that runs after merge.
   determine-matrix:
     name: Determine E2E Matrix
     if: github.event_name != 'workflow_dispatch'
@@ -357,14 +358,12 @@ jobs:
       - name: Set shard matrix
         id: set-matrix
         run: |
+          echo 'web-shards=["1","2","3","4","5","6","7","8"]' >> "$GITHUB_OUTPUT"
+          echo 'web-shard-total=["8"]' >> "$GITHUB_OUTPUT"
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            echo 'web-shards=["1","2"]' >> "$GITHUB_OUTPUT"
-            echo 'web-shard-total=["2"]' >> "$GITHUB_OUTPUT"
             echo 'desktop-shards=["1","2"]' >> "$GITHUB_OUTPUT"
             echo 'desktop-shard-total=["2"]' >> "$GITHUB_OUTPUT"
           else
-            echo 'web-shards=["1","2","3","4"]' >> "$GITHUB_OUTPUT"
-            echo 'web-shard-total=["4"]' >> "$GITHUB_OUTPUT"
             echo 'desktop-shards=["1","2","3","4"]' >> "$GITHUB_OUTPUT"
             echo 'desktop-shard-total=["4"]' >> "$GITHUB_OUTPUT"
           fi
@@ -547,22 +546,17 @@ jobs:
         timeout-minutes: 30
         run: |
           cd apps/web
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            echo "Running smoke E2E tests for PR"
-            PROJECT="smoke"
-          else
-            echo "Running full E2E tests for main"
-            PROJECT="functional"
-          fi
+          echo "Running functional E2E tests"
           unset NO_COLOR
-          pnpm exec playwright test --project=$PROJECT --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          # Keep one browser worker per shard to avoid cross-test local-first DB and OPFS interference.
+          pnpm exec playwright test --project=functional --workers=1 --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           NODE_ENV: "production"
           PORT: "8080"
           BASE_URL: "http://127.0.0.1:8080"
 
       - name: Bundle blob report
-        if: always()
+        if: failure()
         run: |
           set -e
           cd apps/web
@@ -575,7 +569,7 @@ jobs:
           fi
 
       - name: Upload blob report
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: blob-report-${{ matrix.shardIndex }}
@@ -658,7 +652,7 @@ jobs:
           ELECTRON_DISABLE_GPU: "1"
 
       - name: Bundle blob report (desktop shard)
-        if: always()
+        if: failure()
         run: |
           set -e
           cd apps/desktop
@@ -671,7 +665,7 @@ jobs:
           fi
 
       - name: Upload blob report (desktop shard)
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: desktop-blob-report-${{ matrix.shardIndex }}
@@ -756,7 +750,7 @@ jobs:
           ELECTRON_DISABLE_GPU: "1"
 
       - name: Bundle blob report (desktop shard)
-        if: always()
+        if: failure()
         run: |
           set -e
           cd apps/desktop
@@ -769,7 +763,7 @@ jobs:
           fi
 
       - name: Upload blob report (desktop shard)
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: desktop-blob-report-${{ matrix.shardIndex }}
@@ -852,7 +846,7 @@ jobs:
           ELECTRON_DISABLE_GPU: "1"
 
       - name: Bundle blob report (desktop backgrounding)
-        if: always()
+        if: failure()
         run: |
           set -e
           cd apps/desktop
@@ -865,7 +859,7 @@ jobs:
           fi
 
       - name: Upload blob report (desktop backgrounding)
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: desktop-backgrounding-blob-report
@@ -932,7 +926,7 @@ jobs:
             find all-blob-reports -type d -name "blob-report" | wc -l
           else
             echo "reports-exist=false" >> $GITHUB_OUTPUT
-            echo "No blob reports found - E2E tests may have failed"
+            echo "No blob reports found - shard jobs either passed without diagnostic upload or produced no report"
           fi
 
       - name: Merge Playwright reports
@@ -1017,7 +1011,7 @@ jobs:
           path: |
             coverage/
             playwright-report-merged/
-          retention-days: 7
+          retention-days: 1
           if-no-files-found: warn
 
   # Optional checks that don't block merging

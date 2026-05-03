@@ -422,10 +422,48 @@ function toRuntimeProviderModels(
   }));
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
 function addValuesToSet(target: Set<string>, values: Iterable<string>): void {
   for (const value of values) {
-    target.add(value);
+    if (isNonEmptyString(value)) {
+      target.add(value);
+    }
   }
+}
+
+function getBuiltInLocalPreferenceModelIds(
+  enabledModelsByProvider: Record<SupportedProvider, string[]>
+): string[] {
+  return (enabledModelsByProvider.local ?? []).filter(isNonEmptyString);
+}
+
+// Browser-local models are DB-backed in the split assistant chunk; the registry id is the
+// authoritative runtime id when static provider metadata has not produced a usable id yet.
+function getEnabledBuiltInLocalRegistryModelIds(
+  downloadedModels: Readonly<Record<string, boolean>>,
+  registryModels: readonly {
+    capabilities: { type?: unknown };
+    id: unknown;
+    isEnabled: unknown;
+    providerId: unknown;
+  }[]
+): string[] {
+  const modelIds: string[] = [];
+  for (const model of registryModels) {
+    if (
+      model.providerId === 'local' &&
+      model.isEnabled === true &&
+      model.capabilities.type === 'llm' &&
+      isNonEmptyString(model.id) &&
+      downloadedModels[model.id] === true
+    ) {
+      modelIds.push(model.id);
+    }
+  }
+  return modelIds;
 }
 
 function addPreferenceEnabledModelIds(
@@ -437,6 +475,17 @@ function addPreferenceEnabledModelIds(
     const enabledModels = enabledModelsByProvider[providerId] ?? [];
     addValuesToSet(target, enabledModels);
   }
+}
+
+function addBuiltInLocalPreferenceModelIds(
+  target: Set<string>,
+  configuredProviders: readonly SupportedProvider[],
+  enabledModelsByProvider: Record<SupportedProvider, string[]>
+): void {
+  if (!configuredProviders.includes('local')) {
+    return;
+  }
+  addValuesToSet(target, getBuiltInLocalPreferenceModelIds(enabledModelsByProvider));
 }
 
 function addRuntimeCatalogEnabledLlmModelIds(
@@ -475,6 +524,13 @@ function buildEnabledModelIdSet(options: {
     addValuesToSet(enabledIds, options.registryEnabledModelIds);
   }
 
+  if (!options.shouldFallbackToPreferences) {
+    addBuiltInLocalPreferenceModelIds(
+      enabledIds,
+      options.configuredProviders,
+      options.enabledModelsByProvider
+    );
+  }
   addRuntimeCatalogEnabledLlmModelIds(enabledIds, options.localRuntimeModels);
   return enabledIds;
 }
@@ -965,6 +1021,7 @@ export function AssistantUiPanelWrapper({
   // Load model registry from DB for local provider models
   useEnsureModelRegistry();
   const registryModels = useModelRegistryStore((state) => state.models);
+  const downloadedModels = useModelRegistryStore((state) => state.downloadedModels);
   const registryError = useModelRegistryStore((state) => state.error);
   const toggleModelInDb = useModelRegistryStore((state) => state.toggleModel);
   const db = usePGliteDatabase();
@@ -1028,6 +1085,20 @@ export function AssistantUiPanelWrapper({
       shouldFallbackToPreferences,
     ]
   );
+  const enabledBuiltInLocalModelIds = useMemo(() => {
+    const modelIds = new Set<string>();
+    addValuesToSet(
+      modelIds,
+      getBuiltInLocalPreferenceModelIds(enabledModelsByProvider).filter(
+        (modelId) => downloadedModels[modelId] === true
+      )
+    );
+    addValuesToSet(
+      modelIds,
+      getEnabledBuiltInLocalRegistryModelIds(downloadedModels, registryModels)
+    );
+    return [...modelIds];
+  }, [downloadedModels, enabledModelsByProvider, registryModels]);
 
   const runtimeLlmModelsByProvider = useMemo<
     Partial<Record<LocalRuntimeProviderId, readonly LlmProviderModelDefinition[]>>
@@ -1643,27 +1714,31 @@ export function AssistantUiPanelWrapper({
 
   const providerHasEnabledModels = useCallback(
     (provider: SupportedProvider) => {
+      if (provider === 'local' && enabledBuiltInLocalModelIds.length > 0) {
+        return true;
+      }
       const modelDefinitions = getProviderLlmModels(provider);
       return modelDefinitions.some((model: LlmProviderModelDefinition) =>
         enabledModelIds.has(model.id)
       );
     },
-    [enabledModelIds, getProviderLlmModels]
+    [enabledBuiltInLocalModelIds, enabledModelIds, getProviderLlmModels]
   );
 
   const selectModelForProvider = useCallback(
     (provider: SupportedProvider) => {
-      const modelToSelect = resolveProviderModelSelection({
-        getProviderLlmModels,
-        isModelEnabled,
-        provider,
-      });
+      const modelToSelect =
+        resolveProviderModelSelection({
+          getProviderLlmModels,
+          isModelEnabled,
+          provider,
+        }) ?? (provider === 'local' ? enabledBuiltInLocalModelIds[0] : undefined);
       if (!modelToSelect) {
         return;
       }
       setModel(`${provider}::${modelToSelect}`);
     },
-    [getProviderLlmModels, isModelEnabled, setModel]
+    [enabledBuiltInLocalModelIds, getProviderLlmModels, isModelEnabled, setModel]
   );
 
   useEffect(() => {
@@ -1834,10 +1909,26 @@ export function AssistantUiPanelWrapper({
     [getSelectedModel, isModelEnabled, providerHasEnabledModels, selectModelForProvider]
   );
 
-  // Reconcile selection whenever providers or enabled models change
+  const seedBuiltInLocalModelSelection = useCallback((): boolean => {
+    if (selectedModel !== null || !configuredProviders.includes('local')) {
+      return false;
+    }
+    const localModel = enabledBuiltInLocalModelIds[0];
+    if (!(localModel && enabledModelIds.has(localModel))) {
+      return false;
+    }
+    setModel(`local::${localModel}`);
+    return true;
+  }, [configuredProviders, enabledBuiltInLocalModelIds, enabledModelIds, selectedModel, setModel]);
+
+  // Reconcile selection whenever providers or enabled models change.
   // Using useEffect (not useLayoutEffect) because we're mutating external state (Zustand store)
   // React will properly batch these updates and handle them in the commit phase
   useEffect(() => {
+    if (seedBuiltInLocalModelSelection()) {
+      return;
+    }
+
     const currentProvider = getSelectedProvider();
     if (shouldSkipSelectionReconcile(currentProvider)) {
       return;
@@ -1884,6 +1975,7 @@ export function AssistantUiPanelWrapper({
     getSelectedProvider,
     clearModel,
     providerHasEnabledModels,
+    seedBuiltInLocalModelSelection,
     selectModelForProvider,
     shouldSkipSelectionReconcile,
   ]);

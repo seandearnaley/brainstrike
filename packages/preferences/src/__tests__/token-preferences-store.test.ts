@@ -83,4 +83,16 @@ describe('token-preferences-store', () => {
     const afterClear = storage.getItem(options.name);
     expect(afterClear).toBeNull();
   });
+
+  it('clears malformed persisted JSON before hydration', () => {
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (!(options?.storage && options.name)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    window.localStorage.setItem(options.name, '{not-valid-json');
+
+    expect(options.storage.getItem(options.name)).toBeNull();
+    expect(window.localStorage.getItem(options.name)).toBeNull();
+  });
 });
