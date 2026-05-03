@@ -527,8 +527,8 @@ jobs:
 
   # E2E tests run in parallel with sharding. Keep PR coverage complete, but use
   # fewer jobs with two Playwright workers each to reduce repeated runner setup.
-  # Origin-destructive reset flows are excluded here and covered by
-  # e2e-destructive so they cannot delete another worker's active IndexedDB.
+  # Origin-destructive reset flows and storage/import-heavy stateful specs are
+  # excluded here and covered by isolated lanes below.
   e2e:
     name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     if: github.event_name != 'workflow_dispatch'
@@ -587,7 +587,7 @@ jobs:
           cd apps/web
           echo "Running functional E2E tests"
           unset NO_COLOR
-          pnpm exec playwright test --project=functional --workers=2 --grep-invert "@destructive" --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          pnpm exec playwright test --project=functional --workers=2 --grep-invert "@destructive|@stateful" --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           NODE_ENV: "production"
           PORT: "8080"
@@ -612,6 +612,95 @@ jobs:
         with:
           name: blob-report-${{ matrix.shardIndex }}
           path: apps/web/blob-report-${{ matrix.shardIndex }}.tar
+          retention-days: 1
+          if-no-files-found: warn
+
+  e2e-stateful:
+    name: E2E Stateful Tests (${{ matrix.group }})
+    if: github.event_name != 'workflow_dispatch'
+    needs: [prepare-web, determine-matrix]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      TURBO_CACHE_DIR: .turbo
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: import
+            testFiles: e2e/database-import-backfill.test.ts
+          - group: browser-state
+            testFiles: e2e/background-indexing-settings.test.ts e2e/file-explorer-persistence.test.ts e2e/settings-models-and-providers.test.ts e2e/assistant-ui-panel.test.ts
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+
+      - name: Build workspace dependencies (Turbo remote cache hit from prepare-web)
+        run: pnpm run build --filter @brainstrike/web
+
+      - name: Download web dist
+        uses: actions/download-artifact@v8
+        with:
+          name: web-dist
+          path: apps/web/dist/
+
+      - name: Get Playwright version
+        id: playwright-version
+        run: |
+          version=$(node -p "require('./apps/web/package.json').devDependencies['@playwright/test']")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright browsers and dependencies
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Playwright system dependencies only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
+
+      - name: Run stateful E2E tests
+        timeout-minutes: 25
+        run: |
+          cd apps/web
+          echo "Running stateful functional E2E tests with one worker per runner"
+          unset NO_COLOR
+          pnpm exec playwright test --project=functional --workers=1 --grep "@stateful" ${{ matrix.testFiles }}
+        env:
+          NODE_ENV: "production"
+          PORT: "8080"
+          BASE_URL: "http://127.0.0.1:8080"
+
+      - name: Bundle blob report
+        if: failure()
+        run: |
+          set -e
+          cd apps/web
+          if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
+            tar -cvf stateful-blob-report-${{ matrix.group }}.tar blob-report/
+            ls -lh stateful-blob-report-${{ matrix.group }}.tar
+            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
+          else
+            echo "No stateful blob report found for ${{ matrix.group }}"
+          fi
+
+      - name: Upload blob report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stateful-blob-report-${{ matrix.group }}
+          path: apps/web/stateful-blob-report-${{ matrix.group }}.tar
           retention-days: 1
           if-no-files-found: warn
 
@@ -991,8 +1080,8 @@ jobs:
   # (PR runs -pr, main/push runs -main). The OR condition handles this correctly.
   merge-reports:
     name: Merge Test Reports
-    if: github.event_name != 'workflow_dispatch' && always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.e2e-destructive.result == 'success' || needs.desktop-e2e-pr.result == 'success' || needs.desktop-e2e-main.result == 'success')
-    needs: [checks, e2e, e2e-destructive, desktop-e2e-pr, desktop-e2e-main]
+    if: github.event_name != 'workflow_dispatch' && always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.e2e-stateful.result == 'success' || needs.e2e-destructive.result == 'success' || needs.desktop-e2e-pr.result == 'success' || needs.desktop-e2e-main.result == 'success')
+    needs: [checks, e2e, e2e-stateful, e2e-destructive, desktop-e2e-pr, desktop-e2e-main]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

@@ -47,7 +47,7 @@ async function selectManagedCollection(page: Page, collectionName: string): Prom
   await option.click();
 }
 
-test.describe('Background indexing settings (web)', () => {
+test.describe('Background indexing settings (web) @stateful', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await resetAppState(page);

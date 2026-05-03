@@ -1,12 +1,49 @@
+import type { Page } from '@playwright/test';
 import {
   installSettingsTestOverrides,
   updateSettingsTestOverrides,
 } from '../../e2e-test-utils/settings-test-overrides';
+import type { WebE2ETestHooks } from '../src/web-e2e-test-hooks';
 import { expect, test } from './fixtures/web-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { resetAppState } from './utils/app-state';
 import { waitForAppLoad } from './utils/layout-helpers';
+
+async function readE2eDbPath(page: Page): Promise<string> {
+  return await page.evaluate(() => {
+    const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+      .__brainstrikeWebE2ETestHooks__;
+    if (!hooks) {
+      throw new Error('Web E2E database hooks are not installed');
+    }
+    return hooks.dbPath;
+  });
+}
+
+async function waitForPersistedModelState(
+  page: Page,
+  modelId: string,
+  expectedState: boolean
+): Promise<void> {
+  await page.waitForFunction(
+    async ({ expected, id }) => {
+      const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+        .__brainstrikeWebE2ETestHooks__;
+      if (!hooks) {
+        return false;
+      }
+      const currentState = await hooks.readModelEnabled(id);
+      if (currentState !== expected) {
+        return false;
+      }
+      await hooks.syncDatabase();
+      return true;
+    },
+    { expected: expectedState, id: modelId },
+    { timeout: 15_000 }
+  );
+}
 
 test.describe('Models & Providers settings (web)', () => {
   test.beforeEach(async ({ page }) => {
@@ -62,7 +99,7 @@ test.describe('Models & Providers settings (web)', () => {
     ).toBeVisible();
   });
 
-  test('persists a model toggle across reload', async ({ page }) => {
+  test('persists a model toggle across reload @stateful', async ({ page }) => {
     const home = new HomePage(page);
     const settings = new SettingsPage(page);
     await home.goto();
@@ -92,29 +129,35 @@ test.describe('Models & Providers settings (web)', () => {
     }
 
     const toggle = page.getByTestId(`model-toggle-${modelId}`);
-    const expectedState = 'true';
+    const expectedAttributeState = 'true';
+    const expectedPersistedState = true;
 
     await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-checked', expectedState);
-    await expect(toggle).toBeEnabled({ timeout: 15_000 });
+    await expect(toggle).toHaveAttribute('aria-checked', expectedAttributeState);
+    await waitForPersistedModelState(page, modelId, expectedPersistedState);
     await page.getByRole('button', { name: 'Refresh model registry' }).click();
     await expect(page.getByTestId(`model-toggle-${modelId}`)).toHaveAttribute(
       'aria-checked',
-      expectedState,
+      expectedAttributeState,
       { timeout: 15_000 }
     );
-    await expect(page.getByTestId(`model-toggle-${modelId}`)).toBeEnabled({
-      timeout: 15_000,
-    });
+    await waitForPersistedModelState(page, modelId, expectedPersistedState);
 
+    const dbPathBeforeReload = await readE2eDbPath(page);
     await page.reload();
     await waitForAppLoad(page);
+    await expect
+      .poll(async () => await readE2eDbPath(page), {
+        message: 'Expected the Playwright E2E DB path to stay stable across reload',
+        timeout: 15_000,
+      })
+      .toBe(dbPathBeforeReload);
     await home.navigateToSettings();
     await settings.openCategory(/Models & Providers/i, 'models');
 
     await expect(page.getByTestId(`model-toggle-${modelId}`)).toHaveAttribute(
       'aria-checked',
-      expectedState,
+      expectedAttributeState,
       { timeout: 15_000 }
     );
   });

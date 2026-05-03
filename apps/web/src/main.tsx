@@ -14,6 +14,7 @@ import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-m
 import React from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
 import { HelmetProvider } from 'react-helmet-async';
+import { WebE2ETestHooks } from './web-e2e-test-hooks';
 // Import global CSS
 import './app/globals.css';
 
@@ -179,6 +180,7 @@ root.render(
   <React.StrictMode>
     <HelmetProvider>
       <DbProvider dbPath={webDbPath}>
+        <WebE2ETestHooks dbPath={webDbPath} />
         <DbSchemaVerifier>
           <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
             <RootLayoutContent />
