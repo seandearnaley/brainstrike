@@ -127,25 +127,23 @@ function instantiateLanguageModel(
 export function convertMessagesToMastra(
   messages: AgentMessage[]
 ): Array<{ role: 'user' | 'assistant' | 'system'; content: string }> {
-  return messages
-    .map((message) => {
-      const textParts = message.parts
-        .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
-        .map((part) => part.text.trim())
-        .filter((text) => text.length > 0);
-
-      if (textParts.length === 0) {
-        return null;
+  const result: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [];
+  for (const message of messages) {
+    const textParts: string[] = [];
+    for (const part of message.parts) {
+      if (part.type !== 'text') {
+        continue;
       }
-
-      return {
-        role: message.role,
-        content: textParts.join('\n\n'),
-      };
-    })
-    .filter((value): value is { role: 'user' | 'assistant' | 'system'; content: string } =>
-      Boolean(value)
-    );
+      const trimmed = part.text.trim();
+      if (trimmed.length > 0) {
+        textParts.push(trimmed);
+      }
+    }
+    if (textParts.length > 0) {
+      result.push({ role: message.role, content: textParts.join('\n\n') });
+    }
+  }
+  return result;
 }
 
 export async function createMastraAgentRuntime(

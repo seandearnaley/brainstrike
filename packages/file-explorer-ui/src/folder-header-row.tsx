@@ -1,7 +1,7 @@
 import { Badge } from '@brainstrike/ui';
 import { getFolderColor } from '@brainstrike/utils/color-utils';
 import { ArrowDown, ArrowUp, Folder } from 'lucide-react';
-import { type CSSProperties, memo } from 'react';
+import { type CSSProperties, memo, useMemo } from 'react';
 
 export interface FolderHeaderItem {
   fileCount: number;
@@ -15,18 +15,23 @@ export interface FolderHeaderRowProps {
   onToggleCollapse: () => void;
 }
 
+type FolderHeaderRowStyle = CSSProperties &
+  Record<'--folder-dark-bg' | '--folder-dark-text', string>;
+
 const FolderHeaderRowComponent = ({
   item,
   isCollapsed,
   onToggleCollapse,
 }: FolderHeaderRowProps) => {
-  const colors = getFolderColor(item.folderId);
-  const rowStyle: CSSProperties & Record<'--folder-dark-bg' | '--folder-dark-text', string> = {
-    '--folder-dark-bg': colors.dark.bg,
-    '--folder-dark-text': colors.dark.text,
-    backgroundColor: colors.light.bg,
-    color: colors.light.text,
-  };
+  const rowStyle = useMemo<FolderHeaderRowStyle>(() => {
+    const colors = getFolderColor(item.folderId);
+    return {
+      '--folder-dark-bg': colors.dark.bg,
+      '--folder-dark-text': colors.dark.text,
+      backgroundColor: colors.light.bg,
+      color: colors.light.text,
+    };
+  }, [item.folderId]);
 
   return (
     <button
