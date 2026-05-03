@@ -144,6 +144,13 @@ jobs:
             echo "No duplicate CSS layers detected"
           fi
 
+      - name: Upload web dist
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-dist
+          path: apps/web/dist/
+          retention-days: 1
+
       - name: Append timing table footer
         if: ${{ !cancelled() }}
         run: |
@@ -404,33 +411,25 @@ jobs:
             echo 'desktop-shard-total=["4"]' >> "$GITHUB_OUTPUT"
           fi
 
-  # Build web app and upload as artifact for E2E jobs
+  # The checks job builds @brainstrike/web for CSS validation and uploads the
+  # exact dist used by E2E. Keep this required check as an artifact contract.
   prepare-web:
     name: Build Web App
     if: github.event_name != 'workflow_dispatch'
     needs: checks
     runs-on: ubuntu-latest
-    timeout-minutes: 40
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
-      TURBO_CACHE_DIR: .turbo
+    timeout-minutes: 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-
-      - name: Build web application
-        run: pnpm run build --filter @brainstrike/web
-
-      - name: Upload web dist
-        uses: actions/upload-artifact@v7
+      - name: Download web dist
+        uses: actions/download-artifact@v8
         with:
           name: web-dist
           path: apps/web/dist/
-          retention-days: 1
+
+      - name: Verify web dist
+        run: |
+          test -f apps/web/dist/index.html
+          test -d apps/web/dist/assets
 
   # Build desktop app and upload as artifact for E2E jobs
   prepare-desktop:
@@ -532,7 +531,7 @@ jobs:
   e2e:
     name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     if: github.event_name != 'workflow_dispatch'
-    needs: [prepare-web, determine-matrix]
+    needs: [checks, determine-matrix]
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
@@ -551,8 +550,8 @@ jobs:
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
 
-      - name: Build workspace dependencies (Turbo remote cache hit from prepare-web)
-        run: pnpm run build --filter @brainstrike/web
+      - name: Build web workspace dependencies
+        run: pnpm turbo run build --filter="@brainstrike/web^..." --summarize --log-order=grouped --cache-dir=.turbo
 
       - name: Download web dist
         uses: actions/download-artifact@v8
@@ -618,7 +617,7 @@ jobs:
   e2e-stateful:
     name: E2E Stateful Tests (${{ matrix.group }})
     if: github.event_name != 'workflow_dispatch'
-    needs: [prepare-web]
+    needs: [checks]
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -644,8 +643,8 @@ jobs:
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
 
-      - name: Build workspace dependencies (Turbo remote cache hit from prepare-web)
-        run: pnpm run build --filter @brainstrike/web
+      - name: Build web workspace dependencies
+        run: pnpm turbo run build --filter="@brainstrike/web^..." --summarize --log-order=grouped --cache-dir=.turbo
 
       - name: Download web dist
         uses: actions/download-artifact@v8
@@ -711,7 +710,7 @@ jobs:
   e2e-destructive:
     name: E2E Destructive Tests
     if: github.event_name != 'workflow_dispatch'
-    needs: [prepare-web]
+    needs: [checks]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -725,8 +724,8 @@ jobs:
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
 
-      - name: Build workspace dependencies (Turbo remote cache hit from prepare-web)
-        run: pnpm run build --filter @brainstrike/web
+      - name: Build web workspace dependencies
+        run: pnpm turbo run build --filter="@brainstrike/web^..." --summarize --log-order=grouped --cache-dir=.turbo
 
       - name: Download web dist
         uses: actions/download-artifact@v8
