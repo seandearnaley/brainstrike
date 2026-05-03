@@ -618,7 +618,7 @@ jobs:
   e2e-stateful:
     name: E2E Stateful Tests (${{ matrix.group }})
     if: github.event_name != 'workflow_dispatch'
-    needs: [prepare-web, determine-matrix]
+    needs: [prepare-web]
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -631,8 +631,12 @@ jobs:
         include:
           - group: import
             testFiles: e2e/database-import-backfill.test.ts
-          - group: browser-state
-            testFiles: e2e/background-indexing-settings.test.ts e2e/file-explorer-persistence.test.ts e2e/settings-models-and-providers.test.ts e2e/assistant-ui-panel.test.ts
+          - group: file-explorer-persistence
+            testFiles: e2e/file-explorer-persistence.test.ts
+          - group: assistant-ui
+            testFiles: e2e/assistant-ui-panel.test.ts
+          - group: settings-state
+            testFiles: e2e/background-indexing-settings.test.ts e2e/settings-models-and-providers.test.ts
     steps:
       - name: Checkout
         uses: actions/checkout@v6

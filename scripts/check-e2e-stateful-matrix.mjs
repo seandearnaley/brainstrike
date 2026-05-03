@@ -1,28 +1,11 @@
 #!/usr/bin/env node
-import { readdir, readFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { hasPlaywrightTitleTag, listTestFiles } from './e2e-playwright-title-tags.mjs';
 
 const rootDir = process.cwd();
 const e2eDir = path.join(rootDir, 'apps/web/e2e');
 const workflowPath = path.join(rootDir, '.github/workflows/test.yml');
-
-async function listTestFiles(dir) {
-  const entries = await readdir(dir, { withFileTypes: true });
-  const files = await Promise.all(
-    entries.map(async (entry) => {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        return listTestFiles(fullPath);
-      }
-      if (entry.isFile() && /\.test\.[cm]?[tj]sx?$/.test(entry.name)) {
-        return [fullPath];
-      }
-      return [];
-    })
-  );
-
-  return files.flat();
-}
 
 function extractStatefulJob(workflowSource) {
   const start = workflowSource.search(/^  e2e-stateful:\s*$/m);
@@ -44,7 +27,7 @@ const statefulTaggedFiles = [];
 
 for (const file of testFiles) {
   const source = await readFile(file, 'utf8');
-  if (source.includes('@stateful')) {
+  if (hasPlaywrightTitleTag(source, file, '@stateful')) {
     statefulTaggedFiles.push(path.relative(path.join(rootDir, 'apps/web'), file));
   }
 }
