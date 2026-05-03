@@ -115,6 +115,10 @@ function cacheAgeHours(cache, now) {
   return ageHours(readCacheDate(cache), now) ?? Number.POSITIVE_INFINITY;
 }
 
+export function isRetryableStatus(status) {
+  return status === 502 || status === 503 || status === 504;
+}
+
 export function selectCachesForDeletion(caches, options) {
   const now = options.now ?? new Date();
   const keepRecentPerKey = options.cacheKeepRecentPerKey;
@@ -142,27 +146,42 @@ export function selectCachesForDeletion(caches, options) {
   return [...selected];
 }
 
-async function requestJson(url, token, init = {}) {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${token}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-      ...(init.headers ?? {}),
-    },
-  });
-  if (!response.ok) {
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function requestJson(url, token, init = {}, attempts = 3) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const response = await fetch(url, {
+      ...init,
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${token}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+        ...(init.headers ?? {}),
+      },
+    });
+    if (response.ok) {
+      if (response.status === 204) {
+        return null;
+      }
+      return {
+        body: await response.json(),
+        link: response.headers.get('link'),
+      };
+    }
+
     const body = await response.text();
+    if (isRetryableStatus(response.status) && attempt < attempts) {
+      console.warn(
+        `${init.method ?? 'GET'} ${url} failed with ${response.status}; retrying (${attempt}/${attempts})`
+      );
+      await delay(1000 * attempt);
+      continue;
+    }
     throw new Error(`${init.method ?? 'GET'} ${url} failed: ${response.status} ${body}`);
   }
-  if (response.status === 204) {
-    return null;
-  }
-  return {
-    body: await response.json(),
-    link: response.headers.get('link'),
-  };
+  throw new Error(`${init.method ?? 'GET'} ${url} failed after ${attempts} attempts`);
 }
 
 function readNextUrl(linkHeader) {

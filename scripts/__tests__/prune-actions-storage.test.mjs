@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  isRetryableStatus,
   limitDeletionPlan,
   parseArgs,
   selectArtifactsForDeletion,
@@ -97,4 +98,12 @@ test('limitDeletionPlan prioritizes caches and caps total delete calls', () => {
     artifacts: [{ id: 1 }],
     caches,
   });
+});
+
+test('isRetryableStatus only retries transient gateway failures', () => {
+  assert.equal(isRetryableStatus(502), true);
+  assert.equal(isRetryableStatus(503), true);
+  assert.equal(isRetryableStatus(504), true);
+  assert.equal(isRetryableStatus(403), false);
+  assert.equal(isRetryableStatus(404), false);
 });
