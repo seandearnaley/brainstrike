@@ -77,3 +77,31 @@ test('workflow contract fails when the aggregate PR gate drops functional E2E', 
     /Required PR Gate must depend on e2e/
   );
 });
+
+test('workflow contract fails when PR desktop E2E is smoke-only', () => {
+  const desktopPr = extractJob(workflowSource, 'desktop-e2e-pr');
+  assert.ok(desktopPr);
+
+  const source = workflowSource.replace(
+    desktopPr,
+    desktopPr
+      .replace('name: Desktop E2E Regression', 'name: Desktop E2E Smoke')
+      .replace('--project=regression', '--project=smoke')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /PR desktop E2E must run the regression Playwright project/
+  );
+});
+
+test('workflow contract fails when desktop PR and main shard totals diverge', () => {
+  const source = workflowSource
+    .replace('desktop-shards=["1","2","3","4"]', 'desktop-shards=["1","2"]')
+    .replace('desktop-shard-total=["4"]', 'desktop-shard-total=["2"]');
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Desktop regression matrix must stay at four shards/
+  );
+});

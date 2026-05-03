@@ -397,9 +397,10 @@ jobs:
 
   # Dynamic matrix: web E2E uses the same functional project and shard count on
   # PRs and main so the merge gate proves the suite that runs after merge.
-  # Five shards with two Playwright workers each keeps workers above one while
-  # reducing the longest observed functional shard. The extra runner setup is a
-  # deliberate wall-time tradeoff for PR throughput.
+  # Five web shards and four desktop shards keep PR and main coverage equivalent
+  # while keeping workers above one. The extra runner setup is a deliberate
+  # wall-time tradeoff for PR throughput; do not replace desktop regression with
+  # PR-only smoke coverage.
   determine-matrix:
     name: Determine E2E Matrix
     if: github.event_name != 'workflow_dispatch'
@@ -416,13 +417,8 @@ jobs:
         run: |
           echo 'web-shards=["1","2","3","4","5"]' >> "$GITHUB_OUTPUT"
           echo 'web-shard-total=["5"]' >> "$GITHUB_OUTPUT"
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            echo 'desktop-shards=["1","2"]' >> "$GITHUB_OUTPUT"
-            echo 'desktop-shard-total=["2"]' >> "$GITHUB_OUTPUT"
-          else
-            echo 'desktop-shards=["1","2","3","4"]' >> "$GITHUB_OUTPUT"
-            echo 'desktop-shard-total=["4"]' >> "$GITHUB_OUTPUT"
-          fi
+          echo 'desktop-shards=["1","2","3","4"]' >> "$GITHUB_OUTPUT"
+          echo 'desktop-shard-total=["4"]' >> "$GITHUB_OUTPUT"
 
   # The checks job builds @brainstrike/web for CSS validation and uploads the
   # exact dist used by E2E. Keep this required check as an artifact contract.
@@ -801,10 +797,10 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
-  # Desktop E2E tests (PR) - runs concurrently with web E2E on PRs
-  # With 2+2 shards on PRs, lower concurrency avoids the flakiness seen with 4+4
+  # Desktop E2E tests (PR) - runs the same regression project as main.
+  # This prevents a green PR from merging into a main-only desktop regression failure.
   desktop-e2e-pr:
-    name: Desktop E2E Smoke
+    name: Desktop E2E Regression
     if: github.event_name == 'pull_request'
     needs: [prepare-desktop, determine-matrix]
     runs-on: ubuntu-latest
@@ -830,7 +826,7 @@ jobs:
       - name: Setup desktop E2E
         uses: ./.github/actions/setup-desktop-e2e
 
-      - name: Run Desktop E2E smoke tests (shard)
+      - name: Run Desktop E2E regression tests (shard)
         timeout-minutes: 40
         working-directory: apps/desktop
         run: |
@@ -859,10 +855,10 @@ jobs:
           fi
           echo "Xvfb running with PID $XVFB_PID on display ${DISPLAY}"
 
-          # Run smoke tests with explicit DISPLAY
-          echo "Starting Playwright smoke tests..."
+          # Run regression tests with explicit DISPLAY
+          echo "Starting Playwright regression tests..."
           unset NO_COLOR
-          pnpm exec playwright test --project=smoke --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          pnpm exec playwright test --project=regression --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
           TEST_EXIT_CODE=$?
 
           # Cleanup

@@ -91,6 +91,18 @@ export function validateWorkflowContracts(source) {
       'Functional web E2E shard total must stay at five.',
       failures
     );
+    requireIncludes(
+      determineMatrix,
+      'desktop-shards=["1","2","3","4"]',
+      'Desktop regression matrix must stay at four shards on PRs and main.',
+      failures
+    );
+    requireIncludes(
+      determineMatrix,
+      'desktop-shard-total=["4"]',
+      'Desktop regression shard total must stay at four on PRs and main.',
+      failures
+    );
   }
 
   const e2e = extractJob(source, 'e2e');
@@ -155,6 +167,57 @@ export function validateWorkflowContracts(source) {
       destructive,
       '--workers=1 --grep "@destructive"',
       'Destructive E2E must run tagged specs in a one-worker lane.',
+      failures
+    );
+  }
+
+  const desktopPr = extractJob(source, 'desktop-e2e-pr');
+  if (!desktopPr) {
+    failures.push('Missing desktop-e2e-pr job.');
+  } else {
+    requireIncludes(
+      desktopPr,
+      'name: Desktop E2E Regression',
+      'PR desktop E2E status must prove the desktop regression suite.',
+      failures
+    );
+    requireIncludes(
+      desktopPr,
+      "if: github.event_name == 'pull_request'",
+      'PR desktop regression job must run on pull_request.',
+      failures
+    );
+    requireIncludes(
+      desktopPr,
+      '--project=regression',
+      'PR desktop E2E must run the regression Playwright project.',
+      failures
+    );
+    if (desktopPr.includes('--project=smoke')) {
+      failures.push('PR desktop E2E must not use smoke as the required desktop proof.');
+    }
+  }
+
+  const desktopMain = extractJob(source, 'desktop-e2e-main');
+  if (!desktopMain) {
+    failures.push('Missing desktop-e2e-main job.');
+  } else {
+    requireIncludes(
+      desktopMain,
+      'name: Desktop E2E Regression',
+      'Main desktop E2E status must prove the desktop regression suite.',
+      failures
+    );
+    requireIncludes(
+      desktopMain,
+      "if: github.event_name != 'pull_request'",
+      'Main desktop regression job must run after merge/push.',
+      failures
+    );
+    requireIncludes(
+      desktopMain,
+      '--project=regression',
+      'Main desktop E2E must run the regression Playwright project.',
       failures
     );
   }
