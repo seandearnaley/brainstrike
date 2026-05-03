@@ -35,7 +35,12 @@ test('workflow contract fails when blob reports upload on success', () => {
 });
 
 test('workflow contract fails when stateful E2E waits on determine-matrix', () => {
-  const source = workflowSource.replace('needs: [checks]\n    runs-on', 'needs: [checks, determine-matrix]\n    runs-on');
+  const stateful = extractJob(workflowSource, 'e2e-stateful');
+  assert.ok(stateful);
+  const source = workflowSource.replace(
+    stateful,
+    stateful.replace('needs: [checks]\n    runs-on', 'needs: [checks, determine-matrix]\n    runs-on')
+  );
 
   assert.match(
     validateWorkflowContracts(source).join('\n'),

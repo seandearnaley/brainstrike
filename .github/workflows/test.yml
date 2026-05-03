@@ -1215,6 +1215,7 @@ jobs:
         run: |
           node <<'NODE'
           const needs = JSON.parse(process.env.REQUIRED_NEEDS);
+          // Strict by design: every required PR dependency must run and succeed.
           const failed = Object.entries(needs).filter(([, job]) => job.result !== 'success');
           if (failed.length > 0) {
             console.error('Required PR gate failed:');
@@ -1249,6 +1250,7 @@ jobs:
         run: |
           node <<'NODE'
           const needs = JSON.parse(process.env.REQUIRED_NEEDS);
+          // Strict by design: every required main dependency must run and succeed.
           const failed = Object.entries(needs).filter(([, job]) => job.result !== 'success');
           if (failed.length > 0) {
             console.error('Required main gate failed:');
