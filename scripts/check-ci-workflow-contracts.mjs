@@ -17,7 +17,7 @@ function extractBlock(source, startPattern, nextPattern) {
 }
 
 export function extractJob(source, jobName) {
-  return extractBlock(source, new RegExp(`^  ${escapeRegExp(jobName)}:\\s*$`, 'm'), /\n  [a-zA-Z0-9_-]+:\s*$/m);
+  return extractBlock(source, new RegExp(`^  ${escapeRegExp(jobName)}:\\s*$`, 'm'), /\n  [a-zA-Z0-9_.-]+:\s*$/m);
 }
 
 function requireMatch(source, pattern, message, failures) {

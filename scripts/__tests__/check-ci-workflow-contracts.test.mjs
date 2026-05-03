@@ -27,6 +27,15 @@ test('extractJob treats job names as literal text', () => {
   assert.doesNotMatch(job, /name: Other job/);
 });
 
+test('extractJob stops before dotted job names', () => {
+  const source = ['jobs:', '  e2e:', '    name: Functional job', '  e2e.test:', '    name: Dotted job'].join('\n');
+  const job = extractJob(source, 'e2e');
+
+  assert.ok(job);
+  assert.match(job, /name: Functional job/);
+  assert.doesNotMatch(job, /name: Dotted job/);
+});
+
 test('current workflow satisfies CI cost and E2E routing contracts', () => {
   assert.deepEqual(validateWorkflowContracts(workflowSource), []);
 });
