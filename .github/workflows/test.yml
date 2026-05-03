@@ -397,8 +397,9 @@ jobs:
 
   # Dynamic matrix: web E2E uses the same functional project and shard count on
   # PRs and main so the merge gate proves the suite that runs after merge.
-  # Four shards with two Playwright workers each keeps the same total browser
-  # concurrency as the old eight single-worker shards while halving per-job setup.
+  # Five shards with two Playwright workers each keeps workers above one while
+  # reducing the longest observed functional shard. The extra runner setup is a
+  # deliberate wall-time tradeoff for PR throughput.
   determine-matrix:
     name: Determine E2E Matrix
     if: github.event_name != 'workflow_dispatch'
@@ -413,8 +414,8 @@ jobs:
       - name: Set shard matrix
         id: set-matrix
         run: |
-          echo 'web-shards=["1","2","3","4"]' >> "$GITHUB_OUTPUT"
-          echo 'web-shard-total=["4"]' >> "$GITHUB_OUTPUT"
+          echo 'web-shards=["1","2","3","4","5"]' >> "$GITHUB_OUTPUT"
+          echo 'web-shard-total=["5"]' >> "$GITHUB_OUTPUT"
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             echo 'desktop-shards=["1","2"]' >> "$GITHUB_OUTPUT"
             echo 'desktop-shard-total=["2"]' >> "$GITHUB_OUTPUT"
