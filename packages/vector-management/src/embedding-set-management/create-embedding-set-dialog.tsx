@@ -220,18 +220,21 @@ function formReducer(state: FormState, action: FormAction): FormState {
         },
       };
     }
-    case 'init_with_model':
+    case 'init_with_model': {
       // Synchronous open-time initialization: seeds model + default name immediately.
       // If the user typed while models were still loading, keep that name.
+      const hasUserProvidedName = state.nameDirty || state.formData.name.trim().length > 0;
+
       return {
         ...state,
         formData: {
           ...state.formData,
           selectedModel: action.modelId,
-          name: state.nameDirty || state.formData.name.trim() ? state.formData.name : action.name,
+          name: hasUserProvidedName ? state.formData.name : action.name,
         },
         hasInitialized: true,
       };
+    }
     case 'reset':
       return { ...INITIAL_FORM_STATE };
   }
