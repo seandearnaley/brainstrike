@@ -438,15 +438,25 @@ describe('model-registry-store', () => {
       const model = createMockModel({ id: 'model-1', isEnabled: false });
       useModelRegistryStore.setState({ models: [model] });
 
-      const syncToFs = vi.fn().mockResolvedValue(undefined);
+      const events: string[] = [];
+      const raw = {
+        marker: 'raw-sync-receiver',
+        syncToFs: vi.fn(async function (this: { readonly marker: string }) {
+          events.push(this.marker);
+        }),
+      };
       const mockDb = {
-        query: vi.fn().mockResolvedValue({ rows: [] }),
-        raw: { syncToFs },
+        query: vi.fn(async () => {
+          events.push('query');
+          return { rows: [] };
+        }),
+        raw,
       };
 
       await useModelRegistryStore.getState().toggleModel(mockDb as never, 'model-1', true);
 
-      expect(syncToFs).toHaveBeenCalledTimes(1);
+      expect(events).toEqual(['query', 'raw-sync-receiver']);
+      expect(raw.syncToFs).toHaveBeenCalledTimes(1);
     });
 
     it('keeps the committed toggle state if a registry refresh races the update', async () => {

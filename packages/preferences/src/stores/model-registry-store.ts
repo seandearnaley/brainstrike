@@ -143,7 +143,7 @@ async function syncDurableDatabaseWrites(db: IDatabase): Promise<void> {
   if (raw && typeof raw === 'object' && 'syncToFs' in raw) {
     const syncToFs = (raw as { readonly syncToFs?: unknown }).syncToFs;
     if (typeof syncToFs === 'function') {
-      await syncToFs();
+      await Reflect.apply(syncToFs, raw, []);
     }
   }
 }
