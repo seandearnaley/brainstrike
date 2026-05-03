@@ -1,0 +1,33 @@
+name: Actions Storage Cleanup
+
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  prune:
+    name: Prune Actions Storage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Prune expired artifacts and stale caches
+        run: |
+          node scripts/prune-actions-storage.mjs \
+            --artifact-max-age-hours 24 \
+            --cache-max-age-hours 72 \
+            --cache-keep-recent-per-key 2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

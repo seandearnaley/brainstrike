@@ -377,6 +377,18 @@ jobs:
           fi
           exit "$STATUS"
 
+      - name: Upload coverage timing diagnostics
+        if: ${{ !cancelled() && steps.unit-tests.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: unit-coverage-turbo-diagnostics
+          path: |
+            turbo-test-timings.md
+            turbo-unit-coverage-diagnostics.md
+            .turbo/runs/*.json
+          retention-days: 1
+          if-no-files-found: ignore
+
       - name: Append timing table footer
         if: ${{ !cancelled() }}
         run: |
