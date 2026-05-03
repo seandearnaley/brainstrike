@@ -17,7 +17,53 @@ const destructiveFlowPatterns = [
 ];
 
 const destructiveTitlePattern =
-  /\btest(?:\.describe)?(?:\.(?:only|serial|skip|fixme))?\s*\(\s*(["'`])[^"'`]*@destructive[^"'`]*\1/;
+  /\btest(?:\.describe)?(?:\.(?:only|serial|skip|fixme))?\s*\(\s*(["'`])[^"'`]*@destructive[^"'`]*\1/g;
+
+function getLineNumber(source, index) {
+  return source.slice(0, index).split('\n').length;
+}
+
+function findMatchingBlockEnd(source, blockStart) {
+  let depth = 0;
+  for (let index = blockStart; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === '{') {
+      depth += 1;
+    } else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return index + 1;
+      }
+    }
+  }
+
+  return source.length;
+}
+
+function findDestructiveTitleRanges(source) {
+  const ranges = [];
+  destructiveTitlePattern.lastIndex = 0;
+
+  for (const match of source.matchAll(destructiveTitlePattern)) {
+    if (typeof match.index !== 'number') {
+      continue;
+    }
+
+    const blockStart = source.indexOf('{', match.index + match[0].length);
+    if (blockStart === -1) {
+      ranges.push({ start: match.index, end: match.index + match[0].length });
+      continue;
+    }
+
+    ranges.push({ start: match.index, end: findMatchingBlockEnd(source, blockStart) });
+  }
+
+  return ranges;
+}
+
+function isInsideDestructiveTitleRange(index, ranges) {
+  return ranges.some((range) => index >= range.start && index <= range.end);
+}
 
 async function listTestFiles(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -41,14 +87,23 @@ const failures = [];
 
 for (const file of await listTestFiles(e2eDir)) {
   const source = await readFile(file, 'utf8');
-  if (destructiveTitlePattern.test(source)) {
-    continue;
-  }
+  const destructiveTitleRanges = findDestructiveTitleRanges(source);
 
   for (const { label, pattern } of destructiveFlowPatterns) {
-    if (pattern.test(source)) {
-      failures.push({ file: path.relative(rootDir, file), label });
-      break;
+    const globalPattern = new RegExp(pattern.source, `${pattern.flags}g`);
+    for (const match of source.matchAll(globalPattern)) {
+      if (typeof match.index !== 'number') {
+        continue;
+      }
+      if (isInsideDestructiveTitleRange(match.index, destructiveTitleRanges)) {
+        continue;
+      }
+
+      failures.push({
+        file: path.relative(rootDir, file),
+        label,
+        line: getLineNumber(source, match.index),
+      });
     }
   }
 }
@@ -59,7 +114,7 @@ if (failures.length > 0) {
     'Factory-reset E2E flows must include @destructive in a Playwright test or describe title so they run in the isolated single-worker destructive job.'
   );
   for (const failure of failures) {
-    console.error(`- ${failure.file}: matched ${failure.label}`);
+    console.error(`- ${failure.file}:${failure.line}: matched ${failure.label}`);
   }
   process.exit(1);
 }

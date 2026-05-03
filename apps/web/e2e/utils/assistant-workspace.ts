@@ -163,7 +163,7 @@ export async function openAssistantWorkspace(
   );
 
   await page.goto('/');
-  await waitForAppLoad(page);
+  await waitForAppLoad(page, { waitForDatabase: false });
   await resetAppState(page);
   await page.reload({ waitUntil: 'load' });
   await waitForAppLoad(page);
