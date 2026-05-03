@@ -13,6 +13,7 @@ describe('Brainstrike DB runtime baseline', () => {
     expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.desktop.owner).toBe('electron-utility-process');
     expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.desktop.storage).toBe('filesystem-backed-profile');
     expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.web.owner).toBe('pglite-worker-db-host');
+    expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.web.storage).toBe('idb-default-opfs-ahp-opt-in');
     expect(BRAINSTRIKE_DB_RUNTIME_BASELINE.web.directPgliteScope).toBe(
       'tests-memory-and-non-browser-utilities'
     );
@@ -61,6 +62,8 @@ describe('Brainstrike DB runtime baseline', () => {
 
     expect(doc).toContain('utilityProcess DB host');
     expect(doc).toContain('Web owns PGlite in a browser PGliteWorker DB host');
+    expect(doc).toContain('IndexedDB remains the default web storage backend');
+    expect(doc).toContain('OPFS AHP is supported only as an explicit opt-in');
     expect(doc).toContain('Direct PGlite remains scoped to tests, memory-only databases');
     expect(doc).toContain('Drizzle migration runner is the production migration authority');
     expect(doc).toContain('runtime initialization records applied migrations');
