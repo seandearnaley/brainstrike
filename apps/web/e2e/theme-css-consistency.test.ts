@@ -39,10 +39,10 @@ async function waitForThemeApplied(page: Page, mode: 'light' | 'dark'): Promise<
 test.describe('Theme CSS Consistency (E2E)', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
     await resetAppState(page);
     await page.reload();
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
   });
 
   test('should load CSS variables in light mode', async ({ page }) => {

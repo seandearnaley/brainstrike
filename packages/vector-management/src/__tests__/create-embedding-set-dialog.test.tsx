@@ -1,6 +1,6 @@
 import type { IEmbeddingSetsRepository } from '@brainstrike/db';
 import { type ModelPickerModel, type ModelPickerProvider, Toaster } from '@brainstrike/ui';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { CreateEmbeddingSetDialog } from '../embedding-set-management/create-embedding-set-dialog';
@@ -83,6 +83,14 @@ describe('CreateEmbeddingSetDialog', () => {
     vi.clearAllMocks();
   });
 
+  function setInputValueWithoutReactChange(input: HTMLInputElement, value: string): void {
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    if (!descriptor?.set) {
+      throw new Error('HTMLInputElement value setter is unavailable');
+    }
+    descriptor.set.call(input, value);
+  }
+
   it('renders correctly when open', async () => {
     render(
       <>
@@ -128,7 +136,8 @@ describe('CreateEmbeddingSetDialog', () => {
     timeout: 15_000,
   }, async () => {
     const user = userEvent.setup({ delay: null }); // Disable delay for faster tests
-    (mockRepository.getOrCreateSet as Mock).mockResolvedValue({ id: 'new-set-id' });
+    const createdSet = { id: 'new-set-id' };
+    (mockRepository.getOrCreateSet as Mock).mockResolvedValue(createdSet);
 
     render(
       <>
@@ -176,7 +185,120 @@ describe('CreateEmbeddingSetDialog', () => {
 
     // Verify callback
     await waitFor(() => {
-      expect(mockOnSetCreated).toHaveBeenCalledWith('new-set-id');
+      expect(mockOnSetCreated).toHaveBeenCalledWith('new-set-id', createdSet);
+    });
+  });
+
+  it('submits the current form field values when reducer state has not observed the last input yet', async () => {
+    const user = userEvent.setup({ delay: null });
+    const createdSet = { id: 'submitted-set-id' };
+    (mockRepository.getOrCreateSet as Mock).mockResolvedValue(createdSet);
+
+    render(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          models={mockModels}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={mockProviders}
+          repository={mockRepository}
+        />
+      </>
+    );
+
+    const nameInput = screen.getByLabelText(/Name/i) as HTMLInputElement;
+    await waitFor(() => {
+      expect(nameInput).toHaveValue('Text Embedding 3 Small');
+    });
+
+    await user.clear(nameInput);
+    expect(nameInput).toHaveValue('');
+
+    setInputValueWithoutReactChange(nameInput, 'Submitted DOM Name');
+
+    const form = nameInput.closest('form');
+    if (!form) {
+      throw new Error('Create collection form was not found');
+    }
+    fireEvent.submit(form);
+
+    await waitFor(() => {
+      expect(mockRepository.getOrCreateSet).toHaveBeenCalledWith(
+        'openai::text-embedding-3-small',
+        'text-embedding-3-small',
+        1536,
+        'cosine',
+        expect.objectContaining({
+          name: 'Submitted DOM Name',
+        })
+      );
+    });
+  });
+
+  it('preserves a name typed before models finish loading', async () => {
+    const user = userEvent.setup({ delay: null });
+    const createdSet = {
+      id: 'late-model-set-id',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      dimensions: 384,
+      distance: 'cosine' as const,
+      createdAt: '2026-05-02T00:00:00.000Z',
+      name: 'Late Typed Collection',
+    };
+    (mockRepository.getOrCreateSet as Mock).mockResolvedValue(createdSet);
+
+    const { rerender } = render(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          isLoading={true}
+          models={[]}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={[]}
+          repository={mockRepository}
+        />
+      </>
+    );
+
+    await user.type(screen.getByLabelText(/Name/i), 'Late Typed Collection');
+    expect(screen.getByText('Create Collection')).toBeDisabled();
+
+    rerender(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          models={[mockModels[1]!]}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={mockProviders}
+          repository={mockRepository}
+        />
+      </>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Create Collection')).toBeEnabled();
+    });
+    expect(screen.getByLabelText(/Name/i)).toHaveValue('Late Typed Collection');
+
+    await user.click(screen.getByText('Create Collection'));
+
+    await waitFor(() => {
+      expect(mockRepository.getOrCreateSet).toHaveBeenCalledWith(
+        'local::Xenova/all-MiniLM-L6-v2',
+        'Xenova/all-MiniLM-L6-v2',
+        384,
+        'cosine',
+        expect.objectContaining({
+          name: 'Late Typed Collection',
+        })
+      );
     });
   });
 
@@ -452,6 +574,75 @@ describe('CreateEmbeddingSetDialog', () => {
     // refine dispatch lands. Then assert the user's input survived.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(nameInput.value).toBe('My Custom Collection');
+  });
+
+  it('does not overwrite a name after the input is dirtied before reducer state settles', async () => {
+    let resolveFindAll: (collections: { name: string }[]) => void = () => {};
+    const slowFindAll = new Promise<{ name: string }[]>((resolve) => {
+      resolveFindAll = resolve;
+    });
+    const slowRepository = {
+      getOrCreateSet: vi.fn(),
+      findAll: vi.fn().mockReturnValue(slowFindAll),
+    } as unknown as IEmbeddingSetsRepository;
+
+    render(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          models={mockModels}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={mockProviders}
+          repository={slowRepository}
+        />
+      </>
+    );
+
+    const nameInput = screen.getByLabelText(/Name/i) as HTMLInputElement;
+    expect(nameInput.value).toBe('Text Embedding 3 Small');
+
+    setInputValueWithoutReactChange(nameInput, 'Native Input Collection');
+    fireEvent.input(nameInput);
+
+    resolveFindAll([{ name: 'Text Embedding 3 Small' }]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(nameInput.value).toBe('Native Input Collection');
+  });
+
+  it('does not overwrite a native input value that React has not observed', async () => {
+    let resolveFindAll: (collections: { name: string }[]) => void = () => {};
+    const slowFindAll = new Promise<{ name: string }[]>((resolve) => {
+      resolveFindAll = resolve;
+    });
+    const slowRepository = {
+      getOrCreateSet: vi.fn(),
+      findAll: vi.fn().mockReturnValue(slowFindAll),
+    } as unknown as IEmbeddingSetsRepository;
+
+    render(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          models={mockModels}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={mockProviders}
+          repository={slowRepository}
+        />
+      </>
+    );
+
+    const nameInput = screen.getByLabelText(/Name/i) as HTMLInputElement;
+    expect(nameInput.value).toBe('Text Embedding 3 Small');
+
+    setInputValueWithoutReactChange(nameInput, 'Native Unobserved Collection');
+
+    resolveFindAll([{ name: 'Text Embedding 3 Small' }]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(nameInput.value).toBe('Native Unobserved Collection');
   });
 
   // P1 sibling case: same race, but user changes the model instead of typing.

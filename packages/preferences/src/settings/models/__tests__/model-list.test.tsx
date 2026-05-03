@@ -220,4 +220,17 @@ describe('ModelList', () => {
     await userEvent.click(readySwitch);
     expect(onToggleSpy).toHaveBeenCalledWith('local-ready', false);
   });
+
+  it('disables pending model toggles while persistence is in flight', () => {
+    const { onToggleSpy, onDownloadSpy, ...props } = makeProps();
+    render(<ModelList {...props} pendingModelIds={new Set(['gpt-5.2'])} />);
+
+    const gptRow = screen.getByTestId('model-row-gpt-5.2');
+    const gptSwitch = within(gptRow).getByRole('switch');
+
+    expect(gptSwitch.hasAttribute('disabled')).toBe(true);
+    expect(gptSwitch.getAttribute('aria-busy')).toBe('true');
+    expect(onToggleSpy).not.toHaveBeenCalled();
+    expect(onDownloadSpy).not.toHaveBeenCalled();
+  });
 });

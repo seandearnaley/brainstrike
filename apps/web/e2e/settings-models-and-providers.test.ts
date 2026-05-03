@@ -21,61 +21,89 @@ test.describe('Models & Providers settings (web)', () => {
 
     const home = new HomePage(page);
     const settings = new SettingsPage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
-    await settings.openCategory(/Models & Providers/i, 'models');
+    const modelsContent = await settings.openCategory(/Models & Providers/i, 'models');
 
-    await expect(page.getByText('Error loading models')).toBeVisible();
-    await expect(page.getByText('Model registry unavailable for test')).toBeVisible();
+    const registryError = modelsContent.getByTestId('model-registry-error');
+    await expect(registryError).toBeVisible({ timeout: 15_000 });
+    await expect(registryError.getByText('Error loading models', { exact: true })).toBeVisible();
+    await expect(registryError.getByText('Model registry unavailable for test')).toBeVisible({
+      timeout: 15_000,
+    });
 
     await updateSettingsTestOverrides(page, {
       modelRegistry: { fetchErrorMessage: null },
     });
     await page.getByTestId('model-registry-retry').click();
 
-    await expect(page.getByTestId('model-cache-dir-input')).toBeVisible();
-    await expect(page.locator('[data-testid^="model-row-"]').first()).toBeVisible();
+    await expect(page.getByTestId('model-cache-dir-input')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-testid^="model-row-"]').first()).toBeVisible({
+      timeout: 15_000,
+    });
   });
 
   test('shows the web-only cache directory unavailable path', async ({ page }) => {
     const home = new HomePage(page);
     const settings = new SettingsPage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
     await settings.openCategory(/Models & Providers/i, 'models');
 
     await page.getByTestId('model-cache-dir-select').click();
 
-    await expect(page.getByText('Directory selection unavailable')).toBeVisible();
-    await expect(page.getByText('Choose a cache directory from the desktop app.')).toBeVisible();
+    await expect(page.getByText('Directory selection unavailable', { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(
+      page.getByText('Choose a cache directory from the desktop app.', { exact: true })
+    ).toBeVisible();
   });
 
   test('persists a model toggle across reload', async ({ page }) => {
     const home = new HomePage(page);
     const settings = new SettingsPage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
     await settings.openCategory(/Models & Providers/i, 'models');
 
-    const firstRow = page.locator('[data-testid^="model-row-"]').first();
-    await expect(firstRow).toBeVisible();
-    const rowTestId = await firstRow.getAttribute('data-testid');
-    if (!rowTestId?.startsWith('model-row-')) {
-      throw new Error(`Unexpected model row test id: ${String(rowTestId)}`);
+    const modelRows = page.locator('[data-testid^="model-row-"]');
+    await expect(modelRows.first()).toBeVisible({ timeout: 30_000 });
+
+    const rowCount = await modelRows.count();
+    let modelId: string | null = null;
+    for (let index = 0; index < rowCount; index += 1) {
+      const row = modelRows.nth(index);
+      const toggle = row.getByRole('switch');
+      if ((await toggle.getAttribute('aria-checked')) === 'false') {
+        const rowTestId = await row.getAttribute('data-testid');
+        if (!rowTestId?.startsWith('model-row-')) {
+          throw new Error(`Unexpected model row test id: ${String(rowTestId)}`);
+        }
+        modelId = rowTestId.replace('model-row-', '');
+        break;
+      }
     }
-    const modelId = rowTestId.replace('model-row-', '');
+
+    if (!modelId) {
+      throw new Error('Expected at least one disabled model to verify toggle persistence');
+    }
+
     const toggle = page.getByTestId(`model-toggle-${modelId}`);
-    const initialState = await toggle.getAttribute('aria-checked');
-    const expectedState = initialState === 'true' ? 'false' : 'true';
+    const expectedState = 'true';
 
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-checked', expectedState);
+    await expect(toggle).toBeEnabled({ timeout: 15_000 });
     await page.getByRole('button', { name: 'Refresh model registry' }).click();
     await expect(page.getByTestId(`model-toggle-${modelId}`)).toHaveAttribute(
       'aria-checked',
       expectedState,
       { timeout: 15_000 }
     );
+    await expect(page.getByTestId(`model-toggle-${modelId}`)).toBeEnabled({
+      timeout: 15_000,
+    });
 
     await page.reload();
     await home.navigateToSettings();
@@ -83,7 +111,8 @@ test.describe('Models & Providers settings (web)', () => {
 
     await expect(page.getByTestId(`model-toggle-${modelId}`)).toHaveAttribute(
       'aria-checked',
-      expectedState
+      expectedState,
+      { timeout: 15_000 }
     );
   });
 });

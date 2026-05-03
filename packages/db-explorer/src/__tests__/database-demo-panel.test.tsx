@@ -1,3 +1,4 @@
+import type { EmbeddingSet } from '@brainstrike/db';
 import {
   getRegisteredEmbeddingQueueFactory,
   resetEmbeddingQueueFactory,
@@ -10,6 +11,7 @@ import {
   useBackgroundIndexingPreferencesStore,
   useVectorStatusUIStore,
 } from '@brainstrike/preferences';
+import { useVectorStatusUIStore as useVectorStatusUIStoreDirect } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen, waitFor, within } from '@testing-library/react';
@@ -242,6 +244,32 @@ vi.mock('@brainstrike/vector-management', async (importOriginal) => {
       hasDb: true,
     }),
     EmbeddingActionsDropdown: () => <div data-testid="mock-embedding-actions-dropdown" />,
+    CreateEmbeddingSetDialog: ({
+      onSetCreated,
+    }: {
+      onSetCreated: (newSetId: string, newSet: EmbeddingSet) => void;
+    }) => (
+      <button
+        data-testid="mock-create-embedding-set-dialog"
+        onClick={() =>
+          onSetCreated('created-set-id', {
+            id: 'created-set-id',
+            modelKey: 'local:created-model',
+            modelId: 'created-model',
+            dimensions: 768,
+            distance: 'cosine',
+            createdAt: '2026-05-03T01:00:00.000Z',
+            name: 'Created Collection',
+            description: 'Created from the dialog',
+            tags: 'new,dialog',
+            category: 'local',
+          })
+        }
+        type="button"
+      >
+        Finish creating collection
+      </button>
+    ),
   };
 });
 
@@ -788,6 +816,40 @@ describe('DatabaseDemoPanel', () => {
   });
 
   describe('Model Registry Integration', () => {
+    it('caches a newly created collection before selecting it', async () => {
+      const upsertCachedCollection = vi.fn();
+      useVectorStatusUIStoreDirect.setState({ upsertCachedCollection });
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      const user = userEvent.setup();
+      const createButtons = screen.getAllByTitle('Create new collection');
+      const firstButton = createButtons[0];
+      expect(firstButton).toBeDefined();
+      await user.click(firstButton as HTMLElement);
+
+      await user.click(screen.getByTestId('mock-create-embedding-set-dialog'));
+
+      await waitFor(() => {
+        expect(upsertCachedCollection).toHaveBeenCalledWith({
+          id: 'created-set-id',
+          modelKey: 'local:created-model',
+          modelId: 'created-model',
+          dimensions: 768,
+          distance: 'cosine',
+          createdAt: '2026-05-03T01:00:00.000Z',
+          name: 'Created Collection',
+          description: 'Created from the dialog',
+          tags: 'new,dialog',
+          category: 'local',
+          fileCount: 0,
+          chunkCount: 0,
+          embeddingCount: 0,
+        });
+        expect(useVectorStatusUIStoreDirect.getState().activeEmbeddingSetId).toBe('created-set-id');
+      });
+    });
+
     it('passes isLoading state to CreateEmbeddingSetDialog', async () => {
       // Mock loading state
       mockUseModelRegistryStore.mockReturnValue({
