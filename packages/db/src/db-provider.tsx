@@ -115,6 +115,7 @@ async function loadDrizzleViewFilterPresetsRepository() {
 export interface DbHandle extends IDatabase {
   exec?: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
   readonly raw?: unknown;
+  syncToFs?: () => Promise<void>;
 }
 
 interface QueryExecutor {
@@ -124,6 +125,7 @@ interface QueryExecutor {
     params?: unknown[],
     options?: unknown
   ) => Promise<{ rows: T[] }>;
+  syncToFs?: () => Promise<void>;
   transaction?: <T>(fn: (tx: QueryExecutor) => Promise<T>) => Promise<T>;
 }
 
@@ -220,6 +222,12 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
     handle.exec = async (sql: string, params?: unknown[], options?: unknown) => {
       const forwarded = splitExposedDatabaseWorkOptions(params, options);
       return await executor.exec?.(sql, forwarded.params, forwarded.options);
+    };
+  }
+
+  if (typeof executor.syncToFs === 'function') {
+    handle.syncToFs = async () => {
+      await executor.syncToFs?.();
     };
   }
 

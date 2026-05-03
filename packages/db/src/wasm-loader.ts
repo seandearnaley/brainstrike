@@ -14,7 +14,10 @@ export interface PGliteLeaderChangeSource {
   readonly onLeaderChange: (listener: () => void) => (() => void) | undefined;
 }
 
-export type PGliteRuntimeClient = Pick<PGlite, 'close' | 'exec' | 'query' | 'transaction'> & {
+export type PGliteRuntimeClient = Pick<
+  PGlite,
+  'close' | 'exec' | 'query' | 'syncToFs' | 'transaction'
+> & {
   readonly live?: Pick<LiveNamespace, 'query'>;
 };
 

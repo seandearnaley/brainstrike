@@ -320,6 +320,29 @@ describe('DatabaseWorkScheduler', () => {
     expect(seenPriorities).toEqual(['foreground', 'background', 'background']);
   });
 
+  it('schedules syncToFs with the raw database receiver', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    const receiver = Symbol('receiver');
+    const rawDb = {
+      receiver,
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
+        rows: [] as T[],
+      })),
+      syncToFs: vi.fn(async function (this: { readonly receiver: symbol }) {
+        expect(this.receiver).toBe(receiver);
+      }),
+    };
+
+    const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground');
+    await scheduled.syncToFs?.();
+
+    expect(rawDb.syncToFs).toHaveBeenCalledTimes(1);
+    expect(scheduler.getSnapshot().priorityStats.foreground).toMatchObject({
+      completed: 1,
+      lastCompletedLabel: 'syncToFs',
+    });
+  });
+
   it('passes database work options as the third query argument when no params are provided', async () => {
     const rawDb = {
       query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[], _options?: unknown) => ({

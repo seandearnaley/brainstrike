@@ -57,6 +57,7 @@ export interface ScheduledDbHandle {
     options?: unknown
   ) => Promise<{ rows: T[] }>;
   readonly raw?: unknown;
+  readonly syncToFs?: () => Promise<void>;
   readonly transaction?: <T>(fn: (tx: ScheduledDbHandle) => Promise<T>) => Promise<T>;
 }
 
@@ -773,6 +774,18 @@ export function createScheduledDbHandle<TDatabase extends object & ScheduledDbHa
       }
     : undefined;
 
+  const baseSyncToFs = db.syncToFs;
+  const scheduledSyncToFs = baseSyncToFs
+    ? async () => {
+        await scheduler.run(
+          async () => {
+            await Reflect.apply(baseSyncToFs as CallableUnknown, db, []);
+          },
+          { priority: defaultPriority, label: 'syncToFs' }
+        );
+      }
+    : undefined;
+
   const baseTransaction = db.transaction;
   const scheduledTransaction: ScheduledDbHandle['transaction'] | undefined = baseTransaction
     ? async <T>(fn: (tx: ScheduledDbHandle) => Promise<T>) =>
@@ -792,6 +805,9 @@ export function createScheduledDbHandle<TDatabase extends object & ScheduledDbHa
       }
       if (property === 'exec') {
         return scheduledExec;
+      }
+      if (property === 'syncToFs') {
+        return scheduledSyncToFs;
       }
       if (property === 'transaction') {
         return scheduledTransaction;
