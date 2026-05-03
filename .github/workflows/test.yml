@@ -195,6 +195,20 @@ jobs:
         if: matrix.phase == 'unit-coverage' && steps.unit-tests.outputs.has_coverage == 'true'
         run: pnpm coverage:enforce
 
+      - name: Generate merged coverage report
+        if: matrix.phase == 'unit-coverage' && steps.unit-tests.outputs.has_coverage == 'true'
+        run: |
+          pnpm coverage:merge -- --quiet packages apps
+          pnpm coverage:report
+
+      - name: Upload coverage to Codecov
+        if: matrix.phase == 'unit-coverage' && steps.unit-tests.outputs.has_coverage == 'true'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          fail_ci_if_error: false
+
       - name: Comment PR with Coverage Summary
         if: matrix.phase == 'unit-coverage' && steps.unit-tests.outputs.has_coverage == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/github-script@v8
@@ -344,6 +358,8 @@ jobs:
 
   # Dynamic matrix: web E2E uses the same functional project and shard count on
   # PRs and main so the merge gate proves the suite that runs after merge.
+  # Four shards with two Playwright workers each keeps the same total browser
+  # concurrency as the old eight single-worker shards while halving per-job setup.
   determine-matrix:
     name: Determine E2E Matrix
     if: github.event_name != 'workflow_dispatch'
@@ -358,8 +374,8 @@ jobs:
       - name: Set shard matrix
         id: set-matrix
         run: |
-          echo 'web-shards=["1","2","3","4","5","6","7","8"]' >> "$GITHUB_OUTPUT"
-          echo 'web-shard-total=["8"]' >> "$GITHUB_OUTPUT"
+          echo 'web-shards=["1","2","3","4"]' >> "$GITHUB_OUTPUT"
+          echo 'web-shard-total=["4"]' >> "$GITHUB_OUTPUT"
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             echo 'desktop-shards=["1","2"]' >> "$GITHUB_OUTPUT"
             echo 'desktop-shard-total=["2"]' >> "$GITHUB_OUTPUT"
@@ -486,10 +502,11 @@ jobs:
           path: |
             packages/*/test-results/**/*.zip
             packages/*/test-results/**/*.png
-          retention-days: 7
+          retention-days: 1
           if-no-files-found: ignore
 
-  # E2E tests run in parallel with sharding
+  # E2E tests run in parallel with sharding. Keep PR coverage complete, but use
+  # fewer jobs with two Playwright workers each to reduce repeated runner setup.
   e2e:
     name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     if: github.event_name != 'workflow_dispatch'
@@ -548,8 +565,7 @@ jobs:
           cd apps/web
           echo "Running functional E2E tests"
           unset NO_COLOR
-          # Keep one browser worker per shard to avoid cross-test local-first DB and OPFS interference.
-          pnpm exec playwright test --project=functional --workers=1 --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          pnpm exec playwright test --project=functional --workers=2 --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           NODE_ENV: "production"
           PORT: "8080"
@@ -880,9 +896,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup monorepo
-        uses: ./.github/actions/setup-monorepo
-
       - name: Download blob reports
         id: download-reports
         uses: actions/download-artifact@v8
@@ -929,6 +942,10 @@ jobs:
             echo "No blob reports found - shard jobs either passed without diagnostic upload or produced no report"
           fi
 
+      - name: Setup monorepo
+        if: steps.check-reports.outputs.reports-exist == 'true'
+        uses: ./.github/actions/setup-monorepo
+
       - name: Merge Playwright reports
         if: steps.check-reports.outputs.reports-exist == 'true'
         run: |
@@ -958,59 +975,12 @@ jobs:
           echo "Starting merge process..."
           pnpm exec playwright merge-reports --config playwright-merge.config.js merged-blob-reports
 
-      - name: Download unit test coverage
-        uses: actions/download-artifact@v8
-        with:
-          name: unit-coverage
-          path: .
-
-      - name: Extract coverage bundle
-        run: |
-          tar -xvf coverage-bundle.tar
-          mv coverage-bundle unit-coverage
-          echo "Extracted $(find unit-coverage -name '*.json' | wc -l) coverage files"
-
-      - name: Merge all coverage reports
-        if: always()
-        run: |
-          # Find and merge all coverage files
-          echo "Finding coverage files..."
-          if [ -d "unit-coverage" ]; then
-            find unit-coverage -name "coverage-final.json" -type f
-
-            # Create .nyc_output directory
-            mkdir -p .nyc_output
-
-            # Merge coverage if files exist
-            if find unit-coverage -name "coverage-final.json" -type f | head -1 | grep -q .; then
-              echo "Merging coverage files..."
-              pnpm coverage:merge -- --quiet unit-coverage
-
-              # Generate reports
-              pnpm coverage:report
-              echo "Coverage reports generated successfully"
-            else
-              echo "No coverage files found to merge"
-            fi
-          else
-            echo "No unit-coverage directory found"
-          fi
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/lcov.info
-          fail_ci_if_error: false
-
       - name: Upload final test results
-        if: always()
+        if: steps.check-reports.outputs.reports-exist == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: all-test-results
-          path: |
-            coverage/
-            playwright-report-merged/
+          path: playwright-report-merged/
           retention-days: 1
           if-no-files-found: warn
 
