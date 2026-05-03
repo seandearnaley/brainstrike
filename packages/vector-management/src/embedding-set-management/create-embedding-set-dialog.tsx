@@ -1,4 +1,4 @@
-import type { IEmbeddingSetsRepository } from '@brainstrike/db';
+import type { EmbeddingSet, IEmbeddingSetsRepository } from '@brainstrike/db';
 import { parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
 import {
   Button,
@@ -16,7 +16,7 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
-import { useEffect, useReducer } from 'react';
+import { type FormEvent, useEffect, useReducer, useRef } from 'react';
 import { dispatchEmbeddingSetUpdated } from '../collection-select/embedding-set-events';
 import { setActiveEmbeddingSetId } from '../vector-preferences';
 
@@ -46,7 +46,7 @@ interface CreateEmbeddingSetDialogProps {
   isLoading?: boolean;
   models: ModelPickerModel[];
   onOpenChange: (open: boolean) => void;
-  onSetCreated?: (setId: string) => void;
+  onSetCreated?: (setId: string, set: EmbeddingSet) => void;
   open: boolean;
   providers: ModelPickerProvider[];
   repository: IEmbeddingSetsRepository | null;
@@ -107,6 +107,35 @@ function buildMetadata(formData: {
   }
 
   return metadata;
+}
+
+interface CreateEmbeddingSetFormData {
+  category: string;
+  description: string;
+  name: string;
+  tags: string;
+}
+
+function readSubmittedFormData(form: HTMLFormElement): CreateEmbeddingSetFormData {
+  const submitted = new FormData(form);
+  return {
+    name: String(submitted.get('name') ?? ''),
+    description: String(submitted.get('description') ?? ''),
+    tags: String(submitted.get('tags') ?? ''),
+    category: String(submitted.get('category') ?? ''),
+  };
+}
+
+function canSubmitCreateForm(
+  submittedFormData: CreateEmbeddingSetFormData,
+  options: { creating: boolean; hasModelOptions: boolean; selectedModelId: string }
+): boolean {
+  return (
+    !options.creating &&
+    options.hasModelOptions &&
+    options.selectedModelId !== '' &&
+    submittedFormData.name.trim() !== ''
+  );
 }
 
 const logger = createLogger('CreateEmbeddingSetDialog');
@@ -191,13 +220,21 @@ function formReducer(state: FormState, action: FormAction): FormState {
         },
       };
     }
-    case 'init_with_model':
-      // Synchronous open-time initialization: seeds model + name immediately, no flash.
+    case 'init_with_model': {
+      // Synchronous open-time initialization: seeds model + default name immediately.
+      // If the user typed while models were still loading, keep that name.
+      const hasUserProvidedName = state.nameDirty || state.formData.name.trim().length > 0;
+
       return {
         ...state,
-        formData: { ...state.formData, selectedModel: action.modelId, name: action.name },
+        formData: {
+          ...state.formData,
+          selectedModel: action.modelId,
+          name: hasUserProvidedName ? state.formData.name : action.name,
+        },
         hasInitialized: true,
       };
+    }
     case 'reset':
       return { ...INITIAL_FORM_STATE };
   }
@@ -215,12 +252,15 @@ export function CreateEmbeddingSetDialog({
   const { toast } = useToast();
   const [formState, dispatch] = useReducer(formReducer, INITIAL_FORM_STATE);
   const { creating, formData, existingNames, hasInitialized, nameDirty } = formState;
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const nameDirtyRef = useRef(false);
 
   const selectedModelInfo = models.find((m) => m.id === formData.selectedModel);
   const hasModelOptions = models.length > 0;
 
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
+      nameDirtyRef.current = false;
       dispatch({ type: 'reset' });
     }
     onOpenChange(newOpen);
@@ -262,13 +302,14 @@ export function CreateEmbeddingSetDialog({
       } catch (error) {
         logger.warn('Failed to fetch existing collection names', { error });
       }
-      if (cancelled) {
+      const firstModel = models[0];
+      const liveNameValue = nameInputRef.current?.value ?? '';
+      if (cancelled || nameDirtyRef.current || liveNameValue !== (firstModel?.name ?? '')) {
         return;
       }
       // Hand the raw inputs to the reducer; it inspects live state at apply
       // time to decide whether the user has typed or switched models since
       // this query started, and skips the refinement if so.
-      const firstModel = models[0];
       dispatch({
         type: 'refine_existing_names',
         names: collectionNames,
@@ -281,7 +322,7 @@ export function CreateEmbeddingSetDialog({
     };
   }, [open, hasInitialized, repository, models]);
 
-  const validateCreateInputs = (): boolean => {
+  const validateCreateInputs = (submittedFormData: CreateEmbeddingSetFormData): boolean => {
     if (!(repository && selectedModelInfo)) {
       toast({
         title: 'Error',
@@ -291,7 +332,7 @@ export function CreateEmbeddingSetDialog({
       return false;
     }
 
-    if (!formData.name.trim()) {
+    if (!submittedFormData.name.trim()) {
       toast({
         title: 'Validation Error',
         description: 'Please provide a name for the embedding set',
@@ -303,8 +344,8 @@ export function CreateEmbeddingSetDialog({
     return true;
   };
 
-  const handleCreate = async () => {
-    if (!(validateCreateInputs() && repository && selectedModelInfo)) {
+  const handleCreate = async (submittedFormData: CreateEmbeddingSetFormData) => {
+    if (!(validateCreateInputs(submittedFormData) && repository && selectedModelInfo)) {
       return;
     }
 
@@ -321,9 +362,9 @@ export function CreateEmbeddingSetDialog({
     const distance = 'cosine'; // Default for now
 
     dispatch({ type: 'set_creating', creating: true });
-    let newSetId: string | null = null;
+    let createdSet: EmbeddingSet | null = null;
     try {
-      const metadata = buildMetadata(formData);
+      const metadata = buildMetadata(submittedFormData);
 
       const newSet = await repository.getOrCreateSet(
         modelKey,
@@ -333,7 +374,7 @@ export function CreateEmbeddingSetDialog({
         metadata
       );
 
-      newSetId = newSet.id;
+      createdSet = newSet;
       setActiveEmbeddingSetId(newSet.id);
 
       dispatchEmbeddingSetUpdated({
@@ -360,7 +401,7 @@ export function CreateEmbeddingSetDialog({
 
       toast({
         title: 'Success',
-        description: `Created embedding set: ${formData.name}`,
+        description: `Created embedding set: ${metadata.name}`,
       });
 
       dispatch({ type: 'reset' });
@@ -375,20 +416,30 @@ export function CreateEmbeddingSetDialog({
       });
       return;
     }
-    if (newSetId) {
-      onSetCreated?.(newSetId);
+    if (createdSet) {
+      onSetCreated?.(createdSet.id, createdSet);
     }
   };
 
-  const canSubmit =
-    !creating && hasModelOptions && Boolean(formData.selectedModel) && formData.name.trim() !== '';
+  const canSubmit = canSubmitCreateForm(formData, {
+    creating,
+    hasModelOptions,
+    selectedModelId: formData.selectedModel,
+  });
 
-  const handleSubmit = (event: { preventDefault: () => void }) => {
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canSubmit) {
+    const submittedFormData = readSubmittedFormData(event.currentTarget);
+    if (
+      !canSubmitCreateForm(submittedFormData, {
+        creating,
+        hasModelOptions,
+        selectedModelId: formData.selectedModel,
+      })
+    ) {
       return;
     }
-    void handleCreate();
+    void handleCreate(submittedFormData);
   };
 
   return (
@@ -444,8 +495,16 @@ export function CreateEmbeddingSetDialog({
               <Input
                 disabled={creating}
                 id="name"
-                onChange={(e) => dispatch({ type: 'edit_name', value: e.target.value })}
+                name="name"
+                onChange={(e) => {
+                  nameDirtyRef.current = true;
+                  dispatch({ type: 'edit_name', value: e.target.value });
+                }}
+                onInputCapture={() => {
+                  nameDirtyRef.current = true;
+                }}
                 placeholder="e.g., Code Embeddings"
+                ref={nameInputRef}
                 value={formData.name}
               />
             </div>
@@ -457,6 +516,7 @@ export function CreateEmbeddingSetDialog({
               <Input
                 disabled={creating}
                 id="description"
+                name="description"
                 onChange={(e) =>
                   dispatch({ type: 'set_field', field: 'description', value: e.target.value })
                 }
@@ -473,6 +533,7 @@ export function CreateEmbeddingSetDialog({
                 <Input
                   disabled={creating}
                   id="tags"
+                  name="tags"
                   onChange={(e) =>
                     dispatch({ type: 'set_field', field: 'tags', value: e.target.value })
                   }
@@ -491,6 +552,7 @@ export function CreateEmbeddingSetDialog({
                 <Input
                   disabled={creating}
                   id="category"
+                  name="category"
                   onChange={(e) =>
                     dispatch({ type: 'set_field', field: 'category', value: e.target.value })
                   }

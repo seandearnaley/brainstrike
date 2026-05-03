@@ -86,7 +86,10 @@ async function getCollectionSummaryCounts(
   page: Page,
   collectionName: string
 ): Promise<CollectionSummaryCounts> {
-  const option = page.getByRole('option').filter({ hasText: collectionName }).first();
+  const databasePanel = page.getByTestId('database-demo-panel');
+  const collectionList = databasePanel.getByRole('listbox', { name: 'Search Collection' });
+  await expect(collectionList).toBeVisible({ timeout: 15_000 });
+  const option = collectionList.getByRole('option').filter({ hasText: collectionName }).first();
   await expect(option).toBeVisible({ timeout: 15_000 });
   const text = await option.innerText();
   return parseCollectionSummaryCounts(text);
@@ -241,8 +244,12 @@ async function createCollection(page: Page, collectionName: string): Promise<voi
   await createButton.click();
 
   await expect(dialog).toBeHidden({ timeout: 15_000 });
-  await expect(page.getByRole('option').filter({ hasText: collectionName }).first()).toBeVisible({
-    timeout: 15_000,
+  const collectionList = databasePanel.getByRole('listbox', { name: 'Search Collection' });
+  await expect(collectionList).toBeVisible({ timeout: 15_000 });
+  await expect(
+    collectionList.getByRole('option').filter({ hasText: collectionName }).first()
+  ).toBeVisible({
+    timeout: 30_000,
   });
 }
 
@@ -405,7 +412,6 @@ test.describe('Database import and backfill (web)', () => {
     await ensureDatabasePanelVisible(page);
     await openImportSettings(page);
     await page.getByTestId('chunking-preset-balanced').click();
-    await expect(page.getByText('Preset linked')).toBeVisible({ timeout: 15_000 });
     await expect
       .poll(async () => await readImportSettingsState(page), {
         timeout: 15_000,
@@ -482,7 +488,15 @@ test.describe('Database import and backfill (web)', () => {
 
     await openImportSettings(page);
     await page.getByTestId('chunking-preset-balanced').click();
-    await expect(page.getByText('Preset linked')).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(async () => await readImportSettingsState(page), {
+        timeout: 15_000,
+      })
+      .toEqual({
+        enableChunking: true,
+        chunkingPreset: 'balanced',
+        chunkingStrategy: 'auto',
+      });
     await page.keyboard.press('Escape');
     await expect(page.getByText('Chunking Studio')).toBeHidden({ timeout: 15_000 });
 
@@ -545,9 +559,10 @@ test.describe('Database import and backfill (web)', () => {
     await openImportSettings(page);
 
     await chooseChunkingPreset(page, /^Codebase/, 'codebase');
-    await expect(page.getByText('Adaptive presets still route each file type')).toBeVisible({
+    await expect(page.getByText('Adaptive mixed-repo preset')).toBeVisible({
       timeout: 15_000,
     });
+    await page.getByRole('button', { name: /Routing plan/ }).click();
     const docsRoute = page.getByTestId('chunking-route-docs-getting-started-md');
     await expect(docsRoute).toBeVisible({ timeout: 15_000 });
     await expect(docsRoute.getByText('semantic-markdown')).toBeVisible({ timeout: 15_000 });
@@ -569,7 +584,7 @@ test.describe('Database import and backfill (web)', () => {
     await waitForAppLoad(page);
     await ensureDatabasePanelVisible(page);
     await openImportSettings(page);
-    await expect(page.getByText('Adaptive presets still route each file type')).toBeVisible({
+    await expect(page.getByText('Adaptive mixed-repo preset')).toBeVisible({
       timeout: 15_000,
     });
   });
@@ -598,9 +613,10 @@ test.describe('Database import and backfill (web)', () => {
     await openImportSettings(page);
 
     await chooseChunkingPreset(page, /^Docs/, 'docs');
-    await expect(page.getByText('Preset linked')).toBeVisible({ timeout: 15_000 });
     await expect(
-      page.getByText('Keeps related heading families together for guides and docs.')
+      page.getByText(
+        'Prefers semantic markdown grouping for guides, notes, and README-heavy content.'
+      )
     ).toBeVisible({ timeout: 15_000 });
 
     await expect

@@ -229,6 +229,9 @@ async function downloadModel(model: DbModel, deps: DownloadDeps): Promise<void> 
 export function ModelSelectionPage() {
   const db = usePGliteDatabase();
   const [isSelectingCacheDir, setIsSelectingCacheDir] = useState<boolean>(false);
+  const [pendingModelIds, setPendingModelIds] = useState<ReadonlySet<string>>(
+    () => new Set<string>()
+  );
   const {
     providers,
     models,
@@ -334,9 +337,34 @@ export function ModelSelectionPage() {
     setIsSelectingCacheDir(false);
   };
 
+  const handleToggleModel = async (modelId: string, enabled: boolean): Promise<void> => {
+    if (!db) {
+      return;
+    }
+
+    setPendingModelIds((current) => {
+      const next = new Set(current);
+      next.add(modelId);
+      return next;
+    });
+
+    try {
+      await toggleModel(db, modelId, enabled);
+    } finally {
+      setPendingModelIds((current) => {
+        const next = new Set(current);
+        next.delete(modelId);
+        return next;
+      });
+    }
+  };
+
   if (error) {
     return (
-      <div className="rounded-md bg-destructive/10 p-4 text-destructive">
+      <div
+        className="rounded-md bg-destructive/10 p-4 text-destructive"
+        data-testid="model-registry-error"
+      >
         <p className="font-medium">Error loading models</p>
         <p className="text-sm">{error}</p>
         <Button
@@ -404,7 +432,10 @@ export function ModelSelectionPage() {
         modelCacheDir={modelCacheDir}
         models={models}
         onDownload={handleDownload}
-        onToggle={(modelId, enabled) => db && toggleModel(db, modelId, enabled)}
+        onToggle={(modelId, enabled) => {
+          void handleToggleModel(modelId, enabled);
+        }}
+        pendingModelIds={pendingModelIds}
         providers={providers}
       />
     </div>

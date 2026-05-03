@@ -222,18 +222,55 @@ describe('layout-helpers (unit)', () => {
     expect(handle.dispose).toHaveBeenCalled();
   });
 
-  it('waitForDatabaseReady fails loudly when the database reaches disconnected state', async () => {
-    const handle = {
-      dispose: vi.fn(async () => undefined),
-      jsonValue: vi.fn(async () => 'disconnected'),
+  it('waitForDatabaseReady waits for connected instead of failing on transient disconnected state', async () => {
+    const originalDocument = globalThis.document;
+    let connected = false;
+    const documentMock = {
+      querySelector: vi.fn((selector: string) => {
+        if (selector === '[data-testid="status-bar-db-connected"]') {
+          return connected ? {} : null;
+        }
+        if (selector === '[data-testid="status-bar-db-disconnected"]') {
+          return connected ? null : {};
+        }
+        return null;
+      }),
     };
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: documentMock,
+    });
+    const handle = { dispose: vi.fn(async () => undefined) };
     const page = {
-      waitForFunction: vi.fn(async () => handle),
+      waitForFunction: vi.fn(async (predicate: () => boolean) => {
+        expect(predicate()).toBe(false);
+        connected = true;
+        expect(predicate()).toBe(true);
+        return handle;
+      }),
+    } as unknown as Page;
+
+    try {
+      await waitForDatabaseReady(page, 10_000);
+      expect(handle.dispose).toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(globalThis, 'document', {
+        configurable: true,
+        value: originalDocument,
+      });
+    }
+  });
+
+  it('waitForDatabaseReady fails loudly when the database remains disconnected until timeout', async () => {
+    const page = {
+      waitForFunction: vi.fn(async () => {
+        throw new Error('timed out');
+      }),
+      evaluate: vi.fn(async () => 'disconnected'),
     } as unknown as Page;
 
     await expect(waitForDatabaseReady(page, 10_000)).rejects.toThrow(
-      'Database failed to initialize'
+      'Last observed state was disconnected'
     );
-    expect(handle.dispose).toHaveBeenCalled();
   });
 });

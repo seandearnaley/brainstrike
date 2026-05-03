@@ -1,7 +1,7 @@
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/tool-metadata';
-import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { createBrowserJsonStorage } from './browser-json-storage';
 
 type NativeToolStateMap = Record<string, boolean>;
 
@@ -20,7 +20,7 @@ export type NativeToolPreferencesStore = NativeToolPreferencesData & NativeToolP
 
 const STORE_NAME = 'native-tool-preferences.v1' as const;
 
-const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
+const storage = createJSONStorage(() => createBrowserJsonStorage());
 
 const KNOWN_NATIVE_TOOL_IDS = new Set(Object.keys(NATIVE_TOOL_DEFAULTS));
 

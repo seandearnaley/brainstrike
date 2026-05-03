@@ -111,7 +111,7 @@ export function resolveNetworkIdleTimeout(isCI: boolean): number {
   return isCI ? DEFAULT_CI_NETWORK_IDLE_TIMEOUT_MS : DEFAULT_LOCAL_NETWORK_IDLE_TIMEOUT_MS;
 }
 
-type DatabaseReadyState = 'connected' | 'disconnected';
+type DatabaseReadyState = 'connected' | 'disconnected' | null;
 
 export interface WaitForAppLoadOptions {
   readonly timeoutMs?: number;
@@ -121,30 +121,37 @@ export interface WaitForAppLoadOptions {
 export async function waitForDatabaseReady(page: Page, timeout = 10_000): Promise<void> {
   const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
   const effectiveTimeout = resolveWaitForAppLoadTimeout(timeout, isCI);
-  const statusHandle = await page.waitForFunction(
-    (): DatabaseReadyState | null => {
-      if (document.querySelector('[data-testid="status-bar-db-connected"]')) {
-        return 'connected';
-      }
-
-      if (document.querySelector('[data-testid="status-bar-db-disconnected"]')) {
-        return 'disconnected';
-      }
-
-      return null;
-    },
-    null,
-    { timeout: effectiveTimeout }
-  );
-
-  const status = (await statusHandle.jsonValue()) as DatabaseReadyState | null;
-  await statusHandle.dispose();
-
-  if (status === 'connected') {
+  try {
+    const connectedHandle = await page.waitForFunction(
+      (): boolean => Boolean(document.querySelector('[data-testid="status-bar-db-connected"]')),
+      null,
+      { timeout: effectiveTimeout }
+    );
+    await connectedHandle.dispose();
     return;
-  }
+  } catch (error) {
+    const status = await page
+      .evaluate((): DatabaseReadyState => {
+        if (document.querySelector('[data-testid="status-bar-db-connected"]')) {
+          return 'connected';
+        }
+        if (document.querySelector('[data-testid="status-bar-db-disconnected"]')) {
+          return 'disconnected';
+        }
+        return null;
+      })
+      .catch((): DatabaseReadyState => null);
 
-  throw new Error('Database failed to initialize before the app became test-ready.');
+    if (status === 'connected') {
+      return;
+    }
+
+    const suffix =
+      status === 'disconnected'
+        ? ' Last observed state was disconnected.'
+        : ` Last wait error: ${resolveErrorMessage(error)}`;
+    throw new Error(`Database failed to initialize before the app became test-ready.${suffix}`);
+  }
 }
 
 async function getPlaywrightExpect(): Promise<PlaywrightExpect> {

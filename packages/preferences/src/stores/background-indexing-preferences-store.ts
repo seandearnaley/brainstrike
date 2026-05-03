@@ -1,7 +1,7 @@
 import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
-import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { createBrowserJsonStorage } from './browser-json-storage';
 
 export type BackgroundIndexingMode = 'root-folder-cache';
 
@@ -63,7 +63,7 @@ function createBackgroundIndexingPreferencesStorage() {
     };
   }
 
-  return createSafeJsonStorageAdapter();
+  return createBrowserJsonStorage();
 }
 
 const storage = createJSONStorage(() => createBackgroundIndexingPreferencesStorage());

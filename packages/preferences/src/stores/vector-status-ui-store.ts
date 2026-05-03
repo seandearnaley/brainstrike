@@ -1,6 +1,6 @@
-import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { createBrowserJsonStorage } from './browser-json-storage';
 
 /**
  * Sort comparator for collections: descending by createdAt, then id.
@@ -196,11 +196,7 @@ function getElectronStorageBridge(): ElectronStorageBridge | null {
   return bridge;
 }
 
-/**
- * Storage adapter with fallback to in-memory for SSR/tests
- * Uses safe storage utility with proper error logging
- */
-function createVectorStatusUIStorage() {
+function createVectorStatusUIStorage(): StateStorage {
   const electronStorage = getElectronStorageBridge();
   if (electronStorage) {
     return {
@@ -210,7 +206,7 @@ function createVectorStatusUIStorage() {
     };
   }
 
-  return createSafeJsonStorageAdapter();
+  return createBrowserJsonStorage();
 }
 
 const storage = createJSONStorage(() => createVectorStatusUIStorage());
