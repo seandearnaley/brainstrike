@@ -5,6 +5,10 @@
  * between basic and enhanced CSV export utilities.
  */
 
+// `formatFileSize` lives in utils/format.ts as the single source of truth (used
+// by display components too). Re-exported from this module on purpose — CSV
+// callers and column-config helpers should be able to import every CSV-related
+// formatter from one place. Not a migration shim.
 import { formatFileSize } from './utils/format';
 
 export { formatFileSize };
