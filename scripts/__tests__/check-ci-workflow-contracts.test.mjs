@@ -41,3 +41,15 @@ test('workflow contract fails when stateful E2E waits on determine-matrix', () =
     /Stateful E2E must not wait on determine-matrix/
   );
 });
+
+test('workflow contract fails when the aggregate PR gate drops functional E2E', () => {
+  const prGate = extractJob(workflowSource, 'required-pr-gate');
+  assert.ok(prGate);
+
+  const source = workflowSource.replace(prGate, prGate.replace('\n      - e2e\n', '\n'));
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Required PR Gate must depend on e2e/
+  );
+});

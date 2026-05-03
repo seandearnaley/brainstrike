@@ -1192,6 +1192,74 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
+  required-pr-gate:
+    name: Required PR Gate
+    if: always() && github.event_name == 'pull_request'
+    needs:
+      - checks
+      - unit_coverage
+      - browser-tests
+      - prepare-web
+      - prepare-desktop
+      - e2e
+      - e2e-stateful
+      - e2e-destructive
+      - desktop-e2e-pr
+      - merge-reports
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify required PR jobs
+        env:
+          REQUIRED_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          node <<'NODE'
+          const needs = JSON.parse(process.env.REQUIRED_NEEDS);
+          const failed = Object.entries(needs).filter(([, job]) => job.result !== 'success');
+          if (failed.length > 0) {
+            console.error('Required PR gate failed:');
+            for (const [name, job] of failed) {
+              console.error(`- ${name}: ${job.result}`);
+            }
+            process.exit(1);
+          }
+          console.log('Required PR gate passed.');
+          NODE
+
+  required-main-gate:
+    name: Required Main Gate
+    if: always() && github.event_name == 'push'
+    needs:
+      - checks
+      - unit_coverage
+      - browser-tests
+      - prepare-web
+      - prepare-desktop
+      - e2e
+      - e2e-stateful
+      - e2e-destructive
+      - desktop-e2e-main
+      - merge-reports
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify required main jobs
+        env:
+          REQUIRED_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          node <<'NODE'
+          const needs = JSON.parse(process.env.REQUIRED_NEEDS);
+          const failed = Object.entries(needs).filter(([, job]) => job.result !== 'success');
+          if (failed.length > 0) {
+            console.error('Required main gate failed:');
+            for (const [name, job] of failed) {
+              console.error(`- ${name}: ${job.result}`);
+            }
+            process.exit(1);
+          }
+          console.log('Required main gate passed.');
+          NODE
+
   # Optional checks that don't block merging
   code-quality:
     name: Code Quality Checks

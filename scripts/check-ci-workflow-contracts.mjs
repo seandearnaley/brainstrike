@@ -32,6 +32,14 @@ function requireIncludes(source, text, message, failures) {
   }
 }
 
+function escapeRegExp(source) {
+  return source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function requireYamlListItem(source, item, message, failures) {
+  requireMatch(source, new RegExp(`^\\s+- ${escapeRegExp(item)}\\s*$`, 'm'), message, failures);
+}
+
 function extractNamedStepBlocks(source, namePattern) {
   const lines = source.split('\n');
   const blocks = [];
@@ -145,6 +153,80 @@ export function validateWorkflowContracts(source) {
       destructive,
       '--workers=1 --grep "@destructive"',
       'Destructive E2E must run tagged specs in a one-worker lane.',
+      failures
+    );
+  }
+
+  const requiredPrGate = extractJob(source, 'required-pr-gate');
+  if (!requiredPrGate) {
+    failures.push('Missing required-pr-gate job.');
+  } else {
+    requireIncludes(
+      requiredPrGate,
+      'name: Required PR Gate',
+      'Required PR Gate status name must stay stable for branch rulesets.',
+      failures
+    );
+    for (const jobName of [
+      'checks',
+      'unit_coverage',
+      'browser-tests',
+      'prepare-web',
+      'prepare-desktop',
+      'e2e',
+      'e2e-stateful',
+      'e2e-destructive',
+      'desktop-e2e-pr',
+      'merge-reports',
+    ]) {
+      requireYamlListItem(
+        requiredPrGate,
+        jobName,
+        `Required PR Gate must depend on ${jobName}.`,
+        failures
+      );
+    }
+    requireIncludes(
+      requiredPrGate,
+      "job.result !== 'success'",
+      'Required PR Gate must fail unless every dependency succeeds.',
+      failures
+    );
+  }
+
+  const requiredMainGate = extractJob(source, 'required-main-gate');
+  if (!requiredMainGate) {
+    failures.push('Missing required-main-gate job.');
+  } else {
+    requireIncludes(
+      requiredMainGate,
+      'name: Required Main Gate',
+      'Required Main Gate status name must stay stable for branch rulesets.',
+      failures
+    );
+    for (const jobName of [
+      'checks',
+      'unit_coverage',
+      'browser-tests',
+      'prepare-web',
+      'prepare-desktop',
+      'e2e',
+      'e2e-stateful',
+      'e2e-destructive',
+      'desktop-e2e-main',
+      'merge-reports',
+    ]) {
+      requireYamlListItem(
+        requiredMainGate,
+        jobName,
+        `Required Main Gate must depend on ${jobName}.`,
+        failures
+      );
+    }
+    requireIncludes(
+      requiredMainGate,
+      "job.result !== 'success'",
+      'Required Main Gate must fail unless every dependency succeeds.',
       failures
     );
   }
