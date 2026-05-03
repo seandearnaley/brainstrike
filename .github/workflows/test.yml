@@ -971,8 +971,8 @@ jobs:
   # (PR runs -pr, main/push runs -main). The OR condition handles this correctly.
   merge-reports:
     name: Merge Test Reports
-    if: github.event_name != 'workflow_dispatch' && always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.desktop-e2e-pr.result == 'success' || needs.desktop-e2e-main.result == 'success')
-    needs: [checks, e2e, desktop-e2e-pr, desktop-e2e-main]
+    if: github.event_name != 'workflow_dispatch' && always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.e2e-destructive.result == 'success' || needs.desktop-e2e-pr.result == 'success' || needs.desktop-e2e-main.result == 'success')
+    needs: [checks, e2e, e2e-destructive, desktop-e2e-pr, desktop-e2e-main]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
