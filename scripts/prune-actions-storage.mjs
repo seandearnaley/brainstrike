@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 const DEFAULT_ARTIFACT_MAX_AGE_HOURS = 24;
 const DEFAULT_CACHE_MAX_AGE_HOURS = 72;
 const DEFAULT_CACHE_KEEP_RECENT_PER_KEY = 2;
-const DEFAULT_DELETE_CONCURRENCY = 8;
+const DEFAULT_DELETE_CONCURRENCY = 4;
+const DEFAULT_MAX_DELETIONS = 4000;
 
 function readFlagValue(args, name) {
   const index = args.indexOf(name);
@@ -70,6 +71,11 @@ export function parseArgs(args = process.argv.slice(2), env = process.env) {
       '--delete-concurrency'
     ),
     dryRun,
+    maxDeletions: readPositiveInteger(
+      readFlagValue(args, '--max-deletions'),
+      DEFAULT_MAX_DELETIONS,
+      '--max-deletions'
+    ),
     repo,
   };
 }
@@ -218,6 +224,15 @@ function summarizeBytes(items) {
   return items.reduce((total, item) => total + bytes(item.size_in_bytes ?? item.sizeInBytes), 0);
 }
 
+export function limitDeletionPlan(artifacts, caches, maxDeletions) {
+  const plannedCaches = caches.slice(0, maxDeletions);
+  const remaining = Math.max(0, maxDeletions - plannedCaches.length);
+  return {
+    artifacts: artifacts.slice(0, remaining),
+    caches: plannedCaches,
+  };
+}
+
 async function deleteInBatches(items, concurrency, deleteItem, label) {
   let nextIndex = 0;
   let deleted = 0;
@@ -261,6 +276,7 @@ export async function runCli(args = process.argv.slice(2), env = process.env) {
   const caches = await listCaches(apiUrl, options.repo, token);
   const artifactsToDelete = selectArtifactsForDeletion(artifacts, options);
   const cachesToDelete = selectCachesForDeletion(caches, options);
+  const planned = limitDeletionPlan(artifactsToDelete, cachesToDelete, options.maxDeletions);
 
   console.log(
     `Selected ${artifactsToDelete.length}/${artifacts.length} artifacts (${summarizeBytes(
@@ -270,6 +286,9 @@ export async function runCli(args = process.argv.slice(2), env = process.env) {
   console.log(
     `Selected ${cachesToDelete.length}/${caches.length} caches (${summarizeBytes(cachesToDelete)} bytes)`
   );
+  console.log(
+    `Planned ${planned.artifacts.length} artifact deletes and ${planned.caches.length} cache deletes`
+  );
 
   if (options.dryRun) {
     console.log('Dry run only; no storage entries deleted.');
@@ -277,16 +296,16 @@ export async function runCli(args = process.argv.slice(2), env = process.env) {
   }
 
   await deleteInBatches(
-    artifactsToDelete,
-    options.deleteConcurrency,
-    (artifact) => deleteArtifact(apiUrl, options.repo, token, artifact.id),
-    'artifacts'
-  );
-  await deleteInBatches(
-    cachesToDelete,
+    planned.caches,
     options.deleteConcurrency,
     (cache) => deleteCache(apiUrl, options.repo, token, cache.id),
     'caches'
+  );
+  await deleteInBatches(
+    planned.artifacts,
+    options.deleteConcurrency,
+    (artifact) => deleteArtifact(apiUrl, options.repo, token, artifact.id),
+    'artifacts'
   );
   return 0;
 }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  limitDeletionPlan,
   parseArgs,
   selectArtifactsForDeletion,
   selectCachesForDeletion,
@@ -21,6 +22,8 @@ test('parseArgs reads retention options and dry-run mode', () => {
       '1',
       '--delete-concurrency',
       '4',
+      '--max-deletions',
+      '200',
       '--dry-run',
     ],
     {}
@@ -32,6 +35,7 @@ test('parseArgs reads retention options and dry-run mode', () => {
     cacheMaxAgeHours: 48,
     deleteConcurrency: 4,
     dryRun: true,
+    maxDeletions: 200,
     repo: 'owner/repo',
   });
 });
@@ -83,4 +87,14 @@ test('parseArgs rejects invalid retention values', () => {
     () => parseArgs(['--repo', 'owner/repo', '--delete-concurrency', '0'], {}),
     /positive number/
   );
+});
+
+test('limitDeletionPlan prioritizes caches and caps total delete calls', () => {
+  const artifacts = [{ id: 1 }, { id: 2 }, { id: 3 }];
+  const caches = [{ id: 4 }, { id: 5 }];
+
+  assert.deepEqual(limitDeletionPlan(artifacts, caches, 3), {
+    artifacts: [{ id: 1 }],
+    caches,
+  });
 });
