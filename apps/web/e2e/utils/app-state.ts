@@ -63,15 +63,6 @@ export async function resetAppState(page: Page): Promise<void> {
         await Promise.all(cacheNames.map((name) => caches.delete(name)));
       }
 
-      if ('indexedDB' in globalThis && typeof indexedDB.databases === 'function') {
-        const databases = await indexedDB.databases().catch(() => []);
-        for (const database of databases) {
-          if (database.name?.startsWith('brainstrike-')) {
-            await deleteDatabase(database.name);
-          }
-        }
-      }
-
       for (const key of args.keys) {
         localStorage.removeItem(key);
       }
