@@ -1154,6 +1154,14 @@ export function AssistantUiPanelWrapper({
     if (typeof window === 'undefined') {
       return;
     }
+    const desktopWindow = window as Window & {
+      desktopLifecycle?: {
+        isTestMode?: boolean;
+      };
+    };
+    if (!desktopWindow.desktopLifecycle?.isTestMode) {
+      return;
+    }
 
     const hooks = {
       setCurrentThreadModel: (compositeKey: string): void => {
