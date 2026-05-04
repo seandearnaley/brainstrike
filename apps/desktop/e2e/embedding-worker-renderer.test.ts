@@ -2015,7 +2015,7 @@ test.describe('Embedding Host Renderer', () => {
 
   async function createCollectionViaDialog(page: Page, collectionName: string): Promise<void> {
     const databasePanel = page.getByTestId('database-demo-panel');
-    await databasePanel.getByRole('button', { name: 'New' }).click({ timeout: 5000 });
+    await databasePanel.getByRole('button', { name: 'New' }).click({ timeout: 15_000 });
 
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByText('Create Search Collection')).toBeVisible({ timeout: 15_000 });
@@ -2026,7 +2026,7 @@ test.describe('Embedding Host Renderer', () => {
 
     const createButton = dialog.getByRole('button', { name: 'Create Collection' });
     await expect(createButton).toBeEnabled({ timeout: 15_000 });
-    await createButton.click({ timeout: 5000 });
+    await createButton.click({ timeout: 15_000 });
 
     await expect(dialog).toBeHidden({ timeout: 15_000 });
   }

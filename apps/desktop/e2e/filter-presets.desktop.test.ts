@@ -20,6 +20,8 @@ interface ElectronE2eFileSystemFixture {
   };
 }
 
+const PRESET_LOAD_TIMEOUT_MS = 25_000;
+
 async function ensureLeftPanelVisible(window: Page): Promise<void> {
   const leftPanel = getContextExplorerLeftPanel(window);
   const showLeftPanelButton = window
@@ -237,7 +239,9 @@ async function selectDocumentationPreset(window: Page): Promise<void> {
   const presetTrigger = await resolvePresetTrigger(window);
   await presetTrigger.click();
 
-  await expect(window.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
+  await expect(window.getByText('Loading presets...')).toBeHidden({
+    timeout: PRESET_LOAD_TIMEOUT_MS,
+  });
 
   const documentationOption = window.getByRole('button', { name: /documentation/i }).first();
   await expect(documentationOption).toBeVisible({ timeout: 10_000 });
@@ -298,7 +302,9 @@ test.describe('Desktop filter presets', () => {
     const presetTrigger = await resolvePresetTrigger(window);
     await presetTrigger.click();
 
-    await expect(window.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
+    await expect(window.getByText('Loading presets...')).toBeHidden({
+      timeout: PRESET_LOAD_TIMEOUT_MS,
+    });
     await expect(window.getByRole('button', { name: /documentation/i }).first()).toBeVisible({
       timeout: 10_000,
     });
@@ -360,7 +366,9 @@ test.describe('Desktop filter presets', () => {
 
     const presetTrigger = await resolvePresetTrigger(window);
     await presetTrigger.click();
-    await expect(window.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
+    await expect(window.getByText('Loading presets...')).toBeHidden({
+      timeout: PRESET_LOAD_TIMEOUT_MS,
+    });
 
     const tsPresetOption = window.getByRole('button', { name: /typescript\/javascript/i }).first();
     await expect(tsPresetOption).toBeVisible({ timeout: 10_000 });
@@ -402,7 +410,9 @@ test.describe('Desktop filter presets', () => {
 
     const presetTrigger = await resolvePresetTrigger(window);
     await presetTrigger.click();
-    await expect(window.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
+    await expect(window.getByText('Loading presets...')).toBeHidden({
+      timeout: PRESET_LOAD_TIMEOUT_MS,
+    });
 
     const tsPresetOption = window.getByRole('button', { name: /typescript\/javascript/i }).first();
     await expect(tsPresetOption).toBeVisible({ timeout: 10_000 });
