@@ -5748,7 +5748,7 @@ test.describe('Embedding Host Renderer', () => {
       process.env['BRAINSTRIKE_E2E_DESKTOP_DEV_REPRO'] !== '1',
       'Opt-in repro harness. Set BRAINSTRIKE_E2E_DESKTOP_DEV_REPRO=1 to run.'
     );
-    test.setTimeout(900_000);
+    test.setTimeout(540_000);
 
     await waitForTcpPortOpen(DESKTOP_DEV_RENDERER_PORT, 5000).catch((error) => {
       throw new Error(
@@ -5876,7 +5876,7 @@ test.describe('Embedding Host Renderer', () => {
       process.env['BRAINSTRIKE_E2E_DESKTOP_DEV_REPRO'] !== '1',
       'Opt-in repro harness. Set BRAINSTRIKE_E2E_DESKTOP_DEV_REPRO=1 to run.'
     );
-    test.setTimeout(900_000);
+    test.setTimeout(540_000);
 
     await waitForTcpPortOpen(DESKTOP_DEV_RENDERER_PORT, 5000).catch((error) => {
       throw new Error(

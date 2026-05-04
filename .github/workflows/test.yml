@@ -764,7 +764,7 @@ jobs:
         run: pnpm exec playwright install-deps chromium
 
       - name: Run destructive E2E tests
-        timeout-minutes: 15
+        timeout-minutes: 10
         run: |
           cd apps/web
           echo "Running destructive functional E2E tests in isolation"
