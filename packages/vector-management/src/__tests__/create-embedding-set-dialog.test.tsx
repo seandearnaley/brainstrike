@@ -1,6 +1,6 @@
 import type { IEmbeddingSetsRepository } from '@brainstrike/db';
 import { type ModelPickerModel, type ModelPickerProvider, Toaster } from '@brainstrike/ui';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { CreateEmbeddingSetDialog } from '../embedding-set-management/create-embedding-set-dialog';
@@ -606,8 +606,10 @@ describe('CreateEmbeddingSetDialog', () => {
     setInputValueWithoutReactChange(nameInput, 'Native Input Collection');
     fireEvent.input(nameInput);
 
-    resolveFindAll([{ name: 'Text Embedding 3 Small' }]);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await act(async () => {
+      resolveFindAll([{ name: 'Text Embedding 3 Small' }]);
+      await slowFindAll;
+    });
     expect(nameInput.value).toBe('Native Input Collection');
   });
 
@@ -640,8 +642,10 @@ describe('CreateEmbeddingSetDialog', () => {
 
     setInputValueWithoutReactChange(nameInput, 'Native Unobserved Collection');
 
-    resolveFindAll([{ name: 'Text Embedding 3 Small' }]);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await act(async () => {
+      resolveFindAll([{ name: 'Text Embedding 3 Small' }]);
+      await slowFindAll;
+    });
     expect(nameInput.value).toBe('Native Unobserved Collection');
   });
 
