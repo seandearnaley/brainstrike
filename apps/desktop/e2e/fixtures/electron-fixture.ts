@@ -21,6 +21,7 @@ class ElectronHarness {
   private readonly maxRendererRecoveryAttempts = 1;
 
   constructor(
+    private readonly testInfo: TestInfo,
     private readonly debugPort?: number,
     private readonly userDataDir?: string
   ) {}
@@ -28,7 +29,9 @@ class ElectronHarness {
   async ensureContext(): Promise<ElectronAppContext> {
     if (!this.context) {
       const { launchElectronApp } = await loadElectronHelpers();
-      this.context = await launchElectronApp(this.debugPort, this.userDataDir);
+      this.context = await launchElectronApp(this.debugPort, this.userDataDir, {
+        disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
+      });
       return this.context;
     }
 
@@ -67,7 +70,9 @@ class ElectronHarness {
     }
 
     const { launchElectronApp } = await loadElectronHelpers();
-    this.context = await launchElectronApp(this.debugPort, this.userDataDir);
+    this.context = await launchElectronApp(this.debugPort, this.userDataDir, {
+      disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
+    });
     return this.context;
   }
 
@@ -189,6 +194,10 @@ interface ElectronTestFixtures {
   window: Page;
 }
 
+function shouldDisableExternalLocalRuntimeProbes(testInfo: TestInfo): boolean {
+  return !testInfo.file.endsWith(`${path.sep}local-runtime-probe.desktop.test.ts`);
+}
+
 export const test = base.extend<ElectronTestFixtures>({
   electron: async ({}, use, testInfo) => {
     const shardIndex = testInfo.config.shard?.current ?? 0;
@@ -202,7 +211,7 @@ export const test = base.extend<ElectronTestFixtures>({
       testInfo.retry
     );
 
-    const harness = new ElectronHarness(undefined, userDataDir);
+    const harness = new ElectronHarness(testInfo, undefined, userDataDir);
     try {
       await use(harness);
     } finally {

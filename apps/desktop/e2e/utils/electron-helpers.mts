@@ -20,6 +20,7 @@ export interface ElectronAppContext {
 }
 
 interface LaunchElectronAppOptions {
+  readonly disableExternalLocalRuntimeProbes?: boolean;
   readonly launchMode?: 'built' | 'dev-server' | 'test-built';
   readonly userDataDir?: string;
 }
@@ -203,9 +204,11 @@ function logEnvironmentDiagnostics(userDataDir?: string): void {
 
 export async function launchElectronApp(
   _debugPort?: number,
-  userDataDir?: string
+  userDataDir?: string,
+  options: Pick<LaunchElectronAppOptions, 'disableExternalLocalRuntimeProbes'> = {}
 ): Promise<ElectronAppContext> {
   return await launchElectronAppWithOptions({
+    ...options,
     launchMode: 'test-built',
     userDataDir,
   });
@@ -251,7 +254,8 @@ export async function launchElectronAppWithOptions(
       undefined,
       userDataDir,
       launchTimeoutMs,
-      launchMode
+      launchMode,
+      options.disableExternalLocalRuntimeProbes ?? false
     );
 
     try {
@@ -329,7 +333,8 @@ function createLaunchOptions(
   _debugPort?: number,
   userDataDir?: string,
   launchTimeoutMs?: number,
-  launchMode: 'built' | 'dev-server' | 'test-built' = 'test-built'
+  launchMode: 'built' | 'dev-server' | 'test-built' = 'test-built',
+  disableExternalLocalRuntimeProbes = false
 ): Parameters<typeof electron.launch>[0] {
   const { ELECTRON_RUN_AS_NODE: _ignoredElectronRunAsNode, ...baseEnv } = process.env;
   const ciArgs = getCILaunchArgs();
@@ -395,6 +400,14 @@ function createLaunchOptions(
       BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_IS_E2E_TEST: 'true',
+      ...(disableExternalLocalRuntimeProbes
+        ? {
+            // Regression E2E should not contact developer-local Ollama/LM Studio
+            // daemons unless the test explicitly validates that bridge.
+            // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+            BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES: '1',
+          }
+        : {}),
       ...(launchMode === 'dev-server'
         ? {
             // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase

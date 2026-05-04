@@ -15,4 +15,12 @@ describe('preload runtime contract', () => {
       "const DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL = 'db:managed-cache:apply-batch'"
     );
   });
+
+  it('keeps deterministic E2E local-runtime bridge responses in preload', () => {
+    const preloadSource = readPreloadSource();
+
+    expect(preloadSource).toContain('BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES');
+    expect(preloadSource).toContain('createDisabledLocalRuntimeAvailability');
+    expect(preloadSource).toContain('createDisabledLocalRuntimeCatalog');
+  });
 });
