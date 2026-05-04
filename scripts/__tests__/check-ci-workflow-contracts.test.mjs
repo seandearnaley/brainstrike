@@ -96,6 +96,65 @@ test('workflow contract fails when PR desktop E2E is smoke-only', () => {
   );
 });
 
+test('workflow contract fails when desktop regression retries are reintroduced', () => {
+  const desktopPr = extractJob(workflowSource, 'desktop-e2e-pr');
+  assert.ok(desktopPr);
+
+  const source = workflowSource.replace(
+    desktopPr,
+    desktopPr.replace(' --retries=0 --max-failures=1', '')
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /desktop regression E2E must disable Playwright retries/);
+  assert.match(failures, /desktop regression E2E must fail fast on the first failure/);
+});
+
+test('workflow contract fails when desktop regression global timeout is removed', () => {
+  const desktopMain = extractJob(workflowSource, 'desktop-e2e-main');
+  assert.ok(desktopMain);
+
+  const source = workflowSource.replace(
+    desktopMain,
+    desktopMain.replace(' --global-timeout=720000', '')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /desktop regression E2E must cap Playwright runtime at 12 minutes/
+  );
+});
+
+test('workflow contract fails when desktop regression global timeout is widened', () => {
+  const desktopMain = extractJob(workflowSource, 'desktop-e2e-main');
+  assert.ok(desktopMain);
+
+  const source = workflowSource.replace(
+    desktopMain,
+    desktopMain.replace(' --global-timeout=720000', ' --global-timeout=900000')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /desktop regression E2E must cap Playwright runtime at 12 minutes/
+  );
+});
+
+test('workflow contract allows stricter desktop regression global timeout', () => {
+  const desktopMain = extractJob(workflowSource, 'desktop-e2e-main');
+  assert.ok(desktopMain);
+
+  const source = workflowSource.replace(
+    desktopMain,
+    desktopMain.replace(' --global-timeout=720000', ' --global-timeout=600000')
+  );
+
+  assert.doesNotMatch(
+    validateWorkflowContracts(source).join('\n'),
+    /desktop regression E2E must cap Playwright runtime at 12 minutes/
+  );
+});
+
 test('workflow contract fails when desktop embedding retries are reintroduced', () => {
   const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
   assert.ok(desktopEmbeddingPr);

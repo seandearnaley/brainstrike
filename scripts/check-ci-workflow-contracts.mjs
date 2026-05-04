@@ -34,6 +34,24 @@ function requireIncludes(source, text, message, failures) {
   }
 }
 
+function requireNumericMatchAtMost(source, pattern, maxValue, message, failures) {
+  const match = source.match(pattern);
+  const value = match?.[1] ? Number.parseInt(match[1], 10) : Number.NaN;
+  if (!Number.isFinite(value) || value > maxValue) {
+    failures.push(message);
+  }
+}
+
+function requireNumericCliFlagAtMost(source, flag, maxValue, message, failures) {
+  requireNumericMatchAtMost(
+    source,
+    new RegExp(`${escapeRegExp(flag)}=(\\d+)`),
+    maxValue,
+    message,
+    failures
+  );
+}
+
 function escapeRegExp(source) {
   return source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -90,6 +108,47 @@ function requireDesktopEmbeddingJobContracts(source, prefix, failures) {
   }
 }
 
+function requireDesktopRegressionJobContracts(source, prefix, failures) {
+  requireNumericMatchAtMost(
+    source,
+    /^    timeout-minutes:\s*(\d+)\s*$/m,
+    20,
+    `${prefix} desktop regression job timeout must stay at 20 minutes or less.`,
+    failures
+  );
+
+  const regressionStep = requireSingleNamedStep(
+    source,
+    /Run Desktop E2E (?:regression )?tests \(shard\)/,
+    `${prefix} desktop regression test step`,
+    failures
+  );
+  if (!regressionStep) {
+    return;
+  }
+
+  requireNumericMatchAtMost(
+    regressionStep,
+    /^\s+timeout-minutes:\s*(\d+)\s*$/m,
+    15,
+    `${prefix} desktop regression test step timeout must stay at 15 minutes or less.`,
+    failures
+  );
+  for (const [flag, message] of [
+    ['--retries=0', `${prefix} desktop regression E2E must disable Playwright retries.`],
+    ['--max-failures=1', `${prefix} desktop regression E2E must fail fast on the first failure.`],
+  ]) {
+    requireIncludes(regressionStep, flag, message, failures);
+  }
+  requireNumericCliFlagAtMost(
+    regressionStep,
+    '--global-timeout',
+    720_000,
+    `${prefix} desktop regression E2E must cap Playwright runtime at 12 minutes.`,
+    failures
+  );
+}
+
 function extractNamedStepBlocks(source, namePattern) {
   const lines = source.split('\n');
   const blocks = [];
@@ -111,6 +170,16 @@ function extractNamedStepBlocks(source, namePattern) {
   }
 
   return blocks;
+}
+
+function requireSingleNamedStep(source, namePattern, description, failures) {
+  const blocks = extractNamedStepBlocks(source, namePattern);
+  if (blocks.length !== 1) {
+    failures.push(`${description} must appear exactly once.`);
+    return null;
+  }
+
+  return blocks[0];
 }
 
 export function validateWorkflowContracts(source) {
@@ -255,6 +324,7 @@ export function validateWorkflowContracts(source) {
       'PR desktop E2E must keep two workers per shard.',
       failures
     );
+    requireDesktopRegressionJobContracts(desktopPr, 'PR', failures);
     if (desktopPr.includes('--project=smoke')) {
       failures.push('PR desktop E2E must not use smoke as the required desktop proof.');
     }
@@ -328,6 +398,7 @@ export function validateWorkflowContracts(source) {
       'Main desktop E2E must keep two workers per shard.',
       failures
     );
+    requireDesktopRegressionJobContracts(desktopMain, 'Main', failures);
   }
 
   const desktopEmbeddingMain = extractJob(source, 'desktop-e2e-embedding-main');

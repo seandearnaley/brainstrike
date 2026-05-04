@@ -80,7 +80,7 @@ async function setFileExplorerMaxSelectionCount(
     name: 'Selection settings',
   });
   await expect(selectionSettingsButton).toBeVisible({ timeout: 15_000 });
-  await selectionSettingsButton.click({ timeout: 5000 });
+  await selectionSettingsButton.click({ noWaitAfter: true, timeout: 5000 });
 
   const selectionCountInput = page.getByLabel('Maximum selection count input');
   await expect(selectionCountInput).toBeVisible({ timeout: 15_000 });
@@ -1310,7 +1310,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
-    await selectRootButton.click({ timeout: 5000 });
+    await selectRootButton.click({ noWaitAfter: true, timeout: 5000 });
 
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree).toBeVisible({ timeout: 15_000 });
@@ -1325,7 +1325,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const selectAllButton = window.getByRole('button', { name: /^Select All$/i }).first();
     await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
-    await selectAllButton.click({ timeout: 5000 });
+    await selectAllButton.click({ noWaitAfter: true, timeout: 5000 });
 
     await expect(window.getByRole('button', { name: /^Deselect All$/i }).first()).toBeVisible({
       timeout: 15_000,
@@ -1345,7 +1345,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
-    await selectRootButton.click({ timeout: 5000 });
+    await selectRootButton.click({ noWaitAfter: true, timeout: 5000 });
 
     await expect(window.getByRole('treegrid', { name: 'File tree' })).toBeVisible({
       timeout: 15_000,
@@ -1353,7 +1353,7 @@ test.describe('Desktop file explorer selection', () => {
     const initialExpandedCount = await getExpandedDirectoryCount(window);
     const expandAllButton = window.getByTestId('expand-all-button-small');
     await expect(expandAllButton).toBeVisible({ timeout: 15_000 });
-    await expandAllButton.click({ timeout: 5000 });
+    await expandAllButton.click({ noWaitAfter: true, timeout: 5000 });
 
     const cancelButton = window.getByRole('button', { name: 'Cancel operation' });
     await expect(cancelButton).toBeVisible({ timeout: 15_000 });
@@ -1374,7 +1374,7 @@ test.describe('Desktop file explorer selection', () => {
     }, initialExpandedCount);
     await expect(expandAllButton).toBeDisabled();
 
-    await cancelButton.click({ timeout: 5000 }).catch(async (error: unknown) => {
+    await cancelButton.click({ noWaitAfter: true, timeout: 5000 }).catch(async (error: unknown) => {
       const operationStillRunning = await window
         .getByTestId('inline-scanning-indicator')
         .isVisible()
@@ -1402,14 +1402,14 @@ test.describe('Desktop file explorer selection', () => {
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
-    await selectRootButton.click({ timeout: 5000 });
+    await selectRootButton.click({ noWaitAfter: true, timeout: 5000 });
 
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree).toBeVisible({ timeout: 15_000 });
 
     const selectAllButton = window.getByRole('button', { name: /^Select All$/i }).first();
     await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
-    await selectAllButton.click({ timeout: 5000 });
+    await selectAllButton.click({ noWaitAfter: true, timeout: 5000 });
 
     const contextExplorerSurface = getContextExplorerMiddlePanel(window);
     await expect(contextExplorerSurface).toBeVisible({ timeout: 15_000 });
@@ -1432,7 +1432,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
     await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
-    await srcCheckbox.click({ timeout: 5000 });
+    await srcCheckbox.click({ noWaitAfter: true, timeout: 5000 });
 
     await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
     await expect(window.getByText('1 files', { exact: true })).toBeVisible({ timeout: 15_000 });
@@ -1464,7 +1464,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
-    await selectRootButton.click({ timeout: 5000 });
+    await selectRootButton.click({ noWaitAfter: true, timeout: 5000 });
 
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree).toBeVisible({ timeout: 15_000 });
@@ -1480,7 +1480,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const selectAllButton = window.getByRole('button', { name: /^Select All$/i }).first();
     await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
-    await selectAllButton.click({ timeout: 5000 });
+    await selectAllButton.click({ noWaitAfter: true, timeout: 5000 });
 
     await expect(window.getByRole('button', { name: /^Deselect All$/i }).first()).toBeVisible({
       timeout: 15_000,
@@ -1500,7 +1500,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
-    await selectRootButton.click({ timeout: 5000 });
+    await selectRootButton.click({ noWaitAfter: true, timeout: 5000 });
 
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree).toBeVisible({ timeout: 15_000 });
@@ -1508,7 +1508,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const selectAllButton = window.getByRole('button', { name: /^Select All$/i }).first();
     await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
-    await selectAllButton.click({ timeout: 5000 });
+    await selectAllButton.click({ noWaitAfter: true, timeout: 5000 });
 
     const limitToast = window
       .getByText('Cannot select more files. Maximum selection limit reached.', { exact: true })
@@ -1518,7 +1518,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const deselectAllButton = window.getByRole('button', { name: /^Deselect All$/i }).first();
     await expect(deselectAllButton).toBeEnabled({ timeout: 15_000 });
-    await deselectAllButton.click({ timeout: 5000 });
+    await deselectAllButton.click({ noWaitAfter: true, timeout: 5000 });
 
     await expect(
       fileTree.getByRole('checkbox', { name: 'Select mock-file1.ts' })
@@ -1540,7 +1540,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
-    await selectRootButton.click({ timeout: 5000 });
+    await selectRootButton.click({ noWaitAfter: true, timeout: 5000 });
 
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree).toBeVisible({ timeout: 15_000 });
@@ -1552,7 +1552,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const selectAllButton = window.getByRole('button', { name: /^Select All$/i }).first();
     await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
-    await selectAllButton.click({ timeout: 5000 });
+    await selectAllButton.click({ noWaitAfter: true, timeout: 5000 });
 
     await expect(window.getByRole('button', { name: /^Deselect All$/i }).first()).toBeVisible({
       timeout: 15_000,
@@ -1561,7 +1561,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const expandButtons = window.locator('button[aria-label="Expand"]');
     await expect(expandButtons).toHaveCount(2, { timeout: 15_000 });
-    await expandButtons.nth(1).click({ timeout: 5000 });
+    await expandButtons.nth(1).click({ noWaitAfter: true, timeout: 5000 });
 
     await expect(fileTree.getByText('agent')).toBeVisible({ timeout: 15_000 });
     await expect(fileTree.getByText('app-shell')).toBeVisible({ timeout: 15_000 });
@@ -1588,7 +1588,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
-    await selectRootButton.click({ timeout: 5000 });
+    await selectRootButton.click({ noWaitAfter: true, timeout: 5000 });
 
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree).toBeVisible({ timeout: 15_000 });
@@ -1596,12 +1596,12 @@ test.describe('Desktop file explorer selection', () => {
 
     const selectAllButton = window.getByRole('button', { name: /^Select All$/i }).first();
     await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
-    await selectAllButton.click({ timeout: 5000 });
+    await selectAllButton.click({ noWaitAfter: true, timeout: 5000 });
 
     const hooksCheckbox = fileTree.getByRole('checkbox', { name: 'Select hooks' });
     const expandButtons = window.locator('button[aria-label="Expand"]');
     await expect(expandButtons).toHaveCount(1, { timeout: 15_000 });
-    await expandButtons.first().click({ timeout: 5000 });
+    await expandButtons.first().click({ noWaitAfter: true, timeout: 5000 });
 
     await expect(fileTree.getByText('src')).toBeVisible({ timeout: 15_000 });
     await expect(fileTree.getByText('package.json')).toBeVisible({ timeout: 15_000 });
@@ -1609,7 +1609,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const srcExpandButton = window.locator('button[aria-label="Expand"]').first();
     await expect(srcExpandButton).toBeVisible({ timeout: 15_000 });
-    await srcExpandButton.click({ timeout: 5000 });
+    await srcExpandButton.click({ noWaitAfter: true, timeout: 5000 });
 
     await expect(fileTree.getByText('__tests__')).toBeVisible({ timeout: 15_000 });
     await expect(fileTree.getByText('create-debounce.ts')).toBeVisible({ timeout: 15_000 });
@@ -1617,14 +1617,14 @@ test.describe('Desktop file explorer selection', () => {
 
     const testsExpandButton = window.locator('button[aria-label="Expand"]').first();
     await expect(testsExpandButton).toBeVisible({ timeout: 15_000 });
-    await testsExpandButton.click({ timeout: 5000 });
+    await testsExpandButton.click({ noWaitAfter: true, timeout: 5000 });
 
     await expect(fileTree.getByText('use-file-filters.test.ts')).toBeVisible({
       timeout: 15_000,
     });
     await expect(hooksCheckbox).toHaveAttribute('data-state', 'checked');
 
-    await hooksCheckbox.click({ timeout: 5000 });
+    await hooksCheckbox.click({ noWaitAfter: true, timeout: 5000 });
 
     await expect(hooksCheckbox).toHaveAttribute('data-state', 'unchecked');
     await expect(fileTree.getByRole('checkbox', { name: 'Select src' })).toHaveAttribute(
@@ -1649,7 +1649,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
-    await selectRootButton.click({ timeout: 5000 });
+    await selectRootButton.click({ noWaitAfter: true, timeout: 5000 });
 
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree).toBeVisible({ timeout: 15_000 });
@@ -1660,7 +1660,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const expandButtons = window.locator('button[aria-label="Expand"]');
     await expect(expandButtons).toHaveCount(1, { timeout: 15_000 });
-    await expandButtons.first().click({ timeout: 5000 });
+    await expandButtons.first().click({ noWaitAfter: true, timeout: 5000 });
 
     await expect(fileTree.getByText('page-objects')).toBeVisible({ timeout: 15_000 });
     await expect(fileTree.getByText('types')).toBeVisible({ timeout: 15_000 });
@@ -1670,15 +1670,15 @@ test.describe('Desktop file explorer selection', () => {
     const typesCheckbox = fileTree.getByRole('checkbox', { name: 'Select types' });
     const utilsCheckbox = fileTree.getByRole('checkbox', { name: 'Select utils' });
 
-    await pageObjectsCheckbox.click({ timeout: 5000 });
+    await pageObjectsCheckbox.click({ noWaitAfter: true, timeout: 5000 });
     await expect(window.getByText('2/10')).toBeVisible({ timeout: 15_000 });
     await expect(e2eCheckbox).toHaveAttribute('data-state', 'indeterminate');
 
-    await typesCheckbox.click({ timeout: 5000 });
+    await typesCheckbox.click({ noWaitAfter: true, timeout: 5000 });
     await expect(window.getByText('3/10')).toBeVisible({ timeout: 15_000 });
     await expect(e2eCheckbox).toHaveAttribute('data-state', 'indeterminate');
 
-    await utilsCheckbox.click({ timeout: 5000 });
+    await utilsCheckbox.click({ noWaitAfter: true, timeout: 5000 });
     await expect(window.getByText('5/10')).toBeVisible({ timeout: 15_000 });
     await expect(e2eCheckbox).toHaveAttribute('data-state', 'checked');
   });
@@ -1695,7 +1695,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
-    await selectRootButton.click({ timeout: 5000 });
+    await selectRootButton.click({ noWaitAfter: true, timeout: 5000 });
 
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree).toBeVisible({ timeout: 15_000 });
@@ -1703,7 +1703,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const expandButtons = window.locator('button[aria-label="Expand"]');
     await expect(expandButtons).toHaveCount(1, { timeout: 15_000 });
-    await expandButtons.first().click({ timeout: 5000 });
+    await expandButtons.first().click({ noWaitAfter: true, timeout: 5000 });
 
     await expect(fileTree.getByText('page-objects')).toBeVisible({ timeout: 15_000 });
 
@@ -1712,11 +1712,11 @@ test.describe('Desktop file explorer selection', () => {
     const typesCheckbox = fileTree.getByRole('checkbox', { name: 'Select types' });
     const utilsCheckbox = fileTree.getByRole('checkbox', { name: 'Select utils' });
 
-    await pageObjectsCheckbox.click({ timeout: 5000 });
+    await pageObjectsCheckbox.click({ noWaitAfter: true, timeout: 5000 });
     await expect(window.getByText('2/10')).toBeVisible({ timeout: 15_000 });
     await expect(e2eCheckbox).toHaveAttribute('data-state', 'indeterminate');
 
-    await e2eCheckbox.click({ timeout: 5000 });
+    await e2eCheckbox.click({ noWaitAfter: true, timeout: 5000 });
 
     await expect(window.getByTestId('selection-count')).toHaveText('0', { timeout: 15_000 });
     await expect(e2eCheckbox).toHaveAttribute('data-state', 'unchecked');
@@ -1737,7 +1737,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
-    await selectRootButton.click({ timeout: 5000 });
+    await selectRootButton.click({ noWaitAfter: true, timeout: 5000 });
 
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree).toBeVisible({ timeout: 15_000 });
@@ -1745,15 +1745,15 @@ test.describe('Desktop file explorer selection', () => {
 
     const hooksExpandButton = window.locator('button[aria-label="Expand"]').first();
     await expect(hooksExpandButton).toBeVisible({ timeout: 15_000 });
-    await hooksExpandButton.click({ timeout: 5000 });
+    await hooksExpandButton.click({ noWaitAfter: true, timeout: 5000 });
 
     const srcExpandButton = window.locator('button[aria-label="Expand"]').first();
     await expect(srcExpandButton).toBeVisible({ timeout: 15_000 });
-    await srcExpandButton.click({ timeout: 5000 });
+    await srcExpandButton.click({ noWaitAfter: true, timeout: 5000 });
 
     const testsExpandButton = window.locator('button[aria-label="Expand"]').first();
     await expect(testsExpandButton).toBeVisible({ timeout: 15_000 });
-    await testsExpandButton.click({ timeout: 5000 });
+    await testsExpandButton.click({ noWaitAfter: true, timeout: 5000 });
 
     const hooksCheckbox = fileTree.getByRole('checkbox', { name: 'Select hooks' });
     const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
@@ -1763,15 +1763,21 @@ test.describe('Desktop file explorer selection', () => {
     await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
     await expect(testsCheckbox).toHaveAttribute('data-state', 'unchecked');
 
-    await fileTree.getByRole('checkbox', { name: 'Select package.json' }).click({ timeout: 5000 });
-    await fileTree.getByRole('checkbox', { name: 'Select tsconfig.json' }).click({ timeout: 5000 });
+    await fileTree
+      .getByRole('checkbox', { name: 'Select package.json' })
+      .click({ noWaitAfter: true, timeout: 5000 });
+    await fileTree
+      .getByRole('checkbox', { name: 'Select tsconfig.json' })
+      .click({ noWaitAfter: true, timeout: 5000 });
     await fileTree
       .getByRole('checkbox', { name: 'Select create-debounce.ts' })
-      .click({ timeout: 5000 });
-    await fileTree.getByRole('checkbox', { name: 'Select index.ts' }).click({ timeout: 5000 });
+      .click({ noWaitAfter: true, timeout: 5000 });
+    await fileTree
+      .getByRole('checkbox', { name: 'Select index.ts' })
+      .click({ noWaitAfter: true, timeout: 5000 });
     await fileTree
       .getByRole('checkbox', { name: 'Select use-file-filters.test.ts' })
-      .click({ timeout: 5000 });
+      .click({ noWaitAfter: true, timeout: 5000 });
 
     await expect(testsCheckbox).toHaveAttribute('data-state', 'checked');
     await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
@@ -1790,7 +1796,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
-    await selectRootButton.click({ timeout: 5000 });
+    await selectRootButton.click({ noWaitAfter: true, timeout: 5000 });
 
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree).toBeVisible({ timeout: 15_000 });
@@ -1799,7 +1805,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const selectAllButton = window.getByRole('button', { name: /^Select All$/i }).first();
     await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
-    await selectAllButton.click({ timeout: 5000 });
+    await selectAllButton.click({ noWaitAfter: true, timeout: 5000 });
 
     const hooksCheckbox = fileTree.getByRole('checkbox', { name: 'Select hooks' });
     await expect(hooksCheckbox).toHaveAttribute('data-state', 'checked');
@@ -1879,11 +1885,11 @@ test.describe('Desktop file explorer selection', () => {
       await expect(fileTree.getByText('hooks')).toBeVisible({ timeout: 15_000 });
       await expect(hooksCheckbox).toHaveAttribute('data-state', 'checked');
 
-      await hooksCheckbox.click({ timeout: 5000 });
+      await hooksCheckbox.click({ noWaitAfter: true, timeout: 5000 });
 
       await expect(hooksCheckbox).toHaveAttribute('data-state', 'unchecked');
 
-      await hooksCheckbox.click({ timeout: 5000 });
+      await hooksCheckbox.click({ noWaitAfter: true, timeout: 5000 });
 
       await expect(hooksCheckbox).toHaveAttribute('data-state', 'checked');
 
@@ -1989,7 +1995,7 @@ test.describe('Desktop file explorer selection', () => {
         visible: true,
       });
 
-      await mainCheckbox.click({ timeout: 5000 });
+      await mainCheckbox.click({ noWaitAfter: true, timeout: 5000 });
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('1', {
         timeout: 15_000,
       });
@@ -2006,7 +2012,7 @@ test.describe('Desktop file explorer selection', () => {
         visible: false,
       });
 
-      await appCheckbox.click({ timeout: 5000 });
+      await appCheckbox.click({ noWaitAfter: true, timeout: 5000 });
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('2', {
         timeout: 15_000,
       });
@@ -2018,7 +2024,7 @@ test.describe('Desktop file explorer selection', () => {
         visible: true,
       });
 
-      await srcCheckbox.click({ timeout: 5000 });
+      await srcCheckbox.click({ noWaitAfter: true, timeout: 5000 });
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('0', {
         timeout: 15_000,
       });
@@ -2039,7 +2045,7 @@ test.describe('Desktop file explorer selection', () => {
         visible: false,
       });
 
-      await srcCheckbox.click({ timeout: 5000 });
+      await srcCheckbox.click({ noWaitAfter: true, timeout: 5000 });
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('5', {
         timeout: 15_000,
       });
@@ -2060,19 +2066,19 @@ test.describe('Desktop file explorer selection', () => {
         visible: true,
       });
 
-      await srcCheckbox.click({ timeout: 5000 });
+      await srcCheckbox.click({ noWaitAfter: true, timeout: 5000 });
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('0', {
         timeout: 15_000,
       });
       await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
 
-      await docsCheckbox.click({ timeout: 5000 });
+      await docsCheckbox.click({ noWaitAfter: true, timeout: 5000 });
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('1', {
         timeout: 15_000,
       });
       await expect(docsCheckbox).toHaveAttribute('data-state', 'checked');
 
-      await docsCheckbox.click({ timeout: 5000 });
+      await docsCheckbox.click({ noWaitAfter: true, timeout: 5000 });
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('0', {
         timeout: 15_000,
       });
@@ -2174,14 +2180,14 @@ test.describe('Desktop file explorer selection', () => {
       await expect(componentsCheckbox).toHaveAttribute('data-state', 'checked');
       await expect(publicCheckbox).toHaveAttribute('data-state', 'unchecked');
 
-      await srcCheckbox.click({ timeout: 5000 });
+      await srcCheckbox.click({ noWaitAfter: true, timeout: 5000 });
       await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
       await expect(componentsCheckbox).toHaveAttribute('data-state', 'unchecked');
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('0', {
         timeout: 15_000,
       });
 
-      await srcCheckbox.click({ timeout: 5000 });
+      await srcCheckbox.click({ noWaitAfter: true, timeout: 5000 });
       await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
       await expect(componentsCheckbox).toHaveAttribute('data-state', 'checked');
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText(
@@ -2191,7 +2197,7 @@ test.describe('Desktop file explorer selection', () => {
         }
       );
 
-      await componentsCheckbox.click({ timeout: 5000 });
+      await componentsCheckbox.click({ noWaitAfter: true, timeout: 5000 });
       await expect(componentsCheckbox).toHaveAttribute('data-state', 'unchecked');
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText(
         String(materializedPaths.length - 1),
@@ -2200,7 +2206,7 @@ test.describe('Desktop file explorer selection', () => {
         }
       );
 
-      await publicCheckbox.click({ timeout: 5000 });
+      await publicCheckbox.click({ noWaitAfter: true, timeout: 5000 });
       await expect(publicCheckbox).toHaveAttribute('data-state', 'checked');
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText(
         String(materializedPaths.length),
@@ -2371,19 +2377,19 @@ test.describe('Desktop file explorer selection', () => {
       await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
       await expect(docsCheckbox).toHaveAttribute('data-state', 'checked');
 
-      await srcCheckbox.click({ timeout: 5000 });
+      await srcCheckbox.click({ noWaitAfter: true, timeout: 5000 });
       await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('2', {
         timeout: 15_000,
       });
 
-      await publicCheckbox.click({ timeout: 5000 });
+      await publicCheckbox.click({ noWaitAfter: true, timeout: 5000 });
       await expect(publicCheckbox).toHaveAttribute('data-state', 'unchecked');
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('1', {
         timeout: 15_000,
       });
 
-      await docsCheckbox.click({ timeout: 5000 });
+      await docsCheckbox.click({ noWaitAfter: true, timeout: 5000 });
       await expect(docsCheckbox).toHaveAttribute('data-state', 'unchecked');
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('0', {
         timeout: 15_000,
@@ -2481,7 +2487,7 @@ test.describe('Desktop file explorer selection', () => {
       await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
       await expect(eslintCheckbox).toHaveAttribute('data-state', 'checked');
 
-      await srcCheckbox.click({ timeout: 5000 });
+      await srcCheckbox.click({ noWaitAfter: true, timeout: 5000 });
       await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('1', {
         timeout: 15_000,
@@ -2592,7 +2598,7 @@ test.describe('Desktop file explorer selection', () => {
       const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
       await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
 
-      await srcCheckbox.click({ timeout: 5000 });
+      await srcCheckbox.click({ noWaitAfter: true, timeout: 5000 });
       await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('0', {
         timeout: 15_000,
@@ -2694,7 +2700,7 @@ test.describe('Desktop file explorer selection', () => {
       });
       await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
 
-      await srcCheckbox.click({ timeout: 5000 });
+      await srcCheckbox.click({ noWaitAfter: true, timeout: 5000 });
       await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('0', {
         timeout: 15_000,
@@ -2731,7 +2737,7 @@ test.describe('Desktop file explorer selection', () => {
       });
       await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
 
-      await srcCheckbox.click({ timeout: 5000 });
+      await srcCheckbox.click({ noWaitAfter: true, timeout: 5000 });
       await restartedWindow.waitForTimeout(1200);
 
       await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');

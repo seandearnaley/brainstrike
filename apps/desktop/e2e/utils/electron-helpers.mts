@@ -30,6 +30,8 @@ interface ElectronOutputBuffer {
 const intentionallyClosingApps = new WeakSet<ElectronApplication>();
 const electronOutputBuffers = new WeakMap<ElectronApplication, ElectronOutputBuffer>();
 const isVerboseE2eLoggingEnabled = process.env['BRAINSTRIKE_E2E_VERBOSE'] === '1';
+const electronAppCloseTimeoutMs = 10_000;
+const electronWindowCloseTimeoutMs = 5_000;
 const ignoredElectronOutputPatterns = [
   'Electron Security Warning (Insecure Content-Security-Policy)',
   'This renderer process has either no Content Security',
@@ -618,6 +620,7 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
   try {
     const windows = appContext.app.windows();
     verboseLog(`📋 Closing ${windows.length} window(s)...`);
+    intentionallyClosingApps.add(appContext.app);
     const windowClosePromises: Promise<void>[] = [];
     for (const window of windows) {
       if (window.isClosed()) {
@@ -625,28 +628,48 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
         continue;
       }
 
-      const closePromise = window.waitForEvent('close').then(
-        () => {
-          return;
-        },
-        (windowError) => {
-          console.warn('⚠️ Window did not close gracefully:', windowError);
-        }
+      windowClosePromises.push(
+        (async () => {
+          const windowClosed = waitForWithTimeout(
+            window.waitForEvent('close').then(() => true),
+            electronWindowCloseTimeoutMs,
+            'Electron window close event'
+          );
+          await waitForWithTimeout(
+            window.close(),
+            electronWindowCloseTimeoutMs,
+            'Electron window close request'
+          );
+          await windowClosed;
+        })()
       );
-      windowClosePromises.push(closePromise);
-      try {
-        await window.close();
-        verboseLog('✅ Requested window close');
-      } catch (windowError) {
-        console.warn('⚠️ Failed to close window gracefully:', windowError);
-      }
     }
 
-    const appClosed = appContext.app.waitForEvent('close', { timeout: 10_000 });
-    await Promise.all(windowClosePromises);
-    intentionallyClosingApps.add(appContext.app);
-    await appContext.app.close();
-    await appClosed;
+    await Promise.allSettled(windowClosePromises);
+
+    let didClose: boolean | null = true;
+    try {
+      const electronProcess = getElectronProcessSafe(appContext);
+      if (electronProcess && !electronProcess.killed && electronProcess.exitCode === null) {
+        const appClosed = waitForElectronAppClosed(appContext);
+        await waitForWithTimeout(
+          appContext.app.close(),
+          electronAppCloseTimeoutMs,
+          'Electron app close request'
+        );
+        didClose = await appClosed;
+        verboseLog('✅ Requested window close');
+      }
+    } catch (closeRequestError) {
+      console.warn('⚠️ Failed to request Electron app close gracefully:', closeRequestError);
+      didClose = false;
+    }
+
+    if (!didClose) {
+      console.warn('⚠️ Electron app did not close gracefully; forcing process termination');
+      await forceTerminateElectronApp(appContext);
+      return;
+    }
     verboseLog('✅ Electron app closed');
   } catch (error) {
     if (isPlaywrightTimeoutError(error)) {
@@ -659,6 +682,51 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
   } finally {
     intentionallyClosingApps.delete(appContext.app);
   }
+}
+
+async function waitForWithTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T | null> {
+  let timeoutId: NodeJS.Timeout | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timeoutId = setTimeout(() => {
+      console.warn(`⚠️ ${label} timed out after ${timeoutMs}ms`);
+      resolve(null);
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+async function waitForElectronAppClosed(appContext: ElectronAppContext): Promise<boolean | null> {
+  const electronProcess = getElectronProcessSafe(appContext);
+  if (!electronProcess || electronProcess.exitCode !== null || electronProcess.killed) {
+    return true;
+  }
+
+  const processExited = new Promise<boolean>((resolve) => {
+    electronProcess.once('exit', () => {
+      resolve(true);
+    });
+  });
+  const playwrightClosed = appContext.app.waitForEvent('close').then(
+    () => true,
+    () => false
+  );
+
+  return waitForWithTimeout(
+    Promise.race([processExited, playwrightClosed]),
+    electronAppCloseTimeoutMs,
+    'Electron app close or process exit'
+  );
 }
 
 function isPlaywrightTimeoutError(error: unknown): boolean {
