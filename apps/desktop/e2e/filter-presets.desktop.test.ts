@@ -21,6 +21,15 @@ interface ElectronE2eFileSystemFixture {
 }
 
 const PRESET_LOAD_TIMEOUT_MS = 25_000;
+const FILTER_PRESET_TEST_TIMEOUT_MS = 60_000;
+const ELECTRON_CONTROL_CLICK_TIMEOUT_MS = 10_000;
+
+async function clickElectronControl(locator: Locator): Promise<void> {
+  await locator.click({
+    noWaitAfter: true,
+    timeout: ELECTRON_CONTROL_CLICK_TIMEOUT_MS,
+  });
+}
 
 async function ensureLeftPanelVisible(window: Page): Promise<void> {
   const leftPanel = getContextExplorerLeftPanel(window);
@@ -32,7 +41,7 @@ async function ensureLeftPanelVisible(window: Page): Promise<void> {
     !(await leftPanel.isVisible().catch(() => false)) &&
     (await showLeftPanelButton.isVisible().catch(() => false))
   ) {
-    await showLeftPanelButton.click();
+    await clickElectronControl(showLeftPanelButton);
   }
 
   await leftPanel.waitFor({ state: 'visible', timeout: 10_000 });
@@ -43,7 +52,7 @@ async function ensureViewFiltersExpanded(window: Page): Promise<void> {
   await expect(toggleButton).toBeVisible({ timeout: 10_000 });
 
   if ((await toggleButton.getAttribute('aria-expanded')) !== 'true') {
-    await toggleButton.click();
+    await clickElectronControl(toggleButton);
   }
 
   await expect(toggleButton).toHaveAttribute('aria-expanded', 'true');
@@ -220,7 +229,7 @@ async function installFilteredEmptyFolderFixture(
 async function selectMockRoot(window: Page): Promise<void> {
   const selectRootButton = window.getByRole('button', { name: /select root/i }).first();
   await expect(selectRootButton).toBeVisible({ timeout: 10_000 });
-  await selectRootButton.click();
+  await clickElectronControl(selectRootButton);
 
   await expect(window.getByRole('button', { name: /view filters/i })).toBeVisible({
     timeout: 15_000,
@@ -237,7 +246,7 @@ async function selectDocumentationPreset(window: Page): Promise<void> {
   }
 
   const presetTrigger = await resolvePresetTrigger(window);
-  await presetTrigger.click();
+  await clickElectronControl(presetTrigger);
 
   await expect(window.getByText('Loading presets...')).toBeHidden({
     timeout: PRESET_LOAD_TIMEOUT_MS,
@@ -245,7 +254,7 @@ async function selectDocumentationPreset(window: Page): Promise<void> {
 
   const documentationOption = window.getByRole('button', { name: /documentation/i }).first();
   await expect(documentationOption).toBeVisible({ timeout: 10_000 });
-  await documentationOption.click();
+  await clickElectronControl(documentationOption);
 
   await expect(window.getByRole('button', { name: /documentation/i })).toBeVisible({
     timeout: 10_000,
@@ -258,11 +267,11 @@ async function switchPreset(window: Page, currentName: RegExp, nextName: RegExp)
     name: currentName,
   });
   await expect(presetTrigger).toBeVisible({ timeout: 10_000 });
-  await presetTrigger.click();
+  await clickElectronControl(presetTrigger);
 
   const nextOption = window.getByRole('button', { name: nextName }).first();
   await expect(nextOption).toBeVisible({ timeout: 10_000 });
-  await nextOption.click();
+  await clickElectronControl(nextOption);
 
   await expect(window.getByRole('button', { name: nextName })).toBeVisible({ timeout: 10_000 });
 }
@@ -274,7 +283,7 @@ test.describe('Desktop filter presets', () => {
   });
 
   test('updates the toolbar label when a preset is selected', async ({ window }) => {
-    test.setTimeout(45_000);
+    test.setTimeout(FILTER_PRESET_TEST_TIMEOUT_MS);
 
     await ensureLeftPanelVisible(window);
     await selectMockRoot(window);
@@ -283,7 +292,7 @@ test.describe('Desktop filter presets', () => {
   });
 
   test('keeps the preset trigger enabled when view filters first appear', async ({ window }) => {
-    test.setTimeout(45_000);
+    test.setTimeout(FILTER_PRESET_TEST_TIMEOUT_MS);
 
     await ensureLeftPanelVisible(window);
     await selectMockRoot(window);
@@ -293,14 +302,14 @@ test.describe('Desktop filter presets', () => {
   });
 
   test('loads presets without getting stuck on the loading state', async ({ window }) => {
-    test.setTimeout(45_000);
+    test.setTimeout(FILTER_PRESET_TEST_TIMEOUT_MS);
 
     await ensureLeftPanelVisible(window);
     await selectMockRoot(window);
     await ensureViewFiltersExpanded(window);
 
     const presetTrigger = await resolvePresetTrigger(window);
-    await presetTrigger.click();
+    await clickElectronControl(presetTrigger);
 
     await expect(window.getByText('Loading presets...')).toBeHidden({
       timeout: PRESET_LOAD_TIMEOUT_MS,
@@ -339,7 +348,7 @@ test.describe('Desktop filter presets', () => {
   test('switches to a different preset without snapping back to the previous selection', async ({
     window,
   }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(FILTER_PRESET_TEST_TIMEOUT_MS);
 
     await ensureLeftPanelVisible(window);
     await selectMockRoot(window);
@@ -357,7 +366,7 @@ test.describe('Desktop filter presets', () => {
     electronApp,
     window,
   }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(FILTER_PRESET_TEST_TIMEOUT_MS);
 
     await installFilteredEmptyFolderFixture(electronApp.app, '/mock/filter-empty-folder-root');
     await ensureLeftPanelVisible(window);
@@ -365,14 +374,14 @@ test.describe('Desktop filter presets', () => {
     await ensureViewFiltersExpanded(window);
 
     const presetTrigger = await resolvePresetTrigger(window);
-    await presetTrigger.click();
+    await clickElectronControl(presetTrigger);
     await expect(window.getByText('Loading presets...')).toBeHidden({
       timeout: PRESET_LOAD_TIMEOUT_MS,
     });
 
     const tsPresetOption = window.getByRole('button', { name: /typescript\/javascript/i }).first();
     await expect(tsPresetOption).toBeVisible({ timeout: 10_000 });
-    await tsPresetOption.click();
+    await clickElectronControl(tsPresetOption);
 
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree.getByText('apps')).toBeVisible({ timeout: 10_000 });
@@ -380,7 +389,7 @@ test.describe('Desktop filter presets', () => {
 
     const expandButtons = fileTree.locator('button[aria-label="Expand"]');
     await expect(expandButtons).toHaveCount(2, { timeout: 10_000 });
-    await expandButtons.first().click({ timeout: 5000 });
+    await clickElectronControl(expandButtons.first());
 
     await expect(fileTree.getByText('docs')).toBeVisible({ timeout: 10_000 });
     await expect(fileTree.getByText('web')).toBeVisible({ timeout: 10_000 });
@@ -390,7 +399,7 @@ test.describe('Desktop filter presets', () => {
     await expect(docsRow).toBeVisible();
     await expect(webRow).toBeVisible();
 
-    await docsRow.getByRole('button', { name: 'Expand' }).click({ timeout: 5000 });
+    await clickElectronControl(docsRow.getByRole('button', { name: 'Expand' }));
 
     await expect(docsRow).toBeVisible({ timeout: 10_000 });
     await expect(webRow).toBeVisible({ timeout: 10_000 });
@@ -401,7 +410,7 @@ test.describe('Desktop filter presets', () => {
     electronApp,
     window,
   }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(FILTER_PRESET_TEST_TIMEOUT_MS);
 
     await installFilteredEmptyFolderFixture(electronApp.app, '/mock/filter-empty-folder-root');
     await ensureLeftPanelVisible(window);
@@ -409,18 +418,18 @@ test.describe('Desktop filter presets', () => {
     await ensureViewFiltersExpanded(window);
 
     const presetTrigger = await resolvePresetTrigger(window);
-    await presetTrigger.click();
+    await clickElectronControl(presetTrigger);
     await expect(window.getByText('Loading presets...')).toBeHidden({
       timeout: PRESET_LOAD_TIMEOUT_MS,
     });
 
     const tsPresetOption = window.getByRole('button', { name: /typescript\/javascript/i }).first();
     await expect(tsPresetOption).toBeVisible({ timeout: 10_000 });
-    await tsPresetOption.click();
+    await clickElectronControl(tsPresetOption);
 
     const expandAllButton = window.getByTestId('expand-all-button-small');
     await expect(expandAllButton).toBeVisible({ timeout: 10_000 });
-    await expandAllButton.click();
+    await clickElectronControl(expandAllButton);
 
     await expect(window.getByTestId('inline-scanning-indicator')).not.toBeVisible({
       timeout: 20_000,
