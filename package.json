@@ -86,6 +86,7 @@
     "clean": "turbo run clean --summarize --log-order=grouped",
     "coverage:enforce": "node scripts/enforce-coverage.mjs",
     "coverage:merge": "node scripts/merge-coverage.js",
+    "coverage:prepare-workspace": "node scripts/prepare-workspace-coverage.mjs",
     "coverage:report": "nyc report --reporter=json --reporter=lcov --reporter=text --report-dir ./coverage",
     "deps:fix": "syncpack fix",
     "deps:lint": "syncpack lint",

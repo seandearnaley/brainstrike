@@ -172,6 +172,111 @@
       // Only show logs from cache misses and errors
       "outputLogs": "new-only"
     },
+    "test:coverage:db:check-lanes": {
+      "dependsOn": [],
+      "env": [
+        "NODE_ENV",
+        "TURBO_TEST_MODE"
+      ],
+      "outputs": [],
+      "outputLogs": "new-only"
+    },
+    "test:coverage:db:architecture": {
+      "dependsOn": [
+        "^build",
+        "test:coverage:db:check-lanes"
+      ],
+      "env": [
+        "COVERAGE",
+        "NODE_ENV",
+        "TURBO_TEST_MODE"
+      ],
+      "outputs": [
+        "coverage-db-architecture/**",
+        "test-results/**"
+      ],
+      "outputLogs": "new-only"
+    },
+    "test:coverage:db:chunking": {
+      "dependsOn": [
+        "^build",
+        "test:coverage:db:check-lanes"
+      ],
+      "env": [
+        "COVERAGE",
+        "NODE_ENV",
+        "TURBO_TEST_MODE"
+      ],
+      "outputs": [
+        "coverage-db-chunking/**",
+        "test-results/**"
+      ],
+      "outputLogs": "new-only"
+    },
+    "test:coverage:db:migrations": {
+      "dependsOn": [
+        "^build",
+        "test:coverage:db:check-lanes"
+      ],
+      "env": [
+        "COVERAGE",
+        "NODE_ENV",
+        "TURBO_TEST_MODE"
+      ],
+      "outputs": [
+        "coverage-db-migrations/**",
+        "test-results/**"
+      ],
+      "outputLogs": "new-only"
+    },
+    "test:coverage:db:queue": {
+      "dependsOn": [
+        "^build",
+        "test:coverage:db:check-lanes"
+      ],
+      "env": [
+        "COVERAGE",
+        "NODE_ENV",
+        "TURBO_TEST_MODE"
+      ],
+      "outputs": [
+        "coverage-db-queue/**",
+        "test-results/**"
+      ],
+      "outputLogs": "new-only"
+    },
+    "test:coverage:db:repositories": {
+      "dependsOn": [
+        "^build",
+        "test:coverage:db:check-lanes"
+      ],
+      "env": [
+        "COVERAGE",
+        "NODE_ENV",
+        "TURBO_TEST_MODE"
+      ],
+      "outputs": [
+        "coverage-db-repositories/**",
+        "test-results/**"
+      ],
+      "outputLogs": "new-only"
+    },
+    "test:coverage:db:search": {
+      "dependsOn": [
+        "^build",
+        "test:coverage:db:check-lanes"
+      ],
+      "env": [
+        "COVERAGE",
+        "NODE_ENV",
+        "TURBO_TEST_MODE"
+      ],
+      "outputs": [
+        "coverage-db-search/**",
+        "test-results/**"
+      ],
+      "outputLogs": "new-only"
+    },
     // --- Coverage Merge Task --- //
     "coverage:merge": {
       // Merges coverage files from all packages/apps.

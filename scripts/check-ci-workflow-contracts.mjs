@@ -440,6 +440,69 @@ export function validateWorkflowContracts(source) {
     requireDesktopEmbeddingJobContracts(desktopEmbeddingMain, 'Main', failures);
   }
 
+  const unitCoverage = extractJob(source, 'unit_coverage');
+  if (!unitCoverage) {
+    failures.push('Missing unit_coverage job.');
+  } else {
+    requireIncludes(
+      unitCoverage,
+      'timeout-minutes: 45',
+      'Unit coverage job timeout must stay at 45 minutes or less.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      'timeout-minutes: 30',
+      'Unit coverage test step timeout must stay at 30 minutes or less.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      '--filter="!@brainstrike/db"',
+      'Unit coverage must exclude the monolithic @brainstrike/db coverage task.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      '$DB_COVERAGE_TASKS --filter="@brainstrike/db"',
+      'Split DB coverage tasks must be constrained to @brainstrike/db.',
+      failures
+    );
+    for (const taskName of [
+      'test:coverage:db:architecture',
+      'test:coverage:db:chunking',
+      'test:coverage:db:migrations',
+      'test:coverage:db:queue',
+      'test:coverage:db:repositories',
+      'test:coverage:db:search',
+    ]) {
+      requireIncludes(
+        unitCoverage,
+        taskName,
+        `Unit coverage must run split DB coverage task ${taskName}.`,
+        failures
+      );
+    }
+    requireIncludes(
+      unitCoverage,
+      'pnpm coverage:prepare-workspace',
+      'Unit coverage must merge split workspace coverage before threshold enforcement.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      '--task-prefix test:coverage',
+      'Unit coverage timing diagnostics must include split coverage tasks.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      '--warn-ms 600000 --fail-ms 900000',
+      'Unit coverage package task timing thresholds must stay capped at 10m warn / 15m fail.',
+      failures
+    );
+  }
+
   const requiredPrGate = extractJob(source, 'required-pr-gate');
   if (!requiredPrGate) {
     failures.push('Missing required-pr-gate job.');
