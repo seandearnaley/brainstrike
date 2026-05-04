@@ -42,6 +42,44 @@ function requireYamlListItem(source, item, message, failures) {
   requireMatch(source, new RegExp(`^\\s+- ${escapeRegExp(item)}\\s*$`, 'm'), message, failures);
 }
 
+function requireDesktopEmbeddingJobContracts(source, prefix, failures) {
+  requireIncludes(
+    source,
+    'timeout-minutes: 15',
+    `${prefix} desktop embedding job timeout must stay at 15 minutes or less.`,
+    failures
+  );
+  requireMatch(
+    source,
+    /- name: Run Desktop embedding E2E regression group[\s\S]*?timeout-minutes:\s*12/,
+    `${prefix} desktop embedding test step timeout must stay at 12 minutes or less.`,
+    failures
+  );
+  requireIncludes(
+    source,
+    '--retries=0',
+    `${prefix} desktop embedding E2E must disable Playwright retries.`,
+    failures
+  );
+  requireIncludes(
+    source,
+    '--max-failures=1',
+    `${prefix} desktop embedding E2E must fail fast on the first failure.`,
+    failures
+  );
+  requireIncludes(
+    source,
+    '--global-timeout=720000',
+    `${prefix} desktop embedding E2E must cap Playwright runtime at 12 minutes.`,
+    failures
+  );
+  if (source.includes('@desktop-embedding-core')) {
+    failures.push(
+      `${prefix} desktop embedding E2E must not reintroduce the broad @desktop-embedding-core lane.`
+    );
+  }
+}
+
 function extractNamedStepBlocks(source, namePattern) {
   const lines = source.split('\n');
   const blocks = [];
@@ -229,7 +267,11 @@ export function validateWorkflowContracts(source) {
       failures
     );
     for (const group of [
-      '@desktop-embedding-core',
+      '@desktop-embedding-lifecycle',
+      '@desktop-embedding-backfill',
+      '@desktop-embedding-search',
+      '@desktop-embedding-recovery',
+      '@desktop-embedding-memory',
       '@desktop-embedding-mixed',
       '@desktop-embedding-crash-a',
       '@desktop-embedding-crash-b',
@@ -241,6 +283,7 @@ export function validateWorkflowContracts(source) {
         failures
       );
     }
+    requireDesktopEmbeddingJobContracts(desktopEmbeddingPr, 'PR', failures);
   }
 
   const desktopMain = extractJob(source, 'desktop-e2e-main');
@@ -296,7 +339,11 @@ export function validateWorkflowContracts(source) {
       failures
     );
     for (const group of [
-      '@desktop-embedding-core',
+      '@desktop-embedding-lifecycle',
+      '@desktop-embedding-backfill',
+      '@desktop-embedding-search',
+      '@desktop-embedding-recovery',
+      '@desktop-embedding-memory',
       '@desktop-embedding-mixed',
       '@desktop-embedding-crash-a',
       '@desktop-embedding-crash-b',
@@ -308,6 +355,7 @@ export function validateWorkflowContracts(source) {
         failures
       );
     }
+    requireDesktopEmbeddingJobContracts(desktopEmbeddingMain, 'Main', failures);
   }
 
   const requiredPrGate = extractJob(source, 'required-pr-gate');

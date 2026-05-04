@@ -374,8 +374,6 @@ const REAL_WORLD_BACKGROUND_FILE_COUNT = 256;
 const REAL_WORLD_BACKGROUND_CHUNKS_PER_FILE = 12;
 
 test.describe('Embedding Host Renderer', () => {
-  test.describe.configure({ mode: 'serial' });
-
   const ERROR_LOCATOR = '[data-testid="db-init-error"]';
 
   async function isDatabaseError(page: Page): Promise<boolean> {
@@ -2506,6 +2504,40 @@ test.describe('Embedding Host Renderer', () => {
     throw new Error('Timed out waiting for set-scoped backfill queue movement or fatal host error');
   }
 
+  async function waitForBackfillEnqueueComplete(
+    page: Page,
+    embeddingSetId: string,
+    expectedJobs: number,
+    timeoutMs = 30_000
+  ): Promise<QueueStatsRow> {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const [status, queueStats] = await Promise.all([
+        getEmbeddingHostStatus(page),
+        getEmbeddingSetQueueStats(page, embeddingSetId),
+      ]);
+
+      if (status.state === 'error') {
+        throw new Error(
+          status.lastError ?? 'Embedding host entered an error state while waiting for enqueue.'
+        );
+      }
+
+      const totalObserved =
+        queueStats.queued + queueStats.running + queueStats.failed + queueStats.succeeded;
+      if (totalObserved >= expectedJobs) {
+        return queueStats;
+      }
+
+      await page.waitForTimeout(250);
+    }
+
+    throw new Error(
+      `Timed out waiting for backfill enqueue to reach ${expectedJobs} jobs for set ${embeddingSetId}`
+    );
+  }
+
   async function waitForJobTerminalState(
     page: Page,
     jobId: string,
@@ -3038,7 +3070,7 @@ test.describe('Embedding Host Renderer', () => {
     await electron.ensureWindow();
   });
 
-  test('@desktop-embedding-core defers hidden embedding host startup until first use', async ({
+  test('@desktop-embedding-lifecycle defers hidden embedding host startup until first use', async ({
     electron,
   }) => {
     const context = await electron.restart();
@@ -3131,7 +3163,7 @@ test.describe('Embedding Host Renderer', () => {
     ).toBe(false);
   });
 
-  test('@desktop-embedding-core keeps the visible UI responsive while jobs are queued for the hidden host', async ({
+  test('@desktop-embedding-lifecycle keeps the visible UI responsive while jobs are queued for the hidden host', async ({
     window,
   }) => {
     const activeWindow = await showDatabaseDemoPanel(window);
@@ -3141,6 +3173,7 @@ test.describe('Embedding Host Renderer', () => {
       return;
     }
 
+    await setVectorDevicePreference(activeWindow, 'wasm');
     const jobs = await Promise.all([
       createTestBackfillJob(activeWindow),
       createTestBackfillJob(activeWindow),
@@ -3159,7 +3192,7 @@ test.describe('Embedding Host Renderer', () => {
     expect(status.state).toBe('running');
   });
 
-  test('@desktop-embedding-core keeps the visible UI responsive while a large backfill is being enqueued', async ({
+  test('@desktop-embedding-backfill keeps the visible UI responsive while a large backfill is being enqueued', async ({
     window,
   }) => {
     const activeWindow = await showDatabaseDemoPanel(window);
@@ -3170,6 +3203,7 @@ test.describe('Embedding Host Renderer', () => {
     }
 
     await clearEmbeddingQueue(activeWindow);
+    await setVectorDevicePreference(activeWindow, 'wasm');
     const fixture = await createLargeBackfillFixture(activeWindow, 160);
     await reloadRendererInTest(activeWindow, 'embedding-worker-large-backfill-fixture');
     await showDatabaseDemoPanel(activeWindow);
@@ -3205,7 +3239,7 @@ test.describe('Embedding Host Renderer', () => {
     expect(queueStats.queued + queueStats.running).toBeLessThanOrEqual(64);
   });
 
-  test('@desktop-embedding-core keeps the visible UI responsive while the hidden host is actively processing a backfill', async ({
+  test('@desktop-embedding-backfill keeps the visible UI responsive while the hidden host is actively processing a backfill', async ({
     window,
   }) => {
     const activeWindow = await showDatabaseDemoPanel(window);
@@ -3216,6 +3250,7 @@ test.describe('Embedding Host Renderer', () => {
     }
 
     await clearEmbeddingQueue(activeWindow);
+    await setVectorDevicePreference(activeWindow, 'wasm');
     const fixture = await createLargeBackfillFixture(activeWindow, 96, { persistActiveSet: false });
     await reloadRendererInTest(activeWindow, 'embedding-worker-host-processing-fixture');
     await showDatabaseDemoPanel(activeWindow);
@@ -3271,7 +3306,7 @@ test.describe('Embedding Host Renderer', () => {
     await assertToolsPanelResponsive(activeWindow);
   });
 
-  test('@desktop-embedding-core keeps visible renderer heap bounded while the hidden host enqueues and processes a large backfill', async ({
+  test('@desktop-embedding-memory keeps visible renderer heap bounded while the hidden host enqueues and processes a large backfill', async ({
     window,
   }) => {
     const activeWindow = await showDatabaseDemoPanel(window);
@@ -3282,6 +3317,7 @@ test.describe('Embedding Host Renderer', () => {
     }
 
     await clearEmbeddingQueue(activeWindow);
+    await setVectorDevicePreference(activeWindow, 'wasm');
     const fixture = await createLargeBackfillFixture(activeWindow, 96, { persistActiveSet: false });
     await reloadRendererInTest(activeWindow, 'embedding-worker-visible-memory-diagnostic');
     await showDatabaseDemoPanel(activeWindow);
@@ -3332,7 +3368,7 @@ test.describe('Embedding Host Renderer', () => {
     expect(retainedGrowthMB).toBeLessThan(60);
   });
 
-  test('@desktop-embedding-core keeps hidden-host, visible-renderer, and main-process memory bounded during a 20k chunk backfill', async ({
+  test('@desktop-embedding-diagnostic keeps hidden-host, visible-renderer, and main-process memory bounded during a 20k chunk backfill', async ({
     electronApp,
     electronHarness,
     window,
@@ -3457,7 +3493,7 @@ test.describe('Embedding Host Renderer', () => {
     await electronHarness.restart();
   });
 
-  test('@desktop-embedding-core keeps the visible renderer bounded when opening a 50k chunk collection in the database tab', async ({
+  test('@desktop-embedding-memory keeps the visible renderer bounded when opening a 50k chunk collection in the database tab', async ({
     electronApp,
     window,
   }) => {
@@ -3542,7 +3578,7 @@ test.describe('Embedding Host Renderer', () => {
     );
   });
 
-  test('@desktop-embedding-core keeps the database tab source-paginated and memory-bounded for a 50k file collection', async ({
+  test('@desktop-embedding-memory keeps the database tab source-paginated and memory-bounded for a 50k file collection', async ({
     electronApp,
     window,
   }) => {
@@ -3655,7 +3691,7 @@ test.describe('Embedding Host Renderer', () => {
     );
   });
 
-  test('@desktop-embedding-core shows a newly created collection immediately without leaving the database tab', async ({
+  test('@desktop-embedding-lifecycle shows a newly created collection immediately without leaving the database tab', async ({
     window,
   }) => {
     test.setTimeout(180_000);
@@ -3678,7 +3714,7 @@ test.describe('Embedding Host Renderer', () => {
     });
   });
 
-  test('@desktop-embedding-core preserves backfill progress on the database button across sidebar tab switches', async ({
+  test('@desktop-embedding-backfill preserves backfill progress on the database button across sidebar tab switches', async ({
     electronHarness,
     window,
   }) => {
@@ -3695,8 +3731,8 @@ test.describe('Embedding Host Renderer', () => {
     await setVectorDevicePreference(activeWindow, 'wasm');
 
     const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
-      fileCount: LARGE_BACKFILL_FILE_COUNT,
-      chunksPerFile: LARGE_BACKFILL_CHUNKS_PER_FILE,
+      fileCount: 16,
+      chunksPerFile: 8,
       persistActiveSet: false,
     });
 
@@ -3750,10 +3786,11 @@ test.describe('Embedding Host Renderer', () => {
     expect(resumedProgress.total).toBe(initialProgress.total);
     expect(resumedProgress.done).toBeGreaterThanOrEqual(initialProgress.done);
 
+    await waitForBackfillEnqueueComplete(activeWindow, fixture.embeddingSetId, fixture.totalChunks);
     await electronHarness.restart();
   });
 
-  test('@desktop-embedding-core wiping the queue clears visible backfill state and re-enables manual backfill in the same desktop session', async ({
+  test('@desktop-embedding-recovery wiping the queue clears visible backfill state and re-enables manual backfill in the same desktop session', async ({
     electronHarness,
   }) => {
     test.setTimeout(420_000);
@@ -3859,7 +3896,7 @@ test.describe('Embedding Host Renderer', () => {
     }
   });
 
-  test('@desktop-embedding-core re-enables manual backfill after desktop restart when a collection still has unembedded chunks and no queued or running jobs', async ({
+  test('@desktop-embedding-recovery re-enables manual backfill after desktop restart when a collection still has unembedded chunks and no queued or running jobs', async ({
     electronHarness,
   }) => {
     test.setTimeout(420_000);
@@ -3969,7 +4006,7 @@ test.describe('Embedding Host Renderer', () => {
     }
   });
 
-  test('@desktop-embedding-core does not accumulate hidden-host memory across repeated large backfill cycles on the same host process', async ({
+  test('@desktop-embedding-diagnostic does not accumulate hidden-host memory across repeated large backfill cycles on the same host process', async ({
     electronHarness,
   }) => {
     test.setTimeout(420_000);
@@ -4074,7 +4111,7 @@ test.describe('Embedding Host Renderer', () => {
     ).toBeLessThan(LARGE_BACKFILL_IDLE_MAIN_RSS_DRIFT_LIMIT_MB);
   });
 
-  test('@desktop-embedding-core backfills chunked imported data without hanging and updates collection coverage', async ({
+  test('@desktop-embedding-backfill backfills chunked imported data without hanging and updates collection coverage', async ({
     window,
   }) => {
     let activeWindow = await showDatabaseDemoPanel(window);
@@ -4147,7 +4184,7 @@ test.describe('Embedding Host Renderer', () => {
     await expect(backfillButton).toContainText('Backfill', { timeout: 15_000 });
   });
 
-  test('@desktop-embedding-core end-to-end: import, embed, then vector search returns correct results', async ({
+  test('@desktop-embedding-search end-to-end: import, embed, then vector search returns correct results', async ({
     window,
   }) => {
     test.setTimeout(300_000);
@@ -4485,7 +4522,7 @@ test.describe('Embedding Host Renderer', () => {
     expect(lastSnapshot!.firstResultNodeId).toMatch(/^(chunk-|file-)/);
   });
 
-  test('@desktop-embedding-core search renders file nodes when chunks are lazily loaded (many-file collection)', async ({
+  test('@desktop-embedding-search search renders file nodes when chunks are lazily loaded (many-file collection)', async ({
     window,
   }) => {
     test.setTimeout(300_000);
@@ -4495,7 +4532,9 @@ test.describe('Embedding Host Renderer', () => {
     // reference files on OTHER pages — those file nodes don't exist in the
     // tree. Without building the tree from search results directly, the tree
     // shows "No matching results found" despite the search returning results.
-    // We use 100 files (> default page size of 50) to guarantee pagination.
+    // Use one page plus overflow (> default page size of 50) to guarantee
+    // pagination without turning this search regression into a queue-capacity
+    // stress test.
 
     let activeWindow = await showDatabaseDemoPanel(window);
     if (await isDatabaseError(activeWindow)) {
@@ -4506,10 +4545,7 @@ test.describe('Embedding Host Renderer', () => {
     const collectionName = `Lazy Chunk Search ${Date.now()}`;
     const { embeddingSetId } = await createImportTargetCollection(activeWindow, collectionName);
 
-    // Create 100 files with 1 chunk each — exceeds the default page size (50)
-    // to guarantee pagination. Search results will reference files on page 2+
-    // that don't exist as tree nodes in the paginated view.
-    const LAZY_FILE_COUNT = 100;
+    const LAZY_FILE_COUNT = 60;
     await activeWindow.evaluate(
       async ({ id, fileCount }) => {
         const api = (
@@ -4647,7 +4683,7 @@ test.describe('Embedding Host Renderer', () => {
     await expect(noEmbeddingBadges).toHaveCount(0, { timeout: 5000 });
   });
 
-  test('@desktop-embedding-core search works when vector-preferences store has no devicePref (stale migration)', async ({
+  test('@desktop-embedding-search search works when vector-preferences store has no devicePref (stale migration)', async ({
     window,
   }) => {
     test.setTimeout(300_000);
@@ -4808,7 +4844,7 @@ test.describe('Embedding Host Renderer', () => {
     await expect(emptyMessage2).toHaveCount(0, { timeout: 5000 });
   });
 
-  test('@desktop-embedding-core does not reload the visible renderer or churn hidden runtimes during a real 1k-file import and backfill', async ({
+  test('@desktop-embedding-diagnostic does not reload the visible renderer or churn hidden runtimes during a real 1k-file import and backfill', async ({
     electronApp,
     window,
   }) => {

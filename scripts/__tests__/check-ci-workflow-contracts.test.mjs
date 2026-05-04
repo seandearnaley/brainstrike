@@ -96,6 +96,66 @@ test('workflow contract fails when PR desktop E2E is smoke-only', () => {
   );
 });
 
+test('workflow contract fails when desktop embedding retries are reintroduced', () => {
+  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
+  assert.ok(desktopEmbeddingPr);
+
+  const source = workflowSource.replace(
+    desktopEmbeddingPr,
+    desktopEmbeddingPr.replace(' --retries=0 --max-failures=1', '')
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /desktop embedding E2E must disable Playwright retries/);
+  assert.match(failures, /desktop embedding E2E must fail fast on the first failure/);
+});
+
+test('workflow contract fails when desktop embedding global timeout is removed', () => {
+  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
+  assert.ok(desktopEmbeddingPr);
+
+  const source = workflowSource.replace(
+    desktopEmbeddingPr,
+    desktopEmbeddingPr.replace(' --global-timeout=720000', '')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /desktop embedding E2E must cap Playwright runtime at 12 minutes/
+  );
+});
+
+test('workflow contract fails when broad desktop embedding core lane is reintroduced', () => {
+  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
+  assert.ok(desktopEmbeddingPr);
+
+  const source = workflowSource.replace(
+    desktopEmbeddingPr,
+    desktopEmbeddingPr.replace('@desktop-embedding-lifecycle', '@desktop-embedding-core')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /must not reintroduce the broad @desktop-embedding-core lane/
+  );
+});
+
+test('workflow contract fails when desktop embedding timeout is widened', () => {
+  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
+  assert.ok(desktopEmbeddingPr);
+
+  const source = workflowSource.replace(
+    desktopEmbeddingPr,
+    desktopEmbeddingPr
+      .replace('timeout-minutes: 15', 'timeout-minutes: 40')
+      .replace('timeout-minutes: 12', 'timeout-minutes: 35')
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /desktop embedding job timeout must stay at 15 minutes/);
+  assert.match(failures, /desktop embedding test step timeout must stay at 12 minutes/);
+});
+
 test('workflow contract fails when desktop PR and main shard totals diverge', () => {
   const source = workflowSource
     .replace('desktop-shards=["1","2","3","4"]', 'desktop-shards=["1","2"]')

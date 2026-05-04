@@ -898,7 +898,7 @@ jobs:
     if: github.event_name == 'pull_request'
     needs: [prepare-desktop]
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 15
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
@@ -907,17 +907,29 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - group: core
+          - group: lifecycle
             display: 101
-            grep: "@desktop-embedding-core"
-          - group: mixed
+            grep: "@desktop-embedding-lifecycle"
+          - group: backfill
             display: 102
+            grep: "@desktop-embedding-backfill"
+          - group: search
+            display: 103
+            grep: "@desktop-embedding-search"
+          - group: recovery
+            display: 104
+            grep: "@desktop-embedding-recovery"
+          - group: memory
+            display: 105
+            grep: "@desktop-embedding-memory"
+          - group: mixed
+            display: 106
             grep: "@desktop-embedding-mixed"
           - group: crash-a
-            display: 103
+            display: 107
             grep: "@desktop-embedding-crash-a"
           - group: crash-b
-            display: 104
+            display: 108
             grep: "@desktop-embedding-crash-b"
     steps:
       - name: Checkout
@@ -932,7 +944,7 @@ jobs:
         uses: ./.github/actions/setup-desktop-e2e
 
       - name: Run Desktop embedding E2E regression group
-        timeout-minutes: 35
+        timeout-minutes: 12
         working-directory: apps/desktop
         run: |
           export DISPLAY=":${{ matrix.display }}"
@@ -950,7 +962,7 @@ jobs:
           fi
 
           unset NO_COLOR
-          pnpm exec playwright test --project=regression --workers=1 --grep "$EMBED_GREP" e2e/embedding-worker-renderer.test.ts
+          pnpm exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=720000 --grep "$EMBED_GREP" e2e/embedding-worker-renderer.test.ts
           TEST_EXIT_CODE=$?
 
           kill $XVFB_PID 2>/dev/null || true
@@ -1088,7 +1100,7 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: [prepare-desktop, e2e]
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 15
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
@@ -1097,17 +1109,29 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - group: core
+          - group: lifecycle
             display: 101
-            grep: "@desktop-embedding-core"
-          - group: mixed
+            grep: "@desktop-embedding-lifecycle"
+          - group: backfill
             display: 102
+            grep: "@desktop-embedding-backfill"
+          - group: search
+            display: 103
+            grep: "@desktop-embedding-search"
+          - group: recovery
+            display: 104
+            grep: "@desktop-embedding-recovery"
+          - group: memory
+            display: 105
+            grep: "@desktop-embedding-memory"
+          - group: mixed
+            display: 106
             grep: "@desktop-embedding-mixed"
           - group: crash-a
-            display: 103
+            display: 107
             grep: "@desktop-embedding-crash-a"
           - group: crash-b
-            display: 104
+            display: 108
             grep: "@desktop-embedding-crash-b"
     steps:
       - name: Checkout
@@ -1122,7 +1146,7 @@ jobs:
         uses: ./.github/actions/setup-desktop-e2e
 
       - name: Run Desktop embedding E2E regression group
-        timeout-minutes: 35
+        timeout-minutes: 12
         working-directory: apps/desktop
         run: |
           export DISPLAY=":${{ matrix.display }}"
@@ -1140,7 +1164,7 @@ jobs:
           fi
 
           unset NO_COLOR
-          pnpm exec playwright test --project=regression --workers=1 --grep "$EMBED_GREP" e2e/embedding-worker-renderer.test.ts
+          pnpm exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=720000 --grep "$EMBED_GREP" e2e/embedding-worker-renderer.test.ts
           TEST_EXIT_CODE=$?
 
           kill $XVFB_PID 2>/dev/null || true
