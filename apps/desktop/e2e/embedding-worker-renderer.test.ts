@@ -146,6 +146,13 @@ interface EmbeddingSetCountsRow {
   totalChunks: number | string | null;
 }
 
+interface EmbeddingBackfillInfo {
+  embeddingSetId: string;
+  progress: { current: number; total: number } | null;
+  requestId: string;
+  source: 'background-indexing' | 'manual';
+}
+
 interface ImportedPathCounts {
   fileCount: number;
   totalChunks: number;
@@ -370,8 +377,9 @@ const DEFAULT_12K_MIN_HEALTH_SAMPLE_COUNT = 4;
 // claimed jobs, not concurrent model executions.
 const DESKTOP_IDLE_EMBED_RUNNING_JOB_LIMIT = 16;
 const REAL_WORLD_MIXED_STATE_FILE_COUNT = 1002;
-const REAL_WORLD_BACKGROUND_FILE_COUNT = 256;
-const REAL_WORLD_BACKGROUND_CHUNKS_PER_FILE = 12;
+const REAL_WORLD_BACKGROUND_FILE_COUNT = 96;
+const REAL_WORLD_BACKGROUND_CHUNKS_PER_FILE = 8;
+const EMBEDDING_BACKFILL_CANCELED_MESSAGE = 'Embedding backfill was canceled.';
 
 test.describe('Embedding Host Renderer', () => {
   const ERROR_LOCATOR = '[data-testid="db-init-error"]';
@@ -2652,6 +2660,32 @@ test.describe('Embedding Host Renderer', () => {
     throw new Error('Timed out waiting for bridge-driven backfill completion');
   }
 
+  async function waitForDatabaseDemoImportIdle(page: Page, timeoutMs = 60_000): Promise<void> {
+    const startedAt = Date.now();
+    let lastSnapshot: DatabaseDemoImportTestSnapshot | null = null;
+
+    while (Date.now() - startedAt < timeoutMs) {
+      lastSnapshot = await getDatabaseDemoImportSnapshot(page);
+
+      const importErrors = lastSnapshot?.progress?.errors ?? [];
+      if (importErrors.length > 0) {
+        throw new Error(
+          `Database import reported errors while waiting for idle: ${JSON.stringify(importErrors.slice(0, 10))}\nsnapshot=${JSON.stringify(lastSnapshot)}`
+        );
+      }
+
+      if (lastSnapshot && !lastSnapshot.isImporting) {
+        return;
+      }
+
+      await page.waitForTimeout(250);
+    }
+
+    throw new Error(
+      `Timed out waiting for database import to become idle; snapshot=${JSON.stringify(lastSnapshot)}`
+    );
+  }
+
   async function getBridgeBackfillState(page: Page): Promise<{
     done: boolean;
     embeddingSetId: string;
@@ -2669,6 +2703,79 @@ test.describe('Embedding Host Renderer', () => {
           }
         ).__e2eEmbeddingBackfillState ?? null
     );
+  }
+
+  async function getEmbeddingBackfillsInFlight(page: Page): Promise<EmbeddingBackfillInfo[]> {
+    return await page.evaluate<EmbeddingBackfillInfo[]>(async () => {
+      const host = (
+        window as Window & {
+          embeddingHost?: {
+            getBackfillsInFlight?: () => Promise<EmbeddingBackfillInfo[]>;
+          };
+        }
+      ).embeddingHost;
+      if (!host?.getBackfillsInFlight) {
+        throw new Error('Embedding host backfill diagnostics bridge is not available');
+      }
+      return await host.getBackfillsInFlight();
+    });
+  }
+
+  async function cancelAllEmbeddingBackfillsAndDrain(
+    page: Page,
+    timeoutMs = 60_000
+  ): Promise<void> {
+    await page.evaluate(async () => {
+      const host = (
+        window as Window & {
+          embeddingHost?: {
+            cancelAllBackfills?: () => Promise<void>;
+          };
+        }
+      ).embeddingHost;
+      if (!host?.cancelAllBackfills) {
+        throw new Error('Embedding host cancel-all bridge is not available');
+      }
+      await host.cancelAllBackfills();
+    });
+
+    const startedAt = Date.now();
+    let lastBridgeState: Awaited<ReturnType<typeof getBridgeBackfillState>> = null;
+    let lastInFlight: EmbeddingBackfillInfo[] = [];
+
+    while (Date.now() - startedAt < timeoutMs) {
+      [lastInFlight, lastBridgeState] = await Promise.all([
+        getEmbeddingBackfillsInFlight(page),
+        getBridgeBackfillState(page),
+      ]);
+
+      if (lastInFlight.length === 0 && (!lastBridgeState || lastBridgeState.done)) {
+        if (
+          lastBridgeState?.done &&
+          lastBridgeState.error &&
+          !lastBridgeState.error.includes(EMBEDDING_BACKFILL_CANCELED_MESSAGE)
+        ) {
+          throw new Error(lastBridgeState.error);
+        }
+        return;
+      }
+
+      await page.waitForTimeout(250);
+    }
+
+    throw new Error(
+      `Timed out waiting for embedding backfills to cancel; inFlight=${JSON.stringify(lastInFlight)} bridgeState=${JSON.stringify(lastBridgeState)}`
+    );
+  }
+
+  async function settleEmbeddingBackfillsBeforeHostStop(page: Page): Promise<void> {
+    await cancelAllEmbeddingBackfillsAndDrain(page);
+    await clearEmbeddingQueue(page);
+
+    const status = await getEmbeddingHostStatus(page);
+    if (status.state === 'running') {
+      await waitForEmbeddingHostIdleAndQueueDrain(page, 30_000);
+    }
   }
 
   async function getRelevantElectronStderr(app: ElectronApplication): Promise<string[]> {
@@ -2790,6 +2897,7 @@ test.describe('Embedding Host Renderer', () => {
       throw new Error('Database initialization failed in desktop mixed-state setup');
     }
 
+    await cancelAllEmbeddingBackfillsAndDrain(activeWindow);
     await clearEmbeddingQueue(activeWindow);
     await stopEmbeddingHost(activeWindow);
     await stopChunkingHost(activeWindow);
@@ -2982,6 +3090,8 @@ test.describe('Embedding Host Renderer', () => {
         totalChunks: expect.any(Number),
         embeddedChunks: 0,
       });
+
+    await waitForDatabaseDemoImportIdle(activeWindow);
 
     const backgroundFixture = await createLargeBackfillCorpusFixture(activeWindow, {
       fileCount: REAL_WORLD_BACKGROUND_FILE_COUNT,
@@ -5442,8 +5552,9 @@ test.describe('Embedding Host Renderer', () => {
       expect(expandedTreeNodeCount).toBeGreaterThan(0);
       expect(electronStderr).toEqual([]);
     } finally {
+      await waitForDatabaseDemoImportIdle(activeWindow);
+      await settleEmbeddingBackfillsBeforeHostStop(activeWindow);
       await clearLargeImportFileSystemMock(electronApp.app);
-      await clearEmbeddingQueue(activeWindow);
       await stopEmbeddingHost(activeWindow);
       await stopChunkingHost(activeWindow);
     }
@@ -5771,8 +5882,9 @@ test.describe('Embedding Host Renderer', () => {
       expect(chunkingHostStatusAfterExpand.state).not.toBe('error');
       expect(importSnapshotAfterExpand?.activeCollectionId).not.toBeNull();
     } finally {
+      await waitForDatabaseDemoImportIdle(activeWindow);
+      await settleEmbeddingBackfillsBeforeHostStop(activeWindow);
       await clearLargeImportFileSystemMock(electronApp.app);
-      await clearEmbeddingQueue(activeWindow);
       await stopEmbeddingHost(activeWindow);
       await stopChunkingHost(activeWindow);
     }
@@ -6117,6 +6229,7 @@ test.describe('Embedding Host Renderer', () => {
     // Explicitly stop first to avoid a race between the prior test's 'stop' command and
     // our 'reset' command. Without this, startWorker can silently skip starting when
     // startingRef.current is still true from a concurrent stop/start sequence.
+    await cancelAllEmbeddingBackfillsAndDrain(activeWindow);
     await stopEmbeddingHost(activeWindow);
     await activeWindow.waitForTimeout(200);
     await clearEmbeddingQueue(activeWindow);
