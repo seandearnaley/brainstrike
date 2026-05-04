@@ -66,7 +66,7 @@ function isElectronE2ETestMode(): boolean {
 
 function readExplicitE2eUserDataDir(): string | null {
   const candidate = process.env[E2E_USER_DATA_DIR_ENV]?.trim();
-  if (!(candidate && candidate.toLowerCase() !== 'undefined')) {
+  if (!candidate || candidate.toLowerCase() === 'undefined') {
     return null;
   }
   if (!path.isAbsolute(candidate)) {

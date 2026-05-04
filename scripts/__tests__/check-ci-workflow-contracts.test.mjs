@@ -140,6 +140,23 @@ test('workflow contract fails when desktop regression global timeout is widened'
   );
 });
 
+test('workflow contract does not accept desktop regression timeout lines outside the job header', () => {
+  const desktopPr = extractJob(workflowSource, 'desktop-e2e-pr');
+  assert.ok(desktopPr);
+
+  const source = workflowSource.replace(
+    desktopPr,
+    desktopPr
+      .replace('    timeout-minutes: 20\n', '')
+      .replace('    steps:\n', '    steps:\n    timeout-minutes: 15\n')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /desktop regression job timeout must stay at 20 minutes/
+  );
+});
+
 test('workflow contract allows stricter desktop regression global timeout', () => {
   const desktopMain = extractJob(workflowSource, 'desktop-e2e-main');
   assert.ok(desktopMain);

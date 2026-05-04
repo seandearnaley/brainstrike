@@ -52,6 +52,11 @@ function requireNumericCliFlagAtMost(source, flag, maxValue, message, failures) 
   );
 }
 
+function extractJobHeader(source) {
+  const stepsStart = source.search(/^\s+steps:\s*$/m);
+  return stepsStart === -1 ? source : source.slice(0, stepsStart);
+}
+
 function escapeRegExp(source) {
   return source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -110,7 +115,7 @@ function requireDesktopEmbeddingJobContracts(source, prefix, failures) {
 
 function requireDesktopRegressionJobContracts(source, prefix, failures) {
   requireNumericMatchAtMost(
-    source,
+    extractJobHeader(source),
     /^    timeout-minutes:\s*(\d+)\s*$/m,
     20,
     `${prefix} desktop regression job timeout must stay at 20 minutes or less.`,

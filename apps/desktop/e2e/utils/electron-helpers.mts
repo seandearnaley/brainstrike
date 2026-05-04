@@ -669,7 +669,7 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
           'Electron app close request'
         );
         didClose = await appClosed;
-        verboseLog('✅ Requested window close');
+        verboseLog('✅ Requested app close');
       }
     } catch (closeRequestError) {
       console.warn('⚠️ Failed to request Electron app close gracefully:', closeRequestError);
