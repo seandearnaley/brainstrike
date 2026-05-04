@@ -804,7 +804,7 @@ jobs:
     if: github.event_name == 'pull_request'
     needs: [prepare-desktop, determine-matrix]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
@@ -827,7 +827,7 @@ jobs:
         uses: ./.github/actions/setup-desktop-e2e
 
       - name: Run Desktop E2E regression tests (shard)
-        timeout-minutes: 40
+        timeout-minutes: 15
         working-directory: apps/desktop
         run: |
           # Use a deterministic X server number per shard to avoid collisions
@@ -858,7 +858,7 @@ jobs:
           # Run regression tests with explicit DISPLAY
           echo "Starting Playwright regression tests..."
           unset NO_COLOR
-          pnpm exec playwright test --project=regression --workers=2 --grep-invert "@desktop-embedding-" --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          pnpm exec playwright test --project=regression --workers=2 --retries=0 --max-failures=1 --global-timeout=720000 --grep-invert "@desktop-embedding-" --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
           TEST_EXIT_CODE=$?
 
           # Cleanup
@@ -1000,7 +1000,7 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: [prepare-desktop, e2e, determine-matrix] # Sequential on main - wait for web E2E
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
@@ -1023,7 +1023,7 @@ jobs:
         uses: ./.github/actions/setup-desktop-e2e
 
       - name: Run Desktop E2E tests (shard)
-        timeout-minutes: 30
+        timeout-minutes: 15
         working-directory: apps/desktop
         run: |
           # Use a deterministic X server number per shard to avoid collisions
@@ -1054,7 +1054,7 @@ jobs:
           # Run regression tests (non-smoke) with explicit DISPLAY
           echo "Starting Playwright regression tests..."
           unset NO_COLOR
-          pnpm exec playwright test --project=regression --workers=2 --grep-invert "@desktop-embedding-" --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          pnpm exec playwright test --project=regression --workers=2 --retries=0 --max-failures=1 --global-timeout=720000 --grep-invert "@desktop-embedding-" --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
           TEST_EXIT_CODE=$?
 
           # Cleanup

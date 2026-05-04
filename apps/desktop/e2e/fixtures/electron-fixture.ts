@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -20,6 +21,7 @@ class ElectronHarness {
   private readonly maxRendererRecoveryAttempts = 1;
 
   constructor(
+    private readonly testInfo: TestInfo,
     private readonly debugPort?: number,
     private readonly userDataDir?: string
   ) {}
@@ -27,7 +29,9 @@ class ElectronHarness {
   async ensureContext(): Promise<ElectronAppContext> {
     if (!this.context) {
       const { launchElectronApp } = await loadElectronHelpers();
-      this.context = await launchElectronApp(this.debugPort, this.userDataDir);
+      this.context = await launchElectronApp(this.debugPort, this.userDataDir, {
+        disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
+      });
       return this.context;
     }
 
@@ -66,7 +70,9 @@ class ElectronHarness {
     }
 
     const { launchElectronApp } = await loadElectronHelpers();
-    this.context = await launchElectronApp(this.debugPort, this.userDataDir);
+    this.context = await launchElectronApp(this.debugPort, this.userDataDir, {
+      disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
+    });
     return this.context;
   }
 
@@ -179,6 +185,7 @@ class ElectronHarness {
 }
 
 interface ElectronTestFixtures {
+  electron: ElectronHarness;
   electronApp: ElectronAppContext;
   electronHarness: ElectronHarness;
   /** Failure artifact collector - automatically captures diagnostics on test failure */
@@ -187,31 +194,30 @@ interface ElectronTestFixtures {
   window: Page;
 }
 
-interface ElectronWorkerFixtures {
-  electron: ElectronHarness;
+function shouldDisableExternalLocalRuntimeProbes(testInfo: TestInfo): boolean {
+  return !testInfo.file.endsWith(`${path.sep}local-runtime-probe.desktop.test.ts`);
 }
 
-export const test = base.extend<ElectronTestFixtures, ElectronWorkerFixtures>({
-  electron: [
-    async ({}, use, workerInfo) => {
-      const shardIndex = workerInfo.config.shard?.current ?? 0;
-      const workerIndex = workerInfo.workerIndex;
-      const runSalt = getRunSalt();
+export const test = base.extend<ElectronTestFixtures>({
+  electron: async ({}, use, testInfo) => {
+    const shardIndex = testInfo.config.shard?.current ?? 0;
+    const workerIndex = testInfo.workerIndex;
+    const runSalt = getRunSalt();
+    const userDataDir = deriveUserDataDir(
+      runSalt,
+      shardIndex,
+      workerIndex,
+      testInfo.testId,
+      testInfo.retry
+    );
 
-      // NOTE: We no longer use explicit debug ports - Playwright manages CDP automatically.
-      // This prevents "Waiting for debugger to disconnect" hangs in CI.
-      // We still isolate user data directories per shard to prevent state collisions.
-      const userDataDir = deriveUserDataDir(runSalt, shardIndex, workerIndex);
-
-      const harness = new ElectronHarness(undefined, userDataDir);
-      try {
-        await use(harness);
-      } finally {
-        await harness.dispose();
-      }
-    },
-    { scope: 'worker' },
-  ],
+    const harness = new ElectronHarness(testInfo, undefined, userDataDir);
+    try {
+      await use(harness);
+    } finally {
+      await harness.dispose();
+    }
+  },
 
   electronApp: async ({ electron }, use) => {
     const context = await electron.ensureContext();
@@ -277,12 +283,16 @@ function getRunSalt(): number {
 function deriveUserDataDir(
   runSalt: number,
   shardIndex: number,
-  workerIndex: number
+  workerIndex: number,
+  testId: string,
+  retry: number
 ): string | undefined {
   const shardSuffix = Number.isInteger(shardIndex) ? shardIndex : 0;
   const workerSuffix = Number.isInteger(workerIndex) ? workerIndex : 0;
+  const retrySuffix = Number.isInteger(retry) ? retry : 0;
+  const testSuffix = createHash('sha256').update(testId).digest('hex').slice(0, 12);
   return path.join(
     os.tmpdir(),
-    `brainstrike-test-user-data-${runSalt}-shard-${shardSuffix}-worker-${workerSuffix}`
+    `brainstrike-test-user-data-${runSalt}-shard-${shardSuffix}-worker-${workerSuffix}-test-${testSuffix}-retry-${retrySuffix}`
   );
 }

@@ -63,6 +63,10 @@ const LLM_HOST_GENERATE_CHANNEL = 'llm-host:generate' as const;
 const APP_LIFECYCLE_NOTE_RELOAD_INTENT_CHANNEL = 'app:lifecycle:note-reload-intent' as const;
 const DESKTOP_TEST_MODE =
   process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
+const EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED =
+  DESKTOP_TEST_MODE && process.env['BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES'] === '1';
+const EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED_MESSAGE =
+  'External local runtime probing is disabled for deterministic desktop E2E.';
 
 interface DbLiveUpdatePayload {
   id: number;
@@ -123,6 +127,24 @@ const disabledBridgeNames = disabledPreloadBridges();
 
 function shouldExposeBridge(name: string): boolean {
   return !disabledBridgeNames.has(name);
+}
+
+function createDisabledLocalRuntimeAvailability() {
+  return {
+    state: 'unavailable' as const,
+    checkedAt: Date.now(),
+    message: EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED_MESSAGE,
+  };
+}
+
+function createDisabledLocalRuntimeCatalog(runtimeId: string) {
+  return {
+    state: 'failed' as const,
+    runtime: runtimeId,
+    checkedAt: Date.now(),
+    availability: createDisabledLocalRuntimeAvailability(),
+    message: EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED_MESSAGE,
+  };
 }
 
 type EmbeddingHostLifecycleState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
@@ -486,16 +508,39 @@ contextBridge.exposeInMainWorld('assistant', {
 // to that policy, so we run probe + catalog fetch there and pass the
 // typed result back over IPC.
 if (shouldExposeBridge('runtime')) {
-  contextBridge.exposeInMainWorld('runtime', {
-    probe: (runtimeId: string, options: unknown) =>
-      ipcRenderer.invoke('runtime:probe', runtimeId, options),
-    listModels: (runtimeId: string, options: unknown) =>
-      ipcRenderer.invoke('runtime:listModels', runtimeId, options),
-    resolveOllamaCapabilities: (modelId: string, options: unknown) =>
-      ipcRenderer.invoke('runtime:resolveOllamaCapabilities', modelId, options),
-    verifyEmbeddingDimensions: (runtimeId: string, modelId: string, options: unknown) =>
-      ipcRenderer.invoke('runtime:verifyEmbeddingDimensions', runtimeId, modelId, options),
-  });
+  contextBridge.exposeInMainWorld(
+    'runtime',
+    EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED
+      ? {
+          probe: () => Promise.resolve(createDisabledLocalRuntimeAvailability()),
+          listModels: (runtimeId: string) =>
+            Promise.resolve(createDisabledLocalRuntimeCatalog(runtimeId)),
+          resolveOllamaCapabilities: (modelId: string) =>
+            Promise.resolve({
+              state: 'unavailable' as const,
+              checkedAt: Date.now(),
+              endpoint: 'disabled-by-e2e',
+              message: EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED_MESSAGE,
+              modelId,
+            }),
+          verifyEmbeddingDimensions: () =>
+            Promise.resolve({
+              state: 'failed' as const,
+              checkedAt: Date.now(),
+              message: EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED_MESSAGE,
+            }),
+        }
+      : {
+          probe: (runtimeId: string, options: unknown) =>
+            ipcRenderer.invoke('runtime:probe', runtimeId, options),
+          listModels: (runtimeId: string, options: unknown) =>
+            ipcRenderer.invoke('runtime:listModels', runtimeId, options),
+          resolveOllamaCapabilities: (modelId: string, options: unknown) =>
+            ipcRenderer.invoke('runtime:resolveOllamaCapabilities', modelId, options),
+          verifyEmbeddingDimensions: (runtimeId: string, modelId: string, options: unknown) =>
+            ipcRenderer.invoke('runtime:verifyEmbeddingDimensions', runtimeId, modelId, options),
+        }
+  );
 }
 
 if (shouldExposeBridge('logging')) {

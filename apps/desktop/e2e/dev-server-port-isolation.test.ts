@@ -1,6 +1,8 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import http from 'node:http';
 import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { HomePage } from './page-objects/home-page';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
@@ -132,13 +134,13 @@ test.describe('Desktop dev-server port isolation', () => {
     const originalDevServerUrl = process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL'];
     const isolatedPort = 39_000 + Math.floor(Math.random() * 1000);
     const isolatedDevServerUrl = `http://localhost:${isolatedPort}`;
+    const { closeElectronApp, launchElectronAppWithOptions } = await loadElectronHelpers();
     const legacyPortServer = http.createServer((_request, response) => {
       response.writeHead(200, { 'Content-Type': 'text/plain' });
       response.end('legacy-port-occupied');
     });
     const rendererServer = startDesktopRendererDevServer(isolatedDevServerUrl);
     const rendererServerOutput = createOutputBuffer(rendererServer);
-    const { closeElectronApp, launchElectronAppWithOptions } = await loadElectronHelpers();
     let electronContext: Awaited<ReturnType<typeof launchElectronAppWithOptions>> | undefined;
 
     process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL'] = isolatedDevServerUrl;
@@ -149,6 +151,7 @@ test.describe('Desktop dev-server port isolation', () => {
 
       electronContext = await launchElectronAppWithOptions({
         launchMode: 'dev-server',
+        userDataDir: path.join(os.tmpdir(), `brainstrike-dev-server-port-${process.pid}`),
       });
 
       const homePage = new HomePage(electronContext.window);

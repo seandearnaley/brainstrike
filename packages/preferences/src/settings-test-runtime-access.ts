@@ -100,6 +100,10 @@ function readSettingsTestOverrides(): SettingsE2ETestOverrides | undefined {
   return window.__brainstrikePendingSettingsTestOverrides__;
 }
 
+function shouldDisableExternalLocalRuntimeProbesForE2E(): boolean {
+  return globalThis.process?.env?.['BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES'] === '1';
+}
+
 function readPersistedAssistantSelectedModelForTests(): string | undefined {
   if (!shouldReadSettingsTestOverrides()) {
     return;
@@ -152,7 +156,18 @@ export function getAssistantConfiguredProvidersTestOverride():
 export function getLocalRuntimeStatusTestOverride(
   runtimeId: LocalRuntimeId
 ): LocalRuntimeAvailabilityState | undefined {
-  return readSettingsTestOverrides()?.localRuntime?.statuses?.[runtimeId];
+  const explicitOverride = readSettingsTestOverrides()?.localRuntime?.statuses?.[runtimeId];
+  if (explicitOverride) {
+    return explicitOverride;
+  }
+  if (!(shouldReadSettingsTestOverrides() && shouldDisableExternalLocalRuntimeProbesForE2E())) {
+    return;
+  }
+  return {
+    state: 'unavailable',
+    checkedAt: Date.now(),
+    message: 'External local runtime probing is disabled for deterministic desktop E2E.',
+  };
 }
 
 export function recordLocalRuntimeProbeForTests(runtimeId: LocalRuntimeId): void {

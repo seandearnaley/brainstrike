@@ -11,6 +11,8 @@ declare const process: NodeJS.Process;
 const require = createRequire(import.meta.url);
 
 const { getCILaunchArgs } = playwrightEnvironment;
+const e2eUserDataDirEnv = 'BRAINSTRIKE_E2E_USER_DATA_DIR';
+const dbRootPathEnv = 'BRAINSTRIKE_DB_ROOT_PATH';
 
 export interface ElectronAppContext {
   app: ElectronApplication;
@@ -18,6 +20,7 @@ export interface ElectronAppContext {
 }
 
 interface LaunchElectronAppOptions {
+  readonly disableExternalLocalRuntimeProbes?: boolean;
   readonly launchMode?: 'built' | 'dev-server' | 'test-built';
   readonly userDataDir?: string;
 }
@@ -30,6 +33,8 @@ interface ElectronOutputBuffer {
 const intentionallyClosingApps = new WeakSet<ElectronApplication>();
 const electronOutputBuffers = new WeakMap<ElectronApplication, ElectronOutputBuffer>();
 const isVerboseE2eLoggingEnabled = process.env['BRAINSTRIKE_E2E_VERBOSE'] === '1';
+const electronAppCloseTimeoutMs = 10_000;
+const electronWindowCloseTimeoutMs = 5_000;
 const ignoredElectronOutputPatterns = [
   'Electron Security Warning (Insecure Content-Security-Policy)',
   'This renderer process has either no Content Security',
@@ -199,9 +204,11 @@ function logEnvironmentDiagnostics(userDataDir?: string): void {
 
 export async function launchElectronApp(
   _debugPort?: number,
-  userDataDir?: string
+  userDataDir?: string,
+  options: Pick<LaunchElectronAppOptions, 'disableExternalLocalRuntimeProbes'> = {}
 ): Promise<ElectronAppContext> {
   return await launchElectronAppWithOptions({
+    ...options,
     launchMode: 'test-built',
     userDataDir,
   });
@@ -218,6 +225,9 @@ export async function launchElectronAppWithOptions(
 
   const launchMode = options.launchMode ?? 'test-built';
   const userDataDir = options.userDataDir;
+  if (!userDataDir) {
+    throw new Error('Desktop E2E launches must provide an isolated userDataDir.');
+  }
 
   // Electron launches can fail transiently immediately after a forced
   // renderer/app reset while the OS releases resources. Keep one local retry
@@ -244,7 +254,8 @@ export async function launchElectronAppWithOptions(
       undefined,
       userDataDir,
       launchTimeoutMs,
-      launchMode
+      launchMode,
+      options.disableExternalLocalRuntimeProbes ?? false
     );
 
     try {
@@ -322,7 +333,8 @@ function createLaunchOptions(
   _debugPort?: number,
   userDataDir?: string,
   launchTimeoutMs?: number,
-  launchMode: 'built' | 'dev-server' | 'test-built' = 'test-built'
+  launchMode: 'built' | 'dev-server' | 'test-built' = 'test-built',
+  disableExternalLocalRuntimeProbes = false
 ): Parameters<typeof electron.launch>[0] {
   const { ELECTRON_RUN_AS_NODE: _ignoredElectronRunAsNode, ...baseEnv } = process.env;
   const ciArgs = getCILaunchArgs();
@@ -375,6 +387,12 @@ function createLaunchOptions(
       ELECTRON_DISABLE_SANDBOX: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_ENABLE_LOGGING: 'true',
+      ...(userDataDir
+        ? {
+            [e2eUserDataDirEnv]: userDataDir,
+            [dbRootPathEnv]: userDataDir,
+          }
+        : {}),
       // Force console logging and disable file logging to avoid contention/permissions issues
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
@@ -382,6 +400,14 @@ function createLaunchOptions(
       BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_IS_E2E_TEST: 'true',
+      ...(disableExternalLocalRuntimeProbes
+        ? {
+            // Regression E2E should not contact developer-local Ollama/LM Studio
+            // daemons unless the test explicitly validates that bridge.
+            // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+            BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES: '1',
+          }
+        : {}),
       ...(launchMode === 'dev-server'
         ? {
             // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
@@ -618,6 +644,7 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
   try {
     const windows = appContext.app.windows();
     verboseLog(`📋 Closing ${windows.length} window(s)...`);
+    intentionallyClosingApps.add(appContext.app);
     const windowClosePromises: Promise<void>[] = [];
     for (const window of windows) {
       if (window.isClosed()) {
@@ -625,28 +652,53 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
         continue;
       }
 
-      const closePromise = window.waitForEvent('close').then(
-        () => {
-          return;
-        },
-        (windowError) => {
-          console.warn('⚠️ Window did not close gracefully:', windowError);
-        }
+      windowClosePromises.push(
+        (async () => {
+          const windowClosed = waitForWithTimeout(
+            window.waitForEvent('close').then(() => true),
+            electronWindowCloseTimeoutMs,
+            'Electron window close event'
+          );
+          await waitForWithTimeout(
+            window.close(),
+            electronWindowCloseTimeoutMs,
+            'Electron window close request'
+          );
+          await windowClosed;
+        })()
       );
-      windowClosePromises.push(closePromise);
-      try {
-        await window.close();
-        verboseLog('✅ Requested window close');
-      } catch (windowError) {
-        console.warn('⚠️ Failed to close window gracefully:', windowError);
+    }
+
+    const windowCloseResults = await Promise.allSettled(windowClosePromises);
+    for (const result of windowCloseResults) {
+      if (result.status === 'rejected') {
+        console.warn('⚠️ Failed to close Electron window gracefully:', result.reason);
       }
     }
 
-    const appClosed = appContext.app.waitForEvent('close', { timeout: 10_000 });
-    await Promise.all(windowClosePromises);
-    intentionallyClosingApps.add(appContext.app);
-    await appContext.app.close();
-    await appClosed;
+    let didClose: boolean | null = true;
+    try {
+      const electronProcess = getElectronProcessSafe(appContext);
+      if (electronProcess && !electronProcess.killed && electronProcess.exitCode === null) {
+        const appClosed = waitForElectronAppClosed(appContext);
+        await waitForWithTimeout(
+          appContext.app.close(),
+          electronAppCloseTimeoutMs,
+          'Electron app close request'
+        );
+        didClose = await appClosed;
+        verboseLog('✅ Requested app close');
+      }
+    } catch (closeRequestError) {
+      console.warn('⚠️ Failed to request Electron app close gracefully:', closeRequestError);
+      didClose = false;
+    }
+
+    if (!didClose) {
+      console.warn('⚠️ Electron app did not close gracefully; forcing process termination');
+      await forceTerminateElectronApp(appContext);
+      return;
+    }
     verboseLog('✅ Electron app closed');
   } catch (error) {
     if (isPlaywrightTimeoutError(error)) {
@@ -659,6 +711,51 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
   } finally {
     intentionallyClosingApps.delete(appContext.app);
   }
+}
+
+async function waitForWithTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T | null> {
+  let timeoutId: NodeJS.Timeout | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timeoutId = setTimeout(() => {
+      console.warn(`⚠️ ${label} timed out after ${timeoutMs}ms`);
+      resolve(null);
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+async function waitForElectronAppClosed(appContext: ElectronAppContext): Promise<boolean | null> {
+  const electronProcess = getElectronProcessSafe(appContext);
+  if (!electronProcess || electronProcess.exitCode !== null || electronProcess.killed) {
+    return true;
+  }
+
+  const processExited = new Promise<boolean>((resolve) => {
+    electronProcess.once('exit', () => {
+      resolve(true);
+    });
+  });
+  const playwrightClosed = appContext.app.waitForEvent('close').then(
+    () => true,
+    () => false
+  );
+
+  return waitForWithTimeout(
+    Promise.race([processExited, playwrightClosed]),
+    electronAppCloseTimeoutMs,
+    'Electron app close or process exit'
+  );
 }
 
 function isPlaywrightTimeoutError(error: unknown): boolean {
