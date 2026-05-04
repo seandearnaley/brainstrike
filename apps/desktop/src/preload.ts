@@ -81,7 +81,18 @@ function subscribeToDbLiveUpdates(callback: DbLiveUpdateCallback): () => void {
   if (!dbLiveUpdateIpcListener) {
     dbLiveUpdateIpcListener = (_event: unknown, payload: DbLiveUpdatePayload) => {
       for (const subscriber of Array.from(dbLiveUpdateCallbacks)) {
-        subscriber(payload);
+        try {
+          subscriber(payload);
+        } catch (error) {
+          ipcRenderer.send('logging:ingest-buffered-record', {
+            level: 'error' as LogRecord['level'],
+            timestamp: Date.now(),
+            args: ['[preload] db live-query subscriber threw:', error],
+            bindings: { runtime: 'electron-renderer' },
+            message: 'DB live-query subscriber threw',
+            scope: 'Preload',
+          } satisfies LogRecord);
+        }
       }
     };
     ipcRenderer.on('db:live-query:update', dbLiveUpdateIpcListener);

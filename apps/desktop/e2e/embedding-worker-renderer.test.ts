@@ -6,6 +6,7 @@ import type { ElectronApplication } from 'playwright';
 import { DESKTOP_DEV_RENDERER_PORT, DESKTOP_DEV_RENDERER_URL } from '../src/desktop-renderer-url';
 import { expect, test } from './fixtures/electron-fixture';
 import { getContextExplorerLeftPanel } from './utils/context-explorer-locators';
+import type { ElectronAppContext } from './utils/electron-helpers.mts';
 import { showDatabaseDemoPanel } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
@@ -2768,14 +2769,50 @@ test.describe('Embedding Host Renderer', () => {
     );
   }
 
-  async function settleEmbeddingBackfillsAndStopHostBeforeQueueClear(page: Page): Promise<void> {
-    await cancelAllEmbeddingBackfillsAndDrain(page);
-
-    const status = await getEmbeddingHostStatus(page);
-    if (status.state === 'running') {
-      await stopEmbeddingHost(page);
+  async function settleEmbeddingBackfillsStopHostAndClearQueue(page: Page): Promise<void> {
+    let cancelError: unknown = null;
+    try {
+      await cancelAllEmbeddingBackfillsAndDrain(page);
+    } catch (error) {
+      cancelError = error;
     }
-    await clearEmbeddingQueue(page);
+
+    try {
+      await stopEmbeddingHost(page);
+    } finally {
+      await clearEmbeddingQueue(page);
+    }
+
+    if (cancelError) {
+      throw cancelError;
+    }
+  }
+
+  async function cleanupRealWorldMixedStateTest(
+    electronApp: ElectronAppContext,
+    page: Page
+  ): Promise<void> {
+    let importIdleError: unknown = null;
+
+    try {
+      await waitForDatabaseDemoImportIdle(page);
+    } catch (error) {
+      importIdleError = error;
+    }
+
+    try {
+      await settleEmbeddingBackfillsStopHostAndClearQueue(page);
+    } finally {
+      try {
+        await clearLargeImportFileSystemMock(electronApp.app);
+      } finally {
+        await stopChunkingHost(page);
+      }
+    }
+
+    if (importIdleError) {
+      throw importIdleError;
+    }
   }
 
   async function getRelevantElectronStderr(app: ElectronApplication): Promise<string[]> {
@@ -5552,11 +5589,7 @@ test.describe('Embedding Host Renderer', () => {
       expect(expandedTreeNodeCount).toBeGreaterThan(0);
       expect(electronStderr).toEqual([]);
     } finally {
-      await waitForDatabaseDemoImportIdle(activeWindow);
-      await settleEmbeddingBackfillsAndStopHostBeforeQueueClear(activeWindow);
-      await clearLargeImportFileSystemMock(electronApp.app);
-      await stopEmbeddingHost(activeWindow);
-      await stopChunkingHost(activeWindow);
+      await cleanupRealWorldMixedStateTest(electronApp, activeWindow);
     }
   });
 
@@ -5882,11 +5915,7 @@ test.describe('Embedding Host Renderer', () => {
       expect(chunkingHostStatusAfterExpand.state).not.toBe('error');
       expect(importSnapshotAfterExpand?.activeCollectionId).not.toBeNull();
     } finally {
-      await waitForDatabaseDemoImportIdle(activeWindow);
-      await settleEmbeddingBackfillsAndStopHostBeforeQueueClear(activeWindow);
-      await clearLargeImportFileSystemMock(electronApp.app);
-      await stopEmbeddingHost(activeWindow);
-      await stopChunkingHost(activeWindow);
+      await cleanupRealWorldMixedStateTest(electronApp, activeWindow);
     }
   });
 

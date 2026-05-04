@@ -215,6 +215,49 @@ describe('preload power bridge', () => {
     expect(mockRemoveListener).toHaveBeenCalledWith('db:live-query:update', expect.any(Function));
   });
 
+  it('isolates db live-query subscriber errors and logs them', () => {
+    mockOn.mockClear();
+    mockRemoveListener.mockClear();
+    mockSend.mockClear();
+
+    const electronApi = getElectronApi();
+    const subscriberError = new Error('subscriber failed');
+    const throwingCallback = vi.fn(() => {
+      throw subscriberError;
+    });
+    const healthyCallback = vi.fn();
+    const throwingCleanup = electronApi?.dbLive.onUpdate(throwingCallback);
+    const healthyCleanup = electronApi?.dbLive.onUpdate(healthyCallback);
+
+    const updateSubscriptions = mockOn.mock.calls.filter(
+      ([channel]: [string]) => channel === 'db:live-query:update'
+    );
+    expect(updateSubscriptions).toHaveLength(1);
+
+    const listener = updateSubscriptions[0]?.[1] as
+      | ((event: unknown, payload: { id: number; results: unknown }) => void)
+      | undefined;
+    expect(listener).toBeDefined();
+
+    const payload = { id: 23, results: { rows: [{ id: 'row-2' }] } };
+    expect(() => listener?.(null, payload)).not.toThrow();
+    expect(throwingCallback).toHaveBeenCalledWith(payload);
+    expect(healthyCallback).toHaveBeenCalledWith(payload);
+    expect(mockSend).toHaveBeenCalledWith(
+      'logging:ingest-buffered-record',
+      expect.objectContaining({
+        level: 'error',
+        args: ['[preload] db live-query subscriber threw:', subscriberError],
+        bindings: { runtime: 'electron-renderer' },
+        message: 'DB live-query subscriber threw',
+        scope: 'Preload',
+      })
+    );
+
+    throwingCleanup?.();
+    healthyCleanup?.();
+  });
+
   it('exposes the embeddingHost lifecycle bridge', async () => {
     mockInvoke.mockResolvedValue({ state: 'running', active: false, lastError: null });
     const embeddingHostApi = getEmbeddingHostApi();
