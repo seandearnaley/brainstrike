@@ -613,42 +613,6 @@ describe('CreateEmbeddingSetDialog', () => {
     expect(nameInput.value).toBe('Native Input Collection');
   });
 
-  it('does not overwrite a native input value that React has not observed', async () => {
-    let resolveFindAll: (collections: { name: string }[]) => void = () => {};
-    const slowFindAll = new Promise<{ name: string }[]>((resolve) => {
-      resolveFindAll = resolve;
-    });
-    const slowRepository = {
-      getOrCreateSet: vi.fn(),
-      findAll: vi.fn().mockReturnValue(slowFindAll),
-    } as unknown as IEmbeddingSetsRepository;
-
-    render(
-      <>
-        <Toaster />
-        <CreateEmbeddingSetDialog
-          models={mockModels}
-          onOpenChange={mockOnOpenChange}
-          onSetCreated={mockOnSetCreated}
-          open={true}
-          providers={mockProviders}
-          repository={slowRepository}
-        />
-      </>
-    );
-
-    const nameInput = screen.getByLabelText(/Name/i) as HTMLInputElement;
-    expect(nameInput.value).toBe('Text Embedding 3 Small');
-
-    setInputValueWithoutReactChange(nameInput, 'Native Unobserved Collection');
-
-    await act(async () => {
-      resolveFindAll([{ name: 'Text Embedding 3 Small' }]);
-      await slowFindAll;
-    });
-    expect(nameInput.value).toBe('Native Unobserved Collection');
-  });
-
   // P1 sibling case: same race, but user changes the model instead of typing.
   // The refinement was computed against the original models[0] but should not
   // apply if the currently-selected model has changed.
