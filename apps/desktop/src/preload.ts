@@ -64,6 +64,49 @@ const APP_LIFECYCLE_NOTE_RELOAD_INTENT_CHANNEL = 'app:lifecycle:note-reload-inte
 const DESKTOP_TEST_MODE =
   process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
 
+interface DbLiveUpdatePayload {
+  id: number;
+  results: unknown;
+}
+
+type DbLiveUpdateCallback = (payload: DbLiveUpdatePayload) => void;
+
+const dbLiveUpdateCallbacks = new Set<DbLiveUpdateCallback>();
+let dbLiveUpdateIpcListener: ((_event: unknown, payload: DbLiveUpdatePayload) => void) | null =
+  null;
+
+function subscribeToDbLiveUpdates(callback: DbLiveUpdateCallback): () => void {
+  dbLiveUpdateCallbacks.add(callback);
+
+  if (!dbLiveUpdateIpcListener) {
+    dbLiveUpdateIpcListener = (_event: unknown, payload: DbLiveUpdatePayload) => {
+      for (const subscriber of Array.from(dbLiveUpdateCallbacks)) {
+        try {
+          subscriber(payload);
+        } catch (error) {
+          ipcRenderer.send('logging:ingest-buffered-record', {
+            level: 'error' as LogRecord['level'],
+            timestamp: Date.now(),
+            args: ['[preload] db live-query subscriber threw:', error],
+            bindings: { runtime: 'electron-renderer' },
+            message: 'DB live-query subscriber threw',
+            scope: 'Preload',
+          } satisfies LogRecord);
+        }
+      }
+    };
+    ipcRenderer.on('db:live-query:update', dbLiveUpdateIpcListener);
+  }
+
+  return () => {
+    dbLiveUpdateCallbacks.delete(callback);
+    if (dbLiveUpdateCallbacks.size === 0 && dbLiveUpdateIpcListener) {
+      ipcRenderer.removeListener('db:live-query:update', dbLiveUpdateIpcListener);
+      dbLiveUpdateIpcListener = null;
+    }
+  };
+}
+
 function disabledPreloadBridges(): Set<string> {
   if (!DESKTOP_TEST_MODE) {
     return new Set();
@@ -315,14 +358,8 @@ if (shouldExposeBridge('electronAPI')) {
         payload: { id: number; offset?: number; limit?: number },
         options?: DatabaseWorkOptions
       ) => ipcRenderer.invoke('db:live-query:refresh', payload, options),
-      onUpdate: (callback: (payload: { id: number; results: unknown }) => void) => {
-        const listener = (_event: unknown, data: { id: number; results: unknown }) =>
-          callback(data);
-        ipcRenderer.on('db:live-query:update', listener);
-        return () => {
-          ipcRenderer.removeListener('db:live-query:update', listener);
-        };
-      },
+      onUpdate: (callback: (payload: { id: number; results: unknown }) => void) =>
+        subscribeToDbLiveUpdates(callback),
     },
     // Database path (legacy - kept for compatibility)
     getUserDataPath: () => ipcRenderer.invoke('db:getUserDataPath'),
