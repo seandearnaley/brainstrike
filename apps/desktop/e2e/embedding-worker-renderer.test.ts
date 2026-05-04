@@ -2768,14 +2768,14 @@ test.describe('Embedding Host Renderer', () => {
     );
   }
 
-  async function settleEmbeddingBackfillsBeforeHostStop(page: Page): Promise<void> {
+  async function settleEmbeddingBackfillsAndStopHostBeforeQueueClear(page: Page): Promise<void> {
     await cancelAllEmbeddingBackfillsAndDrain(page);
-    await clearEmbeddingQueue(page);
 
     const status = await getEmbeddingHostStatus(page);
     if (status.state === 'running') {
-      await waitForEmbeddingHostIdleAndQueueDrain(page, 30_000);
+      await stopEmbeddingHost(page);
     }
+    await clearEmbeddingQueue(page);
   }
 
   async function getRelevantElectronStderr(app: ElectronApplication): Promise<string[]> {
@@ -2898,8 +2898,8 @@ test.describe('Embedding Host Renderer', () => {
     }
 
     await cancelAllEmbeddingBackfillsAndDrain(activeWindow);
-    await clearEmbeddingQueue(activeWindow);
     await stopEmbeddingHost(activeWindow);
+    await clearEmbeddingQueue(activeWindow);
     await stopChunkingHost(activeWindow);
     await setVectorDevicePreference(activeWindow, 'wasm');
     await setImportSettingsForStressTest(activeWindow);
@@ -5553,7 +5553,7 @@ test.describe('Embedding Host Renderer', () => {
       expect(electronStderr).toEqual([]);
     } finally {
       await waitForDatabaseDemoImportIdle(activeWindow);
-      await settleEmbeddingBackfillsBeforeHostStop(activeWindow);
+      await settleEmbeddingBackfillsAndStopHostBeforeQueueClear(activeWindow);
       await clearLargeImportFileSystemMock(electronApp.app);
       await stopEmbeddingHost(activeWindow);
       await stopChunkingHost(activeWindow);
@@ -5883,7 +5883,7 @@ test.describe('Embedding Host Renderer', () => {
       expect(importSnapshotAfterExpand?.activeCollectionId).not.toBeNull();
     } finally {
       await waitForDatabaseDemoImportIdle(activeWindow);
-      await settleEmbeddingBackfillsBeforeHostStop(activeWindow);
+      await settleEmbeddingBackfillsAndStopHostBeforeQueueClear(activeWindow);
       await clearLargeImportFileSystemMock(electronApp.app);
       await stopEmbeddingHost(activeWindow);
       await stopChunkingHost(activeWindow);
