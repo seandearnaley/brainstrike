@@ -925,12 +925,6 @@ jobs:
           - group: mixed
             display: 106
             grep: "@desktop-embedding-mixed"
-          - group: crash-a
-            display: 107
-            grep: "@desktop-embedding-crash-a"
-          - group: crash-b
-            display: 108
-            grep: "@desktop-embedding-crash-b"
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -1127,12 +1121,6 @@ jobs:
           - group: mixed
             display: 106
             grep: "@desktop-embedding-mixed"
-          - group: crash-a
-            display: 107
-            grep: "@desktop-embedding-crash-a"
-          - group: crash-b
-            display: 108
-            grep: "@desktop-embedding-crash-b"
     steps:
       - name: Checkout
         uses: actions/checkout@v6

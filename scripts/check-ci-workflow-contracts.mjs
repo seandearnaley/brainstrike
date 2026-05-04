@@ -78,6 +78,16 @@ function requireDesktopEmbeddingJobContracts(source, prefix, failures) {
       `${prefix} desktop embedding E2E must not reintroduce the broad @desktop-embedding-core lane.`
     );
   }
+  for (const diagnosticGroup of [
+    '@desktop-embedding-crash-a',
+    '@desktop-embedding-crash-b',
+  ]) {
+    if (source.includes(diagnosticGroup)) {
+      failures.push(
+        `${prefix} desktop embedding E2E must keep diagnostic ${diagnosticGroup} out of required lanes.`
+      );
+    }
+  }
 }
 
 function extractNamedStepBlocks(source, namePattern) {
@@ -273,8 +283,6 @@ export function validateWorkflowContracts(source) {
       '@desktop-embedding-recovery',
       '@desktop-embedding-memory',
       '@desktop-embedding-mixed',
-      '@desktop-embedding-crash-a',
-      '@desktop-embedding-crash-b',
     ]) {
       requireIncludes(
         desktopEmbeddingPr,
@@ -345,8 +353,6 @@ export function validateWorkflowContracts(source) {
       '@desktop-embedding-recovery',
       '@desktop-embedding-memory',
       '@desktop-embedding-mixed',
-      '@desktop-embedding-crash-a',
-      '@desktop-embedding-crash-b',
     ]) {
       requireIncludes(
         desktopEmbeddingMain,

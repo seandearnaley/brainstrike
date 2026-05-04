@@ -140,6 +140,24 @@ test('workflow contract fails when broad desktop embedding core lane is reintrod
   );
 });
 
+test('workflow contract fails when diagnostic desktop embedding crash lanes are required', () => {
+  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
+  assert.ok(desktopEmbeddingPr);
+
+  const source = workflowSource.replace(
+    desktopEmbeddingPr,
+    desktopEmbeddingPr.replace(
+      '          - group: mixed\n            display: 106\n            grep: "@desktop-embedding-mixed"',
+      '          - group: mixed\n            display: 106\n            grep: "@desktop-embedding-mixed"\n          - group: crash-a\n            display: 107\n            grep: "@desktop-embedding-crash-a"'
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /must keep diagnostic @desktop-embedding-crash-a out of required lanes/
+  );
+});
+
 test('workflow contract fails when desktop embedding timeout is widened', () => {
   const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
   assert.ok(desktopEmbeddingPr);
