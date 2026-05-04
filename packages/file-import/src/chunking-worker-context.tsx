@@ -555,14 +555,6 @@ function ChunkingLocalWorkerProvider({
         }
         const worker = new Worker(workerUrl, { type: 'module' });
         workerRef.current = worker;
-        const { createChunkingWorkerPort } = await loadChunkingWorkerPortFactory();
-        if (generation !== lifecycleGenerationRef.current) {
-          worker.terminate();
-          return;
-        }
-        const port = createChunkingWorkerPort(worker);
-        portRef.current = port;
-        setCurrentPortState(port);
 
         const handleMessage = (event: MessageEvent) => {
           if (generation !== lifecycleGenerationRef.current) {
@@ -600,10 +592,24 @@ function ChunkingLocalWorkerProvider({
 
         worker.addEventListener('message', handleMessage);
         worker.addEventListener('error', handleError);
-        workerListenerCleanupRef.current = () => {
+        const cleanupWorkerListeners = () => {
           worker.removeEventListener('message', handleMessage);
           worker.removeEventListener('error', handleError);
         };
+        workerListenerCleanupRef.current = cleanupWorkerListeners;
+
+        const { createChunkingWorkerPort } = await loadChunkingWorkerPortFactory();
+        if (generation !== lifecycleGenerationRef.current) {
+          cleanupWorkerListeners();
+          if (workerListenerCleanupRef.current === cleanupWorkerListeners) {
+            workerListenerCleanupRef.current = null;
+          }
+          worker.terminate();
+          return;
+        }
+        const port = createChunkingWorkerPort(worker);
+        portRef.current = port;
+        setCurrentPortState(port);
 
         const checkReadyInterval = setInterval(() => {
           if (generation !== lifecycleGenerationRef.current) {
@@ -649,6 +655,13 @@ function ChunkingLocalWorkerProvider({
     return portRef.current;
   }, [clearReadyMonitor, enterTerminalFailureState]);
 
+  const startInitialization = useCallback(() => {
+    void initialize().catch((err) => {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      logger.error('Chunking worker initialization did not produce a port', { error: errorMsg });
+    });
+  }, [initialize]);
+
   const reinitialize = useCallback(() => {
     logger.info('Reinitializing chunking worker');
 
@@ -660,12 +673,12 @@ function ChunkingLocalWorkerProvider({
     terminalFailureActiveRef.current = false;
     disposeCurrentWorker();
 
-    void initialize();
-  }, [disposeCurrentWorker, initialize]);
+    startInitialization();
+  }, [disposeCurrentWorker, startInitialization]);
 
   useEffect(() => {
     if (autoStart) {
-      void initialize();
+      startInitialization();
     }
 
     return () => {
@@ -674,7 +687,7 @@ function ChunkingLocalWorkerProvider({
       terminalFailureActiveRef.current = false;
       disposeCurrentWorker();
     };
-  }, [autoStart, disposeCurrentWorker, initialize]);
+  }, [autoStart, disposeCurrentWorker, startInitialization]);
 
   const wrappedPort = useMemo((): ChunkingWorkerPort | null => {
     if (!currentPortState) {

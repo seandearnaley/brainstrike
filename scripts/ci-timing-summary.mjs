@@ -19,11 +19,26 @@ function normalizeOptions(options = {}) {
   const failMs = asNumber(options.failMs, DEFAULT_FAIL_MS);
   return {
     task: options.task ?? DEFAULT_TASK,
+    taskPrefix: options.taskPrefix,
     warnMs,
     failMs,
     totalWarnMs: asNumber(options.totalWarnMs, warnMs),
     totalFailMs: asNumber(options.totalFailMs, failMs),
   };
+}
+
+function matchesTask(task, options) {
+  const taskName = String(task?.task ?? '');
+  if (typeof options.taskPrefix === 'string' && options.taskPrefix.length > 0) {
+    return taskName.startsWith(options.taskPrefix);
+  }
+  return taskName === options.task;
+}
+
+function taskLabel(options) {
+  return typeof options.taskPrefix === 'string' && options.taskPrefix.length > 0
+    ? `${options.taskPrefix}*`
+    : options.task;
 }
 
 function readExecutionMs(task) {
@@ -65,7 +80,7 @@ export function parseTurboSummary(summaryJson, options = {}) {
   const resolvedOptions = normalizeOptions(options);
   const tasks = Array.isArray(summaryJson?.tasks) ? summaryJson.tasks : [];
   const parsedTasks = tasks
-    .filter((task) => task?.task === resolvedOptions.task)
+    .filter((task) => matchesTask(task, resolvedOptions))
     .map((task) => {
       const durationMs = readExecutionMs(task);
       if (durationMs === null) {
@@ -99,7 +114,7 @@ export function parseTurboSummary(summaryJson, options = {}) {
 
   return {
     command: String(summaryJson?.execution?.command ?? 'unknown'),
-    task: resolvedOptions.task,
+    task: taskLabel(resolvedOptions),
     warnMs: resolvedOptions.warnMs,
     failMs: resolvedOptions.failMs,
     totalWarnMs: resolvedOptions.totalWarnMs,
@@ -186,6 +201,28 @@ export async function findLatestTurboSummary(runsDir = DEFAULT_RUNS_DIR) {
   return candidates[0]?.filePath ?? null;
 }
 
+export async function findTurboSummaries(runsDir = DEFAULT_RUNS_DIR) {
+  let entries;
+  try {
+    entries = await readdir(runsDir, { withFileTypes: true });
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+  const candidates = await Promise.all(
+    entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+      .map(async (entry) => {
+        const filePath = path.join(runsDir, entry.name);
+        const fileStat = await stat(filePath);
+        return { filePath, mtimeMs: fileStat.mtimeMs };
+      })
+  );
+  return candidates.sort((left, right) => left.mtimeMs - right.mtimeMs).map((entry) => entry.filePath);
+}
+
 function readFlagValue(args, name) {
   const index = args.indexOf(name);
   if (index === -1) {
@@ -202,45 +239,88 @@ function commandIncludesTask(command, task) {
   return command.split(/\s+/).includes(task);
 }
 
+function commandIncludesTaskPrefix(command, taskPrefix) {
+  return command.split(/\s+/).some((token) => token.startsWith(taskPrefix));
+}
+
+function combineSummaries(summaries) {
+  if (summaries.length === 1) {
+    return summaries[0];
+  }
+  const startTimes = summaries
+    .map((summary) => summary?.execution?.startTime)
+    .filter((value) => typeof value === 'number');
+  const endTimes = summaries
+    .map((summary) => summary?.execution?.endTime)
+    .filter((value) => typeof value === 'number');
+  return {
+    execution: {
+      command: summaries
+        .map((summary) => String(summary?.execution?.command ?? 'unknown'))
+        .join(' && '),
+      startTime: startTimes.length > 0 ? Math.min(...startTimes) : undefined,
+      endTime: endTimes.length > 0 ? Math.max(...endTimes) : undefined,
+    },
+    tasks: summaries.flatMap((summary) => (Array.isArray(summary?.tasks) ? summary.tasks : [])),
+  };
+}
+
 export async function runCli(args = process.argv.slice(2)) {
   let runsDir;
   let explicitSummary;
   let task;
+  let taskPrefix;
   let warnMs;
   let failMs;
   let totalWarnMs;
   let totalFailMs;
   let output;
+  let allSummaries;
   try {
     runsDir = readFlagValue(args, '--runs-dir') ?? DEFAULT_RUNS_DIR;
     explicitSummary = readFlagValue(args, '--summary');
     task = readFlagValue(args, '--task') ?? DEFAULT_TASK;
+    taskPrefix = readFlagValue(args, '--task-prefix');
     warnMs = asNumber(readFlagValue(args, '--warn-ms'), DEFAULT_WARN_MS);
     failMs = asNumber(readFlagValue(args, '--fail-ms'), DEFAULT_FAIL_MS);
     totalWarnMs = asNumber(readFlagValue(args, '--total-warn-ms'), warnMs);
     totalFailMs = asNumber(readFlagValue(args, '--total-fail-ms'), failMs);
     output = readFlagValue(args, '--output');
+    allSummaries = args.includes('--all');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(message);
     return 1;
   }
-  const summaryPath = explicitSummary ?? (await findLatestTurboSummary(runsDir));
+  const summaryPaths = explicitSummary
+    ? [explicitSummary]
+    : allSummaries
+      ? await findTurboSummaries(runsDir)
+      : [await findLatestTurboSummary(runsDir)].filter(Boolean);
 
-  if (!summaryPath) {
+  if (summaryPaths.length === 0) {
     console.error(`No Turbo run summary JSON found in ${runsDir}`);
     return 1;
   }
 
-  let summaryJson;
-  try {
-    summaryJson = JSON.parse(await readFile(summaryPath, 'utf8'));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to parse Turbo summary JSON at ${summaryPath}: ${message}`);
-    return 1;
+  const summaries = [];
+  for (const summaryPath of summaryPaths) {
+    try {
+      summaries.push(JSON.parse(await readFile(summaryPath, 'utf8')));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to parse Turbo summary JSON at ${summaryPath}: ${message}`);
+      return 1;
+    }
   }
-  const summary = parseTurboSummary(summaryJson, { task, warnMs, failMs, totalWarnMs, totalFailMs });
+  const summary = parseTurboSummary(combineSummaries(summaries), {
+    task,
+    taskPrefix,
+    warnMs,
+    failMs,
+    totalWarnMs,
+    totalFailMs,
+  });
   const markdown = renderMarkdownSummary(summary);
   const annotations = renderGitHubAnnotations(summary);
 
@@ -260,7 +340,8 @@ export async function runCli(args = process.argv.slice(2)) {
   }
 
   const noMatchingTasksFromDifferentCommand =
-    summary.tasks.length === 0 && !commandIncludesTask(summary.command, summary.task);
+    summary.tasks.length === 0 &&
+    !(taskPrefix ? commandIncludesTaskPrefix(summary.command, taskPrefix) : commandIncludesTask(summary.command, summary.task));
   return summary.hasFailures || noMatchingTasksFromDifferentCommand ? 1 : 0;
 }
 

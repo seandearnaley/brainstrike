@@ -163,7 +163,7 @@ jobs:
     runs-on: ubuntu-latest
     # Affected coverage can still exercise PGlite-backed integration suites; keep the
     # job ceiling above the longest package-level unit run without masking hangs.
-    timeout-minutes: 60
+    timeout-minutes: 45
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
@@ -187,24 +187,35 @@ jobs:
 
       - name: Clear coverage directories
         run: |
-          find packages apps -type d -name "coverage" -maxdepth 3 -prune -exec rm -rf {} +
+          find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
+          rm -rf .nyc_output
 
       - name: Run unit tests with coverage
         id: unit-tests
         # This step owns the heavy affected coverage slice. The surrounding job
         # timeout leaves room for install, build, and report upload overhead.
-        timeout-minutes: 45
+        timeout-minutes: 30
         run: |
           START=$SECONDS
           rm -rf .turbo/runs
           mkdir -p .turbo/runs
+          DB_COVERAGE_RUNTIME_TASK="test:coverage:db:runtime"
+          DB_COVERAGE_TASKS="test:coverage:db:architecture test:coverage:db:chunking test:coverage:db:migrations test:coverage:db:queue test:coverage:db:repositories test:coverage:db:search"
+          # DB coverage lanes are PGlite-heavy. On GitHub runners, running
+          # several lanes at once saturates the runner and turns valid 10s unit
+          # timeouts into contention failures, so keep DB lanes serial.
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$GITHUB_BASE_REF" ]; then
             echo "Running affected unit coverage for PR against origin/${GITHUB_BASE_REF}"
-            pnpm turbo run test:coverage --filter="...[origin/${GITHUB_BASE_REF}]" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo
+            pnpm turbo run test:coverage --filter="...[origin/${GITHUB_BASE_REF}]" --filter="!@brainstrike/db" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo
+            pnpm turbo run $DB_COVERAGE_RUNTIME_TASK --filter="@brainstrike/db" --concurrency=1 --summarize --log-order=grouped --cache-dir=.turbo
+            pnpm turbo run $DB_COVERAGE_TASKS --filter="@brainstrike/db" --concurrency=1 --summarize --log-order=grouped --cache-dir=.turbo
           else
             echo "Running full unit coverage"
-            pnpm turbo run test:coverage --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo
+            pnpm turbo run test:coverage --filter="!@brainstrike/db" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo
+            pnpm turbo run $DB_COVERAGE_RUNTIME_TASK --filter="@brainstrike/db" --concurrency=1 --summarize --log-order=grouped --cache-dir=.turbo
+            pnpm turbo run $DB_COVERAGE_TASKS --filter="@brainstrike/db" --concurrency=1 --summarize --log-order=grouped --cache-dir=.turbo
           fi
+          pnpm coverage:prepare-workspace
 
           COVERAGE_FILES=$(find packages apps -type f -path "*/coverage/coverage-final.json" | wc -l | tr -d ' ')
           echo "coverage_files=${COVERAGE_FILES}" >> "$GITHUB_OUTPUT"
@@ -353,7 +364,7 @@ jobs:
         run: |
           set +e
           : > turbo-test-timings.md
-          pnpm ci:timing-summary -- --runs-dir .turbo/runs --task test:coverage --warn-ms 1200000 --fail-ms 1800000 --total-warn-ms 1500000 --total-fail-ms 1800000 --output turbo-test-timings.md
+          pnpm ci:timing-summary -- --runs-dir .turbo/runs --all --task-prefix test:coverage --warn-ms 600000 --fail-ms 900000 --total-warn-ms 1500000 --total-fail-ms 1800000 --output turbo-test-timings.md
           STATUS=$?
           set -e
           if [ -s turbo-test-timings.md ]; then
@@ -367,7 +378,7 @@ jobs:
         if: ${{ !cancelled() && steps.unit-tests.outcome != 'skipped' }}
         run: |
           set +e
-          pnpm ci:turbo-diagnostics -- --runs-dir .turbo/runs --task test:coverage --output turbo-unit-coverage-diagnostics.md
+          pnpm ci:turbo-diagnostics -- --runs-dir .turbo/runs --all --task-prefix test:coverage --output turbo-unit-coverage-diagnostics.md
           STATUS=$?
           set -e
           if [ -s turbo-unit-coverage-diagnostics.md ]; then

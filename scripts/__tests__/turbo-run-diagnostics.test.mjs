@@ -79,6 +79,64 @@ test('parseTurboDiagnostics defaults to coverage task diagnostics', () => {
   assert.deepEqual(diagnostics.packages, ['@brainstrike/db']);
 });
 
+test('parseTurboDiagnostics can select coverage lane tasks by prefix', () => {
+  const diagnostics = parseTurboDiagnostics(
+    {
+      execution: { command: 'turbo run test:coverage test:coverage:db:queue' },
+      tasks: [
+        task('@brainstrike/web#test:coverage', 'test:coverage', 1_000, 2_000),
+        task('@brainstrike/db#test:coverage:db:queue', 'test:coverage:db:queue', 2_000, 3_000),
+        task('@brainstrike/db#build', 'build', 1_000, 2_000),
+      ],
+    },
+    { taskPrefix: 'test:coverage' }
+  );
+
+  assert.equal(diagnostics.task, 'test:coverage*');
+  assert.equal(diagnostics.totalTasks, 2);
+  assert.deepEqual(diagnostics.packages, ['@brainstrike/db', '@brainstrike/web']);
+});
+
+test('runCli can aggregate all summaries from a runs directory', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-turbo-diagnostics-all-'));
+  try {
+    await writeFile(
+      path.join(dir, 'first.json'),
+      JSON.stringify({
+        execution: { command: 'turbo run test:coverage' },
+        tasks: [task('@brainstrike/web#test:coverage', 'test:coverage', 1_000, 2_000)],
+      })
+    );
+    await writeFile(
+      path.join(dir, 'second.json'),
+      JSON.stringify({
+        execution: { command: 'turbo run test:coverage:db:queue' },
+        tasks: [
+          task('@brainstrike/db#test:coverage:db:queue', 'test:coverage:db:queue', 2_000, 3_000),
+        ],
+      })
+    );
+
+    const outputPath = path.join(dir, 'diagnostics.md');
+    const exitCode = await runCli([
+      '--runs-dir',
+      dir,
+      '--all',
+      '--task-prefix',
+      'test:coverage',
+      '--output',
+      outputPath,
+    ]);
+
+    assert.equal(exitCode, 0);
+    const markdown = await readFile(outputPath, 'utf8');
+    assert.match(markdown, /@brainstrike\/web#test:coverage/);
+    assert.match(markdown, /@brainstrike\/db#test:coverage:db:queue/);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
 test('runCli writes diagnostics markdown', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-turbo-diagnostics-'));
   try {
