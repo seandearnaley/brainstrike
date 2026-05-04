@@ -134,13 +134,13 @@ test.describe('Desktop dev-server port isolation', () => {
     const originalDevServerUrl = process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL'];
     const isolatedPort = 39_000 + Math.floor(Math.random() * 1000);
     const isolatedDevServerUrl = `http://localhost:${isolatedPort}`;
+    const { closeElectronApp, launchElectronAppWithOptions } = await loadElectronHelpers();
     const legacyPortServer = http.createServer((_request, response) => {
       response.writeHead(200, { 'Content-Type': 'text/plain' });
       response.end('legacy-port-occupied');
     });
     const rendererServer = startDesktopRendererDevServer(isolatedDevServerUrl);
     const rendererServerOutput = createOutputBuffer(rendererServer);
-    const { closeElectronApp, launchElectronAppWithOptions } = await loadElectronHelpers();
     let electronContext: Awaited<ReturnType<typeof launchElectronAppWithOptions>> | undefined;
 
     process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL'] = isolatedDevServerUrl;
