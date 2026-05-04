@@ -656,7 +656,12 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
       );
     }
 
-    await Promise.allSettled(windowClosePromises);
+    const windowCloseResults = await Promise.allSettled(windowClosePromises);
+    for (const result of windowCloseResults) {
+      if (result.status === 'rejected') {
+        console.warn('⚠️ Failed to close Electron window gracefully:', result.reason);
+      }
+    }
 
     let didClose: boolean | null = true;
     try {
