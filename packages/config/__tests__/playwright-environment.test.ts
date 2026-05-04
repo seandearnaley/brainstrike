@@ -89,13 +89,9 @@ describe('playwright-environment helpers', () => {
     }
   });
 
-  it('global timeout policy differs between CI and local', () => {
-    expect(getGlobalTimeout({ isCodex: true, isGitHubActions: false, isCI: true })).toBeGreaterThan(
-      0
-    );
-    expect(getGlobalTimeout({ isCodex: false, isGitHubActions: false, isCI: true })).toBe(
-      15 * 60 * 1000
-    );
+  it('keeps Playwright global timeout disabled in every environment', () => {
+    expect(getGlobalTimeout({ isCodex: true, isGitHubActions: false, isCI: true })).toBe(0);
+    expect(getGlobalTimeout({ isCodex: false, isGitHubActions: false, isCI: true })).toBe(0);
     expect(getGlobalTimeout({ isCodex: false, isGitHubActions: false, isCI: false })).toBe(0);
   });
 

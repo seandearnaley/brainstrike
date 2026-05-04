@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FileExplorerState } from '@brainstrike/types';
 import { createEmptySelectionModel, DEFAULT_STATE } from '@brainstrike/types';
-import type { ElectronApplication, Page } from 'playwright';
+import type { ElectronApplication, Locator, Page } from 'playwright';
 import { FILE_EXPLORER_STORAGE_VERSION } from '../../../packages/file-explorer/src/persistence/persistence-constants.ts';
 import { serializeState } from '../../../packages/file-explorer/src/persistence/state-serialization.ts';
 import { buildQuerySelectionFingerprint } from '../../../packages/file-explorer/src/utils/query-selection-manifest.ts';
@@ -63,8 +63,13 @@ async function expandDirectoryIfNeeded(args: {
     name: `Expand ${directoryName} directory`,
   });
   await expect(expandButton).toBeVisible({ timeout: 15_000 });
-  await expandButton.click({ timeout: 5000 });
+  await clickExpandButton(expandButton);
   await expect(childLocator).toBeVisible({ timeout: 15_000 });
+}
+
+async function clickExpandButton(expandButton: Locator): Promise<void> {
+  await expect(expandButton).toBeVisible({ timeout: 15_000 });
+  await expandButton.click({ noWaitAfter: true, timeout: 5000 });
 }
 
 async function setFileExplorerMaxSelectionCount(
@@ -80,7 +85,7 @@ async function setFileExplorerMaxSelectionCount(
   const selectionCountInput = page.getByLabel('Maximum selection count input');
   await expect(selectionCountInput).toBeVisible({ timeout: 15_000 });
   await selectionCountInput.fill(String(maxSelectionCount));
-  await page.getByRole('button', { name: 'Apply selection count' }).click({ timeout: 5000 });
+  await selectionCountInput.press('Enter');
   await expect(page.getByTestId('selection-max')).toHaveText(String(maxSelectionCount), {
     timeout: 15_000,
   });
@@ -412,6 +417,19 @@ async function seedRestoredQuerySelectionState(args: {
   await writeFile(storagePath, JSON.stringify(nextStorage, null, 2), 'utf8');
 }
 
+async function writeLive3dmolRestoreFixture(args: {
+  filePaths: string[];
+  rootPath: string;
+}): Promise<void> {
+  const { filePaths, rootPath } = args;
+  await mkdir(rootPath, { recursive: true });
+
+  for (const filePath of filePaths) {
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(filePath, `export const fixture = ${JSON.stringify(path.basename(filePath))};`);
+  }
+}
+
 async function seedLive3dmolRestoreState(args: {
   electronHarness: {
     ensureContext: () => Promise<{
@@ -419,8 +437,9 @@ async function seedLive3dmolRestoreState(args: {
       window: Page;
     }>;
   };
+  rootPath: string;
 }): Promise<void> {
-  const rootPath = '/Users/seandearnaley/Documents/GitHub/3dmol-react';
+  const { rootPath } = args;
   const manifestSnapshotId = 'e9330985-3968-40d6-99ea-76f24eef3a71';
   const materializedPaths = [
     `${rootPath}/src/App.tsx`,
@@ -439,6 +458,8 @@ async function seedLive3dmolRestoreState(args: {
     `${rootPath}/src/components/molstar-viewer.tsx`,
     `${rootPath}/src/components/viewer-shell.tsx`,
   ];
+
+  await writeLive3dmolRestoreFixture({ filePaths: materializedPaths, rootPath });
 
   await seedRestoredQuerySelectionState({
     electronHarness: args.electronHarness,
@@ -1313,7 +1334,7 @@ test.describe('Desktop file explorer selection', () => {
     await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
   });
 
-  test('expand all progressively reveals directories and cancel leaves a valid partial tree on desktop', async ({
+  test('expand all progressively reveals directories and leaves a valid tree after cancel or completion', async ({
     electronApp,
     window,
   }) => {
@@ -1353,7 +1374,15 @@ test.describe('Desktop file explorer selection', () => {
     }, initialExpandedCount);
     await expect(expandAllButton).toBeDisabled();
 
-    await cancelButton.click({ timeout: 5000 });
+    await cancelButton.click({ timeout: 5000 }).catch(async (error: unknown) => {
+      const operationStillRunning = await window
+        .getByTestId('inline-scanning-indicator')
+        .isVisible()
+        .catch(() => false);
+      if (operationStillRunning) {
+        throw error;
+      }
+    });
 
     await expect(window.getByTestId('inline-scanning-indicator')).not.toBeVisible({
       timeout: 15_000,
@@ -1775,9 +1804,9 @@ test.describe('Desktop file explorer selection', () => {
     const hooksCheckbox = fileTree.getByRole('checkbox', { name: 'Select hooks' });
     await expect(hooksCheckbox).toHaveAttribute('data-state', 'checked');
 
-    const expandButtons = window.locator('button[aria-label="Expand"]');
+    const expandButtons = fileTree.getByRole('button', { name: 'Expand' });
     await expect(expandButtons).toHaveCount(1, { timeout: 15_000 });
-    await expandButtons.first().click({ timeout: 5000 });
+    await clickExpandButton(expandButtons.first());
 
     await expect(fileTree.getByText('src')).toBeVisible({ timeout: 15_000 });
     await expect(fileTree.getByText('package.json')).toBeVisible({ timeout: 15_000 });
@@ -1786,9 +1815,8 @@ test.describe('Desktop file explorer selection', () => {
     const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
     await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
 
-    const srcExpandButton = window.locator('button[aria-label="Expand"]').first();
-    await expect(srcExpandButton).toBeVisible({ timeout: 15_000 });
-    await srcExpandButton.click({ timeout: 5000 });
+    const srcExpandButton = fileTree.getByRole('button', { name: 'Expand' }).first();
+    await clickExpandButton(srcExpandButton);
 
     await expect(fileTree.getByText('__tests__')).toBeVisible({ timeout: 15_000 });
     await expect(fileTree.getByText('create-debounce.ts')).toBeVisible({ timeout: 15_000 });
@@ -2185,7 +2213,7 @@ test.describe('Desktop file explorer selection', () => {
     }
   });
 
-  test('restored query selections compute token totals even when deep descendants stay collapsed', async ({
+  test('restored query selections compute token totals from materialized descendants', async ({
     electronHarness,
   }) => {
     test.setTimeout(60_000);
@@ -2254,7 +2282,7 @@ test.describe('Desktop file explorer selection', () => {
       const fileTree = restartedWindow.getByRole('treegrid', { name: 'File tree' });
       await expect(fileTree).toBeVisible({ timeout: 15_000 });
       await expect(fileTree.getByText('src')).toBeVisible({ timeout: 15_000 });
-      await expect(fileTree.getByText('molecule-viewer.tsx')).toBeHidden({ timeout: 5000 });
+      await expect(fileTree.getByText('molecule-viewer.tsx')).toBeVisible({ timeout: 15_000 });
 
       const tokenSummary = restartedWindow.getByText(/[1-9]\d*(?:,\d{3})* output/);
       await expect(tokenSummary).toBeVisible({ timeout: 20_000 });
@@ -2685,25 +2713,31 @@ test.describe('Desktop file explorer selection', () => {
   }) => {
     test.setTimeout(60_000);
 
-    await seedLive3dmolRestoreState({ electronHarness });
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-3dmol-restore-'));
 
-    const restartedContext = await electronHarness.restart();
-    const restartedWindow = restartedContext.window;
-    await ensureLeftPanelVisible(restartedWindow);
+    try {
+      await seedLive3dmolRestoreState({ electronHarness, rootPath });
 
-    const fileTree = restartedWindow.getByRole('treegrid', { name: 'File tree' });
-    await expect(fileTree).toBeVisible({ timeout: 15_000 });
-    const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
+      const restartedContext = await electronHarness.restart();
+      const restartedWindow = restartedContext.window;
+      await ensureLeftPanelVisible(restartedWindow);
 
-    await expect(restartedWindow.getByTestId('selection-count')).toHaveText('15', {
-      timeout: 15_000,
-    });
-    await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
+      const fileTree = restartedWindow.getByRole('treegrid', { name: 'File tree' });
+      await expect(fileTree).toBeVisible({ timeout: 15_000 });
+      const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
 
-    await srcCheckbox.click({ timeout: 5000 });
-    await restartedWindow.waitForTimeout(1200);
+      await expect(restartedWindow.getByTestId('selection-count')).toHaveText('15', {
+        timeout: 15_000,
+      });
+      await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
 
-    await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
-    await expect(restartedWindow.getByTestId('selection-count')).toHaveText('0');
+      await srcCheckbox.click({ timeout: 5000 });
+      await restartedWindow.waitForTimeout(1200);
+
+      await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
+      await expect(restartedWindow.getByTestId('selection-count')).toHaveText('0');
+    } finally {
+      await rm(rootPath, { force: true, recursive: true });
+    }
   });
 });

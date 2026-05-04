@@ -4,6 +4,7 @@ import { test } from 'node:test';
 
 import {
   extractJob,
+  validateDesktopE2EContracts,
   validateWorkflowContracts,
 } from '../check-ci-workflow-contracts.mjs';
 
@@ -76,4 +77,129 @@ test('workflow contract fails when the aggregate PR gate drops functional E2E', 
     validateWorkflowContracts(source).join('\n'),
     /Required PR Gate must depend on e2e/
   );
+});
+
+test('workflow contract fails when PR desktop E2E is smoke-only', () => {
+  const desktopPr = extractJob(workflowSource, 'desktop-e2e-pr');
+  assert.ok(desktopPr);
+
+  const source = workflowSource.replace(
+    desktopPr,
+    desktopPr
+      .replace('name: Desktop E2E Regression', 'name: Desktop E2E Smoke')
+      .replace('--project=regression', '--project=smoke')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /PR desktop E2E must run the regression Playwright project/
+  );
+});
+
+test('workflow contract fails when desktop embedding retries are reintroduced', () => {
+  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
+  assert.ok(desktopEmbeddingPr);
+
+  const source = workflowSource.replace(
+    desktopEmbeddingPr,
+    desktopEmbeddingPr.replace(' --retries=0 --max-failures=1', '')
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /desktop embedding E2E must disable Playwright retries/);
+  assert.match(failures, /desktop embedding E2E must fail fast on the first failure/);
+});
+
+test('workflow contract fails when desktop embedding global timeout is removed', () => {
+  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
+  assert.ok(desktopEmbeddingPr);
+
+  const source = workflowSource.replace(
+    desktopEmbeddingPr,
+    desktopEmbeddingPr.replace(' --global-timeout=720000', '')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /desktop embedding E2E must cap Playwright runtime at 12 minutes/
+  );
+});
+
+test('workflow contract fails when broad desktop embedding core lane is reintroduced', () => {
+  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
+  assert.ok(desktopEmbeddingPr);
+
+  const source = workflowSource.replace(
+    desktopEmbeddingPr,
+    desktopEmbeddingPr.replace('@desktop-embedding-lifecycle', '@desktop-embedding-core')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /must not reintroduce the broad @desktop-embedding-core lane/
+  );
+});
+
+test('workflow contract fails when diagnostic desktop embedding crash lanes are required', () => {
+  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
+  assert.ok(desktopEmbeddingPr);
+
+  const source = workflowSource.replace(
+    desktopEmbeddingPr,
+    desktopEmbeddingPr.replace(
+      '          - group: mixed\n            display: 106\n            grep: "@desktop-embedding-mixed"',
+      '          - group: mixed\n            display: 106\n            grep: "@desktop-embedding-mixed"\n          - group: crash-a\n            display: 107\n            grep: "@desktop-embedding-crash-a"'
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /must keep diagnostic @desktop-embedding-crash-a out of required lanes/
+  );
+});
+
+test('workflow contract fails when desktop embedding timeout is widened', () => {
+  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
+  assert.ok(desktopEmbeddingPr);
+
+  const source = workflowSource.replace(
+    desktopEmbeddingPr,
+    desktopEmbeddingPr
+      .replace('timeout-minutes: 15', 'timeout-minutes: 40')
+      .replace('timeout-minutes: 12', 'timeout-minutes: 35')
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /desktop embedding job timeout must stay at 15 minutes/);
+  assert.match(failures, /desktop embedding test step timeout must stay at 12 minutes/);
+});
+
+test('workflow contract fails when desktop PR and main shard totals diverge', () => {
+  const source = workflowSource
+    .replace('desktop-shards=["1","2","3","4"]', 'desktop-shards=["1","2"]')
+    .replace('desktop-shard-total=["4"]', 'desktop-shard-total=["2"]');
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Desktop regression matrix must stay at four shards/
+  );
+});
+
+test('desktop E2E contract fails when Playwright is forced to one worker', () => {
+  const failures = validateDesktopE2EContracts({
+    playwrightConfigSource: 'workers: 1\nfullyParallel: config.fullyParallel',
+    playwrightEnvironmentSource: 'return 0;',
+  });
+
+  assert.match(failures.join('\n'), /must not force workers to one/);
+});
+
+test('desktop E2E contract fails when Playwright has a 15 minute global timeout', () => {
+  const failures = validateDesktopE2EContracts({
+    playwrightConfigSource: 'workers: config.workers\nfullyParallel: config.fullyParallel',
+    playwrightEnvironmentSource: 'return 15 * 60 * 1000;',
+  });
+
+  assert.match(failures.join('\n'), /globalTimeout disabled/);
+  assert.match(failures.join('\n'), /15 minute global timeout/);
 });

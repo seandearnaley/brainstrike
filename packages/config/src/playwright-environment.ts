@@ -58,21 +58,12 @@ export const getWorkerCount = (env?: ReturnType<typeof detectEnvironment>) => {
 };
 
 /**
- * Get global timeout based on environment constraints
- * @param environmentType - Optional override for specific environment type
+ * Keep Playwright's suite-level global timeout disabled. CI jobs already have
+ * explicit step timeouts, and a hidden Playwright global timer can kill a
+ * sharded desktop suite mid-file after many passing tests.
  */
 export const getGlobalTimeout = (env?: ReturnType<typeof detectEnvironment>) => {
-  const { isCodex, isCI } = env || detectEnvironment();
-
-  // 10 minutes for Codex (under 15-minute hard limit with buffer)
-  if (isCodex) {
-    return 10 * 60 * 1000;
-  }
-  // 15 minutes for other CI environments
-  if (isCI) {
-    return 15 * 60 * 1000;
-  }
-  // No global timeout for local development
+  void (env || detectEnvironment());
   return 0;
 };
 

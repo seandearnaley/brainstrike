@@ -74,6 +74,16 @@ export interface AssistantUiPanelWrapperProps {
   memoryThreadId?: string;
 }
 
+declare global {
+  interface Window {
+    __brainstrikeAssistantRuntimeTestHooks__:
+      | {
+          setCurrentThreadModel: (compositeKey: string) => void;
+        }
+      | undefined;
+  }
+}
+
 // App-shell wrapper wires DB/preferences state into the shared UI-only AssistantUiPanel.
 const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
   hosted: 'Hosted',
@@ -1139,6 +1149,43 @@ export function AssistantUiPanelWrapper({
     () => resolveModelNameFromComposite(currentModel),
     [currentModel]
   );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const desktopWindow = window as Window & {
+      desktopLifecycle?: {
+        isTestMode?: boolean;
+      };
+    };
+    if (!desktopWindow.desktopLifecycle?.isTestMode) {
+      return;
+    }
+
+    const hooks = {
+      setCurrentThreadModel: (compositeKey: string): void => {
+        const provider = resolveProviderFromComposite(compositeKey);
+        const model = resolveModelNameFromComposite(compositeKey);
+        if (!(provider && model)) {
+          throw new Error(`Invalid assistant model key: ${compositeKey}`);
+        }
+
+        setModel(compositeKey);
+        if (memoryThreadId) {
+          setThreadDraftRuntime(memoryThreadId, { model, provider });
+        }
+      },
+    };
+
+    window.__brainstrikeAssistantRuntimeTestHooks__ = hooks;
+    return () => {
+      if (window.__brainstrikeAssistantRuntimeTestHooks__ === hooks) {
+        window.__brainstrikeAssistantRuntimeTestHooks__ = undefined;
+      }
+    };
+  }, [memoryThreadId, setModel, setThreadDraftRuntime]);
+
   const effectiveProviderSettings = useMemo(() => {
     const draftProviderSettings = selectedThreadDraftRuntime?.providerSettings;
     if (!draftProviderSettings) {

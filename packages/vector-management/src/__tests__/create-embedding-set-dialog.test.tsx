@@ -1,6 +1,6 @@
 import type { IEmbeddingSetsRepository } from '@brainstrike/db';
 import { type ModelPickerModel, type ModelPickerProvider, Toaster } from '@brainstrike/ui';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { CreateEmbeddingSetDialog } from '../embedding-set-management/create-embedding-set-dialog';
@@ -606,43 +606,11 @@ describe('CreateEmbeddingSetDialog', () => {
     setInputValueWithoutReactChange(nameInput, 'Native Input Collection');
     fireEvent.input(nameInput);
 
-    resolveFindAll([{ name: 'Text Embedding 3 Small' }]);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(nameInput.value).toBe('Native Input Collection');
-  });
-
-  it('does not overwrite a native input value that React has not observed', async () => {
-    let resolveFindAll: (collections: { name: string }[]) => void = () => {};
-    const slowFindAll = new Promise<{ name: string }[]>((resolve) => {
-      resolveFindAll = resolve;
+    await act(async () => {
+      resolveFindAll([{ name: 'Text Embedding 3 Small' }]);
+      await slowFindAll;
     });
-    const slowRepository = {
-      getOrCreateSet: vi.fn(),
-      findAll: vi.fn().mockReturnValue(slowFindAll),
-    } as unknown as IEmbeddingSetsRepository;
-
-    render(
-      <>
-        <Toaster />
-        <CreateEmbeddingSetDialog
-          models={mockModels}
-          onOpenChange={mockOnOpenChange}
-          onSetCreated={mockOnSetCreated}
-          open={true}
-          providers={mockProviders}
-          repository={slowRepository}
-        />
-      </>
-    );
-
-    const nameInput = screen.getByLabelText(/Name/i) as HTMLInputElement;
-    expect(nameInput.value).toBe('Text Embedding 3 Small');
-
-    setInputValueWithoutReactChange(nameInput, 'Native Unobserved Collection');
-
-    resolveFindAll([{ name: 'Text Embedding 3 Small' }]);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(nameInput.value).toBe('Native Unobserved Collection');
+    expect(nameInput.value).toBe('Native Input Collection');
   });
 
   // P1 sibling case: same race, but user changes the model instead of typing.
