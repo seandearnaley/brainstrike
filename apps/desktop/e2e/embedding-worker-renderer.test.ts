@@ -2037,7 +2037,11 @@ test.describe('Embedding Host Renderer', () => {
         window as Window & {
           electronAPI?: {
             db?: {
-              query?: (sql: string, params?: unknown[]) => Promise<{ rows: { state: string }[] }>;
+              query?: (
+                sql: string,
+                params?: unknown[],
+                options?: { label?: string; priority?: 'background' | 'foreground' | 'normal' }
+              ) => Promise<{ rows: { state: string }[] }>;
             };
           };
         }
@@ -2045,9 +2049,10 @@ test.describe('Embedding Host Renderer', () => {
       if (!api?.db?.query) {
         throw new Error('Database API not available');
       }
-      const result = (await api.db.query('SELECT state FROM job_queue WHERE id = $1', [id])) as {
-        rows: Array<{ state?: string }>;
-      };
+      const result = (await api.db.query('SELECT state FROM job_queue WHERE id = $1', [id], {
+        label: 'e2e-get-embedding-job-status',
+        priority: 'background',
+      })) as { rows: Array<{ state?: string }> };
       return result.rows[0]?.state ?? null;
     }, jobId);
   }
@@ -2058,7 +2063,11 @@ test.describe('Embedding Host Renderer', () => {
         window as Window & {
           electronAPI?: {
             db?: {
-              query?: (sql: string, params?: unknown[]) => Promise<{ rows: QueueStatsRow[] }>;
+              query?: (
+                sql: string,
+                params?: unknown[],
+                options?: { label?: string; priority?: 'background' | 'foreground' | 'normal' }
+              ) => Promise<{ rows: QueueStatsRow[] }>;
             };
           };
         }
@@ -2073,7 +2082,9 @@ test.describe('Embedding Host Renderer', () => {
            COUNT(*) FILTER (WHERE state = 'failed')::int AS failed,
            COUNT(*) FILTER (WHERE state = 'succeeded')::int AS succeeded
          FROM job_queue
-         WHERE queue = 'embeddings'`
+         WHERE queue = 'embeddings'`,
+        [],
+        { label: 'e2e-get-embedding-queue-stats', priority: 'background' }
       );
       const row = result.rows[0] as QueueStatsRow | undefined;
       if (!row) {
@@ -2137,7 +2148,11 @@ test.describe('Embedding Host Renderer', () => {
         window as Window & {
           electronAPI?: {
             db?: {
-              query?: (sql: string, params?: unknown[]) => Promise<{ rows: QueueStatsRow[] }>;
+              query?: (
+                sql: string,
+                params?: unknown[],
+                options?: { label?: string; priority?: 'background' | 'foreground' | 'normal' }
+              ) => Promise<{ rows: QueueStatsRow[] }>;
             };
           };
         }
@@ -2155,7 +2170,8 @@ test.describe('Embedding Host Renderer', () => {
          WHERE queue = 'embeddings'
            AND job_type = 'embed_chunk'
            AND payload->>'embeddingSetId' = $1`,
-        [id]
+        [id],
+        { label: 'e2e-get-embedding-set-queue-stats', priority: 'background' }
       );
       const row = result.rows[0] as QueueStatsRow | undefined;
       if (!row) {
