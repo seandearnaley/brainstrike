@@ -72,7 +72,7 @@ function mergePackageCoverage(packageRoot, files, tempRoot) {
   mkdirSync(canonicalDir, { recursive: true });
 
   if (files.length === 1 && path.resolve(files[0]) === path.resolve(canonicalFile)) {
-    return { packageRoot, files: 1, merged: false };
+    return { cleaned: 0, packageRoot, files: 1, merged: false };
   }
 
   const inputDir = path.join(tempRoot, safeName(packageRoot));
@@ -99,7 +99,19 @@ function mergePackageCoverage(packageRoot, files, tempRoot) {
     throw new Error(`Failed to merge coverage for ${path.relative(process.cwd(), packageRoot)}`);
   }
 
-  return { packageRoot, files: files.length, merged: true };
+  let cleaned = 0;
+  for (const file of files) {
+    if (path.resolve(file) === path.resolve(canonicalFile)) {
+      continue;
+    }
+    const reportDir = path.dirname(file);
+    if (path.basename(reportDir).startsWith('coverage-')) {
+      rmSync(reportDir, { force: true, recursive: true });
+      cleaned += 1;
+    }
+  }
+
+  return { cleaned, packageRoot, files: files.length, merged: true };
 }
 
 export function prepareWorkspaceCoverage({ roots = ['packages', 'apps'] } = {}) {
@@ -122,7 +134,8 @@ function main() {
   for (const result of results) {
     const rel = path.relative(process.cwd(), result.packageRoot);
     const action = result.merged ? 'merged' : 'kept';
-    console.log(`${action} ${result.files} coverage report(s) for ${rel}`);
+    const cleanup = result.cleaned > 0 ? `; removed ${result.cleaned} split report dir(s)` : '';
+    console.log(`${action} ${result.files} coverage report(s) for ${rel}${cleanup}`);
   }
 }
 

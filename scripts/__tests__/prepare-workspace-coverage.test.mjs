@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -71,16 +71,19 @@ test('prepareWorkspaceCoverage merges split package coverage into canonical repo
 
     assert.deepEqual(
       results.map((result) => ({
+        cleaned: result.cleaned,
         files: result.files,
         merged: result.merged,
         packageRoot: path.relative(dir, result.packageRoot),
       })),
-      [{ files: 2, merged: true, packageRoot: path.join('packages', 'db') }]
+      [{ cleaned: 2, files: 2, merged: true, packageRoot: path.join('packages', 'db') }]
     );
     const merged = JSON.parse(
       await readFile(path.join(packageRoot, 'coverage', 'coverage-final.json'), 'utf8')
     );
     assert.deepEqual(Object.keys(merged).sort(), [sourceA, sourceB].sort());
+    await assert.rejects(access(path.join(packageRoot, 'coverage-db-a')), { code: 'ENOENT' });
+    await assert.rejects(access(path.join(packageRoot, 'coverage-db-b')), { code: 'ENOENT' });
   } finally {
     await rm(dir, { force: true, recursive: true });
   }
