@@ -261,6 +261,22 @@
       ],
       "outputLogs": "new-only"
     },
+    "test:coverage:db:runtime": {
+      "dependsOn": [
+        "^build",
+        "test:coverage:db:check-lanes"
+      ],
+      "env": [
+        "COVERAGE",
+        "NODE_ENV",
+        "TURBO_TEST_MODE"
+      ],
+      "outputs": [
+        "coverage-db-runtime/**",
+        "test-results/**"
+      ],
+      "outputLogs": "new-only"
+    },
     "test:coverage:db:search": {
       "dependsOn": [
         "^build",

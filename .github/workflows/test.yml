@@ -199,14 +199,17 @@ jobs:
           START=$SECONDS
           rm -rf .turbo/runs
           mkdir -p .turbo/runs
+          DB_COVERAGE_RUNTIME_TASK="test:coverage:db:runtime"
           DB_COVERAGE_TASKS="test:coverage:db:architecture test:coverage:db:chunking test:coverage:db:migrations test:coverage:db:queue test:coverage:db:repositories test:coverage:db:search"
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$GITHUB_BASE_REF" ]; then
             echo "Running affected unit coverage for PR against origin/${GITHUB_BASE_REF}"
             pnpm turbo run test:coverage --filter="...[origin/${GITHUB_BASE_REF}]" --filter="!@brainstrike/db" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo
+            pnpm turbo run $DB_COVERAGE_RUNTIME_TASK --filter="@brainstrike/db" --concurrency=1 --summarize --log-order=grouped --cache-dir=.turbo
             pnpm turbo run $DB_COVERAGE_TASKS --filter="@brainstrike/db" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo
           else
             echo "Running full unit coverage"
             pnpm turbo run test:coverage --filter="!@brainstrike/db" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo
+            pnpm turbo run $DB_COVERAGE_RUNTIME_TASK --filter="@brainstrike/db" --concurrency=1 --summarize --log-order=grouped --cache-dir=.turbo
             pnpm turbo run $DB_COVERAGE_TASKS --filter="@brainstrike/db" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo
           fi
           pnpm coverage:prepare-workspace

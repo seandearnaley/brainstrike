@@ -34,9 +34,6 @@ const lanes = {
     'use-drizzle-live-query.test.ts',
     'use-drizzle-live-query.test.tsx',
     'use-live-query.test.tsx',
-    'wasm-loader-coverage.test.ts',
-    'wasm-loader-worker.test.ts',
-    'wasm-loader.test.ts',
   ],
   chunking: [
     'chunking-service.streaming.test.ts',
@@ -111,6 +108,11 @@ const lanes = {
     'search-similar-sql-path.test.ts',
     'search-similar.behavior.test.ts',
     'vector-extension.integration.test.ts',
+  ],
+  runtime: [
+    'wasm-loader-coverage.test.ts',
+    'wasm-loader-worker.test.ts',
+    'wasm-loader.test.ts',
   ],
 };
 

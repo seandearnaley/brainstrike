@@ -468,12 +468,19 @@ export function validateWorkflowContracts(source) {
       'Split DB coverage tasks must be constrained to @brainstrike/db.',
       failures
     );
+    requireIncludes(
+      unitCoverage,
+      '$DB_COVERAGE_RUNTIME_TASK --filter="@brainstrike/db" --concurrency=1',
+      'DB runtime coverage must run alone to avoid PGlite cold-start resource contention.',
+      failures
+    );
     for (const taskName of [
       'test:coverage:db:architecture',
       'test:coverage:db:chunking',
       'test:coverage:db:migrations',
       'test:coverage:db:queue',
       'test:coverage:db:repositories',
+      'test:coverage:db:runtime',
       'test:coverage:db:search',
     ]) {
       requireIncludes(

@@ -67,6 +67,7 @@
     "test:coverage:db:migrations": "node scripts/coverage-lanes.mjs run migrations",
     "test:coverage:db:queue": "node scripts/coverage-lanes.mjs run queue",
     "test:coverage:db:repositories": "node scripts/coverage-lanes.mjs run repositories",
+    "test:coverage:db:runtime": "node scripts/coverage-lanes.mjs run runtime",
     "test:coverage:db:search": "node scripts/coverage-lanes.mjs run search",
     "test:vector": "TEST_ENABLE_VECTOR=true vitest run vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",
     "test:vector:watch": "TEST_ENABLE_VECTOR=true vitest vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",
