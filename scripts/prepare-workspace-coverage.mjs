@@ -4,6 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
+const SKIPPED_DIRECTORIES = new Set(['.git', '.turbo', 'node_modules']);
+
 function walk(dir) {
   const files = [];
   let entries = [];
@@ -15,6 +17,9 @@ function walk(dir) {
   for (const entry of entries) {
     const entryPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
+      if (SKIPPED_DIRECTORIES.has(entry.name)) {
+        continue;
+      }
       files.push(...walk(entryPath));
     } else if (entry.isFile() && entry.name === 'coverage-final.json') {
       files.push(entryPath);

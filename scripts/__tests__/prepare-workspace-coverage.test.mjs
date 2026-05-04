@@ -47,6 +47,25 @@ test('prepareWorkspaceCoverage merges split package coverage into canonical repo
       path.join(packageRoot, 'coverage-db-b', 'coverage-final.json'),
       fileCoverage(sourceB, 1)
     );
+    await Promise.all([
+      mkdir(path.join(packageRoot, 'node_modules', 'bad-package', 'coverage'), {
+        recursive: true,
+      }),
+      mkdir(path.join(packageRoot, '.turbo', 'coverage'), { recursive: true }),
+      mkdir(path.join(dir, '.git', 'coverage'), { recursive: true }),
+    ]);
+    await writeJson(
+      path.join(packageRoot, 'node_modules', 'bad-package', 'coverage', 'coverage-final.json'),
+      fileCoverage(path.join(packageRoot, 'node_modules', 'bad-package', 'index.js'), 1)
+    );
+    await writeJson(
+      path.join(packageRoot, '.turbo', 'coverage', 'coverage-final.json'),
+      fileCoverage(path.join(packageRoot, '.turbo', 'cache.js'), 1)
+    );
+    await writeJson(
+      path.join(dir, '.git', 'coverage', 'coverage-final.json'),
+      fileCoverage(path.join(dir, '.git', 'ignored.js'), 1)
+    );
 
     const results = prepareWorkspaceCoverage({ roots: [path.join(dir, 'packages')] });
 
