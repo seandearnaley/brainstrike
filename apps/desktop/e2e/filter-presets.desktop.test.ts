@@ -245,18 +245,34 @@ async function selectDocumentationPreset(window: Page): Promise<void> {
     return;
   }
 
+  await selectPresetBySearch(window, 'Documentation', /documentation/i);
+}
+
+async function selectPresetBySearch(
+  window: Page,
+  searchText: string,
+  selectedName: RegExp
+): Promise<void> {
   const presetTrigger = await resolvePresetTrigger(window);
-  await clickElectronControl(presetTrigger);
+  await presetTrigger.focus();
+  await window.keyboard.press('Enter');
 
   await expect(window.getByText('Loading presets...')).toBeHidden({
     timeout: PRESET_LOAD_TIMEOUT_MS,
   });
 
-  const documentationOption = window.getByRole('button', { name: /documentation/i }).first();
-  await expect(documentationOption).toBeVisible({ timeout: 10_000 });
-  await clickElectronControl(documentationOption);
+  const presetSearchInput = window.getByRole('textbox', { name: /filter presets/i });
+  await expect(presetSearchInput).toBeVisible({ timeout: 10_000 });
+  await presetSearchInput.fill(searchText);
+  await expect(window.getByRole('button', { name: selectedName }).first()).toBeVisible({
+    timeout: 10_000,
+  });
+  await presetSearchInput.press('Enter');
 
-  await expect(window.getByRole('button', { name: /documentation/i })).toBeVisible({
+  await expect(presetSearchInput).toBeHidden({ timeout: 10_000 });
+  await expect(
+    getContextExplorerLeftPanel(window).getByRole('button', { name: selectedName })
+  ).toBeVisible({
     timeout: 10_000,
   });
   await expect(window.getByText('Select filter...')).toBeHidden({ timeout: 10_000 });
@@ -267,13 +283,7 @@ async function switchPreset(window: Page, currentName: RegExp, nextName: RegExp)
     name: currentName,
   });
   await expect(presetTrigger).toBeVisible({ timeout: 10_000 });
-  await clickElectronControl(presetTrigger);
-
-  const nextOption = window.getByRole('button', { name: nextName }).first();
-  await expect(nextOption).toBeVisible({ timeout: 10_000 });
-  await clickElectronControl(nextOption);
-
-  await expect(window.getByRole('button', { name: nextName })).toBeVisible({ timeout: 10_000 });
+  await selectPresetBySearch(window, 'TypeScript', nextName);
 }
 
 test.describe('Desktop filter presets', () => {
@@ -373,15 +383,7 @@ test.describe('Desktop filter presets', () => {
     await selectMockRoot(window);
     await ensureViewFiltersExpanded(window);
 
-    const presetTrigger = await resolvePresetTrigger(window);
-    await clickElectronControl(presetTrigger);
-    await expect(window.getByText('Loading presets...')).toBeHidden({
-      timeout: PRESET_LOAD_TIMEOUT_MS,
-    });
-
-    const tsPresetOption = window.getByRole('button', { name: /typescript\/javascript/i }).first();
-    await expect(tsPresetOption).toBeVisible({ timeout: 10_000 });
-    await clickElectronControl(tsPresetOption);
+    await selectPresetBySearch(window, 'TypeScript', /typescript\/javascript/i);
 
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree.getByText('apps')).toBeVisible({ timeout: 10_000 });
@@ -417,15 +419,7 @@ test.describe('Desktop filter presets', () => {
     await selectMockRoot(window);
     await ensureViewFiltersExpanded(window);
 
-    const presetTrigger = await resolvePresetTrigger(window);
-    await clickElectronControl(presetTrigger);
-    await expect(window.getByText('Loading presets...')).toBeHidden({
-      timeout: PRESET_LOAD_TIMEOUT_MS,
-    });
-
-    const tsPresetOption = window.getByRole('button', { name: /typescript\/javascript/i }).first();
-    await expect(tsPresetOption).toBeVisible({ timeout: 10_000 });
-    await clickElectronControl(tsPresetOption);
+    await selectPresetBySearch(window, 'TypeScript', /typescript\/javascript/i);
 
     const expandAllButton = window.getByTestId('expand-all-button-small');
     await expect(expandAllButton).toBeVisible({ timeout: 10_000 });
