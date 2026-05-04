@@ -11,6 +11,8 @@ declare const process: NodeJS.Process;
 const require = createRequire(import.meta.url);
 
 const { getCILaunchArgs } = playwrightEnvironment;
+const e2eUserDataDirEnv = 'BRAINSTRIKE_E2E_USER_DATA_DIR';
+const dbRootPathEnv = 'BRAINSTRIKE_DB_ROOT_PATH';
 
 export interface ElectronAppContext {
   app: ElectronApplication;
@@ -220,6 +222,9 @@ export async function launchElectronAppWithOptions(
 
   const launchMode = options.launchMode ?? 'test-built';
   const userDataDir = options.userDataDir;
+  if (!userDataDir) {
+    throw new Error('Desktop E2E launches must provide an isolated userDataDir.');
+  }
 
   // Electron launches can fail transiently immediately after a forced
   // renderer/app reset while the OS releases resources. Keep one local retry
@@ -377,6 +382,12 @@ function createLaunchOptions(
       ELECTRON_DISABLE_SANDBOX: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_ENABLE_LOGGING: 'true',
+      ...(userDataDir
+        ? {
+            [e2eUserDataDirEnv]: userDataDir,
+            [dbRootPathEnv]: userDataDir,
+          }
+        : {}),
       // Force console logging and disable file logging to avoid contention/permissions issues
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_DISABLE_FILE_LOGS: '1',

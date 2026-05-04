@@ -1,6 +1,8 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import http from 'node:http';
 import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { HomePage } from './page-objects/home-page';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
@@ -149,6 +151,7 @@ test.describe('Desktop dev-server port isolation', () => {
 
       electronContext = await launchElectronAppWithOptions({
         launchMode: 'dev-server',
+        userDataDir: path.join(os.tmpdir(), `brainstrike-dev-server-port-${process.pid}`),
       });
 
       const homePage = new HomePage(electronContext.window);
