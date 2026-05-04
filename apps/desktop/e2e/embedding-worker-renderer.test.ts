@@ -3691,7 +3691,7 @@ test.describe('Embedding Host Renderer', () => {
     );
   });
 
-  test('@desktop-embedding-lifecycle shows a newly created collection immediately without leaving the database tab', async ({
+  test('shows a newly created collection immediately without leaving the database tab', async ({
     window,
   }) => {
     test.setTimeout(180_000);
