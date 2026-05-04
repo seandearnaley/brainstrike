@@ -34,6 +34,12 @@ function requireIncludes(source, text, message, failures) {
   }
 }
 
+function requireNotIncludes(source, text, message, failures) {
+  if (source.includes(text)) {
+    failures.push(message);
+  }
+}
+
 function requireNumericMatchAtMost(source, pattern, maxValue, message, failures) {
   const match = source.match(pattern);
   const value = match?.[1] ? Number.parseInt(match[1], 10) : Number.NaN;
@@ -466,6 +472,18 @@ export function validateWorkflowContracts(source) {
       unitCoverage,
       '$DB_COVERAGE_TASKS --filter="@brainstrike/db"',
       'Split DB coverage tasks must be constrained to @brainstrike/db.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      '$DB_COVERAGE_TASKS --filter="@brainstrike/db" --concurrency=1',
+      'Split DB coverage lanes must run serially to avoid PGlite runner contention.',
+      failures
+    );
+    requireNotIncludes(
+      unitCoverage,
+      '$DB_COVERAGE_TASKS --filter="@brainstrike/db" --concurrency=4',
+      'Split DB coverage lanes must not run with concurrency 4 on GitHub runners.',
       failures
     );
     requireIncludes(
