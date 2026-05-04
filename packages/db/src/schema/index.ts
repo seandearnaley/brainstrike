@@ -167,7 +167,7 @@ export const fileChunks = pgTable(
     embeddingSetId: text('embedding_set_id'),
     embeddingUpdatedAt: textTimestamp('embedding_updated_at'),
     embeddingHash: text('embedding_hash'),
-    // Full-text search tsvector - auto-updated by database trigger
+    // Full-text search tsvector - populated by repository writes and backfilled by migration
     // GIN-indexed for fast ts_query lookups
     contentTsvector: tsvector('content_tsvector'),
     createdAt: textTimestamp('created_at').default(textTimestampNow).notNull(),

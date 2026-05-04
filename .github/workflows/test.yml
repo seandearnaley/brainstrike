@@ -858,7 +858,7 @@ jobs:
           # Run regression tests with explicit DISPLAY
           echo "Starting Playwright regression tests..."
           unset NO_COLOR
-          pnpm exec playwright test --project=regression --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          pnpm exec playwright test --project=regression --workers=2 --grep-invert "@desktop-embedding-" --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
           TEST_EXIT_CODE=$?
 
           # Cleanup
@@ -890,6 +890,97 @@ jobs:
         with:
           name: desktop-blob-report-${{ matrix.shardIndex }}
           path: apps/desktop/desktop-blob-report-${{ matrix.shardIndex }}.tar
+          retention-days: 1
+          if-no-files-found: warn
+
+  desktop-e2e-embedding-pr:
+    name: Desktop E2E Embedding Regression (${{ matrix.group }})
+    if: github.event_name == 'pull_request'
+    needs: [prepare-desktop]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      TURBO_CACHE_DIR: .turbo
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: core
+            display: 101
+            grep: "@desktop-embedding-core"
+          - group: mixed
+            display: 102
+            grep: "@desktop-embedding-mixed"
+          - group: crash-a
+            display: 103
+            grep: "@desktop-embedding-crash-a"
+          - group: crash-b
+            display: 104
+            grep: "@desktop-embedding-crash-b"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+        with:
+          skip-electron: 'false'
+
+      - name: Setup desktop E2E
+        uses: ./.github/actions/setup-desktop-e2e
+
+      - name: Run Desktop embedding E2E regression group
+        timeout-minutes: 35
+        working-directory: apps/desktop
+        run: |
+          export DISPLAY=":${{ matrix.display }}"
+          LOCK_FILE="/tmp/.X${{ matrix.display }}-lock"
+          [ -f "$LOCK_FILE" ] && sudo rm -f "$LOCK_FILE"
+
+          echo "Starting Xvfb on display ${DISPLAY} for embedding group ${{ matrix.group }}"
+          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
+          XVFB_PID=$!
+          sleep 3
+
+          if ! kill -0 $XVFB_PID 2>/dev/null; then
+            echo "ERROR: Xvfb process died unexpectedly"
+            exit 1
+          fi
+
+          unset NO_COLOR
+          pnpm exec playwright test --project=regression --workers=1 --grep "${{ matrix.grep }}" e2e/embedding-worker-renderer.test.ts
+          TEST_EXIT_CODE=$?
+
+          kill $XVFB_PID 2>/dev/null || true
+          exit $TEST_EXIT_CODE
+        env:
+          NODE_ENV: "test"
+          CI: "true"
+          RUN_SALT: ${{ github.run_id }}
+          ELECTRON_ENABLE_STACK_DUMPING: "false"
+          ELECTRON_DISABLE_GPU: "1"
+
+      - name: Bundle blob report (desktop embedding group)
+        if: failure()
+        run: |
+          set -e
+          cd apps/desktop
+          if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
+            tar -cvf desktop-embedding-blob-report-${{ matrix.group }}.tar blob-report/
+            ls -lh desktop-embedding-blob-report-${{ matrix.group }}.tar
+            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
+          else
+            echo "No blob report found for desktop embedding group ${{ matrix.group }}"
+          fi
+
+      - name: Upload blob report (desktop embedding group)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-embedding-blob-report-${{ matrix.group }}
+          path: apps/desktop/desktop-embedding-blob-report-${{ matrix.group }}.tar
           retention-days: 1
           if-no-files-found: warn
 
@@ -956,7 +1047,7 @@ jobs:
           # Run regression tests (non-smoke) with explicit DISPLAY
           echo "Starting Playwright regression tests..."
           unset NO_COLOR
-          pnpm exec playwright test --project=regression --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          pnpm exec playwright test --project=regression --workers=2 --grep-invert "@desktop-embedding-" --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
           TEST_EXIT_CODE=$?
 
           # Cleanup
@@ -988,6 +1079,97 @@ jobs:
         with:
           name: desktop-blob-report-${{ matrix.shardIndex }}
           path: apps/desktop/desktop-blob-report-${{ matrix.shardIndex }}.tar
+          retention-days: 1
+          if-no-files-found: warn
+
+  desktop-e2e-embedding-main:
+    name: Desktop E2E Embedding Regression (${{ matrix.group }})
+    if: github.event_name != 'pull_request'
+    needs: [prepare-desktop, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      TURBO_CACHE_DIR: .turbo
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: core
+            display: 101
+            grep: "@desktop-embedding-core"
+          - group: mixed
+            display: 102
+            grep: "@desktop-embedding-mixed"
+          - group: crash-a
+            display: 103
+            grep: "@desktop-embedding-crash-a"
+          - group: crash-b
+            display: 104
+            grep: "@desktop-embedding-crash-b"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+        with:
+          skip-electron: 'false'
+
+      - name: Setup desktop E2E
+        uses: ./.github/actions/setup-desktop-e2e
+
+      - name: Run Desktop embedding E2E regression group
+        timeout-minutes: 35
+        working-directory: apps/desktop
+        run: |
+          export DISPLAY=":${{ matrix.display }}"
+          LOCK_FILE="/tmp/.X${{ matrix.display }}-lock"
+          [ -f "$LOCK_FILE" ] && sudo rm -f "$LOCK_FILE"
+
+          echo "Starting Xvfb on display ${DISPLAY} for embedding group ${{ matrix.group }}"
+          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
+          XVFB_PID=$!
+          sleep 3
+
+          if ! kill -0 $XVFB_PID 2>/dev/null; then
+            echo "ERROR: Xvfb process died unexpectedly"
+            exit 1
+          fi
+
+          unset NO_COLOR
+          pnpm exec playwright test --project=regression --workers=1 --grep "${{ matrix.grep }}" e2e/embedding-worker-renderer.test.ts
+          TEST_EXIT_CODE=$?
+
+          kill $XVFB_PID 2>/dev/null || true
+          exit $TEST_EXIT_CODE
+        env:
+          NODE_ENV: "test"
+          CI: "true"
+          RUN_SALT: ${{ github.run_id }}
+          ELECTRON_ENABLE_STACK_DUMPING: "false"
+          ELECTRON_DISABLE_GPU: "1"
+
+      - name: Bundle blob report (desktop embedding group)
+        if: failure()
+        run: |
+          set -e
+          cd apps/desktop
+          if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
+            tar -cvf desktop-embedding-blob-report-${{ matrix.group }}.tar blob-report/
+            ls -lh desktop-embedding-blob-report-${{ matrix.group }}.tar
+            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
+          else
+            echo "No blob report found for desktop embedding group ${{ matrix.group }}"
+          fi
+
+      - name: Upload blob report (desktop embedding group)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-embedding-blob-report-${{ matrix.group }}
+          path: apps/desktop/desktop-embedding-blob-report-${{ matrix.group }}.tar
           retention-days: 1
           if-no-files-found: warn
 
@@ -1088,12 +1270,12 @@ jobs:
           if-no-files-found: warn
 
   # Merge E2E test reports
-  # Note: exactly one of desktop-e2e-pr / desktop-e2e-main is always skipped
-  # (PR runs -pr, main/push runs -main). The OR condition handles this correctly.
+  # Note: exactly one of the PR/main desktop job sets is always skipped.
+  # The OR condition handles this correctly.
   merge-reports:
     name: Merge Test Reports
-    if: github.event_name != 'workflow_dispatch' && always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.e2e-stateful.result == 'success' || needs.e2e-destructive.result == 'success' || needs.desktop-e2e-pr.result == 'success' || needs.desktop-e2e-main.result == 'success')
-    needs: [checks, e2e, e2e-stateful, e2e-destructive, desktop-e2e-pr, desktop-e2e-main]
+    if: github.event_name != 'workflow_dispatch' && always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.e2e-stateful.result == 'success' || needs.e2e-destructive.result == 'success' || needs.desktop-e2e-pr.result == 'success' || needs.desktop-e2e-embedding-pr.result == 'success' || needs.desktop-e2e-main.result == 'success' || needs.desktop-e2e-embedding-main.result == 'success')
+    needs: [checks, e2e, e2e-stateful, e2e-destructive, desktop-e2e-pr, desktop-e2e-embedding-pr, desktop-e2e-main, desktop-e2e-embedding-main]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -1201,6 +1383,7 @@ jobs:
       - e2e-stateful
       - e2e-destructive
       - desktop-e2e-pr
+      - desktop-e2e-embedding-pr
       - merge-reports
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1236,6 +1419,7 @@ jobs:
       - e2e-stateful
       - e2e-destructive
       - desktop-e2e-main
+      - desktop-e2e-embedding-main
       - merge-reports
     runs-on: ubuntu-latest
     timeout-minutes: 5

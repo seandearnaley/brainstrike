@@ -105,18 +105,18 @@ describe('EmbeddingActionsDropdown', () => {
       expect(screen.getByRole('button', { name: 'Backfilling…' })).toBeInTheDocument();
     });
 
-    it('shows an action-oriented label while backfilling instead of stale local progress', () => {
+    it('shows progress while backfilling when progress is available', () => {
       renderDropdown({ backfilling: true, backfillProgress: { done: 25, total: 100 } });
-      expect(screen.getByRole('button', { name: 'Backfilling…' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '25/100' })).toBeInTheDocument();
     });
 
-    it('prioritizes backfilling over starting state and local progress', () => {
+    it('prioritizes backfilling progress over starting state', () => {
       renderDropdown({
         startingWorker: true,
         backfilling: true,
         backfillProgress: { done: 25, total: 100 },
       });
-      expect(screen.getByRole('button', { name: 'Backfilling…' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '25/100' })).toBeInTheDocument();
     });
 
     it('shows "Start & Backfill" when willAutoStartWorker is true', () => {

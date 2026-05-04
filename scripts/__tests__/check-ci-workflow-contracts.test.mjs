@@ -4,6 +4,7 @@ import { test } from 'node:test';
 
 import {
   extractJob,
+  validateDesktopE2EContracts,
   validateWorkflowContracts,
 } from '../check-ci-workflow-contracts.mjs';
 
@@ -104,4 +105,23 @@ test('workflow contract fails when desktop PR and main shard totals diverge', ()
     validateWorkflowContracts(source).join('\n'),
     /Desktop regression matrix must stay at four shards/
   );
+});
+
+test('desktop E2E contract fails when Playwright is forced to one worker', () => {
+  const failures = validateDesktopE2EContracts({
+    playwrightConfigSource: 'workers: 1\nfullyParallel: config.fullyParallel',
+    playwrightEnvironmentSource: 'return 0;',
+  });
+
+  assert.match(failures.join('\n'), /must not force workers to one/);
+});
+
+test('desktop E2E contract fails when Playwright has a 15 minute global timeout', () => {
+  const failures = validateDesktopE2EContracts({
+    playwrightConfigSource: 'workers: config.workers\nfullyParallel: config.fullyParallel',
+    playwrightEnvironmentSource: 'return 15 * 60 * 1000;',
+  });
+
+  assert.match(failures.join('\n'), /globalTimeout disabled/);
+  assert.match(failures.join('\n'), /15 minute global timeout/);
 });

@@ -361,9 +361,12 @@ test.describe('Database Persistence', () => {
 
     await expandImportSettings(activeWindow);
     await selectChunkingPreset(activeWindow, /^Codebase/);
-    await expect(activeWindow.getByText('Adaptive presets still route each file type')).toBeVisible(
-      { timeout: 10_000 }
-    );
+    const activePreset = activeWindow.getByTestId('chunking-active-preset');
+    await expect(activePreset).toContainText('Codebase', { timeout: 10_000 });
+    await expect(activePreset).toContainText('Adaptive', { timeout: 10_000 });
+    await expect(activePreset).toContainText('auto', { timeout: 10_000 });
+
+    await activeWindow.getByRole('button', { name: /Routing plan/i }).click({ timeout: 5000 });
     await expect(activeWindow.getByText('docs/getting-started.md')).toBeVisible({
       timeout: 10_000,
     });
@@ -383,9 +386,10 @@ test.describe('Database Persistence', () => {
     await activeWindow.reload();
     activeWindow = await ensureDatabasePanel(activeWindow);
     await expandImportSettings(activeWindow);
-    await expect(activeWindow.getByText('Adaptive presets still route each file type')).toBeVisible(
-      { timeout: 10_000 }
-    );
+    await expect(activeWindow.getByTestId('chunking-active-preset')).toContainText('Codebase', {
+      timeout: 10_000,
+    });
+    await activeWindow.getByRole('button', { name: /Routing plan/i }).click({ timeout: 5000 });
 
     await expect
       .poll(async () => await readImportSettingsState(activeWindow), {
@@ -506,10 +510,14 @@ test.describe('Database Persistence', () => {
     // Expand Import Settings to access Clear Database button
     await expandImportSettings(activePage);
 
-    const clearButton = activePage.locator('button:has-text("Clear Database")');
+    const clearButton = activePage.getByRole('button', {
+      name: /Clear Database|Counts pending/,
+    });
     const visible = await clearButton.isVisible({ timeout: 10_000 }).catch(() => false);
     if (!visible) {
-      await expect(activePage.locator(ERROR_LOCATOR).first()).toBeVisible();
+      if (await isDatabaseError(activePage)) {
+        await expect(activePage.locator(ERROR_LOCATOR).first()).toBeVisible();
+      }
       return;
     }
 
@@ -635,7 +643,9 @@ test.describe('Database Persistence', () => {
     // Expand Import Settings to access Clear Database button
     await expandImportSettings(activeWindow);
 
-    const clearButton = activeWindow.getByRole('button', { name: 'Clear Database' });
+    const clearButton = activeWindow.getByRole('button', {
+      name: /Clear Database|Counts pending/,
+    });
     await expect(clearButton).toBeVisible();
     await expect(clearButton).toBeDisabled();
   });

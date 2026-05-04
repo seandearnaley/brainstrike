@@ -4,6 +4,8 @@ import path from 'node:path';
 
 const rootDir = process.cwd();
 const workflowPath = path.join(rootDir, '.github/workflows/test.yml');
+const desktopPlaywrightConfigPath = path.join(rootDir, 'apps/desktop/playwright.config.ts');
+const playwrightEnvironmentPath = path.join(rootDir, 'packages/config/src/playwright-environment.ts');
 
 function extractBlock(source, startPattern, nextPattern) {
   const start = source.search(startPattern);
@@ -193,8 +195,51 @@ export function validateWorkflowContracts(source) {
       'PR desktop E2E must run the regression Playwright project.',
       failures
     );
+    requireIncludes(
+      desktopPr,
+      '--grep-invert "@desktop-embedding-"',
+      'PR desktop E2E shard job must exclude embedding groups covered by the embedding job.',
+      failures
+    );
+    requireIncludes(
+      desktopPr,
+      '--workers=2',
+      'PR desktop E2E must keep two workers per shard.',
+      failures
+    );
     if (desktopPr.includes('--project=smoke')) {
       failures.push('PR desktop E2E must not use smoke as the required desktop proof.');
+    }
+  }
+
+  const desktopEmbeddingPr = extractJob(source, 'desktop-e2e-embedding-pr');
+  if (!desktopEmbeddingPr) {
+    failures.push('Missing desktop-e2e-embedding-pr job.');
+  } else {
+    requireIncludes(
+      desktopEmbeddingPr,
+      'name: Desktop E2E Embedding Regression',
+      'PR desktop embedding E2E status must prove embedding regressions.',
+      failures
+    );
+    requireIncludes(
+      desktopEmbeddingPr,
+      "if: github.event_name == 'pull_request'",
+      'PR desktop embedding regression job must run on pull_request.',
+      failures
+    );
+    for (const group of [
+      '@desktop-embedding-core',
+      '@desktop-embedding-mixed',
+      '@desktop-embedding-crash-a',
+      '@desktop-embedding-crash-b',
+    ]) {
+      requireIncludes(
+        desktopEmbeddingPr,
+        group,
+        `PR desktop embedding E2E must include ${group}.`,
+        failures
+      );
     }
   }
 
@@ -220,6 +265,49 @@ export function validateWorkflowContracts(source) {
       'Main desktop E2E must run the regression Playwright project.',
       failures
     );
+    requireIncludes(
+      desktopMain,
+      '--grep-invert "@desktop-embedding-"',
+      'Main desktop E2E shard job must exclude embedding groups covered by the embedding job.',
+      failures
+    );
+    requireIncludes(
+      desktopMain,
+      '--workers=2',
+      'Main desktop E2E must keep two workers per shard.',
+      failures
+    );
+  }
+
+  const desktopEmbeddingMain = extractJob(source, 'desktop-e2e-embedding-main');
+  if (!desktopEmbeddingMain) {
+    failures.push('Missing desktop-e2e-embedding-main job.');
+  } else {
+    requireIncludes(
+      desktopEmbeddingMain,
+      'name: Desktop E2E Embedding Regression',
+      'Main desktop embedding E2E status must prove embedding regressions.',
+      failures
+    );
+    requireIncludes(
+      desktopEmbeddingMain,
+      "if: github.event_name != 'pull_request'",
+      'Main desktop embedding regression job must run after merge/push.',
+      failures
+    );
+    for (const group of [
+      '@desktop-embedding-core',
+      '@desktop-embedding-mixed',
+      '@desktop-embedding-crash-a',
+      '@desktop-embedding-crash-b',
+    ]) {
+      requireIncludes(
+        desktopEmbeddingMain,
+        group,
+        `Main desktop embedding E2E must include ${group}.`,
+        failures
+      );
+    }
   }
 
   const requiredPrGate = extractJob(source, 'required-pr-gate');
@@ -242,6 +330,7 @@ export function validateWorkflowContracts(source) {
       'e2e-stateful',
       'e2e-destructive',
       'desktop-e2e-pr',
+      'desktop-e2e-embedding-pr',
       'merge-reports',
     ]) {
       requireYamlListItem(
@@ -279,6 +368,7 @@ export function validateWorkflowContracts(source) {
       'e2e-stateful',
       'e2e-destructive',
       'desktop-e2e-main',
+      'desktop-e2e-embedding-main',
       'merge-reports',
     ]) {
       requireYamlListItem(
@@ -308,9 +398,50 @@ export function validateWorkflowContracts(source) {
   return failures;
 }
 
+export function validateDesktopE2EContracts({
+  playwrightConfigSource,
+  playwrightEnvironmentSource,
+}) {
+  const failures = [];
+
+  requireIncludes(
+    playwrightConfigSource,
+    'workers: config.workers',
+    'Desktop Playwright config must not force workers to one.',
+    failures
+  );
+  requireIncludes(
+    playwrightConfigSource,
+    'fullyParallel: config.fullyParallel',
+    'Desktop Playwright config must use shared parallelism policy.',
+    failures
+  );
+  requireIncludes(
+    playwrightEnvironmentSource,
+    'return 0;',
+    'Playwright environment config must keep globalTimeout disabled.',
+    failures
+  );
+  if (playwrightEnvironmentSource.includes('15 * 60 * 1000')) {
+    failures.push('Playwright environment config must not use a 15 minute global timeout.');
+  }
+
+  return failures;
+}
+
 export async function main() {
-  const source = await readFile(workflowPath, 'utf8');
-  const failures = validateWorkflowContracts(source);
+  const [source, desktopPlaywrightConfigSource, playwrightEnvironmentSource] = await Promise.all([
+    readFile(workflowPath, 'utf8'),
+    readFile(desktopPlaywrightConfigPath, 'utf8'),
+    readFile(playwrightEnvironmentPath, 'utf8'),
+  ]);
+  const failures = [
+    ...validateWorkflowContracts(source),
+    ...validateDesktopE2EContracts({
+      playwrightConfigSource: desktopPlaywrightConfigSource,
+      playwrightEnvironmentSource,
+    }),
+  ];
 
   if (failures.length > 0) {
     console.error('CI workflow contract check failed.');

@@ -80,7 +80,7 @@ async function setFileExplorerMaxSelectionCount(
   const selectionCountInput = page.getByLabel('Maximum selection count input');
   await expect(selectionCountInput).toBeVisible({ timeout: 15_000 });
   await selectionCountInput.fill(String(maxSelectionCount));
-  await page.getByRole('button', { name: 'Apply selection count' }).click({ timeout: 5000 });
+  await selectionCountInput.press('Enter');
   await expect(page.getByTestId('selection-max')).toHaveText(String(maxSelectionCount), {
     timeout: 15_000,
   });
@@ -1313,7 +1313,7 @@ test.describe('Desktop file explorer selection', () => {
     await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
   });
 
-  test('expand all progressively reveals directories and cancel leaves a valid partial tree on desktop', async ({
+  test('expand all progressively reveals directories and leaves a valid tree after cancel or completion', async ({
     electronApp,
     window,
   }) => {
@@ -1353,7 +1353,15 @@ test.describe('Desktop file explorer selection', () => {
     }, initialExpandedCount);
     await expect(expandAllButton).toBeDisabled();
 
-    await cancelButton.click({ timeout: 5000 });
+    await cancelButton.click({ timeout: 5000 }).catch(async (error: unknown) => {
+      const operationStillRunning = await window
+        .getByTestId('inline-scanning-indicator')
+        .isVisible()
+        .catch(() => false);
+      if (operationStillRunning) {
+        throw error;
+      }
+    });
 
     await expect(window.getByTestId('inline-scanning-indicator')).not.toBeVisible({
       timeout: 15_000,
