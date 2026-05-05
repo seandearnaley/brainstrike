@@ -175,7 +175,7 @@ const NavigationControls = memo(function NavigationControls({
   onInputKeyDown,
 }: NavigationControlsProps) {
   return (
-    <TooltipProvider>
+    <TooltipProvider delayDuration={300}>
       <div className="flex shrink-0 items-center justify-center gap-1">
         {!isMiniDensity && (
           <Tooltip>
