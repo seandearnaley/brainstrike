@@ -235,6 +235,28 @@ describe('playwright-environment helpers', () => {
     stdoutSpy.mockRestore();
   });
 
+  it('logs base config as the effective config when there are no Playwright CLI overrides', () => {
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    stdoutSpy.mockClear();
+    const cfg = {
+      fullyParallel: false,
+      globalTimeout: 0,
+      headless: true,
+      isCI: true,
+      isCodex: false,
+      isGitHubActions: true,
+      retries: 2,
+      workers: 2,
+    };
+
+    logEnvironmentConfig('Desktop', cfg, undefined, ['apps/desktop/e2e/example.test.ts']);
+
+    const output = String(stdoutSpy.mock.calls[0]?.[0]);
+    expect(output).toContain('cliOverrides=none');
+    expect(output).toContain('effectiveConfig=base-config');
+    stdoutSpy.mockRestore();
+  });
+
   it('removes NO_COLOR when FORCE_COLOR is set', () => {
     const originalForceColor = process.env['FORCE_COLOR'];
     const originalNoColor = process.env['NO_COLOR'];

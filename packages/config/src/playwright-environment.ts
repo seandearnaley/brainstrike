@@ -243,6 +243,9 @@ export const formatPlaywrightCliOverrides = (overrides: PlaywrightCliOverrides):
   return parts.length > 0 ? parts.join(',') : 'none';
 };
 
+const hasPlaywrightCliOverrides = (overrides: PlaywrightCliOverrides): boolean =>
+  PLAYWRIGHT_CLI_OVERRIDE_LOG_ORDER.some((key) => typeof overrides[key] === 'string');
+
 /**
  * Log environment configuration for debugging
  */
@@ -253,6 +256,9 @@ export const logEnvironmentConfig = (
   argv?: readonly string[]
 ) => {
   const cliOverrides = parsePlaywrightCliOverrides(argv);
+  const effectiveConfig = hasPlaywrightCliOverrides(cliOverrides)
+    ? 'base-plus-playwright-cli-overrides'
+    : 'base-config';
   const details = [
     'source=base-config',
     `isCodex=${String(config.isCodex)}`,
@@ -264,7 +270,7 @@ export const logEnvironmentConfig = (
     `headless=${String(config.headless)}`,
     `fullyParallel=${String(config.fullyParallel)}`,
     `cliOverrides=${formatPlaywrightCliOverrides(cliOverrides)}`,
-    'effectiveConfig=base-plus-playwright-cli-overrides',
+    `effectiveConfig=${effectiveConfig}`,
   ];
   const basePart = baseURL ? ` baseURL=${baseURL}` : '';
   process.stdout.write(`[playwright:${appName}] ${details.join(' ')}${basePart}\n`);
