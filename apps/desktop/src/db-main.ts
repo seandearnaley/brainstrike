@@ -282,7 +282,8 @@ const PROFILES_DIRECTORY_NAME = 'profiles' as const;
 const PROFILE_BACKUPS_DIRECTORY_NAME = 'backups' as const;
 const PROFILE_BACKUPS_RETENTION_COUNT = 5 as const;
 const DB_LOCK_FILENAME = '.db-process.lock' as const;
-const PGLITE_INITIALIZATION_LOCK_FILENAME = 'brainstrike-pglite-initialization.lock' as const;
+const PGLITE_INITIALIZATION_LOCK_FILENAME_PREFIX = 'brainstrike-pglite-initialization' as const;
+const PGLITE_INITIALIZATION_LOCK_HASH_LENGTH = 16 as const;
 const PGLITE_INITIALIZATION_LOCK_TIMEOUT_MS = 60_000 as const;
 const PGLITE_INITIALIZATION_LOCK_POLL_MS = 100 as const;
 const WORKTREE_PROFILE_HASH_LENGTH = 8 as const;
@@ -704,7 +705,16 @@ function shouldSerializePGliteInitialization(): boolean {
 }
 
 function getPGliteInitializationLockPath(): string {
-  return path.join(tmpdir(), PGLITE_INITIALIZATION_LOCK_FILENAME);
+  // Serialize PGlite startup per database profile, not per machine. CI shards run
+  // isolated app data roots in parallel and must not contend on one global lock.
+  const scopedAppDataPathHash = createHash('sha256')
+    .update(path.resolve(getAppDataPath()))
+    .digest('hex')
+    .slice(0, PGLITE_INITIALIZATION_LOCK_HASH_LENGTH);
+  return path.join(
+    tmpdir(),
+    `${PGLITE_INITIALIZATION_LOCK_FILENAME_PREFIX}-${scopedAppDataPathHash}.lock`
+  );
 }
 
 function tryAcquirePGliteInitializationLock(lockPath: string): boolean {

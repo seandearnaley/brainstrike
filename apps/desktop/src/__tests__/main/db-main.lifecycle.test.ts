@@ -2,6 +2,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
+const originalDbRootPath = process.env['BRAINSTRIKE_DB_ROOT_PATH'];
 const originalSerializePgliteInit = process.env['BRAINSTRIKE_SERIALIZE_PGLITE_INIT'];
 
 function installUtilityProcessParentPort(): void {
@@ -26,6 +27,27 @@ function restoreParentPort(): void {
     value: undefined,
     writable: true,
   });
+}
+
+function restoreEnvValue(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    Reflect.deleteProperty(process.env, key);
+    return;
+  }
+  process.env[key] = value;
+}
+
+function getPGliteInitializationLockWritePath(): string {
+  const lockWriteCall = writeFileSyncMock.mock.calls.find(
+    ([candidatePath]) =>
+      typeof candidatePath === 'string' &&
+      candidatePath.includes('brainstrike-pglite-initialization-')
+  );
+
+  expect(lockWriteCall).toBeDefined();
+  const [lockPath] = lockWriteCall ?? [];
+  expect(typeof lockPath).toBe('string');
+  return lockPath as string;
 }
 
 const existsSyncMock = vi.fn();
@@ -115,17 +137,15 @@ describe('db-main lifecycle', () => {
     installUtilityProcessParentPort();
     process.env['NODE_ENV'] = 'test';
     process.env['BRAINSTRIKE_DB_PROFILE'] = '';
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DB_ROOT_PATH');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT');
     existsSyncMock.mockReturnValue(true);
   });
 
   afterEach(() => {
     restoreParentPort();
-    if (originalSerializePgliteInit === undefined) {
-      Reflect.deleteProperty(process.env, 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT');
-    } else {
-      process.env['BRAINSTRIKE_SERIALIZE_PGLITE_INIT'] = originalSerializePgliteInit;
-    }
+    restoreEnvValue('BRAINSTRIKE_DB_ROOT_PATH', originalDbRootPath);
+    restoreEnvValue('BRAINSTRIKE_SERIALIZE_PGLITE_INIT', originalSerializePgliteInit);
   });
 
   it('closeDatabase closes handle and resets singleton', async () => {
@@ -286,10 +306,10 @@ describe('db-main lifecycle', () => {
     }
   });
 
-  it('serializes PGlite initialization when the E2E startup lock is enabled', async () => {
+  it('serializes PGlite initialization with a profile-scoped startup lock', async () => {
     process.env['BRAINSTRIKE_SERIALIZE_PGLITE_INIT'] = '1';
     readFileSyncMock.mockImplementation((candidate: string) => {
-      if (candidate.includes('brainstrike-pglite-initialization.lock')) {
+      if (candidate.includes('brainstrike-pglite-initialization-')) {
         return String(process.pid);
       }
       return '';
@@ -299,12 +319,12 @@ describe('db-main lifecycle', () => {
     await initializeMainDatabase();
 
     expect(writeFileSyncMock).toHaveBeenCalledWith(
-      expect.stringContaining('brainstrike-pglite-initialization.lock'),
+      expect.stringMatching(/brainstrike-pglite-initialization-[a-f0-9]{16}\.lock$/),
       String(process.pid),
       { encoding: 'utf8', flag: 'wx' }
     );
     expect(unlinkSyncMock).toHaveBeenCalledWith(
-      expect.stringContaining('brainstrike-pglite-initialization.lock')
+      expect.stringMatching(/brainstrike-pglite-initialization-[a-f0-9]{16}\.lock$/)
     );
     expect(PGliteMock).toHaveBeenCalledTimes(1);
     expect(writeFileSyncMock.mock.invocationCallOrder[0]).toBeLessThan(
@@ -313,6 +333,70 @@ describe('db-main lifecycle', () => {
     expect(migrateMock.mock.invocationCallOrder[0]).toBeLessThan(
       unlinkSyncMock.mock.invocationCallOrder[0] ?? 0
     );
+  });
+
+  it('does not share the serialized PGlite startup lock across isolated database roots', async () => {
+    process.env['BRAINSTRIKE_SERIALIZE_PGLITE_INIT'] = '1';
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = '/tmp/brainstrike-e2e-profile-a';
+    readFileSyncMock.mockImplementation((candidate: string) => {
+      if (candidate.includes('brainstrike-pglite-initialization-')) {
+        return String(process.pid);
+      }
+      return '';
+    });
+
+    const firstImport = await import('../../db-main');
+    await firstImport.initializeMainDatabase();
+    const firstLockPath = getPGliteInitializationLockWritePath();
+
+    vi.resetModules();
+    vi.clearAllMocks();
+    process.env['BRAINSTRIKE_SERIALIZE_PGLITE_INIT'] = '1';
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = '/tmp/brainstrike-e2e-profile-b';
+    readFileSyncMock.mockImplementation((candidate: string) => {
+      if (candidate.includes('brainstrike-pglite-initialization-')) {
+        return String(process.pid);
+      }
+      return '';
+    });
+
+    const secondImport = await import('../../db-main');
+    await secondImport.initializeMainDatabase();
+    const secondLockPath = getPGliteInitializationLockWritePath();
+
+    expect(firstLockPath).not.toBe(secondLockPath);
+  });
+
+  it('uses the same serialized PGlite startup lock for the same isolated database root', async () => {
+    process.env['BRAINSTRIKE_SERIALIZE_PGLITE_INIT'] = '1';
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = '/tmp/brainstrike-e2e-profile-a';
+    readFileSyncMock.mockImplementation((candidate: string) => {
+      if (candidate.includes('brainstrike-pglite-initialization-')) {
+        return String(process.pid);
+      }
+      return '';
+    });
+
+    const firstImport = await import('../../db-main');
+    await firstImport.initializeMainDatabase();
+    const firstLockPath = getPGliteInitializationLockWritePath();
+
+    vi.resetModules();
+    vi.clearAllMocks();
+    process.env['BRAINSTRIKE_SERIALIZE_PGLITE_INIT'] = '1';
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = '/tmp/brainstrike-e2e-profile-a';
+    readFileSyncMock.mockImplementation((candidate: string) => {
+      if (candidate.includes('brainstrike-pglite-initialization-')) {
+        return String(process.pid);
+      }
+      return '';
+    });
+
+    const secondImport = await import('../../db-main');
+    await secondImport.initializeMainDatabase();
+    const secondLockPath = getPGliteInitializationLockWritePath();
+
+    expect(firstLockPath).toBe(secondLockPath);
   });
 
   it('auto-recovers from database corruption during initialization', async () => {
