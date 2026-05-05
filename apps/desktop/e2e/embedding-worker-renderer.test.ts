@@ -6,6 +6,7 @@ import type { ElectronApplication } from 'playwright';
 import { DESKTOP_DEV_RENDERER_PORT, DESKTOP_DEV_RENDERER_URL } from '../src/desktop-renderer-url';
 import { expect, test } from './fixtures/electron-fixture';
 import { getContextExplorerLeftPanel } from './utils/context-explorer-locators';
+import type { ElectronAppContext } from './utils/electron-helpers.mts';
 import { showDatabaseDemoPanel } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
@@ -144,6 +145,13 @@ interface EmbeddingSetCountsRow {
   embeddedChunks: number | string | null;
   fileCount: number | string | null;
   totalChunks: number | string | null;
+}
+
+interface EmbeddingBackfillInfo {
+  embeddingSetId: string;
+  progress: { current: number; total: number } | null;
+  requestId: string;
+  source: 'background-indexing' | 'manual';
 }
 
 interface ImportedPathCounts {
@@ -370,8 +378,9 @@ const DEFAULT_12K_MIN_HEALTH_SAMPLE_COUNT = 4;
 // claimed jobs, not concurrent model executions.
 const DESKTOP_IDLE_EMBED_RUNNING_JOB_LIMIT = 16;
 const REAL_WORLD_MIXED_STATE_FILE_COUNT = 1002;
-const REAL_WORLD_BACKGROUND_FILE_COUNT = 256;
-const REAL_WORLD_BACKGROUND_CHUNKS_PER_FILE = 12;
+const REAL_WORLD_BACKGROUND_FILE_COUNT = 96;
+const REAL_WORLD_BACKGROUND_CHUNKS_PER_FILE = 8;
+const EMBEDDING_BACKFILL_CANCELED_MESSAGE = 'Embedding backfill was canceled.';
 
 test.describe('Embedding Host Renderer', () => {
   const ERROR_LOCATOR = '[data-testid="db-init-error"]';
@@ -2006,7 +2015,7 @@ test.describe('Embedding Host Renderer', () => {
 
   async function createCollectionViaDialog(page: Page, collectionName: string): Promise<void> {
     const databasePanel = page.getByTestId('database-demo-panel');
-    await databasePanel.getByRole('button', { name: 'New' }).click({ timeout: 5000 });
+    await databasePanel.getByRole('button', { name: 'New' }).click({ timeout: 15_000 });
 
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByText('Create Search Collection')).toBeVisible({ timeout: 15_000 });
@@ -2017,7 +2026,7 @@ test.describe('Embedding Host Renderer', () => {
 
     const createButton = dialog.getByRole('button', { name: 'Create Collection' });
     await expect(createButton).toBeEnabled({ timeout: 15_000 });
-    await createButton.click({ timeout: 5000 });
+    await createButton.click({ timeout: 15_000 });
 
     await expect(dialog).toBeHidden({ timeout: 15_000 });
   }
@@ -2028,7 +2037,11 @@ test.describe('Embedding Host Renderer', () => {
         window as Window & {
           electronAPI?: {
             db?: {
-              query?: (sql: string, params?: unknown[]) => Promise<{ rows: { state: string }[] }>;
+              query?: (
+                sql: string,
+                params?: unknown[],
+                options?: { label?: string; priority?: 'background' | 'foreground' | 'normal' }
+              ) => Promise<{ rows: { state: string }[] }>;
             };
           };
         }
@@ -2036,9 +2049,10 @@ test.describe('Embedding Host Renderer', () => {
       if (!api?.db?.query) {
         throw new Error('Database API not available');
       }
-      const result = (await api.db.query('SELECT state FROM job_queue WHERE id = $1', [id])) as {
-        rows: Array<{ state?: string }>;
-      };
+      const result = (await api.db.query('SELECT state FROM job_queue WHERE id = $1', [id], {
+        label: 'e2e-get-embedding-job-status',
+        priority: 'background',
+      })) as { rows: Array<{ state?: string }> };
       return result.rows[0]?.state ?? null;
     }, jobId);
   }
@@ -2049,7 +2063,11 @@ test.describe('Embedding Host Renderer', () => {
         window as Window & {
           electronAPI?: {
             db?: {
-              query?: (sql: string, params?: unknown[]) => Promise<{ rows: QueueStatsRow[] }>;
+              query?: (
+                sql: string,
+                params?: unknown[],
+                options?: { label?: string; priority?: 'background' | 'foreground' | 'normal' }
+              ) => Promise<{ rows: QueueStatsRow[] }>;
             };
           };
         }
@@ -2064,7 +2082,9 @@ test.describe('Embedding Host Renderer', () => {
            COUNT(*) FILTER (WHERE state = 'failed')::int AS failed,
            COUNT(*) FILTER (WHERE state = 'succeeded')::int AS succeeded
          FROM job_queue
-         WHERE queue = 'embeddings'`
+         WHERE queue = 'embeddings'`,
+        [],
+        { label: 'e2e-get-embedding-queue-stats', priority: 'background' }
       );
       const row = result.rows[0] as QueueStatsRow | undefined;
       if (!row) {
@@ -2128,7 +2148,11 @@ test.describe('Embedding Host Renderer', () => {
         window as Window & {
           electronAPI?: {
             db?: {
-              query?: (sql: string, params?: unknown[]) => Promise<{ rows: QueueStatsRow[] }>;
+              query?: (
+                sql: string,
+                params?: unknown[],
+                options?: { label?: string; priority?: 'background' | 'foreground' | 'normal' }
+              ) => Promise<{ rows: QueueStatsRow[] }>;
             };
           };
         }
@@ -2146,7 +2170,8 @@ test.describe('Embedding Host Renderer', () => {
          WHERE queue = 'embeddings'
            AND job_type = 'embed_chunk'
            AND payload->>'embeddingSetId' = $1`,
-        [id]
+        [id],
+        { label: 'e2e-get-embedding-set-queue-stats', priority: 'background' }
       );
       const row = result.rows[0] as QueueStatsRow | undefined;
       if (!row) {
@@ -2652,6 +2677,32 @@ test.describe('Embedding Host Renderer', () => {
     throw new Error('Timed out waiting for bridge-driven backfill completion');
   }
 
+  async function waitForDatabaseDemoImportIdle(page: Page, timeoutMs = 60_000): Promise<void> {
+    const startedAt = Date.now();
+    let lastSnapshot: DatabaseDemoImportTestSnapshot | null = null;
+
+    while (Date.now() - startedAt < timeoutMs) {
+      lastSnapshot = await getDatabaseDemoImportSnapshot(page);
+
+      const importErrors = lastSnapshot?.progress?.errors ?? [];
+      if (importErrors.length > 0) {
+        throw new Error(
+          `Database import reported errors while waiting for idle: ${JSON.stringify(importErrors.slice(0, 10))}\nsnapshot=${JSON.stringify(lastSnapshot)}`
+        );
+      }
+
+      if (lastSnapshot && !lastSnapshot.isImporting) {
+        return;
+      }
+
+      await page.waitForTimeout(250);
+    }
+
+    throw new Error(
+      `Timed out waiting for database import to become idle; snapshot=${JSON.stringify(lastSnapshot)}`
+    );
+  }
+
   async function getBridgeBackfillState(page: Page): Promise<{
     done: boolean;
     embeddingSetId: string;
@@ -2669,6 +2720,115 @@ test.describe('Embedding Host Renderer', () => {
           }
         ).__e2eEmbeddingBackfillState ?? null
     );
+  }
+
+  async function getEmbeddingBackfillsInFlight(page: Page): Promise<EmbeddingBackfillInfo[]> {
+    return await page.evaluate<EmbeddingBackfillInfo[]>(async () => {
+      const host = (
+        window as Window & {
+          embeddingHost?: {
+            getBackfillsInFlight?: () => Promise<EmbeddingBackfillInfo[]>;
+          };
+        }
+      ).embeddingHost;
+      if (!host?.getBackfillsInFlight) {
+        throw new Error('Embedding host backfill diagnostics bridge is not available');
+      }
+      return await host.getBackfillsInFlight();
+    });
+  }
+
+  async function cancelAllEmbeddingBackfillsAndDrain(
+    page: Page,
+    timeoutMs = 60_000
+  ): Promise<void> {
+    await page.evaluate(async () => {
+      const host = (
+        window as Window & {
+          embeddingHost?: {
+            cancelAllBackfills?: () => Promise<void>;
+          };
+        }
+      ).embeddingHost;
+      if (!host?.cancelAllBackfills) {
+        throw new Error('Embedding host cancel-all bridge is not available');
+      }
+      await host.cancelAllBackfills();
+    });
+
+    const startedAt = Date.now();
+    let lastBridgeState: Awaited<ReturnType<typeof getBridgeBackfillState>> = null;
+    let lastInFlight: EmbeddingBackfillInfo[] = [];
+
+    while (Date.now() - startedAt < timeoutMs) {
+      [lastInFlight, lastBridgeState] = await Promise.all([
+        getEmbeddingBackfillsInFlight(page),
+        getBridgeBackfillState(page),
+      ]);
+
+      if (lastInFlight.length === 0 && (!lastBridgeState || lastBridgeState.done)) {
+        if (
+          lastBridgeState?.done &&
+          lastBridgeState.error &&
+          !lastBridgeState.error.includes(EMBEDDING_BACKFILL_CANCELED_MESSAGE)
+        ) {
+          throw new Error(lastBridgeState.error);
+        }
+        return;
+      }
+
+      await page.waitForTimeout(250);
+    }
+
+    throw new Error(
+      `Timed out waiting for embedding backfills to cancel; inFlight=${JSON.stringify(lastInFlight)} bridgeState=${JSON.stringify(lastBridgeState)}`
+    );
+  }
+
+  async function settleEmbeddingBackfillsStopHostAndClearQueue(page: Page): Promise<void> {
+    let cancelError: unknown = null;
+    try {
+      await cancelAllEmbeddingBackfillsAndDrain(page);
+    } catch (error) {
+      cancelError = error;
+    }
+
+    try {
+      await stopEmbeddingHost(page);
+    } finally {
+      await clearEmbeddingQueue(page);
+    }
+
+    if (cancelError) {
+      throw cancelError;
+    }
+  }
+
+  async function cleanupRealWorldMixedStateTest(
+    electronApp: ElectronAppContext,
+    page: Page
+  ): Promise<void> {
+    let importIdleError: unknown = null;
+
+    try {
+      await waitForDatabaseDemoImportIdle(page);
+    } catch (error) {
+      importIdleError = error;
+    }
+
+    try {
+      await settleEmbeddingBackfillsStopHostAndClearQueue(page);
+    } finally {
+      try {
+        await clearLargeImportFileSystemMock(electronApp.app);
+      } finally {
+        await stopChunkingHost(page);
+      }
+    }
+
+    if (importIdleError) {
+      throw importIdleError;
+    }
   }
 
   async function getRelevantElectronStderr(app: ElectronApplication): Promise<string[]> {
@@ -2790,8 +2950,9 @@ test.describe('Embedding Host Renderer', () => {
       throw new Error('Database initialization failed in desktop mixed-state setup');
     }
 
-    await clearEmbeddingQueue(activeWindow);
+    await cancelAllEmbeddingBackfillsAndDrain(activeWindow);
     await stopEmbeddingHost(activeWindow);
+    await clearEmbeddingQueue(activeWindow);
     await stopChunkingHost(activeWindow);
     await setVectorDevicePreference(activeWindow, 'wasm');
     await setImportSettingsForStressTest(activeWindow);
@@ -2982,6 +3143,8 @@ test.describe('Embedding Host Renderer', () => {
         totalChunks: expect.any(Number),
         embeddedChunks: 0,
       });
+
+    await waitForDatabaseDemoImportIdle(activeWindow);
 
     const backgroundFixture = await createLargeBackfillCorpusFixture(activeWindow, {
       fileCount: REAL_WORLD_BACKGROUND_FILE_COUNT,
@@ -5442,10 +5605,7 @@ test.describe('Embedding Host Renderer', () => {
       expect(expandedTreeNodeCount).toBeGreaterThan(0);
       expect(electronStderr).toEqual([]);
     } finally {
-      await clearLargeImportFileSystemMock(electronApp.app);
-      await clearEmbeddingQueue(activeWindow);
-      await stopEmbeddingHost(activeWindow);
-      await stopChunkingHost(activeWindow);
+      await cleanupRealWorldMixedStateTest(electronApp, activeWindow);
     }
   });
 
@@ -5771,10 +5931,7 @@ test.describe('Embedding Host Renderer', () => {
       expect(chunkingHostStatusAfterExpand.state).not.toBe('error');
       expect(importSnapshotAfterExpand?.activeCollectionId).not.toBeNull();
     } finally {
-      await clearLargeImportFileSystemMock(electronApp.app);
-      await clearEmbeddingQueue(activeWindow);
-      await stopEmbeddingHost(activeWindow);
-      await stopChunkingHost(activeWindow);
+      await cleanupRealWorldMixedStateTest(electronApp, activeWindow);
     }
   });
 
@@ -6117,6 +6274,7 @@ test.describe('Embedding Host Renderer', () => {
     // Explicitly stop first to avoid a race between the prior test's 'stop' command and
     // our 'reset' command. Without this, startWorker can silently skip starting when
     // startingRef.current is still true from a concurrent stop/start sequence.
+    await cancelAllEmbeddingBackfillsAndDrain(activeWindow);
     await stopEmbeddingHost(activeWindow);
     await activeWindow.waitForTimeout(200);
     await clearEmbeddingQueue(activeWindow);

@@ -34,6 +34,35 @@ function requireIncludes(source, text, message, failures) {
   }
 }
 
+function requireNotIncludes(source, text, message, failures) {
+  if (source.includes(text)) {
+    failures.push(message);
+  }
+}
+
+function requireNumericMatchAtMost(source, pattern, maxValue, message, failures) {
+  const match = source.match(pattern);
+  const value = match?.[1] ? Number.parseInt(match[1], 10) : Number.NaN;
+  if (!Number.isFinite(value) || value > maxValue) {
+    failures.push(message);
+  }
+}
+
+function requireNumericCliFlagAtMost(source, flag, maxValue, message, failures) {
+  requireNumericMatchAtMost(
+    source,
+    new RegExp(`${escapeRegExp(flag)}=(\\d+)`),
+    maxValue,
+    message,
+    failures
+  );
+}
+
+function extractJobHeader(source) {
+  const stepsStart = source.search(/^\s+steps:\s*$/m);
+  return stepsStart === -1 ? source : source.slice(0, stepsStart);
+}
+
 function escapeRegExp(source) {
   return source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -90,6 +119,47 @@ function requireDesktopEmbeddingJobContracts(source, prefix, failures) {
   }
 }
 
+function requireDesktopRegressionJobContracts(source, prefix, failures) {
+  requireNumericMatchAtMost(
+    extractJobHeader(source),
+    /^    timeout-minutes:\s*(\d+)\s*$/m,
+    20,
+    `${prefix} desktop regression job timeout must stay at 20 minutes or less.`,
+    failures
+  );
+
+  const regressionStep = requireSingleNamedStep(
+    source,
+    /Run Desktop E2E (?:regression )?tests \(shard\)/,
+    `${prefix} desktop regression test step`,
+    failures
+  );
+  if (!regressionStep) {
+    return;
+  }
+
+  requireNumericMatchAtMost(
+    regressionStep,
+    /^\s+timeout-minutes:\s*(\d+)\s*$/m,
+    15,
+    `${prefix} desktop regression test step timeout must stay at 15 minutes or less.`,
+    failures
+  );
+  for (const [flag, message] of [
+    ['--retries=0', `${prefix} desktop regression E2E must disable Playwright retries.`],
+    ['--max-failures=1', `${prefix} desktop regression E2E must fail fast on the first failure.`],
+  ]) {
+    requireIncludes(regressionStep, flag, message, failures);
+  }
+  requireNumericCliFlagAtMost(
+    regressionStep,
+    '--global-timeout',
+    720_000,
+    `${prefix} desktop regression E2E must cap Playwright runtime at 12 minutes.`,
+    failures
+  );
+}
+
 function extractNamedStepBlocks(source, namePattern) {
   const lines = source.split('\n');
   const blocks = [];
@@ -111,6 +181,16 @@ function extractNamedStepBlocks(source, namePattern) {
   }
 
   return blocks;
+}
+
+function requireSingleNamedStep(source, namePattern, description, failures) {
+  const blocks = extractNamedStepBlocks(source, namePattern);
+  if (blocks.length !== 1) {
+    failures.push(`${description} must appear exactly once.`);
+    return null;
+  }
+
+  return blocks[0];
 }
 
 export function validateWorkflowContracts(source) {
@@ -215,8 +295,32 @@ export function validateWorkflowContracts(source) {
     );
     requireIncludes(
       destructive,
-      '--workers=1 --grep "@destructive"',
+      '--workers=1',
       'Destructive E2E must run tagged specs in a one-worker lane.',
+      failures
+    );
+    requireIncludes(
+      destructive,
+      '--retries=0',
+      'Destructive E2E must disable Playwright retries.',
+      failures
+    );
+    requireIncludes(
+      destructive,
+      '--max-failures=1',
+      'Destructive E2E must fail fast on the first failure.',
+      failures
+    );
+    requireIncludes(
+      destructive,
+      '--global-timeout=600000',
+      'Destructive E2E must keep the Playwright global timeout at ten minutes.',
+      failures
+    );
+    requireIncludes(
+      destructive,
+      '--grep "@destructive"',
+      'Destructive E2E must run tagged specs in the destructive lane.',
       failures
     );
   }
@@ -255,6 +359,7 @@ export function validateWorkflowContracts(source) {
       'PR desktop E2E must keep two workers per shard.',
       failures
     );
+    requireDesktopRegressionJobContracts(desktopPr, 'PR', failures);
     if (desktopPr.includes('--project=smoke')) {
       failures.push('PR desktop E2E must not use smoke as the required desktop proof.');
     }
@@ -328,6 +433,7 @@ export function validateWorkflowContracts(source) {
       'Main desktop E2E must keep two workers per shard.',
       failures
     );
+    requireDesktopRegressionJobContracts(desktopMain, 'Main', failures);
   }
 
   const desktopEmbeddingMain = extractJob(source, 'desktop-e2e-embedding-main');
@@ -362,6 +468,88 @@ export function validateWorkflowContracts(source) {
       );
     }
     requireDesktopEmbeddingJobContracts(desktopEmbeddingMain, 'Main', failures);
+  }
+
+  const unitCoverage = extractJob(source, 'unit_coverage');
+  if (!unitCoverage) {
+    failures.push('Missing unit_coverage job.');
+  } else {
+    requireIncludes(
+      unitCoverage,
+      'timeout-minutes: 45',
+      'Unit coverage job timeout must stay at 45 minutes or less.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      'timeout-minutes: 30',
+      'Unit coverage test step timeout must stay at 30 minutes or less.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      '--filter="!@brainstrike/db"',
+      'Unit coverage must exclude the monolithic @brainstrike/db coverage task.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      '$DB_COVERAGE_TASKS --filter="@brainstrike/db"',
+      'Split DB coverage tasks must be constrained to @brainstrike/db.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      '$DB_COVERAGE_TASKS --filter="@brainstrike/db" --concurrency=1',
+      'Split DB coverage lanes must run serially to avoid PGlite runner contention.',
+      failures
+    );
+    requireNotIncludes(
+      unitCoverage,
+      '$DB_COVERAGE_TASKS --filter="@brainstrike/db" --concurrency=4',
+      'Split DB coverage lanes must not run with concurrency 4 on GitHub runners.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      '$DB_COVERAGE_RUNTIME_TASK --filter="@brainstrike/db" --concurrency=1',
+      'DB runtime coverage must run alone to avoid PGlite cold-start resource contention.',
+      failures
+    );
+    for (const taskName of [
+      'test:coverage:db:architecture',
+      'test:coverage:db:chunking',
+      'test:coverage:db:migrations',
+      'test:coverage:db:queue',
+      'test:coverage:db:repositories',
+      'test:coverage:db:runtime',
+      'test:coverage:db:search',
+    ]) {
+      requireIncludes(
+        unitCoverage,
+        taskName,
+        `Unit coverage must run split DB coverage task ${taskName}.`,
+        failures
+      );
+    }
+    requireIncludes(
+      unitCoverage,
+      'pnpm coverage:prepare-workspace',
+      'Unit coverage must merge split workspace coverage before threshold enforcement.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      '--task-prefix test:coverage',
+      'Unit coverage timing diagnostics must include split coverage tasks.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      '--warn-ms 600000 --fail-ms 900000',
+      'Unit coverage package task timing thresholds must stay capped at 10m warn / 15m fail.',
+      failures
+    );
   }
 
   const requiredPrGate = extractJob(source, 'required-pr-gate');
