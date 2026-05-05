@@ -91,6 +91,21 @@ async function setFileExplorerMaxSelectionCount(
   });
 }
 
+async function clickFileTreeCheckboxAndWaitForSelection(args: {
+  checkboxName: string;
+  expectedSelectedCount: number;
+  fileTree: ReturnType<Page['getByRole']>;
+  page: Page;
+}): Promise<void> {
+  const { checkboxName, expectedSelectedCount, fileTree, page } = args;
+  const checkbox = fileTree.getByRole('checkbox', { name: `Select ${checkboxName}` });
+
+  await expect(checkbox).toHaveAttribute('data-state', 'unchecked');
+  await checkbox.click({ noWaitAfter: true, timeout: 5000 });
+  await expect(checkbox).toHaveAttribute('data-state', 'checked');
+  await expect(page.getByTestId('selection-count')).toHaveText(String(expectedSelectedCount));
+}
+
 async function expectContextExplorerFileVisibility(args: {
   fileName: string;
   page: Page;
@@ -1763,21 +1778,36 @@ test.describe('Desktop file explorer selection', () => {
     await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
     await expect(testsCheckbox).toHaveAttribute('data-state', 'unchecked');
 
-    await fileTree
-      .getByRole('checkbox', { name: 'Select package.json' })
-      .click({ noWaitAfter: true, timeout: 5000 });
-    await fileTree
-      .getByRole('checkbox', { name: 'Select tsconfig.json' })
-      .click({ noWaitAfter: true, timeout: 5000 });
-    await fileTree
-      .getByRole('checkbox', { name: 'Select create-debounce.ts' })
-      .click({ noWaitAfter: true, timeout: 5000 });
-    await fileTree
-      .getByRole('checkbox', { name: 'Select index.ts' })
-      .click({ noWaitAfter: true, timeout: 5000 });
-    await fileTree
-      .getByRole('checkbox', { name: 'Select use-file-filters.test.ts' })
-      .click({ noWaitAfter: true, timeout: 5000 });
+    await clickFileTreeCheckboxAndWaitForSelection({
+      checkboxName: 'package.json',
+      expectedSelectedCount: 1,
+      fileTree,
+      page: window,
+    });
+    await clickFileTreeCheckboxAndWaitForSelection({
+      checkboxName: 'tsconfig.json',
+      expectedSelectedCount: 2,
+      fileTree,
+      page: window,
+    });
+    await clickFileTreeCheckboxAndWaitForSelection({
+      checkboxName: 'create-debounce.ts',
+      expectedSelectedCount: 3,
+      fileTree,
+      page: window,
+    });
+    await clickFileTreeCheckboxAndWaitForSelection({
+      checkboxName: 'index.ts',
+      expectedSelectedCount: 4,
+      fileTree,
+      page: window,
+    });
+    await clickFileTreeCheckboxAndWaitForSelection({
+      checkboxName: 'use-file-filters.test.ts',
+      expectedSelectedCount: 5,
+      fileTree,
+      page: window,
+    });
 
     await expect(testsCheckbox).toHaveAttribute('data-state', 'checked');
     await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
