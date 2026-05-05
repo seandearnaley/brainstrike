@@ -529,8 +529,8 @@ jobs:
 
   # E2E tests run in parallel with sharding. Keep PR coverage complete, but use
   # fewer jobs with two Playwright workers each to reduce repeated runner setup.
-  # Origin-destructive reset flows and storage/import-heavy stateful specs are
-  # excluded here and covered by isolated lanes below.
+  # Origin-destructive reset flows, DB-startup, and storage/import-heavy stateful
+  # specs are excluded here and covered by isolated lanes below.
   e2e:
     name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     if: github.event_name != 'workflow_dispatch'
@@ -629,6 +629,8 @@ jobs:
             testFiles: e2e/file-explorer-persistence.test.ts
           - group: assistant-ui
             testFiles: e2e/assistant-ui-panel.test.ts
+          - group: database-startup
+            testFiles: e2e/tools-panel-persistence.test.ts e2e/web-db-worker-startup.test.ts
           - group: settings-state
             testFiles: e2e/background-indexing-settings.test.ts e2e/settings-models-and-providers.test.ts
     steps:
