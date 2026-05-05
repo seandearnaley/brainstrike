@@ -78,8 +78,6 @@ function containsNullByte(value: string): boolean {
 
 function countTraversalSegments(value: string): number {
   let count = 0;
-  // Performance optimization: Using indexOf in a loop is ~2x faster than
-  // regex match (/\.\./g) because it avoids allocating intermediate arrays.
   let idx = value.indexOf('..');
   while (idx !== -1) {
     count++;
