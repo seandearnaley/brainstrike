@@ -32,7 +32,20 @@ export const SMALL_BATCH_DEBOUNCE_MS = 100;
  *
  * Larger batches are split to avoid overwhelming the worker.
  */
-export const INDEX_BATCH_SIZE = 200;
+export const INDEX_BATCH_SIZE = 50;
+
+/**
+ * Maximum number of file reads/resolutions to start before yielding.
+ *
+ * Electron IPC reads and web resolver calls run on foreground-sensitive
+ * surfaces, so keep this intentionally small and deterministic.
+ */
+export const TOKEN_INDEXER_IO_BATCH_SIZE = 8;
+
+/**
+ * Frame-scale cooperative yield between non-final background indexing batches.
+ */
+export const TOKEN_INDEXER_BATCH_YIELD_MS = 16;
 
 /**
  * Debounce delay for file handle map rebuild in milliseconds.

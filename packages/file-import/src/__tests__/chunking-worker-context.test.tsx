@@ -139,6 +139,7 @@ describe('ChunkingWorkerProvider', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    vi.doUnmock('../chunking-worker-port');
     vi.unstubAllGlobals();
     Reflect.deleteProperty(window as Window & { chunkingHost?: unknown }, 'chunkingHost');
     workers = [];
@@ -177,7 +178,7 @@ describe('ChunkingWorkerProvider', () => {
     await waitForExpect(() =>
       expect(worker.addEventListener).toHaveBeenCalledWith('message', expect.any(Function))
     );
-    expect(worker.getPostedMessages()).toEqual([{ type: 'init' }]);
+    await waitForExpect(() => expect(worker.getPostedMessages()).toEqual([{ type: 'init' }]));
     await emitWorkerMessage(worker, { type: 'ready' });
 
     await waitForExpect(() => expect(result.current.isReady).toBe(true));
@@ -216,6 +217,53 @@ describe('ChunkingWorkerProvider', () => {
     unmount();
   });
 
+  it('captures worker errors while the port module is still loading', async () => {
+    let releasePortImport: (() => void) | undefined;
+    const portImportGate = new Promise<void>((resolve) => {
+      releasePortImport = resolve;
+    });
+    vi.doMock('../chunking-worker-port', async (importOriginal) => {
+      await portImportGate;
+      return importOriginal<typeof import('../chunking-worker-port')>();
+    });
+
+    const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
+      '../chunking-worker-context'
+    );
+    const { result, unmount } = renderHookHarness(
+      () => useChunkingWorkerContext(),
+      (children) => <ChunkingWorkerProvider>{children}</ChunkingWorkerProvider>
+    );
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+
+    await waitForExpect(() =>
+      expect(worker.addEventListener).toHaveBeenCalledWith('error', expect.any(Function))
+    );
+
+    await act(async () => {
+      worker.simulateError('script failed before init');
+      await Promise.resolve();
+    });
+
+    await waitForExpect(() => {
+      expect(result.current.isReady).toBe(false);
+      expect(result.current.port).toBeNull();
+      expect(result.current.error?.message).toContain('script failed before init');
+    });
+    expect(worker.terminate).toHaveBeenCalled();
+
+    releasePortImport?.();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    unmount();
+  });
+
   it('enters terminal failure state on tokenizer errors and can reinitialize', async () => {
     const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
       '../chunking-worker-context'
@@ -234,7 +282,9 @@ describe('ChunkingWorkerProvider', () => {
     await waitForExpect(() =>
       expect(initialWorker.addEventListener).toHaveBeenCalledWith('message', expect.any(Function))
     );
-    expect(initialWorker.getPostedMessages()).toEqual([{ type: 'init' }]);
+    await waitForExpect(() =>
+      expect(initialWorker.getPostedMessages()).toEqual([{ type: 'init' }])
+    );
     await emitWorkerMessage(initialWorker, { type: 'ready' });
     await waitForExpect(() => expect(result.current.isReady).toBe(true));
 
@@ -269,7 +319,9 @@ describe('ChunkingWorkerProvider', () => {
         expect.any(Function)
       )
     );
-    expect(reinitializedWorker.getPostedMessages()).toEqual([{ type: 'init' }]);
+    await waitForExpect(() =>
+      expect(reinitializedWorker.getPostedMessages()).toEqual([{ type: 'init' }])
+    );
     await emitWorkerMessage(reinitializedWorker, { type: 'ready' });
 
     await waitForExpect(() => expect(result.current.isReady).toBe(true));

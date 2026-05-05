@@ -7,11 +7,16 @@ import {
 } from '../../embedding-host-shared';
 
 function createWindowWithWebContents(sender: {
+  id?: number;
+  isDestroyed?: () => boolean;
   send: (...args: unknown[]) => unknown;
 }): BrowserWindow {
   return {
     isDestroyed: () => false,
-    webContents: sender,
+    webContents: {
+      ...sender,
+      isDestroyed: sender.isDestroyed ?? (() => false),
+    },
   } as unknown as BrowserWindow;
 }
 
@@ -27,8 +32,12 @@ const {
   isCorruptionErrorMock,
   handleRuntimeCorruptionMock,
   resetLocalDatabaseMock,
+  closeDatabaseMock,
+  resetDesktopApplicationDataMock,
   getDatabaseDiagnosticsMock,
+  getDbHostManagerMock,
   enqueueEmbeddingBackfillMock,
+  embeddingHostIsHostWindowMock,
   embeddingHostEnsureStartedMock,
   embeddingHostGetStatusMock,
   embeddingHostResetMock,
@@ -73,7 +82,13 @@ const {
   const isCorruptionErrorMock = vi.fn(() => false);
   const handleRuntimeCorruptionMock = vi.fn();
   const resetLocalDatabaseMock = vi.fn();
+  const closeDatabaseMock = vi.fn();
+  const resetDesktopApplicationDataMock = vi.fn(async () => ({
+    deletedPaths: [],
+    preservedPaths: [],
+  }));
   const enqueueEmbeddingBackfillMock = vi.fn();
+  const embeddingHostIsHostWindowMock = vi.fn(() => false);
   const embeddingHostEnsureStartedMock = vi.fn(async () => ({
     state: 'running' as const,
     active: false,
@@ -120,6 +135,10 @@ const {
     lastRuntimeCorruptionAt: null,
     lastRuntimeCorruptionContext: null,
   }));
+  const getDbHostManagerMock = vi.fn(() => ({
+    applyManagedCacheBatch: applyManagedCacheBatchMock,
+    getDiagnostics: getDatabaseDiagnosticsMock,
+  }));
   return {
     handlers,
     mockDb,
@@ -131,8 +150,12 @@ const {
     isCorruptionErrorMock,
     handleRuntimeCorruptionMock,
     resetLocalDatabaseMock,
+    closeDatabaseMock,
+    resetDesktopApplicationDataMock,
     getDatabaseDiagnosticsMock,
+    getDbHostManagerMock,
     enqueueEmbeddingBackfillMock,
+    embeddingHostIsHostWindowMock,
     embeddingHostEnsureStartedMock,
     embeddingHostGetStatusMock,
     embeddingHostResetMock,
@@ -171,10 +194,13 @@ vi.mock('electron', async () => {
   const mockBrowserWindowInstance = {
     once: vi.fn(),
     on: vi.fn(),
+    removeListener: vi.fn(),
+    destroy: vi.fn(),
     show: vi.fn(),
     loadFile: vi.fn(),
     loadURL: vi.fn(),
     maximize: vi.fn(),
+    isDestroyed: vi.fn(() => false),
     isFullScreen: vi.fn(() => false),
     isMaximized: vi.fn(() => false),
     getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1536, height: 800 })),
@@ -220,7 +246,16 @@ vi.mock('../../db-main', () => ({
   isCorruptionError: isCorruptionErrorMock,
   handleRuntimeCorruption: handleRuntimeCorruptionMock,
   resetLocalDatabase: resetLocalDatabaseMock,
+  closeDatabase: closeDatabaseMock,
   getDatabaseDiagnostics: getDatabaseDiagnosticsMock,
+}));
+
+vi.mock('../../db-host-manager', () => ({
+  getDbHostManager: getDbHostManagerMock,
+}));
+
+vi.mock('../../desktop-factory-reset', () => ({
+  resetDesktopApplicationData: resetDesktopApplicationDataMock,
 }));
 
 vi.mock('../../embedding-backfill', () => ({
@@ -233,7 +268,7 @@ vi.mock('../../embedding-host-manager', () => ({
     dispose = vi.fn(async () => {});
     ensureStarted = embeddingHostEnsureStartedMock;
     getStatus = embeddingHostGetStatusMock;
-    isHostWindow = vi.fn(() => false);
+    isHostWindow = embeddingHostIsHostWindowMock;
     reset = embeddingHostResetMock;
     stop = embeddingHostStopMock;
     destroyAndRestart = embeddingHostDestroyAndRestartMock;
@@ -286,8 +321,11 @@ import '../../main';
 describe('database IPC handlers', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
-    const { setBackgrounded } = await import('../../ipc-handlers');
+    const { resetDesktopDatabaseWorkSchedulerForTests, setBackgrounded } = await import(
+      '../../ipc-handlers'
+    );
     setBackgrounded(false);
+    resetDesktopDatabaseWorkSchedulerForTests();
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_CHECK_INTERVAL_MS');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE');
@@ -324,6 +362,84 @@ describe('database IPC handlers', () => {
     });
   });
 
+  it('waits for scheduled desktop database work to drain before shutdown', async () => {
+    const { runDesktopScheduledDatabaseWork, waitForDesktopDatabaseWorkSchedulerIdle } =
+      await import('../../ipc-handlers');
+
+    let releaseWork: (() => void) | null = null;
+    const workStarted = new Promise<void>((resolve) => {
+      void runDesktopScheduledDatabaseWork({ label: 'shutdown-drain-test' }, async () => {
+        resolve();
+        await new Promise<void>((release) => {
+          releaseWork = release;
+        });
+      });
+    });
+
+    await workStarted;
+
+    let idleResolved = false;
+    const idlePromise = waitForDesktopDatabaseWorkSchedulerIdle(1000).then(() => {
+      idleResolved = true;
+    });
+    await Promise.resolve();
+
+    expect(idleResolved).toBe(false);
+    if (!releaseWork) {
+      throw new Error('Scheduled database work did not expose a release callback.');
+    }
+    releaseWork();
+    await idlePromise;
+    expect(idleResolved).toBe(true);
+  });
+
+  it('keeps database work submitted during reset out of the scheduler until reset completes', async () => {
+    const {
+      getDesktopDatabaseWorkSchedulerSnapshot,
+      runDesktopScheduledDatabaseWork,
+      runWithDesktopDatabaseResetBarrier,
+      waitForDesktopDatabaseWorkSchedulerIdle,
+    } = await import('../../ipc-handlers');
+
+    let releaseReset: (() => void) | null = null;
+    let resetBarrierPromise: Promise<void> | null = null;
+    const resetStarted = new Promise<void>((resolve) => {
+      resetBarrierPromise = runWithDesktopDatabaseResetBarrier(async () => {
+        resolve();
+        await new Promise<void>((release) => {
+          releaseReset = release;
+        });
+      });
+    });
+    await resetStarted;
+
+    let workStarted = false;
+    const pendingWork = runDesktopScheduledDatabaseWork(
+      { label: 'reset-submitted-live-query' },
+      async () => {
+        workStarted = true;
+        return 'ran-after-reset';
+      }
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(workStarted).toBe(false);
+    expect(getDesktopDatabaseWorkSchedulerSnapshot()).toMatchObject({
+      queued: { background: 0, foreground: 0, normal: 0 },
+      runningPriority: null,
+    });
+    await waitForDesktopDatabaseWorkSchedulerIdle(1000);
+
+    if (!releaseReset) {
+      throw new Error('Reset barrier did not expose a release callback.');
+    }
+    releaseReset();
+    await resetBarrierPromise;
+    await expect(pendingWork).resolves.toBe('ran-after-reset');
+    expect(workStarted).toBe(true);
+  });
+
   it('db:query calls query and returns result', async () => {
     const handler = handlers.get('db:query');
     const rows = { rows: [{ id: 1 }] };
@@ -336,12 +452,123 @@ describe('database IPC handlers', () => {
     expect(result).toBe(rows);
   });
 
+  it('db:query accepts database work options as the second argument when params are omitted', async () => {
+    const handler = handlers.get('db:query');
+    const rows = { rows: [{ id: 1 }] };
+    mockDb.query.mockResolvedValue(rows);
+
+    const result = await handler?.({} as unknown, 'SELECT 1', {
+      label: 'collection page',
+      priority: 'foreground',
+    });
+
+    expect(mockDb.query).toHaveBeenCalledWith('SELECT 1');
+    expect(result).toBe(rows);
+  });
+
+  it('db:query rejects empty object params instead of treating them as work options', async () => {
+    const handler = handlers.get('db:query');
+
+    await expect(handler?.({} as unknown, 'SELECT $1', {})).rejects.toThrow(
+      'db:query parameters must be an array when provided.'
+    );
+
+    expect(mockDb.query).not.toHaveBeenCalled();
+  });
+
+  it('db:query rejects object params before they reach PGlite', async () => {
+    const handler = handlers.get('db:query');
+
+    await expect(
+      handler?.({} as unknown, 'SELECT $1', { value: 'not-array-params' })
+    ).rejects.toThrow('db:query parameters must be an array when provided.');
+
+    expect(mockDb.query).not.toHaveBeenCalled();
+  });
+
   it('db:query throws on error', async () => {
     const handler = handlers.get('db:query');
     const err = new Error('fail');
     mockDb.query.mockRejectedValue(err);
 
     await expect(handler?.({} as unknown, 'BAD')).rejects.toThrow(err);
+  });
+
+  it('schedules foreground db:query before queued background work during the quiet window', async () => {
+    vi.useFakeTimers();
+    try {
+      const { resetDesktopDatabaseWorkSchedulerForTests } = await import('../../ipc-handlers');
+      let now = 1000;
+      resetDesktopDatabaseWorkSchedulerForTests({ foregroundQuietMs: 50, now: () => now });
+      const handler = handlers.get('db:query');
+      const order: string[] = [];
+      mockDb.query.mockImplementation(async (sql: string) => {
+        order.push(sql);
+        return { rows: [] };
+      });
+
+      await handler?.({} as unknown, 'warmup', []);
+      order.length = 0;
+
+      const background = handler?.({} as unknown, 'background', [], {
+        priority: 'background',
+        label: 'background claim',
+      });
+      await Promise.resolve();
+      expect(order).toEqual([]);
+
+      now += 1;
+      const foreground = handler?.({} as unknown, 'foreground', [], { label: 'collection page' });
+      await foreground;
+      expect(order).toEqual(['foreground']);
+
+      now += 50;
+      await vi.advanceTimersByTimeAsync(50);
+      await background;
+
+      expect(order).toEqual(['foreground', 'background']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('defaults db:query calls from the embedding host to background priority', async () => {
+    vi.useFakeTimers();
+    try {
+      const { resetDesktopDatabaseWorkSchedulerForTests } = await import('../../ipc-handlers');
+      let now = 1000;
+      resetDesktopDatabaseWorkSchedulerForTests({ foregroundQuietMs: 50, now: () => now });
+      const handler = handlers.get('db:query');
+      const order: string[] = [];
+      mockDb.query.mockImplementation(async (sql: string) => {
+        order.push(sql);
+        return { rows: [] };
+      });
+      const hiddenSender = {
+        getOwnerBrowserWindow: vi.fn(() => createWindowWithWebContents({ send: vi.fn() })),
+      };
+
+      await handler?.({} as unknown, 'warmup', []);
+      order.length = 0;
+      embeddingHostIsHostWindowMock.mockReturnValueOnce(true);
+
+      const background = handler?.({ sender: hiddenSender } as unknown, 'hidden-host', []);
+      await Promise.resolve();
+      expect(order).toEqual([]);
+
+      now += 1;
+      const foreground = handler?.({} as unknown, 'visible-renderer', []);
+      await foreground;
+      expect(order).toEqual(['visible-renderer']);
+
+      now += 50;
+      await vi.advanceTimersByTimeAsync(50);
+      await background;
+
+      expect(order).toEqual(['visible-renderer', 'hidden-host']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('db:exec calls exec and returns result', async () => {
@@ -364,7 +591,7 @@ describe('database IPC handlers', () => {
     await expect(handler?.({} as unknown, 'BAD')).rejects.toThrow(err);
   });
 
-  it('db:managed-cache:apply-batch validates payload and delegates to the shared batch helper', async () => {
+  it('db:managed-cache:apply-batch validates payload and delegates to the DB host', async () => {
     const handler = handlers.get('db:managed-cache:apply-batch');
     const payload = {
       embeddingSetId: 'set-1',
@@ -389,8 +616,52 @@ describe('database IPC handlers', () => {
 
     await handler?.({} as unknown, payload);
 
-    expect(getDatabaseMock).toHaveBeenCalled();
-    expect(applyManagedCacheBatchMock).toHaveBeenCalledWith(mockDb, payload);
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+    expect(getDbHostManagerMock).toHaveBeenCalled();
+    expect(applyManagedCacheBatchMock).toHaveBeenCalledWith(payload);
+  });
+
+  it('schedules db:managed-cache:apply-batch as background when requested', async () => {
+    vi.useFakeTimers();
+    try {
+      const { resetDesktopDatabaseWorkSchedulerForTests } = await import('../../ipc-handlers');
+      let now = 1000;
+      resetDesktopDatabaseWorkSchedulerForTests({ foregroundQuietMs: 50, now: () => now });
+      const batchHandler = handlers.get('db:managed-cache:apply-batch');
+      const queryHandler = handlers.get('db:query');
+      const order: string[] = [];
+      applyManagedCacheBatchMock.mockImplementation(async () => {
+        order.push('batch');
+      });
+      mockDb.query.mockImplementation(async () => {
+        order.push('query');
+        return { rows: [] };
+      });
+      const payload = { embeddingSetId: 'set-1', changes: [] };
+
+      await queryHandler?.({} as unknown, 'warmup', []);
+      order.length = 0;
+
+      const background = batchHandler?.({} as unknown, payload, {
+        priority: 'background',
+        label: 'managed cache batch',
+      });
+      await Promise.resolve();
+      expect(order).toEqual([]);
+
+      now += 1;
+      await queryHandler?.({} as unknown, 'foreground query', []);
+      expect(order).toEqual(['query']);
+
+      now += 50;
+      await vi.advanceTimersByTimeAsync(50);
+      await background;
+
+      expect(order).toEqual(['query', 'batch']);
+      expect(applyManagedCacheBatchMock).toHaveBeenCalledWith(payload);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('db:managed-cache:apply-batch rejects invalid payloads before touching the database', async () => {
@@ -405,6 +676,7 @@ describe('database IPC handlers', () => {
     ).rejects.toThrow();
 
     expect(getDatabaseMock).not.toHaveBeenCalled();
+    expect(getDbHostManagerMock).not.toHaveBeenCalled();
     expect(applyManagedCacheBatchMock).not.toHaveBeenCalled();
     expect(isCorruptionErrorMock).not.toHaveBeenCalled();
     expect(handleRuntimeCorruptionMock).not.toHaveBeenCalled();
@@ -419,8 +691,9 @@ describe('database IPC handlers', () => {
 
     await handler?.({} as unknown, payload);
 
-    expect(getDatabaseMock).toHaveBeenCalled();
-    expect(applyManagedCacheBatchMock).toHaveBeenCalledWith(mockDb, payload);
+    expect(getDatabaseMock).not.toHaveBeenCalled();
+    expect(getDbHostManagerMock).toHaveBeenCalled();
+    expect(applyManagedCacheBatchMock).toHaveBeenCalledWith(payload);
   });
 
   it('embedding-host:enqueue-backfill runs backfill in main and streams progress', async () => {
@@ -461,7 +734,9 @@ describe('database IPC handlers', () => {
     expect(getDatabaseMock).toHaveBeenCalledTimes(1);
     expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledTimes(1);
     expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledWith(
-      mockDb,
+      expect.objectContaining({
+        query: expect.any(Function),
+      }),
       expect.any(Object),
       'set-123',
       expect.any(Function),
@@ -474,6 +749,7 @@ describe('database IPC handlers', () => {
     expect(sender.send).toHaveBeenCalledWith(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
       embeddingSetId: 'set-123',
       requestId: expect.stringMatching(/^embedding-backfill:/),
+      source: 'manual',
       stage: 'backfill',
       current: 0,
       total: 450,
@@ -481,12 +757,105 @@ describe('database IPC handlers', () => {
     expect(sender.send).toHaveBeenLastCalledWith(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
       embeddingSetId: 'set-123',
       requestId: expect.stringMatching(/^embedding-backfill:/),
+      source: 'manual',
       stage: 'backfill',
       current: 450,
       total: 450,
     });
     expect(result).toEqual({
       requestId: expect.stringMatching(/^embedding-backfill:/),
+    });
+  });
+
+  it('embedding-host:enqueue-backfill schedules manual backfill DB work outside the foreground lane', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    mockDb.query.mockResolvedValue({ rows: [] });
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (db: { query: (sql: string, params?: unknown[]) => Promise<unknown> }) => {
+        await db.query('manual backfill queue refill', []);
+        return {
+          queued: 0,
+          running: 0,
+          failed: 0,
+          succeeded: 0,
+        };
+      }
+    );
+
+    const { getDesktopDatabaseWorkSchedulerSnapshot } = await import('../../ipc-handlers');
+
+    const result = await handler({ sender } as unknown, {
+      embeddingSetId: 'set-123',
+      source: 'manual',
+    });
+
+    const snapshot = getDesktopDatabaseWorkSchedulerSnapshot();
+    expect(snapshot.priorityStats.foreground.completed).toBe(0);
+    expect(snapshot.priorityStats.normal.completed).toBe(0);
+    expect(snapshot.priorityStats.background.completed).toBe(1);
+    expect(result).toEqual({
+      requestId: expect.stringMatching(/^embedding-backfill:/),
+    });
+  });
+
+  it('embedding-host:enqueue-backfill schedules background indexing backfill DB work as background', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    mockDb.query.mockResolvedValue({ rows: [] });
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (db: { query: (sql: string, params?: unknown[]) => Promise<unknown> }) => {
+        await db.query('background backfill query', []);
+        return {
+          queued: 0,
+          running: 0,
+          failed: 0,
+          succeeded: 0,
+        };
+      }
+    );
+
+    const { getDesktopDatabaseWorkSchedulerSnapshot } = await import('../../ipc-handlers');
+
+    const result = await handler({ sender } as unknown, {
+      embeddingSetId: 'set-123',
+      source: 'background-indexing',
+    });
+
+    const snapshot = getDesktopDatabaseWorkSchedulerSnapshot();
+    expect(snapshot.priorityStats.background.completed).toBe(1);
+    expect(snapshot.priorityStats.foreground.completed).toBe(0);
+    expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(Object),
+      'set-123',
+      expect.any(Function),
+      expect.objectContaining({
+        queueCapacityTimeoutMs: 600_000,
+      })
+    );
+    expect(result).toEqual({
+      requestId: expect.stringMatching(/^background-indexing-backfill:/),
     });
   });
 
@@ -1139,6 +1508,36 @@ describe('database IPC handlers', () => {
     expect(liveHandle.unsubscribe).toHaveBeenCalled();
   });
 
+  it('db:live-query:start escapes literal percents when params are present', async () => {
+    const handler = handlers.get('db:live-query:start');
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const liveHandle = {
+      initialResults: { rows: [] },
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      refresh: vi.fn(),
+    };
+    mockDb.live.query.mockResolvedValue(liveHandle);
+
+    await handler(
+      { sender: { id: 23, isDestroyed: () => false, send: vi.fn(), once: vi.fn() } } as unknown,
+      {
+        query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
+        params: ['needle'],
+      }
+    );
+
+    expect(mockDb.live.query).toHaveBeenCalledWith({
+      query: "SELECT * FROM file_records WHERE path LIKE '%%' || $1 || '%%'",
+      params: ['needle'],
+      offset: undefined,
+      limit: undefined,
+    });
+  });
+
   it('db:live-query:start registers a single destroyed listener per webContents', async () => {
     const handler = handlers.get('db:live-query:start');
     if (!handler) {
@@ -1300,16 +1699,54 @@ describe('database IPC handlers', () => {
     });
   });
 
-  it('db:resetLocal returns success and errors', async () => {
+  it('db:resetLocal delegates desktop application data reset and returns errors', async () => {
     const handler = handlers.get('db:resetLocal');
     if (!handler) {
       throw new Error('handler not registered');
     }
 
-    resetLocalDatabaseMock.mockResolvedValueOnce(undefined);
+    resetDesktopApplicationDataMock.mockResolvedValueOnce({
+      deletedPaths: [],
+      preservedPaths: [],
+    });
     await expect(handler({} as unknown)).resolves.toEqual({ success: true });
+    expect(resetDesktopApplicationDataMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resetDatabaseProfile: expect.any(Function),
+        stopBackgroundRuntimes: expect.any(Function),
+        userDataPath: expect.any(String),
+      })
+    );
+    const resetOptions = resetDesktopApplicationDataMock.mock.calls[0]?.[0] as
+      | { resetDatabaseProfile?: () => Promise<void> }
+      | undefined;
+    if (typeof resetOptions?.resetDatabaseProfile !== 'function') {
+      throw new Error('resetDatabaseProfile callback was not passed to desktop reset');
+    }
+    const { runDesktopScheduledDatabaseWork } = await import('../../ipc-handlers');
+    let releaseWork: (() => void) | null = null;
+    const workStarted = new Promise<void>((resolve) => {
+      void runDesktopScheduledDatabaseWork({ label: 'reset-drain-test' }, async () => {
+        resolve();
+        await new Promise<void>((release) => {
+          releaseWork = release;
+        });
+      });
+    });
+    await workStarted;
 
-    resetLocalDatabaseMock.mockRejectedValueOnce(new Error('fail reset'));
+    const resetProfilePromise = resetOptions.resetDatabaseProfile();
+    await Promise.resolve();
+    expect(resetLocalDatabaseMock).not.toHaveBeenCalled();
+    if (!releaseWork) {
+      throw new Error('Scheduled database work did not expose a release callback.');
+    }
+    releaseWork();
+    await resetProfilePromise;
+    expect(resetLocalDatabaseMock).toHaveBeenCalledTimes(1);
+    expect(closeDatabaseMock).not.toHaveBeenCalled();
+
+    resetDesktopApplicationDataMock.mockRejectedValueOnce(new Error('fail reset'));
     await expect(handler({} as unknown)).resolves.toEqual({
       success: false,
       message: 'fail reset',
@@ -1335,7 +1772,7 @@ describe('database IPC handlers', () => {
     process.env['NODE_ENV'] = originalEnv;
   });
 
-  it('db:diagnostics returns main-process diagnostics snapshot', async () => {
+  it('db:diagnostics returns DB-host diagnostics snapshot', async () => {
     const handler = handlers.get('db:diagnostics');
     if (!handler) {
       throw new Error('handler not registered');
@@ -1343,6 +1780,7 @@ describe('database IPC handlers', () => {
 
     const result = await handler({} as unknown);
 
+    expect(getDbHostManagerMock).toHaveBeenCalledTimes(1);
     expect(getDatabaseDiagnosticsMock).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
       databaseProfile: 'test',
@@ -1374,7 +1812,7 @@ describe('database IPC handlers', () => {
     expect(result).toEqual({
       success: true,
       message: 'Database connection successful',
-      dbLocation: 'Main Process',
+      dbLocation: 'DB Host',
     });
   });
 
@@ -1387,7 +1825,7 @@ describe('database IPC handlers', () => {
     expect(result).toEqual({
       success: false,
       message: 'Database connection failed: oops',
-      dbLocation: 'Main Process',
+      dbLocation: 'DB Host',
     });
   });
 
@@ -1422,16 +1860,17 @@ describe('database IPC handlers', () => {
 
     it('successfully clears database with valid token', async () => {
       const handler = handlers.get('db:clearAll');
+      let queryMock: ReturnType<typeof vi.fn> | null = null;
 
       // Mock transaction to call the callback immediately
       mockDb.transaction.mockImplementation(async (callback) => {
+        queryMock = vi
+          .fn()
+          .mockResolvedValueOnce({ rows: [{ count: '5' }] }) // chunks count
+          .mockResolvedValueOnce({ rows: [{ count: '3' }] }) // files count
+          .mockResolvedValue(undefined);
         const mockTx = {
-          query: vi
-            .fn()
-            .mockResolvedValueOnce({ rows: [{ count: '5' }] }) // chunks count
-            .mockResolvedValueOnce({ rows: [{ count: '3' }] }) // files count
-            .mockResolvedValueOnce(undefined) // DELETE chunks
-            .mockResolvedValueOnce(undefined), // DELETE files
+          query: queryMock,
         };
         return await callback(mockTx);
       });
@@ -1446,6 +1885,8 @@ describe('database IPC handlers', () => {
         deletedFiles: 3,
         deletedChunks: 5,
       });
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM collection_indexing_stats');
+      expect(queryMock).toHaveBeenCalledWith('DELETE FROM embedding_sets');
     });
 
     it('handles database errors gracefully', async () => {
@@ -1546,6 +1987,69 @@ describe('database IPC handlers', () => {
         error: expect.any(Error),
       });
     });
+
+    it('ignores missing relation errors when clearing optional indexing tables', async () => {
+      const handler = handlers.get('db:clearAll');
+
+      mockDb.transaction.mockImplementation(async (callback) => {
+        const missingRelation = Object.assign(
+          new Error('relation "collection_indexing_stats" does not exist'),
+          { code: '42P01' }
+        );
+        const mockTx = {
+          query: vi
+            .fn()
+            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
+            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
+            .mockResolvedValueOnce(undefined) // DELETE chunks
+            .mockResolvedValueOnce(undefined) // DELETE snapshot files
+            .mockResolvedValueOnce(undefined) // DELETE snapshot headers
+            .mockResolvedValueOnce(undefined) // DELETE files
+            .mockRejectedValueOnce(missingRelation) // DELETE collection_indexing_stats
+            .mockResolvedValueOnce(undefined) // DELETE embedding_sets
+            .mockResolvedValueOnce(undefined), // DELETE job_queue
+        };
+        return await callback(mockTx);
+      });
+
+      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+      expect(result).toEqual({
+        success: true,
+        message: 'Database cleared successfully',
+        deletedFiles: 0,
+        deletedChunks: 0,
+      });
+      expect(loggerWarn).not.toHaveBeenCalled();
+    });
+
+    it('fails the clear when optional indexing table cleanup hits an unexpected error', async () => {
+      const handler = handlers.get('db:clearAll');
+
+      mockDb.transaction.mockImplementation(async (callback) => {
+        const mockTx = {
+          query: vi
+            .fn()
+            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
+            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
+            .mockResolvedValueOnce(undefined) // DELETE chunks
+            .mockResolvedValueOnce(undefined) // DELETE snapshot files
+            .mockResolvedValueOnce(undefined) // DELETE snapshot headers
+            .mockResolvedValueOnce(undefined) // DELETE files
+            .mockRejectedValueOnce(new Error('stats cleanup failed')),
+        };
+        return await callback(mockTx);
+      });
+
+      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+      expect(result).toEqual({
+        success: false,
+        message: 'Database clear failed: stats cleanup failed',
+        deletedFiles: 0,
+        deletedChunks: 0,
+      });
+    });
   });
 
   describe('live query backgrounding', () => {
@@ -1591,21 +2095,22 @@ describe('database IPC handlers', () => {
       return { result, listener: listener!, sender, liveHandle };
     }
 
-    it('pauses subscriptions on background and resumes on foreground', async () => {
+    it('keeps live-query subscriptions attached across background and foreground transitions', async () => {
       const { setBackgrounded } = await import('../../ipc-handlers');
       const { liveHandle } = await setupLiveQuery();
 
       // subscribe called once during setup
       expect(liveHandle.subscribe).toHaveBeenCalledTimes(1);
 
-      // Enter backgrounded state — should unsubscribe
+      // PGlite 0.4.4 treats unsubscribe of the final listener as terminal for the
+      // handle, so backgrounding must rely on IPC batching instead of detaching.
       setBackgrounded(true);
-      expect(liveHandle.unsubscribe).toHaveBeenCalled();
+      expect(liveHandle.unsubscribe).not.toHaveBeenCalled();
 
-      // Return to foreground — should re-subscribe
+      // Return to foreground — should flush pending updates without re-subscribing.
       // pendingLiveUpdates is empty so flushPendingLiveUpdates is a no-op
       setBackgrounded(false);
-      expect(liveHandle.subscribe).toHaveBeenCalledTimes(2);
+      expect(liveHandle.subscribe).toHaveBeenCalledTimes(1);
     });
 
     it('does not pause when setBackgrounded(false) is called while already foregrounded', async () => {
@@ -1623,17 +2128,17 @@ describe('database IPC handlers', () => {
       const { liveHandle } = await setupLiveQuery();
 
       setBackgrounded(true);
-      expect(liveHandle.unsubscribe).toHaveBeenCalledTimes(1);
+      expect(liveHandle.unsubscribe).not.toHaveBeenCalled();
 
-      // Already backgrounded — should not unsubscribe again
+      // Already backgrounded — should still keep the live-query handle attached.
       setBackgrounded(true);
-      expect(liveHandle.unsubscribe).toHaveBeenCalledTimes(1);
+      expect(liveHandle.unsubscribe).not.toHaveBeenCalled();
 
       // Clean up without triggering flush (no pending updates)
       setBackgrounded(false);
     });
 
-    it('logs unsubscribe failures during pause without throwing', async () => {
+    it('does not call unsubscribe during background pause', async () => {
       const { setBackgrounded } = await import('../../ipc-handlers');
       const { liveHandle } = await setupLiveQuery();
 
@@ -1642,16 +2147,16 @@ describe('database IPC handlers', () => {
       expect(() => setBackgrounded(true)).not.toThrow();
       await Promise.resolve();
 
-      expect(loggerDebug).toHaveBeenCalledWith('Failed to unsubscribe live query during pause', {
-        subscriptionId: expect.any(Number),
-        webContentsId: 50,
-        error: expect.any(Error),
-      });
+      expect(liveHandle.unsubscribe).not.toHaveBeenCalled();
+      expect(loggerDebug).not.toHaveBeenCalledWith(
+        'Failed to unsubscribe live query during pause',
+        expect.anything()
+      );
 
       setBackgrounded(false);
     });
 
-    it('logs resubscribe failures during resume without throwing', async () => {
+    it('does not call subscribe again during foreground resume', async () => {
       const { setBackgrounded } = await import('../../ipc-handlers');
       const { liveHandle } = await setupLiveQuery();
 
@@ -1661,13 +2166,10 @@ describe('database IPC handlers', () => {
       expect(() => setBackgrounded(false)).not.toThrow();
       await Promise.resolve();
 
-      expect(loggerDebug).toHaveBeenCalledWith(
+      expect(liveHandle.subscribe).toHaveBeenCalledTimes(1);
+      expect(loggerDebug).not.toHaveBeenCalledWith(
         'Failed to resubscribe live query after pause release',
-        {
-          subscriptionId: expect.any(Number),
-          webContentsId: 50,
-          error: expect.any(Error),
-        }
+        expect.anything()
       );
     });
 
@@ -1684,7 +2186,7 @@ describe('database IPC handlers', () => {
       setBackgrounded(false);
       await Promise.resolve();
 
-      expect(liveHandle.unsubscribe).toHaveBeenCalled();
+      expect(liveHandle.unsubscribe).toHaveBeenCalledTimes(1);
       expect(sender.send).not.toHaveBeenCalled();
     });
 

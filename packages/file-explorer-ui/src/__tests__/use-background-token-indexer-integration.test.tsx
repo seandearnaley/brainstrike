@@ -5,6 +5,7 @@ import {
 import type { FileToIndex } from '@brainstrike/token-cache/background-indexer';
 import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
+import { addLogListener, LogLevel } from '@brainstrike/utils/logger';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileTreeIndexContextValue } from '../file-tree-provider';
@@ -779,44 +780,50 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       expect(indexFilesMock).not.toHaveBeenCalled();
     });
 
-    it('streams Electron file batches instead of retaining the entire selection before first dispatch', async () => {
-      const { tree, keys } = createElectronTree(21);
+    it('streams Electron file reads in cooperative batches with a yield before overflow reads', async () => {
+      const { keys } = createElectronTree(17);
       const deferredReads = new Map<string, DeferredValue<string>>();
       const electronFileReader = vi.fn((handle: { path: string }) => {
         const deferred = createDeferredValue<string>();
         deferredReads.set(handle.path, deferred);
         return deferred.promise;
       });
+      mockFileTreeIndexContext = {
+        getHandle: vi.fn((_folderId, path) => ({
+          electronHandle: {
+            kind: 'file' as const,
+            name: path,
+            path: `/repo/${path}`,
+            platform: 'electron' as const,
+          },
+          fileName: path,
+          fileSize: 128,
+        })),
+        getNode: vi.fn(() => undefined),
+        stats: { totalDirectories: 0, totalFiles: 17, totalNodes: 17 },
+        version: 1,
+      };
 
       const { result } = renderHook(() =>
         useBackgroundTokenIndexerIntegration({
-          fileTree: tree,
-          selectedFiles: new Set(keys),
+          fileTree: [],
+          selectedFiles: new Set(),
           electronFileReader,
           onTokenResolved: vi.fn(),
         })
       );
 
       await act(async () => {
-        await vi.runAllTimersAsync();
-      });
-      expect(result.current.diagnostics.fileHandleMapSize).toBe(21);
-
-      electronFileReader.mockClear();
-      indexFilesMock.mockClear();
-      act(() => {
-        result.current.diagnostics.clearIndexedCache();
-      });
-
-      await act(async () => {
         void result.current.triggerIndexing(keys);
-        await Promise.resolve();
+        for (let index = 0; index < 5; index += 1) {
+          await Promise.resolve();
+        }
       });
 
-      expect(electronFileReader).toHaveBeenCalledTimes(20);
+      expect(electronFileReader).toHaveBeenCalledTimes(8);
       expect(indexFilesMock).not.toHaveBeenCalled();
 
-      for (let index = 0; index < 20; index += 1) {
+      for (let index = 0; index < 8; index += 1) {
         deferredReads.get(`/repo/file-${index}.ts`)?.resolve(`content-${index}`);
       }
 
@@ -825,16 +832,84 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       });
 
       expect(indexFilesMock).toHaveBeenCalledTimes(1);
-      expect(indexFilesMock.mock.calls[0]?.[0]).toHaveLength(20);
+      expect(indexFilesMock.mock.calls[0]?.[0]).toHaveLength(8);
+      expect(electronFileReader).toHaveBeenCalledTimes(8);
 
-      deferredReads.get('/repo/file-20.ts')?.resolve('content-20');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(16);
+      });
+
+      expect(electronFileReader).toHaveBeenCalledTimes(16);
+
+      for (let index = 8; index < 16; index += 1) {
+        deferredReads.get(`/repo/file-${index}.ts`)?.resolve(`content-${index}`);
+      }
 
       await act(async () => {
         await Promise.resolve();
       });
 
       expect(indexFilesMock).toHaveBeenCalledTimes(2);
-      expect(indexFilesMock.mock.calls[1]?.[0]).toHaveLength(1);
+      expect(indexFilesMock.mock.calls[1]?.[0]).toHaveLength(8);
+    });
+
+    it('summarizes large Electron token indexing at info without per-batch info logs', async () => {
+      const { keys } = createElectronTree(257);
+      const infoMessages: string[] = [];
+      const unsubscribe = addLogListener((record) => {
+        if (
+          record.level === LogLevel.INFO &&
+          record.scope === 'BackgroundTokenIndexerIntegration'
+        ) {
+          infoMessages.push(record.message ?? '');
+        }
+      });
+      const electronFileReader = vi.fn(async () => 'content');
+      mockFileTreeIndexContext = {
+        getHandle: vi.fn((_folderId, path) => ({
+          electronHandle: {
+            kind: 'file' as const,
+            name: path,
+            path: `/repo/${path}`,
+            platform: 'electron' as const,
+          },
+          fileName: path,
+          fileSize: 128,
+        })),
+        getNode: vi.fn(() => undefined),
+        stats: { totalDirectories: 0, totalFiles: 257, totalNodes: 257 },
+        version: 1,
+      };
+
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: [],
+          selectedFiles: new Set(),
+          electronFileReader,
+          onTokenResolved: vi.fn(),
+        })
+      );
+
+      try {
+        await act(async () => {
+          const indexing = result.current.triggerIndexing(keys);
+          await vi.runAllTimersAsync();
+          await indexing;
+        });
+      } finally {
+        unsubscribe();
+      }
+
+      expect(
+        infoMessages.filter(
+          (message) => message === 'Background token indexing dispatched Electron batch'
+        )
+      ).toHaveLength(0);
+      expect(
+        infoMessages.filter(
+          (message) => message === 'Background token indexing dispatched Electron batches'
+        )
+      ).toHaveLength(1);
     });
 
     it('dispatches selection-driven token counting even while embedding is active', () => {
@@ -1917,9 +1992,9 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       expect(indexFilesMock).not.toHaveBeenCalled();
     });
 
-    it('resolves web file handles in concurrent batches via Promise.all', async () => {
+    it('resolves web file handles in cooperative concurrent batches via Promise.all', async () => {
       const rootFolderId = 'root';
-      const fileCount = 21;
+      const fileCount = 17;
       const keys: string[] = [];
       for (let i = 0; i < fileCount; i += 1) {
         keys.push(encodeFileSelection(rootFolderId, `file-${i}.ts`));
@@ -1942,7 +2017,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       const { result } = renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: [],
-          selectedFiles: new Set(keys),
+          selectedFiles: new Set(),
           webFileHandleResolver,
           onTokenResolved: vi.fn(),
         })
@@ -1950,15 +2025,17 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
       await act(async () => {
         void result.current.triggerIndexing(keys);
-        await Promise.resolve();
+        for (let index = 0; index < 5; index += 1) {
+          await Promise.resolve();
+        }
       });
 
-      // Asserts batched concurrency: the first batch should fire 20 concurrent resolver calls
-      // before any single one resolves, mirroring the existing electronBatchSize Promise.all.
-      expect(webFileHandleResolver).toHaveBeenCalledTimes(20);
+      // Asserts batched concurrency: the first batch should fire 8 concurrent resolver calls
+      // before any single one resolves. Overflow waits for a cooperative timer yield.
+      expect(webFileHandleResolver).toHaveBeenCalledTimes(8);
       expect(indexFilesMock).not.toHaveBeenCalled();
 
-      for (let i = 0; i < 20; i += 1) {
+      for (let i = 0; i < 8; i += 1) {
         const handle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
         deferredResolves
           .get(`${rootFolderId}/file-${i}.ts`)
@@ -1971,22 +2048,29 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       });
 
       expect(indexFilesMock).toHaveBeenCalledTimes(1);
-      expect(indexFilesMock.mock.calls[0]?.[0]).toHaveLength(20);
+      expect(indexFilesMock.mock.calls[0]?.[0]).toHaveLength(8);
+      expect(webFileHandleResolver).toHaveBeenCalledTimes(8);
 
-      // Now the 21st (overflow) file should be resolved in a follow-up batch.
-      const lastHandle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
-      deferredResolves
-        .get(`${rootFolderId}/file-20.ts`)
-        ?.resolve({ kind: 'handle', fileHandle: lastHandle, fileSize: 128 });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(16);
+      });
+
+      expect(webFileHandleResolver).toHaveBeenCalledTimes(16);
+
+      for (let i = 8; i < 16; i += 1) {
+        const handle = { getFile: vi.fn() } as unknown as FileSystemFileHandle;
+        deferredResolves
+          .get(`${rootFolderId}/file-${i}.ts`)
+          ?.resolve({ kind: 'handle', fileHandle: handle, fileSize: 128 });
+      }
 
       await act(async () => {
         await Promise.resolve();
         await Promise.resolve();
       });
 
-      expect(webFileHandleResolver).toHaveBeenCalledTimes(21);
       expect(indexFilesMock).toHaveBeenCalledTimes(2);
-      expect(indexFilesMock.mock.calls[1]?.[0]).toHaveLength(1);
+      expect(indexFilesMock.mock.calls[1]?.[0]).toHaveLength(8);
     });
 
     it('skips oversize handle resolutions after the resolver returns (post-resolution MAX_INDEXABLE_FILE_SIZE guard)', async () => {

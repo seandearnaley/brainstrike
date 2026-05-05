@@ -48,11 +48,16 @@ test.describe('Agent sidebar database access', () => {
 
     await page.reload();
     await waitForAppLoad(page);
-    if (await elements.showAgentPanelShim.isVisible().catch(() => false)) {
-      await elements.showAgentPanelShim.click();
+
+    const reloadedElements = getPanelElements(page);
+    if (await reloadedElements.showAgentPanelShim.isVisible().catch(() => false)) {
+      await reloadedElements.showAgentPanelShim.click();
     }
-    await expect(elements.hideAgentPanelButton).toBeVisible();
-    await databaseTab.click();
+    await expect(reloadedElements.hideAgentPanelButton).toBeVisible();
+
+    const reloadedDatabaseTab = page.getByRole('tab', { name: 'Database' });
+    await expect(reloadedDatabaseTab).toBeVisible();
+    await reloadedDatabaseTab.click();
     await expect(page.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });
   });
 });

@@ -5,6 +5,30 @@
  * between basic and enhanced CSV export utilities.
  */
 
+// `formatFileSize` lives in utils/format.ts as the single source of truth (used
+// by display components too). Re-exported from this module on purpose — CSV
+// callers and column-config helpers should be able to import every CSV-related
+// formatter from one place. Not a migration shim.
+import { formatFileSize } from './utils/format';
+
+export { formatFileSize };
+
+/**
+ * Format ISO date string for CSV export. Empty/undefined input maps to "" so
+ * exported cells stay empty rather than showing "Invalid Date". The display
+ * helper in utils/format.ts has the opposite preference — see comment there.
+ */
+export function formatDate(isoString: string | undefined): string {
+  if (!isoString) {
+    return '';
+  }
+  try {
+    return new Date(isoString).toLocaleString();
+  } catch {
+    return isoString;
+  }
+}
+
 /**
  * Escapes a value for CSV format
  * - Wraps in quotes if contains comma, newline, or quotes
@@ -46,33 +70,6 @@ export function createCSVBlob(csvContent: string, includeBOM = true): Blob {
 export function generateCSVFilename(prefix = 'export', extension = 'csv'): string {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
   return `${prefix}-${timestamp}.${extension}`;
-}
-
-/**
- * Format bytes to human-readable size
- */
-export function formatFileSize(bytes: number): string {
-  if (bytes < 1024) {
-    return `${bytes} B`;
-  }
-  if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)} KB`;
-  }
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/**
- * Format ISO date string to readable format
- */
-export function formatDate(isoString: string | undefined): string {
-  if (!isoString) {
-    return '';
-  }
-  try {
-    return new Date(isoString).toLocaleString();
-  } catch {
-    return isoString;
-  }
 }
 
 /**

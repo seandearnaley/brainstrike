@@ -27,6 +27,7 @@ describe('fileFilter', () => {
         '.next/cache/file.js',
         'build/index.html',
         'some/path/.DS_Store',
+        'project/.pnpm-store/v10/files/0e',
       ];
 
       for (const path of patterns) {
@@ -42,6 +43,7 @@ describe('fileFilter', () => {
         'project\\dist\\bundle.js',
         'build\\index.html',
         'some\\path\\.DS_Store',
+        'project\\.pnpm-store\\v10\\files\\0e',
       ];
 
       for (const path of patterns) {
@@ -73,6 +75,7 @@ describe('fileFilter', () => {
     it('should ignore deeply nested default patterns', () => {
       expect(fileFilter.shouldIgnorePath('a/b/c/node_modules/d/e')).toBe(true);
       expect(fileFilter.shouldIgnorePath('project/src/.git/hooks/pre-commit')).toBe(true);
+      expect(fileFilter.shouldIgnorePath('project/.pnpm-store/v10/files/0e')).toBe(true);
     });
 
     // NEW: Test partial matches (should NOT be ignored)
@@ -84,6 +87,7 @@ describe('fileFilter', () => {
         'redistribution/file.ts', // contains 'dist'
         'builder/file.ts', // contains 'build'
         'my_node_modules/file.ts', // contains 'node_modules'
+        'src/pnpm-store-helper.ts', // contains pnpm-store without the ignored dot segment
       ];
 
       for (const path of partialMatches) {

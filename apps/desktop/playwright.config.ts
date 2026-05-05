@@ -29,8 +29,9 @@ const playwrightConfig: PlaywrightTestConfig = {
   // Increased to 2 minutes to handle parallel shard load in CI/Act
   timeout: 120_000,
 
-  // Don't run tests in parallel - Electron can be resource intensive
-  fullyParallel: false,
+  // Keep file-level scheduling controlled in CI; suites that are explicitly safe
+  // to split can opt into test.describe.configure({ mode: 'parallel' }).
+  fullyParallel: config.fullyParallel,
 
   // Fail the build on CI if you accidentally left test.only in the source code
   forbidOnly: config.isCI,
@@ -38,9 +39,9 @@ const playwrightConfig: PlaywrightTestConfig = {
   // Retry strategy based on environment
   retries: config.retries,
 
-  // Worker count based on environment capabilities
-  // Force single worker for desktop to avoid test interference
-  workers: 1,
+  // Worker count based on environment capabilities. The Electron fixture derives
+  // userDataDir from shard + worker index, so CI workers are isolated.
+  workers: config.workers,
 
   // Reporter configuration
   reporter: config.isCI

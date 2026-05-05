@@ -33,7 +33,6 @@ describe('CollectionBrowserStore', () => {
       expect(state.searchConfigVectorWeight).toBe(1.0);
       expect(state.searchConfigFtsWeight).toBe(1.0);
       expect(state.searchConfigExpanded).toBe(false);
-      expect(state.isFilterVisible).toBe(false);
       expect(state.groupBy).toBe('none');
       expect(state.showCheckbox).toBe(false);
       expect(state.multiSelectEnabled).toBe(false);
@@ -216,11 +215,6 @@ describe('CollectionBrowserStore', () => {
     it('setEmbeddingStatus updates the filter', () => {
       useCollectionBrowserStore.getState().setEmbeddingStatus('embedded');
       expect(useCollectionBrowserStore.getState().embeddingStatus).toBe('embedded');
-    });
-
-    it('setIsFilterVisible toggles visibility', () => {
-      useCollectionBrowserStore.getState().setIsFilterVisible(true);
-      expect(useCollectionBrowserStore.getState().isFilterVisible).toBe(true);
     });
   });
 

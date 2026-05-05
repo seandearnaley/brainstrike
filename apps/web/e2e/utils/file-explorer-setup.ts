@@ -28,6 +28,12 @@ export interface ExplorerBootstrapOptions {
    * Mocked file system tree that will be exposed through the File System Access API.
    */
   tree: FileTree;
+  /**
+   * Wait for the database status bar before returning.
+   * File explorer-only flows do not need the DB and should not pay greenfield
+   * PGlite startup cost in every isolated browser context.
+   */
+  waitForDatabase?: boolean;
 }
 
 /**
@@ -44,13 +50,13 @@ export async function bootstrapFileExplorer(
     resetSettings = false,
     clearStorageKeys = [],
     reloadAfterClear = true,
+    waitForDatabase = false,
   } = options;
 
   await mockBrowserApis(page, projectName, tree);
 
   const home = new HomePage(page);
-  await home.goto();
-  await waitForAppLoad(page);
+  await home.goto({ waitForDatabase });
 
   const keysToClear = new Set(clearStorageKeys);
   if (resetSettings) {
@@ -67,7 +73,7 @@ export async function bootstrapFileExplorer(
     }, Array.from(keysToClear));
 
     if (reloadAfterClear) {
-      await reloadExplorer(page);
+      await reloadExplorer(page, { waitForDatabase });
     }
   }
 
@@ -77,7 +83,10 @@ export async function bootstrapFileExplorer(
 /**
  * Helper to reload the current page and wait for the application shell to settle.
  */
-export async function reloadExplorer(page: Page): Promise<void> {
+export async function reloadExplorer(
+  page: Page,
+  options: { readonly waitForDatabase?: boolean } = {}
+): Promise<void> {
   await page.reload({ waitUntil: 'load' });
-  await waitForAppLoad(page);
+  await waitForAppLoad(page, { waitForDatabase: options.waitForDatabase ?? false });
 }

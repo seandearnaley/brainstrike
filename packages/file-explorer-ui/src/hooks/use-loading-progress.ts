@@ -1,14 +1,7 @@
 import { FileExplorerStrings } from '@brainstrike/types';
 import { useMemo } from 'react';
 import type { LoadingProgressState } from '../loading-overlay';
-
-/**
- * Format path for display by showing only the last 2 parts
- */
-const formatDisplayPath = (currentPath: string): string => {
-  const parts = currentPath.split('/');
-  return parts.length > 2 ? `.../${parts.slice(-2).join('/')}` : currentPath;
-};
+import { formatTrailingPathSegments } from '../utils/path-display';
 
 /**
  * Get depth-based progress message when depthProgress is available
@@ -37,7 +30,7 @@ const getDepthProgressMessage = (progressState: LoadingProgressState): string =>
 
   // Third line: current path (if available)
   if (currentPath) {
-    const displayPath = formatDisplayPath(currentPath);
+    const displayPath = formatTrailingPathSegments(currentPath);
     return `${depthLabel}\n${statsLine}\n${displayPath}`;
   }
 
@@ -58,7 +51,7 @@ const getPercentageProgressMessage = (progressState: LoadingProgressState): stri
   const baseMsg = `Processing files (${loaded}/${total} - ${percent}%)`;
 
   if (currentPath) {
-    const displayPath = formatDisplayPath(currentPath);
+    const displayPath = formatTrailingPathSegments(currentPath);
     return `${baseMsg}\n${displayPath}`;
   }
 

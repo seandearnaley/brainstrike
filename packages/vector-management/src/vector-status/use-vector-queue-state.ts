@@ -115,7 +115,7 @@ ORDER BY updated_at DESC
 `.trim();
 
 const LATENCY_ROWS_QUERY = `
-  SELECT run_at AS "runAt", updated_at AS "updatedAt"
+  SELECT id, run_at AS "runAt", updated_at AS "updatedAt"
     FROM job_queue
    WHERE queue = $1
      AND state = 'succeeded'
@@ -159,6 +159,7 @@ interface LastErrorRow {
 }
 
 interface LatencyRow {
+  id: string;
   runAt: string;
   updatedAt: string;
 }
@@ -501,6 +502,8 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     cacheKey: makeLiveQueryKey('latency', EMBEDDINGS_QUEUE),
     query: LATENCY_ROWS_QUERY,
     params: EMBEDDINGS_QUEUE_PARAMS,
+    mode: 'incremental',
+    key: 'id',
     enabled: liveQueryEnabled,
   });
 

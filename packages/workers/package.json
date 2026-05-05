@@ -40,7 +40,7 @@
     "mutation": "npx @stryker-mutator/core run",
     "prepublishOnly": "pnpm run build",
     "test": "vitest run",
-    "test:coverage": "pnpm -w test:coverage",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit"
   },

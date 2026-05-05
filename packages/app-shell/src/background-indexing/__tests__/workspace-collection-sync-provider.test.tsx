@@ -27,6 +27,7 @@ const {
   updateMock,
   deleteByFileRecordIdMock,
   getByIdMock,
+  createPriorityDbHandleMock,
   validateApiKeyForSetMock,
   ensureChunkingWorkerMock,
   ensureEmbeddingRuntimeStartedMock,
@@ -53,6 +54,48 @@ const {
   updateMock: vi.fn(),
   deleteByFileRecordIdMock: vi.fn(),
   getByIdMock: vi.fn(),
+  createPriorityDbHandleMock: vi.fn(
+    (
+      db: {
+        exec?: ReturnType<typeof vi.fn>;
+        query: ReturnType<typeof vi.fn>;
+        transaction?: ReturnType<typeof vi.fn>;
+      },
+      priority: 'foreground' | 'normal' | 'background'
+    ) => ({
+      exec: vi.fn(async (sql: string, params?: unknown[]) =>
+        db.exec
+          ? await (db.exec as unknown as (...args: unknown[]) => Promise<unknown>)(sql, params, {
+              priority,
+            })
+          : undefined
+      ),
+      query: vi.fn(
+        async (sql: string, params?: unknown[]) =>
+          await (db.query as unknown as (...args: unknown[]) => Promise<unknown>)(sql, params, {
+            priority,
+          })
+      ),
+      transaction: vi.fn(async (fn: (tx: { query: ReturnType<typeof vi.fn> }) => unknown) => {
+        if (!db.transaction) {
+          return;
+        }
+        return await (db.transaction as unknown as (...args: unknown[]) => Promise<unknown>)(
+          async (tx: { query: ReturnType<typeof vi.fn> }) =>
+            fn({
+              query: vi.fn(
+                async (sql: string, params?: unknown[]) =>
+                  await (tx.query as unknown as (...args: unknown[]) => Promise<unknown>)(
+                    sql,
+                    params,
+                    { priority }
+                  )
+              ),
+            })
+        );
+      }),
+    })
+  ),
   validateApiKeyForSetMock: vi.fn(),
   ensureChunkingWorkerMock: vi.fn(),
   ensureEmbeddingRuntimeStartedMock: vi.fn(),
@@ -61,10 +104,12 @@ const {
   dbState: {
     current: {
       query: vi.fn(async () => ({ rows: [] })),
+      exec: vi.fn(async () => undefined),
       transaction: vi.fn(async (fn: (tx: { query: ReturnType<typeof vi.fn> }) => unknown) =>
         fn({ query: vi.fn(async () => ({ rows: [] })) })
       ),
     } as {
+      exec: ReturnType<typeof vi.fn>;
       query: ReturnType<typeof vi.fn>;
       transaction: ReturnType<typeof vi.fn>;
     } | null,
@@ -115,18 +160,37 @@ vi.mock('@brainstrike/db', () => ({
     };
   }),
   applyManagedCacheBatch: applyManagedCacheBatchLocalMock,
+  createDatabasePressureController: vi.fn(() => ({
+    waitForBackgroundPermit: vi.fn(async () => undefined),
+  })),
+  createPriorityDbHandle: createPriorityDbHandleMock,
+  getDatabaseWorkScheduler: vi.fn(() => ({
+    getSnapshot: vi.fn(),
+    run: vi.fn(),
+    subscribe: vi.fn(() => () => {}),
+  })),
+  ElectronEmbeddingSetsRepository: vi.fn(function MockElectronEmbeddingSetsRepository() {
+    return {
+      getById: getByIdMock,
+    };
+  }),
+  ElectronFileChunkRepository: vi.fn(function MockElectronFileChunkRepository() {
+    return {
+      deleteByFileRecordId: deleteByFileRecordIdMock,
+      getCoverageForSet: vi.fn(async () => ({
+        embeddedChunks: 0,
+        totalChunks: 0,
+      })),
+      update: vi.fn(),
+    };
+  }),
+  ElectronFileRecordRepository: vi.fn(function MockElectronFileRecordRepository() {
+    return {
+      listManagedCacheEntryMetadata: listManagedCacheEntryMetadataMock,
+      update: updateMock,
+    };
+  }),
   usePGliteDatabase: () => dbState.current,
-  useFileRecordRepository: () => ({
-    listManagedCacheEntryMetadata: listManagedCacheEntryMetadataMock,
-    update: updateMock,
-  }),
-  useFileChunkRepository: () => ({
-    deleteByFileRecordId: deleteByFileRecordIdMock,
-    update: vi.fn(),
-  }),
-  useEmbeddingSetsRepository: () => ({
-    getById: getByIdMock,
-  }),
 }));
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
@@ -226,6 +290,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
     __resetWorkspaceCollectionSyncStatusStoreForTests();
     dbState.current = {
       query: vi.fn(async () => ({ rows: [] })),
+      exec: vi.fn(async () => undefined),
       transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
     };
     vectorQueueServiceState.current = {
@@ -300,6 +365,13 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() => expect(ensureEmbeddingRuntimeStartedMock).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(applyManagedCacheBatchLocalMock).toHaveBeenCalledTimes(1));
+    expect(createPriorityDbHandleMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: expect.any(Function),
+      }),
+      'background'
+    );
+    expect(applyManagedCacheBatchLocalMock.mock.calls[0]?.[0]).not.toBe(dbState.current);
     expect(enqueueBackfillMock).toHaveBeenCalledWith(
       '00000000-0000-0000-0000-000000000101',
       expect.objectContaining({
@@ -330,6 +402,12 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
       await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
       await waitFor(() => expect(electronApplyManagedCacheBatch).toHaveBeenCalledTimes(1));
+      expect(electronApplyManagedCacheBatch).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({
+          priority: 'background',
+        })
+      );
       expect(applyManagedCacheBatchLocalMock).not.toHaveBeenCalled();
     } finally {
       Reflect.deleteProperty(window, 'electronAPI');

@@ -7,8 +7,10 @@ const {
   commandListenerRef,
   currentDbRef,
   dbHandle,
+  embeddingCacheRepository,
   embeddingQueueBootstrapMock,
   getEmbeddingQueueMock,
+  createEmbeddingCacheRepositoryMock,
   ensureVectorPreferencesHydratedMock,
   reportStatusMock,
   startEmbeddingWorkerMock,
@@ -22,8 +24,15 @@ const {
     current: null as null | { query: ReturnType<typeof vi.fn> },
   },
   dbHandle: { query: vi.fn() },
+  embeddingCacheRepository: {
+    get: vi.fn(),
+    getBatch: vi.fn(),
+    set: vi.fn(),
+    setBatch: vi.fn(),
+  },
   embeddingQueueBootstrapMock: vi.fn(),
   getEmbeddingQueueMock: vi.fn(() => ({ id: 'embedding-queue' })),
+  createEmbeddingCacheRepositoryMock: vi.fn(),
   ensureVectorPreferencesHydratedMock: vi.fn(),
   reportStatusMock: vi.fn(),
   startEmbeddingWorkerMock: vi.fn(),
@@ -35,6 +44,7 @@ const {
 }));
 
 vi.mock('@brainstrike/db', () => ({
+  createEmbeddingCacheRepository: createEmbeddingCacheRepositoryMock,
   usePGliteDatabase: () => currentDbRef.current,
 }));
 
@@ -76,6 +86,7 @@ describe('EmbeddingHostRuntime', () => {
       }
       return storeState;
     });
+    createEmbeddingCacheRepositoryMock.mockReturnValue(embeddingCacheRepository);
     startEmbeddingWorkerMock.mockResolvedValue({
       stop: stopMock,
     });
@@ -133,6 +144,22 @@ describe('EmbeddingHostRuntime', () => {
     });
     expect(embeddingQueueBootstrapMock).toHaveBeenCalledTimes(1);
     expect(getEmbeddingQueueMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes an embedding cache repository to the worker', async () => {
+    storeState.hasHydrated = true;
+
+    render(<EmbeddingHostRuntime />);
+
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          db: dbHandle,
+          embeddingCache: embeddingCacheRepository,
+        })
+      );
+    });
+    expect(createEmbeddingCacheRepositoryMock).toHaveBeenCalledWith(dbHandle);
   });
 
   it('resets the worker when it receives a strict reset command envelope', async () => {

@@ -3,17 +3,36 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEnhancedFileImportService } from '../enhanced-file-import-service';
 
-const { ensureStartedMock, runEnhancedImportMock, mockUsePGliteDatabase } = vi.hoisted(() => ({
-  ensureStartedMock: vi.fn(async () => ({
-    transportKind: 'local-worker' as const,
-    chunkFile: vi.fn(),
-    chunkBatch: vi.fn(),
-    isReady: vi.fn(() => true),
-    terminate: vi.fn(),
-  })),
-  runEnhancedImportMock: vi.fn(),
-  mockUsePGliteDatabase: vi.fn(() => null),
-}));
+const {
+  ensureStartedMock,
+  runEnhancedImportMock,
+  mockUsePGliteDatabase,
+  createBulkOperationContextMock,
+  bulkOperationState,
+} = vi.hoisted(() => {
+  const state = { active: false };
+  return {
+    ensureStartedMock: vi.fn(async () => ({
+      transportKind: 'local-worker' as const,
+      chunkFile: vi.fn(),
+      chunkBatch: vi.fn(),
+      isReady: vi.fn(() => true),
+      terminate: vi.fn(),
+    })),
+    runEnhancedImportMock: vi.fn(),
+    mockUsePGliteDatabase: vi.fn(() => null),
+    bulkOperationState: state,
+    createBulkOperationContextMock: vi.fn(() => ({
+      enter: vi.fn(() => {
+        state.active = true;
+      }),
+      exit: vi.fn(() => {
+        state.active = false;
+      }),
+      isActive: vi.fn(() => state.active),
+    })),
+  };
+});
 
 // Mock the base service to prevent provider issues
 vi.mock('../base-file-import-service', () => ({
@@ -75,8 +94,13 @@ vi.mock('@brainstrike/utils', async () => {
       error: vi.fn(),
       debug: vi.fn(),
     })),
+    createBulkOperationContext: createBulkOperationContextMock,
   };
 });
+
+vi.mock('@brainstrike/utils/bulk-operation-context', () => ({
+  createBulkOperationContext: createBulkOperationContextMock,
+}));
 
 vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
   useChunkingWorkerContext: vi.fn().mockReturnValue({
@@ -97,6 +121,8 @@ describe('useEnhancedFileImportService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     runEnhancedImportMock.mockReset();
+    createBulkOperationContextMock.mockClear();
+    bulkOperationState.active = false;
     mockUsePGliteDatabase.mockReset();
     mockUsePGliteDatabase.mockReturnValue(null);
     ensureStartedMock.mockClear();
@@ -347,6 +373,32 @@ describe('useEnhancedFileImportService', () => {
         expect.stringContaining('UPDATE file_chunks'),
         expect.arrayContaining(['set-fallback'])
       );
+    });
+
+    it('does not keep the import bulk context active during completion callbacks', async () => {
+      runEnhancedImportMock.mockResolvedValueOnce([
+        { id: 'file1', imported: true, existed: false, chunksCreated: 1 },
+      ]);
+      let completionSawBulkActive: boolean | null = null;
+      const onComplete = vi.fn(async () => {
+        completionSawBulkActive = bulkOperationState.active;
+      });
+
+      const { result } = renderHook(() =>
+        useEnhancedFileImportService({
+          onComplete,
+          enableChunking: true,
+        })
+      );
+
+      await act(async () => {
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
+      });
+
+      expect(onComplete).toHaveBeenCalledTimes(1);
+      expect(completionSawBulkActive).toBe(false);
     });
   });
 

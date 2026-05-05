@@ -28,9 +28,11 @@ export const FilterChip = React.memo(function FilterChip({
   onClick,
   icon,
   disabled = false,
+  className,
 }: FilterChipProps) {
   return (
     <button
+      aria-label={label}
       aria-pressed={active}
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium text-xs',
@@ -39,7 +41,8 @@ export const FilterChip = React.memo(function FilterChip({
         'disabled:cursor-not-allowed disabled:opacity-50',
         active
           ? 'bg-primary text-primary-foreground'
-          : 'bg-muted text-muted-foreground hover:bg-muted/80'
+          : 'bg-muted text-muted-foreground hover:bg-muted/80',
+        className
       )}
       disabled={disabled}
       onClick={onClick}

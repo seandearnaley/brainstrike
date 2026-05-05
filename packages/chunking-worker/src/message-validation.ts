@@ -77,13 +77,8 @@ export function isChunkingRequestOptions(value: unknown): value is ChunkingReque
   );
 }
 
-export function isChunkRequest(value: unknown): value is ChunkRequest {
-  if (!isChunkRequestRecord(value)) {
-    return false;
-  }
-  const msg = value as Record<string, unknown>;
+function hasValidChunkRequestFields(msg: Record<string, unknown>): boolean {
   return (
-    msg['type'] === 'chunk' &&
     isBoundedMetadataString(msg['id']) &&
     isBoundedMetadataString(msg['fileRecordId']) &&
     isContentString(msg['content']) &&
@@ -91,6 +86,14 @@ export function isChunkRequest(value: unknown): value is ChunkRequest {
     isBoundedMetadataString(msg['filePath']) &&
     isChunkingRequestOptions(msg['options'])
   );
+}
+
+export function isChunkRequest(value: unknown): value is ChunkRequest {
+  if (!isChunkRequestRecord(value)) {
+    return false;
+  }
+  const msg = value as Record<string, unknown>;
+  return msg['type'] === 'chunk' && hasValidChunkRequestFields(msg);
 }
 
 export function isChunkBatchRequest(value: unknown): value is ChunkBatchRequest {
@@ -110,17 +113,7 @@ export function isChunkBatchRequest(value: unknown): value is ChunkBatchRequest 
     if (!isChunkRequestRecord(req)) {
       return false;
     }
-    const request = req as Record<string, unknown>;
-    if (
-      !(
-        isBoundedMetadataString(request['id']) &&
-        isBoundedMetadataString(request['fileRecordId']) &&
-        isContentString(request['content']) &&
-        isBoundedMetadataString(request['fileName']) &&
-        isBoundedMetadataString(request['filePath']) &&
-        isChunkingRequestOptions(request['options'])
-      )
-    ) {
+    if (!hasValidChunkRequestFields(req as Record<string, unknown>)) {
       return false;
     }
   }

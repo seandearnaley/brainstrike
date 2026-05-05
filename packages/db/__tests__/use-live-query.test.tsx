@@ -1,6 +1,11 @@
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { deepEqual, makeLiveQueryKey, usePGliteLiveQuery } from '../src/use-live-query.js';
+import {
+  deepEqual,
+  escapePGliteLiveQueryFormatPercents,
+  makeLiveQueryKey,
+  usePGliteLiveQuery,
+} from '../src/use-live-query.js';
 
 // Mock the database provider
 vi.mock('../src/db-provider.js', () => ({
@@ -72,6 +77,48 @@ describe('usePGliteLiveQuery Performance', () => {
 
     expect(mockQuery).toHaveBeenCalledTimes(1);
   });
+
+  it('escapes literal percent signs before PGlite live query parameter formatting', () => {
+    render(
+      <PercentQueryComponent
+        params={['needle']}
+        query="SELECT * FROM test WHERE name LIKE '%' || $1 || '%'"
+      />
+    );
+
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: "SELECT * FROM test WHERE name LIKE '%%' || $1 || '%%'",
+        params: ['needle'],
+      })
+    );
+  });
+});
+
+function PercentQueryComponent({ params, query }: { params?: unknown[]; query: string }) {
+  usePGliteLiveQuery({
+    query,
+    params,
+  });
+  return null;
+}
+
+describe('escapePGliteLiveQueryFormatPercents', () => {
+  it('escapes literal percents only when live query params are present', () => {
+    const query = "SELECT * FROM test WHERE name LIKE '%' || $1 || '%'";
+
+    expect(escapePGliteLiveQueryFormatPercents(query, ['needle'])).toBe(
+      "SELECT * FROM test WHERE name LIKE '%%' || $1 || '%%'"
+    );
+    expect(escapePGliteLiveQueryFormatPercents(query, [])).toBe(query);
+    expect(escapePGliteLiveQueryFormatPercents(query, null)).toBe(query);
+  });
+
+  it('does not double-escape already escaped live query percents', () => {
+    const query = "SELECT * FROM test WHERE name LIKE '%%' || $1 || '%%'";
+
+    expect(escapePGliteLiveQueryFormatPercents(query, ['needle'])).toBe(query);
+  });
 });
 
 describe('Electron Live Query', () => {
@@ -124,6 +171,24 @@ describe('Electron Live Query', () => {
     });
   });
 
+  it('escapes literal percent signs before Electron live query start', async () => {
+    render(
+      <PercentQueryComponent
+        params={['needle']}
+        query="SELECT * FROM test WHERE name LIKE '%' || $1 || '%'"
+      />
+    );
+
+    await vi.waitFor(() => {
+      expect(mockBridge.start).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: "SELECT * FROM test WHERE name LIKE '%%' || $1 || '%%'",
+          params: ['needle'],
+        })
+      );
+    });
+  });
+
   it('should unsubscribe from bridge on unmount', async () => {
     const { unmount } = render(<TestComponent params={[1]} />);
 
@@ -137,6 +202,86 @@ describe('Electron Live Query', () => {
       expect(mockUnsubscribe).toHaveBeenCalled();
       expect(mockBridge.stop).toHaveBeenCalledWith(123);
     });
+  });
+});
+
+describe('PGliteWorker live query leader changes', () => {
+  let leaderChangeListener: (() => void) | null;
+  let mockQuery: ReturnType<typeof vi.fn>;
+  let mockSubscribe: ReturnType<typeof vi.fn>;
+  let mockUnsubscribe: ReturnType<typeof vi.fn>;
+  let mockUnsubscribeLeader: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    leaderChangeListener = null;
+    mockSubscribe = vi.fn();
+    mockUnsubscribe = vi.fn().mockResolvedValue(undefined);
+    mockUnsubscribeLeader = vi.fn();
+    mockQuery = vi.fn().mockReturnValue({
+      initialResults: { rows: [] },
+      refresh: vi.fn().mockResolvedValue(undefined),
+      subscribe: mockSubscribe,
+      unsubscribe: mockUnsubscribe,
+    });
+
+    interface MockWorkerRaw {
+      readonly live: {
+        readonly incrementalQuery: typeof mockQuery;
+        readonly query: typeof mockQuery;
+      };
+      readonly marker: 'worker-raw';
+      onLeaderChange(this: MockWorkerRaw, listener: () => void): () => void;
+    }
+
+    const raw: MockWorkerRaw = {
+      live: {
+        incrementalQuery: mockQuery,
+        query: mockQuery,
+      },
+      marker: 'worker-raw',
+      onLeaderChange(listener: () => void) {
+        if (this.marker !== 'worker-raw') {
+          throw new Error('PGliteWorker onLeaderChange must be called with worker receiver');
+        }
+        leaderChangeListener = listener;
+        return mockUnsubscribeLeader;
+      },
+    };
+
+    (usePGliteDatabase as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ raw });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function WorkerLiveQueryComponent() {
+    usePGliteLiveQuery({
+      query: 'SELECT * FROM test',
+    });
+    return null;
+  }
+
+  it('resubscribes live queries after the worker leader changes', async () => {
+    render(<WorkerLiveQueryComponent />);
+
+    await vi.waitFor(() => {
+      expect(mockQuery).toHaveBeenCalledTimes(1);
+      expect(mockSubscribe).toHaveBeenCalledTimes(1);
+    });
+
+    if (!leaderChangeListener) {
+      throw new Error('Expected PGliteWorker leader change listener to be registered');
+    }
+
+    act(() => {
+      leaderChangeListener?.();
+    });
+
+    await vi.waitFor(() => {
+      expect(mockQuery).toHaveBeenCalledTimes(2);
+    });
+    expect(mockUnsubscribe).toHaveBeenCalledTimes(1);
   });
 });
 
