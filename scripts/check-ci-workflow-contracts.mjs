@@ -680,6 +680,12 @@ export function validateSetupMonorepoContracts(source) {
   if (turboCacheStep) {
     requireIncludes(
       turboCacheStep,
+      'id: turbo-cache',
+      'Setup monorepo Turborepo cache step must expose cache-hit output.',
+      failures
+    );
+    requireIncludes(
+      turboCacheStep,
       'uses: actions/cache@v5',
       'Setup monorepo must use actions/cache for the Turborepo local cache.',
       failures
@@ -700,6 +706,48 @@ export function validateSetupMonorepoContracts(source) {
       turboCacheStep,
       '${{ runner.os }}-node22-turbo-v4-',
       'Setup monorepo Turborepo cache must keep the stable node22 restore prefix.',
+      failures
+    );
+  }
+
+  const pnpmStoreCacheStep = requireSingleNamedStep(
+    source,
+    /Cache pnpm store/,
+    'Setup monorepo pnpm store cache step',
+    failures
+  );
+  if (pnpmStoreCacheStep) {
+    requireIncludes(
+      pnpmStoreCacheStep,
+      'id: pnpm-store-cache',
+      'Setup monorepo pnpm store cache step must expose cache-hit output.',
+      failures
+    );
+  }
+
+  const cacheStatusStep = requireSingleNamedStep(
+    source,
+    /Report setup cache status/,
+    'Setup monorepo cache status summary step',
+    failures
+  );
+  if (cacheStatusStep) {
+    requireIncludes(
+      cacheStatusStep,
+      'PNPM_CACHE_HIT: ${{ steps.pnpm-store-cache.outputs.cache-hit }}',
+      'Setup monorepo cache summary must report pnpm cache hit status.',
+      failures
+    );
+    requireIncludes(
+      cacheStatusStep,
+      'TURBO_CACHE_HIT: ${{ steps.turbo-cache.outputs.cache-hit }}',
+      'Setup monorepo cache summary must report Turborepo cache hit status.',
+      failures
+    );
+    requireIncludes(
+      cacheStatusStep,
+      '$GITHUB_STEP_SUMMARY',
+      'Setup monorepo cache summary must write to the GitHub step summary.',
       failures
     );
   }

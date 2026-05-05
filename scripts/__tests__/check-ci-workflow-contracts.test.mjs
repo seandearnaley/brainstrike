@@ -83,6 +83,15 @@ test('setup monorepo contract fails when Turborepo config stops invalidating cac
   );
 });
 
+test('setup monorepo contract fails when cache hit reporting is removed', () => {
+  const source = setupMonorepoSource.replace('TURBO_CACHE_HIT: ${{ steps.turbo-cache.outputs.cache-hit }}', '');
+
+  assert.match(
+    validateSetupMonorepoContracts(source).join('\n'),
+    /cache summary must report Turborepo cache hit status/
+  );
+});
+
 test('workflow contract fails when blob reports upload on success', () => {
   const source = workflowSource.replace(
     '- name: Upload blob report\n        if: failure()',
