@@ -19,3 +19,7 @@
 
 **Learning:** Icon-only action buttons in lists (like Edit/Delete in `CollectionPickerItem`) sometimes lack `aria-label` attributes and use `size="sm"` with custom width/height/padding classes instead of the standard `size="icon"` which is designed specifically for square icon buttons.
 **Action:** Always provide descriptive `aria-label` attributes for icon-only action buttons and prefer `size="icon"` over manually overriding `size="sm"` padding/dimensions when rendering purely icon-based buttons.
+
+## 2026-05-03 - Use `useId()` for form-control IDs in reusable components
+**Learning:** Custom form controls inside reusable components (like the slider and tag input in `PromptEditor`) used static string IDs for `<Label htmlFor>` / `id` pairs. If the component is ever rendered more than once on the same page, the duplicate IDs break the htmlFor association — the label only targets the first element with that ID, defeating the accessibility purpose.
+**Action:** When pairing a `Label` with a custom `<input>` inside a component that may be instantiated multiple times, derive the IDs from React's `useId()` hook rather than hardcoded strings. This guarantees uniqueness across instances without leaking implementation details.
