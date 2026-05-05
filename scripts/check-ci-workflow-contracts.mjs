@@ -767,6 +767,13 @@ export function validateSetupMonorepoContracts(source) {
 
 export function validateSetupDesktopE2EContracts(source) {
   const failures = [];
+  requireNotIncludes(
+    source,
+    'pnpm exec playwright install-deps',
+    'Setup desktop E2E must not run Playwright install-deps inside every desktop shard.',
+    failures
+  );
+
   const systemDepsStep = requireSingleNamedStep(
     source,
     /Install system dependencies for Electron/,
@@ -801,24 +808,32 @@ export function validateSetupDesktopE2EContracts(source) {
     );
     requireIncludes(
       systemDepsStep,
-      'timeout 120s sudo apt-get install -y --no-install-recommends xvfb',
-      'Setup desktop E2E xvfb install must be bounded and avoid recommended packages.',
+      'DESKTOP_E2E_PACKAGES=(',
+      'Setup desktop E2E must use an explicit package list instead of Playwright install-deps.',
       failures
     );
-  }
-
-  const playwrightDepsStep = requireSingleNamedStep(
-    source,
-    /Install Playwright system dependencies/,
-    'Setup desktop E2E Playwright dependency step',
-    failures
-  );
-
-  if (playwrightDepsStep) {
     requireIncludes(
-      playwrightDepsStep,
-      'timeout 300s pnpm exec playwright install-deps chromium',
-      'Setup desktop E2E Playwright dependency install must be bounded and chromium-scoped.',
+      systemDepsStep,
+      'libasound2t64',
+      'Setup desktop E2E package list must include Ubuntu 24.04 Chromium audio dependencies.',
+      failures
+    );
+    requireIncludes(
+      systemDepsStep,
+      'libnss3',
+      'Setup desktop E2E package list must include Chromium NSS dependencies.',
+      failures
+    );
+    requireIncludes(
+      systemDepsStep,
+      'libxkbcommon0',
+      'Setup desktop E2E package list must include Chromium keyboard dependencies.',
+      failures
+    );
+    requireIncludes(
+      systemDepsStep,
+      'timeout 180s sudo apt-get install -y --no-install-recommends "${DESKTOP_E2E_PACKAGES[@]}"',
+      'Setup desktop E2E dependency install must be bounded and avoid recommended packages.',
       failures
     );
   }

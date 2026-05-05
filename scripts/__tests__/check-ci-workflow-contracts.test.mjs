@@ -63,14 +63,32 @@ test('setup desktop E2E contract fails when apt update is unbounded', () => {
 });
 
 test('setup desktop E2E contract fails when Playwright dependency install is unbounded', () => {
-  const source = setupDesktopE2ESource.replace(
-    'timeout 300s pnpm exec playwright install-deps chromium',
-    'pnpm exec playwright install-deps'
-  );
+  const source = `${setupDesktopE2ESource}
+    - name: Install Playwright system dependencies
+      shell: bash
+      run: pnpm exec playwright install-deps`;
 
   assert.match(
     validateSetupDesktopE2EContracts(source).join('\n'),
-    /Playwright dependency install must be bounded/
+    /must not run Playwright install-deps/
+  );
+});
+
+test('setup desktop E2E contract fails when explicit package list is removed', () => {
+  const source = setupDesktopE2ESource.replace('DESKTOP_E2E_PACKAGES=(', 'REMOVED_PACKAGES=(');
+
+  assert.match(
+    validateSetupDesktopE2EContracts(source).join('\n'),
+    /must use an explicit package list/
+  );
+});
+
+test('setup desktop E2E contract fails when Chromium dependencies are removed', () => {
+  const source = setupDesktopE2ESource.replace('libasound2t64', 'removed-audio-package');
+
+  assert.match(
+    validateSetupDesktopE2EContracts(source).join('\n'),
+    /must include Ubuntu 24\.04 Chromium audio dependencies/
   );
 });
 
