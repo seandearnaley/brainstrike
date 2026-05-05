@@ -39,7 +39,11 @@ test.describe('Assistant local availability (web)', () => {
       });
     });
 
-    await openAssistantWorkspace(page, { rootName: 'assistant-local-availability', tree });
+    await openAssistantWorkspace(page, {
+      enableLocalAssistantModel: true,
+      rootName: 'assistant-local-availability',
+      tree,
+    });
   });
 
   test('enables the assistant when the built-in local model is available without hosted keys', async ({

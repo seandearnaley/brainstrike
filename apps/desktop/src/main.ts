@@ -19,14 +19,27 @@ import { startAssistantServer } from './assistant-server';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow, noteNextWindowReload } from './create-window';
-import { closeDatabase, resetLocalDatabase } from './db-main';
+import {
+  createDesktopDatabaseMaintenanceScheduler,
+  type DesktopDatabaseMaintenanceScheduler,
+} from './database-maintenance-scheduler';
+import { closeDatabase, getDatabase, resetLocalDatabase } from './db-main';
+import { resetDesktopApplicationData } from './desktop-factory-reset';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
-import { registerIpcHandlers, setBackgrounded } from './ipc-handlers';
+import {
+  cleanupDesktopLiveSubscriptionsForShutdown,
+  getDesktopDatabaseWorkSchedulerSnapshot,
+  registerIpcHandlers,
+  runDesktopScheduledDatabaseWork,
+  runWithDesktopDatabaseResetBarrier,
+  setBackgrounded,
+  waitForDesktopDatabaseWorkSchedulerIdle,
+} from './ipc-handlers';
 import { registerLlmHostIpcHandlers } from './ipc-llm-host';
 import { registerMcpIpcHandlers } from './ipc-mcp';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
@@ -46,12 +59,44 @@ import { getWindowRoleByWebContentsId } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
+const E2E_USER_DATA_DIR_ENV = 'BRAINSTRIKE_E2E_USER_DATA_DIR';
 const LOG_FILE_VERIFICATION_POLL_INTERVAL_MS = 250;
 const LOG_FILE_VERIFICATION_TIMEOUT_MS = 5000;
 
 function isElectronE2ETestMode(): boolean {
   return process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
 }
+
+function readExplicitE2eUserDataDir(): string | null {
+  const candidate = process.env[E2E_USER_DATA_DIR_ENV]?.trim();
+  if (!candidate || candidate.toLowerCase() === 'undefined') {
+    return null;
+  }
+  if (!path.isAbsolute(candidate)) {
+    throw new Error(`${E2E_USER_DATA_DIR_ENV} must be an absolute path.`);
+  }
+  return candidate;
+}
+
+function applyE2EPathIsolation(): void {
+  if (!isElectronE2ETestMode()) {
+    return;
+  }
+
+  const userDataDir = readExplicitE2eUserDataDir();
+  if (!userDataDir) {
+    return;
+  }
+
+  fs.mkdirSync(userDataDir, { recursive: true });
+  app.setPath('userData', userDataDir);
+
+  const sessionDataDir = path.join(userDataDir, 'session-data');
+  fs.mkdirSync(sessionDataDir, { recursive: true });
+  app.setPath('sessionData', sessionDataDir);
+}
+
+applyE2EPathIsolation();
 
 function tryShowStartupErrorDialog(message: string): void {
   try {
@@ -104,13 +149,13 @@ function getSettingsStore(): ElectronStore<DesktopSettingsStoreSchema> | null {
 function createDesktopDefaultPreferences(): LoggingPreferences {
   const logPath = getLogFilePath();
   return createDefaultLoggingPreferences({
-    level: LogLevel.DEBUG,
+    level: LogLevel.INFO,
     consoleLevel: LogLevel.WARN,
     includeTimestamp: true,
     file: {
       enabled: !disableFileLogs && Boolean(logPath),
       destination: logPath ?? null,
-      level: LogLevel.DEBUG,
+      level: LogLevel.INFO,
       append: true,
       mkdir: true,
     },
@@ -152,7 +197,19 @@ function areLoggingPreferencesEqual(left: LoggingPreferences, right: LoggingPref
 function migrateStoredLoggingPreferences(stored: LoggingPreferences): LoggingPreferences {
   const sanitizedStored = sanitizeDesktopPreferences(stored);
   const legacyDefaults = sanitizeDesktopPreferences(createLegacyDesktopDefaultPreferences());
-  if (areLoggingPreferencesEqual(sanitizedStored, legacyDefaults)) {
+  const currentDefaults = createDesktopDefaultPreferences();
+  const debugFileDefaults = sanitizeDesktopPreferences({
+    ...currentDefaults,
+    level: LogLevel.DEBUG,
+    file: {
+      ...currentDefaults.file,
+      level: LogLevel.DEBUG,
+    },
+  });
+  if (
+    areLoggingPreferencesEqual(sanitizedStored, legacyDefaults) ||
+    areLoggingPreferencesEqual(sanitizedStored, debugFileDefaults)
+  ) {
     return sanitizeDesktopPreferences(createDesktopDefaultPreferences());
   }
   return sanitizedStored;
@@ -529,6 +586,7 @@ let unregisterChunkingHostIpcHandlers: null | (() => void) = null;
 let unregisterEmbeddingHostIpcHandlers: null | (() => void) = null;
 let unregisterLlmHostIpcHandlers: null | (() => void) = null;
 let unregisterLoggingIpcHandlers: null | (() => void) = null;
+let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
 let gracefulShutdownPromise: Promise<void> | null = null;
@@ -565,13 +623,28 @@ async function runShutdownStep(
 }
 
 async function handleResetLocal(): Promise<{ success: boolean; message?: string }> {
-  // Note: Embedding worker runs in renderer, not main process, so no need to stop it here
-
   try {
-    await resetLocalDatabase();
+    await resetDesktopApplicationData({
+      resetDatabaseProfile: async () => {
+        await runWithDesktopDatabaseResetBarrier(async () => {
+          await cleanupDesktopLiveSubscriptionsForShutdown();
+          await waitForDesktopDatabaseWorkSchedulerIdle();
+          await cleanupDesktopLiveSubscriptionsForShutdown();
+          await resetLocalDatabase();
+        });
+      },
+      stopBackgroundRuntimes: async () => {
+        await Promise.all([
+          embeddingHostManager.stop(),
+          chunkingHostManager.stop(),
+          llmHostManager.stop(),
+        ]);
+      },
+      userDataPath: app.getPath('userData'),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    logger.error('Failed to reset local database:', error);
+    logger.error('Failed to reset desktop application data:', error);
     return { success: false, message };
   }
 
@@ -643,6 +716,11 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
     }
 
     const databaseFailure = await runShutdownStep('database', async () => {
+      desktopDatabaseMaintenanceScheduler?.stop();
+      desktopDatabaseMaintenanceScheduler = null;
+      await cleanupDesktopLiveSubscriptionsForShutdown();
+      await waitForDesktopDatabaseWorkSchedulerIdle();
+      await cleanupDesktopLiveSubscriptionsForShutdown();
       await closeDatabase();
     });
     if (databaseFailure) {
@@ -700,6 +778,13 @@ const storage = new ElectronStorageAdapter();
 const chunkingHostManager = new ChunkingHostManager();
 const embeddingHostManager = new EmbeddingHostManager();
 const llmHostManager = new LlmHostManager();
+
+desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler({
+  getDatabase,
+  getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
+  logger,
+  runScheduledWork: runDesktopScheduledDatabaseWork,
+});
 
 unregisterLoggingIpcHandlers = registerLoggingIpcHandlers({
   getState: getLoggingSettingsPayload,
@@ -858,6 +943,8 @@ if (singleInstanceLockAcquired) {
       registerToolsIpcHandlers();
       registerRuntimeIpcHandlers();
       logger.debug('Ready-dependent IPC handlers registered successfully');
+      desktopDatabaseMaintenanceScheduler?.start();
+      logger.debug('Scheduled desktop database maintenance started');
 
       // Setup security before creating windows
       setupSecurity();

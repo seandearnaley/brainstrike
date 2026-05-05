@@ -1,11 +1,8 @@
-import {
-  FileExplorerLeftPanel,
-  FileExplorerMiddlePanelTabbed,
-} from '@brainstrike/file-explorer-ui';
+import { FileExplorerLeftPanel, WorkspaceTabHost } from '@brainstrike/file-explorer-ui';
 import { Suspense } from 'react';
 
 function DesktopContextExplorerPage() {
-  return <FileExplorerMiddlePanelTabbed />;
+  return <WorkspaceTabHost className="h-full" />;
 }
 
 export default function ContextExplorerPageContent() {

@@ -7,6 +7,17 @@ import {
 } from '../src/database-work-scheduler';
 
 describe('DatabaseWorkScheduler', () => {
+  it('stamps snapshots with the scheduler clock', () => {
+    let now = 1000;
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0, now: () => now });
+
+    expect(scheduler.getSnapshot().snapshotAt).toBe(1000);
+
+    now = 1750;
+
+    expect(scheduler.getSnapshot().snapshotAt).toBe(1750);
+  });
+
   it('runs foreground work before queued background work during the quiet window', async () => {
     vi.useFakeTimers();
     try {
@@ -50,6 +61,33 @@ describe('DatabaseWorkScheduler', () => {
       await vi.advanceTimersByTimeAsync(1);
       await background;
       expect(events).toEqual(['foreground-1', 'foreground-2', 'background']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not treat normal-priority work as scheduler foreground quiet-window pressure', async () => {
+    vi.useFakeTimers();
+    try {
+      const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 50 });
+      const events: string[] = [];
+
+      await scheduler.run(
+        async () => {
+          events.push('normal');
+        },
+        { priority: 'normal', label: 'collection count refresh' }
+      );
+
+      const background = scheduler.run(
+        async () => {
+          events.push('background');
+        },
+        { priority: 'background', label: 'embedding claim' }
+      );
+
+      await background;
+      expect(events).toEqual(['normal', 'background']);
     } finally {
       vi.useRealTimers();
     }
@@ -282,6 +320,29 @@ describe('DatabaseWorkScheduler', () => {
     expect(seenPriorities).toEqual(['foreground', 'background', 'background']);
   });
 
+  it('schedules syncToFs with the raw database receiver', async () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    const receiver = Symbol('receiver');
+    const rawDb = {
+      receiver,
+      query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
+        rows: [] as T[],
+      })),
+      syncToFs: vi.fn(async function (this: { readonly receiver: symbol }) {
+        expect(this.receiver).toBe(receiver);
+      }),
+    };
+
+    const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground');
+    await scheduled.syncToFs?.();
+
+    expect(rawDb.syncToFs).toHaveBeenCalledTimes(1);
+    expect(scheduler.getSnapshot().priorityStats.foreground).toMatchObject({
+      completed: 1,
+      lastCompletedLabel: 'syncToFs',
+    });
+  });
+
   it('passes database work options as the third query argument when no params are provided', async () => {
     const rawDb = {
       query: vi.fn(async <T = unknown>(_sql: string, _params?: unknown[], _options?: unknown) => ({
@@ -473,5 +534,60 @@ describe('DatabaseWorkScheduler', () => {
     expect(rawDb.live.query).toHaveBeenCalledTimes(1);
     expect(liveHandle.refresh).toHaveBeenCalledTimes(1);
     expect(seenPriorities).toEqual(['foreground', 'foreground']);
+  });
+
+  it('binds worker leader-change methods to the raw database target', () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    const unsubscribe = vi.fn();
+    const listener = vi.fn();
+    class RawWorkerDb {
+      readonly query = vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
+        rows: [] as T[],
+      }));
+
+      readonly #marker = 'raw-worker';
+
+      onLeaderChange(callback: () => void) {
+        if (this.#marker !== 'raw-worker') {
+          throw new Error('leader-change method must use raw receiver');
+        }
+        callback();
+        return unsubscribe;
+      }
+    }
+
+    const rawDb = new RawWorkerDb();
+    const scheduled = createScheduledDbHandle(rawDb, scheduler, 'foreground') as typeof rawDb;
+    const result = scheduled.onLeaderChange(listener);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(result).toBe(unsubscribe);
+  });
+
+  it('returns stable wrapper identities for raw receiver methods', () => {
+    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0 });
+    class RawWorkerDb {
+      readonly query = vi.fn(async <T = unknown>(_sql: string, _params?: unknown[]) => ({
+        rows: [] as T[],
+      }));
+
+      readonly #marker = 'raw-worker';
+
+      onLeaderChange(callback: () => void) {
+        if (this.#marker !== 'raw-worker') {
+          throw new Error('leader-change method must use raw receiver');
+        }
+        callback();
+        return () => undefined;
+      }
+    }
+
+    const scheduled = createScheduledDbHandle(
+      new RawWorkerDb(),
+      scheduler,
+      'foreground'
+    ) as RawWorkerDb;
+
+    expect(scheduled.onLeaderChange).toBe(scheduled.onLeaderChange);
   });
 });

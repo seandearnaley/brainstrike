@@ -111,6 +111,49 @@ export function resolveNetworkIdleTimeout(isCI: boolean): number {
   return isCI ? DEFAULT_CI_NETWORK_IDLE_TIMEOUT_MS : DEFAULT_LOCAL_NETWORK_IDLE_TIMEOUT_MS;
 }
 
+type DatabaseReadyState = 'connected' | 'disconnected' | null;
+
+export interface WaitForAppLoadOptions {
+  readonly timeoutMs?: number;
+  readonly waitForDatabase?: boolean;
+}
+
+export async function waitForDatabaseReady(page: Page, timeout = 10_000): Promise<void> {
+  const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
+  const effectiveTimeout = resolveWaitForAppLoadTimeout(timeout, isCI);
+  try {
+    const connectedHandle = await page.waitForFunction(
+      (): boolean => Boolean(document.querySelector('[data-testid="status-bar-db-connected"]')),
+      null,
+      { timeout: effectiveTimeout }
+    );
+    await connectedHandle.dispose();
+    return;
+  } catch (error) {
+    const status = await page
+      .evaluate((): DatabaseReadyState => {
+        if (document.querySelector('[data-testid="status-bar-db-connected"]')) {
+          return 'connected';
+        }
+        if (document.querySelector('[data-testid="status-bar-db-disconnected"]')) {
+          return 'disconnected';
+        }
+        return null;
+      })
+      .catch((): DatabaseReadyState => null);
+
+    if (status === 'connected') {
+      return;
+    }
+
+    const suffix =
+      status === 'disconnected'
+        ? ' Last observed state was disconnected.'
+        : ` Last wait error: ${resolveErrorMessage(error)}`;
+    throw new Error(`Database failed to initialize before the app became test-ready.${suffix}`);
+  }
+}
+
 async function getPlaywrightExpect(): Promise<PlaywrightExpect> {
   if (!cachedExpect) {
     try {
@@ -207,13 +250,17 @@ export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promi
  * In CI with vite preview (production build), React needs time to hydrate after
  * the initial HTML loads. This function handles the full hydration cycle.
  */
-export async function waitForAppLoad(page: Page, timeout = 10_000) {
+export async function waitForAppLoad(
+  page: Page,
+  options: WaitForAppLoadOptions = {}
+): Promise<void> {
+  const { timeoutMs = 10_000, waitForDatabase = true } = options;
   const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
   // Contract:
   // - Local runs use a 20s floor to tolerate hydration + initial panel layout.
   // - CI runs use a 55s floor for slower runners and production bundle startup.
   // Caller-provided timeout can only raise these floors, never lower them.
-  const effectiveTimeout = resolveWaitForAppLoadTimeout(timeout, isCI);
+  const effectiveTimeout = resolveWaitForAppLoadTimeout(timeoutMs, isCI);
   const panelReadySelector = [
     AGENT_MIDDLE_PANEL_SELECTOR,
     AGENT_MAIN_PANEL_SELECTOR,
@@ -244,23 +291,26 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
   // Using 'load' instead of 'domcontentloaded' to ensure JS has loaded
   await page.waitForLoadState('load', { timeout: effectiveTimeout });
 
-  // Best-effort wait for network to settle - important for production builds
-  // that may have deferred script loading. Use short timeout since apps with
-  // background workers often never reach networkidle state.
-  const networkIdleTimeout = resolveNetworkIdleTimeout(isCI);
-  await page.waitForLoadState('networkidle', { timeout: networkIdleTimeout }).catch((error) => {
-    // networkidle timeout is expected when app has background activity - continue
-    if (isCI) {
-      const errorMessage = resolveErrorMessage(error);
-      console.warn(
-        `[waitForAppLoad] networkidle wait exceeded ${networkIdleTimeout}ms; continuing. ${errorMessage}`
-      );
-      logWarn('waitForAppLoad networkidle timeout', {
-        timeoutMs: networkIdleTimeout,
-        error: errorMessage,
-      });
-    }
-  });
+  if (waitForDatabase) {
+    // Best-effort wait for network to settle - important for production builds
+    // that may have deferred script loading. Shell-only tests intentionally skip
+    // this because greenfield DB worker startup keeps background network work
+    // alive and can consume the entire Playwright test budget.
+    const networkIdleTimeout = resolveNetworkIdleTimeout(isCI);
+    await page.waitForLoadState('networkidle', { timeout: networkIdleTimeout }).catch((error) => {
+      // networkidle timeout is expected when app has background activity - continue
+      if (isCI) {
+        const errorMessage = resolveErrorMessage(error);
+        console.warn(
+          `[waitForAppLoad] networkidle wait exceeded ${networkIdleTimeout}ms; continuing. ${errorMessage}`
+        );
+        logWarn('waitForAppLoad networkidle timeout', {
+          timeoutMs: networkIdleTimeout,
+          error: errorMessage,
+        });
+      }
+    });
+  }
 
   // Wait for the main layout structure to be present
   // Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
@@ -322,6 +372,10 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
       // Some environments expose the main shell without explicit panel IDs.
       // The readiness selector above already validated visible app content.
     });
+
+  if (waitForDatabase) {
+    await waitForDatabaseReady(page, timeoutMs);
+  }
 }
 
 /**
@@ -370,7 +424,10 @@ export async function activateSidebarNavigation(
 /**
  * Clear layout state and reload page with clean state
  */
-export async function resetLayoutState(page: Page): Promise<void> {
+export async function resetLayoutState(
+  page: Page,
+  options: WaitForAppLoadOptions = {}
+): Promise<void> {
   await page.evaluate(() => {
     localStorage.removeItem('brainstrike.agent-sidebar-tab.v1');
     localStorage.removeItem('panel-layout-store.v1');
@@ -380,7 +437,7 @@ export async function resetLayoutState(page: Page): Promise<void> {
   // Wait for the page to finish navigating before continuing.
   // Using 'load' to ensure JS bundles are loaded before checking React elements.
   await page.reload({ waitUntil: 'load' });
-  await waitForAppLoad(page);
+  await waitForAppLoad(page, options);
 }
 
 /**
@@ -448,7 +505,13 @@ export async function verifyDefaultLayout(page: Page, expectedState: DefaultLayo
     await expect(elements.hideRightPanelButton).toBeVisible();
   }
 
-  // Console should be hidden by default
-  await expect(elements.consolePanel).not.toBeVisible();
-  await expect(elements.showConsoleShim).toBeVisible();
+  // The legacy console/file-editor panel is optional: workspace-tabs promotes file
+  // tabs into the main Context Explorer surface, so newer builds do not render the
+  // console panel or its show shim at all.
+  if ((await elements.consolePanel.count()) > 0) {
+    await expect(elements.consolePanel).not.toBeVisible();
+  }
+  if ((await elements.showConsoleShim.count()) > 0) {
+    await expect(elements.showConsoleShim).toBeVisible();
+  }
 }

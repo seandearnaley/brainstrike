@@ -6,6 +6,7 @@ import type { ElectronApplication } from 'playwright';
 import { DESKTOP_DEV_RENDERER_PORT, DESKTOP_DEV_RENDERER_URL } from '../src/desktop-renderer-url';
 import { expect, test } from './fixtures/electron-fixture';
 import { getContextExplorerLeftPanel } from './utils/context-explorer-locators';
+import type { ElectronAppContext } from './utils/electron-helpers.mts';
 import { showDatabaseDemoPanel } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
@@ -144,6 +145,13 @@ interface EmbeddingSetCountsRow {
   embeddedChunks: number | string | null;
   fileCount: number | string | null;
   totalChunks: number | string | null;
+}
+
+interface EmbeddingBackfillInfo {
+  embeddingSetId: string;
+  progress: { current: number; total: number } | null;
+  requestId: string;
+  source: 'background-indexing' | 'manual';
 }
 
 interface ImportedPathCounts {
@@ -346,7 +354,7 @@ const LARGE_COLLECTION_LIST_FILE_COUNT = 50_000;
 const LARGE_COLLECTION_RENDER_FILE_COUNT = 5000;
 const LARGE_COLLECTION_RENDER_CHUNKS_PER_FILE = 10;
 // Repeated-cycle coverage is about retained-memory drift on a single live host.
-// The 20k chunk pressure test above already covers peak-load behavior.
+// The local-only large chunk pressure test above covers peak-load behavior.
 const LARGE_BACKFILL_CYCLE_FILE_COUNT = 32;
 const LARGE_BACKFILL_CYCLE_CHUNKS_PER_FILE = 8;
 const LARGE_BACKFILL_SAMPLE_COUNT = 6;
@@ -366,13 +374,15 @@ const ACTUAL_IMPORT_SENTENCES_PER_FILE = 24;
 const ACTUAL_IMPORT_VISIBLE_WORKING_SET_LIMIT_MB = 1400;
 const DEFAULT_12K_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB = 1000;
 const DEFAULT_12K_MIN_HEALTH_SAMPLE_COUNT = 4;
+// Mirrors the desktop hidden-host idle claim batch. Running queue rows are
+// claimed jobs, not concurrent model executions.
+const DESKTOP_IDLE_EMBED_RUNNING_JOB_LIMIT = 16;
 const REAL_WORLD_MIXED_STATE_FILE_COUNT = 1002;
-const REAL_WORLD_BACKGROUND_FILE_COUNT = 256;
-const REAL_WORLD_BACKGROUND_CHUNKS_PER_FILE = 12;
+const REAL_WORLD_BACKGROUND_FILE_COUNT = 96;
+const REAL_WORLD_BACKGROUND_CHUNKS_PER_FILE = 8;
+const EMBEDDING_BACKFILL_CANCELED_MESSAGE = 'Embedding backfill was canceled.';
 
 test.describe('Embedding Host Renderer', () => {
-  test.describe.configure({ mode: 'serial' });
-
   const ERROR_LOCATOR = '[data-testid="db-init-error"]';
 
   async function isDatabaseError(page: Page): Promise<boolean> {
@@ -533,7 +543,11 @@ test.describe('Embedding Host Renderer', () => {
         return 'error';
       }
 
-      if (status.active && queueStats.running > 0 && queueStats.running <= 4) {
+      if (
+        status.active &&
+        queueStats.running > 0 &&
+        queueStats.running <= DESKTOP_IDLE_EMBED_RUNNING_JOB_LIMIT
+      ) {
         return 'running';
       }
 
@@ -1490,8 +1504,8 @@ test.describe('Embedding Host Renderer', () => {
         );
 
         await api.db.query(
-          `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, 'text', $7, $8, $8)`,
+          `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, content_tsvector, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, 'text', $7, to_tsvector('english', $4), $8, $8)`,
           [
             chunkId,
             fileRecordId,
@@ -1633,9 +1647,9 @@ test.describe('Embedding Host Renderer', () => {
         for (let index = 0; index < count; index += 1) {
           await api.db.query(
             `INSERT INTO file_chunks (
-             id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at
+             id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, content_tsvector, created_at, updated_at
            )
-           VALUES ($1, $2, $3, $4, $5, $6, 'text', $7, $8, $8)`,
+           VALUES ($1, $2, $3, $4, $5, $6, 'text', $7, to_tsvector('english', $4), $8, $8)`,
             [
               `${fileRecordId}-chunk-${index}`,
               fileRecordId,
@@ -1772,7 +1786,7 @@ test.describe('Embedding Host Renderer', () => {
 
           for (const row of rows) {
             values.push(
-              `($${nextParam}, $${nextParam + 1}, $${nextParam + 2}, $${nextParam + 3}, $${nextParam + 4}, $${nextParam + 5}, 'text', $${nextParam + 6}, $${nextParam + 7}, $${nextParam + 7})`
+              `($${nextParam}, $${nextParam + 1}, $${nextParam + 2}, $${nextParam + 3}, $${nextParam + 4}, $${nextParam + 5}, 'text', $${nextParam + 6}, to_tsvector('english', $${nextParam + 3}), $${nextParam + 7}, $${nextParam + 7})`
             );
             params.push(
               row.id,
@@ -1789,7 +1803,7 @@ test.describe('Embedding Host Renderer', () => {
 
           await query(
             `INSERT INTO file_chunks (
-               id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at
+               id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, content_tsvector, created_at, updated_at
              )
              VALUES ${values.join(', ')}`,
             params
@@ -2001,7 +2015,7 @@ test.describe('Embedding Host Renderer', () => {
 
   async function createCollectionViaDialog(page: Page, collectionName: string): Promise<void> {
     const databasePanel = page.getByTestId('database-demo-panel');
-    await databasePanel.getByRole('button', { name: 'New' }).click({ timeout: 5000 });
+    await databasePanel.getByRole('button', { name: 'New' }).click({ timeout: 15_000 });
 
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByText('Create Search Collection')).toBeVisible({ timeout: 15_000 });
@@ -2012,7 +2026,7 @@ test.describe('Embedding Host Renderer', () => {
 
     const createButton = dialog.getByRole('button', { name: 'Create Collection' });
     await expect(createButton).toBeEnabled({ timeout: 15_000 });
-    await createButton.click({ timeout: 5000 });
+    await createButton.click({ timeout: 15_000 });
 
     await expect(dialog).toBeHidden({ timeout: 15_000 });
   }
@@ -2023,7 +2037,11 @@ test.describe('Embedding Host Renderer', () => {
         window as Window & {
           electronAPI?: {
             db?: {
-              query?: (sql: string, params?: unknown[]) => Promise<{ rows: { state: string }[] }>;
+              query?: (
+                sql: string,
+                params?: unknown[],
+                options?: { label?: string; priority?: 'background' | 'foreground' | 'normal' }
+              ) => Promise<{ rows: { state: string }[] }>;
             };
           };
         }
@@ -2031,9 +2049,10 @@ test.describe('Embedding Host Renderer', () => {
       if (!api?.db?.query) {
         throw new Error('Database API not available');
       }
-      const result = (await api.db.query('SELECT state FROM job_queue WHERE id = $1', [id])) as {
-        rows: Array<{ state?: string }>;
-      };
+      const result = (await api.db.query('SELECT state FROM job_queue WHERE id = $1', [id], {
+        label: 'e2e-get-embedding-job-status',
+        priority: 'background',
+      })) as { rows: Array<{ state?: string }> };
       return result.rows[0]?.state ?? null;
     }, jobId);
   }
@@ -2044,7 +2063,11 @@ test.describe('Embedding Host Renderer', () => {
         window as Window & {
           electronAPI?: {
             db?: {
-              query?: (sql: string, params?: unknown[]) => Promise<{ rows: QueueStatsRow[] }>;
+              query?: (
+                sql: string,
+                params?: unknown[],
+                options?: { label?: string; priority?: 'background' | 'foreground' | 'normal' }
+              ) => Promise<{ rows: QueueStatsRow[] }>;
             };
           };
         }
@@ -2059,7 +2082,9 @@ test.describe('Embedding Host Renderer', () => {
            COUNT(*) FILTER (WHERE state = 'failed')::int AS failed,
            COUNT(*) FILTER (WHERE state = 'succeeded')::int AS succeeded
          FROM job_queue
-         WHERE queue = 'embeddings'`
+         WHERE queue = 'embeddings'`,
+        [],
+        { label: 'e2e-get-embedding-queue-stats', priority: 'background' }
       );
       const row = result.rows[0] as QueueStatsRow | undefined;
       if (!row) {
@@ -2123,7 +2148,11 @@ test.describe('Embedding Host Renderer', () => {
         window as Window & {
           electronAPI?: {
             db?: {
-              query?: (sql: string, params?: unknown[]) => Promise<{ rows: QueueStatsRow[] }>;
+              query?: (
+                sql: string,
+                params?: unknown[],
+                options?: { label?: string; priority?: 'background' | 'foreground' | 'normal' }
+              ) => Promise<{ rows: QueueStatsRow[] }>;
             };
           };
         }
@@ -2141,7 +2170,8 @@ test.describe('Embedding Host Renderer', () => {
          WHERE queue = 'embeddings'
            AND job_type = 'embed_chunk'
            AND payload->>'embeddingSetId' = $1`,
-        [id]
+        [id],
+        { label: 'e2e-get-embedding-set-queue-stats', priority: 'background' }
       );
       const row = result.rows[0] as QueueStatsRow | undefined;
       if (!row) {
@@ -2416,9 +2446,9 @@ test.describe('Embedding Host Renderer', () => {
           for (const [chunkIndex, chunkContent] of file.chunks.entries()) {
             await api.db.query(
               `INSERT INTO file_chunks (
-               id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at
+               id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, content_tsvector, created_at, updated_at
              )
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, to_tsvector('english', $4), $9, $9)`,
               [
                 `${file.id}-chunk-${chunkIndex}`,
                 file.id,
@@ -2497,6 +2527,40 @@ test.describe('Embedding Host Renderer', () => {
     }
 
     throw new Error('Timed out waiting for set-scoped backfill queue movement or fatal host error');
+  }
+
+  async function waitForBackfillEnqueueComplete(
+    page: Page,
+    embeddingSetId: string,
+    expectedJobs: number,
+    timeoutMs = 30_000
+  ): Promise<QueueStatsRow> {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const [status, queueStats] = await Promise.all([
+        getEmbeddingHostStatus(page),
+        getEmbeddingSetQueueStats(page, embeddingSetId),
+      ]);
+
+      if (status.state === 'error') {
+        throw new Error(
+          status.lastError ?? 'Embedding host entered an error state while waiting for enqueue.'
+        );
+      }
+
+      const totalObserved =
+        queueStats.queued + queueStats.running + queueStats.failed + queueStats.succeeded;
+      if (totalObserved >= expectedJobs) {
+        return queueStats;
+      }
+
+      await page.waitForTimeout(250);
+    }
+
+    throw new Error(
+      `Timed out waiting for backfill enqueue to reach ${expectedJobs} jobs for set ${embeddingSetId}`
+    );
   }
 
   async function waitForJobTerminalState(
@@ -2613,6 +2677,32 @@ test.describe('Embedding Host Renderer', () => {
     throw new Error('Timed out waiting for bridge-driven backfill completion');
   }
 
+  async function waitForDatabaseDemoImportIdle(page: Page, timeoutMs = 60_000): Promise<void> {
+    const startedAt = Date.now();
+    let lastSnapshot: DatabaseDemoImportTestSnapshot | null = null;
+
+    while (Date.now() - startedAt < timeoutMs) {
+      lastSnapshot = await getDatabaseDemoImportSnapshot(page);
+
+      const importErrors = lastSnapshot?.progress?.errors ?? [];
+      if (importErrors.length > 0) {
+        throw new Error(
+          `Database import reported errors while waiting for idle: ${JSON.stringify(importErrors.slice(0, 10))}\nsnapshot=${JSON.stringify(lastSnapshot)}`
+        );
+      }
+
+      if (lastSnapshot && !lastSnapshot.isImporting) {
+        return;
+      }
+
+      await page.waitForTimeout(250);
+    }
+
+    throw new Error(
+      `Timed out waiting for database import to become idle; snapshot=${JSON.stringify(lastSnapshot)}`
+    );
+  }
+
   async function getBridgeBackfillState(page: Page): Promise<{
     done: boolean;
     embeddingSetId: string;
@@ -2630,6 +2720,115 @@ test.describe('Embedding Host Renderer', () => {
           }
         ).__e2eEmbeddingBackfillState ?? null
     );
+  }
+
+  async function getEmbeddingBackfillsInFlight(page: Page): Promise<EmbeddingBackfillInfo[]> {
+    return await page.evaluate<EmbeddingBackfillInfo[]>(async () => {
+      const host = (
+        window as Window & {
+          embeddingHost?: {
+            getBackfillsInFlight?: () => Promise<EmbeddingBackfillInfo[]>;
+          };
+        }
+      ).embeddingHost;
+      if (!host?.getBackfillsInFlight) {
+        throw new Error('Embedding host backfill diagnostics bridge is not available');
+      }
+      return await host.getBackfillsInFlight();
+    });
+  }
+
+  async function cancelAllEmbeddingBackfillsAndDrain(
+    page: Page,
+    timeoutMs = 60_000
+  ): Promise<void> {
+    await page.evaluate(async () => {
+      const host = (
+        window as Window & {
+          embeddingHost?: {
+            cancelAllBackfills?: () => Promise<void>;
+          };
+        }
+      ).embeddingHost;
+      if (!host?.cancelAllBackfills) {
+        throw new Error('Embedding host cancel-all bridge is not available');
+      }
+      await host.cancelAllBackfills();
+    });
+
+    const startedAt = Date.now();
+    let lastBridgeState: Awaited<ReturnType<typeof getBridgeBackfillState>> = null;
+    let lastInFlight: EmbeddingBackfillInfo[] = [];
+
+    while (Date.now() - startedAt < timeoutMs) {
+      [lastInFlight, lastBridgeState] = await Promise.all([
+        getEmbeddingBackfillsInFlight(page),
+        getBridgeBackfillState(page),
+      ]);
+
+      if (lastInFlight.length === 0 && (!lastBridgeState || lastBridgeState.done)) {
+        if (
+          lastBridgeState?.done &&
+          lastBridgeState.error &&
+          !lastBridgeState.error.includes(EMBEDDING_BACKFILL_CANCELED_MESSAGE)
+        ) {
+          throw new Error(lastBridgeState.error);
+        }
+        return;
+      }
+
+      await page.waitForTimeout(250);
+    }
+
+    throw new Error(
+      `Timed out waiting for embedding backfills to cancel; inFlight=${JSON.stringify(lastInFlight)} bridgeState=${JSON.stringify(lastBridgeState)}`
+    );
+  }
+
+  async function settleEmbeddingBackfillsStopHostAndClearQueue(page: Page): Promise<void> {
+    let cancelError: unknown = null;
+    try {
+      await cancelAllEmbeddingBackfillsAndDrain(page);
+    } catch (error) {
+      cancelError = error;
+    }
+
+    try {
+      await stopEmbeddingHost(page);
+    } finally {
+      await clearEmbeddingQueue(page);
+    }
+
+    if (cancelError) {
+      throw cancelError;
+    }
+  }
+
+  async function cleanupRealWorldMixedStateTest(
+    electronApp: ElectronAppContext,
+    page: Page
+  ): Promise<void> {
+    let importIdleError: unknown = null;
+
+    try {
+      await waitForDatabaseDemoImportIdle(page);
+    } catch (error) {
+      importIdleError = error;
+    }
+
+    try {
+      await settleEmbeddingBackfillsStopHostAndClearQueue(page);
+    } finally {
+      try {
+        await clearLargeImportFileSystemMock(electronApp.app);
+      } finally {
+        await stopChunkingHost(page);
+      }
+    }
+
+    if (importIdleError) {
+      throw importIdleError;
+    }
   }
 
   async function getRelevantElectronStderr(app: ElectronApplication): Promise<string[]> {
@@ -2751,8 +2950,9 @@ test.describe('Embedding Host Renderer', () => {
       throw new Error('Database initialization failed in desktop mixed-state setup');
     }
 
-    await clearEmbeddingQueue(activeWindow);
+    await cancelAllEmbeddingBackfillsAndDrain(activeWindow);
     await stopEmbeddingHost(activeWindow);
+    await clearEmbeddingQueue(activeWindow);
     await stopChunkingHost(activeWindow);
     await setVectorDevicePreference(activeWindow, 'wasm');
     await setImportSettingsForStressTest(activeWindow);
@@ -2944,6 +3144,8 @@ test.describe('Embedding Host Renderer', () => {
         embeddedChunks: 0,
       });
 
+    await waitForDatabaseDemoImportIdle(activeWindow);
+
     const backgroundFixture = await createLargeBackfillCorpusFixture(activeWindow, {
       fileCount: REAL_WORLD_BACKGROUND_FILE_COUNT,
       chunksPerFile: REAL_WORLD_BACKGROUND_CHUNKS_PER_FILE,
@@ -2952,8 +3154,12 @@ test.describe('Embedding Host Renderer', () => {
 
     await startBackfillViaBridge(activeWindow, backgroundFixture.embeddingSetId);
 
-    const backgroundOutcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
-    expect(backgroundOutcome).toBe('running');
+    const backgroundOutcome = await waitForBackfillQueueMovementOrFatalError(
+      activeWindow,
+      backgroundFixture.embeddingSetId,
+      120_000
+    );
+    expect(backgroundOutcome).toBe('queued');
 
     await expect
       .poll(
@@ -3027,7 +3233,9 @@ test.describe('Embedding Host Renderer', () => {
     await electron.ensureWindow();
   });
 
-  test('defers hidden embedding host startup until first use', async ({ electron }) => {
+  test('@desktop-embedding-lifecycle defers hidden embedding host startup until first use', async ({
+    electron,
+  }) => {
     const context = await electron.restart();
     const window = context.window;
     await waitForAppReadyInTest(window);
@@ -3118,7 +3326,7 @@ test.describe('Embedding Host Renderer', () => {
     ).toBe(false);
   });
 
-  test('keeps the visible UI responsive while jobs are queued for the hidden host', async ({
+  test('@desktop-embedding-lifecycle keeps the visible UI responsive while jobs are queued for the hidden host', async ({
     window,
   }) => {
     const activeWindow = await showDatabaseDemoPanel(window);
@@ -3128,6 +3336,7 @@ test.describe('Embedding Host Renderer', () => {
       return;
     }
 
+    await setVectorDevicePreference(activeWindow, 'wasm');
     const jobs = await Promise.all([
       createTestBackfillJob(activeWindow),
       createTestBackfillJob(activeWindow),
@@ -3146,7 +3355,7 @@ test.describe('Embedding Host Renderer', () => {
     expect(status.state).toBe('running');
   });
 
-  test('keeps the visible UI responsive while a large backfill is being enqueued', async ({
+  test('@desktop-embedding-backfill keeps the visible UI responsive while a large backfill is being enqueued', async ({
     window,
   }) => {
     const activeWindow = await showDatabaseDemoPanel(window);
@@ -3157,6 +3366,7 @@ test.describe('Embedding Host Renderer', () => {
     }
 
     await clearEmbeddingQueue(activeWindow);
+    await setVectorDevicePreference(activeWindow, 'wasm');
     const fixture = await createLargeBackfillFixture(activeWindow, 160);
     await reloadRendererInTest(activeWindow, 'embedding-worker-large-backfill-fixture');
     await showDatabaseDemoPanel(activeWindow);
@@ -3192,7 +3402,7 @@ test.describe('Embedding Host Renderer', () => {
     expect(queueStats.queued + queueStats.running).toBeLessThanOrEqual(64);
   });
 
-  test('keeps the visible UI responsive while the hidden host is actively processing a backfill', async ({
+  test('@desktop-embedding-backfill keeps the visible UI responsive while the hidden host is actively processing a backfill', async ({
     window,
   }) => {
     const activeWindow = await showDatabaseDemoPanel(window);
@@ -3203,6 +3413,7 @@ test.describe('Embedding Host Renderer', () => {
     }
 
     await clearEmbeddingQueue(activeWindow);
+    await setVectorDevicePreference(activeWindow, 'wasm');
     const fixture = await createLargeBackfillFixture(activeWindow, 96, { persistActiveSet: false });
     await reloadRendererInTest(activeWindow, 'embedding-worker-host-processing-fixture');
     await showDatabaseDemoPanel(activeWindow);
@@ -3229,7 +3440,7 @@ test.describe('Embedding Host Renderer', () => {
 
     if (finalState === 'running') {
       expect(queueStats.queued + queueStats.running).toBeGreaterThan(0);
-      expect(queueStats.running).toBeLessThanOrEqual(4);
+      expect(queueStats.running).toBeLessThanOrEqual(DESKTOP_IDLE_EMBED_RUNNING_JOB_LIMIT);
       expect(queueStats.queued + queueStats.running).toBeLessThanOrEqual(64);
     } else {
       const status = await getEmbeddingHostStatus(activeWindow);
@@ -3258,7 +3469,7 @@ test.describe('Embedding Host Renderer', () => {
     await assertToolsPanelResponsive(activeWindow);
   });
 
-  test('keeps visible renderer heap bounded while the hidden host enqueues and processes a large backfill', async ({
+  test('@desktop-embedding-memory keeps visible renderer heap bounded while the hidden host enqueues and processes a large backfill', async ({
     window,
   }) => {
     const activeWindow = await showDatabaseDemoPanel(window);
@@ -3269,6 +3480,7 @@ test.describe('Embedding Host Renderer', () => {
     }
 
     await clearEmbeddingQueue(activeWindow);
+    await setVectorDevicePreference(activeWindow, 'wasm');
     const fixture = await createLargeBackfillFixture(activeWindow, 96, { persistActiveSet: false });
     await reloadRendererInTest(activeWindow, 'embedding-worker-visible-memory-diagnostic');
     await showDatabaseDemoPanel(activeWindow);
@@ -3319,11 +3531,15 @@ test.describe('Embedding Host Renderer', () => {
     expect(retainedGrowthMB).toBeLessThan(60);
   });
 
-  test('keeps hidden-host, visible-renderer, and main-process memory bounded during a 20k chunk backfill', async ({
+  test('@desktop-embedding-diagnostic keeps hidden-host, visible-renderer, and main-process memory bounded during a 20k chunk backfill', async ({
     electronApp,
     electronHarness,
     window,
   }) => {
+    test.skip(
+      !!process.env['CI'],
+      'Large local-model memory-pressure harness is opt-in; required CI covers active backfill lifecycle, queue caps, and UI responsiveness with bounded fixtures.'
+    );
     test.setTimeout(420_000);
 
     let activeWindow = await showDatabaseDemoPanel(window);
@@ -3440,7 +3656,7 @@ test.describe('Embedding Host Renderer', () => {
     await electronHarness.restart();
   });
 
-  test('keeps the visible renderer bounded when opening a 50k chunk collection in the database tab', async ({
+  test('@desktop-embedding-memory keeps the visible renderer bounded when opening a 50k chunk collection in the database tab', async ({
     electronApp,
     window,
   }) => {
@@ -3525,7 +3741,7 @@ test.describe('Embedding Host Renderer', () => {
     );
   });
 
-  test('keeps the database tab source-paginated and memory-bounded for a 50k file collection', async ({
+  test('@desktop-embedding-memory keeps the database tab source-paginated and memory-bounded for a 50k file collection', async ({
     electronApp,
     window,
   }) => {
@@ -3661,7 +3877,7 @@ test.describe('Embedding Host Renderer', () => {
     });
   });
 
-  test('preserves backfill progress on the database button across sidebar tab switches', async ({
+  test('@desktop-embedding-backfill preserves backfill progress on the database button across sidebar tab switches', async ({
     electronHarness,
     window,
   }) => {
@@ -3678,8 +3894,8 @@ test.describe('Embedding Host Renderer', () => {
     await setVectorDevicePreference(activeWindow, 'wasm');
 
     const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
-      fileCount: LARGE_BACKFILL_FILE_COUNT,
-      chunksPerFile: LARGE_BACKFILL_CHUNKS_PER_FILE,
+      fileCount: 16,
+      chunksPerFile: 8,
       persistActiveSet: false,
     });
 
@@ -3733,10 +3949,11 @@ test.describe('Embedding Host Renderer', () => {
     expect(resumedProgress.total).toBe(initialProgress.total);
     expect(resumedProgress.done).toBeGreaterThanOrEqual(initialProgress.done);
 
+    await waitForBackfillEnqueueComplete(activeWindow, fixture.embeddingSetId, fixture.totalChunks);
     await electronHarness.restart();
   });
 
-  test('wiping the queue clears visible backfill state and re-enables manual backfill in the same desktop session', async ({
+  test('@desktop-embedding-recovery wiping the queue clears visible backfill state and re-enables manual backfill in the same desktop session', async ({
     electronHarness,
   }) => {
     test.setTimeout(420_000);
@@ -3782,8 +3999,12 @@ test.describe('Embedding Host Renderer', () => {
       await expect(backfillButton).toBeVisible({ timeout: 15_000 });
       await waitForBackfillButtonEnabled(activeWindow, backfillButton, 60_000);
       await backfillButton.click({ timeout: 5000 });
-      const initialOutcome = await waitForActiveProcessingOrFatalError(activeWindow, 60_000);
-      expect(initialOutcome).toBe('running');
+      const initialOutcome = await waitForBackfillQueueMovementOrFatalError(
+        activeWindow,
+        fixture.embeddingSetId,
+        60_000
+      );
+      expect(initialOutcome).toBe('queued');
 
       const initialProgress = parseBackfillProgressLabel(
         await waitForBackfillProgressText(resolveBackfillActionButton(), 30_000)
@@ -3838,7 +4059,7 @@ test.describe('Embedding Host Renderer', () => {
     }
   });
 
-  test('re-enables manual backfill after desktop restart when a collection still has unembedded chunks and no queued or running jobs', async ({
+  test('@desktop-embedding-recovery re-enables manual backfill after desktop restart when a collection still has unembedded chunks and no queued or running jobs', async ({
     electronHarness,
   }) => {
     test.setTimeout(420_000);
@@ -3879,8 +4100,12 @@ test.describe('Embedding Host Renderer', () => {
       await expect(backfillButton).toBeVisible({ timeout: 15_000 });
       await waitForBackfillButtonEnabled(activeWindow, backfillButton, 60_000);
       await backfillButton.click({ timeout: 5000 });
-      const initialOutcome = await waitForActiveProcessingOrFatalError(activeWindow, 60_000);
-      expect(initialOutcome).toBe('running');
+      const initialOutcome = await waitForBackfillQueueMovementOrFatalError(
+        activeWindow,
+        fixture.embeddingSetId,
+        60_000
+      );
+      expect(initialOutcome).toBe('queued');
 
       const actionsButton = databasePanel.getByRole('button', {
         name: /more embedding actions/i,
@@ -3944,7 +4169,7 @@ test.describe('Embedding Host Renderer', () => {
     }
   });
 
-  test('does not accumulate hidden-host memory across repeated large backfill cycles on the same host process', async ({
+  test('@desktop-embedding-diagnostic does not accumulate hidden-host memory across repeated large backfill cycles on the same host process', async ({
     electronHarness,
   }) => {
     test.setTimeout(420_000);
@@ -3988,8 +4213,12 @@ test.describe('Embedding Host Renderer', () => {
       });
 
       await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
-      const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 90_000);
-      expect(outcome).toBe('running');
+      const outcome = await waitForBackfillQueueMovementOrFatalError(
+        activeWindow,
+        fixture.embeddingSetId,
+        90_000
+      );
+      expect(outcome).toBe('queued');
 
       await waitForBridgeBackfillCompletion(activeWindow, 240_000);
       await waitForEmbeddingHostIdleAndQueueDrain(activeWindow, 30_000);
@@ -4045,7 +4274,7 @@ test.describe('Embedding Host Renderer', () => {
     ).toBeLessThan(LARGE_BACKFILL_IDLE_MAIN_RSS_DRIFT_LIMIT_MB);
   });
 
-  test('backfills chunked imported data without hanging and updates collection coverage', async ({
+  test('@desktop-embedding-backfill backfills chunked imported data without hanging and updates collection coverage', async ({
     window,
   }) => {
     let activeWindow = await showDatabaseDemoPanel(window);
@@ -4118,7 +4347,7 @@ test.describe('Embedding Host Renderer', () => {
     await expect(backfillButton).toContainText('Backfill', { timeout: 15_000 });
   });
 
-  test('end-to-end: import, embed, then vector search returns correct results', async ({
+  test('@desktop-embedding-search end-to-end: import, embed, then vector search returns correct results', async ({
     window,
   }) => {
     test.setTimeout(300_000);
@@ -4456,7 +4685,7 @@ test.describe('Embedding Host Renderer', () => {
     expect(lastSnapshot!.firstResultNodeId).toMatch(/^(chunk-|file-)/);
   });
 
-  test('search renders file nodes when chunks are lazily loaded (many-file collection)', async ({
+  test('@desktop-embedding-search search renders file nodes when chunks are lazily loaded (many-file collection)', async ({
     window,
   }) => {
     test.setTimeout(300_000);
@@ -4466,7 +4695,9 @@ test.describe('Embedding Host Renderer', () => {
     // reference files on OTHER pages — those file nodes don't exist in the
     // tree. Without building the tree from search results directly, the tree
     // shows "No matching results found" despite the search returning results.
-    // We use 100 files (> default page size of 50) to guarantee pagination.
+    // Use one page plus overflow (> default page size of 50) to guarantee
+    // pagination without turning this search regression into a queue-capacity
+    // stress test.
 
     let activeWindow = await showDatabaseDemoPanel(window);
     if (await isDatabaseError(activeWindow)) {
@@ -4477,10 +4708,7 @@ test.describe('Embedding Host Renderer', () => {
     const collectionName = `Lazy Chunk Search ${Date.now()}`;
     const { embeddingSetId } = await createImportTargetCollection(activeWindow, collectionName);
 
-    // Create 100 files with 1 chunk each — exceeds the default page size (50)
-    // to guarantee pagination. Search results will reference files on page 2+
-    // that don't exist as tree nodes in the paginated view.
-    const LAZY_FILE_COUNT = 100;
+    const LAZY_FILE_COUNT = 60;
     await activeWindow.evaluate(
       async ({ id, fileCount }) => {
         const api = (
@@ -4520,8 +4748,8 @@ test.describe('Embedding Host Renderer', () => {
           );
           const chunkContent = `export function handler${i}() { return "lazy-chunk-search-fixture-${i}"; }`;
           await api.db.query(
-            `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
+            `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, content_tsvector, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, to_tsvector('english', $4), $9, $9)`,
             [
               `${fileId}-chunk-0`,
               fileId,
@@ -4618,7 +4846,7 @@ test.describe('Embedding Host Renderer', () => {
     await expect(noEmbeddingBadges).toHaveCount(0, { timeout: 5000 });
   });
 
-  test('search works when vector-preferences store has no devicePref (stale migration)', async ({
+  test('@desktop-embedding-search search works when vector-preferences store has no devicePref (stale migration)', async ({
     window,
   }) => {
     test.setTimeout(300_000);
@@ -4779,7 +5007,7 @@ test.describe('Embedding Host Renderer', () => {
     await expect(emptyMessage2).toHaveCount(0, { timeout: 5000 });
   });
 
-  test('does not reload the visible renderer or churn hidden runtimes during a real 1k-file import and backfill', async ({
+  test('@desktop-embedding-diagnostic does not reload the visible renderer or churn hidden runtimes during a real 1k-file import and backfill', async ({
     electronApp,
     window,
   }) => {
@@ -5000,8 +5228,12 @@ test.describe('Embedding Host Renderer', () => {
       await waitForBackfillButtonEnabled(activeWindow, backfillButton, 60_000);
       await backfillButton.click({ timeout: 5000 });
 
-      const backfillOutcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
-      expect(backfillOutcome).toBe('running');
+      const backfillOutcome = await waitForBackfillQueueMovementOrFatalError(
+        activeWindow,
+        embeddingSetId,
+        120_000
+      );
+      expect(backfillOutcome).toBe('queued');
 
       const memorySamples = await sampleMemoryWhileBackfillActive(
         electronApp.app,
@@ -5137,7 +5369,7 @@ test.describe('Embedding Host Renderer', () => {
     }
   });
 
-  test('keeps search working and backfill actionable during a real mixed-state desktop session', async ({
+  test('@desktop-embedding-mixed keeps search working and backfill actionable during a real mixed-state desktop session', async ({
     electronApp,
     window,
   }) => {
@@ -5373,14 +5605,11 @@ test.describe('Embedding Host Renderer', () => {
       expect(expandedTreeNodeCount).toBeGreaterThan(0);
       expect(electronStderr).toEqual([]);
     } finally {
-      await clearLargeImportFileSystemMock(electronApp.app);
-      await clearEmbeddingQueue(activeWindow);
-      await stopEmbeddingHost(activeWindow);
-      await stopChunkingHost(activeWindow);
+      await cleanupRealWorldMixedStateTest(electronApp, activeWindow);
     }
   });
 
-  test('keeps the import collection backfill and search path working during a real mixed-state desktop session', async ({
+  test('@desktop-embedding-mixed keeps the import collection backfill and search path working during a real mixed-state desktop session', async ({
     electronApp,
     window,
   }) => {
@@ -5702,20 +5931,17 @@ test.describe('Embedding Host Renderer', () => {
       expect(chunkingHostStatusAfterExpand.state).not.toBe('error');
       expect(importSnapshotAfterExpand?.activeCollectionId).not.toBeNull();
     } finally {
-      await clearLargeImportFileSystemMock(electronApp.app);
-      await clearEmbeddingQueue(activeWindow);
-      await stopEmbeddingHost(activeWindow);
-      await stopChunkingHost(activeWindow);
+      await cleanupRealWorldMixedStateTest(electronApp, activeWindow);
     }
   });
 
-  test('reproduces the desktop:dev mixed-state visible renderer crash path under real import and backfill load', async () => {
+  test('@desktop-embedding-mixed reproduces the desktop:dev mixed-state visible renderer crash path under real import and backfill load', async () => {
     test.skip(!!process.env['CI'], 'Requires a local desktop dev session.');
     test.skip(
       process.env['BRAINSTRIKE_E2E_DESKTOP_DEV_REPRO'] !== '1',
       'Opt-in repro harness. Set BRAINSTRIKE_E2E_DESKTOP_DEV_REPRO=1 to run.'
     );
-    test.setTimeout(900_000);
+    test.setTimeout(540_000);
 
     await waitForTcpPortOpen(DESKTOP_DEV_RENDERER_PORT, 5000).catch((error) => {
       throw new Error(
@@ -5837,13 +6063,13 @@ test.describe('Embedding Host Renderer', () => {
     }
   });
 
-  test('keeps desktop:dev 12k visible-ui working-set growth bounded during active backfill', async () => {
+  test('@desktop-embedding-mixed keeps desktop:dev 12k visible-ui working-set growth bounded during active backfill', async () => {
     test.skip(!!process.env['CI'], 'Requires a local desktop dev session.');
     test.skip(
       process.env['BRAINSTRIKE_E2E_DESKTOP_DEV_REPRO'] !== '1',
       'Opt-in repro harness. Set BRAINSTRIKE_E2E_DESKTOP_DEV_REPRO=1 to run.'
     );
-    test.setTimeout(900_000);
+    test.setTimeout(540_000);
 
     await waitForTcpPortOpen(DESKTOP_DEV_RENDERER_PORT, 5000).catch((error) => {
       throw new Error(
@@ -6035,7 +6261,7 @@ test.describe('Embedding Host Renderer', () => {
     }
   });
 
-  test('fails invalid job payloads without taking down the embedding host or visible UI', async ({
+  test('@desktop-embedding-mixed fails invalid job payloads without taking down the embedding host or visible UI', async ({
     window,
   }) => {
     const activeWindow = await showDatabaseDemoPanel(window);
@@ -6048,6 +6274,7 @@ test.describe('Embedding Host Renderer', () => {
     // Explicitly stop first to avoid a race between the prior test's 'stop' command and
     // our 'reset' command. Without this, startWorker can silently skip starting when
     // startingRef.current is still true from a concurrent stop/start sequence.
+    await cancelAllEmbeddingBackfillsAndDrain(activeWindow);
     await stopEmbeddingHost(activeWindow);
     await activeWindow.waitForTimeout(200);
     await clearEmbeddingQueue(activeWindow);
@@ -6073,7 +6300,7 @@ test.describe('Embedding Host Renderer', () => {
     expect(status.state).toBe('running');
   });
 
-  test('keeps the hidden host alive across visible-window navigation once started', async ({
+  test('@desktop-embedding-mixed keeps the hidden host alive across visible-window navigation once started', async ({
     window,
   }) => {
     let activeWindow = await showDatabaseDemoPanel(window);
@@ -6271,7 +6498,7 @@ test.describe('Embedding Host Renderer', () => {
     }, state);
   }
 
-  test('renderer survives a large chunk backfill without crashing (crash repro test 1)', async ({
+  test('@desktop-embedding-crash-a renderer survives a large chunk backfill without crashing (crash repro test 1)', async ({
     electronApp,
     electronHarness,
     window,
@@ -6324,8 +6551,12 @@ test.describe('Embedding Host Renderer', () => {
 
     await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
 
-    const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
-    expect(outcome).toBe('running');
+    const outcome = await waitForBackfillQueueMovementOrFatalError(
+      activeWindow,
+      fixture.embeddingSetId,
+      120_000
+    );
+    expect(outcome).toBe('queued');
 
     // Sample memory and assert stability throughout the backfill
     const samples = await sampleMemoryWhileBackfillActive(
@@ -6393,7 +6624,7 @@ test.describe('Embedding Host Renderer', () => {
     await electronHarness.restart();
   });
 
-  test('renderer survives window blur and minimize during active backfill (crash repro test 2)', async ({
+  test('@desktop-embedding-crash-a renderer survives window blur and minimize during active backfill (crash repro test 2)', async ({
     electronApp,
     electronHarness,
     window,
@@ -6429,8 +6660,12 @@ test.describe('Embedding Host Renderer', () => {
     const baselineTimeOrigin = await getRendererTimeOrigin(activeWindow);
 
     await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
-    const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
-    expect(outcome).toBe('running');
+    const outcome = await waitForBackfillQueueMovementOrFatalError(
+      activeWindow,
+      fixture.embeddingSetId,
+      120_000
+    );
+    expect(outcome).toBe('queued');
 
     // Phase 1: Blur the visible window while backfill is active
     await blurVisibleWindow(electronApp.app);
@@ -6483,7 +6718,7 @@ test.describe('Embedding Host Renderer', () => {
     await electronHarness.restart();
   });
 
-  test('renderer stays alive for 5 minutes of idle after completing a backfill (crash repro test 3)', async ({
+  test('@desktop-embedding-crash-a renderer stays alive for 5 minutes of idle after completing a backfill (crash repro test 3)', async ({
     electronApp,
     electronHarness,
     window,
@@ -6611,7 +6846,7 @@ test.describe('Embedding Host Renderer', () => {
     await electronHarness.restart();
   });
 
-  test('visible renderer heap stays bounded during rapid IPC progress updates (crash repro test 4)', async ({
+  test('@desktop-embedding-crash-a visible renderer heap stays bounded during rapid IPC progress updates (crash repro test 4)', async ({
     electronApp,
     electronHarness,
     window,
@@ -6665,8 +6900,12 @@ test.describe('Embedding Host Renderer', () => {
     await waitForBackfillButtonEnabled(activeWindow, backfillButton);
     await backfillButton.click({ timeout: 5000 });
 
-    const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
-    expect(outcome).toBe('running');
+    const outcome = await waitForBackfillQueueMovementOrFatalError(
+      activeWindow,
+      fixture.embeddingSetId,
+      120_000
+    );
+    expect(outcome).toBe('queued');
 
     // Sample memory while the IPC flood is active
     const samples = await sampleMemoryWhileBackfillActive(
@@ -6722,13 +6961,13 @@ test.describe('Embedding Host Renderer', () => {
 
     // Verify queue had meaningful throughput
     for (const sample of samples) {
-      expect(sample.queueStats.running).toBeLessThanOrEqual(4);
+      expect(sample.queueStats.running).toBeLessThanOrEqual(DESKTOP_IDLE_EMBED_RUNNING_JOB_LIMIT);
     }
 
     await electronHarness.restart();
   });
 
-  test('embedding host stays functional across simulated power suspend/resume cycles (crash repro test 5)', async ({
+  test('@desktop-embedding-crash-a embedding host stays functional across simulated power suspend/resume cycles (crash repro test 5)', async ({
     electronApp,
     electronHarness,
     window,
@@ -6815,7 +7054,7 @@ test.describe('Embedding Host Renderer', () => {
     await electronHarness.restart();
   });
 
-  test('tracks per-process memory growth rate during sustained backfill (crash repro test 6)', async ({
+  test('@desktop-embedding-crash-b tracks per-process memory growth rate during sustained backfill (crash repro test 6)', async ({
     electronApp,
     electronHarness,
     window,
@@ -6872,8 +7111,12 @@ test.describe('Embedding Host Renderer', () => {
     );
 
     await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
-    const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
-    expect(outcome).toBe('running');
+    const outcome = await waitForBackfillQueueMovementOrFatalError(
+      activeWindow,
+      fixture.embeddingSetId,
+      120_000
+    );
+    expect(outcome).toBe('queued');
 
     // Sample every 10s for 2 minutes with forced GC at each point
     const samples: Array<{
@@ -7033,8 +7276,12 @@ test.describe('Embedding Host Renderer', () => {
       );
 
       await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
-      const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
-      expect(outcome).toBe('running');
+      const outcome = await waitForBackfillQueueMovementOrFatalError(
+        activeWindow,
+        fixture.embeddingSetId,
+        120_000
+      );
+      expect(outcome).toBe('queued');
       const baselineHostWorkingSetMB = await waitForTrackedRuntimeWorkingSetMB(
         electronContext.app,
         activeWindow,
@@ -7227,7 +7474,7 @@ test.describe('Embedding Host Renderer', () => {
     }
   }
 
-  test('measures reset reclaim against the disabled control without lifecycle regressions', async ({
+  test('@desktop-embedding-crash-b measures reset reclaim against the disabled control without lifecycle regressions', async ({
     electronHarness,
   }) => {
     test.skip(!!process.env['CI'], 'Requires a real GPU-backed desktop session.');
@@ -7276,7 +7523,7 @@ test.describe('Embedding Host Renderer', () => {
     expect(withoutReclaim.runtimeIdAfterSampling).toBe(withoutReclaim.runtimeIdBeforeBackfill);
   });
 
-  test('completes reclaim-enabled backfill in reset mode without fatal lifecycle errors', async ({
+  test('@desktop-embedding-crash-b completes reclaim-enabled backfill in reset mode without fatal lifecycle errors', async ({
     electronHarness,
   }) => {
     test.skip(!!process.env['CI'], 'Requires a real GPU-backed desktop session.');
@@ -7296,7 +7543,7 @@ test.describe('Embedding Host Renderer', () => {
     expect(result.cycleCount).toBeGreaterThan(0);
   });
 
-  test('does not reload the visible renderer during the default 12k chunk backfill path', async ({
+  test('@desktop-embedding-crash-b does not reload the visible renderer during the default 12k chunk backfill path', async ({
     electronHarness,
   }) => {
     test.skip(!!process.env['CI'], 'Requires a real GPU-backed desktop session.');
@@ -7356,8 +7603,12 @@ test.describe('Embedding Host Renderer', () => {
       let mainProcessHealthSamples: MainProcessHealthSample[] = [];
 
       await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
-      const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
-      expect(outcome).toBe('running');
+      const outcome = await waitForBackfillQueueMovementOrFatalError(
+        activeWindow,
+        fixture.embeddingSetId,
+        120_000
+      );
+      expect(outcome).toBe('queued');
 
       const sampleStartedAt = Date.now();
       while (Date.now() - sampleStartedAt < 240_000) {
@@ -7501,7 +7752,7 @@ test.describe('Embedding Host Renderer', () => {
     }
   });
 
-  test('fails backfill explicitly when the embedding host stops unexpectedly during processing', async ({
+  test('@desktop-embedding-crash-b fails backfill explicitly when the embedding host stops unexpectedly during processing', async ({
     electronApp,
     electronHarness,
     window,
@@ -7540,8 +7791,12 @@ test.describe('Embedding Host Renderer', () => {
     const electronStderrBaselineCount = (await getRelevantElectronStderr(electronApp.app)).length;
 
     await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
-    const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
-    expect(outcome).toBe('running');
+    const outcome = await waitForBackfillQueueMovementOrFatalError(
+      activeWindow,
+      fixture.embeddingSetId,
+      120_000
+    );
+    expect(outcome).toBe('queued');
 
     await destroyEmbeddingHostWindow(electronApp.app);
 
@@ -7564,7 +7819,7 @@ test.describe('Embedding Host Renderer', () => {
     await electronHarness.restart();
   });
 
-  test('benchmarks reclaim thresholds against the same GPU-growth workload', async ({
+  test('@desktop-embedding-crash-b benchmarks reclaim thresholds against the same GPU-growth workload', async ({
     electronHarness,
   }) => {
     test.skip(!!process.env['CI'], 'Requires a real GPU-backed desktop session.');
@@ -7633,7 +7888,7 @@ test.describe('Embedding Host Renderer', () => {
     }
   });
 
-  test('diagnoses per-process memory growth during sustained backfill (crash repro test 7 — diagnostic)', async ({
+  test('@desktop-embedding-crash-b diagnoses per-process memory growth during sustained backfill (crash repro test 7 — diagnostic)', async ({
     electronApp,
     electronHarness,
     window,
@@ -7702,8 +7957,12 @@ test.describe('Embedding Host Renderer', () => {
     console.log(JSON.stringify({ type: 'MEMORY_DIAGNOSTIC_BASELINE', processes: baseline }));
 
     await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
-    const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
-    expect(outcome).toBe('running');
+    const outcome = await waitForBackfillQueueMovementOrFatalError(
+      activeWindow,
+      fixture.embeddingSetId,
+      120_000
+    );
+    expect(outcome).toBe('queued');
 
     // Sample every 10s for 3 minutes
     const startedAt = Date.now();

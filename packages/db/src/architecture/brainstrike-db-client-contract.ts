@@ -1,21 +1,19 @@
-export type BrainstrikeDbClientCapability =
-  | 'close'
-  | 'diagnostics'
-  | 'exec'
-  | 'live-query'
-  | 'query'
-  | 'reset'
-  | 'transaction';
+export type BrainstrikeDbClientCapability = 'exec' | 'live-query' | 'query' | 'transaction';
+
+export type BrainstrikeDbRuntimeHostCapability = 'close' | 'diagnostics' | 'reset';
 
 export const BRAINSTRIKE_DB_CLIENT_CAPABILITIES = [
   'query',
   'exec',
   'transaction',
   'live-query',
+] as const satisfies readonly BrainstrikeDbClientCapability[];
+
+export const BRAINSTRIKE_DB_RUNTIME_HOST_CAPABILITIES = [
   'diagnostics',
   'reset',
   'close',
-] as const satisfies readonly BrainstrikeDbClientCapability[];
+] as const satisfies readonly BrainstrikeDbRuntimeHostCapability[];
 
 export interface BrainstrikeDbQueryResult<TRecord = unknown> {
   readonly rows: readonly TRecord[];
@@ -66,8 +64,6 @@ export interface BrainstrikeDbTransactionClient {
 }
 
 export interface BrainstrikeDbClient extends BrainstrikeDbTransactionClient {
-  readonly close: () => Promise<void>;
-  readonly diagnostics: () => Promise<BrainstrikeDbDiagnosticsSnapshot>;
   readonly live: {
     readonly incrementalQuery?: <TRecord = unknown>(
       options: BrainstrikeLiveQueryOptions & { readonly key: string }
@@ -76,10 +72,15 @@ export interface BrainstrikeDbClient extends BrainstrikeDbTransactionClient {
       options: BrainstrikeLiveQueryOptions
     ) => Promise<BrainstrikeLiveQueryHandle<TRecord>>;
   };
-  readonly reset: () => Promise<void>;
   readonly transaction: <TResult>(
     callback: (tx: BrainstrikeDbTransactionClient) => Promise<TResult>
   ) => Promise<TResult>;
+}
+
+export interface BrainstrikeDbRuntimeHost {
+  readonly close: () => Promise<void>;
+  readonly diagnostics: () => Promise<BrainstrikeDbDiagnosticsSnapshot>;
+  readonly reset: () => Promise<void>;
 }
 
 export function getMissingBrainstrikeDbClientCapabilities(
@@ -101,15 +102,38 @@ function isBrainstrikeDbClientCapabilityMissing(
   switch (capability) {
     case 'live-query':
       return !hasLiveQueryCapability(candidate);
-    case 'close':
-    case 'diagnostics':
     case 'exec':
     case 'query':
-    case 'reset':
     case 'transaction':
       return !hasFunctionProperty(candidate, capability);
     default:
       return assertUnreachableDbClientCapability(capability);
+  }
+}
+
+export function getMissingBrainstrikeDbRuntimeHostCapabilities(
+  candidate: unknown
+): readonly BrainstrikeDbRuntimeHostCapability[] {
+  if (!isObjectRecord(candidate)) {
+    return BRAINSTRIKE_DB_RUNTIME_HOST_CAPABILITIES;
+  }
+
+  return BRAINSTRIKE_DB_RUNTIME_HOST_CAPABILITIES.filter((capability) =>
+    isBrainstrikeDbRuntimeHostCapabilityMissing(candidate, capability)
+  );
+}
+
+function isBrainstrikeDbRuntimeHostCapabilityMissing(
+  candidate: Record<PropertyKey, unknown>,
+  capability: BrainstrikeDbRuntimeHostCapability
+): boolean {
+  switch (capability) {
+    case 'close':
+    case 'diagnostics':
+    case 'reset':
+      return !hasFunctionProperty(candidate, capability);
+    default:
+      return assertUnreachableDbRuntimeHostCapability(capability);
   }
 }
 
@@ -136,4 +160,8 @@ function isObjectRecord(value: unknown): value is Record<PropertyKey, unknown> {
 
 function assertUnreachableDbClientCapability(value: never): never {
   throw new Error(`Unhandled Brainstrike DB client capability: ${String(value)}`);
+}
+
+function assertUnreachableDbRuntimeHostCapability(value: never): never {
+  throw new Error(`Unhandled Brainstrike DB runtime host capability: ${String(value)}`);
 }

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
@@ -254,11 +254,13 @@ describe('ActionButtons', () => {
 
     it('caps quick-filter explicit selection to maxSelectionCount', async () => {
       const setSelectedFiles = vi.fn();
+      const onSelectionLimitExceeded = vi.fn();
       const props = getProps({
         currentFolderId: TEST_FOLDER_ID,
         displayedFiles: new Set<string>(),
         hasActiveQuickFilter: true,
         maxSelectionCount: 2,
+        onSelectionLimitExceeded,
         setSelectedFiles,
         visibleFilePaths: ['/test.ts', '/test2.ts', '/test3.ts'],
       });
@@ -270,6 +272,7 @@ describe('ActionButtons', () => {
       expect(setSelectedFiles).toHaveBeenCalledWith(
         new Set(['test-folder:/test.ts', 'test-folder:/test2.ts'])
       );
+      expect(onSelectionLimitExceeded).toHaveBeenCalledTimes(1);
     });
 
     it('accepts recursive Select All cap results without a limit notification prop', async () => {
@@ -291,6 +294,34 @@ describe('ActionButtons', () => {
       await user.click(screen.getByRole('button', { name: 'Select All' }));
 
       expect(selectAllRecursively).toHaveBeenCalled();
+    });
+
+    it('notifies when recursive Select All reaches the selection limit', async () => {
+      const onSelectionLimitExceeded = vi.fn();
+      const selectAllRecursively = vi.fn().mockResolvedValue({
+        success: true,
+        filePaths: ['/src/a.ts'],
+        totalAvailable: 2,
+        limitReached: true,
+      });
+      const props = getProps({
+        addMultipleSelectedFiles: vi.fn(),
+        filteredTree: createFullyLoadedTree(),
+        maxSelectionCount: 1,
+        onSelectionLimitExceeded,
+        selectAllRecursively,
+      });
+
+      const user = userEvent.setup();
+      render(<ActionButtons {...props} />);
+      await user.click(screen.getByRole('button', { name: 'Select All' }));
+
+      await waitFor(() => {
+        expect(selectAllRecursively).toHaveBeenCalledTimes(1);
+      });
+      await waitFor(() => {
+        expect(onSelectionLimitExceeded).toHaveBeenCalledTimes(1);
+      });
     });
 
     it('should deselect all files when clicking "Deselect All"', async () => {

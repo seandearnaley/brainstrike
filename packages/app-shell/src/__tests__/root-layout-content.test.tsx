@@ -19,8 +19,8 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 
 vi.mock('@brainstrike/file-explorer-ui', () => ({
   FileExplorerLeftPanel: () => <div data-testid="file-explorer-left-panel" />,
-  TabbedFileEditorPanel: ({ className }: { className?: string }) => (
-    <div className={className} data-testid="tabbed-file-editor-panel" />
+  WorkspaceTabHost: ({ className }: { className?: string }) => (
+    <div className={className} data-testid="workspace-tab-host" />
   ),
   FileTreeProvider: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="file-tree-provider">{children}</div>
@@ -182,7 +182,9 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('explorer-section')).not.toHaveClass('hidden');
     expect(screen.getByTestId('context-explorer-page')).toBeInTheDocument();
     expect(screen.getByTestId('file-explorer-left-panel')).toBeInTheDocument();
-    expect(screen.getByTestId('tabbed-file-editor-panel')).toBeInTheDocument();
+    // The south/console panel is gone — file tabs now live inside the editor area
+    // (the workspace tab host is rendered via contextExplorerPageContent in real apps).
+    expect(screen.queryByTestId('ide-console-content')).not.toBeInTheDocument();
   });
 
   it('renders settings as a full-frame route without the agent shell', () => {

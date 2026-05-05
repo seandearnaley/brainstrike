@@ -14,11 +14,13 @@ export interface DatabaseWorkSchedulerSnapshot {
   readonly lastBackgroundYieldAt: number | null;
   readonly lastCompletedAt: number | null;
   readonly lastForegroundAt: number | null;
+  readonly lastNormalAt: number | null;
   readonly lastStartedAt: number | null;
   readonly priorityStats: Record<DatabaseWorkPriority, DatabaseWorkPriorityStats>;
   readonly queued: Record<DatabaseWorkPriority, number>;
   readonly runningLabel: string | null;
   readonly runningPriority: DatabaseWorkPriority | null;
+  readonly snapshotAt: number;
 }
 
 export interface DatabaseWorkPriorityStats {
@@ -55,6 +57,7 @@ export interface ScheduledDbHandle {
     options?: unknown
   ) => Promise<{ rows: T[] }>;
   readonly raw?: unknown;
+  readonly syncToFs?: () => Promise<void>;
   readonly transaction?: <T>(fn: (tx: ScheduledDbHandle) => Promise<T>) => Promise<T>;
 }
 
@@ -75,6 +78,10 @@ const DEFAULT_FOREGROUND_QUIET_MS = 75;
 const METRICS_WINDOW_SIZE = 64;
 const SCHEDULER_SYMBOL = Symbol.for('brainstrike.databaseWorkScheduler');
 const DEFAULT_PRIORITY_SYMBOL = Symbol.for('brainstrike.databaseWorkDefaultPriority');
+// PGliteWorker listener methods use private fields, so they need the raw worker receiver.
+// Keep this narrow: methods listed here bypass the scheduler proxy by design.
+const RAW_RECEIVER_METHODS = new Set<PropertyKey>(['offLeaderChange', 'onLeaderChange']);
+const rawReceiverMethodCache = new WeakMap<object, Map<PropertyKey, CallableUnknown>>();
 
 interface MetricSamples {
   nextIndex: number;
@@ -195,6 +202,34 @@ function addMetricSample(samples: MetricSamples, value: number): void {
   samples.sorted.splice(findMetricInsertIndex(samples.sorted, value), 0, value);
 }
 
+function getRawReceiverMethod(target: object, property: PropertyKey): CallableUnknown | null {
+  if (!RAW_RECEIVER_METHODS.has(property)) {
+    return null;
+  }
+  const method = Reflect.get(target, property, target);
+  if (typeof method !== 'function') {
+    return null;
+  }
+  let targetMethods = rawReceiverMethodCache.get(target);
+  if (!targetMethods) {
+    targetMethods = new Map<PropertyKey, CallableUnknown>();
+    rawReceiverMethodCache.set(target, targetMethods);
+  }
+  const cached = targetMethods.get(property);
+  if (cached) {
+    return cached;
+  }
+  const wrapper = (...args: unknown[]) => {
+    const currentMethod = Reflect.get(target, property, target);
+    if (typeof currentMethod !== 'function') {
+      throw new TypeError(`Raw receiver method ${String(property)} is no longer callable`);
+    }
+    return Reflect.apply(currentMethod, target, args) as unknown;
+  };
+  targetMethods.set(property, wrapper);
+  return wrapper;
+}
+
 function patchPriorityStat(
   stats: Record<DatabaseWorkPriority, DatabaseWorkPriorityStats>,
   priority: DatabaseWorkPriority,
@@ -235,6 +270,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
   #lastBackgroundYieldAt: number | null = null;
   #lastCompletedAt: number | null = null;
   #lastForegroundAt: number | null = null;
+  #lastNormalAt: number | null = null;
   #lastStartedAt: number | null = null;
   #running = false;
   #runningStartedAt: number | null = null;
@@ -258,11 +294,13 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
       lastBackgroundYieldAt: this.#lastBackgroundYieldAt,
       lastCompletedAt: this.#lastCompletedAt,
       lastForegroundAt: this.#lastForegroundAt,
+      lastNormalAt: this.#lastNormalAt,
       lastStartedAt: this.#lastStartedAt,
       priorityStats: clonePriorityStats(this.#priorityStats),
       queued: createQueuedCounts(this.#queues),
       runningLabel: this.#runningLabel,
       runningPriority: this.#runningPriority,
+      snapshotAt: now,
     };
   }
 
@@ -271,6 +309,9 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     const enqueuedAt = this.#now();
     if (priority === 'foreground') {
       this.#lastForegroundAt = enqueuedAt;
+    }
+    if (priority === 'normal') {
+      this.#lastNormalAt = enqueuedAt;
     }
 
     patchPriorityStat(this.#priorityStats, priority, {
@@ -693,6 +734,10 @@ function createPriorityOptionsDbHandle<TDatabase extends object & ScheduledDbHan
       if (property === DEFAULT_PRIORITY_SYMBOL) {
         return priority;
       }
+      const rawReceiverMethod = getRawReceiverMethod(target, property);
+      if (rawReceiverMethod) {
+        return rawReceiverMethod;
+      }
       return Reflect.get(target, property, receiver);
     },
   });
@@ -729,6 +774,18 @@ export function createScheduledDbHandle<TDatabase extends object & ScheduledDbHa
       }
     : undefined;
 
+  const baseSyncToFs = db.syncToFs;
+  const scheduledSyncToFs = baseSyncToFs
+    ? async () => {
+        await scheduler.run(
+          async () => {
+            await Reflect.apply(baseSyncToFs as CallableUnknown, db, []);
+          },
+          { priority: defaultPriority, label: 'syncToFs' }
+        );
+      }
+    : undefined;
+
   const baseTransaction = db.transaction;
   const scheduledTransaction: ScheduledDbHandle['transaction'] | undefined = baseTransaction
     ? async <T>(fn: (tx: ScheduledDbHandle) => Promise<T>) =>
@@ -749,6 +806,9 @@ export function createScheduledDbHandle<TDatabase extends object & ScheduledDbHa
       if (property === 'exec') {
         return scheduledExec;
       }
+      if (property === 'syncToFs') {
+        return scheduledSyncToFs;
+      }
       if (property === 'transaction') {
         return scheduledTransaction;
       }
@@ -763,6 +823,10 @@ export function createScheduledDbHandle<TDatabase extends object & ScheduledDbHa
       }
       if (property === DEFAULT_PRIORITY_SYMBOL) {
         return defaultPriority;
+      }
+      const rawReceiverMethod = getRawReceiverMethod(target, property);
+      if (rawReceiverMethod) {
+        return rawReceiverMethod;
       }
       return Reflect.get(target, property, receiver);
     },

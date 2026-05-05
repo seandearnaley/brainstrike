@@ -129,6 +129,7 @@ const setupLiveQueries = (
     totalRecordsLoading = false,
     collectionCounts = [
       {
+        embeddingsetid: 'set-1',
         recordsCount: records.length,
         chunksCount: 0,
         embeddingsCount: 0,
@@ -324,7 +325,9 @@ describe('useDatabaseDemoData', () => {
         },
       ],
       totalRecords: [{ totalRecords: 1 }],
-      collectionCounts: [{ recordsCount: 1, chunksCount: 2, embeddingsCount: 1 }],
+      collectionCounts: [
+        { embeddingsetid: 'set-1', recordsCount: 1, chunksCount: 2, embeddingsCount: 1 },
+      ],
     });
 
     const { result } = renderHook(() =>
@@ -390,6 +393,62 @@ describe('useDatabaseDemoData', () => {
     );
   });
 
+  it('does not select a file-record embedding column from the collection page live query', () => {
+    setupLiveQueries();
+
+    renderHook(() =>
+      useDatabaseDemoData({
+        repository: createRepository(),
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database: createMockDatabase(),
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    const recordQuery = mockedUsePGliteLiveQuery.mock.calls
+      .map(([queryOptions]) => queryOptions.query)
+      .find((query) => query.includes('FROM file_records fr') && query.includes('LIMIT $2'));
+
+    expect(recordQuery).toBeDefined();
+    expect(recordQuery).not.toMatch(/\bfr\.embedding\b(?!_)/);
+    expect(recordQuery).not.toMatch(/\bpr\.embedding\b(?!_)/);
+  });
+
+  it('uses incremental live queries only for keyed collection page rows', () => {
+    setupLiveQueries();
+
+    renderHook(() =>
+      useDatabaseDemoData({
+        repository: createRepository(),
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database: createMockDatabase(),
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    const recordPageCall = mockedUsePGliteLiveQuery.mock.calls.find(([queryOptions]) =>
+      queryOptions.query.includes('FROM file_records fr')
+    );
+    const totalAggregateCall = mockedUsePGliteLiveQuery.mock.calls.find(([queryOptions]) =>
+      queryOptions.query.includes('AS "totalRecords"')
+    );
+    const collectionStatsCall = mockedUsePGliteLiveQuery.mock.calls.find(([queryOptions]) =>
+      queryOptions.query.includes('AS "recordsCount"')
+    );
+
+    expect(recordPageCall?.[0]).toEqual(
+      expect.objectContaining({ mode: 'incremental', key: 'id' })
+    );
+    expect(totalAggregateCall?.[0]).not.toHaveProperty('mode', 'incremental');
+    expect(collectionStatsCall?.[0].query).toContain('AS embeddingsetid');
+    expect(collectionStatsCall?.[0].query).not.toContain('AS "embeddingSetId"');
+    expect(collectionStatsCall?.[0]).toEqual(
+      expect.objectContaining({ mode: 'incremental', key: 'embeddingsetid' })
+    );
+  });
+
   it('uses active collection cache while replacement live queries are loading', async () => {
     mockVectorStatusUIStore.schemaVerified = true;
     mockVectorStatusUIStore.cachedFileData = {
@@ -446,7 +505,9 @@ describe('useDatabaseDemoData', () => {
       recordsLoading: true,
       totalRecords: [{ totalRecords: 999 }],
       totalRecordsLoading: true,
-      collectionCounts: [{ recordsCount: 999, chunksCount: 1000, embeddingsCount: 999 }],
+      collectionCounts: [
+        { embeddingsetid: 'set-1', recordsCount: 999, chunksCount: 1000, embeddingsCount: 999 },
+      ],
       collectionCountsLoading: true,
     });
 
@@ -530,7 +591,7 @@ describe('useDatabaseDemoData', () => {
       totalRecordsLoading: false,
       collectionCounts: [
         {
-          embeddingSetId: 'set-1',
+          embeddingsetid: 'set-1',
           recordsCount: 999,
           chunksCount: 1000,
           embeddingsCount: 999,

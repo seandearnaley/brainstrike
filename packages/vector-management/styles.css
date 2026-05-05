@@ -1,0 +1,4 @@
+/* Tailwind v4 source registration: scans this package's components so utility
+ * classes used only here are emitted into the consumer app's CSS bundle. */
+
+@source "./src";

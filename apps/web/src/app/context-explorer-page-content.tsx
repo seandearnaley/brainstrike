@@ -1,11 +1,12 @@
-import { FileExplorerMiddlePanelTabbed } from '@brainstrike/file-explorer-ui';
+import { WorkspaceTabHost } from '@brainstrike/file-explorer-ui';
 import { Suspense } from 'react';
 import { Helmet } from 'react-helmet-async';
 
 /**
- * Context explorer page content - the middle panel of the route-local explorer layout.
- * Note: TokenCacheProvider wraps the entire layout in root-layout-content.tsx,
- * so this component (and the left panel) share the same token cache context.
+ * Context explorer page content — the middle panel of the route-local explorer layout.
+ * Hosts the workspace tab strip: a pinned Context Explorer app plus any open file tabs.
+ * The TokenCacheProvider in root-layout-content.tsx wraps the entire layout so this
+ * component and the left panel share the same token cache context.
  */
 export default function ContextExplorerPageContent() {
   return (
@@ -17,7 +18,7 @@ export default function ContextExplorerPageContent() {
       <Suspense
         fallback={<div className="flex h-full items-center justify-center">Loading...</div>}
       >
-        <FileExplorerMiddlePanelTabbed />
+        <WorkspaceTabHost className="h-full" />
       </Suspense>
     </>
   );

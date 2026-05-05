@@ -87,6 +87,7 @@ const liveSubscriptionOwnerListeners = new Set<number>();
 let nextLiveSubscriptionId = 1;
 const logger = createLogger('DesktopIpcHandlers');
 let desktopDatabaseWorkScheduler: DatabaseWorkScheduler = createDatabaseWorkScheduler();
+let desktopDatabaseResetBarrier: Promise<void> | null = null;
 
 // ---------------------------------------------------------------------------
 // Live query IPC throttling
@@ -107,9 +108,13 @@ const pendingLiveUpdates = new Map<number, { id: number; results: unknown }>();
 let liveFlushTimer: ReturnType<typeof setTimeout> | null = null;
 const LIVE_FLUSH_BACKGROUND_INTERVAL_MS = 2000;
 const LIVE_FLUSH_FOREGROUND_INTERVAL_MS = 200;
+const DEFAULT_DATABASE_WORK_IDLE_TIMEOUT_MS = 5000;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES = 4;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS = 250;
 const BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS = 10 * 60 * 1000;
+// Manual and background-indexing backfills are both user-visible indexing work,
+// but neither should occupy the foreground UI database lane.
+const EMBEDDING_BACKFILL_DATABASE_PRIORITY: DatabaseWorkPriority = 'background';
 interface EmbeddingBackfillInFlightState {
   progress: { current: number; total: number } | null;
   requestId: string;
@@ -325,9 +330,17 @@ async function runDesktopEmbeddingBackfill(params: {
 
     const { getDatabase } = await import('./db-main');
     const db = await getDatabase();
-    const backfillPriority: DatabaseWorkPriority =
-      source === 'background-indexing' ? 'background' : 'foreground';
-    const scheduledDb = createScheduledDbHandle(db, desktopDatabaseWorkScheduler, backfillPriority);
+    logger.info('Desktop embedding backfill scheduling resolved', {
+      embeddingSetId: normalizedEmbeddingSetId,
+      priority: EMBEDDING_BACKFILL_DATABASE_PRIORITY,
+      requestId: backfillRequestId,
+      source,
+    });
+    const scheduledDb = createScheduledDbHandle(
+      db,
+      desktopDatabaseWorkScheduler,
+      EMBEDDING_BACKFILL_DATABASE_PRIORITY
+    );
     const jobQueue = new JobQueue(scheduledDb);
 
     await enqueueEmbeddingBackfill(
@@ -750,9 +763,14 @@ function runScheduledDatabaseWork<T>(
   fallbackLabel: string,
   operation: () => Promise<T>
 ): Promise<T> {
-  return desktopDatabaseWorkScheduler.run(
-    operation,
-    resolveDatabaseWorkOptions(event, registerOptions, explicitOptions, fallbackLabel)
+  const workOptions = resolveDatabaseWorkOptions(
+    event,
+    registerOptions,
+    explicitOptions,
+    fallbackLabel
+  );
+  return waitForDesktopDatabaseResetBarrier().then(() =>
+    desktopDatabaseWorkScheduler.run(operation, workOptions)
   );
 }
 
@@ -760,10 +778,103 @@ export function getDesktopDatabaseWorkSchedulerSnapshot(): DatabaseWorkScheduler
   return desktopDatabaseWorkScheduler.getSnapshot();
 }
 
+export function runDesktopScheduledDatabaseWork<T>(
+  options: DatabaseWorkOptions,
+  operation: () => Promise<T>
+): Promise<T> {
+  return waitForDesktopDatabaseResetBarrier().then(() =>
+    desktopDatabaseWorkScheduler.run(operation, options)
+  );
+}
+
+async function waitForDesktopDatabaseResetBarrier(): Promise<void> {
+  const barrier = desktopDatabaseResetBarrier;
+  if (!barrier) {
+    return;
+  }
+  await barrier;
+}
+
+export async function runWithDesktopDatabaseResetBarrier<T>(
+  operation: () => Promise<T>
+): Promise<T> {
+  if (desktopDatabaseResetBarrier) {
+    throw new Error('Desktop database reset barrier is already active.');
+  }
+
+  let releaseBarrier!: () => void;
+  desktopDatabaseResetBarrier = new Promise<void>((resolve) => {
+    releaseBarrier = resolve;
+  });
+
+  try {
+    return await operation();
+  } finally {
+    releaseBarrier();
+    desktopDatabaseResetBarrier = null;
+  }
+}
+
+function isDesktopDatabaseWorkSchedulerIdle(snapshot: DatabaseWorkSchedulerSnapshot): boolean {
+  return (
+    snapshot.runningPriority === null &&
+    snapshot.queued.foreground === 0 &&
+    snapshot.queued.normal === 0 &&
+    snapshot.queued.background === 0
+  );
+}
+
+export async function waitForDesktopDatabaseWorkSchedulerIdle(
+  timeoutMs = DEFAULT_DATABASE_WORK_IDLE_TIMEOUT_MS
+): Promise<void> {
+  if (isDesktopDatabaseWorkSchedulerIdle(desktopDatabaseWorkScheduler.getSnapshot())) {
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    let unsubscribe: (() => void) | null = null;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+    };
+
+    const resolveIfIdle = (snapshot: DatabaseWorkSchedulerSnapshot) => {
+      if (!isDesktopDatabaseWorkSchedulerIdle(snapshot)) {
+        return;
+      }
+      cleanup();
+      resolve();
+    };
+
+    timeout = setTimeout(() => {
+      const snapshot = desktopDatabaseWorkScheduler.getSnapshot();
+      cleanup();
+      reject(
+        new Error(
+          `Desktop database work did not become idle within ${timeoutMs}ms. ` +
+            `running=${snapshot.runningLabel ?? 'none'} queued=${JSON.stringify(snapshot.queued)}`
+        )
+      );
+    }, timeoutMs);
+
+    unsubscribe = desktopDatabaseWorkScheduler.subscribe(resolveIfIdle);
+    resolveIfIdle(desktopDatabaseWorkScheduler.getSnapshot());
+  });
+}
+
 export function resetDesktopDatabaseWorkSchedulerForTests(
   options?: DatabaseWorkSchedulerOptions
 ): void {
   desktopDatabaseWorkScheduler = createDatabaseWorkScheduler(options);
+  desktopDatabaseResetBarrier = null;
 }
 
 interface LiveQueryPayload {
@@ -830,6 +941,10 @@ async function cleanupAllLiveSubscriptions(): Promise<void> {
   await Promise.allSettled(ids.map((id) => cleanupLiveSubscription(id)));
   liveSubscriptions.clear();
   liveSubscriptionOwnerListeners.clear();
+}
+
+export async function cleanupDesktopLiveSubscriptionsForShutdown(): Promise<void> {
+  await cleanupAllLiveSubscriptions();
 }
 
 function registerLiveSubscriptionOwner(sender: Pick<Electron.WebContents, 'id' | 'once'>): void {

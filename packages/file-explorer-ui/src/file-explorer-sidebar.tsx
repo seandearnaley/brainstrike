@@ -118,7 +118,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
       <div className="flex h-full w-full flex-col overflow-hidden bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
         {showError && <ErrorDisplay filterError={filterError} treeError={treeError} />}
         {rootDirectoryHandle ? (
-          <div className="relative flex min-h-0 flex-1 flex-col pt-2">
+          <div className="relative flex min-h-0 flex-1 flex-col pt-10">
             {/* Subtle loading overlay during Select All operation */}
             {isLoadingForSelectAll && <SelectAllLoadingIndicator />}
             {hasContent ? (

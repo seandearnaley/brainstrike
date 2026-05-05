@@ -74,11 +74,13 @@ export interface DatabaseWorkSchedulerSnapshot {
   readonly lastBackgroundYieldAt: number | null;
   readonly lastCompletedAt: number | null;
   readonly lastForegroundAt: number | null;
+  readonly lastNormalAt: number | null;
   readonly lastStartedAt: number | null;
   readonly priorityStats: Record<DatabaseWorkPriority, DatabaseWorkPriorityStats>;
   readonly queued: Record<DatabaseWorkPriority, number>;
   readonly runningLabel: string | null;
   readonly runningPriority: DatabaseWorkPriority | null;
+  readonly snapshotAt: number;
 }
 
 export interface DatabaseWorkPriorityStats {

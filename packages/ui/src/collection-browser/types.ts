@@ -108,27 +108,20 @@ export const DEFAULT_FILTERS: CollectionBrowserFilters = {
 };
 
 /**
- * Props for the FilterBar component
- */
-export interface FilterBarProps {
-  /** Custom class name */
-  className?: string;
-  /** Current filter state */
-  filters: CollectionBrowserFilters;
-  /** Whether the panel is expanded */
-  isExpanded: boolean;
-  /** Callback when expansion state changes */
-  onExpandedChange: (expanded: boolean) => void;
-  /** Callback when filters change */
-  onFiltersChange: (filters: CollectionBrowserFilters) => void;
-}
-
-/**
  * Props for the FilterChip component
  */
 export interface FilterChipProps {
   /** Whether the chip is active/selected */
   active: boolean;
+  /**
+   * Custom class name. Passes through `cn`, so `undefined` is a no-op.
+   *
+   * The explicit `| undefined` is required (not redundant) because this repo
+   * sets `exactOptionalPropertyTypes: true` — without it, callers couldn't
+   * write `className={maybeString}` where `maybeString` may be `undefined`
+   * and would have to fall back to a conditional spread.
+   */
+  className?: string | undefined;
   /** Whether the chip is disabled */
   disabled?: boolean;
   /** Icon to show (optional) */
@@ -339,24 +332,27 @@ export interface SearchModeBarProps {
 
 /**
  * Props for the collection browser toolbar that sits directly above the grid.
+ *
+ * The toolbar hosts the inline filter input + Embedded toggle. The controls
+ * collapse to a popover when the parent panel is too narrow to fit them; this
+ * is driven by Tailwind container queries on the toolbar root, so the toolbar
+ * just needs to be inside a `@container/cb-toolbar` (which it sets on itself).
  */
 export interface CollectionBrowserToolbarProps {
   /** Custom class name */
   className?: string;
-  /** Current filter state (controlled) */
+  /** Current filter state (controlled) — required to render filter UI */
   filters?: CollectionBrowserFilters;
   /** Current group-by key */
   groupBy?: GroupByKey;
-  /** Whether the filter bar is visible */
-  isFilterVisible?: boolean;
   /** Whether multi-select mode is enabled */
   multiSelectEnabled?: boolean;
   /** Callback to collapse all nodes */
   onCollapseAll?: () => void;
   /** Callback to expand all nodes */
   onExpandAll?: () => void;
-  /** Callback when filter visibility changes */
-  onFilterVisibleChange?: (visible: boolean) => void;
+  /** Callback when filters change — required to render filter UI */
+  onFiltersChange?: (filters: CollectionBrowserFilters) => void;
   /** Callback when group-by changes */
   onGroupByChange?: (groupBy: GroupByKey) => void;
   /** Callback when multi-select toggle changes */

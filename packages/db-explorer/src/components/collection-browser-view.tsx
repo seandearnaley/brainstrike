@@ -29,7 +29,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   type EmbeddingStatus,
-  FilterBar,
   type GroupByKey,
   NodeInspector,
   type SearchConfig,
@@ -327,7 +326,6 @@ export function CollectionBrowserView({
     searchConfigFtsWeight,
     searchPanelExpanded,
     searchConfigExpanded,
-    isFilterVisible,
     setSearchMode,
     setSemanticQuery,
     setSearchConfigThreshold,
@@ -339,7 +337,6 @@ export function CollectionBrowserView({
     setSearchConfigFtsWeight,
     setSearchPanelExpanded,
     setSearchConfigExpanded,
-    setIsFilterVisible,
     // Grouping and checkbox state
     groupBy,
     showCheckbox,
@@ -1073,14 +1070,6 @@ export function CollectionBrowserView({
         semanticQuery={semanticQuery}
       />
 
-      {/* Quick Filters Panel */}
-      <FilterBar
-        filters={filters}
-        isExpanded={isFilterVisible}
-        onExpandedChange={setIsFilterVisible}
-        onFiltersChange={handleFiltersChange}
-      />
-
       {/* Error message display */}
       {searchError && (
         <div className="border-border border-b bg-destructive/10 px-3 py-2 text-destructive text-sm">
@@ -1091,11 +1080,10 @@ export function CollectionBrowserView({
       <CollectionBrowserToolbar
         filters={filters}
         groupBy={groupBy}
-        isFilterVisible={isFilterVisible}
         multiSelectEnabled={multiSelectEnabled}
         onCollapseAll={handleCollapseAll}
         onExpandAll={handleExpandAll}
-        onFilterVisibleChange={setIsFilterVisible}
+        onFiltersChange={handleFiltersChange}
         onGroupByChange={handleGroupByChange}
         onMultiSelectToggle={handleMultiSelectToggle}
       />

@@ -16,21 +16,23 @@ export interface DbRuntimeBaseline {
     readonly storage: 'filesystem-backed-profile';
   };
   readonly migrations: {
-    readonly drizzleIsProductionCanonical: false;
+    readonly drizzleIsProductionCanonical: true;
     readonly drizzleLedger: '__drizzle_migrations';
-    readonly productionAuthority: 'legacy-migration-runner';
-    readonly productionLedger: '_migrations';
+    readonly legacyLedgerPolicy: 'reset-required';
+    readonly productionAuthority: 'drizzle-migration-runner';
+    readonly productionLedger: '__drizzle_migrations';
   };
   readonly schemaDrift: readonly {
-    readonly drizzleTables: readonly string[];
+    readonly drizzleGeneratedManifestFinalTables: readonly string[];
+    readonly drizzleSchemaTables: readonly string[];
     readonly id: string;
     readonly productionTables: readonly string[];
-    readonly status: 'unreconciled';
+    readonly status: 'schema-and-manifest-reconciled';
   }[];
   readonly web: {
-    readonly owner: 'visible-renderer-direct-pglite';
-    readonly storage: 'idb';
-    readonly targetOwner: 'pglite-worker-db-host';
+    readonly directPgliteScope: 'tests-memory-and-non-browser-utilities';
+    readonly owner: 'pglite-worker-db-host';
+    readonly storage: 'idb-default-opfs-ahp-opt-in';
   };
 }
 
@@ -40,23 +42,25 @@ export const BRAINSTRIKE_DB_RUNTIME_BASELINE: DbRuntimeBaseline = {
     storage: 'filesystem-backed-profile',
   },
   migrations: {
-    drizzleIsProductionCanonical: false,
+    drizzleIsProductionCanonical: true,
     drizzleLedger: '__drizzle_migrations',
-    productionAuthority: 'legacy-migration-runner',
-    productionLedger: '_migrations',
+    legacyLedgerPolicy: 'reset-required',
+    productionAuthority: 'drizzle-migration-runner',
+    productionLedger: '__drizzle_migrations',
   },
   schemaDrift: [
     {
       id: 'provider-model-catalog',
       productionTables: ['providers', 'models'],
-      drizzleTables: ['model_registry'],
-      status: 'unreconciled',
+      drizzleSchemaTables: ['providers', 'models'],
+      drizzleGeneratedManifestFinalTables: ['providers', 'models'],
+      status: 'schema-and-manifest-reconciled',
     },
   ],
   web: {
-    owner: 'visible-renderer-direct-pglite',
-    storage: 'idb',
-    targetOwner: 'pglite-worker-db-host',
+    directPgliteScope: 'tests-memory-and-non-browser-utilities',
+    owner: 'pglite-worker-db-host',
+    storage: 'idb-default-opfs-ahp-opt-in',
   },
 } as const;
 

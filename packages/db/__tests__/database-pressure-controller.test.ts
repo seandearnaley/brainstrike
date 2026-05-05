@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createDatabasePressureController } from '../src/database-pressure-controller';
+import {
+  createDatabasePressureController,
+  getDatabasePressureWaitingReason,
+} from '../src/database-pressure-controller';
 import {
   createDatabaseWorkScheduler,
   type DatabaseWorkSchedulerSnapshot,
@@ -76,7 +79,7 @@ describe('DatabasePressureController', () => {
   });
 
   it('yields during recent foreground latency pressure and resumes when pressure ages out', async () => {
-    let now = 10_000;
+    let now = 10_001;
     const baseScheduler = createDatabaseWorkScheduler({
       foregroundQuietMs: 0,
       now: () => now,
@@ -87,6 +90,7 @@ describe('DatabasePressureController', () => {
       ...baseSnapshot,
       lastCompletedAt: 10_000,
       lastForegroundAt: 10_000,
+      snapshotAt: now,
       priorityStats: {
         ...baseSnapshot.priorityStats,
         foreground: {
@@ -136,6 +140,101 @@ describe('DatabasePressureController', () => {
     await expect(permit).resolves.toBeUndefined();
   });
 
+  it('yields during recent normal-priority latency pressure and resumes when pressure ages out', async () => {
+    let now = 10_001;
+    const baseScheduler = createDatabaseWorkScheduler({
+      foregroundQuietMs: 0,
+      now: () => now,
+    });
+    const baseSnapshot = baseScheduler.getSnapshot();
+    const listeners = new Set<(snapshot: DatabaseWorkSchedulerSnapshot) => void>();
+    const snapshot = (): DatabaseWorkSchedulerSnapshot => ({
+      ...baseSnapshot,
+      lastCompletedAt: 10_000,
+      lastNormalAt: 10_000,
+      snapshotAt: now,
+      priorityStats: {
+        ...baseSnapshot.priorityStats,
+        normal: {
+          ...baseSnapshot.priorityStats.normal,
+          completed: 1,
+          lastCompletedLabel: 'collection count refresh',
+          serviceP95Ms: 120,
+        },
+      },
+    });
+
+    const controller = createDatabasePressureController({
+      foregroundPressureWindowMs: 500,
+      foregroundServiceP95ThresholdMs: 50,
+      now: () => now,
+      pollMs: 1000,
+      snapshotSource: {
+        getSnapshot: snapshot,
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => {
+            listeners.delete(listener);
+          };
+        },
+      },
+    });
+
+    const permit = controller.waitForBackgroundPermit({ label: 'embedding completion' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(controller.getSnapshot()).toMatchObject({
+      permitWaiting: true,
+      waitingReason: 'normal-latency',
+    });
+
+    now += 501;
+    for (const listener of listeners) {
+      listener(snapshot());
+    }
+    await expect(permit).resolves.toBeUndefined();
+  });
+
+  it('treats the quiet-window boundary as active foreground pressure', () => {
+    const now = 1050;
+    const baseScheduler = createDatabaseWorkScheduler({
+      foregroundQuietMs: 50,
+      now: () => now,
+    });
+    const baseSnapshot = baseScheduler.getSnapshot();
+
+    expect(
+      getDatabasePressureWaitingReason(
+        {
+          ...baseSnapshot,
+          lastForegroundAt: 1000,
+          snapshotAt: now,
+        },
+        now
+      )
+    ).toBe('foreground-quiet-window');
+  });
+
+  it('reports normal-priority quiet-window pressure distinctly', () => {
+    const now = 1050;
+    const baseScheduler = createDatabaseWorkScheduler({
+      foregroundQuietMs: 50,
+      now: () => now,
+    });
+    const baseSnapshot = baseScheduler.getSnapshot();
+
+    expect(
+      getDatabasePressureWaitingReason(
+        {
+          ...baseSnapshot,
+          lastNormalAt: 1000,
+          snapshotAt: now,
+        },
+        now
+      )
+    ).toBe('normal-quiet-window');
+  });
+
   it('does not let background completions extend stale foreground latency pressure', async () => {
     let now = 10_000;
     const baseScheduler = createDatabaseWorkScheduler({
@@ -148,6 +247,7 @@ describe('DatabasePressureController', () => {
       ...baseSnapshot,
       lastCompletedAt: now,
       lastForegroundAt: 9000,
+      snapshotAt: now,
       priorityStats: {
         ...baseSnapshot.priorityStats,
         background: {

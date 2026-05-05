@@ -7,11 +7,16 @@ import {
 } from '../../embedding-host-shared';
 
 function createWindowWithWebContents(sender: {
+  id?: number;
+  isDestroyed?: () => boolean;
   send: (...args: unknown[]) => unknown;
 }): BrowserWindow {
   return {
     isDestroyed: () => false,
-    webContents: sender,
+    webContents: {
+      ...sender,
+      isDestroyed: sender.isDestroyed ?? (() => false),
+    },
   } as unknown as BrowserWindow;
 }
 
@@ -27,6 +32,8 @@ const {
   isCorruptionErrorMock,
   handleRuntimeCorruptionMock,
   resetLocalDatabaseMock,
+  closeDatabaseMock,
+  resetDesktopApplicationDataMock,
   getDatabaseDiagnosticsMock,
   getDbHostManagerMock,
   enqueueEmbeddingBackfillMock,
@@ -75,6 +82,11 @@ const {
   const isCorruptionErrorMock = vi.fn(() => false);
   const handleRuntimeCorruptionMock = vi.fn();
   const resetLocalDatabaseMock = vi.fn();
+  const closeDatabaseMock = vi.fn();
+  const resetDesktopApplicationDataMock = vi.fn(async () => ({
+    deletedPaths: [],
+    preservedPaths: [],
+  }));
   const enqueueEmbeddingBackfillMock = vi.fn();
   const embeddingHostIsHostWindowMock = vi.fn(() => false);
   const embeddingHostEnsureStartedMock = vi.fn(async () => ({
@@ -138,6 +150,8 @@ const {
     isCorruptionErrorMock,
     handleRuntimeCorruptionMock,
     resetLocalDatabaseMock,
+    closeDatabaseMock,
+    resetDesktopApplicationDataMock,
     getDatabaseDiagnosticsMock,
     getDbHostManagerMock,
     enqueueEmbeddingBackfillMock,
@@ -180,10 +194,13 @@ vi.mock('electron', async () => {
   const mockBrowserWindowInstance = {
     once: vi.fn(),
     on: vi.fn(),
+    removeListener: vi.fn(),
+    destroy: vi.fn(),
     show: vi.fn(),
     loadFile: vi.fn(),
     loadURL: vi.fn(),
     maximize: vi.fn(),
+    isDestroyed: vi.fn(() => false),
     isFullScreen: vi.fn(() => false),
     isMaximized: vi.fn(() => false),
     getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1536, height: 800 })),
@@ -229,11 +246,16 @@ vi.mock('../../db-main', () => ({
   isCorruptionError: isCorruptionErrorMock,
   handleRuntimeCorruption: handleRuntimeCorruptionMock,
   resetLocalDatabase: resetLocalDatabaseMock,
+  closeDatabase: closeDatabaseMock,
   getDatabaseDiagnostics: getDatabaseDiagnosticsMock,
 }));
 
 vi.mock('../../db-host-manager', () => ({
   getDbHostManager: getDbHostManagerMock,
+}));
+
+vi.mock('../../desktop-factory-reset', () => ({
+  resetDesktopApplicationData: resetDesktopApplicationDataMock,
 }));
 
 vi.mock('../../embedding-backfill', () => ({
@@ -338,6 +360,84 @@ describe('database IPC handlers', () => {
       lastError: null,
       runtimeId: 'embedding-host-runtime',
     });
+  });
+
+  it('waits for scheduled desktop database work to drain before shutdown', async () => {
+    const { runDesktopScheduledDatabaseWork, waitForDesktopDatabaseWorkSchedulerIdle } =
+      await import('../../ipc-handlers');
+
+    let releaseWork: (() => void) | null = null;
+    const workStarted = new Promise<void>((resolve) => {
+      void runDesktopScheduledDatabaseWork({ label: 'shutdown-drain-test' }, async () => {
+        resolve();
+        await new Promise<void>((release) => {
+          releaseWork = release;
+        });
+      });
+    });
+
+    await workStarted;
+
+    let idleResolved = false;
+    const idlePromise = waitForDesktopDatabaseWorkSchedulerIdle(1000).then(() => {
+      idleResolved = true;
+    });
+    await Promise.resolve();
+
+    expect(idleResolved).toBe(false);
+    if (!releaseWork) {
+      throw new Error('Scheduled database work did not expose a release callback.');
+    }
+    releaseWork();
+    await idlePromise;
+    expect(idleResolved).toBe(true);
+  });
+
+  it('keeps database work submitted during reset out of the scheduler until reset completes', async () => {
+    const {
+      getDesktopDatabaseWorkSchedulerSnapshot,
+      runDesktopScheduledDatabaseWork,
+      runWithDesktopDatabaseResetBarrier,
+      waitForDesktopDatabaseWorkSchedulerIdle,
+    } = await import('../../ipc-handlers');
+
+    let releaseReset: (() => void) | null = null;
+    let resetBarrierPromise: Promise<void> | null = null;
+    const resetStarted = new Promise<void>((resolve) => {
+      resetBarrierPromise = runWithDesktopDatabaseResetBarrier(async () => {
+        resolve();
+        await new Promise<void>((release) => {
+          releaseReset = release;
+        });
+      });
+    });
+    await resetStarted;
+
+    let workStarted = false;
+    const pendingWork = runDesktopScheduledDatabaseWork(
+      { label: 'reset-submitted-live-query' },
+      async () => {
+        workStarted = true;
+        return 'ran-after-reset';
+      }
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(workStarted).toBe(false);
+    expect(getDesktopDatabaseWorkSchedulerSnapshot()).toMatchObject({
+      queued: { background: 0, foreground: 0, normal: 0 },
+      runningPriority: null,
+    });
+    await waitForDesktopDatabaseWorkSchedulerIdle(1000);
+
+    if (!releaseReset) {
+      throw new Error('Reset barrier did not expose a release callback.');
+    }
+    releaseReset();
+    await resetBarrierPromise;
+    await expect(pendingWork).resolves.toBe('ran-after-reset');
+    expect(workStarted).toBe(true);
   });
 
   it('db:query calls query and returns result', async () => {
@@ -662,6 +762,48 @@ describe('database IPC handlers', () => {
       current: 450,
       total: 450,
     });
+    expect(result).toEqual({
+      requestId: expect.stringMatching(/^embedding-backfill:/),
+    });
+  });
+
+  it('embedding-host:enqueue-backfill schedules manual backfill DB work outside the foreground lane', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    mockDb.query.mockResolvedValue({ rows: [] });
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (db: { query: (sql: string, params?: unknown[]) => Promise<unknown> }) => {
+        await db.query('manual backfill queue refill', []);
+        return {
+          queued: 0,
+          running: 0,
+          failed: 0,
+          succeeded: 0,
+        };
+      }
+    );
+
+    const { getDesktopDatabaseWorkSchedulerSnapshot } = await import('../../ipc-handlers');
+
+    const result = await handler({ sender } as unknown, {
+      embeddingSetId: 'set-123',
+      source: 'manual',
+    });
+
+    const snapshot = getDesktopDatabaseWorkSchedulerSnapshot();
+    expect(snapshot.priorityStats.foreground.completed).toBe(0);
+    expect(snapshot.priorityStats.normal.completed).toBe(0);
+    expect(snapshot.priorityStats.background.completed).toBe(1);
     expect(result).toEqual({
       requestId: expect.stringMatching(/^embedding-backfill:/),
     });
@@ -1557,16 +1699,54 @@ describe('database IPC handlers', () => {
     });
   });
 
-  it('db:resetLocal returns success and errors', async () => {
+  it('db:resetLocal delegates desktop application data reset and returns errors', async () => {
     const handler = handlers.get('db:resetLocal');
     if (!handler) {
       throw new Error('handler not registered');
     }
 
-    resetLocalDatabaseMock.mockResolvedValueOnce(undefined);
+    resetDesktopApplicationDataMock.mockResolvedValueOnce({
+      deletedPaths: [],
+      preservedPaths: [],
+    });
     await expect(handler({} as unknown)).resolves.toEqual({ success: true });
+    expect(resetDesktopApplicationDataMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resetDatabaseProfile: expect.any(Function),
+        stopBackgroundRuntimes: expect.any(Function),
+        userDataPath: expect.any(String),
+      })
+    );
+    const resetOptions = resetDesktopApplicationDataMock.mock.calls[0]?.[0] as
+      | { resetDatabaseProfile?: () => Promise<void> }
+      | undefined;
+    if (typeof resetOptions?.resetDatabaseProfile !== 'function') {
+      throw new Error('resetDatabaseProfile callback was not passed to desktop reset');
+    }
+    const { runDesktopScheduledDatabaseWork } = await import('../../ipc-handlers');
+    let releaseWork: (() => void) | null = null;
+    const workStarted = new Promise<void>((resolve) => {
+      void runDesktopScheduledDatabaseWork({ label: 'reset-drain-test' }, async () => {
+        resolve();
+        await new Promise<void>((release) => {
+          releaseWork = release;
+        });
+      });
+    });
+    await workStarted;
 
-    resetLocalDatabaseMock.mockRejectedValueOnce(new Error('fail reset'));
+    const resetProfilePromise = resetOptions.resetDatabaseProfile();
+    await Promise.resolve();
+    expect(resetLocalDatabaseMock).not.toHaveBeenCalled();
+    if (!releaseWork) {
+      throw new Error('Scheduled database work did not expose a release callback.');
+    }
+    releaseWork();
+    await resetProfilePromise;
+    expect(resetLocalDatabaseMock).toHaveBeenCalledTimes(1);
+    expect(closeDatabaseMock).not.toHaveBeenCalled();
+
+    resetDesktopApplicationDataMock.mockRejectedValueOnce(new Error('fail reset'));
     await expect(handler({} as unknown)).resolves.toEqual({
       success: false,
       message: 'fail reset',

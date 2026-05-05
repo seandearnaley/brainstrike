@@ -116,6 +116,21 @@ describe('ToolFallback', () => {
       expect(screen.getByText('Not connected')).toBeInTheDocument();
     });
 
+    it('shows tool-result errors as failed tool cards', () => {
+      render(
+        <ToolFallback
+          {...mockBaseProps}
+          result={{ error: 'Select an active embedding set to enable retrieval.' }}
+          status={{ type: 'complete' }}
+        />
+      );
+
+      expect(screen.getByText(/Failed/)).toBeInTheDocument();
+      expect(
+        screen.getByText('Select an active embedding set to enable retrieval.')
+      ).toBeInTheDocument();
+    });
+
     it('shows error message from result when status.error is not a string', () => {
       render(
         <ToolFallback

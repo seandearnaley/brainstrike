@@ -240,17 +240,14 @@ describe('DrizzleEmbeddingSetsRepository', () => {
     });
 
     it('repairs legacy malformed metadata using the model registry', async () => {
-      await client.query(
-        `CREATE TABLE IF NOT EXISTS models (
-          id TEXT PRIMARY KEY,
-          provider_id TEXT NOT NULL,
-          name TEXT NOT NULL
-        )`
+      const seededModel = await client.query<{ id: string; provider_id: string }>(
+        "SELECT id, provider_id FROM models WHERE id = 'Xenova/all-MiniLM-L6-v2'"
       );
-      await client.query(
-        `INSERT INTO models (id, provider_id, name)
-         VALUES ('Xenova/all-MiniLM-L6-v2', 'local', 'all-MiniLM-L6-v2')`
-      );
+      expect(seededModel.rows[0]).toEqual({
+        id: 'Xenova/all-MiniLM-L6-v2',
+        provider_id: 'local',
+      });
+
       await client.query(
         `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
          VALUES ('00000000-0000-0000-0000-000000000999', 'Xenova/all-MiniLM-L6-v2', 'all-MiniLM-L6-v2', 384, 'cosine', CURRENT_TIMESTAMP)`

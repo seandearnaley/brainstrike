@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadWorker, pipelineMock, resetMocks } from './helpers/pipeline-test-setup';
+import {
+  installMockOrtWebGpuDevice,
+  loadWorker,
+  pipelineMock,
+  resetMocks,
+} from './helpers/pipeline-test-setup';
 
 describe('pipeline cache metadata and dispose', () => {
   beforeEach(() => {
@@ -47,6 +52,7 @@ describe('pipeline cache metadata and dispose', () => {
     // Reset modules to get a fresh worker with access to webgpu
     resetMocks();
     vi.stubGlobal('navigator', { gpu: {} });
+    await installMockOrtWebGpuDevice();
     pipelineMock.mockResolvedValue(
       Object.assign(async () => new Float32Array([1, 0, 0]), { dispose: disposeMock })
     );
@@ -91,6 +97,7 @@ describe('pipeline cache metadata and dispose', () => {
 
     // The failed entry should have been removed from cache (retry cleanup)
     // Loading again should trigger a new pipeline call
+    await installMockOrtWebGpuDevice();
     pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
     const result = await runEmbedding({
       type: 'embed',

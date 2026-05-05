@@ -3,7 +3,11 @@ import {
   __resetVectorStatusUIStoreForTests,
   type CachedCollection,
   useVectorStatusUIStore,
+  vectorStatusUISelectors,
 } from '../stores/vector-status-ui-store';
+import type { PersistApi } from './persist-api-test-helper';
+
+const storeWithPersist = useVectorStatusUIStore as PersistApi<typeof useVectorStatusUIStore>;
 
 /**
  * Test suite for vector-status-ui-store
@@ -21,6 +25,44 @@ describe('vector-status-ui-store', () => {
       'electronAPI'
     );
     __resetVectorStatusUIStoreForTests();
+  });
+
+  it('persists the active embedding set id only', () => {
+    const snapshot = useVectorStatusUIStore.getState();
+
+    snapshot.setActiveEmbeddingSetId('embedding-set-1');
+    snapshot.setIsImporting(true);
+
+    expect(vectorStatusUISelectors.activeSet(useVectorStatusUIStore.getState())).toBe(
+      'embedding-set-1'
+    );
+
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (!(options?.storage && options.name)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    const persisted = options.storage.getItem(options.name);
+    if (!persisted || typeof persisted !== 'object' || Array.isArray(persisted)) {
+      throw new Error('expected persisted snapshot');
+    }
+
+    expect(persisted).toEqual({
+      state: { activeEmbeddingSetId: 'embedding-set-1' },
+      version: 1,
+    });
+  });
+
+  it('clears malformed persisted JSON before hydration', () => {
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (!(options?.storage && options.name)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    window.localStorage.setItem(options.name, '{not-valid-json');
+
+    expect(options.storage.getItem(options.name)).toBeNull();
+    expect(window.localStorage.getItem(options.name)).toBeNull();
   });
 
   describe('removeCachedCollection', () => {

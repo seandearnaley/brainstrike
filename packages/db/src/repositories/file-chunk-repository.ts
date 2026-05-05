@@ -81,14 +81,15 @@ export class FileChunkRepository {
     const result = await this.db.query(
       `INSERT INTO file_chunks (
         id, file_record_id, chunk_index, content, content_hash,
-        token_count, chunk_type, chunk_size, embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        token_count, chunk_type, chunk_size, embedding, embedding_set_id, embedding_updated_at, embedding_hash, content_tsvector, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_tsvector('english', $4), $13, $14)
       ON CONFLICT (id) DO UPDATE SET
         content = EXCLUDED.content,
         content_hash = EXCLUDED.content_hash,
         token_count = EXCLUDED.token_count,
         chunk_type = EXCLUDED.chunk_type,
         chunk_size = EXCLUDED.chunk_size,
+        content_tsvector = to_tsvector('english', EXCLUDED.content),
         embedding = EXCLUDED.embedding,
         embedding_set_id = EXCLUDED.embedding_set_id,
         embedding_updated_at = EXCLUDED.embedding_updated_at,
@@ -135,7 +136,7 @@ export class FileChunkRepository {
         const values = batch
           .map((_, index) => {
             const baseIndex = index * 14;
-            return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13}, $${baseIndex + 14})`;
+            return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, to_tsvector('english', $${baseIndex + 4}), $${baseIndex + 13}, $${baseIndex + 14})`;
           })
           .join(', ');
 
@@ -159,7 +160,7 @@ export class FileChunkRepository {
         const result = await this.db.query(
           `INSERT INTO file_chunks (
               id, file_record_id, chunk_index, content, content_hash, 
-              token_count, chunk_type, chunk_size, embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at
+              token_count, chunk_type, chunk_size, embedding, embedding_set_id, embedding_updated_at, embedding_hash, content_tsvector, created_at, updated_at
             ) VALUES ${values} 
             ON CONFLICT (id) DO UPDATE SET
               content = EXCLUDED.content,
@@ -167,6 +168,7 @@ export class FileChunkRepository {
               token_count = EXCLUDED.token_count,
               chunk_type = EXCLUDED.chunk_type,
               chunk_size = EXCLUDED.chunk_size,
+              content_tsvector = to_tsvector('english', EXCLUDED.content),
               embedding = EXCLUDED.embedding,
               embedding_set_id = EXCLUDED.embedding_set_id,
               embedding_updated_at = EXCLUDED.embedding_updated_at,
@@ -205,7 +207,7 @@ export class FileChunkRepository {
       const values = batch
         .map((_, index) => {
           const baseIndex = index * 14;
-          return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13}, $${baseIndex + 14})`;
+          return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, to_tsvector('english', $${baseIndex + 4}), $${baseIndex + 13}, $${baseIndex + 14})`;
         })
         .join(', ');
 
@@ -229,7 +231,7 @@ export class FileChunkRepository {
       const result = await tx.query(
         `INSERT INTO file_chunks (
             id, file_record_id, chunk_index, content, content_hash,
-            token_count, chunk_type, chunk_size, embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at
+            token_count, chunk_type, chunk_size, embedding, embedding_set_id, embedding_updated_at, embedding_hash, content_tsvector, created_at, updated_at
           ) VALUES ${values}
           ON CONFLICT (id) DO UPDATE SET
             content = EXCLUDED.content,
@@ -237,6 +239,7 @@ export class FileChunkRepository {
             token_count = EXCLUDED.token_count,
             chunk_type = EXCLUDED.chunk_type,
             chunk_size = EXCLUDED.chunk_size,
+            content_tsvector = to_tsvector('english', EXCLUDED.content),
             embedding = EXCLUDED.embedding,
             embedding_set_id = EXCLUDED.embedding_set_id,
             embedding_updated_at = EXCLUDED.embedding_updated_at,
@@ -870,8 +873,12 @@ export class FileChunkRepository {
   }
 
   private appendSimpleUpdates(builder: UpdateBuilder, chunk: FileChunkUpdate): void {
+    if (chunk.content !== undefined) {
+      appendColumn(builder, 'content', chunk.content);
+      builder.setParts.push(`content_tsvector = to_tsvector('english', $${builder.index - 1})`);
+    }
+
     const simpleFields: [unknown, string][] = [
-      [chunk.content, 'content'],
       [chunk.contentHash, 'content_hash'],
       [chunk.tokenCount, 'token_count'],
       [chunk.chunkType, 'chunk_type'],

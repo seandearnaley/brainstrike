@@ -12,6 +12,10 @@ import {
   useState,
 } from 'react';
 import {
+  getDefaultBrowserPGliteDataDir,
+  isBrowserPersistentPGliteDataDir,
+} from './browser-pglite-storage.js';
+import {
   createDatabaseWorkScheduler,
   createScheduledDbHandle,
   type DatabaseWorkOptions,
@@ -19,13 +23,13 @@ import {
   type ScheduledDbHandle,
 } from './database-work-scheduler.js';
 import { type DrizzleDb, drizzle } from './drizzle/database.js';
-import { migrate } from './migrations/bootstrap.js';
+import { migrate, PGVECTOR_EXTENSION_PRESENCE_QUERY } from './migrations/bootstrap.js';
 import { DrizzleFileChunkRepository } from './repositories/drizzle/file-chunk-repository.js';
 import { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-repository.js';
 import { ElectronFileChunkRepository } from './repositories/electron-file-chunk-repository.js';
 import { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
 import type { IDatabase } from './repositories/interfaces.js';
-import { wasmLoader } from './wasm-loader.js';
+import { type PGliteRuntimeClient, wasmLoader } from './wasm-loader.js';
 
 const logger = createLogger('DbProvider');
 
@@ -40,11 +44,11 @@ function logDatabaseError(message: string, error: unknown): void {
  */
 type DbConnection =
   | { kind: 'ipc'; bridge: ElectronDatabaseAPI }
-  | { kind: 'direct'; db: PGlite; dataDir: string };
+  | { kind: 'direct'; db: PGliteRuntimeClient; dataDir: string };
 
-async function closeDirectConnection(db: PGlite, dataDir: string): Promise<void> {
+async function closeDirectConnection(db: PGliteRuntimeClient, dataDir: string): Promise<void> {
   try {
-    if (dataDir.startsWith('idb://')) {
+    if (isBrowserPersistentPGliteDataDir(dataDir)) {
       await wasmLoader.closeCached(dataDir);
     } else {
       await db.close();
@@ -58,7 +62,7 @@ async function closeDirectConnection(db: PGlite, dataDir: string): Promise<void>
 }
 
 async function purgeAndCloseDirectDb(
-  db: PGlite,
+  db: PGliteRuntimeClient,
   dataDir: string,
   purgeTablesTx: (tx: { query: (sql: string) => Promise<unknown> }) => Promise<void>
 ): Promise<void> {
@@ -74,12 +78,12 @@ async function purgeAndCloseDirectDb(
   } catch (err) {
     logger.warn('VACUUM after purge failed:', err);
   }
-  if (dataDir.startsWith('idb://')) {
+  if (isBrowserPersistentPGliteDataDir(dataDir)) {
     try {
       await wasmLoader.closeCached(dataDir);
-      logger.info('[DbProvider] Closed cached IndexedDB instance during factory reset');
+      logger.info('[DbProvider] Closed cached browser PGlite instance during factory reset');
     } catch (err) {
-      logger.warn('Failed to close cached IndexedDB instance during reset:', err);
+      logger.warn('Failed to close cached browser PGlite instance during reset:', err);
     }
   } else {
     try {
@@ -115,6 +119,7 @@ async function loadDrizzleViewFilterPresetsRepository() {
 export interface DbHandle extends IDatabase {
   exec?: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
   readonly raw?: unknown;
+  readonly syncToFs?: () => Promise<void>;
 }
 
 interface QueryExecutor {
@@ -124,6 +129,7 @@ interface QueryExecutor {
     params?: unknown[],
     options?: unknown
   ) => Promise<{ rows: T[] }>;
+  readonly syncToFs?: () => Promise<void>;
   transaction?: <T>(fn: (tx: QueryExecutor) => Promise<T>) => Promise<T>;
 }
 
@@ -157,7 +163,7 @@ interface DbProviderProps {
 export function getDefaultDbPath() {
   const isBrowser = typeof window !== 'undefined';
   if (isBrowser) {
-    return 'idb://app';
+    return getDefaultBrowserPGliteDataDir();
   }
 
   const { tmpdir } = requireNodeOs();
@@ -212,8 +218,15 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
     const result = await executor.query(sql, forwarded.params, forwarded.options);
     return { rows: result.rows as T[] };
   };
+  const syncToFs =
+    typeof executor.syncToFs === 'function'
+      ? async () => {
+          await executor.syncToFs?.();
+        }
+      : undefined;
   const handle: DbHandle = {
     query,
+    ...(syncToFs ? { syncToFs } : {}),
   };
 
   if (typeof executor.exec === 'function') {
@@ -438,7 +451,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       let hasVector = false;
       let diagnostics: DatabaseDiagnosticsSnapshot | null = null;
       try {
-        const res = await electronDB.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
+        const res = await electronDB.query(PGVECTOR_EXTENSION_PRESENCE_QUERY);
         hasVector = Array.isArray(res.rows) && res.rows.length > 0;
       } catch (error) {
         diagnostics = await getElectronDiagnostics(electronDB);
@@ -483,7 +496,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     async (cancelled: { value: boolean }) => {
       logger.debug('Using direct PGlite connection');
 
-      const db = await wasmLoader.createPGlite(resolvedPath);
+      const db = await wasmLoader.createPGliteClient(resolvedPath);
       connectionRef.current = { kind: 'direct', db, dataDir: resolvedPath };
 
       const scheduledDb = createScheduledDbHandle(
@@ -497,9 +510,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       // Check if pgvector extension is available
       let hasVector = false;
       try {
-        const result = await scheduledDb.query(
-          "SELECT 1 FROM pg_extension WHERE extname = 'vector'"
-        );
+        const result = await scheduledDb.query(PGVECTOR_EXTENSION_PRESENCE_QUERY);
         hasVector = result.rows.length > 0;
         logger.debug('pgvector extension detected', { available: hasVector });
       } catch (err) {
@@ -746,22 +757,17 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     if (!(useElectronIPC && w?.electronAPI?.db)) {
       return false;
     }
-    try {
-      await w.electronAPI.db.clearAll?.('CONFIRM_CLEAR_DATABASE');
-    } catch (err) {
-      logger.warn('Electron clearAll during reset failed:', err);
+    if (typeof w.electronAPI.db.resetLocal !== 'function') {
+      throw new Error('Electron database reset bridge is unavailable.');
     }
-    try {
-      const res = await w.electronAPI.db.resetLocal?.();
-      if (res?.success) {
-        // Don't reload here - let the caller handle clearing UI state and reloading
-        // This ensures clearPersistentUiState() runs before the page reloads
-        return true;
-      }
-    } catch (err) {
-      logger.warn('Electron resetLocal during reset failed:', err);
+
+    const res = await w.electronAPI.db.resetLocal();
+    if (!res?.success) {
+      throw new Error(res?.message ?? 'Electron database reset failed.');
     }
-    return false;
+    // Don't reload here - let the caller handle clearing UI state and reloading.
+    // This ensures clearPersistentUiState() runs before the page reloads.
+    return true;
   }, [useElectronIPC]);
 
   const purgeAndClosePGlite = useCallback(async () => {
@@ -912,22 +918,12 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       initializeDatabase,
       vectorEnabled,
       factoryReset: async () => {
-        // Try Electron hard reset and return if successful
-        // Caller (factory-reset-panel) will handle clearing UI state and reloading
-        try {
-          const handled = await tryElectronHardReset();
-          if (handled) {
-            logger.info('[DbProvider] Electron hard reset completed');
-            return;
-          }
-        } catch (err) {
-          logger.warn(
-            '[DbProvider] Electron hard reset failed, falling back to PGlite reset:',
-            err
-          );
+        const handled = await tryElectronHardReset();
+        if (handled) {
+          logger.info('[DbProvider] Electron hard reset completed');
+          return;
         }
 
-        // Fallback: direct PGlite purge and recreate
         await resetPGliteState();
       },
       clearQueuesAndEmbeddingSets: async () => {

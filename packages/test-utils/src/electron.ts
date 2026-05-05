@@ -72,6 +72,7 @@ interface AppMock {
   on: Mock;
   once: Mock;
   quit: Mock;
+  setPath: Mock<(key: string, value: string) => void>;
   whenReady: Mock<() => Promise<void>>;
 }
 
@@ -92,6 +93,7 @@ export function createAppMock(opts?: {
     getVersion: vi.fn(() => '0.0.0-test'),
     isPackaged: false,
     quit: vi.fn(),
+    setPath: vi.fn(),
     on: vi.fn(),
     once: vi.fn(),
   };
