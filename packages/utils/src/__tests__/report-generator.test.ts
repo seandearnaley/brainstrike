@@ -7,6 +7,7 @@ import type {
   IFileNode,
 } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { extractPathSegments } from '../path-utils.js';
 import { generateReport, generateReportFromAdapter } from '../report-generator';
 
 interface MockFileEntry {
@@ -78,7 +79,7 @@ class MockFileSystemAdapter implements FileSystemAdapter {
     if (!path) {
       return this.mockFileSystem;
     }
-    const segments = path.split('/').filter(Boolean);
+    const segments = extractPathSegments(path);
     let current = this.mockFileSystem;
     for (const part of segments) {
       const entry = current[part];
