@@ -160,31 +160,34 @@ async function loadMissingFileContents(
     });
   }
 
-  for (const pendingFile of pending) {
-    tracker.update(tracker.errorCount, pendingFile.name);
+  // Reads are independent; run them concurrently so the import waits on the
+  // slowest file rather than the sum. Errors are reported via `addError`
+  // (singular) the moment they happen so `tracker.errorCount` and any
+  // progress UI reading the live error count stay current during the parallel
+  // window — batching errors until after `Promise.all` would freeze the
+  // displayed count at its pre-loop value.
+  const results = await Promise.all(
+    pending.map(async (pendingFile) => {
+      try {
+        if (pendingFile.fileNode) {
+          const content = await readTextFile(pendingFile.fileNode, fileSystem);
+          return createImportRequest(pendingFile.fileNode, content, embeddingSetId);
+        }
 
-    try {
-      if (pendingFile.fileNode) {
-        const content = await readTextFile(pendingFile.fileNode, fileSystem);
-        requests.push(createImportRequest(pendingFile.fileNode, content, embeddingSetId));
-        continue;
-      }
+        const resolved = await fileSystem.readFileBySelection?.(
+          pendingFile.folderId,
+          pendingFile.path
+        );
+        if (!resolved) {
+          tracker.addError({
+            file: pendingFile.path,
+            error: 'File not found in tree and no cached content available',
+          });
+          return null;
+        }
 
-      const resolved = await fileSystem.readFileBySelection?.(
-        pendingFile.folderId,
-        pendingFile.path
-      );
-      if (!resolved) {
-        tracker.addError({
-          file: pendingFile.path,
-          error: 'File not found in tree and no cached content available',
-        });
-        continue;
-      }
-
-      validateTextContent(resolved.path, resolved.content);
-      requests.push(
-        createImportRequest(
+        validateTextContent(resolved.path, resolved.content);
+        return createImportRequest(
           {
             name: resolved.name,
             path: resolved.path,
@@ -192,16 +195,24 @@ async function loadMissingFileContents(
           },
           resolved.content,
           embeddingSetId
-        )
-      );
-    } catch (error) {
-      tracker.addError({
-        file: pendingFile.path,
-        error: resolveReadError(error),
-      });
+        );
+      } catch (error) {
+        tracker.addError({
+          file: pendingFile.path,
+          error: resolveReadError(error),
+        });
+        return null;
+      } finally {
+        tracker.update(tracker.errorCount, pendingFile.name);
+      }
+    })
+  );
+
+  for (const request of results) {
+    if (request !== null) {
+      requests.push(request);
     }
   }
-
   tracker.clearCurrent();
 
   return requests;

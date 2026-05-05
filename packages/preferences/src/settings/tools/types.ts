@@ -43,10 +43,7 @@ export interface ToolStats {
   total: number;
 }
 
-/**
- * Configuration for live tool queries via PGlite.
- */
-export interface ToolsLiveQueryConfig {
+interface BaseToolsLiveQueryConfig {
   /** Parameters for the SQL query */
   params?: readonly unknown[];
   /** SQL query that returns ToolDisplayMetadata rows */
@@ -54,6 +51,20 @@ export interface ToolsLiveQueryConfig {
   /** Optional selector to transform or filter live rows */
   select?: (rows: ToolDisplayMetadata[]) => ToolDisplayMetadata[];
 }
+
+/**
+ * Configuration for live tool queries via PGlite.
+ */
+export type ToolsLiveQueryConfig =
+  | (BaseToolsLiveQueryConfig & {
+      key?: never;
+      mode?: 'query';
+    })
+  | (BaseToolsLiveQueryConfig & {
+      /** Stable row identity column required by PGlite incremental live queries */
+      key: string;
+      mode: 'incremental';
+    });
 
 /**
  * Result of executing a tool test.

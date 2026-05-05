@@ -874,6 +874,8 @@ afterEach(() => {
   Reflect.deleteProperty(window, 'tools');
   Reflect.deleteProperty(window, 'mcp');
   Reflect.deleteProperty(window, 'assistant');
+  Reflect.deleteProperty(window, 'desktopLifecycle');
+  Reflect.deleteProperty(window, '__brainstrikeAssistantRuntimeTestHooks__');
 });
 
 const renderAssistantPanel = async (providers: string[], afterRender?: () => Promise<void>) => {
@@ -1911,6 +1913,57 @@ describe('AssistantUiPanelWrapper', () => {
       model: 'claude-sonnet-4-5',
     });
     expect(useAssistantPreferencesStore.getState().selectedModel).toBe('openai::gpt-5.2');
+  });
+
+  test('does not expose assistant runtime test hooks outside desktop E2E mode', async () => {
+    (window as typeof window & { desktopLifecycle?: { isTestMode?: boolean } }).desktopLifecycle = {
+      isTestMode: false,
+    };
+
+    await renderAssistantThreadPanel(['openai'], 'thread-existing', () =>
+      waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      })
+    );
+
+    expect(window.__brainstrikeAssistantRuntimeTestHooks__).toBeUndefined();
+  });
+
+  test('registers assistant runtime test hooks only during desktop E2E mode', async () => {
+    (window as typeof window & { desktopLifecycle?: { isTestMode?: boolean } }).desktopLifecycle = {
+      isTestMode: true,
+    };
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+    }));
+
+    const { unmount } = await renderAssistantThreadPanel(
+      ['openai', 'anthropic'],
+      'thread-existing',
+      () =>
+        waitFor(() => {
+          expect(window.__brainstrikeAssistantRuntimeTestHooks__).toBeDefined();
+        })
+    );
+
+    act(() => {
+      window.__brainstrikeAssistantRuntimeTestHooks__?.setCurrentThreadModel(
+        'anthropic::claude-sonnet-4-5'
+      );
+    });
+
+    expect(useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']).toEqual({
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    expect(useAssistantPreferencesStore.getState().selectedModel).toBe(
+      'anthropic::claude-sonnet-4-5'
+    );
+
+    unmount();
+    expect(window.__brainstrikeAssistantRuntimeTestHooks__).toBeUndefined();
   });
 
   test('includes workspace-scoped Mastra memory context in assistant requests', async () => {

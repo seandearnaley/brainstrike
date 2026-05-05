@@ -96,7 +96,7 @@
     "lint": "pnpm run --dir=../.. lint",
     "test": "pnpm run clean:generated && vitest run --project unit",
     "test:browser": "pnpm run clean:generated && vitest run --project browser",
-    "test:coverage": "pnpm -w test:coverage",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },

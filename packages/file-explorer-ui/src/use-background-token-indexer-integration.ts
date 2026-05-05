@@ -24,7 +24,12 @@ import {
 } from '@brainstrike/utils/relative-file-path';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE } from './constants';
+import {
+  getAdaptiveDebounceMs,
+  INDEX_BATCH_SIZE,
+  TOKEN_INDEXER_BATCH_YIELD_MS,
+  TOKEN_INDEXER_IO_BATCH_SIZE,
+} from './constants';
 import { useOptionalFileTreeIndexContext } from './file-tree-provider';
 import { resolveBackgroundIndexerWorkerUrlHref } from './resolve-token-cache-worker-url';
 import { useOptionalTokenCacheContext } from './token-cache-context';
@@ -254,6 +259,24 @@ function shouldEmitLargeSelectionDiagnostics(params: {
     params.electronFileCount >= LARGE_SELECTION_DIAGNOSTIC_FILE_THRESHOLD ||
     params.estimatedElectronBytes >= LARGE_SELECTION_DIAGNOSTIC_BYTES_THRESHOLD
   );
+}
+
+function yieldBetweenTokenIndexingBatches(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, TOKEN_INDEXER_BATCH_YIELD_MS);
+  });
+}
+
+async function yieldIfMoreTokenIndexingBatches(params: {
+  nextIndex: number;
+  onYield: () => void;
+  totalCount: number;
+}): Promise<void> {
+  if (params.nextIndex >= params.totalCount) {
+    return;
+  }
+  params.onYield();
+  await yieldBetweenTokenIndexingBatches();
 }
 
 /**
@@ -946,6 +969,11 @@ export function useBackgroundTokenIndexerIntegration({
         for (let i = 0; i < files.length; i += INDEX_BATCH_SIZE) {
           const batch = files.slice(i, i + INDEX_BATCH_SIZE);
           await indexer.indexFiles(batch);
+          await yieldIfMoreTokenIndexingBatches({
+            nextIndex: i + INDEX_BATCH_SIZE,
+            totalCount: files.length,
+            onYield: () => undefined,
+          });
         }
       };
 
@@ -1107,12 +1135,25 @@ export function useBackgroundTokenIndexerIntegration({
         });
       }
 
-      try {
-        await dispatchBatches(webFilesToIndex);
-      } catch (error) {
-        logger.error('triggerIndexing web batch dispatch failed', {
-          error: error instanceof Error ? error.message : String(error),
-        });
+      logger.debug('Background token indexing classified files', {
+        requestedFiles: compositeKeys.length,
+        webFiles: webFilesToIndex.length,
+        webResolverFiles: webResolverQueue.length,
+        electronFiles: electronFilesToRead.length,
+        skippedBinary,
+        skippedInvalidPath,
+        skippedNoHandle,
+        skippedTooLarge,
+      });
+
+      if (webFilesToIndex.length > 0) {
+        try {
+          await dispatchBatches(webFilesToIndex);
+        } catch (error) {
+          logger.error('triggerIndexing web batch dispatch failed', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
 
       // Resolve missing-handle web files in concurrent windows that match the
@@ -1123,12 +1164,13 @@ export function useBackgroundTokenIndexerIntegration({
       if (webResolverQueue.length > 0) {
         const webResolver = webFileHandleResolverRef.current;
         if (webResolver) {
-          const webResolverBatchSize = 20;
           let webHandlesResolved = 0;
           let webResolverFailures = 0;
           let webResolverSkippedTooLarge = 0;
-          for (let i = 0; i < webResolverQueue.length; i += webResolverBatchSize) {
-            const batch = webResolverQueue.slice(i, i + webResolverBatchSize);
+          let webResolverYieldedBatches = 0;
+          const webResolverStartedAt = Date.now();
+          for (let i = 0; i < webResolverQueue.length; i += TOKEN_INDEXER_IO_BATCH_SIZE) {
+            const batch = webResolverQueue.slice(i, i + TOKEN_INDEXER_IO_BATCH_SIZE);
             const results = await Promise.all(
               batch.map(async (item) => {
                 try {
@@ -1213,11 +1255,23 @@ export function useBackgroundTokenIndexerIntegration({
                 });
               }
             }
+
+            await yieldIfMoreTokenIndexingBatches({
+              nextIndex: i + TOKEN_INDEXER_IO_BATCH_SIZE,
+              totalCount: webResolverQueue.length,
+              onYield: () => {
+                webResolverYieldedBatches += 1;
+              },
+            });
           }
 
           if (emitLargeSelectionDiagnostics) {
             logger.info('Background token indexing dispatched web resolver batches', {
+              batchSize: TOKEN_INDEXER_IO_BATCH_SIZE,
+              elapsedMs: Date.now() - webResolverStartedAt,
               queuedFiles: webResolverQueue.length,
+              remainingFiles: 0,
+              yieldedBatchCount: webResolverYieldedBatches,
               webHandlesResolved,
               webResolverFailures,
               webResolverSkippedTooLarge,
@@ -1243,12 +1297,12 @@ export function useBackgroundTokenIndexerIntegration({
           );
         }
 
-        // Read files in parallel batches to avoid overwhelming IPC
-        const electronBatchSize = 20;
         let electronFilesRead = 0;
         let electronBytesRead = 0;
-        for (let i = 0; i < electronFilesToRead.length; i += electronBatchSize) {
-          const batch = electronFilesToRead.slice(i, i + electronBatchSize);
+        let electronYieldedBatches = 0;
+        const electronStartedAt = Date.now();
+        for (let i = 0; i < electronFilesToRead.length; i += TOKEN_INDEXER_IO_BATCH_SIZE) {
+          const batch = electronFilesToRead.slice(i, i + TOKEN_INDEXER_IO_BATCH_SIZE);
           const results = await Promise.all(
             batch.map(async ({ compositeKey, folderId, filePath, fileSize, handle }) => {
               try {
@@ -1291,14 +1345,30 @@ export function useBackgroundTokenIndexerIntegration({
             });
           }
 
-          if (emitLargeSelectionDiagnostics) {
-            logger.info('Background token indexing dispatched Electron batch', {
-              batchFilesReady: electronFilesReady.length,
-              electronBatchSize,
+          logger.debug('Background token indexing dispatched Electron batch', {
+            batchSize: TOKEN_INDEXER_IO_BATCH_SIZE,
+            batchFilesReady: electronFilesReady.length,
+            electronBytesRead,
+            electronFilesRead,
+            elapsedMs: Date.now() - electronStartedAt,
+            estimatedElectronBytes,
+            remainingFiles: Math.max(electronFilesToRead.length - (i + batch.length), 0),
+            yieldedBatchCount: electronYieldedBatches,
+          });
+
+          if (
+            emitLargeSelectionDiagnostics &&
+            i + TOKEN_INDEXER_IO_BATCH_SIZE >= electronFilesToRead.length
+          ) {
+            logger.info('Background token indexing dispatched Electron batches', {
+              batchSize: TOKEN_INDEXER_IO_BATCH_SIZE,
               electronBytesRead,
               electronFilesRead,
+              elapsedMs: Date.now() - electronStartedAt,
               estimatedElectronBytes,
-              remainingFiles: Math.max(electronFilesToRead.length - (i + batch.length), 0),
+              queuedFiles: electronFilesToRead.length,
+              remainingFiles: 0,
+              yieldedBatchCount: electronYieldedBatches,
             });
           }
 
@@ -1309,6 +1379,14 @@ export function useBackgroundTokenIndexerIntegration({
               error: error instanceof Error ? error.message : String(error),
             });
           }
+
+          await yieldIfMoreTokenIndexingBatches({
+            nextIndex: i + TOKEN_INDEXER_IO_BATCH_SIZE,
+            totalCount: electronFilesToRead.length,
+            onYield: () => {
+              electronYieldedBatches += 1;
+            },
+          });
         }
       }
 

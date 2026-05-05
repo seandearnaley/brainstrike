@@ -1,11 +1,14 @@
 import type { IFileNode } from '@brainstrike/types';
 import * as React from 'react';
 import { ActionButtons } from './action-buttons';
+import type { AddMultipleSelectedFilesChunked } from './hooks/recursive-selection-utils';
 import type { SelectAllResult } from './hooks/use-recursive-select-all';
 
 interface Props {
   /** Add multiple selected files (used by recursive selection) */
   addMultipleSelectedFiles?: (folderId: string, paths: string[]) => void;
+  /** Add multiple selected files with cooperative chunking for large recursive selections. */
+  addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked;
   /** Cancel the current recursive selection operation */
   cancelSelectAll?: () => void;
   currentFolderId: string | null;
@@ -22,6 +25,8 @@ interface Props {
   /** Whether the tree is being loaded for select all */
   isLoadingForSelectAll?: boolean;
   maxSelectionCount: number;
+  /** Called when bulk selection reaches the configured file selection limit. */
+  onSelectionLimitExceeded?: () => void;
   /**
    * Recursively select all files in the provided tree, loading if needed.
    * IMPORTANT: The first parameter is the filtered tree to operate on.
@@ -30,7 +35,8 @@ interface Props {
     filteredTree: IFileNode[],
     folderId: string,
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
-    maxSelectionCount: number
+    maxSelectionCount: number,
+    addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
   ) => Promise<SelectAllResult>;
   selectedFiles: readonly string[];
   setSelectedFiles: (next: readonly string[]) => void;
@@ -54,6 +60,7 @@ const ActionButtonsArrayFacade: React.FC<Props> = (props) => {
   return (
     <ActionButtons
       addMultipleSelectedFiles={props.addMultipleSelectedFiles}
+      addMultipleSelectedFilesChunked={props.addMultipleSelectedFilesChunked}
       cancelSelectAll={props.cancelSelectAll}
       currentFolderId={props.currentFolderId}
       displayedFiles={displayedSet}
@@ -63,6 +70,7 @@ const ActionButtonsArrayFacade: React.FC<Props> = (props) => {
       hasFilesInTree={props.hasFilesInTree}
       isLoadingForSelectAll={props.isLoadingForSelectAll}
       maxSelectionCount={props.maxSelectionCount}
+      onSelectionLimitExceeded={props.onSelectionLimitExceeded}
       selectAllRecursively={props.selectAllRecursively}
       selectedFilePaths={selectedSet}
       setSelectedFiles={setSelectedSet}

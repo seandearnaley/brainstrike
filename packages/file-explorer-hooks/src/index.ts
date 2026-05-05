@@ -1,6 +1,7 @@
 export * from './adapters-context';
 export * from './file-content-processor';
 export * from './file-system-error-helpers';
+export * from './inaccessible-content';
 export * from './progress-utils';
 export * from './use-file-content-loading';
 export * from './use-file-explorer';

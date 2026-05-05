@@ -1,3 +1,5 @@
+import type { UsePGliteLiveQueryOptions } from '@brainstrike/db';
+import { usePGliteLiveQuery } from '@brainstrike/db';
 import type { ElectronAPI } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -81,63 +83,61 @@ vi.mock('@brainstrike/db', async () => {
   return {
     ...actual,
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-    usePGliteLiveQuery: vi.fn(
-      (options: { query: string; params?: readonly unknown[]; enabled?: boolean }) => {
-        if (!options.enabled) {
-          return { rows: [], loading: false, error: null, refresh: vi.fn(async () => {}) };
-        }
-        const query = options.query;
-        if (query.includes("payload->>'embeddingSetId'")) {
-          return {
-            rows: liveQueryState.activeSetQueueCounts.rows,
-            loading: false,
-            error: null,
-            refresh: liveQueryRefresh.activeSetQueueCounts,
-          };
-        }
-        if (query.includes("FILTER (WHERE state = 'queued'")) {
-          return {
-            rows: liveQueryState.queueCounts.rows,
-            loading: false,
-            error: null,
-            refresh: liveQueryRefresh.queueCounts,
-          };
-        }
-        if (query.includes("INTERVAL '60 seconds'")) {
-          return {
-            rows: liveQueryState.throughput.rows,
-            loading: false,
-            error: null,
-            refresh: liveQueryRefresh.throughput,
-          };
-        }
-        if (query.includes("state = 'failed'")) {
-          return {
-            rows: liveQueryState.lastError.rows,
-            loading: false,
-            error: null,
-            refresh: liveQueryRefresh.lastError,
-          };
-        }
-        if (query.includes("INTERVAL '5 minutes'")) {
-          return {
-            rows: liveQueryState.latency.rows,
-            loading: false,
-            error: null,
-            refresh: liveQueryRefresh.latency,
-          };
-        }
-        if (query.includes('chunksWithEmbeddingsForSet')) {
-          return {
-            rows: liveQueryState.coverage.rows,
-            loading: false,
-            error: null,
-            refresh: liveQueryRefresh.coverage,
-          };
-        }
+    usePGliteLiveQuery: vi.fn((options: UsePGliteLiveQueryOptions<unknown>) => {
+      if (!options.enabled) {
         return { rows: [], loading: false, error: null, refresh: vi.fn(async () => {}) };
       }
-    ),
+      const query = options.query;
+      if (query.includes("payload->>'embeddingSetId'")) {
+        return {
+          rows: liveQueryState.activeSetQueueCounts.rows,
+          loading: false,
+          error: null,
+          refresh: liveQueryRefresh.activeSetQueueCounts,
+        };
+      }
+      if (query.includes("FILTER (WHERE state = 'queued'")) {
+        return {
+          rows: liveQueryState.queueCounts.rows,
+          loading: false,
+          error: null,
+          refresh: liveQueryRefresh.queueCounts,
+        };
+      }
+      if (query.includes("INTERVAL '60 seconds'")) {
+        return {
+          rows: liveQueryState.throughput.rows,
+          loading: false,
+          error: null,
+          refresh: liveQueryRefresh.throughput,
+        };
+      }
+      if (query.includes("state = 'failed'")) {
+        return {
+          rows: liveQueryState.lastError.rows,
+          loading: false,
+          error: null,
+          refresh: liveQueryRefresh.lastError,
+        };
+      }
+      if (query.includes("INTERVAL '5 minutes'")) {
+        return {
+          rows: liveQueryState.latency.rows,
+          loading: false,
+          error: null,
+          refresh: liveQueryRefresh.latency,
+        };
+      }
+      if (query.includes('chunksWithEmbeddingsForSet')) {
+        return {
+          rows: liveQueryState.coverage.rows,
+          loading: false,
+          error: null,
+          refresh: liveQueryRefresh.coverage,
+        };
+      }
+      return { rows: [], loading: false, error: null, refresh: vi.fn(async () => {}) };
+    }),
   };
 });
 
@@ -339,12 +339,52 @@ describe('useVectorQueueState', () => {
     expect(result.current.telemetryTrend).toHaveLength(1);
   });
 
+  it('uses incremental live queries only for stable keyed queue detail rows', () => {
+    renderHook(() =>
+      useVectorQueueState({
+        service: createMockService(),
+        controller: createMockController().controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
+
+    const liveQueryCalls = vi.mocked(usePGliteLiveQuery).mock.calls.map(([options]) => options);
+    const queueCountsCall = liveQueryCalls.find((options) =>
+      options.query.includes("FILTER (WHERE state = 'queued'")
+    );
+    const lastErrorCall = liveQueryCalls.find(
+      (options) =>
+        options.query.includes('ORDER BY updated_at DESC') && options.query.includes('LIMIT 1')
+    );
+    const activeSetQueueCountsCall = liveQueryCalls.find((options) =>
+      options.query.includes("payload->>'embeddingSetId'")
+    );
+    const throughputCall = liveQueryCalls.find((options) =>
+      options.query.includes("INTERVAL '60 seconds'")
+    );
+    const latencyCall = liveQueryCalls.find((options) =>
+      options.query.includes("INTERVAL '5 minutes'")
+    );
+    const coverageCall = liveQueryCalls.find((options) =>
+      options.query.includes('chunksWithEmbeddingsForSet')
+    );
+
+    expect(queueCountsCall).not.toHaveProperty('mode', 'incremental');
+    expect(lastErrorCall).not.toHaveProperty('mode', 'incremental');
+    expect(activeSetQueueCountsCall).not.toHaveProperty('mode', 'incremental');
+    expect(throughputCall).not.toHaveProperty('mode', 'incremental');
+    expect(latencyCall).toEqual(expect.objectContaining({ mode: 'incremental', key: 'id' }));
+    expect(coverageCall).not.toHaveProperty('mode', 'incremental');
+  });
+
   it('uses the controller for backfill progress and clears queue-active state afterwards', async () => {
     const controller = createMockController();
     controller.enqueueBackfillMock.mockImplementationOnce(async (embeddingSetId: string) => {
       controller.emitBackfillProgress({
         embeddingSetId,
         requestId: 'embedding-backfill:test',
+        source: 'manual',
         stage: 'backfill',
         current: 2,
         total: 5,
@@ -352,6 +392,7 @@ describe('useVectorQueueState', () => {
       controller.emitBackfillProgress({
         embeddingSetId,
         requestId: 'embedding-backfill:test',
+        source: 'manual',
         stage: 'backfill',
         current: 5,
         total: 5,
@@ -396,6 +437,7 @@ describe('useVectorQueueState', () => {
       controller.emitBackfillProgress({
         embeddingSetId,
         requestId: 'embedding-backfill:shared',
+        source: 'manual',
         stage: 'backfill',
         current: 3,
         total: 10,
@@ -563,6 +605,7 @@ describe('useVectorQueueState', () => {
     controller.emitBackfillProgress({
       embeddingSetId: 'set-1',
       requestId: 'embedding-backfill:first',
+      source: 'manual',
       stage: 'backfill',
       current: 1,
       total: 10,
@@ -572,6 +615,7 @@ describe('useVectorQueueState', () => {
     controller.emitBackfillProgress({
       embeddingSetId: 'set-1',
       requestId: 'embedding-backfill:second',
+      source: 'manual',
       stage: 'backfill',
       current: 4,
       total: 10,

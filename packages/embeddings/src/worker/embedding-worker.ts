@@ -1,5 +1,5 @@
 import type { IDatabase, Job } from '@brainstrike/db';
-import { JobQueue } from '@brainstrike/db';
+import { JobQueue, refreshCollectionIndexingStats } from '@brainstrike/db';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { createLogger, generateUUID } from '@brainstrike/utils';
@@ -21,6 +21,7 @@ import type {
   ModelConfig,
 } from '../types';
 import { FALLBACK_MODEL_CONFIG } from '../types';
+import { EmbeddingCacheMaintenanceController } from './embedding-cache-maintenance';
 
 /**
  * Interface for embedding cache operations.
@@ -28,6 +29,17 @@ import { FALLBACK_MODEL_CONFIG } from '../types';
  * BST-170: Content-level embedding deduplication.
  */
 export interface EmbeddingCacheInterface {
+  /**
+   * Evict stale entries when cache size exceeds its configured cap.
+   * Called cooperatively after the embedding queue drains.
+   */
+  evictIfNeeded?: () => Promise<{ needed: boolean; evicted: number; totalEntries: number }>;
+
+  /**
+   * Flush pending LRU access-time updates before worker shutdown.
+   */
+  flushPendingAccessTimeUpdates?: () => Promise<void>;
+
   /**
    * Get a cached embedding by content hash and model key.
    * Returns hit: true with the entry if found, or hit: false if not cached.
@@ -44,6 +56,16 @@ export interface EmbeddingCacheInterface {
   getBatch(
     requests: ReadonlyArray<{ contentHash: string; modelKey: string }>
   ): Promise<Map<string, CachedEmbedding>>;
+
+  /**
+   * Return cache diagnostics for worker metrics/log output.
+   */
+  getStats?: () => Promise<{
+    newestAccessedAt: Date | null;
+    oldestAccessedAt: Date | null;
+    totalEntries: number;
+    totalHits: number;
+  }>;
 
   /**
    * Store an embedding in the cache.
@@ -302,6 +324,12 @@ export interface EmbeddingWorkerOptions {
   onWorkerActivityChange?: (active: boolean) => void;
   queue?: string; // default: 'embeddings'
   reinitEveryN?: number; // reinitialize service every N successes (default disabled unless env/option set)
+  /**
+   * Optional per-poll effective claim size. The returned value is capped by
+   * claimBatchSize so callers can adapt to foreground pressure without
+   * bypassing the configured maximum burst size.
+   */
+  resolveClaimBatchSize?: () => number | Promise<number>;
   service?: EmbeddingService; // optional DI for tests or custom backends
   /**
    * When true, a fatal local-model initialization/execution error stops the
@@ -311,6 +339,7 @@ export interface EmbeddingWorkerOptions {
   stopOnFatalLocalError?: boolean;
   /** Explicit worker URL for streamed local embedding execution in the renderer host. */
   streamingWorkerUrl?: string;
+  waitForBackgroundPermit?: (options: { readonly label: string }) => Promise<void>;
   workerId?: string; // optional
 }
 
@@ -319,6 +348,7 @@ export interface EmbeddingWorkerController {
 }
 
 const DEFAULT_CLAIM_BATCH_SIZE = 50;
+const CLAIM_SIZE_RESOLVER_FAILURE_BACKOFF_MS = 1000;
 
 function resolvePositiveIntegerOption(
   value: number | undefined,
@@ -412,18 +442,133 @@ async function loadChunksBatch(db: IDatabase, ids: string[], idType: string) {
 }
 
 async function resolveIdType(db: IDatabase, table: string): Promise<string> {
+  type IdTypeProbe = 'information_schema' | 'pg_catalog';
+  const normalizeType = (value: unknown): 'uuid' | 'text' | null => {
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const normalized = value.toLowerCase();
+    if (normalized === 'uuid') {
+      return 'uuid';
+    }
+    if (normalized === 'text') {
+      return 'text';
+    }
+    return null;
+  };
+  const errors: string[] = [];
+  const recordProbeError = (probe: IdTypeProbe, error: unknown): void => {
+    const message = error instanceof Error ? error.message : String(error);
+    errors.push(`${probe}: ${message}`);
+    workerLogger.error('Failed to resolve id type probe for embedding worker', {
+      message,
+      probe,
+      table,
+    });
+  };
+
   try {
-    // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
-    const res = await db.query<{ data_type: string }>(
-      "SELECT data_type FROM information_schema.columns WHERE table_name = $1 AND column_name = 'id'",
+    const res = await db.query<{ dataType: string }>(
+      `SELECT format_type(a.atttypid, a.atttypmod) AS "dataType"
+         FROM pg_catalog.pg_attribute a
+         JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relname = $1
+          AND a.attname = 'id'
+          AND NOT a.attisdropped
+        LIMIT 1`,
       [table]
     );
-    const type = res.rows[0]?.data_type?.toLowerCase() ?? 'text';
-    return type === 'uuid' ? 'uuid' : 'text';
+    const type = normalizeType(res.rows[0]?.dataType);
+    if (type) {
+      return type;
+    }
   } catch (error) {
-    workerLogger.warn(`Failed to resolve ID type for ${table}, defaulting to text`, { error });
-    return 'text';
+    recordProbeError('pg_catalog', error);
   }
+
+  try {
+    const res = await db.query<{ dataType: string }>(
+      `SELECT data_type AS "dataType"
+         FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = $1
+          AND column_name = 'id'
+        LIMIT 1`,
+      [table]
+    );
+    const type = normalizeType(res.rows[0]?.dataType);
+    if (type) {
+      return type;
+    }
+  } catch (error) {
+    recordProbeError('information_schema', error);
+  }
+
+  const suffix = errors.length > 0 ? ` Details: ${errors.join('; ')}` : '';
+  throw new Error(`Failed to resolve ID type for ${table}.id.${suffix}`);
+}
+
+function readRowString(row: Record<string, unknown> | undefined, keys: readonly string[]): string {
+  if (!row) {
+    return '';
+  }
+
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === 'string') {
+      return value;
+    }
+  }
+
+  return '';
+}
+
+async function assertVectorEmbeddingColumn(db: IDatabase): Promise<void> {
+  try {
+    const res = await db.query<Record<string, unknown>>(
+      `SELECT data_type AS "dataType", udt_name AS "udtName"
+       FROM information_schema.columns
+       WHERE table_name = 'file_chunks'
+         AND column_name = 'embedding'
+       LIMIT 1`
+    );
+    const row = res.rows[0];
+    const columnType = `${readRowString(row, ['udtName', 'udt_name', 'udtname'])} ${readRowString(
+      row,
+      ['dataType', 'data_type', 'datatype']
+    )}`.toLowerCase();
+
+    if (columnType.includes('vector')) {
+      return;
+    }
+    if (columnType.trim().length > 0) {
+      throw new Error(`file_chunks.embedding must be a vector column, found: ${columnType}`);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('must be a vector column')) {
+      throw error;
+    }
+    workerLogger.debug('Failed to resolve file_chunks.embedding column type', { error });
+  }
+
+  try {
+    const res = await db.query<{ one: number }>(
+      "SELECT 1 as one FROM pg_extension WHERE extname = 'vector'"
+    );
+    if (Array.isArray(res.rows) && res.rows.length > 0) {
+      return;
+    }
+  } catch (error) {
+    workerLogger.debug('Failed to detect pgvector extension for embedding writes', {
+      error,
+    });
+  }
+
+  workerLogger.debug(
+    'Could not verify file_chunks.embedding column type; continuing with vector writes because initialized Brainstrike databases require pgvector.'
+  );
 }
 
 async function updateChunkEmbeddingBatch(
@@ -434,7 +579,6 @@ async function updateChunkEmbeddingBatch(
     embeddingSetId: string;
     embeddingHash: string;
   }>,
-  vectorEnabled: boolean,
   idType: string
 ) {
   if (updates.length === 0) {
@@ -451,34 +595,10 @@ async function updateChunkEmbeddingBatch(
 
   let sql: string;
 
-  if (vectorEnabled) {
-    if (idType === 'uuid') {
-      sql = `UPDATE file_chunks AS fc
-         SET
-           embedding = t.embedding::vector,
-           embedding_set_id = t.embedding_set_id,
-           embedding_updated_at = $1,
-           embedding_hash = t.embedding_hash,
-           updated_at = $1
-       FROM unnest($2::uuid[], $3::text[], $4::text[], $5::text[])
-         AS t(id, embedding, embedding_set_id, embedding_hash)
-       WHERE fc.id = t.id`;
-    } else {
-      sql = `UPDATE file_chunks AS fc
-         SET
-           embedding = t.embedding::vector,
-           embedding_set_id = t.embedding_set_id,
-           embedding_updated_at = $1,
-           embedding_hash = t.embedding_hash,
-           updated_at = $1
-       FROM unnest($2::text[], $3::text[], $4::text[], $5::text[])
-         AS t(id, embedding, embedding_set_id, embedding_hash)
-       WHERE fc.id = t.id`;
-    }
-  } else if (idType === 'uuid') {
+  if (idType === 'uuid') {
     sql = `UPDATE file_chunks AS fc
          SET
-           embedding = t.embedding,
+           embedding = t.embedding::vector,
            embedding_set_id = t.embedding_set_id,
            embedding_updated_at = $1,
            embedding_hash = t.embedding_hash,
@@ -489,7 +609,7 @@ async function updateChunkEmbeddingBatch(
   } else {
     sql = `UPDATE file_chunks AS fc
          SET
-           embedding = t.embedding,
+           embedding = t.embedding::vector,
            embedding_set_id = t.embedding_set_id,
            embedding_updated_at = $1,
            embedding_hash = t.embedding_hash,
@@ -911,8 +1031,10 @@ export async function startEmbeddingWorker(
   workerLogger.info('startEmbeddingWorker: START', {
     hasDb: !!options.db,
     modelKey: options.modelKey,
+    claimBatchSize: options.claimBatchSize,
     concurrency: options.concurrency,
     device: options.device,
+    interBatchDelayMs: options.interBatchDelayMs,
   });
 
   const log =
@@ -966,6 +1088,8 @@ export async function startEmbeddingWorker(
   const initializeLocalModelOnStart = options.initializeLocalModelOnStart ?? true;
   let activeModelId = modelResolution.modelId;
   let activeCompositeKey = modelResolution.compositeKey;
+  let lastClaimBatchSize = claimBatchSize;
+  let lastClaimBatchSizeError: string | null = null;
   const workerId = options.workerId ?? `embed-worker-${generateUUID().slice(0, 8)}`;
   let service: EmbeddingService;
   let modelConfig: ModelConfig | null = null;
@@ -1019,19 +1143,36 @@ export async function startEmbeddingWorker(
   const jq = new JobQueue(options.db);
   let running = true;
 
-  // Detect pgvector availability once for write path
-  let vectorEnabledForWrites = false;
-  try {
-    const res = await options.db.query<{ one: number }>(
-      "SELECT 1 as one FROM pg_extension WHERE extname = 'vector'"
-    );
-    vectorEnabledForWrites = Array.isArray(res.rows) && res.rows.length > 0;
-  } catch (error) {
-    vectorEnabledForWrites = false;
-    workerLogger.debug('Failed to detect pgvector extension; treating writes as disabled', {
-      error,
-    });
+  async function waitForBackgroundPermit(label: string): Promise<void> {
+    await options.waitForBackgroundPermit?.({ label });
   }
+
+  async function resolveEffectiveClaimBatchSize(): Promise<number | null> {
+    if (!options.resolveClaimBatchSize) {
+      lastClaimBatchSize = claimBatchSize;
+      lastClaimBatchSizeError = null;
+      return claimBatchSize;
+    }
+    try {
+      const resolved = await options.resolveClaimBatchSize();
+      const requestedClaimBatchSize = resolvePositiveIntegerOption(
+        resolved,
+        'resolveClaimBatchSize',
+        claimBatchSize
+      );
+      const effectiveClaimBatchSize = Math.min(requestedClaimBatchSize, claimBatchSize);
+      lastClaimBatchSize = effectiveClaimBatchSize;
+      lastClaimBatchSizeError = null;
+      return effectiveClaimBatchSize;
+    } catch (error) {
+      // Resolver failures skip this claim poll; report the configured ceiling, not a stale value.
+      lastClaimBatchSize = claimBatchSize;
+      lastClaimBatchSizeError = error instanceof Error ? error.message : String(error);
+      return null;
+    }
+  }
+
+  await assertVectorEmbeddingColumn(options.db);
 
   // Lightweight metrics for observability
   const metrics = {
@@ -1258,6 +1399,10 @@ export async function startEmbeddingWorker(
     const shouldReinitialize = forceReinit || targetModelId !== activeModelId;
     const shouldInitializeCurrentModel = !localServiceInitialized;
 
+    if (!(shouldReinitialize || shouldInitializeCurrentModel)) {
+      return;
+    }
+
     workerLogger.debug('ensureLocalModel check', {
       targetModelId,
       activeModelId,
@@ -1265,10 +1410,6 @@ export async function startEmbeddingWorker(
       shouldInitializeCurrentModel,
       forceReinit,
     });
-
-    if (!(shouldReinitialize || shouldInitializeCurrentModel)) {
-      return;
-    }
 
     assertLocalModelSwitchAllowed(targetModelId);
     failFastOnLatchedLocalModelInitializationFailure(
@@ -1591,6 +1732,26 @@ export async function startEmbeddingWorker(
     payload: EmbedChunkPayload;
   }
 
+  const embeddingCacheMaintenance = options.embeddingCache
+    ? new EmbeddingCacheMaintenanceController(options.embeddingCache, {
+        log,
+        warn: (message, meta) => workerLogger.warn(message, meta),
+      })
+    : null;
+
+  function trackCacheWrite(write: Promise<number>): void {
+    embeddingCacheMaintenance?.trackCacheWrite(write);
+  }
+
+  async function runEmbeddingCacheMaintenance(reason: 'queue-idle'): Promise<void> {
+    await embeddingCacheMaintenance?.run(reason);
+  }
+
+  async function flushEmbeddingCacheWrites(): Promise<void> {
+    await embeddingCacheMaintenance?.flushPendingWrites();
+    await options.embeddingCache?.flushPendingAccessTimeUpdates?.();
+  }
+
   // BST-170: Helper to lookup cache hits
   async function lookupCacheHits(
     items: LoadedChunkItem[],
@@ -1626,7 +1787,7 @@ export async function startEmbeddingWorker(
     });
   }
 
-  // BST-170: Helper to store embeddings to cache (fire-and-forget)
+  // BST-170: Helper to store embeddings to cache without failing embedding completion.
   function storeToCacheAsync(
     items: LoadedChunkItem[],
     embeddings: number[][],
@@ -1647,9 +1808,7 @@ export async function startEmbeddingWorker(
       })
       .filter((e): e is NonNullable<typeof e> => e !== null);
 
-    cache.setBatch(entries).catch((err) => {
-      workerLogger.warn('Failed to cache embeddings', { error: err });
-    });
+    trackCacheWrite(cache.setBatch(entries));
   }
 
   // BST-170: Helper to reconstruct results combining cache hits and generated
@@ -1746,7 +1905,8 @@ export async function startEmbeddingWorker(
 
   async function completeBatch(
     toProcess: LoadedChunkItem[],
-    embeddings: number[][]
+    embeddings: number[][],
+    onJobsCompleted?: (jobIds: Set<string>) => void
   ): Promise<Set<string>> {
     // Validate batch size consistency before processing
     if (toProcess.length !== embeddings.length) {
@@ -1781,7 +1941,8 @@ export async function startEmbeddingWorker(
     }
 
     if (updates.length > 0) {
-      await updateChunkEmbeddingBatch(options.db, updates, vectorEnabledForWrites, fileChunkIdType);
+      await waitForBackgroundPermit('embedding completion');
+      await updateChunkEmbeddingBatch(options.db, updates, fileChunkIdType);
     }
 
     const completedJobs = await jq.completeBatch(jobCompletions);
@@ -1789,6 +1950,13 @@ export async function startEmbeddingWorker(
     for (const job of completedJobs) {
       completedJobIds.add(job.id);
     }
+    onJobsCompleted?.(completedJobIds);
+
+    await refreshCollectionIndexingStats(
+      options.db,
+      updates.map((update) => update.embeddingSetId),
+      { label: 'embedding completion stats refresh', priority: 'background' }
+    );
 
     return completedJobIds;
   }
@@ -1796,9 +1964,10 @@ export async function startEmbeddingWorker(
   async function completeBatchAndTrack(
     toProcess: LoadedChunkItem[],
     embeddings: number[][],
-    completedJobIds: Set<string>
+    completedJobIds: Set<string>,
+    onJobsCompleted?: (jobIds: Set<string>) => void
   ): Promise<void> {
-    const newlyCompleted = await completeBatch(toProcess, embeddings);
+    const newlyCompleted = await completeBatch(toProcess, embeddings, onJobsCompleted);
     for (const id of newlyCompleted) {
       completedJobIds.add(id);
     }
@@ -1812,7 +1981,8 @@ export async function startEmbeddingWorker(
     toProcess: LoadedChunkItem[],
     expectedDimension: number,
     completedJobIds: Set<string>,
-    checkLease: () => boolean
+    checkLease: () => boolean,
+    onJobsCompleted?: (jobIds: Set<string>) => void
   ): Promise<void> {
     const modelKey = jobModel.compositeKey;
     const cacheHits = await lookupCacheHits(toProcess, modelKey);
@@ -1826,7 +1996,12 @@ export async function startEmbeddingWorker(
         throw new Error('Lease lost during processing');
       }
       const cachedEmbeddings = reconstructResults(cacheHitItems, cacheHits, [], modelKey);
-      await completeBatchAndTrack(cacheHitItems, cachedEmbeddings, completedJobIds);
+      await completeBatchAndTrack(
+        cacheHitItems,
+        cachedEmbeddings,
+        completedJobIds,
+        onJobsCompleted
+      );
     }
 
     if (cacheMisses.length === 0) {
@@ -1862,7 +2037,7 @@ export async function startEmbeddingWorker(
             return result.embedding;
           });
 
-          await completeBatchAndTrack(batchItems, embeddings, completedJobIds);
+          await completeBatchAndTrack(batchItems, embeddings, completedJobIds, onJobsCompleted);
           storeToCacheAsync(batchItems, embeddings, modelKey, expectedDimension);
         }
       );
@@ -1913,10 +2088,11 @@ export async function startEmbeddingWorker(
   }
 
   function startHeartbeat(jobs: ClaimedJob[], onLeaseLost: (job: ClaimedJob) => void) {
+    const completedJobs = new Set<string>();
     const lostJobs = new Set<string>();
     let isHeartbeating = false;
 
-    return setInterval(() => {
+    const timer = setInterval(() => {
       // Prevent overlapping heartbeats (race condition protection)
       if (isHeartbeating) {
         return;
@@ -1925,7 +2101,9 @@ export async function startEmbeddingWorker(
 
       (async () => {
         try {
-          const activeJobs = jobs.filter((job) => !lostJobs.has(job.id));
+          const activeJobs = jobs.filter(
+            (job) => !(completedJobs.has(job.id) || lostJobs.has(job.id))
+          );
           if (activeJobs.length === 0) {
             return;
           }
@@ -1939,6 +2117,10 @@ export async function startEmbeddingWorker(
           const succeededIds = new Set(heartbeatedJobs.map((j) => j.id));
 
           for (const job of activeJobs) {
+            // Streaming completions can land while heartbeatBatch awaits the DB host.
+            if (completedJobs.has(job.id)) {
+              continue;
+            }
             if (!succeededIds.has(job.id)) {
               workerLogger.error('Heartbeat failed: lease lost', { jobId: job.id });
               lostJobs.add(job.id);
@@ -1952,12 +2134,24 @@ export async function startEmbeddingWorker(
         log('worker_heartbeat_error', { count: jobs.length, error: String(err) });
       });
     }, heartbeatMs);
+
+    return {
+      markCompleted(jobIds: Iterable<string>): void {
+        for (const jobId of jobIds) {
+          completedJobs.add(jobId);
+        }
+      },
+      stop(): void {
+        clearInterval(timer);
+      },
+    };
   }
 
   async function processJobGroup(
     jobs: ClaimedJob[],
     jobModel: ReturnType<typeof resolveJobModel>,
-    checkLease: () => boolean
+    checkLease: () => boolean,
+    onJobsCompleted?: (jobIds: Set<string>) => void
   ) {
     const { toProcess, completed } = await loadAndFilterChunks(jobs, jobModel);
     const completedJobIds = new Set<string>(completed.map((item) => item.job.id));
@@ -1967,7 +2161,7 @@ export async function startEmbeddingWorker(
         throw new Error('Lease lost during processing');
       }
 
-      await markAlreadyCompleted(completed, completedJobIds);
+      await markAlreadyCompleted(completed, completedJobIds, onJobsCompleted);
 
       if (toProcess.length === 0) {
         return;
@@ -1985,7 +2179,8 @@ export async function startEmbeddingWorker(
           toProcess,
           expectedDimension,
           completedJobIds,
-          checkLease
+          checkLease,
+          onJobsCompleted
         );
       } else {
         const embeddings = await generateEmbeddingsForGroup(jobModel, toProcess, expectedDimension);
@@ -1994,7 +2189,7 @@ export async function startEmbeddingWorker(
           throw new Error('Lease lost during processing');
         }
 
-        await completeBatchAndTrack(toProcess, embeddings, completedJobIds);
+        await completeBatchAndTrack(toProcess, embeddings, completedJobIds, onJobsCompleted);
         await maybeReinitialize();
       }
     } catch (err) {
@@ -2012,7 +2207,8 @@ export async function startEmbeddingWorker(
    */
   async function markAlreadyCompleted(
     completed: Array<{ job: ClaimedJob }>,
-    completedJobIds: Set<string>
+    completedJobIds: Set<string>,
+    onJobsCompleted?: (jobIds: Set<string>) => void
   ) {
     if (completed.length === 0) {
       return;
@@ -2020,9 +2216,12 @@ export async function startEmbeddingWorker(
     await jq.completeBatch(
       completed.map((item) => ({ id: item.job.id, leaseToken: item.job.lease_token }))
     );
+    const newlyCompleted = new Set<string>();
     for (const item of completed) {
       completedJobIds.add(item.job.id);
+      newlyCompleted.add(item.job.id);
     }
+    onJobsCompleted?.(newlyCompleted);
     metrics.jobsProcessed += completed.length;
     processedSinceInit += completed.length;
   }
@@ -2064,7 +2263,11 @@ export async function startEmbeddingWorker(
   function createLeaseTracker(
     jobs: ClaimedJob[],
     checkLeaseOverride?: () => boolean
-  ): { checkLease: () => boolean; dispose: () => void } {
+  ): {
+    checkLease: () => boolean;
+    dispose: () => void;
+    markCompleted: (jobIds: Iterable<string>) => void;
+  } {
     let leaseLost = false;
     const checkLease = checkLeaseOverride ?? (() => leaseLost);
     const hb =
@@ -2077,8 +2280,11 @@ export async function startEmbeddingWorker(
       checkLease,
       dispose: () => {
         if (hb) {
-          clearInterval(hb);
+          hb.stop();
         }
+      },
+      markCompleted: (jobIds: Iterable<string>) => {
+        hb?.markCompleted(jobIds);
       },
     };
   }
@@ -2101,7 +2307,8 @@ export async function startEmbeddingWorker(
 
   async function processGroup(
     jobs: ClaimedJob[],
-    checkLeaseOverride?: () => boolean
+    checkLeaseOverride?: () => boolean,
+    onJobsCompleted?: (jobIds: Set<string>) => void
   ): Promise<void> {
     if (jobs.length === 0) {
       return;
@@ -2113,9 +2320,13 @@ export async function startEmbeddingWorker(
     }
 
     const lease = createLeaseTracker(jobs, checkLeaseOverride);
+    const markJobsCompleted = (jobIds: Set<string>) => {
+      lease.markCompleted(jobIds);
+      onJobsCompleted?.(jobIds);
+    };
 
     try {
-      await processJobGroup(jobs, jobModel, lease.checkLease);
+      await processJobGroup(jobs, jobModel, lease.checkLease, markJobsCompleted);
     } catch (error) {
       await handleGroupError(error, jobs, lease.checkLease);
     } finally {
@@ -2163,10 +2374,12 @@ export async function startEmbeddingWorker(
           });
           continue;
         }
-        await processGroup(group, checkLease);
+        await processGroup(group, checkLease, (jobIds) => {
+          batchHeartbeat.markCompleted(jobIds);
+        });
       }
     } finally {
-      clearInterval(batchHeartbeat);
+      batchHeartbeat.stop();
     }
   }
 
@@ -2180,6 +2393,7 @@ export async function startEmbeddingWorker(
         workerLogger.error('Scheduled embedding service reinitialization failed', { error });
       }
     }
+    await runEmbeddingCacheMaintenance('queue-idle');
     // Silent on empty polls - this happens constantly during idle
     await sleep(400); // idle backoff
   }
@@ -2192,12 +2406,18 @@ export async function startEmbeddingWorker(
   async function processBatch(): Promise<void> {
     const batchStart = performance.now();
     try {
+      await waitForBackgroundPermit('embedding claim');
+      const effectiveClaimBatchSize = await resolveEffectiveClaimBatchSize();
+      if (effectiveClaimBatchSize === null) {
+        await sleep(CLAIM_SIZE_RESOLVER_FAILURE_BACKOFF_MS);
+        return;
+      }
       // Claim a batch of jobs
       const jobs = (await jq.claimMany({
         queue: queueName,
         leaseMs,
         workerId,
-        limit: claimBatchSize,
+        limit: effectiveClaimBatchSize,
       })) as ClaimedJob[];
 
       if (jobs.length === 0) {
@@ -2262,6 +2482,8 @@ export async function startEmbeddingWorker(
         avgDurationMs: Math.round(avgMs),
         concurrency,
         claimBatchSize,
+        effectiveClaimBatchSize: lastClaimBatchSize,
+        effectiveClaimBatchSizeError: lastClaimBatchSizeError,
         interBatchDelayMs,
         queue: queueName,
         modelKey: activeCompositeKey,
@@ -2275,6 +2497,7 @@ export async function startEmbeddingWorker(
       running = false;
       reportWorkerActivity(false);
       await Promise.race([Promise.allSettled(loops).then(() => {}), sleep(leaseMs)]);
+      await flushEmbeddingCacheWrites();
       try {
         await service.dispose();
       } catch (error) {

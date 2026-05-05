@@ -1,7 +1,6 @@
 import {
   FileExplorerLeftPanel,
   FileTreeProvider,
-  TabbedFileEditorPanel,
   useFileSystem,
 } from '@brainstrike/file-explorer-ui';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
@@ -12,7 +11,10 @@ import {
 } from '@brainstrike/preferences/stores/panel-layout-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { IdeLayout, PanelLayoutProvider, type PanelLayoutState } from '@brainstrike/ui';
-import { EmbeddingRuntimeProvider } from '@brainstrike/vector-management';
+import {
+  EmbeddingRuntimeProvider,
+  IndexingActivityCoordinator,
+} from '@brainstrike/vector-management';
 import {
   memo,
   type ReactElement,
@@ -168,18 +170,15 @@ function ContextExplorerSurface({
     () => contextExplorerLeftPanelContent ?? <FileExplorerLeftPanel />,
     [contextExplorerLeftPanelContent]
   );
-  const consoleContent = useMemo(() => <TabbedFileEditorPanel className="h-full" />, []);
 
   return (
     <FileTreeWrapper>
       {/* The outer shell owns workspace-vs-assistant geometry; this nested provider owns
-          the route-local context explorer panes inside that workspace surface. */}
+          the route-local context explorer panes inside that workspace surface. The
+          editor area itself hosts the Context Explorer app and any open file tabs;
+          there is no longer a south "console" panel. */}
       <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
-        <IdeLayout
-          consoleContent={consoleContent}
-          leftPanelContent={resolvedLeftPanelContent}
-          panelIdPrefix="context-explorer"
-        >
+        <IdeLayout leftPanelContent={resolvedLeftPanelContent} panelIdPrefix="context-explorer">
           {contextExplorerPageContent}
         </IdeLayout>
       </PanelLayoutProvider>
@@ -284,6 +283,7 @@ export function RootLayoutContent({
           unless a feature explicitly opts into them. */}
       <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
         <EmbeddingRuntimeProvider>
+          <IndexingActivityCoordinator />
           <div
             aria-hidden={activeTab !== 'explorer'}
             className={activeTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}

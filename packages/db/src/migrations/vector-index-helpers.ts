@@ -1,4 +1,4 @@
-import type { PGlite } from '@electric-sql/pglite';
+import type { MigrationTransactionalDb } from './migration-runner';
 
 function wantIvf(): boolean {
   try {
@@ -27,7 +27,9 @@ function hnswParams(): { m: number; ef: number } {
   };
 }
 
-export async function dropExistingVectorIndexes(db: Pick<PGlite, 'exec'>): Promise<void> {
+export async function dropExistingVectorIndexes(
+  db: Pick<MigrationTransactionalDb, 'exec'>
+): Promise<void> {
   try {
     await db.exec('DROP INDEX IF EXISTS idx_file_chunks_embedding_ivf');
   } catch {}
@@ -39,7 +41,7 @@ export async function dropExistingVectorIndexes(db: Pick<PGlite, 'exec'>): Promi
   } catch {}
 }
 
-export async function createVectorIndexes(db: PGlite): Promise<void> {
+export async function createVectorIndexes(db: MigrationTransactionalDb): Promise<void> {
   try {
     const hasVector = await db.query("SELECT 1 as one FROM pg_extension WHERE extname = 'vector'");
     if (!hasVector.rows?.length) {

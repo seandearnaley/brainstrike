@@ -108,6 +108,16 @@ function matchesSearchTerm(record: LogRecord, term: string): boolean {
   return haystack.includes(term);
 }
 
+function getLogRecordContext(record: LogRecord): Record<string, unknown> | null {
+  for (const arg of record.args.toReversed()) {
+    if (arg === null || typeof arg !== 'object' || Array.isArray(arg)) {
+      continue;
+    }
+    return arg as Record<string, unknown>;
+  }
+  return null;
+}
+
 function shouldIncludeLogRecord(
   record: LogRecord,
   minimumLevelIndex: number,
@@ -119,6 +129,36 @@ function shouldIncludeLogRecord(
     matchesScopeSelection(record, scopeSelection) &&
     matchesSearchTerm(record, term)
   );
+}
+
+function getRuntimeSource(record: LogRecord): string {
+  const context = getLogRecordContext(record);
+  const explicitSource = context?.['logSource'];
+  if (typeof explicitSource === 'string' && explicitSource.trim().length > 0) {
+    return explicitSource.trim();
+  }
+  const runtime = record.bindings?.['runtime'];
+  return typeof runtime === 'string' && runtime.trim().length > 0 ? runtime.trim() : 'unknown';
+}
+
+function buildSourceCoverage(records: readonly LogRecord[]): Record<string, number> {
+  const coverage: Record<string, number> = {};
+  for (const record of records) {
+    const source = getRuntimeSource(record);
+    coverage[source] = (coverage[source] ?? 0) + 1;
+  }
+  return Object.fromEntries(
+    Object.entries(coverage).sort(([left], [right]) => defaultCollator.compare(left, right))
+  );
+}
+
+function formatSourceCoverage(records: readonly LogRecord[]): string {
+  if (records.length === 0) {
+    return 'Sources: none';
+  }
+  return `Sources: ${Object.entries(buildSourceCoverage(records))
+    .map(([source, count]) => `${source} ${count.toLocaleString()}`)
+    .join(' · ')}`;
 }
 
 function buildLogColumns(wrapLines: boolean): ColumnDef<LogRecordRow>[] {
@@ -467,7 +507,13 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
       return;
     }
     const exportData = exportRows.map((row) => row.original);
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+    const exportPayload = {
+      exportedAt: new Date().toISOString(),
+      recordCount: exportData.length,
+      sourceCoverage: buildSourceCoverage(exportData),
+      records: exportData,
+    };
+    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], {
       type: 'application/json',
     });
     const url = URL.createObjectURL(blob);
@@ -516,6 +562,7 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
 
   const pageStart = filteredRecords.length === 0 ? 0 : resolvedPageIndex * pagination.pageSize + 1;
   const pageEnd = Math.min(filteredRecords.length, (resolvedPageIndex + 1) * pagination.pageSize);
+  const sourceCoverageText = formatSourceCoverage(filteredRecords);
   const summaryText =
     filteredRecords.length === 0
       ? 'No logs to display.'
@@ -578,7 +625,10 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
 
       <div className="flex items-center justify-between border-border/40 border-t bg-muted/20 px-4 py-2 text-[10px] text-muted-foreground">
         <span data-testid="log-viewer-summary">{summaryText}</span>
-        <span>{autoScroll ? 'Auto-scroll on' : 'Scroll paused'}</span>
+        <span className="flex items-center gap-3">
+          <span data-testid="log-viewer-source-coverage">{sourceCoverageText}</span>
+          <span>{autoScroll ? 'Auto-scroll on' : 'Scroll paused'}</span>
+        </span>
       </div>
       {totalPages > 1 ? (
         <TablePagination

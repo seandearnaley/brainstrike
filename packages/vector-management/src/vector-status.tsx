@@ -249,10 +249,10 @@ export function getBackfillButtonText(
   backfillProgress: { done: number; total: number } | null,
   willAutoStartWorker: boolean
 ): string {
-  if (backfilling && backfillProgress) {
-    return `${backfillProgress.done}/${backfillProgress.total}`;
-  }
   if (backfilling) {
+    if (backfillProgress) {
+      return `${backfillProgress.done}/${backfillProgress.total}`;
+    }
     return 'Backfilling…';
   }
   if (startingWorker) {

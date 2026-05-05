@@ -876,7 +876,7 @@ describe('embedding-backfill', () => {
       queueCapacityTimeoutMs: 50,
     });
     const rejection = expect(backfillPromise).rejects.toThrow(
-      'Backfill timed out while waiting for queue capacity below 64 jobs.'
+      'Backfill timed out while waiting for queue capacity below 64 jobs (queued=64, running=0, failed=0, succeeded=0).'
     );
 
     await vi.advanceTimersByTimeAsync(100);

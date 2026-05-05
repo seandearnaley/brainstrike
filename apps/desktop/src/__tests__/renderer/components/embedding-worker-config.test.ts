@@ -1,3 +1,8 @@
+import {
+  createDatabaseWorkScheduler,
+  createScheduledDbHandle,
+  getDatabaseWorkScheduler,
+} from '@brainstrike/db';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { loggerInfoMock, registryStoreState } = vi.hoisted(() => ({
@@ -28,45 +33,275 @@ vi.mock('@brainstrike/utils/logger', async () => {
 
 import { createEmbeddingWorkerConfig } from '../../../renderer/components/embedding-worker-config';
 
+function createScheduledTestDb(
+  options: Parameters<typeof createDatabaseWorkScheduler>[0] = { foregroundQuietMs: 0 }
+) {
+  const db = { query: vi.fn(async () => ({ rows: [] })) };
+  const scheduler = createDatabaseWorkScheduler(options);
+  return {
+    db,
+    scheduledDb: createScheduledDbHandle(db, scheduler, 'background'),
+  };
+}
+
 describe('createEmbeddingWorkerConfig', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    import.meta.env['VITE_EMBED_CLAIM_BATCH_SIZE'] = '';
     import.meta.env['VITE_EMBED_CONCURRENCY'] = '';
+    import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = '';
     import.meta.env['VITE_EMBED_LEASE_MS'] = '';
     import.meta.env['VITE_EMBED_MODEL_KEY'] = '';
   });
 
   it('uses strict defaults when optional env vars are not configured', () => {
-    const db = { query: vi.fn() };
+    const { db, scheduledDb } = createScheduledTestDb();
 
-    const config = createEmbeddingWorkerConfig(db as never);
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
 
-    expect(config).toEqual({
-      db,
-      claimBatchSize: 4,
+    expect(config).toMatchObject({
+      db: scheduledDb,
+      claimBatchSize: 16,
       concurrency: 1,
       interBatchDelayMs: 75,
       leaseMs: 60_000,
       log: expect.any(Function),
       onDownloadProgress: expect.any(Function),
+      resolveClaimBatchSize: expect.any(Function),
+      waitForBackgroundPermit: expect.any(Function),
     });
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it('uses the idle desktop claim batch when no foreground database work is active', async () => {
+    const { scheduledDb } = createScheduledTestDb();
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
+  });
+
+  it('shares a recent Electron scheduler snapshot between permit and claim-size checks', async () => {
+    const { scheduledDb } = createScheduledTestDb();
+    const snapshot = getDatabaseWorkScheduler(scheduledDb)?.getSnapshot();
+    if (!snapshot) {
+      throw new Error('Test scheduled DB handle did not expose its scheduler.');
+    }
+    const schedulerSnapshot = vi.fn(async () => snapshot);
+    Object.assign(window.electronAPI, {
+      db: {
+        schedulerSnapshot,
+      },
+    });
+
+    const config = createEmbeddingWorkerConfig({ query: vi.fn() } as never);
+
+    await config.waitForBackgroundPermit?.({ label: 'embedding claim' });
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
+
+    expect(schedulerSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reuse an expired Electron scheduler snapshot after a read failure', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1000);
+      const { scheduledDb } = createScheduledTestDb();
+      const scheduler = getDatabaseWorkScheduler(scheduledDb);
+      const idleSnapshot = scheduler?.getSnapshot();
+      if (!idleSnapshot) {
+        throw new Error('Test scheduled DB handle did not expose its scheduler.');
+      }
+      const pressuredSnapshot = {
+        ...idleSnapshot,
+        queued: {
+          ...idleSnapshot.queued,
+          foreground: 1,
+        },
+      };
+      const schedulerSnapshot = vi
+        .fn()
+        .mockResolvedValueOnce(idleSnapshot)
+        .mockRejectedValueOnce(new Error('scheduler unavailable'))
+        .mockResolvedValueOnce(pressuredSnapshot);
+      Object.assign(window.electronAPI, {
+        db: {
+          schedulerSnapshot,
+        },
+      });
+
+      const config = createEmbeddingWorkerConfig({ query: vi.fn() } as never);
+
+      await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
+      vi.setSystemTime(1011);
+      await expect(config.resolveClaimBatchSize?.()).rejects.toThrow('scheduler unavailable');
+      await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+
+      expect(schedulerSnapshot).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('coalesces synchronous Electron scheduler snapshot failures', async () => {
+    const schedulerSnapshot = vi.fn(() => {
+      throw new Error('scheduler crashed synchronously');
+    });
+    Object.assign(window.electronAPI, {
+      db: {
+        schedulerSnapshot,
+      },
+    });
+
+    const config = createEmbeddingWorkerConfig({ query: vi.fn() } as never);
+    const firstRead = config.resolveClaimBatchSize?.();
+    const secondRead = config.resolveClaimBatchSize?.();
+
+    await expect(firstRead).rejects.toThrow('scheduler crashed synchronously');
+    await expect(secondRead).rejects.toThrow('scheduler crashed synchronously');
+    expect(schedulerSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('shrinks desktop claims while foreground database work is running', async () => {
+    const { scheduledDb } = createScheduledTestDb();
+    const scheduler = getDatabaseWorkScheduler(scheduledDb);
+    if (!scheduler) {
+      throw new Error('Test scheduled DB handle did not expose its scheduler.');
+    }
+    let releaseForegroundWork!: () => void;
+    const foregroundWork = scheduler.run(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseForegroundWork = resolve;
+        }),
+      { priority: 'foreground', label: 'test foreground query' }
+    );
+
+    await vi.waitFor(() => {
+      expect(scheduler.getSnapshot().runningPriority).toBe('foreground');
+    });
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+
+    releaseForegroundWork();
+    await foregroundWork;
+  });
+
+  it('shrinks desktop claims after recent high-latency foreground database work', async () => {
+    let now = 1000;
+    const { scheduledDb } = createScheduledTestDb({
+      foregroundQuietMs: 0,
+      now: () => now,
+    });
+    const scheduler = getDatabaseWorkScheduler(scheduledDb);
+    if (!scheduler) {
+      throw new Error('Test scheduled DB handle did not expose its scheduler.');
+    }
+
+    await scheduler.run(
+      async () => {
+        now += 130;
+      },
+      { priority: 'foreground', label: 'slow foreground query' }
+    );
+
+    expect(scheduler.getSnapshot().priorityStats.foreground.serviceP95Ms).toBeGreaterThan(120);
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+  });
+
+  it('shrinks desktop claims after recent high-latency normal database work', async () => {
+    let now = 1000;
+    const { scheduledDb } = createScheduledTestDb({
+      foregroundQuietMs: 0,
+      now: () => now,
+    });
+    const scheduler = getDatabaseWorkScheduler(scheduledDb);
+    if (!scheduler) {
+      throw new Error('Test scheduled DB handle did not expose its scheduler.');
+    }
+
+    await scheduler.run(
+      async () => {
+        now += 130;
+      },
+      { priority: 'normal', label: 'collection count refresh' }
+    );
+
+    expect(scheduler.getSnapshot().priorityStats.normal.serviceP95Ms).toBeGreaterThan(120);
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+  });
+
+  it('shrinks desktop claims at the foreground quiet-window boundary', async () => {
+    let now = 1000;
+    const { scheduledDb } = createScheduledTestDb({
+      foregroundQuietMs: 50,
+      now: () => now,
+    });
+    const scheduler = getDatabaseWorkScheduler(scheduledDb);
+    if (!scheduler) {
+      throw new Error('Test scheduled DB handle did not expose its scheduler.');
+    }
+
+    await scheduler.run(async () => undefined, {
+      priority: 'foreground',
+      label: 'foreground quiet boundary',
+    });
+    now += 50;
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+  });
+
+  it('keeps the configured idle desktop claim batch after low-latency foreground work', async () => {
+    let now = 1000;
+    const { scheduledDb } = createScheduledTestDb({
+      foregroundQuietMs: 0,
+      now: () => now,
+    });
+    const scheduler = getDatabaseWorkScheduler(scheduledDb);
+    if (!scheduler) {
+      throw new Error('Test scheduled DB handle did not expose its scheduler.');
+    }
+
+    await scheduler.run(
+      async () => {
+        now += 20;
+      },
+      { priority: 'foreground', label: 'fast foreground query' }
+    );
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBe(16);
   });
 
   it('uses configured env vars and forwards logs and download progress updates', () => {
     import.meta.env['VITE_EMBED_CONCURRENCY'] = '3';
+    import.meta.env['VITE_EMBED_CLAIM_BATCH_SIZE'] = '4';
+    import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = '75';
     import.meta.env['VITE_EMBED_LEASE_MS'] = '45000';
     import.meta.env['VITE_EMBED_MODEL_KEY'] = 'local:test-model';
-    const db = { query: vi.fn() };
+    const { scheduledDb } = createScheduledTestDb();
 
-    const config = createEmbeddingWorkerConfig(db as never);
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
 
     expect(config).toMatchObject({
-      db,
+      db: scheduledDb,
       claimBatchSize: 4,
       concurrency: 3,
       interBatchDelayMs: 75,
       leaseMs: 45_000,
       modelKey: 'local:test-model',
+      waitForBackgroundPermit: expect.any(Function),
     });
 
     config.log?.('Worker started');
@@ -87,6 +322,22 @@ describe('createEmbeddingWorkerConfig', () => {
 
     expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
       'VITE_EMBED_CONCURRENCY must be a positive integer when configured.'
+    );
+  });
+
+  it('fails fast when embed claim batch size is not a positive integer', () => {
+    import.meta.env['VITE_EMBED_CLAIM_BATCH_SIZE'] = '0';
+
+    expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
+      'VITE_EMBED_CLAIM_BATCH_SIZE must be a positive integer when configured.'
+    );
+  });
+
+  it('fails fast when embed inter-batch delay is not a positive integer', () => {
+    import.meta.env['VITE_EMBED_INTER_BATCH_DELAY_MS'] = 'abc';
+
+    expect(() => createEmbeddingWorkerConfig({} as never)).toThrow(
+      'VITE_EMBED_INTER_BATCH_DELAY_MS must be a positive integer when configured.'
     );
   });
 

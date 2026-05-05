@@ -62,7 +62,7 @@ interface MockLlmGenerateRequest {
   requestId: string;
 }
 
-test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
+test.describe('Assistant UI panel (web, assistant-ui mode) @stateful', () => {
   test.beforeEach(async ({ page }) => {
     const tree = {
       'README.md': '# BrainStrike test workspace',
@@ -171,7 +171,11 @@ test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
       };
     });
 
-    await openAssistantWorkspace(page, { rootName: 'assistant-ui-panel', tree });
+    await openAssistantWorkspace(page, {
+      enableLocalAssistantModel: true,
+      rootName: 'assistant-ui-panel',
+      tree,
+    });
   });
 
   test('send message and see assistant stream with tool progress', async ({ page }) => {

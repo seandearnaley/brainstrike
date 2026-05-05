@@ -38,6 +38,34 @@ describe('EmbeddingSetsRepository', () => {
     expect(set2.distance).toBe('cosine');
   });
 
+  it('creates the embedding set and stats row without manual transaction statements', async () => {
+    const statements: string[] = [];
+    const trackedDb = {
+      exec: db.exec.bind(db),
+      query: async <T = unknown>(sql: string, params?: unknown): Promise<{ rows: T[] }> => {
+        statements.push(sql);
+        return await db.query<T>(sql, params as never);
+      },
+    };
+    const trackedRepo = new EmbeddingSetsRepository(trackedDb);
+
+    const set = await trackedRepo.getOrCreateSet(
+      'transformers::Xenova/tracked',
+      'Xenova/tracked',
+      384,
+      'cosine'
+    );
+
+    const stats = await db.query<{ embedding_set_id: string }>(
+      'SELECT embedding_set_id FROM collection_indexing_stats WHERE embedding_set_id = $1',
+      [set.id]
+    );
+    expect(stats.rows).toHaveLength(1);
+    expect(
+      statements.some((statement) => ['BEGIN', 'COMMIT', 'ROLLBACK'].includes(statement))
+    ).toBe(false);
+  });
+
   it('getByModelKey lists sets for a key', async () => {
     await repo.getOrCreateSet(
       'transformers::Xenova/all-MiniLM-L6-v2',

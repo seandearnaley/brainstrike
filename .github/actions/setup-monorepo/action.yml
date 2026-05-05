@@ -42,7 +42,7 @@ runs:
         path: .turbo
         key: ${{ runner.os }}-node22-turbo-v4-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
         restore-keys: |
-          ${{ runner.os }}-turbo-v4-
+          ${{ runner.os }}-node22-turbo-v4-
 
     - name: Install dependencies
       shell: bash

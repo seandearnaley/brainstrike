@@ -1,4 +1,4 @@
-import { usePGliteDatabase } from '@brainstrike/db';
+import { createEmbeddingCacheRepository, usePGliteDatabase } from '@brainstrike/db';
 import {
   type EmbeddingWorkerController,
   POWER_BROADCAST_CHANNEL,
@@ -202,9 +202,11 @@ async function startEmbeddingHostWorkerRuntime({
     const { devicePref: hydratedDevicePref } = await ensureVectorPreferencesHydrated({
       forceReload: true,
     });
+    const workerConfig = createEmbeddingWorkerConfig(db);
     const controller = await startEmbeddingWorker({
-      ...createEmbeddingWorkerConfig(db),
+      ...workerConfig,
       device: hydratedDevicePref,
+      embeddingCache: createEmbeddingCacheRepository(workerConfig.db),
       initializeLocalModelOnStart: false,
       onFatalError,
       onWorkerActivityChange,

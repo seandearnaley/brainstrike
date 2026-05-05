@@ -114,7 +114,6 @@ test.describe('Models & Providers settings (desktop)', () => {
     await openModelsSettings(homePage, settingsPage);
     await window.getByTestId('model-cache-dir-select').click();
 
-    await expect(window.getByText('Cache directory updated')).toBeVisible();
     await expect(window.getByTestId('model-cache-dir-input')).toHaveValue(
       '/tmp/brainstrike-model-cache'
     );

@@ -522,45 +522,51 @@ describe('embedding worker runtime', () => {
     await vi.advanceTimersByTimeAsync(30_000);
   });
 
-  it('continues embedding when ORT WebGPU device is unavailable', async () => {
+  it('rejects WebGPU embedding when ORT WebGPU device is unavailable', async () => {
     vi.stubGlobal('navigator', { gpu: {} });
     await setOrtWebGpuDevice(null);
 
-    pipelineMock.mockResolvedValue(async () => new Float32Array([0.2, 0.8]));
+    const disposeCatchMock = vi.fn();
+    const disposeMock = vi.fn(() => ({ catch: disposeCatchMock }));
+    pipelineMock.mockResolvedValue(
+      Object.assign(async () => new Float32Array([0.2, 0.8]), { dispose: disposeMock })
+    );
     const runEmbedding = await loadWorker();
-    const result = await runEmbedding({
-      type: 'embed',
-      id: 'guard-missing-env',
-      model: 'bge-m3',
-      texts: ['hello'],
-      deviceHint: 'webgpu',
-    });
-
-    await flushMicrotasks();
-    expect(result.vectors).toHaveLength(1);
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'guard-missing-env',
+        model: 'bge-m3',
+        texts: ['hello'],
+        deviceHint: 'webgpu',
+      })
+    ).rejects.toThrow('WebGPU pipeline loaded without a usable ORT WebGPU device');
+    expect(disposeMock).toHaveBeenCalledTimes(1);
+    expect(disposeCatchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('continues embedding when ORT returns an invalid device object', async () => {
+  it('rejects WebGPU embedding when ORT returns an invalid device object', async () => {
     vi.stubGlobal('navigator', { gpu: {} });
     await setOrtWebGpuDevice(
       Promise.resolve({ lost: Promise.resolve({ message: 'ok' }) } as MockGpuDevice)
     );
 
-    pipelineMock.mockResolvedValue(async () => new Float32Array([0.2, 0.8]));
+    const extractor = async () => new Float32Array([0.2, 0.8]);
+    pipelineMock.mockResolvedValue(extractor);
     const runEmbedding = await loadWorker();
-    const result = await runEmbedding({
-      type: 'embed',
-      id: 'guard-invalid-device',
-      model: 'bge-m3',
-      texts: ['hello'],
-      deviceHint: 'webgpu',
-    });
-
-    await flushMicrotasks();
-    expect(result.vectors).toHaveLength(1);
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'guard-invalid-device',
+        model: 'bge-m3',
+        texts: ['hello'],
+        deviceHint: 'webgpu',
+      })
+    ).rejects.toThrow('WebGPU pipeline loaded without a usable ORT WebGPU device');
+    expect('dispose' in extractor).toBe(false);
   });
 
-  it('continues embedding when ORT device promise rejects', async () => {
+  it('rejects WebGPU embedding when ORT device promise rejects and retries cleanly', async () => {
     vi.stubGlobal('navigator', { gpu: {} });
     const rejectedDevice = Promise.reject(new Error('device unavailable'));
     void rejectedDevice.catch(() => {});
@@ -568,16 +574,36 @@ describe('embedding worker runtime', () => {
 
     pipelineMock.mockResolvedValue(async () => new Float32Array([0.2, 0.8]));
     const runEmbedding = await loadWorker();
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'guard-device-reject',
+        model: 'bge-m3',
+        texts: ['hello'],
+        deviceHint: 'webgpu',
+      })
+    ).rejects.toThrow('WebGPU pipeline loaded without a usable ORT WebGPU device');
+
+    await setOrtWebGpuDevice({
+      lost: new Promise(() => {}),
+      queue: {
+        submit: vi.fn(),
+      },
+      createCommandEncoder: () => ({ finish: () => ({}) }),
+    });
     const result = await runEmbedding({
       type: 'embed',
-      id: 'guard-device-reject',
+      id: 'guard-device-retry',
       model: 'bge-m3',
       texts: ['hello'],
       deviceHint: 'webgpu',
     });
 
-    await flushMicrotasks();
-    expect(result.vectors).toHaveLength(1);
+    expect(result.metadata).toMatchObject({
+      device: 'webgpu',
+      fallbackApplied: false,
+    });
+    expect(pipelineMock).toHaveBeenCalledTimes(2);
   });
 
   it('supports tasks requesting non-default embedding dimensions', async () => {

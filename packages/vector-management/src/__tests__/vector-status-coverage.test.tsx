@@ -490,7 +490,7 @@ describe('VectorStatusWithDb', () => {
       expect(screen.getByRole('button', { name: 'Start worker and backfill' })).toBeInTheDocument();
     });
 
-    it('shows backfill progress during backfill', () => {
+    it('shows progress during backfill when progress is available', () => {
       mockQueueState.backfilling = true;
       mockQueueState.backfillProgress = { done: 3, total: 10 };
       render(<VectorStatusWithDb />);

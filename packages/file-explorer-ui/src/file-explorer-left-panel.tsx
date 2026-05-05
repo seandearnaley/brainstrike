@@ -277,6 +277,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
   // Get store actions for recursive folder selection
   const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);
+  const addMultipleSelectedFilesChunked = useFileExplorerStoreSelector(
+    (s) => s.addMultipleSelectedFilesChunked
+  );
   const { selectedCount, selectedFilePaths, selectedFilesList, setSelectedFilesFromList } =
     useSelectionManager({
       onSelectionLimitExceeded: handleSelectionLimitError,
@@ -296,7 +299,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         addMultipleSelectedFiles,
         maxSelectionCount,
         selectedCount,
-        selectedDescendantCount
+        selectedDescendantCount,
+        addMultipleSelectedFilesChunked
       );
     },
     [
@@ -304,6 +308,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
       rootDirectoryHandle,
       currentFolderId,
       addMultipleSelectedFiles,
+      addMultipleSelectedFilesChunked,
       maxSelectionCount,
       selectedCount,
       selectedFilesList,
@@ -844,6 +849,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
           <div className="@container/footer flex flex-wrap items-center justify-between gap-2 @[360px]:px-4 px-2 @[360px]:py-3 py-2">
             <ActionButtons
               addMultipleSelectedFiles={addMultipleSelectedFiles}
+              addMultipleSelectedFilesChunked={addMultipleSelectedFilesChunked}
               cancelSelectAll={cancelSelectAll}
               currentFolderId={getRootFolderId(rootDirectoryHandle) ?? currentFolderId}
               displayedFiles={displayedFileList}
@@ -853,6 +859,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               hasFilesInTree={fileTree.length > 0}
               isLoadingForSelectAll={isLoadingForSelectAll}
               maxSelectionCount={maxSelectionCount}
+              onSelectionLimitExceeded={handleSelectionLimitError}
               selectAllRecursively={selectAllRecursively}
               selectedFiles={selectedFilesList}
               setSelectedFiles={setSelectedFilesFromList}

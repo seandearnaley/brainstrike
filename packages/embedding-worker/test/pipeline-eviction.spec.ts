@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadWorker, makeExtractor, pipelineMock, resetMocks } from './helpers/pipeline-test-setup';
+import {
+  installMockOrtWebGpuDevice,
+  loadWorker,
+  makeExtractor,
+  pipelineMock,
+  resetMocks,
+} from './helpers/pipeline-test-setup';
 
 describe('pipeline eviction policy', () => {
   beforeEach(() => {
@@ -12,6 +18,7 @@ describe('pipeline eviction policy', () => {
 
   it('loading 2nd GPU pipeline evicts the 1st (max 1 GPU)', async () => {
     vi.stubGlobal('navigator', { gpu: {} });
+    await installMockOrtWebGpuDevice();
 
     const { extractor: gpu1, disposeMock: dispose1 } = makeExtractor('gpu1');
     const { extractor: gpu2 } = makeExtractor('gpu2');
@@ -73,6 +80,7 @@ describe('pipeline eviction policy', () => {
 
   it('GPU and WASM limits are independent', async () => {
     vi.stubGlobal('navigator', { gpu: {} });
+    await installMockOrtWebGpuDevice();
 
     const wasmExtractors = Array.from({ length: 3 }, (_, i) => makeExtractor(`wasm${i}`));
     const { extractor: gpuExtractor } = makeExtractor('gpu0');
