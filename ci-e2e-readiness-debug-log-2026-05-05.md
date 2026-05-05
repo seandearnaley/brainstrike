@@ -503,3 +503,242 @@ Result:
 Learning:
 
 - The current code state satisfies the local required gate. This still does not prove the GitHub Actions matrix is fixed; the next proof point must be the latest PR head CI run after push.
+
+## Current-Head CI Failure After Push `ffbb9312`
+
+Time: 2026-05-05 17:11 EDT
+
+Run:
+
+```text
+Test workflow run 25401287916
+Head ffbb93122c18bd2cf5a3468adbd83db61356bea2
+URL https://github.com/seandearnaley/brainstrike/actions/runs/25401287916
+```
+
+Action taken:
+
+- A foreground one-off watcher was used, not a recurring automation.
+- The first watcher shell had a bug (`zsh: read-only variable: status`) and exited immediately.
+- The watcher was restarted with a non-reserved variable name.
+- When a real failing job appeared, the run was cancelled immediately with `gh run cancel 25401287916 --repo seandearnaley/brainstrike`.
+- No rerun was started.
+
+Observed result:
+
+- The run ended as `cancelled` because it was cancelled after the first real failure.
+- Failing job before cancellation:
+  - `E2E Stateful Tests (assistant-ui)`, job `74503369265`.
+- Downstream failures:
+  - `Merge Test Reports`, because the run was cancelled/failed.
+  - `Required PR Gate`, because required upstream validation failed.
+
+Evidence files:
+
+```text
+/tmp/brainstrike-pr955-run-25401287916/e2e-stateful-assistant-ui.log
+/tmp/brainstrike-pr955-run-25401287916/artifacts/stateful-blob-report-assistant-ui.tar
+/tmp/brainstrike-pr955-run-25401287916/artifacts/extracted/blob-report/report-functional-ba5b097.zip
+/tmp/brainstrike-pr955-run-25401287916/assistant-ui-report
+```
+
+Failing CI command:
+
+```text
+pnpm exec playwright test --project=functional --workers=1 --grep "@stateful" e2e/assistant-ui-panel.test.ts
+```
+
+Failing assertion:
+
+```text
+apps/web/e2e/utils/assistant-workspace.ts:177
+await expect(page.getByTestId('assistant-thread-tabs-workspace')).toBeVisible({ timeout: 15_000 });
+```
+
+Error:
+
+```text
+Locator: getByTestId('assistant-thread-tabs-workspace')
+Expected: visible
+Timeout: 15000ms
+Error: element(s) not found
+```
+
+Failed tests:
+
+- `send message and see assistant stream with tool progress` failed once, passed on retry.
+- `keeps streamed tool details collapsed until explicitly expanded` failed all attempts.
+- `keeps composer controls in the input shell and reveals collapsed history` failed all attempts.
+- `keeps the assistant tab controller stable when tabs overflow` failed all attempts.
+
+Important partial validation from the same GitHub head:
+
+- `Checks (static)` passed.
+- `Code Quality Checks` passed.
+- `Build Web App` passed.
+- `Build Desktop App` passed.
+- `E2E Destructive Tests` passed.
+- `E2E Tests (Shard 4/5)` passed, which means the previous web model registry readiness patch survived the GitHub shard that had failed before.
+- `E2E Stateful Tests (settings-state)` passed.
+- `E2E Stateful Tests (database-startup)` passed.
+- `E2E Stateful Tests (import)` passed.
+- Desktop embedding lifecycle and memory lanes passed before cancellation.
+
+Key code evidence:
+
+- `apps/web/e2e/utils/assistant-workspace.ts` calls `waitForAppLoad(page, { waitForDatabase: false })` before reset, then after reset/reload calls `waitForAppLoad(page, { waitForDatabase: options.waitForDatabase ?? false })`.
+- The same helper then waits for `assistant-thread-tabs-workspace`.
+- `packages/app-shell/src/assistant-thread-tabs-workspace.tsx` only renders `assistant-thread-tabs-workspace` when both a workspace resource id and a PGlite-backed assistant memory repository exist.
+- If the repository is missing, the component renders the explicit state `Memory database unavailable` with the description `Assistant memory requires an initialized PGlite database.`
+- The CI error contexts include this unavailable state, which means the test helper was asking for a DB-backed assistant UI after explicitly allowing shell-only readiness.
+
+## Hypothesis Reset After `ffbb9312` Failure
+
+Primary hypothesis now:
+
+The assistant UI stateful helper has the same readiness-class bug as the previous web model registry failure, but on a different surface. `openAssistantWorkspace` treats database readiness as optional by default even though it always waits for the DB-backed assistant thread workspace. CI is slower and exposes the race; local usually outruns it.
+
+Ten concrete possibilities before patching:
+
+1. `openAssistantWorkspace` incorrectly defaults to shell-only readiness after reload even though `assistant-thread-tabs-workspace` requires a PGlite-backed repository.
+2. `resetAppState` plus `page.reload()` clears or delays assistant memory initialization, and the helper does not wait for DB readiness after that reset boundary.
+3. Generic status-bar DB readiness may not be enough because assistant memory repository readiness is owned by a separate React provider/subtree.
+4. `mockBrowserApis` can select a workspace root before the assistant memory repository exists, causing `ensureResourceThreads` to see no repository and render the unavailable state first.
+5. The local assistant model init script may seed preferences before reload, but reset/reload ordering may still create an assistant setup race under CI timing.
+6. `AssistantThreadTabsWorkspace` may render `Memory database unavailable` as a state that does not reliably transition when `usePGliteDatabase()` later becomes non-null.
+7. The production preview path in GitHub Actions initializes PGlite slower than the 15 second assistant workspace assertion, while local machines usually finish sooner.
+8. File root selection and assistant thread initialization may be racing; route/resource state may become valid before memory-backed thread state is ready.
+9. The accessible tablist seen in some snapshots may appear in a later/partial render than the wrapper `data-testid`, so the current assertion may lack useful state diagnostics.
+10. The assistant-ui stateful lane may be missing a harness preflight for assistant memory readiness, so it validates the app shell while the actual DB-backed assistant subsystem is not usable.
+
+Next action:
+
+- Add a focused contract test for `openAssistantWorkspace` readiness behavior before changing implementation.
+- Patch the helper so its default matches the DB-backed element it waits for.
+- Re-run the targeted assistant UI stateful command, then the full root gate, then push and watch the next GitHub run without starting any recurring automation.
+
+### Red Contract Test For Assistant Workspace Readiness
+
+Time: 2026-05-05 17:13 EDT
+
+Command:
+
+```text
+pnpm --filter @brainstrike/web exec vitest run e2e/utils/__tests__/assistant-workspace.vitest.ts
+```
+
+Result:
+
+- Failed as intended before implementation.
+
+Failure:
+
+```text
+expected 2nd "vi.fn()" call to have been called with ... { waitForDatabase: true }
+Received ... { waitForDatabase: false }
+```
+
+Learning:
+
+- The helper's current implementation does not match the assistant workspace contract. It proves the CI failure hypothesis at the utility level: after reset/reload, the assistant helper still uses shell-only app readiness even though it immediately waits for a DB-backed assistant thread workspace.
+
+### Assistant Workspace Readiness Fix
+
+Time: 2026-05-05 17:14 EDT
+
+Change:
+
+- Removed the optional shell-only readiness path from `openAssistantWorkspace`.
+- The helper still uses shell-only readiness before reset so it can reach the app and clear state.
+- After `resetAppState()` and reload, it now always calls `waitForAppLoad(page, { waitForDatabase: true })` before waiting for `assistant-thread-tabs-workspace`.
+
+Reason:
+
+- `assistant-thread-tabs-workspace` cannot render without the PGlite-backed assistant memory repository. Allowing shell-only readiness at that point was an invalid harness contract.
+
+Targeted contract verification:
+
+```text
+pnpm --filter @brainstrike/web exec vitest run e2e/utils/__tests__/assistant-workspace.vitest.ts
+```
+
+Result:
+
+- 1/1 passed.
+
+Targeted E2E verification:
+
+```text
+CI=true GITHUB_ACTIONS=true NODE_ENV=production PORT=8080 BASE_URL=http://127.0.0.1:8080 pnpm --filter @brainstrike/web exec playwright test --project=functional --workers=1 --retries=0 --max-failures=1 --grep "@stateful" e2e/assistant-ui-panel.test.ts
+```
+
+Result:
+
+- 4/4 passed.
+
+Learning:
+
+- The failed assistant-ui stateful command now passes locally under CI flags. This validates the local regression path, but it is not proof that GitHub Actions is fixed. The next required proof is the full root gate followed by a new PR head run in GitHub.
+
+### Full Root Gate After Assistant Workspace Fix
+
+Time: 2026-05-05 17:16 EDT
+
+Command:
+
+```text
+pnpm lint && pnpm type-check && pnpm build && pnpm test
+```
+
+Result:
+
+- Passed.
+- `pnpm lint` passed. Biome formatted the new assistant workspace contract test.
+- `pnpm type-check` passed.
+- `pnpm build` passed.
+- `pnpm test` passed.
+
+Learning:
+
+- The patch is clean against the local required gate in one run. This still does not prove GitHub Actions; the next required evidence is a pushed PR-head Test workflow run.
+
+### Final Pre-Commit Root Gate Rerun
+
+Time: 2026-05-05 17:16 EDT
+
+Command:
+
+```text
+pnpm lint && pnpm type-check && pnpm build && pnpm test
+```
+
+Result:
+
+- Passed.
+- `pnpm lint` passed with no fixes applied.
+- `pnpm type-check` passed.
+- `pnpm build` passed.
+- `pnpm test` passed.
+
+Learning:
+
+- The final code state is clean against the local root gate immediately before staging. This is still not treated as CI proof.
+
+### Post-Log Lint Check
+
+Time: 2026-05-05 17:17 EDT
+
+Command:
+
+```text
+pnpm lint
+```
+
+Result:
+
+- Passed.
+- No fixes applied.
+
+Learning:
+
+- The final markdown update did not trigger lint or contract changes.

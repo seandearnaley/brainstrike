@@ -12,7 +12,6 @@ interface AssistantWorkspaceOptions {
   readonly enableLocalAssistantModel?: boolean;
   readonly rootName?: string;
   readonly tree?: FileTree;
-  readonly waitForDatabase?: boolean;
 }
 
 const DEFAULT_ASSISTANT_TREE: FileTree = {
@@ -167,7 +166,7 @@ export async function openAssistantWorkspace(
   await waitForAppLoad(page, { waitForDatabase: false });
   await resetAppState(page);
   await page.reload({ waitUntil: 'load' });
-  await waitForAppLoad(page, { waitForDatabase: options.waitForDatabase ?? false });
+  await waitForAppLoad(page, { waitForDatabase: true });
 
   const selectRootButton = page.getByRole('button', { name: /^Select Root$/i });
   if (await selectRootButton.isVisible().catch(() => false)) {
