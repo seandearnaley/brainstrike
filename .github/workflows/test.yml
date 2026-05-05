@@ -628,7 +628,7 @@ jobs:
           - group: file-explorer-persistence
             testFiles: e2e/file-explorer-persistence.test.ts
           - group: assistant-ui
-            testFiles: e2e/assistant-ui-panel.test.ts
+            testFiles: e2e/assistant-ui-panel.test.ts e2e/assistant-local-availability.test.ts e2e/assistant-panel.test.ts e2e/assistant-panel-interactions.test.ts
           - group: database-startup
             testFiles: e2e/tools-panel-persistence.test.ts e2e/web-db-worker-startup.test.ts e2e/embedding-worker-telemetry.test.ts
           - group: settings-state

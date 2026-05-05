@@ -94,6 +94,10 @@ function isFastShardDbReadinessCall(node) {
     }
   }
 
+  if (calleeName === 'openAssistantWorkspace') {
+    return 'openAssistantWorkspace requires DB-backed assistant readiness in an isolated path';
+  }
+
   if (calleeParts.length === 2 && calleeParts[0] === 'home' && calleeParts[1] === 'goto') {
     const options = node.arguments[0];
     if (!options || !hasExplicitShellOnlyOption(options)) {

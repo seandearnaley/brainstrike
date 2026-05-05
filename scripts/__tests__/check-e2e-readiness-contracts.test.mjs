@@ -91,6 +91,25 @@ test('flags DB-backed model registry row assertions outside isolated test ranges
   ]);
 });
 
+test('flags DB-backed assistant workspace setup outside isolated test ranges', () => {
+  const source = `
+    import { test } from '@playwright/test';
+    import { openAssistantWorkspace } from './utils/assistant-workspace';
+
+    test('assistant test', async ({ page }) => {
+      await openAssistantWorkspace(page);
+    });
+  `;
+
+  assert.deepEqual(findFastShardDbReadinessViolations(source, 'apps/web/e2e/assistant.test.ts'), [
+    {
+      file: 'apps/web/e2e/assistant.test.ts',
+      line: 6,
+      reason: 'openAssistantWorkspace requires DB-backed assistant readiness in an isolated path',
+    },
+  ]);
+});
+
 test('ignores DB readiness inside stateful and destructive title ranges', () => {
   const source = `
     import { test } from '@playwright/test';

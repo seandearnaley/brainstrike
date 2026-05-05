@@ -742,3 +742,213 @@ Result:
 Learning:
 
 - The final markdown update did not trigger lint or contract changes.
+
+## Current-Head CI Failure After Push `3a501115`
+
+Time: 2026-05-05 17:37 EDT
+
+Run:
+
+```text
+Test workflow run 25402852545
+Head 3a501115e42aeda05554dea7143dda673292ab1d
+URL https://github.com/seandearnaley/brainstrike/actions/runs/25402852545
+```
+
+Action taken:
+
+- The run was watched in the foreground.
+- When the first real failing job appeared, the run was cancelled immediately with `gh run cancel 25402852545 --repo seandearnaley/brainstrike`.
+- No rerun was started.
+
+Failing job:
+
+```text
+E2E Tests (Shard 1/5)
+Job 74507591732
+URL https://github.com/seandearnaley/brainstrike/actions/runs/25402852545/job/74507591732
+```
+
+Evidence files:
+
+```text
+/tmp/brainstrike-pr955-run-25402852545/e2e-shard-1.log
+/tmp/brainstrike-pr955-run-25402852545/artifacts/blob-report-1.tar
+/tmp/brainstrike-pr955-run-25402852545/artifacts/extracted/blob-report/report-functional-5a51a54-1.zip
+/tmp/brainstrike-pr955-run-25402852545/shard-1-report
+```
+
+Important successes before cancellation:
+
+- `E2E Stateful Tests (assistant-ui)` passed on GitHub for this head.
+- `E2E Tests (Shard 4/5)` passed.
+- `Browser Tests (Vitest 4)` passed.
+- `E2E Stateful Tests (settings-state)` passed.
+- `E2E Stateful Tests (database-startup)` passed.
+- `E2E Stateful Tests (import)` passed.
+- Desktop regression shards 1/4, 3/4, and 4/4 passed.
+- Desktop embedding lifecycle, backfill, memory, recovery, search, and mixed lanes passed.
+
+Failing CI command:
+
+```text
+pnpm exec playwright test --project=functional --workers=2 --grep-invert "@destructive|@stateful" --shard=1/5
+```
+
+Failing test:
+
+```text
+apps/web/e2e/assistant-local-availability.test.ts
+Assistant local availability (web) > enables the assistant when the built-in local model is available without hosted keys
+```
+
+Failure:
+
+```text
+Test timeout of 60000ms exceeded while running "beforeEach" hook.
+Error: Database failed to initialize before the app became test-ready.
+Last observed state was missing. E2E hooks present: no.
+Last wait error: page.waitForFunction: Test timeout of 60000ms exceeded.
+```
+
+Page snapshot:
+
+- The app shell was mounted.
+- Status bar showed `Storage: Connecting...`.
+- The workspace had no root selected yet.
+- Assistant panel showed `Assistant unavailable` / `Could not determine assistant status` / `Failed to fetch`.
+
+Key code evidence:
+
+- `assistant-local-availability.test.ts` calls `openAssistantWorkspace(... enableLocalAssistantModel: true ...)`.
+- `openAssistantWorkspace` now correctly waits for DB readiness because the assistant workspace is DB-backed.
+- `assistant-local-availability.test.ts` is not tagged `@stateful`, so the fast shard still runs it with `--grep-invert "@destructive|@stateful"` and `--workers=2`.
+- The workflow only runs `@stateful` files that are listed in the `e2e-stateful` matrix.
+- The existing stateful matrix has an `assistant-ui` group, but it only lists `e2e/assistant-ui-panel.test.ts`.
+
+## Hypothesis Reset After `3a501115` Failure
+
+Primary hypothesis now:
+
+The helper contract is correct, but the lane contract is incomplete. Any spec that calls `openAssistantWorkspace` is DB-backed and should not run in the fast sharded lane. The prior patch made that hidden contract visible by forcing DB readiness; `assistant-local-availability.test.ts` was still incorrectly classified as a fast shard test.
+
+Ten concrete possibilities before patching:
+
+1. `assistant-local-availability.test.ts` is misclassified; it uses the DB-backed assistant workspace helper but lacks `@stateful`.
+2. Other assistant specs using `openAssistantWorkspace` are also misclassified and only avoided failure because they skipped when the hosted assistant API was unavailable.
+3. The stateful matrix is incomplete; tagging a file without adding it to the matrix would silently remove it from fast shards without running it anywhere.
+4. The readiness contract checker does not currently flag `openAssistantWorkspace` calls in fast shard specs, so this class can return.
+5. The local availability test needs one-worker isolation because DB startup plus mocked local model setup is not safe in the two-worker fast shard.
+6. The test may still need a longer test-level timeout once moved to the stateful lane, but increasing timeouts alone would hide the wrong-lane issue.
+7. The assistant local availability setup may depend on DB readiness before root selection, while fast shard concurrency keeps the DB provider in `Connecting...` until the test timeout.
+8. The generic status-bar DB readiness may be too coarse for assistant readiness, but the current failure occurred before root selection and before assistant memory could render, so lane classification is the first contract to fix.
+9. The workflow may need the entire assistant helper family grouped into one `assistant-ui` stateful lane to keep helper usage explicit.
+10. The current test skipped behavior for hosted assistant specs may mask DB readiness problems when API keys are present in another environment.
+
+Next action:
+
+- Mark all `openAssistantWorkspace`-based assistant E2E specs as `@stateful`.
+- Add those specs to the `e2e-stateful` assistant-ui matrix group.
+- Extend the readiness contract checker so `openAssistantWorkspace` cannot be used in fast shard specs.
+- Run the targeted contract test and the targeted stateful assistant group locally before the full root gate.
+
+## Patch Attempt: Route Assistant Workspace Specs To Stateful Lane
+
+Time: 2026-05-05 17:41 EDT
+
+Files changed:
+
+- `apps/web/e2e/assistant-local-availability.test.ts`
+- `apps/web/e2e/assistant-panel.test.ts`
+- `apps/web/e2e/assistant-panel-interactions.test.ts`
+- `.github/workflows/test.yml`
+- `scripts/check-e2e-readiness-contracts.mjs`
+- `scripts/__tests__/check-e2e-readiness-contracts.test.mjs`
+
+Change:
+
+- Tagged all currently known `openAssistantWorkspace` specs as `@stateful`.
+- Added those specs to the existing `e2e-stateful` `assistant-ui` matrix group.
+- Added a readiness contract check that flags `openAssistantWorkspace` in fast-shard specs.
+
+Targeted contract validation:
+
+```text
+node --test scripts/__tests__/check-e2e-readiness-contracts.test.mjs
+node scripts/check-e2e-readiness-contracts.mjs
+node scripts/check-e2e-stateful-matrix.mjs
+pnpm test:scripts
+```
+
+Result:
+
+- Passed.
+- `check-e2e-readiness-contracts` now fails on DB-backed assistant workspace usage outside isolated stateful/destructive ranges.
+- `check-e2e-stateful-matrix` confirms the tagged assistant specs are included in the stateful workflow matrix.
+- Full scripts suite passed 91/91.
+
+Targeted E2E validation:
+
+```text
+CI=true GITHUB_ACTIONS=true NODE_ENV=production PORT=8080 BASE_URL=http://127.0.0.1:8080 pnpm --filter @brainstrike/web exec playwright test --project=functional --workers=1 --grep "@stateful" e2e/assistant-ui-panel.test.ts e2e/assistant-local-availability.test.ts e2e/assistant-panel.test.ts e2e/assistant-panel-interactions.test.ts
+```
+
+Result:
+
+- Passed: 5 passed, 2 skipped.
+- `assistant-local-availability.test.ts` passed in the stateful lane shape.
+- `assistant-panel.test.ts` and `assistant-panel-interactions.test.ts` skipped because the hosted assistant API was unavailable in this local environment.
+
+Learning:
+
+- The prior failure class was reproducible as a lane contract bug in code: assistant workspace specs were DB-backed but not all isolated from the fast two-worker shard.
+- Local E2E passing is only a targeted sanity check. The required proof is still the next GitHub Actions run on the pushed head.
+
+Next action:
+
+- Run the full root gate before staging.
+
+## Full Root Gate Before Commit
+
+Time: 2026-05-05 17:42 EDT
+
+Command:
+
+```text
+pnpm lint && pnpm type-check && pnpm build && pnpm test
+```
+
+Result:
+
+- Passed.
+- `pnpm lint` passed with no fixes applied.
+- `pnpm type-check` passed.
+- `pnpm build` passed.
+- `pnpm test` passed.
+
+Learning:
+
+- The current patch is clean against the local required gate. This remains only local evidence; GitHub Actions is still the required proof because the observed failures are CI lane/runtime failures.
+
+Next action:
+
+- Stage the scoped files, commit, push, then watch the new PR-head Test workflow.
+
+## Post-Log Lint Check
+
+Time: 2026-05-05 17:43 EDT
+
+Command:
+
+```text
+pnpm lint
+```
+
+Result:
+
+- Passed.
+- No fixes applied.
+
+Learning:
+
+- The markdown log update did not introduce formatting or contract drift.
