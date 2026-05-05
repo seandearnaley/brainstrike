@@ -5,10 +5,12 @@ import { test } from 'node:test';
 import {
   extractJob,
   validateDesktopE2EContracts,
+  validateSetupMonorepoContracts,
   validateWorkflowContracts,
 } from '../check-ci-workflow-contracts.mjs';
 
 const workflowSource = await readFile('.github/workflows/test.yml', 'utf8');
+const setupMonorepoSource = await readFile('.github/actions/setup-monorepo/action.yml', 'utf8');
 
 test('extractJob returns a single workflow job block', () => {
   const e2e = extractJob(workflowSource, 'e2e');
@@ -39,6 +41,46 @@ test('extractJob stops before dotted job names', () => {
 
 test('current workflow satisfies CI cost and E2E routing contracts', () => {
   assert.deepEqual(validateWorkflowContracts(workflowSource), []);
+});
+
+test('setup monorepo action satisfies cache contracts', () => {
+  assert.deepEqual(validateSetupMonorepoContracts(setupMonorepoSource), []);
+});
+
+test('workflow contract fails when Turbo commands stop using the shared cache directory', () => {
+  const source = workflowSource.replace(' --cache-dir=.turbo', '');
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Turbo commands in the Test workflow must use the shared \.turbo cache directory/
+  );
+});
+
+test('workflow contract fails when Turbo command summaries are dropped', () => {
+  const source = workflowSource.replace(' --summarize', '');
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Turbo commands in the Test workflow must emit run summaries/
+  );
+});
+
+test('setup monorepo contract fails when Turborepo cache path is removed', () => {
+  const source = setupMonorepoSource.replace('path: .turbo', 'path: .turbo-disabled');
+
+  assert.match(
+    validateSetupMonorepoContracts(source).join('\n'),
+    /must cache the shared \.turbo directory/
+  );
+});
+
+test('setup monorepo contract fails when Turborepo config stops invalidating cache keys', () => {
+  const source = setupMonorepoSource.replace(", 'turbo.jsonc'", '');
+
+  assert.match(
+    validateSetupMonorepoContracts(source).join('\n'),
+    /cache key must include lockfile, turbo config, and tsconfig inputs/
+  );
 });
 
 test('workflow contract fails when blob reports upload on success', () => {

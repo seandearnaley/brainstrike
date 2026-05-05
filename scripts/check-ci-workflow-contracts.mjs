@@ -4,6 +4,7 @@ import path from 'node:path';
 
 const rootDir = process.cwd();
 const workflowPath = path.join(rootDir, '.github/workflows/test.yml');
+const setupMonorepoActionPath = path.join(rootDir, '.github/actions/setup-monorepo/action.yml');
 const desktopPlaywrightConfigPath = path.join(rootDir, 'apps/desktop/playwright.config.ts');
 const playwrightEnvironmentPath = path.join(rootDir, 'packages/config/src/playwright-environment.ts');
 
@@ -69,6 +70,15 @@ function escapeRegExp(source) {
 
 function requireYamlListItem(source, item, message, failures) {
   requireMatch(source, new RegExp(`^\\s+- ${escapeRegExp(item)}\\s*$`, 'm'), message, failures);
+}
+
+function requireEveryTurboCommandHas(source, text, message, failures) {
+  const commandLines = source.split('\n').filter((line) => line.includes('pnpm turbo run'));
+  for (const line of commandLines) {
+    if (!line.includes(text)) {
+      failures.push(`${message} Offending command: ${line.trim()}`);
+    }
+  }
 }
 
 function requireDesktopEmbeddingJobContracts(source, prefix, failures) {
@@ -200,6 +210,24 @@ export function validateWorkflowContracts(source) {
     source,
     /concurrency:[\s\S]*cancel-in-progress:\s*\$\{\{\s*github\.event_name == 'pull_request'\s*\}\}/,
     'Test workflow must cancel superseded pull_request runs.',
+    failures
+  );
+  requireEveryTurboCommandHas(
+    source,
+    '--cache-dir=.turbo',
+    'Turbo commands in the Test workflow must use the shared .turbo cache directory.',
+    failures
+  );
+  requireEveryTurboCommandHas(
+    source,
+    '--summarize',
+    'Turbo commands in the Test workflow must emit run summaries for diagnostics.',
+    failures
+  );
+  requireEveryTurboCommandHas(
+    source,
+    '--log-order=grouped',
+    'Turbo commands in the Test workflow must keep grouped logs for readable failure triage.',
     failures
   );
 
@@ -640,6 +668,45 @@ export function validateWorkflowContracts(source) {
   return failures;
 }
 
+export function validateSetupMonorepoContracts(source) {
+  const failures = [];
+  const turboCacheStep = requireSingleNamedStep(
+    source,
+    /Cache Turborepo/,
+    'Setup monorepo Turbo cache step',
+    failures
+  );
+
+  if (turboCacheStep) {
+    requireIncludes(
+      turboCacheStep,
+      'uses: actions/cache@v5',
+      'Setup monorepo must use actions/cache for the Turborepo local cache.',
+      failures
+    );
+    requireMatch(
+      turboCacheStep,
+      /^\s+path:\s*\.turbo\s*$/m,
+      'Setup monorepo must cache the shared .turbo directory.',
+      failures
+    );
+    requireIncludes(
+      turboCacheStep,
+      "hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json')",
+      'Setup monorepo Turborepo cache key must include lockfile, turbo config, and tsconfig inputs.',
+      failures
+    );
+    requireIncludes(
+      turboCacheStep,
+      '${{ runner.os }}-node22-turbo-v4-',
+      'Setup monorepo Turborepo cache must keep the stable node22 restore prefix.',
+      failures
+    );
+  }
+
+  return failures;
+}
+
 export function validateDesktopE2EContracts({
   playwrightConfigSource,
   playwrightEnvironmentSource,
@@ -672,13 +739,20 @@ export function validateDesktopE2EContracts({
 }
 
 export async function main() {
-  const [source, desktopPlaywrightConfigSource, playwrightEnvironmentSource] = await Promise.all([
+  const [
+    source,
+    setupMonorepoActionSource,
+    desktopPlaywrightConfigSource,
+    playwrightEnvironmentSource,
+  ] = await Promise.all([
     readFile(workflowPath, 'utf8'),
+    readFile(setupMonorepoActionPath, 'utf8'),
     readFile(desktopPlaywrightConfigPath, 'utf8'),
     readFile(playwrightEnvironmentPath, 'utf8'),
   ]);
   const failures = [
     ...validateWorkflowContracts(source),
+    ...validateSetupMonorepoContracts(setupMonorepoActionSource),
     ...validateDesktopE2EContracts({
       playwrightConfigSource: desktopPlaywrightConfigSource,
       playwrightEnvironmentSource,
