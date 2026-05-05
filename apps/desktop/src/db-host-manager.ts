@@ -14,7 +14,7 @@ import type {
   DbHostToMainMessage,
   DbHostTransactionStartResult,
 } from './db-host-protocol';
-import { DB_ROOT_PATH_ENV } from './db-runtime-env';
+import { DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
 
 const logger = createLogger('DbHostManager');
 
@@ -174,6 +174,10 @@ function createDbHostEnvironment(): Record<string, string> {
     if (value !== undefined) {
       environment[key] = value;
     }
+  }
+  const serializePGliteInit = process.env[SERIALIZE_PGLITE_INIT_ENV];
+  if (serializePGliteInit !== undefined) {
+    environment[SERIALIZE_PGLITE_INIT_ENV] = serializePGliteInit;
   }
   environment[DB_ROOT_PATH_ENV] = resolveDatabaseRootPathForHost();
   return environment;

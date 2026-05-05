@@ -2,6 +2,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
+const originalSerializePgliteInit = process.env['BRAINSTRIKE_SERIALIZE_PGLITE_INIT'];
 
 function installUtilityProcessParentPort(): void {
   Object.defineProperty(process, 'parentPort', {
@@ -114,11 +115,17 @@ describe('db-main lifecycle', () => {
     installUtilityProcessParentPort();
     process.env['NODE_ENV'] = 'test';
     process.env['BRAINSTRIKE_DB_PROFILE'] = '';
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT');
     existsSyncMock.mockReturnValue(true);
   });
 
   afterEach(() => {
     restoreParentPort();
+    if (originalSerializePgliteInit === undefined) {
+      Reflect.deleteProperty(process.env, 'BRAINSTRIKE_SERIALIZE_PGLITE_INIT');
+    } else {
+      process.env['BRAINSTRIKE_SERIALIZE_PGLITE_INIT'] = originalSerializePgliteInit;
+    }
   });
 
   it('closeDatabase closes handle and resets singleton', async () => {
@@ -277,6 +284,29 @@ describe('db-main lifecycle', () => {
     } finally {
       killSpy.mockRestore();
     }
+  });
+
+  it('serializes PGlite initialization when the E2E startup lock is enabled', async () => {
+    process.env['BRAINSTRIKE_SERIALIZE_PGLITE_INIT'] = '1';
+    readFileSyncMock.mockImplementation((candidate: string) => {
+      if (candidate.includes('brainstrike-pglite-initialization.lock')) {
+        return String(process.pid);
+      }
+      return '';
+    });
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await initializeMainDatabase();
+
+    expect(writeFileSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining('brainstrike-pglite-initialization.lock'),
+      String(process.pid),
+      { encoding: 'utf8', flag: 'wx' }
+    );
+    expect(unlinkSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining('brainstrike-pglite-initialization.lock')
+    );
+    expect(PGliteMock).toHaveBeenCalledTimes(1);
   });
 
   it('auto-recovers from database corruption during initialization', async () => {

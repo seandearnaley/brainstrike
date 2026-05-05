@@ -10,7 +10,9 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import type {
   DatabaseDiagnosticsSnapshot,
   DatabaseInitFailureCategory,
@@ -20,7 +22,7 @@ import type {
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app } from 'electron';
-import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV } from './db-runtime-env';
+import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
 
 const logger = createLogger('DatabaseMain');
 
@@ -59,6 +61,26 @@ function extractExtensionExport(module: unknown, field: 'vector' | 'live'): unkn
   return module;
 }
 
+function withOptionalErrorCode(message: string, code: string | undefined): ErrorDetails {
+  const details: ErrorDetails = { message };
+  if (code) {
+    details.code = code;
+  }
+  return details;
+}
+
+function getPlainObjectErrorDetails(error: object, code: string | undefined): ErrorDetails {
+  try {
+    const serialized = JSON.stringify(error);
+    if (serialized && serialized !== '{}') {
+      return withOptionalErrorCode(serialized, code);
+    }
+  } catch {
+    // Fall through to Object.prototype stringification below.
+  }
+  return withOptionalErrorCode(Object.prototype.toString.call(error), code);
+}
+
 function getErrorDetails(error: unknown): ErrorDetails {
   const errorCode =
     error && typeof error === 'object' && 'code' in error
@@ -82,21 +104,12 @@ function getErrorDetails(error: unknown): ErrorDetails {
     return details;
   }
   if (error === null || error === undefined) {
-    const details: ErrorDetails = {
-      message: 'unknown error',
-    };
-    if (code) {
-      details.code = code;
-    }
-    return details;
+    return withOptionalErrorCode('unknown error', code);
   }
-  const details: ErrorDetails = {
-    message: String(error),
-  };
-  if (code) {
-    details.code = code;
+  if (typeof error === 'object') {
+    return getPlainObjectErrorDetails(error, code);
   }
-  return details;
+  return withOptionalErrorCode(String(error), code);
 }
 
 async function loadPgVectorExtension(): Promise<unknown> {
@@ -212,6 +225,9 @@ const PROFILES_DIRECTORY_NAME = 'profiles' as const;
 const PROFILE_BACKUPS_DIRECTORY_NAME = 'backups' as const;
 const PROFILE_BACKUPS_RETENTION_COUNT = 5 as const;
 const DB_LOCK_FILENAME = '.db-process.lock' as const;
+const PGLITE_INITIALIZATION_LOCK_FILENAME = 'brainstrike-pglite-initialization.lock' as const;
+const PGLITE_INITIALIZATION_LOCK_TIMEOUT_MS = 60_000 as const;
+const PGLITE_INITIALIZATION_LOCK_POLL_MS = 100 as const;
 const WORKTREE_PROFILE_HASH_LENGTH = 8 as const;
 const WORKTREE_PROFILE_BRANCH_MAX = 40 as const;
 
@@ -626,6 +642,86 @@ function acquireDatabaseProcessLock(appDataDir: string): void {
   }
 }
 
+function shouldSerializePGliteInitialization(): boolean {
+  return process.env[SERIALIZE_PGLITE_INIT_ENV] === '1';
+}
+
+function getPGliteInitializationLockPath(): string {
+  return path.join(tmpdir(), PGLITE_INITIALIZATION_LOCK_FILENAME);
+}
+
+function tryAcquirePGliteInitializationLock(lockPath: string): boolean {
+  try {
+    writeFileSync(lockPath, String(process.pid), { encoding: 'utf8', flag: 'wx' });
+    return true;
+  } catch (error) {
+    const code =
+      error && typeof error === 'object' && 'code' in error
+        ? (error as { code?: string }).code
+        : undefined;
+    if (code === 'EEXIST') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function releasePGliteInitializationLock(lockPath: string): void {
+  const ownerPid = readLockOwnerPid(lockPath);
+  if (ownerPid !== process.pid) {
+    return;
+  }
+
+  try {
+    unlinkSync(lockPath);
+  } catch (error) {
+    logger.warn('Failed to release serialized PGlite initialization lock', {
+      error: getErrorDetails(error),
+      lockPath,
+    });
+  }
+}
+
+async function acquirePGliteInitializationLock(): Promise<() => void> {
+  if (!shouldSerializePGliteInitialization()) {
+    return () => undefined;
+  }
+
+  const lockPath = getPGliteInitializationLockPath();
+  const startedAt = Date.now();
+  let hasLoggedWait = false;
+
+  while (true) {
+    if (tryAcquirePGliteInitializationLock(lockPath)) {
+      return () => releasePGliteInitializationLock(lockPath);
+    }
+
+    const ownerPid = readLockOwnerPid(lockPath);
+    if (!(ownerPid && isPidAlive(ownerPid))) {
+      try {
+        unlinkSync(lockPath);
+      } catch {
+        // Another process may have acquired or released the lock between reads.
+      }
+      continue;
+    }
+
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs >= PGLITE_INITIALIZATION_LOCK_TIMEOUT_MS) {
+      throw new Error(
+        `Timed out waiting for serialized PGlite initialization lock after ${PGLITE_INITIALIZATION_LOCK_TIMEOUT_MS}ms. Lock is held by process ${ownerPid}.`
+      );
+    }
+
+    if (!hasLoggedWait) {
+      logger.warn('Waiting for serialized PGlite initialization lock', { lockPath, ownerPid });
+      hasLoggedWait = true;
+    }
+
+    await sleep(PGLITE_INITIALIZATION_LOCK_POLL_MS);
+  }
+}
+
 function releaseDatabaseProcessLock(): void {
   if (!mutableState.dbProcessLockPath) {
     return;
@@ -931,12 +1027,17 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
   // Initialize PGlite with filesystem path (Node.js mode) and required pgvector extension
   try {
     acquireDatabaseProcessLock(appDataDir);
-    db = await createVectorDatabase(
-      loadedPGlite.PGlite,
-      dataDir,
-      loadedPGlite.vector,
-      loadedPGlite.live
-    );
+    const releaseInitializationLock = await acquirePGliteInitializationLock();
+    try {
+      db = await createVectorDatabase(
+        loadedPGlite.PGlite,
+        dataDir,
+        loadedPGlite.vector,
+        loadedPGlite.live
+      );
+    } finally {
+      releaseInitializationLock();
+    }
     logger.debug('Database initialized with pgvector extension at:', dataDir);
   } catch (err) {
     recordInitializationFailure('open-database', err);
