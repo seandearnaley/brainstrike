@@ -92,6 +92,18 @@ test('workflow contract fails when Turbo command summaries are dropped', () => {
   );
 });
 
+test('workflow contract fails when Turbo run commands disappear', () => {
+  const source = workflowSource.replaceAll('pnpm turbo run', 'pnpm turbo');
+
+  assert.match(validateWorkflowContracts(source).join('\n'), /No Turbo run commands were found/);
+});
+
+test('workflow contract accepts Turbo run commands without the pnpm prefix', () => {
+  const source = workflowSource.replaceAll('pnpm turbo run', 'turbo run');
+
+  assert.deepEqual(validateWorkflowContracts(source), []);
+});
+
 test('setup monorepo contract fails when Turborepo cache path is removed', () => {
   const source = setupMonorepoSource.replace('path: .turbo', 'path: .turbo-disabled');
 

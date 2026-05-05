@@ -73,8 +73,17 @@ function requireYamlListItem(source, item, message, failures) {
   requireMatch(source, new RegExp(`^\\s+- ${escapeRegExp(item)}\\s*$`, 'm'), message, failures);
 }
 
+function extractTurboRunCommandLines(source) {
+  return source.split('\n').filter((line) => /\bturbo\s+run\b/.test(line));
+}
+
 function requireEveryTurboCommandHas(source, text, message, failures) {
-  const commandLines = source.split('\n').filter((line) => line.includes('pnpm turbo run'));
+  const commandLines = extractTurboRunCommandLines(source);
+  if (commandLines.length === 0) {
+    failures.push(`${message} No Turbo run commands were found.`);
+    return;
+  }
+
   for (const line of commandLines) {
     if (!line.includes(text)) {
       failures.push(`${message} Offending command: ${line.trim()}`);
