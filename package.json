@@ -29,7 +29,6 @@
     "mermaid": "^11.14.0",
     "nyc": "^18.0.0",
     "playwright": "^1.59.1",
-    "semver": "^7.7.4",
     "syncpack": "^14.3.0",
     "tsup": "^8.5.1",
     "turbo": "2.9.6",
@@ -74,17 +73,20 @@
   },
   "scripts": {
     "bench:chunking": "pnpm -w build --filter @brainstrike/db && node scripts/chunking-benchmark.mjs",
-    "build": "turbo run build --summarize --log-order=grouped --cache-dir=.turbo",
-    "build:web": "turbo run build --filter @brainstrike/web --summarize --log-order=grouped --cache-dir=.turbo",
+    "build": "turbo run build --summarize --log-order=grouped",
+    "build:web": "turbo run build --filter @brainstrike/web --summarize --log-order=grouped",
     "check": "node scripts/check.mjs",
     "check-just-errors": "pnpm check 2>&1 | grep -iE '(error|failed|✗|✖|FAIL)' | sed 's#^@brainstrike/##'",
     "check:fast": "node scripts/check.mjs --fast",
     "check:full": "node scripts/check.mjs --full",
     "check:headless": "pnpm -s run setup:headless && pnpm -s run check",
     "ci:local": "./scripts/local-ci.sh",
-    "clean": "turbo run clean --summarize --log-order=grouped --cache-dir=.turbo",
+    "ci:timing-summary": "node scripts/ci-timing-summary.mjs",
+    "ci:turbo-diagnostics": "node scripts/turbo-run-diagnostics.mjs",
+    "clean": "turbo run clean --summarize --log-order=grouped",
     "coverage:enforce": "node scripts/enforce-coverage.mjs",
     "coverage:merge": "node scripts/merge-coverage.js",
+    "coverage:prepare-workspace": "node scripts/prepare-workspace-coverage.mjs",
     "coverage:report": "nyc report --reporter=json --reporter=lcov --reporter=text --report-dir ./coverage",
     "deps:fix": "syncpack fix",
     "deps:lint": "syncpack lint",
@@ -100,20 +102,24 @@
     "format-and-lint": "biome check .",
     "format-and-lint:fix": "biome check . --write",
     "knip": "knip",
-    "lint": "pnpm run lint:no-no-memo && pnpm run lint:eslint && biome check . --fix",
+    "lint": "pnpm run lint:no-no-memo && pnpm run lint:e2e-destructive-tags && pnpm run lint:e2e-stateful-matrix && pnpm run lint:ci-workflow-contracts && pnpm run lint:eslint && biome check . --fix",
+    "lint:e2e-destructive-tags": "node scripts/check-e2e-destructive-tags.mjs",
+    "lint:e2e-stateful-matrix": "node scripts/check-e2e-stateful-matrix.mjs",
+    "lint:ci-workflow-contracts": "node scripts/check-ci-workflow-contracts.mjs",
     "lint-all": "pnpm lint && pnpm format",
     "lint:biome": "biome check .",
     "lint:eslint": "eslint --max-warnings=50 apps/web/src packages/ui/src packages/file-explorer-ui/src packages/file-explorer-hooks/src",
     "lint:no-no-memo": "node scripts/forbid-no-memo.mjs",
     "postinstall": "node scripts/postinstall.js",
     "prepare": "node scripts/postinstall.js",
+    "profile:vitest-hotspots": "node scripts/profile-vitest-hotspots.mjs",
     "queue": "pnpm -w build --filter @brainstrike/db && node packages/db/dist/cli/queue-cli.js",
     "setup:headless": "bash scripts/setup-headless-display.sh",
-    "test": "TURBO_DAEMON=false TURBO_TEST_MODE=unit turbo run test --summarize --log-order=grouped --cache-dir=.turbo",
-    "test:browser": "turbo run test:browser --summarize --log-order=grouped --cache-dir=.turbo",
-    "test:coverage": "TURBO_TEST_MODE=coverage turbo run test --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
-    "test:coverage:base": "pnpm -r --filter '!@brainstrike/embeddings' run test -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
-    "test:coverage:embeddings": "pnpm --filter @brainstrike/embeddings run test -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test": "TURBO_TEST_MODE=unit turbo run test --summarize --log-order=grouped",
+    "test:browser": "turbo run test:browser --summarize --log-order=grouped",
+    "test:coverage": "TURBO_TEST_MODE=coverage COVERAGE=true turbo run test:coverage --concurrency=4 --summarize --log-order=grouped",
+    "test:coverage:base": "TURBO_TEST_MODE=coverage COVERAGE=true pnpm -r --filter '!@brainstrike/embeddings' run test:coverage",
+    "test:coverage:embeddings": "TURBO_TEST_MODE=coverage COVERAGE=true pnpm --filter @brainstrike/embeddings run test:coverage",
     "test:coverage:split": "pnpm run test:coverage:base && pnpm run test:coverage:embeddings",
     "test:e2e": "turbo run test:e2e --filter='./apps/*' --concurrency=1",
     "test:e2e:debug": "cd apps/web && pnpm run test:e2e:debug",
@@ -125,27 +131,11 @@
     "test:e2e:perf": "cd apps/web && pnpm run test:e2e:perf",
     "test:e2e:ui": "cd apps/web && pnpm run test:e2e:ui",
     "test:fast": "pnpm -r --filter '!@brainstrike/embeddings' run test",
+    "test:scripts": "node --test scripts/__tests__/*.test.mjs",
     "test:vector": "pnpm --filter @brainstrike/db test:vector",
-    "type-check": "turbo run type-check --summarize --log-order=grouped --cache-dir=.turbo",
+    "type-check": "turbo run type-check --summarize --log-order=grouped",
     "vercel:build": "pnpm build:web",
     "vercel:dev": "pnpm dev --filter @brainstrike/web"
-  },
-  "turbo": {
-    "pipeline": {
-      "build": {
-        "dependsOn": [
-          "^build"
-        ],
-        "outputs": [
-          "dist/**"
-        ]
-      },
-      "test": {
-        "dependsOn": [
-          "^build"
-        ]
-      }
-    }
   },
   "type": "module",
   "workspaces": [

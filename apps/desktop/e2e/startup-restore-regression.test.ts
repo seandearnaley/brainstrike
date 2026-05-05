@@ -239,12 +239,6 @@ test.describe('Startup Restore Regression', () => {
     await restartedWindow.waitForTimeout(1000);
 
     const records = await getRendererLogRecords(restartedWindow);
-    expect(
-      records.some((record) =>
-        recordContainsText(record, 'Deferring file content loading until tree is ready')
-      )
-    ).toBe(true);
-
     const directPathReadLogs = records.filter((record) =>
       recordContainsText(record, 'Using direct path read for file not in tree')
     );

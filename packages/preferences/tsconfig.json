@@ -8,6 +8,9 @@
     "outDir": "dist",
     "declarationDir": "dist",
     "paths": {
+      "@brainstrike/agent/memory-settings": [
+        "../agent/src/memory-settings.ts"
+      ],
       "@brainstrike/utils/*": [
         "../utils/src/*"
       ]

@@ -24,9 +24,14 @@ import type {
   OpenAiReasoningSummary,
 } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
-import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import {
+  getAssistantConfiguredProvidersTestOverride,
+  getLocalRuntimeStatusTestOverride,
+  recordLocalRuntimeProbeForTests,
+} from '../settings-test-runtime-access';
+import { createBrowserJsonStorage } from './browser-json-storage';
 
 const logger = createLogger('AssistantPreferencesStore');
 
@@ -97,8 +102,10 @@ interface AssistantPreferencesActions {
 
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
 
-const STORE_NAME = 'assistant-preferences.v1' as const;
-const STORE_VERSION = 5;
+export const ASSISTANT_PREFERENCES_STORE_NAME = 'assistant-preferences.v1' as const;
+export const ASSISTANT_PREFERENCES_STORE_VERSION = 5;
+const STORE_NAME = ASSISTANT_PREFERENCES_STORE_NAME;
+const STORE_VERSION = ASSISTANT_PREFERENCES_STORE_VERSION;
 
 const SUPPORTED_PROVIDERS = listProviders().map(
   (provider: ProviderDefinition) => provider.id
@@ -280,6 +287,12 @@ async function probeRuntimeViaBridgeOrService(
     readonly force?: boolean;
   }
 ): Promise<LocalRuntimeAvailabilityState> {
+  const overriddenStatus = getLocalRuntimeStatusTestOverride(runtimeId);
+  if (overriddenStatus !== undefined) {
+    recordLocalRuntimeProbeForTests(runtimeId);
+    return overriddenStatus;
+  }
+
   const bridge = getRuntimeBridge();
   if (bridge) {
     const result = await bridge.probe(runtimeId, options);
@@ -720,11 +733,7 @@ function buildMigratedSelectedModel(
   return fallback ? `${parsedSelected.provider}${MODEL_KEY_DELIMITER}${fallback}` : null;
 }
 
-/**
- * Storage adapter with fallback to in-memory for SSR/tests
- * Uses safe storage utility with proper error logging
- */
-const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
+const storage = createJSONStorage(() => createBrowserJsonStorage());
 
 function ensureEnabledModels(
   enabledModelsByProvider: EnabledModelsMap,
@@ -944,6 +953,11 @@ export const useAssistantPreferencesStore = create<Store>()(
       },
 
       getAvailableProviders: async () => {
+        const providersTestOverride = getAssistantConfiguredProvidersTestOverride();
+        if (providersTestOverride) {
+          return orderProvidersByRegistry(new Set(providersTestOverride));
+        }
+
         const combined = new Set<SupportedProvider>(STATIC_NO_KEY_PROVIDERS);
         const { providerSettings } = get();
         const [providersWithSavedKeys, detectedRuntimeProviders] = await Promise.all([

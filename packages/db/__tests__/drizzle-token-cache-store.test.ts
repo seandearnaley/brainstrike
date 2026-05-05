@@ -80,6 +80,34 @@ describe('DrizzleTokenCacheStore', () => {
       const found = await store.get(testFolderId, 'src/file.ts');
       expect(found?.tokenCount).toBe(200);
     });
+
+    it('returns ISO UTC text timestamps after insert and conflict update', async () => {
+      const isoUtcTextTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+      await store.set(createEntry({ filePath: 'src/file.ts', tokenCount: 100 }));
+      const inserted = await store.get(testFolderId, 'src/file.ts');
+
+      expect(inserted?.createdAt).toMatch(isoUtcTextTimestamp);
+      expect(inserted?.updatedAt).toMatch(isoUtcTextTimestamp);
+
+      await store.set(createEntry({ filePath: 'src/file.ts', tokenCount: 200 }));
+      const updated = await store.get(testFolderId, 'src/file.ts');
+
+      expect(updated?.createdAt).toMatch(isoUtcTextTimestamp);
+      expect(updated?.updatedAt).toMatch(isoUtcTextTimestamp);
+    });
+
+    it('rejects malformed stored text timestamps when reading rows', async () => {
+      await store.set(createEntry({ filePath: 'src/file.ts', tokenCount: 100 }));
+      await client.query(
+        `UPDATE file_token_cache SET created_at = 'CURRENT_TIMESTAMP' WHERE folder_id = $1 AND file_path = $2`,
+        [testFolderId, 'src/file.ts']
+      );
+
+      await expect(store.get(testFolderId, 'src/file.ts')).rejects.toThrow(
+        'textTimestamp: invalid stored value "CURRENT_TIMESTAMP"'
+      );
+    });
   });
 
   describe('file path validation', () => {

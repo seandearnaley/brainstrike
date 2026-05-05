@@ -34,6 +34,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "lucide-react": "^1.8.0",
+    "motion": "^12.38.0",
     "react-resizable-panels": "^4.10.0",
     "react-shiki": "^0.9.3",
     "remark-gfm": "^4.0.1",
@@ -95,7 +96,7 @@
     "lint": "pnpm run --dir=../.. lint",
     "test": "pnpm run clean:generated && vitest run --project unit",
     "test:browser": "pnpm run clean:generated && vitest run --project browser",
-    "test:coverage": "pnpm -w test:coverage",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },

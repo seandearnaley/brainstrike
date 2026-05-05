@@ -730,6 +730,23 @@ describe('createWindow', () => {
       expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith(DESKTOP_DEV_RENDERER_URL);
     });
 
+    it('should not probe the legacy web-adjacent port in dev-server mode', async () => {
+      existsSyncMock.mockReturnValue(false);
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      process.argv.push('--brainstrike-desktop-launch-mode=dev-server');
+
+      mockBrowserWindow.loadURL.mockResolvedValueOnce(undefined);
+
+      await createWindow();
+
+      const attemptedUrls = mockBrowserWindow.loadURL.mock.calls.map((call: [string]) => call[0]);
+      expect(attemptedUrls).toEqual([DESKTOP_DEV_RENDERER_URL]);
+      for (const url of attemptedUrls) {
+        expect(url).not.toContain(':8081');
+      }
+      expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
+    });
+
     it('should throw error if deterministic dev renderer URL fails repeatedly', async () => {
       existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });

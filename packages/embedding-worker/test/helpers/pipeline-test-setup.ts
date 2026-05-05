@@ -53,6 +53,25 @@ export async function loadWorker() {
   return registeredHandlers.runEmbedding;
 }
 
+export async function installMockOrtWebGpuDevice(): Promise<void> {
+  const transformers = await import('@huggingface/transformers');
+  const mockedEnv = transformers.env as {
+    allowRemoteModels: boolean;
+    backends?: { onnx?: { webgpu?: { device?: unknown } } };
+  };
+  mockedEnv.backends = {
+    onnx: {
+      webgpu: {
+        device: {
+          lost: new Promise(() => {}),
+          queue: { submit: vi.fn() },
+          createCommandEncoder: () => ({ finish: () => ({}) }),
+        },
+      },
+    },
+  };
+}
+
 export function makeExtractor(id: string) {
   const disposeMock = vi.fn();
   const extractor = Object.assign(async () => new Float32Array([1, 0, 0]), {

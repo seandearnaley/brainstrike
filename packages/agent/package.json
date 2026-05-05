@@ -9,9 +9,11 @@
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
+    "@electric-sql/pglite": "^0.4.4",
     "@huggingface/transformers": "^4.1.0",
     "@mastra/core": "^1.25.0",
     "@mastra/mcp": "^1.5.0",
+    "@mastra/memory": "^1.16.0",
     "@types/json-schema": "^7.0.15",
     "json-schema": "^0.4.0",
     "minimatch": "^10.2.5",
@@ -67,6 +69,26 @@
       "types": "./dist/context-packer.d.ts",
       "import": "./dist/context-packer.mjs",
       "require": "./dist/context-packer.js"
+    },
+    "./memory-settings": {
+      "types": "./dist/memory-settings.d.ts",
+      "import": "./dist/memory-settings.mjs",
+      "require": "./dist/memory-settings.js"
+    },
+    "./run-events": {
+      "types": "./dist/run-events.d.ts",
+      "import": "./dist/run-events.mjs",
+      "require": "./dist/run-events.js"
+    },
+    "./pglite-mastra-memory": {
+      "types": "./dist/pglite-mastra-memory/index.d.ts",
+      "import": "./dist/pglite-mastra-memory/index.mjs",
+      "require": "./dist/pglite-mastra-memory/index.js"
+    },
+    "./pglite-mastra-memory/schema": {
+      "types": "./dist/pglite-mastra-memory/schema.d.ts",
+      "import": "./dist/pglite-mastra-memory/schema.mjs",
+      "require": "./dist/pglite-mastra-memory/schema.js"
     }
   },
   "files": [
@@ -82,7 +104,7 @@
     "dev": "tsup --watch",
     "lint": "pnpm -w lint",
     "test": "vitest run",
-    "test:coverage": "pnpm -w test:coverage",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit"
   },

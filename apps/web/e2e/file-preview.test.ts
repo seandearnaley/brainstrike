@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { resetAppState } from './utils/app-state';
+import { resetAppState, seedWorkspaceFocusedShellLayout } from './utils/app-state';
 import { getFileTree } from './utils/file-tree-locators';
-import { getPanelElements, togglePanelVisibility, waitForAppLoad } from './utils/layout-helpers';
+import { waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 test.describe('File Tabbed Editor', { tag: '@smoke' }, () => {
@@ -13,10 +13,11 @@ test.describe('File Tabbed Editor', { tag: '@smoke' }, () => {
     await mockBrowserApis(page, 'test-root', tree);
 
     await page.goto('/');
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
     await resetAppState(page);
+    await seedWorkspaceFocusedShellLayout(page);
     await page.reload();
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
   });
 
   test('should open file in tabbed editor', async ({ page }) => {
@@ -29,22 +30,16 @@ test.describe('File Tabbed Editor', { tag: '@smoke' }, () => {
     await checkbox.click({ force: true });
     await expect(checkbox).toBeChecked();
 
-    // Show the console panel first (where tabbed editor lives)
-    const elements = getPanelElements(page);
-    await togglePanelVisibility(elements.showConsoleShim, elements.consolePanel, true);
+    await expect(page.getByTestId('workspace-app-tab-context-explorer')).toBeVisible();
+    await expect(page.getByTestId('show-console-panel')).toHaveCount(0);
 
-    // Verify initial state shows no files open in tabbed editor
-    await expect(page.getByText('No files open')).toBeVisible();
-    await expect(
-      page.getByText('Click on a file in Context Explorer to open it here')
-    ).toBeVisible();
+    const fileLabel = fileTree.getByText('example.ts', { exact: true });
+    await fileLabel.scrollIntoViewIfNeeded();
+    await expect(fileLabel).toBeVisible();
+    await fileLabel.click();
 
-    const rowButton = page.getByRole('button', { name: 'example.ts' });
-    await expect(rowButton).toBeVisible();
-    await rowButton.click();
-
-    // File should now open in a tab in the tabbed editor (look specifically in console panel)
-    const tab = elements.consolePanel.getByRole('button', { name: /example\.ts/ }).first();
+    // File should now open as a workspace tab in the main Context Explorer surface.
+    const tab = page.getByRole('tab', { name: /example\.ts/ }).first();
     await expect(tab).toBeVisible();
     await expect(page.getByText('example.ts content')).toBeVisible();
 
@@ -53,7 +48,8 @@ test.describe('File Tabbed Editor', { tag: '@smoke' }, () => {
     await expect(closeButton).toBeVisible();
     await closeButton.click();
 
-    // Should return to empty state
-    await expect(page.getByText('No files open')).toBeVisible();
+    // Should return to the default workspace app after closing the last file tab.
+    await expect(page.getByRole('tab', { name: /example\.ts/ })).toHaveCount(0);
+    await expect(page.getByTestId('workspace-app-tab-context-explorer')).toBeVisible();
   });
 });

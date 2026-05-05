@@ -44,40 +44,68 @@ async function ensureExplorerVisible(page: Page): Promise<void> {
   }
 }
 
-export async function ensureToolsPanelVisible(page: Page): Promise<Locator> {
+async function ensureAgentSidebarVisible(page: Page): Promise<Locator> {
   await ensureExplorerVisible(page);
-  // Use id selector for react-resizable-panels v4 compatibility
-  const rightPanel = page.locator('#tools-panel');
-  const showRightPanelButton = page
-    .locator('[data-testid="show-tools-panel"]')
-    .or(page.getByRole('button', { name: 'Show tools panel' }))
-    .or(page.locator('button[aria-label="Show tools panel"]'));
-  const hideRightPanelButton = page
-    .locator('[data-testid="hide-tools-panel"]')
-    .or(page.getByRole('button', { name: 'Hide tools panel' }))
-    .or(page.locator('button[aria-label="Hide tools panel"]'));
+  const sidebarPanel = page.locator('#agent-workspace-explorer-panel');
+  const showSidebarButton = page
+    .locator('[data-testid="show-threads-panel"]')
+    .or(page.getByRole('button', { name: 'Show agent panel' }))
+    .or(page.locator('button[aria-label="Show agent panel"]'));
+  const hideSidebarButton = page
+    .locator('[data-testid="hide-threads-panel"]')
+    .or(page.getByRole('button', { name: 'Hide agent panel' }))
+    .or(page.locator('button[aria-label="Hide agent panel"]'));
 
-  const panelBox = await rightPanel.boundingBox().catch(() => null);
-  const rightPanelVisible = Boolean(panelBox && panelBox.width > 5 && panelBox.height > 5);
+  const panelBox = await sidebarPanel.boundingBox().catch(() => null);
+  const sidebarVisible = Boolean(panelBox && panelBox.width > 5 && panelBox.height > 5);
 
-  if (!rightPanelVisible) {
-    if ((await showRightPanelButton.count()) > 0) {
-      verboseLog('👉 Showing tools panel...');
-      await showRightPanelButton.first().click();
-    } else if ((await hideRightPanelButton.count()) > 0) {
-      verboseLog('👉 Re-toggling tools panel to expand...');
-      await hideRightPanelButton.first().click();
-      await showRightPanelButton.first().click();
+  if (!sidebarVisible) {
+    if ((await showSidebarButton.count()) > 0) {
+      verboseLog('👉 Showing agent sidebar...');
+      await showSidebarButton.first().click();
+    } else if ((await hideSidebarButton.count()) > 0) {
+      verboseLog('👉 Re-toggling agent sidebar to expand...');
+      await hideSidebarButton.first().click();
+      await showSidebarButton.first().click();
     } else {
-      console.warn('⚠️ Tools panel controls not found; waiting for panel to appear.');
+      console.warn('⚠️ Agent sidebar controls not found; waiting for panel to appear.');
     }
   }
 
-  await rightPanel.waitFor({ state: 'visible', timeout: 12_000 }).catch(() => {
-    console.warn('⚠️ Tools panel did not become visible after request.');
+  await sidebarPanel.waitFor({ state: 'visible', timeout: 12_000 }).catch(() => {
+    console.warn('⚠️ Agent sidebar did not become visible after request.');
   });
 
-  return rightPanel;
+  return sidebarPanel;
+}
+
+export async function ensureAssistantShellVisible(page: Page): Promise<Locator> {
+  await ensureExplorerVisible(page);
+  const assistantShell = page.locator('[data-testid="assistant-chat-card"]');
+  try {
+    // The assistant is the explorer route's primary surface, not a collapsible side panel,
+    // so there is no show/hide control to click here. Visibility is purely route-driven.
+    await assistantShell.waitFor({ state: 'visible', timeout: 12_000 });
+  } catch {
+    throw new Error(
+      `Assistant shell did not become visible after navigating to Context Explorer (current URL: ${page.url()}).`
+    );
+  }
+  return assistantShell;
+}
+
+export async function ensureMockWorkspaceOpen(page: Page): Promise<void> {
+  await ensureExplorerVisible(page);
+
+  const filtersButton = page.getByRole('button', { name: /view filters/i });
+  if (await filtersButton.isVisible().catch(() => false)) {
+    return;
+  }
+
+  const selectRootButton = page.getByRole('button', { name: /select root|browse/i }).first();
+  await selectRootButton.waitFor({ state: 'visible', timeout: 10_000 });
+  await selectRootButton.click();
+  await filtersButton.waitFor({ state: 'visible', timeout: 15_000 });
 }
 
 /**
@@ -95,16 +123,19 @@ export async function showDatabaseDemoPanel(
   for (let attempt = 0; attempt < 2; attempt++) {
     activePage = await resolveActivePage(activePage);
     await waitForAppReadyInHelpers(activePage);
-    // Use id selector for react-resizable-panels v4 compatibility
     await activePage
-      .locator('#middle-panel')
+      .locator('#context-explorer-middle-panel, #middle-panel')
       .waitFor({ state: 'attached', timeout: tabTimeoutMs })
       .catch(() => {});
 
-    let rightPanel = await ensureToolsPanelVisible(activePage);
-
     activePage = await resolveActivePage(activePage);
-    rightPanel = await ensureToolsPanelVisible(activePage);
+    await ensureAgentSidebarVisible(activePage);
+
+    const databaseTabTrigger = activePage
+      .getByTestId('database-tab-trigger')
+      .or(activePage.getByRole('tab', { name: 'Database' }));
+    await databaseTabTrigger.waitFor({ state: 'visible', timeout: tabTimeoutMs });
+    await databaseTabTrigger.click();
 
     if (!activePage.isClosed()) {
       // Wait a moment for panel to stabilize
@@ -113,44 +144,19 @@ export async function showDatabaseDemoPanel(
       } catch (error) {
         if (activePage.isClosed()) {
           activePage = await resolveActivePage(activePage);
-          rightPanel = await ensureToolsPanelVisible(activePage);
+          await ensureAgentSidebarVisible(activePage);
         } else {
           throw error;
         }
       }
     }
 
-    // Now navigate to the database tab within the tools panel
-    verboseLog('🗂️ Clicking database tab...');
-    const tabScope = rightPanel.locator('[role="tablist"]').first();
-    const databaseTab = tabScope
-      .locator('button[value="database"]')
-      .or(tabScope.locator('[data-value="database"]'))
-      .or(tabScope.getByRole('tab', { name: /db|database/i }))
-      .or(rightPanel.locator('button[value="database"]'));
-
-    await databaseTab
-      .first()
+    verboseLog('🗂️ Waiting for database sidebar tab...');
+    await activePage
+      .locator('[data-testid="database-panel"]')
       .waitFor({ state: 'visible', timeout: tabTimeoutMs })
       .catch(() => {
-        console.warn('⚠️ Database tab not visible yet; proceeding with click attempt.');
-      });
-    await databaseTab
-      .first()
-      .click()
-      .catch((clickError) => {
-        console.warn('⚠️ Failed to click database tab:', clickError);
-      });
-    const activeDatabaseTab = rightPanel
-      .locator('[role="tablist"] [role="tab"][data-state="active"]')
-      .filter({ hasText: /db|database/i })
-      .or(rightPanel.locator('button[value="database"][data-state="active"]'))
-      .or(rightPanel.locator('[data-value="database"][data-state="active"]'));
-    await activeDatabaseTab
-      .first()
-      .waitFor({ state: 'visible', timeout: tabTimeoutMs })
-      .catch(() => {
-        console.warn('⚠️ Database tab did not become active after click.');
+        console.warn('⚠️ Database panel did not become visible after selecting the database tab.');
       });
 
     // Wait for either the database demo panel OR the database error to be visible

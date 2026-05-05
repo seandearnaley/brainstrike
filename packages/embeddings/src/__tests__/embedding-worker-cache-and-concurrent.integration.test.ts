@@ -112,6 +112,17 @@ async function waitFor(
   }
 }
 
+function deferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
 /**
  * Helper to setup test data in database
  */
@@ -198,7 +209,7 @@ describe('embedding-worker: cache operations', () => {
 
     await setupTestData(db, {
       embeddingSetId: 'cache-fail-set',
-      modelKey: 'local::jina-code',
+      modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
       modelId: 'jinaai/jina-embeddings-v2-base-code',
       dimensions: 768,
       fileId: 'cache-fail-file',
@@ -234,6 +245,62 @@ describe('embedding-worker: cache operations', () => {
     // but the critical assertion is that the job succeeded despite cache failure
 
     await controller.stop();
+  });
+
+  it('flushes pending cache writes before worker stop resolves', async () => {
+    const pendingCacheWrite = deferred<number>();
+    const pendingAccessTimeFlush = deferred<void>();
+    const cacheWithPendingWrite: EmbeddingCacheInterface = {
+      flushPendingAccessTimeUpdates: vi.fn(() => pendingAccessTimeFlush.promise),
+      get: async () => ({ hit: false, entry: null }),
+      getBatch: async () => new Map(),
+      set: async () => {},
+      setBatch: vi.fn(() => pendingCacheWrite.promise),
+    };
+
+    await setupTestData(db, {
+      embeddingSetId: 'cache-stop-flush-set',
+      modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+      modelId: 'jinaai/jina-embeddings-v2-base-code',
+      dimensions: 768,
+      fileId: 'cache-stop-flush-file',
+      chunkId: 'cache-stop-flush-chunk',
+      jobId: 'cache-stop-flush-job',
+    });
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      leaseMs: 5000,
+      modelKey: 'jinaai/jina-embeddings-v2-base-code',
+      service: new FakeEmbeddingService(),
+      embeddingCache: cacheWithPendingWrite,
+      log: () => {},
+    });
+
+    await waitFor(async () => vi.mocked(cacheWithPendingWrite.setBatch).mock.calls.length > 0);
+
+    const stopPromise = controller.stop().then(() => 'stopped' as const);
+    const stopState = await Promise.race([
+      stopPromise,
+      new Promise<'pending'>((resolve) => setTimeout(() => resolve('pending'), 250)),
+    ]);
+
+    expect(stopState).toBe('pending');
+
+    pendingCacheWrite.resolve(1);
+
+    const stopAfterCacheWriteState = await Promise.race([
+      stopPromise,
+      new Promise<'pending'>((resolve) => setTimeout(() => resolve('pending'), 50)),
+    ]);
+
+    expect(stopAfterCacheWriteState).toBe('pending');
+    expect(cacheWithPendingWrite.flushPendingAccessTimeUpdates).toHaveBeenCalledTimes(1);
+
+    pendingAccessTimeFlush.resolve();
+
+    await expect(stopPromise).resolves.toBe('stopped');
   });
 
   it('uses cache hits to avoid regenerating embeddings', async () => {
@@ -295,6 +362,74 @@ describe('embedding-worker: cache operations', () => {
 
     // Service should NOT have been called since we used cache hit
     expect(service.callCount).toBe(0);
+
+    await controller.stop();
+  });
+
+  it('runs cache maintenance and logs cache stats after the queue drains', async () => {
+    const logs: Array<{ msg: string; meta?: unknown }> = [];
+    const cacheWithMaintenance: EmbeddingCacheInterface = {
+      evictIfNeeded: vi.fn(async () => ({ evicted: 0, needed: false, totalEntries: 1 })),
+      get: async () => ({ hit: false, entry: null }),
+      getBatch: async () => new Map(),
+      getStats: vi.fn(async () => ({
+        newestAccessedAt: new Date('2026-01-01T00:00:00.000Z'),
+        oldestAccessedAt: new Date('2026-01-01T00:00:00.000Z'),
+        totalEntries: 1,
+        totalHits: 0,
+      })),
+      set: async () => {},
+      setBatch: vi.fn(async (entries) => entries.length),
+    };
+    const evictIfNeeded = cacheWithMaintenance.evictIfNeeded;
+    const getStats = cacheWithMaintenance.getStats;
+    if (!(evictIfNeeded && getStats)) {
+      throw new Error('Expected maintenance cache methods to be defined.');
+    }
+
+    await setupTestData(db, {
+      embeddingSetId: 'cache-maintenance-set',
+      modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+      modelId: 'jinaai/jina-embeddings-v2-base-code',
+      dimensions: 768,
+      fileId: 'cache-maintenance-file',
+      chunkId: 'cache-maintenance-chunk',
+      jobId: 'cache-maintenance-job',
+    });
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      leaseMs: 5000,
+      modelKey: 'jinaai/jina-embeddings-v2-base-code',
+      service: new FakeEmbeddingService(),
+      embeddingCache: cacheWithMaintenance,
+      log: (msg, meta) => logs.push({ msg, meta }),
+    });
+
+    await waitFor(async () => {
+      const res = await db.query(`SELECT state FROM job_queue WHERE id = 'cache-maintenance-job'`);
+      const row = res.rows[0] as { state: string } | undefined;
+      return row?.state === 'succeeded';
+    });
+
+    await waitFor(
+      async () =>
+        vi.mocked(evictIfNeeded).mock.calls.length > 0 &&
+        logs.some((entry) => entry.msg === 'embedding_cache_stats')
+    );
+
+    expect(evictIfNeeded).toHaveBeenCalled();
+    expect(getStats).toHaveBeenCalled();
+    expect(logs).toContainEqual(
+      expect.objectContaining({
+        meta: expect.objectContaining({
+          totalEntries: 1,
+          totalHits: 0,
+        }),
+        msg: 'embedding_cache_stats',
+      })
+    );
 
     await controller.stop();
   });

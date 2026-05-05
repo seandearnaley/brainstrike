@@ -6,7 +6,7 @@ import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { formatTokenCount } from './use-preview-panel-state';
 import type { TableRowData } from './utils/grouping-configs';
 import {
-  formatDirPathForDisplay,
+  formatFilePathSubtitle,
   getRootFolderDisplayName,
   splitFilePath,
 } from './utils/path-display';
@@ -27,8 +27,11 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
   onFileClick,
   columnVisibility,
 }) {
-  const { fileName, dirPath } = splitFilePath(item.path);
-  const displayDirPath = formatDirPathForDisplay({ dirPath, rootFolderId: item.rootFolderId });
+  const { fileName } = splitFilePath(item.path);
+  const displayDirPath = formatFilePathSubtitle({
+    filePath: item.path,
+    rootFolderId: item.rootFolderId,
+  });
   const displayRootFolder = getRootFolderDisplayName(item.rootFolderId);
 
   const handleCheckedChange = useCallback(
@@ -83,7 +86,7 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
               {fileName}
             </div>
             {displayDirPath && (
-              <div className="truncate font-mono text-muted-foreground text-xs" title={dirPath}>
+              <div className="truncate font-mono text-muted-foreground text-xs" title={item.path}>
                 {displayDirPath}
               </div>
             )}
@@ -97,12 +100,12 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
       )}
       {columnVisibility.tokens && (
         <td className="w-24 whitespace-nowrap px-4 py-2 text-right tabular-nums">
-          {item.tokens ? (
+          {item.tokens === undefined ? (
+            <span className="text-muted-foreground text-sm">—</span>
+          ) : (
             <span className="whitespace-nowrap font-mono text-sm tabular-nums">
               {formatTokenCount(item.tokens)}
             </span>
-          ) : (
-            <span className="text-muted-foreground text-sm">—</span>
           )}
         </td>
       )}

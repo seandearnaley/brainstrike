@@ -52,7 +52,6 @@ describe('PGlite Browser Mode POC', () => {
 
   // Skip PGlite tests until WASM bundling issue is resolved (BST-68)
   // The environment validation tests above prove browser mode works correctly
-  // biome-ignore lint/suspicious/noSkippedTests: Intentionally skipped - PGlite WASM bundling fails in Vitest browser mode
   describe.skip('PGlite in-memory operations', () => {
     it('should create an in-memory PGlite instance', async () => {
       // In-memory mode avoids IndexedDB persistence complexity
@@ -152,7 +151,6 @@ describe('PGlite Browser Mode POC', () => {
     });
   });
 
-  // biome-ignore lint/suspicious/noSkippedTests: Intentionally skipped - PGlite WASM bundling fails in Vitest browser mode
   describe.skip('WASM performance baseline', () => {
     it('should complete 100 inserts in reasonable time', async () => {
       db = new PGlite();

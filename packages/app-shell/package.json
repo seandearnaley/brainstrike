@@ -54,10 +54,6 @@
       "types": "./dist/root-layout-content.d.ts",
       "import": "./dist/root-layout-content.js"
     },
-    "./stores/tools-panel-store": {
-      "types": "./dist/stores/tools-panel-store.d.ts",
-      "import": "./dist/stores/tools-panel-store.js"
-    },
     "./types": {
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"
@@ -82,7 +78,7 @@
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "pnpm run --dir=../.. lint",
     "test": "vitest run",
-    "test:coverage": "pnpm -w test:coverage",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit --project tsconfig.typecheck.json && tsc --noEmit --project tsconfig.test.json"
   },

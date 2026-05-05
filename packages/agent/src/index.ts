@@ -69,6 +69,14 @@ export {
 } from './mcp/tool-registry';
 // Memory store for early development
 export { InMemoryMemoryStore } from './memory/in-memory';
+export {
+  DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  type RuntimeAssistantMemoryRetrievalMode,
+  type RuntimeAssistantMemoryScope,
+  type RuntimeAssistantMemorySettings,
+  type RuntimeAssistantObservationalMemorySettings,
+  type RuntimeAssistantSemanticRecallSettings,
+} from './memory-settings';
 // Message utilities — conversion and normalization functions
 export { convertAssistantUiMessages, toAiSdkStyleStream } from './message-utils';
 export type {
@@ -187,6 +195,17 @@ export {
   UnifiedToolRegistry,
   unifiedToolRegistry,
 } from './registry';
+export {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
+  ASSISTANT_RUN_EVENT_KINDS,
+  ASSISTANT_RUN_EVENT_STATUSES,
+  type AssistantRunEvent,
+  type AssistantRunEventJson,
+  type AssistantRunEventKind,
+  type AssistantRunEventMetadata,
+  type AssistantRunEventStatus,
+  sanitizeAssistantRunEventMetadata,
+} from './run-events';
 export {
   AssistantDataStreamSession,
   AssistantDataStreamSessionManager,

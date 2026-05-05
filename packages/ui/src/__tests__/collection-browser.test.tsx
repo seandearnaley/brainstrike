@@ -14,6 +14,39 @@ function makeFilters(overrides: Partial<CollectionBrowserFilters> = {}): Collect
 }
 
 describe('CollectionBrowser', () => {
+  it('renders embedding status as a compact icon column instead of text badges', () => {
+    render(
+      <CollectionBrowser
+        data={{
+          files: [
+            {
+              id: 'file-1',
+              name: 'indexed.ts',
+              path: '/project/indexed.ts',
+              size: 512,
+              chunksCount: 1,
+              embeddedChunksCount: 1,
+            },
+          ],
+          chunks: [
+            {
+              id: 'chunk-1',
+              fileRecordId: 'file-1',
+              chunkIndex: 0,
+              tokenCount: 42,
+              hasEmbedding: true,
+            },
+          ],
+        }}
+      />
+    );
+
+    const statusHeader = screen.getByRole('columnheader', { name: 'Status' });
+    expect(statusHeader).toHaveStyle({ width: '44px', minWidth: '44px' });
+    expect(screen.getByLabelText('Complete embedding status')).toBeInTheDocument();
+    expect(screen.queryByText('Complete')).not.toBeInTheDocument();
+  });
+
   it('keeps collection browser wrappers shrinkable in narrow layouts', () => {
     const { container } = render(<CollectionBrowser data={{ files: [], chunks: [] }} />);
 

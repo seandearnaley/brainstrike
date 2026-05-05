@@ -1,6 +1,12 @@
 import type { Page, Route } from '@playwright/test';
+import {
+  installSettingsTestOverrides,
+  readLocalRuntimeProbeCounts,
+  resetLocalRuntimeProbeCounts,
+} from '../../e2e-test-utils/settings-test-overrides';
 import { expect, test } from './fixtures/web-fixture';
 import { HomePage } from './page-objects/home-page';
+import { SettingsPage } from './page-objects/settings-page';
 import { resetAppState } from './utils/app-state';
 
 /**
@@ -57,7 +63,7 @@ test.describe('Local Runtimes settings (web)', () => {
     await stubLocalRuntimeProbes(page, { ollama: 'available', lmstudio: 'unreachable' });
 
     const home = new HomePage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
 
     await page.getByRole('button', { name: 'Local Runtimes' }).click();
@@ -73,7 +79,7 @@ test.describe('Local Runtimes settings (web)', () => {
     await stubLocalRuntimeProbes(page, { ollama: 'available', lmstudio: 'unreachable' });
 
     const home = new HomePage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
     await page.getByRole('button', { name: 'Local Runtimes' }).click();
 
@@ -94,7 +100,7 @@ test.describe('Local Runtimes settings (web)', () => {
     await stubLocalRuntimeProbes(page, { ollama: 'available', lmstudio: 'available' });
 
     const home = new HomePage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
     await page.getByRole('button', { name: 'Local Runtimes' }).click();
 
@@ -112,20 +118,148 @@ test.describe('Local Runtimes settings (web)', () => {
     await stubLocalRuntimeProbes(page, { ollama: 'unreachable', lmstudio: 'unreachable' });
 
     const home = new HomePage(page);
-    await home.goto();
+    const settings = new SettingsPage(page);
+    await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
-    await page.getByRole('button', { name: 'Local Runtimes' }).click();
+    await settings.openCategory(/Local Runtimes/i, 'local-runtimes');
 
     const urlInput = page.getByTestId('local-runtime-url-input-ollama');
     await urlInput.fill('http://gpu.lan:11434');
-    await page.getByTestId('local-runtime-url-save-ollama').click();
+    const saveButton = page.getByTestId('local-runtime-url-save-ollama');
+    await expect(saveButton).toBeEnabled();
+    await saveButton.click();
+    await expect(saveButton).toBeDisabled({ timeout: 10_000 });
 
     await page.reload();
-    await page.getByRole('button', { name: 'Local Runtimes' }).click();
+    await home.navigateToSettings();
+    await settings.openCategory(/Local Runtimes/i, 'local-runtimes');
 
     await expect(page.getByTestId('local-runtime-url-input-ollama')).toHaveValue(
       'http://gpu.lan:11434',
       { timeout: 10_000 }
     );
+  });
+
+  test('renders blocked-by-browser diagnostics when the probe reports blocked_web', async ({
+    page,
+  }) => {
+    await installSettingsTestOverrides(page, {
+      localRuntime: {
+        statuses: {
+          ollama: {
+            state: 'blocked_web',
+            checkedAt: 123,
+            message: 'Mixed content blocked the probe',
+          },
+        },
+      },
+    });
+
+    const home = new HomePage(page);
+    const settings = new SettingsPage(page);
+    await home.goto({ waitForDatabase: false });
+    await home.navigateToSettings();
+    await settings.openCategory(/Local Runtimes/i, 'local-runtimes');
+
+    await expect(page.getByTestId('local-runtime-status-ollama')).toContainText(
+      'Blocked by browser'
+    );
+    await expect(page.getByTestId('local-runtime-card-ollama')).toContainText(
+      'Mixed content blocked the probe'
+    );
+  });
+
+  test('renders unavailable diagnostics when the probe cannot reach the runtime', async ({
+    page,
+  }) => {
+    await installSettingsTestOverrides(page, {
+      localRuntime: {
+        statuses: {
+          ollama: {
+            state: 'unavailable',
+            checkedAt: 456,
+            message: 'Connection refused',
+          },
+        },
+      },
+    });
+
+    const home = new HomePage(page);
+    const settings = new SettingsPage(page);
+    await home.goto({ waitForDatabase: false });
+    await home.navigateToSettings();
+    await settings.openCategory(/Local Runtimes/i, 'local-runtimes');
+
+    await expect(page.getByTestId('local-runtime-status-ollama')).toContainText('Unavailable');
+    await expect(page.getByTestId('local-runtime-card-ollama')).toContainText('Connection refused');
+  });
+
+  test('surfaces force-enabled not reachable copy when activation is On and the probe fails', async ({
+    page,
+  }) => {
+    await installSettingsTestOverrides(page, {
+      localRuntime: {
+        statuses: {
+          ollama: {
+            state: 'unavailable',
+            checkedAt: 789,
+            message: 'down for maintenance',
+          },
+        },
+      },
+    });
+
+    const home = new HomePage(page);
+    const settings = new SettingsPage(page);
+    await home.goto({ waitForDatabase: false });
+    await home.navigateToSettings();
+    await settings.openCategory(/Local Runtimes/i, 'local-runtimes');
+
+    await page
+      .getByTestId('local-runtime-activation-ollama')
+      .getByRole('radio', { name: /^On/ })
+      .check();
+
+    await expect(page.getByTestId('local-runtime-status-ollama')).toContainText(
+      'Force-enabled (not reachable)'
+    );
+    await expect(page.getByTestId('local-runtime-card-ollama')).toContainText(
+      'down for maintenance'
+    );
+  });
+
+  test('probe now only re-probes the clicked runtime', async ({ page }) => {
+    await installSettingsTestOverrides(page, {
+      localRuntime: {
+        trackProbeCounts: true,
+        statuses: {
+          ollama: {
+            state: 'available',
+            checkedAt: 100,
+            endpoint: 'http://127.0.0.1:11434/v1/models',
+            latencyMs: 10,
+          },
+          lmstudio: {
+            state: 'unavailable',
+            checkedAt: 101,
+            message: 'not running',
+          },
+        },
+      },
+    });
+
+    const home = new HomePage(page);
+    const settings = new SettingsPage(page);
+    await home.goto({ waitForDatabase: false });
+    await home.navigateToSettings();
+    await settings.openCategory(/Local Runtimes/i, 'local-runtimes');
+
+    await resetLocalRuntimeProbeCounts(page);
+    await page.getByTestId('local-runtime-probe-ollama').click();
+
+    await expect(page.getByTestId('local-runtime-status-ollama')).toContainText('Available');
+    const counts = await readLocalRuntimeProbeCounts(page);
+    expect(counts.ollama).toBe(1);
+    expect(counts.lmstudio ?? 0).toBe(0);
   });
 });

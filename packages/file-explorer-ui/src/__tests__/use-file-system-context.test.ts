@@ -1,5 +1,6 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
+import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -384,6 +385,73 @@ describe('useFileSystem context hook', () => {
 
     expect(result.current.store.getState().selectionModel.mode).toBe('query');
     expect(result.current.store.getState().selectedFilePaths.size).toBe(1);
+  });
+
+  it('rehydrates persisted folder state when selecting the already-current folder id', async () => {
+    const restoredHandle: DirectoryHandle = {
+      path: 'selected-restored-root',
+      name: 'selected-restored-root',
+      kind: 'directory',
+      platform: 'web',
+    } as DirectoryHandle;
+
+    vi.spyOn(MockFileSystemAdapter.prototype, 'requestDirectoryAccess').mockResolvedValue(
+      restoredHandle
+    );
+
+    const isolatedStorageAdapter = new MemoryStorageAdapter();
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(FileExplorerTestWrapper, {
+        children,
+        mockStorageAdapter: isolatedStorageAdapter,
+      });
+    const { result } = renderHook(() => useExposed(), { wrapper });
+
+    act(() => {
+      result.current.store.setState({
+        currentFolderId: 'selected-restored-root',
+        selectedFilePaths: new Set<string>(),
+        selectionModel: {
+          mode: 'explicit',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+          queryDescriptor: null,
+        },
+        folderStates: {
+          'selected-restored-root': {
+            selectedFilePaths: new Set<string>(['selected-restored-root|@|file-0.ts']),
+            selectionModel: {
+              mode: 'explicit',
+              explicitPaths: new Set<string>(['selected-restored-root|@|file-0.ts']),
+              ruleSetJson: null,
+              materializedPaths: null,
+              materializedAt: null,
+              queryDescriptor: null,
+            },
+            expandedDirectoryPaths: new Set<string>(['src']),
+            includeFilters: [],
+            excludeFilters: [],
+            useRegex: false,
+            includeProjectTree: true,
+            tokenBudget: 100_000,
+            folderSummaryThreshold: 5,
+            maxSelectionCount: 1000,
+            lastActiveTab: 'files',
+            lastAccessed: Date.now(),
+            viewFilterPresetId: null,
+          },
+        },
+      });
+    });
+
+    await act(async () => {
+      await result.current.fs.selectRootDirectory();
+    });
+
+    expect(result.current.store.getState().selectedFilePaths.size).toBe(1);
+    expect(result.current.store.getState().expandedDirectoryPaths).toEqual(new Set(['src']));
   });
 
   it('syncs an auto-restored root handle into the store', async () => {

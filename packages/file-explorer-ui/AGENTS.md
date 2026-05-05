@@ -40,7 +40,7 @@ From `src/index.ts`:
 
 * Components
 
-  * `FileExplorerHeader`, `FileExplorerSidebar`, `FileExplorerLeftPanel`, `FileExplorerMiddlePanel`, `FileExplorerMiddlePanelTabbed`
+  * `FileExplorerSidebar`, `FileExplorerLeftPanel`, `FileExplorerMiddlePanel`, `FileExplorerMiddlePanelTabbed`
   * `FileTree`, `OptimizedFileTree`
   * `PreviewPanel`, `TabbedFileEditor`, `TabbedFileEditorPanel`
   * `LoadingOverlay`, `SelectionCounter`

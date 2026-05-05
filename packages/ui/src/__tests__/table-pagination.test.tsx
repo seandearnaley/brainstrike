@@ -153,7 +153,6 @@ describe('TablePagination', () => {
 
   // Skip: Radix Select has jsdom compatibility issues (hasPointerCapture not implemented).
   // The callback wiring is tested via integration tests.
-  // biome-ignore lint/suspicious/noSkippedTests: Radix Select requires browser environment
   it.skip('calls onPageSizeChange when page size changed', async () => {
     const user = userEvent.setup();
     const onPageSizeChange = vi.fn();

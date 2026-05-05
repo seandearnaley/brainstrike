@@ -404,4 +404,72 @@ describe('ModelPicker', () => {
       expect(localModels).toHaveLength(3);
     });
   });
+
+  describe('layering and responsiveness (dialog regression)', () => {
+    // The model picker is opened from inside Radix Dialogs (e.g. CreateSearchCollection).
+    // Dialog content sits at z-[51] above its z-50 overlay, so the popover must stack
+    // above z-[51] or its items render behind the dialog and become unclickable in real browsers.
+    it('renders popover content above the dialog content stacking floor', () => {
+      render(<ModelPicker models={models} providers={providers} />);
+      fireEvent.click(screen.getByRole('combobox'));
+
+      const popover = document.querySelector('[data-slot="popover-content"]');
+      expect(popover).not.toBeNull();
+      const className = (popover as HTMLElement).className;
+
+      // Must explicitly opt out of the default z-50 (which is below dialog content z-[51])
+      expect(className).toMatch(/z-\[(5[2-9]|[6-9]\d|1\d{2,})\]/);
+    });
+
+    // The popover is fixed at w-[400px] which overflows narrow viewports (mobile/tablet portrait).
+    // It must cap to viewport width so the dropdown never extends off-screen.
+    it('caps popover width to the viewport on narrow screens', () => {
+      render(<ModelPicker models={models} providers={providers} />);
+      fireEvent.click(screen.getByRole('combobox'));
+
+      const popover = document.querySelector('[data-slot="popover-content"]');
+      expect(popover).not.toBeNull();
+      const className = (popover as HTMLElement).className;
+
+      // The popover must be bounded by the viewport — either via max-w-[...vw...]
+      // or via a w-[...] expression that includes a viewport unit (e.g. min(400px,calc(100vw-2rem))).
+      expect(className).toMatch(/(?:max-w|w)-\[(?:[^\]]*v[wh]|calc\([^\]]*v[wh])/);
+    });
+
+    // Popover modal=true conflicts with parent Dialog modal=true (FocusScope fights).
+    // The picker should run its popover non-modally so the dialog owns focus.
+    it('renders popover non-modal so it composes inside parent Dialogs', () => {
+      render(<ModelPicker models={models} providers={providers} />);
+      fireEvent.click(screen.getByRole('combobox'));
+
+      // When Radix Popover is non-modal, it does NOT mark sibling content with aria-hidden,
+      // and it does NOT add a body scroll lock. Easiest check: the popover content does
+      // not get the data-aria-hidden attribute that modal popovers apply.
+      const popover = document.querySelector('[data-slot="popover-content"]');
+      expect(popover).not.toBeNull();
+      // Modal Radix popovers add a `data-aria-hidden` attribute on outside elements; non-modal does not.
+      // Use a more robust check: the popover content should be focusable but body should not have
+      // pointer-events:none locked by Radix's RemoveScroll wrapper.
+      expect(document.body.style.pointerEvents).not.toBe('none');
+    });
+
+    // The popover MUST NOT render inside Radix's body-level Portal when used
+    // under a modal Dialog. The dialog's RemoveScroll wraps a fixed DOM target
+    // and discards wheel events on anything portaled outside that target,
+    // which made the dropdown impossible to scroll. Rendering in-tree (with
+    // floating-ui position:fixed) keeps the popover inside the dialog's
+    // RemoveScroll allow-list so the wheel works.
+    it('does not portal popover content to document.body (so it inherits Dialog scroll allowance)', () => {
+      const { container } = render(<ModelPicker models={models} providers={providers} />);
+      fireEvent.click(screen.getByRole('combobox'));
+
+      const popover = document.querySelector('[data-slot="popover-content"]');
+      expect(popover).not.toBeNull();
+
+      // The render's container is detached from document.body in JSDOM only as a
+      // descendant. If the popover is portaled to body, it's a sibling of the
+      // render container, not a descendant. We assert it's a descendant.
+      expect(container.contains(popover)).toBe(true);
+    });
+  });
 });

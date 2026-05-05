@@ -2,9 +2,9 @@ import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import { getFileTree } from './utils/file-tree-locators';
 import {
-  getPanelElements,
+  CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
+  contextExplorerActiveNavLocator,
   resetLayoutState,
-  togglePanelVisibility,
   waitForAppLoad,
 } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
@@ -29,10 +29,10 @@ test.describe('Panel State Preservation', () => {
 
     await mockBrowserApis(page, 'test-root', tree, { clipboard: true });
     await page.goto('/');
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
     await resetAppState(page);
     await page.reload();
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
     await resetLayoutState(page);
   });
 
@@ -40,14 +40,12 @@ test.describe('Panel State Preservation', () => {
     page,
   }) => {
     // Wait for the file explorer to be ready
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
+    await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
     await expect(page.getByTestId('select-root-button')).toBeVisible();
     await expect(page.getByText('No directory selected')).toBeVisible();
 
     // Verify left panel is initially visible
-    const leftPanel = page.locator('#explorer-panel');
+    const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
     await expect(leftPanel).toBeVisible();
 
     // Select a root directory
@@ -71,10 +69,6 @@ test.describe('Panel State Preservation', () => {
     const testCheckbox = fileTree.getByRole('checkbox', { name: 'Select test.ts' });
     await testCheckbox.click({ force: true });
     await expect(testCheckbox).toBeChecked();
-
-    // Preserve selected-file state while toggling panels.
-    const elements = getPanelElements(page);
-    await togglePanelVisibility(elements.showConsoleShim, elements.consolePanel, true);
 
     // Hide the left panel
     const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
@@ -126,9 +120,7 @@ test.describe('Panel State Preservation', () => {
 
   test('should preserve file explorer state across multiple panel toggles', async ({ page }) => {
     // Wait for the file explorer to be ready
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
+    await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
     await expect(page.getByTestId('select-root-button')).toBeVisible();
 
     // Select a root directory
@@ -148,7 +140,7 @@ test.describe('Panel State Preservation', () => {
     // Get references to the toggle buttons
     const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
     const showExplorerShim = page.locator('button[aria-label="Show explorer panel"]');
-    const leftPanel = page.locator('#explorer-panel');
+    const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
 
     // Perform multiple hide/show cycles
     for (let i = 0; i < 3; i++) {

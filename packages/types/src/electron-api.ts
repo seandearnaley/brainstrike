@@ -58,6 +58,46 @@ export interface QueryResult<T = unknown> {
   rows: T[];
 }
 
+export type DatabaseWorkPriority = 'foreground' | 'normal' | 'background';
+
+export interface DatabaseWorkOptions {
+  readonly label?: string;
+  readonly priority?: DatabaseWorkPriority;
+}
+
+export interface DatabaseWorkSchedulerSnapshot {
+  readonly backgroundWaiting: boolean;
+  readonly backgroundWaitingSince: number | null;
+  readonly backgroundYieldCount: number;
+  readonly currentBackgroundWaitMs: number;
+  readonly foregroundQuietMs: number;
+  readonly lastBackgroundYieldAt: number | null;
+  readonly lastCompletedAt: number | null;
+  readonly lastForegroundAt: number | null;
+  readonly lastNormalAt: number | null;
+  readonly lastStartedAt: number | null;
+  readonly priorityStats: Record<DatabaseWorkPriority, DatabaseWorkPriorityStats>;
+  readonly queued: Record<DatabaseWorkPriority, number>;
+  readonly runningLabel: string | null;
+  readonly runningPriority: DatabaseWorkPriority | null;
+  readonly snapshotAt: number;
+}
+
+export interface DatabaseWorkPriorityStats {
+  readonly completed: number;
+  readonly lastCompletedLabel: string | null;
+  readonly lastStartedLabel: string | null;
+  readonly longestWaitMs: number;
+  readonly queued: number;
+  readonly serviceP50Ms: number;
+  readonly serviceP95Ms: number;
+  readonly started: number;
+  readonly totalServiceMs: number;
+  readonly totalWaitMs: number;
+  readonly waitP50Ms: number;
+  readonly waitP95Ms: number;
+}
+
 /**
  * Storage API exposed via Electron IPC
  */
@@ -95,7 +135,7 @@ export interface ElectronDatabaseAPI {
   /**
    * Apply a managed cache import/replace batch atomically.
    */
-  applyManagedCacheBatch?: (payload: unknown) => Promise<void>;
+  applyManagedCacheBatch?: (payload: unknown, options?: DatabaseWorkOptions) => Promise<void>;
 
   /**
    * Clear all stored data (desktop only)
@@ -120,7 +160,7 @@ export interface ElectronDatabaseAPI {
   /**
    * Execute a SQL statement without returning rows (INSERT, UPDATE, DELETE, etc.)
    */
-  exec?: (sql: string, params?: unknown[]) => Promise<unknown>;
+  exec?: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) => Promise<unknown>;
 
   /**
    * Get database file path (if applicable)
@@ -134,12 +174,21 @@ export interface ElectronDatabaseAPI {
   /**
    * Execute a parameterized SQL query and return results
    */
-  query: <T = unknown>(sql: string, params?: unknown[]) => Promise<QueryResult<T>>;
+  query: <T = unknown>(
+    sql: string,
+    params?: unknown[],
+    options?: DatabaseWorkOptions
+  ) => Promise<QueryResult<T>>;
 
   /**
    * Reset the local database (desktop only)
    */
   resetLocal?: () => Promise<{ success: boolean; message?: string }>;
+
+  /**
+   * Snapshot of main-process foreground/background database scheduler state.
+   */
+  schedulerSnapshot?: () => Promise<DatabaseWorkSchedulerSnapshot>;
 
   /**
    * Test database connection health
@@ -157,18 +206,24 @@ export interface ElectronDatabaseAPI {
  */
 export interface ElectronLiveQueryAPI {
   onUpdate: (callback: (payload: { id: number; results: unknown }) => void) => () => void;
-  refresh: (payload: { id: number; offset?: number; limit?: number }) => Promise<{
+  refresh: (
+    payload: { id: number; offset?: number; limit?: number },
+    options?: DatabaseWorkOptions
+  ) => Promise<{
     success: boolean;
     message?: string;
   }>;
-  start: (options: {
-    query: string;
-    params?: readonly unknown[];
-    key?: string;
-    mode?: 'query' | 'incremental';
-    offset?: number;
-    limit?: number;
-  }) => Promise<{ id: number; initialResults: { rows: unknown[]; totalCount?: number } }>;
+  start: (
+    options: {
+      query: string;
+      params?: readonly unknown[];
+      key?: string;
+      mode?: 'query' | 'incremental';
+      offset?: number;
+      limit?: number;
+    },
+    workOptions?: DatabaseWorkOptions
+  ) => Promise<{ id: number; initialResults: { rows: unknown[]; totalCount?: number } }>;
   stop: (id: number) => Promise<{ success: boolean } | undefined>;
 }
 

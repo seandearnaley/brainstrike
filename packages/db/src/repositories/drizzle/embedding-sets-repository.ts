@@ -10,7 +10,7 @@ import { eq } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import { ensureDimensionIndexExists } from '../../migrations/dimension-index-helpers.js';
 import type { EmbeddingDistance, EmbeddingSet } from '../../models/embedding-set.js';
-import { embeddingSets } from '../../schema/index.js';
+import { collectionIndexingStats, embeddingSets } from '../../schema/index.js';
 import {
   normalizeEmbeddingSetInputMetadata,
   repairPersistedEmbeddingSetMetadata,
@@ -43,21 +43,27 @@ export class DrizzleEmbeddingSetsRepository {
     const defaultName = `${normalizedMetadata.modelId} (${dimensions}D)`;
     const name = metadata?.name ?? defaultName;
 
-    const [insertedRow] = await this.db
-      .insert(embeddingSets)
-      .values({
-        id,
-        modelKey: normalizedMetadata.modelKey,
-        modelId: normalizedMetadata.modelId,
-        dimensions,
-        distance,
-        createdAt: now,
-        name,
-        description: metadata?.description ?? null,
-        tags: metadata?.tags ?? null,
-        category: metadata?.category ?? null,
-      })
-      .returning();
+    const insertedRow = await this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(embeddingSets)
+        .values({
+          id,
+          modelKey: normalizedMetadata.modelKey,
+          modelId: normalizedMetadata.modelId,
+          dimensions,
+          distance,
+          createdAt: now,
+          name,
+          description: metadata?.description ?? null,
+          tags: metadata?.tags ?? null,
+          category: metadata?.category ?? null,
+        })
+        .returning();
+
+      await tx.insert(collectionIndexingStats).values({ embeddingSetId: id }).onConflictDoNothing();
+
+      return row;
+    });
 
     if (!insertedRow) {
       throw new Error(

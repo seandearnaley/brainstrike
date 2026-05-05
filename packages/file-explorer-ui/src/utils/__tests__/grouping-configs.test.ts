@@ -50,6 +50,56 @@ describe('GROUPING_CONFIGS sort comparators', () => {
 
     const result = groupData(data, GROUPING_CONFIGS.directory);
 
-    expect(result.map((group) => String(group.groupKey))).toEqual(['.', 'dir1', 'dir10', 'dir2']);
+    expect(result.map((group) => group.groupLabel)).toEqual([
+      'root',
+      'root/dir1',
+      'root/dir10',
+      'root/dir2',
+    ]);
+  });
+
+  it('uses root-prefixed labels for directory grouping on desktop-style absolute paths', () => {
+    const data: TableRowData[] = [
+      buildRow({
+        id: 'row-root',
+        compositeKey: 'brainstrike::README.md',
+        rootFolderId: '/Users/me/BrainStrike',
+        path: '/Users/me/BrainStrike/README.md',
+      }),
+      buildRow({
+        id: 'row-source',
+        compositeKey: 'brainstrike::source/index.ts',
+        rootFolderId: '/Users/me/BrainStrike',
+        path: '/Users/me/BrainStrike/source/index.ts',
+      }),
+    ];
+
+    const result = groupData(data, GROUPING_CONFIGS.directory);
+
+    expect(result.map((group) => group.groupLabel)).toEqual(['BrainStrike', 'BrainStrike/source']);
+  });
+
+  it('disambiguates duplicate directory labels by falling back to canonical root identities', () => {
+    const data: TableRowData[] = [
+      buildRow({
+        id: 'row-root-a',
+        compositeKey: 'brainstrike-a::README.md',
+        rootFolderId: '/Users/me/BrainStrike',
+        path: '/Users/me/BrainStrike/README.md',
+      }),
+      buildRow({
+        id: 'row-root-b',
+        compositeKey: 'brainstrike-b::README.md',
+        rootFolderId: '/tmp/BrainStrike',
+        path: '/tmp/BrainStrike/README.md',
+      }),
+    ];
+
+    const result = groupData(data, GROUPING_CONFIGS.directory);
+
+    expect(result.map((group) => group.groupLabel)).toEqual([
+      '/tmp/BrainStrike',
+      '/Users/me/BrainStrike',
+    ]);
   });
 });

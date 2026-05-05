@@ -1,12 +1,15 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { MigrationRunner, migrations } from './index.js';
+import { runMigrations } from '../drizzle/migrate.js';
+
+export const PGVECTOR_EXTENSION_PRESENCE_QUERY =
+  "SELECT 1 FROM pg_extension WHERE extname = 'vector'";
 
 /**
- * Legacy bootstrap function - now uses the migration system
- * @deprecated Use MigrationRunner directly for new code
+ * Production migration bootstrap for greenfield Brainstrike databases.
  */
-export async function migrate(db: PGlite) {
-  const runner = new MigrationRunner(db);
-  await runner.initialize();
-  await runner.up(migrations);
+export async function migrate(db: PGlite): Promise<void> {
+  const result = await runMigrations(db);
+  if (!result.success) {
+    throw new Error(result.error ?? 'Drizzle migration failed without an error message.');
+  }
 }

@@ -85,6 +85,7 @@ function createDeps(
     setStatus: vi.fn(),
     subscribeToBackfillProgress: vi.fn(() => () => {}),
     validateHostedProviderAccess: vi.fn(async () => undefined),
+    waitForBackgroundPermit: vi.fn(async () => undefined),
     ...overrides,
   };
 }
@@ -491,6 +492,12 @@ describe('WorkspaceCollectionSyncService', () => {
     });
 
     expect(deps.applyManagedCacheBatch).toHaveBeenCalledTimes(1);
+    expect(deps.waitForBackgroundPermit).toHaveBeenCalledWith({
+      label: 'background import batch',
+    });
+    expect(deps.waitForBackgroundPermit).toHaveBeenCalledWith({
+      label: 'background import assignment',
+    });
     expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
   });
 

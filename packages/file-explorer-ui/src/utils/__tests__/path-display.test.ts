@@ -1,10 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatDirPathForDisplay,
-  getDirPathForGrouping,
+  formatFilePathSubtitle,
+  formatTrailingPathSegments,
+  getDirectoryGroupDisplayName,
+  getDirectoryGroupKey,
   getRootFolderDisplayName,
   splitFilePath,
 } from '../path-display';
+
+describe('formatTrailingPathSegments', () => {
+  it('returns the path unchanged when it has 2 or fewer segments', () => {
+    expect(formatTrailingPathSegments('a/b')).toBe('a/b');
+    expect(formatTrailingPathSegments('only-one')).toBe('only-one');
+  });
+
+  it('truncates to the trailing two segments with an ellipsis prefix', () => {
+    expect(formatTrailingPathSegments('a/b/c/d')).toBe('.../c/d');
+    expect(formatTrailingPathSegments('/Users/me/project/src/file.ts')).toBe('.../src/file.ts');
+  });
+
+  it('handles empty input', () => {
+    expect(formatTrailingPathSegments('')).toBe('');
+  });
+});
 
 describe('splitFilePath', () => {
   it('splits Unix file path correctly', () => {
@@ -198,93 +217,74 @@ describe('formatDirPathForDisplay', () => {
   });
 });
 
-describe('getDirPathForGrouping', () => {
-  it('returns folder-relative path for grouped display', () => {
-    const result = getDirPathForGrouping({
-      filePath: '/Users/me/project/src/components/Button.tsx',
-      rootFolderId: 'project',
+describe('formatFilePathSubtitle', () => {
+  it('shows the root folder name for desktop root files', () => {
+    const result = formatFilePathSubtitle({
+      filePath: '/Users/me/BrainStrike/README.md',
+      rootFolderId: '/Users/me/BrainStrike',
     });
-    expect(result).toBe('src/components');
+    expect(result).toBe('BrainStrike');
   });
 
-  it('returns "." for file at project root', () => {
-    const result = getDirPathForGrouping({
-      filePath: '/Users/me/project/index.ts',
-      rootFolderId: 'project',
+  it('prefixes nested desktop file paths with the root folder name', () => {
+    const result = formatFilePathSubtitle({
+      filePath: '/Users/me/BrainStrike/source/index.ts',
+      rootFolderId: '/Users/me/BrainStrike',
     });
-    expect(result).toBe('.');
+    expect(result).toBe('BrainStrike/source');
   });
 
-  it('returns "." for file with no directory', () => {
-    const result = getDirPathForGrouping({
-      filePath: 'file.txt',
-      rootFolderId: 'project',
+  it('preserves the existing web-style root-prefixed path when already present', () => {
+    const result = formatFilePathSubtitle({
+      filePath: 'BrainStrike/source/index.ts',
+      rootFolderId: 'BrainStrike',
     });
-    expect(result).toBe('.');
+    expect(result).toBe('BrainStrike/source');
   });
 
-  it('handles Windows paths', () => {
-    const result = getDirPathForGrouping({
-      filePath: 'C:\\Users\\me\\project\\src\\utils\\helpers.ts',
-      rootFolderId: 'project',
+  it('preserves nested directories whose name matches the root basename', () => {
+    const result = formatFilePathSubtitle({
+      filePath: '/Users/me/BrainStrike/BrainStrike/source/index.ts',
+      rootFolderId: '/Users/me/BrainStrike',
     });
-    expect(result).toBe('src/utils');
+    expect(result).toBe('BrainStrike/BrainStrike/source');
   });
 
-  it('handles deeply nested paths', () => {
-    const result = getDirPathForGrouping({
-      filePath: '/Users/me/project/a/b/c/d/e/file.ts',
-      rootFolderId: 'project',
+  it('treats existing relative root prefixes case-insensitively', () => {
+    const result = formatFilePathSubtitle({
+      filePath: 'project/source/index.ts',
+      rootFolderId: 'Project',
     });
-    expect(result).toBe('a/b/c/d/e');
+    expect(result).toBe('project/source');
+  });
+});
+
+describe('directory group helpers', () => {
+  it('uses a root-prefixed display name for grouped absolute root files', () => {
+    const groupKey = getDirectoryGroupKey({
+      filePath: '/Users/me/BrainStrike/README.md',
+      rootFolderId: '/Users/me/BrainStrike',
+    });
+
+    expect(getDirectoryGroupDisplayName({ groupKey })).toBe('BrainStrike');
   });
 
-  it('handles case-insensitive root folder matching', () => {
-    const result = getDirPathForGrouping({
-      filePath: '/home/user/MyProject/src/index.ts',
-      rootFolderId: 'myproject',
+  it('preserves nested directories whose name matches the root basename', () => {
+    const groupKey = getDirectoryGroupKey({
+      filePath: '/Users/me/BrainStrike/BrainStrike/source/index.ts',
+      rootFolderId: '/Users/me/BrainStrike',
     });
-    expect(result).toBe('src');
+
+    expect(getDirectoryGroupDisplayName({ groupKey })).toBe('BrainStrike/BrainStrike/source');
   });
 
-  it('preserves path when root folder not in path', () => {
-    const result = getDirPathForGrouping({
-      filePath: '/some/random/path/file.ts',
-      rootFolderId: 'project',
+  it('treats existing relative root prefixes case-insensitively', () => {
+    const groupKey = getDirectoryGroupKey({
+      filePath: 'project/source/index.ts',
+      rootFolderId: 'Project',
     });
-    expect(result).toBe('/some/random/path');
-  });
 
-  it('uses an absolute root folder identity when grouping absolute file paths', () => {
-    const result = getDirPathForGrouping({
-      filePath: '/Users/me/project/src/components/Button.tsx',
-      rootFolderId: '/Users/me/project',
-    });
-    expect(result).toBe('src/components');
-  });
-
-  it('preserves filesystem-root ids when grouping absolute file paths', () => {
-    const result = getDirPathForGrouping({
-      filePath: '/etc/hosts',
-      rootFolderId: '/',
-    });
-    expect(result).toBe('etc');
-  });
-
-  it('handles relative paths', () => {
-    const result = getDirPathForGrouping({
-      filePath: 'src/components/Button.tsx',
-      rootFolderId: 'project',
-    });
-    expect(result).toBe('src/components');
-  });
-
-  it('keeps a legitimate relative top-level folder when it matches the root basename', () => {
-    const result = getDirPathForGrouping({
-      filePath: 'project/biome.json',
-      rootFolderId: '/workspaces/project',
-    });
-    expect(result).toBe('project');
+    expect(getDirectoryGroupDisplayName({ groupKey })).toBe('project/source');
   });
 });
 

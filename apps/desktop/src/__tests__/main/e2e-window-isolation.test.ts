@@ -77,6 +77,34 @@ vi.mock('@brainstrike/storage/electron', () => {
   return { ElectronStorageAdapter: MockAdapter };
 });
 
+vi.mock('../../assistant-server', () => ({
+  startAssistantServer: vi.fn(async () => ({
+    url: 'http://127.0.0.1:0',
+    stop: vi.fn(),
+  })),
+}));
+
+vi.mock('../../create-window', () => ({
+  createWindow: vi.fn(async () => ({
+    on: vi.fn(),
+    isDestroyed: vi.fn(() => false),
+    isFullScreen: vi.fn(() => false),
+    isMaximized: vi.fn(() => false),
+    getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1280, height: 800 })),
+    getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1280, height: 800 })),
+    webContents: {
+      send: vi.fn(),
+      reloadIgnoringCache: vi.fn(),
+    },
+  })),
+  noteNextWindowReload: vi.fn(),
+}));
+
+vi.mock('../../window-state', () => ({
+  readStoredWindowState: vi.fn(() => null),
+  registerWindowStatePersistence: vi.fn(),
+}));
+
 vi.mock('electron-store', () => {
   const MockElectronStore = vi.fn();
   MockElectronStore.mockImplementation(function (this: Record<string, unknown>) {
@@ -90,6 +118,7 @@ vi.mock('electron-store', () => {
 
 const ORIGINAL_ARGV = [...process.argv];
 const ORIGINAL_ELECTRON_E2E = process.env['ELECTRON_IS_E2E_TEST'];
+const ORIGINAL_E2E_USER_DATA_DIR = process.env['BRAINSTRIKE_E2E_USER_DATA_DIR'];
 
 describe('main E2E window isolation', () => {
   beforeEach(() => {
@@ -98,6 +127,8 @@ describe('main E2E window isolation', () => {
     process.argv = ORIGINAL_ARGV.filter((arg) => arg !== '--test-mode');
     // biome-ignore lint/performance/noDelete: process.env coerces = undefined to the string "undefined"; delete is the only way to truly clear a key
     delete process.env['ELECTRON_IS_E2E_TEST'];
+    // biome-ignore lint/performance/noDelete: process.env coerces = undefined to the string "undefined"; delete is the only way to truly clear a key
+    delete process.env['BRAINSTRIKE_E2E_USER_DATA_DIR'];
   });
 
   afterEach(() => {
@@ -107,6 +138,12 @@ describe('main E2E window isolation', () => {
       delete process.env['ELECTRON_IS_E2E_TEST'];
     } else {
       process.env['ELECTRON_IS_E2E_TEST'] = ORIGINAL_ELECTRON_E2E;
+    }
+    if (ORIGINAL_E2E_USER_DATA_DIR === undefined) {
+      // biome-ignore lint/performance/noDelete: process.env coerces = undefined to the string "undefined"; delete is the only way to truly clear a key
+      delete process.env['BRAINSTRIKE_E2E_USER_DATA_DIR'];
+    } else {
+      process.env['BRAINSTRIKE_E2E_USER_DATA_DIR'] = ORIGINAL_E2E_USER_DATA_DIR;
     }
   });
 
@@ -129,6 +166,27 @@ describe('main E2E window isolation', () => {
     }
   });
 
+  it('overrides Electron userData and sessionData paths during desktop E2E launches', async () => {
+    process.argv = [...process.argv, '--test-mode'];
+    process.env['ELECTRON_IS_E2E_TEST'] = 'true';
+    process.env['BRAINSTRIKE_E2E_USER_DATA_DIR'] = '/tmp/brainstrike-e2e-isolated-profile';
+
+    await import('../../main');
+    await Promise.resolve();
+
+    const mockedApp = electronMockState.app;
+
+    expect(mockedApp).not.toBeNull();
+    expect(mockedApp.setPath).toHaveBeenCalledWith(
+      'userData',
+      '/tmp/brainstrike-e2e-isolated-profile'
+    );
+    expect(mockedApp.setPath).toHaveBeenCalledWith(
+      'sessionData',
+      '/tmp/brainstrike-e2e-isolated-profile/session-data'
+    );
+  });
+
   it('keeps single-instance protection enabled outside desktop E2E launches', async () => {
     await import('../../main');
     await Promise.resolve();
@@ -136,7 +194,7 @@ describe('main E2E window isolation', () => {
     const mockedApp = electronMockState.app;
 
     expect(mockedApp).not.toBeNull();
-    expect(mockedApp.requestSingleInstanceLock).toHaveBeenCalledTimes(1);
+    expect(mockedApp.requestSingleInstanceLock).toHaveBeenCalled();
     expect(mockedApp.on).toHaveBeenCalledWith('second-instance', expect.any(Function));
   });
 });

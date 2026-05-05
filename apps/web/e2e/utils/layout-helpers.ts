@@ -16,6 +16,72 @@ const DEFAULT_CI_APP_LOAD_TIMEOUT_MS = 55_000;
 const DEFAULT_LOCAL_NETWORK_IDLE_TIMEOUT_MS = 2000;
 const DEFAULT_CI_NETWORK_IDLE_TIMEOUT_MS = 5000;
 
+export const AGENT_SIDEBAR_PANEL_SELECTOR = [
+  '#agent-workspace-explorer-panel',
+  '[data-panel-id="agent-workspace-explorer-panel"]',
+  '#explorer-panel',
+  '[data-panel-id="explorer-panel"]',
+].join(', ');
+
+export const AGENT_MAIN_PANEL_SELECTOR = [
+  '#agent-workspace-main-content-panel',
+  '[data-panel-id="agent-workspace-main-content-panel"]',
+  '#main-content-panel',
+  '[data-panel-id="main-content-panel"]',
+].join(', ');
+
+export const AGENT_MIDDLE_PANEL_SELECTOR = [
+  '#agent-workspace-middle-panel',
+  '[data-panel-id="agent-workspace-middle-panel"]',
+  '#middle-panel',
+  '[data-panel-id="middle-panel"]',
+].join(', ');
+
+export const AGENT_WORKSPACE_PANEL_SELECTOR = [
+  '#agent-workspace-tools-panel',
+  '[data-panel-id="agent-workspace-tools-panel"]',
+  '#tools-panel',
+  '[data-panel-id="tools-panel"]',
+].join(', ');
+
+export const CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR = [
+  '#context-explorer-explorer-panel',
+  '[data-panel-id="context-explorer-explorer-panel"]',
+  '#explorer-panel',
+  '[data-panel-id="explorer-panel"]',
+].join(', ');
+
+/**
+ * Resolve the resize handle that sits directly between the context explorer tree
+ * and the preview area. Nested layouts make global separator ordering unreliable.
+ */
+export function getContextExplorerLeftResizeHandle(page: Page) {
+  return page
+    .locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR)
+    .locator('xpath=following-sibling::*[@data-separator][1]');
+}
+
+export const CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR = [
+  '#context-explorer-middle-panel',
+  '[data-panel-id="context-explorer-middle-panel"]',
+  '#middle-panel',
+  '[data-panel-id="middle-panel"]',
+].join(', ');
+
+export const CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR = [
+  '#context-explorer-main-content-panel',
+  '[data-panel-id="context-explorer-main-content-panel"]',
+  '#main-content-panel',
+  '[data-panel-id="main-content-panel"]',
+].join(', ');
+
+export const CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR = [
+  '#context-explorer-console-panel',
+  '[data-panel-id="context-explorer-console-panel"]',
+  '#console-panel',
+  '[data-panel-id="console-panel"]',
+].join(', ');
+
 function resolveErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -45,6 +111,49 @@ export function resolveNetworkIdleTimeout(isCI: boolean): number {
   return isCI ? DEFAULT_CI_NETWORK_IDLE_TIMEOUT_MS : DEFAULT_LOCAL_NETWORK_IDLE_TIMEOUT_MS;
 }
 
+type DatabaseReadyState = 'connected' | 'disconnected' | null;
+
+export interface WaitForAppLoadOptions {
+  readonly timeoutMs?: number;
+  readonly waitForDatabase?: boolean;
+}
+
+export async function waitForDatabaseReady(page: Page, timeout = 10_000): Promise<void> {
+  const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
+  const effectiveTimeout = resolveWaitForAppLoadTimeout(timeout, isCI);
+  try {
+    const connectedHandle = await page.waitForFunction(
+      (): boolean => Boolean(document.querySelector('[data-testid="status-bar-db-connected"]')),
+      null,
+      { timeout: effectiveTimeout }
+    );
+    await connectedHandle.dispose();
+    return;
+  } catch (error) {
+    const status = await page
+      .evaluate((): DatabaseReadyState => {
+        if (document.querySelector('[data-testid="status-bar-db-connected"]')) {
+          return 'connected';
+        }
+        if (document.querySelector('[data-testid="status-bar-db-disconnected"]')) {
+          return 'disconnected';
+        }
+        return null;
+      })
+      .catch((): DatabaseReadyState => null);
+
+    if (status === 'connected') {
+      return;
+    }
+
+    const suffix =
+      status === 'disconnected'
+        ? ' Last observed state was disconnected.'
+        : ` Last wait error: ${resolveErrorMessage(error)}`;
+    throw new Error(`Database failed to initialize before the app became test-ready.${suffix}`);
+  }
+}
+
 async function getPlaywrightExpect(): Promise<PlaywrightExpect> {
   if (!cachedExpect) {
     try {
@@ -65,15 +174,15 @@ async function getPlaywrightExpect(): Promise<PlaywrightExpect> {
 
 export interface PanelElements {
   consolePanel: ReturnType<Page['locator']>;
+  hideAgentPanelButton: ReturnType<Page['locator']>;
   hideConsoleButton: ReturnType<Page['locator']>;
-  hideExplorerButton: ReturnType<Page['locator']>;
   hideRightPanelButton: ReturnType<Page['locator']>;
   leftPanel: ReturnType<Page['locator']>;
   mainContentPanel: ReturnType<Page['locator']>;
   middlePanel: ReturnType<Page['locator']>;
   rightPanel: ReturnType<Page['locator']>;
+  showAgentPanelShim: ReturnType<Page['locator']>;
   showConsoleShim: ReturnType<Page['locator']>;
-  showExplorerShim: ReturnType<Page['locator']>;
   showRightPanelShim: ReturnType<Page['locator']>;
 }
 
@@ -84,22 +193,20 @@ export interface PanelElements {
 export function getPanelElements(page: Page): PanelElements {
   return {
     // Main panels - v4 uses id attribute for panel identification
-    leftPanel: page.locator('#explorer-panel, [data-panel-id="explorer-panel"]'),
-    rightPanel: page.locator('#tools-panel, [data-panel-id="tools-panel"]'),
-    consolePanel: page.locator(
-      '#console-panel, #console-panel-horizontal, [data-panel-id="console-panel"], [data-panel-id="console-panel-horizontal"]'
-    ),
-    mainContentPanel: page.locator('#main-content-panel, [data-panel-id="main-content-panel"]'),
-    middlePanel: page.locator('#middle-panel, [data-panel-id="middle-panel"]'),
+    leftPanel: page.locator(AGENT_SIDEBAR_PANEL_SELECTOR),
+    rightPanel: page.locator(AGENT_WORKSPACE_PANEL_SELECTOR),
+    consolePanel: page.locator(CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR),
+    mainContentPanel: page.locator(AGENT_MAIN_PANEL_SELECTOR),
+    middlePanel: page.locator(AGENT_MIDDLE_PANEL_SELECTOR),
 
     // Hide buttons (when panels are open)
-    hideExplorerButton: page.locator('[data-testid="hide-explorer-panel"]'),
-    hideRightPanelButton: page.locator('[data-testid="hide-tools-panel"]'),
+    hideAgentPanelButton: page.locator('[data-testid="hide-threads-panel"]'),
+    hideRightPanelButton: page.locator('[data-testid="hide-workspace-panel"]'),
     hideConsoleButton: page.locator('[data-testid="hide-console-panel"]'),
 
     // Show shims (when panels are closed)
-    showExplorerShim: page.locator('[data-testid="show-explorer-panel"]'),
-    showRightPanelShim: page.locator('[data-testid="show-tools-panel"]'),
+    showAgentPanelShim: page.locator('[data-testid="show-threads-panel"]'),
+    showRightPanelShim: page.locator('[data-testid="show-workspace-panel"]'),
     showConsoleShim: page.locator('[data-testid="show-console-panel"]'),
   };
 }
@@ -120,19 +227,19 @@ export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promi
     await showShim.first().click();
   } else {
     const showButton = page
-      .locator('button[aria-label="Show tools panel"]')
-      .or(page.getByRole('button', { name: 'Show tools panel' }));
+      .locator('button[aria-label="Show workspace panel"]')
+      .or(page.getByRole('button', { name: 'Show workspace panel' }));
 
     if ((await showButton.count()) > 0) {
       await showButton.first().click();
     } else {
-      logWarn('Unable to find "Show tools panel" control; assuming panel is already visible.');
+      logWarn('Unable to find right-panel show control; assuming panel is already visible.');
       return;
     }
   }
 
   await elements.rightPanel.waitFor({ state: 'visible', timeout }).catch(() => {
-    logWarn('Tools panel did not become visible after requesting to show it.');
+    logWarn('Right panel did not become visible after requesting to show it.');
   });
 }
 
@@ -143,19 +250,22 @@ export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promi
  * In CI with vite preview (production build), React needs time to hydrate after
  * the initial HTML loads. This function handles the full hydration cycle.
  */
-export async function waitForAppLoad(page: Page, timeout = 10_000) {
+export async function waitForAppLoad(
+  page: Page,
+  options: WaitForAppLoadOptions = {}
+): Promise<void> {
+  const { timeoutMs = 10_000, waitForDatabase = true } = options;
   const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
   // Contract:
   // - Local runs use a 20s floor to tolerate hydration + initial panel layout.
   // - CI runs use a 55s floor for slower runners and production bundle startup.
   // Caller-provided timeout can only raise these floors, never lower them.
-  const effectiveTimeout = resolveWaitForAppLoadTimeout(timeout, isCI);
+  const effectiveTimeout = resolveWaitForAppLoadTimeout(timeoutMs, isCI);
   const panelReadySelector = [
-    '#middle-panel',
-    '[data-panel-id="middle-panel"]',
-    '#main-content-panel',
-    '[data-panel-id="main-content-panel"]',
-    'h1:has-text("Context Explorer")',
+    AGENT_MIDDLE_PANEL_SELECTOR,
+    AGENT_MAIN_PANEL_SELECTOR,
+    CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR,
+    CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR,
   ].join(', ');
 
   // Collect console errors and network failures in CI for debugging
@@ -181,23 +291,26 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
   // Using 'load' instead of 'domcontentloaded' to ensure JS has loaded
   await page.waitForLoadState('load', { timeout: effectiveTimeout });
 
-  // Best-effort wait for network to settle - important for production builds
-  // that may have deferred script loading. Use short timeout since apps with
-  // background workers often never reach networkidle state.
-  const networkIdleTimeout = resolveNetworkIdleTimeout(isCI);
-  await page.waitForLoadState('networkidle', { timeout: networkIdleTimeout }).catch((error) => {
-    // networkidle timeout is expected when app has background activity - continue
-    if (isCI) {
-      const errorMessage = resolveErrorMessage(error);
-      console.warn(
-        `[waitForAppLoad] networkidle wait exceeded ${networkIdleTimeout}ms; continuing. ${errorMessage}`
-      );
-      logWarn('waitForAppLoad networkidle timeout', {
-        timeoutMs: networkIdleTimeout,
-        error: errorMessage,
-      });
-    }
-  });
+  if (waitForDatabase) {
+    // Best-effort wait for network to settle - important for production builds
+    // that may have deferred script loading. Shell-only tests intentionally skip
+    // this because greenfield DB worker startup keeps background network work
+    // alive and can consume the entire Playwright test budget.
+    const networkIdleTimeout = resolveNetworkIdleTimeout(isCI);
+    await page.waitForLoadState('networkidle', { timeout: networkIdleTimeout }).catch((error) => {
+      // networkidle timeout is expected when app has background activity - continue
+      if (isCI) {
+        const errorMessage = resolveErrorMessage(error);
+        console.warn(
+          `[waitForAppLoad] networkidle wait exceeded ${networkIdleTimeout}ms; continuing. ${errorMessage}`
+        );
+        logWarn('waitForAppLoad networkidle timeout', {
+          timeoutMs: networkIdleTimeout,
+          error: errorMessage,
+        });
+      }
+    });
+  }
 
   // Wait for the main layout structure to be present
   // Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
@@ -239,14 +352,14 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
 
   // Also ensure the main content panel is present when panel IDs are available.
   await page
-    .waitForSelector('#main-content-panel, [data-panel-id="main-content-panel"]', {
+    .waitForSelector(`${AGENT_MAIN_PANEL_SELECTOR}, ${CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR}`, {
       state: 'attached',
       timeout: effectiveTimeout,
     })
     .catch((error) => {
       const errorMessage = resolveErrorMessage(error);
       logWarn('Main content panel selector did not attach after primary readiness check.', {
-        selector: '#main-content-panel, [data-panel-id="main-content-panel"]',
+        selector: `${AGENT_MAIN_PANEL_SELECTOR}, ${CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR}`,
         timeoutMs: effectiveTimeout,
         isCI,
         error: errorMessage,
@@ -259,13 +372,26 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
       // Some environments expose the main shell without explicit panel IDs.
       // The readiness selector above already validated visible app content.
     });
+
+  if (waitForDatabase) {
+    await waitForDatabaseReady(page, timeoutMs);
+  }
+}
+
+/**
+ * Locator for the Context Explorer sidebar nav button when it is the active page.
+ * The sidebar sets `aria-current="page"` on the active nav item — a stable,
+ * semantically meaningful landmark that survives UI redesigns.
+ */
+export function contextExplorerActiveNavLocator(page: Page) {
+  return page
+    .getByRole('button', { name: 'Context Explorer', exact: true })
+    .and(page.locator('[aria-current="page"]'));
 }
 
 export async function waitForContextExplorerPage(page: Page, timeout = 15_000): Promise<void> {
   const expect = await getPlaywrightExpect();
-  await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible({
-    timeout,
-  });
+  await expect(contextExplorerActiveNavLocator(page)).toBeVisible({ timeout });
 }
 
 export async function waitForSettingsPage(page: Page, timeout = 15_000): Promise<void> {
@@ -298,14 +424,20 @@ export async function activateSidebarNavigation(
 /**
  * Clear layout state and reload page with clean state
  */
-export async function resetLayoutState(page: Page): Promise<void> {
+export async function resetLayoutState(
+  page: Page,
+  options: WaitForAppLoadOptions = {}
+): Promise<void> {
   await page.evaluate(() => {
+    localStorage.removeItem('brainstrike.agent-sidebar-tab.v1');
     localStorage.removeItem('panel-layout-store.v1');
+    localStorage.removeItem('context-explorer-layout-store.v1');
+    localStorage.removeItem('tools-panel.v1');
   });
   // Wait for the page to finish navigating before continuing.
   // Using 'load' to ensure JS bundles are loaded before checking React elements.
   await page.reload({ waitUntil: 'load' });
-  await waitForAppLoad(page);
+  await waitForAppLoad(page, options);
 }
 
 /**
@@ -338,6 +470,7 @@ export async function togglePanelVisibility(
 export async function corruptLayoutStorage(page: Page): Promise<void> {
   await page.evaluate(() => {
     localStorage.setItem('panel-layout-store.v1', 'invalid-json');
+    localStorage.setItem('context-explorer-layout-store.v1', 'invalid-json');
   });
 }
 
@@ -358,23 +491,27 @@ export async function verifyDefaultLayout(page: Page, expectedState: DefaultLayo
   // Left panel should be visible by default
   if (expectedState.leftPanelHidden) {
     await expect(elements.leftPanel).not.toBeVisible();
-    await expect(elements.showExplorerShim).toBeVisible();
+    await expect(elements.showAgentPanelShim).toBeVisible();
   } else {
     await expect(elements.leftPanel).toBeVisible();
   }
 
-  // Tools panel should be hidden by default
-  if (expectedState.rightPanelHidden === false) {
-    // Explicitly set to be visible
-    await expect(elements.rightPanel).toBeVisible();
-    await expect(elements.hideRightPanelButton).toBeVisible();
-  } else {
-    // Default behavior or explicitly hidden
+  // Workspace panel is visible by default in the promoted agent shell.
+  if (expectedState.rightPanelHidden) {
     await expect(elements.rightPanel).not.toBeVisible();
     await expect(elements.showRightPanelShim).toBeVisible();
+  } else {
+    await expect(elements.rightPanel).toBeVisible();
+    await expect(elements.hideRightPanelButton).toBeVisible();
   }
 
-  // Console should be hidden by default
-  await expect(elements.consolePanel).not.toBeVisible();
-  await expect(elements.showConsoleShim).toBeVisible();
+  // The legacy console/file-editor panel is optional: workspace-tabs promotes file
+  // tabs into the main Context Explorer surface, so newer builds do not render the
+  // console panel or its show shim at all.
+  if ((await elements.consolePanel.count()) > 0) {
+    await expect(elements.consolePanel).not.toBeVisible();
+  }
+  if ((await elements.showConsoleShim.count()) > 0) {
+    await expect(elements.showConsoleShim).toBeVisible();
+  }
 }

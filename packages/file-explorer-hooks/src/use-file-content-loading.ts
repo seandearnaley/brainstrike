@@ -8,6 +8,7 @@ import {
   type FileContentProcessor,
   type FileContentRequest,
 } from './file-content-processor';
+import { buildInaccessibleContent } from './inaccessible-content';
 
 const MAX_CONCURRENT_LOADS = 3; // Reduced to prevent main thread saturation and WorkerStorage timeouts
 
@@ -65,7 +66,9 @@ export function useFileContentLoading(
       }
 
       if (fileNode.rootFolderId !== folderId) {
-        const msg = `File not accessible - Folder mismatch. Expected: ${folderId}, Found: ${fileNode.rootFolderId}`;
+        const msg = buildInaccessibleContent(
+          `Folder mismatch. Expected: ${folderId}, Found: ${fileNode.rootFolderId}`
+        );
         setFileContents((prev) => ({ ...prev, [compositeKey]: msg }));
         return null;
       }

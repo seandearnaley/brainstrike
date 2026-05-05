@@ -8,26 +8,15 @@ import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui';
 import { createLogger } from '@brainstrike/utils/logger';
-import {
-  lazy,
-  type ReactElement,
-  type ReactNode,
-  Suspense,
-  useCallback,
-  useEffect,
-  useRef,
-} from 'react';
-import HomePageContent from './home-page-content';
+import { type ReactElement, type ReactNode, useCallback, useEffect, useRef } from 'react';
+import ContextExplorerPageContent from './context-explorer-page-content';
 import SettingsPageContent from './settings/page-content';
 
 const logger = createLogger('DesktopRootLayoutContent');
 const RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS = 15_000;
 const RENDERER_HEAP_DIAGNOSTIC_DELTA_BYTES = 128 * 1024 * 1024;
-
-const LazyEmbeddingJobQueueTracker = lazy(async () => {
-  const module = await import('@brainstrike/vector-management');
-  return { default: module.EmbeddingJobQueueTracker };
-});
+const RENDERER_FRAME_DIAGNOSTIC_INTERVAL_MS = 15_000;
+const RENDERER_FRAME_STALL_WARN_THRESHOLD_MS = 500;
 
 interface RendererMemoryPerformance extends Performance {
   memory?: {
@@ -53,10 +42,8 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
  *
  * 1. create-embedding-queue.ts is resolved lazily when DB/vector tooling needs it
  * 2. Passed to SharedRootLayoutContent as loadEmbeddingQueue prop
- * 3. Flows through:
- *    - RootLayoutContent → ToolsPanel → VectorsTab → VectorStatusWithDialog
- *    - RootLayoutContent → ToolsPanel → DatabaseTab → DatabaseDemoPanel (import operations)
- * 4. VectorStatusWithDialog uses it for embedding set management and operations
+ * 3. Flows through RootLayoutContent → AgentSidebarPanel → DatabasePanel → DatabaseTab → DatabaseDemoPanel
+ * 4. Database-facing views use it for embedding set management and import operations
  *
  * DO NOT remove the loadEmbeddingQueue prop! It's the single source of truth for all
  * embedding operations in the desktop app.
@@ -64,7 +51,7 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
  * TOKEN CACHE: The TokenCacheWrapper provides a shared token cache context that
  * enables background token indexing. It wraps the entire layout so both:
  * - FileExplorerLeftPanel (indexes selected files via background worker)
- * - PreviewPanel in HomePageContent (displays token counts from the shared cache)
+ * - PreviewPanel in ContextExplorerPageContent (displays token counts from the shared cache)
  * can share the same context and see each other's updates.
  */
 export default function RootLayoutContent() {
@@ -72,9 +59,7 @@ export default function RootLayoutContent() {
   const activeToolsTabRef = useRef<'database-ready' | 'initializing'>(
     db ? 'database-ready' : 'initializing'
   );
-  const queueTrackerMountedRef = useRef(Boolean(db));
   activeToolsTabRef.current = db ? 'database-ready' : 'initializing';
-  queueTrackerMountedRef.current = Boolean(db);
 
   const navigationConfig = navigationItems as NavigationItem[];
   const loadEmbeddingQueue = useCallback(
@@ -87,7 +72,7 @@ export default function RootLayoutContent() {
   const sharedProps: RootLayoutContentProps = {
     databaseTabChunkingMode: 'host-proxy',
     navigationItems: navigationConfig,
-    homePageContent: <HomePageContent />,
+    contextExplorerPageContent: <ContextExplorerPageContent />,
     settingsPageContent: <SettingsPageContent />,
     promptsPageContent: <ConnectedPromptManager />,
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring
@@ -125,7 +110,6 @@ export default function RootLayoutContent() {
         totalJSHeapBytes: currentMemory.totalJSHeapSize,
         jsHeapSizeLimitBytes: currentMemory.jsHeapSizeLimit,
         deltaBytes: usedHeapDelta,
-        queueTrackerMounted: queueTrackerMountedRef.current,
       });
     }, RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS);
 
@@ -134,13 +118,90 @@ export default function RootLayoutContent() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window.requestAnimationFrame !== 'function') {
+      return;
+    }
+
+    const performanceWithMemory = globalThis.performance as RendererMemoryPerformance | undefined;
+    let animationFrameId: number | null = null;
+    let previousFrameTime: number | null = null;
+    let maxFrameGapMs = 0;
+    let frameCount = 0;
+    let stalledFrameCount = 0;
+
+    const resetFrameWindow = () => {
+      maxFrameGapMs = 0;
+      frameCount = 0;
+      stalledFrameCount = 0;
+    };
+
+    const sampleFrame: FrameRequestCallback = (timestamp) => {
+      if (document.visibilityState !== 'visible') {
+        previousFrameTime = null;
+        resetFrameWindow();
+        animationFrameId = window.requestAnimationFrame(sampleFrame);
+        return;
+      }
+
+      if (previousFrameTime !== null) {
+        const frameGapMs = timestamp - previousFrameTime;
+        maxFrameGapMs = Math.max(maxFrameGapMs, frameGapMs);
+        if (frameGapMs >= RENDERER_FRAME_STALL_WARN_THRESHOLD_MS) {
+          stalledFrameCount += 1;
+        }
+      }
+      previousFrameTime = timestamp;
+      frameCount += 1;
+      animationFrameId = window.requestAnimationFrame(sampleFrame);
+    };
+
+    animationFrameId = window.requestAnimationFrame(sampleFrame);
+
+    const handleVisibilityChange = () => {
+      previousFrameTime = null;
+      resetFrameWindow();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') {
+        previousFrameTime = null;
+        resetFrameWindow();
+        return;
+      }
+
+      if (maxFrameGapMs < RENDERER_FRAME_STALL_WARN_THRESHOLD_MS) {
+        resetFrameWindow();
+        return;
+      }
+
+      const currentMemory = performanceWithMemory?.memory;
+      const payload = {
+        activeToolsTab: activeToolsTabRef.current,
+        maxFrameGapMs: Math.round(maxFrameGapMs),
+        frameCount,
+        stalledFrameCount,
+        usedJSHeapBytes: currentMemory?.usedJSHeapSize ?? null,
+        totalJSHeapBytes: currentMemory?.totalJSHeapSize ?? null,
+        jsHeapSizeLimitBytes: currentMemory?.jsHeapSizeLimit ?? null,
+      };
+
+      logger.warn('Desktop visible renderer frame health degraded', payload);
+      resetFrameWindow();
+    }, RENDERER_FRAME_DIAGNOSTIC_INTERVAL_MS);
+
+    return () => {
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
   return (
     <TokenCacheWrapper>
-      {db ? (
-        <Suspense fallback={null}>
-          <LazyEmbeddingJobQueueTracker />
-        </Suspense>
-      ) : null}
       <RootLayout {...sharedProps} />
     </TokenCacheWrapper>
   );

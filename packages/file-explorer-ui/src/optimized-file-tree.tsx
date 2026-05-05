@@ -8,6 +8,7 @@ import {
   type TreeNode,
   TreeTable,
   type TreeTableColumn,
+  useIdeFileEditor,
 } from '@brainstrike/ui';
 import { memoizedFileExplorer as fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -20,7 +21,16 @@ import {
   Loader2,
   MoreHorizontal as MoreHorizontalIcon,
 } from 'lucide-react';
-import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
+import {
+  createContext,
+  type MouseEvent,
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+} from 'react';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
@@ -31,14 +41,15 @@ import {
   useOptionalFileTreeNormalizedContext,
 } from './file-tree-provider';
 import { useWorkerFlattenedTree } from './hooks/use-worker-flattened-tree';
-// TODO(BST-312): extract ROW_HEIGHT into a shared constant and retire legacy row component.
-import { ROW_HEIGHT } from './optimized-file-tree-row';
 import {
   getQuerySelectionMatchingCount,
   getSelectionCount,
   isDirectoryCoveredByQuerySelection,
   isQuerySelectionPathSelected,
 } from './utils/selection-projection';
+
+/** Pixel height of one virtualized tree row. */
+const ROW_HEIGHT = 32;
 
 interface IOptimizedFileTreeProps {
   /** Cancel loading for a directory (called on collapse) */
@@ -1544,6 +1555,12 @@ interface FileTreeSelectionContextValue {
   folderId: string;
   isDirectorySelectionLocked: boolean;
   maxSelectionCount: number;
+  /**
+   * Opens a file as a workspace tab. Hoisted into the shared selection context so each
+   * virtualized row reuses the parent's single useIdeFileEditor subscription instead of
+   * paying for one per visible row.
+   */
+  openFileInTab: ((compositeKey: string) => void) | undefined;
   querySelectionManifest: FileExplorerState['querySelectionManifest'];
   selectedCount: number;
   selectedDirectoryCounts: Map<string, number>;
@@ -1583,12 +1600,43 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
     folderId,
     isDirectorySelectionLocked,
     maxSelectionCount,
+    openFileInTab,
     querySelectionManifest,
     selectedCount,
     selectedDirectoryCounts,
     selectedFilePaths,
     selectionModel,
   } = useFileTreeSelection();
+
+  /**
+   * VS Code-style open semantics. The mouse and keyboard paths are intentionally
+   * routed through different DOM nodes for different reasons — both end up calling
+   * `openFileInTab` with the same compositeKey:
+   *
+   * - Mouse: this `handleFileNameClick` fires on the file-name span. We
+   *   `stopPropagation()` so the click does NOT bubble to the parent TreeTable row,
+   *   which would otherwise also fire `onSelect` and trigger a duplicate open.
+   * - Keyboard: TreeTable's row owns focus. Enter/Space on a focused file row fires
+   *   TreeTable's `onSelect`, which the parent `OptimizedFileTree` wires to
+   *   `handleTreeRowSelect` → `openFileInTab`.
+   *
+   * Selection (the per-row checkbox) is the multi-select affordance for context
+   * export and is independent of both paths.
+   *
+   * a11y: we deliberately do NOT mark this label `role="button"` because the parent
+   * TreeTable row already owns treegrid row semantics; nesting interactive roles
+   * announces awkwardly on some screen-reader + browser combos.
+   */
+  const handleFileNameClick = useEventCallback((event: MouseEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    // folderId guard: the FileTreeSelectionContext provider falls back to '' when
+    // upstream folderId is undefined (line ~2200). An empty folderId would produce
+    // a malformed compositeKey like '|@|src/index.ts'; skip the open instead.
+    if (fileNode.type !== 'file' || !openFileInTab || !folderId) {
+      return;
+    }
+    openFileInTab(encodeFileSelection(folderId, fileNode.path));
+  });
 
   const selectionState = computeNodeSelectionState(
     rowData,
@@ -1647,11 +1695,24 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
         />
       </div>
 
-      <div className="flex min-w-0 flex-1 items-center">
+      {/* The parent TreeTable row owns treegrid semantics; avoid adding a nested button role here. */}
+      <div
+        {...(fileNode.type === 'file' && openFileInTab
+          ? {
+              // cursor-pointer + hover underline only when the click actually does
+              // something: if openFileInTab isn't registered (no IdeFileEditor host
+              // wired up), the visual affordance would lie about the row's behavior.
+              className: 'group/file-row flex min-w-0 flex-1 cursor-pointer items-center',
+              onClick: handleFileNameClick,
+            }
+          : { className: 'flex min-w-0 flex-1 items-center' })}
+      >
         {fileNode.isSymbolicLink && (
           <Link2Icon className="mr-1.5 h-4 w-4 flex-shrink-0 text-blue-500" />
         )}
-        <span className="truncate text-sm leading-4">{fileNode.name}</span>
+        <span className="truncate text-sm leading-4 group-hover/file-row:underline">
+          {fileNode.name}
+        </span>
         {isRuleSelected ? <span className="sr-only">Selected by rule</span> : null}
         {fileNode.type === 'directory' && fileNode.isDepthTruncated && (
           <MoreHorizontalIcon className="ml-1.5 h-4 w-4 flex-shrink-0 text-gray-500" />
@@ -1809,6 +1870,23 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       }
       return nodeMap;
     }, [treeRows]);
+
+    const { openFileInTab } = useIdeFileEditor();
+    const handleTreeRowSelect = useCallback(
+      (nodeId: string | null): void => {
+        // Same folderId guard as the mouse path — a falsy folderId would compose a
+        // malformed compositeKey like '|@|src/index.ts'.
+        if (!(nodeId && openFileInTab && folderId)) {
+          return;
+        }
+        const fileNode = fileNodeByPath.get(nodeId);
+        if (fileNode?.type !== 'file') {
+          return;
+        }
+        openFileInTab(encodeFileSelection(folderId, fileNode.path));
+      },
+      [fileNodeByPath, folderId, openFileInTab]
+    );
 
     const renderedExpandedDirectoryPaths = useMemo(() => {
       const nextExpandedPaths = new Set<string>();
@@ -2125,6 +2203,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         folderId: folderId ?? '',
         isDirectorySelectionLocked: Boolean(isLoadingForSelection),
         maxSelectionCount,
+        openFileInTab,
         selectedCount,
         selectedDirectoryCounts,
         selectedFilePaths,
@@ -2136,6 +2215,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         folderId,
         isLoadingForSelection,
         maxSelectionCount,
+        openFileInTab,
         querySelectionManifest,
         selectedCount,
         selectedDirectoryCounts,
@@ -2151,6 +2231,21 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           data-testid="file-tree-scroll-container"
         >
           <div className="relative h-full" data-testid="file-tree">
+            {/*
+              selectionMode="single" + selectedId={null} is intentional: we use the
+              tree's keyboard-driven `onSelect` callback as a one-shot "activate this
+              row" gesture (Enter/Space → open file as a tab), not as a persistent
+              selection state. The actual multi-select state for context export lives
+              on the per-row LightweightCheckbox.
+
+              a11y trade-off: every row therefore announces aria-selected="false",
+              which is correct ARIA for a row in a selectable tree — but a future
+              full screen-reader audit (VoiceOver / NVDA) should confirm the
+              checkbox-state announcement isn't preceded by redundant "not selected"
+              chatter on rapid arrow-key navigation. If it is, the cleanest fix is
+              to either teach TreeTable to opt out of aria-selected, or to maintain
+              a real selectedId that follows the focused row.
+            */}
             <TreeTable
               ariaLabel="File tree"
               className="file-tree h-full min-h-0 flex-1"
@@ -2158,10 +2253,13 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
               expandedIds={renderedExpandedDirectoryPaths}
               maxHeight="none"
               nodes={treeRows}
+              nodesArePreFlattened={true}
+              onSelect={handleTreeRowSelect}
               onToggleExpand={handleToggleExpand}
               overscan={10}
               rowHeight={ROW_HEIGHT}
-              selectionMode="none"
+              selectedId={null}
+              selectionMode="single"
               showHeader={false}
               windowingStrategy="virtual"
             />

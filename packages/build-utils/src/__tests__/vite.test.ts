@@ -96,15 +96,15 @@ describe('assistant vite helpers', () => {
     );
   });
 
-  test('returns lazy-surface entry points for assistant and database tabs', () => {
+  test('returns lazy-surface entry points for assistant and database surfaces', () => {
     const appDir = mkdtempSync(path.join(os.tmpdir(), 'brainstrike-app-'));
     writeFileSync(path.join(appDir, 'index.html'), '<!doctype html>');
     const entries = getLazySurfaceOptimizeDepsEntries(appDir);
 
     expect(entries).toEqual([
       `${appDir}/index.html`,
-      expect.stringContaining('/packages/app-shell/src/tools-panel.tsx'),
-      expect.stringContaining('/packages/app-shell/src/assistant-tab.tsx'),
+      expect.stringContaining('/packages/app-shell/src/database-panel.tsx'),
+      expect.stringContaining('/packages/app-shell/src/assistant-chat-panel.tsx'),
       expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper-lazy.tsx'),
       expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper.tsx'),
       expect.stringContaining('/packages/app-shell/src/database-tab.tsx'),

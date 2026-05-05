@@ -185,6 +185,22 @@ vi.mock('@brainstrike/utils/logging-preferences', async () => {
     applyLoggingPreferences: applyLoggingPreferencesMock,
   };
 });
+
+vi.mock('../../assistant-server', () => ({
+  startAssistantServer: vi.fn(async () => ({
+    url: 'http://127.0.0.1:0',
+    stop: vi.fn(),
+  })),
+}));
+
+vi.mock('../../window-state', async () => {
+  const actual = await vi.importActual<typeof import('../../window-state')>('../../window-state');
+  return {
+    ...actual,
+    readStoredWindowState: vi.fn(() => null),
+    registerWindowStatePersistence: vi.fn(),
+  };
+});
 // Use function syntax for Vitest 4 constructor mocks
 vi.mock('electron-store', () => {
   const MockElectronStore = vi.fn();
@@ -229,15 +245,20 @@ describe('window setup', () => {
     );
   });
 
-  it('desktop logging defaults renderer console output to warn', async () => {
+  it('desktop logging defaults persistent logs to info and renderer console output to warn', async () => {
     mockApp.isPackaged = false;
     isDevEnvMock.mockReturnValue(false);
+    whenReadyMock.mockReturnValueOnce(new Promise(() => {}));
 
     await import('../../main');
 
     expect(createDefaultLoggingPreferencesMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        level: 'info',
         consoleLevel: 'warn',
+        file: expect.objectContaining({
+          level: 'info',
+        }),
       })
     );
   });

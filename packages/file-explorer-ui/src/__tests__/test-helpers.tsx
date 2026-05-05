@@ -13,16 +13,19 @@ const testStorageAdapter = new MemoryStorageAdapter();
 export function FileExplorerTestWrapper({
   children,
   mockFileSystemAdapter,
+  mockStorageAdapter,
 }: {
   children: ReactNode;
   mockFileSystemAdapter?: MockFileSystemAdapter;
+  mockStorageAdapter?: MemoryStorageAdapter;
 }) {
   const fileSystemAdapter = mockFileSystemAdapter || defaultTestFileSystemAdapter;
+  const storageAdapter = mockStorageAdapter || testStorageAdapter;
 
   return (
     <TooltipProvider>
-      <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={testStorageAdapter}>
-        <FileExplorerProvider storageAdapter={testStorageAdapter}>{children}</FileExplorerProvider>
+      <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+        <FileExplorerProvider storageAdapter={storageAdapter}>{children}</FileExplorerProvider>
       </AdaptersProvider>
     </TooltipProvider>
   );

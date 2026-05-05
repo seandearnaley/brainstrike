@@ -5,10 +5,11 @@ const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-updat
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT = 'assistant:preview-context-selection-update';
 const MCP_TOOLS_UPDATED_EVENT = 'mcp:tools:updated';
 const DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL = 'db:managed-cache:apply-batch' as const;
+const DB_SCHEDULER_SNAPSHOT_CHANNEL = 'db:scheduler:snapshot' as const;
 
 import type { ApplyManagedCacheBatchArgs } from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
-import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
+import type { AssistantSelectionUpdatePayload, DatabaseWorkOptions } from '@brainstrike/types';
 import type {
   LayoutLoadResult,
   LayoutPersistenceResult,
@@ -62,6 +63,57 @@ const LLM_HOST_GENERATE_CHANNEL = 'llm-host:generate' as const;
 const APP_LIFECYCLE_NOTE_RELOAD_INTENT_CHANNEL = 'app:lifecycle:note-reload-intent' as const;
 const DESKTOP_TEST_MODE =
   process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
+const EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED =
+  DESKTOP_TEST_MODE && process.env['BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES'] === '1';
+const EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED_MESSAGE =
+  'External local runtime probing is disabled for deterministic desktop E2E.';
+
+if (DESKTOP_TEST_MODE) {
+  contextBridge.exposeInMainWorld('__brainstrike_e2e_expose_file_explorer_store__', true);
+}
+
+interface DbLiveUpdatePayload {
+  id: number;
+  results: unknown;
+}
+
+type DbLiveUpdateCallback = (payload: DbLiveUpdatePayload) => void;
+
+const dbLiveUpdateCallbacks = new Set<DbLiveUpdateCallback>();
+let dbLiveUpdateIpcListener: ((_event: unknown, payload: DbLiveUpdatePayload) => void) | null =
+  null;
+
+function subscribeToDbLiveUpdates(callback: DbLiveUpdateCallback): () => void {
+  dbLiveUpdateCallbacks.add(callback);
+
+  if (!dbLiveUpdateIpcListener) {
+    dbLiveUpdateIpcListener = (_event: unknown, payload: DbLiveUpdatePayload) => {
+      for (const subscriber of Array.from(dbLiveUpdateCallbacks)) {
+        try {
+          subscriber(payload);
+        } catch (error) {
+          ipcRenderer.send('logging:ingest-buffered-record', {
+            level: 'error' as LogRecord['level'],
+            timestamp: Date.now(),
+            args: ['[preload] db live-query subscriber threw:', error],
+            bindings: { runtime: 'electron-renderer' },
+            message: 'DB live-query subscriber threw',
+            scope: 'Preload',
+          } satisfies LogRecord);
+        }
+      }
+    };
+    ipcRenderer.on('db:live-query:update', dbLiveUpdateIpcListener);
+  }
+
+  return () => {
+    dbLiveUpdateCallbacks.delete(callback);
+    if (dbLiveUpdateCallbacks.size === 0 && dbLiveUpdateIpcListener) {
+      ipcRenderer.removeListener('db:live-query:update', dbLiveUpdateIpcListener);
+      dbLiveUpdateIpcListener = null;
+    }
+  };
+}
 
 function disabledPreloadBridges(): Set<string> {
   if (!DESKTOP_TEST_MODE) {
@@ -79,6 +131,24 @@ const disabledBridgeNames = disabledPreloadBridges();
 
 function shouldExposeBridge(name: string): boolean {
   return !disabledBridgeNames.has(name);
+}
+
+function createDisabledLocalRuntimeAvailability() {
+  return {
+    state: 'unavailable' as const,
+    checkedAt: Date.now(),
+    message: EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED_MESSAGE,
+  };
+}
+
+function createDisabledLocalRuntimeCatalog(runtimeId: string) {
+  return {
+    state: 'failed' as const,
+    runtime: runtimeId,
+    checkedAt: Date.now(),
+    availability: createDisabledLocalRuntimeAvailability(),
+    message: EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED_MESSAGE,
+  };
 }
 
 type EmbeddingHostLifecycleState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
@@ -281,37 +351,41 @@ if (shouldExposeBridge('electronAPI')) {
     loadLayout: (): Promise<LayoutLoadResult> => ipcRenderer.invoke('layout:load'),
     // Database operations
     db: {
-      applyManagedCacheBatch: (payload: ApplyManagedCacheBatchArgs) =>
-        ipcRenderer.invoke(DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL, payload),
+      applyManagedCacheBatch: (
+        payload: ApplyManagedCacheBatchArgs,
+        options?: DatabaseWorkOptions
+      ) => ipcRenderer.invoke(DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL, payload, options),
       ping: () => ipcRenderer.invoke('db:ping'),
       diagnostics: () => ipcRenderer.invoke('db:diagnostics'),
-      query: (sql: string, params?: unknown[]) => ipcRenderer.invoke('db:query', sql, params),
-      exec: (sql: string) => ipcRenderer.invoke('db:exec', sql),
+      schedulerSnapshot: () => ipcRenderer.invoke(DB_SCHEDULER_SNAPSHOT_CHANNEL),
+      query: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
+        ipcRenderer.invoke('db:query', sql, params, options),
+      exec: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
+        ipcRenderer.invoke('db:exec', sql, params, options),
       test: () => ipcRenderer.invoke('db:test'),
       clearAll: (confirmationToken?: string) =>
         ipcRenderer.invoke('db:clearAll', confirmationToken),
       resetLocal: () => ipcRenderer.invoke('db:resetLocal'),
     },
     dbLive: {
-      start: (options: {
-        query: string;
-        params?: readonly unknown[];
-        key?: string;
-        mode?: 'query' | 'incremental';
-        offset?: number;
-        limit?: number;
-      }) => ipcRenderer.invoke('db:live-query:start', options),
+      start: (
+        options: {
+          query: string;
+          params?: readonly unknown[];
+          key?: string;
+          mode?: 'query' | 'incremental';
+          offset?: number;
+          limit?: number;
+        },
+        workOptions?: DatabaseWorkOptions
+      ) => ipcRenderer.invoke('db:live-query:start', options, workOptions),
       stop: (id: number) => ipcRenderer.invoke('db:live-query:stop', id),
-      refresh: (payload: { id: number; offset?: number; limit?: number }) =>
-        ipcRenderer.invoke('db:live-query:refresh', payload),
-      onUpdate: (callback: (payload: { id: number; results: unknown }) => void) => {
-        const listener = (_event: unknown, data: { id: number; results: unknown }) =>
-          callback(data);
-        ipcRenderer.on('db:live-query:update', listener);
-        return () => {
-          ipcRenderer.removeListener('db:live-query:update', listener);
-        };
-      },
+      refresh: (
+        payload: { id: number; offset?: number; limit?: number },
+        options?: DatabaseWorkOptions
+      ) => ipcRenderer.invoke('db:live-query:refresh', payload, options),
+      onUpdate: (callback: (payload: { id: number; results: unknown }) => void) =>
+        subscribeToDbLiveUpdates(callback),
     },
     // Database path (legacy - kept for compatibility)
     getUserDataPath: () => ipcRenderer.invoke('db:getUserDataPath'),
@@ -438,16 +512,39 @@ contextBridge.exposeInMainWorld('assistant', {
 // to that policy, so we run probe + catalog fetch there and pass the
 // typed result back over IPC.
 if (shouldExposeBridge('runtime')) {
-  contextBridge.exposeInMainWorld('runtime', {
-    probe: (runtimeId: string, options: unknown) =>
-      ipcRenderer.invoke('runtime:probe', runtimeId, options),
-    listModels: (runtimeId: string, options: unknown) =>
-      ipcRenderer.invoke('runtime:listModels', runtimeId, options),
-    resolveOllamaCapabilities: (modelId: string, options: unknown) =>
-      ipcRenderer.invoke('runtime:resolveOllamaCapabilities', modelId, options),
-    verifyEmbeddingDimensions: (runtimeId: string, modelId: string, options: unknown) =>
-      ipcRenderer.invoke('runtime:verifyEmbeddingDimensions', runtimeId, modelId, options),
-  });
+  contextBridge.exposeInMainWorld(
+    'runtime',
+    EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED
+      ? {
+          probe: () => Promise.resolve(createDisabledLocalRuntimeAvailability()),
+          listModels: (runtimeId: string) =>
+            Promise.resolve(createDisabledLocalRuntimeCatalog(runtimeId)),
+          resolveOllamaCapabilities: (modelId: string) =>
+            Promise.resolve({
+              state: 'unavailable' as const,
+              checkedAt: Date.now(),
+              endpoint: 'disabled-by-e2e',
+              message: EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED_MESSAGE,
+              modelId,
+            }),
+          verifyEmbeddingDimensions: () =>
+            Promise.resolve({
+              state: 'failed' as const,
+              checkedAt: Date.now(),
+              message: EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED_MESSAGE,
+            }),
+        }
+      : {
+          probe: (runtimeId: string, options: unknown) =>
+            ipcRenderer.invoke('runtime:probe', runtimeId, options),
+          listModels: (runtimeId: string, options: unknown) =>
+            ipcRenderer.invoke('runtime:listModels', runtimeId, options),
+          resolveOllamaCapabilities: (modelId: string, options: unknown) =>
+            ipcRenderer.invoke('runtime:resolveOllamaCapabilities', modelId, options),
+          verifyEmbeddingDimensions: (runtimeId: string, modelId: string, options: unknown) =>
+            ipcRenderer.invoke('runtime:verifyEmbeddingDimensions', runtimeId, modelId, options),
+        }
+  );
 }
 
 if (shouldExposeBridge('logging')) {

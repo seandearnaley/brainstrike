@@ -2,42 +2,47 @@ import { Button } from '@brainstrike/ui';
 import { Archive, Brain, Download } from 'lucide-react';
 import type { ExportButtonsProps } from '../types';
 
-export function ExportButtons({ counts, exportHandlers }: ExportButtonsProps) {
+export function ExportButtons({
+  counts,
+  countsStatus = 'ready',
+  exportHandlers,
+}: ExportButtonsProps) {
+  const countsPending = countsStatus === 'pending';
   return (
     <div className="flex gap-2 pt-2">
       <Button
         className="flex items-center gap-1"
-        disabled={counts.records === 0}
+        disabled={countsPending || counts.records === 0}
         onClick={exportHandlers.handleExportFiles}
         size="sm"
         variant="outline"
       >
         <Download className="h-3 w-3" />
-        Files ({counts.records})
+        Files ({countsPending ? 'pending' : counts.records})
       </Button>
       <Button
         className="flex items-center gap-1"
-        disabled={counts.chunks === 0}
+        disabled={countsPending || counts.chunks === 0}
         onClick={exportHandlers.handleExportChunks}
         size="sm"
         variant="outline"
       >
         <Download className="h-3 w-3" />
-        Chunks ({counts.chunks})
+        Chunks ({countsPending ? 'pending' : counts.chunks})
       </Button>
       <Button
         className="flex items-center gap-1"
-        disabled={counts.embeddings === 0}
+        disabled={countsPending || counts.embeddings === 0}
         onClick={exportHandlers.handleExportEmbeddings}
         size="sm"
         variant="outline"
       >
         <Brain className="h-3 w-3" />
-        Embeddings ({counts.embeddings})
+        Embeddings ({countsPending ? 'pending' : counts.embeddings})
       </Button>
       <Button
         className="flex items-center gap-1"
-        disabled={counts.records === 0 && counts.chunks === 0}
+        disabled={countsPending || (counts.records === 0 && counts.chunks === 0)}
         onClick={exportHandlers.handleExportAll}
         size="sm"
         variant="outline"

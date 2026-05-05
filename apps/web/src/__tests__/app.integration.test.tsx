@@ -100,7 +100,6 @@ vi.mock('react-helmet-async', () => ({
 
 // TODO: These integration tests need complex mock setup for routing and providers.
 // They are currently skipped pending a refactoring of the test infrastructure.
-// biome-ignore lint/suspicious/noSkippedTests: Integration tests pending mock infrastructure refactor
 describe.skip('RootLayoutContent Integration Tests', () => {
   beforeAll(async () => {
     RootLayoutContent = (await import('../app/root-layout-content')).default;

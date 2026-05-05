@@ -247,6 +247,7 @@ export function CollectionBrowser({
         <TreeTable
           columns={columns}
           expandedIds={expandedIds}
+          insetTreeControls
           nodes={nodes}
           onSelect={handleSelect}
           onToggleExpand={handleToggleExpand}

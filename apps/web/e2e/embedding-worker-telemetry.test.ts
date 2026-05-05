@@ -4,10 +4,11 @@ import { ensureRightPanelVisible } from './utils/layout-helpers';
 
 test.describe('Embedding Worker Telemetry', { tag: '@smoke' }, () => {
   /**
-   * BST-311: Vector Status was merged into the Database tab as EmbeddingStatusBar.
-   * This test verifies the compact embedding telemetry UI in the Database tab toolbar.
+   * Indexing activity is now exposed through the app-shell status bar instead
+   * of a Database-tab footer. This keeps queue/status visibility stable while
+   * users navigate between collections and panels.
    */
-  test('surfaces queue metrics and trends in the database tab toolbar', async ({ page }) => {
+  test('surfaces indexing activity in the app status bar', async ({ page }) => {
     const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
     const panelTimeout = isCI ? 20_000 : 8000;
     const home = new HomePage(page);
@@ -23,20 +24,16 @@ test.describe('Embedding Worker Telemetry', { tag: '@smoke' }, () => {
     const databasePanel = page.getByRole('tabpanel', { name: /database/i });
     await expect(databasePanel).toBeVisible({ timeout: panelTimeout });
 
-    // BST-311: EmbeddingStatusBar is now in the Database tab footer
-    // Verify the embedding status bar is visible
-    const embeddingStatusBar = page.getByTestId('embedding-status-bar');
-    await expect(embeddingStatusBar).toBeVisible({ timeout: panelTimeout });
+    const indexingStatusItem = page.getByTestId('indexing-status-item');
+    await expect(indexingStatusItem).toBeVisible({ timeout: panelTimeout });
+    await expect(indexingStatusItem).toContainText(/Indexing:/);
 
-    // Verify queue metrics are displayed in the compact status bar
-    // Throughput and latency sparklines
-    await expect(embeddingStatusBar.getByRole('img', { name: 'Throughput trend' })).toBeVisible();
-    await expect(embeddingStatusBar.getByRole('img', { name: 'Latency trend' })).toBeVisible();
+    await page.getByTestId('indexing-status-trigger').click();
 
-    // Jobs/min indicator
-    await expect(embeddingStatusBar.getByText(/jobs\/min/i)).toBeVisible();
-
-    // Queue counts (Q: for queued, showing queued/running)
-    await expect(embeddingStatusBar.getByText('Q:')).toBeVisible();
+    await expect(page.getByText('Indexing activity')).toBeVisible({ timeout: panelTimeout });
+    const indexingPopover = page.getByTestId('indexing-status-popover');
+    await expect(indexingPopover.getByText('Queue', { exact: true })).toBeVisible();
+    await expect(page.getByText(/queued \/ .*running \/ .*failed \/ .*succeeded/)).toBeVisible();
+    await expect(indexingPopover.getByText('Worker', { exact: true })).toBeVisible();
   });
 });

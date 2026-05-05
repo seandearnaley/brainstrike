@@ -10,8 +10,15 @@ export {
   type ResolvedChunkingStrategy,
   resolveChunkingStrategyForFile,
 } from '@brainstrike/text-splitter';
+export * from './architecture/brainstrike-db-client-contract.js';
+export * from './architecture/db-migration-authority.js';
+export * from './architecture/db-runtime-baseline.js';
+export * from './browser-pglite-storage.js';
+export * from './browser-pglite-storage-benchmark.js';
 // Configuration
 export { CHUNKING_CONFIG } from './config/chunking-config.js';
+export * from './database-pressure-controller.js';
+export * from './database-work-scheduler.js';
 export * from './db-provider.js';
 // Drizzle ORM utilities and database wrapper
 export {
@@ -53,6 +60,7 @@ export type {
   ImportProgress,
   ManagedCacheEntryMetadata,
 } from './models/file-record.js';
+export { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
 export type {
   CancelParams,
   ClaimParams,
@@ -75,8 +83,12 @@ export * from './repositories/index.js';
 // Schema types for view filter presets
 export type {
   EmbeddingCacheEntry,
+  Model,
   NewEmbeddingCacheEntry,
+  NewModel,
+  NewProvider,
   NewViewFilterPreset,
+  Provider,
   ViewFilterPreset,
 } from './schema/index.js';
 // Schema table for view filter presets (needed for live queries)
@@ -85,6 +97,22 @@ export { viewFilterPresets } from './schema/index.js';
 export * from './search/index.js';
 export type { ChunkingOptions, ChunkingResult } from './services/chunking-service.js';
 export { ChunkingService } from './services/chunking-service.js';
+export {
+  type CollectionIndexingStats,
+  getCollectionIndexingStats,
+  markCollectionIndexingStatsDirty,
+  refreshCollectionIndexingStats,
+} from './services/collection-indexing-stats.js';
+export {
+  DEFAULT_DATABASE_MAINTENANCE_INTERVAL_MS,
+  DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
+  DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES,
+  runScheduledDatabaseMaintenance,
+  type ScheduledDatabaseMaintenanceOptions,
+  type ScheduledDatabaseMaintenanceResult,
+  type ScheduledDatabaseMaintenanceSkipReason,
+  type ScheduledDatabaseMaintenanceStatus,
+} from './services/scheduled-database-maintenance.js';
 export * from './use-drizzle-live-query.js';
 export * from './use-live-query.js';
 export * from './wasm-loader.js';

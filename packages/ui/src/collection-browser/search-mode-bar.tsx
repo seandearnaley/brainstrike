@@ -1,46 +1,16 @@
 /**
  * SearchModeBar Component
  *
- * Unified top bar for semantic search controls.
- * Quick filtering is handled separately via the FilterBar toggle.
- *
- * When the semantic query is cleared, the component signals mode reset
- * via `onModeChange('quick')` to restore the full tree view.
+ * Collapsible hybrid search panel for collection semantic search.
+ * Quick filtering and grid controls are handled by sibling toolbar/filter components.
  */
 
-import {
-  ChevronsDownUp,
-  ChevronsUpDown,
-  Filter,
-  Group,
-  ListChecks,
-  Loader2,
-  Settings,
-  Sparkles,
-  X,
-} from 'lucide-react';
+import { ChevronDown, ChevronUp, Loader2, Sparkles, X } from 'lucide-react';
 import * as React from 'react';
 import { Button } from '../button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from '../dropdown-menu';
-import { ExpandableTextarea } from '../expandable-textarea';
+import { Input } from '../input';
 import { cn } from '../lib/utils';
-import type { GroupByKey, SearchModeBarProps } from './types';
-
-/**
- * SearchModeBar - Mode toggle and search input container
- */
-/** Group-by option labels */
-const GROUP_BY_OPTIONS: { value: GroupByKey; label: string }[] = [
-  { value: 'none', label: 'No Grouping' },
-  { value: 'status', label: 'By Status' },
-  { value: 'type', label: 'By Type' },
-];
+import type { SearchModeBarProps } from './types';
 
 export const SearchModeBar = React.memo(function SearchModeBar({
   mode,
@@ -49,21 +19,13 @@ export const SearchModeBar = React.memo(function SearchModeBar({
   onSemanticQueryChange,
   onSemanticSearch,
   isSearching,
-  isConfigExpanded,
-  onConfigExpandedChange,
-  isFilterVisible,
-  onFilterVisibleChange,
-  filters,
-  onExpandAll,
-  onCollapseAll,
+  isSearchExpanded,
+  onSearchExpandedChange,
   hasSearched,
-  multiSelectEnabled,
-  onMultiSelectToggle,
-  groupBy,
-  onGroupByChange,
+  resultCount,
+  advancedOptions,
   className,
 }: SearchModeBarProps) {
-  // Handle semantic query change
   const handleSemanticQueryChange = React.useCallback(
     (value: string) => {
       onSemanticQueryChange(value);
@@ -74,7 +36,6 @@ export const SearchModeBar = React.memo(function SearchModeBar({
     [onSemanticQueryChange, mode, hasSearched, onModeChange]
   );
 
-  // Handle clear semantic query
   const handleClearSemanticQuery = React.useCallback(() => {
     onSemanticQueryChange('');
     if (mode === 'semantic' && hasSearched) {
@@ -82,9 +43,15 @@ export const SearchModeBar = React.memo(function SearchModeBar({
     }
   }, [onSemanticQueryChange, mode, hasSearched, onModeChange]);
 
-  // Handle keyboard shortcuts for semantic search
+  const handleSemanticInputChange = React.useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      handleSemanticQueryChange(event.currentTarget.value);
+    },
+    [handleSemanticQueryChange]
+  );
+
   const handleSemanticKeyDown = React.useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
         if (!isSearching && semanticQuery.trim()) {
@@ -98,182 +65,96 @@ export const SearchModeBar = React.memo(function SearchModeBar({
     [isSearching, semanticQuery, onSemanticSearch]
   );
 
-  // Check if any filters are active
-  const hasActiveFilters = React.useMemo(() => {
-    if (!filters) {
-      return false;
-    }
-    return (
-      filters.searchQuery !== '' ||
-      filters.nodeTypes.size !== 4 ||
-      filters.embeddingStatus !== 'all'
-    );
-  }, [filters]);
-  const filterToggleLabel = hasActiveFilters ? 'Toggle filters (active)' : 'Toggle filters';
+  const handleToggleExpanded = React.useCallback(() => {
+    onSearchExpandedChange(!isSearchExpanded);
+  }, [isSearchExpanded, onSearchExpandedChange]);
 
   return (
     <div className={cn('bg-background', className)}>
-      <div className="flex flex-col p-2">
-        {/* Main search row - all elements aligned to 36px height */}
-        <div className="flex items-start gap-1.5">
-          <div className="relative flex-1">
-            <ExpandableTextarea
-              aria-label="Semantic search query"
-              className="py-[7px] pr-8 text-xs leading-5"
-              disabled={isSearching}
-              maxLength={10_000}
-              maxRows={1}
-              minHeight={36}
-              minRows={1}
-              onChange={handleSemanticQueryChange}
-              onKeyDown={handleSemanticKeyDown}
-              placeholder="Ask a question... (Cmd+Enter)"
-              value={semanticQuery}
-            />
-            {semanticQuery && !isSearching && (
-              <Button
-                aria-label="Clear query"
-                className="absolute top-1.5 right-1.5 h-6 w-6 p-0"
-                onClick={handleClearSemanticQuery}
-                size="sm"
-                variant="ghost"
-              >
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            )}
-          </div>
+      <Button
+        aria-controls="hybrid-search-panel"
+        aria-expanded={isSearchExpanded}
+        aria-label="Hybrid search"
+        className="h-auto w-full justify-between rounded-none px-3 py-2 text-left hover:bg-muted/50"
+        depress={false}
+        onClick={handleToggleExpanded}
+        size="sm"
+        variant="ghost"
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <Sparkles className="h-4 w-4 text-primary" />
+          <span className="min-w-0">
+            <span className="block font-medium text-sm">Hybrid search</span>
+            <span className="block truncate text-muted-foreground text-xs">
+              Semantic similarity with keyword matches across embedded chunks
+            </span>
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2 text-muted-foreground text-xs">
+          {hasSearched && resultCount !== undefined
+            ? `${resultCount} result${resultCount === 1 ? '' : 's'}`
+            : null}
+          {isSearchExpanded ? (
+            <ChevronUp className="h-4 w-4" />
+          ) : (
+            <ChevronDown className="h-4 w-4" />
+          )}
+        </span>
+      </Button>
 
-          {/* All buttons use h-9 (36px) for consistent height */}
-          <Button
-            className="h-9 gap-1.5 px-3"
-            disabled={isSearching || !semanticQuery.trim()}
-            onClick={onSemanticSearch}
-            size="sm"
-          >
-            {isSearching ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="h-4 w-4" />
-            )}
-            <span className="hidden sm:inline">Query</span>
-          </Button>
+      {isSearchExpanded && (
+        <div className="overflow-hidden" data-testid="hybrid-search-panel" id="hybrid-search-panel">
+          <div className="space-y-2 px-3 pb-3">
+            <p className="text-muted-foreground text-xs">
+              Ask in natural language, then tune hybrid search when exact terms should carry more or
+              less weight.
+            </p>
 
-          <div className="flex items-center gap-0.5 border-l pl-1.5">
-            {(onExpandAll || onCollapseAll) && (
-              <>
-                {onExpandAll && (
-                  <Button
-                    aria-label="Expand all"
-                    className="h-9 w-9 p-0"
-                    onClick={onExpandAll}
-                    size="sm"
-                    title="Expand all"
-                    variant="ghost"
-                  >
-                    <ChevronsUpDown className="h-4 w-4" />
-                  </Button>
-                )}
-                {onCollapseAll && (
-                  <Button
-                    aria-label="Collapse all"
-                    className="h-9 w-9 p-0"
-                    onClick={onCollapseAll}
-                    size="sm"
-                    title="Collapse all"
-                    variant="ghost"
-                  >
-                    <ChevronsDownUp className="h-4 w-4" />
-                  </Button>
-                )}
-                <div className="mx-0.5 h-5 w-px bg-border" />
-              </>
-            )}
-
-            <div className="relative">
-              <Button
-                aria-label={filterToggleLabel}
-                aria-pressed={isFilterVisible ? 'true' : 'false'}
-                className={cn(
-                  'h-9 w-9 p-0',
-                  (isFilterVisible || hasActiveFilters) && 'bg-accent text-accent-foreground'
-                )}
-                onClick={() => onFilterVisibleChange?.(!isFilterVisible)}
-                size="sm"
-                title="Filters"
-                variant="ghost"
-              >
-                <Filter className="h-4 w-4" />
-              </Button>
-              {hasActiveFilters && (
-                <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-primary" />
-              )}
+            <div data-testid="hybrid-search-controls">
+              <div className="flex min-w-0 items-stretch" data-testid="hybrid-search-input-group">
+                <div className="relative min-w-0 flex-1">
+                  <Input
+                    aria-label="Hybrid search query"
+                    className="h-9 rounded-r-none border-r-0 pr-8 text-xs"
+                    disabled={isSearching}
+                    maxLength={10_000}
+                    onChange={handleSemanticInputChange}
+                    onKeyDown={handleSemanticKeyDown}
+                    placeholder="Describe what you want to find... (Cmd+Enter)"
+                    value={semanticQuery}
+                  />
+                  {semanticQuery && !isSearching && (
+                    <Button
+                      aria-label="Clear query"
+                      className="absolute top-1.5 right-1.5 h-6 w-6 p-0"
+                      onClick={handleClearSemanticQuery}
+                      size="sm"
+                      variant="ghost"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+                <Button
+                  className="h-9 shrink-0 rounded-l-none px-2.5"
+                  disabled={isSearching || !semanticQuery.trim()}
+                  onClick={onSemanticSearch}
+                  size="sm"
+                >
+                  {isSearching ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4" />
+                  )}
+                  <span>Query</span>
+                </Button>
+              </div>
             </div>
 
-            <Button
-              aria-label="Toggle search settings"
-              aria-pressed={isConfigExpanded ? 'true' : 'false'}
-              className={cn('h-9 w-9 p-0', isConfigExpanded && 'bg-accent text-accent-foreground')}
-              onClick={() => onConfigExpandedChange(!isConfigExpanded)}
-              size="sm"
-              title="Search Settings"
-              variant="ghost"
-            >
-              <Settings className="h-4 w-4" />
-            </Button>
-
-            {onMultiSelectToggle && (
-              <>
-                <div className="mx-0.5 h-5 w-px bg-border" />
-                <Button
-                  aria-label="Toggle multi-select"
-                  aria-pressed={multiSelectEnabled ? 'true' : 'false'}
-                  className={cn(
-                    'h-9 w-9 p-0',
-                    multiSelectEnabled && 'bg-accent text-accent-foreground'
-                  )}
-                  onClick={() => onMultiSelectToggle(!multiSelectEnabled)}
-                  size="sm"
-                  title="Multi-select"
-                  variant="ghost"
-                >
-                  <ListChecks className="h-4 w-4" />
-                </Button>
-              </>
-            )}
-
-            {onGroupByChange && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    aria-label="Group by"
-                    className={cn(
-                      'h-9 w-9 p-0',
-                      groupBy && groupBy !== 'none' && 'bg-accent text-accent-foreground'
-                    )}
-                    size="sm"
-                    title="Group by"
-                    variant="ghost"
-                  >
-                    <Group className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuRadioGroup
-                    onValueChange={(value) => onGroupByChange(value as GroupByKey)}
-                    value={groupBy ?? 'none'}
-                  >
-                    {GROUP_BY_OPTIONS.map((option) => (
-                      <DropdownMenuRadioItem key={option.value} value={option.value}>
-                        {option.label}
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
+            {advancedOptions}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 });

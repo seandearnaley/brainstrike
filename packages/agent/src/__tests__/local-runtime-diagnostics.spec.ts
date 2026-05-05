@@ -91,6 +91,55 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
     });
   });
 
+  it('dedupes concurrent probe failures and logs one warning for the shared result', async () => {
+    const fetchMock = vi.fn<FetchMock>(() => Promise.reject(simulateCorsRejection()));
+
+    const service = new LocalRuntimeDiscoveryService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 1100,
+      logger: loggerMock,
+    });
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => service.probeRuntime('ollama', { surface: 'desktop' }))
+    );
+
+    expect(results.every((result) => result.state === 'unavailable')).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(
+      loggerMock.warn.mock.calls.filter(
+        ([message]) => message === 'local runtime probe did not reach available state'
+      )
+    ).toHaveLength(1);
+  });
+
+  it('demotes repeated probe failures after the first warning', async () => {
+    let nowMs = 1200;
+    const fetchMock = vi.fn<FetchMock>(() => Promise.reject(simulateCorsRejection()));
+
+    const service = new LocalRuntimeDiscoveryService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      failureBaseBackoffMs: 100,
+      now: () => nowMs,
+      logger: loggerMock,
+    });
+
+    await service.probeRuntime('ollama', { surface: 'desktop' });
+    nowMs = 1400;
+    await service.probeRuntime('ollama', { surface: 'desktop' });
+
+    expect(
+      loggerMock.warn.mock.calls.filter(
+        ([message]) => message === 'local runtime probe did not reach available state'
+      )
+    ).toHaveLength(1);
+    expect(
+      loggerMock.debug.mock.calls.filter(
+        ([message]) => message === 'local runtime probe did not reach available state'
+      )
+    ).toHaveLength(1);
+  });
+
   it('logs model catalog failures when every endpoint returns a non-OK status', async () => {
     const fetchMock = vi.fn<FetchMock>(async () => new Response('no', { status: 503 }));
 
@@ -111,6 +160,33 @@ describe('local-runtime diagnostics (desktop probe visibility)', () => {
     // Local Runtimes shows Unavailable" becomes investigable.
     expect(result.state).toMatch(/failed|stale_cached/);
     expect(loggerMock.warn).toHaveBeenCalled();
+  });
+
+  it('dedupes concurrent model catalog failures and logs one catalog warning', async () => {
+    const fetchMock = vi.fn<FetchMock>(() => Promise.reject(simulateCorsRejection()));
+
+    const service = new LocalRuntimeModelCatalogService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 2100,
+      logger: loggerMock,
+    });
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        service.listRuntimeModels('lmstudio', {
+          surface: 'desktop',
+          force: true,
+        })
+      )
+    );
+
+    expect(results.every((result) => result.state === 'failed')).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(
+      loggerMock.warn.mock.calls.filter(
+        ([message]) => message === 'local runtime model catalog failed'
+      )
+    ).toHaveLength(1);
   });
 
   it('classifies TypeError from a desktop fetch with enough detail for the user to diagnose CORS', async () => {

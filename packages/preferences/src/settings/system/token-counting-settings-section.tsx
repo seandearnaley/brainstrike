@@ -93,12 +93,17 @@ export function TokenCountingSettingsSection({
           </div>
           <Switch
             checked={accurateCounting}
+            data-testid="token-counting-accurate-toggle"
             onCheckedChange={(value) => setAccurateCounting(value === true)}
           />
         </div>
 
         <div className="flex items-start gap-3 rounded-md border p-3">
-          <Badge className="flex items-center gap-1" variant={status.variant}>
+          <Badge
+            className="flex items-center gap-1"
+            data-testid="token-counting-runtime-status"
+            variant={status.variant}
+          >
             <Icon className={runtimeStatus === 'checking' ? 'size-3.5 animate-spin' : 'size-3.5'} />
             {status.label}
           </Badge>

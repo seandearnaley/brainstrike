@@ -1,23 +1,20 @@
 import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
-import { ensureToolsPanelVisible } from './utils/layout-helpers';
+import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 test.describe('Assistant chat (desktop)', () => {
   test.skip(!!process.env['CI'], 'Skipped in CI: Electron launch flag incompatibility.');
 
   test.beforeEach(async ({ window }) => {
+    const { mockFileSystemOperations } = await loadElectronHelpers();
+    await mockFileSystemOperations(window);
     await setupAssistantMock(window, { variant: 'detailed' });
+    await ensureMockWorkspaceOpen(window);
   });
 
   test('assistant chat renders messages', async ({ window }) => {
-    const rightPanel = await ensureToolsPanelVisible(window);
-    await expect(rightPanel).toBeVisible();
-
-    const assistantTab = window.getByRole('tab', { name: /assistant/i }).first();
-    await expect(assistantTab).toBeVisible({ timeout: 5000 });
-    await assistantTab.click();
-
-    const assistantChatCard = window.getByTestId('assistant-chat-card');
+    const assistantChatCard = await ensureAssistantShellVisible(window);
     await expect(assistantChatCard).toBeVisible({ timeout: 5000 });
 
     const loadingIndicator = window.getByText(/Loading assistant/i);

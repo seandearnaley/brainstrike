@@ -332,6 +332,27 @@ describe('TreeTable', () => {
       expect(screen.queryByLabelText('Go to next page')).not.toBeInTheDocument();
     });
 
+    it('can consume pre-flattened visible rows without recursive expansion gating', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('parent', 'Parent', null, true, 0),
+        createTestNode('child', 'Child', 'parent', false, 1),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          nodesArePreFlattened={true}
+          onToggleExpand={() => {}}
+          windowingStrategy="virtual"
+        />
+      );
+
+      expect(screen.getByText('Parent')).toBeInTheDocument();
+      expect(screen.getByText('Child')).toBeInTheDocument();
+    });
+
     it('renders fallback rows when virtualizer temporarily returns no items', () => {
       virtualizerMode = 'empty';
       const nodes: TreeNode<TestData>[] = [
@@ -613,6 +634,39 @@ describe('TreeTable', () => {
         'aria-expanded',
         'true'
       );
+    });
+
+    it('does not inset root expand buttons by default', () => {
+      const nodes: TreeNode<TestData>[] = [createTestNode('1', 'Folder', null, true)];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const expandButton = screen.getByRole('button', { name: /expand/i });
+      expect(expandButton.parentElement).not.toHaveClass('pl-1');
+    });
+
+    it('insets root expand buttons when tree control inset is enabled', () => {
+      const nodes: TreeNode<TestData>[] = [createTestNode('1', 'Folder', null, true)];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          insetTreeControls
+          nodes={nodes}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const expandButton = screen.getByRole('button', { name: /expand/i });
+      expect(expandButton.parentElement).toHaveClass('pl-1');
     });
 
     it('calls onToggleExpand when expand button clicked', () => {

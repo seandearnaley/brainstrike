@@ -44,6 +44,9 @@ const DialogContent = ({
     <DialogPrimitive.Content
       className={cn(
         // Content above overlay (overlay stays z-50) so RemoveScroll + equal z-index cannot steal hits.
+        // NOTE: ModelPicker's popover is at z-[60] (see packages/ui/src/model-picker/model-picker.tsx)
+        // so it can render above this dialog content. Bumping z-[51] here without bumping the
+        // popover will silently re-introduce the layering bug.
         'data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-[51] grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg outline-hidden duration-200 data-[state=closed]:animate-out data-[state=open]:animate-in sm:max-w-lg',
         className
       )}

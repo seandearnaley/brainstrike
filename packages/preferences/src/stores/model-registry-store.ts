@@ -1,10 +1,14 @@
 import { LocalLlmBackend } from '@brainstrike/agent/local-llm';
-import type { IDatabase } from '@brainstrike/db';
+import type { DbHandle, IDatabase } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
-import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { isLocalModelProviderId } from '../models/local-model-utils';
+import {
+  getModelRegistryFetchErrorTestOverride,
+  getModelRegistrySnapshotTestOverride,
+} from '../settings-test-runtime-access';
+import { createBrowserJsonStorage } from './browser-json-storage';
 
 const logger = createLogger('ModelRegistryStore');
 let registryLoadPromise: Promise<void> | null = null;
@@ -53,8 +57,8 @@ interface ModelRegistryState {
   setDownloading: (modelId: string, isDownloading: boolean) => void;
   setDownloadProgress: (modelId: string, progress: number) => void;
   setModelCacheDir: (dir: string) => void;
-  toggleModel: (db: IDatabase, modelId: string, enabled: boolean) => Promise<void>;
-  toggleProvider: (db: IDatabase, providerId: string, enabled: boolean) => Promise<void>;
+  toggleModel: (db: DbHandle, modelId: string, enabled: boolean) => Promise<void>;
+  toggleProvider: (db: DbHandle, providerId: string, enabled: boolean) => Promise<void>;
 }
 
 // Raw DB types
@@ -121,6 +125,10 @@ function parseDbModel(row: RawModel): DbModel {
 
 function isLocalModel(model: DbModel): boolean {
   return isLocalModelProviderId(model.providerId);
+}
+
+async function syncDurableDatabaseWrites(db: DbHandle): Promise<void> {
+  await db.syncToFs?.();
 }
 
 async function resolveDownloadedFlag(
@@ -232,6 +240,30 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
       fetchRegistry: async (db: IDatabase) => {
         set({ isLoading: true, error: null });
         try {
+          const fetchErrorMessage = getModelRegistryFetchErrorTestOverride();
+          if (fetchErrorMessage !== undefined && fetchErrorMessage !== null) {
+            set({
+              error: fetchErrorMessage,
+              isLoading: false,
+              hasLoaded: false,
+            });
+            return;
+          }
+
+          const snapshotOverride = getModelRegistrySnapshotTestOverride();
+          if (snapshotOverride) {
+            set({
+              providers: snapshotOverride.providers ?? [],
+              models: snapshotOverride.models ?? [],
+              downloadedModels: snapshotOverride.downloadedModels ?? {},
+              modelCacheDir: snapshotOverride.modelCacheDir ?? get().modelCacheDir,
+              isLoading: false,
+              hasLoaded: true,
+              error: null,
+            });
+            return;
+          }
+
           const providersResult = await db.query<RawProvider>(
             'SELECT * FROM providers ORDER BY sort_order ASC'
           );
@@ -276,6 +308,13 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
             enabled,
             providerId,
           ]);
+          await syncDurableDatabaseWrites(db);
+
+          set((state) => ({
+            providers: state.providers.map((p) =>
+              p.id === providerId ? { ...p, isEnabled: enabled } : p
+            ),
+          }));
         } catch (error) {
           logger.error('Failed to toggle provider', error);
           // Revert on error
@@ -294,6 +333,11 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
             enabled,
             modelId,
           ]);
+          await syncDurableDatabaseWrites(db);
+
+          set((state) => ({
+            models: state.models.map((m) => (m.id === modelId ? { ...m, isEnabled: enabled } : m)),
+          }));
         } catch (error) {
           logger.error('Failed to toggle model', error);
           void get().fetchRegistry(db);
@@ -325,7 +369,7 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
     }),
     {
       name: 'model-registry-storage',
-      storage: createJSONStorage(() => createSafeJsonStorageAdapter()),
+      storage: createJSONStorage(() => createBrowserJsonStorage()),
       partialize: (state) => ({
         modelCacheDir: state.modelCacheDir,
         downloadedModels: state.downloadedModels,

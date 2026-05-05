@@ -1,4 +1,4 @@
-import { useAdapters } from '@brainstrike/file-explorer-hooks';
+import { buildInaccessibleContent, useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { FileHandle } from '@brainstrike/file-system';
 import { DEFAULT_MAX_FILE_SIZE, formatFileSize, getFileSizeConfig } from '@brainstrike/file-system';
 import type { Platform } from '@brainstrike/platform-utils';
@@ -264,7 +264,7 @@ async function buildCachedFileRequest(args: {
   if (typeof cachedHandle.queryPermission === 'function') {
     const permission = await cachedHandle.queryPermission({ mode: 'read' });
     if (permission !== 'granted') {
-      setFileContent(compositeKey, `File not accessible - permission required: ${path}`);
+      setFileContent(compositeKey, buildInaccessibleContent(`permission required: ${path}`));
       return null;
     }
   }
@@ -457,7 +457,9 @@ async function handleInvalidFileNode(args: {
 
   if (fileNode.rootFolderId !== folderId) {
     clearPendingFileLoadState(compositeKey, pendingFileLoadsRef, deferredLookupAttemptsRef);
-    const error = `File not accessible - Folder mismatch. Expected: ${folderId}, Found: ${fileNode.rootFolderId}`;
+    const error = buildInaccessibleContent(
+      `Folder mismatch. Expected: ${folderId}, Found: ${fileNode.rootFolderId}`
+    );
     logger.warn('Folder mismatch', { path, expected: folderId, found: fileNode.rootFolderId });
     setFileContent(compositeKey, error);
     return null;
@@ -704,13 +706,10 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
       setError(null);
 
       try {
-        const requests: FileReadRequest[] = [];
-        for (const key of compositeKeys) {
-          const req = await prepareFileRead(key);
-          if (req) {
-            requests.push(req);
-          }
-        }
+        const prepared = await Promise.all(compositeKeys.map((key) => prepareFileRead(key)));
+        const requests: FileReadRequest[] = prepared.filter(
+          (req): req is FileReadRequest => req !== null
+        );
 
         logger.debug('Prepared file read requests', {
           requestedFiles: compositeKeys.length,

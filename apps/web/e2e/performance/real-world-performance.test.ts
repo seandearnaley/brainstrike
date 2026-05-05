@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { waitForAppLoad } from '../utils/layout-helpers';
+import { CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR, waitForAppLoad } from '../utils/layout-helpers';
 
 declare const process: {
   env: Record<string, string | undefined>;
@@ -164,14 +164,14 @@ test.describe('Real-World Performance Validation', () => {
     // Pre-warm: trigger any lazy imports so baseline excludes one-time costs
     try {
       // Build a scoped set of interaction targets (same logic as below)
-      const warmMainScope = page.locator('#main-content-panel');
+      const warmMainScope = page.locator(CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR);
       const warmFileTreeScope = page.locator(
         '[data-testid="file-tree"], [data-testid="file-tree-scroll-container"]'
       );
       let warmTargets = warmFileTreeScope.locator('button, [role="button"], input');
       if ((await warmTargets.count()) === 0) {
         warmTargets = warmMainScope.locator(
-          'button:not([data-testid="show-console-panel"]):not([data-testid="show-tools-panel"]):not([data-testid="show-explorer-panel"]), [role="button"], input'
+          'button:not([data-testid="show-console-panel"]):not([data-testid="show-workspace-panel"]):not([data-testid="show-explorer-panel"]), [role="button"], input'
         );
       }
       const warmCount = Math.min(2, await warmTargets.count());
@@ -205,7 +205,7 @@ test.describe('Real-World Performance Validation', () => {
     // Interact with the application in ways that would load data
     // Scope interactions to the main content panel (file explorer) to avoid
     // unintentionally initializing heavy subsystems (e.g., DB/embeddings) in the right panel.
-    const mainContentScope = page.locator('#main-content-panel');
+    const mainContentScope = page.locator(CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR);
     // Prefer interacting within the file tree to keep scope focused on the
     // memory-management area under test.
     const fileTreeScope = page.locator(
@@ -217,7 +217,7 @@ test.describe('Real-World Performance Validation', () => {
     // Fallback: still within main content, but avoid panel toggles that mount heavy UIs
     if ((await interactionElements.count()) === 0) {
       interactionElements = mainContentScope.locator(
-        'button:not([data-testid="show-console-panel"]):not([data-testid="show-tools-panel"]):not([data-testid="show-explorer-panel"]), [role="button"], input'
+        'button:not([data-testid="show-console-panel"]):not([data-testid="show-workspace-panel"]):not([data-testid="show-explorer-panel"]), [role="button"], input'
       );
     }
 
