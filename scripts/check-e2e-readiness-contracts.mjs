@@ -104,6 +104,32 @@ function isFastShardDbReadinessCall(node) {
   return null;
 }
 
+function stringLiteralValue(node) {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+    return node.text;
+  }
+  return null;
+}
+
+function isFastShardDbBackedAssertion(node) {
+  const calleeParts = getCalleeParts(node.expression);
+  const calleeName = calleeParts.at(-1);
+  if (calleeName !== 'locator' && calleeName !== 'getByTestId') {
+    return null;
+  }
+
+  const selector = node.arguments[0] ? stringLiteralValue(node.arguments[0]) : null;
+  if (!selector) {
+    return null;
+  }
+
+  if (selector.includes('model-row-')) {
+    return 'Model registry row assertions require DB-backed registry readiness in an isolated path';
+  }
+
+  return null;
+}
+
 function lineForPosition(sourceFile, position) {
   return sourceFile.getLineAndCharacterOfPosition(position).line + 1;
 }
@@ -137,7 +163,7 @@ export function findFastShardDbReadinessViolations(source, file) {
     }
 
     if (!insideIsolatedRange) {
-      const reason = isFastShardDbReadinessCall(node);
+      const reason = isFastShardDbReadinessCall(node) ?? isFastShardDbBackedAssertion(node);
       if (reason) {
         violations.push({
           file,

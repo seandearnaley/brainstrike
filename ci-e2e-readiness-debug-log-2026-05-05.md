@@ -155,3 +155,351 @@ This is broader than a single missing `@stateful` tag.
 
 - The next meaningful proof is GitHub Actions on the pushed head.
 - If GitHub fails again with DB readiness after this change, the next hypothesis must move from misrouted readiness waits to browser DB bootstrap/resource contention or reset ordering.
+
+## Fresh CI Failure After Commit `84a55508`
+
+Run: `25399472141`
+
+Head: `84a555080637cca4e1e5443606256f3dcab1cad3`
+
+Action taken after failure:
+
+- Cancel request submitted for the still-running workflow to avoid wasting more CI time after required failure was already known.
+
+### What Improved
+
+- `E2E Stateful Tests (database-startup)` passed with the added `embedding-worker-telemetry.test.ts`.
+- `E2E Tests (Shard 2/5)`, `E2E Tests (Shard 3/5)`, `E2E Tests (Shard 5/5)`, `E2E Destructive Tests`, `E2E Stateful Tests (settings-state)`, and browser Vitest passed before cancellation/failure observation.
+- The original DB-readiness failure signature did not recur in the collected web shard 4 log.
+
+### New Failure 1: Web Shard 4
+
+Job: `E2E Tests (Shard 4/5)` / `74496001256`
+
+Failure:
+
+```text
+settings-models-and-providers.test.ts:56
+Models & Providers settings (web) › shows a registry load error and recovers on retry
+expect(locator).toBeVisible() failed
+Locator: getByTestId('model-registry-error')
+Timeout: 15000ms
+```
+
+Interpretation:
+
+- This is no longer a DB-readiness setup failure.
+- The app reached the settings test assertion.
+- The test override intended to force a model registry error did not produce the expected error UI in GitHub CI.
+
+### New Failure 2: Desktop Shard 4
+
+Job: `Desktop E2E Regression (4, 4)` / `74496297354`
+
+Failure:
+
+```text
+settings-token-counting.desktop.test.ts:15
+SyntaxError: The requested module './chunk-DBBA3NFL.mjs' does not provide an export named 'finalPath'
+at fixtures/electron-fixture.ts:39
+const { launchElectronApp } = await loadElectronHelpers();
+```
+
+Interpretation:
+
+- This is an Electron/desktop E2E helper bundle or module resolution failure before app launch.
+- It is unrelated to the web DB readiness routing fix.
+- It may indicate a stale/generated chunk problem, ESM export shape problem, or desktop E2E bundling issue.
+
+## Revised Hypotheses After `84a55508` Failure
+
+1. The web settings registry-error test installs overrides after app boot, but the model registry may already have loaded successfully before the override takes effect.
+2. `installSettingsTestOverrides` may not trigger a registry reload or may not update the exact runtime surface used by the settings page in production preview.
+3. The settings page may cache the successful registry snapshot in memory/localStorage from the shell-only setup before the error override is installed.
+4. The first `home.goto({ waitForDatabase: false })` in the registry-error test may remount/reload enough state to lose or race the pending settings override.
+5. The model registry error path may need an explicit pre-boot override via `page.addInitScript`, not a post-boot install call.
+6. The web settings failure could be cross-test contamination from earlier `local-runtime-settings` or navigation tests in shard 4, not from DB readiness.
+7. The desktop `finalPath` error may come from Vite/Rolldown chunking changing an internal helper export while `electron-helpers.mts` is dynamically imported.
+8. The desktop helper module may import a symbol that exists in TypeScript source but is tree-shaken or renamed in the transformed Playwright runtime bundle.
+9. Desktop shard 4 may be loading a stale cached transformed module from `test-results`, Playwright cache, or a prior worker context.
+10. The desktop failure may be caused by a circular export in desktop E2E helper code that only breaks under parallel shard startup and dynamic import timing.
+
+## Evidence Update After Artifact Inspection
+
+Time: 2026-05-05 16:27 EDT
+
+Downloaded artifacts from run `25399472141`:
+
+- `blob-report-4`
+- `desktop-blob-report-4`
+
+### Web Trace Correction
+
+The web failure is not that the model registry error override failed entirely.
+
+Trace evidence from retry 2:
+
+- `before@call@54`: `settings-category-models` was visible with normal model registry UI and no `model-registry-error`.
+- The expect waited 15 seconds for `settings-category-models >> model-registry-error`.
+- `after@call@54`: `model-registry-error` existed and contained `Model registry unavailable for test`, but only after the assertion had already timed out.
+
+Learning:
+
+- The test is still DB-gated. `ModelSelectionPage` only calls `fetchRegistry` after `usePGliteDatabase()` returns a DB.
+- The test was running in the fast functional shard with shell-only readiness, then expecting a DB-triggered registry path.
+- This is the same readiness class in a more specific form: DB-backed model registry assertions were misrouted into a fast shard.
+
+Revised web hypothesis:
+
+- `settings-models-and-providers.test.ts` contains mixed shell-only and DB-backed assertions. The registry error-and-retry test must either be truly decoupled from DB in product/test hook code or run as `@stateful` with explicit DB readiness. The current test is not shell-only.
+
+### Desktop Build Contract Evidence
+
+The desktop failure imports `@brainstrike/file-system`, which pulls built `@brainstrike/utils` subpath output.
+
+Facts:
+
+- `packages/utils/package.json` exposes runtime subpaths such as `./path-utils` -> `./dist/path-utils.mjs`.
+- Current `packages/utils/tsup.config.ts` has only `entry: ['src/index.ts']`.
+- A clean tsup probe emitted only `index.js`, `index.js.map`, `index.mjs`, and `index.mjs.map`; it did not emit `path-utils.mjs`.
+- Local `packages/utils/dist/path-utils.mjs` exists only because generated `dist` has stale files from prior builds.
+
+Learning:
+
+- The desktop `finalPath` failure is not an Electron app readiness issue. It is a build-output contract bug: package subpath exports are depending on stale generated files and split chunks.
+- Local passes are expected when stale local `dist` happens to be internally consistent. CI can restore or rebuild a different stale/generated shape and break module imports before Electron launches.
+
+Next tests before patch:
+
+- Add an E2E readiness contract test that flags DB-backed model row assertions outside isolated `@stateful`/`@destructive` ranges.
+- Add a utils build contract test that requires every runtime JS subpath export to be listed in the tsup entry map and disables split chunks for `@brainstrike/utils`.
+
+### Red Tests
+
+Time: 2026-05-05 16:27 EDT
+
+Commands:
+
+```text
+node --test scripts/__tests__/check-e2e-readiness-contracts.test.mjs
+pnpm --filter @brainstrike/utils exec vitest run src/__tests__/tsup-config-contract.test.ts
+```
+
+Results:
+
+- Readiness contract test failed because the checker did not yet flag `[data-testid^="model-row-"]` assertions in fast-shard tests.
+- Utils build contract failed because `entry` was an array and `splitting` was undefined.
+
+Learning:
+
+- The new tests fail for the intended reasons before implementation.
+
+### Utils Build Contract Tightening
+
+Time: 2026-05-05 16:32 EDT
+
+Additional red test:
+
+```text
+pnpm --filter @brainstrike/utils exec vitest run src/__tests__/tsup-config-contract.test.ts
+```
+
+Expected failures:
+
+- `./crypto` tsup entry used `src/crypto-utils.ts` while the public package subpath wrapper is `src/crypto.ts`.
+- `packages/utils/package.json` still hardcoded a separate tsup entry list instead of using `tsup.config.ts`.
+
+Fix applied:
+
+- `packages/utils/tsup.config.ts` now uses the public wrapper entries when wrappers exist:
+  - `src/crypto.ts`
+  - `src/hmr-utils.ts`
+  - `src/install-renderer-error-hooks.ts`
+- `packages/utils/package.json` now runs `tsup` without duplicating the entry list.
+
+Green test:
+
+```text
+pnpm --filter @brainstrike/utils exec vitest run src/__tests__/tsup-config-contract.test.ts
+```
+
+Result:
+
+- 4/4 tests passed.
+
+Learning:
+
+- The correct build contract is not just "emit the missing file once." The package must have one authoritative list of public runtime entrypoints, and split chunks must stay disabled for this package because CI imports package subpaths directly during desktop E2E setup.
+
+### Utils Build Output Verification
+
+Time: 2026-05-05 16:33 EDT
+
+Commands:
+
+```text
+pnpm --filter @brainstrike/utils build
+test -f packages/utils/dist/path-utils.mjs
+test -f packages/utils/dist/logger.mjs
+find packages/utils/dist -maxdepth 1 -name 'chunk-*.mjs' -print
+node --input-type=module -e "const mod = await import('./packages/utils/dist/path-utils.mjs'); if (typeof mod.finalPath !== 'function') throw new Error('finalPath export missing'); console.log('path-utils finalPath export passed');"
+node --input-type=module -e "const mod = await import('./packages/utils/dist/logger.mjs'); if (typeof mod.createLogger !== 'function') throw new Error('createLogger export missing'); console.log('logger createLogger export passed');"
+```
+
+Results:
+
+- `@brainstrike/utils` build succeeded using the centralized `tsup.config.ts` entry map.
+- `path-utils.mjs` exists.
+- `logger.mjs` exists.
+- No `chunk-*.mjs` files were emitted.
+- `path-utils.mjs` exports `finalPath`.
+- `logger.mjs` exports `createLogger`.
+
+Learning:
+
+- The exact missing runtime export from the desktop CI failure is now verified from clean generated package output, not inferred from stale local `dist`.
+
+### Targeted Web Settings Verification
+
+Time: 2026-05-05 16:34 EDT
+
+Command:
+
+```text
+CI=true GITHUB_ACTIONS=true NODE_ENV=production PORT=8080 BASE_URL=http://127.0.0.1:8080 pnpm --filter @brainstrike/web exec playwright test --project=functional --workers=1 --retries=0 --max-failures=1 --grep "shows a registry load error and recovers on retry" e2e/settings-models-and-providers.test.ts
+```
+
+Result:
+
+- 1/1 passed.
+
+Learning:
+
+- The specific web failure path passes when the test is treated as DB-backed stateful work instead of shell-only fast-shard work. This still does not prove CI is fixed; it only verifies the local targeted behavior after the routing correction.
+
+### Targeted Desktop Settings Verification
+
+Time: 2026-05-05 16:34 EDT
+
+Command:
+
+```text
+CI=true GITHUB_ACTIONS=true pnpm --filter @brainstrike/desktop exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 e2e/settings-token-counting.desktop.test.ts
+```
+
+Result:
+
+- 2/2 passed.
+- No `chunk-*.mjs` / `finalPath` import error occurred.
+- DB host started and initialized in both tests, then Electron exited with code 0.
+
+Learning:
+
+- The previously failing desktop spec now gets past the prelaunch helper import path and completes. This verifies the local targeted symptom after the package build contract fix; it does not prove the full GitHub matrix is stable.
+
+### Script Contract Suite
+
+Time: 2026-05-05 16:35 EDT
+
+Command:
+
+```text
+pnpm test:scripts
+```
+
+Result:
+
+- 90/90 passed.
+
+Learning:
+
+- The repo-level CI contract tests include the new web readiness guard and still pass together. This reduces the chance of reintroducing DB-backed settings assertions into fast web shards.
+
+### Full Root Gate Attempt 1
+
+Time: 2026-05-05 16:35 EDT
+
+Command:
+
+```text
+pnpm lint && pnpm type-check && pnpm build && pnpm test
+```
+
+Result:
+
+- Failed during `pnpm lint`.
+- Biome flagged `type PackageJson` and `type TsupConfig` in `packages/utils/src/__tests__/tsup-config-contract.test.ts` because the repo style requires interfaces for object shapes.
+
+Fix applied:
+
+- Converted those two object-shape aliases to interfaces.
+
+Learning:
+
+- This was a code-style failure in the new regression test, not evidence against the CI readiness/build-output hypotheses. The full gate must be rerun from the beginning after this fix.
+
+### Full Root Gate Attempt 2
+
+Time: 2026-05-05 16:36 EDT
+
+Command:
+
+```text
+pnpm lint && pnpm type-check && pnpm build && pnpm test
+```
+
+Result:
+
+- `pnpm lint` passed.
+- Failed during `pnpm type-check`.
+- `@brainstrike/utils` type-check rejected the new test's static import of `packages/utils/tsup.config.ts` because that file is outside `packages/utils/src` and not included by `tsconfig.test.json`.
+
+Fix applied:
+
+- Replaced the static `tsup.config.ts` import with a runtime dynamic import through `pathToFileURL`.
+
+Learning:
+
+- The contract test must exercise the package build config without expanding the TypeScript project boundary for package tests. Static imports across that boundary are invalid in this package.
+
+### Utils Test Boundary Verification
+
+Time: 2026-05-05 16:36 EDT
+
+Commands:
+
+```text
+pnpm --filter @brainstrike/utils exec vitest run src/__tests__/tsup-config-contract.test.ts
+pnpm --filter @brainstrike/utils type-check
+```
+
+Results:
+
+- `tsup-config-contract.test.ts`: 4/4 passed.
+- `@brainstrike/utils` type-check passed.
+
+Learning:
+
+- The runtime dynamic import preserves the build-contract assertion while keeping package test type-checking inside the package boundary.
+
+### Full Root Gate Attempt 3
+
+Time: 2026-05-05 16:43 EDT
+
+Command:
+
+```text
+pnpm lint && pnpm type-check && pnpm build && pnpm test
+```
+
+Result:
+
+- Passed.
+- `pnpm lint` passed.
+- `pnpm type-check` passed.
+- `pnpm build` passed.
+- `pnpm test` passed.
+
+Learning:
+
+- The current code state satisfies the local required gate. This still does not prove the GitHub Actions matrix is fixed; the next proof point must be the latest PR head CI run after push.

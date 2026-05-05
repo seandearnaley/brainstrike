@@ -73,6 +73,24 @@ test('flags default HomePage.goto DB readiness outside isolated test ranges', ()
   ]);
 });
 
+test('flags DB-backed model registry row assertions outside isolated test ranges', () => {
+  const source = `
+    import { test } from '@playwright/test';
+
+    test('settings test', async ({ page }) => {
+      await expect(page.locator('[data-testid^="model-row-"]').first()).toBeVisible();
+    });
+  `;
+
+  assert.deepEqual(findFastShardDbReadinessViolations(source, 'apps/web/e2e/settings.test.ts'), [
+    {
+      file: 'apps/web/e2e/settings.test.ts',
+      line: 5,
+      reason: 'Model registry row assertions require DB-backed registry readiness in an isolated path',
+    },
+  ]);
+});
+
 test('ignores DB readiness inside stateful and destructive title ranges', () => {
   const source = `
     import { test } from '@playwright/test';

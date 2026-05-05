@@ -53,14 +53,14 @@ test.describe('Models & Providers settings (web)', () => {
     await waitForAppLoad(page, { waitForDatabase: false });
   });
 
-  test('shows a registry load error and recovers on retry', async ({ page }) => {
+  test('shows a registry load error and recovers on retry @stateful', async ({ page }) => {
     await installSettingsTestOverrides(page, {
       modelRegistry: { fetchErrorMessage: 'Model registry unavailable for test' },
     });
 
     const home = new HomePage(page);
     const settings = new SettingsPage(page);
-    await home.goto({ waitForDatabase: false });
+    await home.goto();
     await home.navigateToSettings();
     const modelsContent = await settings.openCategory(/Models & Providers/i, 'models');
 
