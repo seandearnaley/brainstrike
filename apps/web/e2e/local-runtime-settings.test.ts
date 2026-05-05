@@ -63,7 +63,7 @@ test.describe('Local Runtimes settings (web)', () => {
     await stubLocalRuntimeProbes(page, { ollama: 'available', lmstudio: 'unreachable' });
 
     const home = new HomePage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
 
     await page.getByRole('button', { name: 'Local Runtimes' }).click();
@@ -79,7 +79,7 @@ test.describe('Local Runtimes settings (web)', () => {
     await stubLocalRuntimeProbes(page, { ollama: 'available', lmstudio: 'unreachable' });
 
     const home = new HomePage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
     await page.getByRole('button', { name: 'Local Runtimes' }).click();
 
@@ -100,7 +100,7 @@ test.describe('Local Runtimes settings (web)', () => {
     await stubLocalRuntimeProbes(page, { ollama: 'available', lmstudio: 'available' });
 
     const home = new HomePage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
     await page.getByRole('button', { name: 'Local Runtimes' }).click();
 
@@ -119,7 +119,7 @@ test.describe('Local Runtimes settings (web)', () => {
 
     const home = new HomePage(page);
     const settings = new SettingsPage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
     await settings.openCategory(/Local Runtimes/i, 'local-runtimes');
 
@@ -157,7 +157,7 @@ test.describe('Local Runtimes settings (web)', () => {
 
     const home = new HomePage(page);
     const settings = new SettingsPage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
     await settings.openCategory(/Local Runtimes/i, 'local-runtimes');
 
@@ -186,7 +186,7 @@ test.describe('Local Runtimes settings (web)', () => {
 
     const home = new HomePage(page);
     const settings = new SettingsPage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
     await settings.openCategory(/Local Runtimes/i, 'local-runtimes');
 
@@ -211,7 +211,7 @@ test.describe('Local Runtimes settings (web)', () => {
 
     const home = new HomePage(page);
     const settings = new SettingsPage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
     await settings.openCategory(/Local Runtimes/i, 'local-runtimes');
 
@@ -250,7 +250,7 @@ test.describe('Local Runtimes settings (web)', () => {
 
     const home = new HomePage(page);
     const settings = new SettingsPage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
     await settings.openCategory(/Local Runtimes/i, 'local-runtimes');
 

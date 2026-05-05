@@ -12,6 +12,10 @@ import {
   useState,
 } from 'react';
 import {
+  getDefaultBrowserPGliteDataDir,
+  isBrowserPersistentPGliteDataDir,
+} from './browser-pglite-storage.js';
+import {
   createDatabaseWorkScheduler,
   createScheduledDbHandle,
   type DatabaseWorkOptions,
@@ -44,7 +48,7 @@ type DbConnection =
 
 async function closeDirectConnection(db: PGliteRuntimeClient, dataDir: string): Promise<void> {
   try {
-    if (dataDir.startsWith('idb://')) {
+    if (isBrowserPersistentPGliteDataDir(dataDir)) {
       await wasmLoader.closeCached(dataDir);
     } else {
       await db.close();
@@ -74,12 +78,12 @@ async function purgeAndCloseDirectDb(
   } catch (err) {
     logger.warn('VACUUM after purge failed:', err);
   }
-  if (dataDir.startsWith('idb://')) {
+  if (isBrowserPersistentPGliteDataDir(dataDir)) {
     try {
       await wasmLoader.closeCached(dataDir);
-      logger.info('[DbProvider] Closed cached IndexedDB instance during factory reset');
+      logger.info('[DbProvider] Closed cached browser PGlite instance during factory reset');
     } catch (err) {
-      logger.warn('Failed to close cached IndexedDB instance during reset:', err);
+      logger.warn('Failed to close cached browser PGlite instance during reset:', err);
     }
   } else {
     try {
@@ -115,6 +119,7 @@ async function loadDrizzleViewFilterPresetsRepository() {
 export interface DbHandle extends IDatabase {
   exec?: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
   readonly raw?: unknown;
+  readonly syncToFs?: () => Promise<void>;
 }
 
 interface QueryExecutor {
@@ -124,6 +129,7 @@ interface QueryExecutor {
     params?: unknown[],
     options?: unknown
   ) => Promise<{ rows: T[] }>;
+  readonly syncToFs?: () => Promise<void>;
   transaction?: <T>(fn: (tx: QueryExecutor) => Promise<T>) => Promise<T>;
 }
 
@@ -157,7 +163,7 @@ interface DbProviderProps {
 export function getDefaultDbPath() {
   const isBrowser = typeof window !== 'undefined';
   if (isBrowser) {
-    return 'idb://app';
+    return getDefaultBrowserPGliteDataDir();
   }
 
   const { tmpdir } = requireNodeOs();
@@ -212,8 +218,15 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
     const result = await executor.query(sql, forwarded.params, forwarded.options);
     return { rows: result.rows as T[] };
   };
+  const syncToFs =
+    typeof executor.syncToFs === 'function'
+      ? async () => {
+          await executor.syncToFs?.();
+        }
+      : undefined;
   const handle: DbHandle = {
     query,
+    ...(syncToFs ? { syncToFs } : {}),
   };
 
   if (typeof executor.exec === 'function') {

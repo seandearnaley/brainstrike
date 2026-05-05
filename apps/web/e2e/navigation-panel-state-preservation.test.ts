@@ -65,10 +65,10 @@ test.describe('Navigation Panel State Preservation', () => {
 
     await mockBrowserApis(page, 'test-root', tree, { clipboard: true });
     await page.goto('/');
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
     await resetAppState(page);
     await page.reload();
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
 
     // Verify initial state — sidebar nav marks Context Explorer as the active page.
     await expect(contextExplorerActiveNavLocator(page)).toBeVisible();

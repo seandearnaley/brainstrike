@@ -269,6 +269,64 @@ test('runCli allows a no-op Turbo run for the requested task', async () => {
   }
 });
 
+test('runCli can aggregate multiple Turbo summaries by task prefix', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-turbo-cli-all-'));
+  try {
+    const firstPath = path.join(dir, 'first.json');
+    const secondPath = path.join(dir, 'second.json');
+    const outputPath = path.join(dir, 'summary.md');
+    await writeFile(
+      firstPath,
+      JSON.stringify({
+        execution: {
+          command: 'turbo run test:coverage',
+          startTime: 1_000,
+          endTime: 2_000,
+          success: true,
+        },
+        tasks: [task('@brainstrike/web#test:coverage', 'test:coverage', 1_000, 2_000)],
+      })
+    );
+    await writeFile(
+      secondPath,
+      JSON.stringify({
+        execution: {
+          command: 'turbo run test:coverage:db:queue',
+          startTime: 3_000,
+          endTime: 4_000,
+          success: true,
+        },
+        tasks: [
+          task(
+            '@brainstrike/db#test:coverage:db:queue',
+            'test:coverage:db:queue',
+            3_000,
+            4_000
+          ),
+        ],
+      })
+    );
+
+    const exitCode = await runCli([
+      '--runs-dir',
+      dir,
+      '--all',
+      '--task-prefix',
+      'test:coverage',
+      '--output',
+      outputPath,
+    ]);
+
+    assert.equal(exitCode, 0);
+    const markdown = await readFile(outputPath, 'utf8');
+    assert.match(markdown, /Turbo test:coverage\* Task Durations/);
+    assert.match(markdown, /@brainstrike\/web#test:coverage/);
+    assert.match(markdown, /@brainstrike\/db#test:coverage:db:queue/);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
 test('runCli reports the summary path when JSON parsing fails', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-turbo-cli-invalid-'));
   const originalConsoleError = console.error;

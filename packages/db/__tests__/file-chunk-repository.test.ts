@@ -1044,14 +1044,17 @@ describe('FileChunkRepository', () => {
       ];
 
       await repository.insertMany(chunks);
+    });
 
-      // Manually populate tsvector column (trigger should handle this on insert,
-      // but let's ensure it's set for testing purposes)
-      await db.query(`
-        UPDATE file_chunks
-        SET content_tsvector = to_tsvector('english', content)
-        WHERE content_tsvector IS NULL
+    it('populates tsvector data during repository writes', async () => {
+      const result = await db.query<{ total: number; with_tsvector: number }>(`
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE content_tsvector IS NOT NULL)::int AS with_tsvector
+        FROM file_chunks
       `);
+
+      expect(result.rows[0]?.with_tsvector).toBe(result.rows[0]?.total);
     });
 
     it('should find chunks matching search query', async () => {

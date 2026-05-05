@@ -62,7 +62,7 @@ interface MockLlmGenerateRequest {
   requestId: string;
 }
 
-test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
+test.describe('Assistant UI panel (web, assistant-ui mode) @stateful', () => {
   test.beforeEach(async ({ page }) => {
     const tree = {
       'README.md': '# BrainStrike test workspace',

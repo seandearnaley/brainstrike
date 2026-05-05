@@ -32,7 +32,7 @@ export interface DbRuntimeBaseline {
   readonly web: {
     readonly directPgliteScope: 'tests-memory-and-non-browser-utilities';
     readonly owner: 'pglite-worker-db-host';
-    readonly storage: 'idb';
+    readonly storage: 'idb-default-opfs-ahp-opt-in';
   };
 }
 
@@ -60,7 +60,7 @@ export const BRAINSTRIKE_DB_RUNTIME_BASELINE: DbRuntimeBaseline = {
   web: {
     directPgliteScope: 'tests-memory-and-non-browser-utilities',
     owner: 'pglite-worker-db-host',
-    storage: 'idb',
+    storage: 'idb-default-opfs-ahp-opt-in',
   },
 } as const;
 

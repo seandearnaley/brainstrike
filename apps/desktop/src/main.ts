@@ -32,10 +32,13 @@ import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import {
+  cleanupDesktopLiveSubscriptionsForShutdown,
   getDesktopDatabaseWorkSchedulerSnapshot,
   registerIpcHandlers,
   runDesktopScheduledDatabaseWork,
+  runWithDesktopDatabaseResetBarrier,
   setBackgrounded,
+  waitForDesktopDatabaseWorkSchedulerIdle,
 } from './ipc-handlers';
 import { registerLlmHostIpcHandlers } from './ipc-llm-host';
 import { registerMcpIpcHandlers } from './ipc-mcp';
@@ -56,12 +59,44 @@ import { getWindowRoleByWebContentsId } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
+const E2E_USER_DATA_DIR_ENV = 'BRAINSTRIKE_E2E_USER_DATA_DIR';
 const LOG_FILE_VERIFICATION_POLL_INTERVAL_MS = 250;
 const LOG_FILE_VERIFICATION_TIMEOUT_MS = 5000;
 
 function isElectronE2ETestMode(): boolean {
   return process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
 }
+
+function readExplicitE2eUserDataDir(): string | null {
+  const candidate = process.env[E2E_USER_DATA_DIR_ENV]?.trim();
+  if (!candidate || candidate.toLowerCase() === 'undefined') {
+    return null;
+  }
+  if (!path.isAbsolute(candidate)) {
+    throw new Error(`${E2E_USER_DATA_DIR_ENV} must be an absolute path.`);
+  }
+  return candidate;
+}
+
+function applyE2EPathIsolation(): void {
+  if (!isElectronE2ETestMode()) {
+    return;
+  }
+
+  const userDataDir = readExplicitE2eUserDataDir();
+  if (!userDataDir) {
+    return;
+  }
+
+  fs.mkdirSync(userDataDir, { recursive: true });
+  app.setPath('userData', userDataDir);
+
+  const sessionDataDir = path.join(userDataDir, 'session-data');
+  fs.mkdirSync(sessionDataDir, { recursive: true });
+  app.setPath('sessionData', sessionDataDir);
+}
+
+applyE2EPathIsolation();
 
 function tryShowStartupErrorDialog(message: string): void {
   try {
@@ -591,7 +626,12 @@ async function handleResetLocal(): Promise<{ success: boolean; message?: string 
   try {
     await resetDesktopApplicationData({
       resetDatabaseProfile: async () => {
-        await resetLocalDatabase();
+        await runWithDesktopDatabaseResetBarrier(async () => {
+          await cleanupDesktopLiveSubscriptionsForShutdown();
+          await waitForDesktopDatabaseWorkSchedulerIdle();
+          await cleanupDesktopLiveSubscriptionsForShutdown();
+          await resetLocalDatabase();
+        });
       },
       stopBackgroundRuntimes: async () => {
         await Promise.all([
@@ -678,6 +718,9 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
     const databaseFailure = await runShutdownStep('database', async () => {
       desktopDatabaseMaintenanceScheduler?.stop();
       desktopDatabaseMaintenanceScheduler = null;
+      await cleanupDesktopLiveSubscriptionsForShutdown();
+      await waitForDesktopDatabaseWorkSchedulerIdle();
+      await cleanupDesktopLiveSubscriptionsForShutdown();
       await closeDatabase();
     });
     if (databaseFailure) {

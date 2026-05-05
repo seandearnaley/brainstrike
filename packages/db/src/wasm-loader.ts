@@ -3,6 +3,11 @@ import type { Extension } from '@electric-sql/pglite';
 import { PGlite } from '@electric-sql/pglite';
 import type { LiveNamespace } from '@electric-sql/pglite/live';
 import type { PGliteWorker, PGliteWorkerOptions } from '@electric-sql/pglite/worker';
+import {
+  isBrowserPersistentPGliteDataDir,
+  isIndexedDbPGliteDataDir,
+  isOpfsAhpPGliteDataDir,
+} from './browser-pglite-storage.js';
 
 type VectorExtension = Extension;
 type LiveExtension = Extension;
@@ -14,7 +19,10 @@ export interface PGliteLeaderChangeSource {
   readonly onLeaderChange: (listener: () => void) => (() => void) | undefined;
 }
 
-export type PGliteRuntimeClient = Pick<PGlite, 'close' | 'exec' | 'query' | 'transaction'> & {
+export type PGliteRuntimeClient = Pick<
+  PGlite,
+  'close' | 'exec' | 'query' | 'syncToFs' | 'transaction'
+> & {
   readonly live?: Pick<LiveNamespace, 'query'>;
 };
 
@@ -120,6 +128,9 @@ class WasmLoader {
 
     // Normalize in-memory indicator: map legacy ':memory:' to 'memory://'
     const normalizedDataDir = dataDir === ':memory:' ? 'memory://' : dataDir;
+    if (typeof window !== 'undefined' && isOpfsAhpPGliteDataDir(normalizedDataDir)) {
+      throw new Error('Browser OPFS AHP PGlite requires the PGlite worker host');
+    }
 
     // Use cache key for persistent databases to prevent double-open in dev mode
     // (React Strict Mode + HMR can cause multiple mounts without proper cleanup)
@@ -127,7 +138,7 @@ class WasmLoader {
 
     // For persisted databases (idb://), reuse existing instance if available
     // This prevents TOAST corruption from concurrent IndexedDB access
-    if (normalizedDataDir?.startsWith('idb://')) {
+    if (isIndexedDbPGliteDataDir(normalizedDataDir)) {
       const cached = this.dbCache.get(cacheKey);
       if (cached) {
         logger.info('Reusing cached PGlite instance', { cacheKey });
@@ -140,7 +151,7 @@ class WasmLoader {
     // The flush is scheduled asynchronously after the query returns.
     // This is suitable for most embedded use cases where occasional data loss on crash is acceptable.
     // See: https://pglite.dev/docs/filesystems
-    const useRelaxedDurability = normalizedDataDir?.startsWith('idb://');
+    const useRelaxedDurability = isIndexedDbPGliteDataDir(normalizedDataDir);
 
     const db = normalizedDataDir
       ? new PGlite({
@@ -151,7 +162,7 @@ class WasmLoader {
       : new PGlite({ extensions: { vector, live } });
 
     // Cache persisted databases only (not memory://)
-    if (normalizedDataDir?.startsWith('idb://')) {
+    if (isIndexedDbPGliteDataDir(normalizedDataDir)) {
       this.dbCache.set(cacheKey, db);
     }
 
@@ -239,7 +250,7 @@ class WasmLoader {
           dataDir,
           extensions: { live },
           id: `brainstrike-db:${dataDir}`,
-          relaxedDurability: true,
+          relaxedDurability: isIndexedDbPGliteDataDir(dataDir),
         };
         const workerClientPromise = PGliteWorker.create(worker, options);
         void workerClientPromise
@@ -291,9 +302,7 @@ class WasmLoader {
   }
 
   private requiresBrowserWorkerHost(dataDir: string | undefined): dataDir is string {
-    return (
-      typeof window !== 'undefined' && typeof dataDir === 'string' && dataDir.startsWith('idb://')
-    );
+    return typeof window !== 'undefined' && isBrowserPersistentPGliteDataDir(dataDir);
   }
 
   /**

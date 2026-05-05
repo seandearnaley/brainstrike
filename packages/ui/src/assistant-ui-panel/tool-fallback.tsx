@@ -29,11 +29,37 @@ const isIncompleteStatus = (
 ): status is ToolStatus & { type: 'incomplete'; error?: unknown; reason?: unknown } =>
   status.type === 'incomplete';
 
-const resolveDisplayStatus = (status: ToolStatus, hasResult: boolean): DisplayStatus => {
+const readResultErrorMessage = (result: ToolResult): string | undefined => {
+  if (typeof result === 'string') {
+    return;
+  }
+  if (!(result && typeof result === 'object')) {
+    return;
+  }
+
+  const record = result as Record<string, unknown>;
+  const error = record['error'];
+  if (typeof error === 'string' && error.length > 0) {
+    return error;
+  }
+  if (record['isError'] === true) {
+    return 'Tool execution failed.';
+  }
+  return;
+};
+
+const resolveDisplayStatus = (
+  status: ToolStatus,
+  hasResult: boolean,
+  result: ToolResult
+): DisplayStatus => {
   if (status.type === 'running') {
     return 'running';
   }
   if (status.type === 'incomplete') {
+    return 'error';
+  }
+  if (readResultErrorMessage(result)) {
     return 'error';
   }
   if (hasResult) {
@@ -44,7 +70,7 @@ const resolveDisplayStatus = (status: ToolStatus, hasResult: boolean): DisplaySt
 
 const resolveErrorMessage = (status: ToolStatus, result: ToolResult): string | undefined => {
   if (!isIncompleteStatus(status)) {
-    return;
+    return readResultErrorMessage(result);
   }
 
   if (typeof status.error === 'string') {
@@ -102,7 +128,7 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   const detailsId = useId();
 
   const hasResult = result !== undefined;
-  const displayStatus = resolveDisplayStatus(status, hasResult);
+  const displayStatus = resolveDisplayStatus(status, hasResult, result);
   const statusIcon = STATUS_ICONS[displayStatus];
   const statusText = STATUS_LABELS[displayStatus];
   const isRunning = displayStatus === 'running';

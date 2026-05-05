@@ -89,6 +89,7 @@ const sidebars = {
         'reference/platform/ide-layout',
         'reference/platform/file-explorer-settings',
         'reference/analysis/pglite-live-queries-analysis',
+        'reference/analysis/pglite-browser-storage-backends',
         'reference/tooling/mermaid-guide',
       ],
     },

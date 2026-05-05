@@ -11,6 +11,7 @@ import * as React from 'react';
 import { useMemo } from 'react';
 
 import type { RestorationProgress } from './use-file-explorer-context';
+import { formatTrailingPathSegments } from './utils/path-display';
 
 export interface RestorationStatusProps {
   /** Additional CSS classes */
@@ -20,14 +21,6 @@ export interface RestorationStatusProps {
   /** Restoration progress information */
   progress: RestorationProgress | null;
 }
-
-/**
- * Format path for display by showing only the last 2 parts
- */
-const formatDisplayPath = (path: string): string => {
-  const parts = path.split('/');
-  return parts.length > 2 ? `.../${parts.slice(-2).join('/')}` : path;
-};
 
 export const RestorationStatus: React.FC<RestorationStatusProps> = React.memo(
   ({ isRestoring, progress, className }) => {
@@ -50,7 +43,7 @@ export const RestorationStatus: React.FC<RestorationStatusProps> = React.memo(
       if (!progress?.currentPath) {
         return null;
       }
-      return formatDisplayPath(progress.currentPath);
+      return formatTrailingPathSegments(progress.currentPath);
     }, [progress]);
 
     if (!isRestoring) {

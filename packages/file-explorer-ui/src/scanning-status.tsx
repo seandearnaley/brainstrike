@@ -10,6 +10,7 @@ import { Button, cn, Progress } from '@brainstrike/ui';
 import { Loader2, X } from 'lucide-react';
 import * as React from 'react';
 import { useMemo } from 'react';
+import { formatTrailingPathSegments } from './utils/path-display';
 
 export interface ScanningStatusProps {
   /** Whether the operation can be cancelled */
@@ -29,14 +30,6 @@ export interface ScanningStatusProps {
   /** Progress percentage (0-100) */
   percentage?: number | undefined;
 }
-
-/**
- * Format path for display by showing only the last 2 parts
- */
-const formatDisplayPath = (currentPath: string): string => {
-  const parts = currentPath.split('/');
-  return parts.length > 2 ? `.../${parts.slice(-2).join('/')}` : currentPath;
-};
 
 export const ScanningStatus: React.FC<ScanningStatusProps> = React.memo(
   ({
@@ -79,7 +72,7 @@ export const ScanningStatus: React.FC<ScanningStatusProps> = React.memo(
       if (!currentPath) {
         return null;
       }
-      return formatDisplayPath(currentPath);
+      return formatTrailingPathSegments(currentPath);
     }, [currentPath]);
 
     if (!isScanning) {

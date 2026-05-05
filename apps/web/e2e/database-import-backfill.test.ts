@@ -86,7 +86,10 @@ async function getCollectionSummaryCounts(
   page: Page,
   collectionName: string
 ): Promise<CollectionSummaryCounts> {
-  const option = page.getByRole('option').filter({ hasText: collectionName }).first();
+  const databasePanel = page.getByTestId('database-demo-panel');
+  const collectionList = databasePanel.getByRole('listbox', { name: 'Search Collection' });
+  await expect(collectionList).toBeVisible({ timeout: 15_000 });
+  const option = collectionList.getByRole('option').filter({ hasText: collectionName }).first();
   await expect(option).toBeVisible({ timeout: 15_000 });
   const text = await option.innerText();
   return parseCollectionSummaryCounts(text);
@@ -241,8 +244,12 @@ async function createCollection(page: Page, collectionName: string): Promise<voi
   await createButton.click();
 
   await expect(dialog).toBeHidden({ timeout: 15_000 });
-  await expect(page.getByRole('option').filter({ hasText: collectionName }).first()).toBeVisible({
-    timeout: 15_000,
+  const collectionList = databasePanel.getByRole('listbox', { name: 'Search Collection' });
+  await expect(collectionList).toBeVisible({ timeout: 15_000 });
+  await expect(
+    collectionList.getByRole('option').filter({ hasText: collectionName }).first()
+  ).toBeVisible({
+    timeout: 30_000,
   });
 }
 
@@ -375,7 +382,7 @@ async function releaseImportedAppState(page: Page): Promise<void> {
   await page.waitForTimeout(500);
 }
 
-test.describe('Database import and backfill (web)', () => {
+test.describe('Database import and backfill (web) @stateful', () => {
   test.describe.configure({ mode: 'serial' });
 
   test('imports files, chunks them, backfills, and updates collection coverage without reload', async ({
