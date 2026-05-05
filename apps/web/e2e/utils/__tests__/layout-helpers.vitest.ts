@@ -266,11 +266,34 @@ describe('layout-helpers (unit)', () => {
       waitForFunction: vi.fn(async () => {
         throw new Error('timed out');
       }),
-      evaluate: vi.fn(async () => 'disconnected'),
+      evaluate: vi.fn(async () => ({
+        dbPath: null,
+        hasE2ETestHooks: false,
+        state: 'disconnected',
+        statusText: 'Storage: PGlite',
+      })),
     } as unknown as Page;
 
     await expect(waitForDatabaseReady(page, 10_000)).rejects.toThrow(
       'Last observed state was disconnected'
+    );
+  });
+
+  it('waitForDatabaseReady reports loading status when the app never becomes ready', async () => {
+    const page = {
+      waitForFunction: vi.fn(async () => {
+        throw new Error('timed out');
+      }),
+      evaluate: vi.fn(async () => ({
+        dbPath: null,
+        hasE2ETestHooks: false,
+        state: 'loading',
+        statusText: 'Storage: Connecting...',
+      })),
+    } as unknown as Page;
+
+    await expect(waitForDatabaseReady(page, 10_000)).rejects.toThrow(
+      'Last observed state was loading. Status text: Storage: Connecting... E2E hooks present: no.'
     );
   });
 });

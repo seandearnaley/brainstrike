@@ -4,11 +4,17 @@ import { test } from 'node:test';
 
 import {
   extractJob,
+  validateTurboContracts,
   validateDesktopE2EContracts,
+  validateSetupDesktopE2EContracts,
+  validateSetupMonorepoContracts,
   validateWorkflowContracts,
 } from '../check-ci-workflow-contracts.mjs';
 
 const workflowSource = await readFile('.github/workflows/test.yml', 'utf8');
+const setupMonorepoSource = await readFile('.github/actions/setup-monorepo/action.yml', 'utf8');
+const setupDesktopE2ESource = await readFile('.github/actions/setup-desktop-e2e/action.yml', 'utf8');
+const turboConfigSource = await readFile('turbo.jsonc', 'utf8');
 
 test('extractJob returns a single workflow job block', () => {
   const e2e = extractJob(workflowSource, 'e2e');
@@ -39,6 +45,183 @@ test('extractJob stops before dotted job names', () => {
 
 test('current workflow satisfies CI cost and E2E routing contracts', () => {
   assert.deepEqual(validateWorkflowContracts(workflowSource), []);
+});
+
+test('setup monorepo action satisfies cache contracts', () => {
+  assert.deepEqual(validateSetupMonorepoContracts(setupMonorepoSource), []);
+});
+
+test('setup desktop E2E action satisfies preprovisioned dependency setup contracts', () => {
+  assert.deepEqual(validateSetupDesktopE2EContracts(setupDesktopE2ESource), []);
+});
+
+test('Turborepo task config satisfies browser test environment contracts', () => {
+  assert.deepEqual(validateTurboContracts(turboConfigSource), []);
+});
+
+test('Turborepo browser test contract fails when Playwright browser path is not passed through', () => {
+  const source = turboConfigSource.replace('"PLAYWRIGHT_BROWSERS_PATH"', '"PLAYWRIGHT_CACHE"');
+
+  assert.match(
+    validateTurboContracts(source).join('\n'),
+    /must pass PLAYWRIGHT_BROWSERS_PATH through/
+  );
+});
+
+test('setup desktop E2E contract fails when apt is added to the shard setup', () => {
+  const source = `${setupDesktopE2ESource}
+    - name: Install system dependencies
+      shell: bash
+      run: sudo apt-get update`;
+
+  assert.match(
+    validateSetupDesktopE2EContracts(source).join('\n'),
+    /must not run apt-get/
+  );
+});
+
+test('setup desktop E2E contract fails when Playwright dependency install is unbounded', () => {
+  const source = `${setupDesktopE2ESource}
+    - name: Install Playwright system dependencies
+      shell: bash
+      run: pnpm exec playwright install-deps`;
+
+  assert.match(
+    validateSetupDesktopE2EContracts(source).join('\n'),
+    /must not run Playwright install-deps/
+  );
+});
+
+test('setup desktop E2E contract fails when Xvfb image verification is removed', () => {
+  const source = setupDesktopE2ESource.replace('command -v Xvfb >/dev/null', 'echo skipped');
+
+  assert.match(
+    validateSetupDesktopE2EContracts(source).join('\n'),
+    /must verify Xvfb/
+  );
+});
+
+test('setup desktop E2E contract fails when Electron is resolved outside the desktop package', () => {
+  const source = setupDesktopE2ESource.replace('cd apps/desktop', 'echo skipped');
+
+  assert.match(
+    validateSetupDesktopE2EContracts(source).join('\n'),
+    /must resolve Electron from the desktop package/
+  );
+});
+
+test('setup desktop E2E contract fails when Electron ldd verification is removed', () => {
+  const source = setupDesktopE2ESource.replace('ldd "${ELECTRON_BINARY}"', 'echo skipped');
+
+  assert.match(
+    validateSetupDesktopE2EContracts(source).join('\n'),
+    /must inspect Electron shared-library dependencies/
+  );
+});
+
+test('workflow contract fails when Turbo commands stop using the shared cache directory', () => {
+  const source = workflowSource.replace(' --cache-dir=.turbo', '');
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Turbo commands in the Test workflow must use the shared \.turbo cache directory/
+  );
+});
+
+test('workflow contract fails when Turbo command summaries are dropped', () => {
+  const source = workflowSource.replace(' --summarize', '');
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Turbo commands in the Test workflow must emit run summaries/
+  );
+});
+
+test('workflow contract fails when Turbo run commands disappear', () => {
+  const source = workflowSource.replaceAll('pnpm turbo run', 'pnpm turbo');
+
+  assert.match(validateWorkflowContracts(source).join('\n'), /No Turbo run commands were found/);
+});
+
+test('workflow contract accepts Turbo run commands without the pnpm prefix', () => {
+  const source = workflowSource.replaceAll('pnpm turbo run', 'turbo run');
+
+  assert.deepEqual(validateWorkflowContracts(source), []);
+});
+
+test('workflow contract fails when required browser Vitest installs Playwright deps live', () => {
+  const browserTests = extractJob(workflowSource, 'browser-tests');
+  assert.ok(browserTests);
+
+  const source = workflowSource.replace(
+    browserTests,
+    browserTests.replace(
+      'pnpm exec playwright --version',
+      'pnpm exec playwright install-deps chromium'
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Browser Vitest Playwright job must not run install-deps during required CI/
+  );
+});
+
+test('workflow contract fails when required web E2E leaves the Playwright image', () => {
+  const e2e = extractJob(workflowSource, 'e2e');
+  assert.ok(e2e);
+
+  const source = workflowSource.replace(
+    e2e,
+    e2e.replace('image: mcr.microsoft.com/playwright:v1.59.1-noble', 'image: ubuntu:24.04')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Functional E2E Playwright job must run in the preprovisioned Playwright Noble image/
+  );
+});
+
+test('workflow contract fails when preprovisioned Playwright runtime verification is removed', () => {
+  const destructive = extractJob(workflowSource, 'e2e-destructive');
+  assert.ok(destructive);
+
+  const source = workflowSource.replace(
+    destructive,
+    destructive.replace('chromium.launch', 'console.log')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Destructive E2E Playwright job must prove Chromium launches/
+  );
+});
+
+test('setup monorepo contract fails when Turborepo cache path is removed', () => {
+  const source = setupMonorepoSource.replace('path: .turbo', 'path: .turbo-disabled');
+
+  assert.match(
+    validateSetupMonorepoContracts(source).join('\n'),
+    /must cache the shared \.turbo directory/
+  );
+});
+
+test('setup monorepo contract fails when Turborepo config stops invalidating cache keys', () => {
+  const source = setupMonorepoSource.replace(", 'turbo.jsonc'", '');
+
+  assert.match(
+    validateSetupMonorepoContracts(source).join('\n'),
+    /cache key must include lockfile, turbo config, and tsconfig inputs/
+  );
+});
+
+test('setup monorepo contract fails when cache hit reporting is removed', () => {
+  const source = setupMonorepoSource.replace('TURBO_CACHE_HIT: ${{ steps.turbo-cache.outputs.cache-hit }}', '');
+
+  assert.match(
+    validateSetupMonorepoContracts(source).join('\n'),
+    /cache summary must report Turborepo cache hit status/
+  );
 });
 
 test('workflow contract fails when blob reports upload on success', () => {
@@ -108,6 +291,35 @@ test('workflow contract fails when desktop regression retries are reintroduced',
   const failures = validateWorkflowContracts(source).join('\n');
   assert.match(failures, /desktop regression E2E must disable Playwright retries/);
   assert.match(failures, /desktop regression E2E must fail fast on the first failure/);
+});
+
+test('workflow contract fails when desktop regression jobs leave the Playwright image', () => {
+  const desktopPr = extractJob(workflowSource, 'desktop-e2e-pr');
+  assert.ok(desktopPr);
+
+  const source = workflowSource.replace(
+    desktopPr,
+    desktopPr.replace('image: mcr.microsoft.com/playwright:v1.59.1-noble', 'image: ubuntu:24.04')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /desktop regression job must run in the preprovisioned Playwright Noble image/
+  );
+});
+
+test('workflow contract fails when desktop regression jobs reintroduce apt or sudo', () => {
+  const desktopPr = extractJob(workflowSource, 'desktop-e2e-pr');
+  assert.ok(desktopPr);
+
+  const source = workflowSource.replace(
+    desktopPr,
+    desktopPr.replace('echo "Starting Playwright regression tests..."', 'sudo apt-get update')
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /desktop regression job must not run apt-get/);
+  assert.match(failures, /desktop regression job must not require sudo/);
 });
 
 test('workflow contract fails when desktop regression global timeout is removed', () => {
@@ -184,6 +396,41 @@ test('workflow contract fails when desktop embedding retries are reintroduced', 
   const failures = validateWorkflowContracts(source).join('\n');
   assert.match(failures, /desktop embedding E2E must disable Playwright retries/);
   assert.match(failures, /desktop embedding E2E must fail fast on the first failure/);
+});
+
+test('workflow contract fails when desktop embedding jobs leave the Playwright image', () => {
+  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
+  assert.ok(desktopEmbeddingPr);
+
+  const source = workflowSource.replace(
+    desktopEmbeddingPr,
+    desktopEmbeddingPr.replace(
+      'image: mcr.microsoft.com/playwright:v1.59.1-noble',
+      'image: ubuntu:24.04'
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /desktop embedding job must run in the preprovisioned Playwright Noble image/
+  );
+});
+
+test('workflow contract fails when desktop embedding jobs reintroduce apt or sudo', () => {
+  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
+  assert.ok(desktopEmbeddingPr);
+
+  const source = workflowSource.replace(
+    desktopEmbeddingPr,
+    desktopEmbeddingPr.replace(
+      'echo "Starting Xvfb on display ${DISPLAY} for embedding group ${{ matrix.group }}"',
+      'sudo apt-get update'
+    )
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /desktop embedding job must not run apt-get/);
+  assert.match(failures, /desktop embedding job must not require sudo/);
 });
 
 test('workflow contract fails when desktop embedding global timeout is removed', () => {

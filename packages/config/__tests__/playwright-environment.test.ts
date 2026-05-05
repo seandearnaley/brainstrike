@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   detectEnvironment,
+  formatPlaywrightCliOverrides,
   getCILaunchArgs,
   getEnvironmentConfig,
   getGlobalTimeout,
@@ -8,6 +9,7 @@ import {
   getWorkerCount,
   harmonizeColorEnvironment,
   logEnvironmentConfig,
+  parsePlaywrightCliOverrides,
   validateEnvironmentConfig,
 } from '../src/playwright-environment';
 
@@ -114,6 +116,145 @@ describe('playwright-environment helpers', () => {
     expect(Array.isArray(warnings)).toBe(true);
     expect(stdoutSpy).toHaveBeenCalled();
     expect(stderrSpy).toHaveBeenCalled();
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('parses Playwright CLI overrides from equals and separated arguments', () => {
+    expect(
+      parsePlaywrightCliOverrides([
+        '--project=regression',
+        '--workers',
+        '2',
+        '--retries=0',
+        '--max-failures',
+        '1',
+        '--global-timeout=720000',
+        '--shard',
+        '2/4',
+        '--grep-invert',
+        '@desktop-embedding-',
+      ])
+    ).toEqual({
+      globalTimeout: '720000',
+      grepInvert: '@desktop-embedding-',
+      maxFailures: '1',
+      project: 'regression',
+      retries: '0',
+      shard: '2/4',
+      workers: '2',
+    });
+  });
+
+  it('ignores non-override Playwright CLI arguments and flags without values', () => {
+    expect(
+      parsePlaywrightCliOverrides([
+        'apps/desktop/e2e/example.test.ts',
+        undefined as unknown as string,
+        '--unknown=1',
+        '--workers',
+        '--retries=0',
+        '--grep',
+      ])
+    ).toEqual({ retries: '0' });
+  });
+
+  it('parses grep overrides without dropping empty inline values', () => {
+    expect(parsePlaywrightCliOverrides(['--grep=@desktop', '--grep-invert='])).toEqual({
+      grep: '@desktop',
+      grepInvert: '',
+    });
+  });
+
+  it('formats Playwright CLI overrides in stable CI-log order', () => {
+    expect(
+      formatPlaywrightCliOverrides({
+        globalTimeout: '720000',
+        maxFailures: '1',
+        project: 'regression',
+        retries: '0',
+        shard: '2/4',
+        workers: '2',
+      })
+    ).toBe('project=regression,workers=2,retries=0,maxFailures=1,globalTimeout=720000,shard=2/4');
+    expect(formatPlaywrightCliOverrides({})).toBe('none');
+  });
+
+  it('keeps every parsed Playwright CLI override in the formatter output', () => {
+    const overrides = parsePlaywrightCliOverrides([
+      '--project=regression',
+      '--workers=2',
+      '--retries=0',
+      '--max-failures=1',
+      '--global-timeout=720000',
+      '--shard=2/4',
+      '--grep=@desktop',
+      '--grep-invert=@destructive',
+    ]);
+
+    expect(formatPlaywrightCliOverrides(overrides)).toBe(
+      'project=regression,workers=2,retries=0,maxFailures=1,globalTimeout=720000,shard=2/4,grep=@desktop,grepInvert=@destructive'
+    );
+  });
+
+  it('labels base config separately from Playwright CLI overrides in logs', () => {
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    stdoutSpy.mockClear();
+    const cfg = {
+      fullyParallel: false,
+      globalTimeout: 0,
+      headless: true,
+      isCI: true,
+      isCodex: false,
+      isGitHubActions: true,
+      retries: 2,
+      workers: 2,
+    };
+
+    logEnvironmentConfig('Desktop', cfg, undefined, [
+      '--project=regression',
+      '--workers=2',
+      '--retries=0',
+      '--max-failures=1',
+      '--global-timeout=720000',
+      '--shard=2/4',
+    ]);
+
+    const output = String(stdoutSpy.mock.calls[0]?.[0]);
+    expect(output).toContain('source=base-config');
+    expect(output).toContain('baseWorkers=2');
+    expect(output).toContain('baseGlobalTimeout=0');
+    expect(output).toContain('baseRetries=2');
+    expect(output).not.toContain(' workers=2');
+    expect(output).not.toContain(' globalTimeout=0');
+    expect(output).not.toContain(' retries=2');
+    expect(output).toContain(
+      'cliOverrides=project=regression,workers=2,retries=0,maxFailures=1,globalTimeout=720000,shard=2/4'
+    );
+    expect(output).toContain('effectiveConfig=base-plus-playwright-cli-overrides');
+    stdoutSpy.mockRestore();
+  });
+
+  it('logs base config as the effective config when there are no Playwright CLI overrides', () => {
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    stdoutSpy.mockClear();
+    const cfg = {
+      fullyParallel: false,
+      globalTimeout: 0,
+      headless: true,
+      isCI: true,
+      isCodex: false,
+      isGitHubActions: true,
+      retries: 2,
+      workers: 2,
+    };
+
+    logEnvironmentConfig('Desktop', cfg, undefined, ['apps/desktop/e2e/example.test.ts']);
+
+    const output = String(stdoutSpy.mock.calls[0]?.[0]);
+    expect(output).toContain('cliOverrides=none');
+    expect(output).toContain('effectiveConfig=base-config');
+    stdoutSpy.mockRestore();
   });
 
   it('removes NO_COLOR when FORCE_COLOR is set', () => {
