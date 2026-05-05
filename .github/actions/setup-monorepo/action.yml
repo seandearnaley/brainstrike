@@ -29,6 +29,7 @@ runs:
       run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
     - name: Cache pnpm store
+      id: pnpm-store-cache
       uses: actions/cache@v5
       with:
         path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
@@ -37,12 +38,27 @@ runs:
           ${{ runner.os }}-pnpm-store-v2-
 
     - name: Cache Turborepo
+      id: turbo-cache
       uses: actions/cache@v5
       with:
         path: .turbo
         key: ${{ runner.os }}-node22-turbo-v4-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
         restore-keys: |
           ${{ runner.os }}-node22-turbo-v4-
+
+    - name: Report setup cache status
+      shell: bash
+      env:
+        PNPM_CACHE_HIT: ${{ steps.pnpm-store-cache.outputs.cache-hit }}
+        TURBO_CACHE_HIT: ${{ steps.turbo-cache.outputs.cache-hit }}
+      run: |
+        {
+          echo "## Setup cache status"
+          echo "| Cache | Hit |"
+          echo "|-------|-----|"
+          echo "| pnpm store | ${PNPM_CACHE_HIT:-false} |"
+          echo "| Turborepo | ${TURBO_CACHE_HIT:-false} |"
+        } >> "$GITHUB_STEP_SUMMARY"
 
     - name: Install dependencies
       shell: bash
