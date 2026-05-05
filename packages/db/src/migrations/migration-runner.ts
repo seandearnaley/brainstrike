@@ -1,10 +1,13 @@
 import { createLogger } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 
+export type MigrationTransactionalDb = Pick<PGlite, 'exec' | 'query'>;
+export type MigrationCallback = (db: MigrationTransactionalDb) => Promise<void>;
+
 export interface Migration {
-  down?: string | ((db: PGlite) => Promise<void>);
+  down?: string | MigrationCallback;
   name: string;
-  up: string | ((db: PGlite) => Promise<void>);
+  up: string | MigrationCallback;
   version: number;
 }
 
@@ -15,7 +18,7 @@ export class MigrationRunner {
   constructor(private readonly db: PGlite) {}
 
   private static isTransactionalDb(db: PGlite): db is PGlite & {
-    transaction: (fn: (tx: Pick<PGlite, 'exec' | 'query'>) => Promise<void>) => Promise<void>;
+    transaction: (fn: (tx: MigrationTransactionalDb) => Promise<void>) => Promise<void>;
   } {
     // Narrow the type by checking the transaction function at runtime
     return typeof (db as unknown as { transaction?: unknown }).transaction === 'function';
@@ -76,7 +79,7 @@ export class MigrationRunner {
    */
   async runMigration(migration: Migration): Promise<void> {
     const hasTx = MigrationRunner.isTransactionalDb(this.db);
-    const execWith = async (dbi: Pick<PGlite, 'exec' | 'query'>) => {
+    const execWith = async (dbi: MigrationTransactionalDb) => {
       const appliedResult = await dbi.query<{ count: number }>(
         `SELECT COUNT(*) as count FROM ${MigrationRunner.MIGRATION_TABLE} WHERE version = $1`,
         [migration.version]
@@ -91,7 +94,7 @@ export class MigrationRunner {
         await dbi.exec(migration.up);
       } else {
         // Run function-style migration against the transactional interface
-        await migration.up(dbi as unknown as PGlite);
+        await migration.up(dbi);
       }
       const checksum = this.calculateChecksum(
         typeof migration.up === 'string' ? migration.up : migration.name
@@ -103,7 +106,7 @@ export class MigrationRunner {
     };
 
     if (hasTx) {
-      await this.db.transaction(async (tx: Pick<PGlite, 'exec' | 'query'>) => {
+      await this.db.transaction(async (tx: MigrationTransactionalDb) => {
         try {
           await execWith(tx);
         } catch (error) {
@@ -173,7 +176,7 @@ export class MigrationRunner {
 
     const hasTx = MigrationRunner.isTransactionalDb(this.db);
     const downMigration = migration.down;
-    const execWith = async (dbi: Pick<PGlite, 'exec' | 'query'>) => {
+    const execWith = async (dbi: MigrationTransactionalDb) => {
       const appliedResult = await dbi.query<{ count: number }>(
         `SELECT COUNT(*) as count FROM ${MigrationRunner.MIGRATION_TABLE} WHERE version = $1`,
         [migration.version]
@@ -189,7 +192,7 @@ export class MigrationRunner {
       if (typeof downMigration === 'string') {
         await dbi.exec(downMigration);
       } else {
-        await downMigration(dbi as unknown as PGlite);
+        await downMigration(dbi);
       }
       await dbi.query(`DELETE FROM ${MigrationRunner.MIGRATION_TABLE} WHERE version = $1`, [
         migration.version,
@@ -197,7 +200,7 @@ export class MigrationRunner {
     };
 
     if (hasTx) {
-      await this.db.transaction(async (tx: Pick<PGlite, 'exec' | 'query'>) => {
+      await this.db.transaction(async (tx: MigrationTransactionalDb) => {
         try {
           await execWith(tx);
         } catch (error) {

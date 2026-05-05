@@ -13,17 +13,19 @@ import type { EmbeddingSetUpdatedEventDetail } from './embedding-set-events';
  */
 export interface CollectionRow {
   category: string | null;
-  chunkCount: string | number;
+  chunkCount: null | string | number;
   createdAt: string;
   description: string | null;
   dimensions: number;
   distance: string;
-  embeddingCount: string | number;
-  fileCount: string | number;
+  embeddingCount: null | string | number;
+  fileCount: null | string | number;
   id: string;
   modelId: string;
   modelKey: string;
   name: string | null;
+  statsAvailable?: boolean | string;
+  statsLastRefreshedAt?: string | null;
   tags: string | null;
 }
 
@@ -51,6 +53,8 @@ export interface CollectionWithDocCount {
   modelId: string;
   modelKey: string;
   name: string | null;
+  statsAvailable?: boolean;
+  statsLastRefreshedAt?: string | null;
   tags: string | null;
 }
 
@@ -59,19 +63,6 @@ export interface CollectionWithDocCount {
  * Uses LEFT JOIN to include collections with zero files.
  */
 const COLLECTIONS_QUERY = `
-    WITH file_counts AS (
-      SELECT embedding_set_id, COUNT(*)::int AS file_count
-        FROM file_records
-       GROUP BY embedding_set_id
-    ),
-    chunk_counts AS (
-      SELECT
-        embedding_set_id,
-        COUNT(*)::int AS chunk_count,
-        COUNT(*) FILTER (WHERE embedding IS NOT NULL)::int AS embedding_count
-      FROM file_chunks
-      GROUP BY embedding_set_id
-    )
     SELECT
       s.id,
       s.model_key AS "modelKey",
@@ -83,12 +74,13 @@ const COLLECTIONS_QUERY = `
       s.description,
       s.tags,
       s.category,
-      COALESCE(f.file_count, 0) AS "fileCount",
-      COALESCE(c.chunk_count, 0) AS "chunkCount",
-      COALESCE(c.embedding_count, 0) AS "embeddingCount"
+      stats.file_count AS "fileCount",
+      stats.chunk_count AS "chunkCount",
+      stats.embedded_chunk_count AS "embeddingCount",
+      stats.last_refreshed_at AS "statsLastRefreshedAt",
+      stats.embedding_set_id IS NOT NULL AS "statsAvailable"
     FROM embedding_sets s
-    LEFT JOIN file_counts f ON f.embedding_set_id = s.id
-    LEFT JOIN chunk_counts c ON c.embedding_set_id = s.id
+    LEFT JOIN collection_indexing_stats stats ON stats.embedding_set_id = s.id
     ORDER BY s.created_at DESC, s.id DESC
   `.trim();
 
@@ -237,6 +229,11 @@ function normalizeCollectionRows(rows: CollectionRow[]): CollectionWithDocCount[
     fileCount: Number(row.fileCount ?? 0),
     chunkCount: Number(row.chunkCount ?? 0),
     embeddingCount: Number(row.embeddingCount ?? 0),
+    statsAvailable:
+      row.statsAvailable === undefined
+        ? true
+        : row.statsAvailable === true || row.statsAvailable === 'true',
+    statsLastRefreshedAt: row.statsLastRefreshedAt ?? null,
   }));
 }
 
@@ -317,6 +314,10 @@ function areCollectionsEqual(
   for (let index = 0; index < left.length; index += 1) {
     const leftCollection = left[index];
     const rightCollection = right[index];
+    const leftStatsAvailable = leftCollection?.statsAvailable ?? true;
+    const rightStatsAvailable = rightCollection?.statsAvailable ?? true;
+    const leftStatsLastRefreshedAt = leftCollection?.statsLastRefreshedAt ?? null;
+    const rightStatsLastRefreshedAt = rightCollection?.statsLastRefreshedAt ?? null;
     if (
       !(leftCollection && rightCollection) ||
       leftCollection.id !== rightCollection.id ||
@@ -331,7 +332,9 @@ function areCollectionsEqual(
       leftCollection.category !== rightCollection.category ||
       leftCollection.fileCount !== rightCollection.fileCount ||
       leftCollection.chunkCount !== rightCollection.chunkCount ||
-      leftCollection.embeddingCount !== rightCollection.embeddingCount
+      leftCollection.embeddingCount !== rightCollection.embeddingCount ||
+      leftStatsAvailable !== rightStatsAvailable ||
+      leftStatsLastRefreshedAt !== rightStatsLastRefreshedAt
     ) {
       return false;
     }
@@ -341,7 +344,6 @@ function areCollectionsEqual(
 
 export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null | undefined) {
   const isImporting = useVectorStatusUIStore((s) => s.isImporting);
-  const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
   const schemaVerified = useVectorStatusUIStore((s) => s.schemaVerified);
   // Use Zustand store for caching - persists across component unmounts during bulk operations
   const cachedCollections = useVectorStatusUIStore((s) => s.cachedCollections);
@@ -355,11 +357,10 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
   // 1. Database is available
   // 2. Schema has been verified (migrations completed, tables exist)
   // 3. Not currently importing files
-  // 4. Not currently embedding/backfilling
   //
-  // The collection selector keeps a cached snapshot in Zustand, so we can pause
-  // live query invalidation during heavy background work without blanking the UI.
-  const liveQueryEnabled = Boolean(db) && schemaVerified && !isImporting && !isEmbeddingActive;
+  // Background embedding must not detach foreground collection updates: the
+  // collection selector is the user's navigation surface while indexing runs.
+  const liveQueryEnabled = Boolean(db) && schemaVerified && !isImporting;
   // Track loading/error state for initial fetch
   interface FetchState {
     error: Error | null;
@@ -396,6 +397,8 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
   } = usePGliteLiveQuery<CollectionRow>({
     cacheKey: makeLiveQueryKey('collections'),
     query: COLLECTIONS_QUERY,
+    mode: 'incremental',
+    key: 'id',
     enabled: liveQueryEnabled,
   });
 
@@ -603,6 +606,9 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
  */
 export function formatCollectionLabel(collection: CollectionWithDocCount): string {
   const name = collection.name || collection.modelId;
+  if (collection.statsAvailable === false) {
+    return `${name} (stats pending)`;
+  }
   const fileCount = collection.fileCount;
   const filesLabel = fileCount === 1 ? 'file' : 'files';
   const filesPart = `${fileCount.toLocaleString()} ${filesLabel}`;

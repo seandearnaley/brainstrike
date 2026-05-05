@@ -113,6 +113,10 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/file-explorer-ui/styles.css'),
       },
       {
+        find: '@brainstrike/vector-management/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/vector-management/styles.css'),
+      },
+      {
         find: '@brainstrike/ui/styles.css',
         replacement: path.resolve(__dirname, '../../packages/ui/styles.css'),
       },
@@ -358,6 +362,9 @@ export default defineConfig({
     // both apps, so desktop must not share the web port neighborhood.
     port: DESKTOP_DEV_RENDERER_PORT,
     strictPort: true,
+    warmup: {
+      clientFiles: ['./src/renderer/main.tsx'],
+    },
     headers: {
       'Content-Security-Policy': getDevCSP(),
     },

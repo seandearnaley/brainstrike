@@ -7,10 +7,7 @@ import ContextExplorerPageContent from '../context-explorer-page-content';
 vi.mock('@brainstrike/file-explorer-ui', () => ({
   __esModule: true,
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
-  FileExplorerMiddlePanel: () => <div data-testid="file-explorer-middle-panel">Middle Panel</div>,
-  FileExplorerMiddlePanelTabbed: () => (
-    <div data-testid="file-explorer-middle-panel-tabbed">Tabbed Middle Panel</div>
-  ),
+  WorkspaceTabHost: () => <div data-testid="workspace-tab-host">Workspace Tab Host</div>,
 }));
 
 // Mock the adapters
@@ -42,14 +39,13 @@ vi.mock('@brainstrike/storage', () => ({
 }));
 
 describe('ContextExplorerPageContent', () => {
-  it('renders the FileExplorerMiddlePanelTabbed component', () => {
+  it('renders the WorkspaceTabHost', () => {
     const { getByTestId } = render(
       <HelmetProvider>
         <ContextExplorerPageContent />
       </HelmetProvider>
     );
 
-    // Check if the FileExplorerMiddlePanelTabbed is present
-    expect(getByTestId('file-explorer-middle-panel-tabbed')).toBeInTheDocument();
+    expect(getByTestId('workspace-tab-host')).toBeInTheDocument();
   });
 });

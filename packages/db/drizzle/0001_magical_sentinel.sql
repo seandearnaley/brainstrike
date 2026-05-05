@@ -8,8 +8,8 @@ CREATE TABLE "file_token_cache" (
 	"token_count" integer NOT NULL,
 	"counting_mode" text NOT NULL,
 	"model_encoding" text,
-	"created_at" text DEFAULT 'CURRENT_TIMESTAMP' NOT NULL,
-	"updated_at" text DEFAULT 'CURRENT_TIMESTAMP' NOT NULL
+	"created_at" text DEFAULT to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') NOT NULL,
+	"updated_at" text DEFAULT to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') NOT NULL
 );
 --> statement-breakpoint
 CREATE INDEX "idx_file_token_cache_lookup" ON "file_token_cache" USING btree ("folder_id","file_path");--> statement-breakpoint

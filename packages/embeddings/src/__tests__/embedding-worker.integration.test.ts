@@ -179,6 +179,188 @@ describe('embedding-worker', () => {
     await controller.stop();
   });
 
+  it('writes embeddings to vector columns even when pg_extension detection is unavailable', async () => {
+    const now = new Date().toISOString();
+    const embeddingSetId = 'set-hidden-vector-extension';
+    const fileId = 'file-hidden-vector-extension';
+    const chunkId = 'chunk-hidden-vector-extension';
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    const compositeKey = formatProviderModelKey('local', modelKey);
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, compositeKey, modelKey, 768, 'cosine', now]
+    );
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
+      [
+        fileId,
+        'hidden-vector.ts',
+        '/hidden-vector.ts',
+        100,
+        'hello vector',
+        'hidden-vector-hash',
+        10,
+        now,
+      ]
+    );
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+      VALUES ($1,$2,0,$3,$4,10,'text',10,$5,$5)`,
+      [chunkId, fileId, 'hello vector', 'hidden-vector-hash', now]
+    );
+    await db.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+      VALUES ('job-hidden-vector-extension','embeddings','embed_chunk', $1, 'queued', $2, 0, 3, 0, $2, $2)`,
+      [
+        JSON.stringify({
+          chunkId,
+          embeddingSetId,
+          modelKey: compositeKey,
+          expectedDimension: 768,
+        }),
+        now,
+      ]
+    );
+
+    const dbWithUnavailableExtensionProbe: IDatabase = {
+      query: async <T = unknown>(sql: string, params?: unknown[]) => {
+        if (
+          /FROM\s+information_schema\.columns/i.test(sql) &&
+          /column_name\s*=\s*'embedding'/i.test(sql)
+        ) {
+          return {
+            rows: [{ data_type: 'USER-DEFINED', udt_name: 'vector' }] as T[],
+          };
+        }
+        if (/FROM\s+pg_extension/i.test(sql)) {
+          return { rows: [] as T[] };
+        }
+        return await db.query<T>(sql, params);
+      },
+    };
+
+    const controller = await startEmbeddingWorker({
+      db: dbWithUnavailableExtensionProbe,
+      concurrency: 1,
+      leaseMs: 2000,
+      modelKey,
+      service: new FakeEmbeddingService(),
+      log: () => {},
+    });
+
+    let finalState = '';
+    await waitFor(async () => {
+      const res = await db.query(
+        `SELECT state FROM job_queue WHERE id = 'job-hidden-vector-extension'`
+      );
+      const row = res.rows[0] as Record<string, unknown> | undefined;
+      finalState = String(row?.['state'] ?? '');
+      return finalState === 'succeeded' || finalState === 'failed';
+    }, 10_000);
+
+    await controller.stop();
+
+    expect(finalState).toBe('succeeded');
+    const row = await db.query<{ embedding: string | null }>(
+      'SELECT embedding::text AS embedding FROM file_chunks WHERE id = $1',
+      [chunkId]
+    );
+    expect(row.rows[0]?.embedding).toMatch(/^\[/);
+  });
+
+  it('writes embeddings to vector columns when schema probes are unavailable', async () => {
+    const now = new Date().toISOString();
+    const embeddingSetId = 'set-unavailable-vector-probes';
+    const fileId = 'file-unavailable-vector-probes';
+    const chunkId = 'chunk-unavailable-vector-probes';
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    const compositeKey = formatProviderModelKey('local', modelKey);
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, compositeKey, modelKey, 768, 'cosine', now]
+    );
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
+      [
+        fileId,
+        'unavailable-vector-probes.ts',
+        '/unavailable-vector-probes.ts',
+        100,
+        'hello vector without probes',
+        'unavailable-vector-probes-hash',
+        10,
+        now,
+      ]
+    );
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+      VALUES ($1,$2,0,$3,$4,10,'text',10,$5,$5)`,
+      [chunkId, fileId, 'hello vector without probes', 'unavailable-vector-probes-hash', now]
+    );
+    await db.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+      VALUES ('job-unavailable-vector-probes','embeddings','embed_chunk', $1, 'queued', $2, 0, 3, 0, $2, $2)`,
+      [
+        JSON.stringify({
+          chunkId,
+          embeddingSetId,
+          modelKey: compositeKey,
+          expectedDimension: 768,
+        }),
+        now,
+      ]
+    );
+
+    const dbWithUnavailableSchemaProbes: IDatabase = {
+      query: async <T = unknown>(sql: string, params?: unknown[]) => {
+        if (
+          /FROM\s+information_schema\.columns/i.test(sql) &&
+          /column_name\s*=\s*'embedding'/i.test(sql)
+        ) {
+          return { rows: [] as T[] };
+        }
+        if (/FROM\s+pg_extension/i.test(sql)) {
+          return { rows: [] as T[] };
+        }
+        return await db.query<T>(sql, params);
+      },
+    };
+
+    const controller = await startEmbeddingWorker({
+      db: dbWithUnavailableSchemaProbes,
+      concurrency: 1,
+      leaseMs: 2000,
+      modelKey,
+      service: new FakeEmbeddingService(),
+      log: () => {},
+    });
+
+    let finalState = '';
+    await waitFor(async () => {
+      const res = await db.query(
+        `SELECT state FROM job_queue WHERE id = 'job-unavailable-vector-probes'`
+      );
+      const row = res.rows[0] as Record<string, unknown> | undefined;
+      finalState = String(row?.['state'] ?? '');
+      return finalState === 'succeeded' || finalState === 'failed';
+    }, 10_000);
+
+    await controller.stop();
+
+    expect(finalState).toBe('succeeded');
+    const row = await db.query<{ embedding: string | null }>(
+      'SELECT embedding::text AS embedding FROM file_chunks WHERE id = $1',
+      [chunkId]
+    );
+    expect(row.rows[0]?.embedding).toMatch(/^\[/);
+  });
+
   it('is idempotent when embedding_hash matches (no write)', async () => {
     const now = new Date().toISOString();
     const embeddingSetId = 'set-2';

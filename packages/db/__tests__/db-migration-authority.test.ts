@@ -1,0 +1,82 @@
+import { getTableName } from 'drizzle-orm';
+import {
+  assertSingleProductionMigrationAuthority,
+  getDbMigrationAuthoritySnapshot,
+  getDrizzleProductionCompatibilityAudit,
+  getDrizzleProductionCompatibilityAuditForColumnTypes,
+  getProviderModelCatalogSchemaAudit,
+} from '../src/architecture/db-migration-authority.js';
+import migrationsManifest from '../src/drizzle/migrations.json';
+import { models, providers } from '../src/schema/index.js';
+
+describe('DB migration authority', () => {
+  it('records Drizzle as the greenfield production migration authority', () => {
+    const snapshot = getDbMigrationAuthoritySnapshot();
+
+    expect(snapshot.production.id).toBe('drizzle-migration-runner');
+    expect(snapshot.production.ledger).toBe('__drizzle_migrations');
+    expect(snapshot.nonProduction).toContainEqual({
+      allowedProductionUse: false,
+      id: 'legacy-migration-runner',
+      ledger: '_migrations',
+      status: 'schema-validation-only',
+    });
+
+    expect(() => assertSingleProductionMigrationAuthority(snapshot)).not.toThrow();
+  });
+
+  it('allows Drizzle production promotion once generated schema matches production table shapes', () => {
+    const audit = getDrizzleProductionCompatibilityAudit();
+
+    expect(audit.canPromote).toBe(true);
+    expect(audit.status).toBe('schema-compatible');
+    expect(audit.blockers).toEqual([]);
+  });
+
+  it('keeps blockers active when generated snapshot columns are missing', () => {
+    const audit = getDrizzleProductionCompatibilityAuditForColumnTypes({});
+
+    expect(audit.canPromote).toBe(false);
+    expect(audit.status).toBe('blocked-by-production-schema-drift');
+    expect(audit.blockers).toContainEqual({
+      column: 'id',
+      drizzleType: 'uuid',
+      productionType: 'text',
+      reason: 'runtime file and collection identifiers are arbitrary text, not UUIDs',
+      table: 'file_records',
+    });
+  });
+
+  it('maps the Drizzle provider/model catalog schema to the production tables', () => {
+    expect(getTableName(providers)).toBe('providers');
+    expect(getTableName(models)).toBe('models');
+
+    const audit = getProviderModelCatalogSchemaAudit();
+
+    expect(audit.productionTables).toEqual(['providers', 'models']);
+    expect(audit.drizzleSchemaTables).toEqual(['providers', 'models']);
+    expect(audit.generatedManifestFinalTables).toEqual(['providers', 'models']);
+    expect(audit.status).toBe('drizzle-schema-and-manifest-reconciled');
+  });
+
+  it('derives the generated manifest final tables from the exported Drizzle snapshot', () => {
+    expect(migrationsManifest.finalSnapshotTables).toContain('providers');
+    expect(migrationsManifest.finalSnapshotTables).toContain('models');
+    expect(migrationsManifest.finalSnapshotTables).toContain('file_tags');
+    expect(migrationsManifest.finalSnapshotTables).toContain('file_relationships');
+    expect(migrationsManifest.finalSnapshotTables).not.toContain('model_registry');
+  });
+
+  it('exports final snapshot column types in deterministic order', () => {
+    const tableNames = Object.keys(migrationsManifest.finalSnapshotColumnTypes);
+
+    expect(tableNames).toEqual([...tableNames].sort((left, right) => left.localeCompare(right)));
+
+    for (const columnTypes of Object.values(migrationsManifest.finalSnapshotColumnTypes)) {
+      const columnNames = Object.keys(columnTypes);
+      expect(columnNames).toEqual(
+        [...columnNames].sort((left, right) => left.localeCompare(right))
+      );
+    }
+  });
+});

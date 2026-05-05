@@ -462,6 +462,7 @@ export class LocalRuntimeDiscoveryService {
   private readonly now: () => number;
   private readonly logger: LocalRuntimeLogger;
   private readonly cache = new Map<LocalRuntimeId, RuntimeCacheEntry>();
+  private readonly inFlightProbes = new Map<string, Promise<LocalRuntimeAvailabilityState>>();
 
   public constructor(options: LocalRuntimeDiscoveryServiceOptions = {}) {
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
@@ -491,9 +492,15 @@ export class LocalRuntimeDiscoveryService {
   public clearCache(runtime?: LocalRuntimeId): void {
     if (runtime) {
       this.cache.delete(runtime);
+      for (const key of this.inFlightProbes.keys()) {
+        if (key.startsWith(`${runtime}\u0000`)) {
+          this.inFlightProbes.delete(key);
+        }
+      }
       return;
     }
     this.cache.clear();
+    this.inFlightProbes.clear();
   }
 
   public async probeAll(
@@ -517,6 +524,7 @@ export class LocalRuntimeDiscoveryService {
     const now = this.now();
     const cached = this.cache.get(runtime);
     const baseUrl = resolveRuntimeBaseUrl(runtime, options.endpoint?.baseUrl);
+    const surface = options.surface ?? resolveRuntimeSurface(this.defaultSurface);
 
     // Invalidate the cache when the effective baseUrl changes so a user who
     // points at a different host sees a fresh probe, not the last answer.
@@ -529,8 +537,60 @@ export class LocalRuntimeDiscoveryService {
       return cached.status;
     }
 
+    const inFlightKey = this.getInFlightProbeKey(runtime, baseUrl, surface, options);
+    if (inFlightKey) {
+      const inFlight = this.inFlightProbes.get(inFlightKey);
+      if (inFlight) {
+        return inFlight;
+      }
+    }
+
+    const probePromise = this.probeRuntimeUnshared(runtime, options, {
+      baseUrl,
+      cached,
+      now,
+      surface,
+    });
+
+    if (!inFlightKey) {
+      return probePromise;
+    }
+
+    this.inFlightProbes.set(inFlightKey, probePromise);
+    try {
+      return await probePromise;
+    } finally {
+      if (this.inFlightProbes.get(inFlightKey) === probePromise) {
+        this.inFlightProbes.delete(inFlightKey);
+      }
+    }
+  }
+
+  private getInFlightProbeKey(
+    runtime: LocalRuntimeId,
+    baseUrl: string,
+    surface: LocalRuntimeSurface,
+    options: ProbeLocalRuntimeOptions
+  ): string | null {
+    if (options.signal || options.endpoint?.apiToken) {
+      return null;
+    }
+    return `${runtime}\u0000${baseUrl}\u0000${surface}`;
+  }
+
+  private async probeRuntimeUnshared(
+    runtime: LocalRuntimeId,
+    options: ProbeLocalRuntimeOptions,
+    context: {
+      readonly baseUrl: string;
+      readonly cached: RuntimeCacheEntry | undefined;
+      readonly now: number;
+      readonly surface: LocalRuntimeSurface;
+    }
+  ): Promise<LocalRuntimeAvailabilityState> {
+    const { baseUrl, cached, now, surface } = context;
     const result = await this.executeProbe(runtime, {
-      surface: options.surface ?? resolveRuntimeSurface(this.defaultSurface),
+      surface,
       ...(options.signal ? { signal: options.signal } : {}),
       ...(options.endpoint ? { endpoint: options.endpoint } : {}),
     });
@@ -559,12 +619,15 @@ export class LocalRuntimeDiscoveryService {
       return result;
     }
 
-    // Surface every non-available result so Settings → Local Runtimes
-    // "Unavailable" is never silent. Users reported being unable to tell why
-    // a probe missed a running Ollama; this logs the exact failure shape
-    // (unavailable / auth_required / incompatible / blocked_web) with the
-    // endpoint and the underlying error message.
-    this.logger.warn('local runtime probe did not reach available state', {
+    const stale = this.toStaleState(result, previousSuccessAt, previousSuccessEndpoint);
+    const nextStatus = stale ?? result;
+    const nextFailures = consecutiveFailures + 1;
+
+    // Surface the first non-available result so Settings → Local Runtimes
+    // "Unavailable" is never silent. Demote repeated failures to debug while
+    // the backoff cache remains authoritative; unavailable local runtimes are
+    // normal when users do not run Ollama or LM Studio.
+    const probeFailurePayload = {
       runtime,
       endpoint:
         'endpoint' in result
@@ -573,11 +636,13 @@ export class LocalRuntimeDiscoveryService {
       state: result.state,
       message: 'message' in result ? result.message : undefined,
       hint: 'hint' in result ? result.hint : undefined,
-    });
-
-    const stale = this.toStaleState(result, previousSuccessAt, previousSuccessEndpoint);
-    const nextStatus = stale ?? result;
-    const nextFailures = consecutiveFailures + 1;
+      consecutiveFailures: nextFailures,
+    };
+    if (nextFailures === 1) {
+      this.logger.warn('local runtime probe did not reach available state', probeFailurePayload);
+    } else {
+      this.logger.debug('local runtime probe did not reach available state', probeFailurePayload);
+    }
     const backoffMs = Math.min(
       this.failureMaxBackoffMs,
       this.failureBaseBackoffMs * 2 ** Math.max(0, nextFailures - 1)

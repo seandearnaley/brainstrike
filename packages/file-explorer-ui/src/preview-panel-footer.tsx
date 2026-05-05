@@ -273,6 +273,7 @@ const FooterModeButtons = memo<FooterModeButtonsProps>(function FooterModeButton
     <div className="flex items-center gap-1 rounded-md border bg-background/80 p-0.5">
       <button
         aria-label="Compact summary mode"
+        aria-pressed={mode === 'compact'}
         className={`rounded px-2 py-1 font-medium text-[11px] ${mode === 'compact' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}
         onClick={() => onModeSelect('compact')}
         type="button"
@@ -281,6 +282,7 @@ const FooterModeButtons = memo<FooterModeButtonsProps>(function FooterModeButton
       </button>
       <button
         aria-label="Balanced summary mode"
+        aria-pressed={mode === 'default'}
         className={`rounded px-2 py-1 font-medium text-[11px] ${mode === 'default' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}
         onClick={() => onModeSelect('default')}
         type="button"
@@ -289,6 +291,7 @@ const FooterModeButtons = memo<FooterModeButtonsProps>(function FooterModeButton
       </button>
       <button
         aria-label="Insights summary mode"
+        aria-pressed={mode === 'expanded'}
         className={`rounded px-2 py-1 font-medium text-[11px] ${mode === 'expanded' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}
         onClick={() => onModeSelect('expanded')}
         type="button"

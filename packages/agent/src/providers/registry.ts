@@ -1,5 +1,5 @@
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
-import { GEMMA4_E2B_MODEL_ID } from './local/local-model-specs';
+import { GEMMA4_E2B_MODEL_ID } from './local/local-model-ids';
 
 export const STANDARD_EMBEDDING_DIMENSION = DEFAULT_EMBEDDING_DIMENSION;
 

@@ -23,10 +23,10 @@ test.describe('Report Folder Summary Threshold', () => {
     await mockBrowserApis(page, 'test-root', tree, { clipboard: true });
 
     await page.goto('/');
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
     await resetAppState(page);
     await page.reload();
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
   });
 
   test('should respect folderSummaryThreshold when generating context', async ({ page }) => {

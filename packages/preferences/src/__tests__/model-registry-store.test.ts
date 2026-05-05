@@ -52,6 +52,20 @@ const createMockModel = (overrides: Partial<DbModel> = {}): DbModel => ({
   ...overrides,
 });
 
+function createRowsDeferred(): {
+  promise: Promise<{ rows: [] }>;
+  resolve: () => void;
+} {
+  let resolvePromise: (value: { rows: [] }) => void = () => {};
+  const promise = new Promise<{ rows: [] }>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return {
+    promise,
+    resolve: () => resolvePromise({ rows: [] }),
+  };
+}
+
 describe('model-registry-store', () => {
   beforeEach(() => {
     __resetModelRegistryStoreForTests();
@@ -398,6 +412,73 @@ describe('model-registry-store', () => {
         [true, 'model-1']
       );
     });
+
+    it('waits for durable filesystem sync when the database exposes it', async () => {
+      const model = createMockModel({ id: 'model-1', isEnabled: false });
+      const events: string[] = [];
+      useModelRegistryStore.setState({ models: [model] });
+
+      const mockDb = {
+        query: vi.fn(async () => {
+          events.push('query');
+          return { rows: [] };
+        }),
+        syncToFs: vi.fn(async () => {
+          events.push('sync');
+        }),
+      };
+
+      await useModelRegistryStore.getState().toggleModel(mockDb as never, 'model-1', true);
+
+      expect(events).toEqual(['query', 'sync']);
+      expect(mockDb.syncToFs).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not bypass the database handle boundary to sync a raw handle', async () => {
+      const model = createMockModel({ id: 'model-1', isEnabled: false });
+      useModelRegistryStore.setState({ models: [model] });
+
+      const events: string[] = [];
+      const raw = {
+        marker: 'raw-sync-receiver',
+        syncToFs: vi.fn(async function (this: { readonly marker: string }) {
+          events.push(this.marker);
+        }),
+      };
+      const mockDb = {
+        query: vi.fn(async () => {
+          events.push('query');
+          return { rows: [] };
+        }),
+        raw,
+      };
+
+      await useModelRegistryStore.getState().toggleModel(mockDb as never, 'model-1', true);
+
+      expect(events).toEqual(['query']);
+      expect(raw.syncToFs).not.toHaveBeenCalled();
+    });
+
+    it('keeps the committed toggle state if a registry refresh races the update', async () => {
+      const model = createMockModel({ id: 'model-1', isEnabled: false });
+      useModelRegistryStore.setState({ models: [model] });
+
+      const updateFinished = createRowsDeferred();
+      const mockDb = {
+        query: vi.fn().mockReturnValue(updateFinished.promise),
+      };
+
+      const toggleFinished = useModelRegistryStore
+        .getState()
+        .toggleModel(mockDb as never, 'model-1', true);
+      expect(useModelRegistryStore.getState().models[0]?.isEnabled).toBe(true);
+
+      useModelRegistryStore.setState({ models: [{ ...model, isEnabled: false }] });
+      updateFinished.resolve();
+      await toggleFinished;
+
+      expect(useModelRegistryStore.getState().models[0]?.isEnabled).toBe(true);
+    });
   });
 
   describe('toggleProvider', () => {
@@ -428,6 +509,42 @@ describe('model-registry-store', () => {
         'UPDATE providers SET is_enabled = $1, updated_at = NOW() WHERE id = $2',
         [true, 'provider-1']
       );
+    });
+
+    it('waits for durable filesystem sync when a provider is toggled', async () => {
+      const provider = createMockProvider({ id: 'provider-1', isEnabled: false });
+      useModelRegistryStore.setState({ providers: [provider] });
+
+      const syncToFs = vi.fn().mockResolvedValue(undefined);
+      const mockDb = {
+        query: vi.fn().mockResolvedValue({ rows: [] }),
+        syncToFs,
+      };
+
+      await useModelRegistryStore.getState().toggleProvider(mockDb as never, 'provider-1', true);
+
+      expect(syncToFs).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the committed toggle state if a registry refresh races the update', async () => {
+      const provider = createMockProvider({ id: 'provider-1', isEnabled: false });
+      useModelRegistryStore.setState({ providers: [provider] });
+
+      const updateFinished = createRowsDeferred();
+      const mockDb = {
+        query: vi.fn().mockReturnValue(updateFinished.promise),
+      };
+
+      const toggleFinished = useModelRegistryStore
+        .getState()
+        .toggleProvider(mockDb as never, 'provider-1', true);
+      expect(useModelRegistryStore.getState().providers[0]?.isEnabled).toBe(true);
+
+      useModelRegistryStore.setState({ providers: [{ ...provider, isEnabled: false }] });
+      updateFinished.resolve();
+      await toggleFinished;
+
+      expect(useModelRegistryStore.getState().providers[0]?.isEnabled).toBe(true);
     });
   });
 

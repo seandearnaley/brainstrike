@@ -14,6 +14,7 @@ import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-m
 import React from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
 import { HelmetProvider } from 'react-helmet-async';
+import { WebE2ETestHooks } from './web-e2e-test-hooks';
 // Import global CSS
 import './app/globals.css';
 
@@ -34,6 +35,33 @@ declare global {
     // biome-ignore lint/style/useNamingConvention: Shared global sentinel uses double underscores for clarity
     __BRAINSTRIKE_WEB_REACT_ROOT__?: ReactRoot;
   }
+}
+
+const DEFAULT_WEB_DB_PATH = 'idb://web';
+const E2E_DB_PATH_SESSION_KEY = 'brainstrike.e2e.dbPath.v1';
+const E2E_DB_PATH_PREFIX = 'idb://web-e2e-';
+
+function createE2eDbPath(): string {
+  if (typeof window.crypto?.randomUUID !== 'function') {
+    throw new Error('Playwright web E2E database isolation requires crypto.randomUUID');
+  }
+
+  return `${E2E_DB_PATH_PREFIX}${window.crypto.randomUUID()}`;
+}
+
+function resolveWebDbPath(): string {
+  if (window.navigator.webdriver !== true) {
+    return DEFAULT_WEB_DB_PATH;
+  }
+
+  const existingPath = window.sessionStorage.getItem(E2E_DB_PATH_SESSION_KEY);
+  if (existingPath?.startsWith(E2E_DB_PATH_PREFIX)) {
+    return existingPath;
+  }
+
+  const dbPath = createE2eDbPath();
+  window.sessionStorage.setItem(E2E_DB_PATH_SESSION_KEY, dbPath);
+  return dbPath;
 }
 
 if (typeof window !== 'undefined') {
@@ -146,10 +174,13 @@ if (!existingRoot) {
   window.__BRAINSTRIKE_WEB_REACT_ROOT__ = root;
 }
 
+const webDbPath = resolveWebDbPath();
+
 root.render(
   <React.StrictMode>
     <HelmetProvider>
-      <DbProvider dbPath="idb://web">
+      <DbProvider dbPath={webDbPath}>
+        <WebE2ETestHooks dbPath={webDbPath} />
         <DbSchemaVerifier>
           <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
             <RootLayoutContent />

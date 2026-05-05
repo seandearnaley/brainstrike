@@ -61,19 +61,19 @@ describe('useIndexedChunkCount', () => {
     expect(result.current).toBe(42);
     expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        query: expect.stringContaining('COUNT(*)'),
+        query: expect.stringContaining('FROM collection_indexing_stats'),
         params: ['collection-1'],
         enabled: true,
       })
     );
   });
 
-  it('returns zero when live query has no rows', () => {
+  it('returns undefined when stats are not available yet', () => {
     mockLiveQueryState.rows = [];
 
     const { result } = renderHook(() => useIndexedChunkCount('collection-1'));
 
-    expect(result.current).toBe(0);
+    expect(result.current).toBeUndefined();
   });
 
   it('returns undefined when live query errors', () => {
@@ -120,23 +120,14 @@ describe('useIndexedChunkCount', () => {
     expect(result.current).toBe(5);
   });
 
-  it('refreshes the live query when embedding activity settles', async () => {
+  it('keeps the active collection count live while embedding is active', async () => {
     mockVectorStatusUiStore.isEmbeddingActive = true;
+    mockLiveQueryState.rows = [{ count: 7 }];
 
-    const { rerender } = renderHook(({ id }) => useIndexedChunkCount(id), {
-      initialProps: { id: 'collection-1' as string | null },
-    });
+    const { result } = renderHook(() => useIndexedChunkCount('collection-1'));
 
-    expect(mockLiveQueryState.refresh).not.toHaveBeenCalled();
-
-    mockVectorStatusUiStore.isEmbeddingActive = false;
-
-    await act(async () => {
-      rerender({ id: 'collection-1' });
-      await Promise.resolve();
-    });
-
-    expect(mockLiveQueryState.refresh).toHaveBeenCalledTimes(1);
+    expect(result.current).toBe(7);
+    expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
   });
 
   it('refreshes the active collection count when the embeddings queue drains', async () => {

@@ -8,7 +8,7 @@
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@electric-sql/pglite": "^0.4.4",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "0.45.2"
   },
   "devDependencies": {
     "@stryker-mutator/api": "^9.6.1",
@@ -60,7 +60,15 @@
     "test": "vitest run --project unit",
     "test:all": "vitest run",
     "test:browser": "vitest run --project browser",
-    "test:coverage": "pnpm -w test:coverage",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test:coverage:db:architecture": "node scripts/coverage-lanes.mjs run architecture",
+    "test:coverage:db:check-lanes": "node scripts/coverage-lanes.mjs check",
+    "test:coverage:db:chunking": "node scripts/coverage-lanes.mjs run chunking",
+    "test:coverage:db:migrations": "node scripts/coverage-lanes.mjs run migrations",
+    "test:coverage:db:queue": "node scripts/coverage-lanes.mjs run queue",
+    "test:coverage:db:repositories": "node scripts/coverage-lanes.mjs run repositories",
+    "test:coverage:db:runtime": "node scripts/coverage-lanes.mjs run runtime",
+    "test:coverage:db:search": "node scripts/coverage-lanes.mjs run search",
     "test:vector": "TEST_ENABLE_VECTOR=true vitest run vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",
     "test:vector:watch": "TEST_ENABLE_VECTOR=true vitest vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",
     "test:watch": "vitest",

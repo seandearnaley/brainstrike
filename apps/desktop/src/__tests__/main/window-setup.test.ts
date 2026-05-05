@@ -245,7 +245,7 @@ describe('window setup', () => {
     );
   });
 
-  it('desktop logging defaults renderer console output to warn', async () => {
+  it('desktop logging defaults persistent logs to info and renderer console output to warn', async () => {
     mockApp.isPackaged = false;
     isDevEnvMock.mockReturnValue(false);
     whenReadyMock.mockReturnValueOnce(new Promise(() => {}));
@@ -254,7 +254,11 @@ describe('window setup', () => {
 
     expect(createDefaultLoggingPreferencesMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        level: 'info',
         consoleLevel: 'warn',
+        file: expect.objectContaining({
+          level: 'info',
+        }),
       })
     );
   });
