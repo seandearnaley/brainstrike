@@ -38,6 +38,18 @@ function removeStoredValue(storage: Storage | undefined, key: string): void {
 function createNativeToolPreferencesStorage(): StateStorage {
   const memory = new Map<string, string>();
 
+  const shouldPersistValue = (value: string): boolean => {
+    try {
+      const parsed = JSON.parse(value) as { state?: { toolStates?: unknown } };
+      const toolStates = parsed.state?.toolStates;
+      return Boolean(
+        toolStates && typeof toolStates === 'object' && Object.keys(toolStates).length > 0
+      );
+    } catch {
+      return true;
+    }
+  };
+
   return {
     getItem: (key) => {
       const storage = readLocalStorage();
@@ -56,6 +68,11 @@ function createNativeToolPreferencesStorage(): StateStorage {
       }
     },
     setItem: (key, value) => {
+      if (!shouldPersistValue(value)) {
+        removeStoredValue(readLocalStorage(), key);
+        memory.delete(key);
+        return;
+      }
       const storage = readLocalStorage();
       if (storage) {
         try {

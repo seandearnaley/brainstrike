@@ -341,7 +341,7 @@ function createLaunchOptions(
     process.env['CI'] === 'true' && process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] !== '1';
   const baseArgs = [
     mainPath,
-    ...(launchMode === 'test-built' ? ['--test-mode'] : []),
+    '--test-mode',
     `--brainstrike-desktop-launch-mode=${launchMode}`,
     '--disable-dialogs',
     // NOTE: Do NOT specify --remote-debugging-port here.
