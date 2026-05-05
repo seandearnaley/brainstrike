@@ -6,6 +6,7 @@ const rootDir = process.cwd();
 const workflowPath = path.join(rootDir, '.github/workflows/test.yml');
 const setupMonorepoActionPath = path.join(rootDir, '.github/actions/setup-monorepo/action.yml');
 const setupDesktopE2EActionPath = path.join(rootDir, '.github/actions/setup-desktop-e2e/action.yml');
+const turboConfigPath = path.join(rootDir, 'turbo.jsonc');
 const desktopPlaywrightConfigPath = path.join(rootDir, 'apps/desktop/playwright.config.ts');
 const playwrightEnvironmentPath = path.join(rootDir, 'packages/config/src/playwright-environment.ts');
 
@@ -67,6 +68,33 @@ function extractJobHeader(source) {
 
 function escapeRegExp(source) {
   return source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function extractJsonObjectBlock(source, key) {
+  const keyIndex = source.indexOf(`"${key}"`);
+  if (keyIndex === -1) {
+    return null;
+  }
+
+  const objectStart = source.indexOf('{', keyIndex);
+  if (objectStart === -1) {
+    return null;
+  }
+
+  let depth = 0;
+  for (let index = objectStart; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === '{') {
+      depth += 1;
+    } else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(keyIndex, index + 1);
+      }
+    }
+  }
+
+  return null;
 }
 
 function requireYamlListItem(source, item, message, failures) {
@@ -872,6 +900,30 @@ export function validateSetupMonorepoContracts(source) {
   return failures;
 }
 
+export function validateTurboContracts(source) {
+  const failures = [];
+  const browserTask = extractJsonObjectBlock(source, 'test:browser');
+  if (!browserTask) {
+    failures.push('Missing Turborepo test:browser task.');
+    return failures;
+  }
+
+  requireIncludes(
+    browserTask,
+    '"PLAYWRIGHT_BROWSERS_PATH"',
+    'Turborepo test:browser task must pass PLAYWRIGHT_BROWSERS_PATH through to package scripts.',
+    failures
+  );
+  requireIncludes(
+    browserTask,
+    '"CI"',
+    'Turborepo test:browser task must pass CI through to package browser tests.',
+    failures
+  );
+
+  return failures;
+}
+
 export function validateSetupDesktopE2EContracts(source) {
   const failures = [];
   requireNotIncludes(
@@ -972,12 +1024,14 @@ export async function main() {
     source,
     setupMonorepoActionSource,
     setupDesktopE2EActionSource,
+    turboConfigSource,
     desktopPlaywrightConfigSource,
     playwrightEnvironmentSource,
   ] = await Promise.all([
     readFile(workflowPath, 'utf8'),
     readFile(setupMonorepoActionPath, 'utf8'),
     readFile(setupDesktopE2EActionPath, 'utf8'),
+    readFile(turboConfigPath, 'utf8'),
     readFile(desktopPlaywrightConfigPath, 'utf8'),
     readFile(playwrightEnvironmentPath, 'utf8'),
   ]);
@@ -985,6 +1039,7 @@ export async function main() {
     ...validateWorkflowContracts(source),
     ...validateSetupMonorepoContracts(setupMonorepoActionSource),
     ...validateSetupDesktopE2EContracts(setupDesktopE2EActionSource),
+    ...validateTurboContracts(turboConfigSource),
     ...validateDesktopE2EContracts({
       playwrightConfigSource: desktopPlaywrightConfigSource,
       playwrightEnvironmentSource,

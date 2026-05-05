@@ -4,6 +4,7 @@ import { test } from 'node:test';
 
 import {
   extractJob,
+  validateTurboContracts,
   validateDesktopE2EContracts,
   validateSetupDesktopE2EContracts,
   validateSetupMonorepoContracts,
@@ -13,6 +14,7 @@ import {
 const workflowSource = await readFile('.github/workflows/test.yml', 'utf8');
 const setupMonorepoSource = await readFile('.github/actions/setup-monorepo/action.yml', 'utf8');
 const setupDesktopE2ESource = await readFile('.github/actions/setup-desktop-e2e/action.yml', 'utf8');
+const turboConfigSource = await readFile('turbo.jsonc', 'utf8');
 
 test('extractJob returns a single workflow job block', () => {
   const e2e = extractJob(workflowSource, 'e2e');
@@ -51,6 +53,19 @@ test('setup monorepo action satisfies cache contracts', () => {
 
 test('setup desktop E2E action satisfies preprovisioned dependency setup contracts', () => {
   assert.deepEqual(validateSetupDesktopE2EContracts(setupDesktopE2ESource), []);
+});
+
+test('Turborepo task config satisfies browser test environment contracts', () => {
+  assert.deepEqual(validateTurboContracts(turboConfigSource), []);
+});
+
+test('Turborepo browser test contract fails when Playwright browser path is not passed through', () => {
+  const source = turboConfigSource.replace('"PLAYWRIGHT_BROWSERS_PATH"', '"PLAYWRIGHT_CACHE"');
+
+  assert.match(
+    validateTurboContracts(source).join('\n'),
+    /must pass PLAYWRIGHT_BROWSERS_PATH through/
+  );
 });
 
 test('setup desktop E2E contract fails when apt is added to the shard setup', () => {
