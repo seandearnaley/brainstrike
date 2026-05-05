@@ -30,27 +30,34 @@ type MutablePlaywrightCliOverrides = {
   -readonly [Key in PlaywrightCliOverrideKey]?: string;
 };
 
-const PLAYWRIGHT_CLI_OVERRIDE_FLAGS: Readonly<Record<string, PlaywrightCliOverrideKey>> = {
-  '--global-timeout': 'globalTimeout',
-  '--grep': 'grep',
-  '--grep-invert': 'grepInvert',
-  '--max-failures': 'maxFailures',
-  '--project': 'project',
-  '--retries': 'retries',
-  '--shard': 'shard',
-  '--workers': 'workers',
+const PLAYWRIGHT_CLI_OVERRIDE_FLAG_ENTRIES = [
+  ['--project', 'project'],
+  ['--workers', 'workers'],
+  ['--retries', 'retries'],
+  ['--max-failures', 'maxFailures'],
+  ['--global-timeout', 'globalTimeout'],
+  ['--shard', 'shard'],
+  ['--grep', 'grep'],
+  ['--grep-invert', 'grepInvert'],
+] as const satisfies readonly (readonly [string, PlaywrightCliOverrideKey])[];
+
+const buildPlaywrightCliOverrideFlags = (
+  entries: typeof PLAYWRIGHT_CLI_OVERRIDE_FLAG_ENTRIES
+): Readonly<Record<string, PlaywrightCliOverrideKey>> => {
+  const flags: Record<string, PlaywrightCliOverrideKey> = {};
+
+  for (const [flag, key] of entries) {
+    flags[flag] = key;
+  }
+
+  return flags;
 };
 
-const PLAYWRIGHT_CLI_OVERRIDE_LOG_ORDER: readonly PlaywrightCliOverrideKey[] = [
-  'project',
-  'workers',
-  'retries',
-  'maxFailures',
-  'globalTimeout',
-  'shard',
-  'grep',
-  'grepInvert',
-];
+const PLAYWRIGHT_CLI_OVERRIDE_FLAGS = buildPlaywrightCliOverrideFlags(
+  PLAYWRIGHT_CLI_OVERRIDE_FLAG_ENTRIES
+);
+const PLAYWRIGHT_CLI_OVERRIDE_LOG_ORDER: readonly PlaywrightCliOverrideKey[] =
+  PLAYWRIGHT_CLI_OVERRIDE_FLAG_ENTRIES.map(([, key]) => key);
 
 /**
  * Node warns when both FORCE_COLOR and NO_COLOR are set.

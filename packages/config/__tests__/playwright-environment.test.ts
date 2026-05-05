@@ -180,6 +180,23 @@ describe('playwright-environment helpers', () => {
     expect(formatPlaywrightCliOverrides({})).toBe('none');
   });
 
+  it('keeps every parsed Playwright CLI override in the formatter output', () => {
+    const overrides = parsePlaywrightCliOverrides([
+      '--project=regression',
+      '--workers=2',
+      '--retries=0',
+      '--max-failures=1',
+      '--global-timeout=720000',
+      '--shard=2/4',
+      '--grep=@desktop',
+      '--grep-invert=@destructive',
+    ]);
+
+    expect(formatPlaywrightCliOverrides(overrides)).toBe(
+      'project=regression,workers=2,retries=0,maxFailures=1,globalTimeout=720000,shard=2/4,grep=@desktop,grepInvert=@destructive'
+    );
+  });
+
   it('labels base config separately from Playwright CLI overrides in logs', () => {
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     stdoutSpy.mockClear();
