@@ -49,16 +49,19 @@ test('setup monorepo action satisfies cache contracts', () => {
   assert.deepEqual(validateSetupMonorepoContracts(setupMonorepoSource), []);
 });
 
-test('setup desktop E2E action satisfies bounded dependency setup contracts', () => {
+test('setup desktop E2E action satisfies preprovisioned dependency setup contracts', () => {
   assert.deepEqual(validateSetupDesktopE2EContracts(setupDesktopE2ESource), []);
 });
 
-test('setup desktop E2E contract fails when apt update is unbounded', () => {
-  const source = setupDesktopE2ESource.replace('timeout 120s sudo apt-get update', 'sudo apt-get update');
+test('setup desktop E2E contract fails when apt is added to the shard setup', () => {
+  const source = `${setupDesktopE2ESource}
+    - name: Install system dependencies
+      shell: bash
+      run: sudo apt-get update`;
 
   assert.match(
     validateSetupDesktopE2EContracts(source).join('\n'),
-    /apt-get update must be bounded/
+    /must not run apt-get/
   );
 });
 
@@ -74,21 +77,30 @@ test('setup desktop E2E contract fails when Playwright dependency install is unb
   );
 });
 
-test('setup desktop E2E contract fails when explicit package list is removed', () => {
-  const source = setupDesktopE2ESource.replace('DESKTOP_E2E_PACKAGES=(', 'REMOVED_PACKAGES=(');
+test('setup desktop E2E contract fails when Xvfb image verification is removed', () => {
+  const source = setupDesktopE2ESource.replace('command -v Xvfb >/dev/null', 'echo skipped');
 
   assert.match(
     validateSetupDesktopE2EContracts(source).join('\n'),
-    /must use an explicit package list/
+    /must verify Xvfb/
   );
 });
 
-test('setup desktop E2E contract fails when Chromium dependencies are removed', () => {
-  const source = setupDesktopE2ESource.replace('libasound2t64', 'removed-audio-package');
+test('setup desktop E2E contract fails when Electron is resolved outside the desktop package', () => {
+  const source = setupDesktopE2ESource.replace('cd apps/desktop', 'echo skipped');
 
   assert.match(
     validateSetupDesktopE2EContracts(source).join('\n'),
-    /must include Ubuntu 24\.04 Chromium audio dependencies/
+    /must resolve Electron from the desktop package/
+  );
+});
+
+test('setup desktop E2E contract fails when Electron ldd verification is removed', () => {
+  const source = setupDesktopE2ESource.replace('ldd "${ELECTRON_BINARY}"', 'echo skipped');
+
+  assert.match(
+    validateSetupDesktopE2EContracts(source).join('\n'),
+    /must inspect Electron shared-library dependencies/
   );
 });
 
@@ -218,6 +230,35 @@ test('workflow contract fails when desktop regression retries are reintroduced',
   assert.match(failures, /desktop regression E2E must fail fast on the first failure/);
 });
 
+test('workflow contract fails when desktop regression jobs leave the Playwright image', () => {
+  const desktopPr = extractJob(workflowSource, 'desktop-e2e-pr');
+  assert.ok(desktopPr);
+
+  const source = workflowSource.replace(
+    desktopPr,
+    desktopPr.replace('image: mcr.microsoft.com/playwright:v1.59.1-noble', 'image: ubuntu:24.04')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /desktop regression job must run in the preprovisioned Playwright Noble image/
+  );
+});
+
+test('workflow contract fails when desktop regression jobs reintroduce apt or sudo', () => {
+  const desktopPr = extractJob(workflowSource, 'desktop-e2e-pr');
+  assert.ok(desktopPr);
+
+  const source = workflowSource.replace(
+    desktopPr,
+    desktopPr.replace('echo "Starting Playwright regression tests..."', 'sudo apt-get update')
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /desktop regression job must not run apt-get/);
+  assert.match(failures, /desktop regression job must not require sudo/);
+});
+
 test('workflow contract fails when desktop regression global timeout is removed', () => {
   const desktopMain = extractJob(workflowSource, 'desktop-e2e-main');
   assert.ok(desktopMain);
@@ -292,6 +333,41 @@ test('workflow contract fails when desktop embedding retries are reintroduced', 
   const failures = validateWorkflowContracts(source).join('\n');
   assert.match(failures, /desktop embedding E2E must disable Playwright retries/);
   assert.match(failures, /desktop embedding E2E must fail fast on the first failure/);
+});
+
+test('workflow contract fails when desktop embedding jobs leave the Playwright image', () => {
+  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
+  assert.ok(desktopEmbeddingPr);
+
+  const source = workflowSource.replace(
+    desktopEmbeddingPr,
+    desktopEmbeddingPr.replace(
+      'image: mcr.microsoft.com/playwright:v1.59.1-noble',
+      'image: ubuntu:24.04'
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /desktop embedding job must run in the preprovisioned Playwright Noble image/
+  );
+});
+
+test('workflow contract fails when desktop embedding jobs reintroduce apt or sudo', () => {
+  const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
+  assert.ok(desktopEmbeddingPr);
+
+  const source = workflowSource.replace(
+    desktopEmbeddingPr,
+    desktopEmbeddingPr.replace(
+      'echo "Starting Xvfb on display ${DISPLAY} for embedding group ${{ matrix.group }}"',
+      'sudo apt-get update'
+    )
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /desktop embedding job must not run apt-get/);
+  assert.match(failures, /desktop embedding job must not require sudo/);
 });
 
 test('workflow contract fails when desktop embedding global timeout is removed', () => {

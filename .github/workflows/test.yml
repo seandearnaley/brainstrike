@@ -815,6 +815,8 @@ jobs:
     if: github.event_name == 'pull_request'
     needs: [prepare-desktop, determine-matrix]
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 20
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -848,7 +850,7 @@ jobs:
 
           # Clean up any stale X lock files for this server number
           LOCK_FILE="/tmp/.X${SERVER_NUM}-lock"
-          [ -f "$LOCK_FILE" ] && sudo rm -f "$LOCK_FILE"
+          [ -f "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
 
           # Start Xvfb in background with explicit pre-warming
           echo "Starting Xvfb on display ${DISPLAY} for shard ${{ matrix.shardIndex }}"
@@ -909,6 +911,8 @@ jobs:
     if: github.event_name == 'pull_request'
     needs: [prepare-desktop]
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -954,7 +958,7 @@ jobs:
         run: |
           export DISPLAY=":${{ matrix.display }}"
           LOCK_FILE="/tmp/.X${{ matrix.display }}-lock"
-          [ -f "$LOCK_FILE" ] && sudo rm -f "$LOCK_FILE"
+          [ -f "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
 
           echo "Starting Xvfb on display ${DISPLAY} for embedding group ${{ matrix.group }}"
           Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
@@ -1011,6 +1015,8 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: [prepare-desktop, e2e, determine-matrix] # Sequential on main - wait for web E2E
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 20
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -1044,7 +1050,7 @@ jobs:
 
           # Clean up any stale X lock files for this server number
           LOCK_FILE="/tmp/.X${SERVER_NUM}-lock"
-          [ -f "$LOCK_FILE" ] && sudo rm -f "$LOCK_FILE"
+          [ -f "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
 
           # Start Xvfb in background with explicit pre-warming
           echo "Starting Xvfb on display ${DISPLAY} for shard ${{ matrix.shardIndex }}"
@@ -1105,6 +1111,8 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: [prepare-desktop, e2e]
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 15
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -1150,7 +1158,7 @@ jobs:
         run: |
           export DISPLAY=":${{ matrix.display }}"
           LOCK_FILE="/tmp/.X${{ matrix.display }}-lock"
-          [ -f "$LOCK_FILE" ] && sudo rm -f "$LOCK_FILE"
+          [ -f "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
 
           echo "Starting Xvfb on display ${DISPLAY} for embedding group ${{ matrix.group }}"
           Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
@@ -1237,7 +1245,7 @@ jobs:
           XVFB_STDERR_LOG="/tmp/brainstrike-xvfb-stderr.log"
 
           LOCK_FILE="/tmp/.X95-lock"
-          [ -f "$LOCK_FILE" ] && sudo rm -f "$LOCK_FILE"
+          [ -f "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
 
           echo "Starting Xvfb on display ${DISPLAY} for backgrounding regression"
           Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX >"$XVFB_STDOUT_LOG" 2>"$XVFB_STDERR_LOG" &

@@ -94,6 +94,24 @@ function requireEveryTurboCommandHas(source, text, message, failures) {
 function requireDesktopEmbeddingJobContracts(source, prefix, failures) {
   requireIncludes(
     source,
+    'image: mcr.microsoft.com/playwright:v1.59.1-noble',
+    `${prefix} desktop embedding job must run in the preprovisioned Playwright Noble image.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'apt-get',
+    `${prefix} desktop embedding job must not run apt-get in the required shard path.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'sudo ',
+    `${prefix} desktop embedding job must not require sudo in the required shard path.`,
+    failures
+  );
+  requireIncludes(
+    source,
     'timeout-minutes: 15',
     `${prefix} desktop embedding job timeout must stay at 15 minutes or less.`,
     failures
@@ -140,6 +158,24 @@ function requireDesktopEmbeddingJobContracts(source, prefix, failures) {
 }
 
 function requireDesktopRegressionJobContracts(source, prefix, failures) {
+  requireIncludes(
+    source,
+    'image: mcr.microsoft.com/playwright:v1.59.1-noble',
+    `${prefix} desktop regression job must run in the preprovisioned Playwright Noble image.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'apt-get',
+    `${prefix} desktop regression job must not run apt-get in the required shard path.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'sudo ',
+    `${prefix} desktop regression job must not require sudo in the required shard path.`,
+    failures
+  );
   requireNumericMatchAtMost(
     extractJobHeader(source),
     /^    timeout-minutes:\s*(\d+)\s*$/m,
@@ -773,67 +809,55 @@ export function validateSetupDesktopE2EContracts(source) {
     'Setup desktop E2E must not run Playwright install-deps inside every desktop shard.',
     failures
   );
+  requireNotIncludes(
+    source,
+    'apt-get',
+    'Setup desktop E2E must not run apt-get inside every desktop shard.',
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'sudo ',
+    'Setup desktop E2E must not require sudo inside every desktop shard.',
+    failures
+  );
 
   const systemDepsStep = requireSingleNamedStep(
     source,
-    /Install system dependencies for Electron/,
-    'Setup desktop E2E system dependency step',
+    /Verify preprovisioned Electron runtime dependencies/,
+    'Setup desktop E2E preprovisioned dependency verification step',
     failures
   );
 
   if (systemDepsStep) {
     requireIncludes(
       systemDepsStep,
-      'timeout 120s sudo apt-get update',
-      'Setup desktop E2E apt-get update must be bounded so mirror stalls fail fast.',
+      'command -v Xvfb >/dev/null',
+      'Setup desktop E2E must verify Xvfb is already present in the CI image.',
       failures
     );
     requireIncludes(
       systemDepsStep,
-      'Acquire::Retries=2',
-      'Setup desktop E2E apt-get update must use bounded retry count.',
+      'cd apps/desktop',
+      'Setup desktop E2E must resolve Electron from the desktop package under pnpm.',
       failures
     );
     requireIncludes(
       systemDepsStep,
-      'Acquire::http::Timeout=15',
-      'Setup desktop E2E apt-get update must use a bounded HTTP timeout.',
+      'ELECTRON_BINARY="$(node -p "require(\'electron\')")"',
+      'Setup desktop E2E must resolve the installed Electron binary before runtime dependency checks.',
       failures
     );
     requireIncludes(
       systemDepsStep,
-      'APT::Update::Error-Mode=any',
-      'Setup desktop E2E apt-get update must fail when any apt source errors.',
+      'ldd "${ELECTRON_BINARY}"',
+      'Setup desktop E2E must inspect Electron shared-library dependencies without network installation.',
       failures
     );
     requireIncludes(
       systemDepsStep,
-      'DESKTOP_E2E_PACKAGES=(',
-      'Setup desktop E2E must use an explicit package list instead of Playwright install-deps.',
-      failures
-    );
-    requireIncludes(
-      systemDepsStep,
-      'libasound2t64',
-      'Setup desktop E2E package list must include Ubuntu 24.04 Chromium audio dependencies.',
-      failures
-    );
-    requireIncludes(
-      systemDepsStep,
-      'libnss3',
-      'Setup desktop E2E package list must include Chromium NSS dependencies.',
-      failures
-    );
-    requireIncludes(
-      systemDepsStep,
-      'libxkbcommon0',
-      'Setup desktop E2E package list must include Chromium keyboard dependencies.',
-      failures
-    );
-    requireIncludes(
-      systemDepsStep,
-      'timeout 180s sudo apt-get install -y --no-install-recommends "${DESKTOP_E2E_PACKAGES[@]}"',
-      'Setup desktop E2E dependency install must be bounded and avoid recommended packages.',
+      'grep -q "not found"',
+      'Setup desktop E2E must fail fast when the CI image is missing Electron runtime dependencies.',
       failures
     );
   }

@@ -1,5 +1,5 @@
 name: 'Setup Desktop E2E'
-description: 'Common setup for desktop Electron E2E tests: downloads pre-built dist, installs bounded Electron runtime deps, and builds workspace dependencies via Turbo remote cache.'
+description: 'Common setup for desktop Electron E2E tests: downloads pre-built dist, verifies preprovisioned Electron runtime deps, and builds workspace dependencies via Turbo remote cache.'
 
 runs:
   using: 'composite'
@@ -10,42 +10,20 @@ runs:
         name: desktop-dist
         path: apps/desktop/dist/
 
-    - name: Install system dependencies for Electron
+    - name: Verify preprovisioned Electron runtime dependencies
       shell: bash
       run: |
         set -euo pipefail
-        APT_OPTIONS=(
-          -o Acquire::Retries=2
-          -o Acquire::http::Timeout=15
-          -o Acquire::https::Timeout=15
-          -o APT::Update::Error-Mode=any
-        )
-        DESKTOP_E2E_PACKAGES=(
-          xvfb
-          libasound2t64
-          libatk-bridge2.0-0t64
-          libatk1.0-0t64
-          libatspi2.0-0t64
-          libcairo2
-          libcups2t64
-          libdbus-1-3
-          libdrm2
-          libgbm1
-          libglib2.0-0t64
-          libnspr4
-          libnss3
-          libpango-1.0-0
-          libx11-6
-          libxcb1
-          libxcomposite1
-          libxdamage1
-          libxext6
-          libxfixes3
-          libxkbcommon0
-          libxrandr2
-        )
-        timeout 120s sudo apt-get update "${APT_OPTIONS[@]}"
-        timeout 180s sudo apt-get install -y --no-install-recommends "${DESKTOP_E2E_PACKAGES[@]}"
+        command -v Xvfb >/dev/null
+        command -v ldd >/dev/null
+        cd apps/desktop
+        ELECTRON_BINARY="$(node -p "require('electron')")"
+        echo "Electron binary: ${ELECTRON_BINARY}"
+        ldd "${ELECTRON_BINARY}" | tee /tmp/electron-ldd.txt
+        if grep -q "not found" /tmp/electron-ldd.txt; then
+          echo "ERROR: Electron runtime dependencies are missing from the CI image." >&2
+          exit 1
+        fi
 
     - name: Build workspace dependencies (Turbo remote cache hit from prepare-desktop)
       shell: bash
