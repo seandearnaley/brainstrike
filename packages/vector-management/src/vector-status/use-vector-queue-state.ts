@@ -181,11 +181,7 @@ function isBackfillCancellationError(error: unknown): boolean {
     return false;
   }
 
-  return (
-    error.name === 'AbortError' ||
-    error.message === 'Embedding backfill was aborted.' ||
-    error.message === 'Embedding backfill was canceled.'
-  );
+  return error.name === 'AbortError';
 }
 
 function subscribeBackfillProgress(

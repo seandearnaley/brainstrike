@@ -146,6 +146,26 @@ describe('playwright-environment helpers', () => {
     });
   });
 
+  it('ignores non-override Playwright CLI arguments and flags without values', () => {
+    expect(
+      parsePlaywrightCliOverrides([
+        'apps/desktop/e2e/example.test.ts',
+        undefined as unknown as string,
+        '--unknown=1',
+        '--workers',
+        '--retries=0',
+        '--grep',
+      ])
+    ).toEqual({ retries: '0' });
+  });
+
+  it('parses grep overrides without dropping empty inline values', () => {
+    expect(parsePlaywrightCliOverrides(['--grep=@desktop', '--grep-invert='])).toEqual({
+      grep: '@desktop',
+      grepInvert: '',
+    });
+  });
+
   it('formats Playwright CLI overrides in stable CI-log order', () => {
     expect(
       formatPlaywrightCliOverrides({

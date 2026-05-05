@@ -585,7 +585,7 @@ describe('useVectorQueueState', () => {
 
   it('logs canceled backfills as cancellation instead of failure noise', async () => {
     const controller = createMockController();
-    const cancellation = new Error('Embedding backfill was canceled.');
+    const cancellation = new Error('Abort copy can change without changing semantics.');
     cancellation.name = 'AbortError';
     controller.enqueueBackfillMock.mockRejectedValueOnce(cancellation);
     const records: LogRecord[] = [];
@@ -605,7 +605,7 @@ describe('useVectorQueueState', () => {
     try {
       await act(async () => {
         await expect(result.current.backfillActiveSet()).rejects.toMatchObject({
-          message: 'Embedding backfill was canceled.',
+          message: 'Abort copy can change without changing semantics.',
           name: 'AbortError',
         });
       });

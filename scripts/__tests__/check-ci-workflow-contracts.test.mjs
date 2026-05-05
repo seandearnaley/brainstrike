@@ -5,12 +5,14 @@ import { test } from 'node:test';
 import {
   extractJob,
   validateDesktopE2EContracts,
+  validateSetupDesktopE2EContracts,
   validateSetupMonorepoContracts,
   validateWorkflowContracts,
 } from '../check-ci-workflow-contracts.mjs';
 
 const workflowSource = await readFile('.github/workflows/test.yml', 'utf8');
 const setupMonorepoSource = await readFile('.github/actions/setup-monorepo/action.yml', 'utf8');
+const setupDesktopE2ESource = await readFile('.github/actions/setup-desktop-e2e/action.yml', 'utf8');
 
 test('extractJob returns a single workflow job block', () => {
   const e2e = extractJob(workflowSource, 'e2e');
@@ -45,6 +47,31 @@ test('current workflow satisfies CI cost and E2E routing contracts', () => {
 
 test('setup monorepo action satisfies cache contracts', () => {
   assert.deepEqual(validateSetupMonorepoContracts(setupMonorepoSource), []);
+});
+
+test('setup desktop E2E action satisfies bounded dependency setup contracts', () => {
+  assert.deepEqual(validateSetupDesktopE2EContracts(setupDesktopE2ESource), []);
+});
+
+test('setup desktop E2E contract fails when apt update is unbounded', () => {
+  const source = setupDesktopE2ESource.replace('timeout 120s sudo apt-get update', 'sudo apt-get update');
+
+  assert.match(
+    validateSetupDesktopE2EContracts(source).join('\n'),
+    /apt-get update must be bounded/
+  );
+});
+
+test('setup desktop E2E contract fails when Playwright dependency install is unbounded', () => {
+  const source = setupDesktopE2ESource.replace(
+    'timeout 300s pnpm exec playwright install-deps chromium',
+    'pnpm exec playwright install-deps'
+  );
+
+  assert.match(
+    validateSetupDesktopE2EContracts(source).join('\n'),
+    /Playwright dependency install must be bounded/
+  );
 });
 
 test('workflow contract fails when Turbo commands stop using the shared cache directory', () => {

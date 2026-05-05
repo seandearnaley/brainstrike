@@ -5,6 +5,7 @@ import path from 'node:path';
 const rootDir = process.cwd();
 const workflowPath = path.join(rootDir, '.github/workflows/test.yml');
 const setupMonorepoActionPath = path.join(rootDir, '.github/actions/setup-monorepo/action.yml');
+const setupDesktopE2EActionPath = path.join(rootDir, '.github/actions/setup-desktop-e2e/action.yml');
 const desktopPlaywrightConfigPath = path.join(rootDir, 'apps/desktop/playwright.config.ts');
 const playwrightEnvironmentPath = path.join(rootDir, 'packages/config/src/playwright-environment.ts');
 
@@ -755,6 +756,67 @@ export function validateSetupMonorepoContracts(source) {
   return failures;
 }
 
+export function validateSetupDesktopE2EContracts(source) {
+  const failures = [];
+  const systemDepsStep = requireSingleNamedStep(
+    source,
+    /Install system dependencies for Electron/,
+    'Setup desktop E2E system dependency step',
+    failures
+  );
+
+  if (systemDepsStep) {
+    requireIncludes(
+      systemDepsStep,
+      'timeout 120s sudo apt-get update',
+      'Setup desktop E2E apt-get update must be bounded so mirror stalls fail fast.',
+      failures
+    );
+    requireIncludes(
+      systemDepsStep,
+      'Acquire::Retries=2',
+      'Setup desktop E2E apt-get update must use bounded retry count.',
+      failures
+    );
+    requireIncludes(
+      systemDepsStep,
+      'Acquire::http::Timeout=15',
+      'Setup desktop E2E apt-get update must use a bounded HTTP timeout.',
+      failures
+    );
+    requireIncludes(
+      systemDepsStep,
+      'APT::Update::Error-Mode=any',
+      'Setup desktop E2E apt-get update must fail when any apt source errors.',
+      failures
+    );
+    requireIncludes(
+      systemDepsStep,
+      'timeout 120s sudo apt-get install -y --no-install-recommends xvfb',
+      'Setup desktop E2E xvfb install must be bounded and avoid recommended packages.',
+      failures
+    );
+  }
+
+  const playwrightDepsStep = requireSingleNamedStep(
+    source,
+    /Install Playwright system dependencies/,
+    'Setup desktop E2E Playwright dependency step',
+    failures
+  );
+
+  if (playwrightDepsStep) {
+    requireIncludes(
+      playwrightDepsStep,
+      'timeout 300s pnpm exec playwright install-deps chromium',
+      'Setup desktop E2E Playwright dependency install must be bounded and chromium-scoped.',
+      failures
+    );
+  }
+
+  return failures;
+}
+
 export function validateDesktopE2EContracts({
   playwrightConfigSource,
   playwrightEnvironmentSource,
@@ -790,17 +852,20 @@ export async function main() {
   const [
     source,
     setupMonorepoActionSource,
+    setupDesktopE2EActionSource,
     desktopPlaywrightConfigSource,
     playwrightEnvironmentSource,
   ] = await Promise.all([
     readFile(workflowPath, 'utf8'),
     readFile(setupMonorepoActionPath, 'utf8'),
+    readFile(setupDesktopE2EActionPath, 'utf8'),
     readFile(desktopPlaywrightConfigPath, 'utf8'),
     readFile(playwrightEnvironmentPath, 'utf8'),
   ]);
   const failures = [
     ...validateWorkflowContracts(source),
     ...validateSetupMonorepoContracts(setupMonorepoActionSource),
+    ...validateSetupDesktopE2EContracts(setupDesktopE2EActionSource),
     ...validateDesktopE2EContracts({
       playwrightConfigSource: desktopPlaywrightConfigSource,
       playwrightEnvironmentSource,
