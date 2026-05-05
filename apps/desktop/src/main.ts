@@ -32,10 +32,13 @@ import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import {
+  cleanupDesktopLiveSubscriptionsForShutdown,
   getDesktopDatabaseWorkSchedulerSnapshot,
   registerIpcHandlers,
   runDesktopScheduledDatabaseWork,
+  runWithDesktopDatabaseResetBarrier,
   setBackgrounded,
+  waitForDesktopDatabaseWorkSchedulerIdle,
 } from './ipc-handlers';
 import { registerLlmHostIpcHandlers } from './ipc-llm-host';
 import { registerMcpIpcHandlers } from './ipc-mcp';
@@ -623,7 +626,12 @@ async function handleResetLocal(): Promise<{ success: boolean; message?: string 
   try {
     await resetDesktopApplicationData({
       resetDatabaseProfile: async () => {
-        await resetLocalDatabase();
+        await runWithDesktopDatabaseResetBarrier(async () => {
+          await cleanupDesktopLiveSubscriptionsForShutdown();
+          await waitForDesktopDatabaseWorkSchedulerIdle();
+          await cleanupDesktopLiveSubscriptionsForShutdown();
+          await resetLocalDatabase();
+        });
       },
       stopBackgroundRuntimes: async () => {
         await Promise.all([
@@ -710,6 +718,9 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
     const databaseFailure = await runShutdownStep('database', async () => {
       desktopDatabaseMaintenanceScheduler?.stop();
       desktopDatabaseMaintenanceScheduler = null;
+      await cleanupDesktopLiveSubscriptionsForShutdown();
+      await waitForDesktopDatabaseWorkSchedulerIdle();
+      await cleanupDesktopLiveSubscriptionsForShutdown();
       await closeDatabase();
     });
     if (databaseFailure) {
