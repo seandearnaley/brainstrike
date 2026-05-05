@@ -13,6 +13,19 @@ import type {
 } from '../types';
 import { UnifiedToolsSettings } from '../unified-tools-settings';
 
+const { usePGliteLiveQueryMock } = vi.hoisted(() => ({
+  usePGliteLiveQueryMock: vi.fn(() => ({
+    rows: [],
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+  })),
+}));
+
+vi.mock('@brainstrike/db', () => ({
+  usePGliteLiveQuery: usePGliteLiveQueryMock,
+}));
+
 // Mock child components
 vi.mock('../token-budget-summary', () => ({
   TokenBudgetSummary: () => <div data-testid="token-budget-summary">Budget Summary</div>,
@@ -267,7 +280,35 @@ describe('UnifiedToolsSettings', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    usePGliteLiveQueryMock.mockReturnValue({
+      rows: [],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
     localStorage.clear();
+  });
+
+  describe('live query configuration', () => {
+    it('passes incremental query mode and key through for keyed live tool rows', () => {
+      const operations = createMockOperations();
+      operations.toolsLiveQuery = {
+        query: 'SELECT id FROM tools ORDER BY id',
+        mode: 'incremental',
+        key: 'id',
+      };
+
+      render(<UnifiedToolsSettings operations={operations} />);
+
+      expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: 'SELECT id FROM tools ORDER BY id',
+          enabled: true,
+          mode: 'incremental',
+          key: 'id',
+        })
+      );
+    });
   });
 
   describe('loading state', () => {

@@ -1,8 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { waitForAppLoad } from './utils/layout-helpers';
+import { openAssistantWorkspace } from './utils/assistant-workspace';
 
 test.describe('Assistant local availability (web)', () => {
   test.beforeEach(async ({ page }) => {
+    const tree = {
+      'README.md': '# BrainStrike local assistant availability workspace',
+    };
+
     await page.addInitScript(() => {
       if (!('gpu' in navigator)) {
         Object.defineProperty(navigator, 'gpu', {
@@ -35,8 +39,11 @@ test.describe('Assistant local availability (web)', () => {
       });
     });
 
-    await page.goto('/');
-    await waitForAppLoad(page);
+    await openAssistantWorkspace(page, {
+      enableLocalAssistantModel: true,
+      rootName: 'assistant-local-availability',
+      tree,
+    });
   });
 
   test('enables the assistant when the built-in local model is available without hosted keys', async ({

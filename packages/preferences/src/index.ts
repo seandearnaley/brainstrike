@@ -29,6 +29,7 @@ export * from './stores/background-indexing-preferences-store';
 export * from './stores/database-status-store';
 export * from './stores/embedding-preferences-store';
 export * from './stores/import-settings-store';
+export * from './stores/indexing-activity-store';
 export * from './stores/logging-preferences-store';
 export * from './stores/model-registry-store';
 export * from './stores/native-tool-preferences-store';

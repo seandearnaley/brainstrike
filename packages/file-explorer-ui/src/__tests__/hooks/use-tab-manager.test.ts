@@ -385,7 +385,7 @@ describe('useTabManager', () => {
       const [key, val] = localStorageMock.setItem.mock.calls.pop() as [string, string];
       expect(key).toBe('tab-manager.v1');
       const parsed = JSON.parse(val) as { state: unknown; version: number };
-      expect(parsed.version).toBe(1);
+      expect(parsed.version).toBe(2);
       const state = parsed.state as {
         tabs: Array<{ id: string; path: string; compositeKey: string }>;
         activeTabId: string;

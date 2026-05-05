@@ -26,7 +26,7 @@ interface MockDb {
 
 function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
   const baseQuery: QueryMock = vi.fn(async (sql: string) => {
-    if (sql.includes('SELECT 1 FROM pg_extension')) {
+    if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
       return { rows: [{ '?column?': 1 }] };
     }
     return { rows: [] };
@@ -37,6 +37,12 @@ function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
     close: vi.fn(async () => {}),
     ...overrides,
   };
+}
+
+function hasStructuredErrorArg(record: LogRecord, error: Error): boolean {
+  return record.args.some(
+    (arg) => typeof arg === 'object' && arg !== null && 'err' in arg && arg.err === error
+  );
 }
 
 describe('DbProvider', () => {
@@ -183,8 +189,8 @@ describe('DbProvider', () => {
           (record) =>
             record.level === LogLevel.ERROR &&
             record.scope === 'DbProvider' &&
-            record.message === 'Failed to initialize database:' &&
-            record.args.includes(error)
+            record.message === 'Failed to initialize database' &&
+            hasStructuredErrorArg(record, error)
         )
       ).toBe(true);
     });

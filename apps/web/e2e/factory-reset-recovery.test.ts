@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/web-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
@@ -6,14 +7,26 @@ import { waitForAppLoad } from './utils/layout-helpers';
 
 const TOKEN_PREFERENCES_STORAGE_KEY = 'token-preferences.v1';
 
-async function openTokenCountingSettings(page: import('@playwright/test').Page): Promise<void> {
+async function openTokenCountingSettings(page: Page): Promise<void> {
   const home = new HomePage(page);
   const settings = new SettingsPage(page);
   await home.navigateToSettings();
   await settings.openCategory(/Token Counting/i, 'token-counting');
 }
 
-test.describe('Factory Reset recovery (web)', () => {
+test.describe('Factory Reset recovery (web) @destructive', () => {
+  async function confirmFactoryResetAndWaitForReload(page: Page): Promise<void> {
+    const reloadPromise = page.waitForEvent('load');
+    await Promise.all([
+      page.waitForEvent('dialog').then(async (dialog) => {
+        await dialog.accept();
+      }),
+      page.getByTestId('factory-reset-button').click(),
+    ]);
+    await reloadPromise;
+    await waitForAppLoad(page);
+  }
+
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await resetAppState(page);
@@ -63,27 +76,49 @@ test.describe('Factory Reset recovery (web)', () => {
     await expect(tokenToggle).toHaveAttribute('aria-checked', 'false');
 
     await settings.openCategory(/Factory Reset/i, 'factory-reset');
-    await Promise.all([
-      page.waitForEvent('dialog').then(async (dialog) => {
-        await dialog.accept();
-      }),
-      page.getByTestId('factory-reset-button').click(),
-    ]);
+    await page.addInitScript((storageKey: string) => {
+      const browserWindow = window as Window & {
+        __brainstrikeTokenPreferencesAtBoot?: string | null;
+      };
+      browserWindow.__brainstrikeTokenPreferencesAtBoot = window.localStorage.getItem(storageKey);
+    }, TOKEN_PREFERENCES_STORAGE_KEY);
+    await confirmFactoryResetAndWaitForReload(page);
+
     await expect
       .poll(
-        async () =>
-          page.evaluate(
-            (storageKey: string) => window.localStorage.getItem(storageKey),
-            TOKEN_PREFERENCES_STORAGE_KEY
-          ),
-        { message: 'expected factory reset to clear persisted token preferences' }
+        () =>
+          page.evaluate(() => {
+            const browserWindow = window as Window & {
+              __brainstrikeTokenPreferencesAtBoot?: string | null;
+            };
+            return browserWindow.__brainstrikeTokenPreferencesAtBoot;
+          }),
+        { message: 'expected factory reset to clear token preferences before reload boot' }
       )
       .toBeNull();
 
-    // Same-URL reloads are not guaranteed to surface a reliable framenavigated signal
-    // in Playwright here, so reload explicitly after the reset side effects land.
-    await page.reload({ waitUntil: 'load' });
-    await waitForAppLoad(page);
+    // Fresh-start storage should stay absent after reset; the UI assertions below
+    // verify the app still renders the default preference state from initial store state.
+    await expect
+      .poll(
+        async () => {
+          const raw = await page.evaluate(
+            (storageKey: string) => window.localStorage.getItem(storageKey),
+            TOKEN_PREFERENCES_STORAGE_KEY
+          );
+          if (!raw) {
+            return 'cleared';
+          }
+          const parsed = JSON.parse(raw) as { state?: { accurateCounting?: unknown } };
+          if (parsed.state?.accurateCounting === true) {
+            return 'default';
+          }
+          return parsed.state?.accurateCounting === false ? 'stale-disabled' : 'unexpected';
+        },
+        { message: 'expected factory reset to leave token preferences cleared' }
+      )
+      .toBe('cleared');
+
     await openTokenCountingSettings(page);
 
     await expect(page.getByTestId('token-counting-accurate-toggle')).toHaveAttribute(

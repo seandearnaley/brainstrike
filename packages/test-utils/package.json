@@ -70,7 +70,7 @@
     "lint": "pnpm run --dir=../.. lint",
     "mutation": "npx @stryker-mutator/core run",
     "test": "vitest run",
-    "test:coverage": "pnpm -w test:coverage",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit"
   },

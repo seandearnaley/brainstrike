@@ -9,6 +9,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { drizzle as createDrizzle, type PgliteDatabase } from 'drizzle-orm/pglite';
 
 export type DrizzleDb = PgliteDatabase;
+type PGliteCompatibleClient = Pick<PGlite, 'exec' | 'query' | 'transaction'>;
 
 /**
  * Create a Drizzle database instance from a PGlite connection.
@@ -30,25 +31,33 @@ export function drizzle(pglite: PGlite): DrizzleDb {
 }
 
 /**
- * Type guard to check if a database handle contains a raw PGlite instance
+ * Type guard to check if a database handle contains a raw PGlite-compatible execution client
  */
-export function hasPGliteRaw(db: unknown): db is { raw: PGlite } {
+export function hasPGliteRaw(db: unknown): db is { raw: PGliteCompatibleClient } {
   return (
     typeof db === 'object' &&
     db !== null &&
     'raw' in db &&
-    typeof (db as { raw: unknown }).raw === 'object' &&
-    (db as { raw: { query?: unknown } }).raw !== null &&
-    typeof (db as { raw: { query?: unknown } }).raw.query === 'function'
+    isPGliteCompatibleClient((db as { raw: unknown }).raw)
+  );
+}
+
+function isPGliteCompatibleClient(value: unknown): value is PGliteCompatibleClient {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { exec?: unknown }).exec === 'function' &&
+    typeof (value as { query?: unknown }).query === 'function' &&
+    typeof (value as { transaction?: unknown }).transaction === 'function'
   );
 }
 
 /**
- * Extract PGlite instance from a database handle if available
+ * Extract a PGlite-compatible execution client from a database handle if available
  */
-export function extractPGlite(db: unknown): PGlite | null {
+export function extractPGlite(db: unknown): PGliteCompatibleClient | null {
   if (hasPGliteRaw(db)) {
-    return db.raw as PGlite;
+    return db.raw;
   }
   return null;
 }
@@ -68,7 +77,11 @@ export function extractPGlite(db: unknown): PGlite | null {
 export function drizzleFromHandle(dbHandle: unknown): DrizzleDb | null {
   const pglite = extractPGlite(dbHandle);
   if (pglite) {
-    return drizzle(pglite);
+    // Drizzle's PGlite adapter is typed to the concrete PGlite class, while
+    // DbHandle.raw may expose a scheduled PGliteWorker-compatible client with
+    // the same query/exec/transaction execution surface. Keep this bridge
+    // explicit to DbHandle.raw so arbitrary structural objects are not accepted.
+    return drizzle(pglite as unknown as PGlite);
   }
   return null;
 }

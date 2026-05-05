@@ -3,6 +3,17 @@ import { vector } from '@electric-sql/pglite/vector';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PgliteVectorStore } from '../vector-store';
 
+function createDeferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T | PromiseLike<T>) => void;
+} {
+  let resolve: (value: T | PromiseLike<T>) => void = () => {};
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
 describe('PgliteVectorStore', () => {
   let db: PGlite;
   let store: PgliteVectorStore;
@@ -131,6 +142,72 @@ describe('PgliteVectorStore', () => {
     await expect(store.describeIndex({ indexName: 'memory_messages' })).resolves.toMatchObject({
       count: 1,
     });
+  });
+
+  it('emits compact run events from real semantic upsert and query hooks', async () => {
+    const events: string[] = [];
+    const observedStore = new PgliteVectorStore({
+      database: db,
+      eventSink: (event) => {
+        events.push(`${event.kind}:${event.label}:${event.runId}`);
+      },
+      runId: 'run-1',
+    });
+    await observedStore.createIndex({ indexName: 'memory_messages', dimension: 3 });
+    await observedStore.upsert({
+      indexName: 'memory_messages',
+      vectors: [[1, 0, 0]],
+      ids: ['message-a'],
+    });
+    await observedStore.query({
+      indexName: 'memory_messages',
+      queryVector: [1, 0, 0],
+      topK: 1,
+    });
+
+    expect(events).toEqual([
+      'memory.semantic.completed:Semantic memory indexed:run-1',
+      'memory.semantic.started:Semantic memory search started:run-1',
+      'memory.semantic.completed:Semantic memory search completed:run-1',
+    ]);
+  });
+
+  it('does not fail vector operations when run-event emission fails', async () => {
+    const observedStore = new PgliteVectorStore({
+      database: db,
+      eventSink: () => {
+        throw new Error('run event sink unavailable');
+      },
+      runId: 'run-1',
+    });
+    await observedStore.createIndex({ indexName: 'memory_messages', dimension: 3 });
+
+    await expect(
+      observedStore.upsert({
+        ids: ['message-a'],
+        indexName: 'memory_messages',
+        vectors: [[1, 0, 0]],
+      })
+    ).resolves.toEqual(['message-a']);
+  });
+
+  it('does not await slow run-event emission on vector upsert paths', async () => {
+    const releaseSink = createDeferred<void>();
+    const observedStore = new PgliteVectorStore({
+      database: db,
+      eventSink: () => releaseSink.promise,
+      runId: 'run-1',
+    });
+    await observedStore.createIndex({ indexName: 'memory_messages', dimension: 3 });
+
+    await expect(
+      observedStore.upsert({
+        ids: ['message-a'],
+        indexName: 'memory_messages',
+        vectors: [[1, 0, 0]],
+      })
+    ).resolves.toEqual(['message-a']);
+    releaseSink.resolve();
   });
 
   it('rejects non-finite vector values returned from storage', async () => {

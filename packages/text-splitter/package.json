@@ -32,7 +32,8 @@
     "dev": "tsup src/index.ts src/chunking-core.ts --format esm,cjs --out-dir dist --watch",
     "lint": "pnpm -w lint --filter @brainstrike/text-splitter",
     "test": "vitest run",
-    "type-check": "tsc --noEmit -p tsconfig.json"
+    "type-check": "tsc --noEmit -p tsconfig.json",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
   },
   "sideEffects": false,
   "turbo": {

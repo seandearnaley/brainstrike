@@ -10,12 +10,14 @@ import {
   useWorkspaceCollectionSyncStatusStore,
 } from '../stores/workspace-collection-sync-status-store';
 
-const { findAllMock } = vi.hoisted(() => ({
+const { findAllMock, getByIdMock } = vi.hoisted(() => ({
   findAllMock: vi.fn(),
+  getByIdMock: vi.fn(),
 }));
 
 const mockRepository = {
   findAll: findAllMock,
+  getById: getByIdMock,
 };
 
 vi.mock('@brainstrike/db', () => ({
@@ -41,6 +43,13 @@ describe('SearchIndexingSettingsSection', () => {
         createdAt: new Date().toISOString(),
       },
     ]);
+    getByIdMock.mockResolvedValue({
+      id: 'set-1',
+      name: 'Managed Cache',
+      modelId: 'text-embedding-3-small',
+      modelKey: 'openai::text-embedding-3-small',
+      createdAt: new Date().toISOString(),
+    });
   });
 
   it('renders the balanced policy by default and allows switching presets', async () => {
@@ -124,7 +133,32 @@ describe('SearchIndexingSettingsSection', () => {
     ).toBeNull();
   });
 
-  it('clears a stale managed collection selection when the collection list no longer contains it', async () => {
+  it('preserves the managed collection through a transient empty collection list', async () => {
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      mode: 'root-folder-cache',
+      hasHydrated: true,
+    });
+    findAllMock.mockResolvedValueOnce([]);
+    getByIdMock.mockResolvedValueOnce({
+      id: 'set-1',
+      name: 'Managed Cache',
+      modelId: 'text-embedding-3-small',
+      modelKey: 'openai::text-embedding-3-small',
+      createdAt: new Date().toISOString(),
+    });
+
+    render(<SearchIndexingSettingsSection />);
+
+    await waitFor(() => {
+      expect(getByIdMock).toHaveBeenCalledWith('set-1');
+    });
+    expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBe('set-1');
+  });
+
+  it('clears a stale managed collection selection only after repository lookup confirms it is missing', async () => {
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
       indexingPolicyPreset: 'balanced',
@@ -132,20 +166,40 @@ describe('SearchIndexingSettingsSection', () => {
       mode: 'root-folder-cache',
       hasHydrated: true,
     });
-    findAllMock.mockResolvedValueOnce([
-      {
-        id: 'set-2',
-        name: 'Replacement Collection',
-        modelId: 'text-embedding-3-small',
-        modelKey: 'openai::text-embedding-3-small',
-        createdAt: new Date().toISOString(),
-      },
-    ]);
+    findAllMock.mockResolvedValueOnce([]);
+    getByIdMock.mockResolvedValue(null);
 
     render(<SearchIndexingSettingsSection />);
 
     await waitFor(() => {
+      expect(getByIdMock).toHaveBeenCalledWith('set-stale');
       expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBeNull();
+    });
+  });
+
+  it('refreshes collection options on embedding set updates and queue drained events', async () => {
+    render(<SearchIndexingSettingsSection />);
+
+    await waitFor(() => {
+      expect(findAllMock).toHaveBeenCalledTimes(1);
+    });
+
+    window.dispatchEvent(
+      new CustomEvent('brainstrike:embedding-set-updated', {
+        detail: { id: 'set-1', reason: 'updated' },
+      })
+    );
+    await waitFor(() => {
+      expect(findAllMock).toHaveBeenCalledTimes(2);
+    });
+
+    window.dispatchEvent(
+      new CustomEvent('brainstrike:queue-drained', {
+        detail: { embeddingSetId: 'set-1', queue: 'embeddings' },
+      })
+    );
+    await waitFor(() => {
+      expect(findAllMock).toHaveBeenCalledTimes(3);
     });
   });
 });

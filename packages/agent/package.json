@@ -75,6 +75,11 @@
       "import": "./dist/memory-settings.mjs",
       "require": "./dist/memory-settings.js"
     },
+    "./run-events": {
+      "types": "./dist/run-events.d.ts",
+      "import": "./dist/run-events.mjs",
+      "require": "./dist/run-events.js"
+    },
     "./pglite-mastra-memory": {
       "types": "./dist/pglite-mastra-memory/index.d.ts",
       "import": "./dist/pglite-mastra-memory/index.mjs",
@@ -99,7 +104,7 @@
     "dev": "tsup --watch",
     "lint": "pnpm -w lint",
     "test": "vitest run",
-    "test:coverage": "pnpm -w test:coverage",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit"
   },

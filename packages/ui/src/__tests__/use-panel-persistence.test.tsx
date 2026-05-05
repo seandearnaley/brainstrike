@@ -287,7 +287,6 @@ describe('usePanelPersistence', () => {
   // This test is skipped due to timing issues with async Electron API operations and fake timers.
   // The async loading functionality is tested in integration tests and works correctly in production.
   // Mock interactions with timers create complex timing scenarios that are difficult to test reliably.
-  // biome-ignore lint/suspicious/noSkippedTests: Known flaky test with async Electron API timing - tested in integration tests
   it.skip('should load from Electron API on mount', async () => {
     const electronData = {
       sizes: [30, 40],
@@ -422,7 +421,6 @@ describe('usePanelPersistence', () => {
   // This test is skipped due to complex timing issues between async Electron API errors and fake timers.
   // The error handling functionality is tested in integration tests and works correctly in production.
   // Mock setup with debounced async operations and promise rejections creates unreliable test timing.
-  // biome-ignore lint/suspicious/noSkippedTests: Known flaky test with fake timer/async interaction - tested in integration tests
   it.skip('warns when Electron save fails', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 

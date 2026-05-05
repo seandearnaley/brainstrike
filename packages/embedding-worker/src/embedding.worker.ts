@@ -116,6 +116,36 @@ type FeatureExtractor = FeatureExtractionPipeline &
     }
   ) => Promise<unknown>);
 
+interface CatchableCleanup {
+  catch(onRejected: () => void): unknown;
+}
+
+function isCatchableCleanup(value: unknown): value is CatchableCleanup {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'catch' in value &&
+    typeof value.catch === 'function'
+  );
+}
+
+function disposeFeatureExtractorBestEffort(extractor: FeatureExtractor): void {
+  try {
+    if (typeof extractor.dispose !== 'function') {
+      return;
+    }
+
+    const cleanupResult = (extractor.dispose as () => unknown).call(extractor);
+    if (!isCatchableCleanup(cleanupResult)) {
+      return;
+    }
+
+    cleanupResult.catch(() => {});
+  } catch {
+    // Disposal must not mask the pipeline load failure that triggered cleanup.
+  }
+}
+
 interface PipelineCacheEntry {
   readonly cacheKey: string;
   /** Monotonic timestamp (via `now()`) — reserved for future diagnostics. */
@@ -549,8 +579,7 @@ function watchDeviceLoss(device: GpuDeviceHandle): void {
 async function initWebGpuDeviceGuard(): Promise<void> {
   const device = await getOrtWebGpuDevice();
   if (!device) {
-    debugLog('GPU guard could not obtain ORT WebGPU device');
-    return;
+    throw new Error('WebGPU pipeline loaded without a usable ORT WebGPU device');
   }
   debugLog('GPU guard acquired device and attached keep-alive plus loss watcher');
   startKeepAlive(device);
@@ -601,7 +630,12 @@ async function loadPipeline(
       // pipeline() returns because ONNX Runtime creates the device during session
       // creation inside pipeline().
       if (device === 'webgpu') {
-        await initWebGpuDeviceGuard();
+        try {
+          await initWebGpuDeviceGuard();
+        } catch (guardError) {
+          disposeFeatureExtractorBestEffort(result as FeatureExtractor);
+          throw guardError;
+        }
       }
 
       return result as FeatureExtractor;

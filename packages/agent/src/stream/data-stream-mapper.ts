@@ -1,7 +1,10 @@
+import { ASSISTANT_RUN_EVENT_DATA_NAME } from '../run-events';
 import type {
   StreamChunk,
   StreamChunkFinish,
   StreamChunkMessageFinish,
+  StreamChunkReasoning,
+  StreamChunkRunEvent,
   StreamChunkText,
   StreamChunkTool,
 } from '../types';
@@ -161,6 +164,12 @@ export class DataStreamMapper {
       case 'text-delta':
         yield* this.handleTextDelta(chunk);
         return;
+      case 'reasoning-delta':
+        yield* this.handleReasoningDelta(chunk);
+        return;
+      case 'run-event':
+        yield* this.handleRunEvent(chunk);
+        return;
       case 'tool-event':
         yield* this.handleToolEvent(chunk);
         return;
@@ -229,6 +238,25 @@ export class DataStreamMapper {
       yield* this.startStepIfNeeded();
     }
     yield { code: DataStreamCode.textDelta, value: delta } satisfies EncodedChunk;
+  }
+
+  private *handleReasoningDelta(chunk: StreamChunkReasoning): Generator<EncodedChunk> {
+    const delta = sanitizeDelta(chunk.value);
+    if (!delta) {
+      return;
+    }
+    yield* this.startStepIfNeeded();
+    yield { code: DataStreamCode.reasoningDelta, value: delta } satisfies EncodedChunk;
+  }
+
+  private *handleRunEvent(chunk: StreamChunkRunEvent): Generator<EncodedChunk> {
+    yield {
+      code: DataStreamCode.auiDataPart,
+      value: {
+        name: ASSISTANT_RUN_EVENT_DATA_NAME,
+        data: toJsonSafe(chunk.event),
+      },
+    } satisfies EncodedChunk;
   }
 
   private *handleToolEvent(chunk: StreamChunkTool): Generator<EncodedChunk> {

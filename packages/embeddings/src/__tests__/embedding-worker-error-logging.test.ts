@@ -196,4 +196,118 @@ describe('embedding-worker error logging', () => {
 
     await controller.stop();
   });
+
+  it('does not spam local model readiness checks after the model is initialized', async () => {
+    const now = new Date().toISOString();
+    const embeddingSetId = 'set-log-spam';
+    const fileId = 'file-log-spam';
+    const modelId = 'Xenova/all-MiniLM-L6-v2';
+    const modelKey = `local::${modelId}`;
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, modelKey, modelId, 384, 'cosine', now]
+    );
+
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
+      [fileId, 'log-spam.ts', '/log-spam.ts', 300, 'content', 'hash-log-spam', 30, now]
+    );
+
+    for (let i = 0; i < 3; i += 1) {
+      const chunkId = `chunk-log-spam-${i}`;
+      await db.query(
+        `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, 'text', 10, $7, $7)`,
+        [chunkId, fileId, i, `content ${i}`, `hash-log-spam-${i}`, 10, now]
+      );
+
+      await db.query(
+        `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+         VALUES ($1, 'embeddings', 'embed_chunk', $2, 'queued', $3, 0, 3, 0, $3, $3)`,
+        [
+          `job-log-spam-${i}`,
+          JSON.stringify({
+            chunkId,
+            embeddingSetId,
+            modelKey,
+            expectedDimension: 384,
+          }),
+          now,
+        ]
+      );
+    }
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      claimBatchSize: 1,
+      leaseMs: 1000,
+      modelKey: modelId,
+    });
+
+    await waitFor(async () => {
+      const res = await db.query<{ count: number }>(
+        `SELECT count(*) as count FROM job_queue WHERE state = 'succeeded'`
+      );
+      return Number(res.rows[0]?.count) === 3;
+    });
+
+    await controller.stop();
+
+    const readinessChecks = loggerCalls.debug.filter(
+      ([message]) => message === 'ensureLocalModel check'
+    );
+    expect(readinessChecks).toHaveLength(0);
+  });
+
+  it('reports the configured claim batch size when claim-size resolution fails', async () => {
+    const metricLogs: Record<string, unknown>[] = [];
+    let resolverCalls = 0;
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      claimBatchSize: 4,
+      leaseMs: 1000,
+      metricsIntervalMs: 5000,
+      resolveClaimBatchSize: async () => {
+        resolverCalls += 1;
+        if (resolverCalls === 1) {
+          return 2;
+        }
+        throw new Error('resolver unavailable');
+      },
+      log: (event, meta) => {
+        if (event === 'worker_metrics') {
+          metricLogs.push(meta as Record<string, unknown>);
+        }
+      },
+    });
+
+    try {
+      await waitFor(async () => resolverCalls >= 2, 10_000);
+      await waitFor(
+        async () =>
+          metricLogs.some(
+            (entry) => entry['effectiveClaimBatchSizeError'] === 'resolver unavailable'
+          ),
+        10_000
+      );
+    } finally {
+      await controller.stop();
+    }
+
+    const errorMetric = metricLogs.find(
+      (entry) => entry['effectiveClaimBatchSizeError'] === 'resolver unavailable'
+    );
+    expect(errorMetric).toMatchObject({
+      effectiveClaimBatchSize: 4,
+      effectiveClaimBatchSizeError: 'resolver unavailable',
+    });
+    expect(
+      loggerCalls.error.some(([message]) => message === 'Critical worker error in processBatch')
+    ).toBe(false);
+  });
 });

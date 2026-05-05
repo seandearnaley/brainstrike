@@ -122,6 +122,17 @@ describe('useCollections', () => {
       );
     });
 
+    it('uses incremental live query mode keyed by collection id', () => {
+      renderHook(() => useCollections(mockDb as any));
+
+      expect(usePGliteLiveQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mode: 'incremental',
+          key: 'id',
+        })
+      );
+    });
+
     it('should disable live query when schema is not verified', () => {
       mockStoreState.schemaVerified = false;
 
@@ -156,16 +167,17 @@ describe('useCollections', () => {
       );
     });
 
-    it('should disable live query during embedding generation and use cached data', () => {
+    it('keeps the collection live query attached during embedding generation', () => {
       mockStoreState.isEmbeddingActive = true;
 
-      renderHook(() => useCollections(mockDb as any));
+      const { result } = renderHook(() => useCollections(mockDb as never));
 
       expect(usePGliteLiveQuery).toHaveBeenCalledWith(
         expect.objectContaining({
-          enabled: false,
+          enabled: true,
         })
       );
+      expect(result.current.collections.at(0)?.embeddingCount).toBe(50);
     });
   });
 
@@ -314,7 +326,7 @@ describe('useCollections', () => {
       expect(mockStoreState.cachedCollections).toEqual([]);
     });
 
-    it('refreshes the live query when embedding activity settles', async () => {
+    it('does not reattach the live query when embedding activity settles', async () => {
       mockStoreState.isEmbeddingActive = true;
 
       const { rerender } = renderHook(() => useCollections(mockDb as any));
@@ -324,9 +336,7 @@ describe('useCollections', () => {
       mockStoreState.isEmbeddingActive = false;
       rerender();
 
-      await waitFor(() => {
-        expect(mockLiveQueryResult.refresh).toHaveBeenCalledTimes(1);
-      });
+      expect(mockLiveQueryResult.refresh).not.toHaveBeenCalled();
     });
 
     it('refreshes cached collections when the embeddings queue drains', async () => {
@@ -354,8 +364,8 @@ describe('useCollections', () => {
       );
     });
 
-    it('refreshes cached collections when an embedding set is created while live queries are paused', async () => {
-      mockStoreState.isEmbeddingActive = true;
+    it('refreshes cached collections when an embedding set is created while import pauses live queries', async () => {
+      mockStoreState.isImporting = true;
       mockDb.query.mockResolvedValue({
         rows: [{ ...mockCollectionRows[0], id: 'set-2', name: 'Created Collection' }],
       });
@@ -399,8 +409,8 @@ describe('useCollections', () => {
       );
     });
 
-    it('refreshes the paused collections snapshot when an embedding set update event arrives', async () => {
-      mockStoreState.isEmbeddingActive = true;
+    it('refreshes the paused collections snapshot when an embedding set update event arrives during import', async () => {
+      mockStoreState.isImporting = true;
       let resolveInitialQuery: ((value: { rows: typeof mockCollectionRows }) => void) | undefined;
       const initialQuery = new Promise<{ rows: typeof mockCollectionRows }>((resolve) => {
         resolveInitialQuery = resolve;
@@ -442,7 +452,7 @@ describe('useCollections', () => {
     });
 
     it('shows a newly created collection immediately before the refresh query resolves', async () => {
-      mockStoreState.isEmbeddingActive = true;
+      mockStoreState.isImporting = true;
       let resolveQuery: ((value: { rows: typeof mockCollectionRows }) => void) | undefined;
       const delayedQuery = new Promise<{ rows: typeof mockCollectionRows }>((resolve) => {
         resolveQuery = resolve;

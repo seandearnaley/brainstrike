@@ -5,7 +5,7 @@ export type FileTab = FileTabState;
 export interface UseTabManagerReturn {
   activeTabId: string | null;
   clearTabs: () => void;
-  closeTab: (tabId: string) => void;
+  closeTab: (tabId: string) => string | null;
   openTab: (path: string, tabId: string, compositeKey: string) => void;
   setActiveTab: (tabId: string) => void;
   setTabError: (tabId: string, error: string) => void;

@@ -11,24 +11,68 @@ describe('SearchModeBar', () => {
     onSemanticQueryChange: vi.fn(),
     onSemanticSearch: vi.fn(),
     isSearching: false,
-    isConfigExpanded: false,
-    onConfigExpandedChange: vi.fn(),
+    isSearchExpanded: false,
+    onSearchExpandedChange: vi.fn(),
     hasSearched: false,
     ...overrides,
   });
 
-  const SEARCH_PLACEHOLDER = /Ask a question... \(Cmd\+Enter\)/i;
+  const SEARCH_PLACEHOLDER = /Describe what you want to find... \(Cmd\+Enter\)/i;
 
-  it('renders semantic search input', () => {
+  it('renders a collapsed hybrid search trigger with explanatory copy', () => {
     render(<SearchModeBar {...createProps()} />);
+
+    expect(screen.getByRole('button', { name: /hybrid search/i })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
+    expect(screen.getByText(/semantic similarity with keyword matches/i)).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Hybrid search query' })).not.toBeInTheDocument();
+  });
+
+  it('pluralizes the hybrid search result count', () => {
+    const { rerender } = render(
+      <SearchModeBar {...createProps({ hasSearched: true, resultCount: 1 })} />
+    );
+
+    expect(screen.getByText('1 result')).toBeInTheDocument();
+
+    rerender(<SearchModeBar {...createProps({ hasSearched: true, resultCount: 2 })} />);
+
+    expect(screen.getByText('2 results')).toBeInTheDocument();
+  });
+
+  it('calls onSearchExpandedChange when the hybrid search trigger is clicked', () => {
+    const onSearchExpandedChange = vi.fn();
+    render(<SearchModeBar {...createProps({ onSearchExpandedChange })} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /hybrid search/i }));
+
+    expect(onSearchExpandedChange).toHaveBeenCalledWith(true);
+  });
+
+  it('renders hybrid search input when expanded', () => {
+    render(<SearchModeBar {...createProps({ isSearchExpanded: true })} />);
 
     expect(screen.getByPlaceholderText(SEARCH_PLACEHOLDER)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Query' })).toBeInTheDocument();
   });
 
+  it('renders the query input and action as a compact input button group', () => {
+    render(<SearchModeBar {...createProps({ isSearchExpanded: true, semanticQuery: 'search' })} />);
+
+    const inputGroup = screen.getByTestId('hybrid-search-input-group');
+    expect(inputGroup).toContainElement(
+      screen.getByRole('textbox', { name: 'Hybrid search query' })
+    );
+    expect(inputGroup).toContainElement(screen.getByRole('button', { name: 'Query' }));
+    expect(inputGroup).toHaveClass('flex');
+    expect(inputGroup).not.toHaveTextContent(/semantic search across embedded chunks/i);
+  });
+
   it('calls onSemanticQueryChange when typing in search input', () => {
     const onSemanticQueryChange = vi.fn();
-    render(<SearchModeBar {...createProps({ onSemanticQueryChange })} />);
+    render(<SearchModeBar {...createProps({ isSearchExpanded: true, onSemanticQueryChange })} />);
 
     const input = screen.getByPlaceholderText(SEARCH_PLACEHOLDER);
     fireEvent.change(input, { target: { value: 'test query' } });
@@ -37,20 +81,24 @@ describe('SearchModeBar', () => {
   });
 
   it('shows clear button when query is not empty', () => {
-    render(<SearchModeBar {...createProps({ semanticQuery: 'test' })} />);
+    render(<SearchModeBar {...createProps({ isSearchExpanded: true, semanticQuery: 'test' })} />);
 
     expect(screen.getByRole('button', { name: 'Clear query' })).toBeInTheDocument();
   });
 
   it('does not show clear button when query is empty', () => {
-    render(<SearchModeBar {...createProps({ semanticQuery: '' })} />);
+    render(<SearchModeBar {...createProps({ isSearchExpanded: true, semanticQuery: '' })} />);
 
     expect(screen.queryByRole('button', { name: 'Clear query' })).not.toBeInTheDocument();
   });
 
   it('clears query when clear button is clicked', () => {
     const onSemanticQueryChange = vi.fn();
-    render(<SearchModeBar {...createProps({ semanticQuery: 'test', onSemanticQueryChange })} />);
+    render(
+      <SearchModeBar
+        {...createProps({ isSearchExpanded: true, semanticQuery: 'test', onSemanticQueryChange })}
+      />
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Clear query' }));
 
@@ -65,6 +113,7 @@ describe('SearchModeBar', () => {
       <SearchModeBar
         {...createProps({
           hasSearched: true,
+          isSearchExpanded: true,
           mode: 'semantic',
           onModeChange,
           onSemanticQueryChange,
@@ -87,6 +136,7 @@ describe('SearchModeBar', () => {
       <SearchModeBar
         {...createProps({
           hasSearched: true,
+          isSearchExpanded: true,
           mode: 'semantic',
           onModeChange,
           onSemanticQueryChange,
@@ -103,13 +153,17 @@ describe('SearchModeBar', () => {
   });
 
   it('disables search button when query is empty', () => {
-    render(<SearchModeBar {...createProps({ semanticQuery: '' })} />);
+    render(<SearchModeBar {...createProps({ isSearchExpanded: true, semanticQuery: '' })} />);
 
     expect(screen.getByRole('button', { name: 'Query' })).toBeDisabled();
   });
 
   it('disables search button when searching', () => {
-    render(<SearchModeBar {...createProps({ semanticQuery: 'test', isSearching: true })} />);
+    render(
+      <SearchModeBar
+        {...createProps({ isSearchExpanded: true, semanticQuery: 'test', isSearching: true })}
+      />
+    );
 
     // Button should be disabled but text might be different (Query) or just disabled state
     expect(screen.getByRole('button', { name: 'Query' })).toBeDisabled();
@@ -117,43 +171,24 @@ describe('SearchModeBar', () => {
 
   it('calls onSemanticSearch when search button is clicked', () => {
     const onSemanticSearch = vi.fn();
-    render(<SearchModeBar {...createProps({ semanticQuery: 'test', onSemanticSearch })} />);
+    render(
+      <SearchModeBar
+        {...createProps({ isSearchExpanded: true, semanticQuery: 'test', onSemanticSearch })}
+      />
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Query' }));
 
     expect(onSemanticSearch).toHaveBeenCalled();
   });
 
-  it('shows expand/collapse buttons when handlers provided', () => {
-    const onExpandAll = vi.fn();
-    const onCollapseAll = vi.fn();
-    render(<SearchModeBar {...createProps({ onExpandAll, onCollapseAll })} />);
-
-    expect(screen.getByRole('button', { name: 'Expand all' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Collapse all' })).toBeInTheDocument();
-  });
-
-  it('calls onExpandAll when expand button is clicked', () => {
-    const onExpandAll = vi.fn();
-    render(<SearchModeBar {...createProps({ onExpandAll, onCollapseAll: vi.fn() })} />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Expand all' }));
-
-    expect(onExpandAll).toHaveBeenCalled();
-  });
-
-  it('calls onCollapseAll when collapse button is clicked', () => {
-    const onCollapseAll = vi.fn();
-    render(<SearchModeBar {...createProps({ onExpandAll: vi.fn(), onCollapseAll })} />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
-
-    expect(onCollapseAll).toHaveBeenCalled();
-  });
-
   it('triggers search on Cmd/Ctrl+Enter', () => {
     const onSemanticSearch = vi.fn();
-    render(<SearchModeBar {...createProps({ semanticQuery: 'test', onSemanticSearch })} />);
+    render(
+      <SearchModeBar
+        {...createProps({ isSearchExpanded: true, semanticQuery: 'test', onSemanticSearch })}
+      />
+    );
 
     const input = screen.getByPlaceholderText(SEARCH_PLACEHOLDER);
     fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true });
@@ -162,7 +197,7 @@ describe('SearchModeBar', () => {
   });
 
   it('blurs input on Escape key', () => {
-    render(<SearchModeBar {...createProps()} />);
+    render(<SearchModeBar {...createProps({ isSearchExpanded: true })} />);
 
     const input = screen.getByPlaceholderText(SEARCH_PLACEHOLDER);
     input.focus();
@@ -179,140 +214,32 @@ describe('SearchModeBar', () => {
     expect(wrapper).toHaveClass('custom-class');
   });
 
-  describe('single-line constraint for semantic query textarea', () => {
-    let scrollHeightSpy: ReturnType<typeof vi.spyOn>;
-
-    beforeEach(() => {
-      // Simulate content that would normally expand a multi-row textarea
-      scrollHeightSpy = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(200);
-    });
-
-    afterEach(() => {
-      scrollHeightSpy.mockRestore();
-    });
-
-    it('limits the semantic search textarea to a single row height even with large content', () => {
-      render(
-        <SearchModeBar
-          {...createProps({ semanticQuery: 'a very long query that\ncould span\nmultiple lines' })}
-        />
-      );
-
-      const textarea = screen.getByRole('textbox', { name: 'Semantic search query' });
-      // With maxRows=6 (before fix): calculatedMaxHeight = 120px → height = 120px
-      // With maxRows=1 (after fix):  calculatedMaxHeight = 36px  → height = 36px
-      const height = Number.parseInt((textarea as HTMLTextAreaElement).style.height, 10);
-      expect(height).toBeLessThanOrEqual(36);
-    });
-  });
-
-  it('shows filter toggle and settings buttons', () => {
-    render(<SearchModeBar {...createProps()} />);
-
-    expect(screen.getByRole('button', { name: 'Toggle filters' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Toggle search settings' })).toBeInTheDocument();
-  });
-
-  it('uses aria-expanded to reflect filter panel visibility', () => {
-    render(<SearchModeBar {...createProps({ isFilterVisible: true })} />);
-
-    expect(screen.getByRole('button', { name: 'Toggle filters' })).toHaveAttribute(
-      'aria-expanded',
-      'true'
-    );
-  });
-
-  it('uses aria-expanded to reflect search settings expansion', () => {
-    render(<SearchModeBar {...createProps({ isConfigExpanded: true })} />);
-
-    expect(screen.getByRole('button', { name: 'Toggle search settings' })).toHaveAttribute(
-      'aria-expanded',
-      'true'
-    );
-  });
-
-  it('defaults filter and settings toggles to aria-expanded false', () => {
-    render(<SearchModeBar {...createProps()} />);
-
-    expect(screen.getByRole('button', { name: 'Toggle filters' })).toHaveAttribute(
-      'aria-expanded',
-      'false'
-    );
-    expect(screen.getByRole('button', { name: 'Toggle search settings' })).toHaveAttribute(
-      'aria-expanded',
-      'false'
-    );
-  });
-
-  it('keeps the filter toggle unexpanded when filters are active but the panel is closed', () => {
+  it('renders advanced options inside the expanded hybrid search panel', () => {
     render(
       <SearchModeBar
         {...createProps({
-          filters: {
-            embeddingStatus: 'all',
-            nodeTypes: new Set(['collection', 'file', 'chunk']),
-            searchMatchesOnly: false,
-            searchQuery: '',
-          },
-          isFilterVisible: false,
+          advancedOptions: <div data-testid="advanced-options-slot">Advanced nested panel</div>,
+          isSearchExpanded: true,
         })}
       />
     );
 
-    const filterToggle = screen.getByRole('button', { name: 'Toggle filters (active)' });
-    expect(filterToggle).toHaveAttribute('aria-expanded', 'false');
-    expect(filterToggle).toHaveClass('bg-accent');
+    const panel = screen.getByTestId('hybrid-search-panel');
+    expect(panel).toContainElement(screen.getByTestId('advanced-options-slot'));
   });
 
-  it('renders multi-select toggle when onMultiSelectToggle is provided', () => {
-    const onMultiSelectToggle = vi.fn();
-    render(<SearchModeBar {...createProps({ onMultiSelectToggle })} />);
+  describe('single-line constraint for semantic query input', () => {
+    it('uses a fixed-height input for long natural-language queries', () => {
+      render(
+        <SearchModeBar
+          {...createProps({
+            isSearchExpanded: true,
+            semanticQuery: 'a very long query that\ncould span\nmultiple lines',
+          })}
+        />
+      );
 
-    expect(screen.getByRole('button', { name: 'Toggle multi-select' })).toBeInTheDocument();
-  });
-
-  it('does not render multi-select toggle when onMultiSelectToggle is not provided', () => {
-    render(<SearchModeBar {...createProps()} />);
-
-    expect(screen.queryByRole('button', { name: 'Toggle multi-select' })).not.toBeInTheDocument();
-  });
-
-  it('calls onMultiSelectToggle with toggled value when clicked', () => {
-    const onMultiSelectToggle = vi.fn();
-    render(<SearchModeBar {...createProps({ multiSelectEnabled: false, onMultiSelectToggle })} />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Toggle multi-select' }));
-
-    expect(onMultiSelectToggle).toHaveBeenCalledWith(true);
-  });
-
-  it('highlights multi-select toggle when enabled', () => {
-    const onMultiSelectToggle = vi.fn();
-    render(<SearchModeBar {...createProps({ multiSelectEnabled: true, onMultiSelectToggle })} />);
-
-    const toggle = screen.getByRole('button', { name: 'Toggle multi-select' });
-    expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    expect(toggle.className).toContain('bg-accent');
-  });
-
-  it('renders group-by button when onGroupByChange is provided', () => {
-    const onGroupByChange = vi.fn();
-    render(<SearchModeBar {...createProps({ onGroupByChange })} />);
-
-    expect(screen.getByRole('button', { name: 'Group by' })).toBeInTheDocument();
-  });
-
-  it('does not render group-by button when onGroupByChange is not provided', () => {
-    render(<SearchModeBar {...createProps()} />);
-
-    expect(screen.queryByRole('button', { name: 'Group by' })).not.toBeInTheDocument();
-  });
-
-  it('highlights group-by button when groupBy is active', () => {
-    const onGroupByChange = vi.fn();
-    render(<SearchModeBar {...createProps({ groupBy: 'status', onGroupByChange })} />);
-
-    const groupByBtn = screen.getByRole('button', { name: 'Group by' });
-    expect(groupByBtn.className).toContain('bg-accent');
+      expect(screen.getByRole('textbox', { name: 'Hybrid search query' })).toHaveClass('h-9');
+    });
   });
 });

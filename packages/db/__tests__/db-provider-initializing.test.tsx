@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { createPriorityDbHandle } from '../src/database-work-scheduler';
 import {
   DbProvider,
   useDbInitializing,
@@ -11,10 +12,10 @@ import {
 import * as migrations from '../src/migrations/bootstrap';
 import * as wasmLoaderModule from '../src/wasm-loader';
 
-type QueryMock = Mock<[string], Promise<{ rows: unknown[] } | undefined>>;
+type QueryMock = Mock<[string, unknown?, unknown?], Promise<{ rows: unknown[] } | undefined>>;
 interface MockDb {
   close: Mock<[], Promise<void>>;
-  exec: Mock<[string], Promise<unknown>>;
+  exec: Mock<[string, unknown?, unknown?], Promise<unknown>>;
   query: QueryMock;
   transaction?: Mock<
     [callback: (tx: { query: QueryMock }) => Promise<unknown> | unknown],
@@ -24,7 +25,7 @@ interface MockDb {
 
 function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
   const baseQuery: QueryMock = vi.fn(async (sql: string) => {
-    if (sql.includes('SELECT 1 FROM pg_extension')) {
+    if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
       return { rows: [{ '?column?': 1 }] };
     }
     return { rows: [] };
@@ -119,6 +120,37 @@ describe('DbProvider initializing state', () => {
       },
       { timeout: 10_000 }
     );
+  });
+
+  it('does not pass database work options as PGlite params for one-argument exposed queries', async () => {
+    const mockDb = createMockDb();
+    vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
+    vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as undefined);
+
+    const { result } = renderHook(
+      () => {
+        const db = usePGliteDatabase();
+        return { db };
+      },
+      { wrapper }
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.db).toBeTruthy();
+      },
+      { timeout: 10_000 }
+    );
+
+    const db = result.current.db;
+    if (!db) {
+      throw new Error('Expected database handle to be initialized.');
+    }
+
+    const backgroundDb = createPriorityDbHandle(db, 'background');
+    await backgroundDb.query('SELECT job_queue id type');
+
+    expect(mockDb.query).toHaveBeenLastCalledWith('SELECT job_queue id type', undefined);
   });
 
   it('hooks do not trigger duplicate initialization when initializing is true', async () => {

@@ -20,6 +20,7 @@ import {
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
 import { useOptionalFileTreeContext } from './file-tree-provider';
+import type { AddMultipleSelectedFilesChunked } from './hooks/recursive-selection-utils';
 import {
   type RestorationProgress,
   useExpandedPathRestoration,
@@ -78,7 +79,8 @@ interface UseFileExplorerReturn {
   expandAllProgress: { loaded: number; total: number } | null;
   /** Progressively expand all directories (loads everything) */
   expandAllProgressively: (
-    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
+    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
+    currentExpandedPaths?: ReadonlySet<string>
   ) => Promise<void>;
   fileContents: { [path: string]: string };
   /** Filtered tree currently visible in the explorer */
@@ -123,7 +125,8 @@ interface UseFileExplorerReturn {
     filteredTree: IFileNode[],
     folderId: string,
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
-    maxSelectionCount: number
+    maxSelectionCount: number,
+    addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
   ) => Promise<{
     success: boolean;
     filePaths: string[];
@@ -139,7 +142,8 @@ interface UseFileExplorerReturn {
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
     maxSelectionCount: number,
     currentSelectionSize: number,
-    currentDirectorySelectionSize?: number
+    currentDirectorySelectionSize?: number,
+    addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
   ) => Promise<{ success: boolean; filePaths: string[]; cancelled?: boolean; error?: string }>;
   /**
    * Set the access loading state.
@@ -444,6 +448,13 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
       }
       if (getRootFolderId(currentStoreState.rootDirectoryHandle)) {
         logger.debug('Skipping stale clearing - root directory handle restored before timer fired');
+        return;
+      }
+      const recoverableFolderId = currentStoreState.currentFolderId;
+      if (recoverableFolderId && currentStoreState.folderStates[recoverableFolderId]) {
+        logger.debug('Skipping stale clearing - persisted folder state can be restored', {
+          folderId: recoverableFolderId,
+        });
         return;
       }
 

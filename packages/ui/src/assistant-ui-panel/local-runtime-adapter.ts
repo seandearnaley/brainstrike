@@ -16,6 +16,13 @@ import type {
   LocalLlmToolCall,
   LocalLlmToolDefinition,
 } from '@brainstrike/agent/local-llm';
+import {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
+  type AssistantRunEvent,
+  type AssistantRunEventKind,
+  type AssistantRunEventMetadata,
+  type AssistantRunEventStatus,
+} from '@brainstrike/agent/run-events';
 import { acquireBackgroundWorkPauseReason } from '@brainstrike/utils';
 
 /**
@@ -47,7 +54,13 @@ interface AssistantToolCallContentPart {
   toolName: string;
   type: 'tool-call';
 }
+interface AssistantDataContentPart {
+  data: AssistantRunEvent;
+  name: typeof ASSISTANT_RUN_EVENT_DATA_NAME;
+  type: 'data';
+}
 type AssistantContentPart =
+  | AssistantDataContentPart
   | AssistantReasoningContentPart
   | AssistantTextContentPart
   | AssistantToolCallContentPart;
@@ -400,15 +413,41 @@ function createReadyMessage(): string {
   return 'Response complete.';
 }
 
+function createLocalRunEvent(
+  kind: AssistantRunEventKind,
+  status: AssistantRunEventStatus,
+  label: string,
+  metadata?: AssistantRunEventMetadata
+): AssistantRunEvent {
+  return {
+    id: `local-run-event-${crypto.randomUUID()}`,
+    kind,
+    label,
+    status,
+    timestamp: new Date().toISOString(),
+    ...(metadata ? { metadata } : {}),
+  };
+}
+
+function createRunEventPart(event: AssistantRunEvent): AssistantDataContentPart {
+  return {
+    type: 'data',
+    name: ASSISTANT_RUN_EVENT_DATA_NAME,
+    data: event,
+  };
+}
+
 function buildAssistantContentParts(
   reasoningText: string | undefined,
   text: string,
-  toolCallParts: AssistantToolCallContentPart[]
+  toolCallParts: AssistantToolCallContentPart[],
+  runEventParts: readonly AssistantDataContentPart[] = []
 ): AssistantContentPart[] {
   return [
     ...(reasoningText?.trim() ? [{ type: 'reasoning', text: reasoningText.trim() } as const] : []),
     ...toolCallParts,
     ...(text.trim() ? [{ type: 'text', text } as const] : []),
+    ...runEventParts,
   ];
 }
 
@@ -794,17 +833,38 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
       const releaseGenerationSlot =
         typeof generationSlot === 'function' ? generationSlot : await generationSlot;
       let preparedRuntimeData: Record<string, unknown> | undefined;
+      const runEventParts: AssistantDataContentPart[] = [];
+      const appendRunEvent = (
+        kind: AssistantRunEventKind,
+        status: AssistantRunEventStatus,
+        label: string,
+        metadata?: AssistantRunEventMetadata
+      ): void => {
+        runEventParts.push(createRunEventPart(createLocalRunEvent(kind, status, label, metadata)));
+      };
       try {
         preparedRuntimeData = prepareRuntimeData ? await prepareRuntimeData() : runtimeData;
+        appendRunEvent('run.started', 'running', 'Local assistant run started', {
+          modelId,
+          runtime: 'local',
+        });
         // Convert messages to LocalLlmMessage format
         const localMessages = convertMessages(messages);
 
         if (localMessages.length === 0) {
           yield {
-            content: [{ type: 'text', text: 'No message content to process.' }],
+            content: buildAssistantContentParts(
+              undefined,
+              'No message content to process.',
+              [],
+              runEventParts
+            ),
           };
           return;
         }
+        yield {
+          content: buildAssistantContentParts(undefined, '', [], runEventParts),
+        };
 
         const generationOptions: LocalLlmGenerationOptions = {
           maxNewTokens: 1024,
@@ -821,9 +881,27 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
           ensureDesktopHostStateSync(llmHost);
         }
         if (llmHost?.generate) {
+          appendRunEvent('run.step.started', 'running', 'Local model warmup started', {
+            modelId,
+          });
+          yield {
+            content: buildAssistantContentParts(undefined, '', [], runEventParts),
+          };
           await ensureDesktopModelWarmed(llmHost, modelId, onLoadingProgress, abortSignal);
+          appendRunEvent('run.step.finished', 'completed', 'Local model warmup completed', {
+            modelId,
+          });
+          yield {
+            content: buildAssistantContentParts(undefined, '', [], runEventParts),
+          };
         }
         if (!llmHost?.generate) {
+          appendRunEvent('run.step.started', 'running', 'Local model loading started', {
+            modelId,
+          });
+          yield {
+            content: buildAssistantContentParts(undefined, '', [], runEventParts),
+          };
           await withBackendStateLock(async () => {
             const backend = await getBackend();
             if (!backend.isReady() || currentModelId !== modelId) {
@@ -834,6 +912,12 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
               currentModelId = modelId;
             }
           });
+          appendRunEvent('run.step.finished', 'completed', 'Local model loading completed', {
+            modelId,
+          });
+          yield {
+            content: buildAssistantContentParts(undefined, '', [], runEventParts),
+          };
         }
 
         currentModelId = modelId;
@@ -842,6 +926,12 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
         let accumulatedToolParts: AssistantToolCallContentPart[] = [];
 
         for (let toolRound = 0; toolRound < maxToolRounds; toolRound += 1) {
+          appendRunEvent('run.step.started', 'running', 'Local generation started', {
+            round: toolRound + 1,
+          });
+          yield {
+            content: buildAssistantContentParts(undefined, '', accumulatedToolParts, runEventParts),
+          };
           let result: LocalLlmGenerationResult;
           let streamedReasoningText = '';
           let streamedText = '';
@@ -866,12 +956,16 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
           };
           const updateReasoningSnapshot = (reasoningText: string) => {
             streamedReasoningText = reasoningText;
-            enqueueUpdate(buildAssistantContentParts(streamedReasoningText, streamedText, []));
+            enqueueUpdate(
+              buildAssistantContentParts(streamedReasoningText, streamedText, [], runEventParts)
+            );
           };
           const updateTextSnapshot = (text: string) => {
             streamedText = text;
             deliveredStreamSnapshot = true;
-            enqueueUpdate(buildAssistantContentParts(streamedReasoningText, streamedText, []));
+            enqueueUpdate(
+              buildAssistantContentParts(streamedReasoningText, streamedText, [], runEventParts)
+            );
           };
 
           if (llmHost?.generate) {
@@ -984,7 +1078,8 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
           const finalContent = buildAssistantContentParts(
             result.reasoningText,
             result.text,
-            accumulatedToolParts
+            accumulatedToolParts,
+            runEventParts
           );
           if (!deliveredStreamSnapshot || accumulatedToolParts.length > 0) {
             yield {
@@ -993,12 +1088,24 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
           }
 
           if (!(result.toolCalls && result.toolCalls.length > 0)) {
+            appendRunEvent('run.step.finished', 'completed', 'Local generation completed', {
+              round: toolRound + 1,
+            });
+            appendRunEvent('run.finished', 'completed', 'Local assistant run completed');
             onLoadingProgress?.({
               stage: 'ready',
               progress: 100,
               message: createReadyMessage(),
             });
             await completeRuntimeData?.(preparedRuntimeData, 'completed');
+            yield {
+              content: buildAssistantContentParts(
+                result.reasoningText,
+                result.text,
+                accumulatedToolParts,
+                runEventParts
+              ),
+            };
             return;
           }
 
@@ -1013,13 +1120,25 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             progress: 0,
             message: 'Running tool...',
           });
+          appendRunEvent('tool.started', 'running', 'Local tool call started', {
+            count: result.toolCalls.length,
+            round: toolRound + 1,
+          });
           const executedTools = await executeToolCalls(result.toolCalls, preparedRuntimeData);
           accumulatedToolParts = mergeToolCallParts(accumulatedToolParts, executedTools.parts);
+          appendRunEvent('tool.completed', 'completed', 'Local tool call completed', {
+            count: executedTools.parts.length,
+            round: toolRound + 1,
+          });
+          appendRunEvent('run.step.finished', 'completed', 'Local generation step completed', {
+            round: toolRound + 1,
+          });
           yield {
             content: buildAssistantContentParts(
               result.reasoningText,
               result.text,
-              accumulatedToolParts
+              accumulatedToolParts,
+              runEventParts
             ),
           };
 
@@ -1037,6 +1156,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
 
         // Check for abort
         if (error instanceof DOMException && error.name === 'AbortError') {
+          appendRunEvent('run.cancelled', 'cancelled', 'Local assistant run cancelled');
           onLoadingProgress?.({
             stage: 'ready',
             progress: 100,
@@ -1044,21 +1164,27 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
           });
           await completeRuntimeData?.(preparedRuntimeData, 'cancelled', errorMessage);
           yield {
-            content: [{ type: 'text', text: 'Generation cancelled.' }],
+            content: buildAssistantContentParts(
+              undefined,
+              'Generation cancelled.',
+              [],
+              runEventParts
+            ),
           };
           return;
         }
 
+        appendRunEvent('run.failed', 'failed', 'Local assistant run failed');
         await completeRuntimeData?.(preparedRuntimeData, 'failed', errorMessage);
         onError?.(error instanceof Error ? error : new Error(errorMessage));
 
         yield {
-          content: [
-            {
-              type: 'text',
-              text: `Local model error: ${errorMessage}. Make sure the model is downloaded and WebGPU is available.`,
-            },
-          ],
+          content: buildAssistantContentParts(
+            undefined,
+            `Local model error: ${errorMessage}. Make sure the model is downloaded and WebGPU is available.`,
+            [],
+            runEventParts
+          ),
         };
       } finally {
         releaseGenerationSlot();

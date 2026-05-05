@@ -2,7 +2,16 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEmbeddingRuntimeController } from '../vector-status/embedding-runtime-controller';
 
-const { getRegisteredEmbeddingRuntimeConfigMock, startEmbeddingWorkerMock } = vi.hoisted(() => ({
+const {
+  backgroundDbState,
+  createPriorityDbHandleMock,
+  getRegisteredEmbeddingRuntimeConfigMock,
+  startEmbeddingWorkerMock,
+} = vi.hoisted(() => ({
+  backgroundDbState: {
+    current: { query: vi.fn(async () => ({ rows: [] })) },
+  },
+  createPriorityDbHandleMock: vi.fn(() => backgroundDbState.current),
   getRegisteredEmbeddingRuntimeConfigMock: vi.fn(),
   startEmbeddingWorkerMock: vi.fn(),
 }));
@@ -31,6 +40,10 @@ vi.mock('@brainstrike/embeddings/runtime-config', () => ({
 
 vi.mock('@brainstrike/embeddings/worker', () => ({
   startEmbeddingWorker: startEmbeddingWorkerMock,
+}));
+
+vi.mock('@brainstrike/db', () => ({
+  createPriorityDbHandle: createPriorityDbHandleMock,
 }));
 
 describe('useEmbeddingRuntimeController', () => {
@@ -283,6 +296,8 @@ describe('useEmbeddingRuntimeController', () => {
     clearDesktopHostBridge();
 
     const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const backgroundDb = { query: vi.fn(async () => ({ rows: [] })) };
+    backgroundDbState.current = backgroundDb;
     const { result } = renderHook(() =>
       useEmbeddingRuntimeController({
         db,
@@ -298,13 +313,14 @@ describe('useEmbeddingRuntimeController', () => {
 
     expect(startEmbeddingWorkerMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        db,
+        db: backgroundDb,
         device: 'wasm',
         enable: true,
         reinitEveryN: 200,
         streamingWorkerUrl: '/worker/embedding.worker.js',
       })
     );
+    expect(createPriorityDbHandleMock).toHaveBeenCalledWith(db, 'background');
   });
 
   it('fails fast when local web worker runtime config is not registered', async () => {
@@ -392,6 +408,7 @@ describe('useEmbeddingRuntimeController', () => {
       'set-1',
       expect.objectContaining({
         onProgress: expect.any(Function),
+        queueCapacityTimeoutMs: 600_000,
         signal: expect.any(AbortSignal),
       })
     );

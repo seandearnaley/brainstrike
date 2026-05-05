@@ -27,8 +27,8 @@ const DEFAULT_ARIA: TreeRowAriaAttributes = {
  * Computes ARIA sibling metadata (setSize and posInSet) for a list of sibling nodes.
  * Returns a Map from node ID to { setSize, posInSet }.
  */
-function computeSiblingAria(
-  siblings: TreeNode<unknown>[]
+function computeSiblingAria<T>(
+  siblings: TreeNode<T>[]
 ): Map<string, { setSize: number; posInSet: number }> {
   const result = new Map<string, { setSize: number; posInSet: number }>();
   const setSize = siblings.length;
@@ -128,7 +128,7 @@ export function flattenTree<T>(nodes: TreeNode<T>[], options: FlattenOptions): F
   const indexMap = new Map<string, number>();
   // flattenTree is intentionally non-recursive and only used for a single sibling level.
   // Nested trees should use flattenTreeRecursive, which computes sibling ARIA per depth.
-  const rootSiblingAria = computeSiblingAria(nodes as TreeNode<unknown>[]);
+  const rootSiblingAria = computeSiblingAria(nodes);
 
   function traverse(nodeList: TreeNode<T>[], parentExpanded: boolean): void {
     for (const node of nodeList) {
@@ -162,7 +162,7 @@ export function flattenTreeRecursive<T>(
   const indexMap = new Map<string, number>();
 
   function traverse(nodeList: TreeNode<T>[]): void {
-    const siblingAria = computeSiblingAria(nodeList as TreeNode<unknown>[]);
+    const siblingAria = computeSiblingAria(nodeList);
 
     for (const node of nodeList) {
       const row = appendRow(node, siblingAria, opts, rows, indexMap);
@@ -174,6 +174,53 @@ export function flattenTreeRecursive<T>(
   }
 
   traverse(nodes);
+  return buildResult(rows, indexMap);
+}
+
+/**
+ * Converts a caller-supplied flat list of already-visible rows into TreeTable's
+ * row model without recursively walking children or applying expansion gates.
+ *
+ * Use this when an adapter has already done tree expansion and flattening
+ * upstream, such as large file trees backed by a worker or normalized index.
+ */
+export function flattenPreFlattenedTreeRows<T>(
+  nodes: TreeNode<T>[],
+  options: FlattenOptions
+): FlattenResult<T> {
+  const opts = resolveOptions(options);
+  const rows: FlattenedRow<T>[] = [];
+  const indexMap = new Map<string, number>();
+  const siblingsByParentId = new Map<string | null, TreeNode<T>[]>();
+
+  for (const node of nodes) {
+    const siblings = siblingsByParentId.get(node.parentId);
+    if (siblings) {
+      siblings.push(node);
+      continue;
+    }
+    siblingsByParentId.set(node.parentId, [node]);
+  }
+
+  const siblingAriaByParentId = new Map<
+    string | null,
+    Map<string, { setSize: number; posInSet: number }>
+  >();
+  for (const [parentId, siblings] of siblingsByParentId) {
+    siblingAriaByParentId.set(parentId, computeSiblingAria(siblings));
+  }
+
+  for (const node of nodes) {
+    appendRow(
+      node,
+      siblingAriaByParentId.get(node.parentId) ??
+        new Map<string, { setSize: number; posInSet: number }>(),
+      opts,
+      rows,
+      indexMap
+    );
+  }
+
   return buildResult(rows, indexMap);
 }
 

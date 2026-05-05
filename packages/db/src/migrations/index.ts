@@ -28,6 +28,8 @@ import { migration026UpdateProviderModels2026V2 } from './026-update-provider-mo
 import { migration027ViewFilterPresets } from './027-view-filter-presets.js';
 import { migration028GemmaLocalLlm } from './028-gemma-local-llm.js';
 import { migration029FileRecordSourceRootPath } from './029-file-record-source-root-path.js';
+import { migration030CollectionIndexingStats } from './030-collection-indexing-stats.js';
+import { migration031ProviderCatalogTimestamps } from './031-provider-catalog-timestamps.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -62,6 +64,8 @@ export const migrations: Migration[] = [
   migration027ViewFilterPresets,
   migration028GemmaLocalLlm,
   migration029FileRecordSourceRootPath,
+  migration030CollectionIndexingStats,
+  migration031ProviderCatalogTimestamps,
 ];
 
 // Export base migrations (without chunks table) for test environments

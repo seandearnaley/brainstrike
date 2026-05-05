@@ -157,6 +157,7 @@ export class DrizzleFileChunkRepository {
         embeddingSetId: chunk.embeddingSetId ?? null,
         embeddingUpdatedAt: chunk.embeddingUpdatedAt ? new Date(chunk.embeddingUpdatedAt) : null,
         embeddingHash: chunk.embeddingHash ?? null,
+        contentTsvector: sql`to_tsvector('english', ${chunk.content})`,
         createdAt: new Date(chunk.createdAt),
         updatedAt: new Date(chunk.updatedAt),
       })
@@ -168,6 +169,7 @@ export class DrizzleFileChunkRepository {
           tokenCount: sql`excluded.token_count`,
           chunkType: sql`excluded.chunk_type`,
           chunkSize: sql`excluded.chunk_size`,
+          contentTsvector: sql`to_tsvector('english', excluded.content)`,
           embedding: sql`excluded.embedding`,
           embeddingSetId: sql`excluded.embedding_set_id`,
           embeddingUpdatedAt: sql`excluded.embedding_updated_at`,
@@ -202,6 +204,7 @@ export class DrizzleFileChunkRepository {
       embeddingSetId: chunk.embeddingSetId ?? null,
       embeddingUpdatedAt: chunk.embeddingUpdatedAt ? new Date(chunk.embeddingUpdatedAt) : null,
       embeddingHash: chunk.embeddingHash ?? null,
+      contentTsvector: sql`to_tsvector('english', ${chunk.content})`,
       createdAt: new Date(chunk.createdAt),
       updatedAt: new Date(chunk.updatedAt),
     }));
@@ -217,6 +220,7 @@ export class DrizzleFileChunkRepository {
           tokenCount: sql`excluded.token_count`,
           chunkType: sql`excluded.chunk_type`,
           chunkSize: sql`excluded.chunk_size`,
+          contentTsvector: sql`to_tsvector('english', excluded.content)`,
           embedding: sql`excluded.embedding`,
           embeddingSetId: sql`excluded.embedding_set_id`,
           embeddingUpdatedAt: sql`excluded.embedding_updated_at`,
@@ -236,6 +240,8 @@ export class DrizzleFileChunkRepository {
 
     if (chunk.content !== undefined) {
       updateData.content = chunk.content;
+      updateData.contentTsvector =
+        sql`to_tsvector('english', ${chunk.content})` as unknown as string;
     }
     if (chunk.contentHash !== undefined) {
       updateData.contentHash = chunk.contentHash;

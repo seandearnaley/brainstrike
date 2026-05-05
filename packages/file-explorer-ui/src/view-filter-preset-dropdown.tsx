@@ -551,6 +551,37 @@ export function ViewFilterPresetDropdown({
     [onDelete, selectedPreset, presets, onSelect]
   );
 
+  const selectPreset = useCallback(
+    (preset: ViewFilterPreset) => {
+      onSelect(preset);
+      setIsOpen(false);
+    },
+    [onSelect]
+  );
+
+  const handleSearchKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setIsOpen(false);
+        return;
+      }
+
+      if (event.key !== 'Enter') {
+        return;
+      }
+
+      const [onlyPreset] = filteredPresets;
+      if (filteredPresets.length !== 1 || !onlyPreset) {
+        return;
+      }
+
+      event.preventDefault();
+      selectPreset(onlyPreset);
+    },
+    [filteredPresets, selectPreset]
+  );
+
   const selectedIconType: React.ElementType = selectedPreset
     ? (ICON_MAP[selectedPreset.icon] ?? File)
     : Filter;
@@ -587,8 +618,10 @@ export function ViewFilterPresetDropdown({
             {/* Search */}
             <div className="border-b bg-muted/30 p-2">
               <Input
+                aria-label="Filter presets"
                 className="h-8"
                 onChange={(e) => setSearchFilter(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
                 placeholder="Filter presets..."
                 ref={searchInputRef}
                 value={searchFilter}
@@ -630,10 +663,7 @@ export function ViewFilterPresetDropdown({
                   >
                     <button
                       className="flex flex-1 items-center gap-2 overflow-hidden py-1 text-left"
-                      onClick={() => {
-                        onSelect(preset);
-                        setIsOpen(false);
-                      }}
+                      onClick={() => selectPreset(preset)}
                       type="button"
                     >
                       <PresetIcon className="size-4 shrink-0 opacity-70" />

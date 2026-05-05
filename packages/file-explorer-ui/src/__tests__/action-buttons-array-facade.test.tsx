@@ -17,7 +17,6 @@ describe('ActionButtonsArrayFacade', () => {
         displayedFiles={displayed}
         encodeFileSelection={(folder, p) => `${folder}:${p}`}
         maxSelectionCount={10}
-        onSelectionLimitExceeded={() => {}}
         selectedFiles={selected}
         setSelectedFiles={setSelectedFiles}
       />

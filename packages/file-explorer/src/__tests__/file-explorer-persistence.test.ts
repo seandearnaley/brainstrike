@@ -1,6 +1,7 @@
 import type { FileExplorerState, FolderState, SerializedState } from '@brainstrike/types';
 import { createEmptySelectionModel, DEFAULT_STATE } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { FILE_EXPLORER_STORAGE_VERSION } from '../persistence/persistence-constants';
 
 // Mock console spies for all tests in this file
 const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -62,7 +63,7 @@ describe('file-explorer-persistence', () => {
       const persistOptions = await getFreshPersistOptions();
 
       expect(persistOptions.name).toBe('file-explorer-storage-v4');
-      expect(persistOptions.version).toBe(2);
+      expect(persistOptions.version).toBe(FILE_EXPLORER_STORAGE_VERSION);
       expect(persistOptions.storage).toBeDefined();
       expect(persistOptions.partialize).toBeDefined();
       expect(persistOptions.migrate).toBeDefined();
@@ -222,11 +223,6 @@ describe('file-explorer-persistence', () => {
         folderSummaryThreshold: 0,
         maxSelectionCount: 0,
         lastActiveTab: 'files',
-      };
-      const wrappedState = { state: actualState, version: 1 };
-      const result = migrateFn(wrappedState, 1);
-      expect(result).toEqual({
-        ...actualState,
         selectionModel: {
           mode: 'explicit',
           explicitPaths: ['file.ts'],
@@ -235,6 +231,36 @@ describe('file-explorer-persistence', () => {
           materializedAt: null,
           queryDescriptor: null,
         },
+      };
+      const wrappedState = { state: actualState, version: FILE_EXPLORER_STORAGE_VERSION };
+      const result = migrateFn(wrappedState, FILE_EXPLORER_STORAGE_VERSION);
+      expect(result).toEqual(actualState);
+    });
+
+    it('should discard persisted snapshots from older storage versions', () => {
+      const oldSnapshot: SerializedState = {
+        currentFolderId: 'stale-folder',
+        selectedFilePaths: ['stale-folder|@|file.ts'],
+        folderStates: {},
+        folderAccessOrder: ['stale-folder'],
+        expandedDirectoryPaths: ['src'],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: false,
+        folderSummaryThreshold: 0,
+        maxSelectionCount: 2000,
+        lastActiveTab: 'files',
+      };
+
+      const result = migrateFn({ state: oldSnapshot, version: 2 }, 2);
+
+      expect(result).toMatchObject({
+        currentFolderId: null,
+        folderStates: {},
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        quickFilter: '',
       });
     });
 
@@ -252,10 +278,6 @@ describe('file-explorer-persistence', () => {
         folderSummaryThreshold: 0,
         maxSelectionCount: 0,
         lastActiveTab: 'files',
-      };
-      const result = migrateFn(actualState, 1);
-      expect(result).toEqual({
-        ...actualState,
         selectionModel: {
           mode: 'explicit',
           explicitPaths: ['file.js'],
@@ -264,10 +286,12 @@ describe('file-explorer-persistence', () => {
           materializedAt: null,
           queryDescriptor: null,
         },
-      });
+      };
+      const result = migrateFn(actualState, FILE_EXPLORER_STORAGE_VERSION);
+      expect(result).toEqual(actualState);
     });
 
-    it('should backfill selectionModel for legacy persisted state versions', () => {
+    it('should discard legacy persisted state versions instead of backfilling them', () => {
       const legacyState = {
         currentFolderId: 'folder-abc',
         selectedFilePaths: ['folder-abc|@|file.ts'],
@@ -300,21 +324,12 @@ describe('file-explorer-persistence', () => {
 
       const result = migrateFn(legacyState, 1);
 
-      expect(result.selectionModel).toEqual({
-        mode: 'explicit',
-        explicitPaths: ['folder-abc|@|file.ts'],
-        ruleSetJson: null,
-        materializedPaths: null,
-        materializedAt: null,
-        queryDescriptor: null,
-      });
-      expect(result.folderStates['folder-abc']?.selectionModel).toEqual({
-        mode: 'explicit',
-        explicitPaths: ['folder-abc|@|file.ts'],
-        ruleSetJson: null,
-        materializedPaths: null,
-        materializedAt: null,
-        queryDescriptor: null,
+      expect(result).toMatchObject({
+        currentFolderId: null,
+        folderStates: {},
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        quickFilter: '',
       });
     });
 

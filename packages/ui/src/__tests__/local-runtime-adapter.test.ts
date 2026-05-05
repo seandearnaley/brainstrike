@@ -168,7 +168,10 @@ describe('createLocalModelAdapter', () => {
     );
 
     expect(updates.length).toBeGreaterThan(0);
-    expect(updates[0]).toMatchObject({
+    expect(updates.some((update) => update.content?.some((part) => part.type === 'data'))).toBe(
+      true
+    );
+    expect(updates).toContainEqual({
       content: expect.arrayContaining([
         {
           type: 'reasoning',
@@ -324,7 +327,7 @@ describe('createLocalModelAdapter', () => {
     abortController.abort();
 
     await expect(updatesPromise).resolves.toContainEqual({
-      content: [{ type: 'text', text: 'Generation cancelled.' }],
+      content: expect.arrayContaining([{ type: 'text', text: 'Generation cancelled.' }]),
     });
     expect(cancel).not.toHaveBeenCalled();
     expect(generate).not.toHaveBeenCalled();
@@ -465,9 +468,10 @@ describe('createLocalModelAdapter', () => {
 
     const firstRun = collectRun(adapter.run(createRunOptions()));
     const secondRun = collectRun(adapter.run(createRunOptions()));
-    await Promise.resolve();
 
-    expect(warmup).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(warmup).toHaveBeenCalledTimes(1);
+    });
 
     resolveWarmup?.();
     await Promise.all([firstRun, secondRun]);
@@ -618,7 +622,7 @@ describe('createLocalModelAdapter', () => {
     resolveWarmup?.();
 
     await expect(joinerRun).resolves.toContainEqual({
-      content: [{ type: 'text', text: 'Generation cancelled.' }],
+      content: expect.arrayContaining([{ type: 'text', text: 'Generation cancelled.' }]),
     });
     await expect(ownerRun).resolves.toContainEqual({
       content: expect.arrayContaining([{ type: 'text', text: 'Ready.' }]),
@@ -673,7 +677,7 @@ describe('createLocalModelAdapter', () => {
     ownerAbort.abort();
 
     await expect(ownerRun).resolves.toContainEqual({
-      content: [{ type: 'text', text: 'Generation cancelled.' }],
+      content: expect.arrayContaining([{ type: 'text', text: 'Generation cancelled.' }]),
     });
     expect(cancel).not.toHaveBeenCalled();
     warmupResolvers.at(-1)?.();

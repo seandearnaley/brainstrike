@@ -26,6 +26,7 @@ interface ModelListProps {
   models: DbModel[];
   onDownload: (modelId: string) => void;
   onToggle: (modelId: string, enabled: boolean) => void;
+  pendingModelIds?: ReadonlySet<string>;
   providers: DbProvider[];
 }
 
@@ -54,6 +55,7 @@ interface ModelRowProps {
   modelCacheDir: string | null;
   onDownload: (modelId: string) => void;
   onToggle: (modelId: string, enabled: boolean) => void;
+  pendingModelIds: ReadonlySet<string>;
 }
 
 interface ModelMetaBadgesProps {
@@ -307,11 +309,13 @@ function ModelRow({
   downloadProgress,
   onToggle,
   onDownload,
+  pendingModelIds,
 }: ModelRowProps) {
   const isLocal = isLocalProviderId(model.providerId);
   const bestForTags = Array.isArray(model.bestFor) ? model.bestFor : [];
   const dimensionLabel = formatDimension(model.capabilities.defaultDimension);
   const sizeLabel = resolveSizeLabel(model.parameters);
+  const isPending = pendingModelIds.has(model.id);
 
   return (
     <div
@@ -325,9 +329,11 @@ function ModelRow({
       <div className="flex items-start gap-4">
         <div className="pt-1">
           <Switch
+            aria-busy={isPending}
             aria-label={`Enable ${model.name}`}
             checked={model.isEnabled}
             data-testid={`model-toggle-${model.id}`}
+            disabled={isPending}
             onCheckedChange={(checked) => onToggle(model.id, checked)}
           />
         </div>
@@ -386,6 +392,7 @@ interface ModelListContentProps {
   modelCacheDir?: string | null | undefined;
   onDownload: (modelId: string) => void;
   onToggle: (modelId: string, enabled: boolean) => void;
+  pendingModelIds: ReadonlySet<string>;
   sections: ModelSection[];
   visibleModels: DbModel[];
 }
@@ -400,6 +407,7 @@ function ModelListContent({
   modelCacheDir,
   onToggle,
   onDownload,
+  pendingModelIds,
 }: ModelListContentProps) {
   return (
     <ScrollArea className="h-[620px] rounded-lg border bg-muted/10">
@@ -448,6 +456,7 @@ function ModelListContent({
                           modelCacheDir={modelCacheDir ?? null}
                           onDownload={onDownload}
                           onToggle={onToggle}
+                          pendingModelIds={pendingModelIds}
                         />
                       ))}
                     </div>
@@ -471,6 +480,7 @@ export function ModelList({
   downloadProgress,
   downloadedModels,
   modelCacheDir,
+  pendingModelIds = new Set<string>(),
 }: ModelListProps) {
   const [search, setSearch] = useState<string>('');
   const [activeTab, setActiveTab] = useState<ModelCategory>('chat');
@@ -659,6 +669,7 @@ export function ModelList({
             modelCacheDir={modelCacheDir}
             onDownload={onDownload}
             onToggle={onToggle}
+            pendingModelIds={pendingModelIds}
             sections={sections}
             visibleModels={visibleModels}
           />
@@ -672,6 +683,7 @@ export function ModelList({
             modelCacheDir={modelCacheDir}
             onDownload={onDownload}
             onToggle={onToggle}
+            pendingModelIds={pendingModelIds}
             sections={sections}
             visibleModels={visibleModels}
           />

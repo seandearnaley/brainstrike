@@ -61,7 +61,9 @@ export function ModelPicker({
   const selectedValues = Array.isArray(value) ? value : value ? [value] : [];
 
   return (
-    <Popover modal={true} onOpenChange={setOpen} open={open}>
+    // modal=false: composes inside parent Radix Dialogs (also modal) without
+    // dueling FocusScopes that steal focus and block item selection.
+    <Popover modal={false} onOpenChange={setOpen} open={open}>
       <PopoverTrigger asChild>
         {renderTrigger ? (
           renderTrigger({ value, models, providers, placeholder, disabled })
@@ -76,10 +78,18 @@ export function ModelPicker({
           />
         )}
       </PopoverTrigger>
+      {/*
+        portal={false}: stay inside the parent Dialog's RemoveScroll allow-list,
+        otherwise the dialog's scroll lock kills wheel events on the dropdown.
+        Popper still uses position:fixed so the content escapes ancestor overflow.
+        z-[60] keeps content above DialogContent (which sits at z-[51] — see
+        packages/ui/src/dialog.tsx; the two must stay in this relative order).
+      */}
       <PopoverContent
         align="start"
         aria-describedby="model-picker-description"
-        className="pointer-events-auto w-[400px] p-0"
+        className="pointer-events-auto z-[60] w-[min(400px,calc(100vw-2rem))] p-0"
+        portal={false}
       >
         <span className="sr-only" id="model-picker-description">
           Select a model from the list

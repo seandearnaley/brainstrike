@@ -90,6 +90,9 @@ vi.mock('@assistant-ui/react', () => {
   }
 
   type InputProps = Record<string, unknown>;
+  type ButtonPrimitiveProps = PrimitiveProps & {
+    disabled?: boolean;
+  };
 
   interface PartsProps {
     components?: {
@@ -124,8 +127,16 @@ vi.mock('@assistant-ui/react', () => {
     ComposerPrimitive: {
       Root: Primitive,
       Input: (props: InputProps) => <textarea data-testid="composer-input" {...props} />,
-      Send: Primitive,
-      Cancel: Primitive,
+      Send: ({ children, asChild: _asChild, ...props }: ButtonPrimitiveProps) => (
+        <button data-testid="composer-send" type="submit" {...props}>
+          {children}
+        </button>
+      ),
+      Cancel: ({ children, asChild: _asChild, ...props }: ButtonPrimitiveProps) => (
+        <button data-testid="composer-cancel" type="button" {...props}>
+          {children}
+        </button>
+      ),
     },
     MessagePrimitive: {
       Root: Primitive,
@@ -140,8 +151,12 @@ vi.mock('@assistant-ui/react', () => {
         setCollapsed: setCollapsedMock,
       }),
     }),
-    useAuiState: (selector: (state: { chainOfThought: { collapsed: boolean } }) => boolean) =>
-      selector({ chainOfThought: { collapsed: true } }),
+    useAuiState: <T,>(
+      selector: (state: {
+        chainOfThought: { collapsed: boolean };
+        thread: { messages: Array<{ id: string }> };
+      }) => T
+    ) => selector({ chainOfThought: { collapsed: true }, thread: { messages: [] } }),
     useLocalRuntime: (adapter: unknown) => useLocalRuntimeMock(adapter),
     useMessagePartReasoning: () => ({
       type: 'reasoning' as const,
@@ -322,6 +337,202 @@ describe('AssistantUiPanel model picker', () => {
     expect(prepareRequestData).toHaveBeenCalledTimes(1);
   });
 
+  it('completes hosted prepared requests from data stream terminal callbacks', async () => {
+    const prepareRequestData = vi.fn(async () => ({
+      memory: {
+        threadId: 'thread-1',
+        resourceId: 'workspace-1',
+        runId: 'run-1',
+      },
+    }));
+    const completePreparedRequest = vi.fn();
+
+    render(
+      <AssistantUiPanel
+        {...baseProps}
+        completePreparedRequest={completePreparedRequest}
+        onModelChange={() => {}}
+        prepareRequestData={prepareRequestData}
+      />
+    );
+
+    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+      body?: () => Promise<Record<string, unknown> | undefined>;
+      onCancel?: () => void;
+      onError?: (error: Error) => void;
+      onFinish?: () => void;
+    };
+
+    const preparedBody = await options.body?.();
+    options.onFinish?.();
+    options.onError?.(new Error('late stream error'));
+    options.onCancel?.();
+
+    expect(preparedBody).toMatchObject({
+      data: {
+        memory: {
+          runId: 'run-1',
+        },
+      },
+    });
+    expect(completePreparedRequest).toHaveBeenCalledTimes(1);
+    expect(completePreparedRequest).toHaveBeenCalledWith(
+      {
+        memory: {
+          threadId: 'thread-1',
+          resourceId: 'workspace-1',
+          runId: 'run-1',
+        },
+      },
+      'completed',
+      undefined
+    );
+  });
+
+  it('uses the latest hosted completion callback when the panel rerenders mid-run', async () => {
+    const prepareRequestData = vi.fn(async () => ({
+      memory: {
+        threadId: 'thread-1',
+        resourceId: 'workspace-1',
+        runId: 'run-1',
+      },
+    }));
+    const firstCompletePreparedRequest = vi.fn();
+    const secondCompletePreparedRequest = vi.fn();
+
+    const view = render(
+      <AssistantUiPanel
+        {...baseProps}
+        completePreparedRequest={firstCompletePreparedRequest}
+        onModelChange={() => {}}
+        prepareRequestData={prepareRequestData}
+      />
+    );
+
+    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+      body?: () => Promise<Record<string, unknown> | undefined>;
+      onFinish?: () => void;
+    };
+
+    await options.body?.();
+    view.rerender(
+      <AssistantUiPanel
+        {...baseProps}
+        completePreparedRequest={secondCompletePreparedRequest}
+        onModelChange={() => {}}
+        prepareRequestData={prepareRequestData}
+      />
+    );
+    options.onFinish?.();
+
+    expect(firstCompletePreparedRequest).not.toHaveBeenCalled();
+    expect(secondCompletePreparedRequest).toHaveBeenCalledWith(
+      {
+        memory: {
+          threadId: 'thread-1',
+          resourceId: 'workspace-1',
+          runId: 'run-1',
+        },
+      },
+      'completed',
+      undefined
+    );
+  });
+
+  it('rejects concurrent hosted prepared requests before creating a second run', async () => {
+    const prepareRequestData = vi
+      .fn()
+      .mockResolvedValueOnce({
+        memory: {
+          threadId: 'thread-1',
+          resourceId: 'workspace-1',
+          runId: 'run-1',
+        },
+      })
+      .mockResolvedValueOnce({
+        memory: {
+          threadId: 'thread-1',
+          resourceId: 'workspace-1',
+          runId: 'run-2',
+        },
+      });
+    const completePreparedRequest = vi.fn();
+
+    render(
+      <AssistantUiPanel
+        {...baseProps}
+        completePreparedRequest={completePreparedRequest}
+        onModelChange={() => {}}
+        prepareRequestData={prepareRequestData}
+      />
+    );
+
+    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+      body?: () => Promise<Record<string, unknown> | undefined>;
+      onCancel?: () => void;
+    };
+
+    await options.body?.();
+    await expect(options.body?.()).rejects.toThrow(
+      'Cannot start a hosted assistant run while another run is in progress.'
+    );
+    options.onCancel?.();
+
+    expect(prepareRequestData).toHaveBeenCalledTimes(1);
+    expect(completePreparedRequest).toHaveBeenCalledTimes(1);
+    expect(completePreparedRequest).toHaveBeenCalledWith(
+      {
+        memory: {
+          threadId: 'thread-1',
+          resourceId: 'workspace-1',
+          runId: 'run-1',
+        },
+      },
+      'cancelled',
+      undefined
+    );
+  });
+
+  it('marks hosted prepared requests failed when the data stream errors', async () => {
+    const prepareRequestData = vi.fn(async () => ({
+      memory: {
+        threadId: 'thread-1',
+        resourceId: 'workspace-1',
+        runId: 'run-1',
+      },
+    }));
+    const completePreparedRequest = vi.fn();
+
+    render(
+      <AssistantUiPanel
+        {...baseProps}
+        completePreparedRequest={completePreparedRequest}
+        onModelChange={() => {}}
+        prepareRequestData={prepareRequestData}
+      />
+    );
+
+    const options = useDataStreamRuntimeMock.mock.calls.at(-1)?.[0] as {
+      body?: () => Promise<Record<string, unknown> | undefined>;
+      onError?: (error: Error) => void;
+    };
+
+    await options.body?.();
+    options.onError?.(new Error('stream failed'));
+
+    expect(completePreparedRequest).toHaveBeenCalledWith(
+      {
+        memory: {
+          threadId: 'thread-1',
+          resourceId: 'workspace-1',
+          runId: 'run-1',
+        },
+      },
+      'failed',
+      'stream failed'
+    );
+  });
+
   it('forwards per-run request preparation and completion to local runtime runs', async () => {
     const prepareRequestData = vi.fn(async () => ({
       memory: {
@@ -482,13 +693,10 @@ describe('AssistantUiPanel model picker', () => {
     vi.useRealTimers();
   });
 
-  it('renders the model picker with provider summary', async () => {
+  it('renders the model picker in the composer controls dock', async () => {
     render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
 
-    // Provider summary should show OpenAI
-    expect(screen.getAllByText('OpenAI').length).toBeGreaterThan(0);
-
-    // The model name appears in both the summary badge and the ModelPicker trigger
+    // The selected model appears in the ModelPicker trigger.
     const modelTexts = screen.getAllByText('GPT-5.2');
     expect(modelTexts.length).toBeGreaterThan(0);
 
@@ -499,6 +707,22 @@ describe('AssistantUiPanel model picker', () => {
     // Verify the ModelPicker trigger (combobox) exists
     const trigger = within(container).getByRole('combobox');
     expect(trigger).toBeInTheDocument();
+    expect(screen.queryByText(/OpenAI \/ GPT-5\.2/)).not.toBeInTheDocument();
+  });
+
+  it('keeps model and controls inside the composer surface with icon send controls', () => {
+    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+
+    const composerInput = screen.getByTestId('composer-input');
+    const composerShell = composerInput.closest('.bs-composer-shell');
+    expect(composerShell).toBeTruthy();
+    expect(
+      within(composerShell as HTMLElement).getByTestId('assistant-model-dropdown')
+    ).toBeVisible();
+    expect(
+      within(composerShell as HTMLElement).getByRole('button', { name: 'Send' })
+    ).toBeVisible();
+    expect(screen.queryByText('Send')).not.toBeInTheDocument();
   });
 
   it('invokes model change handler with composite key when selecting a model', async () => {
@@ -537,7 +761,7 @@ describe('AssistantUiPanel model picker', () => {
       />
     );
 
-    expect(screen.getByText('Select a provider and model to start chatting.')).toBeInTheDocument();
+    expect(screen.getByText('No models enabled')).toBeInTheDocument();
     const trigger = screen.getByTestId('assistant-model-dropdown');
     expect(trigger).toBeInTheDocument();
   });
@@ -560,7 +784,7 @@ describe('AssistantUiPanel model picker', () => {
       />
     );
 
-    expect(screen.getByText('Select a provider and model to start chatting.')).toBeInTheDocument();
+    expect(screen.getByText('No models enabled')).toBeInTheDocument();
     // The ModelPicker combobox should be disabled when no models available
     const trigger = screen.getByRole('combobox');
     expect(trigger).toBeDisabled();

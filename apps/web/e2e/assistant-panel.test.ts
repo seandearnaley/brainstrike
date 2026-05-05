@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { mockAssistantApi } from './utils/assistant-mocks';
-import { waitForAppLoad } from './utils/layout-helpers';
+import { openAssistantWorkspace } from './utils/assistant-workspace';
 
 test.describe('Assistant panel (assistant-ui default)', { tag: '@smoke' }, () => {
   test.beforeEach(async ({ request }, testInfo) => {
@@ -13,8 +13,7 @@ test.describe('Assistant panel (assistant-ui default)', { tag: '@smoke' }, () =>
 
   test.beforeEach(async ({ page }) => {
     await mockAssistantApi(page);
-    await page.goto('/');
-    await waitForAppLoad(page);
+    await openAssistantWorkspace(page, { rootName: 'assistant-panel' });
   });
 
   test('send message and stream response while switching agent sidebar tabs', async ({ page }) => {

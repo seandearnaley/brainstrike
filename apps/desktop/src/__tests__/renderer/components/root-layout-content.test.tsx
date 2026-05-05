@@ -5,8 +5,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 let RootLayoutContent: React.ComponentType;
 
-const { loggerInfoMock } = vi.hoisted(() => ({
+const { loggerInfoMock, loggerWarnMock } = vi.hoisted(() => ({
   loggerInfoMock: vi.fn(),
+  loggerWarnMock: vi.fn(),
 }));
 
 const createQueueStub = (): QueueAdapter => {
@@ -155,7 +156,7 @@ vi.mock('@brainstrike/utils/logger', async () => {
     createLogger: () => ({
       info: loggerInfoMock,
       debug: vi.fn(),
-      warn: vi.fn(),
+      warn: loggerWarnMock,
       error: vi.fn(),
     }),
   };
@@ -176,6 +177,10 @@ describe('RootLayoutContent', () => {
     globalThis.performance,
     'memory'
   );
+  const originalVisibilityStateDescriptor = Object.getOwnPropertyDescriptor(
+    document,
+    'visibilityState'
+  );
 
   beforeAll(async () => {
     RootLayoutContent = (await import('../../../renderer/components/root-layout-content')).default;
@@ -191,9 +196,12 @@ describe('RootLayoutContent', () => {
     vi.useRealTimers();
     if (originalPerformanceMemoryDescriptor) {
       Object.defineProperty(globalThis.performance, 'memory', originalPerformanceMemoryDescriptor);
-      return;
+    } else {
+      Reflect.deleteProperty(globalThis.performance, 'memory');
     }
-    Reflect.deleteProperty(globalThis.performance, 'memory');
+    if (originalVisibilityStateDescriptor) {
+      Object.defineProperty(document, 'visibilityState', originalVisibilityStateDescriptor);
+    }
   });
 
   it('should render without crashing', () => {
@@ -229,12 +237,12 @@ describe('RootLayoutContent', () => {
     );
   });
 
-  it('does not mount the embedding queue tracker before the database is ready', () => {
+  it('does not mount an app-specific embedding queue tracker before the database is ready', () => {
     render(<RootLayoutContent />);
     expect(screen.queryByTestId('embedding-job-queue-tracker')).not.toBeInTheDocument();
   });
 
-  it('mounts the embedding queue tracker once the database becomes available', async () => {
+  it('keeps indexing activity delegated to the shared root when the database becomes available', async () => {
     const { rerender } = render(<RootLayoutContent />);
 
     currentDb = {
@@ -243,9 +251,8 @@ describe('RootLayoutContent', () => {
 
     rerender(<RootLayoutContent />);
 
-    await waitFor(() =>
-      expect(screen.getByTestId('embedding-job-queue-tracker')).toBeInTheDocument()
-    );
+    await waitFor(() => expect(screen.getByTestId('home-page-content')).toBeInTheDocument());
+    expect(screen.queryByTestId('embedding-job-queue-tracker')).not.toBeInTheDocument();
   });
 
   it('keeps heap diagnostics interval stable across tab switches while logging the latest tab', async () => {
@@ -263,7 +270,7 @@ describe('RootLayoutContent', () => {
 
     const { rerender, unmount } = render(<RootLayoutContent />);
 
-    expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+    expect(setIntervalSpy).toHaveBeenCalledTimes(2);
 
     currentDb = {
       query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
@@ -279,7 +286,7 @@ describe('RootLayoutContent', () => {
     ).memory.usedJSHeapSize = 129 * 1024 * 1024;
 
     rerender(<RootLayoutContent />);
-    expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+    expect(setIntervalSpy).toHaveBeenCalledTimes(2);
     expect(clearIntervalSpy).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(15_000);
@@ -292,6 +299,138 @@ describe('RootLayoutContent', () => {
     );
 
     unmount();
-    expect(clearIntervalSpy).toHaveBeenCalledTimes(1);
+    expect(clearIntervalSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('logs visible renderer frame stalls with the latest database readiness state', () => {
+    vi.useFakeTimers();
+    Object.defineProperty(globalThis.performance, 'memory', {
+      configurable: true,
+      value: {
+        usedJSHeapSize: 100,
+        totalJSHeapSize: 200,
+        jsHeapSizeLimit: 300,
+      },
+    });
+    let rafCallback: FrameRequestCallback | null = null;
+    const requestAnimationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback: FrameRequestCallback) => {
+        rafCallback = callback;
+        return 1;
+      });
+    const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame');
+
+    currentDb = {
+      query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
+    };
+    const { unmount } = render(<RootLayoutContent />);
+
+    expect(requestAnimationFrameSpy).toHaveBeenCalled();
+    rafCallback?.(0);
+    rafCallback?.(650);
+    vi.advanceTimersByTime(15_000);
+
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      'Desktop visible renderer frame health degraded',
+      expect.objectContaining({
+        activeToolsTab: 'database-ready',
+        maxFrameGapMs: 650,
+        usedJSHeapBytes: 100,
+      })
+    );
+
+    unmount();
+    expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('does not log expected short startup frame gaps as degraded health', () => {
+    vi.useFakeTimers();
+    let rafCallback: FrameRequestCallback | null = null;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(
+      (callback: FrameRequestCallback) => {
+        rafCallback = callback;
+        return 1;
+      }
+    );
+
+    render(<RootLayoutContent />);
+
+    rafCallback?.(0);
+    rafCallback?.(300);
+    vi.advanceTimersByTime(15_000);
+
+    expect(loggerInfoMock).not.toHaveBeenCalledWith(
+      'Desktop visible renderer frame health degraded',
+      expect.anything()
+    );
+    expect(loggerWarnMock).not.toHaveBeenCalledWith(
+      'Desktop visible renderer frame health degraded',
+      expect.anything()
+    );
+  });
+
+  it('does not report frame gaps while the visible renderer is hidden', () => {
+    vi.useFakeTimers();
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+    let rafCallback: FrameRequestCallback | null = null;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(
+      (callback: FrameRequestCallback) => {
+        rafCallback = callback;
+        return 1;
+      }
+    );
+
+    render(<RootLayoutContent />);
+
+    rafCallback?.(0);
+    rafCallback?.(2000);
+    vi.advanceTimersByTime(15_000);
+
+    expect(loggerWarnMock).not.toHaveBeenCalledWith(
+      'Desktop visible renderer frame health degraded',
+      expect.anything()
+    );
+  });
+
+  it('resets frame-gap tracking immediately when document visibility changes', () => {
+    vi.useFakeTimers();
+    let rafCallback: FrameRequestCallback | null = null;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(
+      (callback: FrameRequestCallback) => {
+        rafCallback = callback;
+        return 1;
+      }
+    );
+
+    render(<RootLayoutContent />);
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+    rafCallback?.(0);
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+    rafCallback?.(2000);
+    vi.advanceTimersByTime(15_000);
+
+    expect(loggerWarnMock).not.toHaveBeenCalledWith(
+      'Desktop visible renderer frame health degraded',
+      expect.anything()
+    );
   });
 });

@@ -56,6 +56,13 @@ interface BackfillBatchResult {
   selected: number;
 }
 
+interface QueueBacklogSnapshot {
+  failed: number;
+  queued: number;
+  running: number;
+  succeeded: number;
+}
+
 const logger = createLogger('DesktopEmbeddingBackfill');
 const EMBEDDINGS_QUEUE = 'embeddings';
 const EMBEDDING_BACKFILL_ENQUEUE_BATCH_SIZE = 32;
@@ -77,14 +84,24 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
-async function getEmbeddingQueueBacklog(
+async function getEmbeddingQueueBacklogSnapshot(
   jobQueue: Pick<JobQueue, 'getQueueStats'>
-): Promise<number> {
+): Promise<QueueBacklogSnapshot> {
   const snapshot = (await jobQueue.getQueueStats(EMBEDDINGS_QUEUE))[0];
   if (!snapshot) {
-    return 0;
+    return {
+      failed: 0,
+      queued: 0,
+      running: 0,
+      succeeded: 0,
+    };
   }
-  return Math.max(0, snapshot.queued + snapshot.running);
+  return {
+    failed: Math.max(0, Number(snapshot.failed ?? 0)),
+    queued: Math.max(0, Number(snapshot.queued ?? 0)),
+    running: Math.max(0, Number(snapshot.running ?? 0)),
+    succeeded: Math.max(0, Number(snapshot.succeeded ?? 0)),
+  };
 }
 
 async function waitForQueueCapacity(
@@ -98,14 +115,15 @@ async function waitForQueueCapacity(
   const startedAt = Date.now();
   while (true) {
     await assertCanContinue?.();
-    const backlog = await getEmbeddingQueueBacklog(jobQueue);
-    const capacity = maxQueueDepth - backlog;
+    const backlog = await getEmbeddingQueueBacklogSnapshot(jobQueue);
+    const capacity = maxQueueDepth - (backlog.queued + backlog.running);
     if (capacity > 0) {
       return capacity;
     }
     if (Date.now() - startedAt >= timeoutMs) {
       throw new Error(
-        `Backfill timed out while waiting for queue capacity below ${maxQueueDepth} jobs.`
+        `Backfill timed out while waiting for queue capacity below ${maxQueueDepth} jobs ` +
+          `(queued=${backlog.queued}, running=${backlog.running}, failed=${backlog.failed}, succeeded=${backlog.succeeded}).`
       );
     }
     await observeDrainProgress?.();

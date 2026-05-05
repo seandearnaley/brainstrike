@@ -144,6 +144,10 @@ describe('mastra streaming integration', () => {
 
     expect(chunks).toEqual([
       { type: 'text-delta', value: 'hello' },
+      expect.objectContaining({
+        type: 'run-event',
+        event: expect.objectContaining({ kind: 'run.finished', status: 'completed' }),
+      }),
       {
         type: 'message-finish',
         finishReason: 'stop',
@@ -185,6 +189,52 @@ describe('mastra streaming integration', () => {
     expect(toolEvents[1]).toMatchObject({ type: 'tool-event', status: 'progress' });
     expect(toolEvents[2]).toMatchObject({ type: 'tool-event', status: 'success' });
     expect(finished).toBe(true);
+  });
+
+  it('surfaces Mastra reasoning and run lifecycle chunks', async () => {
+    setMockStreamParts([
+      { type: 'start', messageId: 'msg-1' },
+      { type: 'reasoning-delta', delta: 'Checking memory.' },
+      { type: 'step-start', messageId: 'msg-1' },
+      { type: 'step-finish', usage: { promptTokens: 3, completionTokens: 4 } },
+      { type: 'finish', usage: { promptTokens: 5, completionTokens: 6 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'explain' }] }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual([
+      expect.objectContaining({
+        type: 'run-event',
+        event: expect.objectContaining({ kind: 'run.started', status: 'running' }),
+      }),
+      { type: 'reasoning-delta', value: 'Checking memory.' },
+      expect.objectContaining({
+        type: 'run-event',
+        event: expect.objectContaining({ kind: 'run.step.started', status: 'running' }),
+      }),
+      expect.objectContaining({
+        type: 'run-event',
+        event: expect.objectContaining({ kind: 'run.step.finished', status: 'completed' }),
+      }),
+      expect.objectContaining({
+        type: 'run-event',
+        event: expect.objectContaining({ kind: 'run.finished', status: 'completed' }),
+      }),
+      {
+        type: 'message-finish',
+        finishReason: 'stop',
+        usage: { promptTokens: 5, completionTokens: 6 },
+        path: [],
+      },
+    ]);
   });
 
   it('throws stream_failure when Mastra fullStream resolves to null', async () => {

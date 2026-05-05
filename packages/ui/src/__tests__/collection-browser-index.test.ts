@@ -6,8 +6,8 @@ describe('collection-browser module exports', () => {
     expect(collectionBrowserModule.CollectionBrowser).toBeDefined();
   });
 
-  it('exports FilterBar', () => {
-    expect(collectionBrowserModule.FilterBar).toBeDefined();
+  it('exports FilterControls', () => {
+    expect(collectionBrowserModule.FilterControls).toBeDefined();
   });
 
   it('exports FilterChip', () => {

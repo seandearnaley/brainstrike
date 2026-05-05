@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantThreadStore } from '../assistant-thread-store';
@@ -136,6 +136,112 @@ describe('AssistantThreadTabsWorkspace', () => {
       ])
     );
     uuidSpy.mockRestore();
+  });
+
+  it('keeps the new-thread action outside the scrollable tablist', async () => {
+    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
+    });
+
+    const tabStrip = screen.getByTestId('assistant-thread-tab-strip');
+    const tabScroll = screen.getByTestId('assistant-thread-tab-scroll');
+    const tabList = screen.getByRole('tablist', { name: 'Open assistant threads' });
+    const newThreadButton = screen.getByRole('button', { name: 'New assistant thread' });
+    const firstTab = screen.getByRole('tab', { name: /Purchasing app search log/ });
+
+    expect(tabStrip).toContainElement(tabScroll);
+    expect(tabStrip).toContainElement(newThreadButton);
+    expect(tabList).toContainElement(firstTab);
+    expect(within(tabList).queryByRole('button', { name: 'New assistant thread' })).toBeNull();
+    expect(
+      within(tabList).queryByRole('button', { name: 'Scroll assistant tabs left' })
+    ).toBeNull();
+    expect(
+      within(tabList).queryByRole('button', { name: 'Scroll assistant tabs right' })
+    ).toBeNull();
+  });
+
+  it('shows explicit workspace and load-error states without mounting assistant tabs', async () => {
+    fileExplorerMocks.rootDirectoryHandle = null;
+    const noWorkspaceView = render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+
+    expect(screen.getByText('No workspace open')).toBeInTheDocument();
+    expect(
+      screen.getByText('Open a workspace before starting assistant threads.')
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('tablist', { name: 'Open assistant threads' })
+    ).not.toBeInTheDocument();
+
+    noWorkspaceView.unmount();
+    fileExplorerMocks.rootDirectoryHandle = {
+      name: 'workspace-a',
+      path: '/tmp/workspace-a',
+    };
+    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+    act(() => {
+      useAssistantThreadStore.setState({
+        loadStateByResourceId: {
+          '/tmp/workspace-a': { status: 'error', error: 'PGlite failed to initialize.' },
+        },
+      });
+    });
+
+    expect(screen.getByText('Assistant threads failed to load')).toBeInTheDocument();
+    expect(screen.getByText('PGlite failed to initialize.')).toBeInTheDocument();
+  });
+
+  it('updates scroll affordances and scrolls the tab list from arrow buttons', async () => {
+    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
+    });
+
+    const tabScroll = screen.getByTestId('assistant-thread-tab-scroll') as HTMLDivElement & {
+      scrollBy: ReturnType<typeof vi.fn>;
+    };
+    const scrollBy = vi.fn();
+    tabScroll.scrollBy = scrollBy;
+    Object.defineProperties(tabScroll, {
+      clientWidth: { configurable: true, value: 200 },
+      scrollWidth: { configurable: true, value: 700 },
+    });
+
+    fireEvent.scroll(tabScroll);
+    expect(screen.getByRole('button', { name: 'Scroll assistant tabs left' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Scroll assistant tabs right' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Scroll assistant tabs right' }));
+    expect(scrollBy).toHaveBeenCalledWith({ behavior: 'smooth', left: 160 });
+
+    tabScroll.scrollLeft = 500;
+    fireEvent.scroll(tabScroll);
+    expect(screen.getByRole('button', { name: 'Scroll assistant tabs left' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Scroll assistant tabs right' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Scroll assistant tabs left' }));
+    expect(scrollBy).toHaveBeenCalledWith({ behavior: 'smooth', left: -160 });
+  });
+
+  it('scrolls the tab lane when vertical wheel input lands over the tabs', async () => {
+    render(<AssistantThreadTabsWorkspace initialProviders={['openai']} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
+    });
+
+    const tabScroll = screen.getByTestId('assistant-thread-tab-scroll');
+    Object.defineProperties(tabScroll, {
+      clientWidth: { configurable: true, value: 240 },
+      scrollWidth: { configurable: true, value: 720 },
+    });
+
+    fireEvent.wheel(tabScroll, { deltaX: 0, deltaY: 96 });
+
+    expect(tabScroll.scrollLeft).toBe(96);
   });
 
   it('closes tabs without deleting durable thread history', async () => {

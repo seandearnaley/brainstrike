@@ -1,4 +1,5 @@
 import type { IDatabase } from '../repositories/interfaces.js';
+import { refreshCollectionIndexingStats } from '../services/collection-indexing-stats.js';
 
 interface ManagedCacheRecordBase {
   content: string;
@@ -350,13 +351,13 @@ async function applyManagedCacheReplacements(
     `UPDATE file_records
        SET name = replacement_values.name,
            path = replacement_values.path,
-           size = replacement_values.size,
+           size = replacement_values.size::integer,
            source_root_path = replacement_values.source_root_path,
-           updated_at = replacement_values.updated_at,
+           updated_at = replacement_values.updated_at::timestamptz,
            content = replacement_values.content,
            content_hash = replacement_values.content_hash,
-           token_count = replacement_values.token_count,
-           processed_at = replacement_values.processed_at,
+           token_count = replacement_values.token_count::integer,
+           processed_at = replacement_values.processed_at::timestamptz,
            embedding_set_id = $${embeddingSetParamIndex},
            chunks_count = 0,
            chunks_processed_at = NULL,
@@ -416,5 +417,6 @@ export async function applyManagedCacheBatch(
     // batch are inserted. Reordering these calls changes conflict behavior and atomicity.
     await applyManagedCacheReplacements(tx, args.embeddingSetId, replacements);
     await insertManagedCacheImports(tx, args.embeddingSetId, imports);
+    await refreshCollectionIndexingStats(tx, [args.embeddingSetId]);
   });
 }

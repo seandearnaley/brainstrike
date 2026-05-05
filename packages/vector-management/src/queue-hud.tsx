@@ -81,12 +81,22 @@ function useQueueRetry(
     }
     try {
       setBusy(true);
-      await jobQueue.requeueFailed(EMBEDDING_QUEUE_NAME, RETRY_BATCH_SIZE);
+      const repairedQueued = await jobQueue.repairUnclaimableQueued(
+        EMBEDDING_QUEUE_NAME,
+        RETRY_BATCH_SIZE
+      );
+      const requeuedFailed = await jobQueue.requeueFailed(EMBEDDING_QUEUE_NAME, RETRY_BATCH_SIZE);
+      if (repairedQueued > 0 || requeuedFailed > 0) {
+        logger.warn('Retry repaired embedding queue jobs', {
+          repairedQueued,
+          requeuedFailed,
+        });
+      }
       // Optimistically move failed→queued so the HUD reflects the retry immediately
       // instead of waiting for the next tracker poll (~1.5s).
       const currentStats = useVectorStatusUIStore.getState().durableQueueStats;
       if (currentStats) {
-        const requeued = Math.min(currentStats.failed, RETRY_BATCH_SIZE);
+        const requeued = Math.min(currentStats.failed, requeuedFailed);
         setDurableQueueStats({
           ...currentStats,
           failed: currentStats.failed - requeued,
@@ -121,7 +131,6 @@ function QueueHudStatusBar({
     <div className="flex items-center gap-2 text-[10px]" data-testid="status-bar-queue">
       <Tooltip>
         <TooltipTrigger asChild>
-          {/* biome-ignore lint/a11y/useSemanticElements: Status text isn't a form calculation result. */}
           <div
             aria-label={`Embedding queue: ${queued} queued, ${running} running, ${failed} failed, ${succeeded} succeeded`}
             aria-live="polite"

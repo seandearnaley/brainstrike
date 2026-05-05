@@ -6,6 +6,11 @@ import type { MastraMemory } from '@mastra/core/memory';
 import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
 import type { McpConfig } from '../mcp/config';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
+import type {
+  AssistantRunEventKind,
+  AssistantRunEventMetadata,
+  AssistantRunEventStatus,
+} from '../run-events';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type { AgentMessage, RuntimeData, StreamChunk, StreamIterator } from '../types';
@@ -122,25 +127,23 @@ function instantiateLanguageModel(
 export function convertMessagesToMastra(
   messages: AgentMessage[]
 ): Array<{ role: 'user' | 'assistant' | 'system'; content: string }> {
-  return messages
-    .map((message) => {
-      const textParts = message.parts
-        .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
-        .map((part) => part.text.trim())
-        .filter((text) => text.length > 0);
-
-      if (textParts.length === 0) {
-        return null;
+  const result: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [];
+  for (const message of messages) {
+    const textParts: string[] = [];
+    for (const part of message.parts) {
+      if (part.type !== 'text') {
+        continue;
       }
-
-      return {
-        role: message.role,
-        content: textParts.join('\n\n'),
-      };
-    })
-    .filter((value): value is { role: 'user' | 'assistant' | 'system'; content: string } =>
-      Boolean(value)
-    );
+      const trimmed = part.text.trim();
+      if (trimmed.length > 0) {
+        textParts.push(trimmed);
+      }
+    }
+    if (textParts.length > 0) {
+      result.push({ role: message.role, content: textParts.join('\n\n') });
+    }
+  }
+  return result;
 }
 
 export async function createMastraAgentRuntime(
@@ -252,6 +255,8 @@ interface UsageLike {
 interface MastraStreamPart {
   delta?: string;
   error?: unknown;
+  finishReason?: unknown;
+  messageId?: unknown;
   payload?: {
     text?: string;
     textDelta?: string;
@@ -302,6 +307,51 @@ function getDeltaText(part: unknown): string {
   return p.text ?? p.textDelta ?? p.delta ?? payloadText ?? '';
 }
 
+function isRunEventMetadata(value: unknown): value is AssistantRunEventMetadata {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function makeRunEventChunk(
+  kind: AssistantRunEventKind,
+  status: AssistantRunEventStatus,
+  label: string,
+  metadata?: AssistantRunEventMetadata
+): StreamChunk {
+  return {
+    type: 'run-event',
+    event: {
+      id: `run-event-${generateUUID()}`,
+      kind,
+      label,
+      status,
+      timestamp: new Date().toISOString(),
+      ...(metadata ? { metadata } : {}),
+    },
+  };
+}
+
+function makeStepMetadata(part: unknown): AssistantRunEventMetadata | undefined {
+  const p = asMastraStreamPart(part);
+  const metadata: AssistantRunEventMetadata = {};
+  if (typeof p.messageId === 'string' && p.messageId.length > 0) {
+    metadata['messageId'] = p.messageId;
+  }
+  if (p.usage) {
+    const promptTokens = p.usage.promptTokens ?? p.usage.inputTokens;
+    if (typeof promptTokens === 'number' && Number.isFinite(promptTokens)) {
+      metadata['promptTokens'] = promptTokens;
+    }
+    if (typeof p.usage.completionTokens === 'number' && Number.isFinite(p.usage.completionTokens)) {
+      metadata['completionTokens'] = p.usage.completionTokens;
+    }
+  }
+  return isRunEventMetadata(metadata) && Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
 function readTripwireReason(part: unknown): string | undefined {
   const p = asMastraStreamPart(part);
   return p.tripwireReason ?? p.payload?.tripwireReason;
@@ -320,14 +370,67 @@ function processMastraStreamPart(
   const p = asMastraStreamPart(part);
 
   switch (p.type) {
+    case 'start':
+      return {
+        chunks: [
+          makeRunEventChunk(
+            'run.started',
+            'running',
+            'Assistant run started',
+            makeStepMetadata(part)
+          ),
+        ],
+        finished: false,
+      };
     case 'text-delta': {
       const delta = getDeltaText(part);
       return delta.length > 0
         ? { chunks: [{ type: 'text-delta', value: delta }], finished: false }
         : { chunks: [], finished: false };
     }
+    case 'reasoning-delta': {
+      const delta = getDeltaText(part);
+      return delta.length > 0
+        ? { chunks: [{ type: 'reasoning-delta', value: delta }], finished: false }
+        : { chunks: [], finished: false };
+    }
+    case 'step-start':
+      return {
+        chunks: [
+          makeRunEventChunk(
+            'run.step.started',
+            'running',
+            'Generation step started',
+            makeStepMetadata(part)
+          ),
+        ],
+        finished: false,
+      };
+    case 'step-finish':
+      return {
+        chunks: [
+          makeRunEventChunk(
+            'run.step.finished',
+            'completed',
+            'Generation step completed',
+            makeStepMetadata(part)
+          ),
+        ],
+        finished: false,
+      };
     case 'finish': {
-      return { chunks: [makeFinishChunk(part)], finished: true };
+      return {
+        chunks: [
+          makeRunEventChunk(
+            'run.finished',
+            'completed',
+            'Assistant run completed',
+            makeStepMetadata(part)
+          ),
+          makeFinishChunk(part),
+        ],
+        finished: true,
+      };
     }
     case 'tool-call':
     case 'tool-call-input-streaming-start':
