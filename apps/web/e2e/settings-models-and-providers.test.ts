@@ -50,7 +50,7 @@ test.describe('Models & Providers settings (web)', () => {
     await page.goto('/');
     await resetAppState(page);
     await page.reload();
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
   });
 
   test('shows a registry load error and recovers on retry', async ({ page }) => {
@@ -60,7 +60,7 @@ test.describe('Models & Providers settings (web)', () => {
 
     const home = new HomePage(page);
     const settings = new SettingsPage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
     const modelsContent = await settings.openCategory(/Models & Providers/i, 'models');
 
@@ -85,7 +85,7 @@ test.describe('Models & Providers settings (web)', () => {
   test('shows the web-only cache directory unavailable path', async ({ page }) => {
     const home = new HomePage(page);
     const settings = new SettingsPage(page);
-    await home.goto();
+    await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
     await settings.openCategory(/Models & Providers/i, 'models');
 

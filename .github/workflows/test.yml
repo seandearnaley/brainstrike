@@ -630,7 +630,7 @@ jobs:
           - group: assistant-ui
             testFiles: e2e/assistant-ui-panel.test.ts
           - group: database-startup
-            testFiles: e2e/tools-panel-persistence.test.ts e2e/web-db-worker-startup.test.ts
+            testFiles: e2e/tools-panel-persistence.test.ts e2e/web-db-worker-startup.test.ts e2e/embedding-worker-telemetry.test.ts
           - group: settings-state
             testFiles: e2e/background-indexing-settings.test.ts e2e/settings-models-and-providers.test.ts
     steps:
