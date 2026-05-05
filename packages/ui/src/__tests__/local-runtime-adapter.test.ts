@@ -168,7 +168,10 @@ describe('createLocalModelAdapter', () => {
     );
 
     expect(updates.length).toBeGreaterThan(0);
-    expect(updates[0]).toMatchObject({
+    expect(updates.some((update) => update.content?.some((part) => part.type === 'data'))).toBe(
+      true
+    );
+    expect(updates).toContainEqual({
       content: expect.arrayContaining([
         {
           type: 'reasoning',
@@ -292,9 +295,7 @@ describe('createLocalModelAdapter', () => {
   });
 
   it('lets an aborted warmup caller exit locally without cancelling shared warmup work', async () => {
-    const warmup = vi.fn().mockImplementation(async () => {
-      return await new Promise<void>(() => {});
-    });
+    const warmup = vi.fn().mockImplementation(async () => await new Promise<void>(() => {}));
     const cancel = vi.fn().mockResolvedValue(undefined);
     const generate = vi.fn();
 
@@ -326,7 +327,7 @@ describe('createLocalModelAdapter', () => {
     abortController.abort();
 
     await expect(updatesPromise).resolves.toContainEqual({
-      content: [{ type: 'text', text: 'Generation cancelled.' }],
+      content: expect.arrayContaining([{ type: 'text', text: 'Generation cancelled.' }]),
     });
     expect(cancel).not.toHaveBeenCalled();
     expect(generate).not.toHaveBeenCalled();
@@ -467,13 +468,111 @@ describe('createLocalModelAdapter', () => {
 
     const firstRun = collectRun(adapter.run(createRunOptions()));
     const secondRun = collectRun(adapter.run(createRunOptions()));
-    await Promise.resolve();
 
-    expect(warmup).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(warmup).toHaveBeenCalledTimes(1);
+    });
 
     resolveWarmup?.();
     await Promise.all([firstRun, secondRun]);
     expect(generate).toHaveBeenCalledTimes(2);
+  });
+
+  it('serializes concurrent desktop local generations through a FIFO queue', async () => {
+    const generationResolvers: Array<(value: LocalLlmGenerationResult) => void> = [];
+    const warmup = vi.fn().mockResolvedValue(undefined);
+    const generate = vi.fn().mockImplementation(
+      async () =>
+        await new Promise<LocalLlmGenerationResult>((resolve) => {
+          generationResolvers.push(resolve);
+        })
+    );
+
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        warmup,
+        generate,
+        onProgress: vi.fn(() => () => {}),
+        onStatus: vi.fn(() => () => {}),
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+    });
+
+    const firstRun = collectRun(adapter.run(createRunOptions()));
+    const secondRun = collectRun(adapter.run(createRunOptions()));
+
+    await vi.waitFor(() => {
+      expect(generate).toHaveBeenCalledTimes(1);
+    });
+    expect(generationResolvers).toHaveLength(1);
+
+    generationResolvers[0]?.(createGenerationResult({ text: 'First response.' }));
+    await vi.waitFor(() => {
+      expect(generate).toHaveBeenCalledTimes(2);
+    });
+    generationResolvers[1]?.(createGenerationResult({ text: 'Second response.' }));
+
+    await expect(firstRun).resolves.toContainEqual({
+      content: expect.arrayContaining([{ type: 'text', text: 'First response.' }]),
+    });
+    await expect(secondRun).resolves.toContainEqual({
+      content: expect.arrayContaining([{ type: 'text', text: 'Second response.' }]),
+    });
+  });
+
+  it('waits for in-flight local generation before completing backend disposal', async () => {
+    const generationResolvers: Array<(value: LocalLlmGenerationResult) => void> = [];
+    const warmup = vi.fn().mockResolvedValue(undefined);
+    const generate = vi.fn().mockImplementation(
+      async () =>
+        await new Promise<LocalLlmGenerationResult>((resolve) => {
+          generationResolvers.push(resolve);
+        })
+    );
+
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        warmup,
+        generate,
+        onProgress: vi.fn(() => () => {}),
+        onStatus: vi.fn(() => () => {}),
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+    });
+
+    const firstRun = collectRun(adapter.run(createRunOptions()));
+    await vi.waitFor(() => {
+      expect(generate).toHaveBeenCalledTimes(1);
+    });
+
+    const disposal = disposeLocalBackend();
+    let disposalResolved = false;
+    disposal.then(() => {
+      disposalResolved = true;
+    });
+    const secondRun = collectRun(adapter.run(createRunOptions()));
+    await Promise.resolve();
+
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(disposalResolved).toBe(false);
+
+    generationResolvers[0]?.(createGenerationResult({ text: 'First response.' }));
+    await firstRun;
+    await disposal;
+
+    await vi.waitFor(() => {
+      expect(generate).toHaveBeenCalledTimes(2);
+    });
+    generationResolvers[1]?.(createGenerationResult({ text: 'Second response.' }));
+    await expect(secondRun).resolves.toContainEqual({
+      content: expect.arrayContaining([{ type: 'text', text: 'Second response.' }]),
+    });
   });
 
   it('does not cancel a shared warmup when only a joiner aborts', async () => {
@@ -523,7 +622,7 @@ describe('createLocalModelAdapter', () => {
     resolveWarmup?.();
 
     await expect(joinerRun).resolves.toContainEqual({
-      content: [{ type: 'text', text: 'Generation cancelled.' }],
+      content: expect.arrayContaining([{ type: 'text', text: 'Generation cancelled.' }]),
     });
     await expect(ownerRun).resolves.toContainEqual({
       content: expect.arrayContaining([{ type: 'text', text: 'Ready.' }]),
@@ -578,7 +677,7 @@ describe('createLocalModelAdapter', () => {
     ownerAbort.abort();
 
     await expect(ownerRun).resolves.toContainEqual({
-      content: [{ type: 'text', text: 'Generation cancelled.' }],
+      content: expect.arrayContaining([{ type: 'text', text: 'Generation cancelled.' }]),
     });
     expect(cancel).not.toHaveBeenCalled();
     warmupResolvers.at(-1)?.();

@@ -403,16 +403,20 @@ export class DrizzleEmbeddingCacheRepository {
    * Evict the oldest entries from the cache.
    * Used for LRU eviction when cache grows too large.
    *
-   * @param maxEntries - Maximum entries to evict
+   * @param count - Number of oldest entries to evict
    * @returns Number of entries evicted
    */
-  async evictOldest(maxEntries: number): Promise<number> {
+  async evictOldest(count: number): Promise<number> {
+    if (count <= 0) {
+      return 0;
+    }
+
     // Find oldest entries by accessedAt
     const oldestIds = await this.db
       .select({ id: embeddingCache.id })
       .from(embeddingCache)
       .orderBy(asc(embeddingCache.accessedAt))
-      .limit(maxEntries);
+      .limit(count);
 
     if (oldestIds.length === 0) {
       return 0;
@@ -428,7 +432,7 @@ export class DrizzleEmbeddingCacheRepository {
 
     this.logger.info('Evicted oldest cache entries', {
       evicted: deleted.length,
-      requested: maxEntries,
+      requested: count,
     });
 
     return deleted.length;

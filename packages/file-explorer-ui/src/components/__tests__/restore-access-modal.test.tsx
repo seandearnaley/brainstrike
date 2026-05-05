@@ -10,6 +10,7 @@ describe('RestoreAccessModal', () => {
     variant: 'pending' as const,
     onRestore: vi.fn(),
     onDismiss: vi.fn(),
+    onChooseDifferentFolder: vi.fn(),
   };
 
   it('renders the modal when open', () => {
@@ -54,6 +55,19 @@ describe('RestoreAccessModal', () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
+  it('calls onChooseDifferentFolder from the modal action', async () => {
+    const user = userEvent.setup();
+    const onChooseDifferentFolder = vi.fn();
+
+    render(
+      <RestoreAccessModal {...defaultProps} onChooseDifferentFolder={onChooseDifferentFolder} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Choose different folder' }));
+
+    expect(onChooseDifferentFolder).toHaveBeenCalledTimes(1);
+  });
+
   it('calls onDismiss when escape key is pressed', async () => {
     const user = userEvent.setup();
     const onDismiss = vi.fn();
@@ -89,6 +103,7 @@ describe('RestoreAccessModal', () => {
       expect(
         screen.queryByRole('button', { name: 'Restore folder access' })
       ).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Choose different folder' })).toBeInTheDocument();
       // The dismiss button shows "Close" in stale variant
       expect(screen.getByRole('button', { name: 'Close dialog' })).toBeInTheDocument();
     });

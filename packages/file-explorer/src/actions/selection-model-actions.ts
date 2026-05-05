@@ -68,9 +68,9 @@ export const createSelectionModelActions = (
       selectionModel: {
         ...state.selectionModel,
         mode,
-        ...(mode !== 'query' ? { queryDescriptor: null } : {}),
+        ...(mode === 'query' ? {} : { queryDescriptor: null }),
       },
-      ...(mode !== 'query' ? { querySelectionManifest: null } : {}),
+      ...(mode === 'query' ? {} : { querySelectionManifest: null }),
       // Clear selectedFilePaths when entering rules mode to avoid stale explicit selections
       // (will be repopulated by setMaterializedPaths when rules are evaluated)
       ...(isEnteringRulesMode || isEnteringQueryMode

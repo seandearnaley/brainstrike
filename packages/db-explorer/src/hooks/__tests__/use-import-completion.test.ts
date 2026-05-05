@@ -27,7 +27,7 @@ describe('createImportCompletionHandler', () => {
       },
     ];
 
-    handler(results);
+    await handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
       title: 'Import Complete',
@@ -37,6 +37,38 @@ describe('createImportCompletionHandler', () => {
 
     expect(mockLoadRecords).toHaveBeenCalled();
     expect(mockLoadChunks).toHaveBeenCalled();
+  });
+
+  it('refreshes collection stats before reloading visible import data', async () => {
+    const mockToast = vi.fn();
+    const events: string[] = [];
+    const mockRefreshCollectionStats = vi.fn(async () => {
+      events.push('stats');
+    });
+    const mockLoadRecords = vi.fn(async () => {
+      events.push('records');
+    });
+    const mockLoadChunks = vi.fn(async () => {
+      events.push('chunks');
+    });
+
+    const handler = createImportCompletionHandler(
+      mockToast,
+      mockLoadRecords,
+      mockLoadChunks,
+      mockRefreshCollectionStats
+    );
+
+    await handler([
+      {
+        id: 'test1.txt',
+        imported: true,
+        existed: false,
+        chunksCreated: 1,
+      },
+    ]);
+
+    expect(events).toEqual(['stats', 'records', 'chunks']);
   });
 
   it('handles imports with failures', () => {

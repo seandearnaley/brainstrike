@@ -250,12 +250,12 @@ export const compareWithBaseline = async (
     comparisons.forEach((comp) => {
       const arrow =
         comp.comparison === 'improved' ? '⬇️' : comp.comparison === 'regressed' ? '⬆️' : '➡️';
-      const improvementText = comp.improvement !== null ? ` (${comp.improvement.toFixed(1)}%)` : '';
+      const improvementText = comp.improvement === null ? '' : ` (${comp.improvement.toFixed(1)}%)`;
       console.log(`${arrow} ${comp.name}: ${comp.value.toFixed(2)}${comp.unit}${improvementText}`);
     });
 
     return comparisons;
-  } catch (_error) {
+  } catch {
     console.log(`No baseline found at ${baselinePath}, skipping comparison`);
     return currentMetrics.map((m) => ({ ...m, comparison: 'baseline', improvement: null }));
   }

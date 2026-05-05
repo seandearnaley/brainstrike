@@ -65,8 +65,16 @@ export interface FileSelectionActions {
 function scheduleChunk(): Promise<void> {
   return new Promise((resolve, reject) => {
     const scheduleCallback =
-      typeof requestIdleCallback !== 'undefined'
+      typeof requestIdleCallback === 'undefined'
         ? (cb: () => void) =>
+            setTimeout(() => {
+              try {
+                cb();
+              } catch (error) {
+                reject(error);
+              }
+            }, 0)
+        : (cb: () => void) =>
             requestIdleCallback(
               () => {
                 try {
@@ -76,15 +84,7 @@ function scheduleChunk(): Promise<void> {
                 }
               },
               { timeout: IDLE_CALLBACK_TIMEOUT_MS }
-            )
-        : (cb: () => void) =>
-            setTimeout(() => {
-              try {
-                cb();
-              } catch (error) {
-                reject(error);
-              }
-            }, 0);
+            );
 
     scheduleCallback(resolve);
   });

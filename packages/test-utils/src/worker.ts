@@ -9,9 +9,11 @@ export function installMockWorkers(options?: { maxWorkers?: number }) {
   const createdWorkers: Set<Worker> = new Set();
   const workerString = 'Worker';
   const OriginalWindowWorker =
-    typeof window !== 'undefined'
-      ? ((window as unknown as { [k: string]: unknown })[workerString] as typeof Worker | undefined)
-      : undefined;
+    typeof window === 'undefined'
+      ? undefined
+      : ((window as unknown as { [k: string]: unknown })[workerString] as
+          | typeof Worker
+          | undefined);
 
   const OriginalGlobalWorker = (globalThis as { [k: string]: unknown })[workerString] as
     | typeof Worker

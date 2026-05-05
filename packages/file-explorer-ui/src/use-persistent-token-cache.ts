@@ -12,6 +12,7 @@
  * - Cache-first lookup (no content loading required for cached files)
  */
 
+import { INACCESSIBLE_CONTENT_PREFIX } from '@brainstrike/file-explorer-hooks';
 import { createLogger } from '@brainstrike/utils/logger';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import type { MutableRefObject } from 'react';
@@ -114,7 +115,7 @@ export interface UsePersistentTokenCacheReturn {
  * Helper to check if content is accessible (not a placeholder message)
  */
 function isContentAccessible(content: string): boolean {
-  return !(content.startsWith('File not accessible') || content.startsWith('Binary file'));
+  return !(content.startsWith(INACCESSIBLE_CONTENT_PREFIX) || content.startsWith('Binary file'));
 }
 
 function shouldDelayRetry(
@@ -339,13 +340,13 @@ export function usePersistentTokenCache({
       if (persistentCache?.isOperational) {
         const normalizedPath = tryNormalizeSelectionPath(folderId, path);
         if (!normalizedPath) {
-          return undefined;
+          return;
         }
         return persistentCache.getFileSize(folderId, normalizedPath);
       }
 
       // No fallback for file size in in-memory mode
-      return undefined;
+      return;
     },
     [persistentCache, decodeFileSelection]
   );

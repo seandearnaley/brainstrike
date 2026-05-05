@@ -23,10 +23,10 @@ test.describe('Quick Filter and Tree Expansion', { tag: '@smoke' }, () => {
     await mockBrowserApis(page, 'test-project', tree);
 
     await page.goto('/');
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
     await resetAppState(page);
     await page.reload();
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
     await page.getByTestId('select-root-button').click();
 
     await expect(

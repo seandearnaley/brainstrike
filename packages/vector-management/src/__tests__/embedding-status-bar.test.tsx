@@ -15,9 +15,8 @@ describe('EmbeddingStatusBar', () => {
     ],
   };
 
-  const renderStatusBar = (props: Partial<EmbeddingStatusBarProps> = {}) => {
-    return render(<EmbeddingStatusBar {...defaultProps} {...props} />);
-  };
+  const renderStatusBar = (props: Partial<EmbeddingStatusBarProps> = {}) =>
+    render(<EmbeddingStatusBar {...defaultProps} {...props} />);
 
   describe('StatusBar container', () => {
     it('renders with unique embedding-status-bar testId', () => {

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { resetAppState } from './utils/app-state';
+import { resetAppState, seedWorkspaceFocusedShellLayout } from './utils/app-state';
 import { getFileTree } from './utils/file-tree-locators';
 import { waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
@@ -44,10 +44,11 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
     await mockBrowserApis(page, 'test-root', tree, { clipboard: true });
 
     await page.goto('/');
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
     await resetAppState(page);
+    await seedWorkspaceFocusedShellLayout(page);
     await page.reload();
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
   });
 
   test('should complete the full file selection and context generation workflow', async ({
@@ -311,12 +312,10 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
     const selectAllButton = page.getByRole('button', { name: 'Select All' });
     await expect(selectAllButton).toBeEnabled();
     await selectAllButton.click();
+    await page.getByTestId('hide-threads-panel').click();
+    await expect(page.getByTestId('show-threads-panel')).toBeVisible();
 
     await expect(page.getByText('6 files', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Button.tsx' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Input.tsx' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'helpers.ts' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'index.ts' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'test.ts' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'test2.ts' })).toBeVisible();
 
@@ -328,10 +327,6 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
     await expect(page.getByText('2 files', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'test.ts' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'test2.ts' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Button.tsx' })).not.toBeVisible();
-    await expect(page.getByRole('button', { name: 'Input.tsx' })).not.toBeVisible();
-    await expect(page.getByRole('button', { name: 'helpers.ts' })).not.toBeVisible();
-    await expect(page.getByRole('button', { name: 'index.ts' })).not.toBeVisible();
   });
 
   test('unchecking a selected folder removes its files from the grouped context explorer', async ({

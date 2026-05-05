@@ -92,7 +92,7 @@ function createMockWorkerPort(
         strategyUsed: chunkResult.strategyUsed ?? 'sentence',
         totalTokens: chunkResult.totalTokens ?? chunks.reduce((sum, c) => sum + c.tokenCount, 0),
         skipped: chunkResult.skipped ?? false,
-        ...(chunkResult.skipReason !== undefined ? { skipReason: chunkResult.skipReason } : {}),
+        ...(chunkResult.skipReason === undefined ? {} : { skipReason: chunkResult.skipReason }),
       } as WorkerChunkResult;
     },
   };

@@ -1,5 +1,16 @@
 import path from 'node:path';
-import { applyManagedCacheBatch, JobQueue, parseManagedCacheBatchArgs } from '@brainstrike/db';
+import {
+  createDatabaseWorkScheduler,
+  createScheduledDbHandle,
+  type DatabaseWorkOptions,
+  type DatabaseWorkPriority,
+  type DatabaseWorkScheduler,
+  type DatabaseWorkSchedulerOptions,
+  type DatabaseWorkSchedulerSnapshot,
+  escapePGliteLiveQueryFormatPercents,
+  JobQueue,
+  parseManagedCacheBatchArgs,
+} from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle, SerializableFileNode } from '@brainstrike/file-system';
 import { AccessError, getTestDirectoryStructure } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
@@ -18,6 +29,7 @@ import {
   type GpuMemoryReclaimConfig,
   type GpuMemoryReclaimMode,
 } from './backfill-maintenance-coordinator';
+import type { ChunkingHostManager } from './chunking-host-manager';
 import { DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL } from './db-shared';
 import { enqueueEmbeddingBackfill } from './embedding-backfill';
 import type { EmbeddingHostManager } from './embedding-host-manager';
@@ -44,6 +56,7 @@ const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as
  * Register all IPC handlers used by the desktop application.
  */
 interface RegisterIpcHandlerOptions {
+  chunkingHostManager?: ChunkingHostManager;
   embeddingHostManager?: EmbeddingHostManager;
   onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
 }
@@ -73,6 +86,8 @@ const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
 const liveSubscriptionOwnerListeners = new Set<number>();
 let nextLiveSubscriptionId = 1;
 const logger = createLogger('DesktopIpcHandlers');
+let desktopDatabaseWorkScheduler: DatabaseWorkScheduler = createDatabaseWorkScheduler();
+let desktopDatabaseResetBarrier: Promise<void> | null = null;
 
 // ---------------------------------------------------------------------------
 // Live query IPC throttling
@@ -83,18 +98,23 @@ const logger = createLogger('DesktopIpcHandlers');
 // mutations, each triggering multiple live queries).
 //
 // Foreground: 200ms flush interval — responsive UI updates without flooding
-// Background: subscriptions are fully paused, so the 2s interval is only a
-// defensive fallback for any queued updates that exist before pause takes effect
+// Background: subscriptions stay attached. PGlite 0.4.4 treats the last listener
+// unsubscribe as terminal for a live-query handle, so pressure control must happen
+// at the IPC delivery layer via deduped batched sends.
 // Focus: immediate flush — user sees up-to-date state on return
 // ---------------------------------------------------------------------------
 let isBackgrounded = false;
-let liveSubscriptionPauseDepth = 0;
 const pendingLiveUpdates = new Map<number, { id: number; results: unknown }>();
 let liveFlushTimer: ReturnType<typeof setTimeout> | null = null;
 const LIVE_FLUSH_BACKGROUND_INTERVAL_MS = 2000;
 const LIVE_FLUSH_FOREGROUND_INTERVAL_MS = 200;
+const DEFAULT_DATABASE_WORK_IDLE_TIMEOUT_MS = 5000;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES = 4;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS = 250;
+const BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS = 10 * 60 * 1000;
+// Manual and background-indexing backfills are both user-visible indexing work,
+// but neither should occupy the foreground UI database lane.
+const EMBEDDING_BACKFILL_DATABASE_PRIORITY: DatabaseWorkPriority = 'background';
 interface EmbeddingBackfillInFlightState {
   progress: { current: number; total: number } | null;
   requestId: string;
@@ -233,12 +253,14 @@ function createDesktopBackfillProgressReporter(params: {
   backfillRequestId: string;
   event: IpcMainInvokeEvent;
   normalizedEmbeddingSetId: string;
+  source: EmbeddingBackfillSource;
 }): (done: number, total: number) => void {
   const {
     backfillProgressTargetUnavailableRef,
     backfillRequestId,
     event,
     normalizedEmbeddingSetId,
+    source,
   } = params;
 
   return (done: number, total: number) => {
@@ -254,6 +276,7 @@ function createDesktopBackfillProgressReporter(params: {
       event.sender.send(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
         embeddingSetId: normalizedEmbeddingSetId,
         requestId: backfillRequestId,
+        source,
         stage: 'backfill',
         current: done,
         total,
@@ -298,7 +321,6 @@ async function runDesktopEmbeddingBackfill(params: {
     progress: null,
     source,
   });
-  acquireLiveSubscriptionPause();
 
   try {
     const hostStatus = await hostManager.ensureStarted({ waitForRunning: true });
@@ -308,10 +330,21 @@ async function runDesktopEmbeddingBackfill(params: {
 
     const { getDatabase } = await import('./db-main');
     const db = await getDatabase();
-    const jobQueue = new JobQueue(db);
+    logger.info('Desktop embedding backfill scheduling resolved', {
+      embeddingSetId: normalizedEmbeddingSetId,
+      priority: EMBEDDING_BACKFILL_DATABASE_PRIORITY,
+      requestId: backfillRequestId,
+      source,
+    });
+    const scheduledDb = createScheduledDbHandle(
+      db,
+      desktopDatabaseWorkScheduler,
+      EMBEDDING_BACKFILL_DATABASE_PRIORITY
+    );
+    const jobQueue = new JobQueue(scheduledDb);
 
     await enqueueEmbeddingBackfill(
-      db,
+      scheduledDb,
       jobQueue,
       normalizedEmbeddingSetId,
       createDesktopBackfillProgressReporter({
@@ -319,6 +352,7 @@ async function runDesktopEmbeddingBackfill(params: {
         backfillRequestId,
         event,
         normalizedEmbeddingSetId,
+        source,
       }),
       {
         assertCanContinue: () => {
@@ -333,13 +367,17 @@ async function runDesktopEmbeddingBackfill(params: {
         },
         progressIntervalBatches: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES,
         progressIntervalMs: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS,
+        ...(source === 'background-indexing'
+          ? {
+              queueCapacityTimeoutMs: BACKGROUND_INDEXING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
+            }
+          : {}),
       }
     );
     return { requestId: backfillRequestId };
   } finally {
     embeddingBackfillsInFlight.delete(normalizedEmbeddingSetId);
     embeddingBackfillsCanceled.delete(normalizedEmbeddingSetId);
-    releaseLiveSubscriptionPause();
     if (!isBackgrounded) {
       flushPendingLiveUpdates();
     }
@@ -462,77 +500,8 @@ export { flushPendingLiveUpdates };
 export function setBackgrounded(value: boolean): void {
   const wasBackgrounded = isBackgrounded;
   isBackgrounded = value;
-  if (value && !wasBackgrounded) {
-    acquireLiveSubscriptionPause();
-  }
   if (!value && wasBackgrounded) {
-    releaseLiveSubscriptionPause();
     flushPendingLiveUpdates();
-  }
-}
-
-// Reference-counted pause/resume for PGlite live query subscriptions.
-// Multiple callers (window blur, backfill) can pause independently;
-// subscriptions only resume when ALL callers have released.
-function acquireLiveSubscriptionPause(): void {
-  liveSubscriptionPauseDepth += 1;
-  if (liveSubscriptionPauseDepth === 1) {
-    // Intentional fire-and-forget: PGlite unsubscribe may resolve asynchronously,
-    // so callbacks can race briefly with the pause transition. Those callbacks
-    // only enqueue fresh state and are flushed once subscriptions resume.
-    for (const record of liveSubscriptions.values()) {
-      try {
-        record.handle.unsubscribe(record.listener).catch((error: unknown) => {
-          logger.debug('Failed to unsubscribe live query during pause', {
-            subscriptionId: record.id,
-            webContentsId: record.webContentsId,
-            error,
-          });
-        });
-      } catch (error) {
-        logger.debug('Failed to unsubscribe live query during pause', {
-          subscriptionId: record.id,
-          webContentsId: record.webContentsId,
-          error,
-        });
-      }
-    }
-  }
-}
-
-function releaseLiveSubscriptionPause(): void {
-  if (liveSubscriptionPauseDepth <= 0) {
-    return;
-  }
-  liveSubscriptionPauseDepth -= 1;
-  if (liveSubscriptionPauseDepth === 0) {
-    // Intentional fire-and-forget: subscriptions may already have been cleaned
-    // up concurrently, and live query reattachment should not block foregrounding.
-    for (const record of liveSubscriptions.values()) {
-      try {
-        const subscribeResult = record.handle.subscribe(record.listener) as unknown;
-        if (
-          subscribeResult &&
-          typeof subscribeResult === 'object' &&
-          'catch' in subscribeResult &&
-          typeof subscribeResult.catch === 'function'
-        ) {
-          void subscribeResult.catch((error: unknown) => {
-            logger.debug('Failed to resubscribe live query after pause release', {
-              subscriptionId: record.id,
-              webContentsId: record.webContentsId,
-              error,
-            });
-          });
-        }
-      } catch (error) {
-        logger.debug('Failed to resubscribe live query after pause release', {
-          subscriptionId: record.id,
-          webContentsId: record.webContentsId,
-          error,
-        });
-      }
-    }
   }
 }
 
@@ -653,6 +622,261 @@ function isMissingRelationError(error: unknown): boolean {
   return message.includes('relation') && message.includes('does not exist');
 }
 
+async function clearOptionalRelation(
+  tx: { query: (sql: string) => Promise<{ rows: unknown[] }> },
+  tableName: string
+): Promise<void> {
+  try {
+    await tx.query(`DELETE FROM ${tableName}`);
+  } catch (error) {
+    if (isMissingRelationError(error)) {
+      return;
+    }
+    logger.warn('Failed to clear optional database table', { error, tableName });
+    throw error;
+  }
+}
+
+function isDatabaseWorkPriority(value: unknown): value is DatabaseWorkPriority {
+  return value === 'foreground' || value === 'normal' || value === 'background';
+}
+
+function parseDatabaseWorkOptions(value: unknown): DatabaseWorkOptions {
+  if (value === undefined) {
+    return {};
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Database work options must be an object when provided.');
+  }
+  const keys = Object.keys(value);
+  if (keys.length === 0 || keys.some((key) => key !== 'priority' && key !== 'label')) {
+    throw new Error('Database work options may only include priority and label.');
+  }
+  const candidate = value as { label?: unknown; priority?: unknown };
+  if (candidate.priority !== undefined && !isDatabaseWorkPriority(candidate.priority)) {
+    throw new Error('Database work priority must be foreground, normal, or background.');
+  }
+  if (candidate.label !== undefined && typeof candidate.label !== 'string') {
+    throw new Error('Database work label must be a string when provided.');
+  }
+  const options: { label?: string; priority?: DatabaseWorkPriority } = {};
+  if (candidate.label !== undefined) {
+    options.label = candidate.label;
+  }
+  if (candidate.priority !== undefined) {
+    options.priority = candidate.priority;
+  }
+  return options;
+}
+
+function isDatabaseWorkOptionsArgument(value: unknown): value is DatabaseWorkOptions {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const keys = Object.keys(value);
+  if (keys.length === 0 || keys.some((key) => key !== 'priority' && key !== 'label')) {
+    return false;
+  }
+  const candidate = value as { label?: unknown; priority?: unknown };
+  if (candidate.priority !== undefined && !isDatabaseWorkPriority(candidate.priority)) {
+    return false;
+  }
+  return candidate.label === undefined || typeof candidate.label === 'string';
+}
+
+function resolveSqlParamsAndWorkOptions(
+  channel: string,
+  paramsOrOptions: unknown,
+  maybeOptions: unknown
+): {
+  readonly params: unknown[] | undefined;
+  readonly workOptions: unknown;
+} {
+  if (paramsOrOptions === undefined) {
+    return { params: undefined, workOptions: maybeOptions };
+  }
+  if (Array.isArray(paramsOrOptions)) {
+    return { params: paramsOrOptions, workOptions: maybeOptions };
+  }
+  if (isDatabaseWorkOptionsArgument(paramsOrOptions)) {
+    return { params: undefined, workOptions: paramsOrOptions };
+  }
+  throw new Error(`${channel} parameters must be an array when provided.`);
+}
+
+function getSenderOwnerWindow(event: IpcMainInvokeEvent): BrowserWindow | null {
+  if (!event.sender) {
+    return null;
+  }
+  const sender = event.sender as IpcMainInvokeEvent['sender'] & {
+    getOwnerBrowserWindow?: () => BrowserWindow | null;
+  };
+  const ownerFromSender = sender.getOwnerBrowserWindow?.();
+  if (ownerFromSender) {
+    return ownerFromSender;
+  }
+  const fromWebContents = (
+    BrowserWindow as typeof BrowserWindow & {
+      fromWebContents?: (webContents: IpcMainInvokeEvent['sender']) => BrowserWindow | null;
+    }
+  ).fromWebContents;
+  return fromWebContents?.(event.sender) ?? null;
+}
+
+function resolveDefaultDatabaseWorkPriority(
+  event: IpcMainInvokeEvent,
+  options:
+    | Pick<RegisterIpcHandlerOptions, 'chunkingHostManager' | 'embeddingHostManager'>
+    | undefined
+): DatabaseWorkPriority {
+  const ownerWindow = getSenderOwnerWindow(event);
+  if (ownerWindow && options?.embeddingHostManager?.isHostWindow(ownerWindow)) {
+    return 'background';
+  }
+  if (ownerWindow && options?.chunkingHostManager?.isHostWindow(ownerWindow)) {
+    return 'background';
+  }
+  return 'foreground';
+}
+
+function resolveDatabaseWorkOptions(
+  event: IpcMainInvokeEvent,
+  registerOptions:
+    | Pick<RegisterIpcHandlerOptions, 'chunkingHostManager' | 'embeddingHostManager'>
+    | undefined,
+  explicitOptions: unknown,
+  fallbackLabel: string
+): DatabaseWorkOptions {
+  const parsedOptions = parseDatabaseWorkOptions(explicitOptions);
+  return {
+    label: parsedOptions.label ?? fallbackLabel,
+    priority: parsedOptions.priority ?? resolveDefaultDatabaseWorkPriority(event, registerOptions),
+  };
+}
+
+function runScheduledDatabaseWork<T>(
+  event: IpcMainInvokeEvent,
+  registerOptions:
+    | Pick<RegisterIpcHandlerOptions, 'chunkingHostManager' | 'embeddingHostManager'>
+    | undefined,
+  explicitOptions: unknown,
+  fallbackLabel: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  const workOptions = resolveDatabaseWorkOptions(
+    event,
+    registerOptions,
+    explicitOptions,
+    fallbackLabel
+  );
+  return waitForDesktopDatabaseResetBarrier().then(() =>
+    desktopDatabaseWorkScheduler.run(operation, workOptions)
+  );
+}
+
+export function getDesktopDatabaseWorkSchedulerSnapshot(): DatabaseWorkSchedulerSnapshot {
+  return desktopDatabaseWorkScheduler.getSnapshot();
+}
+
+export function runDesktopScheduledDatabaseWork<T>(
+  options: DatabaseWorkOptions,
+  operation: () => Promise<T>
+): Promise<T> {
+  return waitForDesktopDatabaseResetBarrier().then(() =>
+    desktopDatabaseWorkScheduler.run(operation, options)
+  );
+}
+
+async function waitForDesktopDatabaseResetBarrier(): Promise<void> {
+  const barrier = desktopDatabaseResetBarrier;
+  if (!barrier) {
+    return;
+  }
+  await barrier;
+}
+
+export async function runWithDesktopDatabaseResetBarrier<T>(
+  operation: () => Promise<T>
+): Promise<T> {
+  if (desktopDatabaseResetBarrier) {
+    throw new Error('Desktop database reset barrier is already active.');
+  }
+
+  let releaseBarrier!: () => void;
+  desktopDatabaseResetBarrier = new Promise<void>((resolve) => {
+    releaseBarrier = resolve;
+  });
+
+  try {
+    return await operation();
+  } finally {
+    releaseBarrier();
+    desktopDatabaseResetBarrier = null;
+  }
+}
+
+function isDesktopDatabaseWorkSchedulerIdle(snapshot: DatabaseWorkSchedulerSnapshot): boolean {
+  return (
+    snapshot.runningPriority === null &&
+    snapshot.queued.foreground === 0 &&
+    snapshot.queued.normal === 0 &&
+    snapshot.queued.background === 0
+  );
+}
+
+export async function waitForDesktopDatabaseWorkSchedulerIdle(
+  timeoutMs = DEFAULT_DATABASE_WORK_IDLE_TIMEOUT_MS
+): Promise<void> {
+  if (isDesktopDatabaseWorkSchedulerIdle(desktopDatabaseWorkScheduler.getSnapshot())) {
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    let unsubscribe: (() => void) | null = null;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+    };
+
+    const resolveIfIdle = (snapshot: DatabaseWorkSchedulerSnapshot) => {
+      if (!isDesktopDatabaseWorkSchedulerIdle(snapshot)) {
+        return;
+      }
+      cleanup();
+      resolve();
+    };
+
+    timeout = setTimeout(() => {
+      const snapshot = desktopDatabaseWorkScheduler.getSnapshot();
+      cleanup();
+      reject(
+        new Error(
+          `Desktop database work did not become idle within ${timeoutMs}ms. ` +
+            `running=${snapshot.runningLabel ?? 'none'} queued=${JSON.stringify(snapshot.queued)}`
+        )
+      );
+    }, timeoutMs);
+
+    unsubscribe = desktopDatabaseWorkScheduler.subscribe(resolveIfIdle);
+    resolveIfIdle(desktopDatabaseWorkScheduler.getSnapshot());
+  });
+}
+
+export function resetDesktopDatabaseWorkSchedulerForTests(
+  options?: DatabaseWorkSchedulerOptions
+): void {
+  desktopDatabaseWorkScheduler = createDatabaseWorkScheduler(options);
+  desktopDatabaseResetBarrier = null;
+}
+
 interface LiveQueryPayload {
   key?: string;
   limit?: number;
@@ -676,7 +900,7 @@ async function createLiveQueryHandle(
       throw new Error('Live incremental queries require a key column');
     }
     return await db.live.incrementalQuery({
-      query: payload.query,
+      query: escapePGliteLiveQueryFormatPercents(payload.query, payload.params),
       params: payload.params ?? null,
       key: payload.key,
       offset: payload.offset,
@@ -684,7 +908,7 @@ async function createLiveQueryHandle(
     });
   }
   return await db.live.query({
-    query: payload.query,
+    query: escapePGliteLiveQueryFormatPercents(payload.query, payload.params),
     params: payload.params ?? null,
     offset: payload.offset,
     limit: payload.limit,
@@ -717,6 +941,10 @@ async function cleanupAllLiveSubscriptions(): Promise<void> {
   await Promise.allSettled(ids.map((id) => cleanupLiveSubscription(id)));
   liveSubscriptions.clear();
   liveSubscriptionOwnerListeners.clear();
+}
+
+export async function cleanupDesktopLiveSubscriptionsForShutdown(): Promise<void> {
+  await cleanupAllLiveSubscriptions();
 }
 
 function registerLiveSubscriptionOwner(sender: Pick<Electron.WebContents, 'id' | 'once'>): void {
@@ -1059,20 +1287,50 @@ export function registerIpcHandlers(
   });
 
   // Database IPC handlers (wrapped with corruption recovery)
-  registerHandler('db:query', async (_evt: IpcMainInvokeEvent, sql: string, params?: unknown[]) =>
-    withCorruptionRecovery(async () => {
-      const { getDatabase } = await import('./db-main');
-      const db = await getDatabase();
-      return await db.query(sql, params);
-    }, 'db:query')
+  registerHandler(
+    'db:query',
+    async (
+      event: IpcMainInvokeEvent,
+      sql: string,
+      paramsOrOptions?: unknown[] | DatabaseWorkOptions,
+      maybeOptions?: DatabaseWorkOptions
+    ) => {
+      const { params, workOptions } = resolveSqlParamsAndWorkOptions(
+        'db:query',
+        paramsOrOptions,
+        maybeOptions
+      );
+      return runScheduledDatabaseWork(event, options, workOptions, 'db:query', async () =>
+        withCorruptionRecovery(async () => {
+          const { getDatabase } = await import('./db-main');
+          const db = await getDatabase();
+          return params === undefined ? await db.query(sql) : await db.query(sql, params);
+        }, 'db:query')
+      );
+    }
   );
 
-  registerHandler('db:exec', async (_evt: IpcMainInvokeEvent, sql: string) =>
-    withCorruptionRecovery(async () => {
-      const { getDatabase } = await import('./db-main');
-      const db = await getDatabase();
-      return await db.exec(sql);
-    }, 'db:exec')
+  registerHandler(
+    'db:exec',
+    async (
+      event: IpcMainInvokeEvent,
+      sql: string,
+      paramsOrOptions?: unknown[] | DatabaseWorkOptions,
+      maybeOptions?: DatabaseWorkOptions
+    ) => {
+      const { params, workOptions } = resolveSqlParamsAndWorkOptions(
+        'db:exec',
+        paramsOrOptions,
+        maybeOptions
+      );
+      return runScheduledDatabaseWork(event, options, workOptions, 'db:exec', async () =>
+        withCorruptionRecovery(async () => {
+          const { getDatabase } = await import('./db-main');
+          const db = await getDatabase();
+          return params === undefined ? await db.exec(sql) : await db.exec(sql, params);
+        }, 'db:exec')
+      );
+    }
   );
 
   registerHandler(EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL, async () => {
@@ -1094,12 +1352,14 @@ export function registerIpcHandlers(
   registerHandler(
     EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
     async (event: IpcMainInvokeEvent, embeddingSetId: unknown) =>
-      withCorruptionRecovery(async () => {
-        return await runDesktopEmbeddingBackfill({
-          event,
-          ...resolveEmbeddingBackfillRequest(embeddingSetId, embeddingHostManager),
-        });
-      }, EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL)
+      withCorruptionRecovery(
+        async () =>
+          await runDesktopEmbeddingBackfill({
+            event,
+            ...resolveEmbeddingBackfillRequest(embeddingSetId, embeddingHostManager),
+          }),
+        EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL
+      )
   );
 
   // Expose in-flight backfill state so the renderer can re-attach to progress
@@ -1108,35 +1368,42 @@ export function registerIpcHandlers(
     Array.from(embeddingBackfillsInFlight.entries()).map(([embeddingSetId, backfill]) => ({
       embeddingSetId,
       requestId: backfill.requestId,
+      source: backfill.source,
       progress: backfill.progress,
     }))
   );
 
   registerHandler(
     'db:live-query:start',
-    async (event: IpcMainInvokeEvent, payload: LiveQueryPayload) =>
-      withCorruptionRecovery(async () => {
-        const { getDatabase } = await import('./db-main');
-        const db = await getDatabase();
-        if (!db.live) {
-          throw new Error('Live query extension is not available');
-        }
+    async (
+      event: IpcMainInvokeEvent,
+      payload: LiveQueryPayload,
+      workOptions?: DatabaseWorkOptions
+    ) =>
+      runScheduledDatabaseWork(event, options, workOptions, 'db:live-query:start', async () =>
+        withCorruptionRecovery(async () => {
+          const { getDatabase } = await import('./db-main');
+          const db = await getDatabase();
+          if (!db.live) {
+            throw new Error('Live query extension is not available');
+          }
 
-        const handle = await createLiveQueryHandle(db, payload);
-        const mode: 'query' | 'incremental' =
-          payload?.mode === 'incremental' ? 'incremental' : 'query';
+          const handle = await createLiveQueryHandle(db, payload);
+          const mode: 'query' | 'incremental' =
+            payload?.mode === 'incremental' ? 'incremental' : 'query';
 
-        const id = nextLiveSubscriptionId++;
-        const sender = event.sender;
-        const listener = (results: LiveQueryResults<unknown>) =>
-          sendLiveQueryUpdateToSender(sender, id, results);
+          const id = nextLiveSubscriptionId++;
+          const sender = event.sender;
+          const listener = (results: LiveQueryResults<unknown>) =>
+            sendLiveQueryUpdateToSender(sender, id, results);
 
-        handle.subscribe(listener);
-        liveSubscriptions.set(id, { id, mode, handle, listener, webContentsId: sender.id });
-        registerLiveSubscriptionOwner(sender);
+          handle.subscribe(listener);
+          liveSubscriptions.set(id, { id, mode, handle, listener, webContentsId: sender.id });
+          registerLiveSubscriptionOwner(sender);
 
-        return { id, initialResults: handle.initialResults };
-      }, 'db:live-query:start')
+          return { id, initialResults: handle.initialResults };
+        }, 'db:live-query:start')
+      )
   );
 
   registerHandler('db:live-query:stop', async (_event: IpcMainInvokeEvent, id: number) => {
@@ -1148,19 +1415,28 @@ export function registerIpcHandlers(
     'db:live-query:refresh',
     async (
       _event: IpcMainInvokeEvent,
-      payload: { id: number; offset?: number; limit?: number }
+      payload: { id: number; offset?: number; limit?: number },
+      workOptions?: DatabaseWorkOptions
     ) => {
       const record = liveSubscriptions.get(Number(payload?.id));
       if (!record) {
         return { success: false, message: 'Subscription not found' };
       }
-      try {
-        const refreshArgs = buildRefreshArgs(payload);
-        await record.handle.refresh(refreshArgs);
-        return { success: true };
-      } catch (error) {
-        return await handleLiveQueryRefreshError(error, payload?.id);
-      }
+      return runScheduledDatabaseWork(
+        _event,
+        options,
+        workOptions,
+        'db:live-query:refresh',
+        async () => {
+          try {
+            const refreshArgs = buildRefreshArgs(payload);
+            await record.handle.refresh(refreshArgs);
+            return { success: true };
+          } catch (error) {
+            return await handleLiveQueryRefreshError(error, payload?.id);
+          }
+        }
+      );
     }
   );
 
@@ -1171,19 +1447,29 @@ export function registerIpcHandlers(
   });
 
   registerHandler('db:diagnostics', async (_e: IpcMainInvokeEvent) => {
-    const { getDatabaseDiagnostics } = await import('./db-main');
-    return getDatabaseDiagnostics();
+    const { getDbHostManager } = await import('./db-host-manager');
+    return await getDbHostManager().getDiagnostics();
   });
+
+  registerHandler('db:scheduler:snapshot', async (_e: IpcMainInvokeEvent) =>
+    getDesktopDatabaseWorkSchedulerSnapshot()
+  );
 
   registerHandler(
     DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL,
-    async (_event: IpcMainInvokeEvent, payload: unknown) => {
+    async (event: IpcMainInvokeEvent, payload: unknown, workOptions?: DatabaseWorkOptions) => {
       const parsedPayload = parseManagedCacheBatchArgs(payload);
-      return withCorruptionRecovery(async () => {
-        const { getDatabase } = await import('./db-main');
-        const db = await getDatabase();
-        await applyManagedCacheBatch(db, parsedPayload);
-      }, DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL);
+      return runScheduledDatabaseWork(
+        event,
+        options,
+        workOptions,
+        DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL,
+        async () =>
+          withCorruptionRecovery(async () => {
+            const { getDbHostManager } = await import('./db-host-manager');
+            await getDbHostManager().applyManagedCacheBatch(parsedPayload);
+          }, DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL)
+      );
     }
   );
 
@@ -1197,14 +1483,14 @@ export function registerIpcHandlers(
         return {
           success: true,
           message: 'Database connection successful',
-          dbLocation: 'Main Process',
+          dbLocation: 'DB Host',
         };
       }, 'db:test');
     } catch (error) {
       return {
         success: false,
         message: `Database connection failed: ${error instanceof Error ? error.message : String(error)}`,
-        dbLocation: 'Main Process',
+        dbLocation: 'DB Host',
       };
     }
   });
@@ -1251,12 +1537,9 @@ export function registerIpcHandlers(
           }
           await tx.query('DELETE FROM file_records');
           // Clear embedding sets and any queued jobs
-          try {
-            await tx.query('DELETE FROM embedding_sets');
-          } catch {}
-          try {
-            await tx.query('DELETE FROM job_queue');
-          } catch {}
+          await clearOptionalRelation(tx, 'collection_indexing_stats');
+          await clearOptionalRelation(tx, 'embedding_sets');
+          await clearOptionalRelation(tx, 'job_queue');
 
           return {
             success: true,

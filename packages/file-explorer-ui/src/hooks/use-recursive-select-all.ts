@@ -24,6 +24,7 @@ import {
   selectUseRegex,
 } from '../utils/workspace-filter-selectors';
 import {
+  type AddMultipleSelectedFilesChunked,
   applyExplicitSelection,
   buildQuerySelectionDescriptor,
   collectAncestorDirectories,
@@ -92,7 +93,8 @@ export interface UseRecursiveSelectAllReturn {
     filteredTree: IFileNode[],
     folderId: string,
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
-    maxSelectionCount: number
+    maxSelectionCount: number,
+    addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
   ) => Promise<SelectAllResult>;
 }
 
@@ -133,7 +135,7 @@ export function useRecursiveSelectAll(
       return (tree: IFileNode[]) =>
         applyFileFilters(tree, includeFilters, excludeFilters, useRegex);
     }
-    return undefined;
+    return;
   }, [applyFileFilters, excludeFilters, filterTreeFn, includeFilters, store, useRegex]);
 
   const [state, setState] = useState<RecursiveSelectAllState>(RESET_STATE);
@@ -150,18 +152,20 @@ export function useRecursiveSelectAll(
     setState(RESET_STATE);
   }, [cancelLoadOperations]);
 
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       cancelSelectAll();
-    };
-  }, [cancelSelectAll]);
+    },
+    [cancelSelectAll]
+  );
 
   const selectAllRecursively = useCallback(
     async (
       filteredTree: IFileNode[],
       folderId: string,
       addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
-      maxSelectionCount: number
+      maxSelectionCount: number,
+      addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
     ): Promise<SelectAllResult> => {
       const validationError = validateSelectAllInput(fileSystemAdapter, filteredTree);
       if (validationError) {
@@ -240,7 +244,10 @@ export function useRecursiveSelectAll(
             new Set(result.filePaths)
           );
         } else {
-          await applyExplicitSelection(result.filePaths, folderId, addMultipleSelectedFiles);
+          await applyExplicitSelection(result.filePaths, folderId, addMultipleSelectedFiles, {
+            ...(addMultipleSelectedFilesChunked ? { addMultipleSelectedFilesChunked } : {}),
+            signal: abortController.signal,
+          });
         }
 
         if (hasPersistApi(store)) {

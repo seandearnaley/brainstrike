@@ -42,7 +42,7 @@ function createFTSResult(
     chunk: createMockChunk(id, content),
     rank,
     position,
-    headline: `...${content.substring(0, 50)}...`,
+    headline: `...${content.slice(0, 50)}...`,
   };
 }
 

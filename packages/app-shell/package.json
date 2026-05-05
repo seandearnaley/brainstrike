@@ -7,8 +7,8 @@
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
-    "@brainstrike/file-system": "workspace:*",
     "@brainstrike/file-import": "workspace:*",
+    "@brainstrike/file-system": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/storage": "workspace:*",
@@ -16,19 +16,19 @@
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/vector-management": "workspace:*",
-    "lucide-react": "^0.575.0"
+    "lucide-react": "^1.8.0"
   },
   "devDependencies": {
     "@brainstrike/db": "workspace:*",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
-    "@types/node": "^25.3.0",
+    "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
-    "jsdom": "28.1.0",
-    "react-dom": "^19.2.4",
-    "vitest": "^4.1.2",
-    "zustand": "^5"
+    "jsdom": "29.0.2",
+    "react-dom": "^19.2.5",
+    "vitest": "^4.1.4",
+    "zustand": "^5.0.12"
   },
   "engines": {
     "node": ">=22"
@@ -54,10 +54,6 @@
       "types": "./dist/root-layout-content.d.ts",
       "import": "./dist/root-layout-content.js"
     },
-    "./stores/tools-panel-store": {
-      "types": "./dist/stores/tools-panel-store.d.ts",
-      "import": "./dist/stores/tools-panel-store.js"
-    },
     "./types": {
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"
@@ -82,7 +78,7 @@
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "pnpm run --dir=../.. lint",
     "test": "vitest run",
-    "test:coverage": "pnpm -w test:coverage",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit --project tsconfig.typecheck.json && tsc --noEmit --project tsconfig.test.json"
   },

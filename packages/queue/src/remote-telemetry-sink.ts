@@ -109,13 +109,13 @@ async function sendPayload(
     throw new Error('Queue telemetry sink requires fetch support');
   }
 
-  const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
+  const controller = typeof AbortController === 'undefined' ? undefined : new AbortController();
   const timeoutId =
-    controller !== undefined
-      ? setTimeout(() => {
+    controller === undefined
+      ? null
+      : setTimeout(() => {
           controller.abort();
-        }, 10_000)
-      : null;
+        }, 10_000);
 
   try {
     const response = await fetch(endpoint, createRequestInit(body, headers, controller));

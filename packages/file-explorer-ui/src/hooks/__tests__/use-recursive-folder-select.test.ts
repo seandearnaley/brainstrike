@@ -93,7 +93,7 @@ function findNodeByPath(node: IFileNode, path: string): IFileNode | undefined {
       return nested;
     }
   }
-  return undefined;
+  return;
 }
 
 function createMockAdapter(directoryMap: Record<string, IFileNode[]>): FileSystemAdapter {
@@ -172,6 +172,50 @@ describe('useRecursiveFolderSelect', () => {
       '/root/src/b.ts',
     ]);
     expect(fileSystemAdapter.readDirectory).not.toHaveBeenCalled();
+  });
+
+  it('passes large explicit folder-selection results through the optimized chunked action', async () => {
+    const root = createDirectory({
+      path: '/root/src',
+      loadState: 'loaded',
+      children: Array.from({ length: 120 }, (_, index) =>
+        createFile({ name: `file-${index}.ts`, path: `/root/src/file-${index}.ts`, depth: 1 })
+      ),
+    });
+    const addMultipleSelectedFilesChunked = vi.fn(async () => ({
+      addedCount: 100,
+      cancelled: false,
+      limitReached: false,
+    }));
+
+    const { result } = renderHook(() =>
+      useRecursiveFolderSelect({
+        fileSystemAdapter: createMockAdapter({}),
+        getSubtreeByPath: (path) => findNodeByPath(root, path),
+        onError,
+      })
+    );
+
+    await act(async () =>
+      result.current.selectFolderRecursively(
+        root,
+        'folder-id',
+        addMultipleSelectedFiles,
+        120,
+        0,
+        0,
+        addMultipleSelectedFilesChunked
+      )
+    );
+
+    expect(addMultipleSelectedFiles).not.toHaveBeenCalled();
+    expect(addMultipleSelectedFilesChunked).toHaveBeenCalledTimes(1);
+    const chunkedCalls = addMultipleSelectedFilesChunked.mock.calls as unknown as [
+      string,
+      string[],
+      { signal?: AbortSignal },
+    ][];
+    expect(chunkedCalls[0]?.[1]).toHaveLength(120);
   });
 
   it('clamps the remaining budget to zero before adapter work', async () => {

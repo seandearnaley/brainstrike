@@ -263,7 +263,7 @@ describe('assistant-server/http utilities', () => {
       expect(mockRes.write).toHaveBeenCalledWith(new Uint8Array([1, 2]));
     });
 
-    it('should handle stream errors gracefully', async () => {
+    it('should surface stream errors after ending the response', async () => {
       const loggerErrorSpy = vi
         .spyOn(assistantServerHttpStreamLogger, 'error')
         .mockImplementation(() => {});
@@ -273,7 +273,7 @@ describe('assistant-server/http utilities', () => {
         },
       });
 
-      await pumpReadableToResponse(stream, mockRes);
+      await expect(pumpReadableToResponse(stream, mockRes)).rejects.toThrow('Stream error');
 
       expect(loggerErrorSpy).toHaveBeenCalledWith(
         'Stream pipeline failed',
@@ -329,17 +329,19 @@ describe('assistant-server/http utilities', () => {
       const mockResDynamic = {
         write: vi.fn(() => {
           writeCount++;
-          if (writeCount >= 1) {
-            mockResDynamic.destroyed = true;
-          }
           return true;
         }),
         end: vi.fn(),
-        get destroyed() {
-          return writeCount >= 2;
-        },
+        destroyed: false,
         flushHeaders: vi.fn(),
       } as unknown as http.ServerResponse;
+
+      Object.defineProperty(mockResDynamic, 'destroyed', {
+        configurable: true,
+        get() {
+          return writeCount >= 2;
+        },
+      });
 
       const stream = new ReadableStream({
         start(controller) {

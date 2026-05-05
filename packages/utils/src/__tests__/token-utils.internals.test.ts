@@ -21,15 +21,15 @@ describe('Token Utils - Internal Functions Coverage', () => {
 
     afterEach(() => {
       // Restore globals
-      if (originalWindow !== undefined) {
-        getGlobal()['window'] = originalWindow;
-      } else {
+      if (originalWindow === undefined) {
         getGlobal()['window'] = undefined;
-      }
-      if (originalSelf !== undefined) {
-        getGlobal()['self'] = originalSelf;
       } else {
+        getGlobal()['window'] = originalWindow;
+      }
+      if (originalSelf === undefined) {
         getGlobal()['self'] = undefined;
+      } else {
+        getGlobal()['self'] = originalSelf;
       }
       vi.resetModules();
     });
@@ -69,10 +69,10 @@ describe('Token Utils - Internal Functions Coverage', () => {
     const originalSelf = getGlobal()['self'];
 
     afterEach(() => {
-      if (originalSelf !== undefined) {
-        getGlobal()['self'] = originalSelf;
-      } else {
+      if (originalSelf === undefined) {
         getGlobal()['self'] = undefined;
+      } else {
+        getGlobal()['self'] = originalSelf;
       }
     });
 
@@ -184,15 +184,15 @@ describe('Token Utils - Internal Functions Coverage', () => {
     });
 
     afterEach(() => {
-      if (originalNodeEnv !== undefined) {
-        process.env['NODE_ENV'] = originalNodeEnv;
-      } else {
+      if (originalNodeEnv === undefined) {
         process.env['NODE_ENV'] = undefined;
-      }
-      if (originalVitest !== undefined) {
-        process.env['VITEST'] = originalVitest;
       } else {
+        process.env['NODE_ENV'] = originalNodeEnv;
+      }
+      if (originalVitest === undefined) {
         process.env['VITEST'] = undefined;
+      } else {
+        process.env['VITEST'] = originalVitest;
       }
       vi.resetModules();
     });

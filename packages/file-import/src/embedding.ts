@@ -151,7 +151,7 @@ async function processChunksLoop(
             embeddingProgress: {
               chunksProcessed: i + 1, // Report 1-indexed count (chunk being processed)
               totalChunks: chunks.length,
-              currentChunk: `${chunk.content.substring(0, CHUNKING_CONFIG.chunkPreviewLength)}...`,
+              currentChunk: `${chunk.content.slice(0, CHUNKING_CONFIG.chunkPreviewLength)}...`,
               modelName: embeddingModel,
             },
           }

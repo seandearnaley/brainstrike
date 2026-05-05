@@ -265,8 +265,8 @@ export function usePreviewPanelState({
         folderId,
         path,
         type: 'file',
-        ...(fileSize !== undefined ? { size: fileSize } : {}),
-        ...(tokenCount !== undefined ? { tokens: tokenCount } : {}),
+        ...(fileSize === undefined ? {} : { size: fileSize }),
+        ...(tokenCount === undefined ? {} : { tokens: tokenCount }),
       };
 
       folderGroups[folderId].push(fileItem);

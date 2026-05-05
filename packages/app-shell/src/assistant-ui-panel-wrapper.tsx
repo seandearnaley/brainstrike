@@ -3,6 +3,7 @@ import type {
   GoogleProviderOptions,
   LocalProviderOptions,
   OpenAiProviderOptions,
+  RuntimeAssistantMemorySettings,
   RuntimeData,
 } from '@brainstrike/agent';
 import { LocalLlmBackend } from '@brainstrike/agent/local-llm';
@@ -34,6 +35,7 @@ import {
   useSelectionManager,
 } from '@brainstrike/file-explorer-ui';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
+import { useAssistantMemoryPreferencesStore } from '@brainstrike/preferences/stores/assistant-memory-preferences-store';
 import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
@@ -53,12 +55,33 @@ import {
   type ModelPickerProvider,
   type ProviderGroupConfig,
 } from '@brainstrike/ui/assistant-ui-panel';
+import { createSafeStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
-import { type FC, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import {
+  type AssistantThreadRepository,
+  type AssistantThreadRunRecord,
+  type AssistantThreadRuntimeKind,
+  createAssistantThreadHistoryAdapter,
+  createPgliteAssistantThreadRepository,
+} from './assistant-memory-repository';
+import { useAssistantThreadStore } from './assistant-thread-store';
 
 export interface AssistantUiPanelWrapperProps {
   className?: string;
   initialProviders?: SupportedProvider[];
+  memoryResourceId?: string;
+  memoryThreadId?: string;
+}
+
+declare global {
+  interface Window {
+    __brainstrikeAssistantRuntimeTestHooks__:
+      | {
+          setCurrentThreadModel: (compositeKey: string) => void;
+        }
+      | undefined;
+  }
 }
 
 // App-shell wrapper wires DB/preferences state into the shared UI-only AssistantUiPanel.
@@ -102,9 +125,268 @@ function getToolDescription(toolId: string): string {
 }
 
 const INCLUDE_FILE_REPORT_STORAGE_KEY = 'brainstrike.assistant.include-file-report.v1';
+const includeFileReportStorage = createSafeStorageAdapter();
 const TREE_CONTEXT_LINE_LIMIT = 400;
 const TREE_TOKEN_ESTIMATE_PER_LINE = 4;
 const FILE_REPORT_OVERHEAD_PER_FILE = 8;
+
+function createThreadRunId(): string {
+  return `run-${crypto.randomUUID()}`;
+}
+
+function toAssistantThreadRuntimeKind(runtime: ProviderRuntime): AssistantThreadRuntimeKind {
+  switch (runtime) {
+    case 'browser':
+    case 'gateway':
+    case 'hosted':
+    case 'local':
+      return runtime;
+  }
+}
+
+function hasDesktopAssistantBackend(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  return Boolean(window.assistant?.url || window.assistant?.getUrl);
+}
+
+function resolveAssistantMemoryDisabledReason(args: {
+  assistantThreadRepository: AssistantThreadRepository | null;
+  dbError: Error | null;
+  dbInitializing: boolean;
+  desktopAssistantBackendAvailable: boolean;
+  memoryLoadState:
+    | { readonly status: 'idle' }
+    | { readonly status: 'loading' }
+    | { readonly status: 'ready' }
+    | { readonly error: string; readonly status: 'error' }
+    | null;
+  selectedMemoryThreadId: string | undefined;
+  selectedProvider: SupportedProvider | null;
+  workspaceRootPath: string | null;
+}): string | undefined {
+  if (!args.workspaceRootPath) {
+    return;
+  }
+  if (args.dbError) {
+    return `Assistant memory database failed to initialize: ${args.dbError.message}`;
+  }
+  if (
+    args.dbInitializing ||
+    !args.assistantThreadRepository ||
+    args.memoryLoadState?.status === 'loading'
+  ) {
+    return 'Assistant memory is loading from PGlite.';
+  }
+  if (args.memoryLoadState?.status === 'error') {
+    return `Assistant memory failed to load: ${args.memoryLoadState.error}`;
+  }
+  if (!args.selectedMemoryThreadId) {
+    return 'Assistant memory has no selected thread for this workspace.';
+  }
+  if (!(args.selectedProvider === 'local' || args.desktopAssistantBackendAvailable)) {
+    return 'Assistant memory for hosted providers requires the desktop assistant backend.';
+  }
+  return;
+}
+
+function createAssistantThreadRunPromise(args: {
+  assistantThreadRepository: AssistantThreadRepository | null;
+  memoryResourceId: string | undefined;
+  modelSettings: RuntimeData['modelSettings'] | undefined;
+  providerOptions: Record<string, unknown> | undefined;
+  resolvedModelName: string | undefined;
+  selectedMemoryThreadId: string | undefined;
+  selectedProvider: SupportedProvider | null;
+}): Promise<string | undefined> {
+  if (!(args.assistantThreadRepository && args.memoryResourceId && args.selectedMemoryThreadId)) {
+    throw new Error('Assistant run records require an active memory thread.');
+  }
+  if (!(args.selectedProvider && args.resolvedModelName)) {
+    throw new Error('Assistant run records require a selected provider and model.');
+  }
+
+  const providerDefinition = getProviderDefinition(args.selectedProvider);
+  const runId = createThreadRunId();
+  return args.assistantThreadRepository
+    .createThreadRun({
+      id: runId,
+      resourceId: args.memoryResourceId,
+      threadId: args.selectedMemoryThreadId,
+      provider: args.selectedProvider,
+      model: args.resolvedModelName,
+      runtimeKind: toAssistantThreadRuntimeKind(providerDefinition.runtime),
+      ...(args.modelSettings ? { modelSettings: { ...args.modelSettings } } : {}),
+      ...(args.providerOptions ? { providerOptions: { ...args.providerOptions } } : {}),
+    })
+    .then((record: AssistantThreadRunRecord) => record.id);
+}
+
+function buildAssistantRequestData(args: {
+  activeEmbeddingSetId: string | null;
+  contextTokenCount: number;
+  hostedMemoryBackendAvailable: boolean;
+  includeFileReport: boolean;
+  includeProjectTree: boolean;
+  memoryResourceId: string | undefined;
+  memorySettings: RuntimeAssistantMemorySettings;
+  modelSettings: RuntimeData['modelSettings'] | undefined;
+  providerOptions: Record<string, unknown> | undefined;
+  selectedMemoryThreadId: string | undefined;
+  selectionData: {
+    filePaths: string[];
+    folderId: string | null | undefined;
+  };
+  tokenBudget: number | undefined;
+  workspaceRootPath: string | null;
+}): Record<string, unknown> {
+  const data: Record<string, unknown> = {};
+  if (args.activeEmbeddingSetId) {
+    data['embeddingSetId'] = args.activeEmbeddingSetId;
+  }
+  if (args.selectionData.filePaths.length > 0) {
+    data['selectionFilePaths'] = args.selectionData.filePaths;
+  }
+  if (args.selectionData.folderId) {
+    data['selectionFolderId'] = args.selectionData.folderId;
+  }
+  if (args.workspaceRootPath) {
+    data['workspaceRootPath'] = args.workspaceRootPath;
+  }
+  if (args.memoryResourceId && args.selectedMemoryThreadId && args.hostedMemoryBackendAvailable) {
+    data['memory'] = {
+      threadId: args.selectedMemoryThreadId,
+      resourceId: args.memoryResourceId,
+      memorySettings: args.memorySettings,
+      memoryOptions: {
+        lastMessages: 40,
+        workingMemory: { enabled: true, scope: 'resource' },
+      },
+    };
+  }
+  if (typeof args.tokenBudget === 'number') {
+    data['tokenBudget'] = args.tokenBudget;
+  }
+  data['includeFileReport'] = args.includeFileReport;
+  data['includeProjectTree'] = args.includeProjectTree;
+  data['contextTokenCount'] = args.contextTokenCount;
+  if (args.modelSettings) {
+    data['modelSettings'] = args.modelSettings;
+  }
+  if (args.providerOptions) {
+    data['providerOptions'] = args.providerOptions;
+  }
+  return data;
+}
+
+function resolveAssistantProviderDisabledReason(args: {
+  configuredProviders: SupportedProvider[];
+  currentModel: string | null | undefined;
+  getProviderLlmModels: (provider: SupportedProvider) => readonly LlmProviderModelDefinition[];
+  localRuntimeHint: string | undefined;
+  providerHasEnabledModels: (provider: SupportedProvider) => boolean;
+  selectedProvider: SupportedProvider | null;
+}): string | undefined {
+  const localRuntimeProviderReason = resolveLocalRuntimeProviderDisabledReason(
+    args.selectedProvider,
+    args.configuredProviders
+  );
+  if (localRuntimeProviderReason) {
+    return localRuntimeProviderReason;
+  }
+
+  const builtInLocalReason = resolveBuiltInLocalProviderDisabledReason(args.selectedProvider);
+  if (builtInLocalReason) {
+    return builtInLocalReason;
+  }
+
+  if (args.configuredProviders.length === 0) {
+    const baseReason =
+      'Connect an AI provider in Settings → LLM Provider Keys to enable the assistant.';
+    return args.localRuntimeHint ? `${baseReason} ${args.localRuntimeHint}` : baseReason;
+  }
+  if (!args.selectedProvider) {
+    return 'Select an AI provider to start chatting.';
+  }
+  if (!args.configuredProviders.includes(args.selectedProvider)) {
+    return 'The selected provider is no longer configured.';
+  }
+
+  const providerModelIds = args
+    .getProviderLlmModels(args.selectedProvider)
+    .map((model) => model.id);
+  const unavailableLocalModelReason = resolveSelectedLocalModelUnavailableReason({
+    selectedProvider: args.selectedProvider,
+    selectedModel: args.currentModel ?? null,
+    providerModelIds,
+  });
+  if (unavailableLocalModelReason) {
+    return unavailableLocalModelReason;
+  }
+
+  if (!args.providerHasEnabledModels(args.selectedProvider)) {
+    const definition = getProviderDefinition(args.selectedProvider);
+    return `Enable at least one model for ${definition.displayName} to continue.`;
+  }
+  if (!args.currentModel) {
+    return 'Select a model for the chosen provider to continue.';
+  }
+  return;
+}
+
+function resolveProviderModelSelection(args: {
+  getProviderLlmModels: (provider: SupportedProvider) => readonly LlmProviderModelDefinition[];
+  isModelEnabled: (providerId: SupportedProvider, modelId: string) => boolean;
+  provider: SupportedProvider;
+}): string | undefined {
+  const enabledModels = args
+    .getProviderLlmModels(args.provider)
+    .filter((model: LlmProviderModelDefinition) => args.isModelEnabled(args.provider, model.id))
+    .map((model: LlmProviderModelDefinition) => model.id);
+
+  if (enabledModels.length === 0) {
+    return;
+  }
+
+  const defaultModel = getProviderDefaultModel(args.provider);
+  return enabledModels.includes(defaultModel ?? '') ? defaultModel : enabledModels[0];
+}
+
+function hasValidProviderModelSelection(args: {
+  currentProvider: SupportedProvider;
+  currentSelectedModel: string | null;
+  isModelEnabled: (providerId: SupportedProvider, modelId: string) => boolean;
+}): boolean {
+  const currentModelName = resolveModelNameFromComposite(args.currentSelectedModel);
+  if (!currentModelName) {
+    return false;
+  }
+  return args.isModelEnabled(args.currentProvider, currentModelName);
+}
+
+function resolveLocalRuntimeSelection(args: {
+  currentProvider: SupportedProvider;
+  currentSelectedModel: string | null;
+  isModelEnabled: (providerId: SupportedProvider, modelId: string) => boolean;
+  providerHasEnabledModels: (provider: SupportedProvider) => boolean;
+  selectModelForProvider: (provider: SupportedProvider) => void;
+}): boolean {
+  if (!isLocalRuntimeProvider(args.currentProvider)) {
+    return false;
+  }
+
+  const currentModelName = resolveModelNameFromComposite(args.currentSelectedModel);
+  if (currentModelName && args.isModelEnabled(args.currentProvider, currentModelName)) {
+    return true;
+  }
+
+  if (args.providerHasEnabledModels(args.currentProvider)) {
+    args.selectModelForProvider(args.currentProvider);
+    return true;
+  }
+  return false;
+}
 
 interface TokenCountRow {
   path: string;
@@ -150,10 +432,48 @@ function toRuntimeProviderModels(
   }));
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
 function addValuesToSet(target: Set<string>, values: Iterable<string>): void {
   for (const value of values) {
-    target.add(value);
+    if (isNonEmptyString(value)) {
+      target.add(value);
+    }
   }
+}
+
+function getBuiltInLocalPreferenceModelIds(
+  enabledModelsByProvider: Record<SupportedProvider, string[]>
+): string[] {
+  return (enabledModelsByProvider.local ?? []).filter(isNonEmptyString);
+}
+
+// Browser-local models are DB-backed in the split assistant chunk; the registry id is the
+// authoritative runtime id when static provider metadata has not produced a usable id yet.
+function getEnabledBuiltInLocalRegistryModelIds(
+  downloadedModels: Readonly<Record<string, boolean>>,
+  registryModels: readonly {
+    capabilities: { type?: unknown };
+    id: unknown;
+    isEnabled: unknown;
+    providerId: unknown;
+  }[]
+): string[] {
+  const modelIds: string[] = [];
+  for (const model of registryModels) {
+    if (
+      model.providerId === 'local' &&
+      model.isEnabled === true &&
+      model.capabilities.type === 'llm' &&
+      isNonEmptyString(model.id) &&
+      downloadedModels[model.id] === true
+    ) {
+      modelIds.push(model.id);
+    }
+  }
+  return modelIds;
 }
 
 function addPreferenceEnabledModelIds(
@@ -165,6 +485,17 @@ function addPreferenceEnabledModelIds(
     const enabledModels = enabledModelsByProvider[providerId] ?? [];
     addValuesToSet(target, enabledModels);
   }
+}
+
+function addBuiltInLocalPreferenceModelIds(
+  target: Set<string>,
+  configuredProviders: readonly SupportedProvider[],
+  enabledModelsByProvider: Record<SupportedProvider, string[]>
+): void {
+  if (!configuredProviders.includes('local')) {
+    return;
+  }
+  addValuesToSet(target, getBuiltInLocalPreferenceModelIds(enabledModelsByProvider));
 }
 
 function addRuntimeCatalogEnabledLlmModelIds(
@@ -203,6 +534,13 @@ function buildEnabledModelIdSet(options: {
     addValuesToSet(enabledIds, options.registryEnabledModelIds);
   }
 
+  if (!options.shouldFallbackToPreferences) {
+    addBuiltInLocalPreferenceModelIds(
+      enabledIds,
+      options.configuredProviders,
+      options.enabledModelsByProvider
+    );
+  }
   addRuntimeCatalogEnabledLlmModelIds(enabledIds, options.localRuntimeModels);
   return enabledIds;
 }
@@ -280,10 +618,7 @@ async function computeTreeTokenEstimate(
 }
 
 function loadStoredIncludeFileReport(): boolean {
-  if (typeof window === 'undefined') {
-    return true;
-  }
-  const raw = window.localStorage.getItem(INCLUDE_FILE_REPORT_STORAGE_KEY);
+  const raw = includeFileReportStorage.getItem(INCLUDE_FILE_REPORT_STORAGE_KEY);
   if (raw === null) {
     return true;
   }
@@ -545,6 +880,64 @@ function buildProviderOptions(
   }
 }
 
+function copyProviderSettingsMap(
+  settings: Record<string, AssistantProviderSettings> | undefined
+): Record<string, AssistantProviderSettings> | undefined {
+  if (!settings) {
+    return;
+  }
+  return Object.fromEntries(
+    Object.entries(settings).map(([providerId, providerSetting]) => [
+      providerId,
+      { ...providerSetting },
+    ])
+  );
+}
+
+function extractPreparedRunId(requestData: Record<string, unknown> | undefined): string | null {
+  const memory = requestData?.['memory'];
+  if (!(memory && typeof memory === 'object' && !Array.isArray(memory))) {
+    return null;
+  }
+  const runId = (memory as Record<string, unknown>)['runId'];
+  return typeof runId === 'string' && runId.trim() ? runId : null;
+}
+
+function mergeAssistantProviderSettings(
+  base: AssistantProviderSettings | undefined,
+  updates: AssistantProviderSettingsUpdate
+): AssistantProviderSettings {
+  const merged: Record<string, unknown> = { ...(base ?? {}) };
+  for (const [key, value] of Object.entries(updates)) {
+    if (value !== undefined) {
+      merged[key] = value;
+    }
+  }
+  return merged as AssistantProviderSettings;
+}
+
+function buildDraftRuntimeForProvider({
+  model,
+  provider,
+  providerSettingsMap,
+}: {
+  readonly model: string | undefined;
+  readonly provider: SupportedProvider;
+  readonly providerSettingsMap: Record<string, AssistantProviderSettings>;
+}) {
+  const settings = providerSettingsMap[provider];
+  const modelSettings = buildModelSettings(settings);
+  const providerOptions = model ? buildProviderOptions(provider, model, settings) : undefined;
+  const hasProviderSettings = Object.keys(providerSettingsMap).length > 0;
+  return {
+    provider,
+    ...(model ? { model } : {}),
+    ...(hasProviderSettings ? { providerSettings: providerSettingsMap } : {}),
+    ...(modelSettings ? { modelSettings } : {}),
+    ...(providerOptions ? { providerOptions } : {}),
+  };
+}
+
 interface McpState {
   loading: boolean;
   tools: AssistantToolMenuItem[];
@@ -589,7 +982,12 @@ function tokenEstimateReducer(
   }
 }
 
-export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ initialProviders }) => {
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This integration wrapper coordinates multiple stores, runtime probes, and transport paths in one place.
+export function AssistantUiPanelWrapper({
+  initialProviders,
+  memoryResourceId: memoryResourceIdOverride,
+  memoryThreadId,
+}: AssistantUiPanelWrapperProps) {
   const [configuredProviders, setConfiguredProviders] = useState<SupportedProvider[]>(
     () => initialProviders ?? []
   );
@@ -611,10 +1009,18 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     setProviderSettings,
   } = useAssistantPreferencesStore();
   const selectedModel = useAssistantPreferencesStore((state) => state.selectedModel);
+  const draftRuntimeByThreadId = useAssistantThreadStore((state) => state.draftRuntimeByThreadId);
+  const setThreadDraftRuntime = useAssistantThreadStore((state) => state.setThreadDraftRuntime);
   const enabledModelsByProvider = useAssistantPreferencesStore(
     (state) => state.enabledModelsByProvider
   );
   const providerSettings = useAssistantPreferencesStore((state) => state.providerSettings);
+  const observationalMemorySettings = useAssistantMemoryPreferencesStore(
+    (state) => state.observationalMemory
+  );
+  const semanticRecallSettings = useAssistantMemoryPreferencesStore(
+    (state) => state.semanticRecall
+  );
   const [nativeToolStates, setNativeToolEnabled] = useNativeToolPreferencesStore(
     (state) => [state.toolStates, state.setToolEnabled] as const
   );
@@ -625,6 +1031,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   // Load model registry from DB for local provider models
   useEnsureModelRegistry();
   const registryModels = useModelRegistryStore((state) => state.models);
+  const downloadedModels = useModelRegistryStore((state) => state.downloadedModels);
   const registryError = useModelRegistryStore((state) => state.error);
   const toggleModelInDb = useModelRegistryStore((state) => state.toggleModel);
   const db = usePGliteDatabase();
@@ -671,21 +1078,37 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     return false;
   }, [db, dbError, dbInitializing, registryError]);
 
-  const enabledModelIds = useMemo(() => {
-    return buildEnabledModelIdSet({
-      shouldFallbackToPreferences,
+  const enabledModelIds = useMemo(
+    () =>
+      buildEnabledModelIdSet({
+        shouldFallbackToPreferences,
+        configuredProviders,
+        enabledModelsByProvider,
+        registryEnabledModelIds,
+        localRuntimeModels,
+      }),
+    [
       configuredProviders,
       enabledModelsByProvider,
-      registryEnabledModelIds,
       localRuntimeModels,
-    });
-  }, [
-    configuredProviders,
-    enabledModelsByProvider,
-    localRuntimeModels,
-    registryEnabledModelIds,
-    shouldFallbackToPreferences,
-  ]);
+      registryEnabledModelIds,
+      shouldFallbackToPreferences,
+    ]
+  );
+  const enabledBuiltInLocalModelIds = useMemo(() => {
+    const modelIds = new Set<string>();
+    addValuesToSet(
+      modelIds,
+      getBuiltInLocalPreferenceModelIds(enabledModelsByProvider).filter(
+        (modelId) => downloadedModels[modelId] === true
+      )
+    );
+    addValuesToSet(
+      modelIds,
+      getEnabledBuiltInLocalRegistryModelIds(downloadedModels, registryModels)
+    );
+    return [...modelIds];
+  }, [downloadedModels, enabledModelsByProvider, registryModels]);
 
   const runtimeLlmModelsByProvider = useMemo<
     Partial<Record<LocalRuntimeProviderId, readonly LlmProviderModelDefinition[]>>
@@ -710,26 +1133,107 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     [runtimeLlmModelsByProvider]
   );
 
+  const selectedThreadDraftRuntime = memoryThreadId
+    ? draftRuntimeByThreadId[memoryThreadId]
+    : undefined;
+  const selectedDraftModel =
+    selectedThreadDraftRuntime?.provider && selectedThreadDraftRuntime.model
+      ? `${selectedThreadDraftRuntime.provider}::${selectedThreadDraftRuntime.model}`
+      : undefined;
+  const currentModel = selectedDraftModel ?? selectedModel;
   const selectedProvider = useMemo(
-    () => resolveProviderFromComposite(selectedModel),
-    [selectedModel]
+    () => resolveProviderFromComposite(currentModel),
+    [currentModel]
   );
-  const currentModel = selectedModel;
   const resolvedModelName = useMemo(
     () => resolveModelNameFromComposite(currentModel),
     [currentModel]
   );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const desktopWindow = window as Window & {
+      desktopLifecycle?: {
+        isTestMode?: boolean;
+      };
+    };
+    if (!desktopWindow.desktopLifecycle?.isTestMode) {
+      return;
+    }
+
+    const hooks = {
+      setCurrentThreadModel: (compositeKey: string): void => {
+        const provider = resolveProviderFromComposite(compositeKey);
+        const model = resolveModelNameFromComposite(compositeKey);
+        if (!(provider && model)) {
+          throw new Error(`Invalid assistant model key: ${compositeKey}`);
+        }
+
+        setModel(compositeKey);
+        if (memoryThreadId) {
+          setThreadDraftRuntime(memoryThreadId, { model, provider });
+        }
+      },
+    };
+
+    window.__brainstrikeAssistantRuntimeTestHooks__ = hooks;
+    return () => {
+      if (window.__brainstrikeAssistantRuntimeTestHooks__ === hooks) {
+        window.__brainstrikeAssistantRuntimeTestHooks__ = undefined;
+      }
+    };
+  }, [memoryThreadId, setModel, setThreadDraftRuntime]);
+
+  const effectiveProviderSettings = useMemo(() => {
+    const draftProviderSettings = selectedThreadDraftRuntime?.providerSettings;
+    if (!draftProviderSettings) {
+      return providerSettings;
+    }
+    return {
+      ...providerSettings,
+      ...copyProviderSettingsMap(draftProviderSettings),
+    };
+  }, [providerSettings, selectedThreadDraftRuntime?.providerSettings]);
   const selectedProviderSettings = selectedProvider
-    ? providerSettings[selectedProvider]
+    ? effectiveProviderSettings[selectedProvider]
     : undefined;
   const modelSettings = useMemo(
-    () => buildModelSettings(selectedProviderSettings),
-    [selectedProviderSettings]
+    () => selectedThreadDraftRuntime?.modelSettings ?? buildModelSettings(selectedProviderSettings),
+    [selectedProviderSettings, selectedThreadDraftRuntime?.modelSettings]
   );
   const providerOptions = useMemo(
-    () => buildProviderOptions(selectedProvider, resolvedModelName, selectedProviderSettings),
-    [selectedProvider, resolvedModelName, selectedProviderSettings]
+    () =>
+      selectedThreadDraftRuntime?.providerOptions ??
+      buildProviderOptions(selectedProvider, resolvedModelName, selectedProviderSettings),
+    [
+      selectedProvider,
+      resolvedModelName,
+      selectedProviderSettings,
+      selectedThreadDraftRuntime?.providerOptions,
+    ]
   );
+
+  useEffect(() => {
+    if (!(memoryThreadId && selectedProvider && resolvedModelName)) {
+      return;
+    }
+    if (draftRuntimeByThreadId[memoryThreadId]) {
+      return;
+    }
+    setThreadDraftRuntime(memoryThreadId, {
+      provider: selectedProvider,
+      model: resolvedModelName,
+    });
+  }, [
+    draftRuntimeByThreadId,
+    memoryThreadId,
+    resolvedModelName,
+    selectedProvider,
+    setThreadDraftRuntime,
+  ]);
+
   const activeEmbeddingSetId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
   const [
     tokenBudget,
@@ -803,10 +1307,10 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   }, [effectiveSelection, currentFolderId]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    window.localStorage.setItem(INCLUDE_FILE_REPORT_STORAGE_KEY, includeFileReport ? '1' : '0');
+    includeFileReportStorage.setItem(
+      INCLUDE_FILE_REPORT_STORAGE_KEY,
+      includeFileReport ? '1' : '0'
+    );
   }, [includeFileReport]);
 
   useEffect(() => {
@@ -969,27 +1473,29 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     };
   }, [handleSelectionUpdate]);
 
-  const nativeToolItems = useMemo<AssistantToolMenuItem[]>(() => {
-    return Object.entries(NATIVE_TOOL_DEFAULTS).map(([toolId, metadata]) => {
-      const category =
-        typeof (metadata as { category?: unknown }).category === 'string'
-          ? (metadata as { category: string }).category
-          : undefined;
-      const inputSchema = toLocalRuntimeInputSchema(toolId);
+  const nativeToolItems = useMemo<AssistantToolMenuItem[]>(
+    () =>
+      Object.entries(NATIVE_TOOL_DEFAULTS).map(([toolId, metadata]) => {
+        const category =
+          typeof (metadata as { category?: unknown }).category === 'string'
+            ? (metadata as { category: string }).category
+            : undefined;
+        const inputSchema = toLocalRuntimeInputSchema(toolId);
 
-      return {
-        id: toolId,
-        label: formatToolLabel(toolId),
-        enabled: typeof nativeToolStates[toolId] === 'boolean' ? nativeToolStates[toolId] : true,
-        source: 'native',
-        group: 'Native Tools',
-        description: getToolDescription(toolId),
-        ...(inputSchema ? { inputSchema } : {}),
-        isLocalRuntimeRunnable: true,
-        ...(category ? { category } : {}),
-      };
-    });
-  }, [nativeToolStates]);
+        return {
+          id: toolId,
+          label: formatToolLabel(toolId),
+          enabled: typeof nativeToolStates[toolId] === 'boolean' ? nativeToolStates[toolId] : true,
+          source: 'native',
+          group: 'Native Tools',
+          description: getToolDescription(toolId),
+          ...(inputSchema ? { inputSchema } : {}),
+          isLocalRuntimeRunnable: true,
+          ...(category ? { category } : {}),
+        };
+      }),
+    [nativeToolStates]
+  );
 
   const loadMcpTools = useCallback(async () => {
     if (typeof window === 'undefined' || !window.mcp?.listTools) {
@@ -1111,45 +1617,141 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   ]);
 
   const workspaceRootPath = rootDirectoryHandle?.path ?? null;
+  const assistantThreadRepository = useMemo(
+    () => (db ? createPgliteAssistantThreadRepository(db) : null),
+    [db]
+  );
+  const selectedThreadByResourceId = useAssistantThreadStore(
+    (state) => state.selectedThreadByResourceId
+  );
+  const loadStateByResourceId = useAssistantThreadStore((state) => state.loadStateByResourceId);
+  const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
+  const memoryResourceId = memoryResourceIdOverride ?? workspaceRootPath ?? undefined;
+  const selectedMemoryThreadId = memoryResourceId
+    ? (memoryThreadId ?? selectedThreadByResourceId[memoryResourceId])
+    : undefined;
+  const memoryLoadState = memoryResourceId
+    ? (loadStateByResourceId[memoryResourceId] ?? { status: 'idle' as const })
+    : null;
+  const desktopAssistantBackendAvailable = hasDesktopAssistantBackend();
+  const hostedMemoryBackendAvailable =
+    selectedProvider === 'local' ? true : desktopAssistantBackendAvailable;
 
-  const requestData = useMemo(() => {
-    const data: Record<string, unknown> = {};
-    if (activeEmbeddingSetId) {
-      data['embeddingSetId'] = activeEmbeddingSetId;
+  useEffect(() => {
+    if (!(assistantThreadRepository && memoryResourceId)) {
+      return;
     }
-    if (selectionData.filePaths.length > 0) {
-      data['selectionFilePaths'] = selectionData.filePaths;
+    ensureResourceThreads(assistantThreadRepository, memoryResourceId).catch(() => {
+      // The store records the explicit error state; the assistant remains unavailable.
+    });
+  }, [assistantThreadRepository, ensureResourceThreads, memoryResourceId]);
+
+  const historyAdapter = useMemo(() => {
+    if (!(assistantThreadRepository && memoryResourceId && selectedMemoryThreadId)) {
+      return;
     }
-    if (selectionData.folderId) {
-      data['selectionFolderId'] = selectionData.folderId;
+    return createAssistantThreadHistoryAdapter({
+      repository: assistantThreadRepository,
+      resourceId: memoryResourceId,
+      threadId: selectedMemoryThreadId,
+    });
+  }, [assistantThreadRepository, memoryResourceId, selectedMemoryThreadId]);
+
+  const runtimeMemorySettings = useMemo(
+    () => ({
+      observationalMemory: observationalMemorySettings,
+      semanticRecall: semanticRecallSettings,
+    }),
+    [observationalMemorySettings, semanticRecallSettings]
+  );
+
+  const requestData = useMemo(
+    () =>
+      buildAssistantRequestData({
+        activeEmbeddingSetId,
+        contextTokenCount,
+        hostedMemoryBackendAvailable,
+        includeFileReport,
+        includeProjectTree,
+        memoryResourceId,
+        memorySettings: runtimeMemorySettings,
+        modelSettings,
+        providerOptions,
+        selectedMemoryThreadId,
+        selectionData,
+        tokenBudget,
+        workspaceRootPath,
+      }),
+    [
+      activeEmbeddingSetId,
+      contextTokenCount,
+      hostedMemoryBackendAvailable,
+      includeFileReport,
+      includeProjectTree,
+      memoryResourceId,
+      modelSettings,
+      providerOptions,
+      runtimeMemorySettings,
+      selectedMemoryThreadId,
+      selectionData,
+      tokenBudget,
+      workspaceRootPath,
+    ]
+  );
+
+  const prepareRequestData = useCallback(async (): Promise<Record<string, unknown>> => {
+    const runId = await createAssistantThreadRunPromise({
+      assistantThreadRepository,
+      memoryResourceId,
+      modelSettings,
+      providerOptions,
+      resolvedModelName,
+      selectedMemoryThreadId,
+      selectedProvider,
+    });
+    const memoryContext = requestData['memory'];
+    if (!(memoryContext && typeof memoryContext === 'object' && !Array.isArray(memoryContext))) {
+      throw new Error('Assistant request preparation requires Mastra memory context.');
     }
-    if (workspaceRootPath) {
-      data['workspaceRootPath'] = workspaceRootPath;
-    }
-    if (typeof tokenBudget === 'number') {
-      data['tokenBudget'] = tokenBudget;
-    }
-    data['includeFileReport'] = includeFileReport;
-    data['includeProjectTree'] = includeProjectTree;
-    data['contextTokenCount'] = contextTokenCount;
-    if (modelSettings) {
-      data['modelSettings'] = modelSettings;
-    }
-    if (providerOptions) {
-      data['providerOptions'] = providerOptions;
-    }
-    return data;
+
+    return {
+      ...requestData,
+      memory: {
+        ...memoryContext,
+        ...(runId ? { runId } : {}),
+      },
+    };
   }, [
-    activeEmbeddingSetId,
-    contextTokenCount,
-    includeFileReport,
-    includeProjectTree,
+    assistantThreadRepository,
+    memoryResourceId,
     modelSettings,
     providerOptions,
-    workspaceRootPath,
-    selectionData,
-    tokenBudget,
+    requestData,
+    resolvedModelName,
+    selectedMemoryThreadId,
+    selectedProvider,
   ]);
+
+  const completePreparedRequest = useCallback(
+    async (
+      preparedRequestData: Record<string, unknown> | undefined,
+      status: 'cancelled' | 'completed' | 'failed',
+      error?: string
+    ): Promise<void> => {
+      const runId = extractPreparedRunId(preparedRequestData);
+      if (!runId) {
+        return;
+      }
+      if (!assistantThreadRepository) {
+        throw new Error('Assistant run completion requires an active thread repository.');
+      }
+      await assistantThreadRepository.completeThreadRun(runId, {
+        status,
+        ...(error ? { error } : {}),
+      });
+    },
+    [assistantThreadRepository]
+  );
 
   // Check if a model is enabled - always use DB as source of truth
   const isModelEnabled = useCallback(
@@ -1159,35 +1761,31 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
 
   const providerHasEnabledModels = useCallback(
     (provider: SupportedProvider) => {
+      if (provider === 'local' && enabledBuiltInLocalModelIds.length > 0) {
+        return true;
+      }
       const modelDefinitions = getProviderLlmModels(provider);
       return modelDefinitions.some((model: LlmProviderModelDefinition) =>
         enabledModelIds.has(model.id)
       );
     },
-    [enabledModelIds, getProviderLlmModels]
+    [enabledBuiltInLocalModelIds, enabledModelIds, getProviderLlmModels]
   );
 
   const selectModelForProvider = useCallback(
     (provider: SupportedProvider) => {
-      const modelDefinitions = getProviderLlmModels(provider);
-      const enabledModels = modelDefinitions
-        .filter((model: LlmProviderModelDefinition) => isModelEnabled(provider, model.id))
-        .map((model: LlmProviderModelDefinition) => model.id);
-
-      if (enabledModels.length === 0) {
-        return;
-      }
-
-      const defaultModel = getProviderDefaultModel(provider);
-      const modelToSelect = enabledModels.includes(defaultModel ?? '')
-        ? defaultModel
-        : enabledModels[0];
+      const modelToSelect =
+        resolveProviderModelSelection({
+          getProviderLlmModels,
+          isModelEnabled,
+          provider,
+        }) ?? (provider === 'local' ? enabledBuiltInLocalModelIds[0] : undefined);
       if (!modelToSelect) {
         return;
       }
       setModel(`${provider}::${modelToSelect}`);
     },
-    [getProviderLlmModels, isModelEnabled, setModel]
+    [enabledBuiltInLocalModelIds, getProviderLlmModels, isModelEnabled, setModel]
   );
 
   useEffect(() => {
@@ -1337,42 +1935,47 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   );
 
   const hasValidCurrentModelSelection = useCallback(
-    (currentProvider: SupportedProvider) => {
-      const currentComposite = getSelectedModel();
-      const currentModelName = resolveModelNameFromComposite(currentComposite);
-      if (!currentModelName) {
-        return false;
-      }
-      return isModelEnabled(currentProvider, currentModelName);
-    },
+    (currentProvider: SupportedProvider) =>
+      hasValidProviderModelSelection({
+        currentProvider,
+        currentSelectedModel: getSelectedModel(),
+        isModelEnabled,
+      }),
     [getSelectedModel, isModelEnabled]
   );
 
   const handleLocalRuntimeSelection = useCallback(
-    (currentProvider: SupportedProvider): boolean => {
-      if (!isLocalRuntimeProvider(currentProvider)) {
-        return false;
-      }
-
-      const currentComposite = getSelectedModel();
-      const currentModelName = resolveModelNameFromComposite(currentComposite);
-      if (currentModelName && isModelEnabled(currentProvider, currentModelName)) {
-        return true;
-      }
-
-      if (providerHasEnabledModels(currentProvider)) {
-        selectModelForProvider(currentProvider);
-        return true;
-      }
-      return false;
-    },
+    (currentProvider: SupportedProvider): boolean =>
+      resolveLocalRuntimeSelection({
+        currentProvider,
+        currentSelectedModel: getSelectedModel(),
+        isModelEnabled,
+        providerHasEnabledModels,
+        selectModelForProvider,
+      }),
     [getSelectedModel, isModelEnabled, providerHasEnabledModels, selectModelForProvider]
   );
 
-  // Reconcile selection whenever providers or enabled models change
+  const seedBuiltInLocalModelSelection = useCallback((): boolean => {
+    if (selectedModel !== null || !configuredProviders.includes('local')) {
+      return false;
+    }
+    const localModel = enabledBuiltInLocalModelIds[0];
+    if (!(localModel && enabledModelIds.has(localModel))) {
+      return false;
+    }
+    setModel(`local::${localModel}`);
+    return true;
+  }, [configuredProviders, enabledBuiltInLocalModelIds, enabledModelIds, selectedModel, setModel]);
+
+  // Reconcile selection whenever providers or enabled models change.
   // Using useEffect (not useLayoutEffect) because we're mutating external state (Zustand store)
   // React will properly batch these updates and handle them in the commit phase
   useEffect(() => {
+    if (seedBuiltInLocalModelSelection()) {
+      return;
+    }
+
     const currentProvider = getSelectedProvider();
     if (shouldSkipSelectionReconcile(currentProvider)) {
       return;
@@ -1419,16 +2022,32 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     getSelectedProvider,
     clearModel,
     providerHasEnabledModels,
+    seedBuiltInLocalModelSelection,
     selectModelForProvider,
     shouldSkipSelectionReconcile,
   ]);
 
   const handleModelChange = useCallback(
     (compositeKey: string) => {
-      // Composite key format: "provider::model"
+      const provider = resolveProviderFromComposite(compositeKey);
+      const model = resolveModelNameFromComposite(compositeKey);
+      if (memoryThreadId && provider && model) {
+        const draftProviderSettings = draftRuntimeByThreadId[memoryThreadId]?.providerSettings;
+        const providerSettingsMap =
+          copyProviderSettingsMap(draftProviderSettings) ??
+          (providerSettings[provider] ? { [provider]: { ...providerSettings[provider] } } : {});
+        setThreadDraftRuntime(memoryThreadId, {
+          ...buildDraftRuntimeForProvider({
+            model,
+            provider,
+            providerSettingsMap,
+          }),
+        });
+        return;
+      }
       setModel(compositeKey);
     },
-    [setModel]
+    [draftRuntimeByThreadId, memoryThreadId, providerSettings, setModel, setThreadDraftRuntime]
   );
 
   const handleModelToggle = useCallback(
@@ -1454,9 +2073,39 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       if (!isSupportedProvider(providerId)) {
         return;
       }
+      if (memoryThreadId) {
+        const currentDraft = draftRuntimeByThreadId[memoryThreadId] ?? {};
+        const nextProviderSettings = copyProviderSettingsMap(currentDraft.providerSettings) ?? {};
+        nextProviderSettings[providerId] = mergeAssistantProviderSettings(
+          currentDraft.providerSettings?.[providerId] ?? providerSettings[providerId],
+          updates
+        );
+        const draftProviderCandidate = currentDraft.provider ?? selectedProvider ?? providerId;
+        const draftProvider = isSupportedProvider(draftProviderCandidate)
+          ? draftProviderCandidate
+          : providerId;
+        const draftModel = currentDraft.model ?? resolvedModelName;
+        setThreadDraftRuntime(memoryThreadId, {
+          ...currentDraft,
+          ...buildDraftRuntimeForProvider({
+            model: draftModel,
+            provider: draftProvider,
+            providerSettingsMap: nextProviderSettings,
+          }),
+        });
+        return;
+      }
       setProviderSettings(providerId, updates);
     },
-    [setProviderSettings]
+    [
+      draftRuntimeByThreadId,
+      memoryThreadId,
+      providerSettings,
+      resolvedModelName,
+      selectedProvider,
+      setProviderSettings,
+      setThreadDraftRuntime,
+    ]
   );
 
   const providerGroups = useMemo<ProviderGroupConfig[]>(() => {
@@ -1553,81 +2202,73 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   const isProviderReady = Boolean(
     selectedProvider && currentModel && configuredProviders.includes(selectedProvider)
   );
-
-  const disabledReason = useMemo(() => {
-    const localRuntimeProviderReason = resolveLocalRuntimeProviderDisabledReason(
+  const memoryDisabledReason = useMemo(
+    () =>
+      resolveAssistantMemoryDisabledReason({
+        assistantThreadRepository,
+        dbError,
+        dbInitializing,
+        desktopAssistantBackendAvailable,
+        memoryLoadState,
+        selectedMemoryThreadId,
+        selectedProvider,
+        workspaceRootPath,
+      }),
+    [
+      assistantThreadRepository,
+      dbError,
+      dbInitializing,
+      desktopAssistantBackendAvailable,
+      memoryLoadState,
+      selectedMemoryThreadId,
       selectedProvider,
-      configuredProviders
-    );
-    if (localRuntimeProviderReason) {
-      return localRuntimeProviderReason;
-    }
+      workspaceRootPath,
+    ]
+  );
 
-    const builtInLocalReason = resolveBuiltInLocalProviderDisabledReason(selectedProvider);
-    if (builtInLocalReason) {
-      return builtInLocalReason;
-    }
-
-    if (configuredProviders.length === 0) {
-      const baseReason =
-        'Connect an AI provider in Settings → LLM Provider Keys to enable the assistant.';
-      if (localRuntimeHint) {
-        return `${baseReason} ${localRuntimeHint}`;
-      }
-      return baseReason;
-    }
-    if (!selectedProvider) {
-      return 'Select an AI provider to start chatting.';
-    }
-    if (!configuredProviders.includes(selectedProvider)) {
-      return 'The selected provider is no longer configured.';
-    }
-
-    const providerModelIds = getProviderLlmModels(selectedProvider).map((model) => model.id);
-    const unavailableLocalModelReason = resolveSelectedLocalModelUnavailableReason({
+  const providerDisabledReason = useMemo(
+    () =>
+      resolveAssistantProviderDisabledReason({
+        configuredProviders,
+        currentModel,
+        getProviderLlmModels,
+        localRuntimeHint,
+        providerHasEnabledModels,
+        selectedProvider,
+      }),
+    [
+      configuredProviders,
+      currentModel,
+      getProviderLlmModels,
+      localRuntimeHint,
+      providerHasEnabledModels,
       selectedProvider,
-      selectedModel: currentModel,
-      providerModelIds,
-    });
-    if (unavailableLocalModelReason) {
-      return unavailableLocalModelReason;
-    }
-
-    if (!providerHasEnabledModels(selectedProvider)) {
-      const definition = getProviderDefinition(selectedProvider);
-      return `Enable at least one model for ${definition.displayName} to continue.`;
-    }
-    if (!currentModel) {
-      return 'Select a model for the chosen provider to continue.';
-    }
-    return;
-  }, [
-    configuredProviders,
-    currentModel,
-    getProviderLlmModels,
-    localRuntimeHint,
-    providerHasEnabledModels,
-    selectedProvider,
-  ]);
+    ]
+  );
+  const disabledReason = memoryDisabledReason ?? providerDisabledReason;
 
   return (
     <AssistantUiPanel
+      completePreparedRequest={completePreparedRequest}
       contextMenu={contextMenu}
       onProviderSettingsChange={handleProviderSettingsChange}
       pickerModels={pickerModels}
       pickerProviders={pickerProviders}
+      prepareRequestData={prepareRequestData}
       providerGroups={providerGroups}
-      providerSettings={providerSettings}
+      providerSettings={effectiveProviderSettings}
       requestData={requestData}
       toolMenu={toolMenu}
+      {...(historyAdapter ? { historyAdapter } : {})}
+      {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
       {...(selectedProvider ? { selectedProvider } : {})}
       {...(currentModel ? { selectedModel: currentModel } : {})}
-      disabled={!isProviderReady}
+      disabled={!isProviderReady || Boolean(memoryDisabledReason)}
       onModelChange={handleModelChange}
       onModelToggle={handleModelToggle}
       {...(disabledReason ? { disabledReason } : {})}
     />
   );
-};
+}
 
 AssistantUiPanelWrapper.displayName = 'AssistantUiPanelWrapper';

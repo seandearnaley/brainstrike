@@ -26,6 +26,8 @@ import {
   useRecursiveFolderSelect,
   useRecursiveSelectAll,
 } from './hooks';
+import type { AddMultipleSelectedFilesChunked } from './hooks/recursive-selection-utils';
+import type { ExpandAllExecutorArgs, ExpandAllExecutorResult } from './hooks/use-expand-all';
 import { getRootFolderId } from './utils/get-root-folder-id';
 import {
   needsLoading as checkNeedsLoading,
@@ -49,14 +51,43 @@ import {
   replaceNormalizedDirectoryChildren,
   setNormalizedNodeLoadState,
 } from './utils/normalized-file-tree';
-import { buildHandleMap, toWorkerFileNodes } from './utils/worker-node-conversion';
+import {
+  buildHandleMap,
+  type FileSystemHandle,
+  rehydrateTree,
+  toWorkerFileNodes,
+} from './utils/worker-node-conversion';
 
 const logger = createLogger('LazyFileTree');
 interface InFlightRootLoad {
   promise: Promise<IFileNode[]>;
 }
 
+interface CountableTreeNode {
+  children?: readonly CountableTreeNode[] | undefined;
+}
+
+type SpecificPathProgressHandler = (loaded: number, total: number, currentPath: string) => void;
+
 const inFlightRootLoads = new Map<string, InFlightRootLoad>();
+
+function countTreeNodes(nodes: readonly CountableTreeNode[]): number {
+  let count = 0;
+  const stack = [...nodes];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) {
+      continue;
+    }
+    count += 1;
+    if (node.children) {
+      for (const child of node.children) {
+        stack.push(child);
+      }
+    }
+  }
+  return count;
+}
 
 /**
  * Clear shared root-load state between tests.
@@ -333,6 +364,114 @@ function shouldSkipSpecificPathLoad(
   return paths.length === 0;
 }
 
+async function loadSpecificPathsWithWorker(args: {
+  handleMapRef: React.RefObject<Map<string, FileSystemHandle>>;
+  onNodesIndexedRef: React.RefObject<
+    ((nodes: IFileNode[], parentPath: string | null) => void) | undefined
+  >;
+  onProgress: SpecificPathProgressHandler | undefined;
+  paths: string[];
+  port: FileTreeWorkerPort;
+  setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>;
+  specificPathProgressRef: React.RefObject<SpecificPathProgressHandler | null>;
+  syncNormalizedTree: (tree: IFileNode[]) => void;
+}): Promise<void> {
+  const {
+    handleMapRef,
+    onNodesIndexedRef,
+    onProgress,
+    paths,
+    port,
+    setState,
+    specificPathProgressRef,
+    syncNormalizedTree,
+  } = args;
+  const total = paths.length;
+
+  specificPathProgressRef.current = onProgress ?? null;
+  onProgress?.(0, total, paths[0] ?? '');
+
+  const result = await port.loadPaths(paths);
+  const hydratedTree = rehydrateTree(result.tree, handleMapRef.current);
+  syncNormalizedTree(hydratedTree);
+  setState((s) => ({
+    ...s,
+    fileTree: hydratedTree,
+    loadingPaths: new Set(),
+  }));
+  if (onNodesIndexedRef.current && hydratedTree.length > 0) {
+    onNodesIndexedRef.current(hydratedTree, null);
+  }
+  onProgress?.(total, total, paths.at(-1) ?? '');
+}
+
+async function loadSpecificPathsSerial(args: {
+  loadChildrenRef: React.RefObject<(path: string) => Promise<void>>;
+  normalizedTreeRef: React.RefObject<NormalizedFileTreeState>;
+  onProgress: SpecificPathProgressHandler | undefined;
+  paths: string[];
+}): Promise<void> {
+  const { loadChildrenRef, normalizedTreeRef, onProgress, paths } = args;
+  const total = paths.length;
+
+  for (let index = 0; index < paths.length; index += 1) {
+    const path = paths[index];
+    if (!path) {
+      continue;
+    }
+
+    onProgress?.(index, total, path);
+
+    const node = materializeNormalizedSubtree(normalizedTreeRef.current, path);
+    const shouldLoadNode = node && node.type === 'directory' && node.loadState !== 'loaded';
+    if (!shouldLoadNode) {
+      onProgress?.(index + 1, total, path);
+      continue;
+    }
+
+    await loadChildrenRef.current(path);
+
+    onProgress?.(index + 1, total, path);
+  }
+}
+
+function applyWorkerExpandAllResult(args: {
+  handleMapRef: React.RefObject<Map<string, FileSystemHandle>>;
+  onNodesIndexedRef: React.RefObject<
+    ((nodes: IFileNode[], parentPath: string | null) => void) | undefined
+  >;
+  result: Awaited<ReturnType<FileTreeWorkerPort['expandAll']>>;
+  setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>;
+  syncNormalizedTree: (tree: IFileNode[]) => void;
+}): { discoveredDirectories: number; pathsToCommit: readonly string[] } {
+  const { handleMapRef, onNodesIndexedRef, result, setState, syncNormalizedTree } = args;
+  const hydratedTree = rehydrateTree(result.tree, handleMapRef.current);
+  const expectedNodeCount = countTreeNodes(result.tree);
+  const actualNodeCount = countTreeNodes(hydratedTree);
+
+  if (actualNodeCount !== expectedNodeCount) {
+    throw new Error(
+      `Expand-all worker returned ${expectedNodeCount} nodes but only ${actualNodeCount} could be rehydrated`
+    );
+  }
+
+  syncNormalizedTree(hydratedTree);
+  setState((s) => ({
+    ...s,
+    fileTree: hydratedTree,
+    loadingPaths: new Set(),
+  }));
+
+  if (onNodesIndexedRef.current && hydratedTree.length > 0) {
+    onNodesIndexedRef.current(hydratedTree, null);
+  }
+
+  return {
+    discoveredDirectories: result.expandedPaths.length,
+    pathsToCommit: result.expandedPaths,
+  };
+}
+
 export interface LazyFileTreeState {
   error: Error | null;
   fileTree: IFileNode[];
@@ -367,7 +506,8 @@ export interface UseLazyFileTreeReturn {
   expandAllProgress: { loaded: number; total: number } | null;
   /** Progressively expand all directories (loads everything) */
   expandAllProgressively: (
-    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
+    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
+    currentExpandedPaths?: ReadonlySet<string>
   ) => Promise<void>;
   /** Current file tree (lazily loaded) */
   fileTree: IFileNode[];
@@ -408,7 +548,8 @@ export interface UseLazyFileTreeReturn {
     filteredTree: IFileNode[],
     folderId: string,
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
-    maxSelectionCount: number
+    maxSelectionCount: number,
+    addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
   ) => Promise<{
     success: boolean;
     filePaths: string[];
@@ -423,7 +564,9 @@ export interface UseLazyFileTreeReturn {
     folderId: string,
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
     maxSelectionCount: number,
-    currentSelectionSize: number
+    currentSelectionSize: number,
+    currentDirectorySelectionSize?: number,
+    addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
   ) => Promise<{ success: boolean; filePaths: string[]; cancelled?: boolean; error?: string }>;
   /** Loading progress for recursive selection (if available) */
   selectionLoadingProgress: { loaded: number; total: number } | null;
@@ -493,6 +636,9 @@ export function useLazyFileTree(
   const [normalizedTreeVersion, setNormalizedTreeVersion] = useState(0);
   const inFlightChildLoadsRef = useRef<Map<string, Promise<void>>>(new Map());
   const loadChildrenRef = useRef<(path: string) => Promise<void>>(async () => {});
+  const specificPathProgressRef = useRef<
+    ((loaded: number, total: number, currentPath: string) => void) | null
+  >(null);
   const isUnmountedRef = useRef(false);
 
   // Track which root we've initialized for to prevent redundant reinits
@@ -530,7 +676,12 @@ export function useLazyFileTree(
   );
 
   // Progress handler - defined before useFileTreeWorker so we can pass it
-  const handleProgress = useCallback((loaded: number, total: number) => {
+  const handleProgress = useCallback((loaded: number, total: number, currentPath: string) => {
+    const specificPathProgress = specificPathProgressRef.current;
+    if (specificPathProgress) {
+      specificPathProgress(loaded, total, currentPath);
+      return;
+    }
     setExpandAllProgress({ loaded, total });
   }, []);
 
@@ -929,6 +1080,7 @@ export function useLazyFileTree(
   }, [cancelAllLoading]);
 
   const cancelExpandAllLoads = useCallback(() => {
+    portRef.current?.abort();
     cancelAllLoading();
     const loadingPaths = Array.from(
       new Set([...loadingPathsRef.current, ...childAbortControllersRef.current.keys()])
@@ -954,7 +1106,30 @@ export function useLazyFileTree(
       fileTree: nextTree,
       loadingPaths: new Set(),
     }));
-  }, [cancelAllLoading, commitNormalizedTree]);
+  }, [cancelAllLoading, commitNormalizedTree, portRef]);
+
+  const runWorkerExpandAll = useCallback(
+    async (_args: ExpandAllExecutorArgs): Promise<ExpandAllExecutorResult> => {
+      const port = portRef.current;
+      if (!port) {
+        throw new Error('File tree worker is unavailable for expand-all');
+      }
+      const rootFolderId = getRootFolderId(rootDirectoryHandle);
+      if (!rootFolderId) {
+        throw new Error('Cannot expand all without a root folder id');
+      }
+
+      const result = await port.expandAll(rootFolderId);
+      return applyWorkerExpandAllResult({
+        handleMapRef,
+        onNodesIndexedRef,
+        result,
+        setState,
+        syncNormalizedTree,
+      });
+    },
+    [handleMapRef, onNodesIndexedRef, portRef, rootDirectoryHandle, syncNormalizedTree]
+  );
 
   /**
    * Cancel loading for a specific directory (e.g., when collapsing a folder).
@@ -1000,8 +1175,11 @@ export function useLazyFileTree(
     },
     loadDirectoryPath: (path: string) => loadChildrenRef.current(path),
     onError: handleWorkerError,
-    onProgress: handleProgress,
+    onProgress: (loaded: number, total: number) => {
+      handleProgress(loaded, total, '');
+    },
     rootFolderId: getRootFolderId(rootDirectoryHandle) ?? '',
+    runUnloadedExpandAll: runWorkerExpandAll,
   });
 
   /**
@@ -1057,7 +1235,8 @@ export function useLazyFileTree(
    */
   const expandAllProgressively = useCallback(
     async (
-      setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
+      setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
+      currentExpandedPaths?: ReadonlySet<string>
     ): Promise<void> => {
       if (!fileSystemAdapter) {
         logger.warn('expandAllProgressively: missing file system adapter');
@@ -1065,7 +1244,7 @@ export function useLazyFileTree(
       }
 
       try {
-        await expandAllFromHook(setExpandedPaths);
+        await expandAllFromHook(setExpandedPaths, currentExpandedPaths);
       } catch (err) {
         logger.error('expandAllProgressively failed', {
           error: err instanceof Error ? err.message : String(err),
@@ -1094,33 +1273,45 @@ export function useLazyFileTree(
       logger.debug('loadSpecificPaths starting', { pathCount: paths.length });
 
       try {
-        const total = paths.length;
-        for (let index = 0; index < paths.length; index += 1) {
-          const path = paths[index];
-          if (!path) {
-            continue;
+        if (paths.length > 1) {
+          const port = portRef.current;
+          if (port) {
+            await loadSpecificPathsWithWorker({
+              handleMapRef,
+              onNodesIndexedRef,
+              onProgress,
+              paths,
+              port,
+              setState,
+              specificPathProgressRef,
+              syncNormalizedTree,
+            });
+            return;
           }
 
-          onProgress?.(index, total, path);
-
-          const node = materializeNormalizedSubtree(normalizedTreeRef.current, path);
-          const shouldLoadNode = node && node.type === 'directory' && node.loadState !== 'loaded';
-          if (!shouldLoadNode) {
-            onProgress?.(index + 1, total, path);
-            continue;
-          }
-
-          await loadChildrenRef.current(path);
-
-          onProgress?.(index + 1, total, path);
+          logger.debug(
+            'loadSpecificPaths using serial restoration because worker port is unavailable',
+            {
+              pathCount: paths.length,
+            }
+          );
         }
+
+        await loadSpecificPathsSerial({
+          loadChildrenRef,
+          normalizedTreeRef,
+          onProgress,
+          paths,
+        });
       } catch (err) {
         if (!isAbortError(err)) {
           logger.error('loadSpecificPaths failed', { error: String(err) });
         }
+      } finally {
+        specificPathProgressRef.current = null;
       }
     },
-    [fileSystemAdapter]
+    [fileSystemAdapter, handleMapRef, onNodesIndexedRef, portRef, syncNormalizedTree]
   );
 
   // Store loadRoot in a ref to avoid effect dependency on the callback itself.

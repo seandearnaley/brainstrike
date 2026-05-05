@@ -36,6 +36,9 @@
       "@brainstrike/agent/local-llm": [
         "../../packages/agent/dist/local-llm.d.ts"
       ],
+      "@brainstrike/agent/pglite-mastra-memory": [
+        "../../packages/agent/dist/pglite-mastra-memory/index.d.ts"
+      ],
       "@brainstrike/storage/electron": [
         "../../packages/storage/dist/electron.d.ts"
       ],
@@ -72,6 +75,9 @@
   "include": [
     "src/main.ts",
     "src/preload.ts",
+    "src/db-host-entry.ts",
+    "src/db-host-manager.ts",
+    "src/db-host-protocol.ts",
     "src/db-main.ts",
     "src/ipc-handlers.ts",
     "src/ipc-secrets.ts",

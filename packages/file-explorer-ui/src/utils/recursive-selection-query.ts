@@ -729,7 +729,7 @@ function createAsyncScanQueue(settledResults: ScanResult[]): AsyncScanQueue {
         return settledResults.shift();
       }
       if (closed) {
-        return undefined;
+        return;
       }
       return new Promise<ScanResult | undefined>((resolve) => {
         waiters.push(resolve);

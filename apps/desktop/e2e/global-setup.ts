@@ -38,7 +38,7 @@ async function globalSetup(_config: FullConfig) {
   try {
     await fs.access(mainPath);
     verboseLog('✅ Main process file found at:', mainPath);
-  } catch (_error) {
+  } catch {
     console.error('❌ Main process file not found at:', mainPath);
     throw new Error(`Main process file not found. Expected at: ${mainPath}`);
   }
@@ -46,7 +46,7 @@ async function globalSetup(_config: FullConfig) {
   try {
     await fs.access(rendererPath);
     verboseLog('✅ Renderer entry point found at:', rendererPath);
-  } catch (_error) {
+  } catch {
     console.error('❌ Renderer entry point not found at:', rendererPath);
     // Don't throw yet, let the test fail naturally but log it clearly
     console.warn('⚠️ WARNING: Renderer file missing. Tests may fail or hang.');

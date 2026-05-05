@@ -228,9 +228,7 @@ export function registerMcpIpcHandlers(): void {
   // Tool management IPC handlers
   ipcMain.handle(
     'mcp:tools:list',
-    async (): Promise<ReturnType<typeof mcpToolRegistry.getAllTools>> => {
-      return getSerializableTools();
-    }
+    async (): Promise<ReturnType<typeof mcpToolRegistry.getAllTools>> => getSerializableTools()
   );
 
   ipcMain.handle(

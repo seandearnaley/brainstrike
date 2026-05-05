@@ -1,3 +1,4 @@
+import { createLogger } from '@brainstrike/utils';
 import type {
   LiveNamespace,
   LiveQuery,
@@ -6,6 +7,11 @@ import type {
 } from '@electric-sql/pglite/live';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePGliteDatabase } from './db-provider.js';
+import { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
+
+export { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
+
+const logger = createLogger('UsePGliteLiveQuery');
 
 interface BaseLiveQueryOptions {
   /**
@@ -94,6 +100,11 @@ interface ElectronLiveBridge {
 type LiveSource =
   | { kind: 'pglite'; live: LiveNamespace }
   | { kind: 'electron'; bridge: ElectronLiveBridge };
+
+interface LeaderChangeSource {
+  offLeaderChange?: (callback: () => void) => void;
+  onLeaderChange: (callback: () => void) => (() => void) | undefined;
+}
 
 function isObjectLike(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
@@ -235,6 +246,34 @@ function getLiveNamespace(db: ReturnType<typeof usePGliteDatabase>): LiveNamespa
   return null;
 }
 
+function getLeaderChangeSource(
+  db: ReturnType<typeof usePGliteDatabase>
+): LeaderChangeSource | null {
+  const raw = (db as { raw?: unknown } | null)?.raw;
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const candidate = raw as { offLeaderChange?: unknown; onLeaderChange?: unknown };
+  if (typeof candidate.onLeaderChange !== 'function') {
+    return null;
+  }
+  const onLeaderChange = candidate.onLeaderChange as (
+    this: typeof raw,
+    callback: () => void
+  ) => (() => void) | undefined;
+  const source: LeaderChangeSource = {
+    onLeaderChange: (callback) => onLeaderChange.call(raw, callback),
+  };
+  if (typeof candidate.offLeaderChange === 'function') {
+    const offLeaderChange = candidate.offLeaderChange as (
+      this: typeof raw,
+      callback: () => void
+    ) => void;
+    source.offLeaderChange = (callback) => offLeaderChange.call(raw, callback);
+  }
+  return source;
+}
+
 function resolveLiveSource(db: ReturnType<typeof usePGliteDatabase>): LiveSource | null {
   const directLive = getLiveNamespace(db);
   if (directLive) {
@@ -258,7 +297,11 @@ async function subscribeViaPGlite<T>(
     if (!options.key) {
       throw new Error('Live incremental queries require a key column');
     }
-    handle = await live.incrementalQuery(options.query, params ?? undefined, options.key);
+    handle = await live.incrementalQuery(
+      escapePGliteLiveQueryFormatPercents(options.query, params),
+      params ?? undefined,
+      options.key
+    );
   } else {
     const queryOptions: {
       query: string;
@@ -266,7 +309,7 @@ async function subscribeViaPGlite<T>(
       offset?: number;
       limit?: number;
     } = {
-      query: options.query,
+      query: escapePGliteLiveQueryFormatPercents(options.query, params),
       params,
     };
     if (options.offset !== undefined) {
@@ -302,7 +345,7 @@ async function subscribeViaElectron<T>(
 ): Promise<LiveSubscription<T>> {
   const startPayload: ElectronLiveQueryStartOptions = {
     mode: options.mode,
-    query: options.query,
+    query: escapePGliteLiveQueryFormatPercents(options.query, options.params),
     params: options.params ?? null,
   };
   if (options.key) {
@@ -359,6 +402,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
 ): LiveQueryHookResult<T> {
   const db = usePGliteDatabase();
   const source = useMemo(() => resolveLiveSource(db), [db]);
+  const [leaderRevision, setLeaderRevision] = useState(0);
   const hasCacheKey = options.cacheKey !== undefined;
   // When cacheKey is provided, skip expensive deep/JSON comparison — the caller
   // guarantees that cacheKey changes iff the query deps change.
@@ -388,6 +432,28 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
   const hasKey = !requiresKey || typeof options.key === 'string';
   const enabled = Boolean(options.enabled ?? true) && Boolean(source) && (!requiresKey || hasKey);
   const select = options.select;
+
+  useEffect(() => {
+    const leaderSource = getLeaderChangeSource(db);
+    if (!leaderSource) {
+      return;
+    }
+    const listener = () => {
+      setLeaderRevision((revision) => revision + 1);
+    };
+    const unsubscribe = leaderSource.onLeaderChange(listener);
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+        return;
+      }
+      if (leaderSource.offLeaderChange) {
+        leaderSource.offLeaderChange(listener);
+        return;
+      }
+      logger.warn('PGlite leader-change listener could not be removed');
+    };
+  }, [db]);
 
   // biome-ignore lint/plugin: Live query subscription management - async data with cleanup
   // biome-ignore lint/correctness/useExhaustiveDependencies: paramsDep intentionally drives re-subscription timing via the dep array — the effect reads actual params from effectiveParamsRef
@@ -421,9 +487,9 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     const normalizedOptions: InternalLiveQueryOptions = {
       query: options.query,
       mode,
-      ...(currentParams !== undefined ? { params: currentParams } : {}),
-      ...(options.offset !== undefined ? { offset: options.offset } : {}),
-      ...(options.limit !== undefined ? { limit: options.limit } : {}),
+      ...(currentParams === undefined ? {} : { params: currentParams }),
+      ...(options.offset === undefined ? {} : { offset: options.offset }),
+      ...(options.limit === undefined ? {} : { limit: options.limit }),
       ...(options.key ? { key: options.key } : {}),
     };
 
@@ -464,6 +530,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     options.key,
     options.limit,
     options.offset,
+    leaderRevision,
     paramsDep,
     options.query,
     // select intentionally omitted to prevent re-subscription
@@ -474,9 +541,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     await refreshRef.current();
   }, []);
 
-  const rows = useMemo(() => {
-    return (select ? select(rawRows) : rawRows) as T[];
-  }, [select, rawRows]);
+  const rows = useMemo(() => (select ? select(rawRows) : rawRows) as T[], [select, rawRows]);
 
   return useMemo(
     () => ({

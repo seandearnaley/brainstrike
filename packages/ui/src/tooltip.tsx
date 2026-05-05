@@ -34,4 +34,4 @@ const TooltipContent = ({
 );
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, TooltipPortal };
+export { Tooltip, TooltipContent, TooltipPortal, TooltipProvider, TooltipTrigger };

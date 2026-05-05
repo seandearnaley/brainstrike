@@ -88,7 +88,11 @@ export function createFileExplorerStore(storageAdapter: StorageAdapter) {
 
 let defaultPersistStorageAdapter: StorageAdapter;
 
-if (typeof localStorage !== 'undefined') {
+if (typeof localStorage === 'undefined') {
+  // Fallback for Node.js environments (like tests) where localStorage is not available
+  // Using MemoryStorageAdapter ensures it behaves like a storage but doesn't persist anywhere problematic
+  defaultPersistStorageAdapter = new MemoryStorageAdapter();
+} else {
   defaultPersistStorageAdapter = {
     async getItem(key: string) {
       return localStorage.getItem(key);
@@ -108,10 +112,6 @@ if (typeof localStorage !== 'undefined') {
     },
     /* v8 ignore stop */
   };
-} else {
-  // Fallback for Node.js environments (like tests) where localStorage is not available
-  // Using MemoryStorageAdapter ensures it behaves like a storage but doesn't persist anywhere problematic
-  defaultPersistStorageAdapter = new MemoryStorageAdapter();
 }
 
 const STORE_KEY = '__brainstrike_file_explorer_store__' as const;
@@ -148,6 +148,7 @@ export const useFileExplorerStore = storeSingleton as BoundStore;
 setupHMR(undefined, () => {
   // keep store on global between swaps
 });
+
 /* c8 ignore end */
 
 export { stateCreator };

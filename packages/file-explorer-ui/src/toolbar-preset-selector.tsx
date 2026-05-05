@@ -262,9 +262,10 @@ const ToolbarPresetSelectorInner: React.FC<
 
     // The active preset is the exact preset whose filter triplet matches the live filter state.
     // viewFilterPresetId is synchronized to that canonical match and must not drift independently.
-    const selectedPreset = useMemo(() => {
-      return resolveSelectedPreset(presets, viewFilterPresetId, activeFilters);
-    }, [presets, viewFilterPresetId, activeFilters]);
+    const selectedPreset = useMemo(
+      () => resolveSelectedPreset(presets, viewFilterPresetId, activeFilters),
+      [presets, viewFilterPresetId, activeFilters]
+    );
 
     const displayedPreset = useMemo(() => {
       if (!optimisticPresetId) {
@@ -425,5 +426,5 @@ const ToolbarPresetSelector: React.FC<ToolbarPresetSelectorProps> = React.memo(
 
 ToolbarPresetSelector.displayName = 'ToolbarPresetSelector';
 
-export { ToolbarPresetSelector };
 export type { ToolbarPresetSelectorProps };
+export { ToolbarPresetSelector };

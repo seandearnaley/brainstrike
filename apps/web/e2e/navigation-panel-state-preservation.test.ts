@@ -1,8 +1,24 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Locator, test } from '@playwright/test';
 import { FileExplorerPage } from './page-objects/file-explorer-page';
 import { resetAppState } from './utils/app-state';
-import { getPanelElements, togglePanelVisibility, waitForAppLoad } from './utils/layout-helpers';
+import {
+  CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
+  contextExplorerActiveNavLocator,
+  waitForAppLoad,
+} from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
+
+async function checkTreeCheckbox(checkbox: Locator): Promise<void> {
+  await checkbox.scrollIntoViewIfNeeded();
+  await checkbox.check();
+  await expect(checkbox).toBeChecked();
+}
+
+async function uncheckTreeCheckbox(checkbox: Locator): Promise<void> {
+  await checkbox.scrollIntoViewIfNeeded();
+  await checkbox.uncheck();
+  await expect(checkbox).not.toBeChecked();
+}
 
 test.describe('Navigation Panel State Preservation', () => {
   test.beforeEach(async ({ page }) => {
@@ -49,15 +65,13 @@ test.describe('Navigation Panel State Preservation', () => {
 
     await mockBrowserApis(page, 'test-root', tree, { clipboard: true });
     await page.goto('/');
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
     await resetAppState(page);
     await page.reload();
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
 
-    // Verify initial state
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
+    // Verify initial state — sidebar nav marks Context Explorer as the active page.
+    await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
     await expect(page.getByTestId('select-root-button')).toBeVisible();
     await expect(page.getByText('No directory selected')).toBeVisible();
   });
@@ -102,39 +116,26 @@ test.describe('Navigation Panel State Preservation', () => {
     const inputCheckbox = fileTree.getByRole('checkbox', { name: 'Select Input.tsx' });
     const headerCheckbox = fileTree.getByRole('checkbox', { name: 'Select Header.tsx' });
 
-    await buttonCheckbox.click({ force: true });
-    await expect(buttonCheckbox).toBeChecked();
+    await checkTreeCheckbox(buttonCheckbox);
     await expect(page.getByText('1/10')).toBeVisible();
 
-    await inputCheckbox.click({ force: true });
-    await expect(inputCheckbox).toBeChecked();
+    await checkTreeCheckbox(inputCheckbox);
     await expect(page.getByText('2/10')).toBeVisible();
 
-    await headerCheckbox.click({ force: true });
-    await expect(headerCheckbox).toBeChecked();
+    await checkTreeCheckbox(headerCheckbox);
     await expect(page.getByText('3/10')).toBeVisible();
 
-    // Step 4: Show console panel and click on a file to open it in tabbed editor
-    const elements = getPanelElements(page);
-    await togglePanelVisibility(elements.showConsoleShim, elements.consolePanel, true);
-
-    const buttonFile = page.getByRole('button', { name: 'Button.tsx' });
-    await buttonFile.click();
-    // File should open in a tab in the tabbed file editor (look specifically in console panel)
-    const tab = elements.consolePanel.getByRole('button', { name: /Button\.tsx/ }).first();
-    await expect(tab).toBeVisible();
-
-    // Step 5: Store the current state for verification
+    // Step 4: Store the current state for verification
     // Get scroll position of the file tree (if scrollable)
     const fileTreeScrollTop = await fileTree.evaluate((el) => el.scrollTop);
 
-    // Step 6: Hide the navigation panel
+    // Step 5: Hide the navigation panel
     const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
     await expect(hideExplorerButton).toBeVisible();
     await hideExplorerButton.click();
 
     // Verify panel is hidden
-    const leftPanel = page.locator('#explorer-panel');
+    const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
     await expect(leftPanel).not.toBeVisible();
 
     // Verify show button appears
@@ -144,40 +145,37 @@ test.describe('Navigation Panel State Preservation', () => {
     // Wait a moment to ensure any potential unmounting/remounting issues would occur
     await page.waitForTimeout(500);
 
-    // Step 7: Show the panel again
+    // Step 6: Show the panel again
     await showExplorerShim.click();
 
     // Verify panel is visible again
     await expect(leftPanel).toBeVisible();
 
-    // Step 8: CRITICAL VERIFICATION - All state should be preserved
+    // Step 7: CRITICAL VERIFICATION - All state should be preserved
 
-    // 8a. Verify root directory is still selected
+    // 7a. Verify root directory is still selected
     await expect(explorer.filterInput).toBeVisible();
     await expect(explorer.noDirectoryText).not.toBeVisible();
 
-    // 8b. Verify file tree is still visible
+    // 7b. Verify file tree is still visible
     await expect(fileTree).toBeVisible();
 
-    // 8c. Verify expanded folders are still expanded
+    // 7c. Verify expanded folders are still expanded
     await expect(fileTree.getByText('Button.tsx')).toBeVisible();
     await expect(fileTree.getByText('Input.tsx')).toBeVisible();
     await expect(fileTree.getByText('Header.tsx')).toBeVisible();
 
-    // 8d. Verify selected files are still selected
+    // 7d. Verify selected files are still selected
     await expect(buttonCheckbox).toBeChecked();
     await expect(inputCheckbox).toBeChecked();
     await expect(headerCheckbox).toBeChecked();
     await expect(page.getByText('3/10')).toBeVisible();
 
-    // 8e. Verify tab still shows the selected file
-    await expect(tab).toBeVisible();
-
-    // 8f. Verify scroll position is preserved (if applicable)
+    // 7e. Verify scroll position is preserved (if applicable)
     const newScrollTop = await fileTree.evaluate((el) => el.scrollTop);
     expect(newScrollTop).toBe(fileTreeScrollTop);
 
-    // Step 9: Test multiple hide/show cycles to ensure robustness
+    // Step 8: Test multiple hide/show cycles to ensure robustness
     for (let i = 0; i < 3; i++) {
       // Hide panel
       await hideExplorerButton.click();
@@ -197,23 +195,12 @@ test.describe('Navigation Panel State Preservation', () => {
       await expect(page.getByText('3/10')).toBeVisible();
     }
 
-    // Step 10: Final interaction test - ensure we can still interact with the tree
-    // Deselect one item
-    await headerCheckbox.click({ force: true });
-    await expect(headerCheckbox).not.toBeChecked();
+    // Step 9: Final interaction test - ensure we can still interact with the tree
+    await uncheckTreeCheckbox(headerCheckbox);
     await expect(page.getByText('2/10')).toBeVisible();
-
-    // Select a new file to open in tabbed editor
-    const inputFile = page.getByRole('button', { name: 'Input.tsx' });
-    await inputFile.scrollIntoViewIfNeeded();
-    await inputFile.evaluate((element) => {
-      element.scrollIntoView({ block: 'center', inline: 'nearest' });
-    });
-    await inputFile.dispatchEvent('click');
-    // Verify the file opens in a tab in the tabbed editor (look specifically in console panel)
-    const panelElements = getPanelElements(page);
-    const inputTab = panelElements.consolePanel.getByRole('button', { name: /Input\.tsx/ }).first();
-    await expect(inputTab).toBeVisible();
+    const footerCheckbox = fileTree.getByRole('checkbox', { name: 'Select Footer.tsx' });
+    await checkTreeCheckbox(footerCheckbox);
+    await expect(page.getByText('3/10')).toBeVisible();
   });
 
   test('should preserve filter state when toggling navigation panel', async ({ page }) => {
@@ -252,14 +239,13 @@ test.describe('Navigation Panel State Preservation', () => {
 
     // Select some filtered files
     const buttonCheckbox = fileTree.getByRole('checkbox', { name: 'Select Button.tsx' });
-    await buttonCheckbox.click({ force: true });
-    await expect(buttonCheckbox).toBeChecked();
+    await checkTreeCheckbox(buttonCheckbox);
 
     // Hide the panel
     const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
     await hideExplorerButton.click();
 
-    const leftPanel = page.locator('#explorer-panel');
+    const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
     await expect(leftPanel).not.toBeVisible();
 
     // Show the panel again
@@ -307,17 +293,15 @@ test.describe('Navigation Panel State Preservation', () => {
     const inputCheckbox = fileTree.getByRole('checkbox', { name: 'Select Input.tsx' });
 
     await expect(buttonCheckbox).toBeVisible({ timeout: 5000 });
-    await buttonCheckbox.click({ force: true });
-    await expect(buttonCheckbox).toBeChecked();
+    await checkTreeCheckbox(buttonCheckbox);
 
     await expect(inputCheckbox).toBeVisible({ timeout: 5000 });
-    await inputCheckbox.click({ force: true });
-    await expect(inputCheckbox).toBeChecked();
+    await checkTreeCheckbox(inputCheckbox);
 
     await expect(page.getByText('2/10')).toBeVisible();
 
     // Get panel and button references
-    const leftPanel = page.locator('#explorer-panel');
+    const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
     const hideButton = page.locator('button[aria-label="Hide explorer panel"]');
     const showButton = page.locator('button[aria-label="Show explorer panel"]');
 

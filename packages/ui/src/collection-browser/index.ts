@@ -14,8 +14,9 @@ export { BulkActionBar, DEFAULT_BULK_ACTIONS } from './bulk-action-bar';
 export type { CollectionBrowserProps } from './collection-browser';
 // Main component
 export { CollectionBrowser, shortenPath } from './collection-browser';
-export { FilterBar } from './filter-bar';
+export { CollectionBrowserToolbar } from './collection-browser-toolbar';
 export { FilterChip } from './filter-chip';
+export { FilterControls } from './filter-controls';
 export type { NodeInspectorProps } from './node-inspector';
 export { NodeInspector } from './node-inspector';
 // Semantic search components
@@ -26,6 +27,7 @@ export type {
   BrowserNodeData,
   ChunkData,
   CollectionBrowserFilters,
+  CollectionBrowserToolbarProps,
   CollectionData,
   CollectionNodeType,
   CollectionTreeNode,
@@ -34,7 +36,6 @@ export type {
   EmbeddingStatus,
   EmbeddingStatusConfig,
   FileData,
-  FilterBarProps,
   FilterChipProps,
   GroupByKey,
   GroupHeaderData,

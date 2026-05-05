@@ -12,11 +12,11 @@ import { useSyncExternalStore } from 'react';
  * @returns `true` when the window is focused and visible, `false` otherwise.
  */
 
-let _active = typeof document !== 'undefined' ? !document.hidden && document.hasFocus() : true;
+let _active = typeof document === 'undefined' ? true : !document.hidden && document.hasFocus();
 const _listeners = new Set<() => void>();
 
 function _update() {
-  const next = typeof document !== 'undefined' ? !document.hidden && document.hasFocus() : true;
+  const next = typeof document === 'undefined' ? true : !document.hidden && document.hasFocus();
   if (next !== _active) {
     _active = next;
     for (const listener of _listeners) {

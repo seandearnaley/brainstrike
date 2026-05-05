@@ -402,7 +402,7 @@ export function useTokenCache({
   const getFileSize = useCallback((folderId: string, filePath: string): number | undefined => {
     const normalizedFilePath = tryNormalizeCachePath(folderId, filePath);
     if (!normalizedFilePath) {
-      return undefined;
+      return;
     }
     const key = createCacheKey(folderId, normalizedFilePath);
     return fileSizeCache.current.get(key);

@@ -1,5 +1,31 @@
 import path from 'node:path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
+
+function installUtilityProcessParentPort(): void {
+  Object.defineProperty(process, 'parentPort', {
+    configurable: true,
+    writable: true,
+    value: {
+      on: vi.fn(),
+      postMessage: vi.fn(),
+    },
+  });
+}
+
+function restoreParentPort(): void {
+  if (originalParentPortDescriptor) {
+    Object.defineProperty(process, 'parentPort', originalParentPortDescriptor);
+    return;
+  }
+
+  Object.defineProperty(process, 'parentPort', {
+    configurable: true,
+    value: undefined,
+    writable: true,
+  });
+}
 
 const existsSyncMock = vi.fn();
 const mkdirSyncMock = vi.fn();
@@ -85,9 +111,14 @@ describe('db-main lifecycle', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    installUtilityProcessParentPort();
     process.env['NODE_ENV'] = 'test';
     process.env['BRAINSTRIKE_DB_PROFILE'] = '';
     existsSyncMock.mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    restoreParentPort();
   });
 
   it('closeDatabase closes handle and resets singleton', async () => {
@@ -165,9 +196,9 @@ describe('db-main lifecycle', () => {
     const gitHeadPath = path.join(resolvedGitDir, 'HEAD');
     const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(worktreeRoot);
 
-    existsSyncMock.mockImplementation((candidate: string) => {
-      return candidate === gitPointerPath || candidate === gitHeadPath;
-    });
+    existsSyncMock.mockImplementation(
+      (candidate: string) => candidate === gitPointerPath || candidate === gitHeadPath
+    );
     lstatSyncMock.mockImplementation((candidate: string) => ({
       isDirectory: () => false,
       isFile: () => candidate === gitPointerPath,

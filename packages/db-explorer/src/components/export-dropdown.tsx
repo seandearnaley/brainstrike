@@ -10,7 +10,12 @@ import {
 import { Archive, Brain, ChevronDown, Download, FileDown } from 'lucide-react';
 import type { ExportButtonsProps } from '../types';
 
-export function ExportDropdown({ counts, exportHandlers }: ExportButtonsProps) {
+export function ExportDropdown({
+  counts,
+  countsStatus = 'ready',
+  exportHandlers,
+}: ExportButtonsProps) {
+  const countsPending = countsStatus === 'pending';
   const hasFiles = counts.records > 0;
   const hasChunks = counts.chunks > 0;
   const hasEmbeddings = counts.embeddings > 0;
@@ -21,12 +26,12 @@ export function ExportDropdown({ counts, exportHandlers }: ExportButtonsProps) {
       <DropdownMenuTrigger asChild>
         <Button
           className="flex items-center gap-1.5"
-          disabled={!hasAnyData}
+          disabled={countsPending || !hasAnyData}
           size="sm"
           variant="outline"
         >
           <FileDown className="h-3.5 w-3.5" />
-          Export
+          {countsPending ? 'Export pending' : 'Export'}
           <ChevronDown className="h-3 w-3 opacity-50" />
         </Button>
       </DropdownMenuTrigger>
@@ -36,39 +41,45 @@ export function ExportDropdown({ counts, exportHandlers }: ExportButtonsProps) {
 
         <DropdownMenuItem
           className="cursor-pointer"
-          disabled={!hasFiles}
+          disabled={countsPending || !hasFiles}
           onClick={exportHandlers.handleExportFiles}
         >
           <Download className="mr-2 h-3.5 w-3.5" />
           <span className="flex-1">Files</span>
-          <span className="text-muted-foreground text-xs">{counts.records}</span>
+          <span className="text-muted-foreground text-xs">
+            {countsPending ? 'pending' : counts.records}
+          </span>
         </DropdownMenuItem>
 
         <DropdownMenuItem
           className="cursor-pointer"
-          disabled={!hasChunks}
+          disabled={countsPending || !hasChunks}
           onClick={exportHandlers.handleExportChunks}
         >
           <Download className="mr-2 h-3.5 w-3.5" />
           <span className="flex-1">Chunks</span>
-          <span className="text-muted-foreground text-xs">{counts.chunks}</span>
+          <span className="text-muted-foreground text-xs">
+            {countsPending ? 'pending' : counts.chunks}
+          </span>
         </DropdownMenuItem>
 
         <DropdownMenuItem
           className="cursor-pointer"
-          disabled={!hasEmbeddings}
+          disabled={countsPending || !hasEmbeddings}
           onClick={exportHandlers.handleExportEmbeddings}
         >
           <Brain className="mr-2 h-3.5 w-3.5" />
           <span className="flex-1">Embeddings</span>
-          <span className="text-muted-foreground text-xs">{counts.embeddings}</span>
+          <span className="text-muted-foreground text-xs">
+            {countsPending ? 'pending' : counts.embeddings}
+          </span>
         </DropdownMenuItem>
 
         <DropdownMenuSeparator />
 
         <DropdownMenuItem
           className="cursor-pointer"
-          disabled={!hasAnyData}
+          disabled={countsPending || !hasAnyData}
           onClick={() => void exportHandlers.handleExportAll()}
         >
           <Archive className="mr-2 h-3.5 w-3.5" />

@@ -1,8 +1,12 @@
 import {
   applyManagedCacheBatch as applyManagedCacheBatchLocally,
-  useEmbeddingSetsRepository,
-  useFileChunkRepository,
-  useFileRecordRepository,
+  createDatabasePressureController,
+  createPriorityDbHandle,
+  type DbHandle,
+  ElectronEmbeddingSetsRepository,
+  ElectronFileChunkRepository,
+  ElectronFileRecordRepository,
+  getDatabaseWorkScheduler,
   usePGliteDatabase,
 } from '@brainstrike/db';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
@@ -25,9 +29,51 @@ import { WorkspaceCollectionSyncService } from './workspace-collection-sync-serv
 
 const logger = createLogger('WorkspaceCollectionSyncProvider');
 export const FILE_EXPLORER_REFRESH_EVENT = 'brainstrike:file-explorer-refreshed';
+const BACKGROUND_DATABASE_WORK_OPTIONS = {
+  label: 'background indexing',
+  priority: 'background',
+} as const;
+const BACKGROUND_PRESSURE_POLL_MS = 50;
 
 export interface WorkspaceCollectionSyncProviderProps {
   children: ReactNode;
+}
+
+function createBackgroundRepositoryDb(db: DbHandle): {
+  exec: (sql: string) => Promise<void>;
+  query: DbHandle['query'];
+} {
+  if (!db.exec) {
+    throw new Error('Background indexing requires database exec support.');
+  }
+  return {
+    query: db.query,
+    exec: async (sql: string) => {
+      await db.exec?.(sql);
+    },
+  };
+}
+
+function createWaitForBackgroundPermit(
+  db: DbHandle
+): (options: { readonly label: string }) => Promise<void> {
+  const scheduler = getDatabaseWorkScheduler(db);
+  if (scheduler) {
+    return createDatabasePressureController({ scheduler }).waitForBackgroundPermit;
+  }
+
+  const schedulerSnapshot =
+    typeof window === 'undefined' ? undefined : window.electronAPI?.db?.schedulerSnapshot;
+  if (!schedulerSnapshot) {
+    throw new Error('Background indexing requires database QoS scheduler snapshots.');
+  }
+
+  return createDatabasePressureController({
+    pollMs: BACKGROUND_PRESSURE_POLL_MS,
+    snapshotSource: {
+      getSnapshot: schedulerSnapshot,
+    },
+  }).waitForBackgroundPermit;
 }
 
 export function WorkspaceCollectionSyncProvider({
@@ -37,9 +83,22 @@ export function WorkspaceCollectionSyncProvider({
   const { isAccessLoading, rootDirectoryHandle } = useFileSystem();
   const fileTreeContext = useOptionalFileTreeContext();
   const db = usePGliteDatabase();
-  const fileRecordRepository = useFileRecordRepository();
-  const chunkRepository = useFileChunkRepository();
-  const embeddingSetsRepository = useEmbeddingSetsRepository();
+  const backgroundDb = useMemo(() => (db ? createPriorityDbHandle(db, 'background') : null), [db]);
+  const waitForBackgroundPermit = useMemo(
+    () => (backgroundDb ? createWaitForBackgroundPermit(backgroundDb) : null),
+    [backgroundDb]
+  );
+  const backgroundRepositories = useMemo(() => {
+    if (!backgroundDb) {
+      return null;
+    }
+    const repositoryDb = createBackgroundRepositoryDb(backgroundDb);
+    return {
+      chunkRepository: new ElectronFileChunkRepository(repositoryDb),
+      embeddingSetsRepository: new ElectronEmbeddingSetsRepository(repositoryDb),
+      fileRecordRepository: new ElectronFileRecordRepository(repositoryDb),
+    };
+  }, [backgroundDb]);
   const { ensureStarted: ensureChunkingWorker } = useChunkingWorkerContext();
   const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
   const managedCollectionId = useBackgroundIndexingPreferencesStore(
@@ -108,10 +167,13 @@ export function WorkspaceCollectionSyncProvider({
     if (
       !(
         db &&
+        backgroundDb &&
+        waitForBackgroundPermit &&
+        backgroundRepositories &&
         fileSystemAdapter &&
-        fileRecordRepository &&
-        chunkRepository &&
-        embeddingSetsRepository
+        backgroundRepositories.fileRecordRepository &&
+        backgroundRepositories.chunkRepository &&
+        backgroundRepositories.embeddingSetsRepository
       )
     ) {
       return null;
@@ -120,24 +182,23 @@ export function WorkspaceCollectionSyncProvider({
       applyManagedCacheBatch: async (args) => {
         const electronApplyManagedCacheBatch = window.electronAPI?.db?.applyManagedCacheBatch;
         if (electronApplyManagedCacheBatch) {
-          await electronApplyManagedCacheBatch(args);
+          await electronApplyManagedCacheBatch(args, BACKGROUND_DATABASE_WORK_OPTIONS);
           return;
         }
-        await applyManagedCacheBatchLocally(db, args);
+        await applyManagedCacheBatchLocally(backgroundDb, args);
       },
       cancelBackfill: async (embeddingSetId) => {
         await runtimeController.cancelBackfill(embeddingSetId);
       },
-      chunkRepository,
-      db,
-      embeddingSetsRepository,
-      enqueueBackfill: async (embeddingSetId, options) => {
-        return await runtimeController.enqueueBackfill(embeddingSetId, options);
-      },
+      chunkRepository: backgroundRepositories.chunkRepository,
+      db: backgroundDb,
+      embeddingSetsRepository: backgroundRepositories.embeddingSetsRepository,
+      enqueueBackfill: async (embeddingSetId, options) =>
+        await runtimeController.enqueueBackfill(embeddingSetId, options),
       ensureChunkingWorker,
       ensureEmbeddingRuntimeStarted,
       fileSystemAdapter,
-      fileRecordRepository,
+      fileRecordRepository: backgroundRepositories.fileRecordRepository,
       getBackfillsInFlight: async () => await runtimeController.getBackfillsInFlight(),
       log: logger,
       onManagedCollectionMissing: (missingCollectionId) => {
@@ -152,20 +213,21 @@ export function WorkspaceCollectionSyncProvider({
       setStatus: setSyncStatus,
       subscribeToBackfillProgress: (callback) => runtimeController.onBackfillProgress(callback),
       validateHostedProviderAccess,
+      waitForBackgroundPermit,
     });
   }, [
-    chunkRepository,
+    backgroundDb,
+    backgroundRepositories,
     db,
-    embeddingSetsRepository,
     ensureEmbeddingRuntimeStarted,
     ensureChunkingWorker,
-    fileRecordRepository,
     fileSystemAdapter,
     runtimeController,
     setManagedCollectionId,
     setIsImporting,
     setSyncStatus,
     validateHostedProviderAccess,
+    waitForBackgroundPermit,
   ]);
 
   const triggerSync = useCallback(() => {

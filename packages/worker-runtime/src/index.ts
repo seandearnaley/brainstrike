@@ -1,4 +1,4 @@
-import type { LogRecord } from '@brainstrike/utils';
+import { generateUUID, type LogRecord } from '@brainstrike/utils';
 
 export type BackgroundRuntimeState = 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
 
@@ -246,23 +246,11 @@ export interface WorkerRuntimeClientOptions {
 }
 
 export function createRuntimeId(runtimeKind: string): string {
-  if (
-    typeof globalThis.crypto === 'undefined' ||
-    typeof globalThis.crypto.randomUUID !== 'function'
-  ) {
-    throw new Error('Background runtime IDs require crypto.randomUUID().');
-  }
-  return `${runtimeKind}:${globalThis.crypto.randomUUID()}`;
+  return `${runtimeKind}:${generateUUID()}`;
 }
 
 export function createRequestId(prefix: string): string {
-  if (
-    typeof globalThis.crypto === 'undefined' ||
-    typeof globalThis.crypto.randomUUID !== 'function'
-  ) {
-    throw new Error('Background runtime request IDs require crypto.randomUUID().');
-  }
-  return `${prefix}:${globalThis.crypto.randomUUID()}`;
+  return `${prefix}:${generateUUID()}`;
 }
 
 export function createBackgroundRuntimeStatus<TRuntimeKind extends string>(

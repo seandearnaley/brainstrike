@@ -179,7 +179,7 @@ function findNextNonWhitespaceCharacter(text: string, startIndex: number): strin
       return char;
     }
   }
-  return undefined;
+  return;
 }
 
 interface TrailingCommaStripState {

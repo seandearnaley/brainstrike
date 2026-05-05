@@ -28,8 +28,7 @@ import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vecto
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, type IFileNode } from '@brainstrike/types';
-import { createBulkOperationContext } from '@brainstrike/utils/bulk-operation-context';
-import { createLogger, LogLevel } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/utils/logger';
 import {
   type Dispatch,
   type SetStateAction,
@@ -54,7 +53,7 @@ interface EnhancedFileImportOptions {
   chunkTokenLimit?: number;
   embeddingQueue?: QueueAdapter | null;
   enableChunking?: boolean;
-  onComplete?: (results: EnhancedImportResult[]) => void;
+  onComplete?: (results: EnhancedImportResult[]) => Promise<void> | void;
   onError?: (error: Error) => void;
   onProgress?: (progress: EnhancedImportProgress) => void;
   resolveTargetEmbeddingSetId?: () => string | null;
@@ -213,6 +212,16 @@ async function runImportFlow({
     };
 
     const results = await runEnhancedImport<IFileNode>(params);
+    logger.info('Enhanced import flow produced results', {
+      activeSetId: activeSetIdRef.current,
+      files: results.length,
+      chunksCreated: results.reduce((sum, result) => sum + (result.chunksCreated || 0), 0),
+      chunksWithEmbeddings: results.reduce(
+        (sum, result) => sum + (result.chunksWithEmbeddings || 0),
+        0
+      ),
+      errors: results.filter((result) => Boolean(result.error)).length,
+    });
 
     // Check if aborted after import
     if (controller.signal.aborted) {
@@ -226,12 +235,18 @@ async function runImportFlow({
       results.map((result) => result.id)
     );
 
-    options.onComplete?.(results);
+    await options.onComplete?.(results);
   } catch (error) {
     if (controller.signal.aborted) {
       logger.info('Import aborted', { error });
       return;
     }
+    logger.error('Enhanced import flow failed', {
+      activeSetId: activeSetIdRef.current,
+      selectedFiles: selectedFilePaths.size,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     options.onError?.(error instanceof Error ? error : new Error('Import failed'));
   }
 }
@@ -323,7 +338,7 @@ export function useEnhancedFileImportService(
               chunkId: detail.chunkId,
               status: detail.status,
               model: detail.model,
-              ...(detail.elapsedMs !== undefined ? { elapsedMs: detail.elapsedMs } : {}),
+              ...(detail.elapsedMs === undefined ? {} : { elapsedMs: detail.elapsedMs }),
               ...(detail.errorMessage ? { errorMessage: detail.errorMessage } : {}),
             },
           },
@@ -571,8 +586,6 @@ export function useEnhancedFileImportService(
       // Ensure UI can react immediately (e.g., show progress panel)
       options.onProgress?.(initialProgress);
 
-      const bulkContext = createBulkOperationContext({ level: LogLevel.WARN });
-      bulkContext.enter();
       try {
         const resolvedChunkingWorkerPort =
           options.enableChunking && chunkingWorkerPort === null
@@ -595,7 +608,6 @@ export function useEnhancedFileImportService(
           activeSetIdRef,
         });
       } finally {
-        bulkContext.exit();
         setIsImporting(false);
         setGlobalIsImporting(false); // Resume background token indexer
         abortControllerRef.current = null;

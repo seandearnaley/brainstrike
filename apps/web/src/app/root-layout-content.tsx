@@ -8,14 +8,9 @@ import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
-import { lazy, type ReactElement, type ReactNode, Suspense, useCallback, useEffect } from 'react';
-import HomePageContent from './home-page-content';
+import { type ReactElement, type ReactNode, useCallback, useEffect } from 'react';
+import ContextExplorerPageContent from './context-explorer-page-content';
 import SettingsPageContent from './settings/page-content';
-
-const LazyEmbeddingJobQueueTracker = lazy(async () => {
-  const module = await import('@brainstrike/vector-management');
-  return { default: module.EmbeddingJobQueueTracker };
-});
 
 /**
  * Wrapper component that provides TokenCacheProvider.
@@ -46,10 +41,8 @@ function useInitializeWebVectorDevicePreference(): void {
  *
  * 1. create-embedding-queue.ts is resolved lazily when DB/vector tooling needs it
  * 2. Passed to SharedRootLayoutContent as loadEmbeddingQueue prop
- * 3. Flows through:
- *    - RootLayoutContent → ToolsPanel → VectorsTab → VectorStatusWithDialog
- *    - RootLayoutContent → ToolsPanel → DatabaseTab → DatabaseDemoPanel (import operations)
- * 4. VectorStatusWithDialog uses it for embedding set management and operations
+ * 3. Flows through RootLayoutContent → AgentSidebarPanel → DatabasePanel → DatabaseTab → DatabaseDemoPanel
+ * 4. Database-facing views use it for embedding set management and import operations
  *
  * DO NOT remove the loadEmbeddingQueue prop! It's the single source of truth for all
  * embedding operations in the web app.
@@ -57,19 +50,15 @@ function useInitializeWebVectorDevicePreference(): void {
  * TOKEN CACHE: The TokenCacheWrapper provides a shared token cache context that
  * enables background token indexing. It wraps the entire layout so both:
  * - FileExplorerLeftPanel (indexes selected files via background worker)
- * - PreviewPanel in HomePageContent (displays token counts from the shared cache)
+ * - PreviewPanel in ContextExplorerPageContent (displays token counts from the shared cache)
  * can share the same context and see each other's updates.
  */
 export default function RootLayoutContent() {
   useInitializeWebVectorDevicePreference();
-  const db = usePGliteDatabase();
 
   const navigationConfig = navigationItems as NavigationItem[];
   const loadEmbeddingQueue = useCallback(
-    () =>
-      import('../create-embedding-queue').then((module) => {
-        return module.getEmbeddingQueue();
-      }),
+    () => import('../create-embedding-queue').then((module) => module.getEmbeddingQueue()),
     []
   );
 
@@ -78,7 +67,7 @@ export default function RootLayoutContent() {
   const sharedProps: RootLayoutContentProps = {
     databaseTabChunkingMode: 'local',
     navigationItems: navigationConfig,
-    homePageContent: <HomePageContent />,
+    contextExplorerPageContent: <ContextExplorerPageContent />,
     settingsPageContent: <SettingsPageContent />,
     promptsPageContent: <ConnectedPromptManager />,
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring
@@ -87,11 +76,6 @@ export default function RootLayoutContent() {
 
   return (
     <TokenCacheWrapper>
-      {db ? (
-        <Suspense fallback={null}>
-          <LazyEmbeddingJobQueueTracker />
-        </Suspense>
-      ) : null}
       <RootLayout {...sharedProps} />
     </TokenCacheWrapper>
   );

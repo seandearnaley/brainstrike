@@ -180,10 +180,10 @@ describe('WorkerStorage – coverage boost', () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    if (originalWorker !== undefined) {
-      vi.stubGlobal('Worker', originalWorker);
-    } else {
+    if (originalWorker === undefined) {
       vi.unstubAllGlobals();
+    } else {
+      vi.stubGlobal('Worker', originalWorker);
     }
     if (originalLocalStorageDescriptor) {
       Object.defineProperty(globalThis, 'localStorage', originalLocalStorageDescriptor);

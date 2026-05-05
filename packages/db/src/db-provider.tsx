@@ -11,16 +11,31 @@ import {
   useRef,
   useState,
 } from 'react';
+import {
+  getDefaultBrowserPGliteDataDir,
+  isBrowserPersistentPGliteDataDir,
+} from './browser-pglite-storage.js';
+import {
+  createDatabaseWorkScheduler,
+  createScheduledDbHandle,
+  type DatabaseWorkOptions,
+  type DatabaseWorkPriority,
+  type ScheduledDbHandle,
+} from './database-work-scheduler.js';
 import { type DrizzleDb, drizzle } from './drizzle/database.js';
-import { migrate } from './migrations/bootstrap.js';
+import { migrate, PGVECTOR_EXTENSION_PRESENCE_QUERY } from './migrations/bootstrap.js';
 import { DrizzleFileChunkRepository } from './repositories/drizzle/file-chunk-repository.js';
 import { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-repository.js';
 import { ElectronFileChunkRepository } from './repositories/electron-file-chunk-repository.js';
 import { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
 import type { IDatabase } from './repositories/interfaces.js';
-import { wasmLoader } from './wasm-loader.js';
+import { type PGliteRuntimeClient, wasmLoader } from './wasm-loader.js';
 
 const logger = createLogger('DbProvider');
+
+function logDatabaseError(message: string, error: unknown): void {
+  logger.error({ err: error }, message);
+}
 
 /**
  * Discriminated union for the internal DB connection handle.
@@ -29,11 +44,11 @@ const logger = createLogger('DbProvider');
  */
 type DbConnection =
   | { kind: 'ipc'; bridge: ElectronDatabaseAPI }
-  | { kind: 'direct'; db: PGlite; dataDir: string };
+  | { kind: 'direct'; db: PGliteRuntimeClient; dataDir: string };
 
-async function closeDirectConnection(db: PGlite, dataDir: string): Promise<void> {
+async function closeDirectConnection(db: PGliteRuntimeClient, dataDir: string): Promise<void> {
   try {
-    if (dataDir.startsWith('idb://')) {
+    if (isBrowserPersistentPGliteDataDir(dataDir)) {
       await wasmLoader.closeCached(dataDir);
     } else {
       await db.close();
@@ -47,7 +62,7 @@ async function closeDirectConnection(db: PGlite, dataDir: string): Promise<void>
 }
 
 async function purgeAndCloseDirectDb(
-  db: PGlite,
+  db: PGliteRuntimeClient,
   dataDir: string,
   purgeTablesTx: (tx: { query: (sql: string) => Promise<unknown> }) => Promise<void>
 ): Promise<void> {
@@ -63,12 +78,12 @@ async function purgeAndCloseDirectDb(
   } catch (err) {
     logger.warn('VACUUM after purge failed:', err);
   }
-  if (dataDir.startsWith('idb://')) {
+  if (isBrowserPersistentPGliteDataDir(dataDir)) {
     try {
       await wasmLoader.closeCached(dataDir);
-      logger.info('[DbProvider] Closed cached IndexedDB instance during factory reset');
+      logger.info('[DbProvider] Closed cached browser PGlite instance during factory reset');
     } catch (err) {
-      logger.warn('Failed to close cached IndexedDB instance during reset:', err);
+      logger.warn('Failed to close cached browser PGlite instance during reset:', err);
     }
   } else {
     try {
@@ -102,13 +117,19 @@ async function loadDrizzleViewFilterPresetsRepository() {
 }
 
 export interface DbHandle extends IDatabase {
-  exec?: (sql: string, params?: unknown[]) => Promise<unknown>;
+  exec?: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
   readonly raw?: unknown;
+  readonly syncToFs?: () => Promise<void>;
 }
 
 interface QueryExecutor {
-  exec?: (sql: string, params?: unknown[]) => Promise<unknown>;
-  query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+  exec?: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
+  query: <T = unknown>(
+    sql: string,
+    params?: unknown[],
+    options?: unknown
+  ) => Promise<{ rows: T[] }>;
+  readonly syncToFs?: () => Promise<void>;
   transaction?: <T>(fn: (tx: QueryExecutor) => Promise<T>) => Promise<T>;
 }
 
@@ -142,25 +163,34 @@ interface DbProviderProps {
 export function getDefaultDbPath() {
   const isBrowser = typeof window !== 'undefined';
   if (isBrowser) {
-    return 'idb://app';
+    return getDefaultBrowserPGliteDataDir();
   }
 
-  // For Node.js/Electron environments, default to a temp directory
-  // Use dynamic imports to avoid bundling Node built-ins in browser builds
   const { tmpdir } = requireNodeOs();
   const { join } = requireNodePath();
   return join(tmpdir(), 'app.db');
 }
 
-// Lazily require Node built-ins without creating static import edges in the bundle
+type NodeProcessWithBuiltins = NodeJS.Process & {
+  getBuiltinModule?: (name: string) => unknown;
+};
+
+function getNodeBuiltinModule<TModule>(name: string): TModule {
+  const runtimeProcess = globalThis.process as NodeProcessWithBuiltins | undefined;
+  const module = runtimeProcess?.getBuiltinModule?.(name);
+  if (!module) {
+    throw new Error(`Node builtin module is unavailable: ${name}`);
+  }
+  return module as TModule;
+}
+
+// Lazily access Node built-ins without creating static import/require edges in browser bundles.
 function requireNodeOs(): { tmpdir: () => string } {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  return require('node:os');
+  return getNodeBuiltinModule<{ tmpdir: () => string }>('node:os');
 }
 
 function requireNodePath(): { join: (...parts: string[]) => string } {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  return require('node:path');
+  return getNodeBuiltinModule<{ join: (...parts: string[]) => string }>('node:path');
 }
 
 const DbContext = createContext<DbContextValue | undefined>(undefined);
@@ -179,13 +209,31 @@ function clearActiveEmbeddingSetIdFromStorage(): void {
 }
 
 function createDbHandle(executor: QueryExecutor): DbHandle {
-  const query = executor.query.bind(executor) as DbHandle['query'];
+  const query: DbHandle['query'] = async <T = unknown>(
+    sql: string,
+    params?: unknown[],
+    options?: unknown
+  ) => {
+    const forwarded = splitExposedDatabaseWorkOptions(params, options);
+    const result = await executor.query(sql, forwarded.params, forwarded.options);
+    return { rows: result.rows as T[] };
+  };
+  const syncToFs =
+    typeof executor.syncToFs === 'function'
+      ? async () => {
+          await executor.syncToFs?.();
+        }
+      : undefined;
   const handle: DbHandle = {
     query,
+    ...(syncToFs ? { syncToFs } : {}),
   };
 
   if (typeof executor.exec === 'function') {
-    handle.exec = executor.exec.bind(executor);
+    handle.exec = async (sql: string, params?: unknown[], options?: unknown) => {
+      const forwarded = splitExposedDatabaseWorkOptions(params, options);
+      return await executor.exec?.(sql, forwarded.params, forwarded.options);
+    };
   }
 
   if (typeof executor.transaction === 'function') {
@@ -203,6 +251,33 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
   });
 
   return handle;
+}
+
+function getRendererDefaultDatabaseWorkPriority(): DatabaseWorkPriority {
+  if (typeof window === 'undefined') {
+    return 'foreground';
+  }
+  const search = window.location?.search ?? '';
+  const mode = new URLSearchParams(search).get('mode');
+  return mode === 'embedding-host' || mode === 'chunking-host' ? 'background' : 'foreground';
+}
+
+function isDatabaseWorkOptions(value: unknown): value is DatabaseWorkOptions {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const priority = (value as { readonly priority?: unknown }).priority;
+  return priority === 'foreground' || priority === 'normal' || priority === 'background';
+}
+
+function splitExposedDatabaseWorkOptions(
+  params: unknown[] | undefined,
+  options: unknown
+): { options: unknown; params: unknown[] | undefined } {
+  if (options !== undefined || !isDatabaseWorkOptions(params)) {
+    return { params, options };
+  }
+  return { params: undefined, options: params };
 }
 
 function formatDesktopDatabaseInitError(
@@ -329,6 +404,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const connectionRef = useRef<DbConnection | null>(null);
   const initializingRef = useRef<boolean>(false);
   const initializingPromiseRef = useRef<Promise<void> | null>(null);
+  const databaseWorkSchedulerRef = useRef(createDatabaseWorkScheduler());
 
   const testElectronConnection = useCallback(async (electronDB: ElectronDatabaseAPI) => {
     if (!electronDB.test) {
@@ -362,20 +438,20 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         throw new Error('Electron database exec operation is unavailable over IPC');
       }
 
-      const exec: (sql: string) => Promise<void> = async (sql) => {
-        await electronExec(sql);
+      const repositoryDb = {
+        query: electronDB.query,
+        exec: async (sql: string) => {
+          await electronExec(sql);
+        },
       };
 
       // The repository doesn't need the test method, so we can pass just the db interface
-      const repository = new ElectronFileRecordRepository({
-        query: electronDB.query,
-        exec,
-      });
+      const repository = new ElectronFileRecordRepository(repositoryDb);
       // Detect pgvector extension availability over IPC
       let hasVector = false;
       let diagnostics: DatabaseDiagnosticsSnapshot | null = null;
       try {
-        const res = await electronDB.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
+        const res = await electronDB.query(PGVECTOR_EXTENSION_PRESENCE_QUERY);
         hasVector = Array.isArray(res.rows) && res.rows.length > 0;
       } catch (error) {
         diagnostics = await getElectronDiagnostics(electronDB);
@@ -391,23 +467,14 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
           formatDesktopDatabaseInitError(diagnostics, 'Desktop database failed to initialize.')
         );
       }
-      const chunkRepo = new ElectronFileChunkRepository({
-        query: electronDB.query,
-        exec,
-      });
+      const chunkRepo = new ElectronFileChunkRepository(repositoryDb);
 
       // Dynamic import via module-level helpers (avoids import() in component scope)
       const ElectronEmbeddingSetsRepo = await loadElectronEmbeddingSetsRepository();
-      const embeddingSetsRepo = new ElectronEmbeddingSetsRepo({
-        query: electronDB.query,
-        exec,
-      });
+      const embeddingSetsRepo = new ElectronEmbeddingSetsRepo(repositoryDb);
 
       const ElectronViewFilterPresetsRepo = await loadElectronViewFilterPresetsRepository();
-      const viewFilterPresetsRepo = new ElectronViewFilterPresetsRepo({
-        query: electronDB.query,
-        exec,
-      });
+      const viewFilterPresetsRepo = new ElectronViewFilterPresetsRepo(repositoryDb);
 
       if (!cancelled.value) {
         connectionRef.current = { kind: 'ipc', bridge: electronDB };
@@ -429,15 +496,21 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     async (cancelled: { value: boolean }) => {
       logger.debug('Using direct PGlite connection');
 
-      const db = await wasmLoader.createPGlite(resolvedPath);
+      const db = await wasmLoader.createPGliteClient(resolvedPath);
       connectionRef.current = { kind: 'direct', db, dataDir: resolvedPath };
 
-      await migrate(db);
+      const scheduledDb = createScheduledDbHandle(
+        db as unknown as QueryExecutor & object,
+        databaseWorkSchedulerRef.current,
+        getRendererDefaultDatabaseWorkPriority()
+      ) as unknown as PGlite & ScheduledDbHandle;
+
+      await migrate(scheduledDb);
 
       // Check if pgvector extension is available
       let hasVector = false;
       try {
-        const result = await db.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
+        const result = await scheduledDb.query(PGVECTOR_EXTENSION_PRESENCE_QUERY);
         hasVector = result.rows.length > 0;
         logger.debug('pgvector extension detected', { available: hasVector });
       } catch (err) {
@@ -453,7 +526,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       // Dynamic imports via module-level helpers (avoids import() in component scope)
       const DrizzleEmbeddingSetsRepo = await loadDrizzleEmbeddingSetsRepository();
       const DrizzleViewFilterPresetsRepo = await loadDrizzleViewFilterPresetsRepository();
-      const drizzleInstance = drizzle(db);
+      const drizzleInstance = drizzle(scheduledDb);
       const repository = new DrizzleFileRecordRepository(drizzleInstance);
       const chunkRepo = new DrizzleFileChunkRepository(drizzleInstance);
       const embeddingSetsRepo = new DrizzleEmbeddingSetsRepo(drizzleInstance);
@@ -467,7 +540,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         setVectorEnabled(hasVector);
         setError(null);
         setReady(true);
-        setExposedDb(createDbHandle(db as unknown as QueryExecutor));
+        setExposedDb(createDbHandle(scheduledDb as unknown as QueryExecutor));
       }
     },
     [resolvedPath]
@@ -497,7 +570,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         }
         setLazyInitialized(true);
       } catch (err) {
-        logger.error('Failed to initialize database:', err);
+        logDatabaseError('Failed to initialize database', err);
         setFileRecordRepository(null);
         setChunkRepository(null);
         setEmbeddingSetsRepository(null);
@@ -525,7 +598,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     if (process.env['NODE_ENV'] === 'test') {
       // Fire and forget; internal guards prevent duplicate initialization
       initializeDatabase().catch((err) => {
-        logger.error('Failed to eager-initialize database in test:', err);
+        logDatabaseError('Failed to eager-initialize database in test', err);
       });
     }
 
@@ -594,6 +667,11 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
       // Also clear embedding sets and queue to avoid stale state
       try {
+        await tx.query('DELETE FROM collection_indexing_stats');
+      } catch (error) {
+        logger.warn('[DbProvider] Failed to clear collection_indexing_stats:', error);
+      }
+      try {
         await tx.query('DELETE FROM embedding_sets');
       } catch (error) {
         // Tables may not exist in older schema versions - log but don't fail
@@ -618,15 +696,15 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
     // Check if Electron IPC is actually available (not just configured)
     const electronAPI =
-      typeof window !== 'undefined'
-        ? ((
+      typeof window === 'undefined'
+        ? null
+        : ((
             window as Window & {
               electronAPI?: {
                 db?: { clearAll?: (confirmationToken?: string) => Promise<unknown> };
               };
             }
-          ).electronAPI ?? null)
-        : null;
+          ).electronAPI ?? null);
 
     const isElectronIPCAvailable = useElectronIPC && electronAPI?.db?.clearAll;
 
@@ -644,6 +722,11 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       await tx.query('DELETE FROM job_queue');
     } catch (err) {
       logger.warn('Failed to clear job_queue during reset:', err);
+    }
+    try {
+      await tx.query('DELETE FROM collection_indexing_stats');
+    } catch (err) {
+      logger.warn('Failed to clear collection_indexing_stats during reset:', err);
     }
     try {
       await tx.query('DELETE FROM embedding_sets');
@@ -670,26 +753,21 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   const tryElectronHardReset = useCallback(async (): Promise<boolean> => {
     // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
-    const w = (typeof window !== 'undefined' ? (window as any) : null) as any;
+    const w = (typeof window === 'undefined' ? null : (window as any)) as any;
     if (!(useElectronIPC && w?.electronAPI?.db)) {
       return false;
     }
-    try {
-      await w.electronAPI.db.clearAll?.('CONFIRM_CLEAR_DATABASE');
-    } catch (err) {
-      logger.warn('Electron clearAll during reset failed:', err);
+    if (typeof w.electronAPI.db.resetLocal !== 'function') {
+      throw new Error('Electron database reset bridge is unavailable.');
     }
-    try {
-      const res = await w.electronAPI.db.resetLocal?.();
-      if (res?.success) {
-        // Don't reload here - let the caller handle clearing UI state and reloading
-        // This ensures clearPersistentUiState() runs before the page reloads
-        return true;
-      }
-    } catch (err) {
-      logger.warn('Electron resetLocal during reset failed:', err);
+
+    const res = await w.electronAPI.db.resetLocal();
+    if (!res?.success) {
+      throw new Error(res?.message ?? 'Electron database reset failed.');
     }
-    return false;
+    // Don't reload here - let the caller handle clearing UI state and reloading.
+    // This ensures clearPersistentUiState() runs before the page reloads.
+    return true;
   }, [useElectronIPC]);
 
   const purgeAndClosePGlite = useCallback(async () => {
@@ -784,12 +862,17 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   const purgeQueuesAndSetsElectron = useCallback(async () => {
     // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
-    const w = (typeof window !== 'undefined' ? (window as any) : null) as any;
+    const w = (typeof window === 'undefined' ? null : (window as any)) as any;
     if (w?.electronAPI?.db?.query) {
       try {
         await w.electronAPI.db.query('DELETE FROM job_queue');
       } catch (err) {
         logger.warn('Electron query to clear job_queue failed:', err);
+      }
+      try {
+        await w.electronAPI.db.query('DELETE FROM collection_indexing_stats');
+      } catch (err) {
+        logger.warn('Electron query to clear collection_indexing_stats failed:', err);
       }
       try {
         await w.electronAPI.db.query('DELETE FROM embedding_sets');
@@ -805,6 +888,11 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         await tx.query('DELETE FROM job_queue');
       } catch (err) {
         logger.warn('Failed to clear job_queue (transaction):', err);
+      }
+      try {
+        await tx.query('DELETE FROM collection_indexing_stats');
+      } catch (err) {
+        logger.warn('Failed to clear collection_indexing_stats (transaction):', err);
       }
       try {
         await tx.query('DELETE FROM embedding_sets');
@@ -830,28 +918,18 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       initializeDatabase,
       vectorEnabled,
       factoryReset: async () => {
-        // Try Electron hard reset and return if successful
-        // Caller (factory-reset-panel) will handle clearing UI state and reloading
-        try {
-          const handled = await tryElectronHardReset();
-          if (handled) {
-            logger.info('[DbProvider] Electron hard reset completed');
-            return;
-          }
-        } catch (err) {
-          logger.warn(
-            '[DbProvider] Electron hard reset failed, falling back to PGlite reset:',
-            err
-          );
+        const handled = await tryElectronHardReset();
+        if (handled) {
+          logger.info('[DbProvider] Electron hard reset completed');
+          return;
         }
 
-        // Fallback: direct PGlite purge and recreate
         await resetPGliteState();
       },
       clearQueuesAndEmbeddingSets: async () => {
         if (useElectronIPC) {
           // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
-          const w = (typeof window !== 'undefined' ? (window as any) : null) as any;
+          const w = (typeof window === 'undefined' ? null : (window as any)) as any;
           if (w?.electronAPI?.db?.query) {
             await purgeQueuesAndSetsElectron();
             return;
@@ -927,7 +1005,7 @@ export function useFileRecordRepository():
   useEffect(() => {
     if (!(fileRecordRepository || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [fileRecordRepository, error, initializing, initializeDatabase]);
@@ -954,7 +1032,7 @@ export function usePGliteDatabase(): DbHandle | null {
   useEffect(() => {
     if (!(db || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [db, error, initializing, initializeDatabase]);
@@ -977,7 +1055,7 @@ export function useOptionalPGliteDatabase(): DbHandle | null {
   useEffect(() => {
     if (!(db || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [db, error, initializing, initializeDatabase]);
@@ -1010,7 +1088,7 @@ export function useFileChunkRepository():
   useEffect(() => {
     if (!(chunkRepository || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [chunkRepository, error, initializing, initializeDatabase]);
@@ -1039,7 +1117,7 @@ export function useClearAllData():
   useEffect(() => {
     if (!(fileRecordRepository || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [fileRecordRepository, error, initializing, initializeDatabase]);
@@ -1066,7 +1144,7 @@ export function useFactoryReset(): (() => Promise<void>) | null {
   useEffect(() => {
     if (!(db || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [db, error, initializing, initializeDatabase]);
@@ -1091,7 +1169,7 @@ export function useClearQueuesAndEmbeddingSets(): (() => Promise<void>) | null {
   useEffect(() => {
     if (!(db || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [db, error, initializing, initializeDatabase]);
@@ -1119,7 +1197,7 @@ export function useDrizzleDb(): DrizzleDb | null {
   useEffect(() => {
     if (!(drizzleDb || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [drizzleDb, error, initializing, initializeDatabase]);
@@ -1149,7 +1227,7 @@ export function useEmbeddingSetsRepository(): EmbeddingSetsRepo | null {
   useEffect(() => {
     if (!(embeddingSetsRepository || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [embeddingSetsRepository, error, initializing, initializeDatabase]);
@@ -1179,7 +1257,7 @@ export function useViewFilterPresetsRepository(): ViewFilterPresetsRepo | null {
   useEffect(() => {
     if (!(viewFilterPresetsRepository || error || initializing) && initializeDatabase) {
       initializeDatabase().catch((err) => {
-        logger.error('Failed to lazy-initialize database:', err);
+        logDatabaseError('Failed to lazy-initialize database', err);
       });
     }
   }, [viewFilterPresetsRepository, error, initializing, initializeDatabase]);

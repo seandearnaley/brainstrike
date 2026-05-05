@@ -465,17 +465,17 @@ async function persistEmbedding({
 }: PersistArgs) {
   const now = new Date().toISOString();
   const embeddingHash =
-    chunk.contentHash !== undefined ? await computeEmbeddingHash(chunk.contentHash, model) : null;
+    chunk.contentHash === undefined ? null : await computeEmbeddingHash(chunk.contentHash, model);
 
   const nextEmbeddingSetId =
-    targetEmbeddingSetId ?? (chunk.embeddingSetId !== undefined ? chunk.embeddingSetId : undefined);
+    targetEmbeddingSetId ?? (chunk.embeddingSetId === undefined ? undefined : chunk.embeddingSetId);
 
   await repository.update({
     id: chunk.id,
     embedding,
-    ...(nextEmbeddingSetId !== undefined ? { embeddingSetId: nextEmbeddingSetId } : {}),
+    ...(nextEmbeddingSetId === undefined ? {} : { embeddingSetId: nextEmbeddingSetId }),
     embeddingUpdatedAt: now,
-    ...(embeddingHash !== null ? { embeddingHash } : {}),
+    ...(embeddingHash === null ? {} : { embeddingHash }),
     updatedAt: now,
   });
 }
@@ -494,7 +494,7 @@ interface LogFailureArgs {
 
 function logSuccess({ chunk, model, startedAt }: LogSuccessArgs) {
   const elapsed =
-    typeof performance !== 'undefined' ? Math.round(performance.now() - startedAt) : 0;
+    typeof performance === 'undefined' ? 0 : Math.round(performance.now() - startedAt);
   logger.info('Updated chunk embedding from browser queue', {
     chunkId: chunk.id,
     model,
@@ -513,7 +513,7 @@ function logFailure({ chunk, model, error }: LogFailureArgs) {
 }
 
 function timestamp(): number {
-  return typeof performance !== 'undefined' ? performance.now() : Date.now();
+  return typeof performance === 'undefined' ? Date.now() : performance.now();
 }
 
 function elapsedSince(startedAt: number): number {

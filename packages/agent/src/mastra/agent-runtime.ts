@@ -1,10 +1,16 @@
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { createLogger, generateUUID } from '@brainstrike/utils';
-import { Agent, type ToolsInput } from '@mastra/core/agent';
+import { Agent, type AgentMemoryOption, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
+import type { MastraMemory } from '@mastra/core/memory';
 import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
 import type { McpConfig } from '../mcp/config';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
+import type {
+  AssistantRunEventKind,
+  AssistantRunEventMetadata,
+  AssistantRunEventStatus,
+} from '../run-events';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type { AgentMessage, RuntimeData, StreamChunk, StreamIterator } from '../types';
@@ -22,6 +28,7 @@ export interface MastraAgentRuntimeOptions {
   mcpConfig?: McpConfig;
   // Optional timeout (ms) for initial MCP tool discovery
   mcpTimeoutMs?: number;
+  memory?: MastraMemory;
   model?: string;
   resolved?: ResolvedRuntimeConfiguration;
   runtime?: RuntimeData;
@@ -120,25 +127,23 @@ function instantiateLanguageModel(
 export function convertMessagesToMastra(
   messages: AgentMessage[]
 ): Array<{ role: 'user' | 'assistant' | 'system'; content: string }> {
-  return messages
-    .map((message) => {
-      const textParts = message.parts
-        .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
-        .map((part) => part.text.trim())
-        .filter((text) => text.length > 0);
-
-      if (textParts.length === 0) {
-        return null;
+  const result: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [];
+  for (const message of messages) {
+    const textParts: string[] = [];
+    for (const part of message.parts) {
+      if (part.type !== 'text') {
+        continue;
       }
-
-      return {
-        role: message.role,
-        content: textParts.join('\n\n'),
-      };
-    })
-    .filter((value): value is { role: 'user' | 'assistant' | 'system'; content: string } =>
-      Boolean(value)
-    );
+      const trimmed = part.text.trim();
+      if (trimmed.length > 0) {
+        textParts.push(trimmed);
+      }
+    }
+    if (textParts.length > 0) {
+      result.push({ role: message.role, content: textParts.join('\n\n') });
+    }
+  }
+  return result;
 }
 
 export async function createMastraAgentRuntime(
@@ -152,6 +157,7 @@ export async function createMastraAgentRuntime(
     tools: localTools,
     mcpTimeoutMs,
     resolved,
+    memory,
   } = options;
 
   let runtimeResolution: ResolvedRuntimeConfiguration;
@@ -225,6 +231,7 @@ Only run state-changing tools after the user confirms.
 Provide concise answers after using tools.`,
     model: languageModel,
     tools: combinedTools,
+    ...(memory ? { memory } : {}),
   });
 
   return {
@@ -248,6 +255,8 @@ interface UsageLike {
 interface MastraStreamPart {
   delta?: string;
   error?: unknown;
+  finishReason?: unknown;
+  messageId?: unknown;
   payload?: {
     text?: string;
     textDelta?: string;
@@ -298,6 +307,51 @@ function getDeltaText(part: unknown): string {
   return p.text ?? p.textDelta ?? p.delta ?? payloadText ?? '';
 }
 
+function isRunEventMetadata(value: unknown): value is AssistantRunEventMetadata {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function makeRunEventChunk(
+  kind: AssistantRunEventKind,
+  status: AssistantRunEventStatus,
+  label: string,
+  metadata?: AssistantRunEventMetadata
+): StreamChunk {
+  return {
+    type: 'run-event',
+    event: {
+      id: `run-event-${generateUUID()}`,
+      kind,
+      label,
+      status,
+      timestamp: new Date().toISOString(),
+      ...(metadata ? { metadata } : {}),
+    },
+  };
+}
+
+function makeStepMetadata(part: unknown): AssistantRunEventMetadata | undefined {
+  const p = asMastraStreamPart(part);
+  const metadata: AssistantRunEventMetadata = {};
+  if (typeof p.messageId === 'string' && p.messageId.length > 0) {
+    metadata['messageId'] = p.messageId;
+  }
+  if (p.usage) {
+    const promptTokens = p.usage.promptTokens ?? p.usage.inputTokens;
+    if (typeof promptTokens === 'number' && Number.isFinite(promptTokens)) {
+      metadata['promptTokens'] = promptTokens;
+    }
+    if (typeof p.usage.completionTokens === 'number' && Number.isFinite(p.usage.completionTokens)) {
+      metadata['completionTokens'] = p.usage.completionTokens;
+    }
+  }
+  return isRunEventMetadata(metadata) && Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
 function readTripwireReason(part: unknown): string | undefined {
   const p = asMastraStreamPart(part);
   return p.tripwireReason ?? p.payload?.tripwireReason;
@@ -316,14 +370,67 @@ function processMastraStreamPart(
   const p = asMastraStreamPart(part);
 
   switch (p.type) {
+    case 'start':
+      return {
+        chunks: [
+          makeRunEventChunk(
+            'run.started',
+            'running',
+            'Assistant run started',
+            makeStepMetadata(part)
+          ),
+        ],
+        finished: false,
+      };
     case 'text-delta': {
       const delta = getDeltaText(part);
       return delta.length > 0
         ? { chunks: [{ type: 'text-delta', value: delta }], finished: false }
         : { chunks: [], finished: false };
     }
+    case 'reasoning-delta': {
+      const delta = getDeltaText(part);
+      return delta.length > 0
+        ? { chunks: [{ type: 'reasoning-delta', value: delta }], finished: false }
+        : { chunks: [], finished: false };
+    }
+    case 'step-start':
+      return {
+        chunks: [
+          makeRunEventChunk(
+            'run.step.started',
+            'running',
+            'Generation step started',
+            makeStepMetadata(part)
+          ),
+        ],
+        finished: false,
+      };
+    case 'step-finish':
+      return {
+        chunks: [
+          makeRunEventChunk(
+            'run.step.finished',
+            'completed',
+            'Generation step completed',
+            makeStepMetadata(part)
+          ),
+        ],
+        finished: false,
+      };
     case 'finish': {
-      return { chunks: [makeFinishChunk(part)], finished: true };
+      return {
+        chunks: [
+          makeRunEventChunk(
+            'run.finished',
+            'completed',
+            'Assistant run completed',
+            makeStepMetadata(part)
+          ),
+          makeFinishChunk(part),
+        ],
+        finished: true,
+      };
     }
     case 'tool-call':
     case 'tool-call-input-streaming-start':
@@ -428,6 +535,7 @@ async function initializeMastraRuntime(
 }
 
 interface StreamIterationParams {
+  memory?: MastraMemory;
   messages: AgentMessage[];
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;
@@ -446,13 +554,22 @@ interface StreamResultLike {
   fullStream?: NodeReadableStream<unknown> | ReadableStream<unknown>;
 }
 
+type AgentStreamInput = Parameters<Agent['stream']>[0];
+// Derived from Agent.stream's 2-arg overload (introduced in @mastra/core 1.25 -- the
+// 1-arg overload now refuses `undefined` as the second arg, so callers must either
+// omit the second arg or pass real options). If a future Mastra bump exposes a
+// stable public StreamOptions type, prefer importing that directly over deriving it
+// from Parameters<>; the `as AgentStreamOptions` cast at the call sites is what
+// keeps this file from reaching across the overload boundary.
+type AgentStreamOptions = Exclude<
+  Extract<Parameters<Agent['stream']>, [unknown, unknown]>[1],
+  undefined
+>;
+
 const hasStreamLegacy = (
   agent: Agent
 ): agent is Agent & {
-  streamLegacy: (
-    input: Parameters<Agent['stream']>[0],
-    options?: Parameters<Agent['stream']>[1]
-  ) => Promise<unknown>;
+  streamLegacy: (input: AgentStreamInput, options?: AgentStreamOptions) => Promise<unknown>;
 } => typeof (agent as { streamLegacy?: unknown }).streamLegacy === 'function';
 
 const resolveFullStream = (
@@ -463,6 +580,36 @@ const resolveFullStream = (
   }
   return (result as StreamResultLike).fullStream;
 };
+
+function resolveMemoryOption(
+  runtimeData: RuntimeData | undefined,
+  memory: MastraMemory | undefined
+): AgentMemoryOption | undefined {
+  const memoryContext = runtimeData?.memory;
+  if (!memoryContext) {
+    return;
+  }
+  if (!memory) {
+    throw createMastraAgentError('mastra_agent_memory_unavailable', {
+      detail: 'runtime memory context was provided but no Mastra memory instance is configured',
+    });
+  }
+  if (!memoryContext.threadId.trim()) {
+    throw createMastraAgentError('mastra_agent_memory_unavailable', {
+      detail: 'memory.threadId is required',
+    });
+  }
+  if (!memoryContext.resourceId.trim()) {
+    throw createMastraAgentError('mastra_agent_memory_unavailable', {
+      detail: 'memory.resourceId is required',
+    });
+  }
+  return {
+    thread: memoryContext.threadId,
+    resource: memoryContext.resourceId,
+    ...(memoryContext.memoryOptions ? { options: memoryContext.memoryOptions } : {}),
+  };
+}
 
 async function* streamChunksFromMastra({
   runtime,
@@ -497,6 +644,7 @@ async function createStreamIteratorFromRuntime({
   runtime,
   runtimeData,
   messages,
+  memory,
   sanitizedNameMap,
   useLegacyStream,
 }: StreamIterationParams): Promise<StreamIterator> {
@@ -504,10 +652,12 @@ async function createStreamIteratorFromRuntime({
 
   try {
     const streamInput = mastraMessages as unknown as Parameters<typeof runtime.agent.stream>[0];
+    const memoryOption = resolveMemoryOption(runtimeData, memory);
 
     // Use streamLegacy for AI SDK V1 models, stream for V2+ models
     const streamOptions = {
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
+      ...(memoryOption ? { memory: memoryOption } : {}),
       ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
       ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
     };
@@ -516,7 +666,9 @@ async function createStreamIteratorFromRuntime({
 
     if (useLegacyStream && hasStreamLegacy(runtime.agent)) {
       logger.info('using streamLegacy for V1 model', { code: 'mastra_agent_stream_legacy_start' });
-      streamResult = await runtime.agent.streamLegacy(streamInput, resolvedStreamOptions);
+      streamResult = resolvedStreamOptions
+        ? await runtime.agent.streamLegacy(streamInput, resolvedStreamOptions as AgentStreamOptions)
+        : await runtime.agent.streamLegacy(streamInput);
       logger.info('mastra legacy stream started', { code: 'mastra_agent_stream_legacy_started' });
     } else {
       if (useLegacyStream) {
@@ -524,7 +676,9 @@ async function createStreamIteratorFromRuntime({
           code: 'mastra_agent_stream_legacy_unavailable',
         });
       }
-      const result = await runtime.agent.stream(streamInput, resolvedStreamOptions);
+      const result = resolvedStreamOptions
+        ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
+        : await runtime.agent.stream(streamInput);
       logger.info('mastra stream started', { code: 'mastra_agent_stream_started' });
       streamResult = result;
     }
@@ -581,6 +735,7 @@ export async function streamMastraAgent(
   return createStreamIteratorFromRuntime({
     runtime,
     messages,
+    ...(options.memory ? { memory: options.memory } : {}),
     useLegacyStream: runtime.usesLegacyModel,
     ...(runtimeData ? { runtimeData } : {}),
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),

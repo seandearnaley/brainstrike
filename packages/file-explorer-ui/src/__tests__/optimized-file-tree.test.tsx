@@ -100,6 +100,43 @@ describe('OptimizedFileTree', () => {
     expect(treeGrid).toBeInTheDocument();
   });
 
+  it('opens a focused file row with keyboard activation', async () => {
+    const openFileInTab = vi.fn();
+    const uiModule = await import('@brainstrike/ui');
+    const useIdeFileEditorSpy = vi.spyOn(uiModule, 'useIdeFileEditor').mockReturnValue({
+      openFileInTab,
+      registerOpenFileInTab: vi.fn(),
+    });
+    const fileOnlyTree: IFileNode[] = [
+      {
+        name: 'test.txt',
+        path: '/test.txt',
+        type: 'file',
+        isVisible: true,
+        handle: {} as FileSystemFileHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+      },
+    ];
+
+    try {
+      render(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree fileTree={fileOnlyTree} folderId="root" loadingFiles={new Set()} />
+        </FileExplorerTestWrapper>
+      );
+
+      const treeGrid = screen.getByRole('treegrid', { name: 'File tree' });
+      fireEvent.keyDown(treeGrid, { key: 'ArrowDown' });
+      fireEvent.keyDown(treeGrid, { key: 'Enter' });
+
+      expect(openFileInTab).toHaveBeenCalledWith(encodeFileSelection('root', '/test.txt'));
+    } finally {
+      useIdeFileEditorSpy.mockRestore();
+    }
+  });
+
   it('deduplicates child-load requests when expand is retriggered during loading', async () => {
     let resolveLoad: (() => void) | undefined;
     const onLoadChildren = vi.fn(
@@ -2494,6 +2531,57 @@ describe('OptimizedFileTree', () => {
       // columns should NOT rebuild on selection change — selection state
       // is delivered via FileTreeSelectionContext, not column closures
       expect(fileTreeTelemetry.columnsRebuildCount).toBe(0);
+    });
+  });
+
+  describe('opening files via row click (VS Code semantics)', () => {
+    it('clicking a file row opens it in a workspace tab', async () => {
+      const uiModule = await import('@brainstrike/ui');
+      const openFileInTab = vi.fn();
+      vi.spyOn(uiModule, 'useIdeFileEditor').mockReturnValue({
+        openFileInTab,
+        registerOpenFileInTab: vi.fn(),
+      });
+
+      await act(async () => {
+        render(
+          <FileExplorerTestWrapper>
+            <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+          </FileExplorerTestWrapper>
+        );
+      });
+
+      const fileLabel = await screen.findByText('test.txt');
+      await act(async () => {
+        fireEvent.click(fileLabel);
+      });
+
+      expect(openFileInTab).toHaveBeenCalledTimes(1);
+      expect(openFileInTab).toHaveBeenCalledWith(encodeFileSelection('root', '/test.txt'));
+    });
+
+    it('clicking a directory row does NOT open a tab', async () => {
+      const uiModule = await import('@brainstrike/ui');
+      const openFileInTab = vi.fn();
+      vi.spyOn(uiModule, 'useIdeFileEditor').mockReturnValue({
+        openFileInTab,
+        registerOpenFileInTab: vi.fn(),
+      });
+
+      await act(async () => {
+        render(
+          <FileExplorerTestWrapper>
+            <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+          </FileExplorerTestWrapper>
+        );
+      });
+
+      const dirLabel = await screen.findByText('src');
+      await act(async () => {
+        fireEvent.click(dirLabel);
+      });
+
+      expect(openFileInTab).not.toHaveBeenCalled();
     });
   });
 });

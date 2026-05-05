@@ -9,8 +9,8 @@ export interface VectorStatusWithDialogProps {
    * - apps/desktop/src/renderer/components/root-layout-content.tsx (embeddingQueue)
    * - apps/web/src/app/root-layout-content.tsx (embeddingQueue)
    *
-   * Flow: Desktop/Web App → RootLayoutContent → ToolsPanel → VectorsTab →
-   *       VectorsTabChunk → VectorStatusWithDialog (HERE) → VectorStatusWithDb
+   * Flow: Desktop/Web App → RootLayoutContent → AgentSidebarPanel → DatabasePanel → DatabaseTab →
+   *       VectorStatusWithDialog (HERE) → VectorStatusWithDb
    *
    * DO NOT remove this prop! The embedding queue is created at the app level
    * (web: createBrowserEmbeddingQueue, desktop: createElectronEmbeddingQueue)

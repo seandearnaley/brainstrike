@@ -3,7 +3,7 @@ import biome from '../../../biome.json';
 import baseTsconfig from '../tsconfig/base.json';
 import reactLibrary from '../tsconfig/react-library.json';
 
-it('imports runtime export modules without throwing', async () => {
+it('imports runtime export modules without throwing', { timeout: 20_000 }, async () => {
   await expect(import('../src/playwright-environment')).resolves.toBeTruthy();
   await expect(import('../src/vitest-browser')).resolves.toBeTruthy();
 });

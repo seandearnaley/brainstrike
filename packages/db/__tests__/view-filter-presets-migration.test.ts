@@ -40,26 +40,24 @@ describe('View Filter Presets Migration (027)', () => {
     }
   });
 
-  it(
-    'should run all migrations including view_filter_presets',
-    { timeout: TEST_TIMEOUT },
-    async () => {
-      await runner.up(migrations);
+  it('should run all migrations including view_filter_presets', {
+    timeout: TEST_TIMEOUT,
+  }, async () => {
+    await runner.up(migrations);
 
-      // Verify migration 27 was applied
-      const applied = await runner.getAppliedMigrations();
-      expect(applied).toContain(27);
+    // Verify migration 27 was applied
+    const applied = await runner.getAppliedMigrations();
+    expect(applied).toContain(27);
 
-      // Verify the table exists
-      const tableCheck = await db.query(`
+    // Verify the table exists
+    const tableCheck = await db.query(`
         SELECT EXISTS (
           SELECT FROM information_schema.tables
           WHERE table_name = 'view_filter_presets'
         ) AS exists
       `);
-      expect((tableCheck.rows[0] as { exists: boolean }).exists).toBe(true);
-    }
-  );
+    expect((tableCheck.rows[0] as { exists: boolean }).exists).toBe(true);
+  });
 
   it('should seed default view filter presets', { timeout: TEST_TIMEOUT }, async () => {
     await runner.up(migrations);

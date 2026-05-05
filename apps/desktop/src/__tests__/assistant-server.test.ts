@@ -4,7 +4,9 @@ import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
 import {
   desktopAssistantServerLogger,
+  getDesktopMastraMemoryForTests,
   handleAssistantRequest,
+  resetDesktopMastraMemoryCacheForTests,
   startAssistantServer,
 } from '../assistant-server';
 import { DESKTOP_DEV_RENDERER_URL } from '../desktop-renderer-url';
@@ -54,6 +56,7 @@ vi.mock('@brainstrike/agent', () => ({
   },
   convertAssistantUiMessages: vi.fn((messages) => messages),
   resolveDataStreamSession: vi.fn(() => {}),
+  sanitizeAssistantRunEventMetadata: vi.fn((metadata) => metadata),
   toAiSdkStyleStream: vi.fn(async () => ({
     async *[Symbol.asyncIterator]() {
       yield { type: 'text', content: 'test' };
@@ -63,8 +66,29 @@ vi.mock('@brainstrike/agent', () => ({
     ['openai', 'anthropic', 'google', 'openrouter'].includes(provider),
 }));
 
+const mockPgliteMastraMemory = { id: 'desktop-memory' };
+const mockDesktopDatabase = {
+  exec: vi.fn(),
+  query: vi.fn(),
+};
+
+vi.mock('@brainstrike/agent/pglite-mastra-memory', () => ({
+  createPgliteMastraMemory: vi.fn(() =>
+    Promise.resolve({
+      memory: mockPgliteMastraMemory,
+      storage: {},
+      store: {},
+      vector: {},
+    })
+  ),
+}));
+
 vi.mock('../assistant-server/assistant-tools', () => ({
   buildDesktopAssistantTools: vi.fn(() => ({})),
+}));
+
+vi.mock('../db-main', () => ({
+  getDatabase: vi.fn(() => Promise.resolve(mockDesktopDatabase)),
 }));
 
 describe('assistant-server', () => {
@@ -180,6 +204,9 @@ describe('assistant-server', () => {
       server = undefined;
     }
     vi.clearAllMocks();
+    mockDesktopDatabase.exec.mockReset();
+    mockDesktopDatabase.query.mockReset();
+    resetDesktopMastraMemoryCacheForTests();
     mockSecretsService.getKey.mockResolvedValue('test-api-key');
     mockSecretsService.listProviders.mockResolvedValue(['openai']);
   }, 15_000);
@@ -206,10 +233,10 @@ describe('assistant-server', () => {
 
       expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
 
-      if (originalEnv !== undefined) {
-        process.env['BS_ASSISTANT_PORT'] = originalEnv;
-      } else {
+      if (originalEnv === undefined) {
         process.env['BS_ASSISTANT_PORT'] = undefined;
+      } else {
+        process.env['BS_ASSISTANT_PORT'] = originalEnv;
       }
     });
 
@@ -616,6 +643,779 @@ describe('assistant-server', () => {
           },
         ],
       });
+    });
+
+    it('initializes PGlite Mastra memory when memory runtime context is present', async () => {
+      const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+      const { getDatabase } = await import('../db-main');
+      const { streamResponse } = await import('../assistant-server/http');
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text', content: 'Response' };
+        },
+      });
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: {
+            provider: 'openai',
+            memory: {
+              threadId: 'thread-1',
+              resourceId: 'workspace-a',
+              memorySettings: {
+                observationalMemory: {
+                  enabled: true,
+                  modelTarget: 'anthropic/claude-haiku-4-5',
+                  scope: 'thread',
+                  messageTokens: 20_000,
+                  observationTokens: 40_000,
+                  retrievalMode: 'off',
+                },
+                semanticRecall: {
+                  enabled: false,
+                  embeddingModelTarget: 'openai/text-embedding-3-small',
+                  scope: 'resource',
+                  topK: 5,
+                  messageRange: 2,
+                },
+              },
+            },
+          },
+        }),
+      });
+
+      expect(getDatabase).toHaveBeenCalledTimes(1);
+      expect(createPgliteMastraMemory).toHaveBeenCalledWith({
+        database: expect.anything(),
+        memorySettings: {
+          observationalMemory: {
+            enabled: true,
+            modelTarget: 'anthropic/claude-haiku-4-5',
+            scope: 'thread',
+            messageTokens: 20_000,
+            observationTokens: 40_000,
+            retrievalMode: 'off',
+          },
+          semanticRecall: {
+            enabled: false,
+            embeddingModelTarget: 'openai/text-embedding-3-small',
+            scope: 'resource',
+            topK: 5,
+            messageRange: 2,
+          },
+        },
+      });
+      expect(toAiSdkStyleStream).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.objectContaining({
+          memory: expect.objectContaining({ threadId: 'thread-1', resourceId: 'workspace-a' }),
+        }),
+        { memory: mockPgliteMastraMemory }
+      );
+    });
+
+    it('retries desktop Mastra memory initialization after a transient failure', async () => {
+      const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+      const { streamResponse } = await import('../assistant-server/http');
+      const memoryContext = {
+        threadId: 'thread-retry',
+        resourceId: 'workspace-retry',
+        memorySettings: {
+          observationalMemory: {
+            enabled: false,
+            modelTarget: 'openai/gpt-5.2',
+            scope: 'thread',
+            messageTokens: 12_000,
+            observationTokens: 24_000,
+            retrievalMode: 'off',
+          },
+          semanticRecall: {
+            enabled: false,
+            embeddingModelTarget: 'openai/text-embedding-3-small',
+            scope: 'resource',
+            topK: 3,
+            messageRange: 1,
+          },
+        },
+      };
+
+      (convertAssistantUiMessages as Mock).mockReturnValue([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (createPgliteMastraMemory as Mock)
+        .mockRejectedValueOnce(new Error('temporary memory init failure'))
+        .mockResolvedValueOnce({
+          memory: mockPgliteMastraMemory,
+          storage: {},
+          store: {},
+          vector: {},
+        });
+      (toAiSdkStyleStream as Mock).mockResolvedValue({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text', content: 'Response' };
+        },
+      });
+      (streamResponse as Mock).mockImplementation(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      const failedResponse = await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: { provider: 'openai', memory: memoryContext },
+        }),
+      });
+      const retriedResponse = await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: { provider: 'openai', memory: memoryContext },
+        }),
+      });
+
+      expect(failedResponse.status).toBe(502);
+      expect(retriedResponse.status).toBe(200);
+      expect(createPgliteMastraMemory).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps separate in-flight Mastra memory initializations keyed by settings', async () => {
+      mockDesktopDatabase.exec.mockResolvedValue(undefined);
+      const memorySettingsA = {
+        observationalMemory: {
+          enabled: true,
+          modelTarget: 'openai/gpt-5.2',
+          scope: 'thread',
+          messageTokens: 10_000,
+          observationTokens: 20_000,
+          retrievalMode: 'off',
+        },
+        semanticRecall: {
+          enabled: false,
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          scope: 'resource',
+          topK: 3,
+          messageRange: 1,
+        },
+      };
+      const memorySettingsB = {
+        ...memorySettingsA,
+        observationalMemory: {
+          ...memorySettingsA.observationalMemory,
+          messageTokens: 12_000,
+        },
+      };
+
+      const firstRequest = getDesktopMastraMemoryForTests(memorySettingsA);
+      const secondRequest = getDesktopMastraMemoryForTests(memorySettingsB);
+      const thirdRequest = getDesktopMastraMemoryForTests(memorySettingsA);
+      const [firstMemory, secondMemory, thirdMemory] = await Promise.all([
+        firstRequest,
+        secondRequest,
+        thirdRequest,
+      ]);
+
+      expect(firstMemory).toBe(thirdMemory);
+      expect(firstMemory).not.toBe(secondMemory);
+    });
+
+    it('reuses desktop Mastra memory for semantically identical settings with different key order', async () => {
+      mockDesktopDatabase.exec.mockResolvedValue(undefined);
+      const memorySettingsA = {
+        observationalMemory: {
+          enabled: true,
+          modelTarget: 'openai/gpt-5.2',
+          scope: 'thread',
+          messageTokens: 10_000,
+          observationTokens: 20_000,
+          retrievalMode: 'off',
+        },
+        semanticRecall: {
+          enabled: false,
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          scope: 'resource',
+          topK: 3,
+          messageRange: 1,
+        },
+      };
+      const memorySettingsB = {
+        semanticRecall: {
+          messageRange: 1,
+          topK: 3,
+          scope: 'resource',
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          enabled: false,
+        },
+        observationalMemory: {
+          retrievalMode: 'off',
+          observationTokens: 20_000,
+          messageTokens: 10_000,
+          scope: 'thread',
+          modelTarget: 'openai/gpt-5.2',
+          enabled: true,
+        },
+      };
+
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+      const firstMemory = await getDesktopMastraMemoryForTests(memorySettingsA);
+      const secondMemory = await getDesktopMastraMemoryForTests(memorySettingsB);
+
+      expect(firstMemory).toBe(secondMemory);
+      expect(createPgliteMastraMemory).toHaveBeenCalledTimes(1);
+    });
+
+    it('evicts the oldest desktop Mastra memory cache entries', async () => {
+      mockDesktopDatabase.exec.mockResolvedValue(undefined);
+      const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');
+
+      for (let index = 0; index < 17; index += 1) {
+        await getDesktopMastraMemoryForTests({
+          observationalMemory: {
+            enabled: true,
+            modelTarget: 'openai/gpt-5.2',
+            scope: 'thread',
+            messageTokens: 10_000 + index,
+            observationTokens: 20_000,
+            retrievalMode: 'off',
+          },
+          semanticRecall: {
+            enabled: false,
+            embeddingModelTarget: 'openai/text-embedding-3-small',
+            scope: 'resource',
+            topK: 3,
+            messageRange: 1,
+          },
+        });
+      }
+
+      await getDesktopMastraMemoryForTests({
+        observationalMemory: {
+          enabled: true,
+          modelTarget: 'openai/gpt-5.2',
+          scope: 'thread',
+          messageTokens: 10_000,
+          observationTokens: 20_000,
+          retrievalMode: 'off',
+        },
+        semanticRecall: {
+          enabled: false,
+          embeddingModelTarget: 'openai/text-embedding-3-small',
+          scope: 'resource',
+          topK: 3,
+          messageRange: 1,
+        },
+      });
+
+      expect(createPgliteMastraMemory).toHaveBeenCalledTimes(18);
+    });
+
+    it('marks assistant thread runs completed after desktop streams finish', async () => {
+      const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text', content: 'Response' };
+        },
+      });
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: {
+            provider: 'openai',
+            memory: {
+              threadId: 'thread-1',
+              resourceId: 'workspace-a',
+              runId: 'run-1',
+            },
+          },
+        }),
+      });
+
+      expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE brainstrike_assistant_thread_runs'),
+        expect.arrayContaining(['run-1', 'completed', null])
+      );
+    });
+
+    it('persists run-event chunks while desktop streams are consumed', async () => {
+      const { assistantDataStreamSessions, toAiSdkStyleStream, convertAssistantUiMessages } =
+        await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+      let capturedStream: AsyncIterable<unknown> | null = null;
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            type: 'run-event',
+            event: {
+              id: 'event-1',
+              kind: 'run.started',
+              label: 'Assistant run started',
+              status: 'running',
+              sequence: 5,
+              timestamp: '2026-04-24T10:00:00.000Z',
+            },
+          };
+          yield {
+            type: 'run-event',
+            event: {
+              id: 'event-2',
+              kind: 'run.step.started',
+              label: 'Step started',
+              status: 'running',
+              timestamp: '2026-04-24T10:00:01.000Z',
+            },
+          };
+          yield { type: 'text-delta', value: 'Response' };
+        },
+      });
+      (assistantDataStreamSessions.create as Mock).mockImplementationOnce(
+        (stream: AsyncIterable<unknown>) => {
+          capturedStream = stream;
+          return {
+            createResponse: vi.fn(() => ({
+              status: 200,
+              headers: new Headers(),
+              body: null,
+            })),
+          };
+        }
+      );
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        if (!capturedStream) {
+          throw new Error('Expected stream to be captured.');
+        }
+        for await (const _chunk of capturedStream) {
+          // consume stream to trigger run-event persistence
+        }
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: {
+            provider: 'openai',
+            memory: {
+              threadId: 'thread-1',
+              resourceId: 'workspace-a',
+              runId: 'run-1',
+            },
+          },
+        }),
+      });
+
+      expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO brainstrike_assistant_run_events'),
+        expect.arrayContaining(['event-1', 'run-1', 5, 'run.started', 'running'])
+      );
+      expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO brainstrike_assistant_run_events'),
+        expect.arrayContaining(['event-2', 'run-1', 6, 'run.step.started', 'running'])
+      );
+    });
+
+    it('streams run-event chunks before desktop persistence settles', async () => {
+      const { assistantDataStreamSessions, toAiSdkStyleStream, convertAssistantUiMessages } =
+        await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+      let capturedStream: AsyncIterable<unknown> | null = null;
+      let resolveInsert: (() => void) | undefined;
+      let insertSettled = false;
+      let eventYieldedBeforeInsertSettled = false;
+
+      mockDesktopDatabase.query.mockImplementation((sql: unknown) => {
+        if (
+          typeof sql === 'string' &&
+          sql.includes('INSERT INTO brainstrike_assistant_run_events')
+        ) {
+          return new Promise<void>((resolve) => {
+            resolveInsert = () => {
+              insertSettled = true;
+              resolve();
+            };
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            type: 'run-event',
+            event: {
+              id: 'event-nonblocking',
+              kind: 'run.started',
+              label: 'Assistant run started',
+              status: 'running',
+              timestamp: '2026-04-24T10:00:00.000Z',
+            },
+          };
+        },
+      });
+      (assistantDataStreamSessions.create as Mock).mockImplementationOnce(
+        (stream: AsyncIterable<unknown>) => {
+          capturedStream = stream;
+          return {
+            createResponse: vi.fn(() => ({
+              status: 200,
+              headers: new Headers(),
+              body: null,
+            })),
+          };
+        }
+      );
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        if (!capturedStream) {
+          throw new Error('Expected stream to be captured.');
+        }
+        for await (const chunk of capturedStream) {
+          if (
+            typeof chunk === 'object' &&
+            chunk !== null &&
+            'type' in chunk &&
+            chunk.type === 'run-event'
+          ) {
+            eventYieldedBeforeInsertSettled = !insertSettled;
+            resolveInsert?.();
+          }
+        }
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: {
+            provider: 'openai',
+            memory: {
+              threadId: 'thread-1',
+              resourceId: 'workspace-a',
+              runId: 'run-1',
+            },
+          },
+        }),
+      });
+
+      expect(eventYieldedBeforeInsertSettled).toBe(true);
+    });
+
+    it('logs suppressed run-event persistence failures before failing the run', async () => {
+      const loggerErrorSpy = vi
+        .spyOn(desktopAssistantServerLogger, 'error')
+        .mockImplementation(() => {});
+      const { assistantDataStreamSessions, toAiSdkStyleStream, convertAssistantUiMessages } =
+        await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+      let capturedStream: AsyncIterable<unknown> | null = null;
+      let insertAttempt = 0;
+
+      mockDesktopDatabase.query.mockImplementation((sql: unknown) => {
+        if (
+          typeof sql === 'string' &&
+          sql.includes('INSERT INTO brainstrike_assistant_run_events')
+        ) {
+          insertAttempt += 1;
+          return Promise.reject(new Error(`insert failed ${insertAttempt}`));
+        }
+        return Promise.resolve({ rows: [] });
+      });
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            type: 'run-event',
+            event: {
+              id: 'event-failure-1',
+              kind: 'run.started',
+              label: 'Assistant run started',
+              status: 'running',
+              timestamp: '2026-04-24T10:00:00.000Z',
+            },
+          };
+          yield {
+            type: 'run-event',
+            event: {
+              id: 'event-failure-2',
+              kind: 'run.step.started',
+              label: 'Step started',
+              status: 'running',
+              timestamp: '2026-04-24T10:00:01.000Z',
+            },
+          };
+        },
+      });
+      (assistantDataStreamSessions.create as Mock).mockImplementationOnce(
+        (stream: AsyncIterable<unknown>) => {
+          capturedStream = stream;
+          return {
+            createResponse: vi.fn(() => ({
+              status: 200,
+              headers: new Headers(),
+              body: null,
+            })),
+          };
+        }
+      );
+      (streamResponse as Mock).mockImplementationOnce(async () => {
+        if (!capturedStream) {
+          throw new Error('Expected stream to be captured.');
+        }
+        for await (const _chunk of capturedStream) {
+          // consume stream to trigger run-event persistence
+        }
+      });
+
+      const response = await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: {
+            provider: 'openai',
+            memory: {
+              threadId: 'thread-1',
+              resourceId: 'workspace-a',
+              runId: 'run-persistence-failed',
+            },
+          },
+        }),
+      });
+
+      expect(response.status).toBe(500);
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        'Multiple assistant run events failed to persist',
+        expect.objectContaining({
+          failureCount: 2,
+          runId: 'run-persistence-failed',
+          suppressedFailureCount: 1,
+        })
+      );
+    });
+
+    it('flushes run-event persistence failures when the source stream throws', async () => {
+      const loggerErrorSpy = vi
+        .spyOn(desktopAssistantServerLogger, 'error')
+        .mockImplementation(() => {});
+      const { assistantDataStreamSessions, toAiSdkStyleStream, convertAssistantUiMessages } =
+        await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+      let capturedStream: AsyncIterable<unknown> | null = null;
+
+      mockDesktopDatabase.query.mockImplementation((sql: unknown) => {
+        if (
+          typeof sql === 'string' &&
+          sql.includes('INSERT INTO brainstrike_assistant_run_events')
+        ) {
+          return Promise.reject(new Error('insert failed before stream error'));
+        }
+        return Promise.resolve({ rows: [] });
+      });
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            type: 'run-event',
+            event: {
+              id: 'event-before-source-error',
+              kind: 'run.started',
+              label: 'Assistant run started',
+              status: 'running',
+              timestamp: '2026-04-24T10:00:00.000Z',
+            },
+          };
+          throw new Error('agent stream failed');
+        },
+      });
+      (assistantDataStreamSessions.create as Mock).mockImplementationOnce(
+        (stream: AsyncIterable<unknown>) => {
+          capturedStream = stream;
+          return {
+            createResponse: vi.fn(() => ({
+              status: 200,
+              headers: new Headers(),
+              body: null,
+            })),
+          };
+        }
+      );
+      (streamResponse as Mock).mockImplementationOnce(async () => {
+        if (!capturedStream) {
+          throw new Error('Expected stream to be captured.');
+        }
+        for await (const _chunk of capturedStream) {
+          // consume stream until source error
+        }
+      });
+
+      const response = await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: {
+            provider: 'openai',
+            memory: {
+              threadId: 'thread-1',
+              resourceId: 'workspace-a',
+              runId: 'run-source-error',
+            },
+          },
+        }),
+      });
+
+      expect(response.status).toBe(500);
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        'Failed to flush assistant run event persistence after stream error',
+        expect.objectContaining({
+          runId: 'run-source-error',
+          sourceError: expect.any(Error),
+        })
+      );
+      expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE brainstrike_assistant_thread_runs'),
+        expect.arrayContaining(['run-source-error', 'failed', 'agent stream failed'])
+      );
+    });
+
+    it('marks assistant thread runs failed when response streaming fails', async () => {
+      const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text', content: 'Response' };
+        },
+      });
+      (streamResponse as Mock).mockRejectedValueOnce(new Error('stream pipeline failed'));
+
+      const response = await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: {
+            provider: 'openai',
+            memory: {
+              threadId: 'thread-1',
+              resourceId: 'workspace-a',
+              runId: 'run-failed',
+            },
+          },
+        }),
+      });
+
+      expect(response.status).toBe(500);
+      expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE brainstrike_assistant_thread_runs'),
+        expect.arrayContaining(['run-failed', 'failed', 'stream pipeline failed'])
+      );
+    });
+
+    it('preserves the stream error when failing to mark an assistant thread run failed', async () => {
+      const loggerErrorSpy = vi
+        .spyOn(desktopAssistantServerLogger, 'error')
+        .mockImplementation(() => {});
+      const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text', content: 'Response' };
+        },
+      });
+      (streamResponse as Mock).mockRejectedValueOnce(new Error('stream pipeline failed'));
+      mockDesktopDatabase.query.mockRejectedValueOnce(new Error('run status write failed'));
+
+      const response = await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: {
+            provider: 'openai',
+            memory: {
+              threadId: 'thread-1',
+              resourceId: 'workspace-a',
+              runId: 'run-failed-status-write',
+            },
+          },
+        }),
+      });
+
+      expect(response.status).toBe(500);
+      const data = JSON.parse(response.body) as { error: string; message: string };
+      expect(data).toEqual({
+        error: 'assistant_stream_failed',
+        message: 'stream pipeline failed',
+      });
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        'Failed to update assistant thread run status',
+        expect.objectContaining({
+          runId: 'run-failed-status-write',
+          status: 'failed',
+        })
+      );
+
+      loggerErrorSpy.mockRestore();
     });
 
     it('should handle stream initialization failure', async () => {

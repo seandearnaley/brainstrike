@@ -5,7 +5,8 @@ import { MastraAgentError, type MastraAgentErrorCode } from '../mastra/mastra-ag
 import { resolveRuntimeConfiguration } from '../mastra/runtime-configuration';
 
 const agentInstances: Array<{
-  config: { tools: Record<string, unknown> };
+  config: { memory?: unknown; tools: Record<string, unknown> };
+  streamCalls: Array<{ input: unknown; options: unknown }>;
   tools: Record<string, unknown>;
 }> = [];
 const mcpInstances: unknown[] = [];
@@ -51,22 +52,27 @@ vi.mock('@mastra/core/agent', () => ({
       agentInstances.length = 0;
     }
 
-    config: { tools: Record<string, unknown> };
+    config: { memory?: unknown; tools: Record<string, unknown> };
+    streamCalls: Array<{ input: unknown; options: unknown }> = [];
     tools: Record<string, unknown>;
+    memory?: unknown;
     model?: { modelId: string; provider?: string } | undefined;
 
     constructor(config: {
+      memory?: unknown;
       tools?: Record<string, unknown>;
       model?: { modelId: string; provider?: string } | undefined;
     }) {
       const tools = (config.tools ?? {}) as Record<string, unknown>;
-      this.config = { tools };
+      this.config = { tools, ...(config.memory ? { memory: config.memory } : {}) };
       this.tools = tools;
+      this.memory = config.memory;
       this.model = config.model;
       agentInstances.push(this);
     }
 
-    async stream() {
+    async stream(input: unknown, options: unknown) {
+      this.streamCalls.push({ input, options });
       const stream = new ReadableStream({
         start(controller) {
           for (const part of streamParts) {
@@ -138,6 +144,10 @@ describe('mastra streaming integration', () => {
 
     expect(chunks).toEqual([
       { type: 'text-delta', value: 'hello' },
+      expect.objectContaining({
+        type: 'run-event',
+        event: expect.objectContaining({ kind: 'run.finished', status: 'completed' }),
+      }),
       {
         type: 'message-finish',
         finishReason: 'stop',
@@ -181,6 +191,52 @@ describe('mastra streaming integration', () => {
     expect(finished).toBe(true);
   });
 
+  it('surfaces Mastra reasoning and run lifecycle chunks', async () => {
+    setMockStreamParts([
+      { type: 'start', messageId: 'msg-1' },
+      { type: 'reasoning-delta', delta: 'Checking memory.' },
+      { type: 'step-start', messageId: 'msg-1' },
+      { type: 'step-finish', usage: { promptTokens: 3, completionTokens: 4 } },
+      { type: 'finish', usage: { promptTokens: 5, completionTokens: 6 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'explain' }] }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual([
+      expect.objectContaining({
+        type: 'run-event',
+        event: expect.objectContaining({ kind: 'run.started', status: 'running' }),
+      }),
+      { type: 'reasoning-delta', value: 'Checking memory.' },
+      expect.objectContaining({
+        type: 'run-event',
+        event: expect.objectContaining({ kind: 'run.step.started', status: 'running' }),
+      }),
+      expect.objectContaining({
+        type: 'run-event',
+        event: expect.objectContaining({ kind: 'run.step.finished', status: 'completed' }),
+      }),
+      expect.objectContaining({
+        type: 'run-event',
+        event: expect.objectContaining({ kind: 'run.finished', status: 'completed' }),
+      }),
+      {
+        type: 'message-finish',
+        finishReason: 'stop',
+        usage: { promptTokens: 5, completionTokens: 6 },
+        path: [],
+      },
+    ]);
+  });
+
   it('throws stream_failure when Mastra fullStream resolves to null', async () => {
     const { Agent } = await import('@mastra/core/agent');
     const originalStream = Agent.prototype.stream;
@@ -197,6 +253,77 @@ describe('mastra streaming integration', () => {
     );
 
     Agent.prototype.stream = originalStream;
+  });
+
+  it('passes configured Mastra memory into the Agent constructor', async () => {
+    const memory = { id: 'memory-instance' };
+
+    await createMastraAgentRuntime({
+      memory: memory as never,
+      runtime: { apiKey: 'key', provider: 'openai' },
+    });
+
+    expect(agentInstances.at(-1)?.config.memory).toBe(memory);
+  });
+
+  it('passes strict thread/resource memory context to agent.stream', async () => {
+    const memory = { id: 'memory-instance' };
+    setMockStreamParts([{ type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } }]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'remember this' }] }],
+      {
+        memory: memory as never,
+        runtime: {
+          apiKey: 'test-key',
+          provider: 'openai',
+          memory: {
+            threadId: 'thread-1',
+            resourceId: 'workspace-a',
+            memoryOptions: { lastMessages: 5 },
+          },
+        },
+      }
+    );
+
+    for await (const _chunk of iterator) {
+      // drain stream
+    }
+
+    expect(agentInstances.at(-1)?.streamCalls.at(-1)?.options).toMatchObject({
+      memory: {
+        thread: 'thread-1',
+        resource: 'workspace-a',
+        options: { lastMessages: 5 },
+      },
+    });
+  });
+
+  it('throws a typed error when memory context is provided without configured memory', async () => {
+    await expectMastraAgentError(
+      streamMastraAgent([{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }], {
+        runtime: {
+          apiKey: 'test-key',
+          provider: 'openai',
+          memory: { threadId: 'thread-1', resourceId: 'workspace-a' },
+        },
+      }),
+      'mastra_agent_memory_unavailable'
+    );
+  });
+
+  it('throws a typed error when memory context is missing thread or resource IDs', async () => {
+    await expectMastraAgentError(
+      streamMastraAgent([{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }], {
+        memory: { id: 'memory-instance' } as never,
+        runtime: {
+          apiKey: 'test-key',
+          provider: 'openai',
+          memory: { threadId: '', resourceId: 'workspace-a' },
+        },
+      }),
+      'mastra_agent_memory_unavailable'
+    );
   });
   it('merges local and MCP tools while tracking sanitized tool names', async () => {
     const runtime = await createMastraAgentRuntime({

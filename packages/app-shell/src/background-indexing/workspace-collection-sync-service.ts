@@ -134,6 +134,7 @@ export interface WorkspaceCollectionSyncServiceDependencies {
     }) => void
   ) => () => void;
   validateHostedProviderAccess: (embeddingSetId: string) => Promise<void>;
+  waitForBackgroundPermit: (options: { readonly label: string }) => Promise<void>;
 }
 
 export interface WorkspaceCollectionSyncRequest {
@@ -597,7 +598,7 @@ function buildNormalizedChunkingProgress(args: {
     };
   }
   if (!args.latestChunkingProgress) {
-    return undefined;
+    return;
   }
   return {
     ...args.latestChunkingProgress,
@@ -734,6 +735,7 @@ async function applyBackgroundImportBatch(args: {
   batch: readonly PreparedCacheChange[];
   batchContents: Record<string, string>;
   collectionId: string;
+  waitForBackgroundPermit: (options: { readonly label: string }) => Promise<void>;
 }): Promise<{
   errors: Array<{ error: string; file: string }>;
   results: FileImportResult[];
@@ -765,6 +767,7 @@ async function applyBackgroundImportBatch(args: {
   }
 
   try {
+    await args.waitForBackgroundPermit({ label: 'background import batch' });
     await args.applyManagedCacheBatch({
       embeddingSetId: args.collectionId,
       changes: mutations.map((entry) => entry.mutation),
@@ -938,6 +941,7 @@ async function runRootFolderCacheImport(args: {
   fileRecordRepository: FileImportFileRecordRepository;
   onProgress: (progress: EnhancedImportProgress) => void;
   setImporting: (importing: boolean) => void;
+  waitForBackgroundPermit: (options: { readonly label: string }) => Promise<void>;
 }): Promise<void> {
   const {
     applyManagedCacheBatch,
@@ -951,6 +955,7 @@ async function runRootFolderCacheImport(args: {
     fileRecordRepository,
     onProgress,
     setImporting,
+    waitForBackgroundPermit,
   } = args;
 
   if (changes.length === 0) {
@@ -1058,6 +1063,7 @@ async function runRootFolderCacheImport(args: {
               batch: selectedBatch,
               batchContents: fileContents,
               collectionId: collection.id,
+              waitForBackgroundPermit,
             });
             errors.push(...batchOutcome.errors);
             for (const result of batchOutcome.results) {
@@ -1126,6 +1132,7 @@ async function runRootFolderCacheImport(args: {
           update: () => null,
         },
       });
+      await waitForBackgroundPermit({ label: 'background import assignment' });
       await backfillEmbeddingSetAssignments(
         { query: db.query.bind(db) },
         collection.id,
@@ -1919,6 +1926,7 @@ export class WorkspaceCollectionSyncService {
         );
       },
       setImporting: this.deps.setImporting,
+      waitForBackgroundPermit: this.deps.waitForBackgroundPermit,
     });
     throwIfAborted(args.abortSignal);
 

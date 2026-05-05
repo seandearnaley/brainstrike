@@ -7,10 +7,18 @@ import type { TriggerRenderProps } from './types';
 import { getProviderColor } from './utils/provider-colors';
 import { ProviderIcon } from './utils/provider-icons';
 
-export const ModelPickerTrigger = React.forwardRef<
-  HTMLButtonElement,
-  TriggerRenderProps & React.ButtonHTMLAttributes<HTMLButtonElement>
->(({ value, models, providers, placeholder, disabled, className, ...props }, ref) => {
+export const ModelPickerTrigger = ({
+  value,
+  models,
+  providers,
+  placeholder,
+  disabled,
+  className,
+  ref,
+  ...props
+}: (TriggerRenderProps & React.ButtonHTMLAttributes<HTMLButtonElement>) & {
+  ref?: React.Ref<HTMLButtonElement>;
+}) => {
   const { theme: configuredTheme } = useTheme();
   const [resolvedTheme, setResolvedTheme] = React.useState<'light' | 'dark'>('light');
 
@@ -70,5 +78,5 @@ export const ModelPickerTrigger = React.forwardRef<
       <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
     </Button>
   );
-});
+};
 ModelPickerTrigger.displayName = 'ModelPickerTrigger';

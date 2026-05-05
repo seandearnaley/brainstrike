@@ -133,13 +133,12 @@ describe('Repository Factory', () => {
       expect(repository).toBeInstanceOf(FileRecordRepository);
     });
 
-    it(
-      'should create working repositories that can be used interchangeably',
-      { timeout: 40_000 },
-      async () => {
-        // Create test databases
-        const pgliteDb = new PGlite('memory://');
-        await pgliteDb.exec(`
+    it('should create working repositories that can be used interchangeably', {
+      timeout: 40_000,
+    }, async () => {
+      // Create test databases
+      const pgliteDb = new PGlite('memory://');
+      await pgliteDb.exec(`
         CREATE TABLE IF NOT EXISTS file_records (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
@@ -150,25 +149,24 @@ describe('Repository Factory', () => {
         );
       `);
 
-        const mockElectronDb: ElectronDbAPI = {
-          query: vi.fn().mockResolvedValue({ rows: [] }),
-          exec: vi.fn().mockResolvedValue(undefined),
-        };
+      const mockElectronDb: ElectronDbAPI = {
+        query: vi.fn().mockResolvedValue({ rows: [] }),
+        exec: vi.fn().mockResolvedValue(undefined),
+      };
 
-        const pgliteRepo = createFileRecordRepository(pgliteDb);
-        const electronRepo = createFileRecordRepository(mockElectronDb);
+      const pgliteRepo = createFileRecordRepository(pgliteDb);
+      const electronRepo = createFileRecordRepository(mockElectronDb);
 
-        // Test that both repositories can call findAll (different implementations)
-        const pgliteResult = await pgliteRepo.findAll();
-        expect(Array.isArray(pgliteResult)).toBe(true);
+      // Test that both repositories can call findAll (different implementations)
+      const pgliteResult = await pgliteRepo.findAll();
+      expect(Array.isArray(pgliteResult)).toBe(true);
 
-        const electronResult = await electronRepo.findAll();
-        expect(Array.isArray(electronResult)).toBe(true);
+      const electronResult = await electronRepo.findAll();
+      expect(Array.isArray(electronResult)).toBe(true);
 
-        // Verify the Electron mock was called
-        expect(mockElectronDb.query).toHaveBeenCalled();
-      }
-    );
+      // Verify the Electron mock was called
+      expect(mockElectronDb.query).toHaveBeenCalled();
+    });
   });
 
   describe('type compatibility', () => {

@@ -231,6 +231,8 @@ export interface TreeTableProps<T> {
   // Highlighting (e.g., search results)
   /** Set of highlighted node IDs */
   highlightedIds?: Set<string>;
+  /** Adds a small inset before tree controls in the tree column. */
+  insetTreeControls?: boolean;
   /** Set of node IDs currently loading children */
   loadingNodeIds?: Set<string>;
   /** Maximum height of the table container */
@@ -239,6 +241,12 @@ export interface TreeTableProps<T> {
   multiSelectedIds?: Set<string>;
   /** Tree nodes to display (can be nested via hasChildren) */
   nodes: TreeNode<T>[];
+  /**
+   * Treat `nodes` as an already-expanded, visible flat row model.
+   * This skips TreeTable's recursive expansion flattening while preserving
+   * row virtualization, keyboard navigation, and ARIA row metadata.
+   */
+  nodesArePreFlattened?: boolean;
   /** Callback to collapse all nodes */
   onCollapseAll?: () => void;
   /** Callback to expand all nodes */
@@ -308,6 +316,8 @@ export interface TreeTableRowProps<T> {
   className?: string;
   /** Column definitions */
   columns: TreeTableColumn<T>[];
+  /** Adds a small inset before tree controls in the tree column. */
+  insetTreeControls?: boolean | undefined;
   /** Whether this row is focused for keyboard navigation */
   isFocused?: boolean;
   /** Ref callback for measuring element */

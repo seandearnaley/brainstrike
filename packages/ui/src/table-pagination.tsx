@@ -15,7 +15,7 @@ const PAGINATION_DENSITY_HYSTERESIS_PX = 20;
 
 type PaginationDensity = 'auto' | 'full' | 'compact' | 'mini';
 type ResolvedPaginationDensity = Exclude<PaginationDensity, 'auto'>;
-const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
 function resolveAutoPaginationDensity(
   containerWidth: number | null,
@@ -184,7 +184,7 @@ const NavigationControls = memo(function NavigationControls({
           title="Go to first page"
           variant="ghost"
         >
-          <ChevronsLeft aria-hidden="true" className="h-4 w-4" />
+          <ChevronsLeft aria-hidden="true" />
         </Button>
       )}
       <Button
@@ -195,7 +195,7 @@ const NavigationControls = memo(function NavigationControls({
         title="Go to previous page"
         variant="ghost"
       >
-        <ChevronLeft aria-hidden="true" className="h-4 w-4" />
+        <ChevronLeft aria-hidden="true" />
       </Button>
 
       <div className={cn('flex items-center gap-1 px-1', isMiniDensity && 'px-0.5')}>
@@ -233,7 +233,7 @@ const NavigationControls = memo(function NavigationControls({
         title="Go to next page"
         variant="ghost"
       >
-        <ChevronRight aria-hidden="true" className="h-4 w-4" />
+        <ChevronRight aria-hidden="true" />
       </Button>
       {!isMiniDensity && (
         <Button
@@ -244,7 +244,7 @@ const NavigationControls = memo(function NavigationControls({
           title="Go to last page"
           variant="ghost"
         >
-          <ChevronsRight aria-hidden="true" className="h-4 w-4" />
+          <ChevronsRight aria-hidden="true" />
         </Button>
       )}
       <span className="sr-only">

@@ -256,6 +256,23 @@ describe('getUnloadedDirectories', () => {
     expect(toLoad).not.toContain('/root/dir2');
   });
 
+  it('should retry errored directories from current wave', () => {
+    const tree = [
+      createDirectoryNode({
+        path: '/root/dir1',
+        loadState: 'error',
+        loadError: 'Permission denied',
+      }),
+      createDirectoryNode({ path: '/root/dir2', loadState: 'loaded' }),
+    ];
+    const currentWave = new Set(['/root/dir1', '/root/dir2']);
+    const processed = new Set<string>();
+
+    const toLoad = getUnloadedDirectories(currentWave, processed, tree);
+
+    expect(toLoad).toEqual(['/root/dir1']);
+  });
+
   it('should skip already processed paths', () => {
     const tree = [createDirectoryNode({ path: '/root/dir1', loadState: 'unloaded' })];
     const currentWave = new Set(['/root/dir1']);

@@ -163,12 +163,12 @@ export function useFileSystem({
       // If so, skip calling setCurrentFolderId to avoid triggering the
       // folder-switching logic which would read from stale folderStates.
       const persistedFolderId = getPersistedCurrentFolderId?.();
-      if (persistedFolderId !== restoredFolderId) {
-        updateCurrentFolderId(restoredFolderId);
-      } else {
+      if (persistedFolderId === restoredFolderId) {
         logger.debug('Skipping setCurrentFolderId - folder already matches persisted state', {
           folderId: restoredFolderId,
         });
+      } else {
+        updateCurrentFolderId(restoredFolderId);
       }
     },
     [getPersistedCurrentFolderId, updateCurrentFolderId, waitForHydration]

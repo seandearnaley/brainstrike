@@ -1,0 +1,189 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AgentSidebarPanel } from '../agent-sidebar-panel';
+
+const { mockPreloadDatabaseTab } = vi.hoisted(() => ({
+  mockPreloadDatabaseTab: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock('../database-tab', () => ({
+  preloadDatabaseTab: mockPreloadDatabaseTab,
+}));
+
+describe('AgentSidebarPanel', () => {
+  beforeEach(() => {
+    mockPreloadDatabaseTab.mockClear();
+    window.localStorage.clear();
+  });
+
+  it('shows threads first and reveals database content when the database tab is selected', async () => {
+    render(
+      <AgentSidebarPanel
+        databaseContent={<div>Database content</div>}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    expect(screen.getByRole('tab', { name: 'Threads' })).toHaveAttribute('data-state', 'active');
+    expect(screen.getByText('Threads content')).toBeVisible();
+    expect(screen.queryByText('Database content')).not.toBeInTheDocument();
+
+    const databaseTab = screen.getByRole('tab', { name: 'Database' });
+    fireEvent.mouseDown(databaseTab, { button: 0, ctrlKey: false });
+
+    await waitFor(() => {
+      expect(databaseTab).toHaveAttribute('data-state', 'active');
+    });
+    expect(await screen.findByText('Database content')).toBeVisible();
+  });
+
+  it('preloads the database chunk when requested', async () => {
+    render(
+      <AgentSidebarPanel
+        databaseContent={<div>Database content</div>}
+        preloadDatabaseTabOnMount
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    await waitFor(() => {
+      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('prefetches the database chunk on pointer and keyboard intent', async () => {
+    render(
+      <AgentSidebarPanel
+        databaseContent={<div>Database content</div>}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    const databaseTab = screen.getByRole('tab', { name: 'Database' });
+
+    fireEvent.pointerEnter(databaseTab);
+    fireEvent.focus(databaseTab);
+
+    await waitFor(() => {
+      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('retries the database prefetch after a transient preload failure', async () => {
+    mockPreloadDatabaseTab
+      .mockRejectedValueOnce(new Error('transient chunk load failure'))
+      .mockResolvedValueOnce(undefined);
+
+    render(
+      <AgentSidebarPanel
+        databaseContent={<div>Database content</div>}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    const databaseTab = screen.getByRole('tab', { name: 'Database' });
+
+    fireEvent.pointerEnter(databaseTab);
+    await waitFor(() => {
+      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.focus(databaseTab);
+    await waitFor(() => {
+      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('persists the selected sidebar tab across remounts', async () => {
+    const { unmount } = render(
+      <AgentSidebarPanel
+        databaseContent={<div>Database content</div>}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    const databaseTab = screen.getByRole('tab', { name: 'Database' });
+    fireEvent.mouseDown(databaseTab, { button: 0, ctrlKey: false });
+
+    await waitFor(() => {
+      expect(databaseTab).toHaveAttribute('data-state', 'active');
+    });
+
+    unmount();
+
+    render(
+      <AgentSidebarPanel
+        databaseContent={<div>Database content</div>}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    expect(screen.getByRole('tab', { name: 'Database' })).toHaveAttribute('data-state', 'active');
+    expect(screen.getByText('Database content')).toBeVisible();
+  });
+
+  it('keeps database tab state mounted after the first visit', async () => {
+    render(
+      <AgentSidebarPanel
+        databaseContent={<input aria-label="Database search" defaultValue="persisted query" />}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    const databaseTab = screen.getByRole('tab', { name: 'Database' });
+    fireEvent.mouseDown(databaseTab, { button: 0, ctrlKey: false });
+
+    const searchField = await screen.findByRole('textbox', { name: 'Database search' });
+    fireEvent.change(searchField, { target: { value: 'keep me' } });
+    expect(searchField).toHaveValue('keep me');
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Threads' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(screen.getByText('Threads content')).toBeVisible();
+    expect(searchField).not.toBeVisible();
+
+    fireEvent.mouseDown(databaseTab, { button: 0, ctrlKey: false });
+    expect(await screen.findByRole('textbox', { name: 'Database search' })).toHaveValue('keep me');
+  });
+
+  it('migrates the legacy tools panel tab and removes the old storage key', () => {
+    window.localStorage.setItem(
+      'tools-panel.v1',
+      JSON.stringify({
+        state: { activeTab: 'database' },
+        version: 2,
+      })
+    );
+
+    render(
+      <AgentSidebarPanel
+        databaseContent={<div>Database content</div>}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    expect(screen.getByRole('tab', { name: 'Database' })).toHaveAttribute('data-state', 'active');
+    expect(window.localStorage.getItem('tools-panel.v1')).toBeNull();
+    expect(window.localStorage.getItem('brainstrike.agent-sidebar-tab.v1')).toBe(
+      JSON.stringify('database')
+    );
+  });
+
+  it('falls back to the default tab when legacy tools panel storage is corrupted', () => {
+    window.localStorage.setItem('tools-panel.v1', '{not valid json');
+
+    render(
+      <AgentSidebarPanel
+        databaseContent={<div>Database content</div>}
+        threadsContent={<div>Threads content</div>}
+      />
+    );
+
+    expect(screen.getByRole('tab', { name: 'Threads' })).toHaveAttribute('data-state', 'active');
+    expect(screen.getByText('Threads content')).toBeVisible();
+    expect(window.localStorage.getItem('tools-panel.v1')).toBeNull();
+    expect(window.localStorage.getItem('brainstrike.agent-sidebar-tab.v1')).toBeNull();
+  });
+});

@@ -58,7 +58,7 @@ function attachAbort(
 }
 
 function now(): number {
-  return typeof performance !== 'undefined' ? performance.now() : Date.now();
+  return typeof performance === 'undefined' ? Date.now() : performance.now();
 }
 
 function calculateElapsed(startedAt: number): number {
@@ -164,8 +164,8 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
       taskId: task.id,
       model: task.model,
       activeBefore: activeTasks,
-      ...(pendingTasks !== undefined ? { pending: pendingTasks } : {}),
-      ...(statsMetadata !== undefined ? { metadata: statsMetadata } : {}),
+      ...(pendingTasks === undefined ? {} : { pending: pendingTasks }),
+      ...(statsMetadata === undefined ? {} : { metadata: statsMetadata }),
     };
     emitQueueTelemetry(telemetry);
 
@@ -184,8 +184,8 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
       elapsedMs: calculateElapsed(startedAt),
       activeBefore: activeTasks,
       activeAfter: Math.max(activeTasks - 1, 0),
-      ...(pendingTasks !== undefined ? { pending: pendingTasks } : {}),
-      ...(statsMetadata !== undefined ? { metadata: statsMetadata } : {}),
+      ...(pendingTasks === undefined ? {} : { pending: pendingTasks }),
+      ...(statsMetadata === undefined ? {} : { metadata: statsMetadata }),
     };
     emitQueueTelemetry(telemetry);
     // Use debug level for per-task completion to reduce log noise during bulk operations

@@ -106,7 +106,7 @@ function ErrorList({
         )}
         <AlertTriangle className="mr-2 h-3 w-3 text-amber-600" />
         <span className="text-xs">
-          View {errors.length} error{errors.length !== 1 ? 's' : ''}
+          View {errors.length} error{errors.length === 1 ? '' : 's'}
         </span>
       </Button>
 

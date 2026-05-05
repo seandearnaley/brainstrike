@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { mockAssistantApi } from './utils/assistant-mocks';
-import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
+import { openAssistantWorkspace } from './utils/assistant-workspace';
 
 test.describe('Assistant panel (assistant-ui default)', { tag: '@smoke' }, () => {
   test.beforeEach(async ({ request }, testInfo) => {
@@ -13,42 +13,28 @@ test.describe('Assistant panel (assistant-ui default)', { tag: '@smoke' }, () =>
 
   test.beforeEach(async ({ page }) => {
     await mockAssistantApi(page);
-    await page.goto('/');
-    await waitForAppLoad(page);
+    await openAssistantWorkspace(page, { rootName: 'assistant-panel' });
   });
 
-  test('send message and stream response; persists across tab switches', async ({ page }) => {
-    // Ensure right panel is visible (it's hidden by default in our layout)
-    const elements = getPanelElements(page);
-    if (await elements.showRightPanelShim.isVisible()) {
-      await elements.showRightPanelShim.click();
-      await expect(elements.rightPanel).toBeVisible();
-    }
-
-    // Assistant UI viewport should now be visible within Props tab
+  test('send message and stream response while switching agent sidebar tabs', async ({ page }) => {
     const viewport = page.getByTestId('assistant-ui-viewport');
     await expect(viewport).toBeVisible();
 
-    // Send a prompt
     await page.locator('#assistant-input').fill('hello world');
     await page.getByRole('button', { name: 'Send' }).click();
 
-    // Expect streamed assistant response to appear (mock sends "Assistant: Mock response from tests.")
     await expect(viewport.getByText(/Mock response from tests/i).first()).toBeVisible({
       timeout: 10_000,
     });
 
-    // Switch away to Search tab and back to Props
-    await page
-      .getByRole('tab', { name: 'Search' })
-      .or(page.getByRole('button', { name: 'Search' }))
-      .click();
-    await page
-      .getByRole('tab', { name: 'Props' })
-      .or(page.getByRole('button', { name: 'Props' }))
-      .click();
+    const databaseTab = page.getByRole('tab', { name: 'Database' });
+    await databaseTab.click();
+    await expect(page.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });
 
-    // State should persist across tab switches (allow time after navigation)
+    const threadsTab = page.getByRole('tab', { name: 'Threads' });
+    await threadsTab.click();
+    await expect(page.getByTestId('threads-panel')).toBeVisible({ timeout: 15_000 });
+
     await expect(viewport.getByText(/Mock response from tests/i).first()).toBeVisible({
       timeout: 10_000,
     });

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 
 // Avoid React warnings during SSR: useLayoutEffect fires a warning when
 // executed on the server.  Fall back to useEffect in non-browser environments.
-const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
 /**
  * Returns a stable-identity callback that always invokes the latest version of

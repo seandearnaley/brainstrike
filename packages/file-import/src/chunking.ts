@@ -515,15 +515,15 @@ async function processFileChunkingHostProxyPath(
   const hasUserOverrides = options.chunkSize !== undefined || options.chunkOverlap !== undefined;
   throwIfAborted(options.abortSignal);
   const workerResult = await workerPort.chunkFileById(preparation.fileRecordId, {
-    ...(options.chunkingStrategy !== undefined
-      ? { requestedStrategy: options.chunkingStrategy }
-      : {}),
+    ...(options.chunkingStrategy === undefined
+      ? {}
+      : { requestedStrategy: options.chunkingStrategy }),
     ...(options.forceStrategy === true ? { forceStrategy: true } : {}),
     ...(hasUserOverrides ? { ignoreFileTypeRecommendations: true } : {}),
-    ...(options.chunkSize !== undefined ? { maxTokens: options.chunkSize } : {}),
-    ...(options.chunkOverlap !== undefined ? { overlap: options.chunkOverlap } : {}),
-    ...(options.tokenLimit !== undefined ? { maxTokensCap: options.tokenLimit } : {}),
-    ...(options.tokenTrueSizing !== undefined ? { tokenTrueSizing: options.tokenTrueSizing } : {}),
+    ...(options.chunkSize === undefined ? {} : { maxTokens: options.chunkSize }),
+    ...(options.chunkOverlap === undefined ? {} : { overlap: options.chunkOverlap }),
+    ...(options.tokenLimit === undefined ? {} : { maxTokensCap: options.tokenLimit }),
+    ...(options.tokenTrueSizing === undefined ? {} : { tokenTrueSizing: options.tokenTrueSizing }),
   });
 
   if (workerResult.skipped) {
@@ -614,9 +614,9 @@ async function processFileChunkingWorkerPath(
     strategy,
     forceStrategy,
     ignoreFileTypeRecommendations: hasUserOverrides,
-    ...(options.chunkSize !== undefined ? { maxTokens: options.chunkSize } : {}),
-    ...(options.chunkOverlap !== undefined ? { overlap: options.chunkOverlap } : {}),
-    ...(options.tokenLimit !== undefined ? { maxTokensCap: options.tokenLimit } : {}),
+    ...(options.chunkSize === undefined ? {} : { maxTokens: options.chunkSize }),
+    ...(options.chunkOverlap === undefined ? {} : { overlap: options.chunkOverlap }),
+    ...(options.tokenLimit === undefined ? {} : { maxTokensCap: options.tokenLimit }),
   };
 
   // Call worker to chunk content

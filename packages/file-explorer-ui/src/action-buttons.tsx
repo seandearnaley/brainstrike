@@ -22,6 +22,7 @@ import { Button, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from
 import { CheckCheck, X } from 'lucide-react';
 import * as React from 'react';
 import { useCallback, useMemo } from 'react';
+import type { AddMultipleSelectedFilesChunked } from './hooks/recursive-selection-utils';
 import type { SelectAllResult } from './hooks/use-recursive-select-all';
 
 // NOTE: `| undefined` on optional props is required due to exactOptionalPropertyTypes: true in tsconfig.
@@ -29,6 +30,8 @@ import type { SelectAllResult } from './hooks/use-recursive-select-all';
 export interface ActionButtonsProps {
   /** Add multiple selected files (used by recursive selection) */
   addMultipleSelectedFiles?: ((folderId: string, paths: string[]) => void) | undefined;
+  /** Add multiple selected files with cooperative chunking for large recursive selections. */
+  addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked | undefined;
   /** Cancel the current recursive selection operation */
   cancelSelectAll?: (() => void) | undefined;
   currentFolderId: string | null;
@@ -45,6 +48,7 @@ export interface ActionButtonsProps {
   /** Whether the tree is being loaded for select all */
   isLoadingForSelectAll?: boolean | undefined;
   maxSelectionCount: number;
+  /** Called when bulk selection reaches the configured file selection limit. */
   onSelectionLimitExceeded?: (() => void) | undefined;
   /**
    * Recursively select all files in the provided tree, loading if needed.
@@ -55,7 +59,8 @@ export interface ActionButtonsProps {
         filteredTree: IFileNode[],
         folderId: string,
         addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
-        maxSelectionCount: number
+        maxSelectionCount: number,
+        addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked
       ) => Promise<SelectAllResult>)
     | undefined;
   selectedFilePaths: Set<string>;
@@ -72,14 +77,15 @@ export const ActionButtons = React.memo(
     currentFolderId,
     setSelectedFiles,
     encodeFileSelection,
-    onSelectionLimitExceeded,
     hasFilesInTree = false,
     filteredTree,
     hasActiveQuickFilter = false,
     selectAllRecursively,
     cancelSelectAll,
+    onSelectionLimitExceeded,
     isLoadingForSelectAll = false,
     addMultipleSelectedFiles,
+    addMultipleSelectedFilesChunked,
     visibleFilePaths,
   }: ActionButtonsProps) => {
     /**
@@ -87,28 +93,25 @@ export const ActionButtons = React.memo(
      * Loads all directories then selects files up to the limit.
      */
     const performRecursiveSelection = useCallback(
-      async (folderId: string): Promise<void> => {
+      async (folderId: string): Promise<SelectAllResult | undefined> => {
         if (!(selectAllRecursively && addMultipleSelectedFiles && filteredTree)) {
           return;
         }
 
-        const result = await selectAllRecursively(
+        return selectAllRecursively(
           filteredTree,
           folderId,
           addMultipleSelectedFiles,
-          maxSelectionCount
+          maxSelectionCount,
+          addMultipleSelectedFilesChunked
         );
-
-        if (result.limitReached && onSelectionLimitExceeded) {
-          onSelectionLimitExceeded();
-        }
       },
       [
         selectAllRecursively,
         addMultipleSelectedFiles,
         filteredTree,
         maxSelectionCount,
-        onSelectionLimitExceeded,
+        addMultipleSelectedFilesChunked,
       ]
     );
 
@@ -127,10 +130,10 @@ export const ActionButtons = React.memo(
           .slice(0, maxSelectionCount)
           .map((path) => encodeFileSelection(folderId, path));
 
-        if (sourcePaths.length > maxSelectionCount && onSelectionLimitExceeded) {
-          onSelectionLimitExceeded();
-        }
         setSelectedFiles(new Set(filesToSelect));
+        if (sourcePaths.length > maxSelectionCount) {
+          onSelectionLimitExceeded?.();
+        }
       },
       [
         hasActiveQuickFilter,
@@ -138,8 +141,8 @@ export const ActionButtons = React.memo(
         visibleFilePaths,
         maxSelectionCount,
         encodeFileSelection,
-        onSelectionLimitExceeded,
         setSelectedFiles,
+        onSelectionLimitExceeded,
       ]
     );
 
@@ -159,7 +162,10 @@ export const ActionButtons = React.memo(
       const canUseRecursive = selectAllRecursively && addMultipleSelectedFiles && filteredTree;
 
       if (canUseRecursive) {
-        await performRecursiveSelection(currentFolderId);
+        const result = await performRecursiveSelection(currentFolderId);
+        if (result?.limitReached === true) {
+          onSelectionLimitExceeded?.();
+        }
       } else {
         performFallbackSelection(currentFolderId);
       }
@@ -171,6 +177,7 @@ export const ActionButtons = React.memo(
       performRecursiveSelection,
       performFallbackSelection,
       hasActiveQuickFilter,
+      onSelectionLimitExceeded,
     ]);
 
     // Clears all selected files

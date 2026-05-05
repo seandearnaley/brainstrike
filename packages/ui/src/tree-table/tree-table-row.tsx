@@ -34,6 +34,7 @@ const GROUP_HEADER_DATA_SHAPE = { groupLabel: '', itemCount: 0 } satisfies TreeT
  */
 interface GroupHeaderCellProps<T> {
   columns: TreeTableColumn<T>[];
+  insetTreeControls: boolean;
   isExpanded: boolean;
   node: TreeNode<TreeTableGroupHeaderData>;
   onExpandClick: (event: React.MouseEvent) => void;
@@ -43,10 +44,16 @@ interface GroupHeaderCellProps<T> {
  * GroupHeaderCell renders a single spanning cell for group header rows.
  * Displays an expand/collapse toggle, group icon, label, and item count.
  */
-function GroupHeaderCell<T>({ node, isExpanded, onExpandClick, columns }: GroupHeaderCellProps<T>) {
+function GroupHeaderCell<T>({
+  node,
+  isExpanded,
+  onExpandClick,
+  columns,
+  insetTreeControls,
+}: GroupHeaderCellProps<T>) {
   return (
     <TableCell className="p-0" colSpan={columns.length} role="gridcell">
-      <div className="flex items-center">
+      <div className={cn('flex items-center', insetTreeControls && 'pl-1')}>
         {/* Indentation spacer */}
         <span className="flex-shrink-0" style={{ width: node.depth * INDENT_WIDTH }} />
 
@@ -129,6 +136,7 @@ function TreeTableRowInner<T>({
   measureRef,
   virtualIndex,
   showCheckbox = false,
+  insetTreeControls = false,
   checkboxState,
   onCheckboxChange,
   totalRowCount,
@@ -215,6 +223,7 @@ function TreeTableRowInner<T>({
       {isGroupHeader ? (
         <GroupHeaderCell
           columns={columns}
+          insetTreeControls={insetTreeControls}
           isExpanded={row.isExpanded}
           node={node}
           onExpandClick={handleExpandClick}
@@ -250,6 +259,7 @@ function TreeTableRowInner<T>({
                 colSpan={colSpan}
                 column={column}
                 columnIndex={columnIndex}
+                insetTreeControls={insetTreeControls}
                 isTreeColumn={columnIndex === treeColumnIndex}
                 key={column.id}
                 onCheckboxChange={showCheckbox ? handleCheckboxChange : undefined}
@@ -278,6 +288,7 @@ interface TreeTableCellInternalProps<T> {
   colSpan: number;
   column: TreeTableColumn<T>;
   columnIndex: number;
+  insetTreeControls: boolean;
   isTreeColumn: boolean;
   onCheckboxChange: (() => void) | undefined;
   onExpandClick: (event: React.MouseEvent) => void;
@@ -323,6 +334,7 @@ function TreeTableCellComponent<T>({
   column,
   columnIndex: _columnIndex,
   isTreeColumn,
+  insetTreeControls,
   onExpandClick,
   showCheckbox,
   checkboxState,
@@ -349,7 +361,7 @@ function TreeTableCellComponent<T>({
 
     return (
       <TableCell className={cn('p-0', column.className)} colSpan={colSpan} role="gridcell">
-        <div className="flex items-center">
+        <div className={cn('flex items-center', insetTreeControls && 'pl-1')}>
           {/* Indentation spacer */}
           <span className="flex-shrink-0" style={{ width: node.depth * indentWidth }} />
 

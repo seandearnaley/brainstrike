@@ -153,9 +153,10 @@ export function useFileSystem() {
    * Get the current folder ID from the store after hydration.
    * This is used to check if setCurrentFolderId would be a no-op.
    */
-  const getPersistedCurrentFolderId = useCallback((): string | null => {
-    return store.getState().currentFolderId;
-  }, [store]);
+  const getPersistedCurrentFolderId = useCallback(
+    (): string | null => store.getState().currentFolderId,
+    [store]
+  );
 
   const coreApi = useCoreFileSystem({
     setCurrentFolderId,
@@ -169,6 +170,7 @@ export function useFileSystem() {
     const handle = await selectDirectoryWithErrorMapping(coreApi);
     if (handle) {
       setRootDirectoryHandle(handle);
+      rehydrateCurrentFolderStateIfNeeded(handle.path);
     }
     return handle;
   };

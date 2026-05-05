@@ -25,7 +25,7 @@ interface ExpandAllBatchConfig {
   maxDirectoriesPerBatch?: number;
 }
 
-interface ExpandAllMetrics {
+export interface ExpandAllMetrics {
   batchCount: number;
   commitDurationMs: number;
   committedBatchCount: number;
@@ -42,6 +42,118 @@ function shouldSkipExpandAll(isAlreadyStarting: boolean): { skip: boolean; reaso
     return { skip: true, reason: 'blocked by double-click guard' };
   }
   return { skip: false };
+}
+
+interface PendingExpandAllWork {
+  pathsToExpand: string[];
+  pathsToLoad: string[];
+}
+
+type ExpandAllPreparation =
+  | {
+      kind: 'run';
+      pendingWork: PendingExpandAllWork;
+      rootDirectoryPaths: string[];
+    }
+  | {
+      kind: 'skip';
+      reason: string;
+    };
+
+export interface ExpandAllExecutorArgs {
+  committedPaths: Set<string>;
+  pathsToExpand: readonly string[];
+  pathsToLoad: readonly string[];
+  rootDirectoryPaths: readonly string[];
+  setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void;
+}
+
+export interface ExpandAllExecutorResult {
+  discoveredDirectories: number;
+  firstError?: Error | undefined;
+  metrics?: ExpandAllMetrics | undefined;
+  pathsToCommit?: readonly string[] | undefined;
+}
+
+function enqueueKnownDirectoryChildren(args: {
+  node: IFileNode;
+  queue: string[];
+  queuedPaths: Set<string>;
+}): void {
+  const { node, queue, queuedPaths } = args;
+  for (const child of node.children ?? []) {
+    if (child.type !== 'directory' || queuedPaths.has(child.path)) {
+      continue;
+    }
+    queuedPaths.add(child.path);
+    queue.push(child.path);
+  }
+}
+
+function collectPendingExpandAllWork(args: {
+  expandedPaths: ReadonlySet<string>;
+  getNodeByPath: (path: string) => IFileNode | undefined;
+  rootDirectoryPaths: readonly string[];
+}): PendingExpandAllWork {
+  const { expandedPaths, getNodeByPath, rootDirectoryPaths } = args;
+  const queue = [...new Set(rootDirectoryPaths.filter(Boolean))];
+  const queuedPaths = new Set(queue);
+  const visitedPaths = new Set<string>();
+  const pathsToExpand: string[] = [];
+  const pathsToLoad: string[] = [];
+  let queueIndex = 0;
+
+  while (queueIndex < queue.length) {
+    const path = queue[queueIndex];
+    queueIndex += 1;
+    if (!path || visitedPaths.has(path)) {
+      continue;
+    }
+    visitedPaths.add(path);
+
+    const node = getNodeByPath(path);
+    if (!(node && node.type === 'directory')) {
+      continue;
+    }
+
+    if (!expandedPaths.has(path)) {
+      pathsToExpand.push(path);
+    }
+
+    if (node.loadState !== 'loaded') {
+      pathsToLoad.push(path);
+      continue;
+    }
+
+    enqueueKnownDirectoryChildren({ node, queue, queuedPaths });
+  }
+
+  return { pathsToExpand, pathsToLoad };
+}
+
+function prepareExpandAllWork(args: {
+  expandedPaths: ReadonlySet<string>;
+  getNodeByPath: (path: string) => IFileNode | undefined;
+  getRootNodes: () => IFileNode[];
+}): ExpandAllPreparation {
+  const { expandedPaths, getNodeByPath, getRootNodes } = args;
+  const rootDirectoryPaths = getRootNodes()
+    .filter((node) => node.type === 'directory')
+    .map((node) => node.path);
+  if (rootDirectoryPaths.length === 0) {
+    return { kind: 'skip', reason: 'no directories need expansion' };
+  }
+
+  const pendingWork = collectPendingExpandAllWork({
+    expandedPaths,
+    getNodeByPath,
+    rootDirectoryPaths,
+  });
+  if (pendingWork.pathsToExpand.length === 0 && pendingWork.pathsToLoad.length === 0) {
+    return { kind: 'skip', reason: 'no directories need expansion' };
+  }
+
+  return { kind: 'run', pendingWork, rootDirectoryPaths };
 }
 
 function handleExpandError(err: unknown, onError?: (error: Error) => void): void {
@@ -175,7 +287,7 @@ async function runExpandAllSession(args: {
   batchConfig: ExpandAllBatchConfig | undefined;
   committedPaths: Set<string>;
   getNodeByPath: (path: string) => IFileNode | undefined;
-  getRootNodes: () => IFileNode[];
+  initialPaths: readonly string[];
   isExpandingAllRef: React.RefObject<boolean>;
   loadDirectoryPath: (path: string) => Promise<void>;
   now: () => number;
@@ -193,7 +305,7 @@ async function runExpandAllSession(args: {
     batchConfig,
     committedPaths,
     getNodeByPath,
-    getRootNodes,
+    initialPaths,
     isExpandingAllRef,
     loadDirectoryPath,
     now,
@@ -203,18 +315,15 @@ async function runExpandAllSession(args: {
     setExpandedPaths,
     yieldToBrowser,
   } = args;
-  const initialPaths = getRootNodes()
-    .filter((node) => node.type === 'directory')
-    .map((node) => node.path);
   const metrics = createEmptyExpandAllMetrics();
 
   commitExpandedPathsBatch({
     committedPaths,
-    paths: initialPaths,
+    paths: [...initialPaths],
     setExpandedPaths,
   });
 
-  const traversalSession = createDirectDirectoryTraversalSession(initialPaths, {
+  const traversalSession = createDirectDirectoryTraversalSession([...initialPaths], {
     getDirectoryByPath: getNodeByPath,
     isActive: () => isExpandingAllRef.current && sessionIdRef.current === sessionId,
     loadDirectoryPath,
@@ -259,6 +368,93 @@ async function runExpandAllSession(args: {
   throw new DOMException('Operation aborted', 'AbortError');
 }
 
+async function runPendingUnloadedExpandAll(args: {
+  batchConfig: ExpandAllBatchConfig | undefined;
+  committedPaths: Set<string>;
+  getNodeByPath: (path: string) => IFileNode | undefined;
+  initialPaths: readonly string[];
+  isExpandingAllRef: React.RefObject<boolean>;
+  loadDirectoryPath: (path: string) => Promise<void>;
+  now: () => number;
+  onProgress?: ((loaded: number, total: number) => void) | undefined;
+  pathsToExpand: readonly string[];
+  rootDirectoryPaths: readonly string[];
+  runUnloadedExpandAll?:
+    | ((args: ExpandAllExecutorArgs) => Promise<ExpandAllExecutorResult>)
+    | undefined;
+  sessionId: number;
+  sessionIdRef: React.RefObject<number>;
+  setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void;
+  yieldToBrowser: () => Promise<void>;
+}): Promise<ExpandAllExecutorResult> {
+  const {
+    batchConfig,
+    committedPaths,
+    getNodeByPath,
+    initialPaths,
+    isExpandingAllRef,
+    loadDirectoryPath,
+    now,
+    onProgress,
+    pathsToExpand,
+    rootDirectoryPaths,
+    runUnloadedExpandAll,
+    sessionId,
+    sessionIdRef,
+    setExpandedPaths,
+    yieldToBrowser,
+  } = args;
+
+  if (runUnloadedExpandAll) {
+    return runUnloadedExpandAll({
+      committedPaths,
+      pathsToExpand,
+      pathsToLoad: initialPaths,
+      rootDirectoryPaths,
+      setExpandedPaths,
+    });
+  }
+
+  return runExpandAllSession({
+    batchConfig,
+    committedPaths,
+    getNodeByPath,
+    initialPaths,
+    isExpandingAllRef,
+    loadDirectoryPath,
+    now,
+    onProgress,
+    sessionId,
+    sessionIdRef,
+    setExpandedPaths,
+    yieldToBrowser,
+  });
+}
+
+function commitExecutorResultPaths(args: {
+  committedPaths: Set<string>;
+  metrics: ExpandAllMetrics;
+  now: () => number;
+  pathsToCommit: readonly string[] | undefined;
+  setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void;
+}): void {
+  const { committedPaths, metrics, now, pathsToCommit, setExpandedPaths } = args;
+  if (!(pathsToCommit && pathsToCommit.length > 0)) {
+    return;
+  }
+
+  const commitStartedAt = now();
+  const committedBatch = commitExpandedPathsBatch({
+    committedPaths,
+    paths: pathsToCommit,
+    setExpandedPaths,
+  });
+  metrics.commitDurationMs += now() - commitStartedAt;
+  if (committedBatch) {
+    metrics.committedBatchCount += 1;
+  }
+}
+
 export interface ExpandAllState {
   isExpandingAll: boolean;
 }
@@ -273,13 +469,15 @@ export interface UseExpandAllOptions {
   onError?: (error: Error) => void;
   onProgress?: (loaded: number, total: number) => void;
   rootFolderId: string;
+  runUnloadedExpandAll?: (args: ExpandAllExecutorArgs) => Promise<ExpandAllExecutorResult>;
   yieldToBrowser?: () => Promise<void>;
 }
 
 export interface UseExpandAllReturn {
   cancelExpandAll: () => void;
   expandAllProgressively: (
-    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
+    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
+    currentExpandedPaths?: ReadonlySet<string>
   ) => Promise<void>;
   isExpandingAll: boolean;
   isExpandingAllRef: React.RefObject<boolean>;
@@ -296,6 +494,7 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
     onError,
     onProgress,
     rootFolderId,
+    runUnloadedExpandAll,
     yieldToBrowser = defaultYieldToBrowser,
   } = options;
 
@@ -324,7 +523,8 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
 
   const expandAllProgressively = useCallback(
     async (
-      setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
+      setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
+      currentExpandedPaths: ReadonlySet<string> = new Set()
     ): Promise<void> => {
       const skipCheck = shouldSkipExpandAll(isExpandAllStartingRef.current);
       if (skipCheck.skip) {
@@ -333,6 +533,39 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
         }
         return;
       }
+
+      const preparedWork = prepareExpandAllWork({
+        expandedPaths: currentExpandedPaths,
+        getNodeByPath,
+        getRootNodes,
+      });
+      if (preparedWork.kind === 'skip') {
+        logger.debug(`expandAllProgressively: ${preparedWork.reason}`);
+        return;
+      }
+
+      const { pendingWork, rootDirectoryPaths } = preparedWork;
+      const committedPaths = new Set(currentExpandedPaths);
+      if (pendingWork.pathsToLoad.length === 0) {
+        commitExpandedPathsBatch({
+          committedPaths,
+          paths: pendingWork.pathsToExpand,
+          setExpandedPaths,
+        });
+        logger.debug(
+          'expandAllProgressively: expanded known loaded directories without traversal',
+          {
+            expandedPathCount: pendingWork.pathsToExpand.length,
+          }
+        );
+        return;
+      }
+
+      commitExpandedPathsBatch({
+        committedPaths,
+        paths: pendingWork.pathsToExpand,
+        setExpandedPaths,
+      });
 
       beginExpandAllOperation({
         isExpandAllStartingRef,
@@ -343,10 +576,8 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
       const sessionId = sessionIdRef.current + 1;
       sessionIdRef.current = sessionId;
 
-      const committedPaths = new Set<string>();
-
       try {
-        const result = await runExpandAllSession({
+        const result = await runPendingUnloadedExpandAll({
           batchConfig: buildExpandAllBatchConfig({
             maxBatchDurationMs,
             maxConcurrentLoads,
@@ -355,19 +586,30 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
           }),
           committedPaths,
           getNodeByPath,
-          getRootNodes,
+          initialPaths: pendingWork.pathsToLoad,
           isExpandingAllRef,
           loadDirectoryPath,
           now,
           onProgress,
+          pathsToExpand: pendingWork.pathsToExpand,
+          rootDirectoryPaths,
+          runUnloadedExpandAll,
           sessionId,
           sessionIdRef,
           setExpandedPaths,
           yieldToBrowser,
         });
+        const metrics = result.metrics ?? createEmptyExpandAllMetrics();
+        commitExecutorResultPaths({
+          committedPaths,
+          metrics,
+          now,
+          pathsToCommit: result.pathsToCommit,
+          setExpandedPaths,
+        });
         logExpandAllOutcome({
           discoveredDirectories: result.discoveredDirectories,
-          metrics: result.metrics,
+          metrics,
           outcome: 'completed',
           rootFolderId,
           startedAt,
@@ -409,6 +651,7 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
       onError,
       onProgress,
       rootFolderId,
+      runUnloadedExpandAll,
       yieldToBrowser,
     ]
   );

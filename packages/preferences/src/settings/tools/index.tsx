@@ -110,8 +110,6 @@ export function createToolsSettingsCategory(
   };
 }
 
-// Re-export types
-export type { ToolsSettingsOperations, ToolStats, ToolDisplayMetadata };
 export type { McpConfigAlertProps } from './mcp-config-alert';
 export { McpConfigAlert } from './mcp-config-alert';
 export { TokenBudgetSummary } from './token-budget-summary';
@@ -146,3 +144,5 @@ export type {
 } from './types';
 // Re-export components
 export { UnifiedToolsSettings } from './unified-tools-settings';
+// Re-export types
+export type { ToolDisplayMetadata, ToolStats, ToolsSettingsOperations };

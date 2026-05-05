@@ -31,9 +31,9 @@ declare module '@brainstrike/app-shell/types' {
 declare module '@brainstrike/app-shell/root-layout-content' {
   export const RootLayoutContent: React.ComponentType;
   export interface RootLayoutContentProps {
+    contextExplorerLeftPanelContent?: React.ReactNode;
+    contextExplorerPageContent: React.ReactNode;
     databaseTabChunkingMode?: 'host-proxy' | 'local';
-    homePageContent: React.ReactNode;
-    leftPanelContent?: React.ReactNode;
     loadEmbeddingQueue?: (() => Promise<unknown>) | null;
     navigationItems: unknown[];
     preloadDatabaseTabOnMount?: boolean;
@@ -44,15 +44,6 @@ declare module '@brainstrike/app-shell/root-layout-content' {
 
 declare module '@brainstrike/app-shell/connected-prompt-manager-lazy' {
   export const ConnectedPromptManagerLazy: React.ComponentType;
-}
-
-declare module '@brainstrike/app-shell/stores/tools-panel-store' {
-  export const toolsPanelSelectors: {
-    activeTab: (state: { activeTab: 'assistant' | 'database' }) => unknown;
-  };
-  export const useToolsPanelStore: (
-    selector: (state: { activeTab: 'assistant' | 'database' }) => unknown
-  ) => unknown;
 }
 
 declare module '@brainstrike/app-shell/diagnostics' {

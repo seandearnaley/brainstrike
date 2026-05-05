@@ -172,7 +172,7 @@ class ProgressTracker {
         completed: this.completed,
         inProgress: this.inProgress,
         failed: this.failed,
-        ...(currentFile !== undefined ? { currentFile } : {}),
+        ...(currentFile === undefined ? {} : { currentFile }),
         percentage: this.total > 0 ? (this.completed / this.total) * 100 : 0,
         elapsedMs: now - this.startTime,
       });
@@ -380,10 +380,10 @@ async function processOneFile(
       compositeKey,
       imported: result.success,
       existed: result.existed ?? false,
-      ...(result.fileId !== undefined ? { fileId: result.fileId } : {}),
+      ...(result.fileId === undefined ? {} : { fileId: result.fileId }),
       chunksCreated: result.chunksCreated,
       jobsEnqueued: result.jobsEnqueued,
-      ...(result.error !== undefined ? { error: result.error } : {}),
+      ...(result.error === undefined ? {} : { error: result.error }),
       durationMs: Date.now() - fileStart,
     };
   } catch (error) {

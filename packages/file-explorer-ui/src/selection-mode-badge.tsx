@@ -258,13 +258,13 @@ export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function Selecti
   const inputRef = useRef<HTMLInputElement | null>(null);
   const focusFrameRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    return () => {
-      if (focusFrameRef.current !== null) {
-        cancelAnimationFrame(focusFrameRef.current);
-      }
-    };
+  const cleanupFocusFrame = useCallback(() => {
+    if (focusFrameRef.current !== null) {
+      cancelAnimationFrame(focusFrameRef.current);
+    }
   }, []);
+
+  useEffect(() => cleanupFocusFrame, [cleanupFocusFrame]);
 
   const handleOpenChange = useCallback(
     (open: boolean) => {

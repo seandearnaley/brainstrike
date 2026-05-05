@@ -7,16 +7,27 @@ const Popover = PopoverPrimitive.Root;
 
 const PopoverTrigger = PopoverPrimitive.Trigger;
 
+type PopoverContentProps = React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content> & {
+  ref?: React.RefObject<HTMLDivElement | null>;
+  /**
+   * Render in-tree instead of through Radix's Portal. Use this when the popover
+   * is nested inside a modal Dialog: the dialog's RemoveScroll allow-list only
+   * covers its own subtree, so a portaled popover loses wheel-scroll. Popper
+   * still uses position:fixed, so the content still escapes ancestor overflow.
+   * @default true
+   */
+  portal?: boolean;
+};
+
 const PopoverContent = ({
   className,
   align = 'center',
   sideOffset = 4,
   ref,
+  portal = true,
   ...props
-}: React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content> & {
-  ref?: React.RefObject<HTMLDivElement | null>;
-}) => (
-  <PopoverPrimitive.Portal>
+}: PopoverContentProps) => {
+  const content = (
     <PopoverPrimitive.Content
       align={align}
       className={cn(
@@ -28,8 +39,9 @@ const PopoverContent = ({
       sideOffset={sideOffset}
       {...props}
     />
-  </PopoverPrimitive.Portal>
-);
+  );
+  return portal ? <PopoverPrimitive.Portal>{content}</PopoverPrimitive.Portal> : content;
+};
 PopoverContent.displayName = PopoverPrimitive.Content.displayName;
 
-export { Popover, PopoverTrigger, PopoverContent };
+export { Popover, PopoverContent, PopoverTrigger };

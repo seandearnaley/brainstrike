@@ -356,14 +356,17 @@ const RangeItem = memo(
           >
             {hasPreviewLines ? (
               <div className="whitespace-pre font-medium font-mono text-[10px] text-foreground leading-relaxed">
-                {previewLines.map((line, i) => (
-                  <div className="flex gap-3" key={`${range.id}-line-${previewStartLine + i}`}>
-                    <span className="w-6 select-none text-right text-muted-foreground/50 opacity-50">
-                      {previewStartLine + i}
-                    </span>
-                    <span className="opacity-90">{line || ' '}</span>
-                  </div>
-                ))}
+                {previewLines.map((line, i) => {
+                  const lineNumber = previewStartLine + i;
+                  return (
+                    <div className="flex gap-3" key={`${range.id}-line-${lineNumber}`}>
+                      <span className="w-6 select-none text-right text-muted-foreground/50 opacity-50">
+                        {lineNumber}
+                      </span>
+                      <span className="opacity-90">{line || ' '}</span>
+                    </div>
+                  );
+                })}
                 {showRemainingLines && (
                   <div className="mt-2 pl-9 text-muted-foreground italic">
                     ... {remainingLines} more lines
@@ -513,23 +516,27 @@ export const Minimap = memo(
                 </div>
                 <span className="font-mono text-[10px] opacity-70">{file.totalLines}L</span>
                 <ExtensionBadge extension={file.type} size="compact" />
-                {file.size !== undefined ? (
+                {file.size === undefined ? (
+                  file.contentStatus === 'loading' ? (
+                    <span className="inline-block h-3 w-10 animate-pulse rounded bg-muted" />
+                  ) : (
+                    <span className="font-mono text-[10px] opacity-70">—</span>
+                  )
+                ) : (
                   <span className="font-mono text-[10px] opacity-70">
                     {formatPreviewFileSize(file.size)}
                   </span>
-                ) : file.contentStatus === 'loading' ? (
-                  <span className="inline-block h-3 w-10 animate-pulse rounded bg-muted" />
-                ) : (
-                  <span className="font-mono text-[10px] opacity-70">—</span>
                 )}
-                {file.tokens !== undefined ? (
+                {file.tokens === undefined ? (
+                  file.contentStatus === 'loading' ? (
+                    <span className="inline-block h-3 w-12 animate-pulse rounded bg-muted" />
+                  ) : (
+                    <span className="font-mono text-[10px] opacity-70">—</span>
+                  )
+                ) : (
                   <span className="font-mono text-[10px] opacity-70">
                     {formatTokenCount(file.tokens)}
                   </span>
-                ) : file.contentStatus === 'loading' ? (
-                  <span className="inline-block h-3 w-12 animate-pulse rounded bg-muted" />
-                ) : (
-                  <span className="font-mono text-[10px] opacity-70">—</span>
                 )}
               </div>
             </div>

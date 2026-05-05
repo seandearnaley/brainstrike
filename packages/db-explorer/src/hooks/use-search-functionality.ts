@@ -488,7 +488,7 @@ function getDefaultSearchThreshold(): number {
     readEnvValue('VITE_SEARCH_DEFAULT_THRESHOLD') ??
     readEnvValue('SEARCH_DEFAULT_THRESHOLD') ??
     readEnvValue('BRAINSTRIKE_SEARCH_DEFAULT_THRESHOLD');
-  const n = raw !== undefined ? Number.parseFloat(raw) : Number.NaN;
+  const n = raw === undefined ? Number.NaN : Number.parseFloat(raw);
   if (Number.isFinite(n)) {
     return Math.min(1, Math.max(0, n));
   }

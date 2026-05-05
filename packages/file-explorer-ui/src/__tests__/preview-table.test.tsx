@@ -46,6 +46,7 @@ const DEFAULT_GROUP: GroupedData<TableRowData> = {
 interface PreviewTableTestOverrides {
   collapsedGroups?: Set<string>;
   columnVisibility?: ColumnVisibility;
+  currentPageData?: TableRowData[];
   groupedData?: GroupedData<TableRowData>[];
   groupingConfig?: string;
   handleGroupDeselectAll?: (group: GroupedData<TableRowData>) => void;
@@ -64,7 +65,7 @@ function renderGroupedPreviewTable(overrides: PreviewTableTestOverrides = {}) {
     sortDirection: 'asc' as const,
     groupingConfig: overrides.groupingConfig ?? 'directory',
     groupedData: overrides.groupedData ?? [DEFAULT_GROUP],
-    currentPageData: [],
+    currentPageData: overrides.currentPageData ?? [],
     collapsedGroups: overrides.collapsedGroups ?? new Set<string>(),
     previewSelections: overrides.previewSelections ?? new Set<string>(),
     visibleFilesOnPage: [FILE_ONE, FILE_TWO],
@@ -85,6 +86,26 @@ function renderGroupedPreviewTable(overrides: PreviewTableTestOverrides = {}) {
   render(<PreviewTable {...props} />);
   return props;
 }
+
+const DESKTOP_ROOT_FILE: TableRowData = {
+  id: 'desktop-root',
+  rootFolderId: '/Users/me/BrainStrike',
+  path: '/Users/me/BrainStrike/README.md',
+  type: 'md',
+  tokens: 10,
+  size: 256,
+  compositeKey: '/Users/me/BrainStrike:/Users/me/BrainStrike/README.md',
+};
+
+const DESKTOP_NESTED_FILE: TableRowData = {
+  id: 'desktop-nested',
+  rootFolderId: '/Users/me/BrainStrike',
+  path: '/Users/me/BrainStrike/source/index.ts',
+  type: 'ts',
+  tokens: 20,
+  size: 512,
+  compositeKey: '/Users/me/BrainStrike:/Users/me/BrainStrike/source/index.ts',
+};
 
 function renderUngroupedPreviewTable(overrides: Partial<PreviewTableTestOverrides> = {}) {
   const props = {
@@ -676,6 +697,72 @@ describe('PreviewTable grouped mode', () => {
   });
 });
 
+describe('PreviewTable file path display', () => {
+  it('shows the root folder name instead of "." for desktop root files', () => {
+    render(
+      <PreviewTable
+        collapsedGroups={new Set<string>()}
+        columnVisibility={DEFAULT_COLUMN_VISIBILITY}
+        currentPageData={[DESKTOP_ROOT_FILE]}
+        groupedData={[]}
+        groupingConfig="none"
+        handleGroupDeselectAll={vi.fn()}
+        handleGroupSelectAll={vi.fn()}
+        isAllSelected={() => false}
+        isGroupFullySelected={() => false}
+        isGroupPartiallySelected={() => false}
+        onDeselectAll={vi.fn()}
+        onFileClick={vi.fn()}
+        onSelectAllOnPage={vi.fn()}
+        onSort={vi.fn()}
+        onToggleSelection={vi.fn()}
+        pagination={{ startIndex: 0, endIndex: 20 }}
+        previewSelections={new Set<string>()}
+        sortDirection="asc"
+        sortField="path"
+        toggleGroupCollapse={vi.fn()}
+        visibleFilesOnPage={[DESKTOP_ROOT_FILE]}
+      />
+    );
+
+    expect(screen.getByText('README.md')).toBeInTheDocument();
+    expect(screen.getByText('BrainStrike')).toBeInTheDocument();
+    expect(screen.queryByText('.')).not.toBeInTheDocument();
+  });
+
+  it('prefixes nested desktop file paths with the root folder name', () => {
+    render(
+      <PreviewTable
+        collapsedGroups={new Set<string>()}
+        columnVisibility={DEFAULT_COLUMN_VISIBILITY}
+        currentPageData={[DESKTOP_NESTED_FILE]}
+        groupedData={[]}
+        groupingConfig="none"
+        handleGroupDeselectAll={vi.fn()}
+        handleGroupSelectAll={vi.fn()}
+        isAllSelected={() => false}
+        isGroupFullySelected={() => false}
+        isGroupPartiallySelected={() => false}
+        onDeselectAll={vi.fn()}
+        onFileClick={vi.fn()}
+        onSelectAllOnPage={vi.fn()}
+        onSort={vi.fn()}
+        onToggleSelection={vi.fn()}
+        pagination={{ startIndex: 0, endIndex: 20 }}
+        previewSelections={new Set<string>()}
+        sortDirection="asc"
+        sortField="path"
+        toggleGroupCollapse={vi.fn()}
+        visibleFilesOnPage={[DESKTOP_NESTED_FILE]}
+      />
+    );
+
+    expect(screen.getByText('index.ts')).toBeInTheDocument();
+    expect(screen.getByText('BrainStrike/source')).toBeInTheDocument();
+    expect(screen.queryByText('source')).not.toBeInTheDocument();
+  });
+});
+
 describe('PreviewTable ungrouped mode', () => {
   it('keeps the checkbox header and body cells on the same compact width contract', () => {
     renderUngroupedPreviewTable();
@@ -688,5 +775,74 @@ describe('PreviewTable ungrouped mode', () => {
       'w-8',
       'px-0'
     );
+  });
+});
+
+describe('PreviewTable readiness signal', () => {
+  const FILE_WITHOUT_SIZE: TableRowData = {
+    id: '3',
+    rootFolderId: 'workspace',
+    path: 'src/loading.ts',
+    type: 'ts',
+    tokens: 100,
+    compositeKey: 'workspace:src/loading.ts',
+  };
+
+  function renderUngroupedWithCurrentPageData(currentPageData: TableRowData[]) {
+    return render(
+      <PreviewTable
+        collapsedGroups={new Set<string>()}
+        columnVisibility={DEFAULT_COLUMN_VISIBILITY}
+        currentPageData={currentPageData}
+        groupedData={[]}
+        groupingConfig="none"
+        handleGroupDeselectAll={vi.fn()}
+        handleGroupSelectAll={vi.fn()}
+        isAllSelected={() => false}
+        isGroupFullySelected={() => false}
+        isGroupPartiallySelected={() => false}
+        onDeselectAll={vi.fn()}
+        onFileClick={vi.fn()}
+        onSelectAllOnPage={vi.fn()}
+        onSort={vi.fn()}
+        onToggleSelection={vi.fn()}
+        pagination={{ startIndex: 0, endIndex: 20 }}
+        previewSelections={new Set<string>()}
+        sortDirection="asc"
+        sortField="path"
+        toggleGroupCollapse={vi.fn()}
+        visibleFilesOnPage={currentPageData}
+      />
+    );
+  }
+
+  it('reports data-rows-ready="true" in ungrouped mode when every visible row has a resolved size', () => {
+    renderUngroupedPreviewTable();
+    expect(screen.getByTestId('preview-table')).toHaveAttribute('data-rows-ready', 'true');
+  });
+
+  it('reports data-rows-ready="false" in ungrouped mode while any visible row size is still resolving', () => {
+    renderUngroupedWithCurrentPageData([FILE_ONE, FILE_WITHOUT_SIZE]);
+    expect(screen.getByTestId('preview-table')).toHaveAttribute('data-rows-ready', 'false');
+  });
+
+  it('reports data-rows-ready="false" in ungrouped mode when there are no rows to inspect (pre-selection state)', () => {
+    renderUngroupedWithCurrentPageData([]);
+    expect(screen.getByTestId('preview-table')).toHaveAttribute('data-rows-ready', 'false');
+  });
+
+  it('reports data-rows-ready="true" in grouped mode when every row in currentPageData has a resolved size', () => {
+    renderGroupedPreviewTable({ currentPageData: [FILE_ONE, FILE_TWO] });
+    expect(screen.getByTestId('preview-table')).toHaveAttribute('data-rows-ready', 'true');
+  });
+
+  it('reports data-rows-ready="false" in grouped mode while any row in currentPageData is missing a size', () => {
+    renderGroupedPreviewTable({ currentPageData: [FILE_ONE, FILE_WITHOUT_SIZE] });
+    expect(screen.getByTestId('preview-table')).toHaveAttribute('data-rows-ready', 'false');
+  });
+
+  it('reports data-rows-ready="false" in grouped mode when currentPageData is empty (pre-selection state)', () => {
+    renderGroupedPreviewTable();
+    expect(screen.getByTestId('preview-table')).toHaveAttribute('data-rows-ready', 'false');
   });
 });

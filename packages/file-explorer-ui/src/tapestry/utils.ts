@@ -230,6 +230,4 @@ export const getStableColorForKey = (key: string): string => {
   return generateColor(hash);
 };
 
-export const createRangeId = (): string => {
-  return `range-${generateUUID()}`;
-};
+export const createRangeId = (): string => `range-${generateUUID()}`;

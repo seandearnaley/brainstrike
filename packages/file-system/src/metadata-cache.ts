@@ -149,12 +149,11 @@ export class MetadataCache {
     // Evict oldest entries if at capacity
     while (this.cache.size >= this.maxEntries) {
       const oldestKey = this.cache.keys().next().value;
-      if (oldestKey !== undefined) {
-        this.cache.delete(oldestKey);
-        this.evictions++;
-      } else {
+      if (oldestKey === undefined) {
         break;
       }
+      this.cache.delete(oldestKey);
+      this.evictions++;
     }
 
     this.cache.set(path, {
@@ -179,12 +178,11 @@ export class MetadataCache {
       // Evict oldest entries if at capacity
       while (this.cache.size >= this.maxEntries) {
         const oldestKey = this.cache.keys().next().value;
-        if (oldestKey !== undefined) {
-          this.cache.delete(oldestKey);
-          this.evictions++;
-        } else {
+        if (oldestKey === undefined) {
           break;
         }
+        this.cache.delete(oldestKey);
+        this.evictions++;
       }
 
       this.cache.set(path, {

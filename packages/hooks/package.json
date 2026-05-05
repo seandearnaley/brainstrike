@@ -7,27 +7,27 @@
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/workers": "workspace:*",
     "file-saver": "2.0.5",
-    "minimatch": "^10.2.3",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "minimatch": "^10.2.5",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@stryker-mutator/api": "^9.5.1",
-    "@stryker-mutator/core": "^9.5.1",
-    "@stryker-mutator/typescript-checker": "^9.5.1",
-    "@stryker-mutator/vitest-runner": "^9.5.1",
-    "@swc/core": "^1.15.13",
+    "@stryker-mutator/api": "^9.6.1",
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/typescript-checker": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
+    "@swc/core": "^1.15.30",
     "@testing-library/react": "^16.3.2",
     "@types/file-saver": "2.0.7",
-    "@types/node": "^25.3.0",
+    "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
-    "happy-dom": "^20.7.0",
+    "happy-dom": "^20.9.0",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.4"
   },
   "engines": {
     "node": ">=22"
@@ -60,7 +60,7 @@
     "lint": "pnpm run --dir=../.. lint",
     "mutation": "npx @stryker-mutator/core run",
     "test": "vitest run",
-    "test:coverage": "pnpm -w test:coverage",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },

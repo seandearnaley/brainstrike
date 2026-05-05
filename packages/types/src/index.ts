@@ -22,11 +22,11 @@ export * from './workspace-path-utils';
 
 // Explicitly re-export the classes as values
 export {
-  PartialRefreshError,
+  ConcurrentLoadingError,
   // FSInitializationError, // Removed
   // GitOperationError, // Removed
   FileContentError,
-  ConcurrentLoadingError,
+  PartialRefreshError,
 };
 
 // Local type definition

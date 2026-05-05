@@ -19,7 +19,7 @@ const Checkbox = ({
     )}
     data-slot="checkbox"
     ref={ref}
-    {...(checked !== undefined ? { checked } : {})}
+    {...(checked === undefined ? {} : { checked })}
     {...props}
   >
     <CheckboxPrimitive.Indicator

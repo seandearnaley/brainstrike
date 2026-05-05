@@ -3,10 +3,10 @@
   "description": "Shared configuration for Brainstrike monorepo",
   "version": "0.1.0",
   "devDependencies": {
-    "@vitest/browser-playwright": "^4.1.2",
-    "playwright": "^1.58.2",
+    "@vitest/browser-playwright": "^4.1.4",
+    "playwright": "^1.59.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.4"
   },
   "engines": {
     "node": ">=22"
@@ -29,7 +29,8 @@
     "clean": "rm -rf dist .tsbuildinfo",
     "lint": "pnpm run --dir=../.. lint",
     "test": "vitest run",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
   },
   "turbo": {
     "outputs": [

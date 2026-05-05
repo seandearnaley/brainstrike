@@ -24,9 +24,8 @@ describe('EmbeddingActionsDropdown', () => {
     queueCounts: { queued: 0, running: 0 },
   };
 
-  const renderDropdown = (props: Partial<EmbeddingActionsDropdownProps> = {}) => {
-    return render(<EmbeddingActionsDropdown {...defaultProps} {...props} />);
-  };
+  const renderDropdown = (props: Partial<EmbeddingActionsDropdownProps> = {}) =>
+    render(<EmbeddingActionsDropdown {...defaultProps} {...props} />);
 
   describe('Primary backfill button', () => {
     it('renders backfill button', () => {
@@ -106,12 +105,12 @@ describe('EmbeddingActionsDropdown', () => {
       expect(screen.getByRole('button', { name: 'Backfilling…' })).toBeInTheDocument();
     });
 
-    it('shows progress when backfilling with progress', () => {
+    it('shows progress while backfilling when progress is available', () => {
       renderDropdown({ backfilling: true, backfillProgress: { done: 25, total: 100 } });
       expect(screen.getByRole('button', { name: '25/100' })).toBeInTheDocument();
     });
 
-    it('prioritizes backfill progress over starting state', () => {
+    it('prioritizes backfilling progress over starting state', () => {
       renderDropdown({
         startingWorker: true,
         backfilling: true,
@@ -160,6 +159,17 @@ describe('EmbeddingActionsDropdown', () => {
         expect(screen.getByRole('menuitem', { name: /retry failed/i })).toBeInTheDocument();
         expect(screen.getByText('(5)')).toBeInTheDocument();
       });
+    });
+
+    it('names the retry action as stalled recovery when failed jobs are blocking queued work', async () => {
+      const user = userEvent.setup();
+      renderDropdown({ failedCount: 5, queueCounts: { queued: 5, running: 0 } });
+
+      await user.click(screen.getByRole('button', { name: 'More embedding actions' }));
+
+      expect(
+        await screen.findByRole('menuitem', { name: /retry failed & stalled/i })
+      ).toBeVisible();
     });
 
     it('calls onRetryFailed when clicked', async () => {

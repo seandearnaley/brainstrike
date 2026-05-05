@@ -89,8 +89,8 @@ Use **Turbo filters** to avoid repo-wide work; `turbo run` supports package sele
 
 ## Persistence (Zustand `persist`) & migrations
 
-* Storage key: **`file-explorer-storage-v4`**. Legacy key **`fileExplorerSettings`** is auto-migrated on startup.
-* We persist only a **partialized** slice (no functions, no cache) and **merge** back into current defaults on hydration. Schema changes use `version` + `migrate` to normalize old data. See Zustand docs for `persist` options (`partialize`, `merge`, `version`, `migrate`). ([Zustand Documentation][2])
+* Storage key: **`file-explorer-storage-v4`**. Legacy key **`fileExplorerSettings`** is auto-migrated on startup only when no current-key snapshot exists.
+* We persist only a **partialized** slice (no functions, no cache) and **merge** back into current defaults on hydration. Schema changes use `version` + `migrate`; because this app is still greenfield, older file-explorer snapshots are discarded rather than migrated when their semantics are no longer trusted. See Zustand docs for `persist` options (`partialize`, `merge`, `version`, `migrate`). ([Zustand Documentation][2])
 * **Never persist large content** (leave it in the LRU). Web Storage is synchronous; large writes/reads can degrade responsiveness—offload to a Worker (below) and keep the payloads small. ([MDN Web Docs][3])
 
 ---

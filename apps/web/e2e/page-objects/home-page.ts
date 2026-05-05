@@ -1,6 +1,8 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 import {
+  contextExplorerActiveNavLocator,
+  type WaitForAppLoadOptions,
   waitForAppLoad,
   waitForContextExplorerPage,
   waitForSettingsPage,
@@ -9,13 +11,17 @@ import {
 export class HomePage {
   constructor(public readonly page: Page) {}
 
-  async goto(): Promise<void> {
+  async goto(options?: WaitForAppLoadOptions): Promise<void> {
     await this.page.goto('/');
-    await waitForAppLoad(this.page);
+    await waitForAppLoad(this.page, { ...options, timeoutMs: options?.timeoutMs ?? 10_000 });
   }
 
-  get contextExplorerHeading(): Locator {
-    return this.page.getByRole('heading', { name: 'Context Explorer', exact: true });
+  /**
+   * Locator that resolves when the Context Explorer page is active
+   * (sidebar nav button has `aria-current="page"`).
+   */
+  get contextExplorerPageMarker(): Locator {
+    return contextExplorerActiveNavLocator(this.page);
   }
 
   get settingsHeading(): Locator {
@@ -33,8 +39,7 @@ export class HomePage {
   async expectLoaded(): Promise<void> {
     // Wait for network to be idle to ensure all resources are loaded
     await this.page.waitForLoadState('networkidle');
-    // Give a bit more time for the heading to appear with longer timeout
-    await expect(this.contextExplorerHeading).toBeVisible({ timeout: 10_000 });
+    await expect(this.contextExplorerPageMarker).toBeVisible({ timeout: 10_000 });
   }
 
   async navigateToSettings(): Promise<void> {

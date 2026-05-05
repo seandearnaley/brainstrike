@@ -49,7 +49,7 @@ export interface ButtonProps
    * Ref forwarded to the underlying button element.
    * React 19+: ref is passed as a prop instead of using forwardRef.
    */
-  ref?: React.Ref<HTMLButtonElement>;
+  ref?: React.Ref<HTMLButtonElement> | undefined;
 }
 
 /**

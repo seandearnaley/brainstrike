@@ -117,15 +117,15 @@ function toWorkerRequestOptions(
   return {
     strategy: resolvedStrategy,
     ...(forceStrategy ? { forceStrategy: true } : {}),
-    ...(options.allowLargeFiles !== undefined ? { allowLargeFiles: options.allowLargeFiles } : {}),
-    ...(options.ignoreFileTypeRecommendations !== undefined
-      ? { ignoreFileTypeRecommendations: options.ignoreFileTypeRecommendations }
-      : {}),
-    ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
-    ...(options.maxTokensCap !== undefined ? { maxTokensCap: options.maxTokensCap } : {}),
-    ...(options.overlap !== undefined ? { overlap: options.overlap } : {}),
-    ...(options.separators !== undefined ? { separators: [...options.separators] } : {}),
-    ...(options.tokenTrueSizing !== undefined ? { tokenTrueSizing: options.tokenTrueSizing } : {}),
+    ...(options.allowLargeFiles === undefined ? {} : { allowLargeFiles: options.allowLargeFiles }),
+    ...(options.ignoreFileTypeRecommendations === undefined
+      ? {}
+      : { ignoreFileTypeRecommendations: options.ignoreFileTypeRecommendations }),
+    ...(options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens }),
+    ...(options.maxTokensCap === undefined ? {} : { maxTokensCap: options.maxTokensCap }),
+    ...(options.overlap === undefined ? {} : { overlap: options.overlap }),
+    ...(options.separators === undefined ? {} : { separators: [...options.separators] }),
+    ...(options.tokenTrueSizing === undefined ? {} : { tokenTrueSizing: options.tokenTrueSizing }),
   };
 }
 

@@ -646,7 +646,7 @@ async function resolveEmbeddingModel(
     // 2. Users to backfill embeddings later via the Backfill button
     // 3. Proper collection management and visibility
     const activeSetId = config.resolveTargetEmbeddingSetId?.() ?? null;
-    logger.info('[DEBUG] Embeddings disabled - resolveTargetEmbeddingSetId returned:', {
+    logger.debug('Embeddings disabled; resolved target embedding set', {
       activeSetId,
     });
     return { targetSetId: activeSetId };
@@ -819,11 +819,10 @@ function buildChunkingOptions(
     ...(targetSetId ? { targetEmbeddingSetId: targetSetId } : {}),
   };
 
-  logger.info('[DEBUG] buildChunkingOptions - targetSetId:', targetSetId);
-  logger.info(
-    '[DEBUG] buildChunkingOptions - options.targetEmbeddingSetId:',
-    options.targetEmbeddingSetId
-  );
+  logger.debug('Chunking options target set resolved', {
+    targetEmbeddingSetId: options.targetEmbeddingSetId,
+    targetSetId,
+  });
 
   const queueActive = Boolean(queuePort && embedding?.enabled && embeddingModelKey);
   if (queueActive) {
@@ -840,7 +839,7 @@ function buildChunkingOptions(
     ...(embeddingModelId ? { embeddingModelId } : {}),
     ...(embeddingModelKey ? { embeddingModelKey } : {}),
     ...(provider ? { provider } : {}),
-    ...(targetDimension !== undefined ? { targetDimension } : {}),
+    ...(targetDimension === undefined ? {} : { targetDimension }),
     ...(dimensionParameter ? { dimensionParameter } : {}),
   };
   attachQueueOptions(options, queueParams);
@@ -1068,7 +1067,7 @@ export async function runEnhancedImport<TFileNode = unknown>({
     const { modelId, modelKey, targetSetId, provider, targetDimension, dimensionParameter } =
       await resolveEmbeddingModel(embedding, ports);
 
-    logger.info('[DEBUG] Resolved embedding model', {
+    logger.debug('Resolved embedding model for enhanced import', {
       modelId,
       modelKey,
       targetSetId,
@@ -1090,18 +1089,20 @@ export async function runEnhancedImport<TFileNode = unknown>({
       ...(modelId ? { embeddingModelId: modelId } : {}),
       ...(modelKey ? { embeddingModelKey: modelKey } : {}),
       ...(provider ? { provider } : {}),
-      ...(targetDimension !== undefined ? { targetDimension } : {}),
+      ...(targetDimension === undefined ? {} : { targetDimension }),
       ...(dimensionParameter ? { dimensionParameter } : {}),
     };
 
-    logger.info('[DEBUG] Chunking config targetSetId', { targetSetId: chunkingConfig.targetSetId });
+    logger.debug('Chunking config target set resolved', {
+      targetSetId: chunkingConfig.targetSetId,
+    });
 
     const chunkingOptions = buildChunkingOptions(chunkingConfig);
     if (abortSignal) {
       chunkingOptions.abortSignal = abortSignal;
     }
 
-    logger.info('[DEBUG] Chunking options targetEmbeddingSetId', {
+    logger.debug('Chunking options target embedding set resolved', {
       targetEmbeddingSetId: chunkingOptions.targetEmbeddingSetId,
     });
 

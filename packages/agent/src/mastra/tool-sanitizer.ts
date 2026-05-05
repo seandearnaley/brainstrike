@@ -81,12 +81,12 @@ export function sanitizeTools(
 
     map.set(uniqueName, name);
 
-    if (uniqueName !== name) {
+    if (uniqueName === name) {
+      sanitized[uniqueName] = tool;
+    } else {
       const cloned = Object.assign(Object.create(Object.getPrototypeOf(tool)), tool);
       cloned.id = uniqueName;
       sanitized[uniqueName] = cloned;
-    } else {
-      sanitized[uniqueName] = tool;
     }
   }
 

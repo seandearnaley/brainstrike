@@ -774,9 +774,8 @@ describe('processChunking', () => {
     mockChunkRepository.insertManyWithTx = insertManyWithTx;
     const enqueueJobsForChunksTx = vi.fn(async () => undefined);
     const tx = { kind: 'tx', query: vi.fn() } as unknown as IDatabase;
-    const runInTransactionBase = async <T>(fn: (database: IDatabase) => Promise<T>): Promise<T> => {
-      return await fn(tx);
-    };
+    const runInTransactionBase = async <T>(fn: (database: IDatabase) => Promise<T>): Promise<T> =>
+      await fn(tx);
     const runInTransaction = vi.fn(runInTransactionBase) as typeof runInTransactionBase;
 
     await processChunking(

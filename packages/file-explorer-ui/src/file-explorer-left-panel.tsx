@@ -135,38 +135,6 @@ function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
 const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
 const LARGE_SELECTION_RENDER_DIAGNOSTIC_THRESHOLD = 250;
 
-interface FileExplorerTestSnapshot {
-  currentFolderId: string | null;
-  materializedPathCount: number;
-  materializedPathSamples: string[];
-  rootDirectoryPath: string | null;
-  selectedFilePathCount: number;
-  selectedFilePathSamples: string[];
-  selectionMode: 'explicit' | 'query' | 'rules';
-  treeRootCount: number;
-  treeSamples: Array<{
-    childCount: number;
-    path: string;
-    rootFolderId: string | null;
-    type: string;
-  }>;
-}
-
-declare global {
-  interface Window {
-    __brainstrikeFileExplorerTestHooks__?:
-      | {
-          getSnapshot: () => FileExplorerTestSnapshot;
-        }
-      | undefined;
-    desktopLifecycle?:
-      | {
-          isTestMode?: boolean;
-        }
-      | undefined;
-  }
-}
-
 /**
  * FileExplorerLeftPanel - Contains the file tree and toolbar
  * This component can be used independently in the left panel of an IDE layout
@@ -309,6 +277,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
   // Get store actions for recursive folder selection
   const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);
+  const addMultipleSelectedFilesChunked = useFileExplorerStoreSelector(
+    (s) => s.addMultipleSelectedFilesChunked
+  );
   const { selectedCount, selectedFilePaths, selectedFilesList, setSelectedFilesFromList } =
     useSelectionManager({
       onSelectionLimitExceeded: handleSelectionLimitError,
@@ -328,7 +299,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         addMultipleSelectedFiles,
         maxSelectionCount,
         selectedCount,
-        selectedDescendantCount
+        selectedDescendantCount,
+        addMultipleSelectedFilesChunked
       );
     },
     [
@@ -336,6 +308,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
       rootDirectoryHandle,
       currentFolderId,
       addMultipleSelectedFiles,
+      addMultipleSelectedFilesChunked,
       maxSelectionCount,
       selectedCount,
       selectedFilesList,
@@ -371,24 +344,22 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     }
 
     window.__brainstrikeFileExplorerTestHooks__ = {
-      getSnapshot: () => {
-        return {
-          currentFolderId,
-          rootDirectoryPath: rootDirectoryHandle?.path ?? null,
-          selectionMode: selectionModel.mode,
-          selectedFilePathCount: selectedFilePaths.size,
-          selectedFilePathSamples: Array.from(selectedFilePaths).slice(0, 5),
-          materializedPathCount: selectionModel.materializedPaths?.size ?? 0,
-          materializedPathSamples: Array.from(selectionModel.materializedPaths ?? []).slice(0, 5),
-          treeRootCount: stableFileTree.length,
-          treeSamples: stableFileTree.slice(0, 5).map((node) => ({
-            path: node.path,
-            type: node.type,
-            rootFolderId: node.rootFolderId ?? null,
-            childCount: node.children?.length ?? 0,
-          })),
-        };
-      },
+      getSnapshot: () => ({
+        currentFolderId,
+        rootDirectoryPath: rootDirectoryHandle?.path ?? null,
+        selectionMode: selectionModel.mode,
+        selectedFilePathCount: selectedFilePaths.size,
+        selectedFilePathSamples: Array.from(selectedFilePaths).slice(0, 5),
+        materializedPathCount: selectionModel.materializedPaths?.size ?? 0,
+        materializedPathSamples: Array.from(selectionModel.materializedPaths ?? []).slice(0, 5),
+        treeRootCount: stableFileTree.length,
+        treeSamples: stableFileTree.slice(0, 5).map((node) => ({
+          path: node.path,
+          type: node.type,
+          rootFolderId: node.rootFolderId ?? null,
+          childCount: node.children?.length ?? 0,
+        })),
+      }),
     };
 
     return () => {
@@ -587,21 +558,22 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
           title: FileExplorerStrings.inlineFixture.noAccessFallbackTitle,
           description: FileExplorerStrings.inlineFixture.noAccessFallbackDescription,
         });
-        return;
+        return null;
       }
       handleBrowserCompatibilityError(reason);
-      return;
+      return null;
     }
 
     try {
       const handle = await handleRootDirectorySelect();
       if (handle === null) {
         // User cancelled the directory selection, do nothing
-        return;
+        return null;
       }
-      // Additional business logic for successful selection can be added here if needed
+      return handle;
     } catch (error) {
       handleDirectorySelectError(error);
+      return null;
     }
   }, [
     handleRootDirectorySelect,
@@ -612,6 +584,18 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     setDevInlineFixtureEnabled,
     showToast,
   ]);
+
+  const handleChooseDifferentFolderFromRestore = useCallback(async () => {
+    const handle = await handleDirectorySelect();
+    if (handle === null) {
+      return;
+    }
+    dismissRestore();
+  }, [dismissRestore, handleDirectorySelect]);
+
+  const handleToolbarDirectorySelect = useCallback(async (): Promise<void> => {
+    await handleDirectorySelect();
+  }, [handleDirectorySelect]);
 
   const handleFilterChange = useCallback(
     (newIncludeFilters: string[], newExcludeFilters: string[], newUseRegex: boolean) => {
@@ -657,7 +641,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
       // checks IndexedDB for stored handles. Don't clear during this time.
       const isWaitingForRestore =
         isCheckingStoredHandles || pendingRestore || showDeniedBanner || showStaleBanner;
-      if (!isWaitingForRestore) {
+      const hasRecoverablePersistedFolder =
+        currentFolderId !== null && Boolean(store.getState().folderStates[currentFolderId]);
+      if (!(isWaitingForRestore || hasRecoverablePersistedFolder)) {
         setCurrentFolderId(null);
       }
     }
@@ -687,6 +673,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     if (fileTree && fileTree.length > 0) {
       logger.info('expandAll: calling expandAllProgressively');
       // Use progressive expand-all that loads directories on demand
+      const currentExpandedPaths = store.getState().expandedDirectoryPaths;
       const setExpandedPaths = (updater: (prev: Set<string>) => Set<string>) => {
         const currentPaths = store.getState().expandedDirectoryPaths;
         const newPaths = updater(currentPaths);
@@ -695,7 +682,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         }
         store.getState().setExpandedPaths(newPaths);
       };
-      void expandAllProgressively(setExpandedPaths);
+      void expandAllProgressively(setExpandedPaths, currentExpandedPaths);
     } else {
       logger.warn('expandAll: no file tree or empty tree');
     }
@@ -746,7 +733,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         <div className="shrink-0">
           <FileExplorerToolbar
             isLoading={isLoading}
-            onDirectorySelect={handleDirectorySelect}
+            onDirectorySelect={handleToolbarDirectorySelect}
             rootDirectoryHandle={rootDirectoryHandle}
           />
           {/* Restoration indicator - shown when restoring expanded directories from persisted state */}
@@ -862,6 +849,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
           <div className="@container/footer flex flex-wrap items-center justify-between gap-2 @[360px]:px-4 px-2 @[360px]:py-3 py-2">
             <ActionButtons
               addMultipleSelectedFiles={addMultipleSelectedFiles}
+              addMultipleSelectedFilesChunked={addMultipleSelectedFilesChunked}
               cancelSelectAll={cancelSelectAll}
               currentFolderId={getRootFolderId(rootDirectoryHandle) ?? currentFolderId}
               displayedFiles={displayedFileList}
@@ -908,6 +896,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
           folderName={pendingRestore?.name ?? storedFolders[0]?.name ?? 'previous folder'}
           isOpen={!rootDirectoryHandle && (!!pendingRestore || showDeniedBanner || showStaleBanner)}
           isRestoring={isRestoring}
+          onChooseDifferentFolder={handleChooseDifferentFolderFromRestore}
           onDismiss={dismissRestore}
           onRestore={() => {
             // CRITICAL: Chrome requires requestPermission() to be called as the ABSOLUTE

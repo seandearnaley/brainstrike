@@ -116,6 +116,36 @@ type FeatureExtractor = FeatureExtractionPipeline &
     }
   ) => Promise<unknown>);
 
+interface CatchableCleanup {
+  catch(onRejected: () => void): unknown;
+}
+
+function isCatchableCleanup(value: unknown): value is CatchableCleanup {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'catch' in value &&
+    typeof value.catch === 'function'
+  );
+}
+
+function disposeFeatureExtractorBestEffort(extractor: FeatureExtractor): void {
+  try {
+    if (typeof extractor.dispose !== 'function') {
+      return;
+    }
+
+    const cleanupResult = (extractor.dispose as () => unknown).call(extractor);
+    if (!isCatchableCleanup(cleanupResult)) {
+      return;
+    }
+
+    cleanupResult.catch(() => {});
+  } catch {
+    // Disposal must not mask the pipeline load failure that triggered cleanup.
+  }
+}
+
 interface PipelineCacheEntry {
   readonly cacheKey: string;
   /** Monotonic timestamp (via `now()`) — reserved for future diagnostics. */
@@ -226,7 +256,7 @@ async function getTransformersRuntime(): Promise<TransformersRuntime> {
 
 const GPU_KEEPALIVE_INTERVAL_MS = 15_000;
 
-const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+const now = (): number => (typeof performance === 'undefined' ? Date.now() : performance.now());
 
 const MAX_GPU_PIPELINES = 1;
 const MAX_WASM_PIPELINES = 3;
@@ -549,8 +579,7 @@ function watchDeviceLoss(device: GpuDeviceHandle): void {
 async function initWebGpuDeviceGuard(): Promise<void> {
   const device = await getOrtWebGpuDevice();
   if (!device) {
-    debugLog('GPU guard could not obtain ORT WebGPU device');
-    return;
+    throw new Error('WebGPU pipeline loaded without a usable ORT WebGPU device');
   }
   debugLog('GPU guard acquired device and attached keep-alive plus loss watcher');
   startKeepAlive(device);
@@ -601,7 +630,12 @@ async function loadPipeline(
       // pipeline() returns because ONNX Runtime creates the device during session
       // creation inside pipeline().
       if (device === 'webgpu') {
-        await initWebGpuDeviceGuard();
+        try {
+          await initWebGpuDeviceGuard();
+        } catch (guardError) {
+          disposeFeatureExtractorBestEffort(result as FeatureExtractor);
+          throw guardError;
+        }
       }
 
       return result as FeatureExtractor;
@@ -737,7 +771,7 @@ function createContext(payload: EmbedWorkerRequest): EmbeddingContext {
     model: payload.model,
     texts: payload.texts,
     dtype: payload.dtype ?? 'fp16',
-    started: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+    started: typeof performance === 'undefined' ? Date.now() : performance.now(),
     total: payload.texts.length,
     targetDimension: requestedDimension,
   };
@@ -768,7 +802,7 @@ function createInitialState(
     device: inferDevice(deviceHint),
     batchSize: computeInitialBatchSize(context.total, maxBatchSize),
     fallbackApplied: false,
-    ...(maxBatchSize !== undefined ? { maxBatchSize } : {}),
+    ...(maxBatchSize === undefined ? {} : { maxBatchSize }),
   };
 }
 
@@ -843,7 +877,7 @@ function postStreamEvent(
 
 async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState): Promise<void> {
   const { texts, truncateDim, id, total } = context;
-  const started = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const started = typeof performance === 'undefined' ? Date.now() : performance.now();
 
   postStreamEvent({
     type: 'progress',
@@ -898,7 +932,7 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
     batchIndex += 1;
   }
 
-  const finished = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const finished = typeof performance === 'undefined' ? Date.now() : performance.now();
   postStreamEvent({
     type: 'complete',
     id,
@@ -963,7 +997,7 @@ function buildSuccessResult(
   state: EmbeddingState,
   vectors: Float32Array[]
 ): EmbedWorkerSuccess {
-  const finished = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const finished = typeof performance === 'undefined' ? Date.now() : performance.now();
   workerEmit({
     type: 'progress',
     id: context.id,

@@ -97,14 +97,14 @@ initializeLogging({
 });
 
 const removeRendererErrorHooks =
-  typeof window !== 'undefined'
-    ? installRendererErrorHooks({
+  typeof window === 'undefined'
+    ? () => {}
+    : installRendererErrorHooks({
         scope: 'DesktopRenderer',
         onError: () => {
           flushQueueTelemetry?.();
         },
-      })
-    : () => {};
+      });
 
 const loggingStore = useLoggingPreferencesStore.getState();
 if (!loggingStore.hasHydrated) {

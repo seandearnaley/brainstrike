@@ -478,7 +478,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   // Use prop if explicitly provided (different from default), otherwise persisted, otherwise default
   // This allows tests to override the page size while still supporting user persistence
   const effectivePageSize =
-    pageSize !== DEFAULT_PAGE_SIZE ? pageSize : (persistedPageSize ?? pageSize);
+    pageSize === DEFAULT_PAGE_SIZE ? (persistedPageSize ?? pageSize) : pageSize;
 
   // Use pagination hooks (table + tapestry)
   const tablePagination = usePagination({
@@ -544,6 +544,35 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     groupingConfig === 'none'
       ? flattenedData.slice(tapestryPagination.startIndex, tapestryPagination.endIndex)
       : [];
+  const isDesktopPreviewTestMode = window.desktopLifecycle?.isTestMode ?? false;
+  const tablePageDataPathsKey = isDesktopPreviewTestMode
+    ? tablePageData.map((item) => item.path).join('\u0000')
+    : '';
+
+  useEffect(() => {
+    if (!isDesktopPreviewTestMode) {
+      return;
+    }
+
+    window.__brainstrikeContextExplorerPreviewTestHooks__ = {
+      getSnapshot: () => ({
+        activeTab,
+        renderedFilePaths: tablePageData.map((item) => item.path),
+        selectedFilesCount: selectedFiles.size,
+        totalRows: flattenedData.length,
+      }),
+    };
+
+    return () => {
+      window.__brainstrikeContextExplorerPreviewTestHooks__ = undefined;
+    };
+  }, [
+    activeTab,
+    flattenedData.length,
+    isDesktopPreviewTestMode,
+    selectedFiles.size,
+    tablePageDataPathsKey,
+  ]);
 
   const tableVisibleFilesOnPage = useMemo(
     () =>

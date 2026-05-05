@@ -11,7 +11,7 @@ describe('createImportCompletionHandler', () => {
     return { mockToast, mockLoadRecords, mockLoadChunks, handler };
   };
 
-  it('reports successful import of new files with chunks and embeddings', () => {
+  it('reports successful import of new files with chunks and embeddings', async () => {
     const { mockToast, handler } = setup();
 
     const results: EnhancedImportResult[] = [
@@ -19,7 +19,7 @@ describe('createImportCompletionHandler', () => {
       { id: 'b.txt', imported: true, existed: false, chunksCreated: 5, chunksWithEmbeddings: 5 },
     ];
 
-    handler(results);
+    await handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
       title: 'Import Complete',
@@ -28,7 +28,7 @@ describe('createImportCompletionHandler', () => {
     });
   });
 
-  it('reports failures with destructive variant', () => {
+  it('reports failures with destructive variant', async () => {
     const { mockToast, handler } = setup();
 
     const results: EnhancedImportResult[] = [
@@ -36,7 +36,7 @@ describe('createImportCompletionHandler', () => {
       { id: 'b.txt', imported: false, existed: false, chunksCreated: 0, error: 'Failed' },
     ];
 
-    handler(results);
+    await handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
       title: 'Import Completed with Errors',
@@ -45,14 +45,14 @@ describe('createImportCompletionHandler', () => {
     });
   });
 
-  it('reports existing files', () => {
+  it('reports existing files', async () => {
     const { mockToast, handler } = setup();
 
     const results: EnhancedImportResult[] = [
       { id: 'a.txt', imported: false, existed: true, chunksCreated: 3, chunksWithEmbeddings: 3 },
     ];
 
-    handler(results);
+    await handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
       title: 'Import Complete',
@@ -61,7 +61,7 @@ describe('createImportCompletionHandler', () => {
     });
   });
 
-  it('reports mixed new and existing files', () => {
+  it('reports mixed new and existing files', async () => {
     const { mockToast, handler } = setup();
 
     const results: EnhancedImportResult[] = [
@@ -69,7 +69,7 @@ describe('createImportCompletionHandler', () => {
       { id: 'b.txt', imported: false, existed: true, chunksCreated: 1, chunksWithEmbeddings: 0 },
     ];
 
-    handler(results);
+    await handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
       title: 'Import Complete',
@@ -78,7 +78,7 @@ describe('createImportCompletionHandler', () => {
     });
   });
 
-  it('handles all imports failing', () => {
+  it('handles all imports failing', async () => {
     const { mockToast, handler } = setup();
 
     const results: EnhancedImportResult[] = [
@@ -86,7 +86,7 @@ describe('createImportCompletionHandler', () => {
       { id: 'b.txt', imported: false, existed: false, chunksCreated: 0, error: 'Fail' },
     ];
 
-    handler(results);
+    await handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
       title: 'Import Completed with Errors',
@@ -95,10 +95,10 @@ describe('createImportCompletionHandler', () => {
     });
   });
 
-  it('handles empty results', () => {
+  it('handles empty results', async () => {
     const { mockToast, handler } = setup();
 
-    handler([]);
+    await handler([]);
 
     expect(mockToast).toHaveBeenCalledWith({
       title: 'Import Complete',
@@ -107,7 +107,7 @@ describe('createImportCompletionHandler', () => {
     });
   });
 
-  it('reports processing errors on imported files', () => {
+  it('reports processing errors on imported files', async () => {
     const { mockToast, handler } = setup();
 
     const results: EnhancedImportResult[] = [
@@ -121,7 +121,7 @@ describe('createImportCompletionHandler', () => {
       },
     ];
 
-    handler(results);
+    await handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
       title: 'Import Complete',
@@ -130,14 +130,14 @@ describe('createImportCompletionHandler', () => {
     });
   });
 
-  it('shows chunks without embeddings (no embedding line)', () => {
+  it('shows chunks without embeddings (no embedding line)', async () => {
     const { mockToast, handler } = setup();
 
     const results: EnhancedImportResult[] = [
       { id: 'a.txt', imported: true, existed: false, chunksCreated: 10, chunksWithEmbeddings: 0 },
     ];
 
-    handler(results);
+    await handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
       title: 'Import Complete',
@@ -146,10 +146,10 @@ describe('createImportCompletionHandler', () => {
     });
   });
 
-  it('calls loadRecords and loadChunks after import', () => {
+  it('calls loadRecords and loadChunks after import', async () => {
     const { mockLoadRecords, mockLoadChunks, handler } = setup();
 
-    handler([]);
+    await handler([]);
 
     expect(mockLoadRecords).toHaveBeenCalled();
     expect(mockLoadChunks).toHaveBeenCalled();

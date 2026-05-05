@@ -1,6 +1,7 @@
 export type MastraAgentErrorCode =
   | 'mastra_agent_missing_provider'
   | 'mastra_agent_missing_api_key'
+  | 'mastra_agent_memory_unavailable'
   | 'mastra_agent_runtime_init_failed'
   | 'mastra_agent_stream_failure'
   | 'mastra_agent_unsupported_provider'
@@ -17,7 +18,7 @@ export class MastraAgentError extends Error {
   readonly context: Readonly<Record<string, unknown>> | undefined;
 
   constructor(code: MastraAgentErrorCode, message: string, options: MastraAgentErrorOptions = {}) {
-    super(message, options.cause !== undefined ? { cause: options.cause } : undefined);
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = 'MastraAgentError';
     this.code = code;
     this.context = options.context

@@ -53,12 +53,14 @@ export type EmbeddingHostCommandPayload =
 
 export interface EmbeddingHostBackfillProgress extends BackgroundRuntimeProgress {
   readonly embeddingSetId: string;
+  readonly source: EmbeddingBackfillSource;
 }
 
 export interface EmbeddingHostBackfillInfo {
   readonly embeddingSetId: string;
   readonly progress: { current: number; total: number } | null;
   readonly requestId: string;
+  readonly source: EmbeddingBackfillSource;
 }
 
 export const EMBEDDING_HOST_STATUS_ADAPTER = EMBEDDING_HOST_RUNTIME.statusAdapter;

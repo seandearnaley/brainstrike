@@ -603,8 +603,8 @@ export function TokenCacheProvider({
       ? 'memory'
       : 'disabled';
 
-  const countTextTokens = useMemo(() => {
-    return async (text: string) => {
+  const countTextTokens = useMemo(
+    () => async (text: string) => {
       if (!text) {
         return 0;
       }
@@ -630,8 +630,9 @@ export function TokenCacheProvider({
         const errMsg = error instanceof Error ? error.message : String(error);
         throw new Error(`Token cache worker countTokens failed: ${errMsg}`);
       }
-    };
-  }, [countingMode, workerInitError, workerPoolProxy]);
+    },
+    [countingMode, workerInitError, workerPoolProxy]
+  );
 
   const disabledTokenCache = useMemo<UseTokenCacheReturn>(
     () => ({

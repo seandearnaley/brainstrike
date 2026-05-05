@@ -6,6 +6,10 @@ import {
   type ExplorerBootstrapOptions,
   reloadExplorer,
 } from './utils/file-explorer-setup';
+import {
+  CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
+  getContextExplorerLeftResizeHandle,
+} from './utils/layout-helpers';
 import type { FileTree } from './utils/mock-fs';
 
 /**
@@ -94,13 +98,15 @@ test.describe('File Explorer', () => {
 
     test('keeps footer controls usable when the explorer panel is narrowed', async ({ page }) => {
       await explorer.selectRoot();
+      await page.getByTestId('hide-threads-panel').click();
+      await expect(page.getByTestId('show-threads-panel')).toBeVisible();
 
-      const leftPanel = page.locator('#explorer-panel');
+      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
       const initialWidth = await leftPanel.evaluate(
         (element) => element.getBoundingClientRect().width
       );
 
-      const resizeHandle = page.locator('[data-separator]').first();
+      const resizeHandle = getContextExplorerLeftResizeHandle(page);
       const handleBox = await resizeHandle.boundingBox();
       if (!handleBox) {
         throw new Error('Resize handle not found');
@@ -108,7 +114,7 @@ test.describe('File Explorer', () => {
 
       await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
       await page.mouse.down();
-      await page.mouse.move(handleBox.x - 120, handleBox.y + handleBox.height / 2);
+      await page.mouse.move(handleBox.x - 140, handleBox.y + handleBox.height / 2);
       await page.mouse.up();
 
       await page.waitForTimeout(300);
@@ -116,14 +122,15 @@ test.describe('File Explorer', () => {
       const narrowedWidth = await leftPanel.evaluate(
         (element) => element.getBoundingClientRect().width
       );
-      expect(narrowedWidth).toBeLessThan(initialWidth);
+      expect(narrowedWidth).toBeLessThanOrEqual(initialWidth);
+      expect(initialWidth - narrowedWidth).toBeGreaterThanOrEqual(40);
 
       await expect(page.getByRole('button', { name: 'Selection settings' })).toBeVisible();
       await expect(page.getByTestId('selection-count')).toBeVisible();
       await expect(page.getByRole('button', { name: 'Select All' })).toBeVisible();
       await expect(page.getByTestId('bulk-action-full-label')).not.toBeVisible();
 
-      await page.getByRole('button', { name: 'Selection settings' }).click();
+      await page.getByRole('button', { name: 'Selection settings' }).press('Enter');
       await expect(page.getByRole('button', { name: '5K' })).toBeVisible();
       await expect(page.getByRole('button', { name: '6K' })).toBeVisible();
       await expect(page.getByRole('button', { name: '8K' })).toBeVisible();
@@ -249,6 +256,23 @@ test.describe('File Explorer', () => {
       await explorer.selectRoot();
       await explorer.selectAllButton.click();
 
+      // Two anchors guard the multi-step interaction below from racing with async work:
+      //
+      //   1. Selection actually applied. Persistence/restore on the first render after
+      //      `resetSettings: true` can race with the Select All click and leave the
+      //      selection count at 0. If this assertion times out, the failure is
+      //      "Select All didn't take effect" — not a flake, a real bug.
+      //
+      //   2. Row sizes resolved. `data-rows-ready` flips to "true" only when every
+      //      visible row has a defined `size` (FileSystem-adapter cache populated). If
+      //      this assertion times out after #1 passed, the failure is "size metadata
+      //      didn't resolve" — also a real bug. If both pass, downstream Group-by
+      //      assertions can run on a deterministic state.
+      await expect(page.getByTestId('selection-count')).toHaveText('2', { timeout: 15_000 });
+
+      const previewTable = page.getByTestId('preview-table');
+      await expect(previewTable).toHaveAttribute('data-rows-ready', 'true', { timeout: 15_000 });
+
       const previewToolbar = page.getByTestId('preview-view-toolbar');
       await expect(previewToolbar).toBeVisible();
       await previewToolbar.getByRole('button', { name: 'Group by' }).click();
@@ -324,7 +348,7 @@ test.describe('File Explorer', () => {
 
     async function getPresetTrigger(page: Page) {
       const presetTrigger = page
-        .locator('#explorer-panel')
+        .locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR)
         .locator('button')
         .filter({ hasText: /select filter|source files|documentation|typescript\/javascript/i })
         .first();
@@ -361,49 +385,118 @@ test.describe('File Explorer', () => {
       },
     };
 
-    const bootstrapOptions: ExplorerBootstrapOptions = {
-      tree,
-      projectName: 'test-project',
-      resetSettings: true,
-      clearStorageKeys: ['panel-layout-store.v1'],
-    };
+    test.describe('default tree', () => {
+      const bootstrapOptions: ExplorerBootstrapOptions = {
+        tree,
+        projectName: 'test-project',
+        resetSettings: true,
+        clearStorageKeys: ['panel-layout-store.v1'],
+        waitForDatabase: true,
+      };
 
-    let explorer: FileExplorerPage;
+      let explorer: FileExplorerPage;
 
-    test.beforeEach(async ({ page }) => {
-      explorer = await bootstrapFileExplorer(page, bootstrapOptions);
+      test.beforeEach(async ({ page }) => {
+        explorer = await bootstrapFileExplorer(page, bootstrapOptions);
 
-      await expect(page.getByText('No directory selected')).toBeVisible({ timeout: 15_000 });
-      await expect(page.getByText('No files selected')).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByText('No directory selected')).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByText('No files selected')).toBeVisible({ timeout: 15_000 });
 
-      await explorer.selectRoot();
+        await explorer.selectRoot();
 
-      await expect(explorer.filterInput).toBeVisible({ timeout: 10_000 });
-      await expect(explorer.noDirectoryText).not.toBeVisible();
-      await expect(explorer.fileTree).toBeVisible();
-    });
+        await expect(explorer.filterInput).toBeVisible({ timeout: 10_000 });
+        await expect(explorer.noDirectoryText).not.toBeVisible();
+        await expect(explorer.fileTree).toBeVisible();
+      });
 
-    test('keeps the preset trigger enabled when view filters first appear', async ({ page }) => {
-      await openViewFilters(page);
-      await getPresetTrigger(page);
-    });
+      test('keeps the preset trigger enabled when view filters first appear', async ({ page }) => {
+        await openViewFilters(page);
+        await getPresetTrigger(page);
+      });
 
-    test('loads presets and applies a selected preset from the dropdown', async ({ page }) => {
-      await openViewFilters(page);
+      test('loads presets and applies a selected preset from the dropdown', async ({ page }) => {
+        await openViewFilters(page);
 
-      const presetTrigger = await getPresetTrigger(page);
-      await presetTrigger.click();
+        const presetTrigger = await getPresetTrigger(page);
+        await presetTrigger.click();
 
-      await expect(page.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
+        await expect(page.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
 
-      const documentationOption = page.getByRole('button', { name: /documentation/i }).first();
-      await expect(documentationOption).toBeVisible({ timeout: 10_000 });
-      await documentationOption.click();
+        const documentationOption = page.getByRole('button', { name: /documentation/i }).first();
+        await expect(documentationOption).toBeVisible({ timeout: 10_000 });
+        await documentationOption.click();
 
-      await expect(
-        page.locator('#explorer-panel').getByRole('button', { name: /documentation/i })
-      ).toBeVisible({ timeout: 10_000 });
-      await expect(page.getByText('Select filter...')).toHaveCount(0);
+        await expect(
+          page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR).getByRole('button', {
+            name: /documentation/i,
+          })
+        ).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByText('Select filter...')).toHaveCount(0);
+      });
+
+      test('does not stay stuck on loading presets after opening the dropdown', async ({
+        page,
+      }) => {
+        await openViewFilters(page);
+
+        const presetTrigger = await getPresetTrigger(page);
+        await presetTrigger.click();
+
+        await expect(page.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
+        await expect(page.getByRole('button', { name: /documentation/i }).first()).toBeVisible({
+          timeout: 10_000,
+        });
+      });
+
+      const scenarios: FilterScenario[] = [
+        {
+          title: 'matches files by substring',
+          query: 'Button',
+          expectedVisible: ['Button.tsx', 'Button.test.tsx'],
+          expectedHidden: ['utils.ts', 'package.json'],
+        },
+        {
+          title: 'filters down to test files',
+          query: '.test',
+          expectedVisible: ['Button.test.tsx', 'utils.test.ts'],
+          expectedHidden: ['Button.tsx', 'utils.ts'],
+        },
+        {
+          title: 'supports negation syntax',
+          query: 'utils -test',
+          expectedVisible: ['utils.ts'],
+          expectedHidden: ['utils.test.ts', 'Button.tsx'],
+        },
+        {
+          title: 'clearing the filter restores the tree',
+          query: '',
+          expectedVisible: ['Button.tsx', 'utils.ts'],
+          expectedHidden: [],
+          before: async ({ explorer }) => {
+            await explorer.filterInput.fill('Button');
+            await expect(explorer.fileTree.getByText('Button.tsx')).toBeVisible();
+            await expect(explorer.fileTree.getByText('utils.ts')).not.toBeVisible();
+          },
+        },
+      ];
+
+      for (const scenario of scenarios) {
+        test(scenario.title, async ({ page }) => {
+          if (scenario.before) {
+            await scenario.before({ page, explorer });
+          }
+
+          await explorer.filterInput.fill(scenario.query);
+
+          for (const fileName of scenario.expectedVisible) {
+            await expect(explorer.fileTree.getByText(fileName)).toBeVisible();
+          }
+
+          for (const fileName of scenario.expectedHidden) {
+            await expect(explorer.fileTree.getByText(fileName)).not.toBeVisible();
+          }
+        });
+      }
     });
 
     test('keeps root Select All and single-click expansion aligned with the TypeScript/JavaScript preset', async ({
@@ -434,6 +527,7 @@ test.describe('File Explorer', () => {
         projectName: 'filtered-select-all-project',
         resetSettings: true,
         clearStorageKeys: ['panel-layout-store.v1'],
+        waitForDatabase: true,
       });
 
       await filteredExplorer.selectRoot();
@@ -448,7 +542,9 @@ test.describe('File Explorer', () => {
       await tsPresetOption.click();
 
       await expect(
-        page.locator('#explorer-panel').getByRole('button', { name: /typescript\/javascript/i })
+        page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR).getByRole('button', {
+          name: /typescript\/javascript/i,
+        })
       ).toBeVisible({ timeout: 10_000 });
 
       await filteredExplorer.selectAllButton.click();
@@ -490,68 +586,6 @@ test.describe('File Explorer', () => {
       ).toBeChecked();
       await expect(filteredExplorer.fileTree.getByText('notes.txt')).not.toBeVisible();
     });
-
-    test('does not stay stuck on loading presets after opening the dropdown', async ({ page }) => {
-      await openViewFilters(page);
-
-      const presetTrigger = await getPresetTrigger(page);
-      await presetTrigger.click();
-
-      await expect(page.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
-      await expect(page.getByRole('button', { name: /documentation/i }).first()).toBeVisible({
-        timeout: 10_000,
-      });
-    });
-
-    const scenarios: FilterScenario[] = [
-      {
-        title: 'matches files by substring',
-        query: 'Button',
-        expectedVisible: ['Button.tsx', 'Button.test.tsx'],
-        expectedHidden: ['utils.ts', 'package.json'],
-      },
-      {
-        title: 'filters down to test files',
-        query: '.test',
-        expectedVisible: ['Button.test.tsx', 'utils.test.ts'],
-        expectedHidden: ['Button.tsx', 'utils.ts'],
-      },
-      {
-        title: 'supports negation syntax',
-        query: 'utils -test',
-        expectedVisible: ['utils.ts'],
-        expectedHidden: ['utils.test.ts', 'Button.tsx'],
-      },
-      {
-        title: 'clearing the filter restores the tree',
-        query: '',
-        expectedVisible: ['Button.tsx', 'utils.ts'],
-        expectedHidden: [],
-        before: async ({ explorer }) => {
-          await explorer.filterInput.fill('Button');
-          await expect(explorer.fileTree.getByText('Button.tsx')).toBeVisible();
-          await expect(explorer.fileTree.getByText('utils.ts')).not.toBeVisible();
-        },
-      },
-    ];
-
-    for (const scenario of scenarios) {
-      test(scenario.title, async ({ page }) => {
-        if (scenario.before) {
-          await scenario.before({ page, explorer });
-        }
-
-        await explorer.filterInput.fill(scenario.query);
-
-        for (const fileName of scenario.expectedVisible) {
-          await expect(explorer.fileTree.getByText(fileName)).toBeVisible();
-        }
-
-        for (const fileName of scenario.expectedHidden) {
-          await expect(explorer.fileTree.getByText(fileName)).not.toBeVisible();
-        }
-      });
-    }
   });
 
   test.describe('settings persistence', () => {
@@ -675,37 +709,6 @@ test.describe('File Explorer', () => {
   });
 
   test.describe('Select All across unexpanded subfolders', () => {
-    /**
-     * Pins token counting to deterministic heuristic mode (ceil(content.length / 4))
-     * so that the TokenSummaryBar totals are stable across runs / tokenizer revisions.
-     * Mirrors the persisted shape of the `useTokenPreferencesStore` zustand store.
-     */
-    async function pinHeuristicTokenCounting(page: Page): Promise<void> {
-      await page.addInitScript(() => {
-        try {
-          window.localStorage.setItem(
-            'token-preferences.v1',
-            JSON.stringify({ state: { accurateCounting: false }, version: 1 })
-          );
-        } catch {
-          // SafeStorage adapter swallows quota errors at runtime; tests do the
-          // same so that storage hardening cannot mask the real assertion below.
-        }
-      });
-    }
-
-    /**
-     * Heuristic token count used by both the indexer worker and the preview-panel
-     * fallback path. Kept inline so the expected fixture totals are obviously
-     * derivable from file content alone.
-     */
-    function heuristicTokens(content: string): number {
-      if (content.length === 0) {
-        return 0;
-      }
-      return Math.max(1, Math.ceil(content.length / 4));
-    }
-
     test('counts tokens for files inside unexpanded subfolders after Select All (web parity with desktop)', async ({
       page,
     }) => {
@@ -718,18 +721,13 @@ test.describe('File Explorer', () => {
         browserLogs.push(`[pageerror] ${err.message}`);
       });
       // Files live exclusively inside nested subfolders so the bug shows up as
-      // a stalled "0+ estimating…" total rather than partial credit from the
-      // top-level files. Content lengths are picked so heuristic token math
-      // stays trivially auditable. We use `.ts` extensions so the files match
-      // the default View Filter include set (which excludes plain text files);
-      // otherwise the recursive selection scan would skip them and we would be
-      // measuring filter behavior, not the indexer fix.
-      const shallowContent = 'abcdefgh'; // length 8 → 2 heuristic tokens
-      const deepContent = 'abcdefghijklmnop'; // length 16 → 4 heuristic tokens
-      const expectedTokens = heuristicTokens(shallowContent) + heuristicTokens(deepContent);
+      // a stalled or partial token total rather than partial credit from any
+      // top-level files. Single-character fixture contents keep the expected
+      // total stable in both heuristic and WASM token-counting modes.
+      const shallowContent = 'a';
+      const deepContent = 'b';
+      const expectedTokens = 2;
       const expectedSelectedFiles = 2;
-
-      await pinHeuristicTokenCounting(page);
 
       const explorer = await bootstrapFileExplorer(page, {
         resetSettings: true,

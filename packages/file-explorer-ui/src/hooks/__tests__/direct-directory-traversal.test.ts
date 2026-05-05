@@ -50,7 +50,7 @@ function findDirectoryByPath(node: IFileNode, path: string): IFileNode | undefin
       return nested;
     }
   }
-  return undefined;
+  return;
 }
 
 describe('traverseDirectoriesDirect', () => {

@@ -1,4 +1,4 @@
-import type { IEmbeddingSetsRepository } from '@brainstrike/db';
+import type { EmbeddingSet, IEmbeddingSetsRepository } from '@brainstrike/db';
 import { parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
 import {
   Button,
@@ -16,7 +16,7 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
-import { useEffect, useReducer } from 'react';
+import { type FormEvent, useEffect, useReducer, useRef } from 'react';
 import { dispatchEmbeddingSetUpdated } from '../collection-select/embedding-set-events';
 import { setActiveEmbeddingSetId } from '../vector-preferences';
 
@@ -46,7 +46,7 @@ interface CreateEmbeddingSetDialogProps {
   isLoading?: boolean;
   models: ModelPickerModel[];
   onOpenChange: (open: boolean) => void;
-  onSetCreated?: (setId: string) => void;
+  onSetCreated?: (setId: string, set: EmbeddingSet) => void;
   open: boolean;
   providers: ModelPickerProvider[];
   repository: IEmbeddingSetsRepository | null;
@@ -109,6 +109,35 @@ function buildMetadata(formData: {
   return metadata;
 }
 
+interface CreateEmbeddingSetFormData {
+  category: string;
+  description: string;
+  name: string;
+  tags: string;
+}
+
+function readSubmittedFormData(form: HTMLFormElement): CreateEmbeddingSetFormData {
+  const submitted = new FormData(form);
+  return {
+    name: String(submitted.get('name') ?? ''),
+    description: String(submitted.get('description') ?? ''),
+    tags: String(submitted.get('tags') ?? ''),
+    category: String(submitted.get('category') ?? ''),
+  };
+}
+
+function canSubmitCreateForm(
+  submittedFormData: CreateEmbeddingSetFormData,
+  options: { creating: boolean; hasModelOptions: boolean; selectedModelId: string }
+): boolean {
+  return (
+    !options.creating &&
+    options.hasModelOptions &&
+    options.selectedModelId !== '' &&
+    submittedFormData.name.trim() !== ''
+  );
+}
+
 const logger = createLogger('CreateEmbeddingSetDialog');
 
 interface FormState {
@@ -122,14 +151,23 @@ interface FormState {
     selectedModel: string;
   };
   hasInitialized: boolean;
+  // True once the user has manually edited the name. Once set, model changes no
+  // longer auto-rewrite the name — we respect what the user typed.
+  nameDirty: boolean;
 }
 
 type FormAction =
   | { type: 'set_creating'; creating: boolean }
-  | { type: 'set_form_field'; field: string; value: string }
-  | { type: 'set_form_data'; formData: FormState['formData'] }
-  | { type: 'set_existing_names'; names: Set<string> }
-  | { type: 'set_initialized'; names: Set<string>; selectedModel: string; name: string }
+  | { type: 'set_field'; field: 'description' | 'tags' | 'category'; value: string }
+  | { type: 'edit_name'; value: string }
+  | { type: 'select_model'; modelId: string; autoName: string | null }
+  | {
+      type: 'refine_existing_names';
+      names: Set<string>;
+      baseModelId: string | null;
+      baseName: string | null;
+    }
+  | { type: 'init_with_model'; modelId: string; name: string }
   | { type: 'reset' };
 
 const INITIAL_FORM_STATE: FormState = {
@@ -137,25 +175,66 @@ const INITIAL_FORM_STATE: FormState = {
   formData: { name: '', description: '', tags: '', category: '', selectedModel: '' },
   existingNames: new Set(),
   hasInitialized: false,
+  nameDirty: false,
 };
 
 function formReducer(state: FormState, action: FormAction): FormState {
   switch (action.type) {
     case 'set_creating':
       return { ...state, creating: action.creating };
-    case 'set_form_field':
+    case 'set_field':
       return { ...state, formData: { ...state.formData, [action.field]: action.value } };
-    case 'set_form_data':
-      return { ...state, formData: action.formData };
-    case 'set_existing_names':
-      return { ...state, existingNames: action.names };
-    case 'set_initialized':
+    case 'edit_name':
+      // User-driven name change — flips nameDirty so future model selections won't overwrite it.
       return {
         ...state,
-        existingNames: action.names,
-        formData: { ...state.formData, selectedModel: action.selectedModel, name: action.name },
+        formData: { ...state.formData, name: action.value },
+        nameDirty: true,
+      };
+    case 'select_model':
+      // Model picked. autoName is non-null when the user hasn't yet typed in the name field.
+      return {
+        ...state,
+        formData: {
+          ...state.formData,
+          selectedModel: action.modelId,
+          name: action.autoName ?? state.formData.name,
+        },
+      };
+    case 'refine_existing_names': {
+      // Async findAll() may resolve long after dispatch was queued. Re-check
+      // live state here — not values captured by the effect's closure — so
+      // a slow query can't clobber a name the user typed or roll back to an
+      // older model the user has since switched away from.
+      const next = { ...state, existingNames: action.names };
+      const stillOnSameModel =
+        action.baseModelId !== null && action.baseModelId === state.formData.selectedModel;
+      if (state.nameDirty || !(stillOnSameModel && action.baseName)) {
+        return next;
+      }
+      return {
+        ...next,
+        formData: {
+          ...state.formData,
+          name: generateUniqueName(action.baseName, action.names),
+        },
+      };
+    }
+    case 'init_with_model': {
+      // Synchronous open-time initialization: seeds model + default name immediately.
+      // If the user typed while models were still loading, keep that name.
+      const hasUserProvidedName = state.nameDirty || state.formData.name.trim().length > 0;
+
+      return {
+        ...state,
+        formData: {
+          ...state.formData,
+          selectedModel: action.modelId,
+          name: hasUserProvidedName ? state.formData.name : action.name,
+        },
         hasInitialized: true,
       };
+    }
     case 'reset':
       return { ...INITIAL_FORM_STATE };
   }
@@ -172,72 +251,78 @@ export function CreateEmbeddingSetDialog({
 }: CreateEmbeddingSetDialogProps) {
   const { toast } = useToast();
   const [formState, dispatch] = useReducer(formReducer, INITIAL_FORM_STATE);
-  const { creating, formData, existingNames, hasInitialized } = formState;
+  const { creating, formData, existingNames, hasInitialized, nameDirty } = formState;
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const nameDirtyRef = useRef(false);
 
   const selectedModelInfo = models.find((m) => m.id === formData.selectedModel);
   const hasModelOptions = models.length > 0;
 
-  // Handle dialog open/close and reset state when closing
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
+      nameDirtyRef.current = false;
       dispatch({ type: 'reset' });
     }
     onOpenChange(newOpen);
   };
 
-  // Fetch existing names AND auto-fill form when dialog opens
-  // Combined into single effect to avoid race conditions
+  // Phase 1 (synchronous): the moment the dialog opens with models available,
+  // seed the form with the first model's id + name. This eliminates the
+  // empty-then-populate flash that would otherwise show before findAll resolves.
   useEffect(() => {
     if (!(open && hasModelOptions) || hasInitialized) {
       return;
     }
-
     const firstModel = models[0];
     if (!firstModel) {
       return;
     }
+    dispatch({
+      type: 'init_with_model',
+      modelId: firstModel.id,
+      name: firstModel.name,
+    });
+  }, [open, hasModelOptions, models, hasInitialized]);
 
+  // Phase 2 (asynchronous): refine the auto-name with collision detection by
+  // querying existing collections. Runs in the background; if the user hasn't
+  // typed a custom name yet, the suffix gets appended silently.
+  useEffect(() => {
+    if (!(open && hasInitialized && repository)) {
+      return;
+    }
     let cancelled = false;
-
-    const initializeForm = async () => {
-      // Fetch existing collection names for collision detection
+    void (async () => {
       let collectionNames = new Set<string>();
-      if (repository) {
-        try {
-          const collections = await repository.findAll();
-          collectionNames = new Set(
-            collections.map((c) => c.name).filter((n): n is string => n !== null)
-          );
-        } catch (error) {
-          // Gracefully handle errors - collision detection is a nice-to-have
-          logger.warn('Failed to fetch existing collection names', { error });
-        }
+      try {
+        const collections = await repository.findAll();
+        collectionNames = new Set(
+          collections.map((c) => c.name).filter((n): n is string => n !== null)
+        );
+      } catch (error) {
+        logger.warn('Failed to fetch existing collection names', { error });
       }
-
-      if (cancelled) {
+      const firstModel = models[0];
+      const liveNameValue = nameInputRef.current?.value ?? '';
+      if (cancelled || nameDirtyRef.current || liveNameValue !== (firstModel?.name ?? '')) {
         return;
       }
-
-      // Generate unique name using the model's display name
-      const baseName = firstModel.name;
-      const uniqueName = generateUniqueName(baseName, collectionNames);
-
+      // Hand the raw inputs to the reducer; it inspects live state at apply
+      // time to decide whether the user has typed or switched models since
+      // this query started, and skips the refinement if so.
       dispatch({
-        type: 'set_initialized',
+        type: 'refine_existing_names',
         names: collectionNames,
-        selectedModel: firstModel.id,
-        name: uniqueName,
+        baseModelId: firstModel?.id ?? null,
+        baseName: firstModel?.name ?? null,
       });
-    };
-
-    void initializeForm();
-
+    })();
     return () => {
       cancelled = true;
     };
-  }, [open, hasModelOptions, models, repository, hasInitialized]);
+  }, [open, hasInitialized, repository, models]);
 
-  const validateCreateInputs = (): boolean => {
+  const validateCreateInputs = (submittedFormData: CreateEmbeddingSetFormData): boolean => {
     if (!(repository && selectedModelInfo)) {
       toast({
         title: 'Error',
@@ -247,7 +332,7 @@ export function CreateEmbeddingSetDialog({
       return false;
     }
 
-    if (!formData.name.trim()) {
+    if (!submittedFormData.name.trim()) {
       toast({
         title: 'Validation Error',
         description: 'Please provide a name for the embedding set',
@@ -259,8 +344,8 @@ export function CreateEmbeddingSetDialog({
     return true;
   };
 
-  const handleCreate = async () => {
-    if (!(validateCreateInputs() && repository && selectedModelInfo)) {
+  const handleCreate = async (submittedFormData: CreateEmbeddingSetFormData) => {
+    if (!(validateCreateInputs(submittedFormData) && repository && selectedModelInfo)) {
       return;
     }
 
@@ -277,9 +362,9 @@ export function CreateEmbeddingSetDialog({
     const distance = 'cosine'; // Default for now
 
     dispatch({ type: 'set_creating', creating: true });
-    let newSetId: string | null = null;
+    let createdSet: EmbeddingSet | null = null;
     try {
-      const metadata = buildMetadata(formData);
+      const metadata = buildMetadata(submittedFormData);
 
       const newSet = await repository.getOrCreateSet(
         modelKey,
@@ -289,7 +374,7 @@ export function CreateEmbeddingSetDialog({
         metadata
       );
 
-      newSetId = newSet.id;
+      createdSet = newSet;
       setActiveEmbeddingSetId(newSet.id);
 
       dispatchEmbeddingSetUpdated({
@@ -309,12 +394,14 @@ export function CreateEmbeddingSetDialog({
           fileCount: 0,
           chunkCount: 0,
           embeddingCount: 0,
+          statsAvailable: false,
+          statsLastRefreshedAt: null,
         },
       });
 
       toast({
         title: 'Success',
-        description: `Created embedding set: ${formData.name}`,
+        description: `Created embedding set: ${metadata.name}`,
       });
 
       dispatch({ type: 'reset' });
@@ -329,46 +416,49 @@ export function CreateEmbeddingSetDialog({
       });
       return;
     }
-    if (newSetId) {
-      onSetCreated?.(newSetId);
+    if (createdSet) {
+      onSetCreated?.(createdSet.id, createdSet);
     }
   };
 
-  const formatModelDescription = (model: ModelPickerModel) => {
-    const parts: string[] = [];
+  const canSubmit = canSubmitCreateForm(formData, {
+    creating,
+    hasModelOptions,
+    selectedModelId: formData.selectedModel,
+  });
 
-    // Add cost indicator
-    if (model.pricePer1MTokensInput !== undefined) {
-      parts.push(`💰 $${model.pricePer1MTokensInput.toFixed(2)}/1M tokens`);
-    } else if (model.providerId === 'local' || model.providerId === 'transformers') {
-      parts.push('🔒 Free (local)');
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const submittedFormData = readSubmittedFormData(event.currentTarget);
+    if (
+      !canSubmitCreateForm(submittedFormData, {
+        creating,
+        hasModelOptions,
+        selectedModelId: formData.selectedModel,
+      })
+    ) {
+      return;
     }
-
-    // Add model description if available
-    if (model.description) {
-      parts.push(model.description);
-    }
-
-    return parts.join(' · ');
+    void handleCreate(submittedFormData);
   };
 
   return (
     <Dialog onOpenChange={handleOpenChange} open={open}>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
+      <DialogContent className="max-h-[90vh] w-[min(460px,calc(100vw-2rem))] max-w-[min(460px,calc(100vw-2rem))] overflow-y-auto sm:max-w-[460px]">
+        {/* pr-10 reserves a gutter for the absolutely-positioned close X so it never overlaps the title. */}
+        <DialogHeader className="pr-10">
           <DialogTitle>Create Search Collection</DialogTitle>
           <DialogDescription>
-            Collections let you search the same files with different AI models. For example, use a
-            code-optimized model for technical docs and a general model for business content. Each
-            collection is optimized for specific search needs.
+            A collection pairs your files with one embedding model so you can search them with the
+            best tool for the job.
           </DialogDescription>
         </DialogHeader>
 
         {hasModelOptions || isLoading ? (
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
+          <form className="grid gap-5" id="create-embedding-set-form" onSubmit={handleSubmit}>
+            <div className="grid gap-2">
               <Label className="font-medium text-sm" htmlFor="model">
-                Model Configuration
+                Model
               </Label>
               <ModelPicker
                 disabled={!hasModelOptions || creating || isLoading}
@@ -377,117 +467,129 @@ export function CreateEmbeddingSetDialog({
                 modelType="embedding"
                 onChange={(value: string | string[]) => {
                   const modelKey = value as string;
-                  const selectedModel = models.find((m) => m.id === modelKey);
-                  // Only auto-fill name if it's empty or was auto-generated
-                  const shouldAutoFillName = formData.name === '';
-                  if (shouldAutoFillName && selectedModel) {
-                    const uniqueName = generateUniqueName(selectedModel.name, existingNames);
-                    dispatch({
-                      type: 'set_form_data',
-                      formData: { ...formData, selectedModel: modelKey, name: uniqueName },
-                    });
-                  } else {
-                    dispatch({ type: 'set_form_field', field: 'selectedModel', value: modelKey });
-                  }
+                  const picked = models.find((m) => m.id === modelKey);
+                  // If the user hasn't typed in the name field yet, regenerate
+                  // the auto-name from the newly selected model. Otherwise
+                  // preserve whatever the user typed.
+                  const autoName =
+                    !nameDirty && picked ? generateUniqueName(picked.name, existingNames) : null;
+                  dispatch({ type: 'select_model', modelId: modelKey, autoName });
                 }}
                 placeholder={isLoading ? 'Loading models...' : 'Select an embedding model'}
                 providers={providers}
                 searchable={false}
                 value={formData.selectedModel}
               />
-              {selectedModelInfo && (
-                <p className="mt-2 text-muted-foreground text-xs">
-                  {formatModelDescription(selectedModelInfo)}
-                </p>
-              )}
+              <div
+                className="min-h-[1.25rem] text-muted-foreground text-xs leading-5"
+                data-testid="model-picker-description-slot"
+              >
+                {selectedModelInfo?.description ?? null}
+              </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="grid gap-2">
               <Label className="font-medium text-sm" htmlFor="name">
                 Name <span className="text-destructive">*</span>
               </Label>
               <Input
                 disabled={creating}
                 id="name"
-                onChange={(e) =>
-                  dispatch({ type: 'set_form_field', field: 'name', value: e.target.value })
-                }
-                placeholder="e.g., Code Embeddings, General Purpose, etc."
+                name="name"
+                onChange={(e) => {
+                  nameDirtyRef.current = true;
+                  dispatch({ type: 'edit_name', value: e.target.value });
+                }}
+                onInputCapture={() => {
+                  nameDirtyRef.current = true;
+                }}
+                placeholder="e.g., Code Embeddings"
+                ref={nameInputRef}
                 value={formData.name}
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="grid gap-2">
               <Label className="font-medium text-sm" htmlFor="description">
                 Description
               </Label>
               <Input
                 disabled={creating}
                 id="description"
+                name="description"
                 onChange={(e) =>
-                  dispatch({ type: 'set_form_field', field: 'description', value: e.target.value })
+                  dispatch({ type: 'set_field', field: 'description', value: e.target.value })
                 }
-                placeholder="Describe the purpose of this collection"
+                placeholder="What this collection is for"
                 value={formData.description}
               />
             </div>
 
-            <div className="space-y-2">
-              <Label className="font-medium text-sm" htmlFor="tags">
-                Tags
-              </Label>
-              <Input
-                disabled={creating}
-                id="tags"
-                onChange={(e) =>
-                  dispatch({ type: 'set_form_field', field: 'tags', value: e.target.value })
-                }
-                placeholder="Comma-separated tags (e.g., code, programming, analysis)"
-                value={formData.tags}
-              />
-              <p className="text-muted-foreground text-xs">Use commas to separate multiple tags</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label className="font-medium text-sm" htmlFor="tags">
+                  Tags
+                </Label>
+                <Input
+                  disabled={creating}
+                  id="tags"
+                  name="tags"
+                  onChange={(e) =>
+                    dispatch({ type: 'set_field', field: 'tags', value: e.target.value })
+                  }
+                  placeholder="code, docs, analysis"
+                  value={formData.tags}
+                />
+                <p className="min-h-[1rem] text-[11px] text-muted-foreground leading-4">
+                  Comma-separated
+                </p>
+              </div>
+
+              <div className="grid gap-2">
+                <Label className="font-medium text-sm" htmlFor="category">
+                  Category
+                </Label>
+                <Input
+                  disabled={creating}
+                  id="category"
+                  name="category"
+                  onChange={(e) =>
+                    dispatch({ type: 'set_field', field: 'category', value: e.target.value })
+                  }
+                  placeholder="e.g., development"
+                  value={formData.category}
+                />
+                {/* Empty-but-reserved spacer keeps the two columns visually balanced. */}
+                <div aria-hidden="true" className="min-h-[1rem]" />
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label className="font-medium text-sm" htmlFor="category">
-                Category
-              </Label>
-              <Input
+            <DialogFooter className="pt-2">
+              <Button
                 disabled={creating}
-                id="category"
-                onChange={(e) =>
-                  dispatch({ type: 'set_form_field', field: 'category', value: e.target.value })
-                }
-                placeholder="e.g., development, documentation, general-text"
-                value={formData.category}
-              />
-            </div>
-          </div>
+                onClick={() => handleOpenChange(false)}
+                type="button"
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              <Button disabled={!canSubmit} type="submit">
+                {creating ? 'Creating...' : 'Create Collection'}
+              </Button>
+            </DialogFooter>
+          </form>
         ) : (
-          <div className="rounded-md border border-dashed bg-muted/30 px-4 py-6 text-muted-foreground text-sm">
-            Enable at least one embedding model in Settings to create a collection.
-          </div>
+          <>
+            <div className="rounded-md border border-dashed bg-muted/30 px-4 py-6 text-muted-foreground text-sm">
+              Enable at least one embedding model in Settings to create a collection.
+            </div>
+            <DialogFooter>
+              <Button onClick={() => handleOpenChange(false)} type="button" variant="outline">
+                Close
+              </Button>
+            </DialogFooter>
+          </>
         )}
-
-        <DialogFooter>
-          <Button
-            disabled={creating}
-            onClick={() => handleOpenChange(false)}
-            type="button"
-            variant="outline"
-          >
-            Cancel
-          </Button>
-          <Button
-            disabled={
-              creating || !hasModelOptions || !formData.selectedModel || !formData.name.trim()
-            }
-            onClick={handleCreate}
-            type="button"
-          >
-            {creating ? 'Creating...' : 'Create Collection'}
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

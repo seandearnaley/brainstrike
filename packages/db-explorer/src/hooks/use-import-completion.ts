@@ -64,9 +64,10 @@ function buildDescription(counts: ImportCounts): string {
 export function createImportCompletionHandler(
   toast: ReturnType<typeof useToast>['toast'],
   loadRecords: () => Promise<void>,
-  loadChunks: () => Promise<void>
+  loadChunks: () => Promise<void>,
+  refreshCollectionStats?: () => Promise<void>
 ) {
-  return (results: EnhancedImportResult[]) => {
+  return async (results: EnhancedImportResult[]): Promise<void> => {
     const counts = countImportOutcomes(results);
     const description = buildDescription(counts);
 
@@ -76,7 +77,10 @@ export function createImportCompletionHandler(
       variant: counts.failed > 0 ? 'destructive' : 'default',
     });
 
-    void loadRecords();
-    void loadChunks();
+    if (refreshCollectionStats) {
+      await refreshCollectionStats();
+    }
+    await loadRecords();
+    await loadChunks();
   };
 }

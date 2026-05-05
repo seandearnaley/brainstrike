@@ -1,20 +1,14 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
-import { ensureToolsPanelVisible } from './utils/layout-helpers';
+import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const PROMPT_TEXT = 'Find relevant context';
 
 async function openAssistantChat(window: Page): Promise<void> {
-  const rightPanel = await ensureToolsPanelVisible(window);
-  await expect(rightPanel).toBeVisible();
-
-  const assistantTab = window.getByRole('tab', { name: /assistant/i }).first();
-  await expect(assistantTab).toBeVisible({ timeout: E2E_TIMEOUTS.tabVisibility });
-  await assistantTab.click();
-
-  const assistantChatCard = window.getByTestId('assistant-chat-card');
+  const assistantChatCard = await ensureAssistantShellVisible(window);
   await expect(assistantChatCard).toBeVisible({ timeout: E2E_TIMEOUTS.cardVisibility });
 
   const loadingIndicator = window.getByText(/Loading assistant/i);
@@ -53,6 +47,12 @@ async function expandReasoning(window: Page): Promise<void> {
 }
 
 test.describe('Assistant retrieval (desktop)', () => {
+  test.beforeEach(async ({ window }) => {
+    const { mockFileSystemOperations } = await loadElectronHelpers();
+    await mockFileSystemOperations(window);
+    await ensureMockWorkspaceOpen(window);
+  });
+
   test('shows retrieval tool event and response', async ({ window }) => {
     await setupAssistantMock(window, { variant: 'tool', message: 'Retrieved answer.' });
     await openAssistantChat(window);

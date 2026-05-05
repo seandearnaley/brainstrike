@@ -115,9 +115,8 @@ const mockStorage = {
 vi.mock('../file-explorer-provider', () => ({
   useFileExplorerStoreContext: vi.fn(() => {
     // Create a store-like function that returns values based on selector
-    const storeFn = (selector: (state: Record<string, unknown>) => unknown) => {
-      return selector(mockStoreState as unknown as Record<string, unknown>);
-    };
+    const storeFn = (selector: (state: Record<string, unknown>) => unknown) =>
+      selector(mockStoreState as unknown as Record<string, unknown>);
     storeFn.getState = () => mockStoreState;
     // Add persist API to the store function
     storeFn.persist = {

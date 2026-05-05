@@ -187,9 +187,7 @@ describe('ElectronFileSystemAdapter', () => {
 
   it('should throw error when electron dialog is unavailable', async () => {
     vi.resetModules();
-    vi.doMock('electron', () => {
-      return {};
-    });
+    vi.doMock('electron', () => ({}));
     // re-import adapter to pick up failing import
     const { ElectronFileSystemAdapter: FailingAdapter } = await import(
       '../adapters/electron-adapter'

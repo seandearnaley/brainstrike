@@ -8,14 +8,14 @@
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@stryker-mutator/api": "^9.5.1",
-    "@stryker-mutator/core": "^9.5.1",
-    "@stryker-mutator/typescript-checker": "^9.5.1",
-    "@stryker-mutator/vitest-runner": "^9.5.1",
-    "@types/node": "^25.3.0",
+    "@stryker-mutator/api": "^9.6.1",
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/typescript-checker": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
+    "@types/node": "^25.6.0",
     "rimraf": "^6.1.3",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.4"
   },
   "exports": {
     "./file-content-worker": {
@@ -40,7 +40,7 @@
     "mutation": "npx @stryker-mutator/core run",
     "prepublishOnly": "pnpm run build",
     "test": "vitest run",
-    "test:coverage": "pnpm -w test:coverage",
+    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit"
   },

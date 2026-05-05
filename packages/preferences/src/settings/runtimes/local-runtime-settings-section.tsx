@@ -367,12 +367,14 @@ const LocalRuntimeCard: FC<LocalRuntimeCardProps> = ({ card }) => {
   const isBaseUrlDirty = (settings?.localRuntimeBaseUrl ?? '') !== draftBaseUrl.trim();
 
   return (
-    <Card className="space-y-4 p-4">
+    <Card className="space-y-4 p-4" data-testid={`local-runtime-card-${card.runtimeId}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-base">{card.title}</h3>
-            <Badge variant={badgeVariant}>{descriptor.label}</Badge>
+            <Badge data-testid={`local-runtime-status-${card.runtimeId}`} variant={badgeVariant}>
+              {descriptor.label}
+            </Badge>
           </div>
           <p className="text-muted-foreground text-sm">{card.subtitle}</p>
           {descriptor.detail ? (

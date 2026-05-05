@@ -19,6 +19,7 @@ import {
   Button,
   CollectionBrowser,
   type CollectionBrowserFilters,
+  CollectionBrowserToolbar,
   type CollectionNodeType,
   type CollectionSortState,
   type CollectionTreeInput,
@@ -28,7 +29,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   type EmbeddingStatus,
-  FilterBar,
   type GroupByKey,
   NodeInspector,
   type SearchConfig,
@@ -281,7 +281,6 @@ function buildSelectedNodeData(
 /**
  * CollectionBrowserView - Connects CollectionBrowser to database data
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This adapter intentionally centralizes tree-grid wiring and inspector coordination.
 export function CollectionBrowserView({
   records,
   chunks,
@@ -325,8 +324,8 @@ export function CollectionBrowserView({
     searchConfigRetrievalMode,
     searchConfigVectorWeight,
     searchConfigFtsWeight,
+    searchPanelExpanded,
     searchConfigExpanded,
-    isFilterVisible,
     setSearchMode,
     setSemanticQuery,
     setSearchConfigThreshold,
@@ -336,16 +335,13 @@ export function CollectionBrowserView({
     setSearchConfigRetrievalMode,
     setSearchConfigVectorWeight,
     setSearchConfigFtsWeight,
+    setSearchPanelExpanded,
     setSearchConfigExpanded,
-    setIsFilterVisible,
     // Grouping and checkbox state
     groupBy,
-    contextSelectedIds,
     showCheckbox,
     multiSelectEnabled,
     setGroupBy,
-    toggleContextSelectedId,
-    clearContextSelectedIds,
     setShowCheckbox,
     setMultiSelectEnabled,
     toggleExpanded,
@@ -373,13 +369,6 @@ export function CollectionBrowserView({
     [setSearchQuery, setNodeTypes, setEmbeddingStatus]
   );
 
-  // Handle filter reset
-  const handleResetFilters = useCallback(() => {
-    setSearchQuery('');
-    setNodeTypes(['collection', 'file', 'chunk', 'embedding']);
-    setEmbeddingStatus('all');
-  }, [setSearchQuery, setNodeTypes, setEmbeddingStatus]);
-
   // Handle collapse all
   const handleCollapseAll = useCallback(() => {
     setExpandedIds([]);
@@ -397,8 +386,6 @@ export function CollectionBrowserView({
 
   // Convert expanded IDs array to Set for CollectionBrowser
   const expandedIdsSet = useMemo(() => new Set(expandedIds), [expandedIds]);
-  const contextNodeIdsSet = useMemo(() => new Set(contextSelectedIds), [contextSelectedIds]);
-  const shouldShowContextToolbar = selectedId !== null || contextSelectedIds.length > 0;
 
   // State for selected node inspection (derived from store selectedId)
   const { selectedNodeType, selectedNodeId } = useMemo(() => {
@@ -640,11 +627,23 @@ export function CollectionBrowserView({
 
   // Handle semantic search execution
   const handleSearch = useCallback(() => {
+    if (activeCollectionId === null) {
+      return;
+    }
     if (semanticQuery.trim()) {
       setSearchMode('semantic');
       void executeSearch(semanticQuery, searchConfig, activeCollectionId);
     }
   }, [semanticQuery, searchConfig, activeCollectionId, executeSearch, setSearchMode]);
+
+  const hasActiveCollection = activeCollectionId !== null;
+  const hasScopedSemanticSearch = hasActiveCollection && hasSearched;
+  const scopedSearchResults = useMemo(() => {
+    if (activeCollectionId === null) {
+      return [];
+    }
+    return searchResults.filter((result) => result.embeddingSetId === activeCollectionId);
+  }, [activeCollectionId, searchResults]);
 
   // Transform data for CollectionBrowser.
   // When semantic search results are present, build the tree from the search
@@ -652,18 +651,18 @@ export function CollectionBrowserView({
   // `records` only contains the current page. Without this, files on other
   // pages have no tree nodes and the tree shows "No matching results".
   const treeData = useMemo(() => {
-    if (searchMode === 'semantic' && hasSearched && searchResults.length > 0) {
+    if (searchMode === 'semantic' && hasScopedSemanticSearch && scopedSearchResults.length > 0) {
       // Build a minimal tree from search results — each result has enough
       // data (fileRecordId, fileName, filePath, content, chunkId) to create
       // both file and chunk nodes without querying the paginated records.
       // Single pass: build both file and chunk arrays from search results
       const fileMap = new Map<
         string,
-        { id: string; name: string; path: string; chunkCount: number }
+        { id: string; name: string; path: string; size: number; chunkCount: number }
       >();
       const treeChunks: CollectionTreeInput['chunks'] = [];
 
-      for (const [i, result] of searchResults.entries()) {
+      for (const [i, result] of scopedSearchResults.entries()) {
         const existing = fileMap.get(result.fileRecordId);
         if (existing) {
           existing.chunkCount++;
@@ -672,16 +671,20 @@ export function CollectionBrowserView({
             id: result.fileRecordId,
             name: result.fileName,
             path: result.filePath,
+            size: result.fileSize ?? 0,
             chunkCount: 1,
           });
         }
         treeChunks.push({
           id: result.chunkId,
           fileRecordId: result.fileRecordId,
-          chunkIndex: i,
+          chunkIndex: result.chunkIndex ?? i,
           content: result.content,
-          tokenCount: 0,
+          tokenCount: result.tokenCount ?? 0,
           hasEmbedding: true,
+          ...(result.embeddingDimensions === undefined
+            ? {}
+            : { embeddingDimensions: result.embeddingDimensions }),
           ...(result.embeddingSetId ? { embeddingSetId: result.embeddingSetId } : {}),
         });
       }
@@ -691,7 +694,7 @@ export function CollectionBrowserView({
           id: file.id,
           name: file.name,
           path: file.path,
-          size: 0,
+          size: file.size,
           chunksCount: file.chunkCount,
           embeddedChunksCount: file.chunkCount,
           ...(activeCollectionId ? { embeddingSetId: activeCollectionId } : {}),
@@ -707,8 +710,8 @@ export function CollectionBrowserView({
     activeCollectionId,
     pendingChunkIds,
     searchMode,
-    hasSearched,
-    searchResults,
+    hasScopedSemanticSearch,
+    scopedSearchResults,
   ]);
 
   useEffect(() => {
@@ -840,11 +843,12 @@ export function CollectionBrowserView({
     [setSelectedId, records, loadChunkDetail, onFileSelect, onChunkSelect]
   );
 
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       isMountedRef.current = false;
-    };
-  }, []);
+    },
+    []
+  );
 
   // Handle multi-select toggle — also toggles showCheckbox in sync
   const handleMultiSelectToggle = useCallback(
@@ -862,15 +866,6 @@ export function CollectionBrowserView({
     },
     [setGroupBy]
   );
-
-  const handleToggleContextForSelected = useCallback(() => {
-    if (!selectedId) {
-      return;
-    }
-    toggleContextSelectedId(selectedId);
-  }, [selectedId, toggleContextSelectedId]);
-
-  const handleClearContextSelection = clearContextSelectedIds;
 
   // Handle double-click: toggle expand for parent nodes, open inspector for leaves
   const handleDoubleClick = useCallback(
@@ -1040,83 +1035,40 @@ export function CollectionBrowserView({
 
   // Empty state message - depends on search mode
   const emptyMessage = useMemo(() => {
-    if (searchMode === 'semantic' && hasSearched && searchResults.length === 0) {
+    if (!activeCollectionId) {
+      return 'Create or select a collection to start importing files and searching with semantic embeddings.';
+    }
+    if (searchMode === 'semantic' && hasScopedSemanticSearch && scopedSearchResults.length === 0) {
       return 'No matching results found. Try adjusting your query or threshold.';
     }
     return 'No files in this collection. Import files to get started.';
-  }, [searchMode, hasSearched, searchResults.length]);
+  }, [activeCollectionId, searchMode, hasScopedSemanticSearch, scopedSearchResults.length]);
 
   return (
     <div className="flex h-full flex-col" style={{ height }}>
       {/* Search mode bar - Top level controls */}
       <SearchModeBar
+        advancedOptions={
+          <SearchConfigPanel
+            className="rounded-md border border-border"
+            config={searchConfig}
+            isExpanded={searchConfigExpanded}
+            onConfigChange={handleSearchConfigChange}
+            onExpandedChange={setSearchConfigExpanded}
+          />
+        }
         className="border-border border-b"
-        filters={filters}
-        groupBy={groupBy}
-        hasSearched={hasSearched}
-        isConfigExpanded={searchConfigExpanded}
-        isFilterVisible={isFilterVisible}
+        hasSearched={hasScopedSemanticSearch}
+        isSearchExpanded={searchPanelExpanded}
         isSearching={isSearching}
         mode={searchMode}
-        multiSelectEnabled={multiSelectEnabled}
-        onCollapseAll={handleCollapseAll}
-        onConfigExpandedChange={setSearchConfigExpanded}
-        onExpandAll={handleExpandAll}
-        onFilterVisibleChange={setIsFilterVisible}
-        onGroupByChange={handleGroupByChange}
         onModeChange={handleSearchModeChange}
-        onMultiSelectToggle={handleMultiSelectToggle}
-        onResetFilters={handleResetFilters}
+        onSearchExpandedChange={setSearchPanelExpanded}
         onSemanticQueryChange={setSemanticQuery}
         onSemanticSearch={handleSearch}
-        resultCount={searchResults.length}
+        resultCount={scopedSearchResults.length}
         semanticQuery={semanticQuery}
-        totalCount={pagination?.totalRecords ?? records.length}
       />
-
-      {/* Advanced Search Options Panel */}
-      <SearchConfigPanel
-        config={searchConfig}
-        isExpanded={searchConfigExpanded}
-        onConfigChange={handleSearchConfigChange}
-        onExpandedChange={setSearchConfigExpanded}
-      />
-
-      {/* Quick Filters Panel */}
-      <FilterBar
-        filters={filters}
-        isExpanded={isFilterVisible}
-        onExpandedChange={setIsFilterVisible}
-        onFiltersChange={handleFiltersChange}
-      />
-
-      {shouldShowContextToolbar && (
-        <div className="flex items-center justify-between border-border border-b px-3 py-2">
-          <span className="text-muted-foreground text-xs">
-            In context: {contextSelectedIds.length}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button
-              disabled={!selectedId}
-              onClick={handleToggleContextForSelected}
-              size="sm"
-              variant="outline"
-            >
-              {selectedId && contextNodeIdsSet.has(selectedId)
-                ? 'Remove selected from context'
-                : 'Add selected to context'}
-            </Button>
-            <Button
-              disabled={contextSelectedIds.length === 0}
-              onClick={handleClearContextSelection}
-              size="sm"
-              variant="outline"
-            >
-              Clear context
-            </Button>
-          </div>
-        </div>
-      )}
 
       {/* Error message display */}
       {searchError && (
@@ -1124,6 +1076,17 @@ export function CollectionBrowserView({
           {searchError}
         </div>
       )}
+
+      <CollectionBrowserToolbar
+        filters={filters}
+        groupBy={groupBy}
+        multiSelectEnabled={multiSelectEnabled}
+        onCollapseAll={handleCollapseAll}
+        onExpandAll={handleExpandAll}
+        onFiltersChange={handleFiltersChange}
+        onGroupByChange={handleGroupByChange}
+        onMultiSelectToggle={handleMultiSelectToggle}
+      />
 
       {/* Main content area */}
       <div className="relative flex min-h-0 flex-1 border-t">
@@ -1154,12 +1117,11 @@ export function CollectionBrowserView({
             <CollectionBrowser
               bulkActions={bulkActions}
               className="h-full"
-              contextNodeIds={contextNodeIdsSet}
               data={treeData}
               emptyMessage={emptyMessage}
               expandedIds={expandedIdsSet}
               filters={filters}
-              hasSearched={hasSearched}
+              hasSearched={hasScopedSemanticSearch}
               height="100%"
               isLoading={isLoading}
               isSearching={isSearching}
@@ -1176,8 +1138,10 @@ export function CollectionBrowserView({
               showCheckbox={showCheckbox && multiSelectEnabled}
               treeWindowingStrategy="virtual"
               {...(sortState ? { sortState } : {})}
-              {...(searchMode === 'semantic' ? { semanticResults: searchResults } : {})}
-              {...(groupBy !== 'none' ? { groupBy } : {})}
+              {...(searchMode === 'semantic' && hasActiveCollection
+                ? { semanticResults: scopedSearchResults }
+                : {})}
+              {...(groupBy === 'none' ? {} : { groupBy })}
             />
           </Panel>
 
@@ -1214,23 +1178,21 @@ export function CollectionBrowserView({
       </div>
 
       {pagination && (
-        <div className="border-border border-t px-3 py-2">
-          <TablePagination
-            currentPage={pagination.currentPage}
-            onPageChange={pagination.onPageChange}
-            onPageSizeChange={pagination.onPageSizeChange}
-            pageInfo="files"
-            pageSize={pagination.pageSize}
-            pageSizeOptions={EMBEDDING_TREE_PAGE_SIZE_OPTIONS}
-            showItemRange
-            totalItems={pagination.totalRecords}
-            totalPages={
-              pagination
-                ? Math.max(1, Math.ceil(pagination.totalRecords / Math.max(1, pagination.pageSize)))
-                : 1
-            }
-          />
-        </div>
+        <TablePagination
+          currentPage={pagination.currentPage}
+          onPageChange={pagination.onPageChange}
+          onPageSizeChange={pagination.onPageSizeChange}
+          pageInfo="files"
+          pageSize={pagination.pageSize}
+          pageSizeOptions={EMBEDDING_TREE_PAGE_SIZE_OPTIONS}
+          showItemRange
+          totalItems={pagination.totalRecords}
+          totalPages={
+            pagination
+              ? Math.max(1, Math.ceil(pagination.totalRecords / Math.max(1, pagination.pageSize)))
+              : 1
+          }
+        />
       )}
 
       {/* Context menu (positioned at right-click location) */}

@@ -17,8 +17,6 @@ export type { CollectionSortDirection, CollectionSortKey, CollectionSortState, S
  * Persisted data for the CollectionBrowserView
  */
 interface CollectionBrowserData {
-  /** Node IDs marked as in-context */
-  contextSelectedIds: string[];
   /** Filter state - embedding status filter */
   embeddingStatus: string;
   /** Expanded node IDs in the tree */
@@ -27,8 +25,6 @@ interface CollectionBrowserData {
   groupBy: GroupByKey;
   /** Width of the inspector panel as a percentage (0-100) */
   inspectorWidth: number;
-  /** Whether the filter bar is visible */
-  isFilterVisible: boolean;
   /** Whether the inspector panel is collapsed */
   isInspectorCollapsed: boolean;
   /** Whether multi-select mode is enabled */
@@ -52,6 +48,8 @@ interface CollectionBrowserData {
   // Semantic search state (persisted)
   /** Current search mode (quick filter or semantic search) */
   searchMode: SearchMode;
+  /** Whether the hybrid search panel is expanded */
+  searchPanelExpanded: boolean;
   /** Filter state - search query (quick filter mode) */
   searchQuery: string;
   /** Currently selected node ID */
@@ -68,8 +66,6 @@ interface CollectionBrowserData {
  * Actions for the CollectionBrowserView store
  */
 interface CollectionBrowserActions {
-  /** Clear all in-context node IDs */
-  clearContextSelectedIds: () => void;
   /** Collapse all nodes */
   collapseAll: () => void;
   /** Expand all provided IDs */
@@ -88,8 +84,6 @@ interface CollectionBrowserActions {
   setInspectorCollapsed: (collapsed: boolean) => void;
   /** Set the width of the inspector panel */
   setInspectorWidth: (width: number) => void;
-  /** Set filter bar visibility */
-  setIsFilterVisible: (visible: boolean) => void;
   /** Set multi-select mode */
   setMultiSelectEnabled: (enabled: boolean) => void;
   /** Set enabled node types */
@@ -111,6 +105,8 @@ interface CollectionBrowserActions {
   // Semantic search actions
   /** Set the search mode (quick or semantic) */
   setSearchMode: (mode: SearchMode) => void;
+  /** Set hybrid search panel expanded state */
+  setSearchPanelExpanded: (expanded: boolean) => void;
   /** Set search query (quick filter mode) */
   setSearchQuery: (query: string) => void;
   /** Set the selected node ID */
@@ -121,8 +117,6 @@ interface CollectionBrowserActions {
   setShowCheckbox: (show: boolean) => void;
   /** Set the sort state */
   setSortState: (state: CollectionSortState | null) => void;
-  /** Toggle in-context state for a node ID */
-  toggleContextSelectedId: (nodeId: string) => void;
   /** Toggle a single node's expansion */
   toggleExpanded: (id: string) => void;
   /** Toggle a node type */
@@ -135,7 +129,7 @@ export type CollectionBrowserStore = CollectionBrowserData & CollectionBrowserAc
 
 // Keep the existing key stable so persisted snapshots can migrate in place.
 const STORE_NAME = 'collection-browser.v1' as const;
-const STORE_VERSION = 2 as const;
+const STORE_VERSION = 3 as const;
 type PersistedCollectionBrowserData = Partial<CollectionBrowserData>;
 
 /**
@@ -161,9 +155,8 @@ const DEFAULT_STATE: CollectionBrowserData = {
   searchConfigVectorWeight: 1.0,
   searchConfigFtsWeight: 1.0,
   searchConfigExpanded: false,
-  isFilterVisible: false,
+  searchPanelExpanded: false,
   groupBy: 'none',
-  contextSelectedIds: [],
   showCheckbox: false,
   multiSelectEnabled: false,
 };
@@ -185,13 +178,11 @@ function migratePersistedState(
     return snapshot;
   }
 
-  // Chain future version migrations here (v2->v3, v3->v4, etc.) to preserve upgrade paths.
-  // Also recovers from corrupted snapshots where contextSelectedIds is not an array.
-  if (version < 2 || !Array.isArray(snapshot.contextSelectedIds)) {
-    return {
-      ...snapshot,
-      contextSelectedIds: [],
-    };
+  // Chain future version migrations here (v3->v4, etc.) to preserve upgrade paths.
+  if (version < 3) {
+    const { contextSelectedIds: _contextSelectedIds, ...rest } =
+      snapshot as PersistedCollectionBrowserData & { contextSelectedIds?: unknown };
+    return rest;
   }
 
   return snapshot;
@@ -315,21 +306,9 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
 
       setSearchConfigExpanded: (expanded) => set({ searchConfigExpanded: expanded }),
 
-      setIsFilterVisible: (visible) => set({ isFilterVisible: visible }),
+      setSearchPanelExpanded: (expanded) => set({ searchPanelExpanded: expanded }),
 
       setGroupBy: (groupBy) => set({ groupBy }),
-
-      toggleContextSelectedId: (nodeId) => {
-        const { contextSelectedIds } = get();
-        const idSet = new Set(contextSelectedIds);
-        if (idSet.has(nodeId)) {
-          idSet.delete(nodeId);
-        } else {
-          idSet.add(nodeId);
-        }
-        set({ contextSelectedIds: Array.from(idSet) });
-      },
-      clearContextSelectedIds: () => set({ contextSelectedIds: [] }),
 
       setShowCheckbox: (show) => set({ showCheckbox: show }),
 
@@ -363,10 +342,9 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         searchConfigVectorWeight: s.searchConfigVectorWeight,
         searchConfigFtsWeight: s.searchConfigFtsWeight,
         searchConfigExpanded: s.searchConfigExpanded,
-        isFilterVisible: s.isFilterVisible,
+        searchPanelExpanded: s.searchPanelExpanded,
         // Persist grouping preference, but keep multi-select UI mode session-scoped.
         groupBy: s.groupBy,
-        contextSelectedIds: s.contextSelectedIds,
       }),
     }
   )
@@ -401,9 +379,8 @@ export const collectionBrowserSelectors = {
     ftsWeight: s.searchConfigFtsWeight,
   }),
   searchConfigExpanded: (s: CollectionBrowserStore) => s.searchConfigExpanded,
-  isFilterVisible: (s: CollectionBrowserStore) => s.isFilterVisible,
+  searchPanelExpanded: (s: CollectionBrowserStore) => s.searchPanelExpanded,
   groupBy: (s: CollectionBrowserStore) => s.groupBy,
-  contextSelectedIds: (s: CollectionBrowserStore) => s.contextSelectedIds,
   showCheckbox: (s: CollectionBrowserStore) => s.showCheckbox,
   multiSelectEnabled: (s: CollectionBrowserStore) => s.multiSelectEnabled,
 };

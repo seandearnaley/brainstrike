@@ -2,6 +2,7 @@ import type { LocalRuntimeModelCatalogState, SupportedProvider } from '@brainstr
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/tool-metadata';
 import {
   __resetAssistantPreferencesStoreForTests,
+  useAssistantMemoryPreferencesStore,
   useAssistantPreferencesStore,
   usePanelLayoutStore,
 } from '@brainstrike/preferences';
@@ -10,11 +11,12 @@ import { encodeFileSelection } from '@brainstrike/utils';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 
 const NATIVE_TOOL_COUNT = Object.keys(NATIVE_TOOL_DEFAULTS).length;
 
-const { fileExplorerMocks, testEnabledModels } = vi.hoisted(() => ({
+const { fileExplorerMocks, preparedRequestDataLog, testEnabledModels } = vi.hoisted(() => ({
   fileExplorerMocks: {
     addMultipleSelectedFiles: vi.fn<(folderId: string, paths: string[]) => void>(),
     clearSelectionRules: vi.fn<() => void>(),
@@ -36,6 +38,7 @@ const { fileExplorerMocks, testEnabledModels } = vi.hoisted(() => ({
     },
   },
   // Track enabled models in a mutable Set for testing toggle functionality
+  preparedRequestDataLog: [] as Array<Record<string, unknown> | undefined>,
   testEnabledModels: new Set<string>([
     'gpt-5.2', // OpenAI default
     'claude-sonnet-4-5', // Anthropic default
@@ -133,6 +136,24 @@ vi.mock('@brainstrike/preferences', async () => {
     setProviderSettings: (providerId: string, updates: Record<string, unknown>) => void;
   }
 
+  interface AssistantMemoryPreferencesState {
+    observationalMemory: {
+      enabled: boolean;
+      modelTarget: string;
+      scope: 'thread' | 'resource';
+      messageTokens: number;
+      observationTokens: number;
+      retrievalMode: 'off' | 'messages' | 'vector';
+    };
+    semanticRecall: {
+      enabled: boolean;
+      embeddingModelTarget: string | null;
+      scope: 'thread' | 'resource';
+      topK: number;
+      messageRange: number;
+    };
+  }
+
   const useAssistantPreferencesStore = create<AssistantPreferencesState>((set, get) => ({
     selectedProvider: null,
     selectedModel: null,
@@ -216,6 +237,28 @@ vi.mock('@brainstrike/preferences', async () => {
     },
   }));
 
+  const defaultAssistantMemoryPreferences: AssistantMemoryPreferencesState = {
+    observationalMemory: {
+      enabled: true,
+      modelTarget: 'openai/gpt-5.2-chat-latest',
+      scope: 'thread',
+      messageTokens: 30_000,
+      observationTokens: 40_000,
+      retrievalMode: 'off',
+    },
+    semanticRecall: {
+      enabled: false,
+      embeddingModelTarget: 'openai/text-embedding-3-small',
+      scope: 'resource',
+      topK: 5,
+      messageRange: 2,
+    },
+  };
+
+  const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferencesState>(() => ({
+    ...defaultAssistantMemoryPreferences,
+  }));
+
   const nativeToolPreferencesState: {
     toolStates: Record<string, boolean>;
     setToolEnabled: (toolId: string, enabled: boolean) => void;
@@ -272,6 +315,9 @@ vi.mock('@brainstrike/preferences', async () => {
       enabledModelsByProvider: buildEnabledModelsByProvider(),
       providerSettings: {},
     });
+    useAssistantMemoryPreferencesStore.setState({
+      ...defaultAssistantMemoryPreferences,
+    });
     nativeToolPreferencesState.toolStates = {};
   };
 
@@ -285,6 +331,7 @@ vi.mock('@brainstrike/preferences', async () => {
 
   return {
     __resetAssistantPreferencesStoreForTests,
+    useAssistantMemoryPreferencesStore,
     useAssistantPreferencesStore,
     useEnsureModelRegistry: vi.fn(),
     useModelRegistryStore,
@@ -295,16 +342,21 @@ vi.mock('@brainstrike/preferences', async () => {
   };
 });
 
-vi.mock('@brainstrike/preferences/hooks/use-model-registry', async () => {
-  return {
-    useEnsureModelRegistry: vi.fn(),
-  };
-});
+vi.mock('@brainstrike/preferences/hooks/use-model-registry', async () => ({
+  useEnsureModelRegistry: vi.fn(),
+}));
 
 vi.mock('@brainstrike/preferences/stores/assistant-preferences-store', async () => {
   const preferences = await import('@brainstrike/preferences');
   return {
     useAssistantPreferencesStore: preferences.useAssistantPreferencesStore,
+  };
+});
+
+vi.mock('@brainstrike/preferences/stores/assistant-memory-preferences-store', async () => {
+  const preferences = await import('@brainstrike/preferences');
+  return {
+    useAssistantMemoryPreferencesStore: preferences.useAssistantMemoryPreferencesStore,
   };
 });
 
@@ -345,6 +397,7 @@ vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', async () => {
 
 const { mockDb } = vi.hoisted(() => ({
   mockDb: {
+    exec: vi.fn().mockResolvedValue(undefined),
     query: vi.fn().mockResolvedValue({ rows: [] }),
   },
 }));
@@ -527,6 +580,10 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     selectedModel,
     onModelChange,
     onModelToggle,
+    onProviderSettingsChange,
+    onThreadRunStart,
+    completePreparedRequest,
+    prepareRequestData,
     contextMenu,
     requestData,
     disabled,
@@ -546,6 +603,14 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     selectedModel?: string;
     onModelChange?: (compositeKey: string) => void;
     onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
+    onProviderSettingsChange?: (providerId: string, updates: Record<string, unknown>) => void;
+    onThreadRunStart?: () => void;
+    completePreparedRequest?: (
+      requestData: Record<string, unknown> | undefined,
+      status: 'cancelled' | 'completed' | 'failed',
+      error?: string
+    ) => Promise<void> | void;
+    prepareRequestData?: () => Promise<Record<string, unknown> | undefined>;
     contextMenu?: Record<string, unknown>;
     requestData?: Record<string, unknown>;
     disabled?: boolean;
@@ -670,6 +735,70 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
             </label>
           ))}
         </div>
+        <button data-testid="submit-thread-run" onClick={onThreadRunStart} type="button">
+          Submit
+        </button>
+        <button
+          data-testid="provider-settings-change-openai"
+          onClick={() =>
+            onProviderSettingsChange?.('openai', {
+              maxOutputTokens: 2048,
+              reasoningEffort: 'low',
+            })
+          }
+          type="button"
+        >
+          Change OpenAI settings
+        </button>
+        <button
+          data-testid="prepare-thread-request"
+          onClick={async () => {
+            try {
+              preparedRequestDataLog.push(await prepareRequestData?.());
+            } catch (error) {
+              preparedRequestDataLog.push({
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }}
+          type="button"
+        >
+          Prepare request
+        </button>
+        <button
+          data-testid="complete-prepared-request-success"
+          onClick={async () => {
+            await completePreparedRequest?.(preparedRequestDataLog.at(-1), 'completed');
+          }}
+          type="button"
+        >
+          Complete prepared request
+        </button>
+        <button
+          data-testid="complete-prepared-request-failure"
+          onClick={async () => {
+            await completePreparedRequest?.(
+              preparedRequestDataLog.at(-1),
+              'failed',
+              'model failed'
+            );
+          }}
+          type="button"
+        >
+          Fail prepared request
+        </button>
+        <button
+          data-testid="complete-prepared-request-without-run"
+          onClick={async () => {
+            await completePreparedRequest?.(
+              { memory: { threadId: 'thread-existing' } },
+              'completed'
+            );
+          }}
+          type="button"
+        >
+          Complete request without run
+        </button>
       </div>
     );
   },
@@ -688,6 +817,16 @@ function resetTestEnabledModels() {
 beforeEach(() => {
   resetTestEnabledModels();
   __resetAssistantPreferencesStoreForTests();
+  useAssistantThreadStore.setState({
+    activeThreadIdByResourceId: {},
+    draftRuntimeByThreadId: {},
+    loadStateByResourceId: {},
+    openThreadIdsByResourceId: {},
+    selectedThreadByResourceId: {},
+    threadIdsByResourceId: {},
+    threadsByResourceId: {},
+  });
+  preparedRequestDataLog.splice(0, preparedRequestDataLog.length);
   fileExplorerMocks.effectiveSelection = new Set<string>();
   fileExplorerMocks.tokenCache = null;
   fileExplorerMocks.currentFolderId = 'test-folder';
@@ -704,19 +843,64 @@ beforeEach(() => {
   fileExplorerMocks.setSelectedFiles.mockReset();
   fileExplorerMocks.setTokenBudget.mockReset();
   mockDb.query.mockReset();
-  mockDb.query.mockResolvedValue({ rows: [] });
+  mockDb.exec.mockReset();
+  mockDb.exec.mockResolvedValue(undefined);
+  mockDb.query.mockImplementation(async (sql: string) => {
+    if (sql.includes('FROM mastra_threads')) {
+      return {
+        rows: [
+          {
+            id: 'thread-existing',
+            resourceId: '/tmp/test-workspace',
+            title: 'Existing thread',
+            createdAt: new Date('2026-04-22T10:00:00Z'),
+            updatedAt: new Date('2026-04-22T10:00:00Z'),
+          },
+        ],
+      };
+    }
+    return { rows: [] };
+  });
+  Object.defineProperty(window, 'assistant', {
+    configurable: true,
+    value: { url: 'http://127.0.0.1:9876' },
+  });
   window.localStorage.removeItem('brainstrike.assistant.include-file-report.v1');
+  window.localStorage.removeItem('brainstrike-assistant-threads-v1');
 });
 
 afterEach(() => {
   __resetAssistantPreferencesStoreForTests();
   Reflect.deleteProperty(window, 'tools');
   Reflect.deleteProperty(window, 'mcp');
+  Reflect.deleteProperty(window, 'assistant');
+  Reflect.deleteProperty(window, 'desktopLifecycle');
+  Reflect.deleteProperty(window, '__brainstrikeAssistantRuntimeTestHooks__');
 });
 
 const renderAssistantPanel = async (providers: string[], afterRender?: () => Promise<void>) => {
   const renderResult = render(
     <AssistantUiPanelWrapper initialProviders={providers as SupportedProvider[]} />
+  );
+
+  if (afterRender) {
+    await afterRender();
+  }
+
+  return renderResult;
+};
+
+const renderAssistantThreadPanel = async (
+  providers: string[],
+  threadId: string,
+  afterRender?: () => Promise<void>
+) => {
+  const renderResult = render(
+    <AssistantUiPanelWrapper
+      initialProviders={providers as SupportedProvider[]}
+      memoryResourceId="/tmp/test-workspace"
+      memoryThreadId={threadId}
+    />
   );
 
   if (afterRender) {
@@ -1604,6 +1788,484 @@ describe('AssistantUiPanelWrapper', () => {
         });
       })
     );
+  });
+
+  test('uses per-thread draft settings instead of global provider settings for requests', async () => {
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      providerSettings: {
+        ...state.providerSettings,
+        openai: {
+          ...state.providerSettings['openai'],
+          maxOutputTokens: 512,
+          reasoningEffort: 'high',
+        },
+      },
+    }));
+    useAssistantThreadStore.getState().setThreadDraftRuntime('thread-existing', {
+      provider: 'openai',
+      model: 'gpt-5.2',
+      modelSettings: { maxOutputTokens: 2048 },
+      providerOptions: { openai: { reasoningEffort: 'low' } },
+    });
+
+    await renderAssistantThreadPanel(['openai'], 'thread-existing', () =>
+      waitFor(() => {
+        const requestData = readPanelRequestData();
+        expect(requestData['modelSettings']).toEqual({ maxOutputTokens: 2048 });
+        expect(requestData['providerOptions']).toEqual({
+          openai: { reasoningEffort: 'low' },
+        });
+      })
+    );
+  });
+
+  test('stores provider setting changes as per-thread draft runtime', async () => {
+    const user = userEvent.setup();
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      providerSettings: {
+        ...state.providerSettings,
+        openai: {
+          ...state.providerSettings['openai'],
+          maxOutputTokens: 512,
+          reasoningEffort: 'high',
+        },
+      },
+    }));
+
+    await renderAssistantThreadPanel(['openai'], 'thread-existing', async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('provider-settings-change-openai'));
+    });
+
+    expect(useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']).toEqual(
+      expect.objectContaining({
+        provider: 'openai',
+        model: 'gpt-5.2',
+        modelSettings: { maxOutputTokens: 2048 },
+        providerOptions: { openai: { reasoningEffort: 'low' } },
+      })
+    );
+    expect(useAssistantPreferencesStore.getState().providerSettings['openai']).toEqual(
+      expect.objectContaining({
+        maxOutputTokens: 512,
+        reasoningEffort: 'high',
+      })
+    );
+  });
+
+  test('stores provider setting changes globally when no thread prop is mounted', async () => {
+    const user = userEvent.setup();
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      providerSettings: {
+        ...state.providerSettings,
+        openai: {
+          ...state.providerSettings['openai'],
+          maxOutputTokens: 512,
+          reasoningEffort: 'high',
+        },
+      },
+    }));
+
+    await renderAssistantPanel(['openai'], async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('provider-settings-change-openai'));
+    });
+
+    expect(useAssistantThreadStore.getState().draftRuntimeByThreadId).toEqual({});
+    expect(useAssistantPreferencesStore.getState().providerSettings['openai']).toEqual(
+      expect.objectContaining({
+        maxOutputTokens: 2048,
+        reasoningEffort: 'low',
+      })
+    );
+  });
+
+  test('stores model changes as per-thread draft runtime instead of global preferences', async () => {
+    const user = userEvent.setup();
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+    }));
+
+    await renderAssistantThreadPanel(['openai', 'anthropic'], 'thread-existing', async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+      await user.selectOptions(screen.getByTestId('provider-select'), 'anthropic');
+    });
+
+    expect(useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']).toEqual({
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    expect(useAssistantPreferencesStore.getState().selectedModel).toBe('openai::gpt-5.2');
+  });
+
+  test('does not expose assistant runtime test hooks outside desktop E2E mode', async () => {
+    (window as typeof window & { desktopLifecycle?: { isTestMode?: boolean } }).desktopLifecycle = {
+      isTestMode: false,
+    };
+
+    await renderAssistantThreadPanel(['openai'], 'thread-existing', () =>
+      waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      })
+    );
+
+    expect(window.__brainstrikeAssistantRuntimeTestHooks__).toBeUndefined();
+  });
+
+  test('registers assistant runtime test hooks only during desktop E2E mode', async () => {
+    (window as typeof window & { desktopLifecycle?: { isTestMode?: boolean } }).desktopLifecycle = {
+      isTestMode: true,
+    };
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+    }));
+
+    const { unmount } = await renderAssistantThreadPanel(
+      ['openai', 'anthropic'],
+      'thread-existing',
+      () =>
+        waitFor(() => {
+          expect(window.__brainstrikeAssistantRuntimeTestHooks__).toBeDefined();
+        })
+    );
+
+    act(() => {
+      window.__brainstrikeAssistantRuntimeTestHooks__?.setCurrentThreadModel(
+        'anthropic::claude-sonnet-4-5'
+      );
+    });
+
+    expect(useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']).toEqual({
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    expect(useAssistantPreferencesStore.getState().selectedModel).toBe(
+      'anthropic::claude-sonnet-4-5'
+    );
+
+    unmount();
+    expect(window.__brainstrikeAssistantRuntimeTestHooks__).toBeUndefined();
+  });
+
+  test('includes workspace-scoped Mastra memory context in assistant requests', async () => {
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        const requestData = readPanelRequestData();
+        expect(requestData['memory']).toMatchObject({
+          threadId: 'thread-existing',
+          resourceId: '/tmp/test-workspace',
+          memoryOptions: {
+            lastMessages: 40,
+            workingMemory: { enabled: true, scope: 'resource' },
+          },
+        });
+      })
+    );
+  });
+
+  test('disables hosted memory requests when the runtime has no Mastra memory backend', async () => {
+    Reflect.deleteProperty(window, 'assistant');
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        const requestData = readPanelRequestData();
+        expect(requestData['memory']).toBeUndefined();
+        expect(screen.getByTestId('panel-disabled')).toHaveTextContent('true');
+        expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
+          'Assistant memory for hosted providers requires the desktop assistant backend.'
+        );
+      })
+    );
+  });
+
+  test('passes assistant memory preferences into Mastra runtime requests', async () => {
+    useAssistantMemoryPreferencesStore.setState({
+      observationalMemory: {
+        enabled: true,
+        modelTarget: 'anthropic/claude-haiku-4-5',
+        scope: 'resource',
+        messageTokens: 18_000,
+        observationTokens: 36_000,
+        retrievalMode: 'messages',
+      },
+      semanticRecall: {
+        enabled: false,
+        embeddingModelTarget: 'openai/text-embedding-3-small',
+        scope: 'resource',
+        topK: 5,
+        messageRange: 2,
+      },
+    });
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        const requestData = readPanelRequestData();
+        expect(requestData['memory']).toMatchObject({
+          memorySettings: {
+            observationalMemory: {
+              enabled: true,
+              modelTarget: 'anthropic/claude-haiku-4-5',
+              scope: 'resource',
+              messageTokens: 18_000,
+              observationTokens: 36_000,
+              retrievalMode: 'messages',
+            },
+            semanticRecall: {
+              enabled: false,
+              embeddingModelTarget: 'openai/text-embedding-3-small',
+              scope: 'resource',
+              topK: 5,
+              messageRange: 2,
+            },
+          },
+        });
+      })
+    );
+  });
+
+  test('does not rewrite Mastra thread metadata just by selecting a thread', async () => {
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      providerSettings: {
+        ...state.providerSettings,
+        openai: {
+          maxOutputTokens: 512,
+          reasoningEffort: 'high',
+        },
+      },
+    }));
+
+    await renderAssistantPanel(['openai'], async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+    });
+    expect(
+      mockDb.query.mock.calls.some(([sql]) => String(sql).includes('UPDATE mastra_threads'))
+    ).toBe(false);
+  });
+
+  test('creates immutable run records and attaches run IDs to prepared requests', async () => {
+    const user = userEvent.setup();
+    const uuidSpy = vi
+      .spyOn(crypto, 'randomUUID')
+      .mockReturnValue('00000000-0000-4000-8000-00000000000d');
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      providerSettings: {
+        ...state.providerSettings,
+        openai: {
+          maxOutputTokens: 512,
+          reasoningEffort: 'high',
+        },
+      },
+    }));
+
+    await renderAssistantPanel(['openai'], async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('prepare-thread-request'));
+    });
+
+    await waitFor(() => {
+      expect(mockDb.query).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO brainstrike_assistant_thread_runs'),
+        expect.arrayContaining([
+          'run-00000000-0000-4000-8000-00000000000d',
+          '/tmp/test-workspace',
+          'thread-existing',
+          'openai',
+          'gpt-5.2',
+          JSON.stringify({ maxOutputTokens: 512 }),
+          JSON.stringify({ openai: { reasoningEffort: 'high' } }),
+          'hosted',
+          'running',
+        ])
+      );
+    });
+    expect(
+      mockDb.query.mock.calls.some(([sql]) => String(sql).includes('UPDATE mastra_threads'))
+    ).toBe(false);
+    expect(preparedRequestDataLog[0]?.['memory']).toMatchObject({
+      threadId: 'thread-existing',
+      resourceId: '/tmp/test-workspace',
+      runId: 'run-00000000-0000-4000-8000-00000000000d',
+    });
+    const insertCall = mockDb.query.mock.calls.find(([sql]) =>
+      String(sql).includes('INSERT INTO brainstrike_assistant_thread_runs')
+    );
+    expect(insertCall?.[1]?.[6]).toContain('"reasoningEffort":"high"');
+    expect(insertCall?.[1]?.[5]).toContain('"maxOutputTokens":512');
+    uuidSpy.mockRestore();
+  });
+
+  test('completes prepared run records with terminal statuses', async () => {
+    const user = userEvent.setup();
+    const uuidSpy = vi
+      .spyOn(crypto, 'randomUUID')
+      .mockReturnValue('00000000-0000-4000-8000-000000000012');
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+    }));
+
+    await renderAssistantPanel(['openai'], async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('prepare-thread-request'));
+      await user.click(screen.getByTestId('complete-prepared-request-success'));
+      await user.click(screen.getByTestId('complete-prepared-request-failure'));
+      await user.click(screen.getByTestId('complete-prepared-request-without-run'));
+    });
+
+    const updateCalls = mockDb.query.mock.calls.filter(([sql]) =>
+      String(sql).includes('UPDATE brainstrike_assistant_thread_runs')
+    );
+    expect(updateCalls).toHaveLength(2);
+    expect(updateCalls[0]?.[1]).toEqual(
+      expect.arrayContaining(['run-00000000-0000-4000-8000-000000000012', 'completed', null])
+    );
+    expect(updateCalls[1]?.[1]).toEqual(
+      expect.arrayContaining(['run-00000000-0000-4000-8000-000000000012', 'failed', 'model failed'])
+    );
+    uuidSpy.mockRestore();
+  });
+
+  test('creates a fresh run record for each prepared request', async () => {
+    const user = userEvent.setup();
+    const uuidSpy = vi
+      .spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000010')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000011');
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+    }));
+
+    await renderAssistantPanel(['openai'], async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('prepare-thread-request'));
+      await user.click(screen.getByTestId('prepare-thread-request'));
+    });
+
+    const runInsertCalls = mockDb.query.mock.calls.filter(([sql]) =>
+      String(sql).includes('INSERT INTO brainstrike_assistant_thread_runs')
+    );
+
+    expect(runInsertCalls).toHaveLength(2);
+    expect(runInsertCalls[0]?.[1]).toEqual(
+      expect.arrayContaining(['run-00000000-0000-4000-8000-000000000010'])
+    );
+    expect(runInsertCalls[1]?.[1]).toEqual(
+      expect.arrayContaining(['run-00000000-0000-4000-8000-000000000011'])
+    );
+    expect(preparedRequestDataLog[0]?.['memory']).toMatchObject({
+      runId: 'run-00000000-0000-4000-8000-000000000010',
+    });
+    expect(preparedRequestDataLog[1]?.['memory']).toMatchObject({
+      runId: 'run-00000000-0000-4000-8000-000000000011',
+    });
+    uuidSpy.mockRestore();
+  });
+
+  test('retries thread run creation after a transient failure', async () => {
+    const user = userEvent.setup();
+    const uuidSpy = vi
+      .spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce('00000000-0000-4000-8000-00000000000e')
+      .mockReturnValueOnce('00000000-0000-4000-8000-00000000000f');
+    let runInsertCount = 0;
+    mockDb.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM mastra_threads')) {
+        return {
+          rows: [
+            {
+              id: 'thread-existing',
+              resourceId: '/tmp/test-workspace',
+              title: 'Existing thread',
+              createdAt: new Date('2026-04-22T10:00:00Z'),
+              updatedAt: new Date('2026-04-22T10:00:00Z'),
+            },
+          ],
+        };
+      }
+      if (sql.includes('INSERT INTO brainstrike_assistant_thread_runs')) {
+        runInsertCount += 1;
+        if (runInsertCount === 1) {
+          throw new Error('temporary run insert failure');
+        }
+        return {
+          rows: [
+            {
+              id: 'run-00000000-0000-4000-8000-00000000000f',
+              resource_id: '/tmp/test-workspace',
+              thread_id: 'thread-existing',
+              provider: 'openai',
+              model: 'gpt-5.2',
+              model_settings: null,
+              provider_options: null,
+              runtime_kind: 'hosted',
+              status: 'running',
+              error: null,
+              started_at: new Date('2026-04-22T10:00:00Z'),
+              completed_at: null,
+              created_at: new Date('2026-04-22T10:00:00Z'),
+              updated_at: new Date('2026-04-22T10:00:00Z'),
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+    }));
+
+    await renderAssistantPanel(['openai'], async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('prepare-thread-request'));
+      await user.click(screen.getByTestId('prepare-thread-request'));
+    });
+
+    expect(preparedRequestDataLog[0]).toEqual({ error: 'temporary run insert failure' });
+    expect(preparedRequestDataLog[1]?.['memory']).toMatchObject({
+      runId: 'run-00000000-0000-4000-8000-00000000000f',
+    });
+    expect(runInsertCount).toBe(2);
+    uuidSpy.mockRestore();
   });
 
   test('builds provider options for anthropic settings', async () => {

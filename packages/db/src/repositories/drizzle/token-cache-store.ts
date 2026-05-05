@@ -8,7 +8,7 @@
 import { validateRelativeFilePath } from '@brainstrike/utils';
 import { and, count, eq, inArray, sql, sum } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
-import { fileTokenCache } from '../../schema/index.js';
+import { fileTokenCache, textTimestampNow } from '../../schema/index.js';
 
 type DrizzleDb = PgliteDatabase;
 const TOKEN_CACHE_FILE_PATH_LABEL = 'Token cache file path';
@@ -123,8 +123,8 @@ export class DrizzleTokenCacheStore {
         folderId: entry.folderId,
         filePath: validatedPath,
         contentHash: entry.contentHash,
-        fileSize: String(entry.fileSize),
-        mtimeMs: entry.mtimeMs !== null ? String(entry.mtimeMs) : null,
+        fileSize: entry.fileSize,
+        mtimeMs: entry.mtimeMs,
         tokenCount: entry.tokenCount,
         countingMode: entry.countingMode,
         modelEncoding: entry.modelEncoding,
@@ -138,7 +138,7 @@ export class DrizzleTokenCacheStore {
           tokenCount: sql`excluded.token_count`,
           countingMode: sql`excluded.counting_mode`,
           modelEncoding: sql`excluded.model_encoding`,
-          updatedAt: sql`CURRENT_TIMESTAMP`,
+          updatedAt: textTimestampNow,
         },
       });
   }
@@ -162,8 +162,8 @@ export class DrizzleTokenCacheStore {
       folderId: entry.folderId,
       filePath: validatedPath,
       contentHash: entry.contentHash,
-      fileSize: String(entry.fileSize),
-      mtimeMs: entry.mtimeMs !== null ? String(entry.mtimeMs) : null,
+      fileSize: entry.fileSize,
+      mtimeMs: entry.mtimeMs,
       tokenCount: entry.tokenCount,
       countingMode: entry.countingMode,
       modelEncoding: entry.modelEncoding,
@@ -183,7 +183,7 @@ export class DrizzleTokenCacheStore {
           tokenCount: sql`excluded.token_count`,
           countingMode: sql`excluded.counting_mode`,
           modelEncoding: sql`excluded.model_encoding`,
-          updatedAt: sql`CURRENT_TIMESTAMP`,
+          updatedAt: textTimestampNow,
         },
       });
   }
@@ -310,8 +310,8 @@ export class DrizzleTokenCacheStore {
       tokenCount: row.tokenCount,
       countingMode: row.countingMode,
       modelEncoding: row.modelEncoding,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
     };
   }
 }

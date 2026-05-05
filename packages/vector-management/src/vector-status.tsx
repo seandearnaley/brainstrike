@@ -249,10 +249,10 @@ export function getBackfillButtonText(
   backfillProgress: { done: number; total: number } | null,
   willAutoStartWorker: boolean
 ): string {
-  if (backfilling && backfillProgress) {
-    return `${backfillProgress.done}/${backfillProgress.total}`;
-  }
   if (backfilling) {
+    if (backfillProgress) {
+      return `${backfillProgress.done}/${backfillProgress.total}`;
+    }
     return 'Backfilling…';
   }
   if (startingWorker) {
@@ -485,7 +485,7 @@ function isQueueEnabled(): boolean {
     if (typeof window !== 'undefined') {
       return true;
     }
-    const env = typeof process !== 'undefined' ? process.env : undefined;
+    const env = typeof process === 'undefined' ? undefined : process.env;
     const v = env?.['EMBED_QUEUE_ENABLED'];
     if (typeof v !== 'undefined') {
       return String(v).toLowerCase() === 'true';

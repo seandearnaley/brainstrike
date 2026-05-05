@@ -2,6 +2,7 @@ import { expect, type Locator, type Page, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import {
   activateSidebarNavigation,
+  contextExplorerActiveNavLocator,
   waitForAppLoad,
   waitForContextExplorerPage,
   waitForSettingsPage,
@@ -38,70 +39,66 @@ async function activateAppearanceThemeButton(
 test.describe('Theme Switching', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
     await resetAppState(page);
     await page.reload();
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
   });
 
-  test(
-    'should switch themes via settings page and persist across navigation',
-    { tag: '@smoke' },
-    async ({ page }) => {
-      // Navigate to Settings page
-      await activateSidebarNavigation(page, 'Settings');
-      await waitForSettingsPage(page);
+  test('should switch themes via settings page and persist across navigation', {
+    tag: '@smoke',
+  }, async ({ page }) => {
+    // Navigate to Settings page
+    await activateSidebarNavigation(page, 'Settings');
+    await waitForSettingsPage(page);
 
-      // Verify theme controls are visible - use settings-specific selectors to avoid nav button conflicts
-      const appearanceSection = await waitForAppearanceSection(page);
-      await expect(page.getByText('Theme', { exact: true })).toBeVisible();
-      await expect(
-        appearanceSection.getByRole('button', { name: 'Light', exact: true })
-      ).toBeVisible();
-      await expect(
-        appearanceSection.getByRole('button', { name: 'Dark', exact: true })
-      ).toBeVisible();
-      await expect(
-        appearanceSection.getByRole('button', { name: 'System', exact: true })
-      ).toBeVisible();
+    // Verify theme controls are visible - use settings-specific selectors to avoid nav button conflicts
+    const appearanceSection = await waitForAppearanceSection(page);
+    await expect(page.getByText('Theme', { exact: true })).toBeVisible();
+    await expect(
+      appearanceSection.getByRole('button', { name: 'Light', exact: true })
+    ).toBeVisible();
+    await expect(
+      appearanceSection.getByRole('button', { name: 'Dark', exact: true })
+    ).toBeVisible();
+    await expect(
+      appearanceSection.getByRole('button', { name: 'System', exact: true })
+    ).toBeVisible();
 
-      // Test switching to Dark theme
-      await activateAppearanceThemeButton(page, 'Dark');
+    // Test switching to Dark theme
+    await activateAppearanceThemeButton(page, 'Dark');
 
-      // Wait a moment for theme to apply
-      await page.waitForTimeout(100);
+    // Wait a moment for theme to apply
+    await page.waitForTimeout(100);
 
-      // Verify dark theme is applied by checking for dark mode class or styles
-      // The theme should be applied to the html or body element
-      const htmlElement = page.locator('html');
-      await expect(htmlElement).toHaveClass(/dark/);
+    // Verify dark theme is applied by checking for dark mode class or styles
+    // The theme should be applied to the html or body element
+    const htmlElement = page.locator('html');
+    await expect(htmlElement).toHaveClass(/dark/);
 
-      // Navigate back to Context Explorer to test persistence
-      await activateSidebarNavigation(page, 'Context Explorer');
-      await waitForContextExplorerPage(page);
+    // Navigate back to Context Explorer to test persistence
+    await activateSidebarNavigation(page, 'Context Explorer');
+    await waitForContextExplorerPage(page);
 
-      // Verify dark theme persists
-      await expect(htmlElement).toHaveClass(/dark/);
+    // Verify dark theme persists
+    await expect(htmlElement).toHaveClass(/dark/);
 
-      // Navigate back to Settings
-      await activateSidebarNavigation(page, 'Settings');
-      await waitForSettingsPage(page);
+    // Navigate back to Settings
+    await activateSidebarNavigation(page, 'Settings');
+    await waitForSettingsPage(page);
 
-      // Test switching to Light theme (use settings-specific selector)
-      await activateAppearanceThemeButton(page, 'Light');
+    // Test switching to Light theme (use settings-specific selector)
+    await activateAppearanceThemeButton(page, 'Light');
 
-      // Verify light theme is applied (dark class should be removed)
-      await expect(htmlElement).not.toHaveClass(/dark/);
+    // Verify light theme is applied (dark class should be removed)
+    await expect(htmlElement).not.toHaveClass(/dark/);
 
-      // Test persistence again
-      await activateSidebarNavigation(page, 'Context Explorer');
-      await waitForContextExplorerPage(page);
-      await expect(
-        page.getByRole('heading', { name: 'Context Explorer', exact: true })
-      ).toBeVisible();
-      await expect(htmlElement).not.toHaveClass(/dark/);
-    }
-  );
+    // Test persistence again
+    await activateSidebarNavigation(page, 'Context Explorer');
+    await waitForContextExplorerPage(page);
+    await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
+    await expect(htmlElement).not.toHaveClass(/dark/);
+  });
 
   test('should toggle theme via navigation button', { tag: '@smoke' }, async ({ page }) => {
     // First, set a known theme state via settings to avoid system theme ambiguity
@@ -196,9 +193,7 @@ test.describe('Theme Switching', () => {
     await waitForContextExplorerPage(page);
 
     await page.reload();
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
+    await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
     await expect(htmlElement).not.toHaveClass(/dark/);
   });
 });

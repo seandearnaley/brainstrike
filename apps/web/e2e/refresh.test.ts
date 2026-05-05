@@ -13,10 +13,10 @@ test.describe('Refresh Workflow', { tag: '@smoke' }, () => {
     await mockBrowserApis(page, 'test-root', tree);
 
     await page.goto('/');
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
     await resetAppState(page);
     await page.reload();
-    await waitForAppLoad(page);
+    await waitForAppLoad(page, { waitForDatabase: false });
   });
 
   test('should refresh file tree and show toast', async ({ page }) => {
@@ -56,7 +56,7 @@ test.describe('Refresh Workflow', { tag: '@smoke' }, () => {
     try {
       await expect(page.getByRole('alert')).toBeVisible({ timeout: 1000 });
       await expect(page.getByRole('alert')).not.toBeVisible({ timeout: 10_000 });
-    } catch (_error) {
+    } catch {
       // Loading overlay might be too fast in some environments, continue with test
       console.log('Loading overlay not detected, refresh was likely very fast');
     }

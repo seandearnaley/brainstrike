@@ -46,7 +46,7 @@ describe('PreviewTableRow', () => {
     expect(screen.getByLabelText('Select /src/components/Button.tsx')).toBeInTheDocument();
     expect(screen.getByText('root')).toBeInTheDocument();
     expect(screen.getByText('Button.tsx')).toBeInTheDocument();
-    expect(screen.getByText('src/components')).toBeInTheDocument();
+    expect(screen.getByText('root/src/components')).toBeInTheDocument();
     expect(screen.getByText('tsx')).toBeInTheDocument();
     expect(screen.getByText('1.5K')).toBeInTheDocument();
     expect(screen.getByText('5.0 KB')).toBeInTheDocument();
@@ -172,6 +172,31 @@ describe('PreviewTableRow', () => {
     expect(cells.length).toBeGreaterThan(0);
   });
 
+  it('renders "0" (not em dash) when tokens are zero for an indexed empty file', () => {
+    // Empty files legitimately count to 0 tokens once indexed; rendering em
+    // dash here falsely suggests the count is still pending. See the
+    // context-explorer responsiveness fix that made the token cell use an
+    // explicit `undefined` check instead of a falsy check.
+    const emptyFileItem: TableRowData = { ...mockItem, tokens: 0 };
+
+    render(
+      <table>
+        <tbody>
+          <PreviewTableRow
+            columnVisibility={defaultColumnVisibility}
+            isSelected={false}
+            item={emptyFileItem}
+            onFileClick={mockOnFileClick}
+            onToggleSelection={mockOnToggleSelection}
+          />
+        </tbody>
+      </table>
+    );
+
+    expect(screen.getByText('0')).toBeInTheDocument();
+    expect(screen.queryByText('—')).not.toBeInTheDocument();
+  });
+
   it('renders em dash when size is undefined', () => {
     const { size: _size, ...rest } = mockItem;
     const itemWithoutSize = rest as TableRowData;
@@ -223,7 +248,7 @@ describe('PreviewTableRow', () => {
     expect(screen.queryByText('/')).not.toBeInTheDocument();
   });
 
-  it("shows '.' for files in the root of an absolute folder path", () => {
+  it('shows the root folder name for files in the root of an absolute folder path', () => {
     const absoluteRootItem: TableRowData = {
       ...mockItem,
       id: 'id-root-absolute',
@@ -248,10 +273,10 @@ describe('PreviewTableRow', () => {
     );
 
     expect(screen.getByText('file.txt')).toBeInTheDocument();
-    expect(screen.getByText('.')).toBeInTheDocument();
+    expect(screen.getAllByText('project')).toHaveLength(2);
   });
 
-  it('parses Windows path separators and displays a folder-relative directory path', () => {
+  it('parses Windows path separators and prefixes the directory path with the root folder', () => {
     const windowsPath = 'C:\\Users\\me\\project\\src\\components\\Button.tsx';
     const windowsItem: TableRowData = {
       ...mockItem,
@@ -275,7 +300,7 @@ describe('PreviewTableRow', () => {
 
     expect(screen.getByLabelText(`Select ${windowsPath}`)).toBeInTheDocument();
     expect(screen.getByText('Button.tsx')).toBeInTheDocument();
-    expect(screen.getByText('src/components')).toBeInTheDocument();
+    expect(screen.getByText('project/src/components')).toBeInTheDocument();
   });
 
   it('displays the full root identity when the root identity is absolute', () => {
@@ -300,7 +325,7 @@ describe('PreviewTableRow', () => {
     );
 
     expect(screen.getByText('/Users/me/project')).toBeInTheDocument();
-    expect(screen.getByText('src/components')).toBeInTheDocument();
+    expect(screen.getByText('project/src/components')).toBeInTheDocument();
   });
 
   it('shortens long absolute directory paths to avoid horizontal scrolling', () => {
@@ -327,7 +352,7 @@ describe('PreviewTableRow', () => {
     );
 
     expect(screen.getByText('PreviewTableRow.test.tsx')).toBeInTheDocument();
-    expect(screen.getByText('packages/…/deep/__tests__')).toBeInTheDocument();
+    expect(screen.getByText('brainstrike/packages/…/deep/__tests__')).toBeInTheDocument();
   });
 
   it('displays selected state correctly', () => {

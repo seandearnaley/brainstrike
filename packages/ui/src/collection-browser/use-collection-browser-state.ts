@@ -114,7 +114,7 @@ export function useCollectionBrowserState({
   const filters = controlledFilters ?? internalFilters;
 
   const [internalSelectedId, setInternalSelectedId] = React.useState<string | null>(null);
-  const selectedId = controlledSelectedId !== undefined ? controlledSelectedId : internalSelectedId;
+  const selectedId = controlledSelectedId === undefined ? internalSelectedId : controlledSelectedId;
   const setSelectedId = onSelectedIdChange ?? setInternalSelectedId;
   const setSelectedIdRef = React.useRef(setSelectedId);
 

@@ -6,10 +6,13 @@
  *
  * This enables accurate token counting without blocking the main thread or
  * requiring file content to be loaded first.
+ *
+ * Priority contract: foreground token counting (this hook) is never gated on background-sync
+ * flags (`isImporting`, `isEmbeddingActive`). The WebGPU/LLM priority contract lives in
+ * `packages/utils/src/background-work-arbiter.ts` and is enforced at the collection-sync layer.
  */
 
 import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { FileToIndex } from '@brainstrike/token-cache/background-indexer';
 import { useBackgroundTokenIndexer } from '@brainstrike/token-cache/background-indexer';
 import type { FileForIndexingResolution, IFileNode } from '@brainstrike/types';
@@ -21,7 +24,12 @@ import {
 } from '@brainstrike/utils/relative-file-path';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE } from './constants';
+import {
+  getAdaptiveDebounceMs,
+  INDEX_BATCH_SIZE,
+  TOKEN_INDEXER_BATCH_YIELD_MS,
+  TOKEN_INDEXER_IO_BATCH_SIZE,
+} from './constants';
 import { useOptionalFileTreeIndexContext } from './file-tree-provider';
 import { resolveBackgroundIndexerWorkerUrlHref } from './resolve-token-cache-worker-url';
 import { useOptionalTokenCacheContext } from './token-cache-context';
@@ -35,18 +43,6 @@ const logger = createLogger('BackgroundTokenIndexerIntegration');
 const MAX_INDEXABLE_FILE_SIZE = DEFAULT_MAX_FILE_SIZE;
 const LARGE_SELECTION_DIAGNOSTIC_FILE_THRESHOLD = 250;
 const LARGE_SELECTION_DIAGNOSTIC_BYTES_THRESHOLD = 25 * 1024 * 1024;
-
-/**
- * Helper hook to check if file import is in progress.
- * When true, background token indexing should be paused to avoid database contention.
- */
-function useFileImportingState(): boolean {
-  return useVectorStatusUIStore((s) => s.isImporting);
-}
-
-function useEmbeddingActiveState(): boolean {
-  return useVectorStatusUIStore((s) => s.isEmbeddingActive);
-}
 
 /**
  * Function to read file content for Electron handles via IPC.
@@ -265,6 +261,24 @@ function shouldEmitLargeSelectionDiagnostics(params: {
   );
 }
 
+function yieldBetweenTokenIndexingBatches(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, TOKEN_INDEXER_BATCH_YIELD_MS);
+  });
+}
+
+async function yieldIfMoreTokenIndexingBatches(params: {
+  nextIndex: number;
+  onYield: () => void;
+  totalCount: number;
+}): Promise<void> {
+  if (params.nextIndex >= params.totalCount) {
+    return;
+  }
+  params.onYield();
+  await yieldBetweenTokenIndexingBatches();
+}
+
 /**
  * Log debug info for first file node encountered
  */
@@ -325,34 +339,240 @@ function buildFileHandleMap(
   }
 }
 
+/**
+ * Result of reconciling a selection shrink against the current in-flight set.
+ *
+ * `cancelBatch` is true only when every in-flight composite key has been
+ * deselected -- the only case where hard-cancelling the worker batch is
+ * useful. `narrowedInFlight` means we dropped some in-flight keys but others
+ * remain selected; the effect bumps the pulse counter so the UI can re-render
+ * without re-dispatching the still-selected keys.
+ */
+interface ShrinkReconcileResult {
+  cancelBatch: boolean;
+  narrowedInFlight: boolean;
+  remainingInFlight: number;
+  removedCount: number;
+}
+
+/**
+ * Reconcile the in-flight and pending-no-handle tracking Sets against the
+ * current selection during a shrink.
+ *
+ * **Side effect:** mutates `inFlight` and `pendingNoHandle` in place,
+ * deleting any key that is not present in `selectedFiles`. The parameter
+ * types are `Set<string>` (not `ReadonlySet<string>`) specifically to
+ * signal this contract -- the caller relies on the shared ref's Set being
+ * updated so subsequent renders see the reconciled state.
+ *
+ * Returns a summary of what changed so the caller can decide between
+ * hard-cancelling the worker batch, pulsing for a UI re-render, or doing
+ * nothing. `removedCount` reflects user-facing deselections (kept separate
+ * from `inFlightRemoved` so the log describes selection intent rather than
+ * internal tracking churn).
+ */
+function reconcileInFlightOnShrink(params: {
+  previousSelectedFiles: ReadonlySet<string>;
+  selectedFiles: ReadonlySet<string>;
+  inFlight: Set<string>;
+  pendingNoHandle: Set<string>;
+}): ShrinkReconcileResult {
+  const { previousSelectedFiles, selectedFiles, inFlight, pendingNoHandle } = params;
+  // Count deselections (files the user had selected that are no longer
+  // selected) for logging. `removedCount` is about selection intent, not
+  // about how much in-flight state was drained.
+  let removedCount = 0;
+  for (const key of previousSelectedFiles) {
+    if (!selectedFiles.has(key)) {
+      removedCount++;
+    }
+  }
+  // Drain in-flight / pending-no-handle of any key that is no longer
+  // selected, not just keys that appear in `previousSelectedFiles`. This
+  // catches orphans introduced by equal-size swaps on earlier renders --
+  // e.g. {A,B} -> {A,C} (no shrink, `previousSelectedFiles` becomes {A,C},
+  // but B stays tracked from its original batch) -> {} (shrink to empty,
+  // but iterating only {A,C} would never touch B). Without this drain, the
+  // worker keeps token-counting B even though the user has nothing
+  // selected, wasting CPU and delaying UI recovery.
+  // ECMA-262 Set iteration is delete-safe during `for...of`, so we don't
+  // need to snapshot into an array first. Iterate the live Sets directly
+  // and drop any key that is no longer selected.
+  let inFlightRemoved = 0;
+  for (const key of inFlight) {
+    if (!selectedFiles.has(key)) {
+      inFlight.delete(key);
+      inFlightRemoved++;
+    }
+  }
+  for (const key of pendingNoHandle) {
+    if (!selectedFiles.has(key)) {
+      pendingNoHandle.delete(key);
+    }
+  }
+  const remainingInFlight = inFlight.size;
+  const cancelBatch = inFlightRemoved > 0 && remainingInFlight === 0;
+  const narrowedInFlight = !cancelBatch && inFlightRemoved > 0;
+  // `remainingInFlight` is always `inFlight.size` here: when `cancelBatch` is
+  // true, `inFlight.size === 0`, so no conditional is needed.
+  return { cancelBatch, narrowedInFlight, removedCount, remainingInFlight };
+}
+
+/**
+ * Decide whether the selection effect needs to reconcile in-flight tracking
+ * after a shrink. A reconcile is only worthwhile when the selection actually
+ * shrank AND there is tracked work that could be narrowed or cancelled --
+ * otherwise `reconcileInFlightOnShrink` would iterate the prior selection
+ * just to compute a `removedCount` nobody observes.
+ *
+ * Extracted into a helper so the call site stays a single predicate and the
+ * effect body stays under the cognitive-complexity budget.
+ */
+function shouldReconcileShrink(params: {
+  previousSize: number;
+  nextSize: number;
+  inFlightSize: number;
+  pendingNoHandleSize: number;
+}): boolean {
+  const { previousSize, nextSize, inFlightSize, pendingNoHandleSize } = params;
+  if (nextSize >= previousSize) {
+    return false;
+  }
+  return inFlightSize > 0 || pendingNoHandleSize > 0;
+}
+
+/**
+ * Apply the result of `reconcileInFlightOnShrink`: cancel the worker batch
+ * when appropriate, pulse the in-flight version so observers re-render, and
+ * emit matching debug logs. Extracted from the selection effect so the effect
+ * body stays under the cognitive-complexity budget.
+ */
+function handleSelectionShrink(params: {
+  previousSize: number;
+  previousSelectedFiles: ReadonlySet<string>;
+  selectedFiles: ReadonlySet<string>;
+  inFlight: Set<string>;
+  pendingNoHandle: Set<string>;
+  cancelBatch: () => void;
+  onPulse: () => void;
+}): void {
+  const {
+    previousSize,
+    previousSelectedFiles,
+    selectedFiles,
+    inFlight,
+    pendingNoHandle,
+    cancelBatch,
+    onPulse,
+  } = params;
+  const result = reconcileInFlightOnShrink({
+    previousSelectedFiles,
+    selectedFiles,
+    inFlight,
+    pendingNoHandle,
+  });
+
+  if (result.cancelBatch) {
+    // `reconcileInFlightOnShrink` has already emptied `inFlight` -- it only
+    // returns cancelBatch=true when every in-flight key was drained. No
+    // defensive clear needed here; rely on the reconcile contract instead
+    // of re-clearing and risking a reader thinking the reconcile is
+    // incomplete.
+    cancelBatch();
+    onPulse();
+    logger.debug('Cleared in-flight queue due to full selection shrink', {
+      previousSize,
+      nextSize: selectedFiles.size,
+      removedCount: result.removedCount,
+    });
+    return;
+  }
+
+  if (result.narrowedInFlight) {
+    onPulse();
+    logger.debug('Narrowed in-flight queue to still-selected files', {
+      previousSize,
+      nextSize: selectedFiles.size,
+      removedCount: result.removedCount,
+      remainingInFlight: result.remainingInFlight,
+    });
+  }
+}
+
+/**
+ * Look up the file size for `compositeKey` from the handle sources the
+ * indexing effect already consults -- `FileTreeIndex` first (O(1), shared
+ * across folders), then the local HandleInfo map built from the current
+ * tree. Returns `undefined` when neither source knows the size yet; the
+ * caller can re-run after the FileTreeIndex version bumps or the local map
+ * rebuilds.
+ *
+ * Extracted so the metadata-prefetch effect stays small and so it can be
+ * unit-tested without a full render. Parking compositeKey decoding /
+ * normalization here also means the effect body doesn't branch on path
+ * validity.
+ */
+function lookupSelectedFileSize(params: {
+  compositeKey: string;
+  getHandle: ((folderId: string, path: string) => HandleInfo | undefined) | undefined;
+  localMap: ReadonlyMap<string, HandleInfo>;
+}): { folderId: string; normalizedPath: string; fileSize: number } | null {
+  const { compositeKey, getHandle, localMap } = params;
+  let folderId: string;
+  let selectionPath: string;
+  try {
+    const decoded = decodeFileSelection(compositeKey);
+    folderId = decoded.folderId;
+    selectionPath = decoded.path;
+  } catch (error) {
+    logger.debug('Failed to decode compositeKey during size prefetch lookup', {
+      compositeKey,
+      error,
+    });
+    return null;
+  }
+  // FileTreeIndex keys by raw tree paths (same as classification loop below),
+  // so use selectionPath here and only normalize once we're committing to a
+  // cache write.
+  const handleInfo = getHandle?.(folderId, selectionPath) ?? localMap.get(compositeKey);
+  if (!handleInfo || typeof handleInfo.fileSize !== 'number') {
+    return null;
+  }
+  let normalizedPath: string;
+  try {
+    normalizedPath = normalizeSelectionPathForTokenCache(folderId, selectionPath);
+  } catch (error) {
+    logger.debug('Failed to normalize selection path during size prefetch lookup', {
+      folderId,
+      selectionPath,
+      error,
+    });
+    return null;
+  }
+  return { folderId, normalizedPath, fileSize: handleInfo.fileSize };
+}
+
+// Foreground selection-driven dispatch is intentionally NOT gated on
+// `isImporting` or `isEmbeddingActive`. The tokenizer worker is CPU-only and
+// does not contend with the collection sync for WebGPU; PGLite serializes
+// cache writes internally so concurrent `TokenCacheStore.set` calls from the
+// foreground and background paths cannot corrupt data. The WebGPU priority
+// contract (local LLM > background sync) lives in `background-work-arbiter`
+// and is enforced at the collection-sync layer, not here. See
+// packages/utils/src/background-work-arbiter.ts and
+// packages/app-shell/src/background-indexing/workspace-collection-sync-provider.tsx
+// for the full priority story.
 function getSelectionSkipState(params: {
   hasHandleSource: boolean;
-  isEmbeddingActive: boolean;
-  isFileImporting: boolean;
   selectedCount: number;
-}): {
-  reason: 'embedding-active' | 'file-import' | 'no-files' | 'no-handles' | null;
-  message: string | null;
-} {
-  if (params.isFileImporting) {
-    return {
-      reason: 'file-import',
-      message: 'Selection effect skipped - file import in progress',
-    };
-  }
-  if (params.isEmbeddingActive) {
-    return {
-      reason: 'embedding-active',
-      message: 'Selection effect skipped - embedding active',
-    };
-  }
+}): 'no-files' | 'no-handles' | null {
   if (params.selectedCount === 0) {
-    return { reason: 'no-files', message: null };
+    return 'no-files';
   }
   if (!params.hasHandleSource) {
-    return { reason: 'no-handles', message: null };
+    return 'no-handles';
   }
-  return { reason: null, message: null };
+  return null;
 }
 
 /**
@@ -377,11 +597,6 @@ export function useBackgroundTokenIndexerIntegration({
   // Track FileTreeIndex version for retry logic - when index fills, retry pending files
   const indexVersion = fileTreeIndex?.version ?? 0;
 
-  // Check if file import is in progress - skip background indexing to avoid database contention
-  // Import the store dynamically to get isImporting state
-  const isFileImporting = useFileImportingState();
-  const isEmbeddingActive = useEmbeddingActiveState();
-
   // Track which files we've already queued for indexing
   const indexedFilesRef = useRef<Set<string>>(new Set());
   // Track files currently in flight to avoid re-queuing while a batch is running
@@ -389,6 +604,12 @@ export function useBackgroundTokenIndexerIntegration({
   // Track files skipped due to missing handles - retry when FileTreeIndex fills
   const pendingNoHandleRef = useRef<Set<string>>(new Set());
   const previousSelectionSizeRef = useRef<number>(0);
+  // Track the exact prior selection so we can narrow cancel-on-shrink to the
+  // composite keys that actually left the selection. Without this, any filter
+  // change that deselected even a single already-indexed file would abort the
+  // whole in-flight batch and the remaining still-selected rows would render
+  // `—` until the next debounced triggerIndexing arrived.
+  const previousSelectedFilesRef = useRef<Set<string>>(new Set());
   const [_inFlightPulse, bumpInFlightPulse] = useState(0);
   // Track file handle map population to trigger selection effect re-run
   const [fileHandleMapSize, setFileHandleMapSize] = useState(0);
@@ -608,8 +829,6 @@ export function useBackgroundTokenIndexerIntegration({
   // Stable ref for onTokenResolved to avoid callback instability
   const onTokenResolvedRef = useRef(onTokenResolved);
   onTokenResolvedRef.current = onTokenResolved;
-  const isEmbeddingActiveRef = useRef(isEmbeddingActive);
-  isEmbeddingActiveRef.current = isEmbeddingActive;
 
   /**
    * Callback when background indexer resolves a token count.
@@ -734,15 +953,6 @@ export function useBackgroundTokenIndexerIntegration({
       let skippedInvalidPath = 0;
       let estimatedElectronBytes = 0;
 
-      if (isEmbeddingActiveRef.current) {
-        logger.info('Background token indexing blocked because embedding is active', {
-          requestedFiles: compositeKeys.length,
-          indexedCount: indexedFilesRef.current.size,
-          inFlightCount: inFlightRef.current.size,
-        });
-        return;
-      }
-
       /** Mark a file as in-flight and bump the pulse counter when transitioning from empty. */
       const markInFlight = (key: string): void => {
         const wasEmpty = inFlightRef.current.size === 0;
@@ -759,6 +969,11 @@ export function useBackgroundTokenIndexerIntegration({
         for (let i = 0; i < files.length; i += INDEX_BATCH_SIZE) {
           const batch = files.slice(i, i + INDEX_BATCH_SIZE);
           await indexer.indexFiles(batch);
+          await yieldIfMoreTokenIndexingBatches({
+            nextIndex: i + INDEX_BATCH_SIZE,
+            totalCount: files.length,
+            onYield: () => undefined,
+          });
         }
       };
 
@@ -920,12 +1135,25 @@ export function useBackgroundTokenIndexerIntegration({
         });
       }
 
-      try {
-        await dispatchBatches(webFilesToIndex);
-      } catch (error) {
-        logger.error('triggerIndexing web batch dispatch failed', {
-          error: error instanceof Error ? error.message : String(error),
-        });
+      logger.debug('Background token indexing classified files', {
+        requestedFiles: compositeKeys.length,
+        webFiles: webFilesToIndex.length,
+        webResolverFiles: webResolverQueue.length,
+        electronFiles: electronFilesToRead.length,
+        skippedBinary,
+        skippedInvalidPath,
+        skippedNoHandle,
+        skippedTooLarge,
+      });
+
+      if (webFilesToIndex.length > 0) {
+        try {
+          await dispatchBatches(webFilesToIndex);
+        } catch (error) {
+          logger.error('triggerIndexing web batch dispatch failed', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
 
       // Resolve missing-handle web files in concurrent windows that match the
@@ -936,21 +1164,13 @@ export function useBackgroundTokenIndexerIntegration({
       if (webResolverQueue.length > 0) {
         const webResolver = webFileHandleResolverRef.current;
         if (webResolver) {
-          const webResolverBatchSize = 20;
           let webHandlesResolved = 0;
           let webResolverFailures = 0;
           let webResolverSkippedTooLarge = 0;
-          for (let i = 0; i < webResolverQueue.length; i += webResolverBatchSize) {
-            if (isEmbeddingActiveRef.current) {
-              logger.info('Stopped web resolver indexing because embedding became active mid-run', {
-                webHandlesResolved,
-                webResolverFailures,
-                remainingFiles: webResolverQueue.length - i,
-              });
-              return;
-            }
-
-            const batch = webResolverQueue.slice(i, i + webResolverBatchSize);
+          let webResolverYieldedBatches = 0;
+          const webResolverStartedAt = Date.now();
+          for (let i = 0; i < webResolverQueue.length; i += TOKEN_INDEXER_IO_BATCH_SIZE) {
+            const batch = webResolverQueue.slice(i, i + TOKEN_INDEXER_IO_BATCH_SIZE);
             const results = await Promise.all(
               batch.map(async (item) => {
                 try {
@@ -1035,11 +1255,23 @@ export function useBackgroundTokenIndexerIntegration({
                 });
               }
             }
+
+            await yieldIfMoreTokenIndexingBatches({
+              nextIndex: i + TOKEN_INDEXER_IO_BATCH_SIZE,
+              totalCount: webResolverQueue.length,
+              onYield: () => {
+                webResolverYieldedBatches += 1;
+              },
+            });
           }
 
           if (emitLargeSelectionDiagnostics) {
             logger.info('Background token indexing dispatched web resolver batches', {
+              batchSize: TOKEN_INDEXER_IO_BATCH_SIZE,
+              elapsedMs: Date.now() - webResolverStartedAt,
               queuedFiles: webResolverQueue.length,
+              remainingFiles: 0,
+              yieldedBatchCount: webResolverYieldedBatches,
               webHandlesResolved,
               webResolverFailures,
               webResolverSkippedTooLarge,
@@ -1065,21 +1297,12 @@ export function useBackgroundTokenIndexerIntegration({
           );
         }
 
-        // Read files in parallel batches to avoid overwhelming IPC
-        const electronBatchSize = 20;
         let electronFilesRead = 0;
         let electronBytesRead = 0;
-        for (let i = 0; i < electronFilesToRead.length; i += electronBatchSize) {
-          if (isEmbeddingActiveRef.current) {
-            logger.info('Stopped Electron token indexing because embedding became active mid-run', {
-              electronBytesRead,
-              electronFilesRead,
-              remainingFiles: electronFilesToRead.length - i,
-            });
-            return;
-          }
-
-          const batch = electronFilesToRead.slice(i, i + electronBatchSize);
+        let electronYieldedBatches = 0;
+        const electronStartedAt = Date.now();
+        for (let i = 0; i < electronFilesToRead.length; i += TOKEN_INDEXER_IO_BATCH_SIZE) {
+          const batch = electronFilesToRead.slice(i, i + TOKEN_INDEXER_IO_BATCH_SIZE);
           const results = await Promise.all(
             batch.map(async ({ compositeKey, folderId, filePath, fileSize, handle }) => {
               try {
@@ -1122,14 +1345,30 @@ export function useBackgroundTokenIndexerIntegration({
             });
           }
 
-          if (emitLargeSelectionDiagnostics) {
-            logger.info('Background token indexing dispatched Electron batch', {
-              batchFilesReady: electronFilesReady.length,
-              electronBatchSize,
+          logger.debug('Background token indexing dispatched Electron batch', {
+            batchSize: TOKEN_INDEXER_IO_BATCH_SIZE,
+            batchFilesReady: electronFilesReady.length,
+            electronBytesRead,
+            electronFilesRead,
+            elapsedMs: Date.now() - electronStartedAt,
+            estimatedElectronBytes,
+            remainingFiles: Math.max(electronFilesToRead.length - (i + batch.length), 0),
+            yieldedBatchCount: electronYieldedBatches,
+          });
+
+          if (
+            emitLargeSelectionDiagnostics &&
+            i + TOKEN_INDEXER_IO_BATCH_SIZE >= electronFilesToRead.length
+          ) {
+            logger.info('Background token indexing dispatched Electron batches', {
+              batchSize: TOKEN_INDEXER_IO_BATCH_SIZE,
               electronBytesRead,
               electronFilesRead,
+              elapsedMs: Date.now() - electronStartedAt,
               estimatedElectronBytes,
-              remainingFiles: Math.max(electronFilesToRead.length - (i + batch.length), 0),
+              queuedFiles: electronFilesToRead.length,
+              remainingFiles: 0,
+              yieldedBatchCount: electronYieldedBatches,
             });
           }
 
@@ -1140,6 +1379,14 @@ export function useBackgroundTokenIndexerIntegration({
               error: error instanceof Error ? error.message : String(error),
             });
           }
+
+          await yieldIfMoreTokenIndexingBatches({
+            nextIndex: i + TOKEN_INDEXER_IO_BATCH_SIZE,
+            totalCount: electronFilesToRead.length,
+            onYield: () => {
+              electronYieldedBatches += 1;
+            },
+          });
         }
       }
 
@@ -1170,18 +1417,69 @@ export function useBackgroundTokenIndexerIntegration({
   // Uses refs to avoid re-render loops while still accessing latest values
   const tokenCacheIsOperational = tokenCache?.isOperational ?? false;
   const tokenCacheIsPersisted = tokenCache?.isPersisted ?? false;
+
+  // Prefetch file sizes into the hot cache as soon as the selection and
+  // handle sources know them. Previously sizes were only written after the
+  // background token indexer finished a batch, so any time the indexing path
+  // was gated (embedding active, adaptive debounce, large queue) the
+  // context-explorer column rendered `—` for size even though the tree
+  // already had the value. Writes are idempotent (use-token-cache no-ops when
+  // the value matches) so re-running on every selection change is cheap.
+  useEffect(() => {
+    const cache = tokenCacheRef.current;
+    if (!cache?.isOperational || selectedFiles.size === 0) {
+      return;
+    }
+    const getHandle = indexGetHandleRef.current;
+    const localMap = fileHandleMapRef.current;
+    if (!getHandle && localMap.size === 0) {
+      return;
+    }
+    for (const compositeKey of selectedFiles) {
+      const lookup = lookupSelectedFileSize({ compositeKey, getHandle, localMap });
+      if (!lookup) {
+        continue;
+      }
+      cache.updateFileSizeCache(lookup.folderId, lookup.normalizedPath, lookup.fileSize);
+    }
+  }, [selectedFiles, tokenCacheIsOperational, fileHandleMapSize, indexVersion]);
+
   useEffect(() => {
     const indexer = backgroundIndexerRef.current;
     const previousSize = previousSelectionSizeRef.current;
+    const previousSelectedFiles = previousSelectedFilesRef.current;
     previousSelectionSizeRef.current = selectedFiles.size;
+    // Shallow-clone so `reconcileInFlightOnShrink` stays correct even if an
+    // upstream caller ever mutates the Set in place. Storing a bare reference
+    // would mean the "previous" and "next" Sets point at the same object on
+    // the next render, and the diff loop would find zero removed keys --
+    // silently skipping the narrow/cancel path. React selection state is
+    // replaced immutably today, but this ref persists across renders and the
+    // failure mode would be invisible, so we pay the tiny clone cost.
+    previousSelectedFilesRef.current = new Set(selectedFiles);
 
-    if (selectedFiles.size < previousSize && inFlightRef.current.size > 0) {
-      indexer.cancelIndexing();
-      inFlightRef.current.clear();
-      bumpInFlightPulse((value) => value + 1);
-      logger.debug('Cleared in-flight queue due to selection shrink', {
+    if (
+      shouldReconcileShrink({
         previousSize,
         nextSize: selectedFiles.size,
+        inFlightSize: inFlightRef.current.size,
+        pendingNoHandleSize: pendingNoHandleRef.current.size,
+      })
+    ) {
+      // Previously, any shrink cleared the entire in-flight set, which threw
+      // away token-count work for files the user had not deselected (see the
+      // context-explorer responsiveness investigation). `handleSelectionShrink`
+      // drops tracking only for keys that actually left the selection and
+      // hard-cancels the worker batch only when every in-flight key was
+      // deselected.
+      handleSelectionShrink({
+        previousSize,
+        previousSelectedFiles,
+        selectedFiles,
+        inFlight: inFlightRef.current,
+        pendingNoHandle: pendingNoHandleRef.current,
+        cancelBatch: () => indexer.cancelIndexing(),
+        onPulse: () => bumpInFlightPulse((value) => value + 1),
       });
     }
 
@@ -1195,29 +1493,17 @@ export function useBackgroundTokenIndexerIntegration({
     // During startup, selection may be restored from storage before file tree has handles.
     // When FileTreeIndex is available, skip the local map size check since we use index lookups.
     const hasHandleSource = indexGetHandleRef.current || fileHandleMapRef.current.size > 0;
-    const skipState = getSelectionSkipState({
-      isFileImporting,
-      isEmbeddingActive,
+    const skipReason = getSelectionSkipState({
       selectedCount: selectedFiles.size,
       hasHandleSource: Boolean(hasHandleSource),
     });
-    if (skipState.reason) {
-      if (selectionSkipReasonRef.current !== skipState.reason) {
-        selectionSkipReasonRef.current = skipState.reason;
-        if (skipState.message) {
-          logger.debug(skipState.message);
-        }
-        if (
-          skipState.reason === 'embedding-active' &&
-          selectedFiles.size >= LARGE_SELECTION_DIAGNOSTIC_FILE_THRESHOLD
-        ) {
-          logger.info('Selection effect skipped while embedding is active', {
-            indexedCount: indexedFilesRef.current.size,
-            inFlightCount: inFlightRef.current.size,
-            selectedCount: selectedFiles.size,
-          });
-        }
-      }
+    if (skipReason) {
+      // Track the last skip reason to avoid log thrash when the skip persists
+      // across rerenders. The remaining skip reasons ("no-files", "no-handles")
+      // are quiet states that do not require user-visible logging; they happen
+      // routinely during startup (selection restored before handles are ready)
+      // and when the user deselects everything.
+      selectionSkipReasonRef.current = skipReason;
       return;
     }
 
@@ -1248,15 +1534,7 @@ export function useBackgroundTokenIndexerIntegration({
     }, debounceMs);
 
     return () => clearTimeout(timeoutId);
-  }, [
-    selectedFiles,
-    triggerIndexing,
-    tokenCacheIsOperational,
-    fileHandleMapSize,
-    isFileImporting,
-    isEmbeddingActive,
-    indexGetHandle,
-  ]);
+  }, [selectedFiles, triggerIndexing, tokenCacheIsOperational, fileHandleMapSize, indexGetHandle]);
 
   // Clear indexed files cache when file tree changes significantly
   // biome-ignore lint/plugin: Intentional effect to reset cache when folder is cleared - not an event handler
@@ -1285,11 +1563,6 @@ export function useBackgroundTokenIndexerIntegration({
       return;
     }
 
-    // Skip during file import
-    if (isFileImporting) {
-      return;
-    }
-
     // Filter pending files to only those still in selection
     const pendingInSelection = Array.from(pendingNoHandleRef.current).filter((key) =>
       selectedFiles.has(key)
@@ -1312,7 +1585,7 @@ export function useBackgroundTokenIndexerIntegration({
     }, 100);
 
     return () => clearTimeout(timeoutId);
-  }, [indexVersion, selectedFiles, triggerIndexing, isFileImporting]);
+  }, [indexVersion, selectedFiles, triggerIndexing]);
 
   // Warm hot cache from persistent store so repeat selections show existing counts immediately.
   // Uses tokenCacheRef to avoid re-render loops when cacheVersion changes.
@@ -1327,14 +1600,12 @@ export function useBackgroundTokenIndexerIntegration({
       return;
     }
 
-    // Skip during file import to avoid database contention
-    if (isFileImporting) {
-      if (warmCacheSkipReasonRef.current !== 'file-import') {
-        warmCacheSkipReasonRef.current = 'file-import';
-        logger.debug('Warm cache effect skipped - file import in progress');
-      }
-      return;
-    }
+    // NOTE: Warm-cache hydration is intentionally not gated on `isImporting`.
+    // This is a READ from PGLite and does not contend with the collection
+    // sync's writes (PGLite serializes internally). Gating it here would
+    // strand already-persisted token counts for the entire duration of a
+    // background scan, which is the opposite of what the persistent cache
+    // exists to provide.
 
     // P0 optimization: Clear preload memo when persistence state changes.
     // This ensures we re-preload from DB when persistence becomes available.
@@ -1506,7 +1777,7 @@ export function useBackgroundTokenIndexerIntegration({
     // NOTE: tokenCacheIsPersisted is included to re-run when persistence becomes available.
     // This handles the case where isOperational=true (worker ready) but DB isn't ready yet.
     // When the DB initializes later, isPersisted changes → effect re-runs → preloads from store.
-  }, [selectedFiles, tokenCacheIsOperational, tokenCacheIsPersisted, isFileImporting]);
+  }, [selectedFiles, tokenCacheIsOperational, tokenCacheIsPersisted]);
 
   // Diagnostic function to force re-indexing by clearing the tracked files
   const clearIndexedCache = useCallback(() => {

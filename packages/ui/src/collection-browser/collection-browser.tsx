@@ -212,7 +212,7 @@ export function CollectionBrowser({
       return treePagination;
     }
     if (!shouldUseSearchWindowingContext) {
-      return undefined;
+      return;
     }
     return {
       pageSizeOptions: DEFAULT_SEMANTIC_PAGE_SIZE_OPTIONS,
@@ -247,6 +247,7 @@ export function CollectionBrowser({
         <TreeTable
           columns={columns}
           expandedIds={expandedIds}
+          insetTreeControls
           nodes={nodes}
           onSelect={handleSelect}
           onToggleExpand={handleToggleExpand}

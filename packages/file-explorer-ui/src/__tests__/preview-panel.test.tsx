@@ -973,9 +973,53 @@ describe('PreviewPanel', () => {
 
       selectGroupingOption('By Directory');
 
-      // Should show directory groups - both directories should appear as group headers
-      expect(screen.getAllByText('src/components').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('src/utils').length).toBeGreaterThan(0);
+      // Should show directory groups with the root-prefixed display contract.
+      expect(screen.getAllByText('project/src/components').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('project/src/utils').length).toBeGreaterThan(0);
+    });
+
+    it('shows root-prefixed directory group labels for desktop-style absolute paths', () => {
+      const absoluteDirectoriesState = {
+        ...mockState,
+        flatListItems: [
+          {
+            type: 'file' as const,
+            compositeKey: 'file1',
+            folderId: '/Users/me/BrainStrike',
+            path: '/Users/me/BrainStrike/README.md',
+            size: 1024,
+            tokens: 500,
+          },
+          {
+            type: 'file' as const,
+            compositeKey: 'file2',
+            folderId: '/Users/me/BrainStrike',
+            path: '/Users/me/BrainStrike/source/index.ts',
+            size: 2048,
+            tokens: 750,
+          },
+        ],
+      };
+
+      const propsWithAbsoluteDirectories = {
+        ...mockProps,
+        decodeFileSelection: vi.fn((key: string) => ({
+          folderId: '/Users/me/BrainStrike',
+          path:
+            key === 'file1'
+              ? '/Users/me/BrainStrike/README.md'
+              : '/Users/me/BrainStrike/source/index.ts',
+        })),
+      };
+
+      mockUsePreviewPanelState.mockReturnValue(absoluteDirectoriesState);
+      render(<PreviewPanel {...propsWithAbsoluteDirectories} />);
+
+      selectGroupingOption('By Directory');
+
+      expect(screen.getAllByText('BrainStrike').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('BrainStrike/source').length).toBeGreaterThan(0);
+      expect(screen.queryByText('.')).not.toBeInTheDocument();
     });
 
     it('should group files by root folder correctly', () => {

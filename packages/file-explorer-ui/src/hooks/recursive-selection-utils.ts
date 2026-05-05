@@ -7,6 +7,7 @@
  * selection descriptors. This module extracts those shared helpers.
  */
 
+import type { ChunkedSelectionOptions, ChunkedSelectionResult } from '@brainstrike/file-explorer';
 import {
   CHUNKED_SELECTION_THRESHOLD,
   DEFAULT_SELECTION_CHUNK_SIZE,
@@ -32,10 +33,22 @@ export function hasPersistApi(store: unknown): store is PersistableFileExplorerS
   );
 }
 
+export type AddMultipleSelectedFilesChunked = (
+  folderId: string,
+  paths: string[],
+  options?: ChunkedSelectionOptions
+) => Promise<ChunkedSelectionResult>;
+
+export interface ApplyExplicitSelectionOptions {
+  addMultipleSelectedFilesChunked?: AddMultipleSelectedFilesChunked;
+  signal?: AbortSignal;
+}
+
 export async function applyExplicitSelection(
   filePaths: string[],
   folderId: string,
-  addMultipleSelectedFiles: (folderId: string, paths: string[]) => void
+  addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
+  options: ApplyExplicitSelectionOptions = {}
 ): Promise<void> {
   if (filePaths.length === 0) {
     return;
@@ -43,6 +56,13 @@ export async function applyExplicitSelection(
 
   if (filePaths.length <= CHUNKED_SELECTION_THRESHOLD) {
     addMultipleSelectedFiles(folderId, filePaths);
+    return;
+  }
+
+  if (options.addMultipleSelectedFilesChunked) {
+    await options.addMultipleSelectedFilesChunked(folderId, filePaths, {
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
     return;
   }
 

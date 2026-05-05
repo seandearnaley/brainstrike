@@ -5,7 +5,15 @@ import { Minimatch } from 'minimatch';
 /**
  * Common file patterns to ignore
  */
-const DEFAULT_IGNORE_PATTERNS = ['.git', 'node_modules', '.next', 'dist', 'build', '.DS_Store'];
+const DEFAULT_IGNORE_PATTERNS = [
+  '.git',
+  'node_modules',
+  '.pnpm-store',
+  '.next',
+  'dist',
+  'build',
+  '.DS_Store',
+];
 
 // Pre-compile the ignore regex for performance
 // Matches any path segment that equals one of the ignore patterns

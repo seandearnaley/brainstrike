@@ -139,6 +139,14 @@ interface RetrievalFilterOptions {
   selectionSnapshotId?: string;
 }
 
+interface SearchFileInfo {
+  chunksCount?: number;
+  name: string;
+  path: string;
+  size: number;
+  tokenCount?: number;
+}
+
 /**
  * Build retrieval filter options, preferring selectionSnapshotId over filePaths
  * to avoid MAX_INLINE_FILE_PATHS (500) limit.
@@ -159,25 +167,32 @@ function buildRetrievalFilterOptions(config: SearchConfig): RetrievalFilterOptio
  */
 function transformToSearchResults(
   searchResults: ChunkSearchResult[],
-  fileRecordsMap: Map<string, { name: string; path: string }>
+  fileRecordsMap: Map<string, SearchFileInfo>
 ): SemanticSearchResult[] {
   return searchResults.map((result) => {
     const fileInfo = fileRecordsMap.get(result.chunk.fileRecordId) ?? {
       name: 'Unknown',
       path: '',
+      size: 0,
     };
 
     const searchResult: SemanticSearchResult = {
       nodeId: `chunk-${result.chunk.id}`,
       chunkId: result.chunk.id,
+      chunkIndex: result.chunk.chunkIndex,
       fileRecordId: result.chunk.fileRecordId,
       similarity: result.similarity,
       content: result.chunk.content,
+      tokenCount: result.chunk.tokenCount,
       fileName: fileInfo.name,
       filePath: fileInfo.path,
+      fileSize: fileInfo.size,
     };
     if (result.chunk.embeddingSetId) {
       searchResult.embeddingSetId = result.chunk.embeddingSetId;
+    }
+    if (result.chunk.embedding && result.chunk.embedding.length > 0) {
+      searchResult.embeddingDimensions = result.chunk.embedding.length;
     }
     return searchResult;
   });
@@ -192,7 +207,7 @@ function transformToSearchResults(
 async function buildFileRecordsMap(
   fileIds: string[],
   fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository
-): Promise<Map<string, { name: string; path: string }>> {
+): Promise<Map<string, SearchFileInfo>> {
   const uniqueFileIds = Array.from(new Set(fileIds));
   const results = await Promise.allSettled(
     uniqueFileIds.map(async (fileId) => {
@@ -201,7 +216,7 @@ async function buildFileRecordsMap(
     })
   );
 
-  const fileRecordsMap = new Map<string, { name: string; path: string }>();
+  const fileRecordsMap = new Map<string, SearchFileInfo>();
   for (const [index, result] of results.entries()) {
     const fileId = uniqueFileIds[index];
     // Skip if fileId is undefined (should never happen in practice)
@@ -211,13 +226,19 @@ async function buildFileRecordsMap(
     if (result.status === 'fulfilled') {
       const record = result.value.record;
       const info = record
-        ? { name: record.name, path: record.path }
-        : { name: 'Unknown file', path: '(unavailable)' };
+        ? {
+            name: record.name,
+            path: record.path,
+            size: record.size,
+            ...(record.tokenCount === undefined ? {} : { tokenCount: record.tokenCount }),
+            ...(record.chunksCount === undefined ? {} : { chunksCount: record.chunksCount }),
+          }
+        : { name: 'Unknown file', path: '(unavailable)', size: 0 };
       fileRecordsMap.set(fileId, info);
     } else {
       // Log failed lookups but continue with partial results
       logger.warn('Failed to fetch file record', { fileId, error: result.reason });
-      fileRecordsMap.set(fileId, { name: 'Error loading', path: '(error)' });
+      fileRecordsMap.set(fileId, { name: 'Error loading', path: '(error)', size: 0 });
     }
   }
 
@@ -231,23 +252,27 @@ async function buildFileRecordsMap(
  */
 function transformHybridResults(
   hybridResults: HybridSearchResult[],
-  fileRecordsMap: Map<string, { name: string; path: string }>
+  fileRecordsMap: Map<string, SearchFileInfo>
 ): SemanticSearchResult[] {
   return hybridResults.map((result) => {
     const fileInfo = fileRecordsMap.get(result.chunk.fileRecordId) ?? {
       name: 'Unknown',
       path: '',
+      size: 0,
     };
 
     const searchResult: SemanticSearchResult = {
       nodeId: `chunk-${result.chunk.id}`,
       chunkId: result.chunk.id,
+      chunkIndex: result.chunk.chunkIndex,
       fileRecordId: result.chunk.fileRecordId,
       // Use RRF score as similarity (already normalized 0-1)
       similarity: result.rrfScore,
       content: result.chunk.content,
+      tokenCount: result.chunk.tokenCount,
       fileName: fileInfo.name,
       filePath: fileInfo.path,
+      fileSize: fileInfo.size,
       // Include hybrid metadata
       sourceCount: result.sourceCount,
     };
@@ -255,6 +280,9 @@ function transformHybridResults(
     // Add optional fields if present
     if (result.chunk.embeddingSetId) {
       searchResult.embeddingSetId = result.chunk.embeddingSetId;
+    }
+    if (result.chunk.embedding && result.chunk.embedding.length > 0) {
+      searchResult.embeddingDimensions = result.chunk.embedding.length;
     }
     if (result.vectorSimilarity !== undefined) {
       searchResult.vectorSimilarity = result.vectorSimilarity;
@@ -561,7 +589,7 @@ export function useSemanticSearchExecutor({
       embeddingSetId: string | null
     ): Promise<SemanticSearchResult[]> => {
       logger.info('searchExecutor called', {
-        query: query.substring(0, 50),
+        query: query.slice(0, 50),
         embeddingSetId,
         config,
         hasChunkRepo: !!chunkRepository,

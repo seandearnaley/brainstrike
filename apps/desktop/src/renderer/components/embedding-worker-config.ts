@@ -1,18 +1,34 @@
-import type { IDatabase } from '@brainstrike/db';
+import {
+  createDatabasePressureController,
+  type DatabasePressureSnapshotSource,
+  type DatabaseWorkSchedulerSnapshot,
+  getDatabasePressureWaitingReason,
+  getDatabaseWorkScheduler,
+  type IDatabase,
+} from '@brainstrike/db';
 import type { EmbeddingWorkerOptions } from '@brainstrike/embeddings/worker';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('EmbeddingWorkerConfig');
-// Keep the hidden host responsive, but avoid the one-job-at-a-time churn that
-// creates excessive DB/queue pressure during large backfills.
-const DESKTOP_EMBED_CLAIM_BATCH_SIZE = 4;
-// Leave a short gap between claimed batches so the hidden host yields without
-// stretching backfills into a long sequence of tiny bursts.
+// Desktop local embedding runs in a hidden renderer backed by the DB scheduler.
+// Use WebGPU-sized batches when the scheduler is idle, then collapse to one-at-a-time
+// under foreground pressure so browsing/searching remains foreground-first.
+const DESKTOP_IDLE_EMBED_CLAIM_BATCH_SIZE = 16;
+const DESKTOP_PRESSURED_EMBED_CLAIM_BATCH_SIZE = 1;
 const DESKTOP_EMBED_INTER_BATCH_DELAY_MS = 75;
+const DESKTOP_PRESSURE_POLL_MS = 50;
+const DESKTOP_SCHEDULER_SNAPSHOT_CACHE_MS = 10;
+const DESKTOP_FOREGROUND_PRESSURE_WINDOW_MS = 1500;
+const DESKTOP_FOREGROUND_WAIT_P95_THRESHOLD_MS = 75;
+const DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS = 120;
 
 function parsePositiveIntegerEnv(
-  name: 'VITE_EMBED_CONCURRENCY' | 'VITE_EMBED_LEASE_MS',
+  name:
+    | 'VITE_EMBED_CLAIM_BATCH_SIZE'
+    | 'VITE_EMBED_CONCURRENCY'
+    | 'VITE_EMBED_INTER_BATCH_DELAY_MS'
+    | 'VITE_EMBED_LEASE_MS',
   fallback: number
 ): number {
   const raw = import.meta.env[name];
@@ -26,17 +42,111 @@ function parsePositiveIntegerEnv(
   return parsed;
 }
 
+function createPressureSnapshotSource(db: IDatabase): DatabasePressureSnapshotSource {
+  const scheduler = getDatabaseWorkScheduler(db);
+  if (scheduler) {
+    return scheduler;
+  }
+
+  const schedulerSnapshot =
+    typeof window === 'undefined' ? undefined : window.electronAPI?.db?.schedulerSnapshot;
+  if (!schedulerSnapshot) {
+    throw new Error('Desktop embedding worker requires database QoS scheduler snapshots.');
+  }
+
+  return {
+    getSnapshot: createCachedSchedulerSnapshotReader(schedulerSnapshot),
+  };
+}
+
+function createCachedSchedulerSnapshotReader(
+  readSnapshot: () => DatabaseWorkSchedulerSnapshot | Promise<DatabaseWorkSchedulerSnapshot>,
+  now: () => number = () => Date.now()
+): () => Promise<DatabaseWorkSchedulerSnapshot> {
+  let cachedSnapshot: DatabaseWorkSchedulerSnapshot | null = null;
+  let cachedAt = 0;
+  let pendingSnapshot: Promise<DatabaseWorkSchedulerSnapshot> | null = null;
+  return async () => {
+    const readAt = now();
+    if (cachedSnapshot && readAt - cachedAt <= DESKTOP_SCHEDULER_SNAPSHOT_CACHE_MS) {
+      return cachedSnapshot;
+    }
+    if (pendingSnapshot) {
+      // Concurrent permit and claim-size checks intentionally share one IPC read.
+      return pendingSnapshot;
+    }
+    cachedSnapshot = null;
+    cachedAt = 0;
+    pendingSnapshot = Promise.resolve()
+      .then(readSnapshot)
+      .then((snapshot) => {
+        cachedSnapshot = snapshot;
+        cachedAt = now();
+        return snapshot;
+      });
+    try {
+      return await pendingSnapshot;
+    } finally {
+      pendingSnapshot = null;
+    }
+  };
+}
+
+function hasForegroundDatabasePressure(snapshot: DatabaseWorkSchedulerSnapshot): boolean {
+  // The stats window is intentionally evaluated after the scheduler quiet
+  // window: recent foreground work always wins, even if latency samples are low.
+  // If the scheduler quiet window is tuned longer than this desktop stats
+  // window, the quiet-window branch deliberately owns that full period.
+  return (
+    getDatabasePressureWaitingReason(snapshot, snapshot.snapshotAt, {
+      foregroundPressureWindowMs: DESKTOP_FOREGROUND_PRESSURE_WINDOW_MS,
+      foregroundServiceP95ThresholdMs: DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS,
+      foregroundWaitP95ThresholdMs: DESKTOP_FOREGROUND_WAIT_P95_THRESHOLD_MS,
+    }) !== null
+  );
+}
+
+function createDesktopPressureControls(
+  db: IDatabase,
+  idleClaimBatchSize: number
+): Pick<EmbeddingWorkerOptions, 'resolveClaimBatchSize' | 'waitForBackgroundPermit'> {
+  const snapshotSource = createPressureSnapshotSource(db);
+  const pressureController = createDatabasePressureController({
+    pollMs: DESKTOP_PRESSURE_POLL_MS,
+    snapshotSource,
+  });
+  return {
+    resolveClaimBatchSize: async () => {
+      const snapshot = await snapshotSource.getSnapshot();
+      if (hasForegroundDatabasePressure(snapshot)) {
+        return DESKTOP_PRESSURED_EMBED_CLAIM_BATCH_SIZE;
+      }
+      return idleClaimBatchSize;
+    },
+    waitForBackgroundPermit: pressureController.waitForBackgroundPermit,
+  };
+}
+
 export function createEmbeddingWorkerConfig(db: IDatabase): EmbeddingWorkerOptions {
+  const claimBatchSize = parsePositiveIntegerEnv(
+    'VITE_EMBED_CLAIM_BATCH_SIZE',
+    DESKTOP_IDLE_EMBED_CLAIM_BATCH_SIZE
+  );
   const concurrency = parsePositiveIntegerEnv('VITE_EMBED_CONCURRENCY', 1);
+  const interBatchDelayMs = parsePositiveIntegerEnv(
+    'VITE_EMBED_INTER_BATCH_DELAY_MS',
+    DESKTOP_EMBED_INTER_BATCH_DELAY_MS
+  );
   const leaseMs = parsePositiveIntegerEnv('VITE_EMBED_LEASE_MS', 60_000);
   const modelKey = import.meta.env['VITE_EMBED_MODEL_KEY'];
 
   return {
     db,
-    claimBatchSize: DESKTOP_EMBED_CLAIM_BATCH_SIZE,
+    claimBatchSize,
     concurrency,
-    interBatchDelayMs: DESKTOP_EMBED_INTER_BATCH_DELAY_MS,
+    interBatchDelayMs,
     leaseMs,
+    ...createDesktopPressureControls(db, claimBatchSize),
     ...(modelKey ? { modelKey } : {}),
     log: (msg: string, meta?: unknown) => {
       if (meta) {
