@@ -32,4 +32,11 @@ describe('desktop vite config alias contract', () => {
     expect(config).toContain('port: DESKTOP_DEV_RENDERER_PORT');
     expect(config).toContain('strictPort: true');
   });
+
+  it('warms the desktop renderer entry during dev-server startup', () => {
+    const config = readDesktopViteConfig();
+
+    expect(config).toContain('warmup: {');
+    expect(config).toContain("clientFiles: ['./src/renderer/main.tsx']");
+  });
 });
