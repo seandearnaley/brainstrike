@@ -216,6 +216,67 @@ function requireDesktopRegressionJobContracts(source, prefix, failures) {
   );
 }
 
+function requirePreprovisionedPlaywrightJobContracts(source, prefix, failures) {
+  requireIncludes(
+    source,
+    'image: mcr.microsoft.com/playwright:v1.59.1-noble',
+    `${prefix} Playwright job must run in the preprovisioned Playwright Noble image.`,
+    failures
+  );
+  requireIncludes(
+    source,
+    'PLAYWRIGHT_BROWSERS_PATH: /ms-playwright',
+    `${prefix} Playwright job must use the image-provided browser path explicitly.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'pnpm exec playwright install',
+    `${prefix} Playwright job must not install browsers or browser system dependencies during required CI.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'install-deps',
+    `${prefix} Playwright job must not run install-deps during required CI.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'apt-get',
+    `${prefix} Playwright job must not run apt-get during required CI.`,
+    failures
+  );
+
+  const verifyStep = requireSingleNamedStep(
+    source,
+    /Verify preprovisioned Playwright runtime/,
+    `${prefix} preprovisioned Playwright runtime verification step`,
+    failures
+  );
+
+  if (verifyStep) {
+    requireIncludes(
+      verifyStep,
+      'test -d "$PLAYWRIGHT_BROWSERS_PATH"',
+      `${prefix} Playwright job must fail fast if the image browser path is missing.`,
+      failures
+    );
+    requireIncludes(
+      verifyStep,
+      "require('playwright')",
+      `${prefix} Playwright job must verify the project Playwright package.`,
+      failures
+    );
+    requireIncludes(
+      verifyStep,
+      'chromium.launch',
+      `${prefix} Playwright job must prove Chromium launches before running the test lane.`,
+      failures
+    );
+  }
+}
+
 function extractNamedStepBlocks(source, namePattern) {
   const lines = source.split('\n');
   const blocks = [];
@@ -313,6 +374,7 @@ export function validateWorkflowContracts(source) {
   if (!e2e) {
     failures.push('Missing e2e job.');
   } else {
+    requirePreprovisionedPlaywrightJobContracts(e2e, 'Functional E2E', failures);
     requireIncludes(
       e2e,
       'needs: [checks, determine-matrix]',
@@ -343,6 +405,7 @@ export function validateWorkflowContracts(source) {
   if (!stateful) {
     failures.push('Missing e2e-stateful job.');
   } else {
+    requirePreprovisionedPlaywrightJobContracts(stateful, 'Stateful E2E', failures);
     requireIncludes(
       stateful,
       'needs: [checks]',
@@ -361,6 +424,7 @@ export function validateWorkflowContracts(source) {
   if (!destructive) {
     failures.push('Missing e2e-destructive job.');
   } else {
+    requirePreprovisionedPlaywrightJobContracts(destructive, 'Destructive E2E', failures);
     requireIncludes(
       destructive,
       'needs: [checks]',
@@ -624,6 +688,13 @@ export function validateWorkflowContracts(source) {
       'Unit coverage package task timing thresholds must stay capped at 10m warn / 15m fail.',
       failures
     );
+  }
+
+  const browserTests = extractJob(source, 'browser-tests');
+  if (!browserTests) {
+    failures.push('Missing browser-tests job.');
+  } else {
+    requirePreprovisionedPlaywrightJobContracts(browserTests, 'Browser Vitest', failures);
   }
 
   const requiredPrGate = extractJob(source, 'required-pr-gate');

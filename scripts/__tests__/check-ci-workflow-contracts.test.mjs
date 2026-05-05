@@ -134,6 +134,54 @@ test('workflow contract accepts Turbo run commands without the pnpm prefix', () 
   assert.deepEqual(validateWorkflowContracts(source), []);
 });
 
+test('workflow contract fails when required browser Vitest installs Playwright deps live', () => {
+  const browserTests = extractJob(workflowSource, 'browser-tests');
+  assert.ok(browserTests);
+
+  const source = workflowSource.replace(
+    browserTests,
+    browserTests.replace(
+      'pnpm exec playwright --version',
+      'pnpm exec playwright install-deps chromium'
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Browser Vitest Playwright job must not run install-deps during required CI/
+  );
+});
+
+test('workflow contract fails when required web E2E leaves the Playwright image', () => {
+  const e2e = extractJob(workflowSource, 'e2e');
+  assert.ok(e2e);
+
+  const source = workflowSource.replace(
+    e2e,
+    e2e.replace('image: mcr.microsoft.com/playwright:v1.59.1-noble', 'image: ubuntu:24.04')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Functional E2E Playwright job must run in the preprovisioned Playwright Noble image/
+  );
+});
+
+test('workflow contract fails when preprovisioned Playwright runtime verification is removed', () => {
+  const destructive = extractJob(workflowSource, 'e2e-destructive');
+  assert.ok(destructive);
+
+  const source = workflowSource.replace(
+    destructive,
+    destructive.replace('chromium.launch', 'console.log')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Destructive E2E Playwright job must prove Chromium launches/
+  );
+});
+
 test('setup monorepo contract fails when Turborepo cache path is removed', () => {
   const source = setupMonorepoSource.replace('path: .turbo', 'path: .turbo-disabled');
 

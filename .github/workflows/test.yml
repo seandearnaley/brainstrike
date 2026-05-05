@@ -487,8 +487,11 @@ jobs:
     if: github.event_name != 'workflow_dispatch'
     needs: checks # Only run if checks pass
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 30
     env:
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -499,32 +502,12 @@ jobs:
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
 
-      - name: Get Playwright version
-        id: playwright-version
-        run: |
-          version=$(node -p "require('./packages/storage/package.json').devDependencies['@vitest/browser-playwright']")
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-vitest-${{ steps.playwright-version.outputs.version }}
-
-      - name: Install Playwright browsers for Vitest
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: |
-          # Install browsers using Playwright from within storage package
-          # to ensure version compatibility with @vitest/browser-playwright
-          cd packages/storage
-          pnpm exec playwright install chromium chromium-headless-shell --with-deps
-
-      - name: Install Playwright system dependencies only
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
+      - name: Verify preprovisioned Playwright runtime
         run: |
           cd packages/storage
-          pnpm exec playwright install-deps chromium
+          test -d "$PLAYWRIGHT_BROWSERS_PATH"
+          pnpm exec playwright --version
+          node -e "const { chromium } = require('playwright'); (async () => { const browser = await chromium.launch({ headless: true }); await browser.close(); })().catch((error) => { console.error(error); process.exit(1); });"
 
       - name: Build packages
         run: pnpm run build --filter @brainstrike/db --filter @brainstrike/storage
@@ -553,8 +536,11 @@ jobs:
     if: github.event_name != 'workflow_dispatch'
     needs: [checks, determine-matrix]
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 40
     env:
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -579,26 +565,12 @@ jobs:
           name: web-dist
           path: apps/web/dist/
 
-      - name: Get Playwright version
-        id: playwright-version
+      - name: Verify preprovisioned Playwright runtime
         run: |
-          version=$(node -p "require('./apps/web/package.json').devDependencies['@playwright/test']")
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
-
-      - name: Install Playwright browsers and dependencies
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Install Playwright system dependencies only
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: pnpm exec playwright install-deps chromium
+          cd apps/web
+          test -d "$PLAYWRIGHT_BROWSERS_PATH"
+          pnpm exec playwright --version
+          node -e "const { chromium } = require('playwright'); (async () => { const browser = await chromium.launch({ headless: true }); await browser.close(); })().catch((error) => { console.error(error); process.exit(1); });"
 
       - name: Run E2E tests (shard)
         timeout-minutes: 30
@@ -639,8 +611,11 @@ jobs:
     if: github.event_name != 'workflow_dispatch'
     needs: [checks]
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 35
     env:
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -672,26 +647,12 @@ jobs:
           name: web-dist
           path: apps/web/dist/
 
-      - name: Get Playwright version
-        id: playwright-version
+      - name: Verify preprovisioned Playwright runtime
         run: |
-          version=$(node -p "require('./apps/web/package.json').devDependencies['@playwright/test']")
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
-
-      - name: Install Playwright browsers and dependencies
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Install Playwright system dependencies only
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: pnpm exec playwright install-deps chromium
+          cd apps/web
+          test -d "$PLAYWRIGHT_BROWSERS_PATH"
+          pnpm exec playwright --version
+          node -e "const { chromium } = require('playwright'); (async () => { const browser = await chromium.launch({ headless: true }); await browser.close(); })().catch((error) => { console.error(error); process.exit(1); });"
 
       - name: Run stateful E2E tests
         timeout-minutes: 25
@@ -732,8 +693,11 @@ jobs:
     if: github.event_name != 'workflow_dispatch'
     needs: [checks]
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
     timeout-minutes: 20
     env:
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
@@ -753,26 +717,12 @@ jobs:
           name: web-dist
           path: apps/web/dist/
 
-      - name: Get Playwright version
-        id: playwright-version
+      - name: Verify preprovisioned Playwright runtime
         run: |
-          version=$(node -p "require('./apps/web/package.json').devDependencies['@playwright/test']")
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
-
-      - name: Install Playwright browsers and dependencies
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Install Playwright system dependencies only
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: pnpm exec playwright install-deps chromium
+          cd apps/web
+          test -d "$PLAYWRIGHT_BROWSERS_PATH"
+          pnpm exec playwright --version
+          node -e "const { chromium } = require('playwright'); (async () => { const browser = await chromium.launch({ headless: true }); await browser.close(); })().catch((error) => { console.error(error); process.exit(1); });"
 
       - name: Run destructive E2E tests
         timeout-minutes: 10
