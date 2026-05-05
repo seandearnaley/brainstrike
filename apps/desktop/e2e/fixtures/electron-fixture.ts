@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -17,17 +18,28 @@ interface ElectronHarnessOptions {
 
 class ElectronHarness {
   private context: ElectronAppContext | null = null;
+  private hasProvidedWindow = false;
   private readonly maxRendererRecoveryAttempts = 1;
 
   constructor(
+    private readonly testInfo: TestInfo,
     private readonly debugPort?: number,
     private readonly userDataDir?: string
   ) {}
 
+  getUserDataDir(): string {
+    if (!this.userDataDir) {
+      throw new Error('Electron harness requires an isolated userDataDir.');
+    }
+    return this.userDataDir;
+  }
+
   async ensureContext(): Promise<ElectronAppContext> {
     if (!this.context) {
       const { launchElectronApp } = await loadElectronHelpers();
-      this.context = await launchElectronApp(this.debugPort, this.userDataDir);
+      this.context = await launchElectronApp(this.debugPort, this.userDataDir, {
+        disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
+      });
       return this.context;
     }
 
@@ -43,12 +55,15 @@ class ElectronHarness {
     let page = ctx.window;
 
     if (!options?.preserveState) {
-      page = await this.resetRenderer(page);
+      page = this.hasProvidedWindow
+        ? await this.resetRenderer(page)
+        : await this.prepareFreshWindow(page);
     } else if (page.isClosed()) {
       await this.restart();
       return this.ensureWindow({ preserveState: false });
     }
 
+    this.hasProvidedWindow = true;
     return page;
   }
 
@@ -66,7 +81,10 @@ class ElectronHarness {
     }
 
     const { launchElectronApp } = await loadElectronHelpers();
-    this.context = await launchElectronApp(this.debugPort, this.userDataDir);
+    this.context = await launchElectronApp(this.debugPort, this.userDataDir, {
+      disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
+    });
+    this.hasProvidedWindow = false;
     return this.context;
   }
 
@@ -80,7 +98,15 @@ class ElectronHarness {
       await closeElectronApp(this.context);
     } finally {
       this.context = null;
+      this.hasProvidedWindow = false;
     }
+  }
+
+  private async prepareFreshWindow(page: Page): Promise<Page> {
+    const { waitForAppReady } = await loadElectronHelpers();
+    await waitForAppReady(page);
+    await resetToAppHome(page);
+    return page;
   }
 
   private async resetRenderer(page: Page): Promise<Page> {
@@ -103,32 +129,31 @@ class ElectronHarness {
     });
     await waitForAppReady(page);
 
-    let resetTriggeredNavigation = false;
     try {
-      resetTriggeredNavigation = await resetAppState(page);
+      await resetAppState(page);
     } catch (error) {
-      console.warn('Failed to reset app state before reload:', error);
-    }
-
-    if (!resetTriggeredNavigation) {
-      try {
-        await reloadRenderer(page, 'playwright-reset-renderer');
-      } catch (error) {
-        if (this.isRecoverableRendererError(error)) {
-          return this.restartAndResetRenderer(
-            recoveryAttempt,
-            `Renderer reset failed due to page crash/closure: ${String(error)}`
-          );
-        }
-        throw error;
+      if (this.isRecoverableRendererError(error)) {
+        return this.restartAndResetRenderer(
+          recoveryAttempt,
+          `Renderer state reset failed due to page crash/closure: ${String(error)}`
+        );
       }
+      throw error;
     }
 
     try {
-      await resetToAppHome(page);
+      await reloadRenderer(page, 'playwright-reset-renderer');
     } catch (error) {
-      console.warn('Failed to reset app layout:', error);
+      if (this.isRecoverableRendererError(error)) {
+        return this.restartAndResetRenderer(
+          recoveryAttempt,
+          `Renderer reset failed due to page crash/closure: ${String(error)}`
+        );
+      }
+      throw error;
     }
+
+    await resetToAppHome(page);
 
     return page;
   }
@@ -179,6 +204,7 @@ class ElectronHarness {
 }
 
 interface ElectronTestFixtures {
+  electron: ElectronHarness;
   electronApp: ElectronAppContext;
   electronHarness: ElectronHarness;
   /** Failure artifact collector - automatically captures diagnostics on test failure */
@@ -187,31 +213,30 @@ interface ElectronTestFixtures {
   window: Page;
 }
 
-interface ElectronWorkerFixtures {
-  electron: ElectronHarness;
+function shouldDisableExternalLocalRuntimeProbes(testInfo: TestInfo): boolean {
+  return !testInfo.file.endsWith(`${path.sep}local-runtime-probe.desktop.test.ts`);
 }
 
-export const test = base.extend<ElectronTestFixtures, ElectronWorkerFixtures>({
-  electron: [
-    async ({}, use, workerInfo) => {
-      const shardIndex = workerInfo.config.shard?.current ?? 0;
-      const workerIndex = workerInfo.workerIndex;
-      const runSalt = getRunSalt();
+export const test = base.extend<ElectronTestFixtures>({
+  electron: async ({}, use, testInfo) => {
+    const shardIndex = testInfo.config.shard?.current ?? 0;
+    const workerIndex = testInfo.workerIndex;
+    const runSalt = getRunSalt();
+    const userDataDir = deriveUserDataDir(
+      runSalt,
+      shardIndex,
+      workerIndex,
+      testInfo.testId,
+      testInfo.retry
+    );
 
-      // NOTE: We no longer use explicit debug ports - Playwright manages CDP automatically.
-      // This prevents "Waiting for debugger to disconnect" hangs in CI.
-      // We still isolate user data directories per shard to prevent state collisions.
-      const userDataDir = deriveUserDataDir(runSalt, shardIndex, workerIndex);
-
-      const harness = new ElectronHarness(undefined, userDataDir);
-      try {
-        await use(harness);
-      } finally {
-        await harness.dispose();
-      }
-    },
-    { scope: 'worker' },
-  ],
+    const harness = new ElectronHarness(testInfo, undefined, userDataDir);
+    try {
+      await use(harness);
+    } finally {
+      await harness.dispose();
+    }
+  },
 
   electronApp: async ({ electron }, use) => {
     const context = await electron.ensureContext();
@@ -277,12 +302,16 @@ function getRunSalt(): number {
 function deriveUserDataDir(
   runSalt: number,
   shardIndex: number,
-  workerIndex: number
+  workerIndex: number,
+  testId: string,
+  retry: number
 ): string | undefined {
   const shardSuffix = Number.isInteger(shardIndex) ? shardIndex : 0;
   const workerSuffix = Number.isInteger(workerIndex) ? workerIndex : 0;
+  const retrySuffix = Number.isInteger(retry) ? retry : 0;
+  const testSuffix = createHash('sha256').update(testId).digest('hex').slice(0, 12);
   return path.join(
     os.tmpdir(),
-    `brainstrike-test-user-data-${runSalt}-shard-${shardSuffix}-worker-${workerSuffix}`
+    `brainstrike-test-user-data-${runSalt}-shard-${shardSuffix}-worker-${workerSuffix}-test-${testSuffix}-retry-${retrySuffix}`
   );
 }

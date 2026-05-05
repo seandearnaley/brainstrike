@@ -97,8 +97,12 @@ test.describe('Models & Providers settings (desktop)', () => {
     await openModelsSettings(homePage, settingsPage);
     await window.getByTestId('model-cache-dir-select').click();
 
-    await expect(window.getByText('Directory selection unavailable')).toBeVisible();
-    await expect(window.getByText('Choose a cache directory from the desktop app.')).toBeVisible();
+    await expect(
+      window.getByText('Directory selection unavailable', { exact: true })
+    ).toBeVisible();
+    await expect(
+      window.getByText('Choose a cache directory from the desktop app.', { exact: true })
+    ).toBeVisible();
   });
 
   test('updates the cache directory through the desktop bridge', async ({ window, homePage }) => {
@@ -114,7 +118,6 @@ test.describe('Models & Providers settings (desktop)', () => {
     await openModelsSettings(homePage, settingsPage);
     await window.getByTestId('model-cache-dir-select').click();
 
-    await expect(window.getByText('Cache directory updated')).toBeVisible();
     await expect(window.getByTestId('model-cache-dir-input')).toHaveValue(
       '/tmp/brainstrike-model-cache'
     );

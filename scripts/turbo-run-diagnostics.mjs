@@ -3,7 +3,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findLatestTurboSummary, formatDuration } from './ci-timing-summary.mjs';
+import { findLatestTurboSummary, findTurboSummaries, formatDuration } from './ci-timing-summary.mjs';
 
 const DEFAULT_RUNS_DIR = '.turbo/runs';
 const DEFAULT_TASK = 'test:coverage';
@@ -107,9 +107,17 @@ function summarizeGlobalInput(value) {
 
 export function parseTurboDiagnostics(summaryJson, options = {}) {
   const taskName = options.task ?? DEFAULT_TASK;
+  const taskPrefix = options.taskPrefix;
+  const taskLabel =
+    typeof taskPrefix === 'string' && taskPrefix.length > 0 ? `${taskPrefix}*` : taskName;
   const topLimit = asPositiveInteger(options.top, DEFAULT_TOP_LIMIT);
   const allTasks = Array.isArray(summaryJson?.tasks) ? summaryJson.tasks : [];
-  const selectedTasks = allTasks.filter((task) => task?.task === taskName);
+  const selectedTasks = allTasks.filter((task) => {
+    const currentTask = String(task?.task ?? '');
+    return typeof taskPrefix === 'string' && taskPrefix.length > 0
+      ? currentTask.startsWith(taskPrefix)
+      : currentTask === taskName;
+  });
   const packages = collectPackages(selectedTasks);
   const slowestTasks = selectedTasks
     .map((task) => ({
@@ -132,13 +140,29 @@ export function parseTurboDiagnostics(summaryJson, options = {}) {
 
   return {
     command: String(summaryJson?.execution?.command ?? 'unknown'),
-    task: taskName,
+    task: taskLabel,
     totalTasks: selectedTasks.length,
     packages,
     cacheCounts: summarizeCache(selectedTasks),
     slowestTasks,
     inputCounts,
     globalInputs: collectGlobalInputs(summaryJson, topLimit),
+  };
+}
+
+function combineSummaries(summaries) {
+  if (summaries.length === 1) {
+    return summaries[0];
+  }
+  return {
+    execution: {
+      command: summaries
+        .map((summary) => String(summary?.execution?.command ?? 'unknown'))
+        .join(' && '),
+    },
+    globalCacheInputs: summaries[0]?.globalCacheInputs,
+    globalHashInputs: summaries[0]?.globalHashInputs,
+    tasks: summaries.flatMap((summary) => (Array.isArray(summary?.tasks) ? summary.tasks : [])),
   };
 }
 
@@ -199,35 +223,47 @@ export async function runCli(args = process.argv.slice(2)) {
   let explicitSummary;
   let output;
   let task;
+  let taskPrefix;
   let top;
+  let allSummaries;
   try {
     runsDir = readFlagValue(args, '--runs-dir') ?? DEFAULT_RUNS_DIR;
     explicitSummary = readFlagValue(args, '--summary');
     output = readFlagValue(args, '--output');
     task = readFlagValue(args, '--task') ?? DEFAULT_TASK;
+    taskPrefix = readFlagValue(args, '--task-prefix');
     top = asPositiveInteger(readFlagValue(args, '--top'), DEFAULT_TOP_LIMIT);
+    allSummaries = args.includes('--all');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(message);
     return 1;
   }
 
-  const summaryPath = explicitSummary ?? (await findLatestTurboSummary(runsDir));
-  if (!summaryPath) {
+  const summaryPaths = explicitSummary
+    ? [explicitSummary]
+    : allSummaries
+      ? await findTurboSummaries(runsDir)
+      : [await findLatestTurboSummary(runsDir)].filter(Boolean);
+  if (summaryPaths.length === 0) {
     console.error(`No Turbo run summary JSON found in ${runsDir}`);
     return 1;
   }
 
-  let summaryJson;
-  try {
-    summaryJson = JSON.parse(await readFile(summaryPath, 'utf8'));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to parse Turbo summary JSON at ${summaryPath}: ${message}`);
-    return 1;
+  const summaries = [];
+  for (const summaryPath of summaryPaths) {
+    try {
+      summaries.push(JSON.parse(await readFile(summaryPath, 'utf8')));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to parse Turbo summary JSON at ${summaryPath}: ${message}`);
+      return 1;
+    }
   }
 
-  const markdown = renderMarkdownDiagnostics(parseTurboDiagnostics(summaryJson, { task, top }));
+  const markdown = renderMarkdownDiagnostics(
+    parseTurboDiagnostics(combineSummaries(summaries), { task, taskPrefix, top })
+  );
   if (output) {
     await writeFile(output, `${markdown}\n`);
   } else {

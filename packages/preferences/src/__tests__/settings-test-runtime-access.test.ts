@@ -1,7 +1,8 @@
 import type { SupportedProvider } from '@brainstrike/agent/provider-metadata';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getAssistantConfiguredProvidersTestOverride,
+  getLocalRuntimeStatusTestOverride,
   getModelRegistrySnapshotTestOverride,
   readLocalRuntimeProbeCountsForTests,
   recordLocalRuntimeProbeForTests,
@@ -12,10 +13,15 @@ const SELECTED_MODEL = 'local::onnx-community/gemma-4-E2B-it-ONNX';
 
 describe('settings-test-runtime-access', () => {
   beforeEach(() => {
+    vi.unstubAllEnvs();
     window.localStorage.clear();
     window.__brainstrike_e2e_enable_settings_test_api__ = true;
     Reflect.deleteProperty(window, '__brainstrikePendingSettingsTestOverrides__');
     resetLocalRuntimeProbeCountsForTests();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it('prefers explicit assistant provider overrides', () => {
@@ -76,5 +82,14 @@ describe('settings-test-runtime-access', () => {
     recordLocalRuntimeProbeForTests('ollama');
 
     expect(readLocalRuntimeProbeCountsForTests()).toEqual({ ollama: 2 });
+  });
+
+  it('returns deterministic unavailable local runtime status when E2E disables external probes', () => {
+    vi.stubEnv('BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES', '1');
+
+    expect(getLocalRuntimeStatusTestOverride('ollama')).toMatchObject({
+      state: 'unavailable',
+      message: 'External local runtime probing is disabled for deterministic desktop E2E.',
+    });
   });
 });

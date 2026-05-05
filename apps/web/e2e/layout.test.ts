@@ -64,8 +64,8 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
 
   test('should load prompts without hanging fallbacks', async ({ page }) => {
     const home = new HomePage(page);
-    await home.goto();
-    await waitForAppLoad(page);
+    await home.goto({ waitForDatabase: false });
+    await waitForAppLoad(page, { waitForDatabase: false });
 
     const promptsNavButton = page
       .getByRole('button', { name: /prompts/i })
