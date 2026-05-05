@@ -121,15 +121,17 @@ function ErrorList({
         hidden={!showErrors}
         id={errorListId}
       >
-        {errors.map((error) => (
-          <div
-            className="rounded border-destructive border-l-2 bg-destructive/10 p-2 text-xs"
-            key={`${error.file}-${error.error}`}
-          >
-            <div className="truncate font-medium">{error.file}</div>
-            <div className="mt-1 text-muted-foreground">{error.error}</div>
-          </div>
-        ))}
+        {showErrors
+          ? errors.map((error) => (
+              <div
+                className="rounded border-destructive border-l-2 bg-destructive/10 p-2 text-xs"
+                key={`${error.file}-${error.error}`}
+              >
+                <div className="truncate font-medium">{error.file}</div>
+                <div className="mt-1 text-muted-foreground">{error.error}</div>
+              </div>
+            ))
+          : null}
       </div>
     </div>
   );
