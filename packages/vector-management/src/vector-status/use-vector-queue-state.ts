@@ -176,6 +176,18 @@ const DEFAULT_METRICS = {
   latencyP95Ms: 0,
 } as const;
 
+function isBackfillCancellationError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.name === 'AbortError' ||
+    error.message === 'Embedding backfill was aborted.' ||
+    error.message === 'Embedding backfill was canceled.'
+  );
+}
+
 function subscribeBackfillProgress(
   controller: EmbeddingRuntimeController,
   activeEmbeddingSetId: string,
@@ -690,10 +702,18 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       dispatchQueueDrainedEvent(activeEmbeddingSetId);
       logger.info('backfillActiveSet: backfill completed', { activeEmbeddingSetId });
     } catch (error) {
-      // Log errors instead of swallowing them silently
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (isBackfillCancellationError(error)) {
+        logger.info('backfillActiveSet: backfill canceled', {
+          activeEmbeddingSetId,
+          error: errorMessage,
+        });
+        throw error;
+      }
+
       logger.error('backfillActiveSet: backfill failed', {
         activeEmbeddingSetId,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage,
       });
       throw error;
     } finally {

@@ -1,6 +1,7 @@
 import type { UsePGliteLiveQueryOptions } from '@brainstrike/db';
 import { usePGliteLiveQuery } from '@brainstrike/db';
 import type { ElectronAPI } from '@brainstrike/types';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
@@ -580,6 +581,54 @@ describe('useVectorQueueState', () => {
     expect(result.current.backfilling).toBe(false);
     expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenNthCalledWith(1, true);
     expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenLastCalledWith(false);
+  });
+
+  it('logs canceled backfills as cancellation instead of failure noise', async () => {
+    const controller = createMockController();
+    const cancellation = new Error('Embedding backfill was canceled.');
+    cancellation.name = 'AbortError';
+    controller.enqueueBackfillMock.mockRejectedValueOnce(cancellation);
+    const records: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      records.push(record);
+    });
+
+    const { result } = renderHook(() =>
+      useVectorQueueState({
+        service: createMockService(),
+        controller: controller.controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
+
+    try {
+      await act(async () => {
+        await expect(result.current.backfillActiveSet()).rejects.toMatchObject({
+          message: 'Embedding backfill was canceled.',
+          name: 'AbortError',
+        });
+      });
+    } finally {
+      unsubscribe();
+    }
+
+    expect(records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          level: LogLevel.INFO,
+          message: 'backfillActiveSet: backfill canceled',
+        }),
+      ])
+    );
+    expect(records).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          level: LogLevel.ERROR,
+          message: 'backfillActiveSet: backfill failed',
+        }),
+      ])
+    );
   });
 
   it('does not let an older backfill invocation clear newer backfill state', async () => {
