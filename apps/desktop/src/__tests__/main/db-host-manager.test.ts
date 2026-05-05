@@ -281,6 +281,37 @@ describe('DbHostManager', () => {
     expect(getDbHostManager()).not.toBe(manager);
   });
 
+  it('terminates the utility DB host when close acknowledgement is blocked behind pending work', async () => {
+    vi.useFakeTimers();
+    try {
+      const { createDbHostManager } = await import('../../db-host-manager');
+      const manager = createDbHostManager({
+        closeTimeoutMs: 5,
+        entryPath: '/mock/db-host-entry.js',
+      });
+
+      const diagnosticsPromise = manager.getDiagnostics();
+      const firstHost = latestProcess();
+      expect(firstHost.messages.at(-1)?.request.kind).toBe('diagnostics');
+      const diagnosticsAssertion = expect(diagnosticsPromise).rejects.toThrow('DB host closed.');
+
+      const closePromise = manager.close();
+      expect(firstHost.messages.at(-1)?.request.kind).toBe('close');
+
+      await vi.advanceTimersByTimeAsync(5);
+      await closePromise;
+
+      await diagnosticsAssertion;
+      expect(firstHost.kill).toHaveBeenCalledTimes(1);
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        'Timed out waiting for DB host close acknowledgement; terminating host',
+        { timeoutMs: 5 }
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not create a second default manager while singleton close is in flight', async () => {
     const { closeDbHostManager, getDbHostManager } = await import('../../db-host-manager');
     const manager = getDbHostManager();

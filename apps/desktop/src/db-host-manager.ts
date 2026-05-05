@@ -19,6 +19,7 @@ import { DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
 const logger = createLogger('DbHostManager');
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_CLOSE_TIMEOUT_MS = 2000;
 
 function createLiveQueryDiagnostics(payload: {
   readonly mode: 'query' | 'incremental';
@@ -99,6 +100,7 @@ export interface DbHostManager {
 }
 
 export interface DbHostManagerOptions {
+  readonly closeTimeoutMs?: number;
   readonly entryPath?: string;
   readonly requestTimeoutMs?: number;
 }
@@ -276,6 +278,7 @@ class DefaultDbHostManager implements DbHostManager {
   readonly #entryPath: string;
   readonly #liveQueries = new Map<string, RemoteLiveQuery<unknown>>();
   readonly #pending = new Map<string, PendingRequest>();
+  readonly #closeTimeoutMs: number;
   readonly #requestTimeoutMs: number;
   #client: RemoteDbClient | null = null;
   #host: UtilityProcess | null = null;
@@ -283,6 +286,7 @@ class DefaultDbHostManager implements DbHostManager {
 
   constructor(options: DbHostManagerOptions = {}) {
     this.#entryPath = options.entryPath ?? resolveDefaultEntryPath();
+    this.#closeTimeoutMs = options.closeTimeoutMs ?? DEFAULT_CLOSE_TIMEOUT_MS;
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   }
 
@@ -321,13 +325,31 @@ class DefaultDbHostManager implements DbHostManager {
       return;
     }
     try {
-      await this.send({ kind: 'close' });
+      await this.#closeHostWithinTimeout();
     } finally {
       this.#rejectAll(new Error('DB host closed.'));
       this.#host.kill();
       this.#host = null;
       this.#client = null;
       this.#failAllLiveQueries(new Error('DB host closed.'));
+    }
+  }
+
+  async #closeHostWithinTimeout(): Promise<void> {
+    const closeRequest = this.send({ kind: 'close' });
+    void closeRequest.catch(() => undefined);
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timeoutId = setTimeout(() => resolve('timeout'), this.#closeTimeoutMs);
+    });
+    const result = await Promise.race([closeRequest, timeout]);
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+    if (result === 'timeout') {
+      logger.warn('Timed out waiting for DB host close acknowledgement; terminating host', {
+        timeoutMs: this.#closeTimeoutMs,
+      });
     }
   }
 

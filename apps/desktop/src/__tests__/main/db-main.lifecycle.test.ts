@@ -307,6 +307,12 @@ describe('db-main lifecycle', () => {
       expect.stringContaining('brainstrike-pglite-initialization.lock')
     );
     expect(PGliteMock).toHaveBeenCalledTimes(1);
+    expect(writeFileSyncMock.mock.invocationCallOrder[0]).toBeLessThan(
+      PGliteMock.mock.invocationCallOrder[0] ?? 0
+    );
+    expect(migrateMock.mock.invocationCallOrder[0]).toBeLessThan(
+      unlinkSyncMock.mock.invocationCallOrder[0] ?? 0
+    );
   });
 
   it('auto-recovers from database corruption during initialization', async () => {

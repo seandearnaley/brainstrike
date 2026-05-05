@@ -69,16 +69,73 @@ function withOptionalErrorCode(message: string, code: string | undefined): Error
   return details;
 }
 
-function getPlainObjectErrorDetails(error: object, code: string | undefined): ErrorDetails {
+function stringifyDiagnosticValue(value: unknown): string | null {
   try {
-    const serialized = JSON.stringify(error);
+    const seen = new WeakSet<object>();
+    const serialized = JSON.stringify(value, (_key, nestedValue: unknown) => {
+      if (nestedValue instanceof Error) {
+        return {
+          message: nestedValue.message,
+          name: nestedValue.name,
+          ...getErrorOwnPropertyPayload(nestedValue),
+        };
+      }
+      if (nestedValue && typeof nestedValue === 'object') {
+        if (seen.has(nestedValue)) {
+          return '[Circular]';
+        }
+        seen.add(nestedValue);
+      }
+      return nestedValue;
+    });
     if (serialized && serialized !== '{}') {
-      return withOptionalErrorCode(serialized, code);
+      return serialized;
     }
   } catch {
-    // Fall through to Object.prototype stringification below.
+    return null;
+  }
+  return null;
+}
+
+function getErrorOwnPropertyPayload(error: Error): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  for (const property of Object.getOwnPropertyNames(error)) {
+    if (property === 'message' || property === 'name' || property === 'stack') {
+      continue;
+    }
+    payload[property] = (error as unknown as Record<string, unknown>)[property];
+  }
+  return payload;
+}
+
+function getPlainObjectErrorDetails(error: object, code: string | undefined): ErrorDetails {
+  const serialized = stringifyDiagnosticValue(error);
+  if (serialized) {
+    return withOptionalErrorCode(serialized, code);
   }
   return withOptionalErrorCode(Object.prototype.toString.call(error), code);
+}
+
+function getErrorMessage(error: Error): string {
+  const trimmedMessage = error.message.trim();
+  const ownPropertyPayload = getErrorOwnPropertyPayload(error);
+  const serializedPayload = stringifyDiagnosticValue(ownPropertyPayload);
+  if (trimmedMessage && trimmedMessage !== '[object Object]') {
+    return serializedPayload ? `${trimmedMessage}; details=${serializedPayload}` : trimmedMessage;
+  }
+  try {
+    const cause = (error as Error & { cause?: unknown }).cause;
+    const serializedCause = stringifyDiagnosticValue(cause);
+    if (serializedCause) {
+      return serializedCause;
+    }
+  } catch {
+    // Fall through to own-property payload below.
+  }
+  if (serializedPayload) {
+    return serializedPayload;
+  }
+  return trimmedMessage || Object.prototype.toString.call(error);
 }
 
 function getErrorDetails(error: unknown): ErrorDetails {
@@ -90,7 +147,7 @@ function getErrorDetails(error: unknown): ErrorDetails {
 
   if (error instanceof Error) {
     const details: ErrorDetails = {
-      message: error.message,
+      message: getErrorMessage(error),
     };
     if (error.stack) {
       details.stack = error.stack;
@@ -1010,70 +1067,83 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
     logger.debug(`Created database directory: ${dataDir}`);
   }
 
-  let loadedPGlite: Awaited<ReturnType<typeof getPGlite>>;
+  let releaseInitializationLock: (() => void) | null = null;
+  const releaseInitializationLockOnce = (): void => {
+    if (!releaseInitializationLock) {
+      return;
+    }
+    releaseInitializationLock();
+    releaseInitializationLock = null;
+  };
 
   try {
-    loadedPGlite = await getPGlite();
-  } catch (err) {
-    recordInitializationFailure('load-extensions', err);
-    logger.error('Failed to load required PGlite modules', {
-      dataDir,
-      appDataDir,
-      failure: mutableState.lastInitializationFailure,
-    });
-    throw err instanceof Error ? err : new Error(getErrorDetails(err).message);
-  }
+    releaseInitializationLock = await acquirePGliteInitializationLock();
+    let loadedPGlite: Awaited<ReturnType<typeof getPGlite>>;
 
-  // Initialize PGlite with filesystem path (Node.js mode) and required pgvector extension
-  try {
-    acquireDatabaseProcessLock(appDataDir);
-    const releaseInitializationLock = await acquirePGliteInitializationLock();
     try {
+      loadedPGlite = await getPGlite();
+    } catch (err) {
+      recordInitializationFailure('load-extensions', err);
+      logger.error('Failed to load required PGlite modules', {
+        dataDir,
+        appDataDir,
+        failure: mutableState.lastInitializationFailure,
+      });
+      throw err instanceof Error ? err : new Error(getErrorDetails(err).message);
+    }
+
+    // Initialize PGlite with filesystem path (Node.js mode) and required pgvector extension.
+    try {
+      acquireDatabaseProcessLock(appDataDir);
       db = await createVectorDatabase(
         loadedPGlite.PGlite,
         dataDir,
         loadedPGlite.vector,
         loadedPGlite.live
       );
-    } finally {
-      releaseInitializationLock();
-    }
-    logger.debug('Database initialized with pgvector extension at:', dataDir);
-  } catch (err) {
-    recordInitializationFailure('open-database', err);
-    const recovered = await handleCorruptionError(err, 'initialization', retryAfterCorruption);
-    if (recovered) {
-      return recovered;
-    }
+      logger.debug('Database initialized with pgvector extension at:', dataDir);
+    } catch (err) {
+      recordInitializationFailure('open-database', err);
+      releaseInitializationLockOnce();
+      const recovered = await handleCorruptionError(err, 'initialization', retryAfterCorruption);
+      if (recovered) {
+        return recovered;
+      }
 
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.error('Failed to initialize database with pgvector', {
-      dataDir,
-      appDataDir,
-      failure: mutableState.lastInitializationFailure,
-    });
-    throw new Error(
-      formatOpenDatabaseFailureMessage(mutableState.lastInitializationFailure?.category, msg)
-    );
-  }
-
-  // Run migrations
-  try {
-    await loadedPGlite.migrate(db);
-  } catch (err) {
-    recordInitializationFailure('migration', err);
-    const recovered = await handleCorruptionError(err, 'migration', retryAfterCorruption);
-    if (recovered) {
-      return recovered;
+      const msg = getErrorDetails(err).message;
+      logger.error('Failed to initialize database with pgvector', {
+        dataDir,
+        appDataDir,
+        failure: mutableState.lastInitializationFailure,
+      });
+      throw new Error(
+        formatOpenDatabaseFailureMessage(mutableState.lastInitializationFailure?.category, msg)
+      );
     }
 
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.error('Database migrations failed', {
-      dataDir,
-      appDataDir,
-      failure: mutableState.lastInitializationFailure,
-    });
-    throw new Error(`Database migrations failed with pgvector: ${msg}`);
+    // Run migrations while the serialized CI bootstrap lock is still held. PGlite's
+    // extension/module startup can otherwise overlap with another Electron worker
+    // before the database is actually ready to serve renderer IPC queries.
+    try {
+      await loadedPGlite.migrate(db);
+    } catch (err) {
+      recordInitializationFailure('migration', err);
+      releaseInitializationLockOnce();
+      const recovered = await handleCorruptionError(err, 'migration', retryAfterCorruption);
+      if (recovered) {
+        return recovered;
+      }
+
+      const msg = getErrorDetails(err).message;
+      logger.error('Database migrations failed', {
+        dataDir,
+        appDataDir,
+        failure: mutableState.lastInitializationFailure,
+      });
+      throw new Error(`Database migrations failed with pgvector: ${msg}`);
+    }
+  } finally {
+    releaseInitializationLockOnce();
   }
 
   recordInitializationSuccess();
