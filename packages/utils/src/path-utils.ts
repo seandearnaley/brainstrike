@@ -8,11 +8,7 @@ export function finalPath(
   return platform === 'electron' ? entryPath : relativePath;
 }
 
-/**
- * Extracts non-empty path segments using native string methods.
- * Avoids the intermediate string arrays and regex allocations of `.split('/').filter(Boolean)`.
- * In V8, native `indexOf` and `slice` loops perform 3-4x faster than split+filter for path strings.
- */
+/** Extracts non-empty path segments without allocating intermediate arrays. */
 export function extractPathSegments(path: string): string[] {
   const segments: string[] = [];
   const len = path.length;
