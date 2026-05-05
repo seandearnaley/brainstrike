@@ -56,6 +56,22 @@ describe('NodeInspector', () => {
     expect(document.body).toBeInTheDocument();
   });
 
+  it('reflects expanded state via aria-expanded on the collapse toggle', () => {
+    const { rerender } = renderWithProviders(
+      <NodeInspector isCollapsed={false} nodeData={null} nodeType={null} />
+    );
+    expect(screen.getByRole('button', { name: 'Collapse inspector' })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
+
+    rerender(<NodeInspector isCollapsed={true} nodeData={null} nodeType={null} />);
+    expect(screen.getByRole('button', { name: 'Expand inspector' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
+  });
+
   it('toggles collapse state when button is clicked', () => {
     const onCollapseChange = vi.fn();
     renderWithProviders(
