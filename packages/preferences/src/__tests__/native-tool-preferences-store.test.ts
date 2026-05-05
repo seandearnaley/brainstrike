@@ -38,6 +38,20 @@ describe('native-tool-preferences-store', () => {
     expect(snapshot.isToolEnabled('brainstrike.readWorkspaceFile')).toBe(true);
   });
 
+  it('does not persist default enabled tool state', () => {
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (!(options?.storage && options.name)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    const snapshot = useNativeToolPreferencesStore.getState();
+    snapshot.setToolEnabled('brainstrike.readWorkspaceFile', false);
+    expect(options.storage.getItem(options.name)).not.toBeNull();
+
+    snapshot.setToolEnabled('brainstrike.readWorkspaceFile', true);
+    expect(options.storage.getItem(options.name)).toBeNull();
+  });
+
   it('supports batch toggles and no-op for empty tool lists', () => {
     const snapshot = useNativeToolPreferencesStore.getState();
     snapshot.setToolsEnabled([], false);

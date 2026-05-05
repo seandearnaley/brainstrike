@@ -362,6 +362,84 @@ describe('database IPC handlers', () => {
     });
   });
 
+  it('waits for scheduled desktop database work to drain before shutdown', async () => {
+    const { runDesktopScheduledDatabaseWork, waitForDesktopDatabaseWorkSchedulerIdle } =
+      await import('../../ipc-handlers');
+
+    let releaseWork: (() => void) | null = null;
+    const workStarted = new Promise<void>((resolve) => {
+      void runDesktopScheduledDatabaseWork({ label: 'shutdown-drain-test' }, async () => {
+        resolve();
+        await new Promise<void>((release) => {
+          releaseWork = release;
+        });
+      });
+    });
+
+    await workStarted;
+
+    let idleResolved = false;
+    const idlePromise = waitForDesktopDatabaseWorkSchedulerIdle(1000).then(() => {
+      idleResolved = true;
+    });
+    await Promise.resolve();
+
+    expect(idleResolved).toBe(false);
+    if (!releaseWork) {
+      throw new Error('Scheduled database work did not expose a release callback.');
+    }
+    releaseWork();
+    await idlePromise;
+    expect(idleResolved).toBe(true);
+  });
+
+  it('keeps database work submitted during reset out of the scheduler until reset completes', async () => {
+    const {
+      getDesktopDatabaseWorkSchedulerSnapshot,
+      runDesktopScheduledDatabaseWork,
+      runWithDesktopDatabaseResetBarrier,
+      waitForDesktopDatabaseWorkSchedulerIdle,
+    } = await import('../../ipc-handlers');
+
+    let releaseReset: (() => void) | null = null;
+    let resetBarrierPromise: Promise<void> | null = null;
+    const resetStarted = new Promise<void>((resolve) => {
+      resetBarrierPromise = runWithDesktopDatabaseResetBarrier(async () => {
+        resolve();
+        await new Promise<void>((release) => {
+          releaseReset = release;
+        });
+      });
+    });
+    await resetStarted;
+
+    let workStarted = false;
+    const pendingWork = runDesktopScheduledDatabaseWork(
+      { label: 'reset-submitted-live-query' },
+      async () => {
+        workStarted = true;
+        return 'ran-after-reset';
+      }
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(workStarted).toBe(false);
+    expect(getDesktopDatabaseWorkSchedulerSnapshot()).toMatchObject({
+      queued: { background: 0, foreground: 0, normal: 0 },
+      runningPriority: null,
+    });
+    await waitForDesktopDatabaseWorkSchedulerIdle(1000);
+
+    if (!releaseReset) {
+      throw new Error('Reset barrier did not expose a release callback.');
+    }
+    releaseReset();
+    await resetBarrierPromise;
+    await expect(pendingWork).resolves.toBe('ran-after-reset');
+    expect(workStarted).toBe(true);
+  });
+
   it('db:query calls query and returns result', async () => {
     const handler = handlers.get('db:query');
     const rows = { rows: [{ id: 1 }] };
@@ -1645,7 +1723,26 @@ describe('database IPC handlers', () => {
     if (typeof resetOptions?.resetDatabaseProfile !== 'function') {
       throw new Error('resetDatabaseProfile callback was not passed to desktop reset');
     }
-    await resetOptions.resetDatabaseProfile();
+    const { runDesktopScheduledDatabaseWork } = await import('../../ipc-handlers');
+    let releaseWork: (() => void) | null = null;
+    const workStarted = new Promise<void>((resolve) => {
+      void runDesktopScheduledDatabaseWork({ label: 'reset-drain-test' }, async () => {
+        resolve();
+        await new Promise<void>((release) => {
+          releaseWork = release;
+        });
+      });
+    });
+    await workStarted;
+
+    const resetProfilePromise = resetOptions.resetDatabaseProfile();
+    await Promise.resolve();
+    expect(resetLocalDatabaseMock).not.toHaveBeenCalled();
+    if (!releaseWork) {
+      throw new Error('Scheduled database work did not expose a release callback.');
+    }
+    releaseWork();
+    await resetProfilePromise;
     expect(resetLocalDatabaseMock).toHaveBeenCalledTimes(1);
     expect(closeDatabaseMock).not.toHaveBeenCalled();
 

@@ -229,10 +229,9 @@ export async function launchElectronAppWithOptions(
     throw new Error('Desktop E2E launches must provide an isolated userDataDir.');
   }
 
-  // Electron launches can fail transiently immediately after a forced
-  // renderer/app reset while the OS releases resources. Keep one local retry
-  // so harness recovery does not poison the following test.
-  const maxAttempts = process.env['CI'] ? 3 : 2;
+  // Launch retries hide startup races and inflate failing PR/runtime cost. The
+  // harness must fail once with the launch evidence that caused the failure.
+  const maxAttempts = 1;
   const firstWindowTimeout = process.env['CI'] ? 30_000 : 60_000;
   const launchTimeoutMs = process.env['CI'] ? 150_000 : 60_000;
 
@@ -342,7 +341,7 @@ function createLaunchOptions(
     process.env['CI'] === 'true' && process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] !== '1';
   const baseArgs = [
     mainPath,
-    ...(launchMode === 'test-built' ? ['--test-mode'] : []),
+    '--test-mode',
     `--brainstrike-desktop-launch-mode=${launchMode}`,
     '--disable-dialogs',
     // NOTE: Do NOT specify --remote-debugging-port here.
@@ -904,15 +903,8 @@ export async function reloadRenderer(page: Page, reason: string): Promise<void> 
   await waitForAppReady(page);
 }
 
-export async function resetAppState(window: Page): Promise<boolean> {
+export async function resetAppState(window: Page): Promise<void> {
   await noteRendererReloadIntent(window, 'playwright-reset-state-clear');
-  const navigationPromise = window
-    .waitForEvent('framenavigated', {
-      timeout: 1500,
-      predicate: (frame) => frame === window.mainFrame(),
-    })
-    .then(() => true)
-    .catch(() => false);
 
   await window.evaluate(async () => {
     localStorage.clear();
@@ -926,22 +918,12 @@ export async function resetAppState(window: Page): Promise<boolean> {
       }
     ).electronAPI;
 
-    if (electronAPI?.storage?.clear) {
-      try {
-        await electronAPI.storage.clear();
-      } catch (error) {
-        console.warn('🔸 Failed to clear backend storage:', error);
-      }
+    if (!electronAPI?.storage?.clear) {
+      throw new Error('electronAPI.storage.clear is unavailable during desktop E2E reset');
     }
+
+    await electronAPI.storage.clear();
   });
-
-  const navigated = await navigationPromise;
-  if (navigated) {
-    await window.waitForLoadState('domcontentloaded');
-    await waitForAppReady(window);
-  }
-
-  return navigated;
 }
 
 export async function getAppVersion(app: ElectronApplication): Promise<string> {

@@ -23,4 +23,11 @@ describe('preload runtime contract', () => {
     expect(preloadSource).toContain('createDisabledLocalRuntimeAvailability');
     expect(preloadSource).toContain('createDisabledLocalRuntimeCatalog');
   });
+
+  it('exposes file explorer test instrumentation before renderer app mount in E2E mode', () => {
+    const preloadSource = readPreloadSource();
+
+    expect(preloadSource).toContain('__brainstrike_e2e_expose_file_explorer_store__');
+    expect(preloadSource).toContain('if (DESKTOP_TEST_MODE)');
+  });
 });

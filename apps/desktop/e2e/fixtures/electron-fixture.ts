@@ -18,6 +18,7 @@ interface ElectronHarnessOptions {
 
 class ElectronHarness {
   private context: ElectronAppContext | null = null;
+  private hasProvidedWindow = false;
   private readonly maxRendererRecoveryAttempts = 1;
 
   constructor(
@@ -47,12 +48,15 @@ class ElectronHarness {
     let page = ctx.window;
 
     if (!options?.preserveState) {
-      page = await this.resetRenderer(page);
+      page = this.hasProvidedWindow
+        ? await this.resetRenderer(page)
+        : await this.prepareFreshWindow(page);
     } else if (page.isClosed()) {
       await this.restart();
       return this.ensureWindow({ preserveState: false });
     }
 
+    this.hasProvidedWindow = true;
     return page;
   }
 
@@ -73,6 +77,7 @@ class ElectronHarness {
     this.context = await launchElectronApp(this.debugPort, this.userDataDir, {
       disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
     });
+    this.hasProvidedWindow = false;
     return this.context;
   }
 
@@ -86,7 +91,15 @@ class ElectronHarness {
       await closeElectronApp(this.context);
     } finally {
       this.context = null;
+      this.hasProvidedWindow = false;
     }
+  }
+
+  private async prepareFreshWindow(page: Page): Promise<Page> {
+    const { waitForAppReady } = await loadElectronHelpers();
+    await waitForAppReady(page);
+    await resetToAppHome(page);
+    return page;
   }
 
   private async resetRenderer(page: Page): Promise<Page> {
@@ -109,32 +122,31 @@ class ElectronHarness {
     });
     await waitForAppReady(page);
 
-    let resetTriggeredNavigation = false;
     try {
-      resetTriggeredNavigation = await resetAppState(page);
+      await resetAppState(page);
     } catch (error) {
-      console.warn('Failed to reset app state before reload:', error);
-    }
-
-    if (!resetTriggeredNavigation) {
-      try {
-        await reloadRenderer(page, 'playwright-reset-renderer');
-      } catch (error) {
-        if (this.isRecoverableRendererError(error)) {
-          return this.restartAndResetRenderer(
-            recoveryAttempt,
-            `Renderer reset failed due to page crash/closure: ${String(error)}`
-          );
-        }
-        throw error;
+      if (this.isRecoverableRendererError(error)) {
+        return this.restartAndResetRenderer(
+          recoveryAttempt,
+          `Renderer state reset failed due to page crash/closure: ${String(error)}`
+        );
       }
+      throw error;
     }
 
     try {
-      await resetToAppHome(page);
+      await reloadRenderer(page, 'playwright-reset-renderer');
     } catch (error) {
-      console.warn('Failed to reset app layout:', error);
+      if (this.isRecoverableRendererError(error)) {
+        return this.restartAndResetRenderer(
+          recoveryAttempt,
+          `Renderer reset failed due to page crash/closure: ${String(error)}`
+        );
+      }
+      throw error;
     }
+
+    await resetToAppHome(page);
 
     return page;
   }

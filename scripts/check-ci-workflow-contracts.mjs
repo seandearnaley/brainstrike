@@ -295,8 +295,32 @@ export function validateWorkflowContracts(source) {
     );
     requireIncludes(
       destructive,
-      '--workers=1 --grep "@destructive"',
+      '--workers=1',
       'Destructive E2E must run tagged specs in a one-worker lane.',
+      failures
+    );
+    requireIncludes(
+      destructive,
+      '--retries=0',
+      'Destructive E2E must disable Playwright retries.',
+      failures
+    );
+    requireIncludes(
+      destructive,
+      '--max-failures=1',
+      'Destructive E2E must fail fast on the first failure.',
+      failures
+    );
+    requireIncludes(
+      destructive,
+      '--global-timeout=600000',
+      'Destructive E2E must keep the Playwright global timeout at ten minutes.',
+      failures
+    );
+    requireIncludes(
+      destructive,
+      '--grep "@destructive"',
+      'Destructive E2E must run tagged specs in the destructive lane.',
       failures
     );
   }

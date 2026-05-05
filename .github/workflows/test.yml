@@ -780,7 +780,7 @@ jobs:
           cd apps/web
           echo "Running destructive functional E2E tests in isolation"
           unset NO_COLOR
-          pnpm exec playwright test --project=functional --workers=1 --grep "@destructive"
+          pnpm exec playwright test --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep "@destructive"
         env:
           NODE_ENV: "production"
           PORT: "8080"

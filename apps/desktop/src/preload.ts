@@ -68,6 +68,10 @@ const EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED =
 const EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED_MESSAGE =
   'External local runtime probing is disabled for deterministic desktop E2E.';
 
+if (DESKTOP_TEST_MODE) {
+  contextBridge.exposeInMainWorld('__brainstrike_e2e_expose_file_explorer_store__', true);
+}
+
 interface DbLiveUpdatePayload {
   id: number;
   results: unknown;
