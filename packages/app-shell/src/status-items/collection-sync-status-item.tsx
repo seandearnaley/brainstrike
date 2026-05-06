@@ -211,7 +211,14 @@ export function CollectionSyncStatusItem() {
         ) : null}
         {showPauseControl ? (
           <div className="flex justify-end">
-            <Button onClick={() => setPaused(!paused)} size="sm" type="button" variant="outline">
+            <Button
+              aria-label="Background indexing"
+              aria-pressed={!paused}
+              onClick={() => setPaused(!paused)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
               {paused ? 'Resume background indexing' : 'Pause background indexing'}
             </Button>
           </div>

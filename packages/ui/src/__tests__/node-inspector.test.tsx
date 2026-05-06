@@ -4,7 +4,9 @@ import { NodeInspector } from '../collection-browser/node-inspector';
 import { TooltipProvider } from '../tooltip';
 
 const renderWithProviders = (ui: React.ReactElement) =>
-  render(<TooltipProvider>{ui}</TooltipProvider>);
+  render(ui, {
+    wrapper: ({ children }) => <TooltipProvider>{children}</TooltipProvider>,
+  });
 
 describe('NodeInspector', () => {
   it('renders without crashing when no node is selected', () => {
@@ -54,6 +56,22 @@ describe('NodeInspector', () => {
 
     // Should render without errors
     expect(document.body).toBeInTheDocument();
+  });
+
+  it('reflects expanded state via aria-expanded on the collapse toggle', () => {
+    const { rerender } = renderWithProviders(
+      <NodeInspector isCollapsed={false} nodeData={null} nodeType={null} />
+    );
+    expect(screen.getByRole('button', { name: 'Collapse inspector' })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
+
+    rerender(<NodeInspector isCollapsed={true} nodeData={null} nodeType={null} />);
+    expect(screen.getByRole('button', { name: 'Expand inspector' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
   });
 
   it('toggles collapse state when button is clicked', () => {

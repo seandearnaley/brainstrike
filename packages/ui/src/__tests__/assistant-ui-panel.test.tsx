@@ -693,6 +693,73 @@ describe('AssistantUiPanel model picker', () => {
     vi.useRealTimers();
   });
 
+  it('shows the labelled downloading progress bar during local model download', () => {
+    const localGroups: ProviderGroupConfig[] = [
+      {
+        runtime: 'local',
+        label: 'Local',
+        providers: [
+          {
+            id: 'local',
+            name: 'Local',
+            runtime: 'local',
+            capabilities: {
+              llm: true,
+              embeddings: false,
+              streaming: false,
+              supportsStandardEmbeddingDimension: false,
+            },
+            models: [
+              {
+                id: 'onnx-community/gemma-4-E2B-it-ONNX',
+                label: 'Gemma 4 E2B',
+                type: 'llm',
+                enabled: true,
+                default: true,
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    render(
+      <AssistantUiPanel
+        onModelChange={() => {}}
+        pickerModels={[
+          {
+            id: 'onnx-community/gemma-4-E2B-it-ONNX',
+            providerId: 'local',
+            name: 'Gemma 4 E2B',
+            description: null,
+            capabilities: { type: 'llm', streaming: false },
+          },
+        ]}
+        pickerProviders={[{ id: 'local', name: 'Local', icon: null }]}
+        providerGroups={localGroups}
+        selectedModel="local::onnx-community/gemma-4-E2B-it-ONNX"
+        selectedProvider="local"
+      />
+    );
+
+    act(() => {
+      capturedLocalAdapterOptions?.onLoadingProgress?.({
+        stage: 'downloading',
+        progress: 33,
+        message: 'Downloading model weights...',
+        file: 'model.onnx',
+      });
+    });
+
+    const status = screen.getByTestId('local-model-status');
+    expect(status).toBeInTheDocument();
+    // Percent only renders for the downloading stage
+    expect(within(status).getByText('33%')).toBeInTheDocument();
+    // The labelled progress bar covers the new aria-label branch
+    const labelled = within(status).getByLabelText('Model downloading progress');
+    expect(labelled).toBeInTheDocument();
+  });
+
   it('renders the model picker in the composer controls dock', async () => {
     render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
 
