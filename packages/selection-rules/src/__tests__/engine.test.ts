@@ -64,6 +64,55 @@ describe('engine', () => {
       expect(sampleTree.pathExists('nonexistent')).toBe(false);
     });
 
+    it('synthesizes missing parent directories even when a nested directory is explicit', () => {
+      const tree = new InMemoryTreeAdapter([
+        { path: 'src/components', isDirectory: true },
+        { path: 'src/components/Button.tsx', isDirectory: false },
+      ]);
+
+      expect(tree.pathExists('src')).toBe(true);
+      expect(Array.from(tree.getFilesUnderRoot('src'))).toEqual(['src/components/Button.tsx']);
+    });
+
+    it('does not treat shared path prefixes as descendants of a root', () => {
+      const tree = new InMemoryTreeAdapter([
+        { path: 'src/index.ts', isDirectory: false },
+        { path: 'src-generated/index.ts', isDirectory: false },
+        { path: 'src/components/Button.tsx', isDirectory: false },
+        { path: 'src/components-extra/Button.tsx', isDirectory: false },
+      ]);
+
+      expect(Array.from(tree.getFilesUnderRoot('src'))).toEqual([
+        'src/index.ts',
+        'src/components/Button.tsx',
+        'src/components-extra/Button.tsx',
+      ]);
+      expect(Array.from(tree.getFilesUnderRoot('src/components'))).toEqual([
+        'src/components/Button.tsx',
+      ]);
+    });
+
+    it('respects maxDepth without treating shared prefixes as descendants', () => {
+      const tree = new InMemoryTreeAdapter([
+        { path: 'src/index.ts', isDirectory: false },
+        { path: 'src/components/Button.tsx', isDirectory: false },
+        { path: 'src/components/forms/Input.tsx', isDirectory: false },
+        { path: 'src-generated/index.ts', isDirectory: false },
+        { path: 'src-generated/components/Button.tsx', isDirectory: false },
+      ]);
+
+      expect(Array.from(tree.getFilesUnderRoot('src', 0))).toEqual(['src/index.ts']);
+      expect(Array.from(tree.getFilesUnderRoot('src', 1))).toEqual([
+        'src/index.ts',
+        'src/components/Button.tsx',
+      ]);
+      expect(Array.from(tree.getFilesUnderRoot('src', 2))).toEqual([
+        'src/index.ts',
+        'src/components/Button.tsx',
+        'src/components/forms/Input.tsx',
+      ]);
+    });
+
     it('should return correct total file count', () => {
       expect(sampleTree.getTotalFileCount()).toBe(10);
     });
@@ -225,6 +274,36 @@ describe('engine', () => {
 
         expect(result.paths.has('node_modules/lodash/index.js')).toBe(false);
         expect(result.paths.has('src/index.ts')).toBe(true);
+      });
+
+      it('does not exclude files that only share a string prefix with the root', () => {
+        const tree = new InMemoryTreeAdapter([
+          { path: 'src/index.ts', isDirectory: false },
+          { path: 'src-generated/index.ts', isDirectory: false },
+        ]);
+        const ruleSet: SelectionRuleSet = {
+          ...createEmptyRuleSet('folder'),
+          rules: [
+            {
+              id: 'r1',
+              type: 'glob-include',
+              patterns: ['**/*'],
+              createdAt: now,
+            },
+            {
+              id: 'r2',
+              type: 'root-exclude',
+              roots: ['src'],
+              createdAt: now,
+            },
+          ],
+        };
+
+        const engine = createSelectionRuleEngine(ruleSet);
+        const result = engine.materialize(tree);
+
+        expect(result.paths.has('src/index.ts')).toBe(false);
+        expect(result.paths.has('src-generated/index.ts')).toBe(true);
       });
     });
 
