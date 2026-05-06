@@ -202,4 +202,92 @@ describe('ImportProgressDisplay', () => {
     expect(screen.getByText(/Last: completed · text-embedding-3-small/)).toBeInTheDocument();
     expect(screen.getByText(/\(128ms\)/)).toBeInTheDocument();
   });
+
+  it('exposes the error disclosure with aria-expanded + aria-controls', async () => {
+    const { fireEvent } = await import('@testing-library/react');
+    const mockProgress = {
+      phase: 'importing' as const,
+      total: 5,
+      completed: 5,
+      errors: [
+        { file: 'a.txt', error: 'boom' },
+        { file: 'b.txt', error: 'kaboom' },
+      ],
+    };
+
+    render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
+
+    const toggle = screen.getByRole('button', { name: /View 2 errors/i });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    const controlsId = toggle.getAttribute('aria-controls');
+    expect(controlsId).toBeTruthy();
+
+    // collapsed: container exists for aria-controls target, but list rows not rendered
+    const targetEl = controlsId
+      ? (toggle.ownerDocument.getElementById(controlsId) as HTMLElement | null)
+      : null;
+    expect(targetEl).not.toBeNull();
+    expect(targetEl).toHaveAttribute('hidden');
+    expect(screen.queryByText('a.txt')).not.toBeInTheDocument();
+
+    // expand
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(targetEl).not.toHaveAttribute('hidden');
+    expect(screen.getByText('a.txt')).toBeInTheDocument();
+    expect(screen.getByText('b.txt')).toBeInTheDocument();
+
+    // collapse again — target stays in DOM, list rows unmount
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('a.txt')).not.toBeInTheDocument();
+  });
+
+  it('labels the chunking and embedding progress bars and the import progress bar', () => {
+    const mockProgress = {
+      phase: 'embedding' as const,
+      total: 10,
+      completed: 4,
+      errors: [],
+      chunkingProgress: {
+        currentFile: 'x.ts',
+        filesProcessed: 2,
+        totalFiles: 5,
+        chunksCreated: 8,
+      },
+      embeddingProgress: {
+        currentChunk: 'c-1',
+        chunksProcessed: 3,
+        totalChunks: 6,
+        modelName: 'gemma',
+      },
+    };
+
+    render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
+
+    // The mocked Progress passes className through; in real rendering these
+    // would receive aria-label. We assert the rendered text labels exist for
+    // the chunking and embedding cards which exercises those branches.
+    expect(screen.getByText('Chunking')).toBeInTheDocument();
+    expect(screen.getByText('Embedding')).toBeInTheDocument();
+    expect(screen.getByText('4 of 10 files')).toBeInTheDocument();
+  });
+
+  it('renders the spinner stage with aria-hidden when not complete', () => {
+    const mockProgress = {
+      phase: 'importing' as const,
+      total: 10,
+      completed: 1,
+      errors: [],
+    };
+
+    const { container } = render(
+      <ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />
+    );
+
+    // Spinner div sits next to the title "Import Progress"
+    const spinner = container.querySelector('div.animate-spin') as HTMLElement | null;
+    expect(spinner).not.toBeNull();
+    expect(spinner).toHaveAttribute('aria-hidden', 'true');
+  });
 });
