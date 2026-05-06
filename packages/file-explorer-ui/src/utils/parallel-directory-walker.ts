@@ -8,6 +8,7 @@
 
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import type { DepthProgress, IFileNode, StreamMeta } from '@brainstrike/types';
+import { calculatePathDepth } from '@brainstrike/utils';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { fileFilter } from '@brainstrike/utils/path-filter';
 import { checkBudget, createTimer } from '@brainstrike/utils/perf-timing';
@@ -308,7 +309,7 @@ export async function walkDirectoryParallel(
     return {
       ...entry,
       path: finalPath,
-      depth: relativePath.split('/').length - 1,
+      depth: calculatePathDepth(relativePath),
       selectionState: 'unchecked',
       rootFolderId,
     };
@@ -326,7 +327,7 @@ export async function walkDirectoryParallel(
     return {
       ...entry,
       path: finalPath,
-      depth: relativePath.split('/').length - 1,
+      depth: calculatePathDepth(relativePath),
       children: [], // Will be populated by child processing
       selectionState: 'unchecked',
       rootFolderId,

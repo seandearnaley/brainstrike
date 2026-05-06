@@ -1,5 +1,6 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
+import { calculatePathDepth } from '@brainstrike/utils';
 import { getFinalPath } from './get-final-path';
 
 export function processFileEntry(
@@ -13,7 +14,7 @@ export function processFileEntry(
   return {
     ...entry,
     path: finalPath,
-    depth: relativePath.split('/').length - 1,
+    depth: calculatePathDepth(relativePath),
     selectionState: 'unchecked',
     rootFolderId,
   };
