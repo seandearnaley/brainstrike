@@ -31,6 +31,28 @@ interface ElectronE2eFileSystemFixture {
   };
 }
 
+interface FileExplorerTestSnapshot {
+  materializedPathCount: number;
+  selectedFilePathCount: number;
+  treeRootCount: number;
+}
+
+interface FileExplorerTestHooksWindow {
+  __brainstrikeFileExplorerTestHooks__?: {
+    getSnapshot: () => FileExplorerTestSnapshot;
+  };
+}
+
+const FILE_EXPLORER_CLICK_TIMEOUT_MS = 15_000;
+const FILE_EXPLORER_SETTLE_TIMEOUT_MS = 15_000;
+const FILE_EXPLORER_SETTLE_POLL_MS = 100;
+const FILE_EXPLORER_SETTLE_STABLE_SAMPLES = 3;
+const FILE_TREE_CHECKBOX_INTERACTION_TIMEOUT_MS = 45_000;
+const FILE_TREE_MULTI_STEP_SELECTION_TEST_TIMEOUT_MS = 90_000;
+const MIN_PLAYWRIGHT_STEP_TIMEOUT_MS = 1000;
+const RENDERER_FRAME_SETTLE_COUNT = 2;
+const RENDERER_FRAME_SETTLE_TIMEOUT_MS = 5000;
+
 async function ensureLeftPanelVisible(page: Page): Promise<void> {
   const leftPanel = getContextExplorerLeftPanel(page);
   const showLeftPanelButton = page
@@ -69,7 +91,7 @@ async function expandDirectoryIfNeeded(args: {
 
 async function clickExpandButton(expandButton: Locator): Promise<void> {
   await expect(expandButton).toBeVisible({ timeout: 15_000 });
-  await expandButton.click({ noWaitAfter: true, timeout: 5000 });
+  await expandButton.click({ noWaitAfter: true, timeout: FILE_EXPLORER_CLICK_TIMEOUT_MS });
 }
 
 async function setFileExplorerMaxSelectionCount(
@@ -80,7 +102,10 @@ async function setFileExplorerMaxSelectionCount(
     name: 'Selection settings',
   });
   await expect(selectionSettingsButton).toBeVisible({ timeout: 15_000 });
-  await selectionSettingsButton.click({ noWaitAfter: true, timeout: 5000 });
+  await selectionSettingsButton.click({
+    noWaitAfter: true,
+    timeout: FILE_EXPLORER_CLICK_TIMEOUT_MS,
+  });
 
   const selectionCountInput = page.getByLabel('Maximum selection count input');
   await expect(selectionCountInput).toBeVisible({ timeout: 15_000 });
@@ -91,6 +116,111 @@ async function setFileExplorerMaxSelectionCount(
   });
 }
 
+async function waitForRendererFrames(page: Page, timeoutMs: number): Promise<void> {
+  await page.evaluate(
+    ({ frameCount, timeoutMs }) =>
+      new Promise<void>((resolve, reject) => {
+        if (typeof window.requestAnimationFrame !== 'function') {
+          reject(new Error('Missing required renderer requestAnimationFrame'));
+          return;
+        }
+
+        let remainingFrames = frameCount;
+        const timeoutId = window.setTimeout(() => {
+          reject(new Error(`Timed out waiting for ${frameCount} renderer animation frames`));
+        }, timeoutMs);
+
+        const tick = () => {
+          remainingFrames -= 1;
+          if (remainingFrames <= 0) {
+            window.clearTimeout(timeoutId);
+            resolve();
+            return;
+          }
+          window.requestAnimationFrame(tick);
+        };
+
+        window.requestAnimationFrame(tick);
+      }),
+    {
+      frameCount: RENDERER_FRAME_SETTLE_COUNT,
+      timeoutMs,
+    }
+  );
+}
+
+async function readFileExplorerSnapshot(page: Page): Promise<FileExplorerTestSnapshot> {
+  return page.evaluate(() => {
+    const hooks = (window as FileExplorerTestHooksWindow).__brainstrikeFileExplorerTestHooks__;
+    if (!hooks?.getSnapshot) {
+      throw new Error('Missing required file explorer E2E test hooks');
+    }
+    return hooks.getSnapshot();
+  });
+}
+
+function getRemainingInteractionTimeout(args: { deadline: number; label: string }): number {
+  const remainingMs = args.deadline - Date.now();
+  if (remainingMs < MIN_PLAYWRIGHT_STEP_TIMEOUT_MS) {
+    throw new Error(`Timed out before ${args.label}; remainingMs=${remainingMs}`);
+  }
+  return remainingMs;
+}
+
+async function waitForFileExplorerSelectionIdle(args: {
+  expectedSelectedCount?: number;
+  page: Page;
+  timeoutMs?: number;
+}): Promise<void> {
+  const { expectedSelectedCount, page, timeoutMs = FILE_EXPLORER_SETTLE_TIMEOUT_MS } = args;
+  const deadline = Date.now() + timeoutMs;
+  let previousSignature: string | null = null;
+  let stableSamples = 0;
+  let lastSnapshot: FileExplorerTestSnapshot | undefined;
+
+  while (Date.now() < deadline) {
+    lastSnapshot = await readFileExplorerSnapshot(page);
+    const countMatches =
+      typeof expectedSelectedCount !== 'number' ||
+      lastSnapshot.selectedFilePathCount === expectedSelectedCount;
+
+    if (countMatches) {
+      const signature = [
+        lastSnapshot.materializedPathCount,
+        lastSnapshot.selectedFilePathCount,
+        lastSnapshot.treeRootCount,
+      ].join(':');
+      stableSamples = signature === previousSignature ? stableSamples + 1 : 1;
+      previousSignature = signature;
+
+      // Three poll samples plus two RAF ticks catches the observed recursive-selection race
+      // without hiding a missing hook or permanently busy renderer behind a long timeout.
+      if (stableSamples >= FILE_EXPLORER_SETTLE_STABLE_SAMPLES) {
+        const frameSettleTimeoutMs = Math.min(
+          RENDERER_FRAME_SETTLE_TIMEOUT_MS,
+          getRemainingInteractionTimeout({
+            deadline,
+            label: 'renderer frame settle',
+          })
+        );
+        await waitForRendererFrames(page, frameSettleTimeoutMs);
+        return;
+      }
+    } else {
+      stableSamples = 0;
+      previousSignature = null;
+    }
+
+    await page.waitForTimeout(FILE_EXPLORER_SETTLE_POLL_MS);
+  }
+
+  throw new Error(
+    `Timed out waiting for file explorer selection to settle${
+      typeof expectedSelectedCount === 'number' ? ` at count ${expectedSelectedCount}` : ''
+    }; lastSnapshot=${JSON.stringify(lastSnapshot)}`
+  );
+}
+
 async function clickFileTreeCheckboxAndWaitForSelection(args: {
   checkboxName: string;
   expectedSelectedCount: number;
@@ -98,12 +228,55 @@ async function clickFileTreeCheckboxAndWaitForSelection(args: {
   page: Page;
 }): Promise<void> {
   const { checkboxName, expectedSelectedCount, fileTree, page } = args;
+  if (expectedSelectedCount < 1) {
+    throw new Error(
+      `File tree checkbox selection helper requires expectedSelectedCount >= 1; received ${expectedSelectedCount}.`
+    );
+  }
   const checkbox = fileTree.getByRole('checkbox', { name: `Select ${checkboxName}` });
+  const deadline = Date.now() + FILE_TREE_CHECKBOX_INTERACTION_TIMEOUT_MS;
 
-  await expect(checkbox).toHaveAttribute('data-state', 'unchecked');
-  await checkbox.click({ noWaitAfter: true, timeout: 5000 });
-  await expect(checkbox).toHaveAttribute('data-state', 'checked');
-  await expect(page.getByTestId('selection-count')).toHaveText(String(expectedSelectedCount));
+  await waitForFileExplorerSelectionIdle({
+    expectedSelectedCount: expectedSelectedCount - 1,
+    page,
+    timeoutMs: getRemainingInteractionTimeout({
+      deadline,
+      label: `selection idle before selecting ${checkboxName}`,
+    }),
+  });
+  await expect(checkbox).toHaveAttribute('data-state', 'unchecked', {
+    timeout: getRemainingInteractionTimeout({
+      deadline,
+      label: `unchecked assertion for ${checkboxName}`,
+    }),
+  });
+  await checkbox.click({
+    noWaitAfter: true,
+    timeout: getRemainingInteractionTimeout({
+      deadline,
+      label: `clicking ${checkboxName}`,
+    }),
+  });
+  await expect(checkbox).toHaveAttribute('data-state', 'checked', {
+    timeout: getRemainingInteractionTimeout({
+      deadline,
+      label: `checked assertion for ${checkboxName}`,
+    }),
+  });
+  await expect(page.getByTestId('selection-count')).toHaveText(String(expectedSelectedCount), {
+    timeout: getRemainingInteractionTimeout({
+      deadline,
+      label: `selection count assertion for ${checkboxName}`,
+    }),
+  });
+  await waitForFileExplorerSelectionIdle({
+    expectedSelectedCount,
+    page,
+    timeoutMs: getRemainingInteractionTimeout({
+      deadline,
+      label: `selection idle after selecting ${checkboxName}`,
+    }),
+  });
 }
 
 async function expectContextExplorerFileVisibility(args: {
@@ -1744,7 +1917,7 @@ test.describe('Desktop file explorer selection', () => {
     electronApp,
     window,
   }) => {
-    test.setTimeout(45_000);
+    test.setTimeout(FILE_TREE_MULTI_STEP_SELECTION_TEST_TIMEOUT_MS);
 
     const rootPath = '/mock/desktop-selection-root-hooks-explicit';
     await installMixedHookSelectionFixture(electronApp.app, rootPath);
