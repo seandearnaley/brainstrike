@@ -363,10 +363,11 @@ const LocalChainOfThought: FC = () => {
 const COLLAPSED_HISTORY_VISIBLE_MESSAGES = 8;
 
 const ThreadHistoryControl: FC<{
+  controlsId: string;
   expanded: boolean;
   hiddenMessageCount: number;
   onExpandedChange: (expanded: boolean) => void;
-}> = ({ expanded, hiddenMessageCount, onExpandedChange }) => {
+}> = ({ controlsId, expanded, hiddenMessageCount, onExpandedChange }) => {
   if (hiddenMessageCount <= 0) {
     return null;
   }
@@ -374,6 +375,7 @@ const ThreadHistoryControl: FC<{
   return (
     <div aria-live="polite" className="bs-history-control" data-testid="assistant-history-control">
       <button
+        aria-controls={controlsId}
         aria-expanded={expanded}
         aria-label={expanded ? 'Collapse previous messages' : 'Expand previous messages'}
         className="bs-history-control-button"
@@ -746,6 +748,7 @@ const ChatThreadUI: FC<{
   const messageCount = useAuiState((state) => state.thread.messages.length);
   const hiddenMessageCount = Math.max(0, messageCount - COLLAPSED_HISTORY_VISIBLE_MESSAGES);
   const historyCollapsed = hiddenMessageCount > 0 && !historyExpanded;
+  const messagesRegionId = useId();
 
   return (
     <ThreadPrimitive.Root
@@ -781,20 +784,23 @@ const ChatThreadUI: FC<{
           </p>
         )}
         <ThreadHistoryControl
+          controlsId={messagesRegionId}
           expanded={historyExpanded}
           hiddenMessageCount={hiddenMessageCount}
           onExpandedChange={setHistoryExpanded}
         />
-        <ThreadPrimitive.Messages
-          components={{
-            /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-            AssistantMessage,
-            /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-            UserMessage,
-            /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-            EditComposer,
-          }}
-        />
+        <div id={messagesRegionId}>
+          <ThreadPrimitive.Messages
+            components={{
+              /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+              AssistantMessage,
+              /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+              UserMessage,
+              /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+              EditComposer,
+            }}
+          />
+        </div>
       </ThreadPrimitive.Viewport>
 
       {/**
