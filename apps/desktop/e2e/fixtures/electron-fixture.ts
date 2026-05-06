@@ -27,6 +27,13 @@ class ElectronHarness {
     private readonly userDataDir?: string
   ) {}
 
+  getUserDataDir(): string {
+    if (!this.userDataDir) {
+      throw new Error('Electron harness requires an isolated userDataDir.');
+    }
+    return this.userDataDir;
+  }
+
   async ensureContext(): Promise<ElectronAppContext> {
     if (!this.context) {
       const { launchElectronApp } = await loadElectronHelpers();
