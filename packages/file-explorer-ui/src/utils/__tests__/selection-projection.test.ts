@@ -215,6 +215,21 @@ describe('selection-projection', () => {
     expect(getQuerySelectionMatchingCount(descriptor, manifest, 'folder-1', '/types')).toBe(1);
   });
 
+  it('does not count manually included paths that only share a string prefix with a directory', () => {
+    const descriptor = createDescriptor({
+      coveredDirectoryPaths: ['/src'],
+      includedPaths: ['/src-generated/performance.ts'],
+      totalSelectedCount: 1,
+    });
+    const manifest = createManifest({
+      filePaths: [],
+      pathSet: new Set<string>(),
+      directoryCounts: new Map<string, number>(),
+    });
+
+    expect(getQuerySelectionMatchingCount(descriptor, manifest, 'folder-1', '/src')).toBe(0);
+  });
+
   it('matches absolute and relative path variants against include and exclude filters', () => {
     const descriptor = createDescriptor({
       includeFilters: ['src/**/*.ts'],
@@ -238,6 +253,20 @@ describe('selection-projection', () => {
         'folder-1',
         '/src/ignore.ts',
         new Set(['/src/ignore.ts'])
+      )
+    ).toBe(false);
+  });
+
+  it('does not treat shared string prefixes as being inside the query root', () => {
+    const descriptor = createDescriptor({ rootPath: '/src' });
+
+    expect(
+      isQuerySelectionPathSelected(
+        descriptor,
+        null,
+        'folder-1',
+        '/src-generated/index.ts',
+        new Set(['/src-generated/index.ts'])
       )
     ).toBe(false);
   });

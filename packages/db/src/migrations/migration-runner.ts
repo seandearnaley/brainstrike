@@ -250,19 +250,29 @@ export class MigrationRunner {
    * Verify migration checksums
    */
   async verify(migrations: Migration[]): Promise<boolean> {
-    for (const migration of migrations) {
-      const result = await this.db.query<{ checksum: string }>(
-        `SELECT checksum FROM ${MigrationRunner.MIGRATION_TABLE} WHERE version = $1`,
-        [migration.version]
-      );
+    if (migrations.length === 0) {
+      return true;
+    }
 
-      if (result.rows.length > 0) {
-        const storedChecksum = result.rows[0]?.checksum;
+    const versions = migrations.map((m) => m.version);
+    const result = await this.db.query<{ version: number; checksum: string }>(
+      `SELECT version, checksum FROM ${MigrationRunner.MIGRATION_TABLE} WHERE version = ANY($1)`,
+      [versions]
+    );
+
+    const checksumMap = new Map<number, string>();
+    for (const row of result.rows) {
+      checksumMap.set(row.version, row.checksum);
+    }
+
+    for (const migration of migrations) {
+      const storedChecksum = checksumMap.get(migration.version);
+      if (storedChecksum) {
         const currentChecksum = this.calculateChecksum(
           typeof migration.up === 'string' ? migration.up : migration.name
         );
 
-        if (storedChecksum && storedChecksum !== currentChecksum) {
+        if (storedChecksum !== currentChecksum) {
           this.logger.warn('Migration checksum mismatch', {
             version: migration.version,
             storedChecksum,

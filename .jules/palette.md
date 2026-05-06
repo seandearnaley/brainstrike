@@ -19,7 +19,10 @@
 
 **Learning:** Icon-only action buttons in lists (like Edit/Delete in `CollectionPickerItem`) sometimes lack `aria-label` attributes and use `size="sm"` with custom width/height/padding classes instead of the standard `size="icon"` which is designed specifically for square icon buttons.
 **Action:** Always provide descriptive `aria-label` attributes for icon-only action buttons and prefer `size="icon"` over manually overriding `size="sm"` padding/dimensions when rendering purely icon-based buttons.
-
 ## 2026-04-26 - ARIA labels for `Progress` and disclosure pairing
 **Learning:** Visual `<Progress />` indicators that show different metrics (e.g. "Files imported" vs "Chunks imported") need explicit `aria-label` so screen readers can distinguish them. Custom disclosure widgets need both an `aria-expanded` toggle and an `aria-controls` link to a stable ID on their container.
 **Action:** Always pair an `aria-label` with `<Progress />` instances that aren't visually labelled, and pair `aria-expanded` + `aria-controls` (with a `useId()`-derived target id) on any custom toggle that hides/shows content.
+
+## 2026-05-04 - Native Title Attributes cause Double Tooltips
+**Learning:** Icon-only navigation buttons (e.g., in TablePagination) using native `title` attributes provide a poor, unstyled UX and can conflict with custom app tooltips.
+**Action:** Always replace native `title` attributes on icon-only buttons with the design system's `Tooltip` component (wrapping the button) for consistent, accessible visual feedback. Remember to include `TooltipProvider` if one is not guaranteed at the app level.
