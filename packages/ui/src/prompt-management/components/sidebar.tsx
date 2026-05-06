@@ -103,7 +103,7 @@ export function Sidebar({
             title="Add tag"
             variant="ghost"
           >
-            <Plus className="h-3 w-3" />
+            <Plus aria-hidden="true" className="h-3 w-3" />
           </Button>
         </div>
 

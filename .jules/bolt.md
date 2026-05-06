@@ -48,6 +48,10 @@
 **Learning:** Extracting path segments using `.split('/').filter(Boolean)` creates intermediate string arrays and allocates new strings that are immediately discarded if empty. In hot paths (like building paths or verifying traversal), this causes GC pressure and slows execution.
 **Action:** Replace `.split('/').filter(...)` with a native string loop using `indexOf('/')` and `.slice()` in a shared utility function (`extractPathSegments`). This avoids intermediate regex array allocations and executes 3-4x faster in V8.
 
+## 2026-04-26 - Optimize Regex matching into loop and index scanning
+**Learning:** Using regex like `.match(/\.\./g)` implicitly creates intermediate array allocations. When executed inside a hot loop like file traversal or path validation, this leads to immense GC overhead and performance drops compared to a simple native scan in a while loop using `indexOf(target, offset)`.
+**Action:** Replace `match()` with native `indexOf()` loops using proper index jumps when checking strings or computing lengths of matched groups in performance-critical methods.
+
 ## 2026-05-04 - N+1 Query Optimization using PGlite ANY()
 **Learning:** Checking a condition sequentially via looping database `SELECT` queries (like in MigrationRunner) creates significant N+1 query overhead in PGlite which adds up and delays startup time, especially with larger lists.
 **Action:** Replace iterative looping queries with a single query using the `WHERE column = ANY($1)` syntax with an array parameter to fetch all necessary data in bulk, caching it in an in-memory `Map` for O(1) lookups during the local iteration.
