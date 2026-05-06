@@ -377,16 +377,16 @@ const ThreadHistoryControl: FC<{
       <button
         aria-controls={controlsId}
         aria-expanded={expanded}
-        aria-label={expanded ? 'Collapse previous messages' : 'Expand previous messages'}
+        aria-label={`${expanded ? 'Collapse' : 'Expand'} ${hiddenMessageCount} previous messages`}
         className="bs-history-control-button"
         data-testid="assistant-history-toggle"
         onClick={() => onExpandedChange(!expanded)}
         type="button"
       >
         {expanded ? (
-          <ChevronUpIcon className="size-3.5" />
+          <ChevronUpIcon aria-hidden="true" className="size-3.5" />
         ) : (
-          <ChevronDownIcon className="size-3.5" />
+          <ChevronDownIcon aria-hidden="true" className="size-3.5" />
         )}
         <span>{hiddenMessageCount} previous messages</span>
       </button>
