@@ -554,6 +554,14 @@
   animation: bs-chain-of-thought-enter 180ms ease-out;
 }
 
+/* The collapsed reasoning panel stays in the DOM so aria-controls keeps a
+   valid target. The HTML hidden attribute can be silently overridden by any
+   future display utility on this class — pin display:none for the hidden
+   state so the toggle never leaks layout. */
+.assistant-ui-panel .bs-chain-of-thought-panel[hidden] {
+  display: none;
+}
+
 @keyframes bs-streaming-caret {
   0%,
   45% {

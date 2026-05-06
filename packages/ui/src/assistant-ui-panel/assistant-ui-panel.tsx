@@ -28,7 +28,16 @@ import {
   SquareIcon,
 } from 'lucide-react';
 import * as m from 'motion/react-m';
-import { type FC, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type FC,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 // @assistant-ui/styles v0.3.x consolidated all styles into index.css
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
@@ -293,6 +302,7 @@ const LocalChainOfThought: FC = () => {
   const aui = useAui();
   const collapsed = useAuiState((state) => state.chainOfThought.collapsed);
   const initializedRef = useRef(false);
+  const reasoningPanelId = useId();
 
   useEffect(() => {
     if (initializedRef.current) {
@@ -305,7 +315,9 @@ const LocalChainOfThought: FC = () => {
   return (
     <ChainOfThoughtPrimitive.Root className="mb-3 block max-w-xl">
       <button
+        aria-controls={reasoningPanelId}
         aria-expanded={!collapsed}
+        aria-label={collapsed ? 'Show reasoning' : 'Hide reasoning'}
         className="flex w-full items-center justify-between rounded-2xl border border-border/70 bg-muted/25 px-3 py-2.5 text-left transition-colors hover:bg-muted/35"
         data-testid="local-chain-of-thought"
         onClick={() => aui.chainOfThought().setCollapsed(!collapsed)}
@@ -323,8 +335,8 @@ const LocalChainOfThought: FC = () => {
           {collapsed ? 'Show reasoning' : 'Hide reasoning'}
         </Badge>
       </button>
-      {!collapsed && (
-        <div className="bs-chain-of-thought-panel mt-2">
+      <div className="bs-chain-of-thought-panel mt-2" hidden={collapsed} id={reasoningPanelId}>
+        {collapsed ? null : (
           <ChainOfThoughtPrimitive.Parts
             components={{
               /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Layout" key */
@@ -337,8 +349,8 @@ const LocalChainOfThought: FC = () => {
               },
             }}
           />
-        </div>
-      )}
+        )}
+      </div>
     </ChainOfThoughtPrimitive.Root>
   );
 };
@@ -382,6 +394,7 @@ const ExpandableMessageContent: FC<{
   testId?: string;
 }> = ({ children, className, collapsedHeight = 176, testId }) => {
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const contentId = useId();
   const [expanded, setExpanded] = useState(false);
   const [hasOverflow, setHasOverflow] = useState(false);
   const [contentHeight, setContentHeight] = useState(collapsedHeight);
@@ -417,6 +430,7 @@ const ExpandableMessageContent: FC<{
       <m.div
         animate={{ maxHeight: collapsed ? collapsedHeight : contentHeight }}
         className="bs-expandable-message-body"
+        id={contentId}
         initial={false}
         ref={contentRef}
         transition={{ duration: 0.18, ease: 'easeOut' }}
@@ -426,7 +440,9 @@ const ExpandableMessageContent: FC<{
       {collapsed ? <div aria-hidden="true" className="bs-expandable-message-fade" /> : null}
       {hasOverflow ? (
         <button
+          aria-controls={contentId}
           aria-expanded={expanded}
+          aria-label={expanded ? 'Show less message content' : 'Show more message content'}
           className="bs-expandable-message-toggle"
           onClick={() => setExpanded((current) => !current)}
           type="button"
