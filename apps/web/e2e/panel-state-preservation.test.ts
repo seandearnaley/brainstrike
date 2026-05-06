@@ -33,7 +33,7 @@ test.describe('Panel State Preservation', () => {
     await resetAppState(page);
     await page.reload();
     await waitForAppLoad(page, { waitForDatabase: false });
-    await resetLayoutState(page);
+    await resetLayoutState(page, { waitForDatabase: false });
   });
 
   test('should preserve file explorer state when hiding and showing left panel', async ({
