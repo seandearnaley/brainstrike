@@ -10,6 +10,7 @@ import {
   type TreeTableColumn,
   useIdeFileEditor,
 } from '@brainstrike/ui';
+import { isDescendantPath } from '@brainstrike/utils';
 import { memoizedFileExplorer as fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/utils/selection-utils';
@@ -581,7 +582,7 @@ function getQueryDirectorySelectionState(args: {
   const isAncestorOfQueryRoot = Boolean(
     queryRootPath &&
       directoryPath !== queryRootPath &&
-      queryRootPath.startsWith(`${directoryPath}/`)
+      isDescendantPath(queryRootPath, directoryPath)
   );
   const totalMatchingCount = getQuerySelectionMatchingCount(
     selectionModel.queryDescriptor,
@@ -638,7 +639,7 @@ function getCoveredQueryDirectorySelectionState(args: {
   );
   const queryRootPath = selectionModel.queryDescriptor?.rootPath ?? null;
   const isAncestorOfQueryRoot = Boolean(
-    queryRootPath && nodePath !== queryRootPath && queryRootPath.startsWith(`${nodePath}/`)
+    queryRootPath && nodePath !== queryRootPath && isDescendantPath(queryRootPath, nodePath)
   );
 
   if (isKnownEmptyDirectory) {
@@ -784,7 +785,8 @@ function shouldIgnoreLoadedQueryChildDirectory(args: {
   if (
     !(
       queryRootPath &&
-      (parentDirectoryPath === queryRootPath || parentDirectoryPath.startsWith(`${queryRootPath}/`))
+      (parentDirectoryPath === queryRootPath ||
+        isDescendantPath(parentDirectoryPath, queryRootPath))
     )
   ) {
     return false;

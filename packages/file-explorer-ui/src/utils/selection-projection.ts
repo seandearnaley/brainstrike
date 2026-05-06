@@ -4,7 +4,7 @@ import type {
   SelectionModel,
   SelectionQueryDescriptor,
 } from '@brainstrike/types';
-import { accumulateAncestorDirectoryCounts } from '@brainstrike/utils';
+import { accumulateAncestorDirectoryCounts, isDescendantPath } from '@brainstrike/utils';
 import { processFilter } from '@brainstrike/utils/filter-utils';
 import { fileFilter } from '@brainstrike/utils/path-filter';
 import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/utils/selection-utils';
@@ -93,7 +93,7 @@ function isPathWithinRoot(path: string, rootPath: string | null): boolean {
   if (!rootPath) {
     return true;
   }
-  return path === rootPath || path.startsWith(`${rootPath}/`);
+  return path === rootPath || isDescendantPath(path, rootPath);
 }
 
 function isQuerySelectionManifestReady(
@@ -296,7 +296,7 @@ export function getQuerySelectionMatchingCount(
       if (manifest.pathSet.has(filePath)) {
         continue;
       }
-      if (filePath.startsWith(`${directoryPath}/`)) {
+      if (isDescendantPath(filePath, directoryPath)) {
         totalMatchingCount += 1;
       }
     }
