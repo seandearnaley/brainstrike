@@ -1328,6 +1328,91 @@ describe('OptimizedFileTree', () => {
     expect(screen.getByLabelText('Select src')).toHaveAttribute('data-state', 'indeterminate');
   });
 
+  it('does not treat shared string prefixes as ancestors of the query root', async () => {
+    const partiallyLoadedTree: IFileNode[] = [
+      {
+        name: 'src',
+        path: '/src',
+        type: 'directory',
+        isVisible: true,
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        loadState: 'unloaded',
+      },
+      {
+        name: 'src-generated',
+        path: '/src-generated',
+        type: 'directory',
+        isVisible: true,
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        loadState: 'unloaded',
+      },
+    ];
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree
+          fileTree={partiallyLoadedTree}
+          folderId="root"
+          loadingFiles={new Set()}
+        />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore.getState().setQuerySelection(
+        {
+          kind: 'recursive-folder',
+          folderId: 'root',
+          rootPath: '/src-generated',
+          coveredDirectoryPaths: ['/src-generated'],
+          includeFilters: [],
+          excludeFilters: [],
+          includedPaths: [],
+          excludedPaths: [],
+          manifestFingerprint: 'fp-src-generated',
+          manifestSnapshotId: 'snapshot-src-generated',
+          totalSelectedCount: 1,
+          useRegex: false,
+        },
+        {
+          filePaths: ['/src-generated/index.ts'],
+          pathSet: new Set(['/src-generated/index.ts']),
+          directoryCounts: new Map([['/src-generated', 1]]),
+          fingerprint: 'fp-src-generated',
+          snapshotId: 'snapshot-src-generated',
+          status: 'ready',
+          errorMessage: null,
+        },
+        new Set(['/src-generated/index.ts'])
+      );
+      await Promise.resolve();
+    });
+
+    expect(screen.getByLabelText('Select src')).toHaveAttribute('data-state', 'unchecked');
+    expect(screen.getByLabelText('Select src-generated')).toHaveAttribute('data-state', 'checked');
+  });
+
   it('preserves a query-selected parent checkbox state when expanding via the chevron loads children', async () => {
     let fileExplorerStore: FileExplorerStore | undefined;
     let resolveLoadChildren: (() => void) | undefined;
