@@ -7,3 +7,29 @@ export function finalPath(
 ): string {
   return platform === 'electron' ? entryPath : relativePath;
 }
+
+/** Extracts non-empty path segments without allocating intermediate arrays. */
+export function extractPathSegments(path: string): string[] {
+  const segments: string[] = [];
+  const len = path.length;
+  if (len === 0) {
+    return segments;
+  }
+
+  let startIdx = 0;
+  let idx = path.indexOf('/');
+
+  while (idx !== -1) {
+    if (idx > startIdx) {
+      segments.push(path.slice(startIdx, idx));
+    }
+    startIdx = idx + 1;
+    idx = path.indexOf('/', startIdx);
+  }
+
+  if (startIdx < len) {
+    segments.push(path.slice(startIdx));
+  }
+
+  return segments;
+}
