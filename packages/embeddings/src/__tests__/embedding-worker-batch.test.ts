@@ -101,6 +101,36 @@ function vectorString(dim: number, entries: [number, number][]): string {
   return `[${values.join(',')}]`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function hasStatsRefreshLog(
+  log: ReturnType<typeof vi.fn<(message: string, meta?: unknown) => void>>,
+  reason: string
+): boolean {
+  return log.mock.calls.some(([message, meta]) => {
+    if (message !== 'embedding_stats_refresh' || !isRecord(meta)) {
+      return false;
+    }
+    return meta['reason'] === reason;
+  });
+}
+
+function countCollectionStatsRefreshQueries(db: PGlite): { getCount: () => number } {
+  const originalQuery = db.query.bind(db);
+  let count = 0;
+  vi.spyOn(db, 'query').mockImplementation(async (sql: string, params?: unknown[]) => {
+    if (sql.includes('aggregated_chunks') && sql.includes('collection_indexing_stats')) {
+      count += 1;
+    }
+    return await originalQuery(sql, params);
+  });
+  return {
+    getCount: () => count,
+  };
+}
+
 async function waitFor(
   fn: () => Promise<boolean>,
   timeoutMs = 5000,
@@ -399,6 +429,196 @@ describe('Embedding Worker Batch Optimization', () => {
       `SELECT count(*) as count FROM job_queue WHERE state = 'failed'`
     );
     expect(Number(failed.rows[0]?.count)).toBe(0);
+  });
+
+  it('coalesces full indexing stats refreshes across streamed completion batches', async () => {
+    const refreshCounter = countCollectionStatsRefreshQueries(db);
+    const now = new Date().toISOString();
+    const embeddingSetId = 'set-stats-coalesce';
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    const compositeKey = formatProviderModelKey('local', modelKey);
+    const fileId = 'file-stats-coalesce';
+    const jobCount = 8;
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, compositeKey, modelKey, 768, 'cosine', now]
+    );
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, embedding_set_id, created_at, updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`,
+      [
+        fileId,
+        'stats-coalesce.ts',
+        '/stats-coalesce.ts',
+        100,
+        'content',
+        'stats-coalesce-hash',
+        10,
+        embeddingSetId,
+        now,
+      ]
+    );
+
+    for (let index = 0; index < jobCount; index++) {
+      const chunkId = `chunk-stats-coalesce-${index}`;
+      await db.query(
+        `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,'text',10,$7,$7)`,
+        [chunkId, fileId, index, `content ${index}`, `stats-coalesce-hash-${index}`, 10, now]
+      );
+      await db.query(
+        `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+        VALUES ($1,'embeddings','embed_chunk', $2, 'queued', $3, 0, 3, 0, $3, $3)`,
+        [
+          `job-stats-coalesce-${index}`,
+          JSON.stringify({
+            chunkId,
+            embeddingSetId,
+            modelKey: compositeKey,
+            expectedDimension: 768,
+          }),
+          now,
+        ]
+      );
+    }
+
+    const workerOptions: Parameters<typeof startEmbeddingWorker>[0] & {
+      now: () => number;
+      statsRefreshCompletedChunkThreshold: number;
+      statsRefreshMinIntervalMs: number;
+    } = {
+      db: db as unknown as IDatabase,
+      claimBatchSize: jobCount,
+      concurrency: 1,
+      interBatchDelayMs: 10,
+      leaseMs: 5000,
+      log: () => {},
+      modelKey,
+      now: () => 0,
+      service: new ChunkedStreamingEmbeddingService(1, 0),
+      statsRefreshCompletedChunkThreshold: 512,
+      statsRefreshMinIntervalMs: 60_000,
+    };
+
+    const controller = await startEmbeddingWorker(workerOptions);
+
+    await waitFor(async () => {
+      const res = await db.query<{ count: number }>(
+        `SELECT count(*) as count FROM job_queue WHERE state = 'succeeded'`
+      );
+      return Number(res.rows[0]?.count) === jobCount;
+    }, 10_000);
+
+    await controller.stop();
+
+    expect(refreshCounter.getCount()).toBeLessThanOrEqual(2);
+  });
+
+  it('flushes pending indexing stats refreshes on idle and stop', async () => {
+    const now = new Date().toISOString();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    const compositeKey = formatProviderModelKey('local', modelKey);
+
+    async function insertQueuedEmbeddingJob(prefix: string): Promise<void> {
+      const embeddingSetId = `set-${prefix}`;
+      const fileId = `file-${prefix}`;
+      const chunkId = `chunk-${prefix}`;
+      await db.query(
+        `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6)`,
+        [embeddingSetId, compositeKey, modelKey, 768, 'cosine', now]
+      );
+      await db.query(
+        `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, embedding_set_id, created_at, updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`,
+        [
+          fileId,
+          `${prefix}.ts`,
+          `/${prefix}.ts`,
+          100,
+          'content',
+          `${prefix}-hash`,
+          10,
+          embeddingSetId,
+          now,
+        ]
+      );
+      await db.query(
+        `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+        VALUES ($1,$2,0,$3,$4,$5,'text',10,$6,$6)`,
+        [chunkId, fileId, 'content', `${prefix}-hash`, 10, now]
+      );
+      await db.query(
+        `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+        VALUES ($1,'embeddings','embed_chunk', $2, 'queued', $3, 0, 3, 0, $3, $3)`,
+        [
+          `job-${prefix}`,
+          JSON.stringify({
+            chunkId,
+            embeddingSetId,
+            modelKey: compositeKey,
+            expectedDimension: 768,
+          }),
+          now,
+        ]
+      );
+    }
+
+    await insertQueuedEmbeddingJob('stats-idle');
+    const idleLog = vi.fn<(message: string, meta?: unknown) => void>();
+    const idleWorkerOptions: Parameters<typeof startEmbeddingWorker>[0] & {
+      now: () => number;
+      statsRefreshCompletedChunkThreshold: number;
+      statsRefreshMinIntervalMs: number;
+    } = {
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      interBatchDelayMs: 10,
+      leaseMs: 5000,
+      log: idleLog,
+      modelKey,
+      now: () => 0,
+      service: new FakeEmbeddingService(),
+      statsRefreshCompletedChunkThreshold: 512,
+      statsRefreshMinIntervalMs: 60_000,
+    };
+
+    const idleController = await startEmbeddingWorker(idleWorkerOptions);
+    await waitFor(async () => hasStatsRefreshLog(idleLog, 'queue-idle'), 10_000);
+    await idleController.stop();
+
+    await insertQueuedEmbeddingJob('stats-stop');
+    const stopLog = vi.fn<(message: string, meta?: unknown) => void>();
+    const stopWorkerOptions: Parameters<typeof startEmbeddingWorker>[0] & {
+      now: () => number;
+      statsRefreshCompletedChunkThreshold: number;
+      statsRefreshMinIntervalMs: number;
+    } = {
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      interBatchDelayMs: 1000,
+      leaseMs: 5000,
+      log: stopLog,
+      modelKey,
+      now: () => 0,
+      service: new FakeEmbeddingService(),
+      statsRefreshCompletedChunkThreshold: 512,
+      statsRefreshMinIntervalMs: 60_000,
+    };
+
+    const stopController = await startEmbeddingWorker(stopWorkerOptions);
+    await waitFor(async () => {
+      const res = await db.query<{ count: number }>(
+        `SELECT count(*) as count FROM job_queue WHERE id = 'job-stats-stop' AND state = 'succeeded'`
+      );
+      return Number(res.rows[0]?.count) === 1;
+    }, 10_000);
+
+    await stopController.stop();
+
+    expect(hasStatsRefreshLog(stopLog, 'worker-stop')).toBe(true);
   });
 });
 

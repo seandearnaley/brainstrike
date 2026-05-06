@@ -1,5 +1,9 @@
 import type { IDatabase, Job } from '@brainstrike/db';
-import { JobQueue, refreshCollectionIndexingStats } from '@brainstrike/db';
+import {
+  JobQueue,
+  markCollectionIndexingStatsDirty,
+  refreshCollectionIndexingStats,
+} from '@brainstrike/db';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { createLogger, generateUUID } from '@brainstrike/utils';
@@ -319,6 +323,7 @@ export interface EmbeddingWorkerOptions {
   log?: (msg: string, meta?: unknown) => void;
   metricsIntervalMs?: number; // optional metrics log interval; default env or 30000
   modelKey?: string | undefined; // default: registry default
+  now?: () => number;
   onDownloadProgress?: (modelId: string, progress: number) => void;
   onFatalError?: (error: Error) => void;
   onWorkerActivityChange?: (active: boolean) => void;
@@ -331,6 +336,8 @@ export interface EmbeddingWorkerOptions {
    */
   resolveClaimBatchSize?: () => number | Promise<number>;
   service?: EmbeddingService; // optional DI for tests or custom backends
+  statsRefreshCompletedChunkThreshold?: number;
+  statsRefreshMinIntervalMs?: number;
   /**
    * When true, a fatal local-model initialization/execution error stops the
    * worker loop immediately instead of continuing to claim and fail later jobs.
@@ -349,6 +356,10 @@ export interface EmbeddingWorkerController {
 
 const DEFAULT_CLAIM_BATCH_SIZE = 50;
 const CLAIM_SIZE_RESOLVER_FAILURE_BACKOFF_MS = 1000;
+const DEFAULT_STATS_REFRESH_MIN_INTERVAL_MS = 5000;
+const DEFAULT_STATS_REFRESH_COMPLETED_CHUNK_THRESHOLD = 512;
+
+type StatsRefreshReason = 'interval' | 'queue-idle' | 'threshold' | 'worker-stop';
 
 function resolvePositiveIntegerOption(
   value: number | undefined,
@@ -362,6 +373,97 @@ function resolvePositiveIntegerOption(
     throw new Error(`${optionName} must be a positive integer when configured.`);
   }
   return value;
+}
+
+interface EmbeddingStatsRefreshControllerOptions {
+  completedChunkThreshold: number;
+  db: IDatabase;
+  log: (msg: string, meta?: unknown) => void;
+  minIntervalMs: number;
+  now: () => number;
+}
+
+interface EmbeddingStatsRefreshController {
+  flush: (reason: StatsRefreshReason) => Promise<void>;
+  flushIfDue: () => Promise<void>;
+  recordCompletions: (
+    embeddingSetIds: readonly string[],
+    completedChunkCount: number
+  ) => Promise<void>;
+}
+
+function createEmbeddingStatsRefreshController({
+  completedChunkThreshold,
+  db,
+  log,
+  minIntervalMs,
+  now,
+}: EmbeddingStatsRefreshControllerOptions): EmbeddingStatsRefreshController {
+  const pendingEmbeddingSetIds = new Set<string>();
+  let completedSinceRefresh = 0;
+  let lastRefreshAt = now();
+
+  const flush = async (reason: StatsRefreshReason): Promise<void> => {
+    if (pendingEmbeddingSetIds.size === 0) {
+      return;
+    }
+
+    const embeddingSetIds = [...pendingEmbeddingSetIds];
+    const completedChunkCount = completedSinceRefresh;
+    const startedAt = performance.now();
+    pendingEmbeddingSetIds.clear();
+    completedSinceRefresh = 0;
+
+    try {
+      await refreshCollectionIndexingStats(db, embeddingSetIds, {
+        label: 'embedding stats refresh',
+        priority: 'background',
+      });
+      lastRefreshAt = now();
+      log('embedding_stats_refresh', {
+        completedChunkCount,
+        durationMs: Math.round(performance.now() - startedAt),
+        embeddingSetCount: embeddingSetIds.length,
+        reason,
+      });
+    } catch (error) {
+      for (const embeddingSetId of embeddingSetIds) {
+        pendingEmbeddingSetIds.add(embeddingSetId);
+      }
+      completedSinceRefresh += completedChunkCount;
+      throw error;
+    }
+  };
+
+  return {
+    flush,
+    flushIfDue: async () => {
+      if (pendingEmbeddingSetIds.size === 0) {
+        return;
+      }
+      if (completedSinceRefresh >= completedChunkThreshold) {
+        await flush('threshold');
+        return;
+      }
+      if (now() - lastRefreshAt >= minIntervalMs) {
+        await flush('interval');
+      }
+    },
+    recordCompletions: async (embeddingSetIds, completedChunkCount) => {
+      if (embeddingSetIds.length === 0 || completedChunkCount <= 0) {
+        return;
+      }
+      const uniqueIds = [...new Set(embeddingSetIds)];
+      await markCollectionIndexingStatsDirty(db, uniqueIds, {
+        label: 'embedding completion stats dirty',
+        priority: 'background',
+      });
+      for (const embeddingSetId of uniqueIds) {
+        pendingEmbeddingSetIds.add(embeddingSetId);
+      }
+      completedSinceRefresh += completedChunkCount;
+    },
+  };
 }
 
 interface EmbedChunkPayload {
@@ -1083,6 +1185,24 @@ export async function startEmbeddingWorker(
     'claimBatchSize',
     DEFAULT_CLAIM_BATCH_SIZE
   );
+  const statsRefreshMinIntervalMs = resolvePositiveIntegerOption(
+    options.statsRefreshMinIntervalMs,
+    'statsRefreshMinIntervalMs',
+    DEFAULT_STATS_REFRESH_MIN_INTERVAL_MS
+  );
+  const statsRefreshCompletedChunkThreshold = resolvePositiveIntegerOption(
+    options.statsRefreshCompletedChunkThreshold,
+    'statsRefreshCompletedChunkThreshold',
+    DEFAULT_STATS_REFRESH_COMPLETED_CHUNK_THRESHOLD
+  );
+  const now = options.now ?? Date.now;
+  const statsRefreshController = createEmbeddingStatsRefreshController({
+    completedChunkThreshold: statsRefreshCompletedChunkThreshold,
+    db: options.db,
+    log,
+    minIntervalMs: statsRefreshMinIntervalMs,
+    now,
+  });
   const modelResolution = resolveWorkerModel(options.modelKey);
   ensureLocalRuntime(modelResolution);
   const initializeLocalModelOnStart = options.initializeLocalModelOnStart ?? true;
@@ -1951,12 +2071,16 @@ export async function startEmbeddingWorker(
       completedJobIds.add(job.id);
     }
     onJobsCompleted?.(completedJobIds);
-
-    await refreshCollectionIndexingStats(
-      options.db,
+    log('embedding_completion_batch', {
+      completedJobCount: completedJobIds.size,
+      embeddingSetCount: new Set(updates.map((update) => update.embeddingSetId)).size,
+      updateCount: updates.length,
+    });
+    await statsRefreshController.recordCompletions(
       updates.map((update) => update.embeddingSetId),
-      { label: 'embedding completion stats refresh', priority: 'background' }
+      completedJobIds.size
     );
+    await statsRefreshController.flushIfDue();
 
     return completedJobIds;
   }
@@ -2393,6 +2517,7 @@ export async function startEmbeddingWorker(
         workerLogger.error('Scheduled embedding service reinitialization failed', { error });
       }
     }
+    await statsRefreshController.flush('queue-idle');
     await runEmbeddingCacheMaintenance('queue-idle');
     // Silent on empty polls - this happens constantly during idle
     await sleep(400); // idle backoff
@@ -2497,6 +2622,7 @@ export async function startEmbeddingWorker(
       running = false;
       reportWorkerActivity(false);
       await Promise.race([Promise.allSettled(loops).then(() => {}), sleep(leaseMs)]);
+      await statsRefreshController.flush('worker-stop');
       await flushEmbeddingCacheWrites();
       try {
         await service.dispose();
