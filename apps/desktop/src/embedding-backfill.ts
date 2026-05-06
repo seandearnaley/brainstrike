@@ -19,6 +19,7 @@ export interface EnqueueEmbeddingBackfillOptions {
   backlogPollMs?: number;
   drainTimeoutMs?: number;
   maxQueueDepth?: number;
+  now?: () => number;
   /**
    * Called during drain-safe checkpoints with the number of items completed
    * since the last call. Use this to trigger planned maintenance without
@@ -28,6 +29,7 @@ export interface EnqueueEmbeddingBackfillOptions {
   progressIntervalBatches?: number;
   progressIntervalMs?: number;
   queueCapacityTimeoutMs?: number;
+  vacuumIntervalMs?: number;
 }
 
 interface ResolvedEnqueueEmbeddingBackfillOptions {
@@ -35,9 +37,11 @@ interface ResolvedEnqueueEmbeddingBackfillOptions {
   backlogPollMs: number;
   drainTimeoutMs: number;
   maxQueueDepth: number;
+  now: () => number;
   progressIntervalBatches: number;
   progressIntervalMs: number;
   queueCapacityTimeoutMs: number;
+  vacuumIntervalMs: number;
 }
 
 interface EmbeddingSetJobMetadata {
@@ -71,6 +75,18 @@ const EMBEDDING_BACKFILL_BACKLOG_POLL_MS = 100;
 const EMBEDDING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS = 30_000;
 const EMBEDDING_BACKFILL_DRAIN_TIMEOUT_MS = 300_000;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS = 250;
+
+function resolvePositiveIntegerOption(
+  value: number | undefined,
+  defaultValue: number,
+  name: string
+): number {
+  const resolved = value ?? defaultValue;
+  if (!Number.isInteger(resolved) || resolved <= 0) {
+    throw new Error(`${name} must be a positive integer when configured.`);
+  }
+  return resolved;
+}
 
 function cooperativeYield(): Promise<void> {
   return new Promise((resolve) => {
@@ -134,44 +150,45 @@ async function waitForQueueCapacity(
 function resolveEnqueueEmbeddingBackfillOptions(
   options: EnqueueEmbeddingBackfillOptions | undefined
 ): ResolvedEnqueueEmbeddingBackfillOptions {
-  const maxQueueDepth = options?.maxQueueDepth ?? EMBEDDING_BACKFILL_MAX_QUEUE_DEPTH;
-  if (!Number.isInteger(maxQueueDepth) || maxQueueDepth <= 0) {
-    throw new Error('maxQueueDepth must be a positive integer when configured.');
-  }
-
-  const backlogPollMs = options?.backlogPollMs ?? EMBEDDING_BACKFILL_BACKLOG_POLL_MS;
-  if (!Number.isInteger(backlogPollMs) || backlogPollMs <= 0) {
-    throw new Error('backlogPollMs must be a positive integer when configured.');
-  }
-
-  const queueCapacityTimeoutMs =
-    options?.queueCapacityTimeoutMs ?? EMBEDDING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS;
-  if (!Number.isInteger(queueCapacityTimeoutMs) || queueCapacityTimeoutMs <= 0) {
-    throw new Error('queueCapacityTimeoutMs must be a positive integer when configured.');
-  }
-
-  const drainTimeoutMs = options?.drainTimeoutMs ?? EMBEDDING_BACKFILL_DRAIN_TIMEOUT_MS;
-  if (!Number.isInteger(drainTimeoutMs) || drainTimeoutMs <= 0) {
-    throw new Error('drainTimeoutMs must be a positive integer when configured.');
-  }
-
-  const progressIntervalBatches = options?.progressIntervalBatches ?? 1;
-  if (!Number.isInteger(progressIntervalBatches) || progressIntervalBatches <= 0) {
-    throw new Error('progressIntervalBatches must be a positive integer when configured.');
-  }
-
-  const progressIntervalMs = options?.progressIntervalMs ?? EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS;
-  if (!Number.isInteger(progressIntervalMs) || progressIntervalMs <= 0) {
-    throw new Error('progressIntervalMs must be a positive integer when configured.');
-  }
+  const now = options?.now ?? Date.now;
 
   return {
-    backlogPollMs,
-    drainTimeoutMs,
-    maxQueueDepth,
-    progressIntervalBatches,
-    progressIntervalMs,
-    queueCapacityTimeoutMs,
+    backlogPollMs: resolvePositiveIntegerOption(
+      options?.backlogPollMs,
+      EMBEDDING_BACKFILL_BACKLOG_POLL_MS,
+      'backlogPollMs'
+    ),
+    drainTimeoutMs: resolvePositiveIntegerOption(
+      options?.drainTimeoutMs,
+      EMBEDDING_BACKFILL_DRAIN_TIMEOUT_MS,
+      'drainTimeoutMs'
+    ),
+    maxQueueDepth: resolvePositiveIntegerOption(
+      options?.maxQueueDepth,
+      EMBEDDING_BACKFILL_MAX_QUEUE_DEPTH,
+      'maxQueueDepth'
+    ),
+    now,
+    progressIntervalBatches: resolvePositiveIntegerOption(
+      options?.progressIntervalBatches,
+      1,
+      'progressIntervalBatches'
+    ),
+    progressIntervalMs: resolvePositiveIntegerOption(
+      options?.progressIntervalMs,
+      EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS,
+      'progressIntervalMs'
+    ),
+    queueCapacityTimeoutMs: resolvePositiveIntegerOption(
+      options?.queueCapacityTimeoutMs,
+      EMBEDDING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
+      'queueCapacityTimeoutMs'
+    ),
+    vacuumIntervalMs: resolvePositiveIntegerOption(
+      options?.vacuumIntervalMs,
+      VACUUM_INTERVAL_MS,
+      'vacuumIntervalMs'
+    ),
     ...(options?.assertCanContinue ? { assertCanContinue: options.assertCanContinue } : {}),
   };
 }
@@ -267,10 +284,15 @@ async function vacuumBackfillTables(
   db: Pick<IDatabase, 'query'>,
   logState: VacuumLogState
 ): Promise<void> {
+  const startedAt = Date.now();
   try {
     await db.query('VACUUM file_chunks');
     await db.query('VACUUM job_queue');
     logState.hasLoggedVacuumFailure = false;
+    logger.info('Periodic VACUUM during backfill completed', {
+      durationMs: Date.now() - startedAt,
+      tables: ['file_chunks', 'job_queue'],
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (!logState.hasLoggedVacuumFailure) {
@@ -282,6 +304,35 @@ async function vacuumBackfillTables(
   }
 }
 
+interface BackfillVacuumScheduler {
+  forceVacuum: () => Promise<void>;
+  maybeVacuum: () => Promise<void>;
+}
+
+function createBackfillVacuumScheduler(
+  db: Pick<IDatabase, 'query'>,
+  logState: VacuumLogState,
+  intervalMs: number,
+  now: () => number
+): BackfillVacuumScheduler {
+  let lastVacuumAt = now();
+
+  return {
+    forceVacuum: async () => {
+      await vacuumBackfillTables(db, logState);
+      lastVacuumAt = now();
+    },
+    maybeVacuum: async () => {
+      const currentTime = now();
+      if (currentTime - lastVacuumAt < intervalMs) {
+        return;
+      }
+      await vacuumBackfillTables(db, logState);
+      lastVacuumAt = now();
+    },
+  };
+}
+
 async function waitForEmbeddingSetDrain(
   db: Pick<IDatabase, 'query'>,
   embeddingSetId: string,
@@ -289,11 +340,9 @@ async function waitForEmbeddingSetDrain(
   timeoutMs: number,
   assertCanContinue?: () => void | Promise<void>,
   updatedAfter?: string,
-  observeDrainProgress?: () => void | Promise<void>,
-  vacuumLogState: VacuumLogState = { hasLoggedVacuumFailure: false }
+  observeMaintenance?: () => void | Promise<void>
 ): Promise<EmbeddingBackfillQueueCounts> {
   const startedAt = Date.now();
-  let lastVacuumAt = Date.now();
   while (true) {
     const pending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
     if (pending === 0) {
@@ -305,12 +354,7 @@ async function waitForEmbeddingSetDrain(
         `Backfill timed out while waiting for embedding set '${embeddingSetId}' to drain.`
       );
     }
-    await observeDrainProgress?.();
-    // Periodically VACUUM to reclaim dead tuples from embedding UPDATEs
-    if (Date.now() - lastVacuumAt >= VACUUM_INTERVAL_MS) {
-      await vacuumBackfillTables(db, vacuumLogState);
-      lastVacuumAt = Date.now();
-    }
+    await observeMaintenance?.();
     await sleep(backlogPollMs);
   }
 }
@@ -497,9 +541,11 @@ export async function enqueueEmbeddingBackfill(
     backlogPollMs,
     drainTimeoutMs,
     maxQueueDepth,
+    now,
     progressIntervalBatches,
     progressIntervalMs,
     queueCapacityTimeoutMs,
+    vacuumIntervalMs,
   } = resolveEnqueueEmbeddingBackfillOptions(options);
   const onDrainTick = options?.onDrainTick;
 
@@ -522,12 +568,17 @@ export async function enqueueEmbeddingBackfill(
   let availableCapacity = 0;
   let lastReportedAt = Number.NEGATIVE_INFINITY;
   const vacuumLogState: VacuumLogState = { hasLoggedVacuumFailure: false };
+  const vacuumScheduler = createBackfillVacuumScheduler(db, vacuumLogState, vacuumIntervalMs, now);
   const observeDrainProgress = createDrainProgressObserver(
     db,
     embeddingSetId,
     runStartedAt,
     onDrainTick
   );
+  const observeMaintenance = async (): Promise<void> => {
+    await observeDrainProgress?.();
+    await vacuumScheduler.maybeVacuum();
+  };
 
   const reportProgress = (
     nextDone: number,
@@ -559,7 +610,7 @@ export async function enqueueEmbeddingBackfill(
         backlogPollMs,
         queueCapacityTimeoutMs,
         assertCanContinue,
-        observeDrainProgress
+        observeMaintenance
       );
     }
     const batchLimit = Math.min(
@@ -610,8 +661,7 @@ export async function enqueueEmbeddingBackfill(
     drainTimeoutMs,
     assertCanContinue,
     runStartedAt,
-    observeDrainProgress,
-    vacuumLogState
+    observeMaintenance
   );
   if (drainedCounts.failed > 0) {
     throw new Error(
@@ -619,7 +669,7 @@ export async function enqueueEmbeddingBackfill(
     );
   }
   // Final VACUUM to reclaim all dead tuples from the completed backfill
-  await vacuumBackfillTables(db, vacuumLogState);
+  await vacuumScheduler.forceVacuum();
   logger.info('Backfill complete', { embeddingSetId, total, done });
   reportProgress(total, total, { force: true });
   return finalizeBackfillCounts(embeddingSetId, total, done, drainedCounts);
