@@ -333,6 +333,21 @@ test('workflow contract fails when PR desktop E2E is smoke-only', () => {
   );
 });
 
+test('workflow contract fails when desktop regression runs multiple workers per shard', () => {
+  const desktopPr = extractJob(workflowSource, 'desktop-e2e-pr');
+  const desktopMain = extractJob(workflowSource, 'desktop-e2e-main');
+  assert.ok(desktopPr);
+  assert.ok(desktopMain);
+
+  const source = workflowSource
+    .replace(desktopPr, desktopPr.replace('--workers=1', '--workers=2'))
+    .replace(desktopMain, desktopMain.replace('--workers=1', '--workers=2'));
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /PR desktop E2E must keep one worker per shard/);
+  assert.match(failures, /Main desktop E2E must keep one worker per shard/);
+});
+
 test('workflow contract fails when desktop regression retries are reintroduced', () => {
   const desktopPr = extractJob(workflowSource, 'desktop-e2e-pr');
   assert.ok(desktopPr);

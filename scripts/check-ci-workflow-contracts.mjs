@@ -551,8 +551,8 @@ export function validateWorkflowContracts(source) {
     );
     requireIncludes(
       desktopPr,
-      '--workers=2',
-      'PR desktop E2E must keep two workers per shard.',
+      '--workers=1',
+      'PR desktop E2E must keep one worker per shard to avoid concurrent Electron/DB-host contention.',
       failures
     );
     requireDesktopRegressionJobContracts(desktopPr, 'PR', failures);
@@ -625,8 +625,8 @@ export function validateWorkflowContracts(source) {
     );
     requireIncludes(
       desktopMain,
-      '--workers=2',
-      'Main desktop E2E must keep two workers per shard.',
+      '--workers=1',
+      'Main desktop E2E must keep one worker per shard to avoid concurrent Electron/DB-host contention.',
       failures
     );
     requireDesktopRegressionJobContracts(desktopMain, 'Main', failures);
