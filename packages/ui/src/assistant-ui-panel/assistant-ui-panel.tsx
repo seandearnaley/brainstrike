@@ -775,6 +775,7 @@ const ChatThreadUI: FC<{
         autoScroll
         className="aui-thread-viewport"
         data-testid="assistant-ui-viewport"
+        id={messagesRegionId}
         scrollToBottomOnInitialize={false}
         scrollToBottomOnRunStart={false}
       >
@@ -789,18 +790,16 @@ const ChatThreadUI: FC<{
           hiddenMessageCount={hiddenMessageCount}
           onExpandedChange={setHistoryExpanded}
         />
-        <div id={messagesRegionId}>
-          <ThreadPrimitive.Messages
-            components={{
-              /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-              AssistantMessage,
-              /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-              UserMessage,
-              /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-              EditComposer,
-            }}
-          />
-        </div>
+        <ThreadPrimitive.Messages
+          components={{
+            /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+            AssistantMessage,
+            /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+            UserMessage,
+            /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+            EditComposer,
+          }}
+        />
       </ThreadPrimitive.Viewport>
 
       {/**
