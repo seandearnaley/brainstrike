@@ -394,6 +394,7 @@ const ExpandableMessageContent: FC<{
   testId?: string;
 }> = ({ children, className, collapsedHeight = 176, testId }) => {
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const contentId = useId();
   const [expanded, setExpanded] = useState(false);
   const [hasOverflow, setHasOverflow] = useState(false);
   const [contentHeight, setContentHeight] = useState(collapsedHeight);
@@ -423,7 +424,6 @@ const ExpandableMessageContent: FC<{
   }, [collapsedHeight, children]);
 
   const collapsed = hasOverflow && !expanded;
-  const contentId = useId();
 
   return (
     <div className={cn(className, 'bs-expandable-message')} data-testid={testId}>
