@@ -5,12 +5,8 @@ import type { Page } from '@playwright/test';
  */
 
 type PlaywrightExpect = typeof import('@playwright/test').expect;
-interface ScopedLogger {
-  warn: (message: string, context?: Record<string, unknown>) => void;
-}
 
 let cachedExpect: PlaywrightExpect | null = null;
-let cachedLogger: Promise<ScopedLogger> | null = null;
 const DEFAULT_LOCAL_APP_LOAD_TIMEOUT_MS = 20_000;
 const DEFAULT_CI_APP_LOAD_TIMEOUT_MS = 55_000;
 const DEFAULT_LOCAL_NETWORK_IDLE_TIMEOUT_MS = 2000;
@@ -86,19 +82,9 @@ function resolveErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function getLogger(): Promise<ScopedLogger> {
-  if (!cachedLogger) {
-    cachedLogger = import('@brainstrike/utils')
-      .then((mod) => mod.createLogger('E2ELayoutHelpers'))
-      .catch(() => ({
-        warn: () => undefined,
-      }));
-  }
-  return cachedLogger;
-}
-
 function logWarn(message: string, context?: Record<string, unknown>): void {
-  void getLogger().then((logger) => logger.warn(message, context));
+  const contextSuffix = context ? ` ${JSON.stringify(context)}` : '';
+  console.warn(`[E2ELayoutHelpers] ${message}${contextSuffix}`);
 }
 
 export function resolveWaitForAppLoadTimeout(timeout: number, isCI: boolean): number {
@@ -111,11 +97,84 @@ export function resolveNetworkIdleTimeout(isCI: boolean): number {
   return isCI ? DEFAULT_CI_NETWORK_IDLE_TIMEOUT_MS : DEFAULT_LOCAL_NETWORK_IDLE_TIMEOUT_MS;
 }
 
-type DatabaseReadyState = 'connected' | 'disconnected' | null;
+type DatabaseReadyState = 'connected' | 'disconnected' | 'loading' | 'missing';
+
+interface DatabaseReadinessSnapshot {
+  readonly dbPath: string | null;
+  readonly hasE2ETestHooks: boolean;
+  readonly state: DatabaseReadyState;
+  readonly statusText: string | null;
+}
 
 export interface WaitForAppLoadOptions {
   readonly timeoutMs?: number;
   readonly waitForDatabase?: boolean;
+}
+
+async function readDatabaseReadinessSnapshot(page: Page): Promise<DatabaseReadinessSnapshot> {
+  return page.evaluate((): DatabaseReadinessSnapshot => {
+    const connected = document.querySelector<HTMLElement>(
+      '[data-testid="status-bar-db-connected"]'
+    );
+    const loading = document.querySelector<HTMLElement>('[data-testid="status-bar-db-loading"]');
+    const disconnected = document.querySelector<HTMLElement>(
+      '[data-testid="status-bar-db-disconnected"]'
+    );
+    const statusElement = connected ?? loading ?? disconnected;
+    const statusText = statusElement?.textContent?.replace(/\s+/g, ' ').trim() ?? null;
+    const e2eHooks = window.__brainstrikeWebE2ETestHooks__;
+    const dbPath = typeof e2eHooks?.dbPath === 'string' ? e2eHooks.dbPath : null;
+
+    if (connected) {
+      return {
+        dbPath,
+        hasE2ETestHooks: Boolean(e2eHooks),
+        state: 'connected',
+        statusText,
+      };
+    }
+
+    if (loading) {
+      return {
+        dbPath,
+        hasE2ETestHooks: Boolean(e2eHooks),
+        state: 'loading',
+        statusText,
+      };
+    }
+
+    if (disconnected) {
+      return {
+        dbPath,
+        hasE2ETestHooks: Boolean(e2eHooks),
+        state: 'disconnected',
+        statusText,
+      };
+    }
+
+    return {
+      dbPath,
+      hasE2ETestHooks: Boolean(e2eHooks),
+      state: 'missing',
+      statusText,
+    };
+  });
+}
+
+function formatDatabaseReadinessSnapshot(snapshot: DatabaseReadinessSnapshot): string {
+  const parts = [`Last observed state was ${snapshot.state}.`];
+
+  if (snapshot.statusText) {
+    parts.push(`Status text: ${snapshot.statusText}`);
+  }
+
+  parts.push(`E2E hooks present: ${snapshot.hasE2ETestHooks ? 'yes' : 'no'}.`);
+
+  if (snapshot.dbPath) {
+    parts.push(`DB path: ${snapshot.dbPath}.`);
+  }
+
+  return parts.join(' ');
 }
 
 export async function waitForDatabaseReady(page: Page, timeout = 10_000): Promise<void> {
@@ -130,27 +189,24 @@ export async function waitForDatabaseReady(page: Page, timeout = 10_000): Promis
     await connectedHandle.dispose();
     return;
   } catch (error) {
-    const status = await page
-      .evaluate((): DatabaseReadyState => {
-        if (document.querySelector('[data-testid="status-bar-db-connected"]')) {
-          return 'connected';
-        }
-        if (document.querySelector('[data-testid="status-bar-db-disconnected"]')) {
-          return 'disconnected';
-        }
-        return null;
+    const snapshot = await readDatabaseReadinessSnapshot(page).catch(
+      (): DatabaseReadinessSnapshot => ({
+        dbPath: null,
+        hasE2ETestHooks: false,
+        state: 'missing',
+        statusText: null,
       })
-      .catch((): DatabaseReadyState => null);
+    );
 
-    if (status === 'connected') {
+    if (snapshot.state === 'connected') {
       return;
     }
 
-    const suffix =
-      status === 'disconnected'
-        ? ' Last observed state was disconnected.'
-        : ` Last wait error: ${resolveErrorMessage(error)}`;
-    throw new Error(`Database failed to initialize before the app became test-ready.${suffix}`);
+    throw new Error(
+      `Database failed to initialize before the app became test-ready. ${formatDatabaseReadinessSnapshot(
+        snapshot
+      )} Last wait error: ${resolveErrorMessage(error)}`
+    );
   }
 }
 

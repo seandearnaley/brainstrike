@@ -289,14 +289,17 @@ export async function setupAssistantMock(
   await page.evaluate(installAssistantMockInPage, installPayload);
 
   await page.evaluate(() => {
-    const hooks = (
-      window as Window & {
-        __brainstrikeTestHooks__?: {
-          notifySecretsChanged: () => void;
-          setAssistantModel: (compositeKey: string) => void;
-        };
-      }
-    ).__brainstrikeTestHooks__;
+    const testWindow = window as Window & {
+      __brainstrikeAssistantRuntimeTestHooks__?: {
+        setCurrentThreadModel: (compositeKey: string) => void;
+      };
+      __brainstrikeTestHooks__?: {
+        notifySecretsChanged: () => void;
+        setAssistantModel: (compositeKey: string) => void;
+      };
+    };
+    const hooks = testWindow.__brainstrikeTestHooks__;
+    const runtimeHooks = testWindow.__brainstrikeAssistantRuntimeTestHooks__;
 
     if (!hooks) {
       throw new Error('Brainstrike desktop test hooks are unavailable.');
@@ -304,5 +307,6 @@ export async function setupAssistantMock(
 
     hooks.notifySecretsChanged();
     hooks.setAssistantModel('openai::gpt-5.2');
+    runtimeHooks?.setCurrentThreadModel('openai::gpt-5.2');
   });
 }

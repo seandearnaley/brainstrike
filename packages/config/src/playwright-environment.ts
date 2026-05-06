@@ -14,6 +14,51 @@ export interface EnvironmentConfig {
   workers: number;
 }
 
+export interface PlaywrightCliOverrides {
+  readonly globalTimeout?: string;
+  readonly grep?: string;
+  readonly grepInvert?: string;
+  readonly maxFailures?: string;
+  readonly project?: string;
+  readonly retries?: string;
+  readonly shard?: string;
+  readonly workers?: string;
+}
+
+type PlaywrightCliOverrideKey = keyof PlaywrightCliOverrides;
+type MutablePlaywrightCliOverrides = {
+  -readonly [Key in PlaywrightCliOverrideKey]?: string;
+};
+
+const PLAYWRIGHT_CLI_OVERRIDE_FLAG_ENTRIES = [
+  ['--project', 'project'],
+  ['--workers', 'workers'],
+  ['--retries', 'retries'],
+  ['--max-failures', 'maxFailures'],
+  ['--global-timeout', 'globalTimeout'],
+  ['--shard', 'shard'],
+  ['--grep', 'grep'],
+  ['--grep-invert', 'grepInvert'],
+] as const satisfies readonly (readonly [string, PlaywrightCliOverrideKey])[];
+
+const buildPlaywrightCliOverrideFlags = (
+  entries: typeof PLAYWRIGHT_CLI_OVERRIDE_FLAG_ENTRIES
+): Readonly<Record<string, PlaywrightCliOverrideKey>> => {
+  const flags: Record<string, PlaywrightCliOverrideKey> = {};
+
+  for (const [flag, key] of entries) {
+    flags[flag] = key;
+  }
+
+  return flags;
+};
+
+const PLAYWRIGHT_CLI_OVERRIDE_FLAGS = buildPlaywrightCliOverrideFlags(
+  PLAYWRIGHT_CLI_OVERRIDE_FLAG_ENTRIES
+);
+const PLAYWRIGHT_CLI_OVERRIDE_LOG_ORDER: readonly PlaywrightCliOverrideKey[] =
+  PLAYWRIGHT_CLI_OVERRIDE_FLAG_ENTRIES.map(([, key]) => key);
+
 /**
  * Node warns when both FORCE_COLOR and NO_COLOR are set.
  * Playwright child processes inherit our environment, so normalize it once up front.
@@ -58,21 +103,12 @@ export const getWorkerCount = (env?: ReturnType<typeof detectEnvironment>) => {
 };
 
 /**
- * Get global timeout based on environment constraints
- * @param environmentType - Optional override for specific environment type
+ * Keep Playwright's suite-level global timeout disabled. CI jobs already have
+ * explicit step timeouts, and a hidden Playwright global timer can kill a
+ * sharded desktop suite mid-file after many passing tests.
  */
 export const getGlobalTimeout = (env?: ReturnType<typeof detectEnvironment>) => {
-  const { isCodex, isCI } = env || detectEnvironment();
-
-  // 10 minutes for Codex (under 15-minute hard limit with buffer)
-  if (isCodex) {
-    return 10 * 60 * 1000;
-  }
-  // 15 minutes for other CI environments
-  if (isCI) {
-    return 15 * 60 * 1000;
-  }
-  // No global timeout for local development
+  void (env || detectEnvironment());
   return 0;
 };
 
@@ -143,23 +179,98 @@ export const getEnvironmentConfig = (): EnvironmentConfig => {
   };
 };
 
+const readPlaywrightCliFlagValue = (
+  argv: readonly string[],
+  index: number,
+  inlineValue: string | undefined
+): { consumedNextArg: boolean; value: string | null } => {
+  if (typeof inlineValue === 'string') {
+    return { consumedNextArg: false, value: inlineValue };
+  }
+
+  const nextArg = argv[index + 1];
+  if (typeof nextArg !== 'string' || nextArg.startsWith('--')) {
+    return { consumedNextArg: false, value: null };
+  }
+
+  return { consumedNextArg: true, value: nextArg };
+};
+
+/**
+ * Playwright applies CLI overrides after loading the config file. Parse the
+ * important overrides so CI logs do not make fail-fast jobs look like they are
+ * using the base retry/timeout settings.
+ */
+export const parsePlaywrightCliOverrides = (
+  argv: readonly string[] = process.argv.slice(2)
+): PlaywrightCliOverrides => {
+  const overrides: MutablePlaywrightCliOverrides = {};
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (typeof arg !== 'string' || !arg.startsWith('--')) {
+      continue;
+    }
+
+    const equalsIndex = arg.indexOf('=');
+    const flag = equalsIndex >= 0 ? arg.slice(0, equalsIndex) : arg;
+    const key = PLAYWRIGHT_CLI_OVERRIDE_FLAGS[flag];
+    if (!key) {
+      continue;
+    }
+
+    const inlineValue = equalsIndex >= 0 ? arg.slice(equalsIndex + 1) : undefined;
+    const { consumedNextArg, value } = readPlaywrightCliFlagValue(argv, index, inlineValue);
+    if (value === null) {
+      continue;
+    }
+
+    overrides[key] = value;
+    if (consumedNextArg) {
+      index += 1;
+    }
+  }
+
+  return overrides;
+};
+
+export const formatPlaywrightCliOverrides = (overrides: PlaywrightCliOverrides): string => {
+  const parts = PLAYWRIGHT_CLI_OVERRIDE_LOG_ORDER.flatMap((key) => {
+    const value = overrides[key];
+    return typeof value === 'string' ? [`${key}=${value}`] : [];
+  });
+
+  return parts.length > 0 ? parts.join(',') : 'none';
+};
+
+const hasPlaywrightCliOverrides = (overrides: PlaywrightCliOverrides): boolean =>
+  PLAYWRIGHT_CLI_OVERRIDE_LOG_ORDER.some((key) => typeof overrides[key] === 'string');
+
 /**
  * Log environment configuration for debugging
  */
 export const logEnvironmentConfig = (
   appName: string,
   config: EnvironmentConfig,
-  baseURL?: string
+  baseURL?: string,
+  argv?: readonly string[]
 ) => {
+  const cliOverrides = parsePlaywrightCliOverrides(argv);
+  const effectiveConfig = hasPlaywrightCliOverrides(cliOverrides)
+    ? 'base-plus-playwright-cli-overrides'
+    : 'base-config';
   const details = [
+    'source=base-config',
     `isCodex=${String(config.isCodex)}`,
     `isGitHubActions=${String(config.isGitHubActions)}`,
     `isCI=${String(config.isCI)}`,
-    `workers=${String(config.workers)}`,
-    `globalTimeout=${String(config.globalTimeout)}`,
-    `retries=${String(config.retries)}`,
+    `baseWorkers=${String(config.workers)}`,
+    `baseGlobalTimeout=${String(config.globalTimeout)}`,
+    `baseRetries=${String(config.retries)}`,
     `headless=${String(config.headless)}`,
     `fullyParallel=${String(config.fullyParallel)}`,
+    `cliOverrides=${formatPlaywrightCliOverrides(cliOverrides)}`,
+    `effectiveConfig=${effectiveConfig}`,
   ];
   const basePart = baseURL ? ` baseURL=${baseURL}` : '';
   process.stdout.write(`[playwright:${appName}] ${details.join(' ')}${basePart}\n`);

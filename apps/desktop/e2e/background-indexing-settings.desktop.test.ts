@@ -1,9 +1,8 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { ElectronApplication, Page } from 'playwright';
+import type { Page } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 const BACKGROUND_INDEXING_PREFERENCES_KEY = 'background-indexing-preferences.v1' as const;
 
@@ -15,21 +14,15 @@ interface PersistedBackgroundIndexingPreferences {
 }
 
 interface ElectronHarnessLike {
-  ensureContext: () => Promise<{
-    app: ElectronApplication;
-    window: Page;
-  }>;
+  getUserDataDir: () => string;
 }
 
 async function seedBackgroundIndexingPreferences(args: {
   electronHarness: ElectronHarnessLike;
   preferences: PersistedBackgroundIndexingPreferences;
 }): Promise<void> {
-  const currentContext = await args.electronHarness.ensureContext();
-  const userDataDir = await currentContext.app.evaluate(async ({ app }) => app.getPath('userData'));
-  const { closeElectronApp } = await loadElectronHelpers();
-
-  await closeElectronApp(currentContext);
+  const userDataDir = args.electronHarness.getUserDataDir();
+  await mkdir(userDataDir, { recursive: true });
 
   const storagePath = path.join(userDataDir, 'electron-storage.json');
   let existingStorage: Record<string, string> = {};

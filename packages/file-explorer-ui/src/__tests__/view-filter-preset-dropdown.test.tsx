@@ -114,6 +114,20 @@ describe('ViewFilterPresetDropdown', () => {
     expect(mockOnSelect).toHaveBeenCalledWith(mockPresets[0] || null);
   });
 
+  it('selects the single filtered preset with Enter', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ViewFilterPresetDropdown {...defaultProps} />);
+
+    await user.click(screen.getByRole('button'));
+    await user.type(screen.getByRole('textbox', { name: /filter presets/i }), 'Documentation');
+    await user.keyboard('{Enter}');
+
+    expect(mockOnSelect).toHaveBeenCalledWith(mockPresets[1] || null);
+    await waitFor(() => {
+      expect(screen.queryByRole('textbox', { name: /filter presets/i })).not.toBeInTheDocument();
+    });
+  });
+
   it('shows check mark for selected preset', async () => {
     renderWithProviders(
       <ViewFilterPresetDropdown {...defaultProps} selectedPreset={mockPresets[0] || null} />

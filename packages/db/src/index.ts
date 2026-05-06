@@ -13,6 +13,8 @@ export {
 export * from './architecture/brainstrike-db-client-contract.js';
 export * from './architecture/db-migration-authority.js';
 export * from './architecture/db-runtime-baseline.js';
+export * from './browser-pglite-storage.js';
+export * from './browser-pglite-storage-benchmark.js';
 // Configuration
 export { CHUNKING_CONFIG } from './config/chunking-config.js';
 export * from './database-pressure-controller.js';

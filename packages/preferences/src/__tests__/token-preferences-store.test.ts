@@ -40,6 +40,20 @@ describe('token-preferences-store', () => {
     expect(tokenPreferencesSelectors.accurateCounting(next)).toBe(false);
   });
 
+  it('does not persist the default accurate counting state', () => {
+    const persistApi = storeWithPersist.persist;
+    const options = persistApi?.getOptions?.();
+    if (!(persistApi && options?.storage && options.name)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    useTokenPreferencesStore.getState().setAccurateCounting(false);
+    expect(options.storage.getItem(options.name)).not.toBeNull();
+
+    useTokenPreferencesStore.getState().setAccurateCounting(true);
+    expect(options.storage.getItem(options.name)).toBeNull();
+  });
+
   it('persists state even when localStorage is unavailable', () => {
     const persistApi = storeWithPersist.persist;
     expect(persistApi).toBeDefined();
