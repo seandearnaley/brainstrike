@@ -820,10 +820,12 @@ jobs:
           fi
           echo "Xvfb running with PID $XVFB_PID on display ${DISPLAY}"
 
-          # Run regression tests with explicit DISPLAY
+          # Run regression tests with explicit DISPLAY. Keep one worker per shard so a
+          # required desktop lane never runs multiple Electron apps and DB hosts in the
+          # same Xvfb/container.
           echo "Starting Playwright regression tests..."
           unset NO_COLOR
-          pnpm exec playwright test --project=regression --workers=2 --retries=0 --max-failures=1 --global-timeout=720000 --grep-invert "@desktop-embedding-" --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          pnpm exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=720000 --grep-invert "@desktop-embedding-" --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
           TEST_EXIT_CODE=$?
 
           # Cleanup
@@ -1020,10 +1022,11 @@ jobs:
           fi
           echo "Xvfb running with PID $XVFB_PID on display ${DISPLAY}"
 
-          # Run regression tests (non-smoke) with explicit DISPLAY
+          # Run regression tests (non-smoke) with explicit DISPLAY. Keep one worker per
+          # shard so post-merge validation uses the same Electron/DB-host isolation as PRs.
           echo "Starting Playwright regression tests..."
           unset NO_COLOR
-          pnpm exec playwright test --project=regression --workers=2 --retries=0 --max-failures=1 --global-timeout=720000 --grep-invert "@desktop-embedding-" --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          pnpm exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=720000 --grep-invert "@desktop-embedding-" --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
           TEST_EXIT_CODE=$?
 
           # Cleanup

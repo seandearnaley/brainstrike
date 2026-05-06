@@ -952,3 +952,584 @@ Result:
 Learning:
 
 - The markdown log update did not introduce formatting or contract drift.
+
+## Current-Head PR Monitoring Failure: PR #956 Desktop Shard 2
+
+Time: 2026-05-06 07:25 EDT
+
+Context:
+
+- PR #957 (`Fix report merge for root blob artifacts`) was merged to `main` at `883641ec1b17d117bb156758e169cf48a08b2bff`.
+- All open PR branches were updated to current `main`; PR #904 and PR #902 needed manual conflict resolution in `.jules/palette.md`.
+- Foreground monitoring stopped on the first updated-head failure:
+  - PR: #956
+  - Head: `2bbce629cba31e76934f4440c02e5a169277e475`
+  - Run: `25430956454`
+  - Job: `Desktop E2E Regression (2, 4)`, job `74598874851`
+
+Failure evidence:
+
+```text
+Failed test:
+apps/desktop/e2e/file-explorer-selection.desktop.test.ts:1743
+Desktop file explorer selection › promotes explicit mixed file-and-folder parents to checked as files are selected one by one
+
+TimeoutError: locator.click: Timeout 5000ms exceeded
+Locator:
+getByRole('treegrid', { name: 'File tree' }).getByRole('checkbox', { name: 'Select tsconfig.json' })
+
+Call log:
+- locator resolved to visible enabled checkbox
+- attempting click action
+- waiting for element to be visible, enabled and stable
+- element is visible, enabled and stable
+- scrolling into view if needed
+- done scrolling
+- performing click action
+```
+
+Related log evidence:
+
+```text
+[PerfTiming] Operation "recursive-selection:/mock/desktop-selection-root-e2e/e2e/page-objects" exceeded budget
+[PerfTiming] Operation "recursive-selection-query" exceeded budget
+[DesktopRootLayoutContent] Desktop visible renderer frame health degraded
+Timed out waiting for graceful shutdown; forcing exit
+Error occurred in handler for 'db:live-query:start': Error: DB host exited with code 0.
+```
+
+Current hypothesis:
+
+- This is not the report-merge bug; report artifact bundling happened successfully.
+- This is also not only the earlier "app never became ready" hypothesis. The specific failed checkbox was visible, enabled, and stable. The renderer appears to become intermittently unresponsive during or immediately after recursive file selection, so Playwright times out while dispatching a click.
+- The test helper currently gives the click only 5 seconds even though the same log shows recursive-selection work exceeding budget and renderer frame-health degradation.
+
+Ten concrete possibilities before patching:
+
+1. The `clickFileTreeCheckboxAndWaitForSelection` helper has an unrealistically short 5 second click timeout for desktop CI under recursive-selection load.
+2. The file-tree selection flow blocks the renderer main thread long enough that Playwright can resolve a checkbox but cannot complete input dispatch before its click timeout.
+3. The helper clicks too soon after the previous selection; the DOM is stable enough for Playwright's actionability check but the app is still processing the prior recursive selection.
+4. The test needs a selection-idle/app-responsive gate between sequential file-selection clicks, not just `data-state` and count assertions after each click.
+5. Recursive selection recomputes too much synchronously when selecting mixed file-and-folder parents, especially with expanded folders and a low selection limit.
+6. The `selection-count` assertion can pass before all derived tree checkbox state/materialization work is complete, allowing the next click to race background UI updates.
+7. The desktop frame-health degradation log should be treated as a readiness failure for the next interaction; the harness currently observes it but does not wait for recovery before continuing.
+8. DB live-query startup/shutdown noise from concurrently running desktop tests can worsen renderer responsiveness even when the failing assertion is a file-tree click.
+9. The checkbox element itself may be re-rendered or replaced during the click dispatch window, making Playwright hang at "performing click action" even though it was actionably resolved.
+10. The test may be too broad for a two-worker desktop shard; however limiting the whole shard to one worker would mask the root responsiveness/settle contract unless proven necessary.
+
+Next action:
+
+- Inspect the file selection test helper and shared E2E readiness utilities.
+- Prefer a central interaction/readiness helper that waits for selection settling and renderer responsiveness before the next desktop click.
+- Do not rerun the failed GitHub job until there is a code change and local targeted validation.
+
+## Patch Attempt: File Explorer Selection Interaction Settle Contract
+
+Time: 2026-05-06 07:31 EDT
+
+Files changed:
+
+- `apps/desktop/e2e/file-explorer-selection.desktop.test.ts`
+- `ci-e2e-readiness-debug-log-2026-05-05.md`
+
+Change:
+
+- Added `waitForFileExplorerSelectionIdle()` backed by `window.__brainstrikeFileExplorerTestHooks__`.
+- The helper waits for a stable file-explorer test snapshot, including selected-file count, materialized path count, and tree root count.
+- Added a renderer responsiveness probe that waits for two `requestAnimationFrame` ticks after the stable snapshot.
+- Updated `clickFileTreeCheckboxAndWaitForSelection()` to:
+  - wait for the previous selected count to settle before clicking;
+  - use a 15 second click timeout for desktop CI interaction dispatch;
+  - wait for checkbox state, visible selection-count text, and hook-backed selection idle after the click.
+- Updated local expand/settings clicks in this file from 5 seconds to 15 seconds because the same failure class is interaction dispatch under renderer load, not missing locators.
+
+Targeted validation:
+
+```text
+pnpm --filter @brainstrike/desktop type-check:e2e
+```
+
+Result:
+
+- Passed.
+
+```text
+CI=true GITHUB_ACTIONS=true pnpm --filter @brainstrike/desktop exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 e2e/file-explorer-selection.desktop.test.ts -g "promotes explicit mixed file-and-folder parents to checked as files are selected one by one"
+```
+
+Result:
+
+- Passed: 1 passed.
+
+```text
+CI=true GITHUB_ACTIONS=true pnpm --filter @brainstrike/desktop exec playwright test --project=regression --workers=2 --retries=0 --max-failures=1 e2e/file-explorer-selection.desktop.test.ts
+```
+
+Result:
+
+- Passed: 20 passed.
+
+Learning:
+
+- The exact failed test was healthy locally after the interaction-settle change.
+- The whole selection spec also passed locally in CI mode.
+- This is still not GitHub proof. The next proof point must be a pushed PR run on Linux with the updated desktop shard.
+
+Next action:
+
+- Run the full root gate, commit, push, and open a focused PR.
+
+## PR #958 Review Fix: Make The Settle Contract Explicit
+
+Time: 2026-05-06 07:41 EDT
+
+Context:
+
+- PR #958 was opened from commit `d9f7d1a4354fecbffc2db4eb5b79ea634121b802`.
+- Claude review found three issues:
+  - missing hook registration would silently spin until timeout;
+  - sequential waits could stack into a long per-click failure time;
+  - settle thresholds were magic numbers.
+- The old-head Test run `25432831767` was cancelled before pushing another commit because the next push will supersede that run.
+
+Change:
+
+- `readFileExplorerSnapshot()` now fails immediately with `Missing required file explorer E2E test hooks` if the hook is not registered.
+- Timing values are now named constants.
+- `clickFileTreeCheckboxAndWaitForSelection()` now uses one 45 second wall-clock interaction budget instead of letting every assertion stack its own independent timeout.
+- The settle rationale is documented next to the stable-sample check.
+
+Learning:
+
+- The review surfaced a real contract issue: readiness helpers must fail explicitly when their diagnostic/test hook is unavailable.
+- Bounding each checkbox interaction preserves the longer click dispatch budget needed for desktop CI while preventing broken tests from expanding into multi-minute timeout chains.
+
+Next action:
+
+- Re-run targeted E2E validation and the full root gate before pushing the review fix.
+
+Validation after review fix:
+
+```text
+pnpm --filter @brainstrike/desktop type-check:e2e
+```
+
+Result:
+
+- Passed.
+
+```text
+CI=true GITHUB_ACTIONS=true pnpm --filter @brainstrike/desktop exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 e2e/file-explorer-selection.desktop.test.ts -g "promotes explicit mixed file-and-folder parents to checked as files are selected one by one"
+```
+
+Result:
+
+- Passed: 1 passed.
+
+```text
+CI=true GITHUB_ACTIONS=true pnpm --filter @brainstrike/desktop exec playwright test --project=regression --workers=2 --retries=0 --max-failures=1 e2e/file-explorer-selection.desktop.test.ts
+```
+
+Result:
+
+- Passed: 20 passed.
+
+```text
+pnpm lint && pnpm type-check && pnpm build && pnpm test
+```
+
+Result:
+
+- Passed.
+
+Learning:
+
+- The explicit hook failure, named timing constants, and per-click wall-clock budget did not break the desktop E2E type-check, the targeted regression, the whole file selection spec, or the full root gate.
+
+Next action:
+
+- Push the new PR #958 head and resolve the review threads only after the pushed commit contains the fixes.
+
+## PR #958 Second Review Cleanup
+
+Time: 2026-05-06 07:47 EDT
+
+Context:
+
+- PR #958 commit `d27b638ac93334dc672dc74d2a99b379a6b60453` got a second review pass.
+- Two code comments were cheap and valid:
+  - remaining interaction time could be a tiny positive number passed into a Playwright timeout;
+  - the snapshot signature used `JSON.stringify()` where an explicit signature is clearer.
+- One comment asked whether this debug log should be split later. That is not being changed in this PR because the current user instruction is to keep a Markdown log of every attempt and learning during this incident.
+- The old-head Test run `25433173008` was cancelled before pushing another commit because it was superseded by this review cleanup.
+
+Change:
+
+- Added `MIN_PLAYWRIGHT_STEP_TIMEOUT_MS`.
+- `getRemainingInteractionTimeout()` now fails before a step when less than 1 second remains, with the remaining time in the error.
+- Replaced the JSON signature with an explicit `materializedPathCount:selectedFilePathCount:treeRootCount` signature.
+
+Learning:
+
+- The wall-clock budget needs a minimum useful step threshold; otherwise the next failure can look like a Playwright flake instead of a deliberately exhausted interaction budget.
+
+Next action:
+
+- Re-run targeted E2E validation and the full root gate before pushing the new head.
+
+## PR #958 Sixth Failure Reconsideration
+
+Time: 2026-05-06 08:33 EDT
+
+Context:
+
+- Latest PR #958 head `a9755ae8fc3505191867f987e726f5033bdefd27` failed on Test workflow run `25434653073`.
+- Failing job was `Desktop E2E Regression (2, 4)`, job `74610759846`.
+- I stopped the watcher and cancelled the still-running workflow after the latest-head failure instead of rerunning.
+- The previous hypothesis that the selection helper needed a stronger post-click idle/readiness contract was incomplete. It changed the original failure shape but did not make the CI shard stable.
+
+Evidence:
+
+- The failing spec was `apps/desktop/e2e/file-explorer-selection.desktop.test.ts`, test `promotes explicit mixed file-and-folder parents to checked as files are selected one by one`.
+- The failure was `Test timeout of 45000ms exceeded`, followed by `page.evaluate: Target page, context or browser has been closed` from `waitForRendererFrames()`.
+- The report timing shows teardown closed the page at the test timeout while the helper was trying to settle after selecting `index.ts`. The target-closed message is therefore a teardown symptom, not proof that Electron crashed first.
+- The desktop regression command was `--workers=2 --retries=0 --max-failures=1 --global-timeout=720000 --grep-invert "@desktop-embedding-" --shard=2/4`.
+- The job log showed two DB host processes started at nearly the same time in the same shard, plus repeated `Desktop visible renderer frame health degraded` messages.
+- Local targeted runs passed, but the local file-only command is not equivalent to CI shard composition because a single spec file ran with one worker even when invoked with `--workers=2`.
+
+Ten possibilities considered before the next fix:
+
+1. The spec-level `45_000` timeout is lower than the test's own five-step selection-helper budget.
+2. `waitForRendererFrames()` is throttled under CI/Xvfb/worker contention and can take about 1.8 seconds for two frames instead of a normal foreground-frame duration.
+3. `--workers=2` runs multiple Electron apps and DB host processes concurrently inside one shard container/display, causing renderer starvation.
+4. Recursive file-tree selection still blocks the renderer; the new waits expose that cost instead of fixing the underlying work scheduling.
+5. The file-explorer snapshot signature can look stable while React, layout, or the renderer event loop still has pending work.
+6. The setup and expand clicks before the helper are not covered by the same idle/readiness helper and consume a large fraction of the test budget.
+7. `--max-failures=1` and Playwright teardown make `Target page closed` misleading when a timeout is the primary failure.
+8. Earlier tests in shard 2 can leave the runner/container under load even when each test cleans up its own Electron app.
+9. DB maintenance or background indexing can wake during long desktop tests and compete with renderer work.
+10. The CI worker composition differs from local isolated proof, so local passes are evidence that the spec is logically correct but not proof that the shard harness is stable.
+
+Decision:
+
+- Act first on the two proven contract mismatches:
+  - Desktop regression CI must not run two Electron/DB-host apps concurrently inside one required shard.
+  - The multi-step file-tree promotion spec must have a test timeout aligned with its bounded five-interaction helper contract.
+- Change PR and main desktop regression jobs to `--workers=1`, then update the workflow contract checker and tests so future edits cannot silently restore `--workers=2`.
+- Add a named `90_000` timeout only for the five-click promotion spec. This is not a blind timeout bump; it prevents Playwright teardown from killing the helper mid-diagnostic while preserving fail-fast per-interaction deadlines and the 12-minute shard global timeout.
+
+Next action:
+
+- Patch workflow, contract tests, and the specific spec timeout; then validate with the script contract tests, desktop E2E type check, targeted failing spec, local shard 2/4 with one worker, and the full root gate before pushing.
+
+Validation after sixth failure fix:
+
+```text
+pnpm test:scripts
+```
+
+Result:
+
+- Passed: 95/95 script tests.
+
+```text
+pnpm --filter @brainstrike/desktop type-check:e2e
+```
+
+Result:
+
+- Passed.
+
+```text
+CI=true GITHUB_ACTIONS=true pnpm --filter @brainstrike/desktop exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 e2e/file-explorer-selection.desktop.test.ts -g "promotes explicit mixed file-and-folder parents to checked as files are selected one by one"
+```
+
+Result:
+
+- Passed: 1/1.
+
+```text
+CI=true GITHUB_ACTIONS=true pnpm --filter @brainstrike/desktop exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 --grep-invert "@desktop-embedding-" --shard=2/4
+```
+
+Result:
+
+- Passed: 23/23.
+
+Learning:
+
+- The local shard analogue now runs serially through the file-explorer section and the failed five-click promotion test without timing out.
+- The local shard still emits background-token-indexer dispatch failures, but those did not prevent the serial desktop shard from completing. That keeps the current fix focused on runner contention and the invalid timeout contract, not the final assertion.
+
+```text
+pnpm lint && pnpm type-check && pnpm build && pnpm test
+```
+
+Result:
+
+- Passed.
+
+Learning:
+
+- The worker-isolation workflow contract, contract tests, specific desktop timeout update, and debugging log all pass the repo root gate together.
+
+Next action:
+
+- Amend and push PR #958, then monitor the latest head and review surface.
+
+## PR #958 Fifth Review Cleanup
+
+Time: 2026-05-06 08:14 EDT
+
+Context:
+
+- PR #958 commit `11d66fc13ef195376129f8d659461457968bd5c2` got a fifth review pass while the latest-head Test run `25434268047` was still in progress.
+- One comment was non-blocking but valid under the harness strictness rule: `clickFileTreeCheckboxAndWaitForSelection()` implicitly assumed `expectedSelectedCount >= 1`.
+- The current call sites satisfy the assumption, but a future misuse would pass `expectedSelectedCount - 1` as `-1` to the pre-click idle wait and could spin until the interaction deadline.
+
+Change:
+
+- Added a fail-fast guard to `clickFileTreeCheckboxAndWaitForSelection()`:
+  - reject `expectedSelectedCount < 1`;
+  - include the received value in the error.
+
+Validation:
+
+```text
+pnpm --filter @brainstrike/desktop type-check:e2e
+```
+
+Result:
+
+- Passed.
+
+```text
+CI=true GITHUB_ACTIONS=true pnpm --filter @brainstrike/desktop exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 e2e/file-explorer-selection.desktop.test.ts -g "promotes explicit mixed file-and-folder parents to checked as files are selected one by one"
+```
+
+Result:
+
+- Passed: 1 passed.
+
+```text
+CI=true GITHUB_ACTIONS=true pnpm --filter @brainstrike/desktop exec playwright test --project=regression --workers=2 --retries=0 --max-failures=1 e2e/file-explorer-selection.desktop.test.ts
+```
+
+Result:
+
+- Passed: 20 passed.
+
+Learning:
+
+- The helper contract should be enforced at the boundary, not left as a comment. The explicit guard keeps future test changes from converting a bad call into another long CI wait.
+
+Next action:
+
+- Run the full root gate on the final tree before pushing the new PR #958 head.
+
+```text
+pnpm lint && pnpm type-check && pnpm build && pnpm test
+```
+
+Result:
+
+- Passed.
+
+Learning:
+
+- The explicit `expectedSelectedCount >= 1` guard does not break the full local gate.
+
+Next action:
+
+- Amend and push the new PR #958 head, cancel superseded old-head CI, reply to the review thread, and monitor the new head.
+
+Validation after fourth review cleanup:
+
+```text
+pnpm --filter @brainstrike/desktop type-check:e2e
+```
+
+Result:
+
+- Passed.
+
+```text
+CI=true GITHUB_ACTIONS=true pnpm --filter @brainstrike/desktop exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 e2e/file-explorer-selection.desktop.test.ts -g "promotes explicit mixed file-and-folder parents to checked as files are selected one by one"
+```
+
+Result:
+
+- Passed: 1 passed.
+
+```text
+CI=true GITHUB_ACTIONS=true pnpm --filter @brainstrike/desktop exec playwright test --project=regression --workers=2 --retries=0 --max-failures=1 e2e/file-explorer-selection.desktop.test.ts
+```
+
+Result:
+
+- Passed: 20 passed.
+
+Learning:
+
+- Binding the RAF probe to the caller's remaining deadline did not break targeted desktop E2E coverage.
+
+Next action:
+
+- Run the full root gate on the final tree before pushing the new PR #958 head.
+
+```text
+pnpm lint && pnpm type-check && pnpm build && pnpm test
+```
+
+Result:
+
+- Passed.
+
+Learning:
+
+- The fourth cleanup passed the full root gate as well as the targeted desktop E2E checks.
+
+Next action:
+
+- Push the new PR #958 head and resolve/reply to the fourth review threads only after the pushed commit contains the fixes.
+
+Validation after third review cleanup:
+
+```text
+pnpm --filter @brainstrike/desktop type-check:e2e
+```
+
+Result:
+
+- Passed.
+
+```text
+CI=true GITHUB_ACTIONS=true pnpm --filter @brainstrike/desktop exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 e2e/file-explorer-selection.desktop.test.ts -g "promotes explicit mixed file-and-folder parents to checked as files are selected one by one"
+```
+
+Result:
+
+- Passed: 1 passed.
+
+```text
+CI=true GITHUB_ACTIONS=true pnpm --filter @brainstrike/desktop exec playwright test --project=regression --workers=2 --retries=0 --max-failures=1 e2e/file-explorer-selection.desktop.test.ts
+```
+
+Result:
+
+- Passed: 20 passed.
+
+Learning:
+
+- Removing the RAF fallback did not break the targeted desktop E2E coverage.
+
+Next action:
+
+- Run the full root gate on the final tree before pushing the new PR #958 head.
+
+```text
+pnpm lint && pnpm type-check && pnpm build && pnpm test
+```
+
+Result:
+
+- Passed.
+
+Learning:
+
+- The third cleanup passed the full root gate as well as the targeted desktop E2E checks.
+
+Next action:
+
+- Push the new PR #958 head and resolve/reply to the third review threads only after the pushed commit contains the fixes.
+
+## PR #958 Fourth Review Cleanup
+
+Time: 2026-05-06 08:02 EDT
+
+Context:
+
+- PR #958 commit `33d420b08ff5ab558aded244d7ecf2666fea594b` got a fourth review pass.
+- One comment was valid: `waitForRendererFrames()` used a fixed 5 second timeout even when the caller's remaining settle/interaction budget was lower.
+- One comment was non-blocking praise for the wall-clock deadline/minimum-step guard.
+- The old-head Test run `25433812487` was cancelled before pushing another commit because it was superseded by this cleanup.
+
+Change:
+
+- `waitForRendererFrames()` now accepts a timeout.
+- `waitForFileExplorerSelectionIdle()` now caps the RAF wait to the lesser of:
+  - `RENDERER_FRAME_SETTLE_TIMEOUT_MS`;
+  - the remaining caller deadline.
+
+Learning:
+
+- Every sub-wait in the readiness helper must be budget-aware. A fixed nested timeout undermines the outer wall-clock contract even when the main interaction helper is bounded.
+
+Next action:
+
+- Re-run targeted E2E validation and the full root gate before pushing the new head.
+
+Validation after second review cleanup:
+
+```text
+pnpm --filter @brainstrike/desktop type-check:e2e
+```
+
+Result:
+
+- Passed.
+
+```text
+CI=true GITHUB_ACTIONS=true pnpm --filter @brainstrike/desktop exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 e2e/file-explorer-selection.desktop.test.ts -g "promotes explicit mixed file-and-folder parents to checked as files are selected one by one"
+```
+
+Result:
+
+- Passed: 1 passed.
+
+```text
+CI=true GITHUB_ACTIONS=true pnpm --filter @brainstrike/desktop exec playwright test --project=regression --workers=2 --retries=0 --max-failures=1 e2e/file-explorer-selection.desktop.test.ts
+```
+
+Result:
+
+- Passed: 20 passed.
+
+```text
+pnpm lint && pnpm type-check && pnpm build && pnpm test
+```
+
+Result:
+
+- Passed.
+
+Learning:
+
+- The minimum timeout guard and explicit snapshot signature did not break the targeted desktop E2E coverage or the full root gate.
+
+Next action:
+
+- Push the new PR #958 head and resolve/reply to the second review threads only after the pushed commit contains the fixes.
+
+## PR #958 Third Review Cleanup
+
+Time: 2026-05-06 07:54 EDT
+
+Context:
+
+- PR #958 commit `f434b49449d4bb84f7bee7b1729498a23e662359` got a third review pass.
+- One comment was valid under the project rule of no fallbacks/no silent degradation: `waitForRendererFrames()` silently resolved if `requestAnimationFrame` was missing.
+- Two comments were non-blocking: one acknowledged `page.waitForTimeout()` as appropriate for polling the app hook; one affirmed the previous-count settle pattern.
+- The old-head Test run `25433448303` was cancelled before pushing another commit because it was superseded by this cleanup.
+
+Change:
+
+- `waitForRendererFrames()` now rejects with `Missing required renderer requestAnimationFrame` if RAF is unavailable.
+
+Learning:
+
+- Even test-only readiness helpers should not silently pass when a required renderer primitive is absent. That would turn a broken harness into a misleading pass.
+
+Next action:
+
+- Re-run targeted E2E validation and the full root gate before pushing the new head.
