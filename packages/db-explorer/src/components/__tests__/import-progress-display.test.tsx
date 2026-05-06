@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ImportProgressDisplay } from '../import-progress-display';
 
@@ -6,8 +6,12 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
     ...actual,
-    Progress: ({ value, className }: { value?: number; className?: string }) => (
-      <div className={className} data-testid="progress-bar">
+    Progress: ({
+      value,
+      className,
+      ...rest
+    }: { value?: number; className?: string } & Record<string, unknown>) => (
+      <div className={className} data-testid="progress-bar" {...rest}>
         {Math.round(value ?? 0)}%
       </div>
     ),
@@ -201,5 +205,97 @@ describe('ImportProgressDisplay', () => {
     expect(screen.getByText(/Pending: 2 · Failed: 1/)).toBeInTheDocument();
     expect(screen.getByText(/Last: completed · text-embedding-3-small/)).toBeInTheDocument();
     expect(screen.getByText(/\(128ms\)/)).toBeInTheDocument();
+  });
+
+  it('exposes the error disclosure with aria-expanded + aria-controls', () => {
+    const mockProgress = {
+      phase: 'importing' as const,
+      total: 5,
+      completed: 5,
+      errors: [
+        { file: 'a.txt', error: 'boom' },
+        { file: 'b.txt', error: 'kaboom' },
+      ],
+    };
+
+    render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
+
+    const toggle = screen.getByRole('button', { name: /View 2 errors/i });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    const controlsId = toggle.getAttribute('aria-controls');
+    expect(controlsId).toBeTruthy();
+
+    // collapsed: container exists for aria-controls target, but list rows not rendered
+    const targetEl = controlsId
+      ? (toggle.ownerDocument.getElementById(controlsId) as HTMLElement | null)
+      : null;
+    expect(targetEl).not.toBeNull();
+    expect(targetEl).toHaveAttribute('hidden');
+    expect(screen.queryByText('a.txt')).not.toBeInTheDocument();
+
+    // expand
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(targetEl).not.toHaveAttribute('hidden');
+    expect(screen.getByText('a.txt')).toBeInTheDocument();
+    expect(screen.getByText('b.txt')).toBeInTheDocument();
+
+    // collapse again — target stays in DOM, list rows unmount
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('a.txt')).not.toBeInTheDocument();
+  });
+
+  it('labels the chunking and embedding progress bars and the import progress bar', () => {
+    const mockProgress = {
+      phase: 'embedding' as const,
+      total: 10,
+      completed: 4,
+      errors: [],
+      chunkingProgress: {
+        currentFile: 'x.ts',
+        filesProcessed: 2,
+        totalFiles: 5,
+        chunksCreated: 8,
+      },
+      embeddingProgress: {
+        currentChunk: 'c-1',
+        chunksProcessed: 3,
+        totalChunks: 6,
+        modelName: 'gemma',
+      },
+    };
+
+    render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
+
+    expect(screen.getByText('Chunking')).toBeInTheDocument();
+    expect(screen.getByText('Embedding')).toBeInTheDocument();
+    expect(screen.getByText('4 of 10 files')).toBeInTheDocument();
+    // Each Progress in this rendering should carry its own aria-label so screen
+    // readers can distinguish the three stages.
+    const labels = screen
+      .getAllByTestId('progress-bar')
+      .map((bar) => bar.getAttribute('aria-label'));
+    expect(labels).toEqual(
+      expect.arrayContaining(['Chunking progress', 'Embedding progress', 'Import progress'])
+    );
+  });
+
+  it('renders the spinner stage with aria-hidden when not complete', () => {
+    const mockProgress = {
+      phase: 'importing' as const,
+      total: 10,
+      completed: 1,
+      errors: [],
+    };
+
+    const { container } = render(
+      <ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />
+    );
+
+    // Spinner div sits next to the title "Import Progress"
+    const spinner = container.querySelector('div.animate-spin') as HTMLElement | null;
+    expect(spinner).not.toBeNull();
+    expect(spinner).toHaveAttribute('aria-hidden', 'true');
   });
 });

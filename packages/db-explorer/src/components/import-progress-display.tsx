@@ -1,6 +1,6 @@
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Progress } from '@brainstrike/ui';
 import { AlertTriangle, CheckCircle, ChevronDown, ChevronRight, X } from 'lucide-react';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { ImportProgressDisplayProps } from '../types';
 
 type ChunkingProgress = NonNullable<ImportProgressDisplayProps['progress']['chunkingProgress']>;
@@ -18,6 +18,7 @@ function ChunkingProgressCard({ progress }: { progress: ChunkingProgress }) {
       </div>
       <div className="mt-1 text-[11px] text-muted-foreground">{progress.currentFile}</div>
       <Progress
+        aria-label="Chunking progress"
         className="mt-2 h-1.5"
         value={(progress.filesProcessed / progress.totalFiles) * 100}
       />
@@ -44,6 +45,7 @@ function EmbeddingProgressCard({ progress }: { progress: EmbeddingProgress }) {
       </div>
       <div className="mt-1 text-[11px] text-muted-foreground">{progress.currentChunk}</div>
       <Progress
+        aria-label="Embedding progress"
         className="mt-2 h-1.5"
         value={(progress.chunksProcessed / progress.totalChunks) * 100}
       />
@@ -91,38 +93,44 @@ function ErrorList({
   showErrors: boolean;
   onToggle: () => void;
 }) {
+  const errorListId = useId();
+
   return (
     <div>
       <Button
+        aria-controls={errorListId}
+        aria-expanded={showErrors}
         className="h-auto w-full justify-start p-2"
         onClick={onToggle}
         size="sm"
         variant="ghost"
       >
         {showErrors ? (
-          <ChevronDown className="mr-2 h-3 w-3" />
+          <ChevronDown aria-hidden="true" className="mr-2 h-3 w-3" />
         ) : (
-          <ChevronRight className="mr-2 h-3 w-3" />
+          <ChevronRight aria-hidden="true" className="mr-2 h-3 w-3" />
         )}
-        <AlertTriangle className="mr-2 h-3 w-3 text-amber-600" />
+        <AlertTriangle aria-hidden="true" className="mr-2 h-3 w-3 text-amber-600" />
         <span className="text-xs">
           View {errors.length} error{errors.length === 1 ? '' : 's'}
         </span>
       </Button>
 
-      {showErrors && (
-        <div className="fade-in slide-in-from-top-2 mt-2 max-h-32 animate-in space-y-1 overflow-y-auto duration-200">
-          {errors.map((error) => (
-            <div
-              className="rounded border-destructive border-l-2 bg-destructive/10 p-2 text-xs"
-              key={`${error.file}-${error.error}`}
-            >
-              <div className="truncate font-medium">{error.file}</div>
-              <div className="mt-1 text-muted-foreground">{error.error}</div>
-            </div>
-          ))}
-        </div>
-      )}
+      <div hidden={!showErrors} id={errorListId}>
+        {showErrors ? (
+          <div className="fade-in slide-in-from-top-2 mt-2 max-h-32 animate-in space-y-1 overflow-y-auto duration-200">
+            {errors.map((error) => (
+              <div
+                className="rounded border-destructive border-l-2 bg-destructive/10 p-2 text-xs"
+                key={`${error.file}-${error.error}`}
+              >
+                <div className="truncate font-medium">{error.file}</div>
+                <div className="mt-1 text-muted-foreground">{error.error}</div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -145,9 +153,12 @@ export function ImportProgressDisplay({ progress, onClose }: ImportProgressDispl
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-sm">
             {isComplete ? (
-              <CheckCircle className="h-4 w-4 text-green-600" />
+              <CheckCircle aria-hidden="true" className="h-4 w-4 text-green-600" />
             ) : (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              <div
+                aria-hidden="true"
+                className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent"
+              />
             )}
             Import Progress
           </CardTitle>
@@ -160,7 +171,7 @@ export function ImportProgressDisplay({ progress, onClose }: ImportProgressDispl
               type="button"
               variant="ghost"
             >
-              <X className="h-3 w-3" />
+              <X aria-hidden="true" className="h-3 w-3" />
             </Button>
           )}
         </div>
@@ -173,7 +184,7 @@ export function ImportProgressDisplay({ progress, onClose }: ImportProgressDispl
             </span>
             <span>{percentage}%</span>
           </div>
-          <Progress className="h-2" value={percentage} />
+          <Progress aria-label="Import progress" className="h-2" value={percentage} />
           {current && <div className="truncate text-muted-foreground">Current: {current}</div>}
           <div className="flex flex-wrap gap-2">
             <Badge className="text-xs" variant="outline">

@@ -47,11 +47,14 @@ export function ImportProgressBar({
       {/* Status indicator */}
       <div className="flex items-center gap-2">
         {isComplete ? (
-          <CheckCircle className="h-4 w-4 text-emerald-500" />
+          <CheckCircle aria-hidden="true" className="h-4 w-4 text-emerald-500" />
         ) : isCancelling ? (
-          <div className="h-4 w-4 animate-pulse rounded-full bg-amber-500/50" />
+          <div aria-hidden="true" className="h-4 w-4 animate-pulse rounded-full bg-amber-500/50" />
         ) : (
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <div
+            aria-hidden="true"
+            className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent"
+          />
         )}
         <span className="whitespace-nowrap font-medium text-xs">
           {isComplete ? 'Complete' : isCancelling ? 'Cancelling...' : 'Importing'}
@@ -63,11 +66,15 @@ export function ImportProgressBar({
         {/* Files progress */}
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className="flex items-center gap-1.5 text-muted-foreground">
-            <FileText className="h-3.5 w-3.5" />
+            <FileText aria-hidden="true" className="h-3.5 w-3.5" />
             <span className="whitespace-nowrap font-medium text-[11px]">Files</span>
           </div>
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            <Progress className="h-1.5 flex-1" value={filePercentage} />
+            <Progress
+              aria-label="Files import progress"
+              className="h-1.5 flex-1"
+              value={filePercentage}
+            />
             <span className="whitespace-nowrap font-mono text-[11px] text-muted-foreground tabular-nums">
               {completed}/{total}
             </span>
@@ -77,11 +84,15 @@ export function ImportProgressBar({
         {/* Chunks progress */}
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className="flex items-center gap-1.5 text-muted-foreground">
-            <Layers className="h-3.5 w-3.5" />
+            <Layers aria-hidden="true" className="h-3.5 w-3.5" />
             <span className="whitespace-nowrap font-medium text-[11px]">Chunks</span>
           </div>
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            <Progress className="h-1.5 flex-1" value={chunkPercentage} />
+            <Progress
+              aria-label="Chunks import progress"
+              className="h-1.5 flex-1"
+              value={chunkPercentage}
+            />
             <span className="whitespace-nowrap font-mono text-[11px] text-muted-foreground tabular-nums">
               {chunkCompleted}/{chunkTotal}
             </span>
@@ -117,7 +128,7 @@ export function ImportProgressBar({
             size="sm"
             variant="ghost"
           >
-            <X className="h-3.5 w-3.5" />
+            <X aria-hidden="true" className="h-3.5 w-3.5" />
           </Button>
         )}
       </div>
