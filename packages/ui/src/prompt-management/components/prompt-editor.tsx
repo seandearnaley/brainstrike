@@ -1,5 +1,5 @@
 import { History, Plus, RotateCcw, Save, X } from 'lucide-react';
-import { useEffect, useReducer } from 'react';
+import { useEffect, useId, useReducer } from 'react';
 import { Badge } from '../../badge';
 import { Button } from '../../button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../../dialog';
@@ -87,6 +87,8 @@ export function PromptEditor({
 }: PromptEditorProps) {
   const [formState, dispatch] = useReducer(formReducer, getInitialState(prompt));
   const { title, content, categoryId, tags, tagInput, model, temperature } = formState;
+  const temperatureId = useId();
+  const tagInputId = useId();
 
   useEffect(() => {
     dispatch({ type: 'INIT', prompt });
@@ -210,11 +212,12 @@ export function PromptEditor({
 
             <div className="space-y-4">
               <div className="flex justify-between">
-                <Label>Temperature</Label>
+                <Label htmlFor={temperatureId}>Temperature</Label>
                 <span className="text-muted-foreground text-xs">{temperature}</span>
               </div>
               <input
                 className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-secondary accent-primary"
+                id={temperatureId}
                 max="2"
                 min="0"
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -234,7 +237,7 @@ export function PromptEditor({
             </div>
 
             <div className="space-y-2">
-              <Label>Tags</Label>
+              <Label htmlFor={tagInputId}>Tags</Label>
               <div className="mb-2 flex flex-wrap gap-2">
                 {tags.map((tag) => (
                   <Badge
@@ -258,6 +261,7 @@ export function PromptEditor({
               <div className="flex gap-2">
                 <Input
                   className="h-8 text-sm"
+                  id={tagInputId}
                   onChange={(e) =>
                     dispatch({ type: 'SET_FIELD', field: 'tagInput', value: e.target.value })
                   }
@@ -270,13 +274,14 @@ export function PromptEditor({
                   value={tagInput}
                 />
                 <Button
+                  aria-label="Add tag"
                   className="h-8 w-8 p-0"
                   onClick={addTag}
                   size="sm"
                   type="button"
                   variant="outline"
                 >
-                  <Plus className="h-4 w-4" />
+                  <Plus aria-hidden="true" className="h-4 w-4" />
                 </Button>
               </div>
             </div>
