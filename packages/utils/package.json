@@ -192,7 +192,7 @@
   },
   "scripts": {
     "bench": "vitest bench",
-    "build": "pnpm run clean && tsc -b . && tsup src/index.ts src/collator.ts src/tree-operations.ts src/perf-timing.ts src/crypto.ts src/token-counting-runtime.ts src/logger.ts src/logging-initializer.ts src/logging-preferences.ts src/log-buffer.ts src/hmr-utils.ts src/console-guard.ts src/bulk-operation-context.ts src/performance-measure-guard.ts src/install-renderer-error-hooks.ts src/safe-storage.ts src/color-utils.ts src/create-debounce.ts src/env-utils.ts src/error-utils.ts src/file-content.ts src/file-explorer-utils.ts src/file-utils.ts src/filter-utils.ts src/path-filter.ts src/path-utils.ts src/quick-filter-utils.ts src/relative-file-path.ts src/report-generator.ts src/selection-utils.ts src/tree-generator.ts --format esm,cjs --out-dir dist",
+    "build": "pnpm run clean && tsc -b . && tsup",
     "clean": "rimraf dist",
     "dev": "tsup --watch",
     "lint": "pnpm run --dir=../.. lint",

@@ -20,6 +20,7 @@ import {
 } from '@brainstrike/file-explorer';
 import { detectPlatform, type Platform } from '@brainstrike/platform-utils';
 import { createLogger } from '@brainstrike/utils/logger';
+import { extractPathSegments } from '@brainstrike/utils/path-utils';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAdapters } from './adapters-context';
@@ -199,7 +200,7 @@ function safeJoinPath(rootPath: string, relativePath: string): string | null {
   const joined = `${normalizedRoot}/${normalizedRelative}`;
 
   // Normalize: collapse multiple slashes and resolve . segments
-  const segments = joined.split('/').filter((s) => s !== '' && s !== '.');
+  const segments = extractPathSegments(joined).filter((s) => s !== '.');
 
   // Final validation: ensure no '..' segments remain (should have been caught by isPathSafe)
   if (segments.some((s) => s === '..')) {

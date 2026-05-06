@@ -1,3 +1,4 @@
+import { extractPathSegments } from './path-utils.js';
 export const WINDOWS_ABSOLUTE_PATH_REGEX = /^[a-zA-Z]:[\\/]/;
 const WINDOWS_DRIVE_PREFIX_REGEX = /^[a-zA-Z]:\//;
 const LAST_ASCII_CONTROL_CHARACTER_CODE = 0x1f;
@@ -102,7 +103,7 @@ export function normalizeFilePathForFolder(filePath: string, folderId: string): 
     return strippedAbsolutePrefix;
   }
 
-  const segments = normalizedForChecks.split('/').filter((segment) => segment.length > 0);
+  const segments = extractPathSegments(normalizedForChecks);
   const folderIndex = findFolderSegmentIndex(segments, folderId);
   if (folderIndex !== -1 && folderIndex < segments.length - 1) {
     return segments.slice(folderIndex + 1).join('/');
