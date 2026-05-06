@@ -1281,18 +1281,12 @@ jobs:
           set -e
           if [ -d "all-blob-reports" ] && [ "$(ls -A all-blob-reports 2>/dev/null)" ]; then
             echo "Extracting blob report tar bundles..."
-            for artifact_dir in all-blob-reports/*/; do
-              if [ -d "$artifact_dir" ]; then
-                echo "Processing directory: $artifact_dir"
-                for tar_file in "$artifact_dir"*.tar; do
-                  if [ -f "$tar_file" ]; then
-                    echo "Extracting: $tar_file"
-                    tar -xvf "$tar_file" -C "$artifact_dir"
-                    rm "$tar_file"
-                    echo "Extracted $(basename "$tar_file")"
-                  fi
-                done
-              fi
+            find all-blob-reports -type f -name "*.tar" -print0 | while IFS= read -r -d '' tar_file; do
+              artifact_dir="$(dirname "$tar_file")"
+              echo "Extracting: $tar_file"
+              tar -xvf "$tar_file" -C "$artifact_dir"
+              rm "$tar_file"
+              echo "Extracted $(basename "$tar_file")"
             done
             echo "Extraction complete"
           else
@@ -1302,12 +1296,12 @@ jobs:
       - name: Check if blob reports exist
         id: check-reports
         run: |
-          if [ -d "all-blob-reports" ] && [ "$(ls -A all-blob-reports)" ]; then
+          if [ -d "all-blob-reports" ] && [ "$(find all-blob-reports -type f -path "*/blob-report/*" -print -quit)" ]; then
             echo "reports-exist=true" >> $GITHUB_OUTPUT
-            echo "Blob reports found:"
-            ls -la all-blob-reports/
-            echo "Extracted blob report count:"
+            echo "Blob report directories:"
             find all-blob-reports -type d -name "blob-report" | wc -l
+            echo "Blob report files:"
+            find all-blob-reports -type f -path "*/blob-report/*" | wc -l
           else
             echo "reports-exist=false" >> $GITHUB_OUTPUT
             echo "No blob reports found - shard jobs either passed without diagnostic upload or produced no report"
@@ -1320,22 +1314,20 @@ jobs:
       - name: Merge Playwright reports
         if: steps.check-reports.outputs.reports-exist == 'true'
         run: |
-          echo "Contents of blob report directories:"
-          ls -la all-blob-reports/*/
+          echo "Downloaded blob report tree:"
+          find all-blob-reports -maxdepth 3 -print | sort
 
           # Create a single directory with all blob files
           mkdir -p merged-blob-reports
 
           # Copy all blob report files to the merged directory
-          for dir in all-blob-reports/*/; do
-            if [ -d "$dir/blob-report" ]; then
-              echo "Copying files from $dir/blob-report"
-              cp -r "$dir"/blob-report/* merged-blob-reports/ || true
-            fi
+          find all-blob-reports -type d -name "blob-report" -print0 | while IFS= read -r -d '' report_dir; do
+            echo "Copying files from $report_dir"
+            cp -r "$report_dir"/. merged-blob-reports/
           done
 
           echo "Merged blob reports directory contents:"
-          ls -la merged-blob-reports/
+          find merged-blob-reports -maxdepth 2 -print | sort
 
           # Debug: Check if merge config exists and is valid
           echo "Checking merge config..."
