@@ -4,7 +4,9 @@ import { NodeInspector } from '../collection-browser/node-inspector';
 import { TooltipProvider } from '../tooltip';
 
 const renderWithProviders = (ui: React.ReactElement) =>
-  render(<TooltipProvider>{ui}</TooltipProvider>);
+  render(ui, {
+    wrapper: ({ children }) => <TooltipProvider>{children}</TooltipProvider>,
+  });
 
 describe('NodeInspector', () => {
   it('renders without crashing when no node is selected', () => {
