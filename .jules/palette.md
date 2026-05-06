@@ -19,6 +19,9 @@
 
 **Learning:** Icon-only action buttons in lists (like Edit/Delete in `CollectionPickerItem`) sometimes lack `aria-label` attributes and use `size="sm"` with custom width/height/padding classes instead of the standard `size="icon"` which is designed specifically for square icon buttons.
 **Action:** Always provide descriptive `aria-label` attributes for icon-only action buttons and prefer `size="icon"` over manually overriding `size="sm"` padding/dimensions when rendering purely icon-based buttons.
+## 2026-05-04 - Native Title Attributes cause Double Tooltips
+**Learning:** Icon-only navigation buttons (e.g., in TablePagination) using native `title` attributes provide a poor, unstyled UX and can conflict with custom app tooltips.
+**Action:** Always replace native `title` attributes on icon-only buttons with the design system's `Tooltip` component (wrapping the button) for consistent, accessible visual feedback. Remember to include `TooltipProvider` if one is not guaranteed at the app level.
 
 ## 2025-02-13 - Missing ARIA Controls on Expansion Buttons
 **Learning:** Collapsible sections like `LocalChainOfThought` and `ExpandableMessageContent` use native `<button>` tags to toggle `aria-expanded` and render content conditionally, but they often omit the `aria-controls` attribute linking them to a static `id` on their content container. This is a common accessibility gap in custom Radix/framer-motion wrappers in this app.

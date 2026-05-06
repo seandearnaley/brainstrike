@@ -328,6 +328,39 @@ describe('normalized-file-tree', () => {
     expect(getNormalizedDescendantFileCount(nextState, '/root')).toBe(1);
   });
 
+  it('only removes descendants that match on a path boundary', () => {
+    const state = createNormalizedFileTreeState([
+      createDirectoryNode({
+        name: 'src',
+        path: '/root/src',
+        children: [createFileNode({ name: 'index.ts', path: '/root/src/index.ts', depth: 2 })],
+      }),
+      createDirectoryNode({
+        name: 'src-generated',
+        path: '/root/src-generated',
+        children: [
+          createFileNode({
+            name: 'generated.ts',
+            path: '/root/src-generated/generated.ts',
+            depth: 2,
+          }),
+        ],
+      }),
+    ]);
+
+    const nextState = replaceNormalizedDirectoryChildren(state, '/root/src', [
+      createFileNode({ name: 'replacement.ts', path: '/root/src/replacement.ts', depth: 2 }),
+    ]);
+
+    expect(getNormalizedNode(nextState, '/root/src-generated')).toMatchObject({
+      path: '/root/src-generated',
+      type: 'directory',
+    });
+    expect(listNormalizedDescendantFilePaths(nextState, '/root/src-generated')).toEqual([
+      '/root/src-generated/generated.ts',
+    ]);
+  });
+
   it('handles deeply nested trees without recursive stack overflow', () => {
     const depth = 12_000;
     const directoryPaths: string[] = [];
