@@ -236,6 +236,60 @@ test('workflow contract fails when blob reports upload on success', () => {
   );
 });
 
+test('workflow contract fails when report merge assumes artifact subdirectories', () => {
+  const mergeReports = extractJob(workflowSource, 'merge-reports');
+  assert.ok(mergeReports);
+
+  const source = workflowSource.replace(
+    mergeReports,
+    mergeReports.replace(
+      'find all-blob-reports -maxdepth 3 -print | sort',
+      'ls -la all-blob-reports/*/'
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /must not assume download-artifact creates per-artifact subdirectories/
+  );
+});
+
+test('workflow contract fails when report merge stops extracting root tar bundles', () => {
+  const mergeReports = extractJob(workflowSource, 'merge-reports');
+  assert.ok(mergeReports);
+
+  const source = workflowSource.replace(
+    mergeReports,
+    mergeReports.replace(
+      'find all-blob-reports -type f -name "*.tar" -print0',
+      'find all-blob-reports/*/ -type f -name "*.tar" -print0'
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /must extract tar bundles found anywhere/
+  );
+});
+
+test('workflow contract fails when report merge treats raw artifacts as mergeable reports', () => {
+  const mergeReports = extractJob(workflowSource, 'merge-reports');
+  assert.ok(mergeReports);
+
+  const source = workflowSource.replace(
+    mergeReports,
+    mergeReports.replaceAll(
+      'find all-blob-reports -type f -path "*/blob-report/*"',
+      'ls -A all-blob-reports'
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /must only run when extracted blob report files exist/
+  );
+});
+
 test('workflow contract fails when stateful E2E waits on determine-matrix', () => {
   const stateful = extractJob(workflowSource, 'e2e-stateful');
   assert.ok(stateful);
