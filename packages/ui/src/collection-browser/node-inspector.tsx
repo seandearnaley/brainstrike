@@ -318,6 +318,7 @@ function CollapseToggleButton({
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
+            aria-expanded={!isCollapsed}
             aria-label={isCollapsed ? 'Expand inspector' : 'Collapse inspector'}
             className="h-8 w-8 p-0"
             onClick={onToggle}
