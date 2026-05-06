@@ -1,5 +1,5 @@
 name: 'Setup Desktop E2E'
-description: 'Common setup for desktop Electron E2E tests: downloads pre-built dist, installs Xvfb and Playwright system deps, and builds workspace dependencies via Turbo remote cache.'
+description: 'Common setup for desktop Electron E2E tests: downloads pre-built dist, verifies preprovisioned Electron runtime deps, and builds workspace dependencies via Turbo remote cache.'
 
 runs:
   using: 'composite'
@@ -10,15 +10,20 @@ runs:
         name: desktop-dist
         path: apps/desktop/dist/
 
-    - name: Install system dependencies for Electron
+    - name: Verify preprovisioned Electron runtime dependencies
       shell: bash
       run: |
-        sudo apt-get update
-        sudo apt-get install -y xvfb
-
-    - name: Install Playwright system dependencies
-      shell: bash
-      run: pnpm exec playwright install-deps
+        set -euo pipefail
+        command -v Xvfb >/dev/null
+        command -v ldd >/dev/null
+        cd apps/desktop
+        ELECTRON_BINARY="$(node -p "require('electron')")"
+        echo "Electron binary: ${ELECTRON_BINARY}"
+        ldd "${ELECTRON_BINARY}" | tee /tmp/electron-ldd.txt
+        if grep -q "not found" /tmp/electron-ldd.txt; then
+          echo "ERROR: Electron runtime dependencies are missing from the CI image." >&2
+          exit 1
+        fi
 
     - name: Build workspace dependencies (Turbo remote cache hit from prepare-desktop)
       shell: bash
