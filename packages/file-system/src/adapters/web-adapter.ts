@@ -1,5 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { createLogger, fileNodeCollator } from '@brainstrike/utils';
+import { extractPathSegments } from '@brainstrike/utils/path-utils';
 import { formatFileSize, getFileSizeConfig } from '../config';
 import { AccessError } from '../errors';
 
@@ -375,7 +376,7 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
       throw new AccessError('Root directory handle is not available', path, 'read');
     }
 
-    const normalizedSegments = path.split('/').filter((segment) => segment.length > 0);
+    const normalizedSegments = extractPathSegments(path);
     const relativeSegments =
       normalizedSegments[0] === rootFolderId ? normalizedSegments.slice(1) : normalizedSegments;
 
