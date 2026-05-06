@@ -129,11 +129,25 @@ async function waitForQueueCapacity(
   observeDrainProgress?: () => void | Promise<void>
 ): Promise<number> {
   const startedAt = Date.now();
+  let pollCount = 0;
   while (true) {
     await assertCanContinue?.();
     const backlog = await getEmbeddingQueueBacklogSnapshot(jobQueue);
+    pollCount += 1;
     const capacity = maxQueueDepth - (backlog.queued + backlog.running);
     if (capacity > 0) {
+      if (pollCount > 1) {
+        logger.info('Backfill queue capacity wait completed', {
+          capacity,
+          durationMs: Date.now() - startedAt,
+          failed: backlog.failed,
+          maxQueueDepth,
+          pollCount,
+          queued: backlog.queued,
+          running: backlog.running,
+          succeeded: backlog.succeeded,
+        });
+      }
       return capacity;
     }
     if (Date.now() - startedAt >= timeoutMs) {
@@ -624,6 +638,7 @@ export async function enqueueEmbeddingBackfill(
       break;
     }
     cursor = batch.at(-1)?.id ?? cursor;
+    const enqueueStartedAt = Date.now();
     const { inserted, selected } = await enqueueEmbeddingChunkJobsBatch(
       jobQueue,
       batch,
@@ -634,6 +649,13 @@ export async function enqueueEmbeddingBackfill(
       embeddingSetId,
       batchSize: batch.length,
       inserted,
+    });
+    logger.info('Backfill enqueue batch completed', {
+      batchSize: batch.length,
+      durationMs: Date.now() - enqueueStartedAt,
+      embeddingSetId,
+      inserted,
+      selected,
     });
     // Progress tracks jobs durably accepted into job_queue, not just selected candidates.
     // Dedupe can make inserted < selected and that is the value users can rely on.

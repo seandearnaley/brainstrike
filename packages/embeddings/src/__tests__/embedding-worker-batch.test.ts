@@ -11,6 +11,7 @@ import type {
   EmbeddingStatus,
   SimilarityResult,
 } from '../types';
+import { createEmbeddingStatsRefreshController } from '../worker/embedding-worker';
 
 class FakeEmbeddingService implements EmbeddingService {
   private status: EmbeddingStatus = 'ready';
@@ -619,6 +620,52 @@ describe('Embedding Worker Batch Optimization', () => {
     await stopController.stop();
 
     expect(hasStatsRefreshLog(stopLog, 'worker-stop')).toBe(true);
+  });
+
+  it('keeps 20k-completion indexing stats refresh cadence bounded', async () => {
+    const completedChunkCount = 20_000;
+    const threshold = 512;
+    let refreshCount = 0;
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('aggregated_chunks') && sql.includes('collection_indexing_stats')) {
+          refreshCount += 1;
+          return {
+            rows: [
+              {
+                embeddingSetId: 'set-scale',
+                fileCount: 1,
+                chunkCount: completedChunkCount,
+                embeddedChunkCount: completedChunkCount,
+                pendingChunkCount: 0,
+                dirty: false,
+                lastRefreshedAt: new Date().toISOString(),
+              },
+            ],
+          };
+        }
+        if (sql.includes('UPDATE collection_indexing_stats')) {
+          return { rows: [] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    } as unknown as IDatabase;
+
+    const controller = createEmbeddingStatsRefreshController({
+      completedChunkThreshold: threshold,
+      db,
+      log: () => {},
+      minIntervalMs: 60_000,
+      now: () => 0,
+    });
+
+    for (let index = 0; index < completedChunkCount; index++) {
+      await controller.recordCompletions(['set-scale'], 1);
+      await controller.flushIfDue();
+    }
+    await controller.flush('worker-stop');
+
+    expect(refreshCount).toBe(Math.ceil(completedChunkCount / threshold));
   });
 });
 

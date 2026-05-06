@@ -392,7 +392,7 @@ interface EmbeddingStatsRefreshController {
   ) => Promise<void>;
 }
 
-function createEmbeddingStatsRefreshController({
+export function createEmbeddingStatsRefreshController({
   completedChunkThreshold,
   db,
   log,

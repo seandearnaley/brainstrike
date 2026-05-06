@@ -1196,4 +1196,97 @@ describe('embedding-backfill', () => {
     expect(firstVacuumIndex).toBeGreaterThanOrEqual(0);
     expect(firstVacuumIndex).toBeLessThan(finalPendingIndex);
   });
+
+  it('keeps 20k-candidate active backfill vacuum cadence bounded', async () => {
+    const candidateCount = 20_000;
+    let currentTime = 0;
+    let queueStatsCalls = 0;
+    let vacuumFileChunksCount = 0;
+
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql === 'VACUUM file_chunks') {
+          vacuumFileChunksCount += 1;
+          return { rows: [] };
+        }
+        if (sql === 'VACUUM job_queue') {
+          return { rows: [] };
+        }
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [
+              {
+                queued: 0,
+                running: 0,
+                failed: 0,
+                succeeded: candidateCount,
+              },
+            ],
+          };
+        }
+        if (sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: 0 }] };
+        }
+        if (sql.includes('COUNT(*)::int AS count')) {
+          return { rows: [{ count: candidateCount }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          const afterChunkId = typeof params?.[2] === 'string' ? Number(params[2]) : 0;
+          const limit = Number(params?.[3] ?? 32);
+          return {
+            rows: Array.from(
+              { length: Math.max(0, Math.min(limit, candidateCount - afterChunkId)) },
+              (_, index) => {
+                const id = afterChunkId + index + 1;
+                return {
+                  id: String(id),
+                  fileRecordId: String(id + 100_000),
+                  contentHash: `hash-${id}`,
+                };
+              }
+            ),
+          };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+
+    const jobQueue = {
+      enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
+        jobs.map((job, index) => ({
+          id: `job-${queueStatsCalls}-${index}`,
+          ...job,
+        }))
+      ),
+      getQueueStats: vi.fn(async () => {
+        queueStatsCalls += 1;
+        currentTime += 250;
+        if (queueStatsCalls % 2 === 1) {
+          return [{ queue: 'embeddings', queued: 32, running: 0, failed: 0, succeeded: 0 }];
+        }
+        return [{ queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 }];
+      }),
+    };
+
+    const options = {
+      backlogPollMs: 1,
+      maxQueueDepth: 32,
+      now: () => currentTime,
+      progressIntervalBatches: 64,
+      progressIntervalMs: 1,
+      vacuumIntervalMs: 1000,
+    } satisfies EnqueueEmbeddingBackfillOptions;
+
+    await enqueueEmbeddingBackfill(db, jobQueue, 'set-20k', () => undefined, options);
+
+    const enqueueBatchCount = vi.mocked(jobQueue.enqueueBatch).mock.calls.length;
+    expect(enqueueBatchCount).toBe(Math.ceil(candidateCount / 32));
+    expect(vacuumFileChunksCount).toBeGreaterThan(1);
+    expect(vacuumFileChunksCount).toBeLessThan(enqueueBatchCount);
+  });
 });
