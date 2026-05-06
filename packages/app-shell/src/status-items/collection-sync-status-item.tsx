@@ -213,7 +213,7 @@ export function CollectionSyncStatusItem() {
           <div className="flex justify-end">
             <Button
               aria-label="Background indexing"
-              aria-pressed={!!paused}
+              aria-pressed={!paused}
               onClick={() => setPaused(!paused)}
               size="sm"
               type="button"
