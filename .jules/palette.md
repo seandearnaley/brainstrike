@@ -23,6 +23,10 @@
 **Learning:** Visual `<Progress />` indicators that show different metrics (e.g. "Files imported" vs "Chunks imported") need explicit `aria-label` so screen readers can distinguish them. Custom disclosure widgets need both an `aria-expanded` toggle and an `aria-controls` link to a stable ID on their container.
 **Action:** Always pair an `aria-label` with `<Progress />` instances that aren't visually labelled, and pair `aria-expanded` + `aria-controls` (with a `useId()`-derived target id) on any custom toggle that hides/shows content.
 
+## 2026-05-03 - Use `useId()` for form-control IDs in reusable components
+**Learning:** Custom form controls inside reusable components (like the slider and tag input in `PromptEditor`) used static string IDs for `<Label htmlFor>` / `id` pairs. If the component is ever rendered more than once on the same page, the duplicate IDs break the htmlFor association — the label only targets the first element with that ID, defeating the accessibility purpose.
+**Action:** When pairing a `Label` with a custom `<input>` inside a component that may be instantiated multiple times, derive the IDs from React's `useId()` hook rather than hardcoded strings. This guarantees uniqueness across instances without leaking implementation details.
+
 ## 2026-05-04 - Native Title Attributes cause Double Tooltips
 **Learning:** Icon-only navigation buttons (e.g., in TablePagination) using native `title` attributes provide a poor, unstyled UX and can conflict with custom app tooltips.
 **Action:** Always replace native `title` attributes on icon-only buttons with the design system's `Tooltip` component (wrapping the button) for consistent, accessible visual feedback. Remember to include `TooltipProvider` if one is not guaranteed at the app level.
