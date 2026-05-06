@@ -5,6 +5,7 @@ import { useResizeObserver } from './hooks/use-resize-observer';
 import { Input } from './input';
 import { cn } from './lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './select';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './tooltip';
 
 const DEFAULT_PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250, 500, 1000] as const;
 /** Fallback page size when no options are available */
@@ -174,83 +175,101 @@ const NavigationControls = memo(function NavigationControls({
   onInputKeyDown,
 }: NavigationControlsProps) {
   return (
-    <div className="flex shrink-0 items-center justify-center gap-1">
-      {!isMiniDensity && (
-        <Button
-          aria-label="Go to first page"
-          disabled={isFirstPage}
-          onClick={onGoToFirstPage}
-          size="icon-xs"
-          title="Go to first page"
-          variant="ghost"
-        >
-          <ChevronsLeft aria-hidden="true" />
-        </Button>
-      )}
-      <Button
-        aria-label="Go to previous page"
-        disabled={isFirstPage}
-        onClick={onGoToPreviousPage}
-        size="icon-xs"
-        title="Go to previous page"
-        variant="ghost"
-      >
-        <ChevronLeft aria-hidden="true" />
-      </Button>
+    <TooltipProvider delayDuration={300}>
+      <div className="flex shrink-0 items-center justify-center gap-1">
+        {!isMiniDensity && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                aria-label="Go to first page"
+                disabled={isFirstPage}
+                onClick={onGoToFirstPage}
+                size="icon-xs"
+                variant="ghost"
+              >
+                <ChevronsLeft aria-hidden="true" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Go to first page</TooltipContent>
+          </Tooltip>
+        )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              aria-label="Go to previous page"
+              disabled={isFirstPage}
+              onClick={onGoToPreviousPage}
+              size="icon-xs"
+              variant="ghost"
+            >
+              <ChevronLeft aria-hidden="true" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Go to previous page</TooltipContent>
+        </Tooltip>
 
-      <div className={cn('flex items-center gap-1 px-1', isMiniDensity && 'px-0.5')}>
-        <Input
-          aria-label="Page number"
-          className={cn(
-            'h-7 px-2 text-center text-xs tabular-nums',
-            isMiniDensity ? 'w-11 px-1.5' : isReducedDensity ? 'w-12' : 'w-14'
-          )}
-          disabled={totalPages === 0}
-          max={totalPages}
-          min={1}
-          onBlur={onInputBlur}
-          onChange={onInputChange}
-          onFocus={onInputFocus}
-          onKeyDown={onInputKeyDown}
-          type="number"
-          value={inputValue}
-        />
-        <span
-          className={cn(
-            'whitespace-nowrap text-muted-foreground text-xs tabular-nums',
-            isMiniDensity ? 'min-w-0' : 'min-w-[4rem]'
-          )}
-        >
-          {isMiniDensity ? `/${totalPages}` : `of ${totalPages}`}
+        <div className={cn('flex items-center gap-1 px-1', isMiniDensity && 'px-0.5')}>
+          <Input
+            aria-label="Page number"
+            className={cn(
+              'h-7 px-2 text-center text-xs tabular-nums',
+              isMiniDensity ? 'w-11 px-1.5' : isReducedDensity ? 'w-12' : 'w-14'
+            )}
+            disabled={totalPages === 0}
+            max={totalPages}
+            min={1}
+            onBlur={onInputBlur}
+            onChange={onInputChange}
+            onFocus={onInputFocus}
+            onKeyDown={onInputKeyDown}
+            type="number"
+            value={inputValue}
+          />
+          <span
+            className={cn(
+              'whitespace-nowrap text-muted-foreground text-xs tabular-nums',
+              isMiniDensity ? 'min-w-0' : 'min-w-[4rem]'
+            )}
+          >
+            {isMiniDensity ? `/${totalPages}` : `of ${totalPages}`}
+          </span>
+        </div>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              aria-label="Go to next page"
+              disabled={isLastPage}
+              onClick={onGoToNextPage}
+              size="icon-xs"
+              variant="ghost"
+            >
+              <ChevronRight aria-hidden="true" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Go to next page</TooltipContent>
+        </Tooltip>
+        {!isMiniDensity && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                aria-label="Go to last page"
+                disabled={isLastPage}
+                onClick={onGoToLastPage}
+                size="icon-xs"
+                variant="ghost"
+              >
+                <ChevronsRight aria-hidden="true" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Go to last page</TooltipContent>
+          </Tooltip>
+        )}
+        <span className="sr-only">
+          {totalItems === 0 ? 'No items available' : `${totalItems.toLocaleString()} total items`}
         </span>
       </div>
-
-      <Button
-        aria-label="Go to next page"
-        disabled={isLastPage}
-        onClick={onGoToNextPage}
-        size="icon-xs"
-        title="Go to next page"
-        variant="ghost"
-      >
-        <ChevronRight aria-hidden="true" />
-      </Button>
-      {!isMiniDensity && (
-        <Button
-          aria-label="Go to last page"
-          disabled={isLastPage}
-          onClick={onGoToLastPage}
-          size="icon-xs"
-          title="Go to last page"
-          variant="ghost"
-        >
-          <ChevronsRight aria-hidden="true" />
-        </Button>
-      )}
-      <span className="sr-only">
-        {totalItems === 0 ? 'No items available' : `${totalItems.toLocaleString()} total items`}
-      </span>
-    </div>
+    </TooltipProvider>
   );
 });
 NavigationControls.displayName = 'NavigationControls';

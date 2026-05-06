@@ -47,3 +47,7 @@
 ## 2026-04-20 - Extract Path Segments without split
 **Learning:** Extracting path segments using `.split('/').filter(Boolean)` creates intermediate string arrays and allocates new strings that are immediately discarded if empty. In hot paths (like building paths or verifying traversal), this causes GC pressure and slows execution.
 **Action:** Replace `.split('/').filter(...)` with a native string loop using `indexOf('/')` and `.slice()` in a shared utility function (`extractPathSegments`). This avoids intermediate regex array allocations and executes 3-4x faster in V8.
+
+## 2026-05-04 - N+1 Query Optimization using PGlite ANY()
+**Learning:** Checking a condition sequentially via looping database `SELECT` queries (like in MigrationRunner) creates significant N+1 query overhead in PGlite which adds up and delays startup time, especially with larger lists.
+**Action:** Replace iterative looping queries with a single query using the `WHERE column = ANY($1)` syntax with an array parameter to fetch all necessary data in bulk, caching it in an in-memory `Map` for O(1) lookups during the local iteration.
