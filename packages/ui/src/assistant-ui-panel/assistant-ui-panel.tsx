@@ -269,7 +269,7 @@ const LocalModelStatus: FC<{ state: LocalModelLoadingState }> = ({ state }) => {
         </div>
       ) : state.stage === 'downloading' ? (
         <Progress
-          aria-label="Assistant loading progress"
+          aria-label="Model downloading progress"
           className="mt-2 h-1 bg-border/60"
           value={progress}
         />
