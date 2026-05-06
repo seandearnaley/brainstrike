@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ImportProgressDisplay } from '../import-progress-display';
 
@@ -6,8 +6,12 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
     ...actual,
-    Progress: ({ value, className }: { value?: number; className?: string }) => (
-      <div className={className} data-testid="progress-bar">
+    Progress: ({
+      value,
+      className,
+      ...rest
+    }: { value?: number; className?: string } & Record<string, unknown>) => (
+      <div className={className} data-testid="progress-bar" {...rest}>
         {Math.round(value ?? 0)}%
       </div>
     ),
@@ -203,8 +207,7 @@ describe('ImportProgressDisplay', () => {
     expect(screen.getByText(/\(128ms\)/)).toBeInTheDocument();
   });
 
-  it('exposes the error disclosure with aria-expanded + aria-controls', async () => {
-    const { fireEvent } = await import('@testing-library/react');
+  it('exposes the error disclosure with aria-expanded + aria-controls', () => {
     const mockProgress = {
       phase: 'importing' as const,
       total: 5,
@@ -265,12 +268,17 @@ describe('ImportProgressDisplay', () => {
 
     render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
 
-    // The mocked Progress passes className through; in real rendering these
-    // would receive aria-label. We assert the rendered text labels exist for
-    // the chunking and embedding cards which exercises those branches.
     expect(screen.getByText('Chunking')).toBeInTheDocument();
     expect(screen.getByText('Embedding')).toBeInTheDocument();
     expect(screen.getByText('4 of 10 files')).toBeInTheDocument();
+    // Each Progress in this rendering should carry its own aria-label so screen
+    // readers can distinguish the three stages.
+    const labels = screen
+      .getAllByTestId('progress-bar')
+      .map((bar) => bar.getAttribute('aria-label'));
+    expect(labels).toEqual(
+      expect.arrayContaining(['Chunking progress', 'Embedding progress', 'Import progress'])
+    );
   });
 
   it('renders the spinner stage with aria-hidden when not complete', () => {
