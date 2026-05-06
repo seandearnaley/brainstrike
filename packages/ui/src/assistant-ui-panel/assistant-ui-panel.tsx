@@ -363,10 +363,11 @@ const LocalChainOfThought: FC = () => {
 const COLLAPSED_HISTORY_VISIBLE_MESSAGES = 8;
 
 const ThreadHistoryControl: FC<{
+  controlsId: string;
   expanded: boolean;
   hiddenMessageCount: number;
   onExpandedChange: (expanded: boolean) => void;
-}> = ({ expanded, hiddenMessageCount, onExpandedChange }) => {
+}> = ({ controlsId, expanded, hiddenMessageCount, onExpandedChange }) => {
   if (hiddenMessageCount <= 0) {
     return null;
   }
@@ -374,16 +375,18 @@ const ThreadHistoryControl: FC<{
   return (
     <div aria-live="polite" className="bs-history-control" data-testid="assistant-history-control">
       <button
+        aria-controls={controlsId}
         aria-expanded={expanded}
+        aria-label={`${expanded ? 'Collapse' : 'Expand'} ${hiddenMessageCount} previous messages`}
         className="bs-history-control-button"
         data-testid="assistant-history-toggle"
         onClick={() => onExpandedChange(!expanded)}
         type="button"
       >
         {expanded ? (
-          <ChevronUpIcon className="size-3.5" />
+          <ChevronUpIcon aria-hidden="true" className="size-3.5" />
         ) : (
-          <ChevronDownIcon className="size-3.5" />
+          <ChevronDownIcon aria-hidden="true" className="size-3.5" />
         )}
         <span>{hiddenMessageCount} previous messages</span>
       </button>
@@ -745,6 +748,7 @@ const ChatThreadUI: FC<{
   const messageCount = useAuiState((state) => state.thread.messages.length);
   const hiddenMessageCount = Math.max(0, messageCount - COLLAPSED_HISTORY_VISIBLE_MESSAGES);
   const historyCollapsed = hiddenMessageCount > 0 && !historyExpanded;
+  const messagesRegionId = useId();
 
   return (
     <ThreadPrimitive.Root
@@ -771,6 +775,7 @@ const ChatThreadUI: FC<{
         autoScroll
         className="aui-thread-viewport"
         data-testid="assistant-ui-viewport"
+        id={messagesRegionId}
         scrollToBottomOnInitialize={false}
         scrollToBottomOnRunStart={false}
       >
@@ -780,6 +785,7 @@ const ChatThreadUI: FC<{
           </p>
         )}
         <ThreadHistoryControl
+          controlsId={messagesRegionId}
           expanded={historyExpanded}
           hiddenMessageCount={hiddenMessageCount}
           onExpandedChange={setHistoryExpanded}
