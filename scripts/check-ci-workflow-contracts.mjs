@@ -491,6 +491,36 @@ export function validateWorkflowContracts(source) {
     );
   }
 
+  const mergeReports = extractJob(source, 'merge-reports');
+  if (!mergeReports) {
+    failures.push('Missing merge-reports job.');
+  } else {
+    requireIncludes(
+      mergeReports,
+      'find all-blob-reports -type f -name "*.tar" -print0',
+      'Merge Test Reports must extract tar bundles found anywhere under all-blob-reports.',
+      failures
+    );
+    requireIncludes(
+      mergeReports,
+      'find all-blob-reports -type f -path "*/blob-report/*"',
+      'Merge Test Reports must only run when extracted blob report files exist.',
+      failures
+    );
+    requireIncludes(
+      mergeReports,
+      'find all-blob-reports -type d -name "blob-report" -print0',
+      'Merge Test Reports must discover blob-report directories recursively.',
+      failures
+    );
+    requireNotIncludes(
+      mergeReports,
+      'ls -la all-blob-reports/*/',
+      'Merge Test Reports must not assume download-artifact creates per-artifact subdirectories.',
+      failures
+    );
+  }
+
   const desktopPr = extractJob(source, 'desktop-e2e-pr');
   if (!desktopPr) {
     failures.push('Missing desktop-e2e-pr job.');
