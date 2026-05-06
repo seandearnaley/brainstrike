@@ -109,6 +109,35 @@ const RULE_TYPE_PRECEDENCE: Record<SelectionRule['type'], number> = {
 };
 
 const GLOB_MATCH_OPTIONS = { dot: true } as const;
+const PATH_SEPARATOR_CODE = '/'.charCodeAt(0);
+
+/**
+ * Local path-boundary check for selection rules.
+ * This package keeps its own helper so it can treat `path === root`
+ * as a match without adding a runtime dependency on shared tree utils.
+ */
+function isEqualOrDescendantPath(path: string, root: string): boolean {
+  return (
+    path === root ||
+    (path.length > root.length &&
+      path.charCodeAt(root.length) === PATH_SEPARATOR_CODE &&
+      path.startsWith(root))
+  );
+}
+
+function countRelativeDepth(relativePath: string, maxDepth?: number): number {
+  let depth = 0;
+  for (let i = 0; i < relativePath.length; i += 1) {
+    if (relativePath.charCodeAt(i) !== PATH_SEPARATOR_CODE) {
+      continue;
+    }
+    depth += 1;
+    if (maxDepth !== undefined && depth > maxDepth) {
+      return depth;
+    }
+  }
+  return depth;
+}
 
 /**
  * Sort rules by type precedence, then by priority within type.
@@ -476,7 +505,7 @@ export class SelectionRuleEngine {
     for (const path of selection) {
       let excluded = false;
       for (const root of rule.roots) {
-        if (path === root || path.startsWith(`${root}/`)) {
+        if (isEqualOrDescendantPath(path, root)) {
           excluded = true;
           break;
         }
@@ -637,8 +666,9 @@ export class InMemoryTreeAdapter implements TreeAdapter {
     // Add implicit parent directories
     for (const path of this.files.keys()) {
       const parts = path.split('/');
-      for (let i = 1; i < parts.length; i++) {
-        this.directories.add(parts.slice(0, i).join('/'));
+      for (let i = 1; i < parts.length; i += 1) {
+        const parentPath = parts.slice(0, i).join('/');
+        this.directories.add(parentPath);
       }
     }
   }
@@ -652,10 +682,10 @@ export class InMemoryTreeAdapter implements TreeAdapter {
     const normalizedRoot = root.replace(/\/$/, '');
 
     for (const path of this.files.keys()) {
-      if (path === normalizedRoot || path.startsWith(`${normalizedRoot}/`)) {
+      if (isEqualOrDescendantPath(path, normalizedRoot)) {
         if (maxDepth !== undefined) {
           const relativePath = path.slice(normalizedRoot.length + 1);
-          const depth = relativePath.split('/').length - 1;
+          const depth = countRelativeDepth(relativePath, maxDepth);
           if (depth > maxDepth) {
             continue;
           }
