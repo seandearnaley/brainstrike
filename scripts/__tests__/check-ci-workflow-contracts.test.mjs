@@ -47,6 +47,42 @@ test('current workflow satisfies CI cost and E2E routing contracts', () => {
   assert.deepEqual(validateWorkflowContracts(workflowSource), []);
 });
 
+test('workflow contract fails when unit coverage phases are collapsed', () => {
+  const unitCoverage = extractJob(workflowSource, 'unit_coverage');
+  assert.ok(unitCoverage);
+
+  const source = workflowSource.replace(
+    unitCoverage,
+    unitCoverage
+      .replace('- name: Run DB runtime coverage', '- name: Run combined DB coverage')
+      .replace('- name: Run DB serial coverage lanes', '- name: Run combined DB coverage lanes')
+      .replace('- name: Prepare unit coverage workspace', '- name: Prepare coverage')
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /must keep DB runtime coverage in a separate timed step/);
+  assert.match(failures, /must keep serial DB coverage lanes in a separate timed step/);
+  assert.match(failures, /must prepare merged workspace coverage in a separate output step/);
+});
+
+test('workflow contract fails when unit coverage diagnostics depend on coverage outputs', () => {
+  const unitCoverage = extractJob(workflowSource, 'unit_coverage');
+  assert.ok(unitCoverage);
+
+  const source = workflowSource.replace(
+    unitCoverage,
+    unitCoverage.replaceAll(
+      'if: ${{ !cancelled() }}',
+      "if: ${{ !cancelled() && steps.unit-tests.outcome != 'skipped' }}"
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /timing diagnostics must still run when an earlier coverage phase fails/
+  );
+});
+
 test('setup monorepo action satisfies cache contracts', () => {
   assert.deepEqual(validateSetupMonorepoContracts(setupMonorepoSource), []);
 });

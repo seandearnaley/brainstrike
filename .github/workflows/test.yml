@@ -168,6 +168,11 @@ jobs:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
+      COVERAGE: "true"
+      DB_COVERAGE_RUNTIME_TASK: test:coverage:db:runtime
+      DB_COVERAGE_TASKS: test:coverage:db:architecture test:coverage:db:chunking test:coverage:db:migrations test:coverage:db:queue test:coverage:db:repositories test:coverage:db:search
+      NODE_ENV: test
+      TURBO_TEST_MODE: coverage
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -189,32 +194,48 @@ jobs:
         run: |
           find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
           rm -rf .nyc_output
+          rm -rf .turbo/runs
+          mkdir -p .turbo/runs
 
-      - name: Run unit tests with coverage
-        id: unit-tests
-        # This step owns the heavy affected coverage slice. The surrounding job
-        # timeout leaves room for install, build, and report upload overhead.
+      - name: Run affected package unit coverage
+        # Keep the affected package slice separate from the serial DB lanes so
+        # a cold cache cannot spend the entire step timeout before DB coverage.
         timeout-minutes: 30
         run: |
           START=$SECONDS
-          rm -rf .turbo/runs
-          mkdir -p .turbo/runs
-          DB_COVERAGE_RUNTIME_TASK="test:coverage:db:runtime"
-          DB_COVERAGE_TASKS="test:coverage:db:architecture test:coverage:db:chunking test:coverage:db:migrations test:coverage:db:queue test:coverage:db:repositories test:coverage:db:search"
-          # DB coverage lanes are PGlite-heavy. On GitHub runners, running
-          # several lanes at once saturates the runner and turns valid 10s unit
-          # timeouts into contention failures, so keep DB lanes serial.
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$GITHUB_BASE_REF" ]; then
             echo "Running affected unit coverage for PR against origin/${GITHUB_BASE_REF}"
             pnpm turbo run test:coverage --filter="...[origin/${GITHUB_BASE_REF}]" --filter="!@brainstrike/db" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo
-            pnpm turbo run $DB_COVERAGE_RUNTIME_TASK --filter="@brainstrike/db" --concurrency=1 --summarize --log-order=grouped --cache-dir=.turbo
-            pnpm turbo run $DB_COVERAGE_TASKS --filter="@brainstrike/db" --concurrency=1 --summarize --log-order=grouped --cache-dir=.turbo
           else
             echo "Running full unit coverage"
             pnpm turbo run test:coverage --filter="!@brainstrike/db" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo
-            pnpm turbo run $DB_COVERAGE_RUNTIME_TASK --filter="@brainstrike/db" --concurrency=1 --summarize --log-order=grouped --cache-dir=.turbo
-            pnpm turbo run $DB_COVERAGE_TASKS --filter="@brainstrike/db" --concurrency=1 --summarize --log-order=grouped --cache-dir=.turbo
           fi
+          echo "| Package coverage | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Run DB runtime coverage
+        # DB runtime coverage cold-starts PGlite and must stay isolated from the
+        # broader DB lanes to avoid runner resource contention.
+        timeout-minutes: 10
+        run: |
+          START=$SECONDS
+          pnpm turbo run $DB_COVERAGE_RUNTIME_TASK --filter="@brainstrike/db" --concurrency=1 --summarize --log-order=grouped --cache-dir=.turbo
+          echo "| DB runtime coverage | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Run DB serial coverage lanes
+        # DB coverage lanes are PGlite-heavy. On GitHub runners, running
+        # several lanes at once saturates the runner and turns valid 10s unit
+        # timeouts into contention failures, so keep DB lanes serial.
+        timeout-minutes: 30
+        run: |
+          START=$SECONDS
+          pnpm turbo run $DB_COVERAGE_TASKS --filter="@brainstrike/db" --concurrency=1 --summarize --log-order=grouped --cache-dir=.turbo
+          echo "| DB serial coverage | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Prepare unit coverage workspace
+        id: unit-tests
+        timeout-minutes: 5
+        run: |
+          START=$SECONDS
           pnpm coverage:prepare-workspace
 
           COVERAGE_FILES=$(find packages apps -type f -path "*/coverage/coverage-final.json" | wc -l | tr -d ' ')
@@ -225,11 +246,7 @@ jobs:
             echo "has_coverage=false" >> "$GITHUB_OUTPUT"
             echo "No coverage-final.json files generated (likely no affected test tasks)."
           fi
-          echo "| Test | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
-        env:
-          COVERAGE: "true"
-          NODE_ENV: "test"
-          TURBO_TEST_MODE: "coverage"
+          echo "| Coverage workspace prep | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
 
       - name: Enforce package coverage thresholds
         if: steps.unit-tests.outputs.has_coverage == 'true'
@@ -360,7 +377,7 @@ jobs:
           retention-days: 1
 
       - name: Report Turbo test task timings
-        if: ${{ !cancelled() && steps.unit-tests.outcome != 'skipped' }}
+        if: ${{ !cancelled() }}
         run: |
           set +e
           : > turbo-test-timings.md
@@ -375,7 +392,7 @@ jobs:
           exit "$STATUS"
 
       - name: Report Turbo unit coverage diagnostics
-        if: ${{ !cancelled() && steps.unit-tests.outcome != 'skipped' }}
+        if: ${{ !cancelled() }}
         run: |
           set +e
           pnpm ci:turbo-diagnostics -- --runs-dir .turbo/runs --all --task-prefix test:coverage --output turbo-unit-coverage-diagnostics.md
@@ -389,7 +406,7 @@ jobs:
           exit "$STATUS"
 
       - name: Upload coverage timing diagnostics
-        if: ${{ !cancelled() && steps.unit-tests.outcome != 'skipped' }}
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: unit-coverage-turbo-diagnostics

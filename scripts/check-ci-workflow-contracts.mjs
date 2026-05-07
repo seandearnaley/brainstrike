@@ -679,7 +679,49 @@ export function validateWorkflowContracts(source) {
     requireIncludes(
       unitCoverage,
       'timeout-minutes: 30',
-      'Unit coverage test step timeout must stay at 30 minutes or less.',
+      'Unit coverage package and DB serial steps must stay at 30 minutes or less.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      '- name: Run affected package unit coverage',
+      'Unit coverage must keep affected package coverage in a separate timed step.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      '- name: Run DB runtime coverage',
+      'Unit coverage must keep DB runtime coverage in a separate timed step.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      '- name: Run DB serial coverage lanes',
+      'Unit coverage must keep serial DB coverage lanes in a separate timed step.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      '- name: Prepare unit coverage workspace',
+      'Unit coverage must prepare merged workspace coverage in a separate output step.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      'timeout-minutes: 10',
+      'DB runtime coverage must keep a tight isolated timeout.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      'timeout-minutes: 5',
+      'Coverage workspace preparation must keep a tight timeout.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      'rm -rf .turbo/runs',
+      'Unit coverage must clear stale Turbo summaries before the split coverage phases.',
       failures
     );
     requireIncludes(
@@ -738,6 +780,12 @@ export function validateWorkflowContracts(source) {
       unitCoverage,
       '--task-prefix test:coverage',
       'Unit coverage timing diagnostics must include split coverage tasks.',
+      failures
+    );
+    requireNotIncludes(
+      unitCoverage,
+      "steps.unit-tests.outcome != 'skipped'",
+      'Unit coverage timing diagnostics must still run when an earlier coverage phase fails.',
       failures
     );
     requireIncludes(
