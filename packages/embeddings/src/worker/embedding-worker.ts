@@ -2083,7 +2083,7 @@ export async function startEmbeddingWorker(
     });
     await statsRefreshController.recordCompletions(
       updates.map((update) => update.embeddingSetId),
-      completedJobIds.size
+      updates.length
     );
     await statsRefreshController.flushIfDue();
 

@@ -700,6 +700,91 @@ describe('Embedding Worker Batch Optimization', () => {
     expect(service.getStatus()).toBe('disposed');
   });
 
+  it('marks indexing stats dirty when chunk updates succeed but job completion loses lease', async () => {
+    const now = new Date().toISOString();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    const compositeKey = formatProviderModelKey('local', modelKey);
+    const embeddingSetId = 'set-lease-loss-stats';
+    const fileId = 'file-lease-loss-stats';
+    const chunkId = 'chunk-lease-loss-stats';
+    const jobId = 'job-lease-loss-stats';
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, compositeKey, modelKey, 768, 'cosine', now]
+    );
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, embedding_set_id, created_at, updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`,
+      [
+        fileId,
+        'lease-loss-stats.ts',
+        '/lease-loss-stats.ts',
+        100,
+        'content',
+        'hash',
+        10,
+        embeddingSetId,
+        now,
+      ]
+    );
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+        VALUES ($1,$2,0,$3,$4,$5,'text',10,$6,$6)`,
+      [chunkId, fileId, 'content', 'hash', 10, now]
+    );
+    await db.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+        VALUES ($1,'embeddings','embed_chunk', $2, 'queued', $3, 0, 3, 0, $3, $3)`,
+      [
+        jobId,
+        JSON.stringify({
+          chunkId,
+          embeddingSetId,
+          modelKey: compositeKey,
+          expectedDimension: 768,
+        }),
+        now,
+      ]
+    );
+
+    const completeBatchSpy = vi
+      .spyOn(JobQueue.prototype, 'completeBatch')
+      .mockResolvedValueOnce([]);
+    const originalQuery = db.query.bind(db);
+    let dirtyWriteCount = 0;
+    vi.spyOn(db, 'query').mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('UPDATE collection_indexing_stats')) {
+        dirtyWriteCount += 1;
+      }
+      return await originalQuery(sql, params);
+    });
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      interBatchDelayMs: 1000,
+      leaseMs: 5000,
+      log: () => {},
+      modelKey,
+      service: new FakeEmbeddingService(),
+      statsRefreshCompletedChunkThreshold: 512,
+      statsRefreshMinIntervalMs: 60_000,
+    });
+    await waitFor(async () => {
+      const res = await db.query<{ count: number }>(
+        'SELECT count(*) as count FROM file_chunks WHERE id = $1 AND embedding IS NOT NULL',
+        [chunkId]
+      );
+      return Number(res.rows[0]?.count) === 1;
+    }, 10_000);
+
+    await controller.stop();
+    completeBatchSpy.mockRestore();
+
+    expect(dirtyWriteCount).toBe(1);
+  });
+
   it('keeps 20k-completion indexing stats refresh cadence bounded', async () => {
     const completedChunkCount = 20_000;
     const threshold = 512;
