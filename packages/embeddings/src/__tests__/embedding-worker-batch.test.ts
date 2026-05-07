@@ -785,6 +785,87 @@ describe('Embedding Worker Batch Optimization', () => {
     expect(dirtyWriteCount).toBe(1);
   });
 
+  it('does not fail completed embedding jobs when stats maintenance fails', async () => {
+    const now = new Date().toISOString();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    const compositeKey = formatProviderModelKey('local', modelKey);
+    const embeddingSetId = 'set-stats-maintenance-failure';
+    const fileId = 'file-stats-maintenance-failure';
+    const chunkId = 'chunk-stats-maintenance-failure';
+    const jobId = 'job-stats-maintenance-failure';
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, compositeKey, modelKey, 768, 'cosine', now]
+    );
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, embedding_set_id, created_at, updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`,
+      [
+        fileId,
+        'stats-maintenance-failure.ts',
+        '/stats-maintenance-failure.ts',
+        100,
+        'content',
+        'hash',
+        10,
+        embeddingSetId,
+        now,
+      ]
+    );
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+        VALUES ($1,$2,0,$3,$4,$5,'text',10,$6,$6)`,
+      [chunkId, fileId, 'content', 'hash', 10, now]
+    );
+    await db.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+        VALUES ($1,'embeddings','embed_chunk', $2, 'queued', $3, 0, 3, 0, $3, $3)`,
+      [
+        jobId,
+        JSON.stringify({
+          chunkId,
+          embeddingSetId,
+          modelKey: compositeKey,
+          expectedDimension: 768,
+        }),
+        now,
+      ]
+    );
+
+    const failBatchSpy = vi.spyOn(JobQueue.prototype, 'failBatch');
+    const originalQuery = db.query.bind(db);
+    vi.spyOn(db, 'query').mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('UPDATE collection_indexing_stats')) {
+        throw new Error('stats dirty mark failed');
+      }
+      return await originalQuery(sql, params);
+    });
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      interBatchDelayMs: 1000,
+      leaseMs: 5000,
+      log: () => {},
+      modelKey,
+      service: new FakeEmbeddingService(),
+      statsRefreshCompletedChunkThreshold: 512,
+      statsRefreshMinIntervalMs: 60_000,
+    });
+    await waitFor(async () => {
+      const res = await db.query<{ count: number }>(
+        `SELECT count(*) as count FROM job_queue WHERE id = $1 AND state = 'succeeded'`,
+        [jobId]
+      );
+      return Number(res.rows[0]?.count) === 1;
+    }, 10_000);
+
+    await controller.stop();
+    expect(failBatchSpy).not.toHaveBeenCalled();
+    failBatchSpy.mockRestore();
+  });
+
   it('keeps 20k-completion indexing stats refresh cadence bounded', async () => {
     const completedChunkCount = 20_000;
     const threshold = 512;
@@ -871,6 +952,54 @@ describe('Embedding Worker Batch Optimization', () => {
     await controller.flush('worker-stop');
 
     expect(dirtyWriteCount).toBe(1);
+  });
+
+  it('retains pending stats refresh work when dirty marking fails', async () => {
+    let failDirtyWrite = true;
+    let refreshCount = 0;
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('UPDATE collection_indexing_stats')) {
+          if (failDirtyWrite) {
+            throw new Error('dirty mark failed');
+          }
+          return { rows: [] };
+        }
+        if (sql.includes('aggregated_chunks') && sql.includes('collection_indexing_stats')) {
+          refreshCount += 1;
+          return {
+            rows: [
+              {
+                embeddingSetId: 'set-dirty-failure',
+                fileCount: 1,
+                chunkCount: 1,
+                embeddedChunkCount: 1,
+                pendingChunkCount: 0,
+                dirty: false,
+                lastRefreshedAt: new Date().toISOString(),
+              },
+            ],
+          };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    } as unknown as IDatabase;
+
+    const controller = createEmbeddingStatsRefreshController({
+      completedChunkThreshold: 512,
+      db,
+      log: () => {},
+      minIntervalMs: 60_000,
+      now: () => 0,
+    });
+
+    await expect(controller.recordCompletions(['set-dirty-failure'], 1)).rejects.toThrow(
+      'dirty mark failed'
+    );
+    failDirtyWrite = false;
+    await controller.flush('worker-stop');
+
+    expect(refreshCount).toBe(1);
   });
 });
 

@@ -457,16 +457,16 @@ export function createEmbeddingStatsRefreshController({
       const newlyPendingIds = uniqueIds.filter(
         (embeddingSetId) => !pendingEmbeddingSetIds.has(embeddingSetId)
       );
+      for (const embeddingSetId of newlyPendingIds) {
+        pendingEmbeddingSetIds.add(embeddingSetId);
+      }
+      completedSinceRefresh += completedChunkCount;
       if (newlyPendingIds.length > 0) {
         await markCollectionIndexingStatsDirty(db, newlyPendingIds, {
           label: 'embedding completion stats dirty',
           priority: 'background',
         });
       }
-      for (const embeddingSetId of newlyPendingIds) {
-        pendingEmbeddingSetIds.add(embeddingSetId);
-      }
-      completedSinceRefresh += completedChunkCount;
     },
   };
 }
@@ -2081,11 +2081,19 @@ export async function startEmbeddingWorker(
       embeddingSetCount: new Set(updates.map((update) => update.embeddingSetId)).size,
       updateCount: updates.length,
     });
-    await statsRefreshController.recordCompletions(
-      updates.map((update) => update.embeddingSetId),
-      updates.length
-    );
-    await statsRefreshController.flushIfDue();
+    try {
+      await statsRefreshController.recordCompletions(
+        updates.map((update) => update.embeddingSetId),
+        updates.length
+      );
+      await statsRefreshController.flushIfDue();
+    } catch (error) {
+      workerLogger.warn('Failed to update embedding completion stats', {
+        completedChunkCount: updates.length,
+        embeddingSetCount: new Set(updates.map((update) => update.embeddingSetId)).size,
+        error,
+      });
+    }
 
     return completedJobIds;
   }
@@ -2522,7 +2530,11 @@ export async function startEmbeddingWorker(
         workerLogger.error('Scheduled embedding service reinitialization failed', { error });
       }
     }
-    await statsRefreshController.flush('queue-idle');
+    try {
+      await statsRefreshController.flush('queue-idle');
+    } catch (error) {
+      workerLogger.warn('Failed to refresh embedding stats during idle', { error });
+    }
     await runEmbeddingCacheMaintenance('queue-idle');
     // Silent on empty polls - this happens constantly during idle
     await sleep(400); // idle backoff

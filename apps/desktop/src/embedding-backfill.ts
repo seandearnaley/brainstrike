@@ -297,15 +297,16 @@ interface VacuumLogState {
 
 async function vacuumBackfillTables(
   db: Pick<IDatabase, 'query'>,
-  logState: VacuumLogState
+  logState: VacuumLogState,
+  now: () => number
 ): Promise<void> {
-  const startedAt = Date.now();
+  const startedAt = now();
   try {
     await db.query('VACUUM file_chunks');
     await db.query('VACUUM job_queue');
     logState.hasLoggedVacuumFailure = false;
     logger.info('Periodic VACUUM during backfill completed', {
-      durationMs: Date.now() - startedAt,
+      durationMs: now() - startedAt,
       tables: ['file_chunks', 'job_queue'],
     });
   } catch (error) {
@@ -334,7 +335,7 @@ function createBackfillVacuumScheduler(
 
   return {
     forceVacuum: async () => {
-      await vacuumBackfillTables(db, logState);
+      await vacuumBackfillTables(db, logState, now);
       lastVacuumAt = now();
     },
     maybeVacuum: async () => {
@@ -342,7 +343,7 @@ function createBackfillVacuumScheduler(
       if (currentTime - lastVacuumAt < intervalMs) {
         return;
       }
-      await vacuumBackfillTables(db, logState);
+      await vacuumBackfillTables(db, logState, now);
       lastVacuumAt = now();
     },
   };
