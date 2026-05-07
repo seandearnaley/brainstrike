@@ -54,15 +54,63 @@ test('workflow contract fails when unit coverage phases are collapsed', () => {
   const source = workflowSource.replace(
     unitCoverage,
     unitCoverage
+      .replace('- name: Run affected package unit coverage', '- name: Run combined coverage')
       .replace('- name: Run DB runtime coverage', '- name: Run combined DB coverage')
       .replace('- name: Run DB serial coverage lanes', '- name: Run combined DB coverage lanes')
       .replace('- name: Prepare unit coverage workspace', '- name: Prepare coverage')
   );
 
   const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /must keep affected package coverage in a separate timed step/);
   assert.match(failures, /must keep DB runtime coverage in a separate timed step/);
   assert.match(failures, /must keep serial DB coverage lanes in a separate timed step/);
   assert.match(failures, /must prepare merged workspace coverage in a separate output step/);
+});
+
+test('workflow contract fails when split unit coverage job timeout is too low', () => {
+  const unitCoverage = extractJob(workflowSource, 'unit_coverage');
+  assert.ok(unitCoverage);
+
+  const source = workflowSource.replace(
+    unitCoverage,
+    unitCoverage.replace('    timeout-minutes: 90', '    timeout-minutes: 45')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /must cover split coverage step budgets plus overhead/
+  );
+});
+
+test('workflow contract fails when split unit coverage step timeouts are widened', () => {
+  const unitCoverage = extractJob(workflowSource, 'unit_coverage');
+  assert.ok(unitCoverage);
+
+  const source = workflowSource.replace(
+    unitCoverage,
+    unitCoverage
+      .replace(
+        '      - name: Run affected package unit coverage\n        # Keep',
+        '      - name: Run affected package unit coverage\n        timeout-minutes: 60\n        # Keep'
+      )
+      .replace(
+        '      - name: Run DB runtime coverage\n        # DB runtime',
+        '      - name: Run DB runtime coverage\n        timeout-minutes: 20\n        # DB runtime'
+      )
+      .replace(
+        '      - name: Run DB serial coverage lanes\n        # DB coverage',
+        '      - name: Run DB serial coverage lanes\n        timeout-minutes: 60\n        # DB coverage'
+      )
+      .replace(
+        '      - name: Prepare unit coverage workspace\n        id: unit-tests',
+        '      - name: Prepare unit coverage workspace\n        timeout-minutes: 10\n        id: unit-tests'
+      )
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /package and DB serial steps must stay at 30 minutes or less/);
+  assert.match(failures, /DB runtime coverage must keep a tight isolated timeout/);
+  assert.match(failures, /Coverage workspace preparation must keep a tight timeout/);
 });
 
 test('workflow contract fails when unit coverage diagnostics depend on coverage outputs', () => {

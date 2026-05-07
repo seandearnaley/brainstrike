@@ -161,9 +161,10 @@ jobs:
     name: Checks (unit-coverage)
     if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
-    # Affected coverage can still exercise PGlite-backed integration suites; keep the
-    # job ceiling above the longest package-level unit run without masking hangs.
-    timeout-minutes: 45
+    # The split coverage phases can use up to 75 minutes of step budget on a
+    # cold cache; keep job overhead bounded without letting the job kill valid
+    # serial DB coverage before diagnostics and coverage prep can run.
+    timeout-minutes: 90
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
@@ -214,7 +215,8 @@ jobs:
 
       - name: Run DB runtime coverage
         # DB runtime coverage cold-starts PGlite and must stay isolated from the
-        # broader DB lanes to avoid runner resource contention.
+        # broader DB lanes to avoid runner resource contention. These coverage
+        # phases remain fail-fast intentionally; diagnostics below still run.
         timeout-minutes: 10
         run: |
           START=$SECONDS

@@ -51,6 +51,14 @@ function requireNumericMatchAtMost(source, pattern, maxValue, message, failures)
   }
 }
 
+function requireNumericMatchAtLeast(source, pattern, minValue, message, failures) {
+  const match = source.match(pattern);
+  const value = match?.[1] ? Number.parseInt(match[1], 10) : Number.NaN;
+  if (!Number.isFinite(value) || value < minValue) {
+    failures.push(message);
+  }
+}
+
 function requireNumericCliFlagAtMost(source, flag, maxValue, message, failures) {
   requireNumericMatchAtMost(
     source,
@@ -64,6 +72,30 @@ function requireNumericCliFlagAtMost(source, flag, maxValue, message, failures) 
 function extractJobHeader(source) {
   const stepsStart = source.search(/^\s+steps:\s*$/m);
   return stepsStart === -1 ? source : source.slice(0, stepsStart);
+}
+
+function extractWorkflowStep(source, stepName) {
+  return extractBlock(
+    source,
+    new RegExp(`^      - name: ${escapeRegExp(stepName)}\\s*$`, 'm'),
+    /\n      - name: .+$/m
+  );
+}
+
+function requireStepTimeoutAtMost(source, stepName, maxValue, message, failures) {
+  const step = extractWorkflowStep(source, stepName);
+  if (!step) {
+    failures.push(message);
+    return;
+  }
+
+  requireNumericMatchAtMost(
+    step,
+    /^        timeout-minutes:\s*(\d+)\s*$/m,
+    maxValue,
+    message,
+    failures
+  );
 }
 
 function escapeRegExp(source) {
@@ -670,15 +702,24 @@ export function validateWorkflowContracts(source) {
   if (!unitCoverage) {
     failures.push('Missing unit_coverage job.');
   } else {
-    requireIncludes(
-      unitCoverage,
-      'timeout-minutes: 45',
-      'Unit coverage job timeout must stay at 45 minutes or less.',
+    requireNumericMatchAtLeast(
+      extractJobHeader(unitCoverage),
+      /^    timeout-minutes:\s*(\d+)\s*$/m,
+      85,
+      'Unit coverage job timeout must cover split coverage step budgets plus overhead.',
       failures
     );
-    requireIncludes(
+    requireNumericMatchAtMost(
+      extractJobHeader(unitCoverage),
+      /^    timeout-minutes:\s*(\d+)\s*$/m,
+      90,
+      'Unit coverage job timeout must stay at 90 minutes or less.',
+      failures
+    );
+    requireStepTimeoutAtMost(
       unitCoverage,
-      'timeout-minutes: 30',
+      'Run affected package unit coverage',
+      30,
       'Unit coverage package and DB serial steps must stay at 30 minutes or less.',
       failures
     );
@@ -694,10 +735,24 @@ export function validateWorkflowContracts(source) {
       'Unit coverage must keep DB runtime coverage in a separate timed step.',
       failures
     );
+    requireStepTimeoutAtMost(
+      unitCoverage,
+      'Run DB runtime coverage',
+      10,
+      'DB runtime coverage must keep a tight isolated timeout.',
+      failures
+    );
     requireIncludes(
       unitCoverage,
       '- name: Run DB serial coverage lanes',
       'Unit coverage must keep serial DB coverage lanes in a separate timed step.',
+      failures
+    );
+    requireStepTimeoutAtMost(
+      unitCoverage,
+      'Run DB serial coverage lanes',
+      30,
+      'Unit coverage package and DB serial steps must stay at 30 minutes or less.',
       failures
     );
     requireIncludes(
@@ -706,15 +761,10 @@ export function validateWorkflowContracts(source) {
       'Unit coverage must prepare merged workspace coverage in a separate output step.',
       failures
     );
-    requireIncludes(
+    requireStepTimeoutAtMost(
       unitCoverage,
-      'timeout-minutes: 10',
-      'DB runtime coverage must keep a tight isolated timeout.',
-      failures
-    );
-    requireIncludes(
-      unitCoverage,
-      'timeout-minutes: 5',
+      'Prepare unit coverage workspace',
+      5,
       'Coverage workspace preparation must keep a tight timeout.',
       failures
     );
