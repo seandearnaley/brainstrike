@@ -131,6 +131,12 @@ async function waitForQueueCapacity(
 ): Promise<number> {
   const startedAt = now();
   let pollCount = 0;
+  const throwTimeout = (backlog: QueueBacklogSnapshot): never => {
+    throw new Error(
+      `Backfill timed out while waiting for queue capacity below ${maxQueueDepth} jobs ` +
+        `(queued=${backlog.queued}, running=${backlog.running}, failed=${backlog.failed}, succeeded=${backlog.succeeded}).`
+    );
+  };
   while (true) {
     await assertCanContinue?.();
     const backlog = await getEmbeddingQueueBacklogSnapshot(jobQueue);
@@ -151,12 +157,12 @@ async function waitForQueueCapacity(
       }
       return capacity;
     }
+    if (now() - startedAt >= timeoutMs) {
+      throwTimeout(backlog);
+    }
     await observeMaintenance?.();
     if (now() - startedAt >= timeoutMs) {
-      throw new Error(
-        `Backfill timed out while waiting for queue capacity below ${maxQueueDepth} jobs ` +
-          `(queued=${backlog.queued}, running=${backlog.running}, failed=${backlog.failed}, succeeded=${backlog.succeeded}).`
-      );
+      throwTimeout(backlog);
     }
     await sleep(backlogPollMs);
   }
@@ -561,11 +567,15 @@ function createDrainProgressObserver(
         logState.consecutiveDrainTickFailures = 0;
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       if (!logState) {
+        logger.debug('Backfill drain maintenance callback failed (no log state)', {
+          completedSinceLastTick,
+          error: message,
+        });
         return;
       }
       logState.consecutiveDrainTickFailures += 1;
-      const message = error instanceof Error ? error.message : String(error);
       const shouldWarn =
         logState.consecutiveDrainTickFailures === 1 ||
         logState.consecutiveDrainTickFailures % DRAIN_TICK_FAILURE_WARN_EVERY === 0;
