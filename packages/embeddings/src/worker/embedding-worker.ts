@@ -363,16 +363,14 @@ export type StatsRefreshReason = 'interval' | 'queue-idle' | 'threshold' | 'work
 
 function resolvePositiveIntegerOption(
   value: number | undefined,
-  optionName: string,
-  fallback: number
+  defaultValue: number,
+  name: string
 ): number {
-  if (value === undefined) {
-    return fallback;
+  const resolved = value ?? defaultValue;
+  if (!Number.isInteger(resolved) || resolved <= 0) {
+    throw new Error(`${name} must be a positive integer when configured.`);
   }
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new Error(`${optionName} must be a positive integer when configured.`);
-  }
-  return value;
+  return resolved;
 }
 
 export interface EmbeddingStatsRefreshControllerOptions {
@@ -1179,26 +1177,26 @@ export async function startEmbeddingWorker(
   const queueName = options.queue ?? 'embeddings';
   const leaseMs = options.leaseMs ?? 60_000;
   const heartbeatMs = options.heartbeatIntervalMs ?? 10_000;
-  const concurrency = resolvePositiveIntegerOption(options.concurrency, 'concurrency', 1);
+  const concurrency = resolvePositiveIntegerOption(options.concurrency, 1, 'concurrency');
   const interBatchDelayMs = resolvePositiveIntegerOption(
     options.interBatchDelayMs,
-    'interBatchDelayMs',
-    50
+    50,
+    'interBatchDelayMs'
   );
   const claimBatchSize = resolvePositiveIntegerOption(
     options.claimBatchSize,
-    'claimBatchSize',
-    DEFAULT_CLAIM_BATCH_SIZE
+    DEFAULT_CLAIM_BATCH_SIZE,
+    'claimBatchSize'
   );
   const statsRefreshMinIntervalMs = resolvePositiveIntegerOption(
     options.statsRefreshMinIntervalMs,
-    'statsRefreshMinIntervalMs',
-    DEFAULT_STATS_REFRESH_MIN_INTERVAL_MS
+    DEFAULT_STATS_REFRESH_MIN_INTERVAL_MS,
+    'statsRefreshMinIntervalMs'
   );
   const statsRefreshCompletedChunkThreshold = resolvePositiveIntegerOption(
     options.statsRefreshCompletedChunkThreshold,
-    'statsRefreshCompletedChunkThreshold',
-    DEFAULT_STATS_REFRESH_COMPLETED_CHUNK_THRESHOLD
+    DEFAULT_STATS_REFRESH_COMPLETED_CHUNK_THRESHOLD,
+    'statsRefreshCompletedChunkThreshold'
   );
   const now = options.now ?? Date.now;
   const statsRefreshController = createEmbeddingStatsRefreshController({
@@ -1282,8 +1280,8 @@ export async function startEmbeddingWorker(
       const resolved = await options.resolveClaimBatchSize();
       const requestedClaimBatchSize = resolvePositiveIntegerOption(
         resolved,
-        'resolveClaimBatchSize',
-        claimBatchSize
+        claimBatchSize,
+        'resolveClaimBatchSize'
       );
       const effectiveClaimBatchSize = Math.min(requestedClaimBatchSize, claimBatchSize);
       lastClaimBatchSize = effectiveClaimBatchSize;
