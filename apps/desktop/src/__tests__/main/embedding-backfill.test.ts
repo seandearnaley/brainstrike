@@ -18,6 +18,95 @@ describe('embedding-backfill', () => {
     vi.useRealTimers();
   });
 
+  it('uses injected time for queue capacity timeouts', async () => {
+    vi.useFakeTimers();
+    let currentTime = 0;
+    let statsCalls = 0;
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('COUNT(*)::int AS count')) {
+          return { rows: [{ count: 1 }] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+    const jobQueue = {
+      enqueueBatch: vi.fn(),
+      getQueueStats: vi.fn(async () => {
+        statsCalls += 1;
+        if (statsCalls > 1) {
+          currentTime = 11;
+        }
+        return [{ queue: 'embeddings', queued: 1, running: 0, failed: 0, succeeded: 0 }];
+      }),
+    };
+
+    const backfill = expect(
+      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+        backlogPollMs: 1,
+        maxQueueDepth: 1,
+        now: () => currentTime,
+        queueCapacityTimeoutMs: 10,
+      })
+    ).rejects.toThrow('Backfill timed out while waiting for queue capacity below 1 jobs');
+    await vi.advanceTimersByTimeAsync(1);
+
+    await backfill;
+  });
+
+  it('uses injected time for embedding set drain timeouts', async () => {
+    vi.useFakeTimers();
+    let currentTime = 0;
+    let pendingCountCalls = 0;
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [{ queued: 0, running: 1, failed: 0, succeeded: 0 }],
+          };
+        }
+        if (sql.includes("payload->>'embeddingSetId'")) {
+          pendingCountCalls += 1;
+          if (pendingCountCalls > 1) {
+            currentTime = 11;
+          }
+          return { rows: [{ count: 1 }] };
+        }
+        if (sql.includes('COUNT(*)::int AS count')) {
+          return { rows: [{ count: 0 }] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+    const jobQueue = {
+      enqueueBatch: vi.fn(),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+      ]),
+    };
+
+    const backfill = expect(
+      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+        backlogPollMs: 1,
+        drainTimeoutMs: 10,
+        now: () => currentTime,
+      })
+    ).rejects.toThrow("Backfill timed out while waiting for embedding set 'set-123' to drain.");
+    await vi.advanceTimersByTimeAsync(1);
+
+    await backfill;
+  });
+
   it('keeps the queued backlog bounded while draining a large backfill', async () => {
     const db = {
       query: vi.fn(async (sql: string, params?: unknown[]) => {

@@ -622,6 +622,84 @@ describe('Embedding Worker Batch Optimization', () => {
     expect(hasStatsRefreshLog(stopLog, 'worker-stop')).toBe(true);
   });
 
+  it('disposes worker resources when stop-time indexing stats refresh fails', async () => {
+    const now = new Date().toISOString();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    const compositeKey = formatProviderModelKey('local', modelKey);
+    const embeddingSetId = 'set-stop-refresh-failure';
+    const fileId = 'file-stop-refresh-failure';
+    const chunkId = 'chunk-stop-refresh-failure';
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, compositeKey, modelKey, 768, 'cosine', now]
+    );
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, embedding_set_id, created_at, updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`,
+      [
+        fileId,
+        'stop-refresh-failure.ts',
+        '/stop-refresh-failure.ts',
+        100,
+        'content',
+        'hash',
+        10,
+        embeddingSetId,
+        now,
+      ]
+    );
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+        VALUES ($1,$2,0,$3,$4,$5,'text',10,$6,$6)`,
+      [chunkId, fileId, 'content', 'hash', 10, now]
+    );
+    await db.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+        VALUES ('job-stop-refresh-failure','embeddings','embed_chunk', $1, 'queued', $2, 0, 3, 0, $2, $2)`,
+      [
+        JSON.stringify({
+          chunkId,
+          embeddingSetId,
+          modelKey: compositeKey,
+          expectedDimension: 768,
+        }),
+        now,
+      ]
+    );
+
+    const service = new FakeEmbeddingService();
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      interBatchDelayMs: 1000,
+      leaseMs: 5000,
+      log: () => {},
+      modelKey,
+      now: () => 0,
+      service,
+      statsRefreshCompletedChunkThreshold: 512,
+      statsRefreshMinIntervalMs: 60_000,
+    });
+    await waitFor(async () => {
+      const res = await db.query<{ count: number }>(
+        `SELECT count(*) as count FROM job_queue WHERE id = 'job-stop-refresh-failure' AND state = 'succeeded'`
+      );
+      return Number(res.rows[0]?.count) === 1;
+    }, 10_000);
+
+    const originalQuery = db.query.bind(db);
+    vi.spyOn(db, 'query').mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('aggregated_chunks') && sql.includes('collection_indexing_stats')) {
+        throw new Error('stop stats refresh failed');
+      }
+      return await originalQuery(sql, params);
+    });
+
+    await expect(controller.stop()).resolves.toBeUndefined();
+    expect(service.getStatus()).toBe('disposed');
+  });
+
   it('keeps 20k-completion indexing stats refresh cadence bounded', async () => {
     const completedChunkCount = 20_000;
     const threshold = 512;
@@ -666,6 +744,48 @@ describe('Embedding Worker Batch Optimization', () => {
     await controller.flush('worker-stop');
 
     expect(refreshCount).toBe(Math.ceil(completedChunkCount / threshold));
+  });
+
+  it('skips duplicate stats dirty writes while the same embedding set is already pending', async () => {
+    let dirtyWriteCount = 0;
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('UPDATE collection_indexing_stats')) {
+          dirtyWriteCount += 1;
+          return { rows: [] };
+        }
+        if (sql.includes('aggregated_chunks') && sql.includes('collection_indexing_stats')) {
+          return {
+            rows: [
+              {
+                embeddingSetId: 'set-pending',
+                fileCount: 1,
+                chunkCount: 2,
+                embeddedChunkCount: 2,
+                pendingChunkCount: 0,
+                dirty: false,
+                lastRefreshedAt: new Date().toISOString(),
+              },
+            ],
+          };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    } as unknown as IDatabase;
+
+    const controller = createEmbeddingStatsRefreshController({
+      completedChunkThreshold: 512,
+      db,
+      log: () => {},
+      minIntervalMs: 60_000,
+      now: () => 0,
+    });
+
+    await controller.recordCompletions(['set-pending'], 1);
+    await controller.recordCompletions(['set-pending'], 1);
+    await controller.flush('worker-stop');
+
+    expect(dirtyWriteCount).toBe(1);
   });
 });
 

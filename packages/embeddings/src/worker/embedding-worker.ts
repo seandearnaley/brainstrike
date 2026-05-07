@@ -359,7 +359,7 @@ const CLAIM_SIZE_RESOLVER_FAILURE_BACKOFF_MS = 1000;
 const DEFAULT_STATS_REFRESH_MIN_INTERVAL_MS = 5000;
 const DEFAULT_STATS_REFRESH_COMPLETED_CHUNK_THRESHOLD = 512;
 
-type StatsRefreshReason = 'interval' | 'queue-idle' | 'threshold' | 'worker-stop';
+export type StatsRefreshReason = 'interval' | 'queue-idle' | 'threshold' | 'worker-stop';
 
 function resolvePositiveIntegerOption(
   value: number | undefined,
@@ -375,7 +375,7 @@ function resolvePositiveIntegerOption(
   return value;
 }
 
-interface EmbeddingStatsRefreshControllerOptions {
+export interface EmbeddingStatsRefreshControllerOptions {
   completedChunkThreshold: number;
   db: IDatabase;
   log: (msg: string, meta?: unknown) => void;
@@ -383,7 +383,7 @@ interface EmbeddingStatsRefreshControllerOptions {
   now: () => number;
 }
 
-interface EmbeddingStatsRefreshController {
+export interface EmbeddingStatsRefreshController {
   flush: (reason: StatsRefreshReason) => Promise<void>;
   flushIfDue: () => Promise<void>;
   recordCompletions: (
@@ -454,11 +454,16 @@ export function createEmbeddingStatsRefreshController({
         return;
       }
       const uniqueIds = [...new Set(embeddingSetIds)];
-      await markCollectionIndexingStatsDirty(db, uniqueIds, {
-        label: 'embedding completion stats dirty',
-        priority: 'background',
-      });
-      for (const embeddingSetId of uniqueIds) {
+      const newlyPendingIds = uniqueIds.filter(
+        (embeddingSetId) => !pendingEmbeddingSetIds.has(embeddingSetId)
+      );
+      if (newlyPendingIds.length > 0) {
+        await markCollectionIndexingStatsDirty(db, newlyPendingIds, {
+          label: 'embedding completion stats dirty',
+          priority: 'background',
+        });
+      }
+      for (const embeddingSetId of newlyPendingIds) {
         pendingEmbeddingSetIds.add(embeddingSetId);
       }
       completedSinceRefresh += completedChunkCount;
@@ -2622,7 +2627,11 @@ export async function startEmbeddingWorker(
       running = false;
       reportWorkerActivity(false);
       await Promise.race([Promise.allSettled(loops).then(() => {}), sleep(leaseMs)]);
-      await statsRefreshController.flush('worker-stop');
+      try {
+        await statsRefreshController.flush('worker-stop');
+      } catch (error) {
+        workerLogger.warn('Failed to refresh embedding stats during shutdown', { error });
+      }
       await flushEmbeddingCacheWrites();
       try {
         await service.dispose();

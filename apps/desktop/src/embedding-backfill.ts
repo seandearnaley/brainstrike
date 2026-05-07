@@ -125,10 +125,11 @@ async function waitForQueueCapacity(
   maxQueueDepth: number,
   backlogPollMs: number,
   timeoutMs: number,
+  now: () => number,
   assertCanContinue?: () => void | Promise<void>,
   observeDrainProgress?: () => void | Promise<void>
 ): Promise<number> {
-  const startedAt = Date.now();
+  const startedAt = now();
   let pollCount = 0;
   while (true) {
     await assertCanContinue?.();
@@ -139,7 +140,7 @@ async function waitForQueueCapacity(
       if (pollCount > 1) {
         logger.info('Backfill queue capacity wait completed', {
           capacity,
-          durationMs: Date.now() - startedAt,
+          durationMs: now() - startedAt,
           failed: backlog.failed,
           maxQueueDepth,
           pollCount,
@@ -150,7 +151,7 @@ async function waitForQueueCapacity(
       }
       return capacity;
     }
-    if (Date.now() - startedAt >= timeoutMs) {
+    if (now() - startedAt >= timeoutMs) {
       throw new Error(
         `Backfill timed out while waiting for queue capacity below ${maxQueueDepth} jobs ` +
           `(queued=${backlog.queued}, running=${backlog.running}, failed=${backlog.failed}, succeeded=${backlog.succeeded}).`
@@ -352,18 +353,19 @@ async function waitForEmbeddingSetDrain(
   embeddingSetId: string,
   backlogPollMs: number,
   timeoutMs: number,
+  now: () => number,
   assertCanContinue?: () => void | Promise<void>,
   updatedAfter?: string,
   observeMaintenance?: () => void | Promise<void>
 ): Promise<EmbeddingBackfillQueueCounts> {
-  const startedAt = Date.now();
+  const startedAt = now();
   while (true) {
     const pending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
     if (pending === 0) {
       return await getEmbeddingSetQueueCounts(db, embeddingSetId, updatedAfter);
     }
     await assertCanContinue?.();
-    if (Date.now() - startedAt >= timeoutMs) {
+    if (now() - startedAt >= timeoutMs) {
       throw new Error(
         `Backfill timed out while waiting for embedding set '${embeddingSetId}' to drain.`
       );
@@ -602,12 +604,12 @@ export async function enqueueEmbeddingBackfill(
     if (lastReportedDone === nextDone) {
       return;
     }
-    const now = Date.now();
-    if (!(reportOptions?.force ?? false) && now - lastReportedAt < progressIntervalMs) {
+    const currentTime = now();
+    if (!(reportOptions?.force ?? false) && currentTime - lastReportedAt < progressIntervalMs) {
       return;
     }
     lastReportedDone = nextDone;
-    lastReportedAt = now;
+    lastReportedAt = currentTime;
     onProgress(nextDone, nextTotal);
   };
 
@@ -623,6 +625,7 @@ export async function enqueueEmbeddingBackfill(
         maxQueueDepth,
         backlogPollMs,
         queueCapacityTimeoutMs,
+        now,
         assertCanContinue,
         observeMaintenance
       );
@@ -666,7 +669,7 @@ export async function enqueueEmbeddingBackfill(
     if (
       done >= total ||
       batchesSinceProgress >= progressIntervalBatches ||
-      Date.now() - lastReportedAt >= progressIntervalMs
+      now() - lastReportedAt >= progressIntervalMs
     ) {
       reportProgress(done, total, { force: done >= total });
       batchesSinceProgress = 0;
@@ -681,6 +684,7 @@ export async function enqueueEmbeddingBackfill(
     embeddingSetId,
     backlogPollMs,
     drainTimeoutMs,
+    now,
     assertCanContinue,
     runStartedAt,
     observeMaintenance
