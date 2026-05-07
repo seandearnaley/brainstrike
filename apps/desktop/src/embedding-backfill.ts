@@ -304,7 +304,6 @@ async function vacuumBackfillTables(
   const startedAt = now();
   let vacuumTable: 'file_chunks' | 'job_queue' = 'file_chunks';
   try {
-    vacuumTable = 'file_chunks';
     await db.query('VACUUM file_chunks');
     vacuumTable = 'job_queue';
     await db.query('VACUUM job_queue');
