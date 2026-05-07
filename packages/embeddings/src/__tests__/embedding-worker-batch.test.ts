@@ -1001,6 +1001,70 @@ describe('Embedding Worker Batch Optimization', () => {
 
     expect(refreshCount).toBe(1);
   });
+
+  it('serializes concurrent stats refresh flushes', async () => {
+    let activeRefreshCount = 0;
+    let maxActiveRefreshCount = 0;
+    let refreshCount = 0;
+    let resolveFirstRefreshStarted: (() => void) | undefined;
+    let releaseFirstRefresh: (() => void) | undefined;
+    const firstRefreshStarted = new Promise<void>((resolve) => {
+      resolveFirstRefreshStarted = resolve;
+    });
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('UPDATE collection_indexing_stats')) {
+          return { rows: [] };
+        }
+        if (sql.includes('aggregated_chunks') && sql.includes('collection_indexing_stats')) {
+          refreshCount += 1;
+          activeRefreshCount += 1;
+          maxActiveRefreshCount = Math.max(maxActiveRefreshCount, activeRefreshCount);
+          if (refreshCount === 1) {
+            resolveFirstRefreshStarted?.();
+            await new Promise<void>((release) => {
+              releaseFirstRefresh = release;
+            });
+          }
+          activeRefreshCount -= 1;
+          return {
+            rows: [
+              {
+                embeddingSetId: `set-concurrent-${refreshCount}`,
+                fileCount: 1,
+                chunkCount: 1,
+                embeddedChunkCount: 1,
+                pendingChunkCount: 0,
+                dirty: false,
+                lastRefreshedAt: new Date().toISOString(),
+              },
+            ],
+          };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    } as unknown as IDatabase;
+
+    const controller = createEmbeddingStatsRefreshController({
+      completedChunkThreshold: 512,
+      db,
+      log: () => {},
+      minIntervalMs: 60_000,
+      now: () => 0,
+    });
+
+    await controller.recordCompletions(['set-concurrent-a'], 1);
+    const firstFlush = controller.flush('worker-stop');
+
+    await firstRefreshStarted;
+    await controller.recordCompletions(['set-concurrent-b'], 1);
+    const secondFlush = controller.flush('queue-idle');
+    releaseFirstRefresh?.();
+    await Promise.all([firstFlush, secondFlush]);
+    await waitFor(async () => refreshCount === 2, 10_000);
+
+    expect(maxActiveRefreshCount).toBe(1);
+  });
 });
 
 // Increase timeouts to reduce flakiness under workspace-wide runs

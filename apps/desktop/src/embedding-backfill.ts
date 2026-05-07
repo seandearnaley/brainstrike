@@ -642,7 +642,7 @@ export async function enqueueEmbeddingBackfill(
       break;
     }
     cursor = batch.at(-1)?.id ?? cursor;
-    const enqueueStartedAt = Date.now();
+    const enqueueStartedAt = now();
     const { inserted, selected } = await enqueueEmbeddingChunkJobsBatch(
       jobQueue,
       batch,
@@ -656,7 +656,7 @@ export async function enqueueEmbeddingBackfill(
     });
     logger.info('Backfill enqueue batch completed', {
       batchSize: batch.length,
-      durationMs: Date.now() - enqueueStartedAt,
+      durationMs: now() - enqueueStartedAt,
       embeddingSetId,
       inserted,
       selected,

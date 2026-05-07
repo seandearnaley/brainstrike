@@ -400,15 +400,16 @@ export function createEmbeddingStatsRefreshController({
   const pendingEmbeddingSetIds = new Set<string>();
   let completedSinceRefresh = 0;
   let lastRefreshAt = now();
+  let flushInFlight: Promise<void> | null = null;
 
-  const flush = async (reason: StatsRefreshReason): Promise<void> => {
+  const flushPending = async (reason: StatsRefreshReason): Promise<void> => {
     if (pendingEmbeddingSetIds.size === 0) {
       return;
     }
 
     const embeddingSetIds = [...pendingEmbeddingSetIds];
     const completedChunkCount = completedSinceRefresh;
-    const startedAt = performance.now();
+    const startedAt = now();
     pendingEmbeddingSetIds.clear();
     completedSinceRefresh = 0;
 
@@ -420,7 +421,7 @@ export function createEmbeddingStatsRefreshController({
       lastRefreshAt = now();
       log('embedding_stats_refresh', {
         completedChunkCount,
-        durationMs: Math.round(performance.now() - startedAt),
+        durationMs: Math.round(now() - startedAt),
         embeddingSetCount: embeddingSetIds.length,
         reason,
       });
@@ -430,6 +431,25 @@ export function createEmbeddingStatsRefreshController({
       }
       completedSinceRefresh += completedChunkCount;
       throw error;
+    }
+  };
+
+  const flush = async (reason: StatsRefreshReason): Promise<void> => {
+    if (flushInFlight) {
+      try {
+        await flushInFlight;
+      } catch {
+        // The in-flight flush restored pending state before rejecting; this caller can retry it.
+      }
+    }
+    const nextFlush = flushPending(reason);
+    flushInFlight = nextFlush;
+    try {
+      await nextFlush;
+    } finally {
+      if (flushInFlight === nextFlush) {
+        flushInFlight = null;
+      }
     }
   };
 
