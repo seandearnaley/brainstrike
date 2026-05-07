@@ -313,7 +313,7 @@ export function PromptEditor({
                           type="button"
                           variant="ghost"
                         >
-                          <RotateCcw className="h-3 w-3" />
+                          <RotateCcw aria-hidden="true" className="h-3 w-3" />
                         </Button>
                       </div>
                     ))}

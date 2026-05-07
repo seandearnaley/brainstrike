@@ -57,7 +57,7 @@ export function PromptCard({
               </Badge>
               {prompt.site && (
                 <span className="flex max-w-[120px] items-center gap-1 truncate">
-                  <Globe className="h-3 w-3" />
+                  <Globe aria-hidden="true" className="h-3 w-3" />
                   {new URL(prompt.site).hostname}
                 </span>
               )}
@@ -81,7 +81,10 @@ export function PromptCard({
               title={prompt.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
               variant="ghost"
             >
-              <Star className={cn('h-4 w-4', prompt.isFavorite && 'fill-current')} />
+              <Star
+                aria-hidden="true"
+                className={cn('h-4 w-4', prompt.isFavorite && 'fill-current')}
+              />
             </Button>
 
             <DropdownMenu>
@@ -93,23 +96,23 @@ export function PromptCard({
                   title="More options"
                   variant="ghost"
                 >
-                  <MoreVertical className="h-4 w-4" />
+                  <MoreVertical aria-hidden="true" className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => onCopy(prompt.content)}>
-                  <Copy className="mr-2 h-4 w-4" />
+                  <Copy aria-hidden="true" className="mr-2 h-4 w-4" />
                   Copy Content
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onEdit(prompt.id)}>
-                  <Edit2 className="mr-2 h-4 w-4" />
+                  <Edit2 aria-hidden="true" className="mr-2 h-4 w-4" />
                   Edit
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
                   onClick={() => onDelete(prompt.id)}
                 >
-                  <Trash2 className="mr-2 h-4 w-4" />
+                  <Trash2 aria-hidden="true" className="mr-2 h-4 w-4" />
                   Delete
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -143,7 +146,7 @@ export function PromptCard({
           className="ml-2 flex shrink-0 items-center gap-1"
           title={`Updated ${new Date(prompt.updatedAt).toLocaleString()}`}
         >
-          <Calendar className="h-3 w-3" />
+          <Calendar aria-hidden="true" className="h-3 w-3" />
           {new Date(prompt.updatedAt).toLocaleDateString()}
         </div>
       </CardFooter>
