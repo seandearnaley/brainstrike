@@ -1276,7 +1276,7 @@ describe('embedding-backfill', () => {
       progressIntervalBatches: 1,
       progressIntervalMs: 1,
       vacuumIntervalMs: 5,
-    } as unknown as EnqueueEmbeddingBackfillOptions;
+    } satisfies EnqueueEmbeddingBackfillOptions;
 
     await enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, options);
 

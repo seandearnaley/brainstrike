@@ -127,7 +127,7 @@ async function waitForQueueCapacity(
   timeoutMs: number,
   now: () => number,
   assertCanContinue?: () => void | Promise<void>,
-  observeDrainProgress?: () => void | Promise<void>
+  observeMaintenance?: () => void | Promise<void>
 ): Promise<number> {
   const startedAt = now();
   let pollCount = 0;
@@ -157,7 +157,7 @@ async function waitForQueueCapacity(
           `(queued=${backlog.queued}, running=${backlog.running}, failed=${backlog.failed}, succeeded=${backlog.succeeded}).`
       );
     }
-    await observeDrainProgress?.();
+    await observeMaintenance?.();
     await sleep(backlogPollMs);
   }
 }
