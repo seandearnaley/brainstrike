@@ -2094,21 +2094,20 @@ export async function startEmbeddingWorker(
       completedJobIds.add(job.id);
     }
     onJobsCompleted?.(completedJobIds);
+    const completedEmbeddingSetIds = updates.map((update) => update.embeddingSetId);
+    const completedEmbeddingSetCount = new Set(completedEmbeddingSetIds).size;
     log('embedding_completion_batch', {
       completedJobCount: completedJobIds.size,
-      embeddingSetCount: new Set(updates.map((update) => update.embeddingSetId)).size,
+      embeddingSetCount: completedEmbeddingSetCount,
       updateCount: updates.length,
     });
     try {
-      await statsRefreshController.recordCompletions(
-        updates.map((update) => update.embeddingSetId),
-        updates.length
-      );
+      await statsRefreshController.recordCompletions(completedEmbeddingSetIds, updates.length);
       await statsRefreshController.flushIfDue();
     } catch (error) {
       workerLogger.warn('Failed to update embedding completion stats', {
         completedChunkCount: updates.length,
-        embeddingSetCount: new Set(updates.map((update) => update.embeddingSetId)).size,
+        embeddingSetCount: completedEmbeddingSetCount,
         error,
       });
     }
