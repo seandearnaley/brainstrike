@@ -435,7 +435,7 @@ export function createEmbeddingStatsRefreshController({
   };
 
   const flush = async (reason: StatsRefreshReason): Promise<void> => {
-    if (flushInFlight) {
+    while (flushInFlight) {
       try {
         await flushInFlight;
       } catch {

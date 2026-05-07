@@ -11,6 +11,7 @@ import type {
   EmbeddingStatus,
   SimilarityResult,
 } from '../types';
+import type { EmbeddingStatsRefreshController } from '../worker/embedding-worker';
 import { createEmbeddingStatsRefreshController } from '../worker/embedding-worker';
 
 class FakeEmbeddingService implements EmbeddingService {
@@ -1008,6 +1009,8 @@ describe('Embedding Worker Batch Optimization', () => {
     let refreshCount = 0;
     let resolveFirstRefreshStarted: (() => void) | undefined;
     let releaseFirstRefresh: (() => void) | undefined;
+    let releaseSecondRefresh: (() => void) | undefined;
+    let controller: EmbeddingStatsRefreshController | undefined;
     const firstRefreshStarted = new Promise<void>((resolve) => {
       resolveFirstRefreshStarted = resolve;
     });
@@ -1024,6 +1027,12 @@ describe('Embedding Worker Batch Optimization', () => {
             resolveFirstRefreshStarted?.();
             await new Promise<void>((release) => {
               releaseFirstRefresh = release;
+            });
+          }
+          if (refreshCount === 2) {
+            await controller?.recordCompletions(['set-concurrent-c'], 1);
+            await new Promise<void>((release) => {
+              releaseSecondRefresh = release;
             });
           }
           activeRefreshCount -= 1;
@@ -1045,7 +1054,7 @@ describe('Embedding Worker Batch Optimization', () => {
       }),
     } as unknown as IDatabase;
 
-    const controller = createEmbeddingStatsRefreshController({
+    controller = createEmbeddingStatsRefreshController({
       completedChunkThreshold: 512,
       db,
       log: () => {},
@@ -1059,9 +1068,12 @@ describe('Embedding Worker Batch Optimization', () => {
     await firstRefreshStarted;
     await controller.recordCompletions(['set-concurrent-b'], 1);
     const secondFlush = controller.flush('queue-idle');
+    const thirdFlush = controller.flush('threshold');
     releaseFirstRefresh?.();
-    await Promise.all([firstFlush, secondFlush]);
-    await waitFor(async () => refreshCount === 2, 10_000);
+    await waitFor(async () => releaseSecondRefresh !== undefined, 10_000);
+    releaseSecondRefresh?.();
+    await Promise.all([firstFlush, secondFlush, thirdFlush]);
+    await waitFor(async () => refreshCount === 3, 10_000);
 
     expect(maxActiveRefreshCount).toBe(1);
   });
