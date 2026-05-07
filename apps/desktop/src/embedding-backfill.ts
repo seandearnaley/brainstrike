@@ -151,13 +151,13 @@ async function waitForQueueCapacity(
       }
       return capacity;
     }
+    await observeMaintenance?.();
     if (now() - startedAt >= timeoutMs) {
       throw new Error(
         `Backfill timed out while waiting for queue capacity below ${maxQueueDepth} jobs ` +
           `(queued=${backlog.queued}, running=${backlog.running}, failed=${backlog.failed}, succeeded=${backlog.succeeded}).`
       );
     }
-    await observeMaintenance?.();
     await sleep(backlogPollMs);
   }
 }
@@ -290,9 +290,10 @@ async function countPendingEmbeddingSetJobs(
 // grow, never shrink). Periodic VACUUM reclaims dead tuple space, preventing
 // unbounded memory growth during large backfills.
 const VACUUM_INTERVAL_MS = 30_000;
+const VACUUM_FAILURE_WARN_EVERY = 10;
 
 interface VacuumLogState {
-  hasLoggedVacuumFailure: boolean;
+  consecutiveVacuumFailures: number;
 }
 
 async function vacuumBackfillTables(
@@ -304,19 +305,26 @@ async function vacuumBackfillTables(
   try {
     await db.query('VACUUM file_chunks');
     await db.query('VACUUM job_queue');
-    logState.hasLoggedVacuumFailure = false;
+    logState.consecutiveVacuumFailures = 0;
     logger.info('Periodic VACUUM during backfill completed', {
       durationMs: now() - startedAt,
       tables: ['file_chunks', 'job_queue'],
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (!logState.hasLoggedVacuumFailure) {
-      logState.hasLoggedVacuumFailure = true;
-      logger.warn('Periodic VACUUM during backfill failed (non-fatal)', { error: message });
+    logState.consecutiveVacuumFailures += 1;
+    const shouldWarn =
+      logState.consecutiveVacuumFailures === 1 ||
+      logState.consecutiveVacuumFailures % VACUUM_FAILURE_WARN_EVERY === 0;
+    const logPayload = {
+      consecutiveFailureCount: logState.consecutiveVacuumFailures,
+      error: message,
+    };
+    if (shouldWarn) {
+      logger.warn('Periodic VACUUM during backfill failed (non-fatal)', logPayload);
       return;
     }
-    logger.debug('Periodic VACUUM during backfill failed (non-fatal)', { error: message });
+    logger.debug('Periodic VACUUM during backfill failed (non-fatal)', logPayload);
   }
 }
 
@@ -584,7 +592,7 @@ export async function enqueueEmbeddingBackfill(
   let lastReportedDone = -1;
   let availableCapacity = 0;
   let lastReportedAt = Number.NEGATIVE_INFINITY;
-  const vacuumLogState: VacuumLogState = { hasLoggedVacuumFailure: false };
+  const vacuumLogState: VacuumLogState = { consecutiveVacuumFailures: 0 };
   const vacuumScheduler = createBackfillVacuumScheduler(db, vacuumLogState, vacuumIntervalMs, now);
   const observeDrainProgress = createDrainProgressObserver(
     db,
