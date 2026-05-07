@@ -169,11 +169,6 @@ jobs:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
-      COVERAGE: "true"
-      DB_COVERAGE_RUNTIME_TASK: test:coverage:db:runtime
-      DB_COVERAGE_TASKS: test:coverage:db:architecture test:coverage:db:chunking test:coverage:db:migrations test:coverage:db:queue test:coverage:db:repositories test:coverage:db:search
-      NODE_ENV: test
-      TURBO_TEST_MODE: coverage
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -202,6 +197,10 @@ jobs:
         # Keep the affected package slice separate from the serial DB lanes so
         # a cold cache cannot spend the entire step timeout before DB coverage.
         timeout-minutes: 30
+        env:
+          COVERAGE: "true"
+          NODE_ENV: test
+          TURBO_TEST_MODE: coverage
         run: |
           START=$SECONDS
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$GITHUB_BASE_REF" ]; then
@@ -218,6 +217,11 @@ jobs:
         # broader DB lanes to avoid runner resource contention. These coverage
         # phases remain fail-fast intentionally; diagnostics below still run.
         timeout-minutes: 10
+        env:
+          COVERAGE: "true"
+          DB_COVERAGE_RUNTIME_TASK: test:coverage:db:runtime
+          NODE_ENV: test
+          TURBO_TEST_MODE: coverage
         run: |
           START=$SECONDS
           pnpm turbo run $DB_COVERAGE_RUNTIME_TASK --filter="@brainstrike/db" --concurrency=1 --summarize --log-order=grouped --cache-dir=.turbo
@@ -228,6 +232,11 @@ jobs:
         # several lanes at once saturates the runner and turns valid 10s unit
         # timeouts into contention failures, so keep DB lanes serial.
         timeout-minutes: 30
+        env:
+          COVERAGE: "true"
+          DB_COVERAGE_TASKS: test:coverage:db:architecture test:coverage:db:chunking test:coverage:db:migrations test:coverage:db:queue test:coverage:db:repositories test:coverage:db:search
+          NODE_ENV: test
+          TURBO_TEST_MODE: coverage
         run: |
           START=$SECONDS
           pnpm turbo run $DB_COVERAGE_TASKS --filter="@brainstrike/db" --concurrency=1 --summarize --log-order=grouped --cache-dir=.turbo

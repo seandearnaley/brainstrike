@@ -90,20 +90,20 @@ test('workflow contract fails when split unit coverage step timeouts are widened
     unitCoverage,
     unitCoverage
       .replace(
-        '      - name: Run affected package unit coverage\n        # Keep',
-        '      - name: Run affected package unit coverage\n        timeout-minutes: 60\n        # Keep'
+        '      - name: Run affected package unit coverage\n        # Keep the affected package slice separate from the serial DB lanes so\n        # a cold cache cannot spend the entire step timeout before DB coverage.\n        timeout-minutes: 30',
+        '      - name: Run affected package unit coverage\n        # Keep the affected package slice separate from the serial DB lanes so\n        # a cold cache cannot spend the entire step timeout before DB coverage.\n        timeout-minutes: 60'
       )
       .replace(
-        '      - name: Run DB runtime coverage\n        # DB runtime',
-        '      - name: Run DB runtime coverage\n        timeout-minutes: 20\n        # DB runtime'
+        '      - name: Run DB runtime coverage\n        # DB runtime coverage cold-starts PGlite and must stay isolated from the\n        # broader DB lanes to avoid runner resource contention. These coverage\n        # phases remain fail-fast intentionally; diagnostics below still run.\n        timeout-minutes: 10',
+        '      - name: Run DB runtime coverage\n        # DB runtime coverage cold-starts PGlite and must stay isolated from the\n        # broader DB lanes to avoid runner resource contention. These coverage\n        # phases remain fail-fast intentionally; diagnostics below still run.\n        timeout-minutes: 20'
       )
       .replace(
-        '      - name: Run DB serial coverage lanes\n        # DB coverage',
-        '      - name: Run DB serial coverage lanes\n        timeout-minutes: 60\n        # DB coverage'
+        '      - name: Run DB serial coverage lanes\n        # DB coverage lanes are PGlite-heavy. On GitHub runners, running\n        # several lanes at once saturates the runner and turns valid 10s unit\n        # timeouts into contention failures, so keep DB lanes serial.\n        timeout-minutes: 30',
+        '      - name: Run DB serial coverage lanes\n        # DB coverage lanes are PGlite-heavy. On GitHub runners, running\n        # several lanes at once saturates the runner and turns valid 10s unit\n        # timeouts into contention failures, so keep DB lanes serial.\n        timeout-minutes: 60'
       )
       .replace(
-        '      - name: Prepare unit coverage workspace\n        id: unit-tests',
-        '      - name: Prepare unit coverage workspace\n        timeout-minutes: 10\n        id: unit-tests'
+        '      - name: Prepare unit coverage workspace\n        id: unit-tests\n        timeout-minutes: 5',
+        '      - name: Prepare unit coverage workspace\n        id: unit-tests\n        timeout-minutes: 10'
       )
   );
 

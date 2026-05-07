@@ -716,6 +716,14 @@ export function validateWorkflowContracts(source) {
       'Unit coverage job timeout must stay at 90 minutes or less.',
       failures
     );
+    for (const jobLevelCoverageEnv of ['COVERAGE:', 'NODE_ENV:', 'TURBO_TEST_MODE:']) {
+      requireNotIncludes(
+        extractJobHeader(unitCoverage),
+        jobLevelCoverageEnv,
+        'Unit coverage must scope coverage/test env to coverage steps, not setup.',
+        failures
+      );
+    }
     requireStepTimeoutAtMost(
       unitCoverage,
       'Run affected package unit coverage',
