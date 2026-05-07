@@ -47,6 +47,90 @@ test('current workflow satisfies CI cost and E2E routing contracts', () => {
   assert.deepEqual(validateWorkflowContracts(workflowSource), []);
 });
 
+test('workflow contract fails when unit coverage phases are collapsed', () => {
+  const unitCoverage = extractJob(workflowSource, 'unit_coverage');
+  assert.ok(unitCoverage);
+
+  const source = workflowSource.replace(
+    unitCoverage,
+    unitCoverage
+      .replace('- name: Run affected package unit coverage', '- name: Run combined coverage')
+      .replace('- name: Run DB runtime coverage', '- name: Run combined DB coverage')
+      .replace('- name: Run DB serial coverage lanes', '- name: Run combined DB coverage lanes')
+      .replace('- name: Prepare unit coverage workspace', '- name: Prepare coverage')
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /must keep affected package coverage in a separate timed step/);
+  assert.match(failures, /must keep DB runtime coverage in a separate timed step/);
+  assert.match(failures, /must keep serial DB coverage lanes in a separate timed step/);
+  assert.match(failures, /must prepare merged workspace coverage in a separate output step/);
+});
+
+test('workflow contract fails when split unit coverage job timeout is too low', () => {
+  const unitCoverage = extractJob(workflowSource, 'unit_coverage');
+  assert.ok(unitCoverage);
+
+  const source = workflowSource.replace(
+    unitCoverage,
+    unitCoverage.replace('    timeout-minutes: 90', '    timeout-minutes: 45')
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /must cover split coverage step budgets plus overhead/
+  );
+});
+
+test('workflow contract fails when split unit coverage step timeouts are widened', () => {
+  const unitCoverage = extractJob(workflowSource, 'unit_coverage');
+  assert.ok(unitCoverage);
+
+  const source = workflowSource.replace(
+    unitCoverage,
+    unitCoverage
+      .replace(
+        '      - name: Run affected package unit coverage\n        # Keep the affected package slice separate from the serial DB lanes so\n        # a cold cache cannot spend the entire step timeout before DB coverage.\n        timeout-minutes: 30',
+        '      - name: Run affected package unit coverage\n        # Keep the affected package slice separate from the serial DB lanes so\n        # a cold cache cannot spend the entire step timeout before DB coverage.\n        timeout-minutes: 60'
+      )
+      .replace(
+        '      - name: Run DB runtime coverage\n        # DB runtime coverage cold-starts PGlite and must stay isolated from the\n        # broader DB lanes to avoid runner resource contention. These coverage\n        # phases remain fail-fast intentionally; diagnostics below still run.\n        timeout-minutes: 10',
+        '      - name: Run DB runtime coverage\n        # DB runtime coverage cold-starts PGlite and must stay isolated from the\n        # broader DB lanes to avoid runner resource contention. These coverage\n        # phases remain fail-fast intentionally; diagnostics below still run.\n        timeout-minutes: 20'
+      )
+      .replace(
+        '      - name: Run DB serial coverage lanes\n        # DB coverage lanes are PGlite-heavy. On GitHub runners, running\n        # several lanes at once saturates the runner and turns valid 10s unit\n        # timeouts into contention failures, so keep DB lanes serial.\n        timeout-minutes: 30',
+        '      - name: Run DB serial coverage lanes\n        # DB coverage lanes are PGlite-heavy. On GitHub runners, running\n        # several lanes at once saturates the runner and turns valid 10s unit\n        # timeouts into contention failures, so keep DB lanes serial.\n        timeout-minutes: 60'
+      )
+      .replace(
+        '      - name: Prepare unit coverage workspace\n        id: unit-tests\n        timeout-minutes: 5',
+        '      - name: Prepare unit coverage workspace\n        id: unit-tests\n        timeout-minutes: 10'
+      )
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /package and DB serial steps must stay at 30 minutes or less/);
+  assert.match(failures, /DB runtime coverage must keep a tight isolated timeout/);
+  assert.match(failures, /Coverage workspace preparation must keep a tight timeout/);
+});
+
+test('workflow contract fails when unit coverage diagnostics depend on coverage outputs', () => {
+  const unitCoverage = extractJob(workflowSource, 'unit_coverage');
+  assert.ok(unitCoverage);
+
+  const source = workflowSource.replace(
+    unitCoverage,
+    unitCoverage.replaceAll(
+      'if: ${{ !cancelled() }}',
+      "if: ${{ !cancelled() && steps.unit-tests.outcome != 'skipped' }}"
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /timing diagnostics must still run when an earlier coverage phase fails/
+  );
+});
+
 test('setup monorepo action satisfies cache contracts', () => {
   assert.deepEqual(validateSetupMonorepoContracts(setupMonorepoSource), []);
 });

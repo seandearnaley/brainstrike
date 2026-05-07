@@ -51,6 +51,14 @@ function requireNumericMatchAtMost(source, pattern, maxValue, message, failures)
   }
 }
 
+function requireNumericMatchAtLeast(source, pattern, minValue, message, failures) {
+  const match = source.match(pattern);
+  const value = match?.[1] ? Number.parseInt(match[1], 10) : Number.NaN;
+  if (!Number.isFinite(value) || value < minValue) {
+    failures.push(message);
+  }
+}
+
 function requireNumericCliFlagAtMost(source, flag, maxValue, message, failures) {
   requireNumericMatchAtMost(
     source,
@@ -64,6 +72,30 @@ function requireNumericCliFlagAtMost(source, flag, maxValue, message, failures) 
 function extractJobHeader(source) {
   const stepsStart = source.search(/^\s+steps:\s*$/m);
   return stepsStart === -1 ? source : source.slice(0, stepsStart);
+}
+
+function extractWorkflowStep(source, stepName) {
+  return extractBlock(
+    source,
+    new RegExp(`^      - name: ${escapeRegExp(stepName)}\\s*$`, 'm'),
+    /\n      - name: .+$/m
+  );
+}
+
+function requireStepTimeoutAtMost(source, stepName, maxValue, message, failures) {
+  const step = extractWorkflowStep(source, stepName);
+  if (!step) {
+    failures.push(message);
+    return;
+  }
+
+  requireNumericMatchAtMost(
+    step,
+    /^        timeout-minutes:\s*(\d+)\s*$/m,
+    maxValue,
+    message,
+    failures
+  );
 }
 
 function escapeRegExp(source) {
@@ -670,16 +702,84 @@ export function validateWorkflowContracts(source) {
   if (!unitCoverage) {
     failures.push('Missing unit_coverage job.');
   } else {
-    requireIncludes(
+    requireNumericMatchAtLeast(
+      extractJobHeader(unitCoverage),
+      /^    timeout-minutes:\s*(\d+)\s*$/m,
+      85,
+      'Unit coverage job timeout must cover split coverage step budgets plus overhead.',
+      failures
+    );
+    requireNumericMatchAtMost(
+      extractJobHeader(unitCoverage),
+      /^    timeout-minutes:\s*(\d+)\s*$/m,
+      90,
+      'Unit coverage job timeout must stay at 90 minutes or less.',
+      failures
+    );
+    for (const jobLevelCoverageEnv of ['COVERAGE:', 'NODE_ENV:', 'TURBO_TEST_MODE:']) {
+      requireNotIncludes(
+        extractJobHeader(unitCoverage),
+        jobLevelCoverageEnv,
+        'Unit coverage must scope coverage/test env to coverage steps, not setup.',
+        failures
+      );
+    }
+    requireStepTimeoutAtMost(
       unitCoverage,
-      'timeout-minutes: 45',
-      'Unit coverage job timeout must stay at 45 minutes or less.',
+      'Run affected package unit coverage',
+      30,
+      'Unit coverage package and DB serial steps must stay at 30 minutes or less.',
       failures
     );
     requireIncludes(
       unitCoverage,
-      'timeout-minutes: 30',
-      'Unit coverage test step timeout must stay at 30 minutes or less.',
+      '- name: Run affected package unit coverage',
+      'Unit coverage must keep affected package coverage in a separate timed step.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      '- name: Run DB runtime coverage',
+      'Unit coverage must keep DB runtime coverage in a separate timed step.',
+      failures
+    );
+    requireStepTimeoutAtMost(
+      unitCoverage,
+      'Run DB runtime coverage',
+      10,
+      'DB runtime coverage must keep a tight isolated timeout.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      '- name: Run DB serial coverage lanes',
+      'Unit coverage must keep serial DB coverage lanes in a separate timed step.',
+      failures
+    );
+    requireStepTimeoutAtMost(
+      unitCoverage,
+      'Run DB serial coverage lanes',
+      30,
+      'Unit coverage package and DB serial steps must stay at 30 minutes or less.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      '- name: Prepare unit coverage workspace',
+      'Unit coverage must prepare merged workspace coverage in a separate output step.',
+      failures
+    );
+    requireStepTimeoutAtMost(
+      unitCoverage,
+      'Prepare unit coverage workspace',
+      5,
+      'Coverage workspace preparation must keep a tight timeout.',
+      failures
+    );
+    requireIncludes(
+      unitCoverage,
+      'rm -rf .turbo/runs',
+      'Unit coverage must clear stale Turbo summaries before the split coverage phases.',
       failures
     );
     requireIncludes(
@@ -738,6 +838,12 @@ export function validateWorkflowContracts(source) {
       unitCoverage,
       '--task-prefix test:coverage',
       'Unit coverage timing diagnostics must include split coverage tasks.',
+      failures
+    );
+    requireNotIncludes(
+      unitCoverage,
+      "steps.unit-tests.outcome != 'skipped'",
+      'Unit coverage timing diagnostics must still run when an earlier coverage phase fails.',
       failures
     );
     requireIncludes(
