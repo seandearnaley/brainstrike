@@ -291,9 +291,14 @@ async function countPendingEmbeddingSetJobs(
 // unbounded memory growth during large backfills.
 const VACUUM_INTERVAL_MS = 30_000;
 const VACUUM_FAILURE_WARN_EVERY = 10;
+const DRAIN_TICK_FAILURE_WARN_EVERY = 10;
 
 interface VacuumLogState {
   consecutiveVacuumFailures: number;
+}
+
+interface DrainTickLogState {
+  consecutiveDrainTickFailures: number;
 }
 
 async function vacuumBackfillTables(
@@ -533,7 +538,8 @@ function createDrainProgressObserver(
   db: Pick<IDatabase, 'query'>,
   embeddingSetId: string,
   updatedAfter: string,
-  onDrainTick?: (completedSinceLastTick: number) => void | Promise<void>
+  onDrainTick?: (completedSinceLastTick: number) => void | Promise<void>,
+  logState?: DrainTickLogState
 ): (() => Promise<void>) | undefined {
   if (!onDrainTick) {
     return;
@@ -549,7 +555,31 @@ function createDrainProgressObserver(
 
     const completedSinceLastTick = nextSucceeded - lastObservedSucceeded;
     lastObservedSucceeded = nextSucceeded;
-    await onDrainTick(completedSinceLastTick);
+    try {
+      await onDrainTick(completedSinceLastTick);
+      if (logState) {
+        logState.consecutiveDrainTickFailures = 0;
+      }
+    } catch (error) {
+      if (!logState) {
+        return;
+      }
+      logState.consecutiveDrainTickFailures += 1;
+      const message = error instanceof Error ? error.message : String(error);
+      const shouldWarn =
+        logState.consecutiveDrainTickFailures === 1 ||
+        logState.consecutiveDrainTickFailures % DRAIN_TICK_FAILURE_WARN_EVERY === 0;
+      const logPayload = {
+        completedSinceLastTick,
+        consecutiveFailureCount: logState.consecutiveDrainTickFailures,
+        error: message,
+      };
+      if (shouldWarn) {
+        logger.warn('Backfill drain maintenance callback failed (non-fatal)', logPayload);
+        return;
+      }
+      logger.debug('Backfill drain maintenance callback failed (non-fatal)', logPayload);
+    }
   };
 }
 
@@ -596,12 +626,14 @@ export async function enqueueEmbeddingBackfill(
   let availableCapacity = 0;
   let lastReportedAt = Number.NEGATIVE_INFINITY;
   const vacuumLogState: VacuumLogState = { consecutiveVacuumFailures: 0 };
+  const drainTickLogState: DrainTickLogState = { consecutiveDrainTickFailures: 0 };
   const vacuumScheduler = createBackfillVacuumScheduler(db, vacuumLogState, vacuumIntervalMs, now);
   const observeDrainProgress = createDrainProgressObserver(
     db,
     embeddingSetId,
     runStartedAt,
-    onDrainTick
+    onDrainTick,
+    drainTickLogState
   );
   const observeMaintenance = async (): Promise<void> => {
     await observeDrainProgress?.();

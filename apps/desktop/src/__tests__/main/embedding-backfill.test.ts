@@ -759,7 +759,7 @@ describe('embedding-backfill', () => {
     expect(drainTicks).toEqual([1, 2]);
   });
 
-  it('surfaces drain maintenance failures immediately', async () => {
+  it('keeps drain maintenance failures non-fatal', async () => {
     const pendingCounts = [2, 1, 0];
     const db = {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
@@ -770,7 +770,7 @@ describe('embedding-backfill', () => {
         }
         if (sql.includes('COUNT(*) FILTER')) {
           return {
-            rows: [{ queued: 0, running: 1, failed: 0, succeeded: 1 }],
+            rows: [{ queued: 0, running: pendingCounts[0] ?? 0, failed: 0, succeeded: 1 }],
           };
         }
         if (sql.includes('COUNT(*)::int AS count') && !sql.includes("payload->>'embeddingSetId'")) {
@@ -816,7 +816,7 @@ describe('embedding-backfill', () => {
           throw new Error('maintenance failed');
         },
       })
-    ).rejects.toThrow('maintenance failed');
+    ).resolves.toEqual({ queued: 0, running: 0, failed: 0, succeeded: 1 });
   });
 
   it('fails when the embedding set drain completes with failed jobs', async () => {
