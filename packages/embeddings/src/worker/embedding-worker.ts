@@ -309,6 +309,13 @@ export interface EmbeddingWorkerOptions {
   enable?: boolean; // explicit runtime toggle; overrides env flag
   heartbeatIntervalMs?: number; // default: 10000
   /**
+   * Initial delay after an idle queue poll. The delay doubles on repeated idle
+   * polls until idlePollMaxMs is reached.
+   */
+  idlePollInitialMs?: number;
+  /** Maximum delay after repeated idle queue polls. */
+  idlePollMaxMs?: number;
+  /**
    * If false, the worker starts its queue/lease loop without initializing the
    * local embedding model. The first claimed local job must perform the model
    * initialization explicitly.
@@ -356,6 +363,8 @@ export interface EmbeddingWorkerController {
 
 const DEFAULT_CLAIM_BATCH_SIZE = 50;
 const CLAIM_SIZE_RESOLVER_FAILURE_BACKOFF_MS = 1000;
+const DEFAULT_IDLE_POLL_INITIAL_MS = 400;
+const DEFAULT_IDLE_POLL_MAX_MS = 1000;
 const DEFAULT_STATS_REFRESH_MIN_INTERVAL_MS = 5000;
 const DEFAULT_STATS_REFRESH_COMPLETED_CHUNK_THRESHOLD = 512;
 
@@ -371,6 +380,39 @@ function resolvePositiveIntegerOption(
     throw new Error(`${name} must be a positive integer when configured.`);
   }
   return resolved;
+}
+
+function resolveIdlePollBackoffOptions(options: EmbeddingWorkerOptions): {
+  readonly initialMs: number;
+  readonly maxMs: number;
+} {
+  const initialMs = resolvePositiveIntegerOption(
+    options.idlePollInitialMs,
+    DEFAULT_IDLE_POLL_INITIAL_MS,
+    'idlePollInitialMs'
+  );
+  const maxMs = resolvePositiveIntegerOption(
+    options.idlePollMaxMs,
+    DEFAULT_IDLE_POLL_MAX_MS,
+    'idlePollMaxMs'
+  );
+  if (maxMs < initialMs) {
+    throw new Error(
+      `idlePollMaxMs must be greater than or equal to idlePollInitialMs; received ${maxMs} < ${initialMs}.`
+    );
+  }
+  return { initialMs, maxMs };
+}
+
+function shouldLogIdleBackoff(
+  idlePollCount: number,
+  hasReachedMaxBackoff: boolean,
+  hasLoggedMaxBackoff: boolean
+): boolean {
+  if (hasReachedMaxBackoff && !hasLoggedMaxBackoff) {
+    return true;
+  }
+  return (idlePollCount & (idlePollCount - 1)) === 0;
 }
 
 export interface EmbeddingStatsRefreshControllerOptions {
@@ -1203,6 +1245,7 @@ export async function startEmbeddingWorker(
     50,
     'interBatchDelayMs'
   );
+  const idlePollBackoff = resolveIdlePollBackoffOptions(options);
   const claimBatchSize = resolvePositiveIntegerOption(
     options.claimBatchSize,
     DEFAULT_CLAIM_BATCH_SIZE,
@@ -1329,6 +1372,10 @@ export async function startEmbeddingWorker(
   let processedSinceInit = 0;
   let consecutiveFailures = 0;
   let scheduledReinitPending = false;
+  let idlePollCount = 0;
+  let idleStartedAt: number | null = null;
+  let hasLoggedMaxIdleBackoff = false;
+  let nextIdlePollDelayMs = idlePollBackoff.initialMs;
   const reinitEveryN =
     options.reinitEveryN ??
     (() => {
@@ -1355,6 +1402,13 @@ export async function startEmbeddingWorker(
         error: callbackError,
       });
     }
+  }
+
+  function resetIdleBackoff(): void {
+    idlePollCount = 0;
+    idleStartedAt = null;
+    hasLoggedMaxIdleBackoff = false;
+    nextIdlePollDelayMs = idlePollBackoff.initialMs;
   }
 
   function assertLocalModelSwitchAllowed(targetModelId: string): void {
@@ -2539,6 +2593,11 @@ export async function startEmbeddingWorker(
 
   async function handleIdleBatch(): Promise<void> {
     reportWorkerActivity(false);
+    const idleObservedAt = now();
+    if (idleStartedAt === null) {
+      idleStartedAt = idleObservedAt;
+    }
+    idlePollCount += 1;
     if (scheduledReinitPending) {
       workerLogger.info('Queue idle; performing scheduled embedding service reinitialization.');
       try {
@@ -2553,8 +2612,22 @@ export async function startEmbeddingWorker(
       workerLogger.warn('Failed to refresh embedding stats during idle', { error });
     }
     await runEmbeddingCacheMaintenance('queue-idle');
-    // Silent on empty polls - this happens constantly during idle
-    await sleep(400); // idle backoff
+    const currentIdleDelayMs = nextIdlePollDelayMs;
+    const hasReachedMaxBackoff = currentIdleDelayMs >= idlePollBackoff.maxMs;
+    if (shouldLogIdleBackoff(idlePollCount, hasReachedMaxBackoff, hasLoggedMaxIdleBackoff)) {
+      log('embedding_queue_idle_backoff', {
+        backoffMs: currentIdleDelayMs,
+        idleDurationBeforeBackoffMs: Math.max(0, idleObservedAt - idleStartedAt),
+        idlePollCount,
+        queue: queueName,
+        workerId,
+      });
+    }
+    if (hasReachedMaxBackoff) {
+      hasLoggedMaxIdleBackoff = true;
+    }
+    nextIdlePollDelayMs = Math.min(nextIdlePollDelayMs * 2, idlePollBackoff.maxMs);
+    await sleep(currentIdleDelayMs);
   }
 
   function isClosedDatabaseError(error: unknown): boolean {
@@ -2584,6 +2657,7 @@ export async function startEmbeddingWorker(
         return;
       }
 
+      resetIdleBackoff();
       beginActiveBatch();
       try {
         await processClaimedJobs(jobs);

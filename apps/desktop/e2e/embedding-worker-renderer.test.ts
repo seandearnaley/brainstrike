@@ -6281,8 +6281,8 @@ test.describe('Embedding Host Renderer', () => {
     await resetEmbeddingHost(activeWindow);
     await waitForEmbeddingHostState(activeWindow, (status) => status.state === 'running');
 
-    // Wait longer than the worker's 400ms idle backoff to ensure at least one poll
-    // cycle has completed, confirming the worker loop is actively running.
+    // Wait longer than the worker's initial 400ms idle poll to ensure at least
+    // one poll cycle has completed, confirming the worker loop is actively running.
     await activeWindow.waitForTimeout(600);
     await waitForEmbeddingHostIdleAndQueueDrain(activeWindow, 30_000);
 
