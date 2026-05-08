@@ -119,6 +119,17 @@ function hasStatsRefreshLog(
   });
 }
 
+function readIdleBackoffLogs(
+  log: ReturnType<typeof vi.fn<(message: string, meta?: unknown) => void>>
+): Record<string, unknown>[] {
+  return log.mock.calls.flatMap(([message, meta]) => {
+    if (message !== 'embedding_queue_idle_backoff' || !isRecord(meta)) {
+      return [];
+    }
+    return [meta];
+  });
+}
+
 function countCollectionStatsRefreshQueries(db: PGlite): { getCount: () => number } {
   const originalQuery = db.query.bind(db);
   let count = 0;
@@ -621,6 +632,41 @@ describe('Embedding Worker Batch Optimization', () => {
     await stopController.stop();
 
     expect(hasStatsRefreshLog(stopLog, 'worker-stop')).toBe(true);
+  });
+
+  it('backs off idle queue polling and emits wakeup telemetry', async () => {
+    const idleLog = vi.fn<(message: string, meta?: unknown) => void>();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    const idleWorkerOptions: Parameters<typeof startEmbeddingWorker>[0] & {
+      idlePollInitialMs: number;
+      idlePollMaxMs: number;
+      now: () => number;
+    } = {
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      idlePollInitialMs: 5,
+      idlePollMaxMs: 20,
+      leaseMs: 5000,
+      log: idleLog,
+      modelKey,
+      now: Date.now,
+      service: new FakeEmbeddingService(),
+      statsRefreshCompletedChunkThreshold: 512,
+      statsRefreshMinIntervalMs: 60_000,
+    };
+
+    const controller = await startEmbeddingWorker(idleWorkerOptions);
+    await waitFor(async () => readIdleBackoffLogs(idleLog).length >= 3, 2000, 5);
+    await controller.stop();
+
+    const backoffLogs = readIdleBackoffLogs(idleLog);
+    expect(backoffLogs.slice(0, 3).map((meta) => meta['backoffMs'])).toEqual([5, 10, 20]);
+    expect(backoffLogs[2]).toMatchObject({
+      idlePollCount: 3,
+      queue: 'embeddings',
+      workerId: expect.any(String),
+    });
+    expect(typeof backoffLogs[2]?.['idleDurationMs']).toBe('number');
   });
 
   it('disposes worker resources when stop-time indexing stats refresh fails', async () => {
