@@ -645,7 +645,7 @@ describe('Embedding Worker Batch Optimization', () => {
       db: db as unknown as IDatabase,
       concurrency: 1,
       idlePollInitialMs: 5,
-      idlePollMaxMs: 20,
+      idlePollMaxMs: 40,
       leaseMs: 5000,
       log: idleLog,
       modelKey,
@@ -660,13 +660,43 @@ describe('Embedding Worker Batch Optimization', () => {
     await controller.stop();
 
     const backoffLogs = readIdleBackoffLogs(idleLog);
-    expect(backoffLogs.slice(0, 3).map((meta) => meta['backoffMs'])).toEqual([5, 10, 20]);
+    expect(backoffLogs.slice(0, 3).map((meta) => meta['backoffMs'])).toEqual([5, 10, 40]);
+    expect(backoffLogs.slice(0, 3).map((meta) => meta['idlePollCount'])).toEqual([1, 2, 4]);
     expect(backoffLogs[2]).toMatchObject({
-      idlePollCount: 3,
       queue: 'embeddings',
       workerId: expect.any(String),
     });
     expect(typeof backoffLogs[2]?.['idleDurationMs']).toBe('number');
+  });
+
+  it('caps default idle polling latency below interactive backfill thresholds', async () => {
+    const idleLog = vi.fn<(message: string, meta?: unknown) => void>();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    const idleWorkerOptions: Parameters<typeof startEmbeddingWorker>[0] & {
+      idlePollInitialMs: number;
+      now: () => number;
+    } = {
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      idlePollInitialMs: 300,
+      leaseMs: 5000,
+      log: idleLog,
+      modelKey,
+      now: Date.now,
+      service: new FakeEmbeddingService(),
+      statsRefreshCompletedChunkThreshold: 512,
+      statsRefreshMinIntervalMs: 60_000,
+    };
+
+    const controller = await startEmbeddingWorker(idleWorkerOptions);
+    await waitFor(async () => readIdleBackoffLogs(idleLog).length >= 3, 3000, 10);
+    await controller.stop();
+
+    expect(
+      readIdleBackoffLogs(idleLog)
+        .slice(0, 3)
+        .map((meta) => meta['backoffMs'])
+    ).toEqual([300, 600, 1000]);
   });
 
   it('disposes worker resources when stop-time indexing stats refresh fails', async () => {

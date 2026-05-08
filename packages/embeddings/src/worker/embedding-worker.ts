@@ -364,7 +364,7 @@ export interface EmbeddingWorkerController {
 const DEFAULT_CLAIM_BATCH_SIZE = 50;
 const CLAIM_SIZE_RESOLVER_FAILURE_BACKOFF_MS = 1000;
 const DEFAULT_IDLE_POLL_INITIAL_MS = 400;
-const DEFAULT_IDLE_POLL_MAX_MS = 5000;
+const DEFAULT_IDLE_POLL_MAX_MS = 1000;
 const DEFAULT_STATS_REFRESH_MIN_INTERVAL_MS = 5000;
 const DEFAULT_STATS_REFRESH_COMPLETED_CHUNK_THRESHOLD = 512;
 
@@ -402,6 +402,20 @@ function resolveIdlePollBackoffOptions(options: EmbeddingWorkerOptions): {
     );
   }
   return { initialMs, maxMs };
+}
+
+function shouldLogIdleBackoff(
+  idlePollCount: number,
+  hasReachedMaxBackoff: boolean,
+  hasLoggedMaxBackoff: boolean
+): boolean {
+  if (idlePollCount <= 0) {
+    return false;
+  }
+  if (hasReachedMaxBackoff && !hasLoggedMaxBackoff) {
+    return true;
+  }
+  return (idlePollCount & (idlePollCount - 1)) === 0;
 }
 
 export interface EmbeddingStatsRefreshControllerOptions {
@@ -1363,6 +1377,7 @@ export async function startEmbeddingWorker(
   let scheduledReinitPending = false;
   let idlePollCount = 0;
   let idleStartedAt: number | null = null;
+  let hasLoggedMaxIdleBackoff = false;
   let nextIdlePollDelayMs = idlePollBackoff.initialMs;
   const reinitEveryN =
     options.reinitEveryN ??
@@ -1395,6 +1410,7 @@ export async function startEmbeddingWorker(
   function resetIdleBackoff(): void {
     idlePollCount = 0;
     idleStartedAt = null;
+    hasLoggedMaxIdleBackoff = false;
     nextIdlePollDelayMs = idlePollBackoff.initialMs;
   }
 
@@ -2599,14 +2615,20 @@ export async function startEmbeddingWorker(
       workerLogger.warn('Failed to refresh embedding stats during idle', { error });
     }
     await runEmbeddingCacheMaintenance('queue-idle');
-    log('embedding_queue_idle_backoff', {
-      backoffMs: nextIdlePollDelayMs,
-      idleDurationMs: Math.max(0, idleObservedAt - idleStartedAt),
-      idlePollCount,
-      queue: queueName,
-      workerId,
-    });
     const currentIdleDelayMs = nextIdlePollDelayMs;
+    const hasReachedMaxBackoff = currentIdleDelayMs >= idlePollBackoff.maxMs;
+    if (shouldLogIdleBackoff(idlePollCount, hasReachedMaxBackoff, hasLoggedMaxIdleBackoff)) {
+      log('embedding_queue_idle_backoff', {
+        backoffMs: currentIdleDelayMs,
+        idleDurationMs: Math.max(0, idleObservedAt - idleStartedAt),
+        idlePollCount,
+        queue: queueName,
+        workerId,
+      });
+    }
+    if (hasReachedMaxBackoff) {
+      hasLoggedMaxIdleBackoff = true;
+    }
     nextIdlePollDelayMs = Math.min(nextIdlePollDelayMs * 2, idlePollBackoff.maxMs);
     await sleep(currentIdleDelayMs);
   }
