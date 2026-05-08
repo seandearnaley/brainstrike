@@ -130,6 +130,64 @@ function readIdleBackoffLogs(
   });
 }
 
+interface InsertEmbeddingJobOptions {
+  readonly db: PGlite;
+  readonly modelKey: string;
+  readonly now: string;
+  readonly prefix: string;
+}
+
+async function insertQueuedEmbeddingJob({
+  db,
+  modelKey,
+  now,
+  prefix,
+}: InsertEmbeddingJobOptions): Promise<void> {
+  const compositeKey = formatProviderModelKey('local', modelKey);
+  const embeddingSetId = `set-${prefix}`;
+  const fileId = `file-${prefix}`;
+  const chunkId = `chunk-${prefix}`;
+  await db.query(
+    `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+    VALUES ($1, $2, $3, $4, $5, $6)`,
+    [embeddingSetId, compositeKey, modelKey, 768, 'cosine', now]
+  );
+  await db.query(
+    `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, embedding_set_id, created_at, updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`,
+    [
+      fileId,
+      `${prefix}.ts`,
+      `/${prefix}.ts`,
+      100,
+      'content',
+      `${prefix}-hash`,
+      10,
+      embeddingSetId,
+      now,
+    ]
+  );
+  await db.query(
+    `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+    VALUES ($1,$2,0,$3,$4,$5,'text',10,$6,$6)`,
+    [chunkId, fileId, 'content', `${prefix}-hash`, 10, now]
+  );
+  await db.query(
+    `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+    VALUES ($1,'embeddings','embed_chunk', $2, 'queued', $3, 0, 3, 0, $3, $3)`,
+    [
+      `job-${prefix}`,
+      JSON.stringify({
+        chunkId,
+        embeddingSetId,
+        modelKey: compositeKey,
+        expectedDimension: 768,
+      }),
+      now,
+    ]
+  );
+}
+
 function countCollectionStatsRefreshQueries(db: PGlite): { getCount: () => number } {
   const originalQuery = db.query.bind(db);
   let count = 0;
@@ -532,54 +590,8 @@ describe('Embedding Worker Batch Optimization', () => {
   it('flushes pending indexing stats refreshes on idle and stop', async () => {
     const now = new Date().toISOString();
     const modelKey = 'jinaai/jina-embeddings-v2-base-code';
-    const compositeKey = formatProviderModelKey('local', modelKey);
 
-    async function insertQueuedEmbeddingJob(prefix: string): Promise<void> {
-      const embeddingSetId = `set-${prefix}`;
-      const fileId = `file-${prefix}`;
-      const chunkId = `chunk-${prefix}`;
-      await db.query(
-        `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6)`,
-        [embeddingSetId, compositeKey, modelKey, 768, 'cosine', now]
-      );
-      await db.query(
-        `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, embedding_set_id, created_at, updated_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`,
-        [
-          fileId,
-          `${prefix}.ts`,
-          `/${prefix}.ts`,
-          100,
-          'content',
-          `${prefix}-hash`,
-          10,
-          embeddingSetId,
-          now,
-        ]
-      );
-      await db.query(
-        `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
-        VALUES ($1,$2,0,$3,$4,$5,'text',10,$6,$6)`,
-        [chunkId, fileId, 'content', `${prefix}-hash`, 10, now]
-      );
-      await db.query(
-        `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
-        VALUES ($1,'embeddings','embed_chunk', $2, 'queued', $3, 0, 3, 0, $3, $3)`,
-        [
-          `job-${prefix}`,
-          JSON.stringify({
-            chunkId,
-            embeddingSetId,
-            modelKey: compositeKey,
-            expectedDimension: 768,
-          }),
-          now,
-        ]
-      );
-    }
-
-    await insertQueuedEmbeddingJob('stats-idle');
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'stats-idle' });
     const idleLog = vi.fn<(message: string, meta?: unknown) => void>();
     const idleWorkerOptions: Parameters<typeof startEmbeddingWorker>[0] & {
       now: () => number;
@@ -602,7 +614,7 @@ describe('Embedding Worker Batch Optimization', () => {
     await waitFor(async () => hasStatsRefreshLog(idleLog, 'queue-idle'), 10_000);
     await idleController.stop();
 
-    await insertQueuedEmbeddingJob('stats-stop');
+    await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'stats-stop' });
     const stopLog = vi.fn<(message: string, meta?: unknown) => void>();
     const stopWorkerOptions: Parameters<typeof startEmbeddingWorker>[0] & {
       now: () => number;
@@ -666,7 +678,59 @@ describe('Embedding Worker Batch Optimization', () => {
       queue: 'embeddings',
       workerId: expect.any(String),
     });
-    expect(typeof backoffLogs[2]?.['idleDurationMs']).toBe('number');
+    expect(typeof backoffLogs[2]?.['idleDurationBeforeBackoffMs']).toBe('number');
+  });
+
+  it('resets idle queue polling backoff after claimed work completes', async () => {
+    const idleLog = vi.fn<(message: string, meta?: unknown) => void>();
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    const now = new Date().toISOString();
+    const idleWorkerOptions: Parameters<typeof startEmbeddingWorker>[0] & {
+      idlePollInitialMs: number;
+      idlePollMaxMs: number;
+      now: () => number;
+    } = {
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      idlePollInitialMs: 5,
+      idlePollMaxMs: 40,
+      leaseMs: 5000,
+      log: idleLog,
+      modelKey,
+      now: Date.now,
+      service: new FakeEmbeddingService(),
+      statsRefreshCompletedChunkThreshold: 512,
+      statsRefreshMinIntervalMs: 60_000,
+    };
+
+    const controller = await startEmbeddingWorker(idleWorkerOptions);
+    try {
+      await waitFor(
+        async () => readIdleBackoffLogs(idleLog).some((meta) => meta['backoffMs'] === 10),
+        2000,
+        5
+      );
+      const idleLogCountBeforeWork = readIdleBackoffLogs(idleLog).length;
+
+      await insertQueuedEmbeddingJob({ db, modelKey, now, prefix: 'idle-reset' });
+      await waitFor(async () => {
+        const result = await db.query<{ count: number }>(
+          `SELECT count(*) as count FROM job_queue WHERE id = 'job-idle-reset' AND state = 'succeeded'`
+        );
+        return Number(result.rows[0]?.count) === 1;
+      }, 10_000);
+
+      await waitFor(
+        async () =>
+          readIdleBackoffLogs(idleLog)
+            .slice(idleLogCountBeforeWork)
+            .some((meta) => meta['backoffMs'] === 5 && meta['idlePollCount'] === 1),
+        2000,
+        5
+      );
+    } finally {
+      await controller.stop();
+    }
   });
 
   it('caps default idle polling latency below interactive backfill thresholds', async () => {
@@ -697,6 +761,26 @@ describe('Embedding Worker Batch Optimization', () => {
         .slice(0, 3)
         .map((meta) => meta['backoffMs'])
     ).toEqual([300, 600, 1000]);
+  });
+
+  it('rejects idle polling backoff options when max is below the initial delay', async () => {
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
+    const invalidWorkerOptions: Parameters<typeof startEmbeddingWorker>[0] = {
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      idlePollInitialMs: 50,
+      idlePollMaxMs: 40,
+      leaseMs: 5000,
+      log: () => {},
+      modelKey,
+      service: new FakeEmbeddingService(),
+      statsRefreshCompletedChunkThreshold: 512,
+      statsRefreshMinIntervalMs: 60_000,
+    };
+
+    await expect(startEmbeddingWorker(invalidWorkerOptions)).rejects.toThrow(
+      'idlePollMaxMs must be greater than or equal to idlePollInitialMs'
+    );
   });
 
   it('disposes worker resources when stop-time indexing stats refresh fails', async () => {

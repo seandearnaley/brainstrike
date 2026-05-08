@@ -409,9 +409,6 @@ function shouldLogIdleBackoff(
   hasReachedMaxBackoff: boolean,
   hasLoggedMaxBackoff: boolean
 ): boolean {
-  if (idlePollCount <= 0) {
-    return false;
-  }
   if (hasReachedMaxBackoff && !hasLoggedMaxBackoff) {
     return true;
   }
@@ -2620,7 +2617,7 @@ export async function startEmbeddingWorker(
     if (shouldLogIdleBackoff(idlePollCount, hasReachedMaxBackoff, hasLoggedMaxIdleBackoff)) {
       log('embedding_queue_idle_backoff', {
         backoffMs: currentIdleDelayMs,
-        idleDurationMs: Math.max(0, idleObservedAt - idleStartedAt),
+        idleDurationBeforeBackoffMs: Math.max(0, idleObservedAt - idleStartedAt),
         idlePollCount,
         queue: queueName,
         workerId,
