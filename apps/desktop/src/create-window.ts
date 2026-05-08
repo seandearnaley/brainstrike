@@ -242,6 +242,9 @@ export async function createWindow(options: CreateWindowOptions = {}) {
       experimentalFeatures: false,
       safeDialogs: true,
       navigateOnDragDrop: false,
+      // Keep Chromium's normal background throttling on the visible UI.
+      // Long-running embedding work belongs in the hidden renderer host.
+      backgroundThrottling: true,
     },
     titleBarStyle: 'default',
     backgroundColor: '#0b1020',
