@@ -103,6 +103,7 @@ describe('createWindow', () => {
           experimentalFeatures: false,
           safeDialogs: true,
           navigateOnDragDrop: false,
+          backgroundThrottling: true,
         },
         titleBarStyle: 'default',
         backgroundColor: '#0b1020',
@@ -211,6 +212,21 @@ describe('createWindow', () => {
         expect.objectContaining({
           webPreferences: expect.objectContaining({
             sandbox: false,
+          }),
+        })
+      );
+    });
+
+    it('keeps the primary visible renderer opted into Chromium background throttling', async () => {
+      existsSyncMock.mockReturnValue(true);
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: true, configurable: true });
+
+      await createWindow();
+
+      expect(BrowserWindow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          webPreferences: expect.objectContaining({
+            backgroundThrottling: true,
           }),
         })
       );

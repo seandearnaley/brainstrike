@@ -117,4 +117,61 @@ test.describe('Electron App Launch', () => {
     // Verify app is still functional after interaction
     await homePage.shouldBeVisible();
   });
+
+  test('keeps background throttling scoped to hidden embedding hosts', async ({
+    electronApp,
+    window,
+  }) => {
+    const visibleThrottlingEnabled = await electronApp.app.evaluate(async ({ BrowserWindow }) => {
+      const visibleWindow = BrowserWindow.getAllWindows().find(
+        (candidate) => !candidate.webContents.getURL().includes('mode=')
+      );
+      if (!visibleWindow) {
+        throw new Error('Visible desktop window was not found.');
+      }
+      return visibleWindow.webContents.getBackgroundThrottling();
+    });
+
+    expect(visibleThrottlingEnabled).toBe(true);
+
+    await window.evaluate(async () => {
+      const host = (
+        globalThis.window as Window & {
+          embeddingHost?: {
+            ensureStarted?: () => Promise<unknown>;
+          };
+        }
+      ).embeddingHost;
+      if (!host?.ensureStarted) {
+        throw new Error('Embedding host bridge is not available.');
+      }
+      await host.ensureStarted();
+    });
+
+    const hostThrottlingEnabled = await electronApp.app.evaluate(async ({ BrowserWindow }) => {
+      const hostWindow = BrowserWindow.getAllWindows().find((candidate) =>
+        candidate.webContents.getURL().includes('mode=embedding-host')
+      );
+      if (!hostWindow) {
+        throw new Error('Embedding host window was not found.');
+      }
+      return hostWindow.webContents.getBackgroundThrottling();
+    });
+
+    expect(hostThrottlingEnabled).toBe(false);
+
+    await window.evaluate(async () => {
+      const host = (
+        globalThis.window as Window & {
+          embeddingHost?: {
+            stop?: () => Promise<unknown>;
+          };
+        }
+      ).embeddingHost;
+      if (!host?.stop) {
+        throw new Error('Embedding host stop bridge is not available.');
+      }
+      await host.stop();
+    });
+  });
 });

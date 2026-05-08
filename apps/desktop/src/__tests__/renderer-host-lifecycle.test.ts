@@ -157,6 +157,45 @@ describe('RendererHostLifecycle', () => {
     );
   });
 
+  it('keeps hidden renderer hosts unthrottled for background worker runtime liveness', async () => {
+    const hostWindow = createFakeWindow(410);
+    hostWindow.loadURL.mockImplementation(async () => {
+      expectDeniedWindowOpenHandler(hostWindow);
+    });
+
+    MockBrowserWindow.mockImplementation(function () {
+      Object.assign(this, hostWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [hostWindow]),
+    });
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    await lifecycle.ensureStarted({ waitForRunning: false });
+
+    expect(BrowserWindow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        webPreferences: expect.objectContaining({
+          backgroundThrottling: false,
+        }),
+      })
+    );
+  });
+
   it('encodes dev host query parameters before loading the renderer url', async () => {
     const hostWindow = createFakeWindow(42);
     hostWindow.loadURL.mockImplementation(async () => {
