@@ -95,6 +95,57 @@ describe('BFSEngine', () => {
       const updatedTree = engine.getTree();
       expect(updatedTree[0]?.loadState).toBe('loaded');
     });
+
+    it('should maintain the path index without a full rebuild after directory loads', () => {
+      const tree = [
+        createDirectoryNode({
+          path: '/root',
+          loadState: 'loaded',
+          children: [createDirectoryNode({ path: '/root/dir', loadState: 'loading', depth: 1 })],
+        }),
+      ];
+      engine.setTree(tree, 'root');
+      const indexedEngine = engine as unknown as {
+        buildPathIndex: (nodes: WorkerFileNode[]) => void;
+      };
+      const buildPathIndexSpy = vi.spyOn(indexedEngine, 'buildPathIndex');
+
+      engine.handleLoadResult('/root/dir', [
+        createDirectoryNode({ path: '/root/dir/child', loadState: 'unloaded', depth: 2 }),
+      ]);
+
+      expect(buildPathIndexSpy).not.toHaveBeenCalled();
+    });
+
+    it('should remove stale subtree entries from the path index after directory reloads', () => {
+      const tree = [
+        createDirectoryNode({
+          path: '/root',
+          loadState: 'loaded',
+          children: [
+            createDirectoryNode({
+              path: '/root/dir',
+              loadState: 'loaded',
+              depth: 1,
+              children: [
+                createFileNode({ path: '/root/dir/stale.txt', name: 'stale.txt', depth: 2 }),
+              ],
+            }),
+          ],
+        }),
+      ];
+      engine.setTree(tree, 'root');
+      const indexedEngine = engine as unknown as {
+        findNode: (path: string) => WorkerFileNode | null;
+      };
+
+      engine.handleLoadResult('/root/dir', [
+        createFileNode({ path: '/root/dir/fresh.txt', name: 'fresh.txt', depth: 2 }),
+      ]);
+
+      expect(indexedEngine.findNode('/root/dir/stale.txt')).toBeNull();
+      expect(indexedEngine.findNode('/root/dir/fresh.txt')?.name).toBe('fresh.txt');
+    });
   });
 
   describe('handleLoadError', () => {

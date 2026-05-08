@@ -9,17 +9,21 @@
 // Worker bundles must use the crypto subpath to avoid pulling the full utils barrel into esbuild.
 import { generateUUID } from '@brainstrike/utils/crypto';
 import { checkBudget, createTimer } from '@brainstrike/utils/perf-timing';
-import { getPathDepth } from '@brainstrike/utils/tree-operations';
+import { getPathDepth, isDescendantPath } from '@brainstrike/utils/tree-operations';
 
 import {
-  applyBatchResultsToTree,
   collectDirectoryPaths,
   collectExpandedPaths,
   discoverChildDirectories,
   getUnloadedDirectories,
-  setNodeLoadState,
 } from './tree-operations';
-import type { BatchLoadResult, FlattenedNode, WorkerFileNode, WorkerToMainMessage } from './types';
+import type {
+  BatchLoadResult,
+  DirectoryLoadState,
+  FlattenedNode,
+  WorkerFileNode,
+  WorkerToMainMessage,
+} from './types';
 
 // ============================================================================
 // Performance & Safety Constants
@@ -96,6 +100,13 @@ interface SubtreeLoadState {
   totalDiscovered: number;
 }
 
+interface IndexedTreeUpdate {
+  found: boolean;
+  tree: WorkerFileNode[];
+  updatedPathNodes: WorkerFileNode[];
+  updatedSubtree: WorkerFileNode | null;
+}
+
 /**
  * BFS Engine for tree expansion operations.
  */
@@ -122,24 +133,12 @@ export class BFSEngine {
 
   /**
    * Build path index from tree nodes.
-   * Uses iterative BFS to avoid stack overflow on deep trees.
+   * Reserved for whole-tree replacement and diagnostics. Directory load paths must use
+   * subtree-local index maintenance so large trees do not pay O(total-tree) per load.
    */
   private buildPathIndex(nodes: WorkerFileNode[]): void {
     this.pathIndex.clear();
-    const queue: WorkerFileNode[] = [...nodes];
-    let head = 0;
-    while (head < queue.length) {
-      const node = queue[head++];
-      if (!node) {
-        continue;
-      }
-      this.pathIndex.set(node.path, node);
-      if (node.children) {
-        for (const child of node.children) {
-          queue.push(child);
-        }
-      }
-    }
+    this.addNodesToPathIndex(nodes);
   }
 
   /**
@@ -170,13 +169,7 @@ export class BFSEngine {
    * Handle load result from main thread.
    */
   handleLoadResult(path: string, children: WorkerFileNode[]): void {
-    // Update tree with loaded children
-    this.tree = applyBatchResultsToTree(this.tree, [{ path, children }]);
-
-    // Rebuild path index since applyBatchResultsToTree creates new node objects.
-    // This is more correct than adding original children (which would be stale refs).
-    // Still a win: rebuild once per batch vs O(n) search on every findNode call.
-    this.buildPathIndex(this.tree);
+    this.updateIndexedNode(path, (node) => this.createNodeWithChildren(node, children, 'loaded'));
 
     // Check all pending loads to see if any batch is complete
     for (const [requestId, pending] of this.pendingLoads) {
@@ -203,8 +196,7 @@ export class BFSEngine {
    * Handle load error from main thread.
    */
   handleLoadError(path: string, error: string): void {
-    // Update tree with error state
-    this.tree = setNodeLoadState(this.tree, path, 'error', error);
+    this.updateIndexedNode(path, (node) => this.createNodeWithLoadState(node, 'error', error));
 
     // Check all pending loads
     for (const [requestId, pending] of this.pendingLoads) {
@@ -307,7 +299,135 @@ export class BFSEngine {
    */
   private markBatchAsLoading(batch: string[]): void {
     for (const path of batch) {
-      this.tree = setNodeLoadState(this.tree, path, 'loading');
+      this.updateIndexedNode(path, (node) => this.createNodeWithLoadState(node, 'loading'));
+    }
+  }
+
+  private updateIndexedNode(
+    targetPath: string,
+    createNextNode: (node: WorkerFileNode) => WorkerFileNode
+  ): void {
+    const previousSubtree = this.pathIndex.get(targetPath) ?? null;
+    if (!previousSubtree) {
+      return;
+    }
+
+    const update = this.replaceIndexedNode(this.tree, targetPath, createNextNode);
+    if (!(update.found && update.updatedSubtree)) {
+      return;
+    }
+
+    this.removeSubtreeFromPathIndex(previousSubtree);
+    this.tree = update.tree;
+    for (const node of update.updatedPathNodes) {
+      this.pathIndex.set(node.path, node);
+    }
+    this.addNodeSubtreeToPathIndex(update.updatedSubtree);
+  }
+
+  private replaceIndexedNode(
+    nodes: WorkerFileNode[],
+    targetPath: string,
+    createNextNode: (node: WorkerFileNode) => WorkerFileNode
+  ): IndexedTreeUpdate {
+    let found = false;
+    let updatedSubtree: WorkerFileNode | null = null;
+    const updatedPathNodes: WorkerFileNode[] = [];
+
+    const tree = nodes.map((node): WorkerFileNode => {
+      if (node.path === targetPath) {
+        found = true;
+        const nextNode = createNextNode(node);
+        updatedSubtree = nextNode;
+        updatedPathNodes.push(nextNode);
+        return nextNode;
+      }
+
+      if (!(node.children && isDescendantPath(targetPath, node.path))) {
+        return node;
+      }
+
+      const childUpdate = this.replaceIndexedNode(node.children, targetPath, createNextNode);
+      if (!childUpdate.found) {
+        return node;
+      }
+
+      found = true;
+      updatedSubtree = childUpdate.updatedSubtree;
+      const nextNode = { ...node, children: childUpdate.tree };
+      updatedPathNodes.push(nextNode, ...childUpdate.updatedPathNodes);
+      return nextNode;
+    });
+
+    return { found, tree: found ? tree : nodes, updatedPathNodes, updatedSubtree };
+  }
+
+  private createNodeWithChildren(
+    node: WorkerFileNode,
+    children: WorkerFileNode[],
+    loadState: DirectoryLoadState
+  ): WorkerFileNode {
+    const { loadError: _loadError, ...rest } = node;
+    return {
+      ...rest,
+      children,
+      loadState,
+    };
+  }
+
+  private createNodeWithLoadState(
+    node: WorkerFileNode,
+    loadState: DirectoryLoadState,
+    error?: string
+  ): WorkerFileNode {
+    const { loadError: _loadError, ...rest } = node;
+    const updated: WorkerFileNode = {
+      ...rest,
+      loadState,
+    };
+    if (error !== undefined) {
+      updated.loadError = error;
+    }
+    return updated;
+  }
+
+  private addNodesToPathIndex(nodes: WorkerFileNode[]): void {
+    for (const node of nodes) {
+      this.addNodeSubtreeToPathIndex(node);
+    }
+  }
+
+  private addNodeSubtreeToPathIndex(node: WorkerFileNode): void {
+    const queue: WorkerFileNode[] = [node];
+    let head = 0;
+    while (head < queue.length) {
+      const current = queue[head++];
+      if (!current) {
+        continue;
+      }
+      this.pathIndex.set(current.path, current);
+      if (current.children) {
+        for (const child of current.children) {
+          queue.push(child);
+        }
+      }
+    }
+  }
+
+  private removeSubtreeFromPathIndex(node: WorkerFileNode): void {
+    const queue: WorkerFileNode[] = [node];
+    let head = 0;
+    while (head < queue.length) {
+      const current = queue[head++];
+      if (!current) {
+        continue;
+      }
+      this.pathIndex.delete(current.path);
+      if (current.children) {
+        for (const child of current.children) {
+          queue.push(child);
+        }
+      }
     }
   }
 
