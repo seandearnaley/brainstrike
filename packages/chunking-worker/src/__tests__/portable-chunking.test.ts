@@ -234,6 +234,63 @@ describe('portable-chunking', () => {
         });
       });
 
+      it('resolves source ranges for adjacent exported functions', async () => {
+        const createExportedFunction = (name: string): string =>
+          `export async function ${name}(): Promise<void> {\n` +
+          Array.from({ length: 5 }, (_, index) => `  await step${index}();`).join('\n') +
+          '\n}\n\n';
+        const text =
+          createExportedFunction('alpha') +
+          createExportedFunction('beta') +
+          createExportedFunction('gamma') +
+          `function delta(): void {\n${Array.from(
+            { length: 5 },
+            (_, index) => `  run${index}();`
+          ).join('\n')}\n}\n`;
+
+        const result = await chunkContent(text, {
+          strategy: 'recursive',
+          fileName: 'exported-functions.ts',
+          maxTokens: 80,
+          overlap: 16,
+        });
+
+        expect(result.skipped).toBe(false);
+        expect(result.chunks.length).toBeGreaterThan(1);
+        for (const chunk of result.chunks) {
+          expect(chunk.startOffset).toBeGreaterThanOrEqual(0);
+          expect(chunk.endOffset).toBeLessThanOrEqual(text.length);
+          expect(chunk.endOffset).toBeGreaterThan(chunk.startOffset);
+        }
+      });
+
+      it('keeps nested class methods inside their top-level function chunk', async () => {
+        const text = `export function outer(): void {
+  class Inner {
+    method(): void {
+      run();
+    }
+  }
+  new Inner().method();
+}
+
+export function after(): void {
+  done();
+}
+`;
+
+        const result = await chunkContent(text, {
+          strategy: 'recursive',
+          fileName: 'nested-method.ts',
+          maxTokens: 80,
+          overlap: 16,
+        });
+
+        expect(result.skipped).toBe(false);
+        expect(result.chunks.some((chunk) => chunk.content.startsWith('method():'))).toBe(false);
+        expect(result.chunks.map((chunk) => chunk.startOffset)).toEqual([0, 7, 119, 126]);
+      });
+
       it('should split punctuation-poor text to the configured chunk target', async () => {
         const text = 'x'.repeat(5000);
         const result = await chunkContent(text, {
@@ -296,6 +353,43 @@ const gamma = () => alpha() + beta();
         expect(result.skipped).toBe(false);
         expect(result.strategyUsed).toBe('recursive');
         expect(result.chunks.length).toBeGreaterThan(1);
+      });
+
+      it('uses Babel parser modules bundled with a default export', async () => {
+        vi.resetModules();
+        const parse = vi.fn(() => ({
+          type: 'File',
+          program: {
+            type: 'Program',
+            body: [
+              {
+                type: 'FunctionDeclaration',
+                start: 0,
+                end: 'function alpha() { return 1; }'.length,
+              },
+            ],
+          },
+        }));
+        const debug = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
+        vi.doMock('@babel/parser', () => ({
+          default: { parse },
+        }));
+        const { chunkContent: isolatedChunkContent } = await import('../portable-chunking');
+
+        const result = await isolatedChunkContent(
+          'function alpha() { return 1; }\n\nconst beta = 2;',
+          {
+            strategy: 'recursive',
+            fileName: 'default-parser.ts',
+          }
+        );
+
+        expect(result.skipped).toBe(false);
+        expect(parse).toHaveBeenCalledTimes(1);
+        expect(debug).not.toHaveBeenCalledWith(
+          '[portable-chunking] AST parsing failed for function-level splitting',
+          expect.anything()
+        );
       });
 
       it('falls back to recursive splitting when no top-level function ranges exist', async () => {

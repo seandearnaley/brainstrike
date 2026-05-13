@@ -100,15 +100,48 @@ type AstNode = {
 type BabelParserModule = typeof import('@babel/parser');
 type TokenUtilsLiteModule = typeof import('./token-utils-lite');
 
-let babelParserModulePromise: Promise<BabelParserModule> | null = null;
+interface BabelParserRuntimeModule {
+  parse: BabelParserModule['parse'];
+}
+
+let babelParserModulePromise: Promise<BabelParserRuntimeModule> | null = null;
 let tokenUtilsLiteModulePromise: Promise<TokenUtilsLiteModule> | null = null;
 
-async function loadBabelParserModule(): Promise<BabelParserModule> {
+function readBabelParseExport(candidate: unknown): BabelParserModule['parse'] | null {
+  try {
+    const parse = (candidate as { parse?: unknown }).parse;
+    return typeof parse === 'function' ? (parse as BabelParserModule['parse']) : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveBabelParserRuntimeModule(module: unknown): BabelParserRuntimeModule {
+  const namedParse = readBabelParseExport(module);
+  if (namedParse) {
+    return { parse: namedParse };
+  }
+
+  const candidate = module as { default?: unknown };
+  const defaultCandidate = candidate.default;
+  if (defaultCandidate && typeof defaultCandidate === 'object') {
+    const defaultParse = readBabelParseExport(defaultCandidate);
+    if (defaultParse) {
+      return { parse: defaultParse };
+    }
+  }
+
+  throw new Error('Babel parser module did not expose a parse function.');
+}
+
+async function loadBabelParserModule(): Promise<BabelParserRuntimeModule> {
   if (!babelParserModulePromise) {
-    babelParserModulePromise = import('@babel/parser').catch((error: unknown) => {
-      babelParserModulePromise = null;
-      throw error;
-    });
+    babelParserModulePromise = import('@babel/parser')
+      .then(resolveBabelParserRuntimeModule)
+      .catch((error: unknown) => {
+        babelParserModulePromise = null;
+        throw error;
+      });
   }
   return babelParserModulePromise;
 }
@@ -504,14 +537,18 @@ function resolveSourceRanges(
 ): SourceRange[] {
   const lineStarts = buildLineStartOffsets(content);
   let searchStart = 0;
+  let previousStartOffset = -1;
 
   return chunks.map((chunk, index) => {
-    const sourceRange = findSourceRangeForChunkContent(content, chunk.content, searchStart);
+    const sourceRange =
+      findSourceRangeForChunkContent(content, chunk.content, searchStart) ??
+      findSourceRangeForChunkContent(content, chunk.content, Math.max(0, previousStartOffset));
     if (!sourceRange) {
       throw new Error(`Unable to resolve source range for chunk ${index}`);
     }
 
     const { startOffset, endOffset } = sourceRange;
+    previousStartOffset = startOffset;
     searchStart = Math.max(0, endOffset - overlapChars - 1);
 
     return {
@@ -579,6 +616,10 @@ function isTopLevelContainerType(type?: string): boolean {
   );
 }
 
+function hasFunctionAncestor(ancestors: readonly AstNode[]): boolean {
+  return ancestors.some((ancestor) => isFunctionNode(ancestor.type));
+}
+
 function iterateAstChildren(node: AstNode): AstNode[] {
   const children: AstNode[] = [];
   for (const value of Object.values(node)) {
@@ -612,6 +653,7 @@ function collectTopLevelFunctionRanges(
   const parentType = ancestors.at(-1)?.type;
   if (
     isTopLevelContainerType(parentType) &&
+    !hasFunctionAncestor(ancestors) &&
     isFunctionNode(nodeType) &&
     Number.isFinite(node.start) &&
     Number.isFinite(node.end)
@@ -752,9 +794,7 @@ async function splitCodeByFunctions(
       await appendRange(cursor, clampedStart);
     }
 
-    const paddedStart = Math.max(0, clampedStart - overlapChars);
-    const paddedEnd = Math.min(content.length, clampedEnd + overlapChars);
-    await appendRange(paddedStart, paddedEnd);
+    await appendRange(clampedStart, clampedEnd);
     cursor = clampedEnd;
   }
 
