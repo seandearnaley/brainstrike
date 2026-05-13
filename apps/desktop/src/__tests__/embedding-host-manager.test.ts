@@ -295,6 +295,51 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     expect(lifecycleState.ensureStarted).toHaveBeenCalledWith({ waitForRunning: true });
   });
 
+  it('sends local query embedding requests to the embedding host and resolves responses', async () => {
+    const manager = new EmbeddingHostManager();
+
+    const embeddingPromise = manager.queryEmbedding({
+      dimensions: 2,
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      query: 'where is database config',
+    });
+    expect(lifecycleState.ensureStarted).toHaveBeenCalledWith({ waitForRunning: true });
+    await lifecycleState.ensureStarted.mock.results[0]?.value;
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mockHostWindow.webContents.send).toHaveBeenCalledWith(
+      'embedding-host:query-embedding-request',
+      expect.objectContaining({
+        channel: 'query-embedding',
+        payload: {
+          dimensions: 2,
+          modelId: 'Xenova/all-MiniLM-L6-v2',
+          modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+          query: 'where is database config',
+        },
+        runtimeId: 'embedding-host-runtime',
+        type: 'request',
+      })
+    );
+
+    const request = mockHostWindow.webContents.send.mock.calls[0]?.[1] as {
+      requestId: string;
+      runtimeId: string;
+    };
+    manager.acceptQueryEmbeddingResponseReport(91, {
+      type: 'result',
+      channel: 'query-embedding-result',
+      requestId: request.requestId,
+      runtimeId: request.runtimeId,
+      payload: { embedding: [0.125, 0.75] },
+    });
+
+    await expect(embeddingPromise).resolves.toEqual([0.125, 0.75]);
+  });
+
   it('debounces inactive status reports across short embedding idle gaps', () => {
     const manager = new EmbeddingHostManager();
 

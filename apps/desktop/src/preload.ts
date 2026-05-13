@@ -17,7 +17,11 @@ import type {
 } from '@brainstrike/ui';
 import type { LogRecord } from '@brainstrike/utils/logger';
 import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
-import type { EmbeddingHostBackfillRequest } from './embedding-host-shared';
+import type {
+  EmbeddingHostBackfillRequest,
+  EmbeddingHostQueryEmbeddingRequest,
+  EmbeddingHostQueryEmbeddingResponseReport,
+} from './embedding-host-shared';
 import type { LoggingSettingsPayload } from './logging-shared';
 
 // Sandboxed preloads cannot depend on additional local modules at runtime.
@@ -32,6 +36,10 @@ const EMBEDDING_HOST_RESET_CHANNEL = 'embedding-host:reset' as const;
 const EMBEDDING_HOST_GET_STATUS_CHANNEL = 'embedding-host:get-status' as const;
 const EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL = 'embedding-host:enqueue-backfill' as const;
 const EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT = 'embedding-host:backfill-progress' as const;
+const EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT =
+  'embedding-host:query-embedding-request' as const;
+const EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL =
+  'embedding-host:report-query-embedding-response' as const;
 const EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL =
   'embedding-host:get-backfills-in-flight' as const;
 const EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL = 'embedding-host:cancel-all-backfills' as const;
@@ -621,6 +629,17 @@ contextBridge.exposeInMainWorld('embeddingHost', {
     return () => {
       ipcRenderer.removeListener(EMBEDDING_HOST_COMMAND_EVENT, listener);
     };
+  },
+  onQueryEmbeddingRequest: (callback: (request: EmbeddingHostQueryEmbeddingRequest) => void) => {
+    const listener = (_event: unknown, request: EmbeddingHostQueryEmbeddingRequest) =>
+      callback(request);
+    ipcRenderer.on(EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT, listener);
+    };
+  },
+  reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport): void => {
+    ipcRenderer.send(EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL, response);
   },
 });
 

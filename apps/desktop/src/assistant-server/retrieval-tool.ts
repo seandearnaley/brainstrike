@@ -15,10 +15,12 @@ import type { ChunkSearchResult } from '@brainstrike/db';
 import { FileChunkRepository, FileRecordRepository } from '@brainstrike/db';
 import {
   CohereEmbeddingProvider,
+  type EmbeddingProviderType,
   GoogleEmbeddingProvider,
   type HostedProviderType,
   hostedProviderRequiresApiKey,
   isHostedProvider,
+  isLocalProviderType,
   OpenAIEmbeddingProvider,
   parseProviderModelKey,
   resolveHostedProviderApiKey,
@@ -28,6 +30,7 @@ import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { PGlite } from '@electric-sql/pglite';
 import { getDatabase } from '../db-main';
+import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { getSecretsService } from '../secrets';
 
 const logger = createLogger('AssistantRetrievalTool');
@@ -50,8 +53,8 @@ const ERROR_MESSAGES = {
   missingExplicitEmbeddingSet: 'queryEmbeddingSpace requires an explicit embeddingSetId.',
   invalidEmbeddingSet: 'Active embedding set metadata is unavailable.',
   embeddingSetLookupFailed: 'Unable to load embedding set metadata.',
-  unsupportedProvider:
-    'Local embedding models are not available in the assistant. Choose a hosted embedding set.',
+  unsupportedProvider: 'Embedding provider is not supported by assistant retrieval.',
+  localEmbeddingHostUnavailable: 'Local embedding query host is unavailable.',
   missingApiKey: 'No API key configured for the embedding provider.',
   invalidSelectionSnapshot: 'Selection snapshot reference is invalid.',
   invalidSelectionFilePaths: 'Selection file paths are invalid.',
@@ -67,6 +70,7 @@ const SAFE_ERROR_MESSAGES = new Set<string>([
   ERROR_MESSAGES.invalidEmbeddingSet,
   ERROR_MESSAGES.embeddingSetLookupFailed,
   ERROR_MESSAGES.unsupportedProvider,
+  ERROR_MESSAGES.localEmbeddingHostUnavailable,
   ERROR_MESSAGES.missingApiKey,
   ERROR_MESSAGES.invalidSelectionSnapshot,
   ERROR_MESSAGES.invalidSelectionFilePaths,
@@ -100,6 +104,12 @@ interface RetrievalSelectionState {
 }
 
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
+
+let assistantEmbeddingHostManager: EmbeddingHostManager | null = null;
+
+export function setAssistantEmbeddingHostManager(manager: EmbeddingHostManager | null): void {
+  assistantEmbeddingHostManager = manager;
+}
 
 interface ToolContext<TInput> {
   context: TInput;
@@ -420,15 +430,34 @@ async function generateQueryEmbedding(
   return result.value.embedding;
 }
 
-function resolveHostedProviderForSet(embeddingSet: EmbeddingSetRow): HostedProviderType {
+function resolveProviderForSet(embeddingSet: EmbeddingSetRow): EmbeddingProviderType {
   const parsed = parseProviderModelKey(embeddingSet.modelKey);
   if (!parsed) {
     throw new Error(ERROR_MESSAGES.invalidEmbeddingSet);
   }
-  if (!isHostedProvider(parsed.provider)) {
-    throw new Error(ERROR_MESSAGES.unsupportedProvider);
+  return parsed.provider;
+}
+
+async function generateQueryEmbeddingForSet(
+  embeddingSet: EmbeddingSetRow,
+  query: string
+): Promise<number[]> {
+  const provider = resolveProviderForSet(embeddingSet);
+  if (isHostedProvider(provider)) {
+    return generateQueryEmbedding(provider, embeddingSet.modelId, embeddingSet.dimensions, query);
   }
-  return parsed.provider as HostedProviderType;
+  if (isLocalProviderType(provider)) {
+    if (!assistantEmbeddingHostManager) {
+      throw new Error(ERROR_MESSAGES.localEmbeddingHostUnavailable);
+    }
+    return assistantEmbeddingHostManager.queryEmbedding({
+      dimensions: embeddingSet.dimensions,
+      modelId: embeddingSet.modelId,
+      modelKey: embeddingSet.modelKey,
+      query,
+    });
+  }
+  throw new Error(ERROR_MESSAGES.unsupportedProvider);
 }
 
 function normalizeQuery(query: string): string {
@@ -551,13 +580,7 @@ async function runRetrieval(
 
   const db = (await getDatabase()) as unknown as PGlite;
   const embeddingSet = await resolveEmbeddingSet(db, embeddingSetId);
-  const provider = resolveHostedProviderForSet(embeddingSet);
-  const embedding = await generateQueryEmbedding(
-    provider,
-    embeddingSet.modelId,
-    embeddingSet.dimensions,
-    query
-  );
+  const embedding = await generateQueryEmbeddingForSet(embeddingSet, query);
   assertEmbeddingDimensions(embeddingSet.dimensions, embedding.length);
 
   const selectionState = await resolveSelectionState(db, runtimeData, input);

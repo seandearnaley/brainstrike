@@ -22,6 +22,8 @@ import type {
   EmbeddingHostBackfillInfo,
   EmbeddingHostBackfillProgress,
   EmbeddingHostCommand,
+  EmbeddingHostQueryEmbeddingRequest,
+  EmbeddingHostQueryEmbeddingResponseReport,
   EmbeddingHostStatus,
 } from '../embedding-host-shared';
 import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
@@ -133,6 +135,10 @@ declare global {
       ) => () => void;
       onStatus: (callback: (status: EmbeddingHostStatus) => void) => () => void;
       onCommand: (callback: (command: EmbeddingHostCommand) => void) => () => void;
+      onQueryEmbeddingRequest: (
+        callback: (request: EmbeddingHostQueryEmbeddingRequest) => void
+      ) => () => void;
+      reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;
     };
     llmHost: {
       ensureStarted: () => Promise<LlmHostStatus>;

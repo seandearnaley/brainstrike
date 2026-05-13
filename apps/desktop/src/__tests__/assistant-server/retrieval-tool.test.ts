@@ -104,6 +104,7 @@ vi.mock('@brainstrike/embeddings', () => ({
   hostedProviderRequiresApiKey: (provider: string) => !['ollama', 'lmstudio'].includes(provider),
   isHostedProvider: (provider: string) =>
     ['openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio'].includes(provider),
+  isLocalProviderType: (provider: string) => ['local', 'transformers'].includes(provider),
   parseProviderModelKey: (modelKey: string) => ({ provider: modelKey.split(':')[0] }),
   resolveHostedProviderApiKey: resolveHostedProviderApiKeyMock,
 }));
@@ -140,13 +141,17 @@ vi.mock('../../secrets', () => ({
   }),
 }));
 
-import { createRetrievalTool } from '../../assistant-server/retrieval-tool';
+import {
+  createRetrievalTool,
+  setAssistantEmbeddingHostManager,
+} from '../../assistant-server/retrieval-tool';
 
 describe('retrieval-tool', () => {
   const snapshotId = '550e8400-e29b-41d4-a716-446655440000';
 
   beforeEach(() => {
     vi.clearAllMocks();
+    setAssistantEmbeddingHostManager(null);
     getKeyMock.mockResolvedValue('test-api-key');
     resolveHostedProviderApiKeyMock.mockResolvedValue('fallback-api-key');
     embedMock.mockResolvedValue({ ok: true, value: { embedding: [0.25, 0.5] } });
@@ -286,6 +291,69 @@ describe('retrieval-tool', () => {
 
     expect(result.embeddingSetId).toBe('set-1');
     expect(resolveHostedProviderApiKeyMock).toHaveBeenCalledWith('lmstudio');
+  });
+
+  it('uses the embedding host for local embedding set queries', async () => {
+    const queryEmbeddingMock = vi.fn().mockResolvedValue([0.125, 0.75]);
+    setAssistantEmbeddingHostManager({
+      queryEmbedding: queryEmbeddingMock,
+    } as never);
+    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
+      if (sql.includes('FROM embedding_sets')) {
+        return {
+          rows: [
+            {
+              modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+              modelId: 'Xenova/all-MiniLM-L6-v2',
+              dimensions: 2,
+              distance: null,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const result = await tool.execute({
+      context: { query: 'where is database config', embeddingSetId: 'set-1' },
+    });
+
+    expect(result.embeddingSetId).toBe('set-1');
+    expect(queryEmbeddingMock).toHaveBeenCalledWith({
+      dimensions: 2,
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      query: 'where is database config',
+    });
+    expect(embedMock).not.toHaveBeenCalled();
+    expect(searchSimilarMock).toHaveBeenCalledWith([0.125, 0.75], expect.anything());
+  });
+
+  it('surfaces a safe error when local embedding host is unavailable', async () => {
+    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
+      if (sql.includes('FROM embedding_sets')) {
+        return {
+          rows: [
+            {
+              modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+              modelId: 'Xenova/all-MiniLM-L6-v2',
+              dimensions: 2,
+              distance: null,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    await expect(
+      tool.execute({
+        context: { query: 'where is database config', embeddingSetId: 'set-1' },
+      })
+    ).rejects.toThrow('Local embedding query host is unavailable.');
   });
 
   it('creates a selection snapshot when file paths exceed limit', async () => {
