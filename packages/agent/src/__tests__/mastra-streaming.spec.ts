@@ -410,8 +410,6 @@ describe('mastra streaming integration', () => {
     expect(instructions).toContain('brainstrike_listWorkspaceContext');
     expect(instructions).toContain('brainstrike_listEmbeddingSpaces');
     expect(instructions).toContain('brainstrike_queryEmbeddingSpace');
-    expect(instructions).toContain('filesystem_search_files');
-    expect(instructions).toContain('not the preferred route');
     expect(instructions).not.toContain('brainstrike.listWorkspaceContext');
   });
 

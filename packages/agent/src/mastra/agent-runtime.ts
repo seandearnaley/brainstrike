@@ -66,18 +66,13 @@ function resolveModelFacingToolName(
   return originalToolId;
 }
 
-function getModelFacingToolNames(
-  combinedTools: ToolsInput,
-  toolNameMap: ReadonlyMap<string, string>
-): {
+function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): {
   listWorkspaceContext: string;
   readWorkspaceContext: string;
   readWorkspaceFile: string;
   listEmbeddingSpaces: string;
   queryEmbeddingSpace: string;
-  genericFilesystemTools: string[];
 } {
-  const toolNames = Object.keys(combinedTools);
   return {
     listWorkspaceContext: resolveModelFacingToolName(
       toolNameMap,
@@ -99,27 +94,18 @@ function getModelFacingToolNames(
       toolNameMap,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.queryEmbeddingSpace
     ),
-    genericFilesystemTools: toolNames
-      .filter((toolName) => toolName.startsWith('filesystem_'))
-      .sort((a, b) => a.localeCompare(b)),
   };
 }
 
-function buildDefaultInstructions(
-  combinedTools: ToolsInput,
-  toolNameMap: ReadonlyMap<string, string>
-): string {
-  const names = getModelFacingToolNames(combinedTools, toolNameMap);
-  const filesystemToolWarning =
-    names.genericFilesystemTools.length > 0
-      ? ` Generic MCP filesystem tools are available (${names.genericFilesystemTools.join(', ')}), but they are not the preferred route for Brainstrike workspace/codebase questions. Use them only when the user explicitly asks for MCP filesystem access or the Brainstrike native workspace tools are unavailable.`
-      : '';
+function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): string {
+  const names = getModelFacingToolNames(toolNameMap);
 
   return `You are a helpful assistant for the Brainstrike IDE.
 Use tools when they help you answer accurately.
 Project files, context explorer selections, file trees, token estimates, and embedding spaces are not preloaded into your prompt.
-When project or codebase context is needed, use Brainstrike native tools explicitly. First inspect available selected context and the workspace index hint with ${names.listWorkspaceContext}. For broad codebase questions, call ${names.listEmbeddingSpaces} and prefer the space marked recommendedForWorkspaceSearch because it is the workspace index; then pass that explicit embeddingSetId to ${names.queryEmbeddingSpace}. Use ${names.readWorkspaceContext} or ${names.readWorkspaceFile} afterward when exact file contents or source lines are needed.${filesystemToolWarning}
+When project or codebase context is needed, use Brainstrike native tools explicitly. First inspect available selected context and the workspace index hint with ${names.listWorkspaceContext}. For broad codebase questions, call ${names.listEmbeddingSpaces} and prefer the space marked recommendedForWorkspaceSearch because it is the workspace index; then pass that explicit embeddingSetId to ${names.queryEmbeddingSpace}. Use ${names.readWorkspaceContext} or ${names.readWorkspaceFile} afterward when exact file contents or source lines are needed.
 Do not assume selected files or embedding spaces are already included. Keep file and retrieval budgets small, and report skipped or truncated tool results when they affect the answer.
+If an expected Brainstrike native tool is unavailable, say exactly which tool ID is missing and continue with another available tool only when that still answers the user.
 If the user asks what tools you have available, list the tool IDs you can call in this session and briefly describe each one.
 Only run state-changing tools after the user confirms.
 Provide concise answers after using tools.`;
@@ -300,7 +286,7 @@ export async function createMastraAgentRuntime(
   const agent = new Agent({
     id: 'brainstrike-assistant',
     name: 'Brainstrike Assistant',
-    instructions: instructions ?? buildDefaultInstructions(combinedTools, toolNameMap),
+    instructions: instructions ?? buildDefaultInstructions(toolNameMap),
     model: languageModel,
     tools: combinedTools,
     ...(memory ? { memory } : {}),

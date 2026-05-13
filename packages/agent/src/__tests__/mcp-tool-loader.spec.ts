@@ -109,47 +109,6 @@ describe('mcp-tool-loader', () => {
       expect(result['server1_remote_tool']).toBeDefined();
     });
 
-    it('marks generic filesystem MCP tools as non-preferred for workspace questions', async () => {
-      const mockMcpTools: ToolsInput = {
-        'filesystem.search_files': {
-          id: 'filesystem.search_files',
-          description: 'Search files',
-        },
-      };
-
-      const mockMcpClient = {
-        listTools: vi.fn().mockResolvedValue(mockMcpTools),
-      };
-
-      const result = await collectCombinedTools({
-        sanitizedLocalTools: {
-          brainstrike_listEmbeddingSpaces: {
-            id: 'brainstrike_listEmbeddingSpaces',
-            description: 'List Brainstrike embedding spaces',
-          },
-        },
-        mcpClient: mockMcpClient as unknown as MCPClient,
-        mcpConfig: {
-          servers: [
-            {
-              name: 'filesystem',
-              transport: 'stdio' as const,
-              command: 'echo',
-            },
-          ],
-        },
-        toolNameMap: new Map(),
-        timeoutOverrideMs: undefined,
-      });
-
-      expect(result['filesystem_search_files']?.description).toContain(
-        'Not preferred for Brainstrike workspace or codebase questions'
-      );
-      expect(result['brainstrike_listEmbeddingSpaces']?.description).toBe(
-        'List Brainstrike embedding spaces'
-      );
-    });
-
     it('handles MCP tool discovery timeout', async () => {
       const localTools: ToolsInput = {
         local_tool: { id: 'local_tool', description: 'local' },
@@ -495,6 +454,73 @@ describe('mcp-tool-loader', () => {
       expect(mcpToolRegistry.getToolsForServer('filesystem')).toEqual(
         expect.arrayContaining([expect.objectContaining({ id: 'filesystem.read_file' })])
       );
+    });
+
+    it('applies persisted enabled state when Mastra exposes server tools under sanitized ids', async () => {
+      mcpToolRegistry.register('filesystem', {
+        'filesystem.read_file': { id: 'filesystem.read_file', description: 'read file' },
+        'filesystem.list_directory': { id: 'filesystem.list_directory', description: 'list dir' },
+      });
+      mcpToolRegistry.disableTools(['filesystem.read_file']);
+
+      const mockMcpTools: ToolsInput = {
+        filesystem_read_file: { id: 'filesystem_read_file', description: 'read file' },
+        filesystem_list_directory: { id: 'filesystem_list_directory', description: 'list dir' },
+      };
+
+      const mockMcpClient = {
+        listTools: vi.fn().mockResolvedValue(mockMcpTools),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'filesystem',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap: new Map(),
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(result).not.toHaveProperty('filesystem_read_file');
+      expect(result).toHaveProperty('filesystem_list_directory');
+    });
+
+    it('applies config enabledTools patterns to sanitized Mastra MCP ids through registry ids', async () => {
+      const mockMcpTools: ToolsInput = {
+        filesystem_read_file: { id: 'filesystem_read_file', description: 'read file' },
+        filesystem_list_directory: { id: 'filesystem_list_directory', description: 'list dir' },
+      };
+
+      const mockMcpClient = {
+        listTools: vi.fn().mockResolvedValue(mockMcpTools),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'filesystem',
+              transport: 'stdio' as const,
+              command: 'echo',
+              enabledTools: ['filesystem.list_directory'],
+            },
+          ],
+        },
+        toolNameMap: new Map(),
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(result).not.toHaveProperty('filesystem_read_file');
+      expect(result).toHaveProperty('filesystem_list_directory');
     });
   });
 });
