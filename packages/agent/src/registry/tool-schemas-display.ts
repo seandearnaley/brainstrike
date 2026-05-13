@@ -192,9 +192,87 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
         min: 1,
         max: 50_000,
       },
+      {
+        name: 'useTapestrySelections',
+        type: 'boolean',
+        description:
+          'Apply selected Tapestry line ranges from the curated workspace context when available',
+        required: false,
+        default: true,
+      },
     ],
     returns:
       'Included file contents plus explicit skipped-file, truncation, and approximate token metadata',
+  },
+
+  'brainstrike.updateWorkspaceContextSelection': {
+    toolId: 'brainstrike.updateWorkspaceContextSelection',
+    description:
+      'Bulk update files selected in the workspace context explorer. Use this when curating reusable context for a prompt.',
+    parameters: [
+      {
+        name: 'filePaths',
+        type: 'array',
+        description: 'Workspace-relative file paths to select',
+        required: true,
+        arrayItemType: 'string',
+        minLength: 1,
+      },
+      {
+        name: 'mode',
+        type: 'enum',
+        description: 'Selection update strategy',
+        required: false,
+        default: 'add',
+        enumValues: ['replace', 'add', 'remove'],
+      },
+      {
+        name: 'folderId',
+        type: 'string',
+        description: 'Optional folder id for multi-root workspaces',
+        required: false,
+      },
+    ],
+    returns: 'Selection update result with applied and skipped paths',
+  },
+
+  'brainstrike.updateWorkspaceTapestrySelections': {
+    toolId: 'brainstrike.updateWorkspaceTapestrySelections',
+    description:
+      'Create, update, or clear Tapestry line ranges for curated workspace context files. Ranges are 1-based and inclusive.',
+    parameters: [
+      {
+        name: 'updates',
+        type: 'array',
+        description:
+          'Per-file range updates: each item has path and ranges with startLine/endLine/isActive',
+        required: true,
+        arrayItemType: 'object',
+        minLength: 1,
+      },
+      {
+        name: 'mode',
+        type: 'enum',
+        description: 'Range update strategy per file',
+        required: false,
+        default: 'replace',
+        enumValues: ['replace', 'add', 'clear'],
+      },
+      {
+        name: 'folderId',
+        type: 'string',
+        description: 'Optional folder id for multi-root workspaces',
+        required: false,
+      },
+      {
+        name: 'selectFiles',
+        type: 'boolean',
+        description: 'Also add affected files to the workspace context selection',
+        required: false,
+        default: true,
+      },
+    ],
+    returns: 'Tapestry update result with applied and skipped file metadata',
   },
 
   'brainstrike.listEmbeddingSpaces': {

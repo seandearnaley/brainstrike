@@ -177,7 +177,7 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 
-  it('exposes tool-only context tools and omits context mutation tools from chat runtime', () => {
+  it('exposes tool-only context tools and omits legacy context mutation tools from chat runtime', () => {
     const tools = buildDesktopAssistantTools({
       workspaceRootPath: '/tmp/workspace',
     } as RuntimeData);
@@ -186,6 +186,8 @@ describe('assistant-tools', () => {
     expect(tools['brainstrike.readWorkspaceContext']).toBeDefined();
     expect(tools['brainstrike.listEmbeddingSpaces']).toBeDefined();
     expect(tools['brainstrike.queryEmbeddingSpace']).toBeDefined();
+    expect(tools['brainstrike.updateWorkspaceContextSelection']).toBeDefined();
+    expect(tools['brainstrike.updateWorkspaceTapestrySelections']).toBeDefined();
     expect(tools['brainstrike.selectRootTreeFiles']).toBeUndefined();
     expect(tools['brainstrike.updatePreviewContextFiles']).toBeUndefined();
   });
@@ -220,6 +222,62 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 
+  it('lists token-aware curated workspace context metadata without file contents', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath,
+      selectionFolderId: 'root-1',
+      selectionFilePaths: ['/src/main.ts', '/README.md'],
+      workspaceContext: {
+        tokenBudget: 8192,
+        selectedSourceApproxTokens: 240,
+        selectedOutputApproxTokens: 140,
+        useTapestryRanges: true,
+        includeProjectTree: false,
+        projectTreeApproxTokens: 1800,
+        projectTreeTokenCountLoading: false,
+        files: [
+          {
+            path: '/src/main.ts',
+            approxTokens: 200,
+            outputApproxTokens: 100,
+            ranges: [{ startLine: 2, endLine: 3, approxTokens: 20, isActive: true }],
+          },
+          { path: '/README.md', approxTokens: 40, outputApproxTokens: 40, ranges: [] },
+        ],
+      },
+    } as RuntimeData);
+
+    const result = await tools['brainstrike.listWorkspaceContext'].execute({
+      context: { includeTokenEstimates: true },
+    });
+
+    expect(result.curatedContext).toEqual({
+      tokenBudget: 8192,
+      selectedSourceApproxTokens: 240,
+      selectedOutputApproxTokens: 140,
+      useTapestryRanges: true,
+      includeProjectTree: false,
+      projectTreeApproxTokens: 1800,
+      projectTreeTokenCountLoading: false,
+      files: [
+        {
+          path: '/src/main.ts',
+          approxTokens: 200,
+          outputApproxTokens: 100,
+          ranges: [{ startLine: 2, endLine: 3, approxTokens: 20, isActive: true }],
+        },
+        { path: '/README.md', approxTokens: 40, outputApproxTokens: 40, ranges: [] },
+      ],
+    });
+    expect(result.tokenEstimates).toEqual([
+      { path: '/src/main.ts', approxTokens: 200 },
+      { path: '/README.md', approxTokens: 40 },
+    ]);
+    expect(JSON.stringify(result)).not.toContain('line 1');
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
   it('reads selected workspace context under file and token limits with explicit skips', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = buildDesktopAssistantTools({
@@ -244,6 +302,127 @@ describe('assistant-tools', () => {
     expect(result.skippedFiles[0]).toMatchObject({
       path: '/README.md',
       reason: 'maxFiles',
+    });
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
+  it('reads selected workspace context through curated tapestry line ranges', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath,
+      selectionFilePaths: ['/src/main.ts'],
+      workspaceContext: {
+        useTapestryRanges: true,
+        files: [
+          {
+            path: '/src/main.ts',
+            ranges: [{ startLine: 2, endLine: 3, isActive: true }],
+          },
+        ],
+      },
+    } as RuntimeData);
+
+    const result = await tools['brainstrike.readWorkspaceContext'].execute({
+      context: {
+        maxCharsPerFile: 200,
+        tokenBudget: 100,
+        useTapestrySelections: true,
+      },
+    });
+
+    expect(result.includedCount).toBe(1);
+    expect(result.files[0]).toMatchObject({
+      path: '/src/main.ts',
+      startLine: 2,
+      endLine: 3,
+      tapestryRangeCount: 1,
+    });
+    expect(result.files[0]?.content).toContain('line 2');
+    expect(result.files[0]?.content).toContain('line 3');
+    expect(result.files[0]?.content).not.toContain('line 1');
+    expect(result.files[0]?.content).not.toContain('line 4');
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
+  it('broadcasts bulk workspace context selection updates with explicit skip metadata', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const send = vi.fn();
+    getAllWindowsMock.mockReturnValue([
+      { isDestroyed: () => false, webContents: { send } },
+      { isDestroyed: () => true, webContents: { send: vi.fn() } },
+    ]);
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath,
+      selectionFolderId: 'root-1',
+    } as RuntimeData);
+
+    const result = await tools['brainstrike.updateWorkspaceContextSelection'].execute({
+      context: {
+        filePaths: ['/src/main.ts', '/missing.ts'],
+        mode: 'replace',
+      },
+    });
+
+    expect(result).toMatchObject({
+      folderId: 'root-1',
+      mode: 'replace',
+      requestedCount: 2,
+      appliedCount: 1,
+      skippedCount: 1,
+      selectedFiles: ['/src/main.ts'],
+      skippedFiles: [{ path: '/missing.ts', reason: 'missing' }],
+    });
+    expect(send).toHaveBeenCalledWith('assistant:workspace-context-selection-update', {
+      folderId: 'root-1',
+      filePaths: ['/src/main.ts'],
+      mode: 'replace',
+    });
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
+  it('broadcasts workspace tapestry range updates and can select the affected files first', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const send = vi.fn();
+    getAllWindowsMock.mockReturnValue([{ isDestroyed: () => false, webContents: { send } }]);
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath,
+      selectionFolderId: 'root-1',
+    } as RuntimeData);
+
+    const result = await tools['brainstrike.updateWorkspaceTapestrySelections'].execute({
+      context: {
+        mode: 'replace',
+        selectFiles: true,
+        updates: [
+          {
+            path: '/src/main.ts',
+            ranges: [{ startLine: 2, endLine: 3, isActive: true }],
+          },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({
+      folderId: 'root-1',
+      mode: 'replace',
+      requestedFileCount: 1,
+      appliedFileCount: 1,
+      skippedFileCount: 0,
+    });
+    expect(send).toHaveBeenNthCalledWith(1, 'assistant:workspace-context-selection-update', {
+      folderId: 'root-1',
+      filePaths: ['/src/main.ts'],
+      mode: 'add',
+    });
+    expect(send).toHaveBeenNthCalledWith(2, 'assistant:workspace-context-tapestry-update', {
+      folderId: 'root-1',
+      mode: 'replace',
+      updates: [
+        {
+          path: '/src/main.ts',
+          ranges: [{ startLine: 2, endLine: 3, isActive: true }],
+        },
+      ],
     });
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });

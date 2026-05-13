@@ -50,6 +50,8 @@ const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
   readWorkspaceFile: 'brainstrike.readWorkspaceFile',
   listEmbeddingSpaces: 'brainstrike.listEmbeddingSpaces',
   queryEmbeddingSpace: 'brainstrike.queryEmbeddingSpace',
+  updateWorkspaceContextSelection: 'brainstrike.updateWorkspaceContextSelection',
+  updateWorkspaceTapestrySelections: 'brainstrike.updateWorkspaceTapestrySelections',
 } as const;
 
 function resolveModelFacingToolName(
@@ -70,6 +72,8 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): {
   readWorkspaceFile: string;
   listEmbeddingSpaces: string;
   queryEmbeddingSpace: string;
+  updateWorkspaceContextSelection: string;
+  updateWorkspaceTapestrySelections: string;
 } {
   return {
     listWorkspaceContext: resolveModelFacingToolName(
@@ -92,6 +96,14 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): {
       toolNameMap,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.queryEmbeddingSpace
     ),
+    updateWorkspaceContextSelection: resolveModelFacingToolName(
+      toolNameMap,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.updateWorkspaceContextSelection
+    ),
+    updateWorkspaceTapestrySelections: resolveModelFacingToolName(
+      toolNameMap,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.updateWorkspaceTapestrySelections
+    ),
   };
 }
 
@@ -101,7 +113,8 @@ function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): str
   return `You are a helpful assistant for the Brainstrike IDE.
 Use tools when they help you answer accurately.
 Project files, context explorer selections, file trees, token estimates, and embedding spaces are not preloaded into your prompt.
-When project or codebase context is needed, use Brainstrike native tools explicitly. First inspect available selected context and the workspace index hint with ${names.listWorkspaceContext}. For broad codebase questions, call ${names.listEmbeddingSpaces} and prefer the space marked recommendedForWorkspaceSearch because it is the workspace index; then pass that explicit embeddingSetId to ${names.queryEmbeddingSpace}. Use ${names.readWorkspaceContext} or ${names.readWorkspaceFile} afterward when exact file contents or source lines are needed.
+When project or codebase context is needed, use Brainstrike native tools explicitly. First inspect available selected context, token budgets, Tapestry ranges, project-tree token counts, and the workspace index hint with ${names.listWorkspaceContext}. For broad codebase questions, call ${names.listEmbeddingSpaces} and prefer the space marked recommendedForWorkspaceSearch because it is the workspace index; then pass that explicit embeddingSetId to ${names.queryEmbeddingSpace}. Use ${names.readWorkspaceContext} or ${names.readWorkspaceFile} afterward when exact file contents or source lines are needed.
+When the user asks you to curate ideal reusable context, use ${names.queryEmbeddingSpace} to find candidate files/ranges, ${names.updateWorkspaceContextSelection} to bulk select the files, and ${names.updateWorkspaceTapestrySelections} to keep only relevant line ranges. Keep the curation token-aware and prefer Tapestry ranges over whole files when a whole file would waste context.
 Do not assume selected files or embedding spaces are already included. Keep file and retrieval budgets small, and report skipped or truncated tool results when they affect the answer.
 If an expected Brainstrike native tool is unavailable, say exactly which tool ID is missing and continue with another available tool only when that still answers the user.
 If the user asks what tools you have available, list the tool IDs you can call in this session and briefly describe each one.

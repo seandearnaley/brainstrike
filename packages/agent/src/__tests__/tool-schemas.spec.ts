@@ -22,8 +22,43 @@ describe('tool schemas', () => {
       filePaths: ['/src/main.ts', '/src/utils.ts'],
       maxFiles: 2,
       tokenBudget: 4000,
+      useTapestrySelections: true,
     });
     expect(ok.ok).toBe(true);
+  });
+
+  it('validates workspace context selection updates', () => {
+    const ok = validateToolInput('brainstrike.updateWorkspaceContextSelection', {
+      filePaths: ['/src/main.ts', '/src/utils.ts'],
+      mode: 'replace',
+    });
+    expect(ok.ok).toBe(true);
+  });
+
+  it('validates workspace tapestry selection updates', () => {
+    const ok = validateToolInput('brainstrike.updateWorkspaceTapestrySelections', {
+      mode: 'replace',
+      selectFiles: true,
+      updates: [
+        {
+          path: '/src/main.ts',
+          ranges: [{ startLine: 4, endLine: 12, isActive: true }],
+        },
+      ],
+    });
+    expect(ok.ok).toBe(true);
+  });
+
+  it('rejects inverted workspace tapestry ranges', () => {
+    const ok = validateToolInput('brainstrike.updateWorkspaceTapestrySelections', {
+      updates: [
+        {
+          path: '/src/main.ts',
+          ranges: [{ startLine: 12, endLine: 4 }],
+        },
+      ],
+    });
+    expect(ok.ok).toBe(false);
   });
 
   it('requires an explicit embedding set for embedding-space queries', () => {
@@ -53,5 +88,10 @@ describe('tool schemas', () => {
       (param) => param.name === 'workspaceIndexOnly'
     );
     expect(workspaceIndexOnly?.type).toBe('boolean');
+  });
+
+  it('documents context curation tools in schema display metadata', () => {
+    expect(getToolSchemaDisplay('brainstrike.updateWorkspaceContextSelection')).toBeDefined();
+    expect(getToolSchemaDisplay('brainstrike.updateWorkspaceTapestrySelections')).toBeDefined();
   });
 });

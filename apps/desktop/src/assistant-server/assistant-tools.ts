@@ -14,10 +14,22 @@ import {
   type ReadWorkspaceFileInput,
   ReadWorkspaceFileInputSchema,
   type RuntimeData,
+  type RuntimeWorkspaceContextFileMetadata,
+  type RuntimeWorkspaceContextMetadata,
+  type RuntimeWorkspaceContextRangeMetadata,
+  type UpdateWorkspaceContextSelectionInput,
+  UpdateWorkspaceContextSelectionInputSchema,
+  type UpdateWorkspaceTapestrySelectionsInput,
+  UpdateWorkspaceTapestrySelectionsInputSchema,
 } from '@brainstrike/agent';
 import { countTokensHeuristic } from '@brainstrike/text-splitter';
+import type {
+  AssistantWorkspaceContextSelectionUpdatePayload,
+  AssistantWorkspaceTapestryUpdatePayload,
+} from '@brainstrike/types';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { createLogger } from '@brainstrike/utils/logger';
+import { BrowserWindow } from 'electron';
 import { getDatabase } from '../db-main';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 
@@ -29,8 +41,14 @@ const READ_WORKSPACE_FILE_TOOL_ID = 'brainstrike.readWorkspaceFile' as const;
 const READ_WORKSPACE_DIRECTORY_TOOL_ID = 'brainstrike.readWorkspaceDirectory' as const;
 const LIST_WORKSPACE_CONTEXT_TOOL_ID = 'brainstrike.listWorkspaceContext' as const;
 const READ_WORKSPACE_CONTEXT_TOOL_ID = 'brainstrike.readWorkspaceContext' as const;
+const UPDATE_WORKSPACE_CONTEXT_SELECTION_TOOL_ID =
+  'brainstrike.updateWorkspaceContextSelection' as const;
+const UPDATE_WORKSPACE_TAPESTRY_SELECTIONS_TOOL_ID =
+  'brainstrike.updateWorkspaceTapestrySelections' as const;
 const LIST_EMBEDDING_SPACES_TOOL_ID = 'brainstrike.listEmbeddingSpaces' as const;
 const QUERY_EMBEDDING_SPACE_TOOL_ID = 'brainstrike.queryEmbeddingSpace' as const;
+const WORKSPACE_CONTEXT_SELECTION_EVENT = 'assistant:workspace-context-selection-update' as const;
+const WORKSPACE_CONTEXT_TAPESTRY_EVENT = 'assistant:workspace-context-tapestry-update' as const;
 
 const DEFAULT_FILE_MAX_CHARS = 12_000;
 const MAX_READ_WORKSPACE_FILE_BYTES = 2_000_000;
@@ -148,6 +166,38 @@ function truncateContent(
   };
 }
 
+async function readWorkspaceTextFile(args: { requestedPath: string; rootPath: string }): Promise<{
+  content: string;
+  path: string;
+  size: number;
+}> {
+  const resolved = await resolveWorkspaceAbsolutePath(args.rootPath, args.requestedPath);
+
+  const stat = await fsPromises.stat(resolved.absolutePath);
+  if (!stat.isFile()) {
+    throw new Error(`Path "${args.requestedPath}" is not a file.`);
+  }
+  if (stat.size > MAX_READ_WORKSPACE_FILE_BYTES) {
+    throw new Error(
+      `Path "${args.requestedPath}" exceeds ${MAX_READ_WORKSPACE_FILE_BYTES} bytes and cannot be read in full.`
+    );
+  }
+
+  const fileBuffer = await fsPromises.readFile(resolved.absolutePath);
+  const binaryProbeLength = Math.min(fileBuffer.length, 4096);
+  for (let index = 0; index < binaryProbeLength; index += 1) {
+    if (fileBuffer[index] === 0) {
+      throw new Error(`Path "${args.requestedPath}" is a binary file and cannot be read as text.`);
+    }
+  }
+
+  return {
+    path: resolved.workspacePath,
+    size: Number(stat.size),
+    content: fileBuffer.toString('utf8'),
+  };
+}
+
 async function runReadWorkspaceFile(
   input: ReadWorkspaceFileInput,
   runtimeData: RuntimeData | undefined
@@ -165,34 +215,14 @@ async function runReadWorkspaceFile(
 }> {
   const rootPath = resolveWorkspaceRootPath(runtimeData);
   const requestedPath = input.path;
-  const resolved = await resolveWorkspaceAbsolutePath(rootPath, requestedPath);
-
-  const stat = await fsPromises.stat(resolved.absolutePath);
-  if (!stat.isFile()) {
-    throw new Error(`Path "${requestedPath}" is not a file.`);
-  }
-  if (stat.size > MAX_READ_WORKSPACE_FILE_BYTES) {
-    throw new Error(
-      `Path "${requestedPath}" exceeds ${MAX_READ_WORKSPACE_FILE_BYTES} bytes and cannot be read in full.`
-    );
-  }
-
-  const fileBuffer = await fsPromises.readFile(resolved.absolutePath);
-  const binaryProbeLength = Math.min(fileBuffer.length, 4096);
-  for (let index = 0; index < binaryProbeLength; index += 1) {
-    if (fileBuffer[index] === 0) {
-      throw new Error(`Path "${requestedPath}" is a binary file and cannot be read as text.`);
-    }
-  }
-
-  const content = fileBuffer.toString('utf8');
-  const ranged = sliceContentByLineRange(content, input.startLine, input.endLine);
+  const file = await readWorkspaceTextFile({ rootPath, requestedPath });
+  const ranged = sliceContentByLineRange(file.content, input.startLine, input.endLine);
   const maxChars = input.maxChars ?? DEFAULT_FILE_MAX_CHARS;
   const truncated = truncateContent(ranged.content, maxChars);
 
   return {
-    path: resolved.workspacePath,
-    size: Number(stat.size),
+    path: file.path,
+    size: file.size,
     tokenCount: null,
     startLine: ranged.startLine,
     endLine: ranged.endLine,
@@ -432,6 +462,63 @@ function normalizeRuntimeSelectionFilePaths(runtimeData: RuntimeData | undefined
   return normalizeWorkspacePaths(Array.from(runtimeData?.selectionFilePaths ?? []));
 }
 
+function resolveSelectionFolderId(
+  inputFolderId: string | undefined,
+  runtimeData: RuntimeData | undefined
+): string {
+  const folderId = inputFolderId?.trim() || runtimeData?.selectionFolderId?.trim();
+  if (!folderId) {
+    throw new Error('No selection folder is available. Select a workspace root first.');
+  }
+  return folderId;
+}
+
+function getRuntimeWorkspaceContext(
+  runtimeData: RuntimeData | undefined
+): RuntimeWorkspaceContextMetadata | undefined {
+  return runtimeData?.workspaceContext;
+}
+
+function getRuntimeWorkspaceContextFiles(
+  runtimeData: RuntimeData | undefined
+): RuntimeWorkspaceContextFileMetadata[] {
+  const files = getRuntimeWorkspaceContext(runtimeData)?.files;
+  return Array.isArray(files) ? Array.from(files) : [];
+}
+
+function normalizeWorkspaceContextRange(
+  range: RuntimeWorkspaceContextRangeMetadata
+): RuntimeWorkspaceContextRangeMetadata | null {
+  if (!(Number.isInteger(range.startLine) && Number.isInteger(range.endLine))) {
+    return null;
+  }
+  if (range.startLine < 1 || range.endLine < range.startLine) {
+    return null;
+  }
+  return {
+    startLine: range.startLine,
+    endLine: range.endLine,
+    ...(typeof range.approxTokens === 'number' ? { approxTokens: range.approxTokens } : {}),
+    ...(range.isActive === false ? { isActive: false } : { isActive: true }),
+  };
+}
+
+function buildRuntimeTapestryRangesByPath(
+  runtimeData: RuntimeData | undefined
+): Map<string, RuntimeWorkspaceContextRangeMetadata[]> {
+  const rangesByPath = new Map<string, RuntimeWorkspaceContextRangeMetadata[]>();
+  for (const file of getRuntimeWorkspaceContextFiles(runtimeData)) {
+    const normalizedPath = normalizeWorkspacePath(file.path);
+    const ranges = Array.from(file.ranges ?? [])
+      .map((range) => normalizeWorkspaceContextRange(range))
+      .filter((range): range is RuntimeWorkspaceContextRangeMetadata => range !== null);
+    if (ranges.length > 0) {
+      rangesByPath.set(normalizedPath, ranges);
+    }
+  }
+  return rangesByPath;
+}
+
 interface WorkspaceIndexSummary {
   embeddingSetId: string | null;
   enabled: boolean;
@@ -463,6 +550,7 @@ function runListWorkspaceContext(
   input: ListWorkspaceContextInput,
   runtimeData: RuntimeData | undefined
 ): {
+  curatedContext?: RuntimeWorkspaceContextMetadata;
   workspaceRootPath: string;
   selectionFolderId?: string;
   selectedFileCount: number;
@@ -472,7 +560,15 @@ function runListWorkspaceContext(
 } {
   const workspaceRootPath = resolveWorkspaceRootPath(runtimeData);
   const selectedFiles = normalizeRuntimeSelectionFilePaths(runtimeData);
+  const curatedContext = getRuntimeWorkspaceContext(runtimeData);
+  const curatedFilesByPath = new Map(
+    getRuntimeWorkspaceContextFiles(runtimeData).map((file) => [
+      normalizeWorkspacePath(file.path),
+      file,
+    ])
+  );
   const result: {
+    curatedContext?: RuntimeWorkspaceContextMetadata;
     workspaceRootPath: string;
     selectionFolderId?: string;
     selectedFileCount: number;
@@ -485,13 +581,16 @@ function runListWorkspaceContext(
     selectedFiles,
     workspaceIndex: normalizeRuntimeWorkspaceIndex(runtimeData),
   };
+  if (curatedContext) {
+    result.curatedContext = curatedContext;
+  }
   if (typeof runtimeData?.selectionFolderId === 'string') {
     result.selectionFolderId = runtimeData.selectionFolderId;
   }
   if (input.includeTokenEstimates === true) {
     result.tokenEstimates = selectedFiles.map((filePath) => ({
       path: filePath,
-      approxTokens: null,
+      approxTokens: curatedFilesByPath.get(filePath)?.approxTokens ?? null,
     }));
   }
   return result;
@@ -505,6 +604,13 @@ interface WorkspaceContextFileResult {
   path: string;
   size: number;
   startLine: number;
+  tapestryRangeCount?: number;
+  tapestryRanges?: Array<{
+    approxTokens: number;
+    content: string;
+    endLine: number;
+    startLine: number;
+  }>;
   totalLines: number;
   truncated: boolean;
 }
@@ -547,6 +653,164 @@ function classifyReadContextError(
   return { path: workspacePath, reason: 'readError', message };
 }
 
+function buildRangedContextContent(args: {
+  content: string;
+  maxChars: number;
+  ranges: readonly RuntimeWorkspaceContextRangeMetadata[];
+}): {
+  approxTokens: number;
+  content: string;
+  endLine: number;
+  omittedChars: number;
+  ranges: NonNullable<WorkspaceContextFileResult['tapestryRanges']>;
+  startLine: number;
+  totalLines: number;
+  truncated: boolean;
+} {
+  const fullLines = args.content.split('\n');
+  const totalLines = fullLines.length;
+  const activeRanges = args.ranges
+    .filter((range) => range.isActive !== false)
+    .map((range) => ({
+      startLine: Math.max(1, Math.min(range.startLine, totalLines)),
+      endLine: Math.max(1, Math.min(range.endLine, totalLines)),
+    }))
+    .filter((range) => range.endLine >= range.startLine)
+    .sort((left, right) => left.startLine - right.startLine || left.endLine - right.endLine);
+
+  if (activeRanges.length === 0) {
+    return {
+      approxTokens: 0,
+      content: '<selection_summary>No active tapestry ranges selected.</selection_summary>',
+      startLine: 1,
+      endLine: 1,
+      totalLines,
+      truncated: false,
+      omittedChars: 0,
+      ranges: [],
+    };
+  }
+
+  let remainingChars = args.maxChars;
+  let omittedChars = 0;
+  let truncated = false;
+  const rangeResults: NonNullable<WorkspaceContextFileResult['tapestryRanges']> = [];
+
+  for (const range of activeRanges) {
+    const sliced = fullLines.slice(range.startLine - 1, range.endLine).join('\n');
+    const truncatedRange = truncateContent(sliced, Math.max(remainingChars, 0));
+    if (truncatedRange.truncated) {
+      truncated = true;
+      omittedChars += truncatedRange.omittedChars;
+    }
+    remainingChars -= truncatedRange.content.length;
+    rangeResults.push({
+      startLine: range.startLine,
+      endLine: range.endLine,
+      approxTokens: countTokensHeuristic(truncatedRange.content),
+      content: truncatedRange.content,
+    });
+    if (remainingChars <= 0) {
+      const laterRanges = activeRanges.slice(rangeResults.length);
+      omittedChars += laterRanges.reduce((sum, laterRange) => {
+        const laterContent = fullLines
+          .slice(laterRange.startLine - 1, laterRange.endLine)
+          .join('\n');
+        return sum + laterContent.length;
+      }, 0);
+      truncated = laterRanges.length > 0 || truncated;
+      break;
+    }
+  }
+
+  const content = rangeResults
+    .map(
+      (
+        range,
+        index
+      ) => `<selection index="${index + 1}" start_line="${range.startLine}" end_line="${range.endLine}">
+${range.content}
+</selection>`
+    )
+    .join('\n');
+
+  return {
+    approxTokens: countTokensHeuristic(content),
+    content,
+    startLine: activeRanges[0]?.startLine ?? 1,
+    endLine: activeRanges.at(-1)?.endLine ?? 1,
+    totalLines,
+    truncated,
+    omittedChars,
+    ranges: rangeResults,
+  };
+}
+
+interface WorkspaceContextResolvedFile {
+  approxOutputTokens: number;
+  content: string;
+  endLine: number;
+  omittedChars: number;
+  path: string;
+  size: number;
+  startLine: number;
+  tapestryRangeCount?: number;
+  tapestryRanges?: WorkspaceContextFileResult['tapestryRanges'];
+  totalLines: number;
+  truncated: boolean;
+}
+
+async function readWorkspaceContextFile(args: {
+  maxCharsPerFile: number;
+  requestedPath: string;
+  rootPath: string;
+  tapestryRanges: RuntimeWorkspaceContextRangeMetadata[] | undefined;
+}): Promise<WorkspaceContextResolvedFile> {
+  if (args.tapestryRanges && args.tapestryRanges.length > 0) {
+    const rawFile = await readWorkspaceTextFile({
+      rootPath: args.rootPath,
+      requestedPath: args.requestedPath,
+    });
+    const ranged = buildRangedContextContent({
+      content: rawFile.content,
+      maxChars: args.maxCharsPerFile,
+      ranges: args.tapestryRanges,
+    });
+    return {
+      path: rawFile.path,
+      size: rawFile.size,
+      startLine: ranged.startLine,
+      endLine: ranged.endLine,
+      totalLines: ranged.totalLines,
+      truncated: ranged.truncated,
+      omittedChars: ranged.omittedChars,
+      approxOutputTokens: ranged.approxTokens,
+      content: ranged.content,
+      tapestryRangeCount: ranged.ranges.length,
+      tapestryRanges: ranged.ranges,
+    };
+  }
+
+  const file = await runReadWorkspaceFile(
+    {
+      path: args.requestedPath,
+      maxChars: args.maxCharsPerFile,
+    },
+    { workspaceRootPath: args.rootPath }
+  );
+  return {
+    path: file.path,
+    size: file.size,
+    startLine: file.startLine,
+    endLine: file.endLine,
+    totalLines: file.totalLines,
+    truncated: file.truncated,
+    omittedChars: file.omittedChars,
+    approxOutputTokens: file.approxOutputTokens,
+    content: file.content,
+  };
+}
+
 async function runReadWorkspaceContext(
   input: ReadWorkspaceContextInput,
   runtimeData: RuntimeData | undefined
@@ -574,6 +838,11 @@ async function runReadWorkspaceContext(
   const tokenBudget = input.tokenBudget ?? DEFAULT_CONTEXT_TOKEN_BUDGET;
   const maxFiles = input.maxFiles ?? DEFAULT_CONTEXT_MAX_FILES;
   const maxCharsPerFile = input.maxCharsPerFile ?? DEFAULT_CONTEXT_MAX_CHARS_PER_FILE;
+  const useTapestrySelections = input.useTapestrySelections !== false;
+  const tapestryRangesByPath =
+    useTapestrySelections && getRuntimeWorkspaceContext(runtimeData)?.useTapestryRanges !== false
+      ? buildRuntimeTapestryRangesByPath(runtimeData)
+      : new Map<string, RuntimeWorkspaceContextRangeMetadata[]>();
   const files: WorkspaceContextFileResult[] = [];
   const skippedFiles: WorkspaceContextSkippedFile[] = [];
   let totalApproxTokens = 0;
@@ -585,13 +854,13 @@ async function runReadWorkspaceContext(
     }
 
     try {
-      const file = await runReadWorkspaceFile(
-        {
-          path: requestedPath,
-          maxChars: maxCharsPerFile,
-        },
-        { workspaceRootPath }
-      );
+      const normalizedRequestedPath = normalizeWorkspacePath(requestedPath);
+      const file = await readWorkspaceContextFile({
+        rootPath: workspaceRootPath,
+        requestedPath: normalizedRequestedPath,
+        maxCharsPerFile,
+        tapestryRanges: tapestryRangesByPath.get(normalizedRequestedPath),
+      });
       const approxTokens = file.approxOutputTokens;
       if (totalApproxTokens + approxTokens > tokenBudget) {
         skippedFiles.push({
@@ -602,7 +871,7 @@ async function runReadWorkspaceContext(
         continue;
       }
       totalApproxTokens += approxTokens;
-      files.push({
+      const fileResult: WorkspaceContextFileResult = {
         path: file.path,
         size: file.size,
         startLine: file.startLine,
@@ -612,7 +881,14 @@ async function runReadWorkspaceContext(
         omittedChars: file.omittedChars,
         approxTokens,
         content: file.content,
-      });
+      };
+      if (file.tapestryRangeCount !== undefined) {
+        fileResult.tapestryRangeCount = file.tapestryRangeCount;
+      }
+      if (file.tapestryRanges !== undefined) {
+        fileResult.tapestryRanges = file.tapestryRanges;
+      }
+      files.push(fileResult);
     } catch (error) {
       skippedFiles.push(classifyReadContextError(requestedPath, error));
     }
@@ -628,6 +904,178 @@ async function runReadWorkspaceContext(
     truncated: files.some((file) => file.truncated) || skippedFiles.length > 0,
     files,
     skippedFiles,
+  };
+}
+
+interface WorkspaceContextSkippedPath {
+  message?: string;
+  path: string;
+  reason: 'missing' | 'notFile' | 'outsideWorkspace' | 'readError';
+}
+
+function classifySelectionPathError(
+  pathValue: string,
+  error: unknown
+): WorkspaceContextSkippedPath {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes('outside the selected workspace root')) {
+    return { path: pathValue, reason: 'outsideWorkspace', message };
+  }
+  if (message.includes('is not a file')) {
+    return { path: pathValue, reason: 'notFile', message };
+  }
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  if (code === 'ENOENT') {
+    return { path: pathValue, reason: 'missing', message };
+  }
+  return { path: pathValue, reason: 'readError', message };
+}
+
+async function validateSelectableWorkspaceFiles(args: {
+  filePaths: readonly string[];
+  mode: 'replace' | 'add' | 'remove' | 'clear';
+  rootPath: string;
+}): Promise<{ selectedFiles: string[]; skippedFiles: WorkspaceContextSkippedPath[] }> {
+  const selectedFiles: string[] = [];
+  const skippedFiles: WorkspaceContextSkippedPath[] = [];
+  for (const requestedPath of normalizeWorkspacePaths(args.filePaths)) {
+    if (args.mode === 'remove' || args.mode === 'clear') {
+      selectedFiles.push(requestedPath);
+      continue;
+    }
+    try {
+      const resolved = await resolveWorkspaceAbsolutePath(args.rootPath, requestedPath);
+      const stat = await fsPromises.stat(resolved.absolutePath);
+      if (!stat.isFile()) {
+        throw new Error(`Path "${requestedPath}" is not a file.`);
+      }
+      selectedFiles.push(resolved.workspacePath);
+    } catch (error) {
+      skippedFiles.push(classifySelectionPathError(requestedPath, error));
+    }
+  }
+  return { selectedFiles, skippedFiles };
+}
+
+function broadcastWorkspaceContextEvent(
+  channel: typeof WORKSPACE_CONTEXT_SELECTION_EVENT | typeof WORKSPACE_CONTEXT_TAPESTRY_EVENT,
+  payload: AssistantWorkspaceContextSelectionUpdatePayload | AssistantWorkspaceTapestryUpdatePayload
+): number {
+  let notifiedWindowCount = 0;
+  for (const browserWindow of BrowserWindow.getAllWindows()) {
+    if (browserWindow.isDestroyed()) {
+      continue;
+    }
+    browserWindow.webContents.send(channel, payload);
+    notifiedWindowCount += 1;
+  }
+  return notifiedWindowCount;
+}
+
+async function runUpdateWorkspaceContextSelection(
+  input: UpdateWorkspaceContextSelectionInput,
+  runtimeData: RuntimeData | undefined
+): Promise<{
+  appliedCount: number;
+  folderId: string;
+  mode: 'replace' | 'add' | 'remove';
+  notifiedWindowCount: number;
+  requestedCount: number;
+  selectedFiles: string[];
+  skippedCount: number;
+  skippedFiles: WorkspaceContextSkippedPath[];
+}> {
+  const rootPath = resolveWorkspaceRootPath(runtimeData);
+  const folderId = resolveSelectionFolderId(input.folderId, runtimeData);
+  const mode = input.mode ?? 'add';
+  const { selectedFiles, skippedFiles } = await validateSelectableWorkspaceFiles({
+    rootPath,
+    filePaths: input.filePaths,
+    mode,
+  });
+  const notifiedWindowCount =
+    selectedFiles.length > 0
+      ? broadcastWorkspaceContextEvent(WORKSPACE_CONTEXT_SELECTION_EVENT, {
+          folderId,
+          filePaths: selectedFiles,
+          mode,
+        })
+      : 0;
+  return {
+    folderId,
+    mode,
+    requestedCount: normalizeWorkspacePaths(input.filePaths).length,
+    appliedCount: selectedFiles.length,
+    skippedCount: skippedFiles.length,
+    selectedFiles,
+    skippedFiles,
+    notifiedWindowCount,
+  };
+}
+
+async function runUpdateWorkspaceTapestrySelections(
+  input: UpdateWorkspaceTapestrySelectionsInput,
+  runtimeData: RuntimeData | undefined
+): Promise<{
+  appliedFileCount: number;
+  folderId: string;
+  mode: 'replace' | 'add' | 'clear';
+  notifiedWindowCount: number;
+  requestedFileCount: number;
+  selectedFiles: string[];
+  skippedFileCount: number;
+  skippedFiles: WorkspaceContextSkippedPath[];
+}> {
+  const rootPath = resolveWorkspaceRootPath(runtimeData);
+  const folderId = resolveSelectionFolderId(input.folderId, runtimeData);
+  const mode = input.mode ?? 'replace';
+  const selectFiles = input.selectFiles !== false;
+  const requestedPaths = input.updates.map((update) => update.path);
+  const { selectedFiles, skippedFiles } = await validateSelectableWorkspaceFiles({
+    rootPath,
+    filePaths: requestedPaths,
+    mode,
+  });
+  const selectedFileSet = new Set(selectedFiles);
+  const updates = input.updates
+    .map((update) => ({
+      path: normalizeWorkspacePath(update.path),
+      ranges: update.ranges.map((range) => ({
+        startLine: range.startLine,
+        endLine: range.endLine,
+        ...(range.isActive === undefined ? {} : { isActive: range.isActive }),
+      })),
+    }))
+    .filter((update) => selectedFileSet.has(update.path));
+
+  let notifiedWindowCount = 0;
+  if (selectFiles && selectedFiles.length > 0) {
+    notifiedWindowCount = broadcastWorkspaceContextEvent(WORKSPACE_CONTEXT_SELECTION_EVENT, {
+      folderId,
+      filePaths: selectedFiles,
+      mode: 'add',
+    });
+  }
+  if (updates.length > 0) {
+    notifiedWindowCount = Math.max(
+      notifiedWindowCount,
+      broadcastWorkspaceContextEvent(WORKSPACE_CONTEXT_TAPESTRY_EVENT, {
+        folderId,
+        mode,
+        updates,
+      })
+    );
+  }
+
+  return {
+    folderId,
+    mode,
+    requestedFileCount: normalizeWorkspacePaths(requestedPaths).length,
+    appliedFileCount: updates.length,
+    skippedFileCount: skippedFiles.length,
+    selectedFiles,
+    skippedFiles,
+    notifiedWindowCount,
   };
 }
 
@@ -807,7 +1255,7 @@ export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined)
     [READ_WORKSPACE_CONTEXT_TOOL_ID]: {
       id: READ_WORKSPACE_CONTEXT_TOOL_ID,
       description:
-        'Read selected or explicit workspace files under maxFiles, per-file, and token budgets. Use after semantic search when you need exact source lines. Skipped and truncated files are reported explicitly.',
+        'Read selected or explicit workspace files under maxFiles, per-file, and token budgets. Uses curated Tapestry ranges by default when available. Use after semantic search when you need exact source lines. Skipped and truncated files are reported explicitly.',
       inputSchema: ReadWorkspaceContextInputSchema,
       execute: async (input: ToolExecuteInput<ReadWorkspaceContextInput>) => {
         const resolvedInput = ReadWorkspaceContextInputSchema.parse(resolveToolExecuteInput(input));
@@ -815,6 +1263,40 @@ export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined)
           return await runReadWorkspaceContext(resolvedInput, runtimeData);
         } catch (error) {
           logger.error('readWorkspaceContext failed', { error, input: resolvedInput });
+          throw error;
+        }
+      },
+    },
+    [UPDATE_WORKSPACE_CONTEXT_SELECTION_TOOL_ID]: {
+      id: UPDATE_WORKSPACE_CONTEXT_SELECTION_TOOL_ID,
+      description:
+        'Bulk add, remove, or replace files selected in the workspace context explorer. Use this to curate reusable context for the user; listWorkspaceContext reports token counts afterward.',
+      inputSchema: UpdateWorkspaceContextSelectionInputSchema,
+      execute: async (input: ToolExecuteInput<UpdateWorkspaceContextSelectionInput>) => {
+        const resolvedInput = UpdateWorkspaceContextSelectionInputSchema.parse(
+          resolveToolExecuteInput(input)
+        );
+        try {
+          return await runUpdateWorkspaceContextSelection(resolvedInput, runtimeData);
+        } catch (error) {
+          logger.error('updateWorkspaceContextSelection failed', { error, input: resolvedInput });
+          throw error;
+        }
+      },
+    },
+    [UPDATE_WORKSPACE_TAPESTRY_SELECTIONS_TOOL_ID]: {
+      id: UPDATE_WORKSPACE_TAPESTRY_SELECTIONS_TOOL_ID,
+      description:
+        'Create, add, or clear Tapestry line selections for workspace context files using 1-based inclusive line numbers. Use after embedding search or file reads to keep only the ideal source ranges.',
+      inputSchema: UpdateWorkspaceTapestrySelectionsInputSchema,
+      execute: async (input: ToolExecuteInput<UpdateWorkspaceTapestrySelectionsInput>) => {
+        const resolvedInput = UpdateWorkspaceTapestrySelectionsInputSchema.parse(
+          resolveToolExecuteInput(input)
+        );
+        try {
+          return await runUpdateWorkspaceTapestrySelections(resolvedInput, runtimeData);
+        } catch (error) {
+          logger.error('updateWorkspaceTapestrySelections failed', { error, input: resolvedInput });
           throw error;
         }
       },

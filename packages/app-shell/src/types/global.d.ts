@@ -1,4 +1,8 @@
-import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
+import type {
+  AssistantSelectionUpdatePayload,
+  AssistantWorkspaceContextSelectionUpdatePayload,
+  AssistantWorkspaceTapestryUpdatePayload,
+} from '@brainstrike/types';
 
 declare global {
   interface Window {
@@ -63,6 +67,12 @@ declare global {
       ) => (() => void) | undefined;
       onPreviewContextSelectionUpdate?: (
         callback: (payload: AssistantSelectionUpdatePayload) => void
+      ) => (() => void) | undefined;
+      onWorkspaceContextSelectionUpdate?: (
+        callback: (payload: AssistantWorkspaceContextSelectionUpdatePayload) => void
+      ) => (() => void) | undefined;
+      onWorkspaceContextTapestryUpdate?: (
+        callback: (payload: AssistantWorkspaceTapestryUpdatePayload) => void
       ) => (() => void) | undefined;
     };
   }

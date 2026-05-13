@@ -342,6 +342,10 @@ export {
   SelectRootTreeFilesInputSchema,
   type UpdatePreviewContextFilesInput,
   UpdatePreviewContextFilesInputSchema,
+  type UpdateWorkspaceContextSelectionInput,
+  UpdateWorkspaceContextSelectionInputSchema,
+  type UpdateWorkspaceTapestrySelectionsInput,
+  UpdateWorkspaceTapestrySelectionsInputSchema,
   validateToolInput,
 } from './tools/schemas';
 export type {
@@ -365,6 +369,9 @@ export type {
   RuntimeData,
   RuntimeModelSettings,
   RuntimeProviderOptions,
+  RuntimeWorkspaceContextFileMetadata,
+  RuntimeWorkspaceContextMetadata,
+  RuntimeWorkspaceContextRangeMetadata,
   StreamChunk,
   StreamChunkFinish,
   StreamChunkMessageFinish,

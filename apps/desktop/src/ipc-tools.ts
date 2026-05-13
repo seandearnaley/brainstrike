@@ -151,6 +151,11 @@ function sanitizeRuntimeData(input: unknown): Partial<RuntimeData> | undefined {
   if (typeof input['workspaceIndexingPaused'] === 'boolean') {
     runtimeData.workspaceIndexingPaused = input['workspaceIndexingPaused'];
   }
+  if (isPlainObject(input['workspaceContext'])) {
+    runtimeData.workspaceContext = input['workspaceContext'] as NonNullable<
+      RuntimeData['workspaceContext']
+    >;
+  }
 
   return Object.keys(runtimeData).length > 0 ? runtimeData : undefined;
 }

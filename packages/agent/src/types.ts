@@ -102,7 +102,9 @@ export interface RuntimeData {
   selectionSnapshotId?: string;
   signal?: AbortSignal;
   /** Optional token budget override for context packing. */
-  tokenBudget?: number;
+  tokenBudget?: number | null;
+  /** Token-aware, content-free snapshot of user/assistant curated workspace context. */
+  workspaceContext?: RuntimeWorkspaceContextMetadata;
   /** Optional embedding set currently configured as the workspace background index. */
   workspaceIndexEmbeddingSetId?: string;
   /** Whether workspace background indexing is enabled in the current workspace. */
@@ -113,6 +115,31 @@ export interface RuntimeData {
   workspaceIndexingPaused?: boolean;
   /** Optional absolute workspace root path for workspace read tools. */
   workspaceRootPath?: string;
+}
+
+export interface RuntimeWorkspaceContextRangeMetadata {
+  approxTokens?: number | null;
+  endLine: number;
+  isActive?: boolean;
+  startLine: number;
+}
+
+export interface RuntimeWorkspaceContextFileMetadata {
+  approxTokens?: number | null;
+  outputApproxTokens?: number | null;
+  path: string;
+  ranges?: readonly RuntimeWorkspaceContextRangeMetadata[];
+}
+
+export interface RuntimeWorkspaceContextMetadata {
+  files?: readonly RuntimeWorkspaceContextFileMetadata[];
+  includeProjectTree?: boolean;
+  projectTreeApproxTokens?: number | null;
+  projectTreeTokenCountLoading?: boolean;
+  selectedOutputApproxTokens?: number | null;
+  selectedSourceApproxTokens?: number | null;
+  tokenBudget?: number;
+  useTapestryRanges?: boolean;
 }
 
 export interface RuntimeMemoryContext {

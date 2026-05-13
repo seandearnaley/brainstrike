@@ -199,10 +199,78 @@ export const ReadWorkspaceContextInputSchema = z
       .max(50_000)
       .optional()
       .describe('Maximum characters to return per file before truncation'),
+    useTapestrySelections: z
+      .boolean()
+      .optional()
+      .describe('Apply selected Tapestry line ranges when reading curated workspace context'),
   })
   .strict();
 
 export type ReadWorkspaceContextInput = z.infer<typeof ReadWorkspaceContextInputSchema>;
+
+export const UpdateWorkspaceContextSelectionInputSchema = z
+  .object({
+    filePaths: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(5000)
+      .describe('Workspace-relative file paths to select in the workspace context explorer'),
+    mode: z
+      .enum(['replace', 'add', 'remove'])
+      .optional()
+      .describe('Selection update strategy (default: add)'),
+    folderId: z.string().min(1).optional().describe('Optional folder id for multi-root workspaces'),
+  })
+  .strict();
+
+export type UpdateWorkspaceContextSelectionInput = z.infer<
+  typeof UpdateWorkspaceContextSelectionInputSchema
+>;
+
+const WorkspaceTapestryRangeInputSchema = z
+  .object({
+    startLine: z.number().int().positive().describe('1-based inclusive starting line'),
+    endLine: z.number().int().positive().describe('1-based inclusive ending line'),
+    isActive: z.boolean().optional().describe('Whether this range contributes to context output'),
+  })
+  .strict()
+  .refine((value) => value.endLine >= value.startLine, {
+    message: 'endLine must be greater than or equal to startLine',
+    path: ['endLine'],
+  });
+
+export const UpdateWorkspaceTapestrySelectionsInputSchema = z
+  .object({
+    updates: z
+      .array(
+        z
+          .object({
+            path: z.string().min(1).describe('Workspace-relative file path'),
+            ranges: z
+              .array(WorkspaceTapestryRangeInputSchema)
+              .max(50)
+              .describe('1-based inclusive line ranges for this file'),
+          })
+          .strict()
+      )
+      .min(1)
+      .max(500)
+      .describe('Tapestry selection updates grouped by file'),
+    mode: z
+      .enum(['replace', 'add', 'clear'])
+      .optional()
+      .describe('Range update strategy for each file (default: replace)'),
+    folderId: z.string().min(1).optional().describe('Optional folder id for multi-root workspaces'),
+    selectFiles: z
+      .boolean()
+      .optional()
+      .describe('Also add affected files to the workspace context selection (default: true)'),
+  })
+  .strict();
+
+export type UpdateWorkspaceTapestrySelectionsInput = z.infer<
+  typeof UpdateWorkspaceTapestrySelectionsInputSchema
+>;
 
 export const SelectRootTreeFilesInputSchema = z
   .object({
@@ -277,6 +345,8 @@ const schemaMap: Record<string, z.ZodSchema> = {
   'brainstrike.readWorkspaceDirectory': ReadWorkspaceDirectoryInputSchema,
   'brainstrike.listWorkspaceContext': ListWorkspaceContextInputSchema,
   'brainstrike.readWorkspaceContext': ReadWorkspaceContextInputSchema,
+  'brainstrike.updateWorkspaceContextSelection': UpdateWorkspaceContextSelectionInputSchema,
+  'brainstrike.updateWorkspaceTapestrySelections': UpdateWorkspaceTapestrySelectionsInputSchema,
   'brainstrike.listEmbeddingSpaces': ListEmbeddingSetsInputSchema,
   'brainstrike.queryEmbeddingSpace': QueryEmbeddingSpaceInputSchema,
 };

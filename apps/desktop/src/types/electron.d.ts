@@ -1,5 +1,10 @@
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
-import type { AssistantSelectionUpdatePayload, IFileNode } from '@brainstrike/types';
+import type {
+  AssistantSelectionUpdatePayload,
+  AssistantWorkspaceContextSelectionUpdatePayload,
+  AssistantWorkspaceTapestryUpdatePayload,
+  IFileNode,
+} from '@brainstrike/types';
 import type {
   ChunkingHostChunkBatchRequest,
   ChunkingHostChunkFileByIdRequest,
@@ -267,6 +272,12 @@ declare global {
       ) => (() => void) | undefined;
       onPreviewContextSelectionUpdate: (
         callback: (payload: AssistantSelectionUpdatePayload) => void
+      ) => (() => void) | undefined;
+      onWorkspaceContextSelectionUpdate: (
+        callback: (payload: AssistantWorkspaceContextSelectionUpdatePayload) => void
+      ) => (() => void) | undefined;
+      onWorkspaceContextTapestryUpdate: (
+        callback: (payload: AssistantWorkspaceTapestryUpdatePayload) => void
       ) => (() => void) | undefined;
     };
   }

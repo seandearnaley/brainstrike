@@ -29,7 +29,12 @@ import {
   TOOL_DESCRIPTIONS,
 } from '@brainstrike/agent/tool-metadata';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
-import { useFileExplorerStoreSelector, useSelectionManager } from '@brainstrike/file-explorer-ui';
+import {
+  type TapestryRange,
+  useFileExplorerStoreSelector,
+  useSelectionManager,
+  useWorkspaceContextCurationStore,
+} from '@brainstrike/file-explorer-ui';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/preferences/stores/assistant-memory-preferences-store';
 import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
@@ -38,7 +43,11 @@ import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-reg
 import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
 import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
 import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
-import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
+import type {
+  AssistantSelectionUpdatePayload,
+  AssistantWorkspaceContextSelectionUpdatePayload,
+  AssistantWorkspaceTapestryUpdatePayload,
+} from '@brainstrike/types';
 import { normalizeWorkspaceLookupPath } from '@brainstrike/types';
 import {
   type AssistantProviderSettings,
@@ -222,6 +231,7 @@ function buildAssistantRequestData(args: {
     filePaths: string[];
     folderId: string | null | undefined;
   };
+  workspaceContext: RuntimeData['workspaceContext'] | null;
   workspaceIndex: {
     enabled: boolean;
     embeddingSetId: string | null;
@@ -239,6 +249,9 @@ function buildAssistantRequestData(args: {
   }
   if (args.workspaceRootPath) {
     data['workspaceRootPath'] = args.workspaceRootPath;
+  }
+  if (args.workspaceContext) {
+    data['workspaceContext'] = args.workspaceContext;
   }
   if (args.workspaceIndex.embeddingSetId) {
     data['workspaceIndexEmbeddingSetId'] = args.workspaceIndex.embeddingSetId;
@@ -264,6 +277,53 @@ function buildAssistantRequestData(args: {
     data['providerOptions'] = args.providerOptions;
   }
   return data;
+}
+
+function getAssistantTapestryColor(key: string): string {
+  const palette = ['#2563eb', '#059669', '#dc2626', '#7c3aed', '#d97706', '#0891b2'];
+  let hash = 0;
+  for (let index = 0; index < key.length; index += 1) {
+    hash = (hash * 31 + key.charCodeAt(index)) >>> 0;
+  }
+  return palette[hash % palette.length] ?? '#2563eb';
+}
+
+function buildAssistantTapestryRange(args: {
+  compositeKey: string;
+  endLine: number;
+  index: number;
+  isActive: boolean | undefined;
+  startLine: number;
+}): TapestryRange {
+  const internalStartLine = Math.max(0, args.startLine - 1);
+  const internalEndLine = Math.max(internalStartLine + 1, args.endLine);
+  const rangeKey = `${args.compositeKey}:${args.index}:${args.startLine}:${args.endLine}`;
+  return {
+    id: `assistant-${rangeKey}`,
+    startLine: internalStartLine,
+    endLine: internalEndLine,
+    isActive: args.isActive !== false,
+    color: getAssistantTapestryColor(rangeKey),
+    userModified: true,
+  };
+}
+
+function toRuntimeWorkspaceContext(
+  snapshot: ReturnType<typeof useWorkspaceContextCurationStore.getState>['contextSnapshot']
+): RuntimeData['workspaceContext'] | null {
+  if (!snapshot) {
+    return null;
+  }
+  return {
+    files: snapshot.files,
+    includeProjectTree: snapshot.includeProjectTree,
+    projectTreeApproxTokens: snapshot.projectTreeApproxTokens,
+    projectTreeTokenCountLoading: snapshot.projectTreeTokenCountLoading,
+    selectedOutputApproxTokens: snapshot.selectedOutputApproxTokens,
+    selectedSourceApproxTokens: snapshot.selectedSourceApproxTokens,
+    useTapestryRanges: snapshot.useTapestryRanges,
+    ...(snapshot.tokenBudget === null ? {} : { tokenBudget: snapshot.tokenBudget }),
+  };
 }
 
 function resolveAssistantProviderDisabledReason(args: {
@@ -1143,6 +1203,19 @@ export function AssistantUiPanelWrapper({
     onSelectionLimitExceeded: handleSelectionLimitExceeded,
   });
   const effectiveSelectionRef = useRef(effectiveSelection);
+  const workspaceContextSnapshot = useWorkspaceContextCurationStore(
+    (state) => state.contextSnapshot
+  );
+  const runtimeWorkspaceContext = useMemo(
+    () => toRuntimeWorkspaceContext(workspaceContextSnapshot),
+    [workspaceContextSnapshot]
+  );
+  const setTapestryRangesForKey = useWorkspaceContextCurationStore(
+    (state) => state.setTapestryRangesForKey
+  );
+  const tapestryRangesByKey = useWorkspaceContextCurationStore(
+    (state) => state.tapestryRangesByKey
+  );
 
   useEffect(() => {
     effectiveSelectionRef.current = effectiveSelection;
@@ -1175,7 +1248,9 @@ export function AssistantUiPanelWrapper({
   }, [effectiveSelection, currentFolderId]);
 
   const handleSelectionUpdate = useCallback(
-    (payload: AssistantSelectionUpdatePayload) => {
+    (
+      payload: AssistantSelectionUpdatePayload | AssistantWorkspaceContextSelectionUpdatePayload
+    ) => {
       if (!(payload.folderId && Array.isArray(payload.filePaths) && payload.filePaths.length > 0)) {
         return;
       }
@@ -1221,6 +1296,41 @@ export function AssistantUiPanelWrapper({
     [addMultipleSelectedFiles, clearSelectionRules, removeMultipleSelectedFiles, setSelectedFiles]
   );
 
+  const handleTapestryUpdate = useCallback(
+    (payload: AssistantWorkspaceTapestryUpdatePayload) => {
+      if (!(payload.folderId && Array.isArray(payload.updates) && payload.updates.length > 0)) {
+        return;
+      }
+      const mode = payload.mode ?? 'replace';
+      for (const update of payload.updates) {
+        const normalizedPath = normalizeWorkspaceLookupPath(String(update.path));
+        if (normalizedPath.length === 0) {
+          continue;
+        }
+        const path = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
+        const compositeKey = encodeFileSelection(payload.folderId, path);
+        const nextRanges =
+          mode === 'clear'
+            ? []
+            : update.ranges.map((range, index) =>
+                buildAssistantTapestryRange({
+                  compositeKey,
+                  index,
+                  startLine: range.startLine,
+                  endLine: range.endLine,
+                  isActive: range.isActive,
+                })
+              );
+        const existingRanges = tapestryRangesByKey[compositeKey] ?? [];
+        setTapestryRangesForKey(
+          compositeKey,
+          mode === 'add' ? [...existingRanges, ...nextRanges] : nextRanges
+        );
+      }
+    },
+    [setTapestryRangesForKey, tapestryRangesByKey]
+  );
+
   useEffect(() => {
     if (typeof window === 'undefined' || !window.tools?.onRootTreeSelectionUpdate) {
       return;
@@ -1252,6 +1362,38 @@ export function AssistantUiPanelWrapper({
       unsubscribe?.();
     };
   }, [handleSelectionUpdate]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.tools?.onWorkspaceContextSelectionUpdate) {
+      return;
+    }
+
+    const unsubscribe = window.tools.onWorkspaceContextSelectionUpdate(
+      (payload: AssistantWorkspaceContextSelectionUpdatePayload) => {
+        handleSelectionUpdate(payload);
+      }
+    );
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, [handleSelectionUpdate]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.tools?.onWorkspaceContextTapestryUpdate) {
+      return;
+    }
+
+    const unsubscribe = window.tools.onWorkspaceContextTapestryUpdate(
+      (payload: AssistantWorkspaceTapestryUpdatePayload) => {
+        handleTapestryUpdate(payload);
+      }
+    );
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, [handleTapestryUpdate]);
 
   const nativeToolItems = useMemo<AssistantToolMenuItem[]>(
     () =>
@@ -1448,6 +1590,7 @@ export function AssistantUiPanelWrapper({
         providerOptions,
         selectedMemoryThreadId,
         selectionData,
+        workspaceContext: runtimeWorkspaceContext,
         workspaceIndex,
         workspaceRootPath,
       }),
@@ -1459,6 +1602,7 @@ export function AssistantUiPanelWrapper({
       runtimeMemorySettings,
       selectedMemoryThreadId,
       selectionData,
+      runtimeWorkspaceContext,
       workspaceIndex,
       workspaceRootPath,
     ]

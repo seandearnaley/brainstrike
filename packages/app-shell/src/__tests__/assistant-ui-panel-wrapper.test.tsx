@@ -36,6 +36,9 @@ const { fileExplorerMocks, preparedRequestDataLog, testEnabledModels } = vi.hois
       cacheVersion: number;
       getTokenCount: (folderId: string, path: string) => number | undefined;
     },
+    workspaceContextSnapshot: null as null | Record<string, unknown>,
+    setTapestryRangesForKey: vi.fn<(key: string, ranges: unknown[]) => void>(),
+    tapestryRangesByKey: {} as Record<string, unknown[]>,
   },
   // Track enabled models in a mutable Set for testing toggle functionality
   preparedRequestDataLog: [] as Array<Record<string, unknown> | undefined>,
@@ -461,6 +464,18 @@ vi.mock('@brainstrike/file-explorer-ui', () => {
     useFileExplorerStoreSelector: (selector: (state: ReturnType<typeof getState>) => unknown) =>
       selector(getState()),
     useOptionalTokenCacheContext: () => fileExplorerMocks.tokenCache,
+    useWorkspaceContextCurationStore: (
+      selector: (state: {
+        contextSnapshot: null | Record<string, unknown>;
+        setTapestryRangesForKey: (key: string, ranges: unknown[]) => void;
+        tapestryRangesByKey: Record<string, unknown[]>;
+      }) => unknown
+    ) =>
+      selector({
+        contextSnapshot: fileExplorerMocks.workspaceContextSnapshot,
+        setTapestryRangesForKey: fileExplorerMocks.setTapestryRangesForKey,
+        tapestryRangesByKey: fileExplorerMocks.tapestryRangesByKey,
+      }),
   };
 });
 
@@ -862,9 +877,12 @@ beforeEach(() => {
     name: 'test-workspace',
   };
   fileExplorerMocks.tokenBudget = 100_000;
+  fileExplorerMocks.workspaceContextSnapshot = null;
+  fileExplorerMocks.tapestryRangesByKey = {};
   fileExplorerMocks.addMultipleSelectedFiles.mockReset();
   fileExplorerMocks.clearSelectionRules.mockReset();
   fileExplorerMocks.removeMultipleSelectedFiles.mockReset();
+  fileExplorerMocks.setTapestryRangesForKey.mockReset();
   fileExplorerMocks.setIncludeProjectTree.mockReset();
   fileExplorerMocks.setSelectedFiles.mockReset();
   fileExplorerMocks.setTokenBudget.mockReset();
@@ -1670,6 +1688,95 @@ describe('AssistantUiPanelWrapper', () => {
     ]);
   });
 
+  test('applies workspace-context selection updates from native tools', async () => {
+    let handler: SelectionUpdateHandler | undefined;
+    (
+      window as typeof window & {
+        tools?: { onWorkspaceContextSelectionUpdate: (cb: SelectionUpdateHandler) => () => void };
+      }
+    ).tools = {
+      onWorkspaceContextSelectionUpdate: (cb) => {
+        handler = cb as SelectionUpdateHandler;
+        return vi.fn();
+      },
+    };
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      })
+    );
+
+    act(() => {
+      handler?.({
+        folderId: 'test-folder',
+        filePaths: ['/curated.ts'],
+        mode: 'add',
+      });
+    });
+
+    expect(fileExplorerMocks.addMultipleSelectedFiles).toHaveBeenCalledWith('test-folder', [
+      '/curated.ts',
+    ]);
+  });
+
+  test('applies workspace-context tapestry updates from native tools', async () => {
+    let handler:
+      | ((payload: {
+          folderId: string;
+          mode: 'replace';
+          updates: Array<{
+            path: string;
+            ranges: Array<{ startLine: number; endLine: number; isActive?: boolean }>;
+          }>;
+        }) => void)
+      | undefined;
+    (
+      window as typeof window & {
+        tools?: {
+          onWorkspaceContextTapestryUpdate: (cb: NonNullable<typeof handler>) => () => void;
+        };
+      }
+    ).tools = {
+      onWorkspaceContextTapestryUpdate: (cb) => {
+        handler = cb;
+        return vi.fn();
+      },
+    };
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      })
+    );
+
+    act(() => {
+      handler?.({
+        folderId: 'test-folder',
+        mode: 'replace',
+        updates: [
+          {
+            path: '/curated.ts',
+            ranges: [{ startLine: 4, endLine: 12, isActive: true }],
+          },
+        ],
+      });
+    });
+
+    expect(fileExplorerMocks.setTapestryRangesForKey).toHaveBeenCalledTimes(1);
+    expect(fileExplorerMocks.setTapestryRangesForKey.mock.calls[0]?.[0]).toBe(
+      encodeFileSelection('test-folder', '/curated.ts')
+    );
+    expect(fileExplorerMocks.setTapestryRangesForKey.mock.calls[0]?.[1]).toMatchObject([
+      {
+        startLine: 3,
+        endLine: 12,
+        isActive: true,
+        userModified: true,
+      },
+    ]);
+  });
+
   test('replace mode preserves other-folder selections and bad keys', async () => {
     let handler: SelectionUpdateHandler | undefined;
     (
@@ -1763,6 +1870,23 @@ describe('AssistantUiPanelWrapper', () => {
         return 0;
       },
     };
+    fileExplorerMocks.workspaceContextSnapshot = {
+      tokenBudget: 8192,
+      selectedSourceApproxTokens: 320,
+      selectedOutputApproxTokens: 180,
+      useTapestryRanges: true,
+      includeProjectTree: false,
+      projectTreeApproxTokens: 1200,
+      projectTreeTokenCountLoading: false,
+      files: [
+        {
+          path: '/alpha.ts',
+          approxTokens: 200,
+          outputApproxTokens: 60,
+          ranges: [{ startLine: 4, endLine: 12, isActive: true }],
+        },
+      ],
+    };
     mockDb.query.mockImplementation(async (sql: string) => {
       if (sql.includes('token_count')) {
         return {
@@ -1789,6 +1913,7 @@ describe('AssistantUiPanelWrapper', () => {
         expect(requestData['workspaceIndexingEnabled']).toBe(true);
         expect(requestData['workspaceIndexingMode']).toBe('root-folder-cache');
         expect(requestData['workspaceIndexingPaused']).toBe(false);
+        expect(requestData['workspaceContext']).toEqual(fileExplorerMocks.workspaceContextSnapshot);
         expect(requestData['embeddingSetId']).toBeUndefined();
         expect(requestData['tokenBudget']).toBeUndefined();
         expect(requestData['contextTokenCount']).toBeUndefined();

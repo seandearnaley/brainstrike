@@ -3,13 +3,20 @@ const { contextBridge, ipcRenderer, clipboard } = require('electron');
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update';
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT = 'assistant:preview-context-selection-update';
+const ASSISTANT_WORKSPACE_CONTEXT_SELECTION_EVENT = 'assistant:workspace-context-selection-update';
+const ASSISTANT_WORKSPACE_CONTEXT_TAPESTRY_EVENT = 'assistant:workspace-context-tapestry-update';
 const MCP_TOOLS_UPDATED_EVENT = 'mcp:tools:updated';
 const DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL = 'db:managed-cache:apply-batch' as const;
 const DB_SCHEDULER_SNAPSHOT_CHANNEL = 'db:scheduler:snapshot' as const;
 
 import type { ApplyManagedCacheBatchArgs } from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
-import type { AssistantSelectionUpdatePayload, DatabaseWorkOptions } from '@brainstrike/types';
+import type {
+  AssistantSelectionUpdatePayload,
+  AssistantWorkspaceContextSelectionUpdatePayload,
+  AssistantWorkspaceTapestryUpdatePayload,
+  DatabaseWorkOptions,
+} from '@brainstrike/types';
 import type {
   LayoutLoadResult,
   LayoutPersistenceResult,
@@ -504,6 +511,26 @@ contextBridge.exposeInMainWorld('tools', {
     ipcRenderer.on(ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT, listener);
     return () => {
       ipcRenderer.removeListener(ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT, listener);
+    };
+  },
+  onWorkspaceContextSelectionUpdate: (
+    callback: (payload: AssistantWorkspaceContextSelectionUpdatePayload) => void
+  ) => {
+    const listener = (_event: unknown, payload: AssistantWorkspaceContextSelectionUpdatePayload) =>
+      callback(payload);
+    ipcRenderer.on(ASSISTANT_WORKSPACE_CONTEXT_SELECTION_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(ASSISTANT_WORKSPACE_CONTEXT_SELECTION_EVENT, listener);
+    };
+  },
+  onWorkspaceContextTapestryUpdate: (
+    callback: (payload: AssistantWorkspaceTapestryUpdatePayload) => void
+  ) => {
+    const listener = (_event: unknown, payload: AssistantWorkspaceTapestryUpdatePayload) =>
+      callback(payload);
+    ipcRenderer.on(ASSISTANT_WORKSPACE_CONTEXT_TAPESTRY_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(ASSISTANT_WORKSPACE_CONTEXT_TAPESTRY_EVENT, listener);
     };
   },
 });

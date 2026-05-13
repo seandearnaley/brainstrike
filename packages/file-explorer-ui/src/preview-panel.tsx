@@ -41,7 +41,6 @@ import {
   computeContextSelectedTokenSummary,
   createSelectedFileContentSnapshot,
   createTokenCountByFile,
-  type TapestryRangeMap,
 } from './utils/context-selected-token-summary';
 import {
   EXTENSIONLESS_FILE_TYPE,
@@ -53,6 +52,7 @@ import {
 import { buildGroupedPageSections, getVisibleFilesOnPage } from './utils/preview-pagination';
 import { createDefaultTapestryRanges, syncTapestryRanges } from './utils/tapestry-range-sync';
 import { getTokenUsageMetrics } from './utils/token-usage-metrics';
+import { useWorkspaceContextCurationStore } from './workspace-context-curation-store';
 
 const logger = createLogger('PreviewPanel');
 // Cap tapestry items per page so previews keep a readable "page" density.
@@ -163,7 +163,15 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   // Local selection state for preview panel - separate from file tree selections
   const [previewSelections, setPreviewSelections] = useState<Set<string>>(new Set());
 
-  const [tapestryRangesByKey, setTapestryRangesByKey] = useState<TapestryRangeMap>({});
+  const tapestryRangesByKey = useWorkspaceContextCurationStore(
+    (store) => store.tapestryRangesByKey
+  );
+  const setTapestryRangesByKey = useWorkspaceContextCurationStore(
+    (store) => store.setTapestryRanges
+  );
+  const setWorkspaceContextSnapshot = useWorkspaceContextCurationStore(
+    (store) => store.setContextSnapshot
+  );
   const deferredTapestryRangesByKey = useDeferredValue(tapestryRangesByKey);
   const tapestryTotalsRef = useRef<Map<string, number>>(new Map());
   // Per-file cache for buildTapestryFileBase — avoids recomputing ALL files when
@@ -331,6 +339,48 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       })
       .filter((item): item is TableRowData => item !== null);
   }, [deferredFlatListItems, decodeFileSelection]);
+
+  useEffect(() => {
+    const files = tableData
+      .filter((item) => selectedFiles.has(item.compositeKey))
+      .map((item) => {
+        const ranges = (tapestryRangesByKey[item.compositeKey] ?? []).map((range) => ({
+          startLine: range.startLine + 1,
+          endLine: range.endLine,
+          isActive: range.isActive !== false,
+        }));
+        const hasRanges = ranges.length > 0;
+        return {
+          path: item.path,
+          approxTokens: item.tokens ?? null,
+          outputApproxTokens: hasRanges ? null : (item.tokens ?? null),
+          ranges,
+        };
+      });
+
+    setWorkspaceContextSnapshot({
+      files,
+      tokenBudget: tokenBudget ?? DEFAULT_TOKEN_BUDGET,
+      selectedSourceApproxTokens: contextSelectedTokenSummary.sourceSelectedTokens,
+      selectedOutputApproxTokens: contextSelectedTokenSummary.outputSelectedTokens,
+      useTapestryRanges: useTapestryRangesForContextOutput,
+      includeProjectTree,
+      projectTreeApproxTokens: projectTreeTokenCountLoading ? null : projectTreeTokenCount,
+      projectTreeTokenCountLoading,
+    });
+  }, [
+    contextSelectedTokenSummary.outputSelectedTokens,
+    contextSelectedTokenSummary.sourceSelectedTokens,
+    includeProjectTree,
+    projectTreeTokenCount,
+    projectTreeTokenCountLoading,
+    selectedFiles,
+    setWorkspaceContextSnapshot,
+    tableData,
+    tapestryRangesByKey,
+    tokenBudget,
+    useTapestryRangesForContextOutput,
+  ]);
 
   const tapestryFileBaseByKey = useMemo(() => {
     // Skip expensive computation unless ranges must be rendered or exported.
