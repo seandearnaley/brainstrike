@@ -54,11 +54,36 @@ export async function collectCombinedTools({
 
     const enabled = filterEnabledServerTools(server, toolsForServer, toolNameMap);
     if (enabled) {
-      Object.assign(combined, enabled);
+      Object.assign(combined, annotateGenericFilesystemTools(enabled));
     }
   }
 
   return combined;
+}
+
+function isGenericFilesystemToolName(toolName: string): boolean {
+  return toolName.startsWith('filesystem.') || toolName.startsWith('filesystem_');
+}
+
+function annotateGenericFilesystemTools(tools: ToolsInput): ToolsInput {
+  const annotated: ToolsInput = {};
+
+  for (const [toolName, tool] of Object.entries(tools)) {
+    if (!isGenericFilesystemToolName(toolName)) {
+      annotated[toolName] = tool;
+      continue;
+    }
+
+    const cloned = Object.assign(Object.create(Object.getPrototypeOf(tool)), tool);
+    const existingDescription =
+      typeof cloned.description === 'string' && cloned.description.trim().length > 0
+        ? cloned.description.trim()
+        : 'Generic filesystem MCP tool.';
+    cloned.description = `Not preferred for Brainstrike workspace or codebase questions; use Brainstrike native workspace/index tools first. Use only when the user explicitly asks for MCP filesystem access or native workspace tools are unavailable. ${existingDescription}`;
+    annotated[toolName] = cloned;
+  }
+
+  return annotated;
 }
 
 function selectToolsForServer(

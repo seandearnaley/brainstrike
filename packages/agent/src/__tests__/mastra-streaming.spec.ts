@@ -5,11 +5,14 @@ import { MastraAgentError, type MastraAgentErrorCode } from '../mastra/mastra-ag
 import { resolveRuntimeConfiguration } from '../mastra/runtime-configuration';
 
 const agentInstances: Array<{
-  config: { memory?: unknown; tools: Record<string, unknown> };
+  config: { instructions?: string; memory?: unknown; tools: Record<string, unknown> };
   streamCalls: Array<{ input: unknown; options: unknown }>;
   tools: Record<string, unknown>;
 }> = [];
 const mcpInstances: unknown[] = [];
+let mcpToolList: Record<string, { description: string; id: string }> = {
+  'remote tool': { id: 'remote tool', description: 'remote' },
+};
 let streamParts: unknown[] = [];
 
 function setMockStreamParts(parts: unknown[]) {
@@ -59,12 +62,17 @@ vi.mock('@mastra/core/agent', () => ({
     model?: { modelId: string; provider?: string } | undefined;
 
     constructor(config: {
+      instructions?: string;
       memory?: unknown;
       tools?: Record<string, unknown>;
       model?: { modelId: string; provider?: string } | undefined;
     }) {
       const tools = (config.tools ?? {}) as Record<string, unknown>;
-      this.config = { tools, ...(config.memory ? { memory: config.memory } : {}) };
+      this.config = {
+        tools,
+        ...(config.instructions ? { instructions: config.instructions } : {}),
+        ...(config.memory ? { memory: config.memory } : {}),
+      };
       this.tools = tools;
       this.memory = config.memory;
       this.model = config.model;
@@ -102,9 +110,7 @@ vi.mock('@mastra/mcp', () => ({
     }
 
     async listTools() {
-      return {
-        'remote tool': { id: 'remote tool', description: 'remote' },
-      } satisfies Record<string, { id: string; description: string }>;
+      return mcpToolList;
     }
 
     async disconnect() {
@@ -117,6 +123,9 @@ describe('mastra streaming integration', () => {
   beforeEach(() => {
     agentInstances.length = 0;
     mcpInstances.length = 0;
+    mcpToolList = {
+      'remote tool': { id: 'remote tool', description: 'remote' },
+    };
     setMockStreamParts([]);
   });
 
@@ -352,6 +361,58 @@ describe('mastra streaming integration', () => {
 
     expect(runtime.toolNameMap.get('local_tool')).toBe('local tool');
     expect(runtime.toolNameMap.get('remote_tool')).toBe('remote tool');
+  });
+
+  it('uses model-facing Brainstrike native tool names in default instructions', async () => {
+    mcpToolList = {
+      'filesystem.search_files': {
+        id: 'filesystem.search_files',
+        description: 'Search files',
+      },
+    };
+
+    await createMastraAgentRuntime({
+      runtime: { apiKey: 'key', provider: 'openai' },
+      tools: {
+        'brainstrike.listWorkspaceContext': {
+          id: 'brainstrike.listWorkspaceContext',
+          description: 'List workspace context',
+        },
+        'brainstrike.listEmbeddingSpaces': {
+          id: 'brainstrike.listEmbeddingSpaces',
+          description: 'List embedding spaces',
+        },
+        'brainstrike.queryEmbeddingSpace': {
+          id: 'brainstrike.queryEmbeddingSpace',
+          description: 'Query embedding space',
+        },
+        'brainstrike.readWorkspaceContext': {
+          id: 'brainstrike.readWorkspaceContext',
+          description: 'Read workspace context',
+        },
+        'brainstrike.readWorkspaceFile': {
+          id: 'brainstrike.readWorkspaceFile',
+          description: 'Read workspace file',
+        },
+      },
+      mcpConfig: {
+        servers: [
+          {
+            transport: 'stdio',
+            name: 'filesystem',
+            command: 'echo',
+          },
+        ],
+      },
+    });
+
+    const instructions = agentInstances[0]?.config.instructions ?? '';
+    expect(instructions).toContain('brainstrike_listWorkspaceContext');
+    expect(instructions).toContain('brainstrike_listEmbeddingSpaces');
+    expect(instructions).toContain('brainstrike_queryEmbeddingSpace');
+    expect(instructions).toContain('filesystem_search_files');
+    expect(instructions).toContain('not the preferred route');
+    expect(instructions).not.toContain('brainstrike.listWorkspaceContext');
   });
 
   it('keeps tools distinct when sanitized ids would otherwise collide', async () => {

@@ -109,6 +109,47 @@ describe('mcp-tool-loader', () => {
       expect(result['server1_remote_tool']).toBeDefined();
     });
 
+    it('marks generic filesystem MCP tools as non-preferred for workspace questions', async () => {
+      const mockMcpTools: ToolsInput = {
+        'filesystem.search_files': {
+          id: 'filesystem.search_files',
+          description: 'Search files',
+        },
+      };
+
+      const mockMcpClient = {
+        listTools: vi.fn().mockResolvedValue(mockMcpTools),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: {
+          brainstrike_listEmbeddingSpaces: {
+            id: 'brainstrike_listEmbeddingSpaces',
+            description: 'List Brainstrike embedding spaces',
+          },
+        },
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'filesystem',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap: new Map(),
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(result['filesystem_search_files']?.description).toContain(
+        'Not preferred for Brainstrike workspace or codebase questions'
+      );
+      expect(result['brainstrike_listEmbeddingSpaces']?.description).toBe(
+        'List Brainstrike embedding spaces'
+      );
+    });
+
     it('handles MCP tool discovery timeout', async () => {
       const localTools: ToolsInput = {
         local_tool: { id: 'local_tool', description: 'local' },
