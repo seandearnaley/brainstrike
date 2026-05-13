@@ -33,9 +33,13 @@ vi.mock('@brainstrike/agent', () => {
     pack(
       chunks: Array<{
         content: string;
+        endLine?: number;
+        endOffset?: number;
         fileName?: string;
         filePath?: string;
         chunkIndex?: number;
+        startLine?: number;
+        startOffset?: number;
       }>
     ) {
       const totalTokens = chunks.length;
@@ -44,7 +48,17 @@ vi.mock('@brainstrike/agent', () => {
         budget: this.budgetTokens,
         remainingTokens: Math.max(this.budgetTokens - totalTokens, 0),
         skipped: 0,
-        chunks,
+        chunks: chunks.map((chunk, index) => ({
+          ...chunk,
+          rank: index + 1,
+          tokenCount: 1,
+          ...(chunk.startLine !== undefined && chunk.endLine !== undefined
+            ? { lineRange: { start: chunk.startLine, end: chunk.endLine } }
+            : {}),
+          ...(chunk.startOffset !== undefined && chunk.endOffset !== undefined
+            ? { offsets: { start: chunk.startOffset, end: chunk.endOffset } }
+            : {}),
+        })),
       };
     }
   }
@@ -173,6 +187,10 @@ describe('retrieval-tool', () => {
           content: 'Hello world',
           tokenCount: 4,
           chunkIndex: 0,
+          startLine: 10,
+          endLine: 12,
+          startOffset: 120,
+          endOffset: 155,
           chunkType: 'code',
           fileRecordId: 'file-1',
           embeddingSetId: 'set-1',
@@ -224,8 +242,10 @@ describe('retrieval-tool', () => {
     expect(result.limit).toBe(20);
     expect(result.threshold).toBe(0.3);
     expect(result.totalTokens).toBe(1);
-    expect(result.context).toContain('Source 1: /repo/file.ts (chunk 0)');
+    expect(result.context).toContain('Source 1: /repo/file.ts:10-12 (chunk 0)');
     expect(result.context).toContain('Hello world');
+    expect(result.chunks[0]?.lineRange).toEqual({ start: 10, end: 12 });
+    expect(result.chunks[0]?.offsets).toEqual({ start: 120, end: 155 });
     expect(result.selectionSnapshotId).toBeUndefined();
 
     expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {

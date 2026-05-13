@@ -26,21 +26,28 @@ const createMockEmbeddingSet = (overrides: Partial<EmbeddingSetInfo> = {}): Embe
 
 const createMockChunkResult = (
   overrides: Partial<ChunkSearchResultInput> = {}
-): ChunkSearchResultInput => ({
-  chunk: {
-    id: 'chunk-001',
-    content: 'This is test chunk content.',
-    tokenCount: 10,
-    chunkIndex: 0,
-    chunkType: 'text',
-    fileRecordId: 'file-001',
-    embeddingSetId: 'set-001',
-    ...overrides.chunk,
-  },
-  similarity: 0.85,
-  rank: 1,
-  ...overrides,
-});
+): ChunkSearchResultInput => {
+  const { chunk: chunkOverrides, ...resultOverrides } = overrides;
+  return {
+    chunk: {
+      id: 'chunk-001',
+      content: 'This is test chunk content.',
+      tokenCount: 10,
+      chunkIndex: 0,
+      chunkType: 'text',
+      startLine: 1,
+      endLine: 2,
+      startOffset: 0,
+      endOffset: 27,
+      fileRecordId: 'file-001',
+      embeddingSetId: 'set-001',
+      ...chunkOverrides,
+    },
+    similarity: 0.85,
+    rank: 1,
+    ...resultOverrides,
+  };
+};
 
 const createMockFileRecord = (overrides: Partial<FileRecordInfo> = {}): FileRecordInfo => ({
   id: 'file-001',

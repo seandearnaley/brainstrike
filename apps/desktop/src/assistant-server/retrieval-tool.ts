@@ -61,6 +61,8 @@ const ERROR_MESSAGES = {
   selectionTooLarge: 'Selection exceeds retrieval limits.',
   embeddingDimensionMismatch: 'Embedding dimensions do not match the active set.',
   embeddingFailed: 'Unable to generate query embeddings for retrieval.',
+  missingSourceRange:
+    'Retrieved chunks are missing source line metadata. Rebuild the embedding space.',
   retrievalFailed: 'Unable to retrieve context right now. Try again.',
 } as const;
 
@@ -76,6 +78,7 @@ const SAFE_ERROR_MESSAGES = new Set<string>([
   ERROR_MESSAGES.invalidSelectionFilePaths,
   ERROR_MESSAGES.selectionTooLarge,
   ERROR_MESSAGES.embeddingDimensionMismatch,
+  ERROR_MESSAGES.missingSourceRange,
 ]);
 
 interface EmbeddingSetRow {
@@ -305,8 +308,9 @@ function formatContext(chunks: readonly PackedContextChunk[]): string {
   return chunks
     .map((chunk, index) => {
       const location = chunk.filePath ?? chunk.fileName ?? 'Unknown file';
+      const lineSuffix = chunk.lineRange ? `:${chunk.lineRange.start}-${chunk.lineRange.end}` : '';
       const chunkLabel = chunk.chunkIndex === undefined ? '' : ` (chunk ${chunk.chunkIndex})`;
-      return `Source ${index + 1}: ${location}${chunkLabel}\n${chunk.content}`;
+      return `Source ${index + 1}: ${location}${lineSuffix}${chunkLabel}\n${chunk.content}`;
     })
     .join('\n\n---\n\n');
 }
@@ -350,8 +354,12 @@ function toContextChunks(
       tokenCount?: number;
       chunkIndex: number;
       chunkType?: string;
+      endLine?: number;
+      endOffset?: number;
       fileRecordId: string;
       embeddingSetId?: string;
+      startLine?: number;
+      startOffset?: number;
     };
     similarity: number;
     rank: number;
@@ -359,6 +367,14 @@ function toContextChunks(
   fileMap: Map<string, FileRecordRow>
 ): ContextPackerChunk[] {
   return results.map((result) => {
+    if (
+      result.chunk.startLine === undefined ||
+      result.chunk.endLine === undefined ||
+      result.chunk.startOffset === undefined ||
+      result.chunk.endOffset === undefined
+    ) {
+      throw new Error(ERROR_MESSAGES.missingSourceRange);
+    }
     const fileInfo = fileMap.get(result.chunk.fileRecordId);
     if (!fileInfo) {
       logger.warn('File record missing for retrieved chunk', {
@@ -371,6 +387,10 @@ function toContextChunks(
       content: result.chunk.content,
       tokenCount: result.chunk.tokenCount ?? null,
       chunkIndex: result.chunk.chunkIndex,
+      startLine: result.chunk.startLine,
+      endLine: result.chunk.endLine,
+      startOffset: result.chunk.startOffset,
+      endOffset: result.chunk.endOffset,
       score: result.similarity,
       metadata: {
         fileRecordId: result.chunk.fileRecordId,

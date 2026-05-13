@@ -41,6 +41,8 @@ describe('ContextPacker', () => {
         chunkIndex: 2,
         startOffset: 12,
         endOffset: 42,
+        startLine: 3,
+        endLine: 5,
         score: 0.91,
         metadata: { language: 'ts' },
       },
@@ -59,6 +61,7 @@ describe('ContextPacker', () => {
       rank: 1,
     });
     expect(result.chunks[0]?.offsets).toEqual({ start: 12, end: 42 });
+    expect(result.chunks[0]?.lineRange).toEqual({ start: 3, end: 5 });
     expect(result.chunks[0]?.metadata).toEqual({ language: 'ts' });
   });
 

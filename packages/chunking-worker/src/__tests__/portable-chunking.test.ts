@@ -158,6 +158,40 @@ describe('portable-chunking', () => {
         });
       });
 
+      it('should include source line and character ranges for chunks', async () => {
+        const text = 'line one\nline two\nline three';
+        const result = await chunkContent(text, {
+          strategy: 'sentence',
+          fileName: 'test.txt',
+        });
+
+        expect(result.chunks[0]).toMatchObject({
+          startLine: 1,
+          endLine: 3,
+          startOffset: 0,
+          endOffset: text.length,
+        });
+      });
+
+      it('advances source ranges for repeated identical chunk contents', async () => {
+        const repeated = 'Alpha sentence.\n\nAlpha sentence.\n\nAlpha sentence.';
+        const result = await chunkContent(repeated, {
+          strategy: 'markdown',
+          fileName: 'notes.md',
+          maxTokens: 8,
+          overlap: 0,
+        });
+
+        expect(result.chunks).toHaveLength(3);
+        expect(result.chunks.map((chunk) => chunk.content)).toEqual([
+          'Alpha sentence.',
+          'Alpha sentence.',
+          'Alpha sentence.',
+        ]);
+        expect(result.chunks.map((chunk) => chunk.startLine)).toEqual([1, 3, 5]);
+        expect(result.chunks.map((chunk) => chunk.startOffset)).toEqual([0, 17, 34]);
+      });
+
       it('should split punctuation-poor text to the configured chunk target', async () => {
         const text = 'x'.repeat(5000);
         const result = await chunkContent(text, {

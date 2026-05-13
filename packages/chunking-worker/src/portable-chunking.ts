@@ -34,6 +34,13 @@ export interface PortableChunkingResult {
   totalTokens: number;
 }
 
+interface SourceRange {
+  endLine: number;
+  endOffset: number;
+  startLine: number;
+  startOffset: number;
+}
+
 // File patterns that should be skipped or handled differently
 const SKIP_CHUNKING_PATTERNS = [
   /package-lock\.json$/i,
@@ -335,6 +342,61 @@ async function generateContentHash(content: string): Promise<string> {
 
 function estimateTokenCount(text: string): number {
   return countTokensHeuristic(text);
+}
+
+function buildLineStartOffsets(content: string): number[] {
+  const lineStarts = [0];
+  for (let index = 0; index < content.length; index += 1) {
+    if (content.charCodeAt(index) === 10) {
+      lineStarts.push(index + 1);
+    }
+  }
+  return lineStarts;
+}
+
+function findLineForOffset(lineStarts: readonly number[], offset: number): number {
+  let low = 0;
+  let high = lineStarts.length - 1;
+  let best = 0;
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const lineStart = lineStarts[mid] ?? 0;
+    if (lineStart <= offset) {
+      best = mid;
+      low = mid + 1;
+      continue;
+    }
+    high = mid - 1;
+  }
+
+  return best + 1;
+}
+
+function resolveSourceRanges(
+  content: string,
+  chunks: readonly { content: string }[],
+  overlapChars: number
+): SourceRange[] {
+  const lineStarts = buildLineStartOffsets(content);
+  let searchStart = 0;
+
+  return chunks.map((chunk, index) => {
+    const startOffset = content.indexOf(chunk.content, searchStart);
+    if (startOffset < 0) {
+      throw new Error(`Unable to resolve source range for chunk ${index}`);
+    }
+
+    const endOffset = startOffset + chunk.content.length;
+    searchStart = Math.max(0, endOffset - overlapChars - 1);
+
+    return {
+      startOffset,
+      endOffset,
+      startLine: findLineForOffset(lineStarts, startOffset),
+      endLine: findLineForOffset(lineStarts, Math.max(startOffset, endOffset - 1)),
+    };
+  });
 }
 
 async function computeCharsPerToken(
@@ -800,6 +862,7 @@ export async function chunkContent(
   const HashBatchSize = 50;
   const chunks: PortableChunk[] = [];
   let totalTokens = 0;
+  const sourceRanges = resolveSourceRanges(content, pendingChunks, overlapChars);
 
   for (let i = 0; i < pendingChunks.length; i += HashBatchSize) {
     const batch = pendingChunks.slice(i, i + HashBatchSize);
@@ -810,10 +873,18 @@ export async function chunkContent(
       if (!pending) {
         continue;
       }
+      const sourceRange = sourceRanges[i + j];
+      if (!sourceRange) {
+        throw new Error(`Missing source range for chunk ${i + j}`);
+      }
       chunks.push({
         chunkIndex: i + j,
         content: pending.content,
         contentHash: hashes[j] ?? '',
+        startLine: sourceRange.startLine,
+        endLine: sourceRange.endLine,
+        startOffset: sourceRange.startOffset,
+        endOffset: sourceRange.endOffset,
         tokenCount: pending.tokenCount,
         chunkType: pending.chunkType,
         chunkSize: effectiveMaxTokens,

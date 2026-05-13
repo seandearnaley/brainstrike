@@ -57,6 +57,10 @@ export interface PortableChunk {
   chunkType: 'text' | 'code' | 'sentence' | 'recursive';
   content: string;
   contentHash: string;
+  endLine: number;
+  endOffset: number;
+  startLine: number;
+  startOffset: number;
   tokenCount: number;
 }
 
@@ -255,6 +259,10 @@ function toChunkOutput(portable: PortableChunk): ChunkOutput {
     chunkIndex: portable.chunkIndex,
     content: portable.content,
     contentHash: portable.contentHash as ContentHash,
+    startLine: portable.startLine,
+    endLine: portable.endLine,
+    startOffset: portable.startOffset,
+    endOffset: portable.endOffset,
     tokenCount: portable.tokenCount,
     chunkType: portable.chunkType,
     chunkSize: portable.chunkSize,

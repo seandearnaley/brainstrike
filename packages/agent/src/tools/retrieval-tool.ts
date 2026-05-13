@@ -43,6 +43,8 @@ export const RETRIEVAL_ERROR_MESSAGES = {
   selectionTooLarge: 'Selection exceeds retrieval limits.',
   embeddingDimensionMismatch: 'Embedding dimensions do not match the active set.',
   embeddingFailed: 'Unable to generate query embeddings for retrieval.',
+  missingSourceRange:
+    'Retrieved chunks are missing source line metadata. Rebuild the embedding space.',
   retrievalFailed: 'Unable to retrieve context right now. Try again.',
 } as const;
 
@@ -58,8 +60,12 @@ export interface ChunkSearchResultInput {
     tokenCount?: number;
     chunkIndex: number;
     chunkType?: string;
+    endLine?: number;
+    endOffset?: number;
     fileRecordId: string;
     embeddingSetId?: string;
+    startLine?: number;
+    startOffset?: number;
   };
   rank: number;
   similarity: number;
@@ -276,12 +282,24 @@ function toContextChunks(
   fileMap: Map<string, FileRecordInfo>
 ): ContextPackerChunk[] {
   return results.map((result) => {
+    if (
+      result.chunk.startLine === undefined ||
+      result.chunk.endLine === undefined ||
+      result.chunk.startOffset === undefined ||
+      result.chunk.endOffset === undefined
+    ) {
+      throw new Error(RETRIEVAL_ERROR_MESSAGES.missingSourceRange);
+    }
     const fileInfo = fileMap.get(result.chunk.fileRecordId);
     const chunk: ContextPackerChunk = {
       id: result.chunk.id,
       content: result.chunk.content,
       tokenCount: result.chunk.tokenCount ?? null,
       chunkIndex: result.chunk.chunkIndex,
+      startLine: result.chunk.startLine,
+      endLine: result.chunk.endLine,
+      startOffset: result.chunk.startOffset,
+      endOffset: result.chunk.endOffset,
       score: result.similarity,
       metadata: {
         fileRecordId: result.chunk.fileRecordId,
@@ -311,8 +329,9 @@ function formatContext(chunks: readonly PackedContextChunk[]): string {
   return chunks
     .map((chunk, index) => {
       const location = chunk.filePath ?? chunk.fileName ?? 'Unknown file';
+      const lineSuffix = chunk.lineRange ? `:${chunk.lineRange.start}-${chunk.lineRange.end}` : '';
       const chunkLabel = chunk.chunkIndex === undefined ? '' : ` (chunk ${chunk.chunkIndex})`;
-      return `Source ${index + 1}: ${location}${chunkLabel}\n${chunk.content}`;
+      return `Source ${index + 1}: ${location}${lineSuffix}${chunkLabel}\n${chunk.content}`;
     })
     .join('\n\n---\n\n');
 }

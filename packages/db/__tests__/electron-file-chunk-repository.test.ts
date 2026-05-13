@@ -111,7 +111,7 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
     expect(inserted.embedding).toEqual([0.5, 0.8]);
     const lastCall = query.mock.calls.at(-1);
     expect(lastCall).toBeDefined();
-    expect(lastCall?.[1]?.[8]).toBe('[0.5,0.8]');
+    expect(lastCall?.[1]?.[12]).toBe('[0.5,0.8]');
   });
 
   it('supports insertMany transaction batching', async () => {
