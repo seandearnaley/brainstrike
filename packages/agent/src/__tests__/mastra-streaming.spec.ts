@@ -428,6 +428,14 @@ describe('mastra streaming integration', () => {
           id: 'brainstrike.readWorkspaceFile',
           description: 'Read workspace file',
         },
+        'brainstrike.updateWorkspaceContextSelection': {
+          id: 'brainstrike.updateWorkspaceContextSelection',
+          description: 'Update workspace context selection',
+        },
+        'brainstrike.updateWorkspaceTapestrySelections': {
+          id: 'brainstrike.updateWorkspaceTapestrySelections',
+          description: 'Update workspace Tapestry selections',
+        },
       },
       mcpConfig: {
         servers: [
@@ -444,6 +452,8 @@ describe('mastra streaming integration', () => {
     expect(instructions).toContain('brainstrike_listWorkspaceContext');
     expect(instructions).toContain('brainstrike_listEmbeddingSpaces');
     expect(instructions).toContain('brainstrike_queryEmbeddingSpace');
+    expect(instructions).toContain('candidate files and semantic chunks');
+    expect(instructions).toContain('verify exact source line ranges');
     expect(instructions).not.toContain('brainstrike.listWorkspaceContext');
   });
 

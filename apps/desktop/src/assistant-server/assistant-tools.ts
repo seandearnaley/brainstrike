@@ -1287,7 +1287,7 @@ export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined)
     [UPDATE_WORKSPACE_TAPESTRY_SELECTIONS_TOOL_ID]: {
       id: UPDATE_WORKSPACE_TAPESTRY_SELECTIONS_TOOL_ID,
       description:
-        'Create, add, or clear Tapestry line selections for workspace context files using 1-based inclusive line numbers. Use after embedding search or file reads to keep only the ideal source ranges.',
+        'Create, add, or clear Tapestry line selections for workspace context files using 1-based inclusive line numbers. Use after embedding search and file reads to keep only verified source ranges.',
       inputSchema: UpdateWorkspaceTapestrySelectionsInputSchema,
       execute: async (input: ToolExecuteInput<UpdateWorkspaceTapestrySelectionsInput>) => {
         const resolvedInput = UpdateWorkspaceTapestrySelectionsInputSchema.parse(
@@ -1319,7 +1319,7 @@ export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined)
     [QUERY_EMBEDDING_SPACE_TOOL_ID]: {
       id: QUERY_EMBEDDING_SPACE_TOOL_ID,
       description:
-        'Query a specific embedding space by explicit embeddingSetId. For workspace/codebase searches, use listEmbeddingSpaces first and prefer its recommended workspace index. Provide tokenBudget, limit, threshold, and optional filePaths to keep retrieval bounded.',
+        'Query a specific embedding space by explicit embeddingSetId and return bounded semantic chunks. For workspace/codebase searches, use listEmbeddingSpaces first and prefer its recommended workspace index. Provide tokenBudget, limit, threshold, and optional filePaths; read files afterward for exact source line ranges.',
       inputSchema: QueryEmbeddingSpaceInputSchema,
       execute: async (input: ToolExecuteInput<QueryEmbeddingSpaceInput>) => {
         const resolvedInput = resolveQueryEmbeddingSpaceInput(input);

@@ -858,6 +858,141 @@ describe('useFileExplorer (context)', () => {
       expect(calledPaths).not.toContain('');
     });
 
+    it('reruns restoration when selected files change after the root is already settled', async () => {
+      vi.mocked(useFileSystem).mockReturnValue({
+        rootDirectoryHandle: rootHandle,
+        isAccessLoading: false,
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+        setRootDirectoryHandle: vi.fn(),
+        setAccessLoading: vi.fn(),
+      });
+
+      storeState.selectedFilePaths = new Set<string>();
+      storeState.expandedDirectoryPaths = new Set<string>();
+
+      const loadSpecificPathsMock = vi.fn().mockResolvedValue(undefined);
+      vi.mocked(useFileTree).mockReturnValue({
+        fileTree: initialFileTree,
+        isLoading: false,
+        error: null,
+        refreshTree: mockRefreshTree,
+        loadingProgress: { loadingCount: 0, isInitialLoading: false },
+        cancellable: false,
+        cancelOperation: vi.fn(),
+        isCancelling: false,
+        loadingPaths: new Set<string>(),
+        loadChildren: vi.fn(),
+        refreshDirectory: vi.fn(),
+        expandAllProgressively: vi.fn(),
+        cancelExpandAll: vi.fn(),
+        isExpandingAll: false,
+        expandAllProgress: null,
+        loadSpecificPaths: loadSpecificPathsMock,
+        cancelChildLoading: vi.fn(),
+        selectFolderRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+        cancelRecursiveSelect: vi.fn(),
+        isLoadingForSelection: false,
+        loadingPathForSelection: null,
+        selectAllRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+        cancelSelectAll: vi.fn(),
+        isLoadingForSelectAll: false,
+        workerPortRef: { current: null },
+      });
+
+      const { rerender } = renderHook(() => useFileExplorer());
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(loadSpecificPathsMock).not.toHaveBeenCalled();
+
+      storeState.selectedFilePaths = new Set(['root|@|src/assistant/tools.ts']);
+      storeState.selectionVersion = 1;
+
+      rerender();
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(loadSpecificPathsMock).toHaveBeenCalledTimes(1);
+      expect(loadSpecificPathsMock.mock.calls[0]?.[0]).toEqual(['src', 'src/assistant']);
+    });
+
+    it('retries restoration when selected files change while ancestor loading is in flight', async () => {
+      vi.mocked(useFileSystem).mockReturnValue({
+        rootDirectoryHandle: rootHandle,
+        isAccessLoading: false,
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+        setRootDirectoryHandle: vi.fn(),
+        setAccessLoading: vi.fn(),
+      });
+
+      storeState.selectedFilePaths = new Set(['root|@|src/initial.ts']);
+      storeState.expandedDirectoryPaths = new Set<string>();
+
+      let resolveLoad: () => void = () => {};
+      const loadSpecificPathsMock = vi.fn<(paths: string[]) => Promise<void>>(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveLoad = resolve;
+          })
+      );
+      vi.mocked(useFileTree).mockReturnValue({
+        fileTree: initialFileTree,
+        isLoading: false,
+        error: null,
+        refreshTree: mockRefreshTree,
+        loadingProgress: { loadingCount: 0, isInitialLoading: false },
+        cancellable: false,
+        cancelOperation: vi.fn(),
+        isCancelling: false,
+        loadingPaths: new Set<string>(),
+        loadChildren: vi.fn(),
+        refreshDirectory: vi.fn(),
+        expandAllProgressively: vi.fn(),
+        cancelExpandAll: vi.fn(),
+        isExpandingAll: false,
+        expandAllProgress: null,
+        loadSpecificPaths: loadSpecificPathsMock,
+        cancelChildLoading: vi.fn(),
+        selectFolderRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+        cancelRecursiveSelect: vi.fn(),
+        isLoadingForSelection: false,
+        loadingPathForSelection: null,
+        selectAllRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+        cancelSelectAll: vi.fn(),
+        isLoadingForSelectAll: false,
+        workerPortRef: { current: null },
+      });
+
+      const { rerender } = renderHook(() => useFileExplorer());
+
+      expect(loadSpecificPathsMock).toHaveBeenCalledTimes(1);
+      expect(loadSpecificPathsMock.mock.calls[0]?.[0]).toEqual(['src']);
+
+      storeState.selectedFilePaths = new Set(['root|@|packages/agent/runtime.ts']);
+      storeState.selectionVersion = 1;
+
+      act(() => {
+        rerender();
+      });
+
+      expect(loadSpecificPathsMock).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        resolveLoad();
+      });
+
+      expect(loadSpecificPathsMock).toHaveBeenCalledTimes(2);
+      expect(loadSpecificPathsMock.mock.calls[1]?.[0]).toEqual(['packages', 'packages/agent']);
+    });
+
     it('should not duplicate paths when parent dir is already in expanded paths', async () => {
       // If a parent directory of a selected file is already in expandedDirectoryPaths,
       // it should not be duplicated in the restoration call.

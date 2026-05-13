@@ -42,6 +42,7 @@ const selectClearSelectedFiles = (state: FileExplorerState) => state.clearSelect
 const selectSetExpandedPaths = (state: FileExplorerState) => state.setExpandedPaths;
 const selectSelectedFilePaths = (state: FileExplorerState) => state.selectedFilePaths;
 const selectExpandedDirectoryPaths = (state: FileExplorerState) => state.expandedDirectoryPaths;
+const selectSelectionVersion = (state: FileExplorerState) => state.selectionVersion;
 const selectIsAccessLoading = (state: FileExplorerState) => state.isAccessLoading;
 const selectSetIsAccessLoading = (state: FileExplorerState) => state.setIsAccessLoading;
 const selectDisabledIncludeFilters = (state: FileExplorerState) => state.disabledIncludeFilters;
@@ -193,6 +194,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   // Subscribe to these values so effect fires when store rehydrates
   const selectedFilePaths = useFileExplorerStoreSelector(selectSelectedFilePaths);
   const expandedDirectoryPaths = useFileExplorerStoreSelector(selectExpandedDirectoryPaths);
+  const selectionVersion = useFileExplorerStoreSelector(selectSelectionVersion);
   // Use isAccessLoading from store (shared state, not local hook state)
   const storeIsAccessLoading = useFileExplorerStoreSelector(selectIsAccessLoading);
   const setIsAccessLoading = useFileExplorerStoreSelector(selectSetIsAccessLoading);
@@ -496,6 +498,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     fileTree,
     isTreeLoading,
     loadSpecificPaths,
+    restorationKey: `selection:${selectionVersion}`,
     setExpandedPaths,
     store,
   });

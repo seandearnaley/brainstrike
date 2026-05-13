@@ -14,5 +14,5 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
   'brainstrike.listEmbeddingSpaces':
     'List available embedding spaces and identify the recommended workspace index for semantic retrieval',
   'brainstrike.queryEmbeddingSpace':
-    'Query a specific embedding space by explicit embeddingSetId and return packed semantic context',
+    'Query a specific embedding space by explicit embeddingSetId and return packed semantic chunks',
 };
