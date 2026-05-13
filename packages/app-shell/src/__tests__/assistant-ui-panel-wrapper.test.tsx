@@ -259,6 +259,18 @@ vi.mock('@brainstrike/preferences', async () => {
     ...defaultAssistantMemoryPreferences,
   }));
 
+  const useBackgroundIndexingPreferencesStore = create<{
+    enabled: boolean;
+    managedCollectionId: string | null;
+    mode: 'root-folder-cache';
+    paused: boolean;
+  }>(() => ({
+    enabled: true,
+    managedCollectionId: 'managed-set-1',
+    mode: 'root-folder-cache',
+    paused: false,
+  }));
+
   const nativeToolPreferencesState: {
     toolStates: Record<string, boolean>;
     setToolEnabled: (toolId: string, enabled: boolean) => void;
@@ -315,6 +327,12 @@ vi.mock('@brainstrike/preferences', async () => {
       enabledModelsByProvider: buildEnabledModelsByProvider(),
       providerSettings: {},
     });
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      managedCollectionId: 'managed-set-1',
+      mode: 'root-folder-cache',
+      paused: false,
+    });
     useAssistantMemoryPreferencesStore.setState({
       ...defaultAssistantMemoryPreferences,
     });
@@ -333,6 +351,7 @@ vi.mock('@brainstrike/preferences', async () => {
     __resetAssistantPreferencesStoreForTests,
     useAssistantMemoryPreferencesStore,
     useAssistantPreferencesStore,
+    useBackgroundIndexingPreferencesStore,
     useEnsureModelRegistry: vi.fn(),
     useModelRegistryStore,
     useNativeToolPreferencesStore,
@@ -357,6 +376,13 @@ vi.mock('@brainstrike/preferences/stores/assistant-memory-preferences-store', as
   const preferences = await import('@brainstrike/preferences');
   return {
     useAssistantMemoryPreferencesStore: preferences.useAssistantMemoryPreferencesStore,
+  };
+});
+
+vi.mock('@brainstrike/preferences/stores/background-indexing-preferences-store', async () => {
+  const preferences = await import('@brainstrike/preferences');
+  return {
+    useBackgroundIndexingPreferencesStore: preferences.useBackgroundIndexingPreferencesStore,
   };
 });
 
@@ -1759,6 +1785,10 @@ describe('AssistantUiPanelWrapper', () => {
         expect(requestData['selectionFilePaths']).toEqual(['/alpha.ts', '/beta.ts']);
         expect(requestData['selectionFolderId']).toBe('test-folder');
         expect(requestData['workspaceRootPath']).toBe('/tmp/test-workspace');
+        expect(requestData['workspaceIndexEmbeddingSetId']).toBe('managed-set-1');
+        expect(requestData['workspaceIndexingEnabled']).toBe(true);
+        expect(requestData['workspaceIndexingMode']).toBe('root-folder-cache');
+        expect(requestData['workspaceIndexingPaused']).toBe(false);
         expect(requestData['embeddingSetId']).toBeUndefined();
         expect(requestData['tokenBudget']).toBeUndefined();
         expect(requestData['contextTokenCount']).toBeUndefined();

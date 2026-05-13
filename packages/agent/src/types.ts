@@ -103,6 +103,14 @@ export interface RuntimeData {
   signal?: AbortSignal;
   /** Optional token budget override for context packing. */
   tokenBudget?: number;
+  /** Optional embedding set currently configured as the workspace background index. */
+  workspaceIndexEmbeddingSetId?: string;
+  /** Whether workspace background indexing is enabled in the current workspace. */
+  workspaceIndexingEnabled?: boolean;
+  /** Workspace indexing mode configured for the current workspace. */
+  workspaceIndexingMode?: string;
+  /** Whether workspace background indexing is paused. */
+  workspaceIndexingPaused?: boolean;
   /** Optional absolute workspace root path for workspace read tools. */
   workspaceRootPath?: string;
 }

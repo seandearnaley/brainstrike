@@ -33,9 +33,25 @@ describe('tool schemas', () => {
     expect(ok.ok).toBe(false);
   });
 
+  it('validates workspace-index embedding-space listing input', () => {
+    const ok = validateToolInput('brainstrike.listEmbeddingSpaces', {
+      includeStats: true,
+      workspaceIndexOnly: true,
+    });
+    expect(ok.ok).toBe(true);
+  });
+
   it('marks embedding set id as required in query display metadata', () => {
     const schema = getToolSchemaDisplay('brainstrike.queryEmbeddingSpace');
     const embeddingSetParam = schema?.parameters.find((param) => param.name === 'embeddingSetId');
     expect(embeddingSetParam?.required).toBe(true);
+  });
+
+  it('documents workspace-index filtering for embedding-space listing', () => {
+    const schema = getToolSchemaDisplay('brainstrike.listEmbeddingSpaces');
+    const workspaceIndexOnly = schema?.parameters.find(
+      (param) => param.name === 'workspaceIndexOnly'
+    );
+    expect(workspaceIndexOnly?.type).toBe('boolean');
   });
 });

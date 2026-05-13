@@ -139,6 +139,18 @@ function sanitizeRuntimeData(input: unknown): Partial<RuntimeData> | undefined {
       runtimeData.selectionFilePaths = selectionFilePaths;
     }
   }
+  if (typeof input['workspaceIndexEmbeddingSetId'] === 'string') {
+    runtimeData.workspaceIndexEmbeddingSetId = input['workspaceIndexEmbeddingSetId'];
+  }
+  if (typeof input['workspaceIndexingEnabled'] === 'boolean') {
+    runtimeData.workspaceIndexingEnabled = input['workspaceIndexingEnabled'];
+  }
+  if (typeof input['workspaceIndexingMode'] === 'string') {
+    runtimeData.workspaceIndexingMode = input['workspaceIndexingMode'];
+  }
+  if (typeof input['workspaceIndexingPaused'] === 'boolean') {
+    runtimeData.workspaceIndexingPaused = input['workspaceIndexingPaused'];
+  }
 
   return Object.keys(runtimeData).length > 0 ? runtimeData : undefined;
 }

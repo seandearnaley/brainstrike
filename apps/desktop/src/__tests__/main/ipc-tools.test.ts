@@ -170,11 +170,19 @@ describe('ipc-tools', () => {
         },
         {
           workspaceRootPath: '/tmp/test-workspace',
+          workspaceIndexEmbeddingSetId: 'set-1',
+          workspaceIndexingEnabled: true,
+          workspaceIndexingMode: 'root-folder-cache',
+          workspaceIndexingPaused: false,
         }
       );
 
       expect(buildDesktopAssistantTools).toHaveBeenCalledWith({
         workspaceRootPath: '/tmp/test-workspace',
+        workspaceIndexEmbeddingSetId: 'set-1',
+        workspaceIndexingEnabled: true,
+        workspaceIndexingMode: 'root-folder-cache',
+        workspaceIndexingPaused: false,
       });
       expect(callTool).not.toHaveBeenCalled();
       expect(result).toMatchObject({

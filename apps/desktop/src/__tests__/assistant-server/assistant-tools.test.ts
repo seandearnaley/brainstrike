@@ -196,6 +196,10 @@ describe('assistant-tools', () => {
       workspaceRootPath,
       selectionFolderId: 'root-1',
       selectionFilePaths: ['/src/main.ts', '/README.md'],
+      workspaceIndexEmbeddingSetId: 'set-1',
+      workspaceIndexingEnabled: true,
+      workspaceIndexingMode: 'root-folder-cache',
+      workspaceIndexingPaused: false,
     } as RuntimeData);
     const tool = tools['brainstrike.listWorkspaceContext'];
 
@@ -205,6 +209,12 @@ describe('assistant-tools', () => {
     expect(result.selectionFolderId).toBe('root-1');
     expect(result.selectedFileCount).toBe(2);
     expect(result.selectedFiles).toEqual(['/src/main.ts', '/README.md']);
+    expect(result.workspaceIndex).toEqual({
+      embeddingSetId: 'set-1',
+      enabled: true,
+      mode: 'root-folder-cache',
+      paused: false,
+    });
     expect(JSON.stringify(result)).not.toContain('line 1');
     expect(JSON.stringify(result)).not.toContain('# Test Workspace');
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
@@ -262,12 +272,23 @@ describe('assistant-tools', () => {
         return { rows: [] };
       }),
     });
-    const tools = buildDesktopAssistantTools(undefined);
+    const tools = buildDesktopAssistantTools({
+      workspaceIndexEmbeddingSetId: 'set-1',
+      workspaceIndexingEnabled: true,
+      workspaceIndexingMode: 'root-folder-cache',
+      workspaceIndexingPaused: false,
+    } as RuntimeData);
     const tool = tools['brainstrike.listEmbeddingSpaces'];
 
     const result = await tool.execute({ context: { includeStats: true } });
 
     expect(result.count).toBe(1);
+    expect(result.workspaceIndex).toEqual({
+      embeddingSetId: 'set-1',
+      enabled: true,
+      mode: 'root-folder-cache',
+      paused: false,
+    });
     expect(result.spaces[0]).toMatchObject({
       id: 'set-1',
       name: 'Main',
@@ -275,12 +296,66 @@ describe('assistant-tools', () => {
       modelId: 'text-embedding-3-small',
       dimensions: 1536,
       distance: 'cosine',
+      isWorkspaceIndex: true,
+      recommendedForWorkspaceSearch: true,
       coverage: {
         embeddedChunks: 3,
         totalChunks: 5,
         coveragePercent: 60,
       },
     });
+  });
+
+  it('can narrow embedding spaces to the configured workspace index', async () => {
+    getDatabaseMock.mockResolvedValue({
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [
+              {
+                id: 'set-1',
+                name: 'Workspace Index',
+                description: null,
+                modelKey: 'openai:text-embedding-3-small',
+                modelId: 'text-embedding-3-small',
+                dimensions: 1536,
+                distance: 'cosine',
+                createdAt: '2026-01-02T00:00:00.000Z',
+              },
+              {
+                id: 'set-2',
+                name: 'Scratch',
+                description: null,
+                modelKey: 'openai:text-embedding-3-small',
+                modelId: 'text-embedding-3-small',
+                dimensions: 1536,
+                distance: 'cosine',
+                createdAt: '2026-01-01T00:00:00.000Z',
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    });
+    const tools = buildDesktopAssistantTools({
+      workspaceIndexEmbeddingSetId: 'set-1',
+      workspaceIndexingEnabled: true,
+      workspaceIndexingMode: 'root-folder-cache',
+      workspaceIndexingPaused: false,
+    } as RuntimeData);
+    const tool = tools['brainstrike.listEmbeddingSpaces'];
+
+    const result = await tool.execute({ context: { workspaceIndexOnly: true } });
+
+    expect(result.count).toBe(1);
+    expect(result.spaces).toEqual([
+      expect.objectContaining({
+        id: 'set-1',
+        isWorkspaceIndex: true,
+        recommendedForWorkspaceSearch: true,
+      }),
+    ]);
   });
 
   it('requires an explicit embedding space id for semantic context queries', async () => {

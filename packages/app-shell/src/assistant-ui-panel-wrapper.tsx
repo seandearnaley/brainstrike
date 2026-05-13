@@ -33,6 +33,7 @@ import { useFileExplorerStoreSelector, useSelectionManager } from '@brainstrike/
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/preferences/stores/assistant-memory-preferences-store';
 import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
+import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
 import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
@@ -221,6 +222,12 @@ function buildAssistantRequestData(args: {
     filePaths: string[];
     folderId: string | null | undefined;
   };
+  workspaceIndex: {
+    enabled: boolean;
+    embeddingSetId: string | null;
+    mode: string;
+    paused: boolean;
+  };
   workspaceRootPath: string | null;
 }): Record<string, unknown> {
   const data: Record<string, unknown> = {};
@@ -233,6 +240,12 @@ function buildAssistantRequestData(args: {
   if (args.workspaceRootPath) {
     data['workspaceRootPath'] = args.workspaceRootPath;
   }
+  if (args.workspaceIndex.embeddingSetId) {
+    data['workspaceIndexEmbeddingSetId'] = args.workspaceIndex.embeddingSetId;
+  }
+  data['workspaceIndexingEnabled'] = args.workspaceIndex.enabled;
+  data['workspaceIndexingMode'] = args.workspaceIndex.mode;
+  data['workspaceIndexingPaused'] = args.workspaceIndex.paused;
   if (args.memoryResourceId && args.selectedMemoryThreadId && args.hostedMemoryBackendAvailable) {
     data['memory'] = {
       threadId: args.selectedMemoryThreadId,
@@ -1357,6 +1370,26 @@ export function AssistantUiPanelWrapper({
   ]);
 
   const workspaceRootPath = rootDirectoryHandle?.path ?? null;
+  const workspaceIndexEmbeddingSetId = useBackgroundIndexingPreferencesStore(
+    (state) => state.managedCollectionId
+  );
+  const workspaceIndexingEnabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
+  const workspaceIndexingMode = useBackgroundIndexingPreferencesStore((state) => state.mode);
+  const workspaceIndexingPaused = useBackgroundIndexingPreferencesStore((state) => state.paused);
+  const workspaceIndex = useMemo(
+    () => ({
+      enabled: workspaceIndexingEnabled,
+      embeddingSetId: workspaceIndexEmbeddingSetId,
+      mode: workspaceIndexingMode,
+      paused: workspaceIndexingPaused,
+    }),
+    [
+      workspaceIndexEmbeddingSetId,
+      workspaceIndexingEnabled,
+      workspaceIndexingMode,
+      workspaceIndexingPaused,
+    ]
+  );
   const assistantThreadRepository = useMemo(
     () => (db ? createPgliteAssistantThreadRepository(db) : null),
     [db]
@@ -1415,6 +1448,7 @@ export function AssistantUiPanelWrapper({
         providerOptions,
         selectedMemoryThreadId,
         selectionData,
+        workspaceIndex,
         workspaceRootPath,
       }),
     [
@@ -1425,6 +1459,7 @@ export function AssistantUiPanelWrapper({
       runtimeMemorySettings,
       selectedMemoryThreadId,
       selectionData,
+      workspaceIndex,
       workspaceRootPath,
     ]
   );

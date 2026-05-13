@@ -432,6 +432,33 @@ function normalizeRuntimeSelectionFilePaths(runtimeData: RuntimeData | undefined
   return normalizeWorkspacePaths(Array.from(runtimeData?.selectionFilePaths ?? []));
 }
 
+interface WorkspaceIndexSummary {
+  embeddingSetId: string | null;
+  enabled: boolean;
+  mode: string | null;
+  paused: boolean;
+}
+
+function normalizeRuntimeWorkspaceIndex(
+  runtimeData: RuntimeData | undefined
+): WorkspaceIndexSummary {
+  const rawEmbeddingSetId = runtimeData?.workspaceIndexEmbeddingSetId;
+  const embeddingSetId =
+    typeof rawEmbeddingSetId === 'string' && rawEmbeddingSetId.trim().length > 0
+      ? rawEmbeddingSetId.trim()
+      : null;
+  return {
+    embeddingSetId,
+    enabled: runtimeData?.workspaceIndexingEnabled === true,
+    mode:
+      typeof runtimeData?.workspaceIndexingMode === 'string' &&
+      runtimeData.workspaceIndexingMode.trim().length > 0
+        ? runtimeData.workspaceIndexingMode.trim()
+        : null,
+    paused: runtimeData?.workspaceIndexingPaused === true,
+  };
+}
+
 function runListWorkspaceContext(
   input: ListWorkspaceContextInput,
   runtimeData: RuntimeData | undefined
@@ -441,6 +468,7 @@ function runListWorkspaceContext(
   selectedFileCount: number;
   selectedFiles: string[];
   tokenEstimates?: Array<{ path: string; approxTokens: number | null }>;
+  workspaceIndex: WorkspaceIndexSummary;
 } {
   const workspaceRootPath = resolveWorkspaceRootPath(runtimeData);
   const selectedFiles = normalizeRuntimeSelectionFilePaths(runtimeData);
@@ -450,10 +478,12 @@ function runListWorkspaceContext(
     selectedFileCount: number;
     selectedFiles: string[];
     tokenEstimates?: Array<{ path: string; approxTokens: number | null }>;
+    workspaceIndex: WorkspaceIndexSummary;
   } = {
     workspaceRootPath,
     selectedFileCount: selectedFiles.length,
     selectedFiles,
+    workspaceIndex: normalizeRuntimeWorkspaceIndex(runtimeData),
   };
   if (typeof runtimeData?.selectionFolderId === 'string') {
     result.selectionFolderId = runtimeData.selectionFolderId;
@@ -619,8 +649,12 @@ interface EmbeddingSpaceRow {
   totalChunks?: number | string | null;
 }
 
-async function runListEmbeddingSpaces(input: ListEmbeddingSetsInput): Promise<{
+async function runListEmbeddingSpaces(
+  input: ListEmbeddingSetsInput,
+  runtimeData: RuntimeData | undefined
+): Promise<{
   count: number;
+  workspaceIndex: WorkspaceIndexSummary;
   spaces: Array<{
     id: string;
     name: string;
@@ -630,6 +664,8 @@ async function runListEmbeddingSpaces(input: ListEmbeddingSetsInput): Promise<{
     dimensions: number;
     distance: string | null;
     createdAt: string | null;
+    isWorkspaceIndex: boolean;
+    recommendedForWorkspaceSearch: boolean;
     coverage?: {
       embeddedChunks: number;
       totalChunks: number;
@@ -637,6 +673,7 @@ async function runListEmbeddingSpaces(input: ListEmbeddingSetsInput): Promise<{
     };
   }>;
 }> {
+  const workspaceIndex = normalizeRuntimeWorkspaceIndex(runtimeData);
   const db = await getDatabase();
   const result = input.includeStats
     ? await db.query(
@@ -670,7 +707,8 @@ async function runListEmbeddingSpaces(input: ListEmbeddingSetsInput): Promise<{
         ORDER BY created_at DESC`
       );
   const rows = result.rows as EmbeddingSpaceRow[];
-  const spaces = rows.map((row) => {
+  const mappedSpaces = rows.map((row) => {
+    const isWorkspaceIndex = row.id === workspaceIndex.embeddingSetId;
     const space = {
       id: row.id,
       name: row.name,
@@ -680,6 +718,8 @@ async function runListEmbeddingSpaces(input: ListEmbeddingSetsInput): Promise<{
       dimensions: Number(row.dimensions),
       distance: row.distance,
       createdAt: row.createdAt,
+      isWorkspaceIndex,
+      recommendedForWorkspaceSearch: isWorkspaceIndex,
     };
     if (input.includeStats !== true) {
       return space;
@@ -695,7 +735,11 @@ async function runListEmbeddingSpaces(input: ListEmbeddingSetsInput): Promise<{
       },
     };
   });
-  return { count: spaces.length, spaces };
+  const spaces =
+    input.workspaceIndexOnly === true
+      ? mappedSpaces.filter((space) => space.isWorkspaceIndex)
+      : mappedSpaces;
+  return { count: spaces.length, workspaceIndex, spaces };
 }
 
 function resolveQueryEmbeddingSpaceInput(
@@ -748,7 +792,7 @@ export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined)
     [LIST_WORKSPACE_CONTEXT_TOOL_ID]: {
       id: LIST_WORKSPACE_CONTEXT_TOOL_ID,
       description:
-        'Inspect the current workspace root and selected context paths without returning file contents. Use before reading selected context.',
+        'Inspect the current workspace root, selected context paths, and workspace index hint without returning file contents. Use before reading selected context.',
       inputSchema: ListWorkspaceContextInputSchema,
       execute: async (input: ToolExecuteInput<ListWorkspaceContextInput>) => {
         const resolvedInput = ListWorkspaceContextInputSchema.parse(resolveToolExecuteInput(input));
@@ -763,7 +807,7 @@ export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined)
     [READ_WORKSPACE_CONTEXT_TOOL_ID]: {
       id: READ_WORKSPACE_CONTEXT_TOOL_ID,
       description:
-        'Read selected or explicit workspace files under maxFiles, per-file, and token budgets. Skipped and truncated files are reported explicitly.',
+        'Read selected or explicit workspace files under maxFiles, per-file, and token budgets. Use after semantic search when you need exact source lines. Skipped and truncated files are reported explicitly.',
       inputSchema: ReadWorkspaceContextInputSchema,
       execute: async (input: ToolExecuteInput<ReadWorkspaceContextInput>) => {
         const resolvedInput = ReadWorkspaceContextInputSchema.parse(resolveToolExecuteInput(input));
@@ -778,12 +822,12 @@ export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined)
     [LIST_EMBEDDING_SPACES_TOOL_ID]: {
       id: LIST_EMBEDDING_SPACES_TOOL_ID,
       description:
-        'List available embedding spaces with model, dimensions, distance, and optional coverage stats. Use before queryEmbeddingSpace when the ID is unknown.',
+        'List available embedding spaces and identify the configured workspace index. For codebase questions, call this first and prefer the space marked recommendedForWorkspaceSearch, then pass its explicit id to queryEmbeddingSpace.',
       inputSchema: ListEmbeddingSetsInputSchema,
       execute: async (input: ToolExecuteInput<ListEmbeddingSetsInput>) => {
         const resolvedInput = ListEmbeddingSetsInputSchema.parse(resolveToolExecuteInput(input));
         try {
-          return await runListEmbeddingSpaces(resolvedInput);
+          return await runListEmbeddingSpaces(resolvedInput, runtimeData);
         } catch (error) {
           logger.error('listEmbeddingSpaces failed', { error, input: resolvedInput });
           throw error;
@@ -793,7 +837,7 @@ export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined)
     [QUERY_EMBEDDING_SPACE_TOOL_ID]: {
       id: QUERY_EMBEDDING_SPACE_TOOL_ID,
       description:
-        'Query a specific embedding space by explicit embeddingSetId. Use listEmbeddingSpaces first when the ID is unknown. Provide tokenBudget, limit, threshold, and optional filePaths to keep retrieval bounded.',
+        'Query a specific embedding space by explicit embeddingSetId. For workspace/codebase searches, use listEmbeddingSpaces first and prefer its recommended workspace index. Provide tokenBudget, limit, threshold, and optional filePaths to keep retrieval bounded.',
       inputSchema: QueryEmbeddingSpaceInputSchema,
       execute: async (input: ToolExecuteInput<QueryEmbeddingSpaceInput>) => {
         const resolvedInput = resolveQueryEmbeddingSpaceInput(input);

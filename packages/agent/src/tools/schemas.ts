@@ -59,6 +59,10 @@ export type QueueStatusInput = z.infer<typeof QueueStatusInputSchema>;
 export const ListEmbeddingSetsInputSchema = z
   .object({
     includeStats: z.boolean().optional().describe('Include coverage statistics'),
+    workspaceIndexOnly: z
+      .boolean()
+      .optional()
+      .describe('Only return the embedding space configured as the current workspace index'),
   })
   .strict();
 

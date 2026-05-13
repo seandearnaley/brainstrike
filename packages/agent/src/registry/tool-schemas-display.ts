@@ -139,7 +139,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
   'brainstrike.listWorkspaceContext': {
     toolId: 'brainstrike.listWorkspaceContext',
     description:
-      'Inspect the selected workspace context without returning file contents. Use this before reading selected files.',
+      'Inspect the selected workspace context and workspace index hint without returning file contents. Use this before reading selected files.',
     parameters: [
       {
         name: 'includeTokenEstimates',
@@ -149,13 +149,14 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
         default: false,
       },
     ],
-    returns: 'Workspace root, selected paths, selected count, and optional metadata',
+    returns:
+      'Workspace root, selected paths, selected count, workspace index hint, and optional metadata',
   },
 
   'brainstrike.readWorkspaceContext': {
     toolId: 'brainstrike.readWorkspaceContext',
     description:
-      'Read selected or explicit workspace files under bounded file, per-file, and token limits.',
+      'Read selected or explicit workspace files under bounded file, per-file, and token limits. Use after semantic retrieval when exact source is needed.',
     parameters: [
       {
         name: 'filePaths',
@@ -199,7 +200,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
   'brainstrike.listEmbeddingSpaces': {
     toolId: 'brainstrike.listEmbeddingSpaces',
     description:
-      'List available embedding spaces. Use this before semantic retrieval because queryEmbeddingSpace requires an explicit embeddingSetId.',
+      'List available embedding spaces and identify the configured workspace index. Use this before semantic retrieval because queryEmbeddingSpace requires an explicit embeddingSetId.',
     parameters: [
       {
         name: 'includeStats',
@@ -208,19 +209,28 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
         required: false,
         default: false,
       },
+      {
+        name: 'workspaceIndexOnly',
+        type: 'boolean',
+        description: 'Only return the embedding space configured as the current workspace index',
+        required: false,
+        default: false,
+      },
     ],
-    returns: 'Embedding spaces with model, dimensions, distance, and optional coverage stats',
+    returns:
+      'Embedding spaces with model, dimensions, distance, workspace-index recommendation flags, and optional coverage stats',
   },
 
   'brainstrike.queryEmbeddingSpace': {
     toolId: 'brainstrike.queryEmbeddingSpace',
     description:
-      'Query a specific embedding space by explicit embeddingSetId and return packed semantic context.',
+      'Query a specific embedding space by explicit embeddingSetId and return packed semantic context. For codebase searches, prefer the workspace index returned by listEmbeddingSpaces.',
     parameters: [
       {
         name: 'embeddingSetId',
         type: 'string',
-        description: 'Embedding space ID returned by listEmbeddingSpaces',
+        description:
+          'Embedding space ID returned by listEmbeddingSpaces; prefer the recommended workspace index for codebase searches',
         required: true,
         minLength: 1,
       },
