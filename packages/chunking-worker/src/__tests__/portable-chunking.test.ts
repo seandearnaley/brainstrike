@@ -212,6 +212,28 @@ describe('portable-chunking', () => {
         expect(result.chunks.map((chunk) => chunk.endOffset)).toEqual([7, 42, 60]);
       });
 
+      it('resolves source ranges for semantic markdown chunks merged across sections', async () => {
+        const text =
+          '# Title\n\nIntro paragraph.\n\n## A\n\nAlpha paragraph.\n\n## B\n\nBeta paragraph.';
+        const result = await chunkContent(text, {
+          strategy: 'auto',
+          fileName: 'notes.md',
+          maxTokens: 64,
+          overlap: 0,
+        });
+
+        expect(result.chunks).toHaveLength(1);
+        expect(result.chunks[0]?.content).toBe(
+          '# Title\n\nIntro paragraph.## A\n\nAlpha paragraph.## B\n\nBeta paragraph.'
+        );
+        expect(result.chunks[0]).toMatchObject({
+          startLine: 1,
+          endLine: 11,
+          startOffset: 0,
+          endOffset: text.length,
+        });
+      });
+
       it('should split punctuation-poor text to the configured chunk target', async () => {
         const text = 'x'.repeat(5000);
         const result = await chunkContent(text, {

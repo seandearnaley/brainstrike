@@ -373,6 +373,96 @@ function findLineForOffset(lineStarts: readonly number[], offset: number): numbe
   return best + 1;
 }
 
+function findNextNonWhitespaceOffset(content: string, startOffset: number): number {
+  let offset = startOffset;
+  while (offset < content.length) {
+    const character = content[offset];
+    if (!isSourceWhitespace(character)) {
+      break;
+    }
+    offset += 1;
+  }
+  return offset;
+}
+
+function isSourceWhitespace(character: string | undefined): boolean {
+  return character === ' ' || character === '\t' || character === '\n' || character === '\r';
+}
+
+function sourceWhitespaceRunHasLineBreak(
+  content: string,
+  startOffset: number,
+  endOffset: number
+): boolean {
+  for (let offset = startOffset; offset < endOffset; offset += 1) {
+    const character = content[offset];
+    if (character === '\n' || character === '\r') {
+      return true;
+    }
+  }
+  return false;
+}
+
+function canSkipElidedSourceWhitespace(
+  content: string,
+  contentOffset: number,
+  chunkChar: string | undefined
+): number | null {
+  if (!isSourceWhitespace(content[contentOffset])) {
+    return null;
+  }
+
+  const nextSourceOffset = findNextNonWhitespaceOffset(content, contentOffset);
+  if (
+    nextSourceOffset <= contentOffset ||
+    !sourceWhitespaceRunHasLineBreak(content, contentOffset, nextSourceOffset) ||
+    content[nextSourceOffset] !== chunkChar
+  ) {
+    return null;
+  }
+
+  return nextSourceOffset;
+}
+
+function findSourceMatchEndOffset(
+  content: string,
+  chunkContent: string,
+  candidateOffset: number
+): number | null {
+  let contentOffset = candidateOffset;
+  let chunkOffset = 0;
+
+  while (chunkOffset < chunkContent.length && contentOffset < content.length) {
+    const chunkChar = chunkContent[chunkOffset];
+    const sourceChar = content[contentOffset];
+    const skippedWhitespaceOffset = canSkipElidedSourceWhitespace(
+      content,
+      contentOffset,
+      chunkChar
+    );
+
+    if (skippedWhitespaceOffset !== null) {
+      contentOffset = skippedWhitespaceOffset;
+      continue;
+    }
+
+    if (chunkChar === '\n' && sourceChar === '\r' && content[contentOffset + 1] === '\n') {
+      chunkOffset += 1;
+      contentOffset += 2;
+      continue;
+    }
+
+    if (chunkChar !== sourceChar) {
+      return null;
+    }
+
+    chunkOffset += 1;
+    contentOffset += 1;
+  }
+
+  return chunkOffset === chunkContent.length ? contentOffset : null;
+}
+
 function findSourceRangeForChunkContent(
   content: string,
   chunkContent: string,
@@ -393,31 +483,11 @@ function findSourceRangeForChunkContent(
 
   let candidateOffset = content.indexOf(firstCharacter, searchStart);
   while (candidateOffset >= 0) {
-    let contentOffset = candidateOffset;
-    let chunkOffset = 0;
-
-    while (chunkOffset < chunkContent.length && contentOffset < content.length) {
-      const chunkChar = chunkContent[chunkOffset];
-      const sourceChar = content[contentOffset];
-
-      if (chunkChar === '\n' && sourceChar === '\r' && content[contentOffset + 1] === '\n') {
-        chunkOffset += 1;
-        contentOffset += 2;
-        continue;
-      }
-
-      if (chunkChar !== sourceChar) {
-        break;
-      }
-
-      chunkOffset += 1;
-      contentOffset += 1;
-    }
-
-    if (chunkOffset === chunkContent.length) {
+    const endOffset = findSourceMatchEndOffset(content, chunkContent, candidateOffset);
+    if (endOffset !== null) {
       return {
         startOffset: candidateOffset,
-        endOffset: contentOffset,
+        endOffset,
       };
     }
 
