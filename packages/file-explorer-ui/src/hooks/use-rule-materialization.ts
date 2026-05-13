@@ -19,6 +19,7 @@ import type { IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useMemo, useRef } from 'react';
 import { useFileExplorerStoreSelector } from '../file-explorer-provider';
+import { getPathDepth } from '../utils/path-depth';
 
 const logger = createLogger('useRuleMaterialization');
 
@@ -87,7 +88,7 @@ function createTreeAdapterFromNodes(nodes: IFileNode[]): TreeAdapter {
         if (path === normalizedRoot || path.startsWith(`${normalizedRoot}/`)) {
           if (maxDepth !== undefined) {
             const relativePath = path.slice(normalizedRoot.length + 1);
-            const depth = relativePath.split('/').length - 1;
+            const depth = getPathDepth(relativePath);
             if (depth > maxDepth) {
               continue;
             }

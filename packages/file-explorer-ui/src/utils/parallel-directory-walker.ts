@@ -13,6 +13,7 @@ import { fileFilter } from '@brainstrike/utils/path-filter';
 import { checkBudget, createTimer } from '@brainstrike/utils/perf-timing';
 import { fileNodeCollator } from './file-node-collator';
 import { getFinalPath } from './get-final-path';
+import { getPathDepth } from './path-depth';
 
 /** Default number of concurrent directory reads */
 const DEFAULT_CONCURRENCY = 10;
@@ -308,7 +309,7 @@ export async function walkDirectoryParallel(
     return {
       ...entry,
       path: finalPath,
-      depth: relativePath.split('/').length - 1,
+      depth: getPathDepth(relativePath),
       selectionState: 'unchecked',
       rootFolderId,
     };
@@ -326,7 +327,7 @@ export async function walkDirectoryParallel(
     return {
       ...entry,
       path: finalPath,
-      depth: relativePath.split('/').length - 1,
+      depth: getPathDepth(relativePath),
       children: [], // Will be populated by child processing
       selectionState: 'unchecked',
       rootFolderId,

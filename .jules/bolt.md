@@ -55,3 +55,6 @@
 ## 2026-05-04 - N+1 Query Optimization using PGlite ANY()
 **Learning:** Checking a condition sequentially via looping database `SELECT` queries (like in MigrationRunner) creates significant N+1 query overhead in PGlite which adds up and delays startup time, especially with larger lists.
 **Action:** Replace iterative looping queries with a single query using the `WHERE column = ANY($1)` syntax with an array parameter to fetch all necessary data in bulk, caching it in an in-memory `Map` for O(1) lookups during the local iteration.
+## 2024-05-17 - [Optimizing Path Depth Calculation]
+**Learning:** Biome's `noAssignInExpressions` rule prevents using `while ((index = path.indexOf('/', index + 1)) !== -1)`. Furthermore, duplicating `indexOf` loops for path depth calculations violates DRY and readability.
+**Action:** Extract path depth calculation into a shared utility function (`getPathDepth` in `path-depth.ts`) that initializes the index before the loop and reassigns it inside the loop to comply with Biome while maintaining performance and readability.
