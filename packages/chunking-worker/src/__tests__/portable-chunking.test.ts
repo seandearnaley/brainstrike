@@ -192,6 +192,26 @@ describe('portable-chunking', () => {
         expect(result.chunks.map((chunk) => chunk.startOffset)).toEqual([0, 17, 34]);
       });
 
+      it('resolves source ranges for markdown chunks emitted from CRLF content', async () => {
+        const text = '# Title\r\n\r\nAlpha sentence\r\ncontinues here.\r\n\r\nBeta sentence.';
+        const result = await chunkContent(text, {
+          strategy: 'markdown',
+          fileName: 'notes.md',
+          maxTokens: 16,
+          overlap: 0,
+        });
+
+        expect(result.chunks.map((chunk) => chunk.content)).toEqual([
+          '# Title',
+          'Alpha sentence\ncontinues here.',
+          'Beta sentence.',
+        ]);
+        expect(result.chunks.map((chunk) => chunk.startLine)).toEqual([1, 3, 6]);
+        expect(result.chunks.map((chunk) => chunk.endLine)).toEqual([1, 4, 6]);
+        expect(result.chunks.map((chunk) => chunk.startOffset)).toEqual([0, 11, 46]);
+        expect(result.chunks.map((chunk) => chunk.endOffset)).toEqual([7, 42, 60]);
+      });
+
       it('should split punctuation-poor text to the configured chunk target', async () => {
         const text = 'x'.repeat(5000);
         const result = await chunkContent(text, {

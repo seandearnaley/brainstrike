@@ -373,6 +373,60 @@ function findLineForOffset(lineStarts: readonly number[], offset: number): numbe
   return best + 1;
 }
 
+function findSourceRangeForChunkContent(
+  content: string,
+  chunkContent: string,
+  searchStart: number
+): { endOffset: number; startOffset: number } | null {
+  const exactStartOffset = content.indexOf(chunkContent, searchStart);
+  if (exactStartOffset >= 0) {
+    return {
+      startOffset: exactStartOffset,
+      endOffset: exactStartOffset + chunkContent.length,
+    };
+  }
+
+  const firstCharacter = chunkContent[0];
+  if (firstCharacter === undefined) {
+    return null;
+  }
+
+  let candidateOffset = content.indexOf(firstCharacter, searchStart);
+  while (candidateOffset >= 0) {
+    let contentOffset = candidateOffset;
+    let chunkOffset = 0;
+
+    while (chunkOffset < chunkContent.length && contentOffset < content.length) {
+      const chunkChar = chunkContent[chunkOffset];
+      const sourceChar = content[contentOffset];
+
+      if (chunkChar === '\n' && sourceChar === '\r' && content[contentOffset + 1] === '\n') {
+        chunkOffset += 1;
+        contentOffset += 2;
+        continue;
+      }
+
+      if (chunkChar !== sourceChar) {
+        break;
+      }
+
+      chunkOffset += 1;
+      contentOffset += 1;
+    }
+
+    if (chunkOffset === chunkContent.length) {
+      return {
+        startOffset: candidateOffset,
+        endOffset: contentOffset,
+      };
+    }
+
+    candidateOffset = content.indexOf(firstCharacter, candidateOffset + 1);
+  }
+
+  return null;
+}
+
 function resolveSourceRanges(
   content: string,
   chunks: readonly { content: string }[],
@@ -382,12 +436,12 @@ function resolveSourceRanges(
   let searchStart = 0;
 
   return chunks.map((chunk, index) => {
-    const startOffset = content.indexOf(chunk.content, searchStart);
-    if (startOffset < 0) {
+    const sourceRange = findSourceRangeForChunkContent(content, chunk.content, searchStart);
+    if (!sourceRange) {
       throw new Error(`Unable to resolve source range for chunk ${index}`);
     }
 
-    const endOffset = startOffset + chunk.content.length;
+    const { startOffset, endOffset } = sourceRange;
     searchStart = Math.max(0, endOffset - overlapChars - 1);
 
     return {
