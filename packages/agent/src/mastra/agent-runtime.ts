@@ -40,8 +40,6 @@ export interface MastraAgentRuntime {
   dispose: () => Promise<void>;
   mcpClient?: MCPClient;
   toolNameMap: Map<string, string>;
-  /** True if the language model declares AI SDK V1 */
-  usesLegacyModel: boolean;
 }
 
 const logger = createLogger('MastraAgent');
@@ -263,25 +261,7 @@ export async function createMastraAgentRuntime(
     sanitizedRuntime
   );
 
-  // Detect if model is AI SDK V1 (may require streamLegacy instead of stream)
-  // V1 models have specificationVersion === 'v1', V2 models don't have this property
-  const usesLegacyModel = (() => {
-    if (!languageModel || typeof languageModel !== 'object') {
-      return false;
-    }
-    if (!('specificationVersion' in languageModel)) {
-      return false;
-    }
-    const spec = (languageModel as { specificationVersion?: unknown }).specificationVersion;
-    return spec === 'v1';
-  })();
-
-  if (usesLegacyModel) {
-    logger.info('legacy V1 model detected', {
-      provider: normalizedProvider,
-      model: modelName,
-    });
-  }
+  assertModernLanguageModel(languageModel, normalizedProvider, modelName);
 
   const agent = new Agent({
     id: 'brainstrike-assistant',
@@ -298,9 +278,28 @@ export async function createMastraAgentRuntime(
       await mcpClient?.disconnect();
     },
     toolNameMap,
-    usesLegacyModel,
     ...(mcpClient ? { mcpClient } : {}),
   };
+}
+
+function assertModernLanguageModel(
+  languageModel: MastraModelConfig,
+  provider: string,
+  model: string
+): void {
+  if (!languageModel || typeof languageModel !== 'object') {
+    return;
+  }
+
+  const spec = (languageModel as { specificationVersion?: unknown }).specificationVersion;
+  if (spec !== 'v1') {
+    return;
+  }
+
+  throw createMastraAgentError('mastra_agent_unsupported_model_runtime', {
+    detail: `AI SDK v1 model runtime is not supported for Brainstrike chat streaming: ${provider}/${model}`,
+    context: { provider, model, specificationVersion: spec },
+  });
 }
 
 interface UsageLike {
@@ -584,6 +583,9 @@ async function initializeMastraRuntime(
       code: 'mastra_agent_runtime_init_failed',
       error: err instanceof Error ? err.message : String(err),
     });
+    if (isMastraAgentError(err)) {
+      throw err;
+    }
     const errorDetail = err instanceof Error ? err.message : undefined;
     throw createMastraAgentError(
       'mastra_agent_runtime_init_failed',
@@ -598,7 +600,6 @@ interface StreamIterationParams {
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;
   sanitizedNameMap?: Map<string, string>;
-  useLegacyStream: boolean;
 }
 
 interface StreamGeneratorParams {
@@ -612,7 +613,6 @@ interface StreamResultLike {
   fullStream?: NodeReadableStream<unknown> | ReadableStream<unknown>;
 }
 
-type AgentStreamInput = Parameters<Agent['stream']>[0];
 // Derived from Agent.stream's 2-arg overload (introduced in @mastra/core 1.25 -- the
 // 1-arg overload now refuses `undefined` as the second arg, so callers must either
 // omit the second arg or pass real options). If a future Mastra bump exposes a
@@ -624,11 +624,17 @@ type AgentStreamOptions = Exclude<
   undefined
 >;
 
-const hasStreamLegacy = (
-  agent: Agent
-): agent is Agent & {
-  streamLegacy: (input: AgentStreamInput, options?: AgentStreamOptions) => Promise<unknown>;
-} => typeof (agent as { streamLegacy?: unknown }).streamLegacy === 'function';
+interface BrainstrikeAgentStreamOptions {
+  abortSignal?: AbortSignal;
+  memory?: AgentMemoryOption;
+  modelSettings?: RuntimeData['modelSettings'];
+  providerOptions?: RuntimeData['providerOptions'];
+  stopWhen?: unknown[];
+}
+
+function buildToolLoopOptions(): Pick<BrainstrikeAgentStreamOptions, 'stopWhen'> {
+  return { stopWhen: [] };
+}
 
 const resolveFullStream = (
   result: unknown
@@ -704,7 +710,6 @@ async function createStreamIteratorFromRuntime({
   messages,
   memory,
   sanitizedNameMap,
-  useLegacyStream,
 }: StreamIterationParams): Promise<StreamIterator> {
   const mastraMessages = convertMessagesToMastra(messages);
 
@@ -712,34 +717,19 @@ async function createStreamIteratorFromRuntime({
     const streamInput = mastraMessages as unknown as Parameters<typeof runtime.agent.stream>[0];
     const memoryOption = resolveMemoryOption(runtimeData, memory);
 
-    // Use streamLegacy for AI SDK V1 models, stream for V2+ models
-    const streamOptions = {
+    const streamOptions: BrainstrikeAgentStreamOptions = {
+      ...buildToolLoopOptions(),
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
       ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
     };
     const resolvedStreamOptions = Object.keys(streamOptions).length > 0 ? streamOptions : undefined;
-    let streamResult: unknown;
 
-    if (useLegacyStream && hasStreamLegacy(runtime.agent)) {
-      logger.info('using streamLegacy for V1 model', { code: 'mastra_agent_stream_legacy_start' });
-      streamResult = resolvedStreamOptions
-        ? await runtime.agent.streamLegacy(streamInput, resolvedStreamOptions as AgentStreamOptions)
-        : await runtime.agent.streamLegacy(streamInput);
-      logger.info('mastra legacy stream started', { code: 'mastra_agent_stream_legacy_started' });
-    } else {
-      if (useLegacyStream) {
-        logger.warn('streamLegacy unavailable; falling back to stream()', {
-          code: 'mastra_agent_stream_legacy_unavailable',
-        });
-      }
-      const result = resolvedStreamOptions
-        ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
-        : await runtime.agent.stream(streamInput);
-      logger.info('mastra stream started', { code: 'mastra_agent_stream_started' });
-      streamResult = result;
-    }
+    const streamResult = resolvedStreamOptions
+      ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
+      : await runtime.agent.stream(streamInput);
+    logger.info('mastra stream started', { code: 'mastra_agent_stream_started' });
 
     const fullStream = resolveFullStream(streamResult);
     if (!fullStream) {
@@ -794,7 +784,6 @@ export async function streamMastraAgent(
     runtime,
     messages,
     ...(options.memory ? { memory: options.memory } : {}),
-    useLegacyStream: runtime.usesLegacyModel,
     ...(runtimeData ? { runtimeData } : {}),
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });

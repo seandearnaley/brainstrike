@@ -38,6 +38,7 @@ vi.mock('@ai-sdk/openai', () => ({
   createOpenAI: (config?: { apiKey?: string; baseURL?: string }) => (modelId: string) => ({
     modelId,
     provider: config?.baseURL?.includes('openrouter') ? 'openrouter' : 'openai',
+    ...(modelId === 'legacy-test-model' ? { specificationVersion: 'v1' } : {}),
   }),
 }));
 
@@ -59,13 +60,13 @@ vi.mock('@mastra/core/agent', () => ({
     streamCalls: Array<{ input: unknown; options: unknown }> = [];
     tools: Record<string, unknown>;
     memory?: unknown;
-    model?: { modelId: string; provider?: string } | undefined;
+    model?: { modelId: string; provider?: string; specificationVersion?: string } | undefined;
 
     constructor(config: {
       instructions?: string;
       memory?: unknown;
       tools?: Record<string, unknown>;
-      model?: { modelId: string; provider?: string } | undefined;
+      model?: { modelId: string; provider?: string; specificationVersion?: string } | undefined;
     }) {
       const tools = (config.tools ?? {}) as Record<string, unknown>;
       this.config = {
@@ -306,6 +307,39 @@ describe('mastra streaming integration', () => {
         options: { lastMessages: 5 },
       },
     });
+  });
+
+  it('disables Mastra default stream step cap for native tool loops', async () => {
+    setMockStreamParts([{ type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } }]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'inspect the workspace' }] }],
+      {
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      }
+    );
+
+    for await (const _chunk of iterator) {
+      // drain stream
+    }
+
+    expect(agentInstances.at(-1)?.streamCalls.at(-1)?.options).toMatchObject({
+      stopWhen: [],
+    });
+    expect(agentInstances.at(-1)?.streamCalls.at(-1)?.options).not.toHaveProperty('maxSteps');
+  });
+
+  it('rejects AI SDK v1 model runtimes instead of falling back to legacy streaming', async () => {
+    await expectMastraAgentError(
+      streamMastraAgent(
+        [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'inspect the workspace' }] }],
+        {
+          model: 'legacy-test-model',
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+        }
+      ),
+      'mastra_agent_unsupported_model_runtime'
+    );
   });
 
   it('throws a typed error when memory context is provided without configured memory', async () => {
