@@ -87,6 +87,7 @@ export const PreviewViewToolbar = memo<PreviewViewToolbarProps>(function Preview
           <TooltipTrigger asChild>
             <Button
               aria-label="Toggle multi-select"
+              aria-pressed={selectionControlsEnabled}
               className={cn(
                 'h-9 w-9 p-0',
                 selectionControlsEnabled && 'bg-accent text-accent-foreground'
@@ -94,7 +95,6 @@ export const PreviewViewToolbar = memo<PreviewViewToolbarProps>(function Preview
               data-testid="toggle-multi-select-button"
               onClick={() => onSelectionControlsToggle(!selectionControlsEnabled)}
               size="sm"
-              title="Toggle multi-select"
               variant="ghost"
             >
               <ListChecks className="h-4 w-4" />
