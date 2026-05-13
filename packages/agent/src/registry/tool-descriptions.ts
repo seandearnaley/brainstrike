@@ -3,8 +3,12 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     'Read a file from the selected workspace root with optional range and truncation',
   'brainstrike.readWorkspaceDirectory':
     'List a workspace directory in a compact, token-efficient format',
-  'brainstrike.selectRootTreeFiles':
-    'Batch select files from the left root tree so they appear in the preview panel',
-  'brainstrike.updatePreviewContextFiles':
-    'Batch add/remove/replace files in the preview context selection used by the agent',
+  'brainstrike.listWorkspaceContext':
+    'Inspect the current workspace root and selected context paths without reading file contents',
+  'brainstrike.readWorkspaceContext':
+    'Read selected or explicit workspace files under strict file and token budgets',
+  'brainstrike.listEmbeddingSpaces':
+    'List available embedding spaces so semantic retrieval can choose an explicit embeddingSetId',
+  'brainstrike.queryEmbeddingSpace':
+    'Query a specific embedding space by explicit embeddingSetId and return packed semantic context',
 };

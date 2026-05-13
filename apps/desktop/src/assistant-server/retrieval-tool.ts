@@ -2,10 +2,15 @@ import type {
   ContextPackerChunk,
   ContextPackerResult,
   PackedContextChunk,
+  QueryEmbeddingSpaceInput,
   RetrievalContextInput,
   RuntimeData,
 } from '@brainstrike/agent';
-import { ContextPacker, RetrievalContextInputSchema } from '@brainstrike/agent';
+import {
+  ContextPacker,
+  QueryEmbeddingSpaceInputSchema,
+  RetrievalContextInputSchema,
+} from '@brainstrike/agent';
 import type { ChunkSearchResult } from '@brainstrike/db';
 import { FileChunkRepository, FileRecordRepository } from '@brainstrike/db';
 import {
@@ -18,7 +23,7 @@ import {
   parseProviderModelKey,
   resolveHostedProviderApiKey,
   VoyageEmbeddingProvider,
-} from '@brainstrike/embeddings/provider-core';
+} from '@brainstrike/embeddings';
 import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { PGlite } from '@electric-sql/pglite';
@@ -28,6 +33,7 @@ import { getSecretsService } from '../secrets';
 const logger = createLogger('AssistantRetrievalTool');
 
 const TOOL_ID = 'brainstrike.retrieveContext' as const;
+const QUERY_EMBEDDING_SPACE_TOOL_ID = 'brainstrike.queryEmbeddingSpace' as const;
 const DEFAULT_LIMIT = 20;
 const DEFAULT_THRESHOLD = 0.3;
 const DEFAULT_TOKEN_BUDGET = 4000;
@@ -41,6 +47,7 @@ const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 
 const ERROR_MESSAGES = {
   missingEmbeddingSet: 'Select an active embedding set to enable retrieval.',
+  missingExplicitEmbeddingSet: 'queryEmbeddingSpace requires an explicit embeddingSetId.',
   invalidEmbeddingSet: 'Active embedding set metadata is unavailable.',
   embeddingSetLookupFailed: 'Unable to load embedding set metadata.',
   unsupportedProvider:
@@ -56,6 +63,7 @@ const ERROR_MESSAGES = {
 
 const SAFE_ERROR_MESSAGES = new Set<string>([
   ERROR_MESSAGES.missingEmbeddingSet,
+  ERROR_MESSAGES.missingExplicitEmbeddingSet,
   ERROR_MESSAGES.invalidEmbeddingSet,
   ERROR_MESSAGES.embeddingSetLookupFailed,
   ERROR_MESSAGES.unsupportedProvider,
@@ -208,7 +216,7 @@ function createHostedProvider(
         provider: 'openai',
         modelId,
         targetDimensions: dimensions,
-        apiKey,
+        ...(apiKey ? { apiKey } : {}),
       });
     case 'ollama':
       return new OpenAIEmbeddingProvider({
@@ -596,6 +604,44 @@ export function createRetrievalTool(runtimeData: RuntimeData | undefined): Mastr
     execute: async (context: ToolContext<RetrievalContextInput>) => {
       try {
         return await runRetrieval(context.context, runtimeData);
+      } catch (error) {
+        handleRetrievalError(error);
+      }
+    },
+  };
+}
+
+export async function runQueryEmbeddingSpace(
+  input: QueryEmbeddingSpaceInput,
+  runtimeData: RuntimeData | undefined
+): Promise<RetrievalToolResult> {
+  if (!normalizeText(input.embeddingSetId)) {
+    throw new Error(ERROR_MESSAGES.missingExplicitEmbeddingSet);
+  }
+  const explicitRuntimeData = runtimeData
+    ? (({
+        embeddingSetId: _embeddingSetId,
+        selectionFilePaths: _selectionFilePaths,
+        selectionSnapshotId: _selectionSnapshotId,
+        tokenBudget: _tokenBudget,
+        ...rest
+      }) => rest)(runtimeData)
+    : undefined;
+  return await runRetrieval(input, explicitRuntimeData);
+}
+
+export function createQueryEmbeddingSpaceTool(
+  runtimeData: RuntimeData | undefined
+): MastraTools[string] {
+  return {
+    id: QUERY_EMBEDDING_SPACE_TOOL_ID,
+    description:
+      'Query a specific embedding space by explicit embeddingSetId. Use listEmbeddingSpaces first when the ID is unknown. Provide tokenBudget, limit, threshold, and optional filePaths to keep retrieval bounded.',
+    inputSchema: QueryEmbeddingSpaceInputSchema,
+    execute: async (context: ToolContext<QueryEmbeddingSpaceInput>) => {
+      const input = QueryEmbeddingSpaceInputSchema.parse(context.context);
+      try {
+        return await runQueryEmbeddingSpace(input, runtimeData);
       } catch (error) {
         handleRetrievalError(error);
       }

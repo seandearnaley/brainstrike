@@ -136,64 +136,138 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     returns: 'Directory summary with compact entries and truncation metadata',
   },
 
-  'brainstrike.selectRootTreeFiles': {
-    toolId: 'brainstrike.selectRootTreeFiles',
+  'brainstrike.listWorkspaceContext': {
+    toolId: 'brainstrike.listWorkspaceContext',
     description:
-      'Batch select files from the left root tree so they populate the preview/context panel candidate set.',
+      'Inspect the selected workspace context without returning file contents. Use this before reading selected files.',
     parameters: [
       {
-        name: 'filePaths',
-        type: 'array',
-        description: 'Workspace-relative file paths to update in root-tree selection',
-        required: true,
-        arrayItemType: 'string',
-      },
-      {
-        name: 'mode',
-        type: 'enum',
-        description: 'How to apply the root-tree batch update',
+        name: 'includeTokenEstimates',
+        type: 'boolean',
+        description: 'Include selected-file token estimates when they are already available',
         required: false,
-        enumValues: ['replace', 'add', 'remove'],
-        default: 'add',
-      },
-      {
-        name: 'folderId',
-        type: 'string',
-        description: 'Optional folder identifier when multiple roots are present',
-        required: false,
+        default: false,
       },
     ],
-    returns: 'Root-tree selection update summary with applied path counts',
+    returns: 'Workspace root, selected paths, selected count, and optional metadata',
   },
 
-  'brainstrike.updatePreviewContextFiles': {
-    toolId: 'brainstrike.updatePreviewContextFiles',
+  'brainstrike.readWorkspaceContext': {
+    toolId: 'brainstrike.readWorkspaceContext',
     description:
-      'Batch add, remove, or replace files in the preview context selection used by the agent.',
+      'Read selected or explicit workspace files under bounded file, per-file, and token limits.',
     parameters: [
       {
         name: 'filePaths',
         type: 'array',
-        description: 'Workspace-relative file paths to update in preview context selection',
-        required: true,
+        description: 'Workspace-relative file paths to read. Defaults to selected context files.',
+        required: false,
         arrayItemType: 'string',
       },
       {
-        name: 'mode',
-        type: 'enum',
-        description: 'How to apply the preview-context batch update',
+        name: 'tokenBudget',
+        type: 'number',
+        description: 'Maximum approximate output tokens for all returned file contents',
         required: false,
-        enumValues: ['replace', 'add', 'remove'],
-        default: 'add',
+        default: 4000,
+        min: 1,
+        max: 200_000,
       },
       {
-        name: 'folderId',
-        type: 'string',
-        description: 'Optional folder identifier when multiple roots are present',
+        name: 'maxFiles',
+        type: 'number',
+        description: 'Maximum files to include',
         required: false,
+        default: 20,
+        min: 1,
+        max: 500,
+      },
+      {
+        name: 'maxCharsPerFile',
+        type: 'number',
+        description: 'Maximum characters to return per file before truncation',
+        required: false,
+        default: 12_000,
+        min: 1,
+        max: 50_000,
       },
     ],
-    returns: 'Preview-context selection update summary with applied path counts',
+    returns:
+      'Included file contents plus explicit skipped-file, truncation, and approximate token metadata',
+  },
+
+  'brainstrike.listEmbeddingSpaces': {
+    toolId: 'brainstrike.listEmbeddingSpaces',
+    description:
+      'List available embedding spaces. Use this before semantic retrieval because queryEmbeddingSpace requires an explicit embeddingSetId.',
+    parameters: [
+      {
+        name: 'includeStats',
+        type: 'boolean',
+        description: 'Include optional chunk coverage statistics',
+        required: false,
+        default: false,
+      },
+    ],
+    returns: 'Embedding spaces with model, dimensions, distance, and optional coverage stats',
+  },
+
+  'brainstrike.queryEmbeddingSpace': {
+    toolId: 'brainstrike.queryEmbeddingSpace',
+    description:
+      'Query a specific embedding space by explicit embeddingSetId and return packed semantic context.',
+    parameters: [
+      {
+        name: 'embeddingSetId',
+        type: 'string',
+        description: 'Embedding space ID returned by listEmbeddingSpaces',
+        required: true,
+        minLength: 1,
+      },
+      {
+        name: 'query',
+        type: 'string',
+        description: 'Semantic retrieval query text',
+        required: true,
+        minLength: 1,
+        maxLength: 2000,
+      },
+      {
+        name: 'tokenBudget',
+        type: 'number',
+        description: 'Maximum approximate tokens to pack into the retrieval result',
+        required: false,
+        default: 4000,
+        min: 1,
+        max: 200_000,
+      },
+      {
+        name: 'limit',
+        type: 'number',
+        description: 'Maximum candidate chunks to retrieve',
+        required: false,
+        default: 20,
+        min: 1,
+        max: 100,
+      },
+      {
+        name: 'threshold',
+        type: 'number',
+        description: 'Minimum similarity threshold',
+        required: false,
+        default: 0.3,
+        min: 0,
+        max: 1,
+      },
+      {
+        name: 'filePaths',
+        type: 'array',
+        description: 'Optional workspace-relative file paths to constrain retrieval',
+        required: false,
+        arrayItemType: 'string',
+      },
+    ],
+    returns: 'Packed semantic context with chunk metadata, budget, and skipped counts',
   },
 };
 

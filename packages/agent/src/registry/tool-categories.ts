@@ -137,17 +137,29 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     requiresApproval: false,
     estimatedTokens: 120,
   },
-  'brainstrike.selectRootTreeFiles': {
-    category: 'action',
-    loadingTier: 'conditional',
-    requiresApproval: true,
+  'brainstrike.listWorkspaceContext': {
+    category: 'analysis',
+    loadingTier: 'critical',
+    requiresApproval: false,
+    estimatedTokens: 120,
+  },
+  'brainstrike.readWorkspaceContext': {
+    category: 'retrieval',
+    loadingTier: 'critical',
+    requiresApproval: false,
+    estimatedTokens: 180,
+  },
+  'brainstrike.listEmbeddingSpaces': {
+    category: 'analysis',
+    loadingTier: 'critical',
+    requiresApproval: false,
     estimatedTokens: 110,
   },
-  'brainstrike.updatePreviewContextFiles': {
-    category: 'action',
-    loadingTier: 'conditional',
-    requiresApproval: true,
-    estimatedTokens: 110,
+  'brainstrike.queryEmbeddingSpace': {
+    category: 'retrieval',
+    loadingTier: 'critical',
+    requiresApproval: false,
+    estimatedTokens: 190,
   },
 };
 

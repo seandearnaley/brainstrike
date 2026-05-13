@@ -1,8 +1,6 @@
-import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import type {
   AgentMessage,
-  AgentMessagePartText,
   AssistantRunEvent,
   AssistantUiMessageStrict,
   McpConfig,
@@ -19,7 +17,6 @@ import {
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
-import { buildWorkspaceLookupCandidates, normalizeWorkspaceLookupPath } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 
 type AssistantUiMessage = AssistantUiMessageStrict;
@@ -61,11 +58,6 @@ const DESKTOP_MEMORY_CACHE_LIMIT = 16;
 
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
-const MAX_CONTEXT_FILES = 80;
-const MAX_FILE_CONTEXT_CHARS = 3500;
-const MAX_TREE_CONTEXT_LINES = 400;
-const MAX_TREE_CONTEXT_ROWS = 5000;
-const MAX_CONTEXT_REPORT_CHARS = 60_000;
 
 export interface AssistantServerOptions {
   host?: string;
@@ -805,209 +797,6 @@ async function resumeStreamIfAvailable(
   return true;
 }
 
-interface FileContextRow {
-  content: string | null;
-  path: string;
-}
-
-interface PathContextRow {
-  path: string;
-}
-
-function isQueryableDatabase(
-  value: unknown
-): value is { query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }> } {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as { query?: unknown }).query === 'function'
-  );
-}
-
-function buildContextPathCandidates(paths: readonly string[]): string[] {
-  return buildWorkspaceLookupCandidates(paths);
-}
-
-function buildPathTree(paths: readonly string[], maxLines: number): string {
-  const sorted = Array.from(
-    new Set(paths.map(normalizeWorkspaceLookupPath).filter(Boolean))
-  ).sort();
-  if (sorted.length === 0) {
-    return '';
-  }
-
-  const lines: string[] = [];
-  const stack: string[] = [];
-
-  for (const path of sorted) {
-    const segments = path.split('/').filter((segment) => segment.length > 0);
-    let shared = 0;
-    while (
-      shared < segments.length &&
-      shared < stack.length &&
-      stack[shared] === segments[shared]
-    ) {
-      shared += 1;
-    }
-
-    for (let index = shared; index < segments.length; index += 1) {
-      stack[index] = segments[index] ?? '';
-      stack.length = index + 1;
-      const indent = '  '.repeat(index);
-      const isFile = index === segments.length - 1;
-      lines.push(`${indent}${isFile ? '- ' : ''}${segments[index]}`);
-      if (lines.length >= maxLines) {
-        lines.push('  ...');
-        return lines.join('\n');
-      }
-    }
-  }
-
-  return lines.join('\n');
-}
-
-function clampFileContent(content: string): string {
-  if (content.length <= MAX_FILE_CONTEXT_CHARS) {
-    return content;
-  }
-  return `${content.slice(0, MAX_FILE_CONTEXT_CHARS)}\n[truncated]`;
-}
-
-function escapeXmlAttribute(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&apos;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
-}
-
-async function buildContextReport(
-  runtimeData: RuntimeData | undefined
-): Promise<string | undefined> {
-  if (!runtimeData) {
-    return;
-  }
-
-  const includeFileReport = runtimeData.includeFileReport ?? true;
-  const includeProjectTree = runtimeData.includeProjectTree ?? false;
-  if (!(includeFileReport || includeProjectTree)) {
-    return;
-  }
-
-  const selectionSource = runtimeData.selectionFilePaths;
-  const selection: string[] = selectionSource
-    ? Array.from(selectionSource, (filePath: string) => String(filePath))
-    : [];
-  const normalizedSelection = Array.from(
-    new Set(
-      selection
-        .map((filePath: string) => normalizeWorkspaceLookupPath(filePath))
-        .filter((filePath): filePath is string => filePath.length > 0)
-    )
-  );
-  if (normalizedSelection.length === 0) {
-    return;
-  }
-
-  const isOverBudget =
-    typeof runtimeData.contextTokenCount === 'number' &&
-    typeof runtimeData.tokenBudget === 'number' &&
-    runtimeData.contextTokenCount > runtimeData.tokenBudget;
-  const maxFiles = isOverBudget ? Math.min(20, MAX_CONTEXT_FILES) : MAX_CONTEXT_FILES;
-  const selectedForContext = normalizedSelection.slice(0, maxFiles);
-
-  const db = await getDatabase();
-  if (!isQueryableDatabase(db)) {
-    return;
-  }
-
-  const sections: string[] = ['<report>'];
-
-  if (includeFileReport) {
-    const candidates = buildContextPathCandidates(selectedForContext);
-    const fileRowsResult = await db.query(
-      `SELECT path, content
-       FROM file_records
-       WHERE path = ANY($1::text[])`,
-      [candidates]
-    );
-    const fileRows = fileRowsResult.rows as FileContextRow[];
-    const byNormalizedPath = new Map<string, FileContextRow>();
-    for (const row of fileRows) {
-      byNormalizedPath.set(normalizeWorkspaceLookupPath(row.path), row);
-    }
-
-    const filesBlock = selectedForContext
-      .map((path) => {
-        const row = byNormalizedPath.get(path);
-        const content = clampFileContent(row?.content ?? `Unable to read file content for ${path}`);
-        return `<file path="${escapeXmlAttribute(path)}">\n${content}\n</file>`;
-      })
-      .join('\n');
-
-    sections.push('<relevant_files>');
-    sections.push(filesBlock);
-    sections.push('</relevant_files>');
-  }
-
-  if (includeProjectTree) {
-    const pathRowsResult = await db.query('SELECT path FROM file_records ORDER BY path LIMIT $1', [
-      MAX_TREE_CONTEXT_ROWS,
-    ]);
-    const pathRows = pathRowsResult.rows as PathContextRow[];
-    const treeText = buildPathTree(
-      pathRows.map((row) => row.path),
-      MAX_TREE_CONTEXT_LINES
-    );
-    if (treeText.length > 0) {
-      sections.push('<project_tree>');
-      sections.push(treeText);
-      sections.push('</project_tree>');
-    }
-  }
-
-  if (selectedForContext.length < normalizedSelection.length) {
-    sections.push(
-      `<context_note>Included ${selectedForContext.length} of ${normalizedSelection.length} selected files due to token budget.</context_note>`
-    );
-  }
-
-  sections.push('</report>');
-  const report = sections.join('\n');
-
-  if (report.length <= MAX_CONTEXT_REPORT_CHARS) {
-    return report;
-  }
-  return `${report.slice(0, MAX_CONTEXT_REPORT_CHARS)}\n[context report truncated]`;
-}
-
-async function prependContextMessageIfNeeded(
-  messages: AgentMessage[],
-  runtimeData: RuntimeData | undefined
-): Promise<AgentMessage[]> {
-  const report = await buildContextReport(runtimeData);
-  if (!report) {
-    return messages;
-  }
-
-  const contextPart: AgentMessagePartText = {
-    type: 'text',
-    text:
-      'Attached workspace context generated from current selection. Use it as reference, then call tools for additional details as needed.\n\n' +
-      report,
-  };
-
-  return [
-    {
-      id: `context-${randomUUID()}`,
-      role: 'system',
-      parts: [contextPart],
-    },
-    ...messages,
-  ];
-}
-
 async function initializeAgentStream(
   messages: AgentMessage[],
   runtimeData: RuntimeData | undefined,
@@ -1032,7 +821,6 @@ async function initializeAgentStream(
 
   try {
     const queuedRunEvents: AssistantRunEvent[] = [];
-    const messagesWithContext = await prependContextMessageIfNeeded(messages, runtimeData);
     const memoryResult = runtime.memory
       ? await getDesktopMastraMemory(
           runtime.memory.memorySettings,
@@ -1045,7 +833,7 @@ async function initializeAgentStream(
         )
       : undefined;
     const stream = await toAiSdkStyleStream(
-      messagesWithContext,
+      messages,
       runtime,
       memoryResult ? { memory: memoryResult.memory } : {}
     );

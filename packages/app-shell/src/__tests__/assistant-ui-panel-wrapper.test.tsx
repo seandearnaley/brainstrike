@@ -1719,7 +1719,7 @@ describe('AssistantUiPanelWrapper', () => {
     expect(fileExplorerMocks.setSelectedFiles).not.toHaveBeenCalled();
   });
 
-  test('computes context token count using DB totals, cache totals, and tree estimate', async () => {
+  test('keeps selected files as tool hints without sending hidden context controls', async () => {
     fileExplorerMocks.effectiveSelection = new Set<string>([
       encodeFileSelection('test-folder', '/alpha.ts'),
       encodeFileSelection('test-folder', '/beta.ts'),
@@ -1754,8 +1754,17 @@ describe('AssistantUiPanelWrapper', () => {
 
     await renderAssistantPanel(['openai'], () =>
       waitFor(() => {
+        const requestData = readPanelRequestData();
         const contextMenu = readPanelContextMenu();
-        expect(contextMenu['contextTokenCount']).toBe(360);
+        expect(requestData['selectionFilePaths']).toEqual(['/alpha.ts', '/beta.ts']);
+        expect(requestData['selectionFolderId']).toBe('test-folder');
+        expect(requestData['workspaceRootPath']).toBe('/tmp/test-workspace');
+        expect(requestData['embeddingSetId']).toBeUndefined();
+        expect(requestData['tokenBudget']).toBeUndefined();
+        expect(requestData['contextTokenCount']).toBeUndefined();
+        expect(requestData['includeFileReport']).toBeUndefined();
+        expect(requestData['includeProjectTree']).toBeUndefined();
+        expect(contextMenu).toEqual({});
       })
     );
   });

@@ -1,38 +1,44 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import {
+  type ListEmbeddingSetsInput,
+  ListEmbeddingSetsInputSchema,
+  type ListWorkspaceContextInput,
+  ListWorkspaceContextInputSchema,
+  type QueryEmbeddingSpaceInput,
+  QueryEmbeddingSpaceInputSchema,
+  type ReadWorkspaceContextInput,
+  ReadWorkspaceContextInputSchema,
   type ReadWorkspaceDirectoryInput,
   ReadWorkspaceDirectoryInputSchema,
   type ReadWorkspaceFileInput,
   ReadWorkspaceFileInputSchema,
   type RuntimeData,
-  type SelectRootTreeFilesInput,
-  SelectRootTreeFilesInputSchema,
-  type UpdatePreviewContextFilesInput,
-  UpdatePreviewContextFilesInputSchema,
 } from '@brainstrike/agent';
 import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { createLogger } from '@brainstrike/utils/logger';
-import { BrowserWindow } from 'electron';
+import { getDatabase } from '../db-main';
+import { runQueryEmbeddingSpace } from './retrieval-tool';
 
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 
-type WorkspaceSelectionMode = 'replace' | 'add' | 'remove';
-
 const logger = createLogger('DesktopAssistantTools');
-const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update';
-const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT = 'assistant:preview-context-selection-update';
 
 const READ_WORKSPACE_FILE_TOOL_ID = 'brainstrike.readWorkspaceFile' as const;
 const READ_WORKSPACE_DIRECTORY_TOOL_ID = 'brainstrike.readWorkspaceDirectory' as const;
-const SELECT_ROOT_TREE_FILES_TOOL_ID = 'brainstrike.selectRootTreeFiles' as const;
-const UPDATE_PREVIEW_CONTEXT_FILES_TOOL_ID = 'brainstrike.updatePreviewContextFiles' as const;
+const LIST_WORKSPACE_CONTEXT_TOOL_ID = 'brainstrike.listWorkspaceContext' as const;
+const READ_WORKSPACE_CONTEXT_TOOL_ID = 'brainstrike.readWorkspaceContext' as const;
+const LIST_EMBEDDING_SPACES_TOOL_ID = 'brainstrike.listEmbeddingSpaces' as const;
+const QUERY_EMBEDDING_SPACE_TOOL_ID = 'brainstrike.queryEmbeddingSpace' as const;
 
 const DEFAULT_FILE_MAX_CHARS = 12_000;
 const MAX_READ_WORKSPACE_FILE_BYTES = 2_000_000;
 const DEFAULT_DIRECTORY_MAX_ENTRIES = 150;
 const DEFAULT_DIRECTORY_DEPTH = 1;
+const DEFAULT_CONTEXT_TOKEN_BUDGET = 4000;
+const DEFAULT_CONTEXT_MAX_FILES = 20;
+const DEFAULT_CONTEXT_MAX_CHARS_PER_FILE = 12_000;
 
 type ToolExecuteInput<T> = { context: T } | T;
 
@@ -422,99 +428,284 @@ async function runReadWorkspaceDirectory(
   };
 }
 
-function broadcastSelectionUpdate(
-  eventName: string,
-  payload: {
-    folderId: string;
-    filePaths: string[];
-    mode: WorkspaceSelectionMode;
-  }
-): number {
-  const windows = BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed());
-  for (const win of windows) {
-    win.webContents.send(eventName, payload);
-  }
-  return windows.length;
+function normalizeRuntimeSelectionFilePaths(runtimeData: RuntimeData | undefined): string[] {
+  return normalizeWorkspacePaths(Array.from(runtimeData?.selectionFilePaths ?? []));
 }
 
-function resolveBatchFolderId(
-  input: SelectRootTreeFilesInput | UpdatePreviewContextFilesInput,
-  runtimeData?: RuntimeData
-): string {
-  const folderId =
-    typeof input.folderId === 'string' ? input.folderId : runtimeData?.selectionFolderId;
-  if (!(typeof folderId === 'string' && folderId.trim().length > 0)) {
-    throw new Error('No folder context available. Provide folderId when selecting files.');
-  }
-  return folderId;
-}
-
-function runSelectRootTreeFiles(
-  input: SelectRootTreeFilesInput,
+function runListWorkspaceContext(
+  input: ListWorkspaceContextInput,
   runtimeData: RuntimeData | undefined
 ): {
-  folderId: string;
-  selectionSet: 'rootTree';
-  mode: WorkspaceSelectionMode;
-  requestedCount: number;
-  appliedCount: number;
-  windowsNotified: number;
+  workspaceRootPath: string;
+  selectionFolderId?: string;
+  selectedFileCount: number;
+  selectedFiles: string[];
+  tokenEstimates?: Array<{ path: string; approxTokens: number | null }>;
 } {
-  const folderId = resolveBatchFolderId(input, runtimeData);
-  const filePaths = normalizeWorkspacePaths(input.filePaths);
-  if (filePaths.length === 0) {
-    throw new Error('No valid file paths were provided for root tree selection.');
+  const workspaceRootPath = resolveWorkspaceRootPath(runtimeData);
+  const selectedFiles = normalizeRuntimeSelectionFilePaths(runtimeData);
+  const result: {
+    workspaceRootPath: string;
+    selectionFolderId?: string;
+    selectedFileCount: number;
+    selectedFiles: string[];
+    tokenEstimates?: Array<{ path: string; approxTokens: number | null }>;
+  } = {
+    workspaceRootPath,
+    selectedFileCount: selectedFiles.length,
+    selectedFiles,
+  };
+  if (typeof runtimeData?.selectionFolderId === 'string') {
+    result.selectionFolderId = runtimeData.selectionFolderId;
+  }
+  if (input.includeTokenEstimates === true) {
+    result.tokenEstimates = selectedFiles.map((filePath) => ({
+      path: filePath,
+      approxTokens: null,
+    }));
+  }
+  return result;
+}
+
+interface WorkspaceContextFileResult {
+  approxTokens: number;
+  content: string;
+  endLine: number;
+  omittedChars: number;
+  path: string;
+  size: number;
+  startLine: number;
+  totalLines: number;
+  truncated: boolean;
+}
+
+interface WorkspaceContextSkippedFile {
+  message?: string;
+  path: string;
+  reason:
+    | 'binary'
+    | 'maxFiles'
+    | 'missing'
+    | 'notFile'
+    | 'oversized'
+    | 'outsideWorkspace'
+    | 'readError'
+    | 'tokenBudget';
+}
+
+function classifyReadContextError(
+  workspacePath: string,
+  error: unknown
+): WorkspaceContextSkippedFile {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes('outside the selected workspace root')) {
+    return { path: workspacePath, reason: 'outsideWorkspace', message };
+  }
+  if (message.includes('is a binary file')) {
+    return { path: workspacePath, reason: 'binary', message };
+  }
+  if (message.includes('exceeds')) {
+    return { path: workspacePath, reason: 'oversized', message };
+  }
+  if (message.includes('is not a file')) {
+    return { path: workspacePath, reason: 'notFile', message };
+  }
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  if (code === 'ENOENT') {
+    return { path: workspacePath, reason: 'missing', message };
+  }
+  return { path: workspacePath, reason: 'readError', message };
+}
+
+async function runReadWorkspaceContext(
+  input: ReadWorkspaceContextInput,
+  runtimeData: RuntimeData | undefined
+): Promise<{
+  workspaceRootPath: string;
+  requestedCount: number;
+  includedCount: number;
+  skippedCount: number;
+  tokenBudget: number;
+  totalApproxTokens: number;
+  truncated: boolean;
+  files: WorkspaceContextFileResult[];
+  skippedFiles: WorkspaceContextSkippedFile[];
+}> {
+  const workspaceRootPath = resolveWorkspaceRootPath(runtimeData);
+  const requestedPaths = normalizeWorkspacePaths(
+    input.filePaths ? input.filePaths : Array.from(runtimeData?.selectionFilePaths ?? [])
+  );
+  if (requestedPaths.length === 0) {
+    throw new Error(
+      'No workspace context files are selected. Provide filePaths or select files first.'
+    );
   }
 
-  const mode = input.mode ?? 'add';
-  const windowsNotified = broadcastSelectionUpdate(ASSISTANT_ROOT_TREE_SELECTION_EVENT, {
-    folderId,
-    filePaths,
-    mode,
-  });
+  const tokenBudget = input.tokenBudget ?? DEFAULT_CONTEXT_TOKEN_BUDGET;
+  const maxFiles = input.maxFiles ?? DEFAULT_CONTEXT_MAX_FILES;
+  const maxCharsPerFile = input.maxCharsPerFile ?? DEFAULT_CONTEXT_MAX_CHARS_PER_FILE;
+  const files: WorkspaceContextFileResult[] = [];
+  const skippedFiles: WorkspaceContextSkippedFile[] = [];
+  let totalApproxTokens = 0;
+
+  for (const requestedPath of requestedPaths) {
+    if (files.length >= maxFiles) {
+      skippedFiles.push({ path: requestedPath, reason: 'maxFiles' });
+      continue;
+    }
+
+    try {
+      const file = await runReadWorkspaceFile(
+        {
+          path: requestedPath,
+          maxChars: maxCharsPerFile,
+        },
+        { workspaceRootPath }
+      );
+      const approxTokens = file.approxOutputTokens;
+      if (totalApproxTokens + approxTokens > tokenBudget) {
+        skippedFiles.push({
+          path: file.path,
+          reason: 'tokenBudget',
+          message: `Including this file would exceed the ${tokenBudget} token budget.`,
+        });
+        continue;
+      }
+      totalApproxTokens += approxTokens;
+      files.push({
+        path: file.path,
+        size: file.size,
+        startLine: file.startLine,
+        endLine: file.endLine,
+        totalLines: file.totalLines,
+        truncated: file.truncated,
+        omittedChars: file.omittedChars,
+        approxTokens,
+        content: file.content,
+      });
+    } catch (error) {
+      skippedFiles.push(classifyReadContextError(requestedPath, error));
+    }
+  }
 
   return {
-    folderId,
-    selectionSet: 'rootTree',
-    mode,
-    requestedCount: input.filePaths.length,
-    appliedCount: filePaths.length,
-    windowsNotified,
+    workspaceRootPath,
+    requestedCount: requestedPaths.length,
+    includedCount: files.length,
+    skippedCount: skippedFiles.length,
+    tokenBudget,
+    totalApproxTokens,
+    truncated: files.some((file) => file.truncated) || skippedFiles.length > 0,
+    files,
+    skippedFiles,
   };
 }
 
-function runUpdatePreviewContextFiles(
-  input: UpdatePreviewContextFilesInput,
-  runtimeData: RuntimeData | undefined
-): {
-  folderId: string;
-  selectionSet: 'previewContext';
-  mode: WorkspaceSelectionMode;
-  requestedCount: number;
-  appliedCount: number;
-  windowsNotified: number;
-} {
-  const folderId = resolveBatchFolderId(input, runtimeData);
-  const filePaths = normalizeWorkspacePaths(input.filePaths);
-  if (filePaths.length === 0) {
-    throw new Error('No valid file paths were provided for preview context selection.');
-  }
+function toNumber(value: unknown): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
-  const mode = input.mode ?? 'add';
-  const windowsNotified = broadcastSelectionUpdate(ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT, {
-    folderId,
-    filePaths,
-    mode,
+interface EmbeddingSpaceRow {
+  createdAt: string | null;
+  description: string | null;
+  dimensions: number;
+  distance: string | null;
+  embeddedChunks?: number | string | null;
+  id: string;
+  modelId: string;
+  modelKey: string;
+  name: string;
+  totalChunks?: number | string | null;
+}
+
+async function runListEmbeddingSpaces(input: ListEmbeddingSetsInput): Promise<{
+  count: number;
+  spaces: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    modelKey: string;
+    modelId: string;
+    dimensions: number;
+    distance: string | null;
+    createdAt: string | null;
+    coverage?: {
+      embeddedChunks: number;
+      totalChunks: number;
+      coveragePercent: number;
+    };
+  }>;
+}> {
+  const db = await getDatabase();
+  const result = input.includeStats
+    ? await db.query(
+        `SELECT
+          es.id,
+          es.name,
+          es.description,
+          es.model_key AS "modelKey",
+          es.model_id AS "modelId",
+          es.dimensions,
+          es.distance,
+          es.created_at AS "createdAt",
+          COUNT(fc.id) FILTER (WHERE fc.embedding IS NOT NULL)::text AS "embeddedChunks",
+          COUNT(fc.id)::text AS "totalChunks"
+        FROM embedding_sets es
+        LEFT JOIN file_chunks fc ON fc.embedding_set_id = es.id
+        GROUP BY es.id, es.name, es.description, es.model_key, es.model_id, es.dimensions, es.distance, es.created_at
+        ORDER BY es.created_at DESC`
+      )
+    : await db.query(
+        `SELECT
+          id,
+          name,
+          description,
+          model_key AS "modelKey",
+          model_id AS "modelId",
+          dimensions,
+          distance,
+          created_at AS "createdAt"
+        FROM embedding_sets
+        ORDER BY created_at DESC`
+      );
+  const rows = result.rows as EmbeddingSpaceRow[];
+  const spaces = rows.map((row) => {
+    const space = {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      modelKey: row.modelKey,
+      modelId: row.modelId,
+      dimensions: Number(row.dimensions),
+      distance: row.distance,
+      createdAt: row.createdAt,
+    };
+    if (input.includeStats !== true) {
+      return space;
+    }
+    const embeddedChunks = toNumber(row.embeddedChunks);
+    const totalChunks = toNumber(row.totalChunks);
+    return {
+      ...space,
+      coverage: {
+        embeddedChunks,
+        totalChunks,
+        coveragePercent: totalChunks > 0 ? Math.round((embeddedChunks / totalChunks) * 100) : 0,
+      },
+    };
   });
+  return { count: spaces.length, spaces };
+}
 
-  return {
-    folderId,
-    selectionSet: 'previewContext',
-    mode,
-    requestedCount: input.filePaths.length,
-    appliedCount: filePaths.length,
-    windowsNotified,
-  };
+function resolveQueryEmbeddingSpaceInput(
+  input: ToolExecuteInput<QueryEmbeddingSpaceInput>
+): QueryEmbeddingSpaceInput {
+  const raw = resolveToolExecuteInput(input) as Partial<QueryEmbeddingSpaceInput>;
+  if (!(typeof raw.embeddingSetId === 'string' && raw.embeddingSetId.trim().length > 0)) {
+    throw new Error('Select an embedding space before querying semantic context.');
+  }
+  return QueryEmbeddingSpaceInputSchema.parse(raw);
 }
 
 /**
@@ -554,34 +745,62 @@ export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined)
         }
       },
     },
-    [SELECT_ROOT_TREE_FILES_TOOL_ID]: {
-      id: SELECT_ROOT_TREE_FILES_TOOL_ID,
+    [LIST_WORKSPACE_CONTEXT_TOOL_ID]: {
+      id: LIST_WORKSPACE_CONTEXT_TOOL_ID,
       description:
-        'Select files from the left root tree so they populate the preview/context panel candidate set.',
-      inputSchema: SelectRootTreeFilesInputSchema,
-      execute: async (input: ToolExecuteInput<SelectRootTreeFilesInput>) => {
-        const resolvedInput = SelectRootTreeFilesInputSchema.parse(resolveToolExecuteInput(input));
+        'Inspect the current workspace root and selected context paths without returning file contents. Use before reading selected context.',
+      inputSchema: ListWorkspaceContextInputSchema,
+      execute: async (input: ToolExecuteInput<ListWorkspaceContextInput>) => {
+        const resolvedInput = ListWorkspaceContextInputSchema.parse(resolveToolExecuteInput(input));
         try {
-          return runSelectRootTreeFiles(resolvedInput, runtimeData);
+          return runListWorkspaceContext(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('selectRootTreeFiles failed', { error, input: resolvedInput });
+          logger.error('listWorkspaceContext failed', { error, input: resolvedInput });
           throw error;
         }
       },
     },
-    [UPDATE_PREVIEW_CONTEXT_FILES_TOOL_ID]: {
-      id: UPDATE_PREVIEW_CONTEXT_FILES_TOOL_ID,
+    [READ_WORKSPACE_CONTEXT_TOOL_ID]: {
+      id: READ_WORKSPACE_CONTEXT_TOOL_ID,
       description:
-        'Add, remove, or replace files in the preview/context selection used as agent context.',
-      inputSchema: UpdatePreviewContextFilesInputSchema,
-      execute: async (input: ToolExecuteInput<UpdatePreviewContextFilesInput>) => {
-        const resolvedInput = UpdatePreviewContextFilesInputSchema.parse(
-          resolveToolExecuteInput(input)
-        );
+        'Read selected or explicit workspace files under maxFiles, per-file, and token budgets. Skipped and truncated files are reported explicitly.',
+      inputSchema: ReadWorkspaceContextInputSchema,
+      execute: async (input: ToolExecuteInput<ReadWorkspaceContextInput>) => {
+        const resolvedInput = ReadWorkspaceContextInputSchema.parse(resolveToolExecuteInput(input));
         try {
-          return runUpdatePreviewContextFiles(resolvedInput, runtimeData);
+          return await runReadWorkspaceContext(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('updatePreviewContextFiles failed', { error, input: resolvedInput });
+          logger.error('readWorkspaceContext failed', { error, input: resolvedInput });
+          throw error;
+        }
+      },
+    },
+    [LIST_EMBEDDING_SPACES_TOOL_ID]: {
+      id: LIST_EMBEDDING_SPACES_TOOL_ID,
+      description:
+        'List available embedding spaces with model, dimensions, distance, and optional coverage stats. Use before queryEmbeddingSpace when the ID is unknown.',
+      inputSchema: ListEmbeddingSetsInputSchema,
+      execute: async (input: ToolExecuteInput<ListEmbeddingSetsInput>) => {
+        const resolvedInput = ListEmbeddingSetsInputSchema.parse(resolveToolExecuteInput(input));
+        try {
+          return await runListEmbeddingSpaces(resolvedInput);
+        } catch (error) {
+          logger.error('listEmbeddingSpaces failed', { error, input: resolvedInput });
+          throw error;
+        }
+      },
+    },
+    [QUERY_EMBEDDING_SPACE_TOOL_ID]: {
+      id: QUERY_EMBEDDING_SPACE_TOOL_ID,
+      description:
+        'Query a specific embedding space by explicit embeddingSetId. Use listEmbeddingSpaces first when the ID is unknown. Provide tokenBudget, limit, threshold, and optional filePaths to keep retrieval bounded.',
+      inputSchema: QueryEmbeddingSpaceInputSchema,
+      execute: async (input: ToolExecuteInput<QueryEmbeddingSpaceInput>) => {
+        const resolvedInput = resolveQueryEmbeddingSpaceInput(input);
+        try {
+          return await runQueryEmbeddingSpace(resolvedInput, runtimeData);
+        } catch (error) {
+          logger.error('queryEmbeddingSpace failed', { error, input: resolvedInput });
           throw error;
         }
       },

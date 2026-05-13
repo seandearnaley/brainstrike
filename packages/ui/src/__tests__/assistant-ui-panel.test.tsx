@@ -857,18 +857,10 @@ describe('AssistantUiPanel model picker', () => {
     expect(trigger).toBeDisabled();
   });
 
-  it('renders context badges and tool summary in the header', () => {
+  it('omits context summary and context controls while keeping tool controls visible', () => {
     render(
       <AssistantUiPanel
         {...baseProps}
-        contextMenu={{
-          selectionLabel: '3 files',
-          embeddingSetId: 'embedding-set-1234567890',
-          tokenBudget: 100_000,
-          contextTokenCount: 84,
-          includeFileReport: true,
-          includeProjectTree: true,
-        }}
         onModelChange={() => {}}
         toolMenu={{
           items: [
@@ -885,10 +877,11 @@ describe('AssistantUiPanel model picker', () => {
       />
     );
 
-    expect(screen.getByText('Context')).toBeInTheDocument();
-    expect(screen.getByText('3 files')).toBeInTheDocument();
-    expect(screen.getByText('100,000 tokens')).toBeInTheDocument();
-    expect(screen.getByText('84 est.')).toBeInTheDocument();
+    expect(screen.queryByTestId('assistant-context-summary')).not.toBeInTheDocument();
+    expect(screen.queryByText('Context')).not.toBeInTheDocument();
+    expect(screen.queryByText('3 files')).not.toBeInTheDocument();
+    expect(screen.queryByText('100,000 tokens')).not.toBeInTheDocument();
+    expect(screen.queryByText('84 est.')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Open assistant controls' })).toBeInTheDocument();
   });
 

@@ -3,7 +3,7 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { resetAppState } from './utils/app-state';
 
-const APPROVAL_TOOL_ID = 'brainstrike.selectRootTreeFiles';
+const NATIVE_TOOL_ID = 'brainstrike.readWorkspaceContext';
 
 async function openToolsSettings(page: import('@playwright/test').Page): Promise<SettingsPage> {
   const home = new HomePage(page);
@@ -21,40 +21,38 @@ test.describe('AI Tools and System Diagnostics settings (web)', () => {
     await page.reload();
   });
 
-  test('supports search, category/tier filters, approval visibility, and native bulk toggles', async ({
-    page,
-  }) => {
+  test('supports search, category/tier filters, and native bulk toggles', async ({ page }) => {
     await openToolsSettings(page);
 
     await expect(page.getByTestId('unified-tools-settings')).toBeVisible();
 
-    await page.getByTestId('search-input').fill('selectRootTreeFiles');
-    await expect(page.getByTestId(`tool-row-${APPROVAL_TOOL_ID}`)).toBeVisible();
+    await page.getByTestId('search-input').fill('readWorkspaceContext');
+    await expect(page.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toBeVisible();
     await expect(page.getByTestId('tool-row-brainstrike.readWorkspaceFile')).toHaveCount(0);
     await expect(
-      page.getByTestId(`tool-row-${APPROVAL_TOOL_ID}`).getByTestId('requires-approval-icon')
-    ).toBeVisible();
+      page.getByTestId(`tool-row-${NATIVE_TOOL_ID}`).getByTestId('requires-approval-icon')
+    ).toHaveCount(0);
 
     await page.getByTestId('reset-filters').click();
     await page.getByTestId('category-filter').click();
-    await page.getByRole('option', { name: 'Action' }).click();
-    await expect(page.getByTestId(`tool-row-${APPROVAL_TOOL_ID}`)).toBeVisible();
+    await page.getByRole('option', { name: 'Retrieval' }).click();
+    await expect(page.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toBeVisible();
     await expect(page.getByTestId('tool-row-brainstrike.readWorkspaceFile')).toHaveCount(0);
 
     await page.getByTestId('tier-filter').click();
-    await page.getByRole('option', { name: 'Conditional' }).click();
-    await expect(page.getByTestId(`tool-row-${APPROVAL_TOOL_ID}`)).toBeVisible();
+    await page.getByRole('option', { name: 'Critical' }).click();
+    await expect(page.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toBeVisible();
 
     await page.getByTestId('tool-group-menu-native').click();
     await page.getByTestId('disable-all-action').click();
-    await expect(page.getByTestId(`tool-toggle-${APPROVAL_TOOL_ID}`)).toHaveAttribute(
+    await expect(page.getByTestId(`tool-toggle-${NATIVE_TOOL_ID}`)).toHaveAttribute(
       'aria-checked',
       'false'
     );
 
     await page.getByTestId('tool-group-menu-native').click();
     await page.getByTestId('enable-all-action').click();
-    await expect(page.getByTestId(`tool-toggle-${APPROVAL_TOOL_ID}`)).toHaveAttribute(
+    await expect(page.getByTestId(`tool-toggle-${NATIVE_TOOL_ID}`)).toHaveAttribute(
       'aria-checked',
       'true'
     );

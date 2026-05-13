@@ -139,24 +139,6 @@ function sanitizeRuntimeData(input: unknown): Partial<RuntimeData> | undefined {
       runtimeData.selectionFilePaths = selectionFilePaths;
     }
   }
-  if (typeof input['embeddingSetId'] === 'string') {
-    runtimeData.embeddingSetId = input['embeddingSetId'];
-  }
-  if (typeof input['tokenBudget'] === 'number' && Number.isFinite(input['tokenBudget'])) {
-    runtimeData.tokenBudget = input['tokenBudget'];
-  }
-  if (typeof input['includeFileReport'] === 'boolean') {
-    runtimeData.includeFileReport = input['includeFileReport'];
-  }
-  if (typeof input['includeProjectTree'] === 'boolean') {
-    runtimeData.includeProjectTree = input['includeProjectTree'];
-  }
-  if (
-    typeof input['contextTokenCount'] === 'number' &&
-    Number.isFinite(input['contextTokenCount'])
-  ) {
-    runtimeData.contextTokenCount = input['contextTokenCount'];
-  }
 
   return Object.keys(runtimeData).length > 0 ? runtimeData : undefined;
 }

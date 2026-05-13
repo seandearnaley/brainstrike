@@ -17,25 +17,25 @@ describe('tool schemas', () => {
     expect(getToolSchemaDisplay('filesystem.list')).toBeUndefined();
   });
 
-  it('validates root-tree selection input', () => {
-    const ok = validateToolInput('brainstrike.selectRootTreeFiles', {
+  it('validates workspace context read input', () => {
+    const ok = validateToolInput('brainstrike.readWorkspaceContext', {
       filePaths: ['/src/main.ts', '/src/utils.ts'],
-      mode: 'add',
+      maxFiles: 2,
+      tokenBudget: 4000,
     });
     expect(ok.ok).toBe(true);
   });
 
-  it('validates preview-context selection input', () => {
-    const ok = validateToolInput('brainstrike.updatePreviewContextFiles', {
-      filePaths: ['/src/main.ts'],
-      mode: 'remove',
+  it('requires an explicit embedding set for embedding-space queries', () => {
+    const ok = validateToolInput('brainstrike.queryEmbeddingSpace', {
+      query: 'where is context assembled?',
     });
-    expect(ok.ok).toBe(true);
+    expect(ok.ok).toBe(false);
   });
 
-  it('uses add as the preview-context default mode in display metadata', () => {
-    const schema = getToolSchemaDisplay('brainstrike.updatePreviewContextFiles');
-    const modeParam = schema?.parameters.find((param) => param.name === 'mode');
-    expect(modeParam?.default).toBe('add');
+  it('marks embedding set id as required in query display metadata', () => {
+    const schema = getToolSchemaDisplay('brainstrike.queryEmbeddingSpace');
+    const embeddingSetParam = schema?.parameters.find((param) => param.name === 'embeddingSetId');
+    expect(embeddingSetParam?.required).toBe(true);
   });
 });

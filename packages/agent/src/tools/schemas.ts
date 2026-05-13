@@ -155,6 +155,51 @@ export const ReadWorkspaceDirectoryInputSchema = z
 
 export type ReadWorkspaceDirectoryInput = z.infer<typeof ReadWorkspaceDirectoryInputSchema>;
 
+export const ListWorkspaceContextInputSchema = z
+  .object({
+    includeTokenEstimates: z
+      .boolean()
+      .optional()
+      .describe('Include token estimates for selected files when available'),
+  })
+  .strict();
+
+export type ListWorkspaceContextInput = z.infer<typeof ListWorkspaceContextInputSchema>;
+
+export const ReadWorkspaceContextInputSchema = z
+  .object({
+    filePaths: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(5000)
+      .optional()
+      .describe('Workspace-relative file paths to read. Defaults to selected workspace context.'),
+    tokenBudget: z
+      .number()
+      .int()
+      .positive()
+      .max(200_000)
+      .optional()
+      .describe('Maximum approximate output tokens for all returned file contents'),
+    maxFiles: z
+      .number()
+      .int()
+      .positive()
+      .max(500)
+      .optional()
+      .describe('Maximum number of files to include'),
+    maxCharsPerFile: z
+      .number()
+      .int()
+      .positive()
+      .max(50_000)
+      .optional()
+      .describe('Maximum characters to return per file before truncation'),
+  })
+  .strict();
+
+export type ReadWorkspaceContextInput = z.infer<typeof ReadWorkspaceContextInputSchema>;
+
 export const SelectRootTreeFilesInputSchema = z
   .object({
     filePaths: z
@@ -214,14 +259,22 @@ export const RetrievalContextInputSchema = z
 
 export type RetrievalContextInput = z.infer<typeof RetrievalContextInputSchema>;
 
+export const QueryEmbeddingSpaceInputSchema = RetrievalContextInputSchema.extend({
+  embeddingSetId: z.string().min(1),
+}).strict();
+
+export type QueryEmbeddingSpaceInput = z.infer<typeof QueryEmbeddingSpaceInputSchema>;
+
 const schemaMap: Record<string, z.ZodSchema> = {
   // Web tools
   'web.echo': EchoInput,
   // Minimal BrainStrike native tools
   'brainstrike.readWorkspaceFile': ReadWorkspaceFileInputSchema,
   'brainstrike.readWorkspaceDirectory': ReadWorkspaceDirectoryInputSchema,
-  'brainstrike.selectRootTreeFiles': SelectRootTreeFilesInputSchema,
-  'brainstrike.updatePreviewContextFiles': UpdatePreviewContextFilesInputSchema,
+  'brainstrike.listWorkspaceContext': ListWorkspaceContextInputSchema,
+  'brainstrike.readWorkspaceContext': ReadWorkspaceContextInputSchema,
+  'brainstrike.listEmbeddingSpaces': ListEmbeddingSetsInputSchema,
+  'brainstrike.queryEmbeddingSpace': QueryEmbeddingSpaceInputSchema,
 };
 
 function formatZodIssue(issue: z.ZodIssue): string {

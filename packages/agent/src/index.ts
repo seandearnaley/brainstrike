@@ -324,6 +324,14 @@ export {
   SAFE_ERROR_MESSAGES,
 } from './tools/retrieval-tool';
 export {
+  type ListEmbeddingSetsInput,
+  ListEmbeddingSetsInputSchema,
+  type ListWorkspaceContextInput,
+  ListWorkspaceContextInputSchema,
+  type QueryEmbeddingSpaceInput,
+  QueryEmbeddingSpaceInputSchema,
+  type ReadWorkspaceContextInput,
+  ReadWorkspaceContextInputSchema,
   type ReadWorkspaceDirectoryInput,
   ReadWorkspaceDirectoryInputSchema,
   type ReadWorkspaceFileInput,
