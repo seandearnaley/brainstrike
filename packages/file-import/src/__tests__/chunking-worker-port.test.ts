@@ -517,4 +517,21 @@ describe('toFileChunkInserts', () => {
     expect(inserts[0]).toBeDefined();
     expect(Object.hasOwn(inserts[0] as object, 'embeddingSetId')).toBe(false);
   });
+
+  it('should reject chunks missing source range metadata', () => {
+    const chunks = [
+      {
+        chunkIndex: 0,
+        content: 'Chunk',
+        contentHash: 'hash-1',
+        tokenCount: 5,
+        chunkType: 'sentence' as const,
+        chunkSize: 5,
+      },
+    ];
+
+    expect(() =>
+      toFileChunkInserts('file-123', chunks as unknown as Parameters<typeof toFileChunkInserts>[1])
+    ).toThrow('Chunk 0 has invalid required source range metadata.');
+  });
 });

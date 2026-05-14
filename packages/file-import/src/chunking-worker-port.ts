@@ -37,6 +37,23 @@ function isTerminalTokenizerError(errorMessage: string): boolean {
   return TERMINAL_TOKENIZER_ERROR_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
+function assertPortableChunkSourceRange(chunk: PortableChunk): void {
+  if (
+    !(
+      Number.isSafeInteger(chunk.startLine) &&
+      Number.isSafeInteger(chunk.endLine) &&
+      Number.isSafeInteger(chunk.startOffset) &&
+      Number.isSafeInteger(chunk.endOffset) &&
+      chunk.startLine >= 1 &&
+      chunk.endLine >= chunk.startLine &&
+      chunk.startOffset >= 0 &&
+      chunk.endOffset >= chunk.startOffset
+    )
+  ) {
+    throw new Error(`Chunk ${chunk.chunkIndex} has invalid required source range metadata.`);
+  }
+}
+
 /**
  * Callbacks for batch processing events.
  */
@@ -121,6 +138,7 @@ export function toFileChunkInserts(
 ): FileChunkInsert[] {
   const now = new Date().toISOString();
   return chunks.map((chunk) => {
+    assertPortableChunkSourceRange(chunk);
     const insert: FileChunkInsert = {
       id: `${fileRecordId}_chunk_${chunk.chunkIndex}`,
       fileRecordId,

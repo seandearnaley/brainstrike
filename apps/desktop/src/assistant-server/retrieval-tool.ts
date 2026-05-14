@@ -111,6 +111,17 @@ type RetrievalResultChunk = Omit<PackedContextChunk, 'content'>;
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 type QueryEmbeddingHost = Pick<EmbeddingHostManager, 'queryEmbedding'>;
 
+interface SkippedSourceRangeChunk {
+  chunkId: string;
+  chunkIndex: number;
+  fileRecordId: string;
+}
+
+interface ContextChunkConversionResult {
+  chunks: ContextPackerChunk[];
+  skippedSourceRangeChunks: SkippedSourceRangeChunk[];
+}
+
 export interface RetrievalToolDependencies {
   embeddingHostManager?: QueryEmbeddingHost | null | undefined;
 }
@@ -130,6 +141,8 @@ interface RetrievalToolResult {
   remainingTokens: number;
   selectionSnapshotId?: string;
   skipped: number;
+  skippedForMissingSourceRange: number;
+  skippedSourceRangeChunks: SkippedSourceRangeChunk[];
   threshold: number;
   totalTokens: number;
 }
@@ -382,15 +395,22 @@ function toContextChunks(
     rank: number;
   }>,
   fileMap: Map<string, FileRecordRow>
-): ContextPackerChunk[] {
-  return results.map((result) => {
+): ContextChunkConversionResult {
+  const chunks: ContextPackerChunk[] = [];
+  const skippedSourceRangeChunks: SkippedSourceRangeChunk[] = [];
+  for (const result of results) {
     if (
       result.chunk.startLine === undefined ||
       result.chunk.endLine === undefined ||
       result.chunk.startOffset === undefined ||
       result.chunk.endOffset === undefined
     ) {
-      throw new Error(ERROR_MESSAGES.missingSourceRange);
+      skippedSourceRangeChunks.push({
+        chunkId: result.chunk.id,
+        chunkIndex: result.chunk.chunkIndex,
+        fileRecordId: result.chunk.fileRecordId,
+      });
+      continue;
     }
     const fileInfo = fileMap.get(result.chunk.fileRecordId);
     if (!fileInfo) {
@@ -423,8 +443,9 @@ function toContextChunks(
     if (fileInfo?.name !== undefined) {
       chunk.fileName = fileInfo.name;
     }
-    return chunk;
-  });
+    chunks.push(chunk);
+  }
+  return { chunks, skippedSourceRangeChunks };
 }
 
 async function buildFileRecordMap(
@@ -589,11 +610,15 @@ async function packRetrievedContext(
   }>,
   runtimeData: RuntimeData | undefined,
   input: RetrievalContextInput
-): Promise<{ packed: ContextPackerResult; contextText: string }> {
+): Promise<{
+  packed: ContextPackerResult;
+  contextText: string;
+  skippedSourceRangeChunks: SkippedSourceRangeChunk[];
+}> {
   const recordRepository = new FileRecordRepository(db);
   const fileIds = Array.from(new Set(searchResults.map((result) => result.chunk.fileRecordId)));
   const fileMap = await buildFileRecordMap(recordRepository, fileIds);
-  const chunkInputs = toContextChunks(searchResults, fileMap);
+  const { chunks: chunkInputs, skippedSourceRangeChunks } = toContextChunks(searchResults, fileMap);
 
   const packerOptions = {
     budgetTokens: resolveTokenBudget(runtimeData, input.tokenBudget),
@@ -604,7 +629,7 @@ async function packRetrievedContext(
   const packed = packer.pack(chunkInputs);
   const contextText = formatContext(packed.chunks);
 
-  return { packed, contextText };
+  return { packed, contextText, skippedSourceRangeChunks };
 }
 
 async function runRetrieval(
@@ -625,7 +650,12 @@ async function runRetrieval(
 
   const selectionState = await resolveSelectionState(db, runtimeData, input);
   const searchResults = await searchForChunks(db, embedding, embeddingSetId, input, selectionState);
-  const { packed, contextText } = await packRetrievedContext(db, searchResults, runtimeData, input);
+  const { packed, contextText, skippedSourceRangeChunks } = await packRetrievedContext(
+    db,
+    searchResults,
+    runtimeData,
+    input
+  );
 
   return {
     query,
@@ -635,10 +665,12 @@ async function runRetrieval(
     totalTokens: packed.totalTokens,
     budget: packed.budget,
     remainingTokens: packed.remainingTokens,
-    skipped: packed.skipped,
+    skipped: packed.skipped + skippedSourceRangeChunks.length,
     context: contextText,
     chunkContentIncludedInContext: true,
     chunks: stripChunkContent(packed.chunks),
+    skippedForMissingSourceRange: skippedSourceRangeChunks.length,
+    skippedSourceRangeChunks,
     ...(selectionState.selectionSnapshotId
       ? { selectionSnapshotId: selectionState.selectionSnapshotId }
       : {}),

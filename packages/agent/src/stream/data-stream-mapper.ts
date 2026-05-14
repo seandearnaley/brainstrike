@@ -7,6 +7,7 @@ import type {
   StreamChunkRunEvent,
   StreamChunkText,
   StreamChunkTool,
+  StreamFinishReason,
 } from '../types';
 import { DataStreamCode, type EncodedChunk } from './data-stream-codes';
 import { toJsonSafe } from './json';
@@ -18,7 +19,7 @@ interface ToolState {
 }
 
 interface StepState {
-  finishReason: FinishReason;
+  finishReason: StreamFinishReason;
   id: string;
   index: number;
   status: 'success' | 'error';
@@ -29,15 +30,6 @@ interface DataStreamUsage {
   inputTokens: number;
   outputTokens: number;
 }
-
-type FinishReason =
-  | 'stop'
-  | 'length'
-  | 'content-filter'
-  | 'tool-calls'
-  | 'error'
-  | 'other'
-  | 'unknown';
 
 function toDataStreamUsage(raw?: {
   completionTokens?: unknown;
@@ -85,7 +77,9 @@ function extractFinishUsage(chunk: StreamChunkFinish | StreamChunkMessageFinish)
   return toDataStreamUsage(usage ?? {});
 }
 
-function resolveFinishReason(chunk: StreamChunkFinish | StreamChunkMessageFinish): FinishReason {
+function resolveFinishReason(
+  chunk: StreamChunkFinish | StreamChunkMessageFinish
+): StreamFinishReason {
   const reason = (chunk as { finishReason?: unknown }).finishReason;
   if (typeof reason !== 'string') {
     return 'unknown';
@@ -107,7 +101,7 @@ function resolveFinishReason(chunk: StreamChunkFinish | StreamChunkMessageFinish
   }
 }
 
-function getAbnormalFinishMessage(reason: FinishReason): string | undefined {
+function getAbnormalFinishMessage(reason: StreamFinishReason): string | undefined {
   switch (reason) {
     case 'length':
       return 'Assistant stopped because the model reached its output token limit before completing the response.';

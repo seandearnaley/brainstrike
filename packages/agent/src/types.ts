@@ -238,8 +238,18 @@ export interface StreamChunkFinish {
   type: 'finish';
   usage: { promptTokens: number; completionTokens: number };
 }
+
+export type StreamFinishReason =
+  | 'stop'
+  | 'length'
+  | 'content-filter'
+  | 'tool-calls'
+  | 'error'
+  | 'other'
+  | 'unknown';
+
 export interface StreamChunkMessageFinish {
-  finishReason: string;
+  finishReason: StreamFinishReason;
   path: readonly number[];
   type: 'message-finish';
   usage: { promptTokens: number; completionTokens: number };

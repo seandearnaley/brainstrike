@@ -101,6 +101,17 @@ export interface RetrievalSelectionState {
 
 export type RetrievalResultChunk = Omit<PackedContextChunk, 'content'>;
 
+export interface SkippedSourceRangeChunk {
+  chunkId: string;
+  chunkIndex: number;
+  fileRecordId: string;
+}
+
+interface ContextChunkConversionResult {
+  chunks: ContextPackerChunk[];
+  skippedSourceRangeChunks: SkippedSourceRangeChunk[];
+}
+
 /**
  * Result returned by the retrieval tool.
  */
@@ -115,6 +126,8 @@ export interface RetrievalToolResult {
   remainingTokens: number;
   selectionSnapshotId?: string;
   skipped: number;
+  skippedForMissingSourceRange: number;
+  skippedSourceRangeChunks: SkippedSourceRangeChunk[];
   threshold: number;
   totalTokens: number;
 }
@@ -283,15 +296,22 @@ function resolveTokenBudget(runtime: RuntimeData | undefined, override?: number)
 function toContextChunks(
   results: ChunkSearchResultInput[],
   fileMap: Map<string, FileRecordInfo>
-): ContextPackerChunk[] {
-  return results.map((result) => {
+): ContextChunkConversionResult {
+  const chunks: ContextPackerChunk[] = [];
+  const skippedSourceRangeChunks: SkippedSourceRangeChunk[] = [];
+  for (const result of results) {
     if (
       result.chunk.startLine === undefined ||
       result.chunk.endLine === undefined ||
       result.chunk.startOffset === undefined ||
       result.chunk.endOffset === undefined
     ) {
-      throw new Error(RETRIEVAL_ERROR_MESSAGES.missingSourceRange);
+      skippedSourceRangeChunks.push({
+        chunkId: result.chunk.id,
+        chunkIndex: result.chunk.chunkIndex,
+        fileRecordId: result.chunk.fileRecordId,
+      });
+      continue;
     }
     const fileInfo = fileMap.get(result.chunk.fileRecordId);
     const chunk: ContextPackerChunk = {
@@ -318,8 +338,9 @@ function toContextChunks(
     if (fileInfo?.name !== undefined) {
       chunk.fileName = fileInfo.name;
     }
-    return chunk;
-  });
+    chunks.push(chunk);
+  }
+  return { chunks, skippedSourceRangeChunks };
 }
 
 /**
@@ -432,7 +453,7 @@ async function runRetrieval(
   const fileMap = await deps.resolveFileRecords(fileRecordIds);
 
   // Convert to packer input format
-  const chunkInputs = toContextChunks(searchResults, fileMap);
+  const { chunks: chunkInputs, skippedSourceRangeChunks } = toContextChunks(searchResults, fileMap);
 
   // Pack context within token budget
   const tokenBudget = resolveTokenBudget(runtimeData, input.tokenBudget);
@@ -451,6 +472,7 @@ async function runRetrieval(
     totalTokens: packed.totalTokens,
     budget: packed.budget,
     skipped: packed.skipped,
+    skippedForMissingSourceRange: skippedSourceRangeChunks.length,
     chunksIncluded: packed.chunks.length,
   });
 
@@ -462,10 +484,12 @@ async function runRetrieval(
     totalTokens: packed.totalTokens,
     budget: packed.budget,
     remainingTokens: packed.remainingTokens,
-    skipped: packed.skipped,
+    skipped: packed.skipped + skippedSourceRangeChunks.length,
     context: contextText,
     chunkContentIncludedInContext: true,
     chunks: stripChunkContent(packed.chunks),
+    skippedForMissingSourceRange: skippedSourceRangeChunks.length,
+    skippedSourceRangeChunks,
     ...(selection.snapshotId ? { selectionSnapshotId: selection.snapshotId } : {}),
   };
 }

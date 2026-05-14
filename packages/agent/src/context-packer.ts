@@ -93,7 +93,9 @@ function resolveLineRange(chunk: ContextPackerChunk): LineRange | undefined {
     startLine <= 0 ||
     endLine < startLine
   ) {
-    throw new Error(`ContextPacker: invalid line range for chunk ${chunk.id}.`);
+    throw new Error(
+      `ContextPacker: invalid 1-based line range [${String(startLine)}, ${String(endLine)}] for chunk ${chunk.id}.`
+    );
   }
   return { start: startLine, end: endLine };
 }

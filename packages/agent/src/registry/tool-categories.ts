@@ -138,7 +138,7 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     estimatedTokens: 120,
   },
   'brainstrike.listWorkspaceContext': {
-    category: 'analysis',
+    category: 'retrieval',
     loadingTier: 'critical',
     requiresApproval: false,
     estimatedTokens: 120,

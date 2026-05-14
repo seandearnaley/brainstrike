@@ -272,6 +272,10 @@ export type UpdateWorkspaceTapestrySelectionsInput = z.infer<
   typeof UpdateWorkspaceTapestrySelectionsInputSchema
 >;
 
+/**
+ * @deprecated Use UpdateWorkspaceContextSelectionInputSchema. The legacy root-tree
+ * tool is no longer registered in the assistant runtime.
+ */
 export const SelectRootTreeFilesInputSchema = z
   .object({
     filePaths: z
@@ -291,8 +295,13 @@ export const SelectRootTreeFilesInputSchema = z
   })
   .strict();
 
+/** @deprecated Use UpdateWorkspaceContextSelectionInput. */
 export type SelectRootTreeFilesInput = z.infer<typeof SelectRootTreeFilesInputSchema>;
 
+/**
+ * @deprecated Use UpdateWorkspaceContextSelectionInputSchema. The legacy preview
+ * context tool is no longer registered in the assistant runtime.
+ */
 export const UpdatePreviewContextFilesInputSchema = z
   .object({
     filePaths: z
@@ -312,6 +321,7 @@ export const UpdatePreviewContextFilesInputSchema = z
   })
   .strict();
 
+/** @deprecated Use UpdateWorkspaceContextSelectionInput. */
 export type UpdatePreviewContextFilesInput = z.infer<typeof UpdatePreviewContextFilesInputSchema>;
 
 const EchoInput = z.object({ text: z.string().min(1) }).strict();

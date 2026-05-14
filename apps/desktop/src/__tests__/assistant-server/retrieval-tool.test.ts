@@ -426,6 +426,55 @@ describe('retrieval-tool', () => {
     expect(result.totalTokens).toBe(0);
   });
 
+  it('reports and skips chunks missing source ranges', async () => {
+    searchSimilarMock.mockResolvedValueOnce([
+      {
+        chunk: {
+          id: 'chunk-old',
+          content: 'Old chunk without range',
+          tokenCount: 2,
+          chunkIndex: 0,
+          chunkType: 'code',
+          fileRecordId: 'file-1',
+          embeddingSetId: 'set-1',
+        },
+        similarity: 0.91,
+        rank: 1,
+      },
+      {
+        chunk: {
+          id: 'chunk-new',
+          content: 'Line-aware chunk',
+          tokenCount: 3,
+          chunkIndex: 1,
+          startLine: 20,
+          endLine: 21,
+          startOffset: 200,
+          endOffset: 230,
+          chunkType: 'code',
+          fileRecordId: 'file-1',
+          embeddingSetId: 'set-1',
+        },
+        similarity: 0.9,
+        rank: 2,
+      },
+    ]);
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    const result = await tool.execute({
+      context: { query: 'hello', embeddingSetId: 'set-1' },
+    });
+
+    expect(result.context).toContain('Line-aware chunk');
+    expect(result.context).not.toContain('Old chunk without range');
+    expect(result.chunks).toHaveLength(1);
+    expect(result.skipped).toBe(1);
+    expect(result.skippedForMissingSourceRange).toBe(1);
+    expect(result.skippedSourceRangeChunks).toEqual([
+      { chunkId: 'chunk-old', chunkIndex: 0, fileRecordId: 'file-1' },
+    ]);
+  });
+
   it('continues when snapshot cleanup fails', async () => {
     dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
       if (sql.includes('DELETE FROM selection_snapshots')) {

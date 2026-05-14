@@ -322,6 +322,7 @@ export {
   type RetrievalToolDependencies,
   type RetrievalToolResult,
   SAFE_ERROR_MESSAGES,
+  type SkippedSourceRangeChunk,
 } from './tools/retrieval-tool';
 export {
   type ListEmbeddingSetsInput,

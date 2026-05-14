@@ -429,6 +429,57 @@ describe('createRetrievalTool', () => {
     expect(r.totalTokens).toBe(0);
   });
 
+  it('reports and skips retrieved chunks without source ranges', async () => {
+    const sourceRangeChunk = createMockChunkResult();
+    const { startLine: _startLine, ...chunkWithoutStartLine } = sourceRangeChunk.chunk;
+    const missingSourceRange = {
+      ...sourceRangeChunk,
+      chunk: chunkWithoutStartLine,
+    };
+    const withSourceRange = createMockChunkResult({
+      chunk: {
+        id: 'chunk-002',
+        content: 'Line-aware content.',
+        tokenCount: 5,
+        chunkIndex: 1,
+        chunkType: 'code',
+        startLine: 8,
+        endLine: 9,
+        startOffset: 30,
+        endOffset: 51,
+        fileRecordId: 'file-001',
+        embeddingSetId: 'set-001',
+      },
+      rank: 2,
+    });
+    const deps = createMockDependencies({
+      searchSimilarChunks: vi.fn().mockResolvedValue([missingSourceRange, withSourceRange]),
+    });
+    const tool = createRetrievalTool({ embeddingSetId: 'set-001' }, deps);
+
+    const result = await runTool(tool, { query: 'test' });
+
+    const r = result as {
+      chunks: unknown[];
+      context: string;
+      skipped: number;
+      skippedForMissingSourceRange: number;
+      skippedSourceRangeChunks: Array<{
+        chunkId: string;
+        chunkIndex: number;
+        fileRecordId: string;
+      }>;
+    };
+    expect(r.chunks).toHaveLength(1);
+    expect(r.context).toContain('Line-aware content.');
+    expect(r.context).not.toContain('This is test chunk content.');
+    expect(r.skipped).toBe(1);
+    expect(r.skippedForMissingSourceRange).toBe(1);
+    expect(r.skippedSourceRangeChunks).toEqual([
+      { chunkId: 'chunk-001', chunkIndex: 0, fileRecordId: 'file-001' },
+    ]);
+  });
+
   it('wraps non-safe errors with generic message', async () => {
     const deps = createMockDependencies({
       searchSimilarChunks: vi.fn().mockRejectedValue(new Error('Database connection failed')),

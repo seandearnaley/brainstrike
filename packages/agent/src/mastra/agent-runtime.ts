@@ -14,7 +14,13 @@ import type {
 } from '../run-events';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
-import type { AgentMessage, RuntimeData, StreamChunk, StreamIterator } from '../types';
+import type {
+  AgentMessage,
+  RuntimeData,
+  StreamChunk,
+  StreamFinishReason,
+  StreamIterator,
+} from '../types';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import { collectCombinedTools } from './mcp-tool-loader';
 import {
@@ -379,15 +385,32 @@ function makeFinishChunk(part: unknown): StreamChunk {
   };
 }
 
-function readFinishReason(part: unknown): string {
+function normalizeFinishReason(reason: string): StreamFinishReason {
+  switch (reason) {
+    case 'stop':
+    case 'length':
+    case 'content-filter':
+    case 'tool-calls':
+    case 'error':
+    case 'other':
+    case 'unknown':
+      return reason;
+    case 'tool_calls':
+      return 'tool-calls';
+    default:
+      return 'unknown';
+  }
+}
+
+function readFinishReason(part: unknown): StreamFinishReason {
   const p = asMastraStreamPart(part);
   const direct = p.finishReason;
   if (typeof direct === 'string' && direct.length > 0) {
-    return direct;
+    return normalizeFinishReason(direct);
   }
   const nested = p.payload?.stepResult?.reason;
   if (typeof nested === 'string' && nested.length > 0) {
-    return nested;
+    return normalizeFinishReason(nested);
   }
   return 'stop';
 }
