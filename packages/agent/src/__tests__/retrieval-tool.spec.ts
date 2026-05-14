@@ -130,6 +130,8 @@ describe('createRetrievalTool', () => {
     expect(r.embeddingSetId).toBe('set-001');
     expect(r.chunks).toHaveLength(1);
     expect(r.context).toContain('Source 1:');
+    expect(r.context).toContain('This is test chunk content.');
+    expect(r.chunks[0]).not.toHaveProperty('content');
   });
 
   it('uses runtime embeddingSetId when not in input', async () => {

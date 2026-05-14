@@ -106,6 +106,8 @@ interface RetrievalSelectionState {
   selectionSnapshotId?: string;
 }
 
+type RetrievalResultChunk = Omit<PackedContextChunk, 'content'>;
+
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 
 let assistantEmbeddingHostManager: EmbeddingHostManager | null = null;
@@ -120,7 +122,8 @@ interface ToolContext<TInput> {
 
 interface RetrievalToolResult {
   budget: number;
-  chunks: PackedContextChunk[];
+  chunkContentIncludedInContext: true;
+  chunks: RetrievalResultChunk[];
   context: string;
   embeddingSetId: string;
   limit: number;
@@ -313,6 +316,21 @@ function formatContext(chunks: readonly PackedContextChunk[]): string {
       return `Source ${index + 1}: ${location}${lineSuffix}${chunkLabel}\n${chunk.content}`;
     })
     .join('\n\n---\n\n');
+}
+
+function stripChunkContent(chunks: readonly PackedContextChunk[]): RetrievalResultChunk[] {
+  return chunks.map((chunk) => ({
+    id: chunk.id,
+    rank: chunk.rank,
+    tokenCount: chunk.tokenCount,
+    ...(chunk.chunkIndex === undefined ? {} : { chunkIndex: chunk.chunkIndex }),
+    ...(chunk.fileName === undefined ? {} : { fileName: chunk.fileName }),
+    ...(chunk.filePath === undefined ? {} : { filePath: chunk.filePath }),
+    ...(chunk.lineRange === undefined ? {} : { lineRange: chunk.lineRange }),
+    ...(chunk.metadata === undefined ? {} : { metadata: chunk.metadata }),
+    ...(chunk.offsets === undefined ? {} : { offsets: chunk.offsets }),
+    ...(chunk.score === undefined ? {} : { score: chunk.score }),
+  }));
 }
 
 function resolveRuntimeEmbeddingSetId(
@@ -617,7 +635,8 @@ async function runRetrieval(
     remainingTokens: packed.remainingTokens,
     skipped: packed.skipped,
     context: contextText,
-    chunks: [...packed.chunks],
+    chunkContentIncludedInContext: true,
+    chunks: stripChunkContent(packed.chunks),
     ...(selectionState.selectionSnapshotId
       ? { selectionSnapshotId: selectionState.selectionSnapshotId }
       : {}),

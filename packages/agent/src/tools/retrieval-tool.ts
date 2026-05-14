@@ -99,12 +99,15 @@ export interface RetrievalSelectionState {
   selectionSnapshotId?: string;
 }
 
+export type RetrievalResultChunk = Omit<PackedContextChunk, 'content'>;
+
 /**
  * Result returned by the retrieval tool.
  */
 export interface RetrievalToolResult {
   budget: number;
-  chunks: PackedContextChunk[];
+  chunkContentIncludedInContext: true;
+  chunks: RetrievalResultChunk[];
   context: string;
   embeddingSetId: string;
   limit: number;
@@ -336,6 +339,21 @@ function formatContext(chunks: readonly PackedContextChunk[]): string {
     .join('\n\n---\n\n');
 }
 
+function stripChunkContent(chunks: readonly PackedContextChunk[]): RetrievalResultChunk[] {
+  return chunks.map((chunk) => ({
+    id: chunk.id,
+    rank: chunk.rank,
+    tokenCount: chunk.tokenCount,
+    ...(chunk.chunkIndex === undefined ? {} : { chunkIndex: chunk.chunkIndex }),
+    ...(chunk.fileName === undefined ? {} : { fileName: chunk.fileName }),
+    ...(chunk.filePath === undefined ? {} : { filePath: chunk.filePath }),
+    ...(chunk.lineRange === undefined ? {} : { lineRange: chunk.lineRange }),
+    ...(chunk.metadata === undefined ? {} : { metadata: chunk.metadata }),
+    ...(chunk.offsets === undefined ? {} : { offsets: chunk.offsets }),
+    ...(chunk.score === undefined ? {} : { score: chunk.score }),
+  }));
+}
+
 /**
  * Handles errors from the retrieval process, ensuring only safe messages are exposed.
  */
@@ -446,7 +464,8 @@ async function runRetrieval(
     remainingTokens: packed.remainingTokens,
     skipped: packed.skipped,
     context: contextText,
-    chunks: [...packed.chunks],
+    chunkContentIncludedInContext: true,
+    chunks: stripChunkContent(packed.chunks),
     ...(selection.snapshotId ? { selectionSnapshotId: selection.snapshotId } : {}),
   };
 }

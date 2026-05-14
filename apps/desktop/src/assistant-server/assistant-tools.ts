@@ -1319,7 +1319,7 @@ export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined)
     [QUERY_EMBEDDING_SPACE_TOOL_ID]: {
       id: QUERY_EMBEDDING_SPACE_TOOL_ID,
       description:
-        'Query a specific embedding space by explicit embeddingSetId and return bounded semantic chunks with persisted source line ranges. For workspace/codebase searches, use listEmbeddingSpaces first and prefer its recommended workspace index. Provide tokenBudget, limit, threshold, and optional filePaths; read files afterward only when surrounding context is needed.',
+        'Query a specific embedding space by explicit embeddingSetId and return bounded source text plus metadata-only chunks with persisted line ranges. For workspace/codebase searches, use listEmbeddingSpaces first and prefer its recommended workspace index. Provide tokenBudget, limit, threshold, and optional filePaths; read files afterward only when surrounding context is needed.',
       inputSchema: QueryEmbeddingSpaceInputSchema,
       execute: async (input: ToolExecuteInput<QueryEmbeddingSpaceInput>) => {
         const resolvedInput = resolveQueryEmbeddingSpaceInput(input);

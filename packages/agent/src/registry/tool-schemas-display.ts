@@ -302,7 +302,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
   'brainstrike.queryEmbeddingSpace': {
     toolId: 'brainstrike.queryEmbeddingSpace',
     description:
-      'Query a specific embedding space by explicit embeddingSetId and return packed semantic chunks with persisted source line ranges. For codebase searches, prefer the workspace index returned by listEmbeddingSpaces.',
+      'Query a specific embedding space by explicit embeddingSetId and return packed source text plus metadata-only semantic chunks with persisted line ranges. For codebase searches, prefer the workspace index returned by listEmbeddingSpaces.',
     parameters: [
       {
         name: 'embeddingSetId',

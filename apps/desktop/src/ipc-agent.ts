@@ -40,7 +40,7 @@ type StreamChunk =
     }
   | {
       type: 'message-finish';
-      finishReason: 'stop';
+      finishReason: string;
       usage: { promptTokens: number; completionTokens: number };
       path: readonly number[];
     };

@@ -244,6 +244,8 @@ describe('retrieval-tool', () => {
     expect(result.totalTokens).toBe(1);
     expect(result.context).toContain('Source 1: /repo/file.ts:10-12 (chunk 0)');
     expect(result.context).toContain('Hello world');
+    expect(result.chunkContentIncludedInContext).toBe(true);
+    expect(result.chunks[0]).not.toHaveProperty('content');
     expect(result.chunks[0]?.lineRange).toEqual({ start: 10, end: 12 });
     expect(result.chunks[0]?.offsets).toEqual({ start: 120, end: 155 });
     expect(result.selectionSnapshotId).toBeUndefined();
