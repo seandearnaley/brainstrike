@@ -389,6 +389,54 @@ describe('mastra streaming integration', () => {
     });
   });
 
+  it('throws a typed error when Mastra closes after tool activity without a terminal finish', async () => {
+    setMockStreamParts([
+      {
+        type: 'tool-call',
+        toolName: 'brainstrike.queryEmbeddingSpace',
+        toolCallId: 'call-context',
+        args: { query: 'database config' },
+      },
+      {
+        type: 'tool-result',
+        toolName: 'brainstrike.queryEmbeddingSpace',
+        toolCallId: 'call-context',
+        result: { context: 'database config result' },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'find database config' }] }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    let thrown: unknown;
+    try {
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(chunks).toEqual([
+      expect.objectContaining({
+        type: 'tool-event',
+        status: 'start',
+        name: 'brainstrike.queryEmbeddingSpace',
+      }),
+      expect.objectContaining({
+        type: 'tool-event',
+        status: 'success',
+        name: 'brainstrike.queryEmbeddingSpace',
+      }),
+    ]);
+    expect(thrown).toBeInstanceOf(MastraAgentError);
+    expect((thrown as MastraAgentError).code).toBe('mastra_agent_stream_failure');
+    expect((thrown as Error).message).toContain('Mastra stream ended without a finish event');
+  });
+
   it('rejects AI SDK v1 model runtimes instead of falling back to legacy streaming', async () => {
     await expectMastraAgentError(
       streamMastraAgent(

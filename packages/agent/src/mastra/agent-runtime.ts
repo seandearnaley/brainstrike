@@ -740,6 +740,7 @@ async function* streamChunksFromMastra({
   sanitizedNameMap,
 }: StreamGeneratorParams): AsyncIterableIterator<StreamChunk> {
   const toolNames = new Map<string, string>();
+  let sawTerminalFinish = false;
 
   try {
     for await (const part of readableStreamIterator(stream, runtimeData?.signal)) {
@@ -749,8 +750,14 @@ async function* streamChunksFromMastra({
       }
 
       if (finished) {
+        sawTerminalFinish = true;
         return;
       }
+    }
+    if (!(sawTerminalFinish || runtimeData?.signal?.aborted)) {
+      throw createMastraAgentError('mastra_agent_stream_failure', {
+        detail: 'Mastra stream ended without a finish event',
+      });
     }
   } finally {
     if (runtimeData?.signal?.aborted) {
