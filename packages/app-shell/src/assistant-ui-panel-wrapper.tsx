@@ -292,6 +292,17 @@ function getAssistantTapestryColor(key: string): string {
   return palette[hash % palette.length] ?? '#2563eb';
 }
 
+function toolLineRangeToTapestryRange(range: { endLine: number; startLine: number }): {
+  endLine: number;
+  startLine: number;
+} {
+  const startLine = Math.max(0, range.startLine - 1);
+  return {
+    startLine,
+    endLine: Math.max(startLine + 1, range.endLine),
+  };
+}
+
 function buildAssistantTapestryRange(args: {
   compositeKey: string;
   endLine: number;
@@ -299,14 +310,15 @@ function buildAssistantTapestryRange(args: {
   isActive: boolean | undefined;
   startLine: number;
 }): TapestryRange {
-  const internalStartLine = Math.max(0, args.startLine - 1);
-  // Tapestry stores 0-indexed inclusive starts and exclusive ends; tool ranges are 1-indexed inclusive.
-  const internalEndLine = Math.max(internalStartLine + 1, args.endLine);
+  const internalRange = toolLineRangeToTapestryRange({
+    startLine: args.startLine,
+    endLine: args.endLine,
+  });
   const rangeKey = `${args.compositeKey}:${args.index}:${args.startLine}:${args.endLine}`;
   return {
     id: `assistant-${rangeKey}`,
-    startLine: internalStartLine,
-    endLine: internalEndLine,
+    startLine: internalRange.startLine,
+    endLine: internalRange.endLine,
     isActive: args.isActive !== false,
     color: getAssistantTapestryColor(rangeKey),
     userModified: true,
@@ -1251,24 +1263,14 @@ export function AssistantUiPanelWrapper({
     setThreadDraftRuntime,
   ]);
 
-  const [
-    currentFolderId,
-    rootDirectoryHandle,
-    setSelectedFiles,
-    addMultipleSelectedFiles,
-    removeMultipleSelectedFiles,
-    clearSelectionRules,
-  ] = useFileExplorerStoreSelector(
-    (s) =>
-      [
-        s.currentFolderId,
-        s.rootDirectoryHandle,
-        s.setSelectedFiles,
-        s.addMultipleSelectedFiles,
-        s.removeMultipleSelectedFiles,
-        s.clearSelectionRules,
-      ] as const
+  const currentFolderId = useFileExplorerStoreSelector((s) => s.currentFolderId);
+  const rootDirectoryHandle = useFileExplorerStoreSelector((s) => s.rootDirectoryHandle);
+  const setSelectedFiles = useFileExplorerStoreSelector((s) => s.setSelectedFiles);
+  const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);
+  const removeMultipleSelectedFiles = useFileExplorerStoreSelector(
+    (s) => s.removeMultipleSelectedFiles
   );
+  const clearSelectionRules = useFileExplorerStoreSelector((s) => s.clearSelectionRules);
   const handleSelectionLimitExceeded = useCallback(() => {}, []);
   const { effectiveSelection } = useSelectionManager({
     onSelectionLimitExceeded: handleSelectionLimitExceeded,

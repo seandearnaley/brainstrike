@@ -1502,6 +1502,70 @@ describe('OptimizedFileTree', () => {
     expect(screen.getByLabelText('Select index.ts')).toHaveAttribute('data-state', 'checked');
   });
 
+  it('marks hydrated Windows absolute file rows checked from agent-selected relative descendants', async () => {
+    const rootPath = 'C:\\Users\\test\\project';
+    const loadedTree: IFileNode[] = [
+      {
+        name: 'project',
+        path: rootPath,
+        type: 'directory',
+        isVisible: true,
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: rootPath,
+        loadState: 'loaded',
+        children: [
+          {
+            name: 'index.ts',
+            path: `${rootPath}\\src\\index.ts`,
+            type: 'file',
+            isVisible: true,
+            handle: {} as FileSystemFileHandle,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: rootPath,
+          },
+        ],
+      },
+    ];
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree fileTree={loadedTree} folderId={rootPath} loadingFiles={new Set()} />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore
+        .getState()
+        .setSelectedFiles(new Set([encodeFileSelection(rootPath, '/src/index.ts')]));
+      readyStore.getState().setSelectionMode('explicit');
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Expand'));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByLabelText('Select index.ts')).toHaveAttribute('data-state', 'checked');
+  });
+
   it('removes the relative selected key when toggling a checked absolute file row', async () => {
     const rootPath = '/Users/test/project-toggle';
     const relativeSelectionKey = encodeFileSelection(rootPath, '/src/index.ts');

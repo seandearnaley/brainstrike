@@ -53,6 +53,7 @@ import { buildGroupedPageSections, getVisibleFilesOnPage } from './utils/preview
 import { createDefaultTapestryRanges, syncTapestryRanges } from './utils/tapestry-range-sync';
 import { getTokenUsageMetrics } from './utils/token-usage-metrics';
 import { useWorkspaceContextCurationStore } from './workspace-context-curation-store';
+import { tapestryLineRangeToToolRange } from './workspace-context-line-ranges';
 
 const logger = createLogger('PreviewPanel');
 // Cap tapestry items per page so previews keep a readable "page" density.
@@ -346,9 +347,8 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       .filter((item) => selectedFiles.has(item.compositeKey))
       .map((item) => {
         selectedFolderIds.add(item.rootFolderId);
-        const ranges = (tapestryRangesByKey[item.compositeKey] ?? []).map((range) => ({
-          startLine: range.startLine + 1,
-          endLine: range.endLine,
+        const ranges = (deferredTapestryRangesByKey[item.compositeKey] ?? []).map((range) => ({
+          ...tapestryLineRangeToToolRange(range),
           isActive: range.isActive !== false,
         }));
         const hasRanges = ranges.length > 0;
@@ -382,7 +382,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     selectedFiles,
     setWorkspaceContextSnapshot,
     tableData,
-    tapestryRangesByKey,
+    deferredTapestryRangesByKey,
     tokenBudget,
     useTapestryRangesForContextOutput,
   ]);

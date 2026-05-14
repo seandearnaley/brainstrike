@@ -182,7 +182,8 @@ interface SelectedPathAncestorResolver {
   getResolvedCache: () => Map<string, string[]>;
 }
 
-const WINDOWS_DRIVE_PATH_PATTERN = /^[A-Za-z]:\//;
+const WINDOWS_DRIVE_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
+const WINDOWS_DRIVE_ROOT_LENGTH = 3;
 
 function incrementDirectoryCount(
   directoryCounts: Map<string, number>,
@@ -213,11 +214,37 @@ function evictOldestAncestorCacheEntries(selectedPathAncestorCache: Map<string, 
   }
 }
 
+function isWindowsDriveRootPath(filePath: string): boolean {
+  return filePath.length === WINDOWS_DRIVE_ROOT_LENGTH && hasWindowsDriveRootPrefix(filePath);
+}
+
+function hasWindowsDriveRootPrefix(filePath: string): boolean {
+  return (
+    filePath.length >= WINDOWS_DRIVE_ROOT_LENGTH &&
+    filePath.charCodeAt(1) === 58 &&
+    filePath[2] === '/' &&
+    ((filePath.charCodeAt(0) >= 65 && filePath.charCodeAt(0) <= 90) ||
+      (filePath.charCodeAt(0) >= 97 && filePath.charCodeAt(0) <= 122))
+  );
+}
+
 function normalizeDirectoryCountPath(filePath: string): string {
-  if (filePath.length > 1 && filePath.endsWith('/')) {
-    return filePath.replace(/\/+$/, '');
+  const slashNormalized = filePath.includes('\\') ? filePath.replaceAll('\\', '/') : filePath;
+  if (
+    slashNormalized.length > 1 &&
+    slashNormalized.endsWith('/') &&
+    !isWindowsDriveRootPath(slashNormalized)
+  ) {
+    const minimumPathLength = hasWindowsDriveRootPrefix(slashNormalized)
+      ? WINDOWS_DRIVE_ROOT_LENGTH
+      : 1;
+    let endIndex = slashNormalized.length;
+    while (endIndex > minimumPathLength && slashNormalized[endIndex - 1] === '/') {
+      endIndex -= 1;
+    }
+    return slashNormalized.slice(0, endIndex);
   }
-  return filePath;
+  return slashNormalized;
 }
 
 function isAbsolutePathLike(filePath: string): boolean {
