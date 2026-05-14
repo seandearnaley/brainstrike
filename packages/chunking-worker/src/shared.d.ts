@@ -127,6 +127,8 @@ export interface ChunkResult {
   skipped: boolean;
   /** Reason for skipping, if applicable */
   skipReason?: string;
+  /** Number of candidate chunks dropped because source line/offset ranges could not be resolved */
+  sourceRangeSkippedChunks?: number;
   /** Strategy that was actually used after file-type heuristics */
   strategyUsed: ResolvedChunkingStrategy;
   /** Total tokens across all chunks */

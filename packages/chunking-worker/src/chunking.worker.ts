@@ -320,6 +320,7 @@ async function processFile(request: Omit<ChunkRequest, 'type'>): Promise<ChunkRe
       totalTokens: result.totalTokens,
       strategyUsed: result.strategyUsed,
       skipped: result.skipped,
+      sourceRangeSkippedChunks: result.sourceRangeSkippedChunks,
       phase: 'complete',
     });
 
@@ -343,6 +344,9 @@ async function processFile(request: Omit<ChunkRequest, 'type'>): Promise<ChunkRe
     // Only include skipReason if it's defined (exactOptionalPropertyTypes compliance)
     if (result.skipReason !== undefined) {
       chunkResult.skipReason = result.skipReason;
+    }
+    if (result.sourceRangeSkippedChunks !== undefined) {
+      chunkResult.sourceRangeSkippedChunks = result.sourceRangeSkippedChunks;
     }
     return chunkResult;
   } catch (error) {

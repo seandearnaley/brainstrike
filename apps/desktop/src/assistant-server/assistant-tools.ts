@@ -32,6 +32,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { BrowserWindow } from 'electron';
 import { getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
+import { getWindowRole } from '../window-role';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
@@ -1056,6 +1057,9 @@ function broadcastWorkspaceContextEvent(
     if (browserWindow.isDestroyed()) {
       continue;
     }
+    if (getWindowRole(browserWindow) !== 'visible-ui') {
+      continue;
+    }
     browserWindow.webContents.send(channel, payload);
     notifiedWindowCount += 1;
   }
@@ -1438,6 +1442,11 @@ export function buildDesktopAssistantTools(
   const unknownToolIds = Array.from(enabledSet).filter((toolId) => tools[toolId] === undefined);
   if (unknownToolIds.length > 0) {
     logger.warn('Ignoring unknown enabled native tool ids', { toolIds: unknownToolIds });
+  }
+  if (enabledSet.size === 0) {
+    logger.debug('Runtime preferences disabled all desktop assistant native tools', {
+      availableCount: Object.keys(tools).length,
+    });
   }
   const filteredTools: MastraTools = {};
   for (const [toolId, tool] of Object.entries(tools)) {

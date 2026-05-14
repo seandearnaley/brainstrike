@@ -2,8 +2,14 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
+import type { BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import {
+  assignWindowRole,
+  clearWindowRoleByWebContentsId,
+  type DesktopWindowRole,
+} from '../../window-role';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
@@ -28,6 +34,29 @@ vi.mock('electron', () => ({
 }));
 
 describe('assistant-tools', () => {
+  const trackedWindowIds: number[] = [];
+
+  function createMockWindow({
+    destroyed = false,
+    id,
+    role,
+    send,
+  }: {
+    destroyed?: boolean;
+    id: number;
+    role: DesktopWindowRole;
+    send: ReturnType<typeof vi.fn>;
+  }): BrowserWindow {
+    const browserWindow = {
+      isDestroyed: () => destroyed,
+      once: vi.fn(),
+      webContents: { id, send },
+    } as unknown as BrowserWindow;
+    assignWindowRole(browserWindow, role);
+    trackedWindowIds.push(id);
+    return browserWindow;
+  }
+
   async function createWorkspaceFixture(): Promise<string> {
     const root = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-agent-tools-'));
     await fsPromises.mkdir(path.join(root, 'src', 'components'), { recursive: true });
@@ -53,6 +82,10 @@ describe('assistant-tools', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    for (const id of trackedWindowIds) {
+      clearWindowRoleByWebContentsId(id);
+    }
+    trackedWindowIds.length = 0;
   });
 
   it('reads a workspace file with line range and truncation metadata', async () => {
@@ -392,9 +425,11 @@ describe('assistant-tools', () => {
   it('broadcasts bulk workspace context selection updates with explicit skip metadata', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const send = vi.fn();
+    const hiddenSend = vi.fn();
     getAllWindowsMock.mockReturnValue([
-      { isDestroyed: () => false, webContents: { send } },
-      { isDestroyed: () => true, webContents: { send: vi.fn() } },
+      createMockWindow({ id: 1001, role: 'visible-ui', send }),
+      createMockWindow({ id: 1002, role: 'embedding-host', send: hiddenSend }),
+      createMockWindow({ destroyed: true, id: 1003, role: 'visible-ui', send: vi.fn() }),
     ]);
     const tools = buildDesktopAssistantTools({
       workspaceRootPath,
@@ -416,19 +451,25 @@ describe('assistant-tools', () => {
       skippedCount: 1,
       selectedFiles: ['/src/main.ts'],
       skippedFiles: [{ path: '/missing.ts', reason: 'missing' }],
+      notifiedWindowCount: 1,
     });
     expect(send).toHaveBeenCalledWith('assistant:workspace-context-selection-update', {
       folderId: 'root-1',
       filePaths: ['/src/main.ts'],
       mode: 'replace',
     });
+    expect(hiddenSend).not.toHaveBeenCalled();
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 
   it('broadcasts workspace tapestry range updates and can select the affected files first', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const send = vi.fn();
-    getAllWindowsMock.mockReturnValue([{ isDestroyed: () => false, webContents: { send } }]);
+    const hiddenSend = vi.fn();
+    getAllWindowsMock.mockReturnValue([
+      createMockWindow({ id: 1101, role: 'visible-ui', send }),
+      createMockWindow({ id: 1102, role: 'llm-host', send: hiddenSend }),
+    ]);
     const tools = buildDesktopAssistantTools({
       workspaceRootPath,
       selectionFolderId: 'root-1',
@@ -453,6 +494,7 @@ describe('assistant-tools', () => {
       requestedFileCount: 1,
       appliedFileCount: 1,
       skippedFileCount: 0,
+      notifiedWindowCount: 1,
     });
     expect(send).toHaveBeenNthCalledWith(1, 'assistant:workspace-context-selection-update', {
       folderId: 'root-1',
@@ -469,6 +511,7 @@ describe('assistant-tools', () => {
         },
       ],
     });
+    expect(hiddenSend).not.toHaveBeenCalled();
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 

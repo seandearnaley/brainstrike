@@ -30,6 +30,7 @@ export interface PortableChunkingResult {
   chunks: PortableChunk[];
   skipped: boolean;
   skipReason?: string;
+  sourceRangeSkippedChunks?: number;
   strategyUsed: ResolvedChunkingStrategy;
   totalTokens: number;
 }
@@ -534,17 +535,17 @@ function resolveSourceRanges(
   content: string,
   chunks: readonly { content: string }[],
   overlapChars: number
-): SourceRange[] {
+): Array<SourceRange | null> {
   const lineStarts = buildLineStartOffsets(content);
   let searchStart = 0;
   let previousStartOffset = -1;
 
-  return chunks.map((chunk, index) => {
+  return chunks.map((chunk) => {
     const sourceRange =
       findSourceRangeForChunkContent(content, chunk.content, searchStart) ??
       findSourceRangeForChunkContent(content, chunk.content, Math.max(0, previousStartOffset));
     if (!sourceRange) {
-      throw new Error(`Unable to resolve source range for chunk ${index}`);
+      return null;
     }
 
     const { startOffset, endOffset } = sourceRange;
@@ -1026,6 +1027,7 @@ export async function chunkContent(
   const HashBatchSize = 50;
   const chunks: PortableChunk[] = [];
   let totalTokens = 0;
+  let sourceRangeSkippedChunks = 0;
   const sourceRanges = resolveSourceRanges(content, pendingChunks, overlapChars);
 
   for (let i = 0; i < pendingChunks.length; i += HashBatchSize) {
@@ -1039,10 +1041,11 @@ export async function chunkContent(
       }
       const sourceRange = sourceRanges[i + j];
       if (!sourceRange) {
-        throw new Error(`Missing source range for chunk ${i + j}`);
+        sourceRangeSkippedChunks += 1;
+        continue;
       }
       chunks.push({
-        chunkIndex: i + j,
+        chunkIndex: chunks.length,
         content: pending.content,
         contentHash: hashes[j] ?? '',
         startLine: sourceRange.startLine,
@@ -1059,11 +1062,24 @@ export async function chunkContent(
 
   const avgTokensPerChunk = chunks.length ? totalTokens / chunks.length : 0;
 
+  if (pendingChunks.length > 0 && chunks.length === 0) {
+    return {
+      chunks,
+      totalTokens: 0,
+      avgTokensPerChunk: 0,
+      strategyUsed: effectiveStrategy,
+      skipped: true,
+      skipReason: 'source range resolution failed',
+      sourceRangeSkippedChunks,
+    };
+  }
+
   return {
     chunks,
     totalTokens,
     avgTokensPerChunk,
     strategyUsed: effectiveStrategy,
     skipped: false,
+    ...(sourceRangeSkippedChunks > 0 ? { sourceRangeSkippedChunks } : {}),
   };
 }
