@@ -3,6 +3,7 @@ import { memo, useCallback } from 'react';
 import { Badge } from '../badge';
 import { Button } from '../button';
 import { cn } from '../lib/utils';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../tooltip';
 import { useResolvedTheme } from './hooks/use-resolved-theme';
 import type { CollectionPickerItemProps } from './types';
 import { formatProviderLabel, getCollectionColor } from './utils/collection-colors';
@@ -145,27 +146,37 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
         </div>
 
         {/* Right: Action buttons - visible on hover */}
-        <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-          <Button
-            aria-label="Edit collection"
-            onClick={handleEdit}
-            size="icon-xs"
-            title="Edit collection"
-            variant="ghost"
-          >
-            <Pencil aria-hidden="true" />
-          </Button>
-          <Button
-            aria-label="Delete collection"
-            className="text-destructive hover:text-destructive"
-            onClick={handleDelete}
-            size="icon-xs"
-            title="Delete collection"
-            variant="ghost"
-          >
-            <Trash2 aria-hidden="true" />
-          </Button>
-        </div>
+        <TooltipProvider delayDuration={300}>
+          <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  aria-label="Edit collection"
+                  onClick={handleEdit}
+                  size="icon-xs"
+                  variant="ghost"
+                >
+                  <Pencil aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Edit collection</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  aria-label="Delete collection"
+                  className="text-destructive hover:text-destructive"
+                  onClick={handleDelete}
+                  size="icon-xs"
+                  variant="ghost"
+                >
+                  <Trash2 aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Delete collection</TooltipContent>
+            </Tooltip>
+          </div>
+        </TooltipProvider>
       </div>
     </div>
   );
