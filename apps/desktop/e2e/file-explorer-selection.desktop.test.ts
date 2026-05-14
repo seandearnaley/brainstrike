@@ -1747,11 +1747,9 @@ test.describe('Desktop file explorer selection', () => {
     });
     await expect(packagesCheckbox).toHaveAttribute('data-state', 'checked');
 
-    const packagesRow = fileTree.getByRole('row', { name: /Select packages packages/i });
-    const packagesExpandButton = packagesRow.getByRole('button', { name: 'Expand' });
-    if (await packagesExpandButton.isVisible()) {
-      await packagesExpandButton.click({ noWaitAfter: true, timeout: 5000 });
-    }
+    const expandAllButton = window.getByRole('button', { name: /^Expand All$/i }).first();
+    await expect(expandAllButton).toBeVisible({ timeout: 15_000 });
+    await expandAllButton.click({ noWaitAfter: true, timeout: 10_000 });
 
     await expect(fileTree.getByText('agent')).toBeVisible({ timeout: 15_000 });
     await expect(fileTree.getByText('app-shell')).toBeVisible({ timeout: 15_000 });
