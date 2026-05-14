@@ -20,7 +20,7 @@ import { RendererHostLifecycle } from './renderer-host-lifecycle';
 const logger = createLogger('EmbeddingHostManager');
 
 const HOST_READY_TIMEOUT_MS = 30_000;
-const QUERY_EMBEDDING_TIMEOUT_MS = 5 * 60_000;
+const QUERY_EMBEDDING_TIMEOUT_MS = 120_000;
 const POWER_SAVE_BLOCKER_IDLE_GRACE_MS = 5000;
 const EMBEDDING_HOST_STATUS_IDLE_GRACE_MS = 5000;
 

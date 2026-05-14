@@ -367,6 +367,29 @@ describe('AssistantDataStreamSession', () => {
     expect(finishMessage?.value).toMatchObject({ finishReason: 'error' });
   });
 
+  it('does not surface intermediate tool-call finishes as visible errors', async () => {
+    const chunks: StreamChunk[] = [
+      {
+        type: 'message-finish',
+        finishReason: 'tool-calls',
+        usage: { promptTokens: 20, completionTokens: 4 },
+        path: [],
+      },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      sessionId: 'tool-calls-finish',
+      messageId: 'msg-tool-calls-finish',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+    const error = events.find((evt) => evt.code === '3')?.value;
+    const finishMessage = events.at(-1);
+
+    expect(error).toBeUndefined();
+    expect(finishMessage?.value).toMatchObject({ finishReason: 'tool-calls' });
+  });
+
   it('stops consuming source when response stream is canceled', async () => {
     let consumedCount = 0;
     const maxChunks = 10;

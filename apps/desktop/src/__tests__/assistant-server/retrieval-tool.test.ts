@@ -155,17 +155,13 @@ vi.mock('../../secrets', () => ({
   }),
 }));
 
-import {
-  createRetrievalTool,
-  setAssistantEmbeddingHostManager,
-} from '../../assistant-server/retrieval-tool';
+import { createRetrievalTool } from '../../assistant-server/retrieval-tool';
 
 describe('retrieval-tool', () => {
   const snapshotId = '550e8400-e29b-41d4-a716-446655440000';
 
   beforeEach(() => {
     vi.clearAllMocks();
-    setAssistantEmbeddingHostManager(null);
     getKeyMock.mockResolvedValue('test-api-key');
     resolveHostedProviderApiKeyMock.mockResolvedValue('fallback-api-key');
     embedMock.mockResolvedValue({ ok: true, value: { embedding: [0.25, 0.5] } });
@@ -317,9 +313,6 @@ describe('retrieval-tool', () => {
 
   it('uses the embedding host for local embedding set queries', async () => {
     const queryEmbeddingMock = vi.fn().mockResolvedValue([0.125, 0.75]);
-    setAssistantEmbeddingHostManager({
-      queryEmbedding: queryEmbeddingMock,
-    } as never);
     dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
       if (sql.includes('FROM embedding_sets')) {
         return {
@@ -336,7 +329,10 @@ describe('retrieval-tool', () => {
       return { rows: [] };
     });
 
-    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const tool = createRetrievalTool(
+      { embeddingSetId: 'set-1' },
+      { embeddingHostManager: { queryEmbedding: queryEmbeddingMock } }
+    );
     const result = await tool.execute({
       context: { query: 'where is database config', embeddingSetId: 'set-1' },
     });

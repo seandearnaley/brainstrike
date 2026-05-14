@@ -40,6 +40,7 @@ type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import { readRequestBody, streamResponse } from './assistant-server/http';
 import { getDatabase } from './db-main';
+import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
 import { readOpenAIApiKey } from './openai-api-key';
 import {
@@ -60,13 +61,14 @@ const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 
 export interface AssistantServerOptions {
+  embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
   host?: string;
   listen?: boolean;
 }
 
 export function startAssistantServer(portHint?: number, options: AssistantServerOptions = {}) {
   const server = http.createServer(async (req, res) => {
-    await handleAssistantRequest(req, res).catch(() => {
+    await handleAssistantRequest(req, res, options).catch(() => {
       if (res.headersSent || res.writableEnded) {
         if (!res.writableEnded) {
           res.end();
@@ -104,7 +106,8 @@ export function startAssistantServer(portHint?: number, options: AssistantServer
 
 export async function handleAssistantRequest(
   req: http.IncomingMessage,
-  res: http.ServerResponse
+  res: http.ServerResponse,
+  options: AssistantServerOptions = {}
 ): Promise<void> {
   if (hasDisallowedAssistantOrigin(req)) {
     respondForbiddenOrigin(res);
@@ -130,12 +133,13 @@ export async function handleAssistantRequest(
     return;
   }
 
-  await handleAssistantPost(req, res);
+  await handleAssistantPost(req, res, options);
 }
 
 async function handleAssistantPost(
   req: http.IncomingMessage,
-  res: http.ServerResponse
+  res: http.ServerResponse,
+  options: AssistantServerOptions
 ): Promise<void> {
   const prepared = await prepareAssistantPostRequest(req, res);
   if (!prepared) {
@@ -157,6 +161,9 @@ async function handleAssistantPost(
       apiKey,
       signal,
       runId,
+      toolDependencies: {
+        embeddingHostManager: options.embeddingHostManager,
+      },
     });
   } catch (error) {
     await handleAssistantPostStreamError({ res, runId, signal, error });
@@ -204,6 +211,7 @@ async function streamAssistantPostResponse({
   apiKey,
   signal,
   runId,
+  toolDependencies,
 }: {
   readonly res: http.ServerResponse;
   readonly messages: AgentMessage[];
@@ -211,6 +219,9 @@ async function streamAssistantPostResponse({
   readonly apiKey: string | undefined;
   readonly signal: AbortSignal;
   readonly runId: string | undefined;
+  readonly toolDependencies: {
+    readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+  };
 }): Promise<void> {
   const mcpConfig = (await loadMcpConfig()).config;
   const streamResult = await initializeAgentStream(
@@ -219,7 +230,8 @@ async function streamAssistantPostResponse({
     apiKey,
     mcpConfig,
     signal,
-    runId
+    runId,
+    toolDependencies
   );
   if (!streamResult.ok) {
     if (runId) {
@@ -803,7 +815,10 @@ async function initializeAgentStream(
   apiKey: string | undefined,
   mcpConfig: McpConfig | undefined,
   signal: AbortSignal,
-  runId: string | undefined
+  runId: string | undefined,
+  toolDependencies: {
+    readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+  }
 ): Promise<AgentStreamResult> {
   // Build runtime context with abort signal for cancellation support
   // The signal is embedded in RuntimeData and flows through to:
@@ -813,7 +828,7 @@ async function initializeAgentStream(
   const runtime: RuntimeData = {
     ...runtimeWithoutMcpConfig,
     mcpEnabled: true,
-    mastraTools: buildDesktopAssistantTools(runtimeData),
+    mastraTools: buildDesktopAssistantTools(runtimeData, toolDependencies),
     signal, // ← AbortSignal passed here, used by stream iterator
     ...(mcpConfig ? { mcpConfig } : {}),
     ...(apiKey ? { apiKey } : {}),

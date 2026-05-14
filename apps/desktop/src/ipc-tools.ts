@@ -11,6 +11,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
+import type { EmbeddingHostManager } from './embedding-host-manager';
 import { callTool } from './mcp';
 import { executeNativeTool, isExecutableNativeTool } from './native-tool-executor';
 
@@ -20,6 +21,7 @@ type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string
 type RuntimeWorkspaceContext = NonNullable<RuntimeData['workspaceContext']>;
 type RuntimeWorkspaceContextFile = NonNullable<RuntimeWorkspaceContext['files']>[number];
 type RuntimeWorkspaceContextRange = NonNullable<RuntimeWorkspaceContextFile['ranges']>[number];
+type RuntimeAgentLoop = NonNullable<RuntimeData['agentLoop']>;
 
 const MAX_INPUT_DEPTH = 12;
 const MAX_INPUT_SIZE = 1_000_000;
@@ -142,6 +144,14 @@ function readOptionalTokenValue(
 function readOptionalBoolean(source: Record<string, unknown>, key: string): boolean | undefined {
   const value = source[key];
   return typeof value === 'boolean' ? value : undefined;
+}
+
+function readOptionalPositiveInteger(
+  source: Record<string, unknown>,
+  key: string
+): number | undefined {
+  const value = source[key];
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
 }
 
 function sanitizeWorkspaceContextRange(input: unknown): RuntimeWorkspaceContextRange | null {
@@ -268,6 +278,24 @@ function sanitizeWorkspaceContext(input: unknown): RuntimeWorkspaceContext | und
   return workspaceContext;
 }
 
+function sanitizeAgentLoop(input: unknown): RuntimeAgentLoop | undefined {
+  if (!isPlainObject(input)) {
+    return;
+  }
+
+  const agentLoop: RuntimeAgentLoop = {};
+  const maxSteps = readOptionalPositiveInteger(input, 'maxSteps');
+  if (maxSteps !== undefined) {
+    agentLoop.maxSteps = maxSteps;
+  }
+  const inputTokenLimit = readOptionalPositiveInteger(input, 'inputTokenLimit');
+  if (inputTokenLimit !== undefined) {
+    agentLoop.inputTokenLimit = inputTokenLimit;
+  }
+
+  return Object.keys(agentLoop).length > 0 ? agentLoop : undefined;
+}
+
 function sanitizeRuntimeData(input: unknown): Partial<RuntimeData> | undefined {
   if (!isPlainObject(input)) {
     return;
@@ -309,6 +337,20 @@ function sanitizeRuntimeData(input: unknown): Partial<RuntimeData> | undefined {
       logger.warn('Rejected invalid runtime workspaceContext metadata.');
     }
   }
+  if (Array.isArray(input['enabledNativeToolIds'])) {
+    const enabledNativeToolIds = input['enabledNativeToolIds'].filter(
+      (value): value is string => typeof value === 'string' && value.trim().length > 0
+    );
+    runtimeData.enabledNativeToolIds = enabledNativeToolIds;
+  }
+  if (input['agentLoop'] !== undefined) {
+    const agentLoop = sanitizeAgentLoop(input['agentLoop']);
+    if (agentLoop) {
+      runtimeData.agentLoop = agentLoop;
+    } else {
+      logger.warn('Rejected invalid runtime agentLoop metadata.');
+    }
+  }
 
   return Object.keys(runtimeData).length > 0 ? runtimeData : undefined;
 }
@@ -327,6 +369,10 @@ type ToolExecutionResult<T = unknown> =
       error: string;
       durationMs: number;
     };
+
+interface ToolsIpcDependencies {
+  embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+}
 
 function buildDuration(startTime: number): number {
   return Math.round(performance.now() - startTime);
@@ -365,9 +411,12 @@ async function tryExecuteAssistantRuntimeTool(
   startTime: number,
   toolId: string,
   input: unknown,
-  runtimeData: Partial<RuntimeData> | undefined
+  runtimeData: Partial<RuntimeData> | undefined,
+  dependencies: ToolsIpcDependencies
 ): Promise<ToolExecutionResult | null> {
-  const assistantTool = buildDesktopAssistantTools(runtimeData)[toolId];
+  const assistantTool = buildDesktopAssistantTools(runtimeData, {
+    embeddingHostManager: dependencies.embeddingHostManager,
+  })[toolId];
   if (!assistantTool?.execute) {
     return null;
   }
@@ -413,7 +462,7 @@ async function executeMcpTool(
 /**
  * Register IPC handlers for tool execution.
  */
-export function registerToolsIpcHandlers(): void {
+export function registerToolsIpcHandlers(dependencies: ToolsIpcDependencies = {}): void {
   logger.debug('Registering tools IPC handlers');
 
   ipcMain.handle(
@@ -446,7 +495,8 @@ export function registerToolsIpcHandlers(): void {
             startTime,
             normalizedToolId,
             input,
-            runtimeData
+            runtimeData,
+            dependencies
           );
           if (assistantRuntimeResult) {
             return assistantRuntimeResult;

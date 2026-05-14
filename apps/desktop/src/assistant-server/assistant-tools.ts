@@ -31,9 +31,14 @@ import { defaultCollator } from '@brainstrike/utils/collator';
 import { createLogger } from '@brainstrike/utils/logger';
 import { BrowserWindow } from 'electron';
 import { getDatabase } from '../db-main';
+import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
+
+export interface DesktopAssistantToolDependencies {
+  embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+}
 
 const logger = createLogger('DesktopAssistantTools');
 
@@ -57,7 +62,7 @@ const DEFAULT_DIRECTORY_DEPTH = 1;
 const DEFAULT_CONTEXT_TOKEN_BUDGET = 4000;
 const DEFAULT_CONTEXT_MAX_FILES = 20;
 const DEFAULT_CONTEXT_MAX_CHARS_PER_FILE = 12_000;
-const READ_WORKSPACE_CONTEXT_FILE_CONCURRENCY = 10;
+const READ_WORKSPACE_CONTEXT_BATCH_SIZE = 10;
 
 type ToolExecuteInput<T> = { context: T } | T;
 
@@ -945,7 +950,7 @@ async function runReadWorkspaceContext(
   while (cursor < requestedPaths.length && files.length < maxFiles) {
     const remainingSlots = maxFiles - files.length;
     const batchSize = Math.min(
-      READ_WORKSPACE_CONTEXT_FILE_CONCURRENCY,
+      READ_WORKSPACE_CONTEXT_BATCH_SIZE,
       remainingSlots,
       requestedPaths.length - cursor
     );
@@ -1279,7 +1284,10 @@ function resolveQueryEmbeddingSpaceInput(
 /**
  * Builds the Mastra ToolsInput for the desktop assistant server.
  */
-export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined): MastraTools {
+export function buildDesktopAssistantTools(
+  runtimeData: RuntimeData | undefined,
+  dependencies: DesktopAssistantToolDependencies = {}
+): MastraTools {
   const tools: MastraTools = {
     [READ_WORKSPACE_FILE_TOOL_ID]: {
       id: READ_WORKSPACE_FILE_TOOL_ID,
@@ -1400,7 +1408,9 @@ export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined)
       execute: async (input: ToolExecuteInput<QueryEmbeddingSpaceInput>) => {
         const resolvedInput = resolveQueryEmbeddingSpaceInput(input);
         try {
-          return await runQueryEmbeddingSpace(resolvedInput, runtimeData);
+          return await runQueryEmbeddingSpace(resolvedInput, runtimeData, {
+            embeddingHostManager: dependencies.embeddingHostManager,
+          });
         } catch (error) {
           logger.error('queryEmbeddingSpace failed', { error, input: resolvedInput });
           throw error;
@@ -1416,11 +1426,22 @@ export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined)
   const enabledSet = new Set(
     enabledNativeToolIds.filter((toolId): toolId is string => typeof toolId === 'string')
   );
+  const unknownToolIds = Array.from(enabledSet).filter((toolId) => tools[toolId] === undefined);
+  if (unknownToolIds.length > 0) {
+    logger.warn('Ignoring unknown enabled native tool ids', { toolIds: unknownToolIds });
+  }
   const filteredTools: MastraTools = {};
   for (const [toolId, tool] of Object.entries(tools)) {
     if (enabledSet.has(toolId)) {
       filteredTools[toolId] = tool;
     }
+  }
+  const disabledCount = Object.keys(tools).length - Object.keys(filteredTools).length;
+  if (disabledCount > 0) {
+    logger.debug('Filtered desktop assistant native tools', {
+      disabledCount,
+      enabledCount: Object.keys(filteredTools).length,
+    });
   }
   return filteredTools;
 }

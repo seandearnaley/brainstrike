@@ -300,6 +300,7 @@ function buildAssistantTapestryRange(args: {
   startLine: number;
 }): TapestryRange {
   const internalStartLine = Math.max(0, args.startLine - 1);
+  // Tapestry stores 0-indexed inclusive starts and exclusive ends; tool ranges are 1-indexed inclusive.
   const internalEndLine = Math.max(internalStartLine + 1, args.endLine);
   const rangeKey = `${args.compositeKey}:${args.index}:${args.startLine}:${args.endLine}`;
   return {

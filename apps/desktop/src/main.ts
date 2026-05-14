@@ -16,7 +16,6 @@ import {
 import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { startAssistantServer } from './assistant-server';
-import { setAssistantEmbeddingHostManager } from './assistant-server/retrieval-tool';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow, noteNextWindowReload } from './create-window';
@@ -779,7 +778,6 @@ const storage = new ElectronStorageAdapter();
 const chunkingHostManager = new ChunkingHostManager();
 const embeddingHostManager = new EmbeddingHostManager();
 const llmHostManager = new LlmHostManager();
-setAssistantEmbeddingHostManager(embeddingHostManager);
 
 desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler({
   getDatabase,
@@ -942,7 +940,7 @@ if (singleInstanceLockAcquired) {
       registerSecretsIpcHandlers(createSecretsService());
       registerAgentIpcHandlers();
       registerMcpIpcHandlers();
-      registerToolsIpcHandlers();
+      registerToolsIpcHandlers({ embeddingHostManager });
       registerRuntimeIpcHandlers();
       logger.debug('Ready-dependent IPC handlers registered successfully');
       desktopDatabaseMaintenanceScheduler?.start();
@@ -1055,7 +1053,7 @@ if (singleInstanceLockAcquired) {
       // Start local data stream server for desktop assistant-ui
       let assistantUrl = '';
       try {
-        const { url, stop } = await startAssistantServer();
+        const { url, stop } = await startAssistantServer(undefined, { embeddingHostManager });
         assistantUrl = url;
         stopAssistantServer = stop;
         logger.debug(`Assistant server started at ${assistantUrl}`);
@@ -1326,7 +1324,6 @@ app.on('before-quit', (event) => {
 app.on('will-quit', () => {
   logger.debug('will-quit triggered');
   clearForcedProcessExitTimer();
-  setAssistantEmbeddingHostManager(null);
   if (unregisterEmbeddingHostIpcHandlers) {
     unregisterEmbeddingHostIpcHandlers();
     unregisterEmbeddingHostIpcHandlers = null;

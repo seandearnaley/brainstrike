@@ -55,16 +55,21 @@ const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
   updateWorkspaceTapestrySelections: 'brainstrike.updateWorkspaceTapestrySelections',
 } as const;
 
+function buildOriginalToModelFacingToolNameMap(
+  toolNameMap: ReadonlyMap<string, string>
+): Map<string, string> {
+  const originalToModelFacing = new Map<string, string>();
+  for (const [modelFacingName, originalName] of toolNameMap.entries()) {
+    originalToModelFacing.set(originalName, modelFacingName);
+  }
+  return originalToModelFacing;
+}
+
 function resolveModelFacingToolName(
-  toolNameMap: ReadonlyMap<string, string>,
+  originalToModelFacingToolNameMap: ReadonlyMap<string, string>,
   originalToolId: string
 ): string {
-  for (const [modelFacingName, originalName] of toolNameMap.entries()) {
-    if (originalName === originalToolId) {
-      return modelFacingName;
-    }
-  }
-  return originalToolId;
+  return originalToModelFacingToolNameMap.get(originalToolId) ?? originalToolId;
 }
 
 function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): {
@@ -76,33 +81,34 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): {
   updateWorkspaceContextSelection: string;
   updateWorkspaceTapestrySelections: string;
 } {
+  const originalToModelFacing = buildOriginalToModelFacingToolNameMap(toolNameMap);
   return {
     listWorkspaceContext: resolveModelFacingToolName(
-      toolNameMap,
+      originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.listWorkspaceContext
     ),
     readWorkspaceContext: resolveModelFacingToolName(
-      toolNameMap,
+      originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.readWorkspaceContext
     ),
     readWorkspaceFile: resolveModelFacingToolName(
-      toolNameMap,
+      originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.readWorkspaceFile
     ),
     listEmbeddingSpaces: resolveModelFacingToolName(
-      toolNameMap,
+      originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.listEmbeddingSpaces
     ),
     queryEmbeddingSpace: resolveModelFacingToolName(
-      toolNameMap,
+      originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.queryEmbeddingSpace
     ),
     updateWorkspaceContextSelection: resolveModelFacingToolName(
-      toolNameMap,
+      originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.updateWorkspaceContextSelection
     ),
     updateWorkspaceTapestrySelections: resolveModelFacingToolName(
-      toolNameMap,
+      originalToModelFacing,
       BRAINSTRIKE_CONTEXT_TOOL_IDS.updateWorkspaceTapestrySelections
     ),
   };
@@ -662,6 +668,8 @@ interface BrainstrikeAgentStreamOptions {
   stopWhen?: unknown[];
 }
 
+const DEFAULT_AGENT_MAX_STEPS = 20;
+
 function resolvePositiveIntegerOption(value: unknown, fieldName: string): number | undefined {
   if (value === undefined || value === null) {
     return;
@@ -689,7 +697,7 @@ function buildToolLoopOptions(
     : undefined;
 
   return {
-    ...(maxSteps ? { maxSteps } : { stopWhen: [] }),
+    maxSteps: maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
     ...(inputProcessors ? { inputProcessors } : {}),
   };
 }
@@ -740,7 +748,6 @@ async function* streamChunksFromMastra({
   sanitizedNameMap,
 }: StreamGeneratorParams): AsyncIterableIterator<StreamChunk> {
   const toolNames = new Map<string, string>();
-  let sawTerminalFinish = false;
 
   try {
     for await (const part of readableStreamIterator(stream, runtimeData?.signal)) {
@@ -750,11 +757,10 @@ async function* streamChunksFromMastra({
       }
 
       if (finished) {
-        sawTerminalFinish = true;
         return;
       }
     }
-    if (!(sawTerminalFinish || runtimeData?.signal?.aborted)) {
+    if (!runtimeData?.signal?.aborted) {
       throw createMastraAgentError('mastra_agent_stream_failure', {
         detail: 'Mastra stream ended without a finish event',
       });

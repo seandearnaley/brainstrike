@@ -157,7 +157,7 @@ export interface RuntimeMemoryContext {
 export interface RuntimeAgentLoopSettings {
   /** Per-step input token limit applied before each model call. */
   inputTokenLimit?: number;
-  /** Maximum Mastra agent-loop steps. Omit to disable Brainstrike's explicit cap. */
+  /** Maximum Mastra agent-loop steps. Omit to use Brainstrike's default cap. */
   maxSteps?: number;
 }
 

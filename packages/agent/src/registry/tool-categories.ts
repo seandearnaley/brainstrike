@@ -152,13 +152,13 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
   'brainstrike.updateWorkspaceContextSelection': {
     category: 'action',
     loadingTier: 'critical',
-    requiresApproval: false,
+    requiresApproval: true,
     estimatedTokens: 150,
   },
   'brainstrike.updateWorkspaceTapestrySelections': {
     category: 'action',
     loadingTier: 'critical',
-    requiresApproval: false,
+    requiresApproval: true,
     estimatedTokens: 190,
   },
   'brainstrike.listEmbeddingSpaces': {

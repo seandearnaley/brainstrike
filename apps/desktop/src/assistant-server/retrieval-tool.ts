@@ -109,11 +109,10 @@ interface RetrievalSelectionState {
 type RetrievalResultChunk = Omit<PackedContextChunk, 'content'>;
 
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
+type QueryEmbeddingHost = Pick<EmbeddingHostManager, 'queryEmbedding'>;
 
-let assistantEmbeddingHostManager: EmbeddingHostManager | null = null;
-
-export function setAssistantEmbeddingHostManager(manager: EmbeddingHostManager | null): void {
-  assistantEmbeddingHostManager = manager;
+export interface RetrievalToolDependencies {
+  embeddingHostManager?: QueryEmbeddingHost | null | undefined;
 }
 
 interface ToolContext<TInput> {
@@ -478,14 +477,15 @@ function resolveProviderForSet(embeddingSet: EmbeddingSetRow): EmbeddingProvider
 
 async function generateQueryEmbeddingForSet(
   embeddingSet: EmbeddingSetRow,
-  query: string
+  query: string,
+  dependencies: RetrievalToolDependencies
 ): Promise<number[]> {
   const provider = resolveProviderForSet(embeddingSet);
   if (isHostedProvider(provider)) {
     return generateQueryEmbedding(provider, embeddingSet.modelId, embeddingSet.dimensions, query);
   }
   if (isLocalProviderType(provider)) {
-    const embeddingHostManager = assistantEmbeddingHostManager;
+    const embeddingHostManager = dependencies.embeddingHostManager;
     if (!embeddingHostManager) {
       throw new Error(ERROR_MESSAGES.localEmbeddingHostUnavailable);
     }
@@ -609,7 +609,8 @@ async function packRetrievedContext(
 
 async function runRetrieval(
   input: RetrievalContextInput,
-  runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  dependencies: RetrievalToolDependencies = {}
 ): Promise<RetrievalToolResult> {
   const query = normalizeQuery(input.query);
   const embeddingSetId = resolveRuntimeEmbeddingSetId(runtimeData, input.embeddingSetId);
@@ -619,7 +620,7 @@ async function runRetrieval(
 
   const db = (await getDatabase()) as unknown as PGlite;
   const embeddingSet = await resolveEmbeddingSet(db, embeddingSetId);
-  const embedding = await generateQueryEmbeddingForSet(embeddingSet, query);
+  const embedding = await generateQueryEmbeddingForSet(embeddingSet, query, dependencies);
   assertEmbeddingDimensions(embeddingSet.dimensions, embedding.length);
 
   const selectionState = await resolveSelectionState(db, runtimeData, input);
@@ -658,7 +659,10 @@ function handleRetrievalError(error: unknown): never {
   throw new Error(ERROR_MESSAGES.retrievalFailed);
 }
 
-export function createRetrievalTool(runtimeData: RuntimeData | undefined): MastraTools[string] {
+export function createRetrievalTool(
+  runtimeData: RuntimeData | undefined,
+  dependencies: RetrievalToolDependencies = {}
+): MastraTools[string] {
   return {
     id: TOOL_ID,
     description:
@@ -666,7 +670,7 @@ export function createRetrievalTool(runtimeData: RuntimeData | undefined): Mastr
     inputSchema: RetrievalContextInputSchema,
     execute: async (context: ToolContext<RetrievalContextInput>) => {
       try {
-        return await runRetrieval(context.context, runtimeData);
+        return await runRetrieval(context.context, runtimeData, dependencies);
       } catch (error) {
         handleRetrievalError(error);
       }
@@ -676,25 +680,35 @@ export function createRetrievalTool(runtimeData: RuntimeData | undefined): Mastr
 
 export async function runQueryEmbeddingSpace(
   input: QueryEmbeddingSpaceInput,
-  runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  dependencies: RetrievalToolDependencies = {}
 ): Promise<RetrievalToolResult> {
   if (!normalizeText(input.embeddingSetId)) {
     throw new Error(ERROR_MESSAGES.missingExplicitEmbeddingSet);
   }
-  const explicitRuntimeData = runtimeData
-    ? (({
-        embeddingSetId: _embeddingSetId,
-        selectionFilePaths: _selectionFilePaths,
-        selectionSnapshotId: _selectionSnapshotId,
-        tokenBudget: _tokenBudget,
-        ...rest
-      }) => rest)(runtimeData)
-    : undefined;
-  return await runRetrieval(input, explicitRuntimeData);
+  const explicitRuntimeData = omitImplicitContextRuntimeData(runtimeData);
+  return await runRetrieval(input, explicitRuntimeData, dependencies);
+}
+
+function omitImplicitContextRuntimeData(
+  runtimeData: RuntimeData | undefined
+): RuntimeData | undefined {
+  if (!runtimeData) {
+    return;
+  }
+  const {
+    embeddingSetId: _embeddingSetId,
+    selectionFilePaths: _selectionFilePaths,
+    selectionSnapshotId: _selectionSnapshotId,
+    tokenBudget: _tokenBudget,
+    ...explicitRuntimeData
+  } = runtimeData;
+  return explicitRuntimeData;
 }
 
 export function createQueryEmbeddingSpaceTool(
-  runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  dependencies: RetrievalToolDependencies = {}
 ): MastraTools[string] {
   return {
     id: QUERY_EMBEDDING_SPACE_TOOL_ID,
@@ -704,7 +718,7 @@ export function createQueryEmbeddingSpaceTool(
     execute: async (context: ToolContext<QueryEmbeddingSpaceInput>) => {
       const input = QueryEmbeddingSpaceInputSchema.parse(context.context);
       try {
-        return await runQueryEmbeddingSpace(input, runtimeData);
+        return await runQueryEmbeddingSpace(input, runtimeData, dependencies);
       } catch (error) {
         handleRetrievalError(error);
       }
@@ -714,10 +728,11 @@ export function createQueryEmbeddingSpaceTool(
 
 export function buildAssistantTools(
   runtimeData: RuntimeData | undefined,
-  base: MastraTools
+  base: MastraTools,
+  dependencies: RetrievalToolDependencies = {}
 ): MastraTools {
   return {
     ...base,
-    [TOOL_ID]: createRetrievalTool(runtimeData),
+    [TOOL_ID]: createRetrievalTool(runtimeData, dependencies),
   };
 }

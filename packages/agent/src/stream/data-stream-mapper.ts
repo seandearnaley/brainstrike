@@ -111,11 +111,10 @@ function getAbnormalFinishMessage(reason: FinishReason): string | undefined {
   switch (reason) {
     case 'length':
       return 'Assistant stopped because the model reached its output token limit before completing the response.';
-    case 'tool-calls':
-      return 'Assistant stopped while still requesting tool calls. Increase the agent step limit or retry with a narrower context.';
     case 'content-filter':
       return 'Assistant stopped because the provider content filter ended the response.';
     case 'stop':
+    case 'tool-calls':
     case 'error':
     case 'other':
     case 'unknown':
