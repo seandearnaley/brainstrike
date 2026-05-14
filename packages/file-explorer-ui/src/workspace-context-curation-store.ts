@@ -39,6 +39,9 @@ interface WorkspaceContextCurationState {
   tapestryRangesByKey: TapestryRangeMap;
 }
 
+// This store intentionally bridges the context preview and assistant wrapper,
+// which are mounted in different UI subtrees. Snapshots carry selectionFolderId
+// and range state is pruned on folder changes so stale roots are not reused.
 export const useWorkspaceContextCurationStore = create<WorkspaceContextCurationState>((set) => ({
   contextSnapshot: null,
   tapestryRangesByKey: {},

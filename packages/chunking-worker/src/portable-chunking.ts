@@ -1048,6 +1048,9 @@ export async function chunkContent(
         continue;
       }
       chunks.push({
+        // Preserve the splitter position even when an unresolved source range
+        // creates a gap; downstream diagnostics need to identify the dropped
+        // candidate rather than renumbering the surviving chunks.
         chunkIndex: i + j,
         content: pending.content,
         contentHash: hashes[j] ?? '',

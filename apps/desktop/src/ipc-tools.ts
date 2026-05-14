@@ -25,6 +25,8 @@ type RuntimeAgentLoop = NonNullable<RuntimeData['agentLoop']>;
 
 const MAX_INPUT_DEPTH = 12;
 const MAX_INPUT_SIZE = 1_000_000;
+// Keep this boundary allowlist in sync with BackgroundIndexingMode in
+// @brainstrike/preferences when additional workspace indexing modes are added.
 const ALLOWED_WORKSPACE_INDEXING_MODES = new Set(['root-folder-cache']);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
