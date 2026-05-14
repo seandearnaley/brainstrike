@@ -1381,6 +1381,138 @@ describe('OptimizedFileTree', () => {
     expect(screen.getByLabelText('Select project')).toHaveAttribute('data-state', 'indeterminate');
   });
 
+  it('marks hydrated absolute file rows checked from agent-selected relative descendants', async () => {
+    const rootPath = '/Users/test/project';
+    const loadedTree: IFileNode[] = [
+      {
+        name: 'project',
+        path: rootPath,
+        type: 'directory',
+        isVisible: true,
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: rootPath,
+        loadState: 'loaded',
+        children: [
+          {
+            name: 'index.ts',
+            path: `${rootPath}/src/index.ts`,
+            type: 'file',
+            isVisible: true,
+            handle: {} as FileSystemFileHandle,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: rootPath,
+          },
+        ],
+      },
+    ];
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree fileTree={loadedTree} folderId={rootPath} loadingFiles={new Set()} />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore
+        .getState()
+        .setSelectedFiles(new Set([encodeFileSelection(rootPath, '/src/index.ts')]));
+      readyStore.getState().setSelectionMode('explicit');
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Expand'));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByLabelText('Select index.ts')).toHaveAttribute('data-state', 'checked');
+  });
+
+  it('removes the relative selected key when toggling a checked absolute file row', async () => {
+    const rootPath = '/Users/test/project-toggle';
+    const relativeSelectionKey = encodeFileSelection(rootPath, '/src/index.ts');
+    const loadedTree: IFileNode[] = [
+      {
+        name: 'project',
+        path: rootPath,
+        type: 'directory',
+        isVisible: true,
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: rootPath,
+        loadState: 'loaded',
+        children: [
+          {
+            name: 'index.ts',
+            path: `${rootPath}/src/index.ts`,
+            type: 'file',
+            isVisible: true,
+            handle: {} as FileSystemFileHandle,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: rootPath,
+          },
+        ],
+      },
+    ];
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree fileTree={loadedTree} folderId={rootPath} loadingFiles={new Set()} />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore.getState().setSelectedFiles(new Set([relativeSelectionKey]));
+      readyStore.getState().setSelectionMode('explicit');
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Expand'));
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Select index.ts'));
+      await Promise.resolve();
+    });
+
+    expect(readyStore.getState().selectedFilePaths).toEqual(new Set());
+  });
+
   it('does not treat shared string prefixes as ancestors of the query root', async () => {
     const partiallyLoadedTree: IFileNode[] = [
       {
