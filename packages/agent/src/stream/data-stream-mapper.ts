@@ -94,13 +94,34 @@ function resolveFinishReason(chunk: StreamChunkFinish | StreamChunkMessageFinish
     case 'stop':
     case 'length':
     case 'content-filter':
+      return reason;
     case 'tool-calls':
+    case 'tool_calls':
+      return 'tool-calls';
     case 'error':
     case 'other':
     case 'unknown':
       return reason;
     default:
       return 'unknown';
+  }
+}
+
+function getAbnormalFinishMessage(reason: FinishReason): string | undefined {
+  switch (reason) {
+    case 'length':
+      return 'Assistant stopped because the model reached its output token limit before completing the response.';
+    case 'tool-calls':
+      return 'Assistant stopped while still requesting tool calls. Increase the agent step limit or retry with a narrower context.';
+    case 'content-filter':
+      return 'Assistant stopped because the provider content filter ended the response.';
+    case 'stop':
+    case 'error':
+    case 'other':
+    case 'unknown':
+      return;
+    default:
+      return;
   }
 }
 
@@ -391,6 +412,11 @@ export class DataStreamMapper {
   ): Generator<EncodedChunk> {
     const usage = extractFinishUsage(chunk);
     const finishReason = resolveFinishReason(chunk);
+    const abnormalFinishMessage = getAbnormalFinishMessage(finishReason);
+    if (abnormalFinishMessage) {
+      this.markCurrentStepAsError();
+      yield { code: DataStreamCode.error, value: abnormalFinishMessage } satisfies EncodedChunk;
+    }
     const stepBeforeFinalize = this.currentStep;
     if (this.currentStep) {
       this.currentStep.usage = usage;
@@ -400,7 +426,9 @@ export class DataStreamMapper {
     yield {
       code: DataStreamCode.finishMessage,
       value: {
-        finishReason: stepBeforeFinalize?.finishReason ?? finishReason,
+        finishReason: abnormalFinishMessage
+          ? 'error'
+          : (stepBeforeFinalize?.finishReason ?? finishReason),
         usage,
         path: [],
       },

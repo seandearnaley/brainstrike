@@ -1761,9 +1761,10 @@ const MaxOutputSection: FC<ProviderSettingsSectionProps> = ({ settings, onUpdate
     <div className="space-y-2 rounded-md bg-muted/30 p-2">
       <div className="flex items-center justify-between">
         <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
-          Max output tokens
+          Output tokens / step
         </Label>
         <Switch
+          aria-label="Limit output tokens per step"
           checked={maxOutputEnabled}
           disabled={disabled}
           onCheckedChange={(checked) =>

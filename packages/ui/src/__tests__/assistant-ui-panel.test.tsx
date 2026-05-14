@@ -976,6 +976,33 @@ describe('AssistantUiPanel model picker', () => {
     expect(onSettingsChange).toHaveBeenCalledWith('openai', { workingMemoryEnabled: false });
   });
 
+  it('emits unset updates when token and step limit toggles are disabled', () => {
+    const onSettingsChange = vi.fn();
+
+    render(
+      <ProviderSettingsPanel
+        onSettingsChange={onSettingsChange}
+        providerId="openai"
+        settings={{
+          agentInputTokenLimit: 32_000,
+          agentMaxSteps: 8,
+          maxOutputTokens: 1024,
+        }}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Limit agent steps' }));
+    expect(onSettingsChange).toHaveBeenCalledWith('openai', { agentMaxSteps: undefined });
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Limit input tokens' }));
+    expect(onSettingsChange).toHaveBeenCalledWith('openai', {
+      agentInputTokenLimit: undefined,
+    });
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Limit output tokens per step' }));
+    expect(onSettingsChange).toHaveBeenCalledWith('openai', { maxOutputTokens: undefined });
+  });
+
   it('returns nothing for unsupported provider settings panels', () => {
     const { container } = render(<ProviderSettingsPanel providerId="unsupported" settings={{}} />);
     expect(container).toBeEmptyDOMElement();

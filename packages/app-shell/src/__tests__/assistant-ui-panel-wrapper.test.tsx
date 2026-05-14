@@ -792,6 +792,19 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
           Change OpenAI settings
         </button>
         <button
+          data-testid="provider-settings-clear-openai"
+          onClick={() =>
+            onProviderSettingsChange?.('openai', {
+              agentMaxSteps: undefined,
+              maxOutputTokens: undefined,
+              reasoningEffort: undefined,
+            })
+          }
+          type="button"
+        >
+          Clear OpenAI settings
+        </button>
+        <button
           data-testid="prepare-thread-request"
           onClick={async () => {
             try {
@@ -2037,6 +2050,48 @@ describe('AssistantUiPanelWrapper', () => {
         reasoningEffort: 'high',
       })
     );
+  });
+
+  test('removes per-thread draft provider settings when a control is toggled off', async () => {
+    const user = userEvent.setup();
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      providerSettings: {
+        ...state.providerSettings,
+        openai: {
+          ...state.providerSettings['openai'],
+          agentMaxSteps: 8,
+          maxOutputTokens: 512,
+          reasoningEffort: 'high',
+        },
+      },
+    }));
+
+    await renderAssistantThreadPanel(['openai'], 'thread-existing', async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('provider-settings-clear-openai'));
+    });
+
+    expect(useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']).toEqual(
+      expect.objectContaining({
+        provider: 'openai',
+        model: 'gpt-5.2',
+      })
+    );
+    expect(
+      useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']
+        ?.providerSettings?.['openai']
+    ).toEqual({});
+    expect(
+      useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']?.modelSettings
+    ).toBeUndefined();
+    expect(
+      useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']?.providerOptions
+    ).toBeUndefined();
   });
 
   test('stores provider setting changes globally when no thread prop is mounted', async () => {

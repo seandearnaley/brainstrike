@@ -517,6 +517,21 @@ function resolveLocalRuntimeBaseUrl(
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function mergeProviderSettings(
+  current: AssistantProviderSettings,
+  updates: AssistantProviderSettingsUpdate
+): AssistantProviderSettings {
+  const merged: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === undefined) {
+      delete merged[key];
+      continue;
+    }
+    merged[key] = value;
+  }
+  return merged as AssistantProviderSettings;
+}
+
 /**
  * Fetch the optional bearer token for a local runtime from the Electron
  * `window.secrets` bridge. Web builds (no secrets bridge, no stored keys)
@@ -1072,10 +1087,7 @@ export const useAssistantPreferencesStore = create<Store>()(
           return {
             providerSettings: {
               ...state.providerSettings,
-              [provider]: {
-                ...current,
-                ...updates,
-              },
+              [provider]: mergeProviderSettings(current, updates),
             },
           };
         }),

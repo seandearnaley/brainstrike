@@ -932,9 +932,11 @@ function mergeAssistantProviderSettings(
 ): AssistantProviderSettings {
   const merged: Record<string, unknown> = { ...(base ?? {}) };
   for (const [key, value] of Object.entries(updates)) {
-    if (value !== undefined) {
-      merged[key] = value;
+    if (value === undefined) {
+      delete merged[key];
+      continue;
     }
+    merged[key] = value;
   }
   return merged as AssistantProviderSettings;
 }
