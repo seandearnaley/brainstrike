@@ -270,6 +270,43 @@ describe('ipc-tools', () => {
       });
     });
 
+    it('omits invalid workspace indexing mode values before assistant runtime tool execution', async () => {
+      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
+      vi.mocked(isNativeTool).mockReturnValue(true);
+      vi.mocked(buildDesktopAssistantTools).mockReturnValue({
+        'brainstrike.listEmbeddingSpaces': {
+          execute: vi.fn().mockResolvedValue({ spaces: [] }),
+        },
+      } as never);
+
+      const result = await toolsExecuteHandler(
+        mockEvent,
+        'brainstrike.listEmbeddingSpaces',
+        {},
+        {
+          workspaceRootPath: '/tmp/test-workspace',
+          workspaceIndexEmbeddingSetId: 'set-1',
+          workspaceIndexingEnabled: true,
+          workspaceIndexingMode: 'unexpected-mode',
+          workspaceIndexingPaused: false,
+        }
+      );
+
+      expect(buildDesktopAssistantTools).toHaveBeenCalledWith(
+        {
+          workspaceRootPath: '/tmp/test-workspace',
+          workspaceIndexEmbeddingSetId: 'set-1',
+          workspaceIndexingEnabled: true,
+          workspaceIndexingPaused: false,
+        },
+        { embeddingHostManager: undefined }
+      );
+      expect(result).toMatchObject({
+        success: true,
+        result: { spaces: [] },
+      });
+    });
+
     it('omits invalid workspace context metadata before assistant runtime tool execution', async () => {
       vi.mocked(isExecutableNativeTool).mockReturnValue(false);
       vi.mocked(isNativeTool).mockReturnValue(true);

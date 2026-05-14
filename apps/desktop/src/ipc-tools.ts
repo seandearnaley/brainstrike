@@ -25,6 +25,7 @@ type RuntimeAgentLoop = NonNullable<RuntimeData['agentLoop']>;
 
 const MAX_INPUT_DEPTH = 12;
 const MAX_INPUT_SIZE = 1_000_000;
+const ALLOWED_WORKSPACE_INDEXING_MODES = new Set(['root-folder-cache']);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null) {
@@ -296,6 +297,18 @@ function sanitizeAgentLoop(input: unknown): RuntimeAgentLoop | undefined {
   return Object.keys(agentLoop).length > 0 ? agentLoop : undefined;
 }
 
+function sanitizeWorkspaceIndexingMode(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return;
+  }
+  const workspaceIndexingMode = value.trim();
+  if (ALLOWED_WORKSPACE_INDEXING_MODES.has(workspaceIndexingMode)) {
+    return workspaceIndexingMode;
+  }
+  logger.warn('Rejected invalid runtime workspaceIndexingMode.', { workspaceIndexingMode });
+  return;
+}
+
 function sanitizeRuntimeData(input: unknown): Partial<RuntimeData> | undefined {
   if (!isPlainObject(input)) {
     return;
@@ -323,8 +336,9 @@ function sanitizeRuntimeData(input: unknown): Partial<RuntimeData> | undefined {
   if (typeof input['workspaceIndexingEnabled'] === 'boolean') {
     runtimeData.workspaceIndexingEnabled = input['workspaceIndexingEnabled'];
   }
-  if (typeof input['workspaceIndexingMode'] === 'string') {
-    runtimeData.workspaceIndexingMode = input['workspaceIndexingMode'];
+  const workspaceIndexingMode = sanitizeWorkspaceIndexingMode(input['workspaceIndexingMode']);
+  if (workspaceIndexingMode) {
+    runtimeData.workspaceIndexingMode = workspaceIndexingMode;
   }
   if (typeof input['workspaceIndexingPaused'] === 'boolean') {
     runtimeData.workspaceIndexingPaused = input['workspaceIndexingPaused'];

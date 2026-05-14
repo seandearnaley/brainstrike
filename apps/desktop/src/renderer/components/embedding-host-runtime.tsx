@@ -172,9 +172,13 @@ interface QueryEmbeddingServiceState {
 
 function parseRecord(value: unknown): Record<string, unknown> {
   if (typeof value === 'string') {
-    const parsed = JSON.parse(value) as unknown;
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return {};
     }
     return {};
   }
