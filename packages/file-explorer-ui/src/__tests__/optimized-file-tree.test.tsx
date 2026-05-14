@@ -1328,6 +1328,59 @@ describe('OptimizedFileTree', () => {
     expect(screen.getByLabelText('Select src')).toHaveAttribute('data-state', 'indeterminate');
   });
 
+  it('marks absolute workspace parents indeterminate from agent-selected relative descendants', async () => {
+    const rootPath = '/Users/test/project';
+    const partiallyLoadedTree: IFileNode[] = [
+      {
+        name: 'project',
+        path: rootPath,
+        type: 'directory',
+        isVisible: true,
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: rootPath,
+        loadState: 'unloaded',
+        children: [],
+      },
+    ];
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree
+          fileTree={partiallyLoadedTree}
+          folderId={rootPath}
+          loadingFiles={new Set()}
+        />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore
+        .getState()
+        .setSelectedFiles(new Set([encodeFileSelection(rootPath, '/src/index.ts')]));
+      readyStore.getState().setSelectionMode('explicit');
+      await Promise.resolve();
+    });
+
+    expect(screen.getByLabelText('Select project')).toHaveAttribute('data-state', 'indeterminate');
+  });
+
   it('does not treat shared string prefixes as ancestors of the query root', async () => {
     const partiallyLoadedTree: IFileNode[] = [
       {

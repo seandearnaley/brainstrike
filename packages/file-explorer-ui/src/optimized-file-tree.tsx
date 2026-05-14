@@ -172,6 +172,8 @@ interface SelectedPathAncestorResolver {
   getResolvedCache: () => Map<string, string[]>;
 }
 
+const WINDOWS_DRIVE_PATH_PATTERN = /^[A-Za-z]:\//;
+
 function incrementDirectoryCount(
   directoryCounts: Map<string, number>,
   directoryPath: string
@@ -201,18 +203,112 @@ function evictOldestAncestorCacheEntries(selectedPathAncestorCache: Map<string, 
   }
 }
 
-function computeAncestorDirectoryPaths(filePath: string): string[] {
-  const ancestorPaths: string[] = [];
-  let separatorIndex = filePath.lastIndexOf('/');
+function normalizeDirectoryCountPath(filePath: string): string {
+  if (filePath.length > 1 && filePath.endsWith('/')) {
+    return filePath.replace(/\/+$/, '');
+  }
+  return filePath;
+}
+
+function isAbsolutePathLike(filePath: string): boolean {
+  return filePath.startsWith('/') || WINDOWS_DRIVE_PATH_PATTERN.test(filePath);
+}
+
+function addUniqueAncestorPath(
+  ancestorPaths: string[],
+  seenAncestorPaths: Set<string>,
+  ancestorPath: string
+): void {
+  if (seenAncestorPaths.has(ancestorPath)) {
+    return;
+  }
+  seenAncestorPaths.add(ancestorPath);
+  ancestorPaths.push(ancestorPath);
+}
+
+function addAncestorDirectoryPaths(
+  ancestorPaths: string[],
+  seenAncestorPaths: Set<string>,
+  filePath: string,
+  lowerBoundPath?: string
+): void {
+  const normalizedFilePath = normalizeDirectoryCountPath(filePath);
+  const normalizedLowerBoundPath = lowerBoundPath
+    ? normalizeDirectoryCountPath(lowerBoundPath)
+    : undefined;
+  let separatorIndex = normalizedFilePath.lastIndexOf('/');
   while (separatorIndex > 0) {
-    ancestorPaths.push(filePath.slice(0, separatorIndex));
-    separatorIndex = filePath.lastIndexOf('/', separatorIndex - 1);
+    const ancestorPath = normalizedFilePath.slice(0, separatorIndex);
+    if (
+      normalizedLowerBoundPath &&
+      ancestorPath !== normalizedLowerBoundPath &&
+      !isDescendantPath(ancestorPath, normalizedLowerBoundPath)
+    ) {
+      separatorIndex = normalizedFilePath.lastIndexOf('/', separatorIndex - 1);
+      continue;
+    }
+
+    addUniqueAncestorPath(ancestorPaths, seenAncestorPaths, ancestorPath);
+    if (ancestorPath === normalizedLowerBoundPath) {
+      break;
+    }
+    separatorIndex = normalizedFilePath.lastIndexOf('/', separatorIndex - 1);
+  }
+}
+
+function resolveWorkspaceAbsoluteSelectionPath(folderId: string, selectedPath: string): string {
+  const normalizedFolderId = normalizeDirectoryCountPath(folderId);
+  const normalizedSelectedPath = normalizeDirectoryCountPath(selectedPath);
+  if (
+    normalizedSelectedPath === normalizedFolderId ||
+    isDescendantPath(normalizedSelectedPath, normalizedFolderId)
+  ) {
+    return normalizedSelectedPath;
+  }
+
+  const relativeSelectionPath = normalizedSelectedPath.replace(/^\/+/, '');
+  if (normalizedFolderId === '/') {
+    return `/${relativeSelectionPath}`;
+  }
+  return `${normalizedFolderId}/${relativeSelectionPath}`;
+}
+
+function computeAncestorDirectoryPaths(filePath: string, folderId: string): string[] {
+  const ancestorPaths: string[] = [];
+  const seenAncestorPaths = new Set<string>();
+  addAncestorDirectoryPaths(ancestorPaths, seenAncestorPaths, filePath);
+
+  // Root rows can be rendered as an empty path in browser-relative trees, as
+  // "/" for filesystem roots, or as the absolute workspace path on desktop.
+  // Count them directly so selected descendants are observable before children
+  // are hydrated.
+  addUniqueAncestorPath(ancestorPaths, seenAncestorPaths, '');
+  if (filePath.startsWith('/')) {
+    addUniqueAncestorPath(ancestorPaths, seenAncestorPaths, '/');
+  }
+
+  if (folderId) {
+    const normalizedFolderId = normalizeDirectoryCountPath(folderId);
+    addUniqueAncestorPath(ancestorPaths, seenAncestorPaths, normalizedFolderId);
+    if (isAbsolutePathLike(normalizedFolderId)) {
+      const absoluteSelectionPath = resolveWorkspaceAbsoluteSelectionPath(
+        normalizedFolderId,
+        filePath
+      );
+      addAncestorDirectoryPaths(
+        ancestorPaths,
+        seenAncestorPaths,
+        absoluteSelectionPath,
+        normalizedFolderId
+      );
+    }
   }
 
   return ancestorPaths;
 }
 
 function createSelectedPathAncestorResolver(
+  folderId: string,
   selectedPathAncestorCache: Map<string, string[]>
 ): SelectedPathAncestorResolver {
   let nextCache: Map<string, string[]> | null = null;
@@ -246,7 +342,7 @@ function createSelectedPathAncestorResolver(
         return cachedAncestors;
       }
 
-      const ancestorPaths = computeAncestorDirectoryPaths(filePath);
+      const ancestorPaths = computeAncestorDirectoryPaths(filePath, folderId);
       const mutableCache = getMutableCache();
       // Guard long-running sessions against unbounded path growth.
       evictOldestAncestorCacheEntries(mutableCache);
@@ -293,7 +389,10 @@ function buildSelectedDirectoryCounts(
     };
   }
 
-  const selectedPathResolver = createSelectedPathAncestorResolver(selectedPathAncestorCache);
+  const selectedPathResolver = createSelectedPathAncestorResolver(
+    folderId,
+    selectedPathAncestorCache
+  );
   const folderPrefix = `${folderId}|@|`;
   for (const selectionKey of selectedFilePaths) {
     if (!selectionKey.startsWith(folderPrefix)) {
@@ -353,7 +452,10 @@ function applySelectedDirectoryCountDiff(
   selectedPathAncestorCache: Map<string, string[]>
 ): SelectedDirectoryCountBuildResult {
   const nextDirectoryCounts = new Map(currentDirectoryCounts);
-  const selectedPathResolver = createSelectedPathAncestorResolver(selectedPathAncestorCache);
+  const selectedPathResolver = createSelectedPathAncestorResolver(
+    folderId,
+    selectedPathAncestorCache
+  );
   const folderPrefix = `${folderId}|@|`;
 
   for (const selectionKey of previousSelectedFilePaths) {
