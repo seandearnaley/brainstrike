@@ -411,13 +411,8 @@ describe('mastra streaming integration', () => {
     );
 
     const chunks: unknown[] = [];
-    let thrown: unknown;
-    try {
-      for await (const chunk of iterator) {
-        chunks.push(chunk);
-      }
-    } catch (error) {
-      thrown = error;
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
     }
 
     expect(chunks).toEqual([
@@ -431,10 +426,11 @@ describe('mastra streaming integration', () => {
         status: 'success',
         name: 'brainstrike.queryEmbeddingSpace',
       }),
+      expect.objectContaining({
+        type: 'message-finish',
+        finishReason: 'unknown',
+      }),
     ]);
-    expect(thrown).toBeInstanceOf(MastraAgentError);
-    expect((thrown as MastraAgentError).code).toBe('mastra_agent_stream_failure');
-    expect((thrown as Error).message).toContain('Mastra stream ended without a finish event');
   });
 
   it('rejects AI SDK v1 model runtimes instead of falling back to legacy streaming', async () => {

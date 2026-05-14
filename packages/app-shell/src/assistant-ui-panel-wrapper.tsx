@@ -940,6 +940,8 @@ function mergeAssistantProviderSettings(
   const merged: Record<string, unknown> = { ...(base ?? {}) };
   for (const [key, value] of Object.entries(updates)) {
     if (value === undefined) {
+      // Undefined in a provider-settings update is an explicit clear operation.
+      // Callers that want to preserve the base setting must omit the key.
       delete merged[key];
       continue;
     }

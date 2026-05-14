@@ -385,6 +385,15 @@ function makeFinishChunk(part: unknown): StreamChunk {
   };
 }
 
+function makeSyntheticFinishChunk(): StreamChunk {
+  return {
+    type: 'message-finish',
+    finishReason: 'unknown',
+    usage: { promptTokens: 0, completionTokens: 0 },
+    path: [],
+  };
+}
+
 function normalizeFinishReason(reason: string): StreamFinishReason {
   switch (reason) {
     case 'stop':
@@ -784,9 +793,10 @@ async function* streamChunksFromMastra({
       }
     }
     if (!runtimeData?.signal?.aborted) {
-      throw createMastraAgentError('mastra_agent_stream_failure', {
-        detail: 'Mastra stream ended without a finish event',
+      logger.warn('mastra stream ended without finish event', {
+        code: 'mastra_agent_stream_missing_finish',
       });
+      yield makeSyntheticFinishChunk();
     }
   } finally {
     if (runtimeData?.signal?.aborted) {
