@@ -107,10 +107,11 @@ function getAbnormalFinishMessage(reason: StreamFinishReason): string | undefine
       return 'Assistant stopped because the model reached its output token limit before completing the response.';
     case 'content-filter':
       return 'Assistant stopped because the provider content filter ended the response.';
+    case 'other':
+      return 'Assistant stream ended without a normal stop signal.';
     case 'stop':
     case 'tool-calls':
     case 'error':
-    case 'other':
     case 'unknown':
       return;
     default:

@@ -428,7 +428,7 @@ describe('mastra streaming integration', () => {
       }),
       expect.objectContaining({
         type: 'message-finish',
-        finishReason: 'unknown',
+        finishReason: 'other',
       }),
     ]);
   });
@@ -559,6 +559,28 @@ describe('mastra streaming integration', () => {
     expect(instructions).toContain('semantic chunks with persisted source line ranges');
     expect(instructions).toContain('surrounding lines are needed');
     expect(instructions).not.toContain('brainstrike.listWorkspaceContext');
+  });
+
+  it('does not advertise unregistered Brainstrike native tools in default instructions', async () => {
+    await createMastraAgentRuntime({
+      runtime: { apiKey: 'key', provider: 'openai' },
+      tools: {
+        'brainstrike.readWorkspaceFile': {
+          id: 'brainstrike.readWorkspaceFile',
+          description: 'Read workspace file',
+        },
+      },
+    });
+
+    const instructions = agentInstances[0]?.config.instructions ?? '';
+    expect(instructions).toContain('Registered Brainstrike native context tools in this run');
+    expect(instructions).toContain('brainstrike_readWorkspaceFile');
+    expect(instructions).toContain('Workspace-selection inspection is unavailable in this run.');
+    expect(instructions).toContain(
+      'Semantic workspace search is unavailable unless both listEmbeddingSpaces and queryEmbeddingSpace are registered.'
+    );
+    expect(instructions).not.toContain('brainstrike_listWorkspaceContext');
+    expect(instructions).not.toContain('brainstrike_queryEmbeddingSpace');
   });
 
   it('keeps tools distinct when sanitized ids would otherwise collide', async () => {

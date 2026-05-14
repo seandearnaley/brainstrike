@@ -473,6 +473,38 @@ describe('retrieval-tool', () => {
     expect(result.skippedSourceRangeChunks).toEqual([
       { chunkId: 'chunk-old', chunkIndex: 0, fileRecordId: 'file-1' },
     ]);
+    expect(loggerWarn).toHaveBeenCalledWith('Some retrieved chunks are missing source ranges', {
+      retrievedChunks: 2,
+      skippedForMissingSourceRange: 1,
+    });
+  });
+
+  it('throws a safe rebuild hint when all retrieved chunks are missing source ranges', async () => {
+    searchSimilarMock.mockResolvedValueOnce([
+      {
+        chunk: {
+          id: 'chunk-old',
+          content: 'Old chunk without range',
+          tokenCount: 2,
+          chunkIndex: 0,
+          chunkType: 'code',
+          fileRecordId: 'file-1',
+          embeddingSetId: 'set-1',
+        },
+        similarity: 0.91,
+        rank: 1,
+      },
+    ]);
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    await expect(
+      tool.execute({ context: { query: 'hello', embeddingSetId: 'set-1' } })
+    ).rejects.toThrow(
+      'Retrieved chunks are missing source line metadata. Rebuild the embedding space.'
+    );
+    expect(loggerWarn).toHaveBeenCalledWith('All retrieved chunks are missing source ranges', {
+      skippedForMissingSourceRange: 1,
+    });
   });
 
   it('continues when snapshot cleanup fails', async () => {

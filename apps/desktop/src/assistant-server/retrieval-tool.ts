@@ -619,6 +619,18 @@ async function packRetrievedContext(
   const fileIds = Array.from(new Set(searchResults.map((result) => result.chunk.fileRecordId)));
   const fileMap = await buildFileRecordMap(recordRepository, fileIds);
   const { chunks: chunkInputs, skippedSourceRangeChunks } = toContextChunks(searchResults, fileMap);
+  if (searchResults.length > 0 && skippedSourceRangeChunks.length === searchResults.length) {
+    logger.warn('All retrieved chunks are missing source ranges', {
+      skippedForMissingSourceRange: skippedSourceRangeChunks.length,
+    });
+    throw new Error(ERROR_MESSAGES.missingSourceRange);
+  }
+  if (skippedSourceRangeChunks.length > 0) {
+    logger.warn('Some retrieved chunks are missing source ranges', {
+      retrievedChunks: searchResults.length,
+      skippedForMissingSourceRange: skippedSourceRangeChunks.length,
+    });
+  }
 
   const packerOptions = {
     budgetTokens: resolveTokenBudget(runtimeData, input.tokenBudget),
