@@ -191,6 +191,116 @@ describe('ipc-tools', () => {
       });
     });
 
+    it('passes only structurally valid workspace context metadata to assistant runtime tools', async () => {
+      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
+      vi.mocked(isNativeTool).mockReturnValue(true);
+      vi.mocked(buildDesktopAssistantTools).mockReturnValue({
+        'brainstrike.readWorkspaceContext': {
+          execute: vi.fn().mockResolvedValue({ files: [] }),
+        },
+      } as never);
+
+      const result = await toolsExecuteHandler(
+        mockEvent,
+        'brainstrike.readWorkspaceContext',
+        {
+          tokenBudget: 500,
+        },
+        {
+          workspaceRootPath: '/tmp/test-workspace',
+          workspaceContext: {
+            tokenBudget: 8192,
+            selectedSourceApproxTokens: 320,
+            selectedOutputApproxTokens: null,
+            useTapestryRanges: true,
+            includeProjectTree: false,
+            files: [
+              {
+                path: '/src/main.ts',
+                approxTokens: 200,
+                outputApproxTokens: 120,
+                ranges: [
+                  {
+                    startLine: 4,
+                    endLine: 12,
+                    approxTokens: 60,
+                    isActive: true,
+                  },
+                ],
+              },
+            ],
+          },
+        }
+      );
+
+      expect(buildDesktopAssistantTools).toHaveBeenCalledWith({
+        workspaceRootPath: '/tmp/test-workspace',
+        workspaceContext: {
+          tokenBudget: 8192,
+          selectedSourceApproxTokens: 320,
+          selectedOutputApproxTokens: null,
+          useTapestryRanges: true,
+          includeProjectTree: false,
+          files: [
+            {
+              path: '/src/main.ts',
+              approxTokens: 200,
+              outputApproxTokens: 120,
+              ranges: [
+                {
+                  startLine: 4,
+                  endLine: 12,
+                  approxTokens: 60,
+                  isActive: true,
+                },
+              ],
+            },
+          ],
+        },
+      });
+      expect(result).toMatchObject({
+        success: true,
+        result: { files: [] },
+      });
+    });
+
+    it('omits invalid workspace context metadata before assistant runtime tool execution', async () => {
+      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
+      vi.mocked(isNativeTool).mockReturnValue(true);
+      vi.mocked(buildDesktopAssistantTools).mockReturnValue({
+        'brainstrike.readWorkspaceContext': {
+          execute: vi.fn().mockResolvedValue({ files: [] }),
+        },
+      } as never);
+
+      const result = await toolsExecuteHandler(
+        mockEvent,
+        'brainstrike.readWorkspaceContext',
+        {
+          tokenBudget: 500,
+        },
+        {
+          workspaceRootPath: '/tmp/test-workspace',
+          workspaceContext: {
+            files: [
+              {
+                path: '/src/main.ts',
+                ranges: [{ startLine: 12, endLine: 4 }],
+              },
+            ],
+          },
+        }
+      );
+
+      expect(buildDesktopAssistantTools).toHaveBeenCalledWith({
+        workspaceRootPath: '/tmp/test-workspace',
+      });
+      expect(result).toMatchObject({
+        success: true,
+        result: { files: [] },
+      });
+    });
+
     it('returns friendly error for native tools requiring database access', async () => {
       vi.mocked(isExecutableNativeTool).mockReturnValue(false);
       vi.mocked(isNativeTool).mockReturnValue(true);

@@ -485,10 +485,11 @@ async function generateQueryEmbeddingForSet(
     return generateQueryEmbedding(provider, embeddingSet.modelId, embeddingSet.dimensions, query);
   }
   if (isLocalProviderType(provider)) {
-    if (!assistantEmbeddingHostManager) {
+    const embeddingHostManager = assistantEmbeddingHostManager;
+    if (!embeddingHostManager) {
       throw new Error(ERROR_MESSAGES.localEmbeddingHostUnavailable);
     }
-    return assistantEmbeddingHostManager.queryEmbedding({
+    return embeddingHostManager.queryEmbedding({
       dimensions: embeddingSet.dimensions,
       modelId: embeddingSet.modelId,
       modelKey: embeddingSet.modelKey,

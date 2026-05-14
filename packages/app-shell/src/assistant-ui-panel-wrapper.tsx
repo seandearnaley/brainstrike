@@ -1281,9 +1281,6 @@ export function AssistantUiPanelWrapper({
   const setTapestryRangesForKey = useWorkspaceContextCurationStore(
     (state) => state.setTapestryRangesForKey
   );
-  const tapestryRangesByKey = useWorkspaceContextCurationStore(
-    (state) => state.tapestryRangesByKey
-  );
 
   useEffect(() => {
     effectiveSelectionRef.current = effectiveSelection;
@@ -1389,14 +1386,15 @@ export function AssistantUiPanelWrapper({
                   isActive: range.isActive,
                 })
               );
-        const existingRanges = tapestryRangesByKey[compositeKey] ?? [];
+        const existingRanges =
+          useWorkspaceContextCurationStore.getState().tapestryRangesByKey[compositeKey] ?? [];
         setTapestryRangesForKey(
           compositeKey,
           mode === 'add' ? [...existingRanges, ...nextRanges] : nextRanges
         );
       }
     },
-    [setTapestryRangesForKey, tapestryRangesByKey]
+    [setTapestryRangesForKey]
   );
 
   useEffect(() => {

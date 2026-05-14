@@ -37,7 +37,7 @@ test.describe('AI Tools and System Diagnostics settings (web)', () => {
     await page.getByTestId('category-filter').click();
     await page.getByRole('option', { name: 'Retrieval' }).click();
     await expect(page.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toBeVisible();
-    await expect(page.getByTestId('tool-row-brainstrike.readWorkspaceFile')).toHaveCount(0);
+    await expect(page.getByTestId('tool-row-brainstrike.readWorkspaceFile')).toBeVisible();
 
     await page.getByTestId('tier-filter').click();
     await page.getByRole('option', { name: 'Critical' }).click();

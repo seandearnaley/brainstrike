@@ -458,6 +458,18 @@ vi.mock('@brainstrike/file-explorer-ui', () => {
     const state = getState();
     return selector ? selector(state) : state;
   };
+  const getWorkspaceContextCurationState = () => ({
+    contextSnapshot: fileExplorerMocks.workspaceContextSnapshot,
+    setTapestryRangesForKey: fileExplorerMocks.setTapestryRangesForKey,
+    tapestryRangesByKey: fileExplorerMocks.tapestryRangesByKey,
+  });
+  const useWorkspaceContextCurationStore = Object.assign(
+    (selector: (state: ReturnType<typeof getWorkspaceContextCurationState>) => unknown): unknown =>
+      selector(getWorkspaceContextCurationState()),
+    {
+      getState: getWorkspaceContextCurationState,
+    }
+  );
 
   return {
     useSelectionManager: () => ({ effectiveSelection: fileExplorerMocks.effectiveSelection }),
@@ -465,18 +477,7 @@ vi.mock('@brainstrike/file-explorer-ui', () => {
     useFileExplorerStoreSelector: (selector: (state: ReturnType<typeof getState>) => unknown) =>
       selector(getState()),
     useOptionalTokenCacheContext: () => fileExplorerMocks.tokenCache,
-    useWorkspaceContextCurationStore: (
-      selector: (state: {
-        contextSnapshot: null | Record<string, unknown>;
-        setTapestryRangesForKey: (key: string, ranges: unknown[]) => void;
-        tapestryRangesByKey: Record<string, unknown[]>;
-      }) => unknown
-    ) =>
-      selector({
-        contextSnapshot: fileExplorerMocks.workspaceContextSnapshot,
-        setTapestryRangesForKey: fileExplorerMocks.setTapestryRangesForKey,
-        tapestryRangesByKey: fileExplorerMocks.tapestryRangesByKey,
-      }),
+    useWorkspaceContextCurationStore,
   };
 });
 
@@ -1738,7 +1739,7 @@ describe('AssistantUiPanelWrapper', () => {
     let handler:
       | ((payload: {
           folderId: string;
-          mode: 'replace';
+          mode: 'replace' | 'add';
           updates: Array<{
             path: string;
             ranges: Array<{ startLine: number; endLine: number; isActive?: boolean }>;
@@ -1789,6 +1790,63 @@ describe('AssistantUiPanelWrapper', () => {
         userModified: true,
       },
     ]);
+  });
+
+  test('adds workspace-context tapestry updates against the current store snapshot', async () => {
+    let handler:
+      | ((payload: {
+          folderId: string;
+          mode: 'add';
+          updates: Array<{
+            path: string;
+            ranges: Array<{ startLine: number; endLine: number; isActive?: boolean }>;
+          }>;
+        }) => void)
+      | undefined;
+    (
+      window as typeof window & {
+        tools?: {
+          onWorkspaceContextTapestryUpdate: (cb: NonNullable<typeof handler>) => () => void;
+        };
+      }
+    ).tools = {
+      onWorkspaceContextTapestryUpdate: (cb) => {
+        handler = cb;
+        return vi.fn();
+      },
+    };
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      })
+    );
+
+    const compositeKey = encodeFileSelection('test-folder', '/curated.ts');
+    fileExplorerMocks.tapestryRangesByKey = {
+      [compositeKey]: [{ startLine: 0, endLine: 2, isActive: true }],
+    };
+
+    act(() => {
+      handler?.({
+        folderId: 'test-folder',
+        mode: 'add',
+        updates: [
+          {
+            path: '/curated.ts',
+            ranges: [{ startLine: 4, endLine: 12, isActive: true }],
+          },
+        ],
+      });
+    });
+
+    expect(fileExplorerMocks.setTapestryRangesForKey).toHaveBeenCalledWith(
+      compositeKey,
+      expect.arrayContaining([
+        expect.objectContaining({ startLine: 0, endLine: 2 }),
+        expect.objectContaining({ startLine: 3, endLine: 12 }),
+      ])
+    );
   });
 
   test('replace mode preserves other-folder selections and bad keys', async () => {

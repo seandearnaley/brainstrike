@@ -17,6 +17,9 @@ import { executeNativeTool, isExecutableNativeTool } from './native-tool-executo
 const logger = createLogger('IpcTools');
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+type RuntimeWorkspaceContext = NonNullable<RuntimeData['workspaceContext']>;
+type RuntimeWorkspaceContextFile = NonNullable<RuntimeWorkspaceContext['files']>[number];
+type RuntimeWorkspaceContextRange = NonNullable<RuntimeWorkspaceContextFile['ranges']>[number];
 
 const MAX_INPUT_DEPTH = 12;
 const MAX_INPUT_SIZE = 1_000_000;
@@ -118,6 +121,153 @@ function sanitizeMcpInput(
   return { ok: true, value: input as Record<string, JsonValue> };
 }
 
+function isFiniteTokenValue(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function readOptionalTokenValue(
+  source: Record<string, unknown>,
+  key: string
+): number | null | undefined {
+  const value = source[key];
+  if (value === undefined) {
+    return;
+  }
+  if (value === null) {
+    return null;
+  }
+  return isFiniteTokenValue(value) ? value : undefined;
+}
+
+function readOptionalBoolean(source: Record<string, unknown>, key: string): boolean | undefined {
+  const value = source[key];
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function sanitizeWorkspaceContextRange(input: unknown): RuntimeWorkspaceContextRange | null {
+  if (!isPlainObject(input)) {
+    return null;
+  }
+
+  const startLine = input['startLine'];
+  const endLine = input['endLine'];
+  if (
+    typeof startLine !== 'number' ||
+    typeof endLine !== 'number' ||
+    !Number.isSafeInteger(startLine) ||
+    !Number.isSafeInteger(endLine) ||
+    startLine < 1 ||
+    endLine < startLine
+  ) {
+    return null;
+  }
+
+  const range: RuntimeWorkspaceContextRange = { startLine, endLine };
+  const approxTokens = readOptionalTokenValue(input, 'approxTokens');
+  if (approxTokens !== undefined) {
+    range.approxTokens = approxTokens;
+  }
+  const isActive = readOptionalBoolean(input, 'isActive');
+  if (isActive !== undefined) {
+    range.isActive = isActive;
+  }
+  return range;
+}
+
+function sanitizeWorkspaceContextFile(input: unknown): RuntimeWorkspaceContextFile | null {
+  if (!isPlainObject(input)) {
+    return null;
+  }
+
+  const pathValue = input['path'];
+  if (typeof pathValue !== 'string' || pathValue.trim().length === 0) {
+    return null;
+  }
+
+  const file: RuntimeWorkspaceContextFile = { path: pathValue };
+  const approxTokens = readOptionalTokenValue(input, 'approxTokens');
+  if (approxTokens !== undefined) {
+    file.approxTokens = approxTokens;
+  }
+  const outputApproxTokens = readOptionalTokenValue(input, 'outputApproxTokens');
+  if (outputApproxTokens !== undefined) {
+    file.outputApproxTokens = outputApproxTokens;
+  }
+  const rangesValue = input['ranges'];
+  if (rangesValue !== undefined) {
+    if (!Array.isArray(rangesValue)) {
+      return null;
+    }
+    const ranges: RuntimeWorkspaceContextRange[] = [];
+    for (const rangeValue of rangesValue) {
+      const range = sanitizeWorkspaceContextRange(rangeValue);
+      if (!range) {
+        return null;
+      }
+      ranges.push(range);
+    }
+    file.ranges = ranges;
+  }
+  return file;
+}
+
+function sanitizeWorkspaceContext(input: unknown): RuntimeWorkspaceContext | undefined {
+  if (!isPlainObject(input)) {
+    return;
+  }
+
+  const workspaceContext: RuntimeWorkspaceContext = {};
+  const filesValue = input['files'];
+  if (filesValue !== undefined) {
+    if (!Array.isArray(filesValue)) {
+      return;
+    }
+    const files: RuntimeWorkspaceContextFile[] = [];
+    for (const fileValue of filesValue) {
+      const file = sanitizeWorkspaceContextFile(fileValue);
+      if (!file) {
+        return;
+      }
+      files.push(file);
+    }
+    workspaceContext.files = files;
+  }
+
+  const includeProjectTree = readOptionalBoolean(input, 'includeProjectTree');
+  if (includeProjectTree !== undefined) {
+    workspaceContext.includeProjectTree = includeProjectTree;
+  }
+  const projectTreeApproxTokens = readOptionalTokenValue(input, 'projectTreeApproxTokens');
+  if (projectTreeApproxTokens !== undefined) {
+    workspaceContext.projectTreeApproxTokens = projectTreeApproxTokens;
+  }
+  const projectTreeTokenCountLoading = readOptionalBoolean(input, 'projectTreeTokenCountLoading');
+  if (projectTreeTokenCountLoading !== undefined) {
+    workspaceContext.projectTreeTokenCountLoading = projectTreeTokenCountLoading;
+  }
+  const selectedOutputApproxTokens = readOptionalTokenValue(input, 'selectedOutputApproxTokens');
+  if (selectedOutputApproxTokens !== undefined) {
+    workspaceContext.selectedOutputApproxTokens = selectedOutputApproxTokens;
+  }
+  const selectedSourceApproxTokens = readOptionalTokenValue(input, 'selectedSourceApproxTokens');
+  if (selectedSourceApproxTokens !== undefined) {
+    workspaceContext.selectedSourceApproxTokens = selectedSourceApproxTokens;
+  }
+  const tokenBudget = input['tokenBudget'];
+  if (tokenBudget !== undefined) {
+    if (!isFiniteTokenValue(tokenBudget)) {
+      return;
+    }
+    workspaceContext.tokenBudget = tokenBudget;
+  }
+  const useTapestryRanges = readOptionalBoolean(input, 'useTapestryRanges');
+  if (useTapestryRanges !== undefined) {
+    workspaceContext.useTapestryRanges = useTapestryRanges;
+  }
+
+  return workspaceContext;
+}
+
 function sanitizeRuntimeData(input: unknown): Partial<RuntimeData> | undefined {
   if (!isPlainObject(input)) {
     return;
@@ -151,10 +301,13 @@ function sanitizeRuntimeData(input: unknown): Partial<RuntimeData> | undefined {
   if (typeof input['workspaceIndexingPaused'] === 'boolean') {
     runtimeData.workspaceIndexingPaused = input['workspaceIndexingPaused'];
   }
-  if (isPlainObject(input['workspaceContext'])) {
-    runtimeData.workspaceContext = input['workspaceContext'] as NonNullable<
-      RuntimeData['workspaceContext']
-    >;
+  if (input['workspaceContext'] !== undefined) {
+    const workspaceContext = sanitizeWorkspaceContext(input['workspaceContext']);
+    if (workspaceContext) {
+      runtimeData.workspaceContext = workspaceContext;
+    } else {
+      logger.warn('Rejected invalid runtime workspaceContext metadata.');
+    }
   }
 
   return Object.keys(runtimeData).length > 0 ? runtimeData : undefined;

@@ -57,6 +57,7 @@ const DEFAULT_DIRECTORY_DEPTH = 1;
 const DEFAULT_CONTEXT_TOKEN_BUDGET = 4000;
 const DEFAULT_CONTEXT_MAX_FILES = 20;
 const DEFAULT_CONTEXT_MAX_CHARS_PER_FILE = 12_000;
+const READ_WORKSPACE_CONTEXT_FILE_CONCURRENCY = 10;
 
 type ToolExecuteInput<T> = { context: T } | T;
 
@@ -811,6 +812,99 @@ async function readWorkspaceContextFile(args: {
   };
 }
 
+type WorkspaceContextBatchReadResult =
+  | {
+      file: WorkspaceContextResolvedFile;
+      requestedPath: string;
+      status: 'fulfilled';
+    }
+  | {
+      error: unknown;
+      requestedPath: string;
+      status: 'rejected';
+    };
+
+async function readWorkspaceContextBatch(args: {
+  batchPaths: readonly string[];
+  maxCharsPerFile: number;
+  tapestryRangesByPath: ReadonlyMap<string, RuntimeWorkspaceContextRangeMetadata[]>;
+  workspaceRootPath: string;
+}): Promise<WorkspaceContextBatchReadResult[]> {
+  const batchResults = await Promise.allSettled(
+    args.batchPaths.map(async (requestedPath) => {
+      const normalizedRequestedPath = normalizeWorkspacePath(requestedPath);
+      const file = await readWorkspaceContextFile({
+        rootPath: args.workspaceRootPath,
+        requestedPath: normalizedRequestedPath,
+        maxCharsPerFile: args.maxCharsPerFile,
+        tapestryRanges: args.tapestryRangesByPath.get(normalizedRequestedPath),
+      });
+      return { file, requestedPath };
+    })
+  );
+
+  return batchResults.map((result, index) => {
+    const requestedPath = args.batchPaths[index] ?? '';
+    if (result.status === 'rejected') {
+      return { error: result.reason, requestedPath, status: 'rejected' };
+    }
+    return { ...result.value, status: 'fulfilled' };
+  });
+}
+
+function toWorkspaceContextFileResult(
+  file: WorkspaceContextResolvedFile,
+  approxTokens: number
+): WorkspaceContextFileResult {
+  const fileResult: WorkspaceContextFileResult = {
+    path: file.path,
+    size: file.size,
+    startLine: file.startLine,
+    endLine: file.endLine,
+    totalLines: file.totalLines,
+    truncated: file.truncated,
+    omittedChars: file.omittedChars,
+    approxTokens,
+    content: file.content,
+  };
+  if (file.tapestryRangeCount !== undefined) {
+    fileResult.tapestryRangeCount = file.tapestryRangeCount;
+  }
+  if (file.tapestryRanges !== undefined) {
+    fileResult.tapestryRanges = file.tapestryRanges;
+  }
+  return fileResult;
+}
+
+function appendWorkspaceContextBatch(args: {
+  batchResults: readonly WorkspaceContextBatchReadResult[];
+  files: WorkspaceContextFileResult[];
+  skippedFiles: WorkspaceContextSkippedFile[];
+  tokenBudget: number;
+  totalApproxTokens: number;
+}): number {
+  let nextTotalApproxTokens = args.totalApproxTokens;
+  for (const result of args.batchResults) {
+    if (result.status === 'rejected') {
+      args.skippedFiles.push(classifyReadContextError(result.requestedPath, result.error));
+      continue;
+    }
+
+    const approxTokens = result.file.approxOutputTokens;
+    if (nextTotalApproxTokens + approxTokens > args.tokenBudget) {
+      args.skippedFiles.push({
+        path: result.file.path,
+        reason: 'tokenBudget',
+        message: `Including this file would exceed the ${args.tokenBudget} token budget.`,
+      });
+      continue;
+    }
+    nextTotalApproxTokens += approxTokens;
+    args.files.push(toWorkspaceContextFileResult(result.file, approxTokens));
+  }
+  return nextTotalApproxTokens;
+}
+
 async function runReadWorkspaceContext(
   input: ReadWorkspaceContextInput,
   runtimeData: RuntimeData | undefined
@@ -846,52 +940,34 @@ async function runReadWorkspaceContext(
   const files: WorkspaceContextFileResult[] = [];
   const skippedFiles: WorkspaceContextSkippedFile[] = [];
   let totalApproxTokens = 0;
+  let cursor = 0;
 
-  for (const requestedPath of requestedPaths) {
-    if (files.length >= maxFiles) {
-      skippedFiles.push({ path: requestedPath, reason: 'maxFiles' });
-      continue;
-    }
+  while (cursor < requestedPaths.length && files.length < maxFiles) {
+    const remainingSlots = maxFiles - files.length;
+    const batchSize = Math.min(
+      READ_WORKSPACE_CONTEXT_FILE_CONCURRENCY,
+      remainingSlots,
+      requestedPaths.length - cursor
+    );
+    const batchPaths = requestedPaths.slice(cursor, cursor + batchSize);
+    cursor += batchSize;
+    const batchResults = await readWorkspaceContextBatch({
+      batchPaths,
+      maxCharsPerFile,
+      tapestryRangesByPath,
+      workspaceRootPath,
+    });
+    totalApproxTokens = appendWorkspaceContextBatch({
+      batchResults,
+      files,
+      skippedFiles,
+      tokenBudget,
+      totalApproxTokens,
+    });
+  }
 
-    try {
-      const normalizedRequestedPath = normalizeWorkspacePath(requestedPath);
-      const file = await readWorkspaceContextFile({
-        rootPath: workspaceRootPath,
-        requestedPath: normalizedRequestedPath,
-        maxCharsPerFile,
-        tapestryRanges: tapestryRangesByPath.get(normalizedRequestedPath),
-      });
-      const approxTokens = file.approxOutputTokens;
-      if (totalApproxTokens + approxTokens > tokenBudget) {
-        skippedFiles.push({
-          path: file.path,
-          reason: 'tokenBudget',
-          message: `Including this file would exceed the ${tokenBudget} token budget.`,
-        });
-        continue;
-      }
-      totalApproxTokens += approxTokens;
-      const fileResult: WorkspaceContextFileResult = {
-        path: file.path,
-        size: file.size,
-        startLine: file.startLine,
-        endLine: file.endLine,
-        totalLines: file.totalLines,
-        truncated: file.truncated,
-        omittedChars: file.omittedChars,
-        approxTokens,
-        content: file.content,
-      };
-      if (file.tapestryRangeCount !== undefined) {
-        fileResult.tapestryRangeCount = file.tapestryRangeCount;
-      }
-      if (file.tapestryRanges !== undefined) {
-        fileResult.tapestryRanges = file.tapestryRanges;
-      }
-      files.push(fileResult);
-    } catch (error) {
-      skippedFiles.push(classifyReadContextError(requestedPath, error));
-    }
+  for (const skippedPath of requestedPaths.slice(cursor)) {
+    skippedFiles.push({ path: skippedPath, reason: 'maxFiles' });
   }
 
   return {
