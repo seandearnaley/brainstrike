@@ -702,9 +702,20 @@ function buildRangedContextContent(args: {
   let truncated = false;
   const rangeResults: NonNullable<WorkspaceContextFileResult['tapestryRanges']> = [];
 
-  for (const range of activeRanges) {
+  const measureRangeChars = (range: (typeof activeRanges)[number]): number =>
+    fullLines.slice(range.startLine - 1, range.endLine).join('\n').length;
+
+  for (const [rangeIndex, range] of activeRanges.entries()) {
     const sliced = fullLines.slice(range.startLine - 1, range.endLine).join('\n');
     const truncatedRange = truncateContent(sliced, Math.max(remainingChars, 0));
+    if (sliced.length > 0 && truncatedRange.content.length === 0) {
+      const laterRanges = activeRanges.slice(rangeIndex + 1);
+      omittedChars +=
+        sliced.length +
+        laterRanges.reduce((sum, laterRange) => sum + measureRangeChars(laterRange), 0);
+      truncated = true;
+      break;
+    }
     if (truncatedRange.truncated) {
       truncated = true;
       omittedChars += truncatedRange.omittedChars;
@@ -717,13 +728,11 @@ function buildRangedContextContent(args: {
       content: truncatedRange.content,
     });
     if (remainingChars <= 0) {
-      const laterRanges = activeRanges.slice(rangeResults.length);
-      omittedChars += laterRanges.reduce((sum, laterRange) => {
-        const laterContent = fullLines
-          .slice(laterRange.startLine - 1, laterRange.endLine)
-          .join('\n');
-        return sum + laterContent.length;
-      }, 0);
+      const laterRanges = activeRanges.slice(rangeIndex + 1);
+      omittedChars += laterRanges.reduce(
+        (sum, laterRange) => sum + measureRangeChars(laterRange),
+        0
+      );
       truncated = laterRanges.length > 0 || truncated;
       break;
     }

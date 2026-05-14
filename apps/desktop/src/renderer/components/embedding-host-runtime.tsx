@@ -576,6 +576,11 @@ export function EmbeddingHostRuntime(): null {
           request,
           runtimeIdRef,
           serviceStateRef: queryEmbeddingServiceStateRef,
+        }).catch((error: unknown) => {
+          logger.error('Unhandled embedding host query embedding request failure', {
+            error,
+            requestId: request.requestId,
+          });
         });
       }
     );

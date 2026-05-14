@@ -355,6 +355,40 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 
+  it('stops tapestry range output when range budget is exhausted', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath,
+      selectionFilePaths: ['/src/main.ts'],
+      workspaceContext: {
+        useTapestryRanges: true,
+        files: [
+          {
+            path: '/src/main.ts',
+            ranges: [
+              { startLine: 2, endLine: 2, isActive: true },
+              { startLine: 3, endLine: 3, isActive: true },
+            ],
+          },
+        ],
+      },
+    } as RuntimeData);
+
+    const result = await tools['brainstrike.readWorkspaceContext'].execute({
+      context: {
+        maxCharsPerFile: 6,
+        tokenBudget: 100,
+        useTapestrySelections: true,
+      },
+    });
+
+    expect(result.files[0]?.content).toContain('<selection index="1"');
+    expect(result.files[0]?.content).not.toContain('<selection index="2"');
+    expect(result.files[0]?.truncated).toBe(true);
+    expect(result.files[0]?.omittedChars).toBeGreaterThan(0);
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
   it('broadcasts bulk workspace context selection updates with explicit skip metadata', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const send = vi.fn();

@@ -238,6 +238,9 @@ export interface AssistantSelectionUpdatePayload {
   mode: AssistantSelectionMode;
 }
 
+// Keep these mode unions aligned with the canonical Zod schemas in
+// @brainstrike/agent tools/schemas. This leaf package cannot import them
+// directly without creating an agent -> types cycle.
 export type AssistantWorkspaceContextSelectionMode = 'replace' | 'add' | 'remove';
 
 export interface AssistantWorkspaceContextSelectionUpdatePayload {
