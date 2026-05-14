@@ -1933,9 +1933,13 @@ describe('AssistantUiPanelWrapper', () => {
         ...state.providerSettings,
         openai: {
           ...state.providerSettings['openai'],
+          agentInputTokenLimit: 32_000,
+          agentMaxSteps: 18,
           maxOutputTokens: 513.9,
+          memoryLastMessages: 12,
           reasoningEffort: 'high',
           reasoningSummary: 'auto',
+          workingMemoryEnabled: false,
         },
       },
     }));
@@ -1943,7 +1947,17 @@ describe('AssistantUiPanelWrapper', () => {
     await renderAssistantPanel(['openai'], () =>
       waitFor(() => {
         const requestData = readPanelRequestData();
+        expect(requestData['agentLoop']).toEqual({
+          inputTokenLimit: 32_000,
+          maxSteps: 18,
+        });
         expect(requestData['modelSettings']).toEqual({ maxOutputTokens: 513 });
+        expect(requestData['memory']).toMatchObject({
+          memoryOptions: {
+            lastMessages: 12,
+            workingMemory: { enabled: false, scope: 'resource' },
+          },
+        });
         expect(requestData['providerOptions']).toEqual({
           openai: {
             reasoningEffort: 'high',
@@ -2139,6 +2153,30 @@ describe('AssistantUiPanelWrapper', () => {
           resourceId: '/tmp/test-workspace',
           memoryOptions: {
             lastMessages: 40,
+            workingMemory: { enabled: true, scope: 'resource' },
+          },
+        });
+      })
+    );
+  });
+
+  test('can disable Mastra message history through provider settings', async () => {
+    useAssistantPreferencesStore.setState((state) => ({
+      providerSettings: {
+        ...state.providerSettings,
+        openai: {
+          ...state.providerSettings['openai'],
+          memoryLastMessages: 0,
+        },
+      },
+    }));
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        const requestData = readPanelRequestData();
+        expect(requestData['memory']).toMatchObject({
+          memoryOptions: {
+            lastMessages: false,
             workingMemory: { enabled: true, scope: 'resource' },
           },
         });

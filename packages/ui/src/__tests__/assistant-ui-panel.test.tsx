@@ -939,13 +939,41 @@ describe('AssistantUiPanel model picker', () => {
     );
 
     expect(screen.getByText('Claude reasoning')).toBeInTheDocument();
-    const budgetInput = screen.getAllByRole('spinbutton')[1];
-    expect(budgetInput).toBeDefined();
-    fireEvent.change(budgetInput as HTMLElement, { target: { value: '2048' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Anthropic thinking budget input' }), {
+      target: { value: '2048' },
+    });
 
     expect(onSettingsChange).toHaveBeenCalledWith('anthropic', {
       anthropicThinkingBudgetTokens: 2048,
     });
+  });
+
+  it('updates agent context and memory controls', () => {
+    const onSettingsChange = vi.fn();
+
+    render(
+      <ProviderSettingsPanel
+        onSettingsChange={onSettingsChange}
+        providerId="openai"
+        settings={{ memoryLastMessages: 40, workingMemoryEnabled: true }}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Limit agent steps' }));
+    expect(onSettingsChange).toHaveBeenCalledWith('openai', { agentMaxSteps: 20 });
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Limit input tokens' }));
+    expect(onSettingsChange).toHaveBeenCalledWith('openai', {
+      agentInputTokenLimit: 64_000,
+    });
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Memory messages' }), {
+      target: { value: '12' },
+    });
+    expect(onSettingsChange).toHaveBeenCalledWith('openai', { memoryLastMessages: 12 });
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Enable working memory' }));
+    expect(onSettingsChange).toHaveBeenCalledWith('openai', { workingMemoryEnabled: false });
   });
 
   it('returns nothing for unsupported provider settings panels', () => {

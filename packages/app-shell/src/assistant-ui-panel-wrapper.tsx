@@ -221,7 +221,9 @@ function createAssistantThreadRunPromise(args: {
 }
 
 function buildAssistantRequestData(args: {
+  agentLoopSettings: RuntimeData['agentLoop'] | undefined;
   hostedMemoryBackendAvailable: boolean;
+  memoryOptions: RuntimeMemoryOptions;
   memoryResourceId: string | undefined;
   memorySettings: RuntimeAssistantMemorySettings;
   modelSettings: RuntimeData['modelSettings'] | undefined;
@@ -264,11 +266,11 @@ function buildAssistantRequestData(args: {
       threadId: args.selectedMemoryThreadId,
       resourceId: args.memoryResourceId,
       memorySettings: args.memorySettings,
-      memoryOptions: {
-        lastMessages: 40,
-        workingMemory: { enabled: true, scope: 'resource' },
-      },
+      memoryOptions: args.memoryOptions,
     };
+  }
+  if (args.agentLoopSettings) {
+    data['agentLoop'] = args.agentLoopSettings;
   }
   if (args.modelSettings) {
     data['modelSettings'] = args.modelSettings;
@@ -714,6 +716,8 @@ function buildOptionalOptions<T extends Record<string, unknown>>(
   return returnIfNotEmpty(options);
 }
 
+type RuntimeMemoryOptions = NonNullable<RuntimeData['memory']>['memoryOptions'];
+
 function buildModelSettings(
   settings: AssistantProviderSettings | undefined
 ): RuntimeData['modelSettings'] | undefined {
@@ -722,6 +726,55 @@ function buildModelSettings(
   }
   const value = Math.max(1, Math.floor(settings.maxOutputTokens));
   return Number.isFinite(value) ? { maxOutputTokens: value } : undefined;
+}
+
+function buildPositiveIntegerSetting(value: unknown): number | undefined {
+  if (typeof value !== 'number') {
+    return;
+  }
+  const normalized = Math.floor(value);
+  return Number.isFinite(normalized) && normalized > 0 ? normalized : undefined;
+}
+
+function buildNonNegativeIntegerSetting(value: unknown): number | undefined {
+  if (typeof value !== 'number') {
+    return;
+  }
+  const normalized = Math.floor(value);
+  return Number.isFinite(normalized) && normalized >= 0 ? normalized : undefined;
+}
+
+function buildAgentLoopSettings(
+  settings: AssistantProviderSettings | undefined
+): RuntimeData['agentLoop'] | undefined {
+  const maxSteps = buildPositiveIntegerSetting(settings?.agentMaxSteps);
+  const inputTokenLimit = buildPositiveIntegerSetting(settings?.agentInputTokenLimit);
+  if (!(maxSteps || inputTokenLimit)) {
+    return;
+  }
+  return {
+    ...(maxSteps ? { maxSteps } : {}),
+    ...(inputTokenLimit ? { inputTokenLimit } : {}),
+  };
+}
+
+function buildAssistantMemoryOptions(
+  settings: AssistantProviderSettings | undefined
+): RuntimeMemoryOptions {
+  const configuredLastMessages = buildNonNegativeIntegerSetting(settings?.memoryLastMessages);
+  const lastMessages =
+    configuredLastMessages === undefined
+      ? 40
+      : configuredLastMessages === 0
+        ? false
+        : configuredLastMessages;
+  return {
+    lastMessages,
+    workingMemory: {
+      enabled: settings?.workingMemoryEnabled ?? true,
+      scope: 'resource',
+    },
+  };
 }
 
 function resolveGoogleThinkingLevel(
@@ -1148,6 +1201,14 @@ export function AssistantUiPanelWrapper({
   const modelSettings = useMemo(
     () => selectedThreadDraftRuntime?.modelSettings ?? buildModelSettings(selectedProviderSettings),
     [selectedProviderSettings, selectedThreadDraftRuntime?.modelSettings]
+  );
+  const agentLoopSettings = useMemo(
+    () => buildAgentLoopSettings(selectedProviderSettings),
+    [selectedProviderSettings]
+  );
+  const assistantMemoryOptions = useMemo(
+    () => buildAssistantMemoryOptions(selectedProviderSettings),
+    [selectedProviderSettings]
   );
   const providerOptions = useMemo(
     () =>
@@ -1583,7 +1644,9 @@ export function AssistantUiPanelWrapper({
   const requestData = useMemo(
     () =>
       buildAssistantRequestData({
+        agentLoopSettings,
         hostedMemoryBackendAvailable,
+        memoryOptions: assistantMemoryOptions,
         memoryResourceId,
         memorySettings: runtimeMemorySettings,
         modelSettings,
@@ -1595,6 +1658,8 @@ export function AssistantUiPanelWrapper({
         workspaceRootPath,
       }),
     [
+      agentLoopSettings,
+      assistantMemoryOptions,
       hostedMemoryBackendAvailable,
       memoryResourceId,
       modelSettings,

@@ -1540,6 +1540,16 @@ const MAX_OUTPUT_MIN = 128;
 const MAX_OUTPUT_MAX = 8192;
 const MAX_OUTPUT_STEP = 64;
 
+const AGENT_MAX_STEPS_DEFAULT = 20;
+const AGENT_MAX_STEPS_MIN = 1;
+const AGENT_MAX_STEPS_MAX = 100;
+const INPUT_TOKEN_LIMIT_DEFAULT = 64_000;
+const INPUT_TOKEN_LIMIT_MIN = 4096;
+const INPUT_TOKEN_LIMIT_MAX = 256_000;
+const MEMORY_LAST_MESSAGES_DEFAULT = 40;
+const MEMORY_LAST_MESSAGES_MIN = 0;
+const MEMORY_LAST_MESSAGES_MAX = 200;
+
 const ANTHROPIC_THINKING_DEFAULT = 12_000;
 const ANTHROPIC_THINKING_MIN = 1024;
 const ANTHROPIC_THINKING_MAX = 20_000;
@@ -1590,6 +1600,154 @@ interface ProviderSettingsSectionProps {
   onUpdate: ProviderSettingsUpdate;
   settings: AssistantProviderSettings;
 }
+
+const AgentRuntimeSection: FC<ProviderSettingsSectionProps> = ({
+  settings,
+  onUpdate,
+  disabled,
+}) => {
+  const maxStepsEnabled = typeof settings.agentMaxSteps === 'number';
+  const maxStepsValue = clampNumber(
+    settings.agentMaxSteps ?? AGENT_MAX_STEPS_DEFAULT,
+    AGENT_MAX_STEPS_MIN,
+    AGENT_MAX_STEPS_MAX
+  );
+  const inputTokenLimitEnabled = typeof settings.agentInputTokenLimit === 'number';
+  const inputTokenLimitValue = clampNumber(
+    settings.agentInputTokenLimit ?? INPUT_TOKEN_LIMIT_DEFAULT,
+    INPUT_TOKEN_LIMIT_MIN,
+    INPUT_TOKEN_LIMIT_MAX
+  );
+  const memoryLastMessagesValue = clampNumber(
+    settings.memoryLastMessages ?? MEMORY_LAST_MESSAGES_DEFAULT,
+    MEMORY_LAST_MESSAGES_MIN,
+    MEMORY_LAST_MESSAGES_MAX
+  );
+  const workingMemoryEnabled = settings.workingMemoryEnabled ?? true;
+
+  return (
+    <div className="space-y-2 rounded-md bg-muted/30 p-2">
+      <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
+        Agent context
+      </Label>
+      <div className="grid gap-2">
+        <div className="grid grid-cols-[1fr_72px_auto] items-center gap-2">
+          <span className="text-[10px] text-muted-foreground">Max steps</span>
+          <Input
+            aria-label="Max agent steps"
+            className="h-7 text-xs"
+            disabled={disabled || !maxStepsEnabled}
+            inputMode="numeric"
+            max={AGENT_MAX_STEPS_MAX}
+            min={AGENT_MAX_STEPS_MIN}
+            onChange={(event) => {
+              const parsed = parseNumber(event.target.value);
+              if (parsed === undefined) {
+                onUpdate({ agentMaxSteps: undefined });
+                return;
+              }
+              onUpdate({
+                agentMaxSteps: clampNumber(parsed, AGENT_MAX_STEPS_MIN, AGENT_MAX_STEPS_MAX),
+              });
+            }}
+            placeholder="Open"
+            type="number"
+            value={maxStepsEnabled ? maxStepsValue : ''}
+          />
+          <Switch
+            aria-label="Limit agent steps"
+            checked={maxStepsEnabled}
+            disabled={disabled}
+            onCheckedChange={(checked) =>
+              onUpdate({
+                agentMaxSteps: checked ? maxStepsValue : undefined,
+              })
+            }
+          />
+        </div>
+        <div className="grid grid-cols-[1fr_96px_auto] items-center gap-2">
+          <span className="text-[10px] text-muted-foreground">Input tokens</span>
+          <Input
+            aria-label="Input token limit"
+            className="h-7 text-xs"
+            disabled={disabled || !inputTokenLimitEnabled}
+            inputMode="numeric"
+            max={INPUT_TOKEN_LIMIT_MAX}
+            min={INPUT_TOKEN_LIMIT_MIN}
+            onChange={(event) => {
+              const parsed = parseNumber(event.target.value);
+              if (parsed === undefined) {
+                onUpdate({ agentInputTokenLimit: undefined });
+                return;
+              }
+              onUpdate({
+                agentInputTokenLimit: clampNumber(
+                  parsed,
+                  INPUT_TOKEN_LIMIT_MIN,
+                  INPUT_TOKEN_LIMIT_MAX
+                ),
+              });
+            }}
+            placeholder="Off"
+            type="number"
+            value={inputTokenLimitEnabled ? inputTokenLimitValue : ''}
+          />
+          <Switch
+            aria-label="Limit input tokens"
+            checked={inputTokenLimitEnabled}
+            disabled={disabled}
+            onCheckedChange={(checked) =>
+              onUpdate({
+                agentInputTokenLimit: checked ? inputTokenLimitValue : undefined,
+              })
+            }
+          />
+        </div>
+        <div className="grid grid-cols-[1fr_72px_auto] items-center gap-2">
+          <span className="text-[10px] text-muted-foreground">Memory messages</span>
+          <Input
+            aria-label="Memory messages"
+            className="h-7 text-xs"
+            disabled={disabled}
+            inputMode="numeric"
+            max={MEMORY_LAST_MESSAGES_MAX}
+            min={MEMORY_LAST_MESSAGES_MIN}
+            onChange={(event) => {
+              const parsed = parseNumber(event.target.value);
+              if (parsed === undefined) {
+                onUpdate({ memoryLastMessages: undefined });
+                return;
+              }
+              onUpdate({
+                memoryLastMessages: clampNumber(
+                  parsed,
+                  MEMORY_LAST_MESSAGES_MIN,
+                  MEMORY_LAST_MESSAGES_MAX
+                ),
+              });
+            }}
+            type="number"
+            value={memoryLastMessagesValue}
+          />
+          <span className="text-right text-[10px] text-muted-foreground">
+            {memoryLastMessagesValue === 0
+              ? 'Off'
+              : settingsNumberFormatter.format(memoryLastMessagesValue)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] text-muted-foreground">Working memory</span>
+          <Switch
+            aria-label="Enable working memory"
+            checked={workingMemoryEnabled}
+            disabled={disabled}
+            onCheckedChange={(checked) => onUpdate({ workingMemoryEnabled: checked })}
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const MaxOutputSection: FC<ProviderSettingsSectionProps> = ({ settings, onUpdate, disabled }) => {
   const maxOutputEnabled = typeof settings.maxOutputTokens === 'number';
@@ -1781,6 +1939,7 @@ const AnthropicReasoningSection: FC<ProviderSettingsSectionProps> = ({
           </div>
           <div className="flex items-center gap-2">
             <Input
+              aria-label="Anthropic thinking budget input"
               className="h-8 text-xs"
               disabled={disabled || !thinkingEnabled}
               inputMode="numeric"
@@ -1964,6 +2123,11 @@ export const ProviderSettingsPanel: FC<ProviderSettingsPanelProps> = ({
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
+        <AgentRuntimeSection
+          disabled={!canUpdate}
+          onUpdate={updateSettings}
+          settings={currentSettings}
+        />
         <MaxOutputSection
           disabled={!canUpdate}
           onUpdate={updateSettings}

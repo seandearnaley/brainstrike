@@ -3,6 +3,7 @@ import { createLogger, generateUUID } from '@brainstrike/utils';
 import { Agent, type AgentMemoryOption, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import type { MastraMemory } from '@mastra/core/memory';
+import { TokenLimiter } from '@mastra/core/processors';
 import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
 import type { McpConfig } from '../mcp/config';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
@@ -318,6 +319,7 @@ function assertModernLanguageModel(
 interface UsageLike {
   completionTokens?: number;
   inputTokens?: number;
+  outputTokens?: number;
   promptTokens?: number;
 }
 
@@ -333,6 +335,7 @@ interface MastraStreamPart {
     delta?: string;
     error?: unknown;
     tripwireReason?: string;
+    stepResult?: { reason?: unknown };
     output?: { usage?: UsageLike };
     metadata?: { usage?: UsageLike };
   };
@@ -360,15 +363,27 @@ function makeFinishChunk(part: unknown): StreamChunk {
   const usage = usageCandidates.find((candidate) => candidate !== undefined) ?? {};
   const promptTokensRaw = usage.promptTokens ?? usage.inputTokens;
   const promptTokens = Number.isFinite(promptTokensRaw) ? (promptTokensRaw ?? 0) : 0;
-  const completionTokens = Number.isFinite(usage.completionTokens)
-    ? (usage.completionTokens ?? 0)
-    : 0;
+  const completionTokensRaw = usage.completionTokens ?? usage.outputTokens;
+  const completionTokens = Number.isFinite(completionTokensRaw) ? (completionTokensRaw ?? 0) : 0;
   return {
     type: 'message-finish',
-    finishReason: 'stop',
+    finishReason: readFinishReason(part),
     usage: { promptTokens, completionTokens },
     path: [],
   };
+}
+
+function readFinishReason(part: unknown): string {
+  const p = asMastraStreamPart(part);
+  const direct = p.finishReason;
+  if (typeof direct === 'string' && direct.length > 0) {
+    return direct;
+  }
+  const nested = p.payload?.stepResult?.reason;
+  if (typeof nested === 'string' && nested.length > 0) {
+    return nested;
+  }
+  return 'stop';
 }
 
 function getDeltaText(part: unknown): string {
@@ -639,14 +654,44 @@ type AgentStreamOptions = Exclude<
 
 interface BrainstrikeAgentStreamOptions {
   abortSignal?: AbortSignal;
+  inputProcessors?: unknown[];
+  maxSteps?: number;
   memory?: AgentMemoryOption;
   modelSettings?: RuntimeData['modelSettings'];
   providerOptions?: RuntimeData['providerOptions'];
   stopWhen?: unknown[];
 }
 
-function buildToolLoopOptions(): Pick<BrainstrikeAgentStreamOptions, 'stopWhen'> {
-  return { stopWhen: [] };
+function resolvePositiveIntegerOption(value: unknown, fieldName: string): number | undefined {
+  if (value === undefined || value === null) {
+    return;
+  }
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      detail: `${fieldName} must be a positive finite number`,
+      context: { fieldName, value },
+    });
+  }
+  return Math.floor(value);
+}
+
+function buildToolLoopOptions(
+  runtimeData: RuntimeData | undefined
+): Pick<BrainstrikeAgentStreamOptions, 'inputProcessors' | 'maxSteps' | 'stopWhen'> {
+  const agentLoop = runtimeData?.agentLoop;
+  const maxSteps = resolvePositiveIntegerOption(agentLoop?.maxSteps, 'agentLoop.maxSteps');
+  const inputTokenLimit = resolvePositiveIntegerOption(
+    agentLoop?.inputTokenLimit,
+    'agentLoop.inputTokenLimit'
+  );
+  const inputProcessors: unknown[] | undefined = inputTokenLimit
+    ? [new TokenLimiter({ limit: inputTokenLimit, strategy: 'truncate', trimMode: 'contiguous' })]
+    : undefined;
+
+  return {
+    ...(maxSteps ? { maxSteps } : { stopWhen: [] }),
+    ...(inputProcessors ? { inputProcessors } : {}),
+  };
 }
 
 const resolveFullStream = (
@@ -731,7 +776,7 @@ async function createStreamIteratorFromRuntime({
     const memoryOption = resolveMemoryOption(runtimeData, memory);
 
     const streamOptions: BrainstrikeAgentStreamOptions = {
-      ...buildToolLoopOptions(),
+      ...buildToolLoopOptions(runtimeData),
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),

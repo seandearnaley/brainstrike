@@ -329,6 +329,66 @@ describe('mastra streaming integration', () => {
     expect(agentInstances.at(-1)?.streamCalls.at(-1)?.options).not.toHaveProperty('maxSteps');
   });
 
+  it('passes configured agent loop limits and input token compaction to agent.stream', async () => {
+    setMockStreamParts([{ type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } }]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'inspect the workspace' }] }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          provider: 'openai',
+          agentLoop: {
+            inputTokenLimit: 8192,
+            maxSteps: 12,
+          },
+        } as never,
+      }
+    );
+
+    for await (const _chunk of iterator) {
+      // drain stream
+    }
+
+    const options = agentInstances.at(-1)?.streamCalls.at(-1)?.options as {
+      inputProcessors?: Array<{ id?: string }>;
+      maxSteps?: number;
+      stopWhen?: unknown;
+    };
+    expect(options.maxSteps).toBe(12);
+    expect(options.stopWhen).toBeUndefined();
+    expect(options.inputProcessors?.map((processor) => processor.id)).toEqual(['token-limiter']);
+  });
+
+  it('preserves the Mastra finish reason in the assistant data stream', async () => {
+    setMockStreamParts([
+      {
+        type: 'finish',
+        payload: {
+          stepResult: { reason: 'length' },
+          output: { usage: { inputTokens: 20, completionTokens: 4 } },
+        },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'write a long answer' }] }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual({
+      type: 'message-finish',
+      finishReason: 'length',
+      usage: { promptTokens: 20, completionTokens: 4 },
+      path: [],
+    });
+  });
+
   it('rejects AI SDK v1 model runtimes instead of falling back to legacy streaming', async () => {
     await expectMastraAgentError(
       streamMastraAgent(

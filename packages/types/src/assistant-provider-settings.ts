@@ -37,6 +37,8 @@ export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
 export type LocalRuntimeActivation = 'auto' | 'on' | 'off';
 
 export interface AssistantProviderSettings {
+  agentInputTokenLimit?: number;
+  agentMaxSteps?: number;
   anthropicEffort?: AnthropicEffort;
   anthropicThinkingBudgetTokens?: number;
   googleIncludeThoughts?: boolean;
@@ -55,8 +57,10 @@ export interface AssistantProviderSettings {
   localRuntimeEnabled?: LocalRuntimeActivation;
   localThinkingEnabled?: boolean;
   maxOutputTokens?: number;
+  memoryLastMessages?: number;
   reasoningEffort?: OpenAiReasoningEffort;
   reasoningSummary?: OpenAiReasoningSummary;
+  workingMemoryEnabled?: boolean;
 }
 
 export type AssistantProviderSettingsUpdate = {

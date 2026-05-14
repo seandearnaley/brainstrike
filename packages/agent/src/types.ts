@@ -64,6 +64,8 @@ export interface AssistantUiMessage {
 }
 
 export interface RuntimeData {
+  /** Optional agent-loop and prompt compaction controls. */
+  agentLoop?: RuntimeAgentLoopSettings;
   /** API key for the specified provider. Falls back to environment variables if not provided. */
   apiKey?: string;
   // Optional tool dispatcher provided by host (desktop main via IPC)
@@ -150,6 +152,13 @@ export interface RuntimeMemoryContext {
   threadId: string;
 }
 
+export interface RuntimeAgentLoopSettings {
+  /** Per-step input token limit applied before each model call. */
+  inputTokenLimit?: number;
+  /** Maximum Mastra agent-loop steps. Omit to disable Brainstrike's explicit cap. */
+  maxSteps?: number;
+}
+
 export type OpenAiReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 export type OpenAiReasoningSummary = 'auto' | 'detailed';
 
@@ -228,7 +237,7 @@ export interface StreamChunkFinish {
   usage: { promptTokens: number; completionTokens: number };
 }
 export interface StreamChunkMessageFinish {
-  finishReason: 'stop';
+  finishReason: string;
   path: readonly number[];
   type: 'message-finish';
   usage: { promptTokens: number; completionTokens: number };
