@@ -1381,6 +1381,63 @@ describe('OptimizedFileTree', () => {
     expect(screen.getByLabelText('Select project')).toHaveAttribute('data-state', 'indeterminate');
   });
 
+  it('clears agent-selected relative descendants when toggling an absolute workspace root', async () => {
+    const rootPath = '/Users/test/project-clear-root';
+    const relativeSelectionKey = encodeFileSelection(rootPath, '/src/index.ts');
+    const partiallyLoadedTree: IFileNode[] = [
+      {
+        name: 'project-clear-root',
+        path: rootPath,
+        type: 'directory',
+        isVisible: true,
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: rootPath,
+        loadState: 'unloaded',
+        children: [],
+      },
+    ];
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree
+          fileTree={partiallyLoadedTree}
+          folderId={rootPath}
+          loadingFiles={new Set()}
+        />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore.getState().setSelectedFiles(new Set([relativeSelectionKey]));
+      readyStore.getState().setSelectionMode('explicit');
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Select project-clear-root'));
+      await Promise.resolve();
+    });
+
+    expect(readyStore.getState().selectedFilePaths).toEqual(new Set());
+  });
+
   it('marks hydrated absolute file rows checked from agent-selected relative descendants', async () => {
     const rootPath = '/Users/test/project';
     const loadedTree: IFileNode[] = [

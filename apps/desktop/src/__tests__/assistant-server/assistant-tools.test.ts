@@ -192,6 +192,17 @@ describe('assistant-tools', () => {
     expect(tools['brainstrike.updatePreviewContextFiles']).toBeUndefined();
   });
 
+  it('filters native tools to the enabled runtime tool ids when provided', () => {
+    const tools = buildDesktopAssistantTools({
+      workspaceRootPath: '/tmp/workspace',
+      enabledNativeToolIds: ['brainstrike.listWorkspaceContext'],
+    } as RuntimeData);
+
+    expect(tools['brainstrike.listWorkspaceContext']).toBeDefined();
+    expect(tools['brainstrike.readWorkspaceFile']).toBeUndefined();
+    expect(tools['brainstrike.queryEmbeddingSpace']).toBeUndefined();
+  });
+
   it('lists selected workspace context without returning file contents', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = buildDesktopAssistantTools({

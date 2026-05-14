@@ -271,6 +271,18 @@ function isWorkspacePathSelected(
   return false;
 }
 
+function isSameOrDescendantSelectionPath(path: string, candidatePath: string): boolean {
+  const normalizedCandidate = normalizeDirectoryCountPath(candidatePath);
+  if (normalizedCandidate === '') {
+    return true;
+  }
+  if (normalizedCandidate === '/') {
+    return path === '/' || path.startsWith('/');
+  }
+  const candidatePrefix = `${normalizedCandidate}/`;
+  return path === normalizedCandidate || path.startsWith(candidatePrefix);
+}
+
 function addUniqueAncestorPath(
   ancestorPaths: string[],
   seenAncestorPaths: Set<string>,
@@ -1360,10 +1372,9 @@ function getSelectedDescendantPathsForDirectory({
     if (
       path === directoryPath ||
       path.startsWith(directoryPrefix) ||
-      directoryPathCandidates.some((candidatePath) => {
-        const candidatePrefix = `${candidatePath}/`;
-        return path === candidatePath || path.startsWith(candidatePrefix);
-      })
+      directoryPathCandidates.some((candidatePath) =>
+        isSameOrDescendantSelectionPath(path, candidatePath)
+      )
     ) {
       selectedPaths.push(path);
     }

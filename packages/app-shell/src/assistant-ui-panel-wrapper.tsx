@@ -222,6 +222,7 @@ function createAssistantThreadRunPromise(args: {
 
 function buildAssistantRequestData(args: {
   agentLoopSettings: RuntimeData['agentLoop'] | undefined;
+  enabledNativeToolIds: readonly string[];
   hostedMemoryBackendAvailable: boolean;
   memoryOptions: RuntimeMemoryOptions;
   memoryResourceId: string | undefined;
@@ -252,6 +253,7 @@ function buildAssistantRequestData(args: {
   if (args.workspaceRootPath) {
     data['workspaceRootPath'] = args.workspaceRootPath;
   }
+  data['enabledNativeToolIds'] = Array.from(args.enabledNativeToolIds);
   if (args.workspaceContext) {
     data['workspaceContext'] = args.workspaceContext;
   }
@@ -311,9 +313,13 @@ function buildAssistantTapestryRange(args: {
 }
 
 function toRuntimeWorkspaceContext(
-  snapshot: ReturnType<typeof useWorkspaceContextCurationStore.getState>['contextSnapshot']
+  snapshot: ReturnType<typeof useWorkspaceContextCurationStore.getState>['contextSnapshot'],
+  selectionFolderId: string | null | undefined
 ): RuntimeData['workspaceContext'] | null {
   if (!snapshot) {
+    return null;
+  }
+  if (snapshot.selectionFolderId && snapshot.selectionFolderId !== selectionFolderId) {
     return null;
   }
   return {
@@ -1023,9 +1029,8 @@ export function AssistantUiPanelWrapper({
   const semanticRecallSettings = useAssistantMemoryPreferencesStore(
     (state) => state.semanticRecall
   );
-  const [nativeToolStates, setNativeToolEnabled] = useNativeToolPreferencesStore(
-    (state) => [state.toolStates, state.setToolEnabled] as const
-  );
+  const nativeToolStates = useNativeToolPreferencesStore((state) => state.toolStates);
+  const setNativeToolEnabled = useNativeToolPreferencesStore((state) => state.setToolEnabled);
 
   // Subscribe to secrets changes to re-check available providers when API keys change
   const secretsVersion = useSecretsStore((state) => state.secretsVersion);
@@ -1270,8 +1275,8 @@ export function AssistantUiPanelWrapper({
     (state) => state.contextSnapshot
   );
   const runtimeWorkspaceContext = useMemo(
-    () => toRuntimeWorkspaceContext(workspaceContextSnapshot),
-    [workspaceContextSnapshot]
+    () => toRuntimeWorkspaceContext(workspaceContextSnapshot, currentFolderId),
+    [currentFolderId, workspaceContextSnapshot]
   );
   const setTapestryRangesForKey = useWorkspaceContextCurationStore(
     (state) => state.setTapestryRangesForKey
@@ -1481,6 +1486,10 @@ export function AssistantUiPanelWrapper({
       }),
     [nativeToolStates]
   );
+  const enabledNativeToolIds = useMemo(
+    () => nativeToolItems.filter((tool) => tool.enabled !== false).map((tool) => tool.id),
+    [nativeToolItems]
+  );
 
   const loadMcpTools = useCallback(async () => {
     if (typeof window === 'undefined' || !window.mcp?.listTools) {
@@ -1647,6 +1656,7 @@ export function AssistantUiPanelWrapper({
     () =>
       buildAssistantRequestData({
         agentLoopSettings,
+        enabledNativeToolIds,
         hostedMemoryBackendAvailable,
         memoryOptions: assistantMemoryOptions,
         memoryResourceId,
@@ -1662,6 +1672,7 @@ export function AssistantUiPanelWrapper({
     [
       agentLoopSettings,
       assistantMemoryOptions,
+      enabledNativeToolIds,
       hostedMemoryBackendAvailable,
       memoryResourceId,
       modelSettings,

@@ -78,6 +78,8 @@ export interface RuntimeData {
   contextTokenCount?: number;
   /** Active embedding set ID for retrieval tools. */
   embeddingSetId?: string;
+  /** Native tool ids enabled for this run. Undefined preserves host defaults. */
+  enabledNativeToolIds?: readonly string[];
   /** Include a selected-file report block in assistant context. */
   includeFileReport?: boolean;
   /** Include a workspace tree block in assistant context. */

@@ -341,9 +341,11 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   }, [deferredFlatListItems, decodeFileSelection]);
 
   useEffect(() => {
+    const selectedFolderIds = new Set<string>();
     const files = tableData
       .filter((item) => selectedFiles.has(item.compositeKey))
       .map((item) => {
+        selectedFolderIds.add(item.rootFolderId);
         const ranges = (tapestryRangesByKey[item.compositeKey] ?? []).map((range) => ({
           startLine: range.startLine + 1,
           endLine: range.endLine,
@@ -357,9 +359,12 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           ranges,
         };
       });
+    const selectionFolderId =
+      selectedFolderIds.size === 1 ? (Array.from(selectedFolderIds)[0] ?? null) : null;
 
     setWorkspaceContextSnapshot({
       files,
+      selectionFolderId,
       tokenBudget: tokenBudget ?? DEFAULT_TOKEN_BUDGET,
       selectedSourceApproxTokens: contextSelectedTokenSummary.sourceSelectedTokens,
       selectedOutputApproxTokens: contextSelectedTokenSummary.outputSelectedTokens,

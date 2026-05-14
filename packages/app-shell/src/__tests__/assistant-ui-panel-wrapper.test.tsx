@@ -274,22 +274,23 @@ vi.mock('@brainstrike/preferences', async () => {
     paused: false,
   }));
 
-  const nativeToolPreferencesState: {
+  const useNativeToolPreferencesStore = create<{
     toolStates: Record<string, boolean>;
     setToolEnabled: (toolId: string, enabled: boolean) => void;
-  } = {
+  }>((set) => ({
     toolStates: {},
     setToolEnabled: (toolId: string, enabled: boolean) => {
-      nativeToolPreferencesState.toolStates = {
-        ...nativeToolPreferencesState.toolStates,
-        [toolId]: enabled,
-      };
+      set((state) => {
+        const nextToolStates = { ...state.toolStates };
+        if (enabled) {
+          delete nextToolStates[toolId];
+        } else {
+          nextToolStates[toolId] = false;
+        }
+        return { toolStates: nextToolStates };
+      });
     },
-  };
-
-  const useNativeToolPreferencesStore = <T,>(
-    selector: (state: typeof nativeToolPreferencesState) => T
-  ): T => selector(nativeToolPreferencesState);
+  }));
 
   const useSecretsStore = <T,>(selector: (state: { secretsVersion: number }) => T): T =>
     selector({ secretsVersion: 0 });
@@ -339,7 +340,7 @@ vi.mock('@brainstrike/preferences', async () => {
     useAssistantMemoryPreferencesStore.setState({
       ...defaultAssistantMemoryPreferences,
     });
-    nativeToolPreferencesState.toolStates = {};
+    useNativeToolPreferencesStore.setState({ toolStates: {} });
   };
 
   const usePanelLayoutStore = create<{
@@ -1935,6 +1936,61 @@ describe('AssistantUiPanelWrapper', () => {
         expect(contextMenu).toEqual({});
       })
     );
+  });
+
+  test('omits stale workspace context snapshots from another selection root', async () => {
+    fileExplorerMocks.effectiveSelection = new Set<string>([
+      encodeFileSelection('test-folder', '/alpha.ts'),
+    ]);
+    fileExplorerMocks.workspaceContextSnapshot = {
+      selectionFolderId: 'other-folder',
+      tokenBudget: 8192,
+      selectedSourceApproxTokens: 320,
+      selectedOutputApproxTokens: 60,
+      useTapestryRanges: true,
+      includeProjectTree: false,
+      projectTreeApproxTokens: 1200,
+      projectTreeTokenCountLoading: false,
+      files: [
+        {
+          path: '/alpha.ts',
+          approxTokens: 200,
+          outputApproxTokens: 60,
+          ranges: [{ startLine: 4, endLine: 12, isActive: true }],
+        },
+      ],
+    };
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        const requestData = readPanelRequestData();
+        expect(requestData['selectionFolderId']).toBe('test-folder');
+        expect(requestData['workspaceContext']).toBeUndefined();
+      })
+    );
+  });
+
+  test('passes enabled native tool ids to hosted assistant requests', async () => {
+    const user = userEvent.setup();
+
+    await renderAssistantPanel(['openai'], async () => {
+      await waitFor(() => {
+        expect(
+          screen.getByTestId('tool-menu-item-brainstrike.readWorkspaceFile')
+        ).toBeInTheDocument();
+      });
+    });
+
+    await user.click(screen.getByTestId('tool-toggle-brainstrike.readWorkspaceFile'));
+
+    await waitFor(() => {
+      const enabledNativeToolIds = readPanelRequestData()['enabledNativeToolIds'];
+      expect(enabledNativeToolIds).toEqual(
+        Object.keys(NATIVE_TOOL_DEFAULTS).filter(
+          (toolId) => toolId !== 'brainstrike.readWorkspaceFile'
+        )
+      );
+    });
   });
 
   test('builds model and provider options for openai settings', async () => {

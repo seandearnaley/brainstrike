@@ -23,6 +23,7 @@ export interface WorkspaceContextCurationSnapshot {
   projectTreeTokenCountLoading: boolean;
   selectedOutputApproxTokens: number | null;
   selectedSourceApproxTokens: number | null;
+  selectionFolderId: string | null;
   tokenBudget: number | null;
   useTapestryRanges: boolean;
 }

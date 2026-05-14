@@ -1204,7 +1204,7 @@ function resolveQueryEmbeddingSpaceInput(
  * Builds the Mastra ToolsInput for the desktop assistant server.
  */
 export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined): MastraTools {
-  return {
+  const tools: MastraTools = {
     [READ_WORKSPACE_FILE_TOOL_ID]: {
       id: READ_WORKSPACE_FILE_TOOL_ID,
       description:
@@ -1332,4 +1332,19 @@ export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined)
       },
     },
   };
+  const enabledNativeToolIds = runtimeData?.enabledNativeToolIds;
+  if (!Array.isArray(enabledNativeToolIds)) {
+    return tools;
+  }
+
+  const enabledSet = new Set(
+    enabledNativeToolIds.filter((toolId): toolId is string => typeof toolId === 'string')
+  );
+  const filteredTools: MastraTools = {};
+  for (const [toolId, tool] of Object.entries(tools)) {
+    if (enabledSet.has(toolId)) {
+      filteredTools[toolId] = tool;
+    }
+  }
+  return filteredTools;
 }
