@@ -21,6 +21,7 @@ const logger = createLogger('EmbeddingHostManager');
 
 const HOST_READY_TIMEOUT_MS = 30_000;
 const QUERY_EMBEDDING_TIMEOUT_MS = 60_000;
+const MAX_PENDING_QUERY_EMBEDDING_REQUESTS = 8;
 const POWER_SAVE_BLOCKER_IDLE_GRACE_MS = 5000;
 const EMBEDDING_HOST_STATUS_IDLE_GRACE_MS = 5000;
 
@@ -222,6 +223,11 @@ export class EmbeddingHostManager {
     const window = this.lifecycle.getHostWindow();
     if (!window || window.isDestroyed()) {
       throw new Error('Embedding host window is unavailable.');
+    }
+    if (this.pendingQueryEmbeddingRequests.size >= MAX_PENDING_QUERY_EMBEDDING_REQUESTS) {
+      throw new Error(
+        `Embedding host has ${this.pendingQueryEmbeddingRequests.size} query embedding requests in flight; retry after one completes.`
+      );
     }
 
     const request = createEmbeddingHostQueryEmbeddingRequest(status.runtimeId, payload);

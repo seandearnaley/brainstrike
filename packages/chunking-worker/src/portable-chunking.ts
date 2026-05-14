@@ -795,6 +795,9 @@ async function splitCodeByFunctions(
       await appendRange(cursor, clampedStart);
     }
 
+    // Function ranges are intentionally emitted without cross-function padding.
+    // The recursive splitter still applies overlap inside oversized segments,
+    // while persisted source ranges stay exact for line-aware retrieval.
     await appendRange(clampedStart, clampedEnd);
     cursor = clampedEnd;
   }
@@ -1061,6 +1064,16 @@ export async function chunkContent(
   }
 
   const avgTokensPerChunk = chunks.length ? totalTokens / chunks.length : 0;
+
+  if (sourceRangeSkippedChunks > 0) {
+    // biome-ignore lint/suspicious/noConsole: worker warning surfaces partial line-range indexing gaps.
+    console.warn('[portable-chunking] skipped chunks with unresolved source ranges', {
+      fileName: options.fileName,
+      filePath: options.filePath,
+      sourceRangeSkippedChunks,
+      totalCandidateChunks: pendingChunks.length,
+    });
+  }
 
   if (pendingChunks.length > 0 && chunks.length === 0) {
     return {
