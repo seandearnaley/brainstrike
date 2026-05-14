@@ -639,6 +639,60 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     expect(result.current.fileContents[compositeKey]).toBe('restored-content');
   });
 
+  it('reads selected absolute-root files by path when lazy tree children are not indexed yet', async () => {
+    vi.useFakeTimers();
+    const adapter = new MockFileSystemAdapter();
+    const readFileByPathSpy = vi
+      .fn<(path: string) => Promise<string>>()
+      .mockResolvedValue('agent-selected-content');
+    (
+      adapter as unknown as {
+        readFileByPath: typeof readFileByPathSpy;
+      }
+    ).readFileByPath = readFileByPathSpy;
+
+    const rootFolderId = '/workspace/root';
+    const compositeKey = encodeFileSelection(rootFolderId, '/src/dynamic.ts');
+    const otherNode = createFileNode({ path: '/other.txt', rootFolderId });
+
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi
+      .fn()
+      .mockImplementation(
+        async (
+          requests: FileReadRequest[],
+          progressCallback?: (event: { key: string }) => void
+        ) => {
+          const results: Record<string, string> = {};
+          for (const request of requests) {
+            results[request.compositeKey] = request.handle
+              ? await adapter.readFile(request.handle)
+              : await readFileByPathSpy(request.path);
+            progressCallback?.({ key: request.compositeKey });
+          }
+          return results;
+        }
+      );
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const wrapper = createWrapper(adapter);
+    const { result } = renderHook(() => useTestHook([otherNode]), { wrapper });
+
+    await act(async () => {
+      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      vi.advanceTimersByTime(100);
+      await loadPromise;
+    });
+
+    expect(mockWorker).toHaveBeenCalledWith(
+      [expect.objectContaining({ compositeKey, path: '/workspace/root/src/dynamic.ts' })],
+      expect.any(Function)
+    );
+    expect(readFileByPathSpy).toHaveBeenCalledWith('/workspace/root/src/dynamic.ts');
+    expect(result.current.fileContents[compositeKey]).toBe('agent-selected-content');
+    expect(result.current.loadingFiles.size).toBe(0);
+  });
+
   it('fails explicitly instead of falling back to direct-path reads when the tree never contains the file', async () => {
     vi.useFakeTimers();
     const adapter = new MockFileSystemAdapter();
