@@ -1045,7 +1045,7 @@ export async function chunkContent(
         continue;
       }
       chunks.push({
-        chunkIndex: chunks.length,
+        chunkIndex: i + j,
         content: pending.content,
         contentHash: hashes[j] ?? '',
         startLine: sourceRange.startLine,

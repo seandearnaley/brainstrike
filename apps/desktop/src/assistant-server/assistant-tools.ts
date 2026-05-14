@@ -1026,10 +1026,15 @@ async function validateSelectableWorkspaceFiles(args: {
   filePaths: readonly string[];
   mode: 'replace' | 'add' | 'remove' | 'clear';
   rootPath: string;
-}): Promise<{ selectedFiles: string[]; skippedFiles: WorkspaceContextSkippedPath[] }> {
+}): Promise<{
+  requestedCount: number;
+  selectedFiles: string[];
+  skippedFiles: WorkspaceContextSkippedPath[];
+}> {
+  const requestedPaths = normalizeWorkspacePaths(args.filePaths);
   const selectedFiles: string[] = [];
   const skippedFiles: WorkspaceContextSkippedPath[] = [];
-  for (const requestedPath of normalizeWorkspacePaths(args.filePaths)) {
+  for (const requestedPath of requestedPaths) {
     if (args.mode === 'remove' || args.mode === 'clear') {
       selectedFiles.push(requestedPath);
       continue;
@@ -1045,7 +1050,7 @@ async function validateSelectableWorkspaceFiles(args: {
       skippedFiles.push(classifySelectionPathError(requestedPath, error));
     }
   }
-  return { selectedFiles, skippedFiles };
+  return { requestedCount: requestedPaths.length, selectedFiles, skippedFiles };
 }
 
 function broadcastWorkspaceContextEvent(
@@ -1082,7 +1087,7 @@ async function runUpdateWorkspaceContextSelection(
   const rootPath = resolveWorkspaceRootPath(runtimeData);
   const folderId = resolveSelectionFolderId(input.folderId, runtimeData);
   const mode = input.mode ?? 'add';
-  const { selectedFiles, skippedFiles } = await validateSelectableWorkspaceFiles({
+  const { requestedCount, selectedFiles, skippedFiles } = await validateSelectableWorkspaceFiles({
     rootPath,
     filePaths: input.filePaths,
     mode,
@@ -1098,7 +1103,7 @@ async function runUpdateWorkspaceContextSelection(
   return {
     folderId,
     mode,
-    requestedCount: normalizeWorkspacePaths(input.filePaths).length,
+    requestedCount,
     appliedCount: selectedFiles.length,
     skippedCount: skippedFiles.length,
     selectedFiles,
