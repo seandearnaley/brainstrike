@@ -1111,6 +1111,13 @@ function computeDirectorySelectionState(
   );
   if (
     selectionModel.mode !== 'query' &&
+    folderId &&
+    isWorkspacePathSelected(selectedFilePaths, folderId, node.path)
+  ) {
+    return createQueryDirectoryNodeSelectionState(true);
+  }
+  if (
+    selectionModel.mode !== 'query' &&
     directoryTotalFiles > 0 &&
     directoryState.selectedCount === directoryTotalFiles
   ) {
