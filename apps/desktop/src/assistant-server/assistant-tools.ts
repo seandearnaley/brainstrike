@@ -1258,6 +1258,7 @@ async function runListEmbeddingSpaces(
     coverage?: {
       embeddedChunks: number;
       fileCount: number;
+      tokenizedChunkCount: number;
       totalChunks: number;
       totalTokens: number;
       averageTokensPerChunk: number;
@@ -1288,13 +1289,20 @@ async function runListEmbeddingSpaces(
     if (input.includeStats !== true || !listing.stats) {
       return space;
     }
-    const { embeddedChunks, fileCount, totalChunks, totalTokens, averageTokensPerChunk } =
-      listing.stats;
+    const {
+      embeddedChunks,
+      fileCount,
+      tokenizedChunkCount,
+      totalChunks,
+      totalTokens,
+      averageTokensPerChunk,
+    } = listing.stats;
     return {
       ...space,
       coverage: {
         embeddedChunks,
         fileCount,
+        tokenizedChunkCount,
         totalChunks,
         totalTokens,
         averageTokensPerChunk,

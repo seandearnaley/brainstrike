@@ -181,6 +181,7 @@ describe('EmbeddingSetsRepository', () => {
         stats: expect.objectContaining({
           embeddedChunks: 2,
           fileCount: 2,
+          tokenizedChunkCount: 3,
           totalChunks: 4,
           totalTokens: 25,
           averageTokensPerChunk: 25 / 3,
@@ -212,27 +213,33 @@ describe('EmbeddingSetsRepository', () => {
   });
 
   it('defaults missing numeric stats to zero when listing embedding spaces with stats', async () => {
+    const statements: string[] = [];
     const trackedRepo = new EmbeddingSetsRepository({
       exec: db.exec.bind(db),
-      query: async <T = unknown>(): Promise<{ rows: T[] }> => ({
-        rows: [
-          {
-            averageTokensPerChunk: null,
-            createdAt: '2026-05-15T00:00:00.000Z',
-            description: null,
-            dimensions: '384',
-            distance: 'cosine',
-            embeddedChunks: undefined,
-            fileCount: null,
-            id: 'set-without-stats',
-            modelId: 'Xenova/all-MiniLM-L6-v2',
-            modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-            name: null,
-            totalChunks: undefined,
-            totalTokens: null,
-          },
-        ] as T[],
-      }),
+      query: async <T = unknown>(sql: string): Promise<{ rows: T[] }> => {
+        statements.push(sql);
+        expect(sql).toContain('COUNT(token_count)::text AS tokenized_chunk_count');
+        return {
+          rows: [
+            {
+              averageTokensPerChunk: null,
+              createdAt: '2026-05-15T00:00:00.000Z',
+              description: null,
+              dimensions: '384',
+              distance: 'cosine',
+              embeddedChunks: undefined,
+              fileCount: null,
+              id: 'set-without-stats',
+              modelId: 'Xenova/all-MiniLM-L6-v2',
+              modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+              name: null,
+              tokenizedChunkCount: null,
+              totalChunks: undefined,
+              totalTokens: null,
+            },
+          ] as T[],
+        };
+      },
     });
 
     await expect(trackedRepo.listEmbeddingSpaces({ includeStats: true })).resolves.toEqual([
@@ -242,11 +249,13 @@ describe('EmbeddingSetsRepository', () => {
           averageTokensPerChunk: 0,
           embeddedChunks: 0,
           fileCount: 0,
+          tokenizedChunkCount: 0,
           totalChunks: 0,
           totalTokens: 0,
         },
       }),
     ]);
+    expect(statements).toHaveLength(1);
   });
 
   it('rejects invalid numeric values when listing embedding spaces', async () => {
@@ -266,6 +275,7 @@ describe('EmbeddingSetsRepository', () => {
             modelId: 'Xenova/all-MiniLM-L6-v2',
             modelKey: 'local::Xenova/all-MiniLM-L6-v2',
             name: null,
+            tokenizedChunkCount: '0',
             totalChunks: '0',
             totalTokens: '0',
           },

@@ -23,6 +23,7 @@ export interface EmbeddingSpaceStats {
   readonly averageTokensPerChunk: number;
   readonly embeddedChunks: number;
   readonly fileCount: number;
+  readonly tokenizedChunkCount: number;
   readonly totalChunks: number;
   readonly totalTokens: number;
 }
@@ -51,6 +52,7 @@ interface EmbeddingSpaceListingRow {
   readonly modelId: string;
   readonly modelKey: string;
   readonly name: string | null;
+  readonly tokenizedChunkCount?: number | string | null;
   readonly totalChunks?: number | string | null;
   readonly totalTokens?: number | string | null;
 }
@@ -249,6 +251,7 @@ export class EmbeddingSetsRepository {
                  embedding_set_id,
                  COUNT(*)::text AS total_chunks,
                  COUNT(*) FILTER (WHERE embedding IS NOT NULL)::text AS embedded_chunks,
+                 COUNT(token_count)::text AS tokenized_chunk_count,
                  COALESCE(SUM(token_count), 0)::text AS total_tokens,
                  COALESCE(AVG(token_count), 0)::text AS average_tokens_per_chunk
                FROM file_chunks
@@ -267,6 +270,7 @@ export class EmbeddingSetsRepository {
                COALESCE(fs.file_count, '0') AS "fileCount",
                COALESCE(cs.total_chunks, '0') AS "totalChunks",
                COALESCE(cs.embedded_chunks, '0') AS "embeddedChunks",
+               COALESCE(cs.tokenized_chunk_count, '0') AS "tokenizedChunkCount",
                COALESCE(cs.total_tokens, '0') AS "totalTokens",
                COALESCE(cs.average_tokens_per_chunk, '0') AS "averageTokensPerChunk"
              FROM embedding_sets es
@@ -349,6 +353,10 @@ export class EmbeddingSetsRepository {
         fileCount: readOptionalFiniteNumber(row.fileCount, 'fileCount'),
         totalChunks: readOptionalFiniteNumber(row.totalChunks, 'totalChunks'),
         embeddedChunks: readOptionalFiniteNumber(row.embeddedChunks, 'embeddedChunks'),
+        tokenizedChunkCount: readOptionalFiniteNumber(
+          row.tokenizedChunkCount,
+          'tokenizedChunkCount'
+        ),
         totalTokens: readOptionalFiniteNumber(row.totalTokens, 'totalTokens'),
         averageTokensPerChunk: readOptionalFiniteNumber(
           row.averageTokensPerChunk,
