@@ -498,6 +498,10 @@ function canSkipElidedSourceWhitespaceBefore(
   contentOffset: number,
   chunkChar: string | undefined
 ): number | null {
+  if (!isSourceWhitespace(content[contentOffset - 1])) {
+    return null;
+  }
+
   const previousSourceOffset = findPreviousNonWhitespaceOffset(content, contentOffset);
   const whitespaceStartOffset = previousSourceOffset + 1;
   if (
