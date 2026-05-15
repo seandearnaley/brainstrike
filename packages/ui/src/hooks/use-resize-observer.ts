@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 /**
  * Options for the useResizeObserver hook.
@@ -60,7 +60,7 @@ export function useResizeObserver<T extends Element>(
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const observedElementRef = useRef<T | null>(null);
 
-  const disconnectObserver = (): void => {
+  const disconnectObserver = useCallback((): void => {
     if (resizeRafIdRef.current !== null) {
       cancelAnimationFrame(resizeRafIdRef.current);
       resizeRafIdRef.current = null;
@@ -69,8 +69,10 @@ export function useResizeObserver<T extends Element>(
     resizeObserverRef.current?.disconnect();
     resizeObserverRef.current = null;
     observedElementRef.current = null;
-  };
+  }, []);
 
+  // Intentionally run after every committed render so changes to elementRef.current
+  // are observed even when the ref object identity is stable.
   useEffect(() => {
     if (disabled) {
       disconnectObserver();
@@ -110,5 +112,5 @@ export function useResizeObserver<T extends Element>(
     observedElementRef.current = element;
   });
 
-  useEffect(() => disconnectObserver, []);
+  useEffect(() => disconnectObserver, [disconnectObserver]);
 }
