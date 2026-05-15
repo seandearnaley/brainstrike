@@ -164,6 +164,35 @@ export function validateClaudeReviewWorkflowContracts(source) {
     'Claude auto-review must use the Claude Code action.',
     failures
   );
+  const selfChangeStep = extractWorkflowStep(reviewJob, 'Detect Claude workflow self-change');
+  if (!selfChangeStep) {
+    failures.push('Claude auto-review must detect self-edits before invoking Claude.');
+  } else {
+    requireIncludes(
+      selfChangeStep,
+      'id: claude-workflow-change',
+      'Claude auto-review self-edit detector must expose a stable step id.',
+      failures
+    );
+    requireIncludes(
+      selfChangeStep,
+      '.github/workflows/claude-code-review.yml',
+      'Claude auto-review self-edit detector must check the review workflow path.',
+      failures
+    );
+    requireIncludes(
+      selfChangeStep,
+      'gh pr diff',
+      'Claude auto-review self-edit detector must inspect PR changed files.',
+      failures
+    );
+  }
+  requireIncludes(
+    reviewJob,
+    "if: ${{ steps.claude-workflow-change.outputs.changed != 'true' }}",
+    'Claude auto-review must skip Claude when this workflow changes.',
+    failures
+  );
   requireNotIncludes(
     reviewJob,
     'continue-on-error: true',

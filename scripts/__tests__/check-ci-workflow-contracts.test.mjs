@@ -78,6 +78,16 @@ test('Claude auto-review workflow contract fails when review errors are hidden',
   );
 });
 
+test('Claude auto-review workflow contract fails when self-change guard is removed', () => {
+  const source = claudeReviewWorkflowSource
+    .replace(/      - name: Detect Claude workflow self-change[\s\S]*?\n\n      - uses:/, '      - uses:')
+    .replace(/\n        if: \${{ steps\.claude-workflow-change\.outputs\.changed != 'true' }}/, '');
+
+  const failures = validateClaudeReviewWorkflowContracts(source).join('\n');
+  assert.match(failures, /must detect self-edits before invoking Claude/);
+  assert.match(failures, /must skip Claude when this workflow changes/);
+});
+
 test('workflow contract fails when unit coverage phases are collapsed', () => {
   const unitCoverage = extractJob(workflowSource, 'unit_coverage');
   assert.ok(unitCoverage);

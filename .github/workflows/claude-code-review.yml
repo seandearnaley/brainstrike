@@ -18,7 +18,21 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Detect Claude workflow self-change
+        id: claude-workflow-change
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --name-only | grep -Fxq ".github/workflows/claude-code-review.yml"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping Claude auto-review because this PR changes the review workflow; Claude OIDC validation requires this workflow to match the default branch."
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: anthropics/claude-code-action@v1
+        if: ${{ steps.claude-workflow-change.outputs.changed != 'true' }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
