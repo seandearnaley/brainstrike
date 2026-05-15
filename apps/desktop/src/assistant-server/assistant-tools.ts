@@ -22,6 +22,11 @@ import {
   type UpdateWorkspaceTapestrySelectionsInput,
   UpdateWorkspaceTapestrySelectionsInputSchema,
 } from '@brainstrike/agent';
+import {
+  EmbeddingSetsRepository,
+  type EmbeddingSpaceListing,
+  type EmbeddingSpaceStats,
+} from '@brainstrike/db';
 import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import type {
   AssistantWorkspaceContextSelectionUpdatePayload,
@@ -66,6 +71,14 @@ const DEFAULT_CONTEXT_MAX_FILES = 20;
 const DEFAULT_CONTEXT_MAX_CHARS_PER_FILE = 12_000;
 const READ_WORKSPACE_CONTEXT_BATCH_SIZE = 10;
 const SELECTABLE_WORKSPACE_FILE_VALIDATION_BATCH_SIZE = 64;
+
+type AssistantEmbeddingSpaceListing = Omit<EmbeddingSpaceListing, 'stats'> & {
+  readonly coverage?: EmbeddingSpaceStats & {
+    readonly coveragePercent: number;
+  };
+  readonly isWorkspaceIndex: boolean;
+  readonly recommendedForWorkspaceSearch: boolean;
+};
 
 type ToolExecuteInput<T> = { context: T } | T;
 
@@ -1237,106 +1250,54 @@ async function runUpdateWorkspaceTapestrySelections(
   };
 }
 
-function toNumber(value: unknown): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-interface EmbeddingSpaceRow {
-  createdAt: string | null;
-  description: string | null;
-  dimensions: number;
-  distance: string | null;
-  embeddedChunks?: number | string | null;
-  id: string;
-  modelId: string;
-  modelKey: string;
-  name: string;
-  totalChunks?: number | string | null;
-}
-
 async function runListEmbeddingSpaces(
   input: ListEmbeddingSetsInput,
   runtimeData: RuntimeData | undefined
 ): Promise<{
   count: number;
   workspaceIndex: WorkspaceIndexSummary;
-  spaces: Array<{
-    id: string;
-    name: string;
-    description: string | null;
-    modelKey: string;
-    modelId: string;
-    dimensions: number;
-    distance: string | null;
-    createdAt: string | null;
-    isWorkspaceIndex: boolean;
-    recommendedForWorkspaceSearch: boolean;
-    coverage?: {
-      embeddedChunks: number;
-      totalChunks: number;
-      coveragePercent: number;
-    };
-  }>;
+  spaces: AssistantEmbeddingSpaceListing[];
 }> {
   const workspaceIndex = normalizeRuntimeWorkspaceIndex(runtimeData);
   const db = await getDatabase();
-  const result = input.includeStats
-    ? await db.query(
-        `SELECT
-          es.id,
-          es.name,
-          es.description,
-          es.model_key AS "modelKey",
-          es.model_id AS "modelId",
-          es.dimensions,
-          es.distance,
-          es.created_at AS "createdAt",
-          COUNT(fc.id) FILTER (WHERE fc.embedding IS NOT NULL)::text AS "embeddedChunks",
-          COUNT(fc.id)::text AS "totalChunks"
-        FROM embedding_sets es
-        LEFT JOIN file_chunks fc ON fc.embedding_set_id = es.id
-        GROUP BY es.id, es.name, es.description, es.model_key, es.model_id, es.dimensions, es.distance, es.created_at
-        ORDER BY es.created_at DESC`
-      )
-    : await db.query(
-        `SELECT
-          id,
-          name,
-          description,
-          model_key AS "modelKey",
-          model_id AS "modelId",
-          dimensions,
-          distance,
-          created_at AS "createdAt"
-        FROM embedding_sets
-        ORDER BY created_at DESC`
-      );
-  const rows = result.rows as EmbeddingSpaceRow[];
-  const mappedSpaces = rows.map((row) => {
-    const isWorkspaceIndex = row.id === workspaceIndex.embeddingSetId;
+  const embeddingSetsRepository = new EmbeddingSetsRepository(db);
+  const listings = await embeddingSetsRepository.listEmbeddingSpaces({
+    includeStats: input.includeStats === true,
+  });
+  const mappedSpaces = listings.map((listing: EmbeddingSpaceListing) => {
+    const isWorkspaceIndex = listing.id === workspaceIndex.embeddingSetId;
     const space = {
-      id: row.id,
-      name: row.name,
-      description: row.description,
-      modelKey: row.modelKey,
-      modelId: row.modelId,
-      dimensions: Number(row.dimensions),
-      distance: row.distance,
-      createdAt: row.createdAt,
+      id: listing.id,
+      name: listing.name,
+      description: listing.description,
+      modelKey: listing.modelKey,
+      modelId: listing.modelId,
+      dimensions: listing.dimensions,
+      distance: listing.distance,
+      createdAt: listing.createdAt,
       isWorkspaceIndex,
       recommendedForWorkspaceSearch: isWorkspaceIndex,
     };
-    if (input.includeStats !== true) {
+    if (input.includeStats !== true || !listing.stats) {
       return space;
     }
-    const embeddedChunks = toNumber(row.embeddedChunks);
-    const totalChunks = toNumber(row.totalChunks);
+    const {
+      embeddedChunks,
+      fileCount,
+      tokenizedChunkCount,
+      totalChunks,
+      totalTokens,
+      averageTokensPerChunk,
+    } = listing.stats;
     return {
       ...space,
       coverage: {
         embeddedChunks,
+        fileCount,
+        tokenizedChunkCount,
         totalChunks,
+        totalTokens,
+        averageTokensPerChunk,
         coveragePercent: totalChunks > 0 ? Math.round((embeddedChunks / totalChunks) * 100) : 0,
       },
     };

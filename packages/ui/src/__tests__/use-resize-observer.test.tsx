@@ -82,47 +82,24 @@ describe('useResizeObserver', () => {
     const ref = { current: null as HTMLDivElement | null };
     const onResize = vi.fn();
 
-    renderHook(() => useResizeObserver(ref, onResize));
+    const { rerender } = renderHook(() => useResizeObserver(ref, onResize));
 
     expect(mockObserve).not.toHaveBeenCalled();
 
     const element = document.createElement('div');
     ref.current = element;
-    rafCallback?.(performance.now());
+    rerender();
 
     expect(mockObserve).toHaveBeenCalledWith(element);
   });
 
-  it('cancels pending attachment polling on unmount when ref never populates', () => {
-    const ref = { current: null as HTMLDivElement | null };
-    const onResize = vi.fn();
-
-    const { unmount } = renderHook(() => useResizeObserver(ref, onResize));
-
-    unmount();
-
-    expect(cancelAnimationFrame).toHaveBeenCalledWith(1);
-    expect(mockDisconnect).not.toHaveBeenCalled();
-  });
-
-  it('stops attachment polling after max attempts when ref never populates', () => {
+  it('does not schedule attachment polling when ref never populates', () => {
     const ref = { current: null as HTMLDivElement | null };
     const onResize = vi.fn();
 
     renderHook(() => useResizeObserver(ref, onResize));
 
-    // Drain the queued RAF polling callbacks; each callback schedules the next
-    // until the max poll limit is reached.
-    for (let attempt = 0; attempt < 200; attempt += 1) {
-      if (!rafCallback) {
-        break;
-      }
-      const callback = rafCallback;
-      rafCallback = null;
-      callback(performance.now());
-    }
-
-    expect(rafId).toBe(120);
+    expect(rafId).toBe(0);
     expect(rafCallback).toBeNull();
     expect(mockObserve).not.toHaveBeenCalled();
   });
@@ -257,22 +234,15 @@ describe('useResizeObserver', () => {
     const element2 = document.createElement('div');
     const onResize = vi.fn();
 
-    // Start with a mutable ref object
     const ref = { current: element1 as HTMLDivElement | null };
 
-    const { rerender } = renderHook(({ elementRef }) => useResizeObserver(elementRef, onResize), {
-      initialProps: { elementRef: ref },
-    });
+    const { rerender } = renderHook(() => useResizeObserver(ref, onResize));
 
     expect(mockObserve).toHaveBeenCalledWith(element1);
     expect(mockObserve).toHaveBeenCalledTimes(1);
 
-    // Change the element in the ref
     ref.current = element2;
-
-    // Create a new ref object to trigger the effect (since elementRef is in deps)
-    const newRef = { current: element2 };
-    rerender({ elementRef: newRef });
+    rerender();
 
     // Should have disconnected old observer and observed new element
     expect(mockDisconnect).toHaveBeenCalled();
@@ -285,15 +255,12 @@ describe('useResizeObserver', () => {
 
     const ref = { current: element as HTMLDivElement | null };
 
-    const { rerender } = renderHook(({ elementRef }) => useResizeObserver(elementRef, onResize), {
-      initialProps: { elementRef: ref },
-    });
+    const { rerender } = renderHook(() => useResizeObserver(ref, onResize));
 
     expect(mockObserve).toHaveBeenCalledWith(element);
 
-    // Change to null ref
-    const nullRef = { current: null };
-    rerender({ elementRef: nullRef });
+    ref.current = null;
+    rerender();
 
     // Should have disconnected
     expect(mockDisconnect).toHaveBeenCalled();

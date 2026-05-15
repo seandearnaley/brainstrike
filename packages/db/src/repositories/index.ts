@@ -37,7 +37,12 @@ export {
   createEmbeddingCacheRepository,
   EmbeddingCacheRepository,
 } from './embedding-cache-repository.js';
-export { EmbeddingSetsRepository } from './embedding-sets-repository.js';
+export {
+  EmbeddingSetsRepository,
+  type EmbeddingSpaceListing,
+  type EmbeddingSpaceStats,
+  type ListEmbeddingSpacesOptions,
+} from './embedding-sets-repository.js';
 export { FileChunkRepository } from './file-chunk-repository.js';
 export { FileRecordRepository } from './file-record-repository.js';
 export type {
