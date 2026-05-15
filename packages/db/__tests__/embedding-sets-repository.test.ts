@@ -97,6 +97,120 @@ describe('EmbeddingSetsRepository', () => {
     expect(fetched?.id).toBe(created.id);
   });
 
+  it('lists embedding spaces with live file, chunk, embedded chunk, and token stats', async () => {
+    const embeddingSet = await repo.getOrCreateSet(
+      'openai:text-embedding-3-small',
+      'text-embedding-3-small',
+      1536,
+      'cosine',
+      { name: 'Workspace Index' }
+    );
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, token_count, embedding_set_id)
+       VALUES ($1, $2, $3, $4, $5, $6), ($7, $8, $9, $10, $11, $12)`,
+      [
+        'file-1',
+        'one.ts',
+        '/src/one.ts',
+        100,
+        11,
+        embeddingSet.id,
+        'file-2',
+        'two.ts',
+        '/src/two.ts',
+        200,
+        17,
+        embeddingSet.id,
+      ]
+    );
+    await db.query(
+      `INSERT INTO file_chunks (
+        id,
+        file_record_id,
+        chunk_index,
+        content,
+        token_count,
+        embedding,
+        embedding_set_id
+      )
+      VALUES
+        ($1, $2, $3, $4, $5, $6, $7),
+        ($8, $9, $10, $11, $12, $13, $14),
+        ($15, $16, $17, $18, $19, $20, $21),
+        ($22, $23, $24, $25, $26, $27, $28)`,
+      [
+        'chunk-1',
+        'file-1',
+        0,
+        'one',
+        5,
+        '[0.1,0.2,0.3]',
+        embeddingSet.id,
+        'chunk-2',
+        'file-1',
+        1,
+        'two',
+        7,
+        null,
+        embeddingSet.id,
+        'chunk-3',
+        'file-2',
+        0,
+        'three',
+        13,
+        '[0.3,0.2,0.1]',
+        embeddingSet.id,
+        'chunk-4',
+        'file-2',
+        1,
+        'untokenized',
+        null,
+        null,
+        embeddingSet.id,
+      ]
+    );
+
+    const spaces = await repo.listEmbeddingSpaces({ includeStats: true });
+
+    expect(spaces).toEqual([
+      expect.objectContaining({
+        id: embeddingSet.id,
+        modelKey: embeddingSet.modelKey,
+        modelId: 'text-embedding-3-small',
+        dimensions: 1536,
+        stats: expect.objectContaining({
+          embeddedChunks: 2,
+          fileCount: 2,
+          totalChunks: 4,
+          totalTokens: 25,
+          averageTokensPerChunk: 25 / 3,
+        }),
+      }),
+    ]);
+  });
+
+  it('lists embedding spaces without stats when includeStats is false', async () => {
+    const embeddingSet = await repo.getOrCreateSet(
+      'openai:text-embedding-3-small',
+      'text-embedding-3-small',
+      1536,
+      'cosine',
+      { name: 'Workspace Index' }
+    );
+
+    const spaces = await repo.listEmbeddingSpaces({ includeStats: false });
+
+    expect(spaces).toEqual([
+      expect.objectContaining({
+        id: embeddingSet.id,
+        modelKey: embeddingSet.modelKey,
+        modelId: 'text-embedding-3-small',
+        dimensions: 1536,
+      }),
+    ]);
+    expect(spaces[0]?.stats).toBeUndefined();
+  });
+
   describe('metadata', () => {
     it('creates set with default name when metadata not provided', async () => {
       const set = await repo.getOrCreateSet(

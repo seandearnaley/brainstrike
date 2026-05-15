@@ -612,6 +612,42 @@ describe('assistant-tools', () => {
     });
   });
 
+  it('preserves nullable embedding space names in tool output', async () => {
+    getDatabaseMock.mockResolvedValue({
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [
+              {
+                id: 'set-1',
+                name: null,
+                description: null,
+                modelKey: 'local:Xenova/all-MiniLM-L6-v2',
+                modelId: 'Xenova/all-MiniLM-L6-v2',
+                dimensions: 384,
+                distance: 'cosine',
+                createdAt: '2026-01-01T00:00:00.000Z',
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    });
+    const tools = buildDesktopAssistantTools(undefined);
+    const tool = tools['brainstrike.listEmbeddingSpaces'];
+
+    const result = await tool.execute({ context: {} });
+
+    expect(result.spaces).toEqual([
+      expect.objectContaining({
+        id: 'set-1',
+        name: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+      }),
+    ]);
+  });
+
   it('can narrow embedding spaces to the configured workspace index', async () => {
     getDatabaseMock.mockResolvedValue({
       query: vi.fn(async (sql: string) => {
