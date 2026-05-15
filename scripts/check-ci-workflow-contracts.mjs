@@ -852,6 +852,12 @@ export function validateWorkflowContracts(source) {
       'Unit coverage package task timing thresholds must stay capped at 10m warn / 15m fail.',
       failures
     );
+    requireIncludes(
+      unitCoverage,
+      '--total-warn-ms 2100000 --total-fail-ms 2400000',
+      'Unit coverage aggregate timing thresholds must stay capped at 35m warn / 40m fail.',
+      failures
+    );
   }
 
   const browserTests = extractJob(source, 'browser-tests');

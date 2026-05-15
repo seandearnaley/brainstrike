@@ -65,9 +65,78 @@ export interface AssistantProviderSettings {
   workingMemoryEnabled?: boolean;
 }
 
-export type AssistantProviderSettingsUpdate = {
-  [Key in keyof AssistantProviderSettings]?: AssistantProviderSettings[Key] | undefined;
+export const assistantProviderSettingKeys = [
+  'agentInputTokenLimit',
+  'agentMaxSteps',
+  'anthropicEffort',
+  'anthropicThinkingBudgetTokens',
+  'googleIncludeThoughts',
+  'googleThinkingLevel',
+  'localRuntimeBaseUrl',
+  'localRuntimeEnabled',
+  'localThinkingEnabled',
+  'maxOutputTokens',
+  'memoryLastMessages',
+  'reasoningEffort',
+  'reasoningSummary',
+  'workingMemoryEnabled',
+] as const satisfies readonly (keyof AssistantProviderSettings)[];
+
+const assertNoMissingAssistantProviderSettingKeys = <_MissingKeys extends never>(): void =>
+  undefined;
+
+assertNoMissingAssistantProviderSettingKeys<
+  Exclude<keyof AssistantProviderSettings, (typeof assistantProviderSettingKeys)[number]>
+>();
+
+export type ProviderSettingsUpdate<Settings extends object> = {
+  [Key in keyof Settings]?: Settings[Key] | undefined;
 };
+
+export type AssistantProviderSettingsUpdate = ProviderSettingsUpdate<AssistantProviderSettings>;
+
+type RequiredSettingsKey<Settings extends object> = {
+  [Key in keyof Settings]-?: Record<string, never> extends Pick<Settings, Key> ? never : Key;
+}[keyof Settings];
+
+type OptionalSettingsBag<Settings extends object> =
+  RequiredSettingsKey<Settings> extends never ? Settings : never;
+
+/**
+ * Merges all-optional provider settings bags. Present `undefined` deletes a setting,
+ * so records with required properties are rejected at compile time.
+ */
+export function mergeProviderSettings<Settings extends object>(
+  current: OptionalSettingsBag<Settings> | undefined,
+  updates: ProviderSettingsUpdate<OptionalSettingsBag<Settings>>,
+  allowedKeys: readonly (keyof OptionalSettingsBag<Settings>)[]
+): OptionalSettingsBag<Settings> {
+  const merged: Partial<OptionalSettingsBag<Settings>> = { ...(current ?? {}) };
+  for (const key of allowedKeys) {
+    if (!Object.hasOwn(updates, key)) {
+      continue;
+    }
+    const value = updates[key] as OptionalSettingsBag<Settings>[typeof key] | undefined;
+    if (value === undefined) {
+      // Present `undefined` deletes a setting; omit the key to preserve the current value.
+      delete merged[key];
+      continue;
+    }
+    merged[key] = value;
+  }
+  return merged as OptionalSettingsBag<Settings>;
+}
+
+export function mergeAssistantProviderSettings(
+  current: AssistantProviderSettings | undefined,
+  updates: AssistantProviderSettingsUpdate
+): AssistantProviderSettings {
+  return mergeProviderSettings<AssistantProviderSettings>(
+    current,
+    updates,
+    assistantProviderSettingKeys
+  );
+}
 
 /**
  * Provider-id keyed settings map used by UI components that don't carry
