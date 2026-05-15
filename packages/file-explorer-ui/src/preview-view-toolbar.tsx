@@ -107,7 +107,6 @@ export const PreviewViewToolbar = memo<PreviewViewToolbarProps>(function Preview
               <DropdownMenuTrigger asChild>
                 <Button
                   aria-label="Group by"
-                  aria-pressed={isGrouped}
                   className={cn('h-9 w-9 p-0', isGrouped && 'bg-accent text-accent-foreground')}
                   data-testid="group-by-button"
                   size="sm"
