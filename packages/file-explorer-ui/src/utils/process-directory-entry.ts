@@ -1,5 +1,6 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
+import { calculatePathDepth } from '@brainstrike/utils';
 import { getFinalPath } from './get-final-path';
 
 export type ReadTreeFn = (
@@ -37,7 +38,7 @@ export async function processDirectoryEntry(
   return {
     ...entry,
     path: finalPath,
-    depth: relativePath.split('/').length - 1,
+    depth: calculatePathDepth(relativePath),
     children: sortFileNodes(children),
     selectionState: 'unchecked',
     rootFolderId,

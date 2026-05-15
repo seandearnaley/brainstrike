@@ -33,3 +33,14 @@ export function extractPathSegments(path: string): string[] {
 
   return segments;
 }
+
+/** Calculates path depth without allocating arrays. */
+export function calculatePathDepth(path: string): number {
+  let depth = 0;
+  let idx = path.indexOf('/');
+  while (idx !== -1) {
+    depth++;
+    idx = path.indexOf('/', idx + 1);
+  }
+  return depth;
+}

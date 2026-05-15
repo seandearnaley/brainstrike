@@ -1,6 +1,7 @@
 import type { IFileNode } from '@brainstrike/types';
 import { Minimatch } from 'minimatch';
 import { describe, expect, it } from 'vitest';
+import { calculatePathDepth } from '../path-utils';
 import { compilePatterns, generateProjectTreeText, traverseFileTree } from '../tree-generator';
 
 const createMockFileHandle = (): FileSystemFileHandle => ({
@@ -30,7 +31,7 @@ const createMockFile = (path: string, name: string): IFileNode => ({
   name,
   type: 'file',
   handle: createMockFileHandle(),
-  depth: path.split('/').length - 1,
+  depth: calculatePathDepth(path),
   selectionState: 'unchecked',
   children: [],
   rootFolderId: 'test-folder',
@@ -41,7 +42,7 @@ const createMockDir = (path: string, name: string): IFileNode => ({
   name,
   type: 'directory',
   handle: createMockDirectoryHandle(name),
-  depth: path.split('/').length - 1,
+  depth: calculatePathDepth(path),
   selectionState: 'unchecked',
   children: [],
   rootFolderId: 'test-folder',

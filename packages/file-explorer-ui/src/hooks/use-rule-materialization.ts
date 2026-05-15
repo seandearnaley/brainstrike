@@ -16,6 +16,7 @@ import {
   type TreeAdapter,
 } from '@brainstrike/selection-rules';
 import type { IFileNode } from '@brainstrike/types';
+import { calculatePathDepth } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useMemo, useRef } from 'react';
 import { useFileExplorerStoreSelector } from '../file-explorer-provider';
@@ -87,7 +88,7 @@ function createTreeAdapterFromNodes(nodes: IFileNode[]): TreeAdapter {
         if (path === normalizedRoot || path.startsWith(`${normalizedRoot}/`)) {
           if (maxDepth !== undefined) {
             const relativePath = path.slice(normalizedRoot.length + 1);
-            const depth = relativePath.split('/').length - 1;
+            const depth = calculatePathDepth(relativePath);
             if (depth > maxDepth) {
               continue;
             }

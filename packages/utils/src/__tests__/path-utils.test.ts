@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractPathSegments } from '../path-utils';
+import { calculatePathDepth, extractPathSegments } from '../path-utils';
 
 describe('extractPathSegments', () => {
   it('returns an empty array for an empty string', () => {
@@ -31,6 +31,32 @@ describe('extractPathSegments', () => {
     const inputs = ['', '/', 'a', 'a/b', '/a/b/', 'a//b', '//a//b//c//', 'a/b/c.tsx', '/'];
     for (const input of inputs) {
       expect(extractPathSegments(input)).toEqual(input.split('/').filter(Boolean));
+    }
+  });
+});
+
+describe('calculatePathDepth', () => {
+  it.each([
+    ['', 0],
+    ['file.txt', 0],
+    ['foo/bar', 1],
+    ['foo/bar/baz', 2],
+    ['foo/bar/', 2],
+    ['/foo/bar', 2],
+    ['a//b', 2],
+    ['/', 1],
+  ] satisfies [
+    string,
+    number,
+  ][])('counts slash separators in %j', (path: string, expected: number) => {
+    expect(calculatePathDepth(path)).toBe(expected);
+  });
+
+  it('matches split separator-count semantics for representative paths', () => {
+    const paths: string[] = ['', '/', 'a', 'a/b', '/a/b/', 'a//b', '//a//b//c//', 'a/b/c.tsx'];
+
+    for (const path of paths) {
+      expect(calculatePathDepth(path)).toBe(path.split('/').length - 1);
     }
   });
 });
