@@ -30,6 +30,7 @@ import type {
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { createLogger } from '@brainstrike/utils/logger';
 import { BrowserWindow } from 'electron';
+import type { z } from 'zod';
 import { getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { getWindowRole } from '../window-role';
@@ -67,10 +68,18 @@ const READ_WORKSPACE_CONTEXT_BATCH_SIZE = 10;
 
 type ToolExecuteInput<T> = { context: T } | T;
 
-function resolveToolExecuteInput<T>(input: ToolExecuteInput<T>): T {
-  // Mastra sometimes wraps tool args as { context: T } for compatibility.
-  // Keep direct tool schemas from defining a single top-level `context` field,
-  // because that shape is reserved for this runtime wrapper.
+function resolveToolExecuteInputCandidate<T>(
+  schema: z.ZodType<T>,
+  input: ToolExecuteInput<T>
+): unknown {
+  const directResult = schema.safeParse(input);
+  if (directResult.success) {
+    return directResult.data;
+  }
+
+  // Mastra sometimes wraps tool args as { context: T } for compatibility. Try
+  // direct schema parsing first so a future tool with a legitimate top-level
+  // `context` field is not silently unwrapped by this compatibility bridge.
   const maybeWrapped = input as { context?: T };
   if (
     typeof input === 'object' &&
@@ -79,13 +88,24 @@ function resolveToolExecuteInput<T>(input: ToolExecuteInput<T>): T {
     'context' in input &&
     maybeWrapped.context !== undefined
   ) {
+    const wrappedResult = schema.safeParse(maybeWrapped.context);
+    if (wrappedResult.success) {
+      return wrappedResult.data;
+    }
     return maybeWrapped.context;
   }
-  return input as T;
+
+  return input;
+}
+
+function parseToolExecuteInput<T>(schema: z.ZodType<T>, input: ToolExecuteInput<T>): T {
+  return schema.parse(resolveToolExecuteInputCandidate(schema, input));
 }
 
 function escapeSelectionBoundaryTags(content: string): string {
-  return content.replaceAll('</selection>', '<\\/selection>');
+  return content
+    .replaceAll('</selection>', '&lt;/selection&gt;')
+    .replaceAll('<selection', '&lt;selection');
 }
 
 function normalizeWorkspacePath(value: string): string {
@@ -1298,7 +1318,10 @@ async function runListEmbeddingSpaces(
 function resolveQueryEmbeddingSpaceInput(
   input: ToolExecuteInput<QueryEmbeddingSpaceInput>
 ): QueryEmbeddingSpaceInput {
-  const raw = resolveToolExecuteInput(input) as Partial<QueryEmbeddingSpaceInput>;
+  const raw = resolveToolExecuteInputCandidate(
+    QueryEmbeddingSpaceInputSchema,
+    input
+  ) as Partial<QueryEmbeddingSpaceInput>;
   if (!(typeof raw.embeddingSetId === 'string' && raw.embeddingSetId.trim().length > 0)) {
     throw new Error('Select an embedding space before querying semantic context.');
   }
@@ -1319,7 +1342,7 @@ export function buildDesktopAssistantTools(
         'Read a workspace file from the selected root. Use line ranges and maxChars to keep context efficient.',
       inputSchema: ReadWorkspaceFileInputSchema,
       execute: async (input: ToolExecuteInput<ReadWorkspaceFileInput>) => {
-        const resolvedInput = ReadWorkspaceFileInputSchema.parse(resolveToolExecuteInput(input));
+        const resolvedInput = parseToolExecuteInput(ReadWorkspaceFileInputSchema, input);
         try {
           return await runReadWorkspaceFile(resolvedInput, runtimeData);
         } catch (error) {
@@ -1334,9 +1357,7 @@ export function buildDesktopAssistantTools(
         'List workspace directory entries in a compact token-efficient format. Use depth and maxEntries to bound output.',
       inputSchema: ReadWorkspaceDirectoryInputSchema,
       execute: async (input: ToolExecuteInput<ReadWorkspaceDirectoryInput>) => {
-        const resolvedInput = ReadWorkspaceDirectoryInputSchema.parse(
-          resolveToolExecuteInput(input)
-        );
+        const resolvedInput = parseToolExecuteInput(ReadWorkspaceDirectoryInputSchema, input);
         try {
           return await runReadWorkspaceDirectory(resolvedInput, runtimeData);
         } catch (error) {
@@ -1351,7 +1372,7 @@ export function buildDesktopAssistantTools(
         'Inspect the current workspace root, selected context paths, and workspace index hint without returning file contents. Use before reading selected context.',
       inputSchema: ListWorkspaceContextInputSchema,
       execute: async (input: ToolExecuteInput<ListWorkspaceContextInput>) => {
-        const resolvedInput = ListWorkspaceContextInputSchema.parse(resolveToolExecuteInput(input));
+        const resolvedInput = parseToolExecuteInput(ListWorkspaceContextInputSchema, input);
         try {
           return runListWorkspaceContext(resolvedInput, runtimeData);
         } catch (error) {
@@ -1366,7 +1387,7 @@ export function buildDesktopAssistantTools(
         'Read selected or explicit workspace files under maxFiles, per-file, and token budgets. Uses curated Tapestry ranges by default when available. Use after semantic search when you need exact source lines. Skipped and truncated files are reported explicitly.',
       inputSchema: ReadWorkspaceContextInputSchema,
       execute: async (input: ToolExecuteInput<ReadWorkspaceContextInput>) => {
-        const resolvedInput = ReadWorkspaceContextInputSchema.parse(resolveToolExecuteInput(input));
+        const resolvedInput = parseToolExecuteInput(ReadWorkspaceContextInputSchema, input);
         try {
           return await runReadWorkspaceContext(resolvedInput, runtimeData);
         } catch (error) {
@@ -1381,8 +1402,9 @@ export function buildDesktopAssistantTools(
         'Bulk add, remove, or replace files selected in the workspace context explorer. Use this to curate reusable context for the user; listWorkspaceContext reports token counts afterward.',
       inputSchema: UpdateWorkspaceContextSelectionInputSchema,
       execute: async (input: ToolExecuteInput<UpdateWorkspaceContextSelectionInput>) => {
-        const resolvedInput = UpdateWorkspaceContextSelectionInputSchema.parse(
-          resolveToolExecuteInput(input)
+        const resolvedInput = parseToolExecuteInput(
+          UpdateWorkspaceContextSelectionInputSchema,
+          input
         );
         try {
           return await runUpdateWorkspaceContextSelection(resolvedInput, runtimeData);
@@ -1398,8 +1420,9 @@ export function buildDesktopAssistantTools(
         'Create, add, or clear Tapestry line selections for workspace context files using 1-based inclusive line numbers. Use after embedding search and file reads to keep only verified source ranges.',
       inputSchema: UpdateWorkspaceTapestrySelectionsInputSchema,
       execute: async (input: ToolExecuteInput<UpdateWorkspaceTapestrySelectionsInput>) => {
-        const resolvedInput = UpdateWorkspaceTapestrySelectionsInputSchema.parse(
-          resolveToolExecuteInput(input)
+        const resolvedInput = parseToolExecuteInput(
+          UpdateWorkspaceTapestrySelectionsInputSchema,
+          input
         );
         try {
           return await runUpdateWorkspaceTapestrySelections(resolvedInput, runtimeData);
@@ -1415,7 +1438,7 @@ export function buildDesktopAssistantTools(
         'List available embedding spaces and identify the configured workspace index. For codebase questions, call this first and prefer the space marked recommendedForWorkspaceSearch, then pass its explicit id to queryEmbeddingSpace.',
       inputSchema: ListEmbeddingSetsInputSchema,
       execute: async (input: ToolExecuteInput<ListEmbeddingSetsInput>) => {
-        const resolvedInput = ListEmbeddingSetsInputSchema.parse(resolveToolExecuteInput(input));
+        const resolvedInput = parseToolExecuteInput(ListEmbeddingSetsInputSchema, input);
         try {
           return await runListEmbeddingSpaces(resolvedInput, runtimeData);
         } catch (error) {
