@@ -9,12 +9,14 @@
  * The lite versions are intentionally duplicated (not shared) because each worker
  * package needs to control its own tiktoken/WASM bundling via tsup.
  */
+
+import { ACCURATE_TOKEN_ENCODING, ACCURATE_TOKEN_MODEL_HINT } from '@brainstrike/text-splitter';
 import { createLogger } from '@brainstrike/utils/logger';
 
 type EncodeFn = (text: string) => Uint32Array;
 
-const DEFAULT_MODEL = 'gpt-5.2';
-const DEFAULT_ENCODING = 'o200k_base';
+const DEFAULT_MODEL = ACCURATE_TOKEN_MODEL_HINT;
+const DEFAULT_ENCODING = ACCURATE_TOKEN_ENCODING;
 
 type EncoderFactory = (input: string) => { encode: EncodeFn };
 type BrowserInitFn = (

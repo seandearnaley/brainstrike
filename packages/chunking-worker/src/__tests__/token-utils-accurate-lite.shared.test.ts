@@ -28,18 +28,30 @@ describe('token-utils-accurate-lite shared behavior', () => {
     vi.doUnmock('tiktoken');
   });
 
+  it('uses a single accurate-lite implementation for worker runtimes', async () => {
+    const chunkingAccurate = await import('../token-utils-accurate-lite');
+    const tokenCacheAccurate = await import('../../../token-cache/src/token-utils-accurate-lite');
+
+    expect(chunkingAccurate.countTokensAccurate).toBe(tokenCacheAccurate.countTokensAccurate);
+    expect(chunkingAccurate.supportsAccurateTokenCounting).toBe(
+      tokenCacheAccurate.supportsAccurateTokenCounting
+    );
+    expect(chunkingAccurate.disposeAccurateTokenCountingRuntime).toBe(
+      tokenCacheAccurate.disposeAccurateTokenCountingRuntime
+    );
+    expect(chunkingAccurate.getAccurateTokenCountingFailureReason).toBe(
+      tokenCacheAccurate.getAccurateTokenCountingFailureReason
+    );
+  });
+
   it('keeps chunking-worker and token-cache accurate-lite runtimes behaviorally aligned', async () => {
-    const freeChunkingEncoder = vi.fn();
-    const freeTokenCacheEncoder = vi.fn();
-    let encoderInstanceCount = 0;
+    const freeSharedEncoder = vi.fn();
 
     vi.doMock('tiktoken', () => ({
-      encoding_for_model: () => {
-        encoderInstanceCount += 1;
-        return new (class {
+      encoding_for_model: () =>
+        new (class {
           private readonly divisor = 5;
-          public readonly free =
-            encoderInstanceCount === 1 ? freeChunkingEncoder : freeTokenCacheEncoder;
+          public readonly free = freeSharedEncoder;
 
           public encode(text: string): Uint32Array {
             return new Uint32Array(Math.ceil(text.length / this.divisor));
@@ -51,8 +63,7 @@ describe('token-utils-accurate-lite shared behavior', () => {
             }
             return new Uint32Array(Math.ceil(text.length / this.divisor));
           }
-        })();
-      },
+        })(),
       get_encoding: () => ({
         encode: (text: string) => new Uint32Array(Math.ceil(text.length / 4)),
         encode_ordinary: (text: string) => new Uint32Array(Math.ceil(text.length / 4)),
@@ -73,8 +84,7 @@ describe('token-utils-accurate-lite shared behavior', () => {
     tokenCacheAccurate.disposeAccurateTokenCountingRuntime();
 
     await vi.waitFor(() => {
-      expect(freeChunkingEncoder).toHaveBeenCalledTimes(1);
-      expect(freeTokenCacheEncoder).toHaveBeenCalledTimes(1);
+      expect(freeSharedEncoder).toHaveBeenCalledTimes(1);
     });
   });
 

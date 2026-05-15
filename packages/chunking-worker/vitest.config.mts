@@ -12,6 +12,10 @@ export default defineConfig({
         __dirname,
         '../text-splitter/src/chunking-core.ts'
       ),
+      '@brainstrike/text-splitter/token-utils-accurate-lite': path.resolve(
+        __dirname,
+        '../text-splitter/src/token-utils-accurate-lite.ts'
+      ),
       '@brainstrike/text-splitter': path.resolve(__dirname, '../text-splitter/src/index.ts'),
     },
   },
