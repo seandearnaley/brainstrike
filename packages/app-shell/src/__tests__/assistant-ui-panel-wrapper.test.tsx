@@ -472,6 +472,10 @@ vi.mock('@brainstrike/file-explorer-ui', () => {
   );
 
   return {
+    toolLineRangeToTapestryRange: (range: { endLine: number; startLine: number }) => ({
+      startLine: range.startLine - 1,
+      endLine: range.endLine,
+    }),
     useSelectionManager: () => ({ effectiveSelection: fileExplorerMocks.effectiveSelection }),
     useFileExplorerStoreContext: () => store,
     useFileExplorerStoreSelector: (selector: (state: ReturnType<typeof getState>) => unknown) =>

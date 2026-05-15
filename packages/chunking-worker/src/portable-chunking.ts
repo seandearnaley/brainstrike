@@ -515,6 +515,10 @@ function findSourceRangeForChunkContent(
     return null;
   }
 
+  // Exact matches cover the normal path. This fallback preserves line metadata
+  // through splitter whitespace normalization; the caller advances searchStart
+  // after each resolved chunk so generated files do not repeatedly rescan from
+  // the beginning of the source.
   let candidateOffset = content.indexOf(firstCharacter, searchStart);
   while (candidateOffset >= 0) {
     const endOffset = findSourceMatchEndOffset(content, chunkContent, candidateOffset);

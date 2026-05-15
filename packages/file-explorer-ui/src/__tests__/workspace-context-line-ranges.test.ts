@@ -25,4 +25,14 @@ describe('workspace context line range conversion', () => {
       endLine: 12,
     });
   });
+
+  it('rejects invalid tool ranges instead of silently clamping', () => {
+    expect(() => toolLineRangeToTapestryRange({ startLine: 10, endLine: 5 })).toThrow(RangeError);
+    expect(() => toolLineRangeToTapestryRange({ startLine: 0, endLine: 1 })).toThrow(RangeError);
+  });
+
+  it('rejects invalid tapestry ranges instead of silently converting them', () => {
+    expect(() => tapestryLineRangeToToolRange({ startLine: 5, endLine: 5 })).toThrow(RangeError);
+    expect(() => tapestryLineRangeToToolRange({ startLine: -1, endLine: 1 })).toThrow(RangeError);
+  });
 });

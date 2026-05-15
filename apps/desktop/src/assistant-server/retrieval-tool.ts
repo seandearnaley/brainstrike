@@ -132,7 +132,7 @@ interface ToolContext<TInput> {
 
 interface RetrievalToolResult {
   budget: number;
-  chunkContentIncludedInContext: true;
+  chunkContentIncludedInContext: boolean;
   chunks: RetrievalResultChunk[];
   context: string;
   embeddingSetId: string;
@@ -679,7 +679,7 @@ async function runRetrieval(
     remainingTokens: packed.remainingTokens,
     skipped: packed.skipped + skippedSourceRangeChunks.length,
     context: contextText,
-    chunkContentIncludedInContext: true,
+    chunkContentIncludedInContext: packed.chunks.length > 0,
     chunks: stripChunkContent(packed.chunks),
     skippedForMissingSourceRange: skippedSourceRangeChunks.length,
     skippedSourceRangeChunks,

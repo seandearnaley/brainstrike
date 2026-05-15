@@ -50,4 +50,5 @@ export { readFullTree, readFullTreeWithOptions } from './utils/read-full-tree';
 export * from './view-filter-preset-dropdown';
 export * from './workspace-app';
 export * from './workspace-context-curation-store';
+export * from './workspace-context-line-ranges';
 export * from './workspace-tab-host';

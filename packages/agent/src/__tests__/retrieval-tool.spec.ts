@@ -390,6 +390,30 @@ describe('createRetrievalTool', () => {
     expect(r.skipped).toBe(1);
   });
 
+  it('reports when the token budget excludes all retrieved chunk content', async () => {
+    const deps = createMockDependencies({
+      searchSimilarChunks: vi.fn().mockResolvedValue([
+        createMockChunkResult({
+          chunk: { content: 'Too large for the requested budget', tokenCount: 10 },
+        }),
+      ]),
+    });
+    const tool = createRetrievalTool({ embeddingSetId: 'set-001' }, deps);
+
+    const result = await runTool(tool, { query: 'test', tokenBudget: 1 });
+
+    const r = result as {
+      chunkContentIncludedInContext: boolean;
+      chunks: unknown[];
+      context: string;
+      skipped: number;
+    };
+    expect(r.chunkContentIncludedInContext).toBe(false);
+    expect(r.chunks).toHaveLength(0);
+    expect(r.context).toBe('');
+    expect(r.skipped).toBe(1);
+  });
+
   it('logs debug messages when logger provided', async () => {
     const logger = {
       debug: vi.fn(),

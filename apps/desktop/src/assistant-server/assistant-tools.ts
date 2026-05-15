@@ -1449,7 +1449,7 @@ export function buildDesktopAssistantTools(
     logger.warn('Ignoring unknown enabled native tool ids', { toolIds: unknownToolIds });
   }
   if (enabledSet.size === 0) {
-    logger.debug('Runtime preferences disabled all desktop assistant native tools', {
+    logger.warn('Runtime preferences disabled all desktop assistant native tools', {
       availableCount: Object.keys(tools).length,
     });
   }

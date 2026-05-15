@@ -517,6 +517,11 @@ function resolveLocalRuntimeBaseUrl(
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+/**
+ * Applies provider setting updates with explicit delete semantics: omitted keys
+ * keep their current value, while keys present with `undefined` remove that
+ * setting from the persisted provider config.
+ */
 function mergeProviderSettings(
   current: AssistantProviderSettings,
   updates: AssistantProviderSettingsUpdate

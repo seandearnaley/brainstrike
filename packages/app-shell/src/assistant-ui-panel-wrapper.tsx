@@ -31,6 +31,7 @@ import {
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
 import {
   type TapestryRange,
+  toolLineRangeToTapestryRange,
   useFileExplorerStoreSelector,
   useSelectionManager,
   useWorkspaceContextCurationStore,
@@ -290,17 +291,6 @@ function getAssistantTapestryColor(key: string): string {
     hash = (hash * 31 + key.charCodeAt(index)) >>> 0;
   }
   return palette[hash % palette.length] ?? '#2563eb';
-}
-
-function toolLineRangeToTapestryRange(range: { endLine: number; startLine: number }): {
-  endLine: number;
-  startLine: number;
-} {
-  const startLine = Math.max(0, range.startLine - 1);
-  return {
-    startLine,
-    endLine: Math.max(startLine + 1, range.endLine),
-  };
 }
 
 function buildAssistantTapestryRange(args: {

@@ -10,9 +10,12 @@ export const migration032FileChunkSourceRanges: Migration = {
       ADD COLUMN IF NOT EXISTS start_offset INTEGER,
       ADD COLUMN IF NOT EXISTS end_offset INTEGER;
 
-    -- Existing chunks predate persisted line ranges. Drop them so the next
-    -- indexing pass recreates chunks with complete source-range metadata instead
-    -- of returning invisible retrieval results.
+    -- Existing chunks predate persisted line ranges. Brainstrike's DB contract is
+    -- greenfield/reset-required for unreleased schema changes, so this migration
+    -- intentionally invalidates old chunk rows and lets the existing collection
+    -- indexing status UI surface the re-indexing work. Keeping legacy chunks
+    -- would make line-aware retrieval nondeterministic because some semantic hits
+    -- could not map back to source lines.
     UPDATE file_records
     SET chunks_processed_at = NULL,
         chunks_count = 0
