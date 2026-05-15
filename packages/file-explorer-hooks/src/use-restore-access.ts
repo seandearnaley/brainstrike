@@ -12,6 +12,23 @@ const logger = createLogger('useRestoreAccess');
  */
 const HANDLE_CHECK_DELAY_MS = 500;
 
+type RestoreAccessClearListener = () => void;
+
+const clearListeners = new Set<RestoreAccessClearListener>();
+
+function subscribeToStoredHandlesCleared(listener: RestoreAccessClearListener): () => void {
+  clearListeners.add(listener);
+  return () => {
+    clearListeners.delete(listener);
+  };
+}
+
+function broadcastStoredHandlesCleared(): void {
+  for (const listener of clearListeners) {
+    listener();
+  }
+}
+
 export interface PendingRestoreState {
   folderId: string;
   name: string;
@@ -58,6 +75,15 @@ interface WebHandleCacheShape {
 
 interface WebAdapterWithCache {
   getHandleCache?: () => WebHandleCacheShape;
+}
+
+interface LoadStoredHandlesOptions {
+  dismissedRef: { current: boolean };
+  handleCache: WebHandleCacheShape | null;
+  hasNewMethod: boolean;
+  hasOldMethod: boolean;
+  setPendingRestore: (state: PendingRestoreState | null) => void;
+  setStoredFolders: (folders: Array<{ folderId: string; name: string }>) => void;
 }
 
 /** Convert a raw FileSystemDirectoryHandle to our DirectoryHandle type */
@@ -112,6 +138,26 @@ async function loadHandlesLegacyMethod(
     return;
   }
   setStoredFolders(handles.map((h) => ({ folderId: h.folderId, name: h.name })));
+}
+
+async function loadStoredHandles({
+  dismissedRef,
+  handleCache,
+  hasNewMethod,
+  hasOldMethod,
+  setPendingRestore,
+  setStoredFolders,
+}: LoadStoredHandlesOptions): Promise<void> {
+  if (dismissedRef.current || !handleCache) {
+    return;
+  }
+  if (hasNewMethod) {
+    await loadHandlesNewMethod(handleCache, setPendingRestore, setStoredFolders);
+    return;
+  }
+  if (hasOldMethod) {
+    await loadHandlesLegacyMethod(handleCache, setStoredFolders);
+  }
 }
 
 /**
@@ -258,6 +304,20 @@ export function useRestoreAccess(): RestoreAccessState {
     return cache;
   }, [fileSystemAdapter]);
 
+  const clearLocalRestoreState = useCallback((): void => {
+    dismissedRef.current = true;
+    setPendingRestore(null);
+    setShowDeniedBanner(false);
+    setShowStaleBanner(false);
+    setStoredFolders([]);
+    setIsCheckingStoredHandles(false);
+  }, []);
+
+  useEffect(
+    () => subscribeToStoredHandlesCleared(clearLocalRestoreState),
+    [clearLocalRestoreState]
+  );
+
   // Load stored handles on startup
   useEffect(() => {
     if (dismissedRef.current) {
@@ -277,11 +337,14 @@ export function useRestoreAccess(): RestoreAccessState {
     const timer = setTimeout(() => {
       void (async () => {
         try {
-          if (hasNewMethod && handleCache) {
-            await loadHandlesNewMethod(handleCache, setPendingRestore, setStoredFolders);
-          } else if (hasOldMethod && handleCache) {
-            await loadHandlesLegacyMethod(handleCache, setStoredFolders);
-          }
+          await loadStoredHandles({
+            dismissedRef,
+            handleCache,
+            hasNewMethod,
+            hasOldMethod,
+            setPendingRestore,
+            setStoredFolders,
+          });
         } catch (error) {
           logger.warn('Failed to load stored root handles', { error });
         } finally {
@@ -385,11 +448,7 @@ export function useRestoreAccess(): RestoreAccessState {
     if (handleCache?.clear) {
       await handleCache.clear();
     }
-    setPendingRestore(null);
-    setShowDeniedBanner(false);
-    setShowStaleBanner(false);
-    setStoredFolders([]);
-    dismissedRef.current = true;
+    broadcastStoredHandlesCleared();
   }, [handleCache]);
 
   return {

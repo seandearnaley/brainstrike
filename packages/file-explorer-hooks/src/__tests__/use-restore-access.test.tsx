@@ -206,4 +206,66 @@ describe('useRestoreAccess', () => {
     expect(handleCache.clear).toHaveBeenCalledOnce();
     expect(result.current.storedFolders).toEqual([]);
   });
+
+  it('syncs cleared stored handles across hook instances', async () => {
+    const mockRawHandle = {
+      name: 'Root',
+      kind: 'directory',
+      queryPermission: vi.fn().mockResolvedValue('prompt'),
+    } as unknown as FileSystemDirectoryHandle;
+
+    const handleCache = {
+      getAllRootHandles: vi.fn().mockResolvedValue([
+        {
+          folderId: 'root',
+          name: 'Root',
+          lastAccessedAt: 1,
+        },
+      ]),
+      getLastRootHandleForRestore: vi.fn().mockResolvedValue({
+        folderId: 'root',
+        handle: mockRawHandle,
+        name: 'Root',
+        permissionState: 'prompt',
+      }),
+      markHandleRestored: vi.fn().mockResolvedValue(undefined),
+      restoreLastRootHandle: vi.fn().mockResolvedValue(null),
+      clear: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const adapter = {
+      requestDirectoryAccess: vi.fn(),
+      readDirectory: vi.fn(),
+      readFile: vi.fn(),
+      exists: vi.fn(),
+      getHandleCache: () => handleCache,
+    } as unknown as FileSystemAdapter;
+
+    const first = renderHook(() => useRestoreAccess(), {
+      wrapper: createWrapper(adapter),
+    });
+    const second = renderHook(() => useRestoreAccess(), {
+      wrapper: createWrapper(adapter),
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(first.result.current.storedFolders).toEqual([{ folderId: 'root', name: 'Root' }]);
+    expect(second.result.current.storedFolders).toEqual([{ folderId: 'root', name: 'Root' }]);
+    expect(second.result.current.pendingRestore?.folderId).toBe('root');
+
+    await act(async () => {
+      await first.result.current.clearStoredHandles();
+    });
+
+    expect(handleCache.clear).toHaveBeenCalledOnce();
+    expect(first.result.current.storedFolders).toEqual([]);
+    expect(second.result.current.storedFolders).toEqual([]);
+    expect(second.result.current.pendingRestore).toBeNull();
+
+    first.unmount();
+    second.unmount();
+  });
 });
