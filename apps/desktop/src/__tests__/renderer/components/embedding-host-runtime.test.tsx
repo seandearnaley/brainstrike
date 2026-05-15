@@ -12,6 +12,8 @@ const {
   getEmbeddingQueueMock,
   createEmbeddingCacheRepositoryMock,
   ensureVectorPreferencesHydratedMock,
+  queryEmbeddingListenerRef,
+  reportQueryEmbeddingResponseMock,
   reportStatusMock,
   startEmbeddingWorkerMock,
   stopMock,
@@ -34,6 +36,10 @@ const {
   getEmbeddingQueueMock: vi.fn(() => ({ id: 'embedding-queue' })),
   createEmbeddingCacheRepositoryMock: vi.fn(),
   ensureVectorPreferencesHydratedMock: vi.fn(),
+  queryEmbeddingListenerRef: {
+    current: null as null | ((request: unknown) => void),
+  },
+  reportQueryEmbeddingResponseMock: vi.fn(),
   reportStatusMock: vi.fn(),
   startEmbeddingWorkerMock: vi.fn(),
   stopMock: vi.fn(),
@@ -100,6 +106,13 @@ describe('EmbeddingHostRuntime', () => {
             commandListenerRef.current = null;
           };
         },
+        onQueryEmbeddingRequest: (callback: (request: unknown) => void) => {
+          queryEmbeddingListenerRef.current = callback;
+          return () => {
+            queryEmbeddingListenerRef.current = null;
+          };
+        },
+        reportQueryEmbeddingResponse: reportQueryEmbeddingResponseMock,
         reportStatus: reportStatusMock,
       },
     });
@@ -189,6 +202,44 @@ describe('EmbeddingHostRuntime', () => {
       expect.objectContaining({
         runtimeId: 'embedding-host:next-runtime',
         state: 'running',
+      })
+    );
+  });
+
+  it('reports invalid query embedding request envelopes back to main promptly', async () => {
+    storeState.hasHydrated = true;
+
+    render(<EmbeddingHostRuntime />);
+
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalled();
+    });
+    const queryEmbeddingListener = queryEmbeddingListenerRef.current;
+    if (!queryEmbeddingListener) {
+      throw new Error('Expected embedding host query embedding listener to be registered.');
+    }
+
+    queryEmbeddingListener({
+      type: 'request',
+      channel: 'query-embedding',
+      requestId: 'embedding-query:test',
+      runtimeId: 'test-runtime',
+      payload: {
+        dimensions: 2,
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        query: 'database config',
+      },
+    });
+
+    expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'error',
+        channel: 'query-embedding-error',
+        requestId: 'embedding-query:test',
+        runtimeId: 'test-runtime',
+        payload: expect.objectContaining({
+          message: 'Embedding host query embedding payload.modelKey must be a non-empty string.',
+        }),
       })
     );
   });

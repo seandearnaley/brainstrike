@@ -15,8 +15,10 @@ export default defineConfig({
     testTimeout: getAdjustedTimeout('uiComponent'),
     // Use threads pool to avoid process forks (prevents EPERM kills in constrained sandboxes)
     pool: 'threads',
-    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
-    maxWorkers: process.env['CI'] ? '50%' : '100%',
+    // Desktop tests spin up mocked Electron, PGlite, MCP, and renderer-host
+    // surfaces with process-wide module state. Keep this package serialized so
+    // those globals cannot bleed across files under load.
+    maxWorkers: 1,
     exclude: [
       '**/node_modules/**',
       '**/dist/**',

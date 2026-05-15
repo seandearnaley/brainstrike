@@ -79,6 +79,39 @@ function reportQueryEmbeddingResponse(response: EmbeddingHostQueryEmbeddingRespo
   getEmbeddingHostBridge()?.reportQueryEmbeddingResponse?.(response);
 }
 
+function getEnvelopeStringField(value: unknown, field: 'requestId' | 'runtimeId'): string | null {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    return null;
+  }
+  const candidate = (value as Record<string, unknown>)[field];
+  return typeof candidate === 'string' && candidate.trim().length > 0 ? candidate.trim() : null;
+}
+
+function createQueryEmbeddingRequestParseErrorReport(
+  rawRequest: unknown,
+  error: unknown
+): EmbeddingHostQueryEmbeddingResponseReport | null {
+  const requestId = getEnvelopeStringField(rawRequest, 'requestId');
+  const runtimeId = getEnvelopeStringField(rawRequest, 'runtimeId');
+  if (!(requestId && runtimeId)) {
+    return null;
+  }
+  return {
+    type: 'error',
+    channel: 'query-embedding-error',
+    requestId,
+    runtimeId,
+    payload: {
+      name: error instanceof Error && error.name.trim().length > 0 ? error.name : 'Error',
+      message:
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : 'Invalid embedding host query embedding request.',
+      ...(error instanceof Error && typeof error.stack === 'string' ? { stack: error.stack } : {}),
+    },
+  };
+}
+
 function createEmbeddingHostStatus(
   runtimeId: string,
   state: EmbeddingHostStatus['state'],
@@ -571,7 +604,21 @@ export function EmbeddingHostRuntime(): null {
 
     const unsubscribeQueryEmbedding = getEmbeddingHostBridge()?.onQueryEmbeddingRequest?.(
       (rawRequest) => {
-        const request = assertEmbeddingHostQueryEmbeddingRequest(rawRequest);
+        let request: EmbeddingHostQueryEmbeddingRequest;
+        try {
+          request = assertEmbeddingHostQueryEmbeddingRequest(rawRequest);
+        } catch (error) {
+          const response = createQueryEmbeddingRequestParseErrorReport(rawRequest, error);
+          logger.error('Rejected invalid embedding host query embedding request', {
+            error: error instanceof Error ? error.message : String(error),
+            requestId: response?.requestId ?? null,
+            runtimeId: response?.runtimeId ?? null,
+          });
+          if (response) {
+            reportQueryEmbeddingResponse(response);
+          }
+          return;
+        }
         void handleQueryEmbeddingRequest({
           activeRef,
           db,
