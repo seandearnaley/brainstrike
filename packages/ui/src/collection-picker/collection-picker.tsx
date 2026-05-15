@@ -2,6 +2,7 @@ import { useCallback, useId, useState } from 'react';
 import { Label } from '../label';
 import { cn } from '../lib/utils';
 import { ScrollArea } from '../scroll-area';
+import { TooltipProvider } from '../tooltip';
 import { CollectionPickerEmpty } from './collection-picker-empty';
 import { CollectionPickerHeader } from './collection-picker-header';
 import { CollectionPickerItem } from './collection-picker-item';
@@ -160,22 +161,24 @@ export function CollectionPicker({
         role="listbox"
         tabIndex={0}
       >
-        <ScrollArea className="flex-1" style={{ maxHeight }}>
-          <div className="space-y-2 px-1 py-1">
-            {collections.map((collection, index) => (
-              <CollectionPickerItem
-                collection={collection}
-                id={`collection-option-${collection.id}`}
-                isFocused={isKeyboardFocused && index === focusedIndex}
-                isSelected={collection.id === selectedId}
-                key={collection.id}
-                onDelete={handleDelete}
-                onEdit={handleEdit}
-                onSelect={handleSelect}
-              />
-            ))}
-          </div>
-        </ScrollArea>
+        <TooltipProvider delayDuration={300}>
+          <ScrollArea className="flex-1" style={{ maxHeight }}>
+            <div className="space-y-2 px-1 py-1">
+              {collections.map((collection, index) => (
+                <CollectionPickerItem
+                  collection={collection}
+                  id={`collection-option-${collection.id}`}
+                  isFocused={isKeyboardFocused && index === focusedIndex}
+                  isSelected={collection.id === selectedId}
+                  key={collection.id}
+                  onDelete={handleDelete}
+                  onEdit={handleEdit}
+                  onSelect={handleSelect}
+                />
+              ))}
+            </div>
+          </ScrollArea>
+        </TooltipProvider>
       </div>
     </div>
   );
