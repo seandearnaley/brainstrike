@@ -112,6 +112,10 @@ export interface TokenCacheStats {
 export interface TokenCacheStoreOptions {
   /** Whether to log debug information */
   debug?: boolean;
+  /** Base delay for retrying transient batch transaction failures, in milliseconds. */
+  transactionRetryBaseDelayMs?: number;
+  /** Maximum number of attempts for transient batch transaction failures. */
+  transactionRetryMaxAttempts?: number;
 }
 
 /**
