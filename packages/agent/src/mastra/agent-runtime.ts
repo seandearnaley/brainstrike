@@ -21,6 +21,7 @@ import type {
   StreamFinishReason,
   StreamIterator,
 } from '../types';
+import { buildDefaultInstructions } from './default-instructions';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import { collectCombinedTools } from './mcp-tool-loader';
 import {
@@ -50,115 +51,6 @@ export interface MastraAgentRuntime {
 }
 
 const logger = createLogger('MastraAgent');
-
-const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
-  listWorkspaceContext: 'brainstrike.listWorkspaceContext',
-  readWorkspaceContext: 'brainstrike.readWorkspaceContext',
-  readWorkspaceFile: 'brainstrike.readWorkspaceFile',
-  listEmbeddingSpaces: 'brainstrike.listEmbeddingSpaces',
-  queryEmbeddingSpace: 'brainstrike.queryEmbeddingSpace',
-  updateWorkspaceContextSelection: 'brainstrike.updateWorkspaceContextSelection',
-  updateWorkspaceTapestrySelections: 'brainstrike.updateWorkspaceTapestrySelections',
-} as const;
-
-function buildOriginalToModelFacingToolNameMap(
-  toolNameMap: ReadonlyMap<string, string>
-): Map<string, string> {
-  const originalToModelFacing = new Map<string, string>();
-  for (const [modelFacingName, originalName] of toolNameMap.entries()) {
-    originalToModelFacing.set(originalName, modelFacingName);
-  }
-  return originalToModelFacing;
-}
-
-function resolveModelFacingToolName(
-  originalToModelFacingToolNameMap: ReadonlyMap<string, string>,
-  originalToolId: string
-): string | null {
-  return originalToModelFacingToolNameMap.get(originalToolId) ?? null;
-}
-
-function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): {
-  listWorkspaceContext: string | null;
-  readWorkspaceContext: string | null;
-  readWorkspaceFile: string | null;
-  listEmbeddingSpaces: string | null;
-  queryEmbeddingSpace: string | null;
-  updateWorkspaceContextSelection: string | null;
-  updateWorkspaceTapestrySelections: string | null;
-} {
-  const originalToModelFacing = buildOriginalToModelFacingToolNameMap(toolNameMap);
-  return {
-    listWorkspaceContext: resolveModelFacingToolName(
-      originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.listWorkspaceContext
-    ),
-    readWorkspaceContext: resolveModelFacingToolName(
-      originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.readWorkspaceContext
-    ),
-    readWorkspaceFile: resolveModelFacingToolName(
-      originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.readWorkspaceFile
-    ),
-    listEmbeddingSpaces: resolveModelFacingToolName(
-      originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.listEmbeddingSpaces
-    ),
-    queryEmbeddingSpace: resolveModelFacingToolName(
-      originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.queryEmbeddingSpace
-    ),
-    updateWorkspaceContextSelection: resolveModelFacingToolName(
-      originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.updateWorkspaceContextSelection
-    ),
-    updateWorkspaceTapestrySelections: resolveModelFacingToolName(
-      originalToModelFacing,
-      BRAINSTRIKE_CONTEXT_TOOL_IDS.updateWorkspaceTapestrySelections
-    ),
-  };
-}
-
-function formatAvailableToolNames(names: ReturnType<typeof getModelFacingToolNames>): string {
-  const available = Object.values(names).filter((name): name is string => Boolean(name));
-  return available.length > 0 ? available.join(', ') : 'none';
-}
-
-function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): string {
-  const names = getModelFacingToolNames(toolNameMap);
-  const workspaceInspectionInstruction = names.listWorkspaceContext
-    ? `First inspect available selected context, token budgets, Tapestry ranges, project-tree token counts, and the workspace index hint with ${names.listWorkspaceContext}.`
-    : 'Workspace-selection inspection is unavailable in this run.';
-  const semanticSearchInstruction =
-    names.listEmbeddingSpaces && names.queryEmbeddingSpace
-      ? `For broad codebase questions, call ${names.listEmbeddingSpaces} and prefer the space marked recommendedForWorkspaceSearch because it is the workspace index; then pass that explicit embeddingSetId to ${names.queryEmbeddingSpace}.`
-      : 'Semantic workspace search is unavailable unless both listEmbeddingSpaces and queryEmbeddingSpace are registered.';
-  const readContextInstruction =
-    names.readWorkspaceContext && names.readWorkspaceFile
-      ? `Use ${names.readWorkspaceContext} or ${names.readWorkspaceFile} afterward when you need surrounding file contents beyond the retrieved source line ranges.`
-      : names.readWorkspaceFile
-        ? `Use ${names.readWorkspaceFile} afterward when you need surrounding file contents beyond retrieved source line ranges.`
-        : 'Workspace file reading is unavailable in this run.';
-  const curationInstruction =
-    names.queryEmbeddingSpace &&
-    names.updateWorkspaceContextSelection &&
-    names.updateWorkspaceTapestrySelections
-      ? `When the user asks you to curate ideal reusable context, use ${names.queryEmbeddingSpace} to find candidate files and semantic chunks with persisted source line ranges, then call ${names.updateWorkspaceContextSelection} to bulk select files and ${names.updateWorkspaceTapestrySelections} to keep only relevant line ranges. Read files when surrounding lines are needed to refine the ranges. Keep the curation token-aware and prefer Tapestry ranges over whole files when a whole file would waste context.`
-      : 'Reusable context curation is unavailable unless semantic search, workspace selection, and Tapestry selection tools are all registered.';
-
-  return `You are a helpful assistant for the Brainstrike IDE.
-Use tools when they help you answer accurately.
-Project files, context explorer selections, file trees, token estimates, and embedding spaces are not preloaded into your prompt.
-Registered Brainstrike native context tools in this run: ${formatAvailableToolNames(names)}.
-When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${semanticSearchInstruction} ${readContextInstruction}
-${curationInstruction}
-Do not assume selected files or embedding spaces are already included. Keep file and retrieval budgets small, and report skipped or truncated tool results when they affect the answer.
-If an expected Brainstrike native tool is unavailable, say exactly which tool ID is missing and continue with another available tool only when that still answers the user.
-If the user asks what tools you have available, list the tool IDs you can call in this session and briefly describe each one.
-Only run state-changing tools after the user confirms.
-Provide concise answers after using tools.`;
-}
 
 function toMastraServerMap(config: McpConfig | undefined): MCPClientOptions['servers'] {
   if (!(config && Array.isArray(config.servers))) {
