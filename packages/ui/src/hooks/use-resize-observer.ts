@@ -29,8 +29,10 @@ export interface UseResizeObserverOptions {
  * @param options - Optional configuration for the observer
  *
  * @remarks
- * Observation starts once `elementRef.current` points to an element. This supports
- * refs that are `null` on the first render (for example, conditionally rendered targets).
+ * Observation starts after a render where `elementRef.current` points to an element.
+ * This supports refs that are `null` on the first render, then populated by a later
+ * React render (for example, conditionally rendered targets). Mutating
+ * `elementRef.current` outside React without causing a render will not notify the hook.
  *
  * @example
  * ```tsx
@@ -54,70 +56,59 @@ export function useResizeObserver<T extends Element>(
   // Store the latest callback in a ref to avoid recreating the observer
   const callbackRef = useRef(onResize);
   callbackRef.current = onResize;
+  const resizeRafIdRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const observedElementRef = useRef<T | null>(null);
+
+  const disconnectObserver = (): void => {
+    if (resizeRafIdRef.current !== null) {
+      cancelAnimationFrame(resizeRafIdRef.current);
+      resizeRafIdRef.current = null;
+    }
+
+    resizeObserverRef.current?.disconnect();
+    resizeObserverRef.current = null;
+    observedElementRef.current = null;
+  };
 
   useEffect(() => {
     if (disabled) {
+      disconnectObserver();
       return;
     }
 
-    let resizeRafId: ReturnType<typeof requestAnimationFrame> | null = null;
-    let attachPollRafId: ReturnType<typeof requestAnimationFrame> | null = null;
-    let attachPollCount = 0;
-    let resizeObserver: ResizeObserver | null = null;
-    const maxAttachPollAttempts = 120; // ~2 seconds at 60 fps
+    const element = elementRef.current;
+    if (element === observedElementRef.current) {
+      return;
+    }
 
-    const attachResizeObserver = (element: T): void => {
-      if (resizeObserver) {
-        return;
+    disconnectObserver();
+
+    if (!element) {
+      return;
+    }
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      // Cancel any pending animation frame to batch rapid resize events
+      if (resizeRafIdRef.current !== null) {
+        cancelAnimationFrame(resizeRafIdRef.current);
       }
 
-      resizeObserver = new ResizeObserver((entries) => {
-        // Cancel any pending animation frame to batch rapid resize events
-        if (resizeRafId !== null) {
-          cancelAnimationFrame(resizeRafId);
+      // Schedule the callback for the next animation frame
+      resizeRafIdRef.current = requestAnimationFrame(() => {
+        resizeRafIdRef.current = null;
+        // Only process the last entry since we're observing a single element
+        const entry = entries.at(-1);
+        if (entry) {
+          callbackRef.current(entry);
         }
-
-        // Schedule the callback for the next animation frame
-        resizeRafId = requestAnimationFrame(() => {
-          resizeRafId = null;
-          // Only process the last entry since we're observing a single element
-          const entry = entries.at(-1);
-          if (entry) {
-            callbackRef.current(entry);
-          }
-        });
       });
+    });
 
-      resizeObserver.observe(element);
-    };
+    resizeObserver.observe(element);
+    resizeObserverRef.current = resizeObserver;
+    observedElementRef.current = element;
+  });
 
-    const tryAttachObserver = (): void => {
-      const element = elementRef.current;
-      if (element) {
-        attachResizeObserver(element);
-        return;
-      }
-      if (attachPollCount >= maxAttachPollAttempts) {
-        return;
-      }
-      attachPollCount += 1;
-      // Keep checking until the ref is populated, then attach once.
-      attachPollRafId = requestAnimationFrame(tryAttachObserver);
-    };
-
-    tryAttachObserver();
-
-    return () => {
-      // Cancel any pending attachment-polling animation frame
-      if (attachPollRafId !== null) {
-        cancelAnimationFrame(attachPollRafId);
-      }
-
-      if (resizeRafId !== null) {
-        cancelAnimationFrame(resizeRafId);
-      }
-
-      resizeObserver?.disconnect();
-    };
-  }, [elementRef, disabled]);
+  useEffect(() => disconnectObserver, []);
 }
