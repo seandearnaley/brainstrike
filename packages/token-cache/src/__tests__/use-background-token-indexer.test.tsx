@@ -428,6 +428,7 @@ describe('useBackgroundTokenIndexer', () => {
         eventErrorStack: eventError.stack,
       })
     );
+    expect(mockLogger.error.mock.calls[0]?.[1]).not.toHaveProperty('terminalWorkerErrorDetails');
   });
 
   it('deduplicates terminal worker failure when both error handlers fire', async () => {

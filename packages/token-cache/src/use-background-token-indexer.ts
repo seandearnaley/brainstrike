@@ -129,8 +129,8 @@ function createTerminalWorkerErrorDetails(event: Event): TerminalWorkerErrorDeta
       ...details,
       ...(event.message ? { eventMessage: event.message } : {}),
       ...(event.filename ? { filename: event.filename } : {}),
-      ...(typeof event.lineno === 'number' ? { lineno: event.lineno } : {}),
-      ...(typeof event.colno === 'number' ? { colno: event.colno } : {}),
+      lineno: event.lineno,
+      colno: event.colno,
       ...(eventErrorDetail ? { eventError: eventErrorDetail } : {}),
       ...(eventError instanceof Error ? { eventErrorName: eventError.name } : {}),
       ...(eventError instanceof Error && eventError.stack
@@ -150,7 +150,12 @@ function attachTerminalWorkerErrorDetails(
   error: Error,
   details: TerminalWorkerErrorDetails
 ): Error {
-  (error as ErrorWithTerminalWorkerDetails).terminalWorkerErrorDetails = details;
+  Object.defineProperty(error, 'terminalWorkerErrorDetails', {
+    configurable: true,
+    enumerable: false,
+    value: details,
+    writable: false,
+  });
   return error;
 }
 
