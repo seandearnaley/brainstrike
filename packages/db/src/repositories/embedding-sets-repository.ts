@@ -12,6 +12,69 @@ interface EmbeddingSetsDb {
   query<T = unknown>(sql: string, params?: unknown): Promise<{ rows: T[] }>;
 }
 
+export interface ListEmbeddingSpacesOptions {
+  readonly includeStats?: boolean;
+}
+
+export interface EmbeddingSpaceStats {
+  /**
+   * Average tokens across chunks that have a recorded token_count; uncounted chunks are excluded.
+   */
+  readonly averageTokensPerChunk: number;
+  readonly embeddedChunks: number;
+  readonly fileCount: number;
+  readonly tokenizedChunkCount: number;
+  readonly totalChunks: number;
+  readonly totalTokens: number;
+}
+
+export interface EmbeddingSpaceListing {
+  readonly createdAt: string;
+  readonly description: string | null;
+  readonly dimensions: number;
+  readonly distance: EmbeddingDistance | null;
+  readonly id: string;
+  readonly modelId: string;
+  readonly modelKey: string;
+  readonly name: string | null;
+  readonly stats?: EmbeddingSpaceStats;
+}
+
+interface EmbeddingSpaceListingRow {
+  readonly averageTokensPerChunk?: number | string | null;
+  readonly createdAt: string;
+  readonly description: string | null;
+  readonly dimensions: number | string;
+  readonly distance: EmbeddingDistance | null;
+  readonly embeddedChunks?: number | string | null;
+  readonly fileCount?: number | string | null;
+  readonly id: string;
+  readonly modelId: string;
+  readonly modelKey: string;
+  readonly name: string | null;
+  readonly tokenizedChunkCount?: number | string | null;
+  readonly totalChunks?: number | string | null;
+  readonly totalTokens?: number | string | null;
+}
+
+function readFiniteNumber(value: number | string, fieldName: string): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Invalid embedding space ${fieldName}: ${String(value)}`);
+  }
+  return parsed;
+}
+
+function readOptionalFiniteNumber(
+  value: number | string | null | undefined,
+  fieldName: string
+): number {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+  return readFiniteNumber(value, fieldName);
+}
+
 export class EmbeddingSetsRepository {
   private readonly logger = createLogger('EmbeddingSetsRepository');
 
@@ -169,6 +232,69 @@ export class EmbeddingSetsRepository {
     );
   }
 
+  async listEmbeddingSpaces(
+    options: ListEmbeddingSpacesOptions = {}
+  ): Promise<EmbeddingSpaceListing[]> {
+    const result =
+      options.includeStats === true
+        ? await this.db.query<EmbeddingSpaceListingRow>(
+            `WITH file_stats AS (
+               SELECT
+                 embedding_set_id,
+                 COUNT(*)::text AS file_count
+               FROM file_records
+               WHERE embedding_set_id IS NOT NULL
+               GROUP BY embedding_set_id
+             ),
+             chunk_stats AS (
+               SELECT
+                 embedding_set_id,
+                 COUNT(*)::text AS total_chunks,
+                 COUNT(*) FILTER (WHERE embedding IS NOT NULL)::text AS embedded_chunks,
+                 COUNT(token_count)::text AS tokenized_chunk_count,
+                 COALESCE(SUM(token_count), 0)::text AS total_tokens,
+                 COALESCE(AVG(token_count), 0)::text AS average_tokens_per_chunk
+               FROM file_chunks
+               WHERE embedding_set_id IS NOT NULL
+               GROUP BY embedding_set_id
+             )
+             SELECT
+               es.id,
+               es.name,
+               es.description,
+               es.model_key AS "modelKey",
+               es.model_id AS "modelId",
+               es.dimensions,
+               es.distance,
+               es.created_at AS "createdAt",
+               COALESCE(fs.file_count, '0') AS "fileCount",
+               COALESCE(cs.total_chunks, '0') AS "totalChunks",
+               COALESCE(cs.embedded_chunks, '0') AS "embeddedChunks",
+               COALESCE(cs.tokenized_chunk_count, '0') AS "tokenizedChunkCount",
+               COALESCE(cs.total_tokens, '0') AS "totalTokens",
+               COALESCE(cs.average_tokens_per_chunk, '0') AS "averageTokensPerChunk"
+             FROM embedding_sets es
+             LEFT JOIN file_stats fs ON fs.embedding_set_id = es.id
+             LEFT JOIN chunk_stats cs ON cs.embedding_set_id = es.id
+             ORDER BY es.created_at DESC`
+          )
+        : await this.db.query<EmbeddingSpaceListingRow>(
+            `SELECT
+               id,
+               name,
+               description,
+               model_key AS "modelKey",
+               model_id AS "modelId",
+               dimensions,
+               distance,
+               created_at AS "createdAt"
+             FROM embedding_sets
+             ORDER BY created_at DESC`
+          );
+
+    return result.rows.map((row) => this.readEmbeddingSpaceListing(row, options));
+  }
+
   async delete(id: string): Promise<boolean> {
     const result = await this.db.query('DELETE FROM embedding_sets WHERE id = $1 RETURNING id', [
       id,
@@ -202,6 +328,42 @@ export class EmbeddingSetsRepository {
     }
 
     return result;
+  }
+
+  private readEmbeddingSpaceListing(
+    row: EmbeddingSpaceListingRow,
+    options: ListEmbeddingSpacesOptions
+  ): EmbeddingSpaceListing {
+    const listing: EmbeddingSpaceListing = {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      modelKey: row.modelKey,
+      modelId: row.modelId,
+      dimensions: readFiniteNumber(row.dimensions, 'dimensions'),
+      distance: row.distance,
+      createdAt: row.createdAt,
+    };
+    if (options.includeStats !== true) {
+      return listing;
+    }
+    return {
+      ...listing,
+      stats: {
+        fileCount: readOptionalFiniteNumber(row.fileCount, 'fileCount'),
+        totalChunks: readOptionalFiniteNumber(row.totalChunks, 'totalChunks'),
+        embeddedChunks: readOptionalFiniteNumber(row.embeddedChunks, 'embeddedChunks'),
+        tokenizedChunkCount: readOptionalFiniteNumber(
+          row.tokenizedChunkCount,
+          'tokenizedChunkCount'
+        ),
+        totalTokens: readOptionalFiniteNumber(row.totalTokens, 'totalTokens'),
+        averageTokensPerChunk: readOptionalFiniteNumber(
+          row.averageTokensPerChunk,
+          'averageTokensPerChunk'
+        ),
+      },
+    };
   }
 
   private async readEmbeddingSet(row: Record<string, unknown>): Promise<EmbeddingSet> {
