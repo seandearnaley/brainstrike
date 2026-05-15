@@ -340,6 +340,27 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     await expect(embeddingPromise).resolves.toEqual([0.125, 0.75]);
   });
 
+  it('preserves the original error cause when sending a query embedding request fails', async () => {
+    const sendError = new Error('send failed');
+    mockHostWindow.webContents.send.mockImplementation(() => {
+      throw sendError;
+    });
+    const manager = new EmbeddingHostManager();
+
+    const embeddingPromise = manager.queryEmbedding({
+      dimensions: 2,
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      query: 'database config',
+    });
+    await lifecycleState.ensureStarted.mock.results[0]?.value;
+
+    await expect(embeddingPromise).rejects.toMatchObject({
+      cause: sendError,
+      message: expect.stringContaining('could not be sent: send failed'),
+    });
+  });
+
   it('rejects query embedding requests when the pending request cap is reached', async () => {
     let nextRequestId = 0;
     vi.spyOn(globalThis.crypto, 'randomUUID').mockImplementation(

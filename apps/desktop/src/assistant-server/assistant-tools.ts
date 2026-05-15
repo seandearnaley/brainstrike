@@ -69,6 +69,8 @@ type ToolExecuteInput<T> = { context: T } | T;
 
 function resolveToolExecuteInput<T>(input: ToolExecuteInput<T>): T {
   // Mastra sometimes wraps tool args as { context: T } for compatibility.
+  // Keep direct tool schemas from defining a single top-level `context` field,
+  // because that shape is reserved for this runtime wrapper.
   const maybeWrapped = input as { context?: T };
   if (
     typeof input === 'object' &&

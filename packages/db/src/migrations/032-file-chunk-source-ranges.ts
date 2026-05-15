@@ -19,13 +19,16 @@ export const migration032FileChunkSourceRanges: Migration = {
     UPDATE file_records
     SET chunks_processed_at = NULL,
         chunks_count = 0
-    WHERE id IN (
-      SELECT DISTINCT file_record_id
+    WHERE EXISTS (
+      SELECT 1
       FROM file_chunks
-      WHERE start_line IS NULL
-         OR end_line IS NULL
-         OR start_offset IS NULL
-         OR end_offset IS NULL
+      WHERE file_chunks.file_record_id = file_records.id
+        AND (
+          file_chunks.start_line IS NULL
+          OR file_chunks.end_line IS NULL
+          OR file_chunks.start_offset IS NULL
+          OR file_chunks.end_offset IS NULL
+        )
     );
 
     DELETE FROM file_chunks

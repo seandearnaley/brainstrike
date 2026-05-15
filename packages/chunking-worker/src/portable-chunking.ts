@@ -42,6 +42,17 @@ interface SourceRange {
   startOffset: number;
 }
 
+interface SourceRangeMatch {
+  endOffset: number;
+  matchKind: 'exact' | 'whitespace-normalized';
+  startOffset: number;
+}
+
+interface SourceRangeResolution {
+  fuzzyMatchedChunks: number;
+  ranges: Array<SourceRange | null>;
+}
+
 // File patterns that should be skipped or handled differently
 const SKIP_CHUNKING_PATTERNS = [
   /package-lock\.json$/i,
@@ -501,10 +512,11 @@ function findSourceRangeForChunkContent(
   content: string,
   chunkContent: string,
   searchStart: number
-): { endOffset: number; startOffset: number } | null {
+): SourceRangeMatch | null {
   const exactStartOffset = content.indexOf(chunkContent, searchStart);
   if (exactStartOffset >= 0) {
     return {
+      matchKind: 'exact',
       startOffset: exactStartOffset,
       endOffset: exactStartOffset + chunkContent.length,
     };
@@ -524,6 +536,7 @@ function findSourceRangeForChunkContent(
     const endOffset = findSourceMatchEndOffset(content, chunkContent, candidateOffset);
     if (endOffset !== null) {
       return {
+        matchKind: 'whitespace-normalized',
         startOffset: candidateOffset,
         endOffset,
       };
@@ -539,12 +552,13 @@ function resolveSourceRanges(
   content: string,
   chunks: readonly { content: string }[],
   overlapChars: number
-): Array<SourceRange | null> {
+): SourceRangeResolution {
   const lineStarts = buildLineStartOffsets(content);
   let searchStart = 0;
   let previousStartOffset = -1;
+  let fuzzyMatchedChunks = 0;
 
-  return chunks.map((chunk) => {
+  const ranges = chunks.map((chunk) => {
     const sourceRange =
       findSourceRangeForChunkContent(content, chunk.content, searchStart) ??
       findSourceRangeForChunkContent(content, chunk.content, Math.max(0, previousStartOffset));
@@ -552,7 +566,10 @@ function resolveSourceRanges(
       return null;
     }
 
-    const { startOffset, endOffset } = sourceRange;
+    const { startOffset, endOffset, matchKind } = sourceRange;
+    if (matchKind === 'whitespace-normalized') {
+      fuzzyMatchedChunks += 1;
+    }
     previousStartOffset = startOffset;
     searchStart = Math.max(0, endOffset - overlapChars - 1);
 
@@ -563,6 +580,8 @@ function resolveSourceRanges(
       endLine: findLineForOffset(lineStarts, Math.max(startOffset, endOffset - 1)),
     };
   });
+
+  return { ranges, fuzzyMatchedChunks };
 }
 
 async function computeCharsPerToken(
@@ -1035,7 +1054,8 @@ export async function chunkContent(
   const chunks: PortableChunk[] = [];
   let totalTokens = 0;
   let sourceRangeSkippedChunks = 0;
-  const sourceRanges = resolveSourceRanges(content, pendingChunks, overlapChars);
+  const sourceRangeResolution = resolveSourceRanges(content, pendingChunks, overlapChars);
+  const sourceRanges = sourceRangeResolution.ranges;
 
   for (let i = 0; i < pendingChunks.length; i += HashBatchSize) {
     const batch = pendingChunks.slice(i, i + HashBatchSize);
@@ -1078,6 +1098,15 @@ export async function chunkContent(
       fileName: options.fileName,
       filePath: options.filePath,
       sourceRangeSkippedChunks,
+      totalCandidateChunks: pendingChunks.length,
+    });
+  }
+  if (sourceRangeResolution.fuzzyMatchedChunks > 0) {
+    // biome-ignore lint/suspicious/noConsole: worker warning surfaces non-exact line-range matching rates.
+    console.warn('[portable-chunking] resolved source ranges with whitespace-normalized matching', {
+      fileName: options.fileName,
+      filePath: options.filePath,
+      fuzzyMatchedChunks: sourceRangeResolution.fuzzyMatchedChunks,
       totalCandidateChunks: pendingChunks.length,
     });
   }

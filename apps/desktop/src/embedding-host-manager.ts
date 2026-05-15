@@ -252,12 +252,11 @@ export class EmbeddingHostManager {
       } catch (error) {
         clearTimeout(timeoutId);
         this.pendingQueryEmbeddingRequests.delete(request.requestId);
+        const wrappedMessage = `Embedding host query request ${request.requestId} could not be sent`;
         reject(
           error instanceof Error
-            ? new Error(
-                `Embedding host query request ${request.requestId} could not be sent: ${error.message}`
-              )
-            : new Error(`Embedding host query request ${request.requestId} could not be sent.`)
+            ? new Error(`${wrappedMessage}: ${error.message}`, { cause: error })
+            : new Error(wrappedMessage)
         );
       }
     });
