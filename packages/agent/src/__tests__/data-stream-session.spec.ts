@@ -330,6 +330,89 @@ describe('AssistantDataStreamSession', () => {
     expect(finish?.finishReason).toBe('error');
   });
 
+  it('surfaces model length finishes after tool calls instead of ending silently', async () => {
+    const chunks: StreamChunk[] = [
+      {
+        type: 'tool-event',
+        name: 'brainstrike.queryEmbeddingSpace',
+        status: 'start',
+        payload: { toolCallId: 'call-context', args: { query: 'database config' } },
+      },
+      {
+        type: 'tool-event',
+        name: 'brainstrike.queryEmbeddingSpace',
+        status: 'success',
+        payload: { toolCallId: 'call-context', output: { context: 'result' } },
+      },
+      {
+        type: 'message-finish',
+        finishReason: 'length',
+        usage: { promptTokens: 20, completionTokens: 500 },
+        path: [],
+      },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      sessionId: 'length-after-tools',
+      messageId: 'msg-length-after-tools',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+    const error = events.find((evt) => evt.code === '3')?.value;
+    const finishMessage = events.at(-1);
+
+    expect(error).toBe(
+      'Assistant stopped because the model reached its output token limit before completing the response.'
+    );
+    expect(finishMessage?.value).toMatchObject({ finishReason: 'error' });
+  });
+
+  it('does not surface intermediate tool-call finishes as visible errors', async () => {
+    const chunks: StreamChunk[] = [
+      {
+        type: 'message-finish',
+        finishReason: 'tool-calls',
+        usage: { promptTokens: 20, completionTokens: 4 },
+        path: [],
+      },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      sessionId: 'tool-calls-finish',
+      messageId: 'msg-tool-calls-finish',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+    const error = events.find((evt) => evt.code === '3')?.value;
+    const finishMessage = events.at(-1);
+
+    expect(error).toBeUndefined();
+    expect(finishMessage?.value).toMatchObject({ finishReason: 'tool-calls' });
+  });
+
+  it('surfaces abnormal other finishes as visible errors', async () => {
+    const chunks: StreamChunk[] = [
+      {
+        type: 'message-finish',
+        finishReason: 'other',
+        usage: { promptTokens: 20, completionTokens: 4 },
+        path: [],
+      },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      sessionId: 'abnormal-finish',
+      messageId: 'msg-abnormal-finish',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+    const error = events.find((evt) => evt.code === '3')?.value;
+    const finishMessage = events.at(-1);
+
+    expect(error).toBe('Assistant stream ended without a normal stop signal.');
+    expect(finishMessage?.value).toMatchObject({ finishReason: 'error' });
+  });
+
   it('stops consuming source when response stream is canceled', async () => {
     let consumedCount = 0;
     const maxChunks = 10;

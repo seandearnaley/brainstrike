@@ -16,6 +16,7 @@ const logger = createLogger('ExpandedPathRestoration');
 const restorationLock = {
   inProgress: false,
   folderId: null as string | null,
+  restorationKey: null as string | null,
 };
 
 /**
@@ -25,6 +26,7 @@ const restorationLock = {
 export function __resetRestorationLock(): void {
   restorationLock.inProgress = false;
   restorationLock.folderId = null;
+  restorationLock.restorationKey = null;
 }
 
 function getAllAncestorDirectories(filePath: string): string[] {
@@ -98,6 +100,7 @@ export interface UseExpandedPathRestorationArgs {
     paths: string[],
     onProgress?: (loaded: number, total: number, currentPath: string) => void
   ) => Promise<void>;
+  restorationKey?: string | undefined;
   setExpandedPaths: (paths: Set<string>) => void;
   store: FileExplorerStoreAccessor;
 }
@@ -112,11 +115,20 @@ interface HandleRestorationSkipArgs {
   currentRootFolderId: string | null;
   fileTreeLength: number;
   isTreeLoading: boolean;
+  restorationKey: string;
   setSettledFolderId: Dispatch<SetStateAction<string | null>>;
+  setSettledRestorationKey: Dispatch<SetStateAction<string | null>>;
 }
 
 function handleRestorationSkip(args: HandleRestorationSkipArgs): boolean {
-  const { currentRootFolderId, fileTreeLength, isTreeLoading, setSettledFolderId } = args;
+  const {
+    currentRootFolderId,
+    fileTreeLength,
+    isTreeLoading,
+    setSettledFolderId,
+    setSettledRestorationKey,
+    restorationKey,
+  } = args;
   const restorationSkipReason = getRestorationSkipReason(
     currentRootFolderId,
     isTreeLoading,
@@ -129,6 +141,7 @@ function handleRestorationSkip(args: HandleRestorationSkipArgs): boolean {
   if (restorationSkipReason === 'empty-tree') {
     if (currentRootFolderId) {
       setSettledFolderId(currentRootFolderId);
+      setSettledRestorationKey(restorationKey);
     }
     return true;
   }
@@ -138,10 +151,17 @@ function handleRestorationSkip(args: HandleRestorationSkipArgs): boolean {
 
 function handleRestorationLock(
   currentRootFolderId: string,
-  setSettledFolderId: Dispatch<SetStateAction<string | null>>
+  restorationKey: string,
+  setSettledFolderId: Dispatch<SetStateAction<string | null>>,
+  setSettledRestorationKey: Dispatch<SetStateAction<string | null>>
 ): boolean {
-  if (restorationLock.folderId === currentRootFolderId && !restorationLock.inProgress) {
+  if (
+    restorationLock.folderId === currentRootFolderId &&
+    restorationLock.restorationKey === restorationKey &&
+    !restorationLock.inProgress
+  ) {
     setSettledFolderId(currentRootFolderId);
+    setSettledRestorationKey(restorationKey);
     return true;
   }
 
@@ -197,10 +217,13 @@ interface RestoreExpandedPathsArgs {
     onProgress?: (loaded: number, total: number, currentPath: string) => void
   ) => Promise<void>;
   plan: PathsToRestorePlan;
+  restorationKey: string;
   setExpandedPaths: (paths: Set<string>) => void;
   setIsRestoringExpandedPaths: Dispatch<SetStateAction<boolean>>;
+  setRestorationCompletionVersion: Dispatch<SetStateAction<number>>;
   setRestorationProgress: Dispatch<SetStateAction<RestorationProgress | null>>;
   setSettledFolderId: Dispatch<SetStateAction<string | null>>;
+  setSettledRestorationKey: Dispatch<SetStateAction<string | null>>;
   sortedPaths: string[];
   store: FileExplorerStoreAccessor;
 }
@@ -215,6 +238,9 @@ async function restoreExpandedPaths(args: RestoreExpandedPathsArgs): Promise<voi
     setIsRestoringExpandedPaths,
     setRestorationProgress,
     setSettledFolderId,
+    setSettledRestorationKey,
+    setRestorationCompletionVersion,
+    restorationKey,
     sortedPaths,
     store,
   } = args;
@@ -248,6 +274,8 @@ async function restoreExpandedPaths(args: RestoreExpandedPathsArgs): Promise<voi
     setRestorationProgress(null);
     if (currentRootFolderIdRef.current === currentRootFolderId) {
       setSettledFolderId(currentRootFolderId);
+      setSettledRestorationKey(restorationKey);
+      setRestorationCompletionVersion((version) => version + 1);
     }
   }
 }
@@ -261,28 +289,37 @@ export function useExpandedPathRestoration(
     fileTree,
     isTreeLoading,
     loadSpecificPaths,
+    restorationKey = 'initial',
     setExpandedPaths,
     store,
   } = args;
   const [isRestoringExpandedPaths, setIsRestoringExpandedPaths] = useState(false);
   const [restorationProgress, setRestorationProgress] = useState<RestorationProgress | null>(null);
   const [settledFolderId, setSettledFolderId] = useState<string | null>(null);
+  const [settledRestorationKey, setSettledRestorationKey] = useState<string | null>(null);
+  const [restorationCompletionVersion, setRestorationCompletionVersion] = useState(0);
   const currentRootFolderIdRef = useRef<string | null>(currentRootFolderId);
   const previousRootFolderIdRef = useRef<string | null>(currentRootFolderId);
+  const previousRestorationKeyRef = useRef<string>(restorationKey);
 
   useLayoutEffect(() => {
     currentRootFolderIdRef.current = currentRootFolderId;
   }, [currentRootFolderId]);
 
   useEffect(() => {
-    if (previousRootFolderIdRef.current === currentRootFolderId) {
+    if (
+      previousRootFolderIdRef.current === currentRootFolderId &&
+      previousRestorationKeyRef.current === restorationKey
+    ) {
       return;
     }
     previousRootFolderIdRef.current = currentRootFolderId;
+    previousRestorationKeyRef.current = restorationKey;
     setSettledFolderId(null);
+    setSettledRestorationKey(null);
     setIsRestoringExpandedPaths(false);
     setRestorationProgress(null);
-  }, [currentRootFolderId]);
+  }, [currentRootFolderId, restorationKey]);
 
   useEffect(() => {
     if (disabled) {
@@ -295,6 +332,8 @@ export function useExpandedPathRestoration(
         fileTreeLength: fileTree.length,
         isTreeLoading,
         setSettledFolderId,
+        setSettledRestorationKey,
+        restorationKey,
       })
     ) {
       return;
@@ -304,12 +343,20 @@ export function useExpandedPathRestoration(
       return;
     }
 
-    if (handleRestorationLock(currentRootFolderId, setSettledFolderId)) {
+    if (
+      handleRestorationLock(
+        currentRootFolderId,
+        restorationKey,
+        setSettledFolderId,
+        setSettledRestorationKey
+      )
+    ) {
       return;
     }
 
     restorationLock.inProgress = true;
     restorationLock.folderId = currentRootFolderId;
+    restorationLock.restorationKey = restorationKey;
 
     const storeState = store.getState();
     const plan = buildPathsToRestorePlan(storeState);
@@ -319,6 +366,7 @@ export function useExpandedPathRestoration(
       logger.debug('[Restoration Effect] Skipped - no paths to restore');
       restorationLock.inProgress = false;
       setSettledFolderId(currentRootFolderId);
+      setSettledRestorationKey(restorationKey);
       return;
     }
 
@@ -346,6 +394,9 @@ export function useExpandedPathRestoration(
       setIsRestoringExpandedPaths,
       setRestorationProgress,
       setSettledFolderId,
+      setSettledRestorationKey,
+      setRestorationCompletionVersion,
+      restorationKey,
       sortedPaths,
       store,
     });
@@ -355,12 +406,17 @@ export function useExpandedPathRestoration(
     fileTree.length,
     isTreeLoading,
     loadSpecificPaths,
+    restorationCompletionVersion,
+    restorationKey,
     setExpandedPaths,
     store,
   ]);
 
   return {
-    isRestorationSettled: currentRootFolderId !== null && settledFolderId === currentRootFolderId,
+    isRestorationSettled:
+      currentRootFolderId !== null &&
+      settledFolderId === currentRootFolderId &&
+      settledRestorationKey === restorationKey,
     isRestoringExpandedPaths,
     restorationProgress,
   };

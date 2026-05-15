@@ -51,6 +51,58 @@ const createRect = (overrides: Partial<DOMRect> = {}): DOMRect =>
   }) as DOMRect;
 
 describe('Minimap', () => {
+  it('requests file content when an idle preview is rendered', () => {
+    const file = {
+      ...createFile(),
+      content: [],
+      contentStatus: 'idle' as const,
+    };
+    const onRequestFileContent = vi.fn();
+
+    render(
+      <TooltipProvider>
+        <Minimap
+          file={file}
+          getGlobalIndex={() => 1}
+          isSelected={false}
+          onRequestFileContent={onRequestFileContent}
+          onToggleRange={vi.fn()}
+          onToggleSelection={vi.fn()}
+          scale={2}
+          smartStart={vi.fn()}
+        />
+      </TooltipProvider>
+    );
+
+    expect(onRequestFileContent).toHaveBeenCalledWith('file-1');
+  });
+
+  it('does not request file content again while a preview is already loading', () => {
+    const file = {
+      ...createFile(),
+      content: [],
+      contentStatus: 'loading' as const,
+    };
+    const onRequestFileContent = vi.fn();
+
+    render(
+      <TooltipProvider>
+        <Minimap
+          file={file}
+          getGlobalIndex={() => 1}
+          isSelected={false}
+          onRequestFileContent={onRequestFileContent}
+          onToggleRange={vi.fn()}
+          onToggleSelection={vi.fn()}
+          scale={2}
+          smartStart={vi.fn()}
+        />
+      </TooltipProvider>
+    );
+
+    expect(onRequestFileContent).not.toHaveBeenCalled();
+  });
+
   it('uses smartStart to create a range when clicking the background', () => {
     const file = createFile();
     const smartStart = vi.fn();

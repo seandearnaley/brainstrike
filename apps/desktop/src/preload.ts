@@ -3,13 +3,20 @@ const { contextBridge, ipcRenderer, clipboard } = require('electron');
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update';
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT = 'assistant:preview-context-selection-update';
+const ASSISTANT_WORKSPACE_CONTEXT_SELECTION_EVENT = 'assistant:workspace-context-selection-update';
+const ASSISTANT_WORKSPACE_CONTEXT_TAPESTRY_EVENT = 'assistant:workspace-context-tapestry-update';
 const MCP_TOOLS_UPDATED_EVENT = 'mcp:tools:updated';
 const DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL = 'db:managed-cache:apply-batch' as const;
 const DB_SCHEDULER_SNAPSHOT_CHANNEL = 'db:scheduler:snapshot' as const;
 
 import type { ApplyManagedCacheBatchArgs } from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
-import type { AssistantSelectionUpdatePayload, DatabaseWorkOptions } from '@brainstrike/types';
+import type {
+  AssistantSelectionUpdatePayload,
+  AssistantWorkspaceContextSelectionUpdatePayload,
+  AssistantWorkspaceTapestryUpdatePayload,
+  DatabaseWorkOptions,
+} from '@brainstrike/types';
 import type {
   LayoutLoadResult,
   LayoutPersistenceResult,
@@ -17,7 +24,11 @@ import type {
 } from '@brainstrike/ui';
 import type { LogRecord } from '@brainstrike/utils/logger';
 import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
-import type { EmbeddingHostBackfillRequest } from './embedding-host-shared';
+import type {
+  EmbeddingHostBackfillRequest,
+  EmbeddingHostQueryEmbeddingRequest,
+  EmbeddingHostQueryEmbeddingResponseReport,
+} from './embedding-host-shared';
 import type { LoggingSettingsPayload } from './logging-shared';
 
 // Sandboxed preloads cannot depend on additional local modules at runtime.
@@ -32,6 +43,10 @@ const EMBEDDING_HOST_RESET_CHANNEL = 'embedding-host:reset' as const;
 const EMBEDDING_HOST_GET_STATUS_CHANNEL = 'embedding-host:get-status' as const;
 const EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL = 'embedding-host:enqueue-backfill' as const;
 const EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT = 'embedding-host:backfill-progress' as const;
+const EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT =
+  'embedding-host:query-embedding-request' as const;
+const EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL =
+  'embedding-host:report-query-embedding-response' as const;
 const EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL =
   'embedding-host:get-backfills-in-flight' as const;
 const EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL = 'embedding-host:cancel-all-backfills' as const;
@@ -498,6 +513,26 @@ contextBridge.exposeInMainWorld('tools', {
       ipcRenderer.removeListener(ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT, listener);
     };
   },
+  onWorkspaceContextSelectionUpdate: (
+    callback: (payload: AssistantWorkspaceContextSelectionUpdatePayload) => void
+  ) => {
+    const listener = (_event: unknown, payload: AssistantWorkspaceContextSelectionUpdatePayload) =>
+      callback(payload);
+    ipcRenderer.on(ASSISTANT_WORKSPACE_CONTEXT_SELECTION_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(ASSISTANT_WORKSPACE_CONTEXT_SELECTION_EVENT, listener);
+    };
+  },
+  onWorkspaceContextTapestryUpdate: (
+    callback: (payload: AssistantWorkspaceTapestryUpdatePayload) => void
+  ) => {
+    const listener = (_event: unknown, payload: AssistantWorkspaceTapestryUpdatePayload) =>
+      callback(payload);
+    ipcRenderer.on(ASSISTANT_WORKSPACE_CONTEXT_TAPESTRY_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(ASSISTANT_WORKSPACE_CONTEXT_TAPESTRY_EVENT, listener);
+    };
+  },
 });
 
 // Assistant UI (data stream) endpoint helper
@@ -621,6 +656,17 @@ contextBridge.exposeInMainWorld('embeddingHost', {
     return () => {
       ipcRenderer.removeListener(EMBEDDING_HOST_COMMAND_EVENT, listener);
     };
+  },
+  onQueryEmbeddingRequest: (callback: (request: EmbeddingHostQueryEmbeddingRequest) => void) => {
+    const listener = (_event: unknown, request: EmbeddingHostQueryEmbeddingRequest) =>
+      callback(request);
+    ipcRenderer.on(EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT, listener);
+    };
+  },
+  reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport): void => {
+    ipcRenderer.send(EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL, response);
   },
 });
 

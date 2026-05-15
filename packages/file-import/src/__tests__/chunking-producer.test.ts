@@ -1,3 +1,4 @@
+import type { PortableChunk } from '@brainstrike/chunking-worker';
 import type { FileImportResult, FileRecord } from '@brainstrike/db';
 import {
   FileChunkRepository,
@@ -13,6 +14,22 @@ import { processChunking } from '../chunking';
 import type { ChunkingWorkerPort } from '../chunking-worker-port';
 
 // Helper to create a mock worker port for tests
+function createMockPortableChunk(overrides: Partial<PortableChunk> = {}): PortableChunk {
+  return {
+    chunkIndex: 0,
+    content: '# Title\ncontent here',
+    contentHash: 'hash-1',
+    tokenCount: 5,
+    chunkType: 'sentence',
+    chunkSize: 20,
+    startLine: 1,
+    endLine: 2,
+    startOffset: 0,
+    endOffset: 20,
+    ...overrides,
+  };
+}
+
 function createMockChunkingWorkerPort(): ChunkingWorkerPort {
   return {
     transportKind: 'local-worker',
@@ -20,15 +37,7 @@ function createMockChunkingWorkerPort(): ChunkingWorkerPort {
     terminate: vi.fn(),
     chunkFile: vi.fn().mockResolvedValue({
       fileRecordId: 'file-1',
-      chunks: [
-        {
-          chunkIndex: 0,
-          content: '# Title\ncontent here',
-          contentHash: 'hash-1',
-          tokenCount: 5,
-          chunkType: 'sentence',
-        },
-      ],
+      chunks: [createMockPortableChunk()],
       strategyUsed: 'sentence',
       totalTokens: 5,
       skipped: false,

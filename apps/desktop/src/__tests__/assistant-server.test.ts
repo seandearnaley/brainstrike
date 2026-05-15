@@ -645,6 +645,45 @@ describe('assistant-server', () => {
       });
     });
 
+    it('does not prepend selected-file context as a hidden system message', async () => {
+      const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+
+      mockDesktopDatabase.query.mockResolvedValueOnce({
+        rows: [{ path: '/src/main.ts', content: 'const hidden = true;' }],
+      });
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text', content: 'Response' };
+        },
+      });
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: {
+            provider: 'openai',
+            selectionFilePaths: ['/src/main.ts'],
+            includeFileReport: true,
+          },
+        }),
+      });
+
+      const [messages] = (toAiSdkStyleStream as Mock).mock.calls[0] as [Array<{ role: string }>];
+      expect(messages).toEqual([{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }]);
+      expect(mockDesktopDatabase.query).not.toHaveBeenCalled();
+    });
+
     it('initializes PGlite Mastra memory when memory runtime context is present', async () => {
       const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
       const { createPgliteMastraMemory } = await import('@brainstrike/agent/pglite-mastra-memory');

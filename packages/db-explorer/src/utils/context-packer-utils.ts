@@ -42,6 +42,18 @@ export function toContextPackerChunk(
   if (result.fileName) {
     chunk.fileName = result.fileName;
   }
+  if (result.startLine !== undefined) {
+    chunk.startLine = result.startLine;
+  }
+  if (result.endLine !== undefined) {
+    chunk.endLine = result.endLine;
+  }
+  if (result.startOffset !== undefined) {
+    chunk.startOffset = result.startOffset;
+  }
+  if (result.endOffset !== undefined) {
+    chunk.endOffset = result.endOffset;
+  }
 
   // Store additional metadata for citation/reference purposes
   chunk.metadata = {
@@ -70,7 +82,13 @@ export function toContextPackerChunks(
  * This mirrors the desktop's formatContext function for consistent output.
  */
 export function formatPackedContext(
-  chunks: readonly { content: string; filePath?: string; fileName?: string; chunkIndex?: number }[]
+  chunks: readonly {
+    chunkIndex?: number;
+    content: string;
+    fileName?: string;
+    filePath?: string;
+    lineRange?: { end: number; start: number };
+  }[]
 ): string {
   if (chunks.length === 0) {
     return '';
@@ -79,8 +97,9 @@ export function formatPackedContext(
   return chunks
     .map((chunk, index) => {
       const location = chunk.filePath ?? chunk.fileName ?? 'Unknown file';
+      const lineSuffix = chunk.lineRange ? `:${chunk.lineRange.start}-${chunk.lineRange.end}` : '';
       const chunkLabel = chunk.chunkIndex === undefined ? '' : ` (chunk ${chunk.chunkIndex})`;
-      return `Source ${index + 1}: ${location}${chunkLabel}\n${chunk.content}`;
+      return `Source ${index + 1}: ${location}${lineSuffix}${chunkLabel}\n${chunk.content}`;
     })
     .join('\n\n---\n\n');
 }

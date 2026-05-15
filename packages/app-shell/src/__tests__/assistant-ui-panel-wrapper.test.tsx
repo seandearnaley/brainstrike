@@ -36,6 +36,9 @@ const { fileExplorerMocks, preparedRequestDataLog, testEnabledModels } = vi.hois
       cacheVersion: number;
       getTokenCount: (folderId: string, path: string) => number | undefined;
     },
+    workspaceContextSnapshot: null as null | Record<string, unknown>,
+    setTapestryRangesForKey: vi.fn<(key: string, ranges: unknown[]) => void>(),
+    tapestryRangesByKey: {} as Record<string, unknown[]>,
   },
   // Track enabled models in a mutable Set for testing toggle functionality
   preparedRequestDataLog: [] as Array<Record<string, unknown> | undefined>,
@@ -259,22 +262,35 @@ vi.mock('@brainstrike/preferences', async () => {
     ...defaultAssistantMemoryPreferences,
   }));
 
-  const nativeToolPreferencesState: {
+  const useBackgroundIndexingPreferencesStore = create<{
+    enabled: boolean;
+    managedCollectionId: string | null;
+    mode: 'root-folder-cache';
+    paused: boolean;
+  }>(() => ({
+    enabled: true,
+    managedCollectionId: 'managed-set-1',
+    mode: 'root-folder-cache',
+    paused: false,
+  }));
+
+  const useNativeToolPreferencesStore = create<{
     toolStates: Record<string, boolean>;
     setToolEnabled: (toolId: string, enabled: boolean) => void;
-  } = {
+  }>((set) => ({
     toolStates: {},
     setToolEnabled: (toolId: string, enabled: boolean) => {
-      nativeToolPreferencesState.toolStates = {
-        ...nativeToolPreferencesState.toolStates,
-        [toolId]: enabled,
-      };
+      set((state) => {
+        const nextToolStates = { ...state.toolStates };
+        if (enabled) {
+          delete nextToolStates[toolId];
+        } else {
+          nextToolStates[toolId] = false;
+        }
+        return { toolStates: nextToolStates };
+      });
     },
-  };
-
-  const useNativeToolPreferencesStore = <T,>(
-    selector: (state: typeof nativeToolPreferencesState) => T
-  ): T => selector(nativeToolPreferencesState);
+  }));
 
   const useSecretsStore = <T,>(selector: (state: { secretsVersion: number }) => T): T =>
     selector({ secretsVersion: 0 });
@@ -315,10 +331,16 @@ vi.mock('@brainstrike/preferences', async () => {
       enabledModelsByProvider: buildEnabledModelsByProvider(),
       providerSettings: {},
     });
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      managedCollectionId: 'managed-set-1',
+      mode: 'root-folder-cache',
+      paused: false,
+    });
     useAssistantMemoryPreferencesStore.setState({
       ...defaultAssistantMemoryPreferences,
     });
-    nativeToolPreferencesState.toolStates = {};
+    useNativeToolPreferencesStore.setState({ toolStates: {} });
   };
 
   const usePanelLayoutStore = create<{
@@ -333,6 +355,7 @@ vi.mock('@brainstrike/preferences', async () => {
     __resetAssistantPreferencesStoreForTests,
     useAssistantMemoryPreferencesStore,
     useAssistantPreferencesStore,
+    useBackgroundIndexingPreferencesStore,
     useEnsureModelRegistry: vi.fn(),
     useModelRegistryStore,
     useNativeToolPreferencesStore,
@@ -357,6 +380,13 @@ vi.mock('@brainstrike/preferences/stores/assistant-memory-preferences-store', as
   const preferences = await import('@brainstrike/preferences');
   return {
     useAssistantMemoryPreferencesStore: preferences.useAssistantMemoryPreferencesStore,
+  };
+});
+
+vi.mock('@brainstrike/preferences/stores/background-indexing-preferences-store', async () => {
+  const preferences = await import('@brainstrike/preferences');
+  return {
+    useBackgroundIndexingPreferencesStore: preferences.useBackgroundIndexingPreferencesStore,
   };
 });
 
@@ -428,13 +458,30 @@ vi.mock('@brainstrike/file-explorer-ui', () => {
     const state = getState();
     return selector ? selector(state) : state;
   };
+  const getWorkspaceContextCurationState = () => ({
+    contextSnapshot: fileExplorerMocks.workspaceContextSnapshot,
+    setTapestryRangesForKey: fileExplorerMocks.setTapestryRangesForKey,
+    tapestryRangesByKey: fileExplorerMocks.tapestryRangesByKey,
+  });
+  const useWorkspaceContextCurationStore = Object.assign(
+    (selector: (state: ReturnType<typeof getWorkspaceContextCurationState>) => unknown): unknown =>
+      selector(getWorkspaceContextCurationState()),
+    {
+      getState: getWorkspaceContextCurationState,
+    }
+  );
 
   return {
+    toolLineRangeToTapestryRange: (range: { endLine: number; startLine: number }) => ({
+      startLine: range.startLine - 1,
+      endLine: range.endLine,
+    }),
     useSelectionManager: () => ({ effectiveSelection: fileExplorerMocks.effectiveSelection }),
     useFileExplorerStoreContext: () => store,
     useFileExplorerStoreSelector: (selector: (state: ReturnType<typeof getState>) => unknown) =>
       selector(getState()),
     useOptionalTokenCacheContext: () => fileExplorerMocks.tokenCache,
+    useWorkspaceContextCurationStore,
   };
 });
 
@@ -751,6 +798,19 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
           Change OpenAI settings
         </button>
         <button
+          data-testid="provider-settings-clear-openai"
+          onClick={() =>
+            onProviderSettingsChange?.('openai', {
+              agentMaxSteps: undefined,
+              maxOutputTokens: undefined,
+              reasoningEffort: undefined,
+            })
+          }
+          type="button"
+        >
+          Clear OpenAI settings
+        </button>
+        <button
           data-testid="prepare-thread-request"
           onClick={async () => {
             try {
@@ -836,9 +896,12 @@ beforeEach(() => {
     name: 'test-workspace',
   };
   fileExplorerMocks.tokenBudget = 100_000;
+  fileExplorerMocks.workspaceContextSnapshot = null;
+  fileExplorerMocks.tapestryRangesByKey = {};
   fileExplorerMocks.addMultipleSelectedFiles.mockReset();
   fileExplorerMocks.clearSelectionRules.mockReset();
   fileExplorerMocks.removeMultipleSelectedFiles.mockReset();
+  fileExplorerMocks.setTapestryRangesForKey.mockReset();
   fileExplorerMocks.setIncludeProjectTree.mockReset();
   fileExplorerMocks.setSelectedFiles.mockReset();
   fileExplorerMocks.setTokenBudget.mockReset();
@@ -1644,6 +1707,152 @@ describe('AssistantUiPanelWrapper', () => {
     ]);
   });
 
+  test('applies workspace-context selection updates from native tools', async () => {
+    let handler: SelectionUpdateHandler | undefined;
+    (
+      window as typeof window & {
+        tools?: { onWorkspaceContextSelectionUpdate: (cb: SelectionUpdateHandler) => () => void };
+      }
+    ).tools = {
+      onWorkspaceContextSelectionUpdate: (cb) => {
+        handler = cb as SelectionUpdateHandler;
+        return vi.fn();
+      },
+    };
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      })
+    );
+
+    act(() => {
+      handler?.({
+        folderId: 'test-folder',
+        filePaths: ['/curated.ts'],
+        mode: 'add',
+      });
+    });
+
+    expect(fileExplorerMocks.addMultipleSelectedFiles).toHaveBeenCalledWith('test-folder', [
+      '/curated.ts',
+    ]);
+  });
+
+  test('applies workspace-context tapestry updates from native tools', async () => {
+    let handler:
+      | ((payload: {
+          folderId: string;
+          mode: 'replace' | 'add';
+          updates: Array<{
+            path: string;
+            ranges: Array<{ startLine: number; endLine: number; isActive?: boolean }>;
+          }>;
+        }) => void)
+      | undefined;
+    (
+      window as typeof window & {
+        tools?: {
+          onWorkspaceContextTapestryUpdate: (cb: NonNullable<typeof handler>) => () => void;
+        };
+      }
+    ).tools = {
+      onWorkspaceContextTapestryUpdate: (cb) => {
+        handler = cb;
+        return vi.fn();
+      },
+    };
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      })
+    );
+
+    act(() => {
+      handler?.({
+        folderId: 'test-folder',
+        mode: 'replace',
+        updates: [
+          {
+            path: '/curated.ts',
+            ranges: [{ startLine: 4, endLine: 12, isActive: true }],
+          },
+        ],
+      });
+    });
+
+    expect(fileExplorerMocks.setTapestryRangesForKey).toHaveBeenCalledTimes(1);
+    expect(fileExplorerMocks.setTapestryRangesForKey.mock.calls[0]?.[0]).toBe(
+      encodeFileSelection('test-folder', '/curated.ts')
+    );
+    expect(fileExplorerMocks.setTapestryRangesForKey.mock.calls[0]?.[1]).toMatchObject([
+      {
+        startLine: 3,
+        endLine: 12,
+        isActive: true,
+        userModified: true,
+      },
+    ]);
+  });
+
+  test('adds workspace-context tapestry updates against the current store snapshot', async () => {
+    let handler:
+      | ((payload: {
+          folderId: string;
+          mode: 'add';
+          updates: Array<{
+            path: string;
+            ranges: Array<{ startLine: number; endLine: number; isActive?: boolean }>;
+          }>;
+        }) => void)
+      | undefined;
+    (
+      window as typeof window & {
+        tools?: {
+          onWorkspaceContextTapestryUpdate: (cb: NonNullable<typeof handler>) => () => void;
+        };
+      }
+    ).tools = {
+      onWorkspaceContextTapestryUpdate: (cb) => {
+        handler = cb;
+        return vi.fn();
+      },
+    };
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      })
+    );
+
+    const compositeKey = encodeFileSelection('test-folder', '/curated.ts');
+    fileExplorerMocks.tapestryRangesByKey = {
+      [compositeKey]: [{ startLine: 0, endLine: 2, isActive: true }],
+    };
+
+    act(() => {
+      handler?.({
+        folderId: 'test-folder',
+        mode: 'add',
+        updates: [
+          {
+            path: '/curated.ts',
+            ranges: [{ startLine: 4, endLine: 12, isActive: true }],
+          },
+        ],
+      });
+    });
+
+    expect(fileExplorerMocks.setTapestryRangesForKey).toHaveBeenCalledWith(
+      compositeKey,
+      expect.arrayContaining([
+        expect.objectContaining({ startLine: 0, endLine: 2 }),
+        expect.objectContaining({ startLine: 3, endLine: 12 }),
+      ])
+    );
+  });
+
   test('replace mode preserves other-folder selections and bad keys', async () => {
     let handler: SelectionUpdateHandler | undefined;
     (
@@ -1719,7 +1928,7 @@ describe('AssistantUiPanelWrapper', () => {
     expect(fileExplorerMocks.setSelectedFiles).not.toHaveBeenCalled();
   });
 
-  test('computes context token count using DB totals, cache totals, and tree estimate', async () => {
+  test('keeps selected files as tool hints without sending hidden context controls', async () => {
     fileExplorerMocks.effectiveSelection = new Set<string>([
       encodeFileSelection('test-folder', '/alpha.ts'),
       encodeFileSelection('test-folder', '/beta.ts'),
@@ -1736,6 +1945,23 @@ describe('AssistantUiPanelWrapper', () => {
         }
         return 0;
       },
+    };
+    fileExplorerMocks.workspaceContextSnapshot = {
+      tokenBudget: 8192,
+      selectedSourceApproxTokens: 320,
+      selectedOutputApproxTokens: 180,
+      useTapestryRanges: true,
+      includeProjectTree: false,
+      projectTreeApproxTokens: 1200,
+      projectTreeTokenCountLoading: false,
+      files: [
+        {
+          path: '/alpha.ts',
+          approxTokens: 200,
+          outputApproxTokens: 60,
+          ranges: [{ startLine: 4, endLine: 12, isActive: true }],
+        },
+      ],
     };
     mockDb.query.mockImplementation(async (sql: string) => {
       if (sql.includes('token_count')) {
@@ -1754,10 +1980,79 @@ describe('AssistantUiPanelWrapper', () => {
 
     await renderAssistantPanel(['openai'], () =>
       waitFor(() => {
+        const requestData = readPanelRequestData();
         const contextMenu = readPanelContextMenu();
-        expect(contextMenu['contextTokenCount']).toBe(360);
+        expect(requestData['selectionFilePaths']).toEqual(['/alpha.ts', '/beta.ts']);
+        expect(requestData['selectionFolderId']).toBe('test-folder');
+        expect(requestData['workspaceRootPath']).toBe('/tmp/test-workspace');
+        expect(requestData['workspaceIndexEmbeddingSetId']).toBe('managed-set-1');
+        expect(requestData['workspaceIndexingEnabled']).toBe(true);
+        expect(requestData['workspaceIndexingMode']).toBe('root-folder-cache');
+        expect(requestData['workspaceIndexingPaused']).toBe(false);
+        expect(requestData['workspaceContext']).toEqual(fileExplorerMocks.workspaceContextSnapshot);
+        expect(requestData['embeddingSetId']).toBeUndefined();
+        expect(requestData['tokenBudget']).toBeUndefined();
+        expect(requestData['contextTokenCount']).toBeUndefined();
+        expect(requestData['includeFileReport']).toBeUndefined();
+        expect(requestData['includeProjectTree']).toBeUndefined();
+        expect(contextMenu).toEqual({});
       })
     );
+  });
+
+  test('omits stale workspace context snapshots from another selection root', async () => {
+    fileExplorerMocks.effectiveSelection = new Set<string>([
+      encodeFileSelection('test-folder', '/alpha.ts'),
+    ]);
+    fileExplorerMocks.workspaceContextSnapshot = {
+      selectionFolderId: 'other-folder',
+      tokenBudget: 8192,
+      selectedSourceApproxTokens: 320,
+      selectedOutputApproxTokens: 60,
+      useTapestryRanges: true,
+      includeProjectTree: false,
+      projectTreeApproxTokens: 1200,
+      projectTreeTokenCountLoading: false,
+      files: [
+        {
+          path: '/alpha.ts',
+          approxTokens: 200,
+          outputApproxTokens: 60,
+          ranges: [{ startLine: 4, endLine: 12, isActive: true }],
+        },
+      ],
+    };
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        const requestData = readPanelRequestData();
+        expect(requestData['selectionFolderId']).toBe('test-folder');
+        expect(requestData['workspaceContext']).toBeUndefined();
+      })
+    );
+  });
+
+  test('passes enabled native tool ids to hosted assistant requests', async () => {
+    const user = userEvent.setup();
+
+    await renderAssistantPanel(['openai'], async () => {
+      await waitFor(() => {
+        expect(
+          screen.getByTestId('tool-menu-item-brainstrike.readWorkspaceFile')
+        ).toBeInTheDocument();
+      });
+    });
+
+    await user.click(screen.getByTestId('tool-toggle-brainstrike.readWorkspaceFile'));
+
+    await waitFor(() => {
+      const enabledNativeToolIds = readPanelRequestData()['enabledNativeToolIds'];
+      expect(enabledNativeToolIds).toEqual(
+        Object.keys(NATIVE_TOOL_DEFAULTS).filter(
+          (toolId) => toolId !== 'brainstrike.readWorkspaceFile'
+        )
+      );
+    });
   });
 
   test('builds model and provider options for openai settings', async () => {
@@ -1769,9 +2064,13 @@ describe('AssistantUiPanelWrapper', () => {
         ...state.providerSettings,
         openai: {
           ...state.providerSettings['openai'],
+          agentInputTokenLimit: 32_000,
+          agentMaxSteps: 18,
           maxOutputTokens: 513.9,
+          memoryLastMessages: 12,
           reasoningEffort: 'high',
           reasoningSummary: 'auto',
+          workingMemoryEnabled: false,
         },
       },
     }));
@@ -1779,7 +2078,17 @@ describe('AssistantUiPanelWrapper', () => {
     await renderAssistantPanel(['openai'], () =>
       waitFor(() => {
         const requestData = readPanelRequestData();
+        expect(requestData['agentLoop']).toEqual({
+          inputTokenLimit: 32_000,
+          maxSteps: 18,
+        });
         expect(requestData['modelSettings']).toEqual({ maxOutputTokens: 513 });
+        expect(requestData['memory']).toMatchObject({
+          memoryOptions: {
+            lastMessages: 12,
+            workingMemory: { enabled: false, scope: 'resource' },
+          },
+        });
         expect(requestData['providerOptions']).toEqual({
           openai: {
             reasoningEffort: 'high',
@@ -1859,6 +2168,48 @@ describe('AssistantUiPanelWrapper', () => {
         reasoningEffort: 'high',
       })
     );
+  });
+
+  test('removes per-thread draft provider settings when a control is toggled off', async () => {
+    const user = userEvent.setup();
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      providerSettings: {
+        ...state.providerSettings,
+        openai: {
+          ...state.providerSettings['openai'],
+          agentMaxSteps: 8,
+          maxOutputTokens: 512,
+          reasoningEffort: 'high',
+        },
+      },
+    }));
+
+    await renderAssistantThreadPanel(['openai'], 'thread-existing', async () => {
+      await waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('provider-settings-clear-openai'));
+    });
+
+    expect(useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']).toEqual(
+      expect.objectContaining({
+        provider: 'openai',
+        model: 'gpt-5.2',
+      })
+    );
+    expect(
+      useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']
+        ?.providerSettings?.['openai']
+    ).toEqual({});
+    expect(
+      useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']?.modelSettings
+    ).toBeUndefined();
+    expect(
+      useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-existing']?.providerOptions
+    ).toBeUndefined();
   });
 
   test('stores provider setting changes globally when no thread prop is mounted', async () => {
@@ -1975,6 +2326,30 @@ describe('AssistantUiPanelWrapper', () => {
           resourceId: '/tmp/test-workspace',
           memoryOptions: {
             lastMessages: 40,
+            workingMemory: { enabled: true, scope: 'resource' },
+          },
+        });
+      })
+    );
+  });
+
+  test('can disable Mastra message history through provider settings', async () => {
+    useAssistantPreferencesStore.setState((state) => ({
+      providerSettings: {
+        ...state.providerSettings,
+        openai: {
+          ...state.providerSettings['openai'],
+          memoryLastMessages: 0,
+        },
+      },
+    }));
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        const requestData = readPanelRequestData();
+        expect(requestData['memory']).toMatchObject({
+          memoryOptions: {
+            lastMessages: false,
             workingMemory: { enabled: true, scope: 'resource' },
           },
         });

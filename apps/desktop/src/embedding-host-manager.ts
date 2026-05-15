@@ -1,13 +1,17 @@
 import { createLogger } from '@brainstrike/utils/logger';
-import { createRuntimeId } from '@brainstrike/worker-runtime';
+import { createRuntimeId, deserializeRuntimeError } from '@brainstrike/worker-runtime';
 import { type BrowserWindow, powerSaveBlocker } from 'electron';
 import {
   createEmbeddingHostCommand,
+  createEmbeddingHostQueryEmbeddingRequest,
   createStoppedEmbeddingHostStatus,
   EMBEDDING_HOST_COMMAND_EVENT,
+  EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT,
   EMBEDDING_HOST_STATUS_ADAPTER,
   EMBEDDING_HOST_STATUS_EVENT,
   EMBEDDING_HOST_STOPPED_RUNTIME_ID,
+  type EmbeddingHostQueryEmbeddingPayload,
+  type EmbeddingHostQueryEmbeddingResponseReport,
   type EmbeddingHostStatus,
   type EmbeddingHostStatusReport,
 } from './embedding-host-shared';
@@ -16,8 +20,16 @@ import { RendererHostLifecycle } from './renderer-host-lifecycle';
 const logger = createLogger('EmbeddingHostManager');
 
 const HOST_READY_TIMEOUT_MS = 30_000;
+const QUERY_EMBEDDING_TIMEOUT_MS = 60_000;
+const MAX_PENDING_QUERY_EMBEDDING_REQUESTS = 8;
 const POWER_SAVE_BLOCKER_IDLE_GRACE_MS = 5000;
 const EMBEDDING_HOST_STATUS_IDLE_GRACE_MS = 5000;
+
+interface PendingQueryEmbeddingRequest {
+  reject: (error: Error) => void;
+  resolve: (embedding: number[]) => void;
+  timeoutId: ReturnType<typeof setTimeout>;
+}
 
 export class EmbeddingHostManager {
   private disposed = false;
@@ -26,6 +38,7 @@ export class EmbeddingHostManager {
   private pendingInactiveStatusReport: EmbeddingHostStatusReport | null = null;
   private powerSaveBlockerId: number | null = null;
   private pendingIdleStopTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly pendingQueryEmbeddingRequests = new Map<string, PendingQueryEmbeddingRequest>();
 
   constructor() {
     this.lifecycle = new RendererHostLifecycle<EmbeddingHostStatus>({
@@ -34,6 +47,7 @@ export class EmbeddingHostManager {
       mode: 'embedding-host',
       onDidFailLoad: ({ errorCode, errorDescription, message, url }) => {
         this.clearPendingInactiveStatus();
+        this.rejectPendingQueryEmbeddingRequests(message);
         logger.error(message, { errorCode, errorDescription, url, windowRole: 'embedding-host' });
         this.lifecycle.setStatus(
           EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
@@ -46,6 +60,7 @@ export class EmbeddingHostManager {
       },
       onRenderProcessGone: ({ exitCode, message, reason }) => {
         this.clearPendingInactiveStatus();
+        this.rejectPendingQueryEmbeddingRequests(message);
         logger.error(message, {
           reason,
           exitCode,
@@ -65,6 +80,9 @@ export class EmbeddingHostManager {
       },
       onWindowClosed: () => {
         this.clearPendingInactiveStatus();
+        this.rejectPendingQueryEmbeddingRequests(
+          'Embedding host window closed while query embedding requests were in flight.'
+        );
         this.lifecycle.setStatus(createStoppedEmbeddingHostStatus());
       },
       role: 'embedding-host',
@@ -88,6 +106,9 @@ export class EmbeddingHostManager {
 
   async stop(): Promise<EmbeddingHostStatus> {
     this.assertNotDisposed('stop');
+    this.rejectPendingQueryEmbeddingRequests(
+      'Embedding host stopped while query embedding requests were in flight.'
+    );
     const window = this.lifecycle.getHostWindow();
     if (!window || window.isDestroyed()) {
       this.lifecycle.clearHostWindow();
@@ -133,6 +154,9 @@ export class EmbeddingHostManager {
 
   async reset(): Promise<EmbeddingHostStatus> {
     this.assertNotDisposed('reset');
+    this.rejectPendingQueryEmbeddingRequests(
+      'Embedding host reset while query embedding requests were in flight.'
+    );
     const window = this.lifecycle.getHostWindow();
     if (!window || window.isDestroyed()) {
       return this.ensureStarted();
@@ -184,6 +208,9 @@ export class EmbeddingHostManager {
    */
   async destroyAndRestart(): Promise<EmbeddingHostStatus> {
     this.assertNotDisposed('destroyAndRestart');
+    this.rejectPendingQueryEmbeddingRequests(
+      'Embedding host restarted while query embedding requests were in flight.'
+    );
     this.clearPendingInactiveStatus();
     this.lifecycle.destroyHostWindow();
     this.lifecycle.clearHostWindow();
@@ -191,11 +218,64 @@ export class EmbeddingHostManager {
     return this.ensureStarted({ waitForRunning: true });
   }
 
+  async queryEmbedding(payload: EmbeddingHostQueryEmbeddingPayload): Promise<number[]> {
+    this.assertNotDisposed('queryEmbedding');
+    const status = await this.ensureStarted({ waitForRunning: true });
+    if (status.state !== 'running') {
+      throw new Error(
+        status.lastError ?? 'Embedding host is not running and cannot generate query embeddings.'
+      );
+    }
+    const window = this.lifecycle.getHostWindow();
+    if (!window || window.isDestroyed()) {
+      throw new Error('Embedding host window is unavailable.');
+    }
+    if (this.pendingQueryEmbeddingRequests.size >= MAX_PENDING_QUERY_EMBEDDING_REQUESTS) {
+      throw new Error(
+        `Embedding host has ${this.pendingQueryEmbeddingRequests.size} query embedding requests in flight; retry after one completes.`
+      );
+    }
+
+    const request = createEmbeddingHostQueryEmbeddingRequest(status.runtimeId, payload);
+    return await new Promise<number[]>((resolve, reject) => {
+      if (this.pendingQueryEmbeddingRequests.has(request.requestId)) {
+        reject(new Error(`Duplicate embedding host query requestId ${request.requestId}.`));
+        return;
+      }
+
+      const timeoutId = setTimeout(() => {
+        this.pendingQueryEmbeddingRequests.delete(request.requestId);
+        reject(new Error(`Embedding host query request ${request.requestId} timed out.`));
+      }, QUERY_EMBEDDING_TIMEOUT_MS);
+      this.pendingQueryEmbeddingRequests.set(request.requestId, {
+        resolve,
+        reject,
+        timeoutId,
+      });
+
+      try {
+        window.webContents.send(EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT, request);
+      } catch (error) {
+        clearTimeout(timeoutId);
+        this.pendingQueryEmbeddingRequests.delete(request.requestId);
+        const wrappedMessage = `Embedding host query request ${request.requestId} could not be sent`;
+        reject(
+          error instanceof Error
+            ? new Error(`${wrappedMessage}: ${error.message}`, { cause: error })
+            : new Error(wrappedMessage)
+        );
+      }
+    });
+  }
+
   async dispose(): Promise<void> {
     try {
       await this.stop();
     } finally {
       this.disposed = true;
+      this.rejectPendingQueryEmbeddingRequests(
+        'Embedding host disposed while query embedding requests were in flight.'
+      );
       this.clearPendingInactiveStatus();
       this.lifecycle.destroyHostWindow();
       this.stopPowerSaveBlocker();
@@ -250,6 +330,29 @@ export class EmbeddingHostManager {
 
     this.clearPendingInactiveStatus();
     this.lifecycle.setStatus(nextStatus);
+  }
+
+  acceptQueryEmbeddingResponseReport(
+    senderId: number,
+    report: EmbeddingHostQueryEmbeddingResponseReport
+  ): void {
+    const window = this.lifecycle.getHostWindow();
+    if (!window || window.isDestroyed() || window.webContents.id !== senderId) {
+      return;
+    }
+
+    const pending = this.pendingQueryEmbeddingRequests.get(report.requestId);
+    if (!pending) {
+      return;
+    }
+
+    clearTimeout(pending.timeoutId);
+    this.pendingQueryEmbeddingRequests.delete(report.requestId);
+    if (report.type === 'error') {
+      pending.reject(deserializeRuntimeError(report.payload));
+      return;
+    }
+    pending.resolve(report.payload.embedding);
   }
 
   private syncPowerSaveBlocker(status: EmbeddingHostStatus): void {
@@ -340,10 +443,18 @@ export class EmbeddingHostManager {
   }
 
   private assertNotDisposed(
-    methodName: 'destroyAndRestart' | 'ensureStarted' | 'reset' | 'stop'
+    methodName: 'destroyAndRestart' | 'ensureStarted' | 'queryEmbedding' | 'reset' | 'stop'
   ): void {
     if (this.disposed) {
       throw new Error(`EmbeddingHostManager.${methodName} cannot be called after dispose().`);
+    }
+  }
+
+  private rejectPendingQueryEmbeddingRequests(message: string): void {
+    for (const [requestId, pending] of this.pendingQueryEmbeddingRequests.entries()) {
+      clearTimeout(pending.timeoutId);
+      pending.reject(new Error(`${message} (request ${requestId})`));
+      this.pendingQueryEmbeddingRequests.delete(requestId);
     }
   }
 }

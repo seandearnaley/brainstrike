@@ -17,25 +17,81 @@ describe('tool schemas', () => {
     expect(getToolSchemaDisplay('filesystem.list')).toBeUndefined();
   });
 
-  it('validates root-tree selection input', () => {
-    const ok = validateToolInput('brainstrike.selectRootTreeFiles', {
+  it('validates workspace context read input', () => {
+    const ok = validateToolInput('brainstrike.readWorkspaceContext', {
       filePaths: ['/src/main.ts', '/src/utils.ts'],
-      mode: 'add',
+      maxFiles: 2,
+      tokenBudget: 4000,
+      useTapestrySelections: true,
     });
     expect(ok.ok).toBe(true);
   });
 
-  it('validates preview-context selection input', () => {
-    const ok = validateToolInput('brainstrike.updatePreviewContextFiles', {
-      filePaths: ['/src/main.ts'],
-      mode: 'remove',
+  it('validates workspace context selection updates', () => {
+    const ok = validateToolInput('brainstrike.updateWorkspaceContextSelection', {
+      filePaths: ['/src/main.ts', '/src/utils.ts'],
+      mode: 'replace',
     });
     expect(ok.ok).toBe(true);
   });
 
-  it('uses add as the preview-context default mode in display metadata', () => {
-    const schema = getToolSchemaDisplay('brainstrike.updatePreviewContextFiles');
-    const modeParam = schema?.parameters.find((param) => param.name === 'mode');
-    expect(modeParam?.default).toBe('add');
+  it('validates workspace tapestry selection updates', () => {
+    const ok = validateToolInput('brainstrike.updateWorkspaceTapestrySelections', {
+      mode: 'replace',
+      selectFiles: true,
+      updates: [
+        {
+          path: '/src/main.ts',
+          ranges: [{ startLine: 4, endLine: 12, isActive: true }],
+        },
+      ],
+    });
+    expect(ok.ok).toBe(true);
+  });
+
+  it('rejects inverted workspace tapestry ranges', () => {
+    const ok = validateToolInput('brainstrike.updateWorkspaceTapestrySelections', {
+      updates: [
+        {
+          path: '/src/main.ts',
+          ranges: [{ startLine: 12, endLine: 4 }],
+        },
+      ],
+    });
+    expect(ok.ok).toBe(false);
+  });
+
+  it('requires an explicit embedding set for embedding-space queries', () => {
+    const ok = validateToolInput('brainstrike.queryEmbeddingSpace', {
+      query: 'where is context assembled?',
+    });
+    expect(ok.ok).toBe(false);
+  });
+
+  it('validates workspace-index embedding-space listing input', () => {
+    const ok = validateToolInput('brainstrike.listEmbeddingSpaces', {
+      includeStats: true,
+      workspaceIndexOnly: true,
+    });
+    expect(ok.ok).toBe(true);
+  });
+
+  it('marks embedding set id as required in query display metadata', () => {
+    const schema = getToolSchemaDisplay('brainstrike.queryEmbeddingSpace');
+    const embeddingSetParam = schema?.parameters.find((param) => param.name === 'embeddingSetId');
+    expect(embeddingSetParam?.required).toBe(true);
+  });
+
+  it('documents workspace-index filtering for embedding-space listing', () => {
+    const schema = getToolSchemaDisplay('brainstrike.listEmbeddingSpaces');
+    const workspaceIndexOnly = schema?.parameters.find(
+      (param) => param.name === 'workspaceIndexOnly'
+    );
+    expect(workspaceIndexOnly?.type).toBe('boolean');
+  });
+
+  it('documents context curation tools in schema display metadata', () => {
+    expect(getToolSchemaDisplay('brainstrike.updateWorkspaceContextSelection')).toBeDefined();
+    expect(getToolSchemaDisplay('brainstrike.updateWorkspaceTapestrySelections')).toBeDefined();
   });
 });

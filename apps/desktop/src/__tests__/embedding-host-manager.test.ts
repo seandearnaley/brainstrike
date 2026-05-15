@@ -295,6 +295,202 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     expect(lifecycleState.ensureStarted).toHaveBeenCalledWith({ waitForRunning: true });
   });
 
+  it('rejects pending query embedding requests before destroying and restarting the host', async () => {
+    const manager = new EmbeddingHostManager();
+    const embeddingPromise = manager.queryEmbedding({
+      dimensions: 2,
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      query: 'database config',
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await expect(manager.destroyAndRestart()).resolves.toMatchObject({
+      runtimeId: 'embedding-host-runtime',
+      state: 'running',
+    });
+
+    await expect(embeddingPromise).rejects.toThrow(
+      'Embedding host restarted while query embedding requests were in flight.'
+    );
+  });
+
+  it('rejects pending query embedding requests before resetting the host runtime', async () => {
+    const manager = new EmbeddingHostManager();
+    const embeddingPromise = manager.queryEmbedding({
+      dimensions: 2,
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      query: 'database config',
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await manager.reset();
+
+    await expect(embeddingPromise).rejects.toThrow(
+      'Embedding host reset while query embedding requests were in flight.'
+    );
+  });
+
+  it('sends local query embedding requests to the embedding host and resolves responses', async () => {
+    const manager = new EmbeddingHostManager();
+
+    const embeddingPromise = manager.queryEmbedding({
+      dimensions: 2,
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      query: 'where is database config',
+    });
+    expect(lifecycleState.ensureStarted).toHaveBeenCalledWith({ waitForRunning: true });
+    await lifecycleState.ensureStarted.mock.results[0]?.value;
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mockHostWindow.webContents.send).toHaveBeenCalledWith(
+      'embedding-host:query-embedding-request',
+      expect.objectContaining({
+        channel: 'query-embedding',
+        payload: {
+          dimensions: 2,
+          modelId: 'Xenova/all-MiniLM-L6-v2',
+          modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+          query: 'where is database config',
+        },
+        runtimeId: 'embedding-host-runtime',
+        type: 'request',
+      })
+    );
+
+    const request = mockHostWindow.webContents.send.mock.calls[0]?.[1] as {
+      requestId: string;
+      runtimeId: string;
+    };
+    manager.acceptQueryEmbeddingResponseReport(91, {
+      type: 'result',
+      channel: 'query-embedding-result',
+      requestId: request.requestId,
+      runtimeId: request.runtimeId,
+      payload: { embedding: [0.125, 0.75] },
+    });
+
+    await expect(embeddingPromise).resolves.toEqual([0.125, 0.75]);
+  });
+
+  it('preserves the original error cause when sending a query embedding request fails', async () => {
+    const sendError = new Error('send failed');
+    mockHostWindow.webContents.send.mockImplementation(() => {
+      throw sendError;
+    });
+    const manager = new EmbeddingHostManager();
+
+    const embeddingPromise = manager.queryEmbedding({
+      dimensions: 2,
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      query: 'database config',
+    });
+    await lifecycleState.ensureStarted.mock.results[0]?.value;
+
+    await expect(embeddingPromise).rejects.toMatchObject({
+      cause: sendError,
+      message: expect.stringContaining('could not be sent: send failed'),
+    });
+  });
+
+  it('rejects query embedding requests when the pending request cap is reached', async () => {
+    let nextRequestId = 0;
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockImplementation(
+      () =>
+        `00000000-0000-4000-8000-${String(++nextRequestId).padStart(12, '0')}` as ReturnType<
+          typeof globalThis.crypto.randomUUID
+        >
+    );
+    const manager = new EmbeddingHostManager();
+    const payload = {
+      dimensions: 2,
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      query: 'database config',
+    };
+
+    const pending = Array.from({ length: 8 }, () => manager.queryEmbedding(payload));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await expect(manager.queryEmbedding(payload)).rejects.toThrow(
+      'Embedding host has 8 query embedding requests in flight'
+    );
+
+    const requests = mockHostWindow.webContents.send.mock.calls.map(
+      (call) => call[1] as { requestId: string; runtimeId: string }
+    );
+    expect(requests).toHaveLength(8);
+    for (const request of requests) {
+      manager.acceptQueryEmbeddingResponseReport(91, {
+        type: 'result',
+        channel: 'query-embedding-result',
+        requestId: request.requestId,
+        runtimeId: request.runtimeId,
+        payload: { embedding: [0.25, 0.5] },
+      });
+    }
+
+    await expect(Promise.all(pending)).resolves.toEqual(
+      Array.from({ length: 8 }, () => [0.25, 0.5])
+    );
+  });
+
+  it('does not allocate a timeout when the pending query embedding cap is already reached', async () => {
+    let nextRequestId = 0;
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockImplementation(
+      () =>
+        `00000000-0000-4000-8000-${String(++nextRequestId).padStart(12, '0')}` as ReturnType<
+          typeof globalThis.crypto.randomUUID
+        >
+    );
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    const manager = new EmbeddingHostManager();
+    const payload = {
+      dimensions: 2,
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      query: 'database config',
+    };
+
+    const pending = Array.from({ length: 8 }, () => manager.queryEmbedding(payload));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    const timeoutCallsAfterPendingRequests = setTimeoutSpy.mock.calls.length;
+
+    await expect(manager.queryEmbedding(payload)).rejects.toThrow(
+      'Embedding host has 8 query embedding requests in flight'
+    );
+
+    expect(setTimeoutSpy.mock.calls).toHaveLength(timeoutCallsAfterPendingRequests);
+    const requests = mockHostWindow.webContents.send.mock.calls.map(
+      (call) => call[1] as { requestId: string; runtimeId: string }
+    );
+    for (const request of requests) {
+      manager.acceptQueryEmbeddingResponseReport(91, {
+        type: 'result',
+        channel: 'query-embedding-result',
+        requestId: request.requestId,
+        runtimeId: request.runtimeId,
+        payload: { embedding: [0.25, 0.5] },
+      });
+    }
+    await expect(Promise.all(pending)).resolves.toEqual(
+      Array.from({ length: 8 }, () => [0.25, 0.5])
+    );
+  });
+
   it('debounces inactive status reports across short embedding idle gaps', () => {
     const manager = new EmbeddingHostManager();
 

@@ -9,8 +9,12 @@ export interface FileChunk {
   embeddingHash?: string;
   embeddingSetId?: string;
   embeddingUpdatedAt?: string;
+  endLine?: number;
+  endOffset?: number;
   fileRecordId: string;
   id: string;
+  startLine?: number;
+  startOffset?: number;
   tokenCount: number;
   updatedAt: string;
 }
@@ -26,8 +30,12 @@ export interface FileChunkInsert {
   embeddingHash?: string;
   embeddingSetId?: string;
   embeddingUpdatedAt?: string;
+  endLine?: number;
+  endOffset?: number;
   fileRecordId: string;
   id: string;
+  startLine?: number;
+  startOffset?: number;
   tokenCount: number;
   updatedAt: string;
 }
@@ -41,7 +49,11 @@ export interface FileChunkUpdate {
   embeddingHash?: string;
   embeddingSetId?: string;
   embeddingUpdatedAt?: string;
+  endLine?: number;
+  endOffset?: number;
   id: string;
+  startLine?: number;
+  startOffset?: number;
   tokenCount?: number;
   updatedAt: string;
 }

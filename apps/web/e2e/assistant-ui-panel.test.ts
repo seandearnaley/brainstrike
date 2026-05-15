@@ -258,26 +258,20 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful', () => {
       .getByTestId('assistant-model-dropdown')
       .getByRole('combobox')
       .boundingBox();
-    const contextBox = await composerShell.getByTestId('assistant-context-summary').boundingBox();
     const controlsBox = await composerShell
       .getByRole('button', { name: 'Open assistant controls' })
       .boundingBox();
 
     expect(modelBox).not.toBeNull();
-    expect(contextBox).not.toBeNull();
     expect(controlsBox).not.toBeNull();
-    if (!(modelBox && contextBox && controlsBox)) {
+    await expect(composerShell.getByTestId('assistant-context-summary')).toHaveCount(0);
+    if (!(modelBox && controlsBox)) {
       throw new Error('Assistant composer control alignment boxes were unavailable.');
     }
 
     const modelCenterY = modelBox.y + modelBox.height / 2;
     const controlsCenterY = controlsBox.y + controlsBox.height / 2;
     expect(Math.abs(modelCenterY - controlsCenterY)).toBeLessThan(6);
-    expect(contextBox.y).toBeGreaterThanOrEqual(
-      Math.max(modelBox.y + modelBox.height, controlsBox.y + controlsBox.height)
-    );
-    expect(contextBox.width).toBeGreaterThan(modelBox.width);
-    expect(contextBox.width).toBeGreaterThan(controlsBox.width * 2);
 
     const longPrompt = [
       'history collapse turn 1',

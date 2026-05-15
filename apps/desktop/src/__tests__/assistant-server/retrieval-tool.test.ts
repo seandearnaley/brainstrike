@@ -33,9 +33,13 @@ vi.mock('@brainstrike/agent', () => {
     pack(
       chunks: Array<{
         content: string;
+        endLine?: number;
+        endOffset?: number;
         fileName?: string;
         filePath?: string;
         chunkIndex?: number;
+        startLine?: number;
+        startOffset?: number;
       }>
     ) {
       const totalTokens = chunks.length;
@@ -44,7 +48,17 @@ vi.mock('@brainstrike/agent', () => {
         budget: this.budgetTokens,
         remainingTokens: Math.max(this.budgetTokens - totalTokens, 0),
         skipped: 0,
-        chunks,
+        chunks: chunks.map((chunk, index) => ({
+          ...chunk,
+          rank: index + 1,
+          tokenCount: 1,
+          ...(chunk.startLine !== undefined && chunk.endLine !== undefined
+            ? { lineRange: { start: chunk.startLine, end: chunk.endLine } }
+            : {}),
+          ...(chunk.startOffset !== undefined && chunk.endOffset !== undefined
+            ? { offsets: { start: chunk.startOffset, end: chunk.endOffset } }
+            : {}),
+        })),
       };
     }
   }
@@ -80,7 +94,7 @@ vi.mock('@brainstrike/db', () => ({
   },
 }));
 
-vi.mock('@brainstrike/embeddings/provider-core', () => ({
+vi.mock('@brainstrike/embeddings', () => ({
   CohereEmbeddingProvider: class {
     embed() {
       return embedMock();
@@ -104,6 +118,7 @@ vi.mock('@brainstrike/embeddings/provider-core', () => ({
   hostedProviderRequiresApiKey: (provider: string) => !['ollama', 'lmstudio'].includes(provider),
   isHostedProvider: (provider: string) =>
     ['openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio'].includes(provider),
+  isLocalProviderType: (provider: string) => ['local', 'transformers'].includes(provider),
   parseProviderModelKey: (modelKey: string) => ({ provider: modelKey.split(':')[0] }),
   resolveHostedProviderApiKey: resolveHostedProviderApiKeyMock,
 }));
@@ -168,6 +183,10 @@ describe('retrieval-tool', () => {
           content: 'Hello world',
           tokenCount: 4,
           chunkIndex: 0,
+          startLine: 10,
+          endLine: 12,
+          startOffset: 120,
+          endOffset: 155,
           chunkType: 'code',
           fileRecordId: 'file-1',
           embeddingSetId: 'set-1',
@@ -219,8 +238,12 @@ describe('retrieval-tool', () => {
     expect(result.limit).toBe(20);
     expect(result.threshold).toBe(0.3);
     expect(result.totalTokens).toBe(1);
-    expect(result.context).toContain('Source 1: /repo/file.ts (chunk 0)');
+    expect(result.context).toContain('Source 1: /repo/file.ts:10-12 (chunk 0)');
     expect(result.context).toContain('Hello world');
+    expect(result.chunkContentIncludedInContext).toBe(true);
+    expect(result.chunks[0]).not.toHaveProperty('content');
+    expect(result.chunks[0]?.lineRange).toEqual({ start: 10, end: 12 });
+    expect(result.chunks[0]?.offsets).toEqual({ start: 120, end: 155 });
     expect(result.selectionSnapshotId).toBeUndefined();
 
     expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
@@ -288,6 +311,69 @@ describe('retrieval-tool', () => {
     expect(resolveHostedProviderApiKeyMock).toHaveBeenCalledWith('lmstudio');
   });
 
+  it('uses the embedding host for local embedding set queries', async () => {
+    const queryEmbeddingMock = vi.fn().mockResolvedValue([0.125, 0.75]);
+    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
+      if (sql.includes('FROM embedding_sets')) {
+        return {
+          rows: [
+            {
+              modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+              modelId: 'Xenova/all-MiniLM-L6-v2',
+              dimensions: 2,
+              distance: null,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const tool = createRetrievalTool(
+      { embeddingSetId: 'set-1' },
+      { embeddingHostManager: { queryEmbedding: queryEmbeddingMock } }
+    );
+    const result = await tool.execute({
+      context: { query: 'where is database config', embeddingSetId: 'set-1' },
+    });
+
+    expect(result.embeddingSetId).toBe('set-1');
+    expect(queryEmbeddingMock).toHaveBeenCalledWith({
+      dimensions: 2,
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      query: 'where is database config',
+    });
+    expect(embedMock).not.toHaveBeenCalled();
+    expect(searchSimilarMock).toHaveBeenCalledWith([0.125, 0.75], expect.anything());
+  });
+
+  it('surfaces a safe error when local embedding host is unavailable', async () => {
+    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
+      if (sql.includes('FROM embedding_sets')) {
+        return {
+          rows: [
+            {
+              modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+              modelId: 'Xenova/all-MiniLM-L6-v2',
+              dimensions: 2,
+              distance: null,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    await expect(
+      tool.execute({
+        context: { query: 'where is database config', embeddingSetId: 'set-1' },
+      })
+    ).rejects.toThrow('Local embedding query host is unavailable.');
+  });
+
   it('creates a selection snapshot when file paths exceed limit', async () => {
     getKeyMock.mockResolvedValue(undefined);
     const filePaths = Array.from({ length: 501 }, (_, index) => `file-${index}.ts`);
@@ -338,6 +424,96 @@ describe('retrieval-tool', () => {
     expect(result.context).toBe('');
     expect(result.chunks).toEqual([]);
     expect(result.totalTokens).toBe(0);
+  });
+
+  it('reports and skips chunks missing source ranges', async () => {
+    searchSimilarMock.mockResolvedValueOnce([
+      {
+        chunk: {
+          id: 'chunk-old',
+          content: 'Old chunk without range',
+          tokenCount: 2,
+          chunkIndex: 0,
+          chunkType: 'code',
+          fileRecordId: 'file-1',
+          embeddingSetId: 'set-1',
+        },
+        similarity: 0.91,
+        rank: 1,
+      },
+      {
+        chunk: {
+          id: 'chunk-new',
+          content: 'Line-aware chunk',
+          tokenCount: 3,
+          chunkIndex: 1,
+          startLine: 20,
+          endLine: 21,
+          startOffset: 200,
+          endOffset: 230,
+          chunkType: 'code',
+          fileRecordId: 'file-1',
+          embeddingSetId: 'set-1',
+        },
+        similarity: 0.9,
+        rank: 2,
+      },
+    ]);
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    const result = await tool.execute({
+      context: { query: 'hello', embeddingSetId: 'set-1' },
+    });
+
+    expect(result.context).toContain('Line-aware chunk');
+    expect(result.context).not.toContain('Old chunk without range');
+    expect(result.chunks).toHaveLength(1);
+    expect(result.skipped).toBe(1);
+    expect(result.skippedForMissingSourceRange).toBe(1);
+    expect(result.skippedSourceRangeChunks).toEqual([
+      { chunkId: 'chunk-old', chunkIndex: 0, fileRecordId: 'file-1' },
+    ]);
+    expect(loggerWarn).toHaveBeenCalledWith('Some retrieved chunks are missing source ranges', {
+      retrievedChunks: 2,
+      skippedForMissingSourceRange: 1,
+    });
+  });
+
+  it('throws a safe rebuild hint when all retrieved chunks are missing source ranges', async () => {
+    searchSimilarMock.mockResolvedValueOnce([
+      {
+        chunk: {
+          id: 'chunk-old',
+          content: 'Old chunk without range',
+          tokenCount: 2,
+          chunkIndex: 0,
+          chunkType: 'code',
+          fileRecordId: 'file-1',
+          embeddingSetId: 'set-1',
+        },
+        similarity: 0.91,
+        rank: 1,
+      },
+    ]);
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    await expect(
+      tool.execute({ context: { query: 'hello', embeddingSetId: 'set-1' } })
+    ).rejects.toThrow(
+      'Retrieved chunks are missing source line metadata. Rebuild the embedding space.'
+    );
+    expect(loggerWarn).toHaveBeenCalledWith('All retrieved chunks are missing source ranges', {
+      skippedForMissingSourceRange: 1,
+    });
+  });
+
+  it('preserves the safe embedding-generation failure message', async () => {
+    embedMock.mockResolvedValueOnce({ ok: false, error: new Error('provider down') });
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    await expect(
+      tool.execute({ context: { query: 'hello', embeddingSetId: 'set-1' } })
+    ).rejects.toThrow('Unable to generate query embeddings for retrieval.');
   });
 
   it('continues when snapshot cleanup fails', async () => {
@@ -428,7 +604,7 @@ describe('retrieval-tool', () => {
   });
 
   it('sanitizes unexpected retrieval errors', async () => {
-    embedMock.mockResolvedValueOnce({ ok: false, error: 'bad' });
+    searchSimilarMock.mockRejectedValueOnce(new Error('bad'));
     const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
 
     await expect(

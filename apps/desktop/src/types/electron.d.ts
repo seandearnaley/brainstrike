@@ -1,5 +1,10 @@
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
-import type { AssistantSelectionUpdatePayload, IFileNode } from '@brainstrike/types';
+import type {
+  AssistantSelectionUpdatePayload,
+  AssistantWorkspaceContextSelectionUpdatePayload,
+  AssistantWorkspaceTapestryUpdatePayload,
+  IFileNode,
+} from '@brainstrike/types';
 import type {
   ChunkingHostChunkBatchRequest,
   ChunkingHostChunkFileByIdRequest,
@@ -22,6 +27,8 @@ import type {
   EmbeddingHostBackfillInfo,
   EmbeddingHostBackfillProgress,
   EmbeddingHostCommand,
+  EmbeddingHostQueryEmbeddingRequest,
+  EmbeddingHostQueryEmbeddingResponseReport,
   EmbeddingHostStatus,
 } from '../embedding-host-shared';
 import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
@@ -133,6 +140,10 @@ declare global {
       ) => () => void;
       onStatus: (callback: (status: EmbeddingHostStatus) => void) => () => void;
       onCommand: (callback: (command: EmbeddingHostCommand) => void) => () => void;
+      onQueryEmbeddingRequest: (
+        callback: (request: EmbeddingHostQueryEmbeddingRequest) => void
+      ) => () => void;
+      reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;
     };
     llmHost: {
       ensureStarted: () => Promise<LlmHostStatus>;
@@ -261,6 +272,12 @@ declare global {
       ) => (() => void) | undefined;
       onPreviewContextSelectionUpdate: (
         callback: (payload: AssistantSelectionUpdatePayload) => void
+      ) => (() => void) | undefined;
+      onWorkspaceContextSelectionUpdate: (
+        callback: (payload: AssistantWorkspaceContextSelectionUpdatePayload) => void
+      ) => (() => void) | undefined;
+      onWorkspaceContextTapestryUpdate: (
+        callback: (payload: AssistantWorkspaceTapestryUpdatePayload) => void
       ) => (() => void) | undefined;
     };
   }

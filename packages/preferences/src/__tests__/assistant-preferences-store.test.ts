@@ -69,6 +69,23 @@ describe('assistant-preferences-store', () => {
     expect(updated.modelsByProvider['anthropic']).toBe(defaultModel);
   });
 
+  it('removes provider settings when updates set a field to undefined', () => {
+    const store = useAssistantPreferencesStore.getState();
+
+    store.setProviderSettings('openai', {
+      agentMaxSteps: 8,
+      maxOutputTokens: 1024,
+      reasoningEffort: 'high',
+    });
+    store.setProviderSettings('openai', {
+      agentMaxSteps: undefined,
+      maxOutputTokens: undefined,
+      reasoningEffort: undefined,
+    });
+
+    expect(useAssistantPreferencesStore.getState().providerSettings.openai).toEqual({});
+  });
+
   it('clears selection when the current model is disabled', () => {
     const store = useAssistantPreferencesStore.getState();
     const initialModel = PROVIDER_DEFAULT_MODELS.openai!;

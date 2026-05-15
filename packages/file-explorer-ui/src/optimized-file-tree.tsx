@@ -120,6 +120,16 @@ interface DirectorySelectionMutation {
   paths: string[];
 }
 
+interface FileSelectionMutationInput {
+  addMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
+  folderId: string;
+  nodePath: string;
+  removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
+  selectionMode: FileExplorerState['selectionModel']['mode'];
+  selectionState: NodeSelectionState;
+  toggleSelectedFile: (folderId: string, path: string) => void;
+}
+
 interface SelectedDirectoryPathsInput {
   directoryPath: string;
   folderId: string;
@@ -172,6 +182,9 @@ interface SelectedPathAncestorResolver {
   getResolvedCache: () => Map<string, string[]>;
 }
 
+const WINDOWS_DRIVE_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
+const WINDOWS_DRIVE_ROOT_LENGTH = 3;
+
 function incrementDirectoryCount(
   directoryCounts: Map<string, number>,
   directoryPath: string
@@ -201,18 +214,197 @@ function evictOldestAncestorCacheEntries(selectedPathAncestorCache: Map<string, 
   }
 }
 
-function computeAncestorDirectoryPaths(filePath: string): string[] {
-  const ancestorPaths: string[] = [];
-  let separatorIndex = filePath.lastIndexOf('/');
+function isWindowsDriveRootPath(filePath: string): boolean {
+  return filePath.length === WINDOWS_DRIVE_ROOT_LENGTH && hasWindowsDriveRootPrefix(filePath);
+}
+
+function hasWindowsDriveRootPrefix(filePath: string): boolean {
+  return (
+    filePath.length >= WINDOWS_DRIVE_ROOT_LENGTH &&
+    filePath.charCodeAt(1) === 58 &&
+    filePath[2] === '/' &&
+    ((filePath.charCodeAt(0) >= 65 && filePath.charCodeAt(0) <= 90) ||
+      (filePath.charCodeAt(0) >= 97 && filePath.charCodeAt(0) <= 122))
+  );
+}
+
+function normalizeDirectoryCountPath(filePath: string): string {
+  const slashNormalized = filePath.includes('\\') ? filePath.replaceAll('\\', '/') : filePath;
+  if (
+    slashNormalized.length > 1 &&
+    slashNormalized.endsWith('/') &&
+    !isWindowsDriveRootPath(slashNormalized)
+  ) {
+    const minimumPathLength = hasWindowsDriveRootPrefix(slashNormalized)
+      ? WINDOWS_DRIVE_ROOT_LENGTH
+      : 1;
+    let endIndex = slashNormalized.length;
+    while (endIndex > minimumPathLength && slashNormalized[endIndex - 1] === '/') {
+      endIndex -= 1;
+    }
+    return slashNormalized.slice(0, endIndex);
+  }
+  return slashNormalized;
+}
+
+function isAbsolutePathLike(filePath: string): boolean {
+  return filePath.startsWith('/') || WINDOWS_DRIVE_PATH_PATTERN.test(filePath);
+}
+
+function resolveWorkspaceRelativeNodePath(folderId: string, nodePath: string): string | null {
+  if (!(folderId && isAbsolutePathLike(folderId))) {
+    return null;
+  }
+
+  const normalizedFolderId = normalizeDirectoryCountPath(folderId);
+  const normalizedNodePath = normalizeDirectoryCountPath(nodePath);
+  if (normalizedNodePath === normalizedFolderId) {
+    return '/';
+  }
+  if (!isDescendantPath(normalizedNodePath, normalizedFolderId)) {
+    return null;
+  }
+  return normalizedNodePath.slice(normalizedFolderId.length);
+}
+
+function getWorkspaceSelectionPathCandidates(folderId: string, path: string): string[] {
+  const candidates = [path];
+  const relativePath = resolveWorkspaceRelativeNodePath(folderId, path);
+  if (!relativePath) {
+    return candidates;
+  }
+  if (!candidates.includes(relativePath)) {
+    candidates.push(relativePath);
+  }
+  if (relativePath.startsWith('/') && relativePath.length > 1) {
+    const bareRelativePath = relativePath.slice(1);
+    if (!candidates.includes(bareRelativePath)) {
+      candidates.push(bareRelativePath);
+    }
+  }
+  return candidates;
+}
+
+function isWorkspacePathSelected(
+  selectedFilePaths: Set<string>,
+  folderId: string,
+  path: string
+): boolean {
+  for (const candidatePath of getWorkspaceSelectionPathCandidates(folderId, path)) {
+    if (isPathSelectedInFolder(selectedFilePaths, folderId, candidatePath)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isSameOrDescendantSelectionPath(path: string, candidatePath: string): boolean {
+  const normalizedCandidate = normalizeDirectoryCountPath(candidatePath);
+  if (normalizedCandidate === '') {
+    return true;
+  }
+  if (normalizedCandidate === '/') {
+    return path === '/' || path.startsWith('/');
+  }
+  const candidatePrefix = `${normalizedCandidate}/`;
+  return path === normalizedCandidate || path.startsWith(candidatePrefix);
+}
+
+function addUniqueAncestorPath(
+  ancestorPaths: string[],
+  seenAncestorPaths: Set<string>,
+  ancestorPath: string
+): void {
+  if (seenAncestorPaths.has(ancestorPath)) {
+    return;
+  }
+  seenAncestorPaths.add(ancestorPath);
+  ancestorPaths.push(ancestorPath);
+}
+
+function addAncestorDirectoryPaths(
+  ancestorPaths: string[],
+  seenAncestorPaths: Set<string>,
+  filePath: string,
+  lowerBoundPath?: string
+): void {
+  const normalizedFilePath = normalizeDirectoryCountPath(filePath);
+  const normalizedLowerBoundPath = lowerBoundPath
+    ? normalizeDirectoryCountPath(lowerBoundPath)
+    : undefined;
+  let separatorIndex = normalizedFilePath.lastIndexOf('/');
   while (separatorIndex > 0) {
-    ancestorPaths.push(filePath.slice(0, separatorIndex));
-    separatorIndex = filePath.lastIndexOf('/', separatorIndex - 1);
+    const ancestorPath = normalizedFilePath.slice(0, separatorIndex);
+    if (
+      normalizedLowerBoundPath &&
+      ancestorPath !== normalizedLowerBoundPath &&
+      !isDescendantPath(ancestorPath, normalizedLowerBoundPath)
+    ) {
+      separatorIndex = normalizedFilePath.lastIndexOf('/', separatorIndex - 1);
+      continue;
+    }
+
+    addUniqueAncestorPath(ancestorPaths, seenAncestorPaths, ancestorPath);
+    if (ancestorPath === normalizedLowerBoundPath) {
+      break;
+    }
+    separatorIndex = normalizedFilePath.lastIndexOf('/', separatorIndex - 1);
+  }
+}
+
+function resolveWorkspaceAbsoluteSelectionPath(folderId: string, selectedPath: string): string {
+  const normalizedFolderId = normalizeDirectoryCountPath(folderId);
+  const normalizedSelectedPath = normalizeDirectoryCountPath(selectedPath);
+  if (
+    normalizedSelectedPath === normalizedFolderId ||
+    isDescendantPath(normalizedSelectedPath, normalizedFolderId)
+  ) {
+    return normalizedSelectedPath;
+  }
+
+  const relativeSelectionPath = normalizedSelectedPath.replace(/^\/+/, '');
+  if (normalizedFolderId === '/') {
+    return `/${relativeSelectionPath}`;
+  }
+  return `${normalizedFolderId}/${relativeSelectionPath}`;
+}
+
+function computeAncestorDirectoryPaths(filePath: string, folderId: string): string[] {
+  const ancestorPaths: string[] = [];
+  const seenAncestorPaths = new Set<string>();
+  addAncestorDirectoryPaths(ancestorPaths, seenAncestorPaths, filePath);
+
+  // Root rows can be rendered as an empty path in browser-relative trees, as
+  // "/" for filesystem roots, or as the absolute workspace path on desktop.
+  // Count them directly so selected descendants are observable before children
+  // are hydrated.
+  addUniqueAncestorPath(ancestorPaths, seenAncestorPaths, '');
+  if (filePath.startsWith('/')) {
+    addUniqueAncestorPath(ancestorPaths, seenAncestorPaths, '/');
+  }
+
+  if (folderId) {
+    const normalizedFolderId = normalizeDirectoryCountPath(folderId);
+    addUniqueAncestorPath(ancestorPaths, seenAncestorPaths, normalizedFolderId);
+    if (isAbsolutePathLike(normalizedFolderId)) {
+      const absoluteSelectionPath = resolveWorkspaceAbsoluteSelectionPath(
+        normalizedFolderId,
+        filePath
+      );
+      addAncestorDirectoryPaths(
+        ancestorPaths,
+        seenAncestorPaths,
+        absoluteSelectionPath,
+        normalizedFolderId
+      );
+    }
   }
 
   return ancestorPaths;
 }
 
 function createSelectedPathAncestorResolver(
+  folderId: string,
   selectedPathAncestorCache: Map<string, string[]>
 ): SelectedPathAncestorResolver {
   let nextCache: Map<string, string[]> | null = null;
@@ -246,7 +438,7 @@ function createSelectedPathAncestorResolver(
         return cachedAncestors;
       }
 
-      const ancestorPaths = computeAncestorDirectoryPaths(filePath);
+      const ancestorPaths = computeAncestorDirectoryPaths(filePath, folderId);
       const mutableCache = getMutableCache();
       // Guard long-running sessions against unbounded path growth.
       evictOldestAncestorCacheEntries(mutableCache);
@@ -293,7 +485,10 @@ function buildSelectedDirectoryCounts(
     };
   }
 
-  const selectedPathResolver = createSelectedPathAncestorResolver(selectedPathAncestorCache);
+  const selectedPathResolver = createSelectedPathAncestorResolver(
+    folderId,
+    selectedPathAncestorCache
+  );
   const folderPrefix = `${folderId}|@|`;
   for (const selectionKey of selectedFilePaths) {
     if (!selectionKey.startsWith(folderPrefix)) {
@@ -353,7 +548,10 @@ function applySelectedDirectoryCountDiff(
   selectedPathAncestorCache: Map<string, string[]>
 ): SelectedDirectoryCountBuildResult {
   const nextDirectoryCounts = new Map(currentDirectoryCounts);
-  const selectedPathResolver = createSelectedPathAncestorResolver(selectedPathAncestorCache);
+  const selectedPathResolver = createSelectedPathAncestorResolver(
+    folderId,
+    selectedPathAncestorCache
+  );
   const folderPrefix = `${folderId}|@|`;
 
   for (const selectionKey of previousSelectedFilePaths) {
@@ -541,7 +739,7 @@ function computeFileSelectionState(
           selectionModel.materializedPaths
         )
       : folderId
-        ? isPathSelectedInFolder(selectedFilePaths, folderId, node.path)
+        ? isWorkspacePathSelected(selectedFilePaths, folderId, node.path)
         : false;
   return {
     checkboxState: isSelected,
@@ -669,7 +867,7 @@ function computeLoadedFileCheckboxState(
         node.path,
         selectionModel.materializedPaths
       )
-    : isPathSelectedInFolder(selectedFilePaths, folderId, node.path);
+    : isWorkspacePathSelected(selectedFilePaths, folderId, node.path);
 }
 
 function computeLoadedDirectoryCheckboxState(
@@ -913,6 +1111,13 @@ function computeDirectorySelectionState(
   );
   if (
     selectionModel.mode !== 'query' &&
+    folderId &&
+    isWorkspacePathSelected(selectedFilePaths, folderId, node.path)
+  ) {
+    return createQueryDirectoryNodeSelectionState(true);
+  }
+  if (
+    selectionModel.mode !== 'query' &&
     directoryTotalFiles > 0 &&
     directoryState.selectedCount === directoryTotalFiles
   ) {
@@ -1147,6 +1352,29 @@ function applyDirectorySelectionMutation(params: {
   }
 }
 
+function applyFileSelectionMutation({
+  addMultipleSelectedFiles,
+  folderId,
+  nodePath,
+  removeMultipleSelectedFiles,
+  selectionMode,
+  selectionState,
+  toggleSelectedFile,
+}: FileSelectionMutationInput): void {
+  if (selectionMode === 'query') {
+    toggleSelectedFile(folderId, nodePath);
+    return;
+  }
+
+  const pathCandidates = getWorkspaceSelectionPathCandidates(folderId, nodePath);
+  if (selectionState.checkboxState !== false) {
+    removeMultipleSelectedFiles(folderId, pathCandidates);
+    return;
+  }
+
+  addMultipleSelectedFiles(folderId, [nodePath]);
+}
+
 function getSelectedDescendantPathsForDirectory({
   directoryPath,
   folderId,
@@ -1168,13 +1396,20 @@ function getSelectedDescendantPathsForDirectory({
   }
 
   const folderPrefix = `${folderId}|@|`;
+  const directoryPathCandidates = getWorkspaceSelectionPathCandidates(folderId, directoryPath);
   const selectedPaths: string[] = [];
   for (const compositeKey of selectedFilePaths) {
     if (!compositeKey.startsWith(folderPrefix)) {
       continue;
     }
     const path = compositeKey.slice(folderPrefix.length);
-    if (path === directoryPath || path.startsWith(directoryPrefix)) {
+    if (
+      path === directoryPath ||
+      path.startsWith(directoryPrefix) ||
+      directoryPathCandidates.some((candidatePath) =>
+        isSameOrDescendantSelectionPath(path, candidatePath)
+      )
+    ) {
       selectedPaths.push(path);
     }
   }
@@ -2104,7 +2339,15 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         }
 
         if (node.type !== 'directory') {
-          toggleSelectedFile(folderId, node.path);
+          applyFileSelectionMutation({
+            addMultipleSelectedFiles,
+            folderId,
+            nodePath: node.path,
+            removeMultipleSelectedFiles,
+            selectionMode: selectionModel.mode,
+            selectionState,
+            toggleSelectedFile,
+          });
           return;
         }
 
@@ -2168,6 +2411,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         normalizedTreeContext,
         selectedCount,
         isLoadingForSelection,
+        selectionModel.mode,
       ]
     );
     const handleNodeSelectionEvent = useEventCallback(handleNodeSelection);

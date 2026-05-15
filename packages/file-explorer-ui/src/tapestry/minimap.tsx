@@ -419,6 +419,13 @@ export const Minimap = memo(
       prevScaleRef.current = scale;
     }, [scale]);
 
+    useEffect(() => {
+      if (file.contentStatus !== 'idle') {
+        return;
+      }
+      onRequestFileContent?.(file.compositeKey);
+    }, [file.contentStatus, file.compositeKey, onRequestFileContent]);
+
     const handlePreviewHover = useCallback(() => {
       if (file.contentStatus === 'idle') {
         onRequestFileContent?.(file.compositeKey);

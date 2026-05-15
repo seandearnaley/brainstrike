@@ -274,6 +274,10 @@ export interface SemanticSearchResult {
   embeddingDimensions?: number;
   /** Embedding set ID this chunk belongs to */
   embeddingSetId?: string;
+  /** 1-based inclusive ending line in the original file */
+  endLine?: number;
+  /** Exclusive ending character offset in the original file */
+  endOffset?: number;
   /** File name for context */
   fileName: string;
   /** File path for context */
@@ -292,6 +296,10 @@ export interface SemanticSearchResult {
   similarity: number;
   /** Number of search sources that found this result (1-2 for hybrid) */
   sourceCount?: number;
+  /** 1-based inclusive starting line in the original file */
+  startLine?: number;
+  /** Inclusive starting character offset in the original file */
+  startOffset?: number;
   /** Stored token count for the matched chunk */
   tokenCount?: number;
 

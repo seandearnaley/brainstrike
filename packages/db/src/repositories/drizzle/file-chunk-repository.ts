@@ -153,6 +153,10 @@ export class DrizzleFileChunkRepository {
         tokenCount: chunk.tokenCount ?? null,
         chunkType: chunk.chunkType ?? null,
         chunkSize: chunk.chunkSize ?? null,
+        startLine: chunk.startLine ?? null,
+        endLine: chunk.endLine ?? null,
+        startOffset: chunk.startOffset ?? null,
+        endOffset: chunk.endOffset ?? null,
         embedding: chunk.embedding ?? null,
         embeddingSetId: chunk.embeddingSetId ?? null,
         embeddingUpdatedAt: chunk.embeddingUpdatedAt ? new Date(chunk.embeddingUpdatedAt) : null,
@@ -169,6 +173,10 @@ export class DrizzleFileChunkRepository {
           tokenCount: sql`excluded.token_count`,
           chunkType: sql`excluded.chunk_type`,
           chunkSize: sql`excluded.chunk_size`,
+          startLine: sql`excluded.start_line`,
+          endLine: sql`excluded.end_line`,
+          startOffset: sql`excluded.start_offset`,
+          endOffset: sql`excluded.end_offset`,
           contentTsvector: sql`to_tsvector('english', excluded.content)`,
           embedding: sql`excluded.embedding`,
           embeddingSetId: sql`excluded.embedding_set_id`,
@@ -200,6 +208,10 @@ export class DrizzleFileChunkRepository {
       tokenCount: chunk.tokenCount ?? null,
       chunkType: chunk.chunkType ?? null,
       chunkSize: chunk.chunkSize ?? null,
+      startLine: chunk.startLine ?? null,
+      endLine: chunk.endLine ?? null,
+      startOffset: chunk.startOffset ?? null,
+      endOffset: chunk.endOffset ?? null,
       embedding: chunk.embedding ?? null,
       embeddingSetId: chunk.embeddingSetId ?? null,
       embeddingUpdatedAt: chunk.embeddingUpdatedAt ? new Date(chunk.embeddingUpdatedAt) : null,
@@ -220,6 +232,10 @@ export class DrizzleFileChunkRepository {
           tokenCount: sql`excluded.token_count`,
           chunkType: sql`excluded.chunk_type`,
           chunkSize: sql`excluded.chunk_size`,
+          startLine: sql`excluded.start_line`,
+          endLine: sql`excluded.end_line`,
+          startOffset: sql`excluded.start_offset`,
+          endOffset: sql`excluded.end_offset`,
           contentTsvector: sql`to_tsvector('english', excluded.content)`,
           embedding: sql`excluded.embedding`,
           embeddingSetId: sql`excluded.embedding_set_id`,
@@ -254,6 +270,18 @@ export class DrizzleFileChunkRepository {
     }
     if (chunk.chunkSize !== undefined) {
       updateData.chunkSize = chunk.chunkSize;
+    }
+    if (chunk.startLine !== undefined) {
+      updateData.startLine = chunk.startLine;
+    }
+    if (chunk.endLine !== undefined) {
+      updateData.endLine = chunk.endLine;
+    }
+    if (chunk.startOffset !== undefined) {
+      updateData.startOffset = chunk.startOffset;
+    }
+    if (chunk.endOffset !== undefined) {
+      updateData.endOffset = chunk.endOffset;
     }
     if (chunk.embedding !== undefined) {
       updateData.embedding = chunk.embedding;
@@ -482,7 +510,7 @@ export class DrizzleFileChunkRepository {
     let baseQuery = sql`
       SELECT
         id, file_record_id, chunk_index, content, content_hash,
-        token_count, chunk_type, chunk_size, embedding::text AS embedding,
+        token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding::text AS embedding,
         embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at,
         ts_rank(content_tsvector, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}), ${rankNormalization}) as fts_rank,
         ts_headline(${language}::regconfig, content, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}),
@@ -730,6 +758,18 @@ export class DrizzleFileChunkRepository {
       updatedAt: row.updatedAt.toISOString(),
     };
 
+    if (row.startLine !== null) {
+      chunk.startLine = row.startLine;
+    }
+    if (row.endLine !== null) {
+      chunk.endLine = row.endLine;
+    }
+    if (row.startOffset !== null) {
+      chunk.startOffset = row.startOffset;
+    }
+    if (row.endOffset !== null) {
+      chunk.endOffset = row.endOffset;
+    }
     if (row.embedding) {
       chunk.embedding = row.embedding;
     }
@@ -760,6 +800,18 @@ export class DrizzleFileChunkRepository {
       updatedAt: String(row['updated_at']),
     };
 
+    if (row['start_line'] !== null && row['start_line'] !== undefined) {
+      chunk.startLine = Number(row['start_line']);
+    }
+    if (row['end_line'] !== null && row['end_line'] !== undefined) {
+      chunk.endLine = Number(row['end_line']);
+    }
+    if (row['start_offset'] !== null && row['start_offset'] !== undefined) {
+      chunk.startOffset = Number(row['start_offset']);
+    }
+    if (row['end_offset'] !== null && row['end_offset'] !== undefined) {
+      chunk.endOffset = Number(row['end_offset']);
+    }
     if (row['embedding']) {
       const embStr = String(row['embedding']);
       // Parse vector string format "[0.1,0.2,0.3]"

@@ -30,6 +30,7 @@ import { migration028GemmaLocalLlm } from './028-gemma-local-llm.js';
 import { migration029FileRecordSourceRootPath } from './029-file-record-source-root-path.js';
 import { migration030CollectionIndexingStats } from './030-collection-indexing-stats.js';
 import { migration031ProviderCatalogTimestamps } from './031-provider-catalog-timestamps.js';
+import { migration032FileChunkSourceRanges } from './032-file-chunk-source-ranges.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -66,6 +67,7 @@ export const migrations: Migration[] = [
   migration029FileRecordSourceRootPath,
   migration030CollectionIndexingStats,
   migration031ProviderCatalogTimestamps,
+  migration032FileChunkSourceRanges,
 ];
 
 // Export base migrations (without chunks table) for test environments

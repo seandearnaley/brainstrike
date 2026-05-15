@@ -31,7 +31,7 @@ const stripErroneousSourcemaps: Plugin = {
 
 export default defineConfig({
   entry: ['src/index.ts', 'src/embedding.worker.ts'],
-  format: ['esm'],
+  format: ['esm', 'cjs'],
   splitting: false,
   sourcemap: false,
   dts: false,

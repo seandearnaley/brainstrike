@@ -1,6 +1,8 @@
 import type { Migration } from './migration-runner';
 
-// Migration 004: Add chunks table with pgvector support
+// Migration 004: Add chunks table with pgvector support.
+// Source-range columns are also added by migration 032 for existing databases
+// that already applied this migration before line-aware retrieval was added.
 // This migration assumes pgvector extension is available and will fail if not
 export const migration004AddChunksTable: Migration = {
   version: 4,
@@ -16,6 +18,10 @@ export const migration004AddChunksTable: Migration = {
 				token_count INTEGER DEFAULT 0,
 				chunk_type TEXT DEFAULT 'text',
 				chunk_size INTEGER DEFAULT 0,
+				start_line INTEGER,
+				end_line INTEGER,
+				start_offset INTEGER,
+				end_offset INTEGER,
 				embedding VECTOR(768),
 				created_at TEXT NOT NULL,
 				updated_at TEXT NOT NULL,

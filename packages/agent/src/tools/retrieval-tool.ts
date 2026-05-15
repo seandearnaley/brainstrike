@@ -43,6 +43,8 @@ export const RETRIEVAL_ERROR_MESSAGES = {
   selectionTooLarge: 'Selection exceeds retrieval limits.',
   embeddingDimensionMismatch: 'Embedding dimensions do not match the active set.',
   embeddingFailed: 'Unable to generate query embeddings for retrieval.',
+  missingSourceRange:
+    'Retrieved chunks are missing source line metadata. Rebuild the embedding space.',
   retrievalFailed: 'Unable to retrieve context right now. Try again.',
 } as const;
 
@@ -58,8 +60,12 @@ export interface ChunkSearchResultInput {
     tokenCount?: number;
     chunkIndex: number;
     chunkType?: string;
+    endLine?: number;
+    endOffset?: number;
     fileRecordId: string;
     embeddingSetId?: string;
+    startLine?: number;
+    startOffset?: number;
   };
   rank: number;
   similarity: number;
@@ -93,12 +99,26 @@ export interface RetrievalSelectionState {
   selectionSnapshotId?: string;
 }
 
+export type RetrievalResultChunk = Omit<PackedContextChunk, 'content'>;
+
+export interface SkippedSourceRangeChunk {
+  chunkId: string;
+  chunkIndex: number;
+  fileRecordId: string;
+}
+
+interface ContextChunkConversionResult {
+  chunks: ContextPackerChunk[];
+  skippedSourceRangeChunks: SkippedSourceRangeChunk[];
+}
+
 /**
  * Result returned by the retrieval tool.
  */
 export interface RetrievalToolResult {
   budget: number;
-  chunks: PackedContextChunk[];
+  chunkContentIncludedInContext: boolean;
+  chunks: RetrievalResultChunk[];
   context: string;
   embeddingSetId: string;
   limit: number;
@@ -106,6 +126,8 @@ export interface RetrievalToolResult {
   remainingTokens: number;
   selectionSnapshotId?: string;
   skipped: number;
+  skippedForMissingSourceRange: number;
+  skippedSourceRangeChunks: SkippedSourceRangeChunk[];
   threshold: number;
   totalTokens: number;
 }
@@ -274,14 +296,33 @@ function resolveTokenBudget(runtime: RuntimeData | undefined, override?: number)
 function toContextChunks(
   results: ChunkSearchResultInput[],
   fileMap: Map<string, FileRecordInfo>
-): ContextPackerChunk[] {
-  return results.map((result) => {
+): ContextChunkConversionResult {
+  const chunks: ContextPackerChunk[] = [];
+  const skippedSourceRangeChunks: SkippedSourceRangeChunk[] = [];
+  for (const result of results) {
+    if (
+      result.chunk.startLine === undefined ||
+      result.chunk.endLine === undefined ||
+      result.chunk.startOffset === undefined ||
+      result.chunk.endOffset === undefined
+    ) {
+      skippedSourceRangeChunks.push({
+        chunkId: result.chunk.id,
+        chunkIndex: result.chunk.chunkIndex,
+        fileRecordId: result.chunk.fileRecordId,
+      });
+      continue;
+    }
     const fileInfo = fileMap.get(result.chunk.fileRecordId);
     const chunk: ContextPackerChunk = {
       id: result.chunk.id,
       content: result.chunk.content,
       tokenCount: result.chunk.tokenCount ?? null,
       chunkIndex: result.chunk.chunkIndex,
+      startLine: result.chunk.startLine,
+      endLine: result.chunk.endLine,
+      startOffset: result.chunk.startOffset,
+      endOffset: result.chunk.endOffset,
       score: result.similarity,
       metadata: {
         fileRecordId: result.chunk.fileRecordId,
@@ -297,8 +338,9 @@ function toContextChunks(
     if (fileInfo?.name !== undefined) {
       chunk.fileName = fileInfo.name;
     }
-    return chunk;
-  });
+    chunks.push(chunk);
+  }
+  return { chunks, skippedSourceRangeChunks };
 }
 
 /**
@@ -311,10 +353,26 @@ function formatContext(chunks: readonly PackedContextChunk[]): string {
   return chunks
     .map((chunk, index) => {
       const location = chunk.filePath ?? chunk.fileName ?? 'Unknown file';
+      const lineSuffix = chunk.lineRange ? `:${chunk.lineRange.start}-${chunk.lineRange.end}` : '';
       const chunkLabel = chunk.chunkIndex === undefined ? '' : ` (chunk ${chunk.chunkIndex})`;
-      return `Source ${index + 1}: ${location}${chunkLabel}\n${chunk.content}`;
+      return `Source ${index + 1}: ${location}${lineSuffix}${chunkLabel}\n${chunk.content}`;
     })
     .join('\n\n---\n\n');
+}
+
+function stripChunkContent(chunks: readonly PackedContextChunk[]): RetrievalResultChunk[] {
+  return chunks.map((chunk) => ({
+    id: chunk.id,
+    rank: chunk.rank,
+    tokenCount: chunk.tokenCount,
+    ...(chunk.chunkIndex === undefined ? {} : { chunkIndex: chunk.chunkIndex }),
+    ...(chunk.fileName === undefined ? {} : { fileName: chunk.fileName }),
+    ...(chunk.filePath === undefined ? {} : { filePath: chunk.filePath }),
+    ...(chunk.lineRange === undefined ? {} : { lineRange: chunk.lineRange }),
+    ...(chunk.metadata === undefined ? {} : { metadata: chunk.metadata }),
+    ...(chunk.offsets === undefined ? {} : { offsets: chunk.offsets }),
+    ...(chunk.score === undefined ? {} : { score: chunk.score }),
+  }));
 }
 
 /**
@@ -395,7 +453,7 @@ async function runRetrieval(
   const fileMap = await deps.resolveFileRecords(fileRecordIds);
 
   // Convert to packer input format
-  const chunkInputs = toContextChunks(searchResults, fileMap);
+  const { chunks: chunkInputs, skippedSourceRangeChunks } = toContextChunks(searchResults, fileMap);
 
   // Pack context within token budget
   const tokenBudget = resolveTokenBudget(runtimeData, input.tokenBudget);
@@ -414,6 +472,7 @@ async function runRetrieval(
     totalTokens: packed.totalTokens,
     budget: packed.budget,
     skipped: packed.skipped,
+    skippedForMissingSourceRange: skippedSourceRangeChunks.length,
     chunksIncluded: packed.chunks.length,
   });
 
@@ -425,9 +484,12 @@ async function runRetrieval(
     totalTokens: packed.totalTokens,
     budget: packed.budget,
     remainingTokens: packed.remainingTokens,
-    skipped: packed.skipped,
+    skipped: packed.skipped + skippedSourceRangeChunks.length,
     context: contextText,
-    chunks: [...packed.chunks],
+    chunkContentIncludedInContext: packed.chunks.length > 0,
+    chunks: stripChunkContent(packed.chunks),
+    skippedForMissingSourceRange: skippedSourceRangeChunks.length,
+    skippedSourceRangeChunks,
     ...(selection.snapshotId ? { selectionSnapshotId: selection.snapshotId } : {}),
   };
 }

@@ -3,6 +3,7 @@ import { createLogger, generateUUID } from '@brainstrike/utils';
 import { Agent, type AgentMemoryOption, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import type { MastraMemory } from '@mastra/core/memory';
+import { TokenLimiter } from '@mastra/core/processors';
 import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
 import type { McpConfig } from '../mcp/config';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
@@ -13,7 +14,13 @@ import type {
 } from '../run-events';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
-import type { AgentMessage, RuntimeData, StreamChunk, StreamIterator } from '../types';
+import type {
+  AgentMessage,
+  RuntimeData,
+  StreamChunk,
+  StreamFinishReason,
+  StreamIterator,
+} from '../types';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import { collectCombinedTools } from './mcp-tool-loader';
 import {
@@ -40,11 +47,118 @@ export interface MastraAgentRuntime {
   dispose: () => Promise<void>;
   mcpClient?: MCPClient;
   toolNameMap: Map<string, string>;
-  /** True if the language model declares AI SDK V1 */
-  usesLegacyModel: boolean;
 }
 
 const logger = createLogger('MastraAgent');
+
+const BRAINSTRIKE_CONTEXT_TOOL_IDS = {
+  listWorkspaceContext: 'brainstrike.listWorkspaceContext',
+  readWorkspaceContext: 'brainstrike.readWorkspaceContext',
+  readWorkspaceFile: 'brainstrike.readWorkspaceFile',
+  listEmbeddingSpaces: 'brainstrike.listEmbeddingSpaces',
+  queryEmbeddingSpace: 'brainstrike.queryEmbeddingSpace',
+  updateWorkspaceContextSelection: 'brainstrike.updateWorkspaceContextSelection',
+  updateWorkspaceTapestrySelections: 'brainstrike.updateWorkspaceTapestrySelections',
+} as const;
+
+function buildOriginalToModelFacingToolNameMap(
+  toolNameMap: ReadonlyMap<string, string>
+): Map<string, string> {
+  const originalToModelFacing = new Map<string, string>();
+  for (const [modelFacingName, originalName] of toolNameMap.entries()) {
+    originalToModelFacing.set(originalName, modelFacingName);
+  }
+  return originalToModelFacing;
+}
+
+function resolveModelFacingToolName(
+  originalToModelFacingToolNameMap: ReadonlyMap<string, string>,
+  originalToolId: string
+): string | null {
+  return originalToModelFacingToolNameMap.get(originalToolId) ?? null;
+}
+
+function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): {
+  listWorkspaceContext: string | null;
+  readWorkspaceContext: string | null;
+  readWorkspaceFile: string | null;
+  listEmbeddingSpaces: string | null;
+  queryEmbeddingSpace: string | null;
+  updateWorkspaceContextSelection: string | null;
+  updateWorkspaceTapestrySelections: string | null;
+} {
+  const originalToModelFacing = buildOriginalToModelFacingToolNameMap(toolNameMap);
+  return {
+    listWorkspaceContext: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.listWorkspaceContext
+    ),
+    readWorkspaceContext: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.readWorkspaceContext
+    ),
+    readWorkspaceFile: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.readWorkspaceFile
+    ),
+    listEmbeddingSpaces: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.listEmbeddingSpaces
+    ),
+    queryEmbeddingSpace: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.queryEmbeddingSpace
+    ),
+    updateWorkspaceContextSelection: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.updateWorkspaceContextSelection
+    ),
+    updateWorkspaceTapestrySelections: resolveModelFacingToolName(
+      originalToModelFacing,
+      BRAINSTRIKE_CONTEXT_TOOL_IDS.updateWorkspaceTapestrySelections
+    ),
+  };
+}
+
+function formatAvailableToolNames(names: ReturnType<typeof getModelFacingToolNames>): string {
+  const available = Object.values(names).filter((name): name is string => Boolean(name));
+  return available.length > 0 ? available.join(', ') : 'none';
+}
+
+function buildDefaultInstructions(toolNameMap: ReadonlyMap<string, string>): string {
+  const names = getModelFacingToolNames(toolNameMap);
+  const workspaceInspectionInstruction = names.listWorkspaceContext
+    ? `First inspect available selected context, token budgets, Tapestry ranges, project-tree token counts, and the workspace index hint with ${names.listWorkspaceContext}.`
+    : 'Workspace-selection inspection is unavailable in this run.';
+  const semanticSearchInstruction =
+    names.listEmbeddingSpaces && names.queryEmbeddingSpace
+      ? `For broad codebase questions, call ${names.listEmbeddingSpaces} and prefer the space marked recommendedForWorkspaceSearch because it is the workspace index; then pass that explicit embeddingSetId to ${names.queryEmbeddingSpace}.`
+      : 'Semantic workspace search is unavailable unless both listEmbeddingSpaces and queryEmbeddingSpace are registered.';
+  const readContextInstruction =
+    names.readWorkspaceContext && names.readWorkspaceFile
+      ? `Use ${names.readWorkspaceContext} or ${names.readWorkspaceFile} afterward when you need surrounding file contents beyond the retrieved source line ranges.`
+      : names.readWorkspaceFile
+        ? `Use ${names.readWorkspaceFile} afterward when you need surrounding file contents beyond retrieved source line ranges.`
+        : 'Workspace file reading is unavailable in this run.';
+  const curationInstruction =
+    names.queryEmbeddingSpace &&
+    names.updateWorkspaceContextSelection &&
+    names.updateWorkspaceTapestrySelections
+      ? `When the user asks you to curate ideal reusable context, use ${names.queryEmbeddingSpace} to find candidate files and semantic chunks with persisted source line ranges, then call ${names.updateWorkspaceContextSelection} to bulk select files and ${names.updateWorkspaceTapestrySelections} to keep only relevant line ranges. Read files when surrounding lines are needed to refine the ranges. Keep the curation token-aware and prefer Tapestry ranges over whole files when a whole file would waste context.`
+      : 'Reusable context curation is unavailable unless semantic search, workspace selection, and Tapestry selection tools are all registered.';
+
+  return `You are a helpful assistant for the Brainstrike IDE.
+Use tools when they help you answer accurately.
+Project files, context explorer selections, file trees, token estimates, and embedding spaces are not preloaded into your prompt.
+Registered Brainstrike native context tools in this run: ${formatAvailableToolNames(names)}.
+When project or codebase context is needed, use registered Brainstrike native tools explicitly. ${workspaceInspectionInstruction} ${semanticSearchInstruction} ${readContextInstruction}
+${curationInstruction}
+Do not assume selected files or embedding spaces are already included. Keep file and retrieval budgets small, and report skipped or truncated tool results when they affect the answer.
+If an expected Brainstrike native tool is unavailable, say exactly which tool ID is missing and continue with another available tool only when that still answers the user.
+If the user asks what tools you have available, list the tool IDs you can call in this session and briefly describe each one.
+Only run state-changing tools after the user confirms.
+Provide concise answers after using tools.`;
+}
 
 function toMastraServerMap(config: McpConfig | undefined): MCPClientOptions['servers'] {
   if (!(config && Array.isArray(config.servers))) {
@@ -198,37 +312,12 @@ export async function createMastraAgentRuntime(
     sanitizedRuntime
   );
 
-  // Detect if model is AI SDK V1 (may require streamLegacy instead of stream)
-  // V1 models have specificationVersion === 'v1', V2 models don't have this property
-  const usesLegacyModel = (() => {
-    if (!languageModel || typeof languageModel !== 'object') {
-      return false;
-    }
-    if (!('specificationVersion' in languageModel)) {
-      return false;
-    }
-    const spec = (languageModel as { specificationVersion?: unknown }).specificationVersion;
-    return spec === 'v1';
-  })();
-
-  if (usesLegacyModel) {
-    logger.info('legacy V1 model detected', {
-      provider: normalizedProvider,
-      model: modelName,
-    });
-  }
+  assertModernLanguageModel(languageModel, normalizedProvider, modelName);
 
   const agent = new Agent({
     id: 'brainstrike-assistant',
     name: 'Brainstrike Assistant',
-    instructions:
-      instructions ??
-      `You are a helpful assistant for the Brainstrike IDE.
-Use tools when they help you answer accurately.
-When the user asks about the current project or codebase, use workspace reading tools to inspect files directly.
-If the user asks what tools you have available, list the tool IDs you can call in this session and briefly describe each one.
-Only run state-changing tools after the user confirms.
-Provide concise answers after using tools.`,
+    instructions: instructions ?? buildDefaultInstructions(toolNameMap),
     model: languageModel,
     tools: combinedTools,
     ...(memory ? { memory } : {}),
@@ -240,14 +329,37 @@ Provide concise answers after using tools.`,
       await mcpClient?.disconnect();
     },
     toolNameMap,
-    usesLegacyModel,
     ...(mcpClient ? { mcpClient } : {}),
   };
+}
+
+function assertModernLanguageModel(
+  languageModel: MastraModelConfig,
+  provider: string,
+  model: string
+): void {
+  if (!languageModel || typeof languageModel !== 'object') {
+    return;
+  }
+
+  const spec = (languageModel as { specificationVersion?: unknown }).specificationVersion;
+  if (spec !== 'v1') {
+    return;
+  }
+
+  // Tool-only context depends on the modern Mastra streaming surface. The old
+  // AI SDK v1 adapter can drop terminal/tool events, so fail explicitly instead
+  // of silently falling back to the removed legacy stream path.
+  throw createMastraAgentError('mastra_agent_unsupported_model_runtime', {
+    detail: `AI SDK v1 model runtime is not supported for Brainstrike chat streaming: ${provider}/${model}. Select a provider/model backed by the modern AI SDK v2 streaming runtime before retrying.`,
+    context: { provider, model, specificationVersion: spec },
+  });
 }
 
 interface UsageLike {
   completionTokens?: number;
   inputTokens?: number;
+  outputTokens?: number;
   promptTokens?: number;
 }
 
@@ -263,6 +375,7 @@ interface MastraStreamPart {
     delta?: string;
     error?: unknown;
     tripwireReason?: string;
+    stepResult?: { reason?: unknown };
     output?: { usage?: UsageLike };
     metadata?: { usage?: UsageLike };
   };
@@ -290,15 +403,53 @@ function makeFinishChunk(part: unknown): StreamChunk {
   const usage = usageCandidates.find((candidate) => candidate !== undefined) ?? {};
   const promptTokensRaw = usage.promptTokens ?? usage.inputTokens;
   const promptTokens = Number.isFinite(promptTokensRaw) ? (promptTokensRaw ?? 0) : 0;
-  const completionTokens = Number.isFinite(usage.completionTokens)
-    ? (usage.completionTokens ?? 0)
-    : 0;
+  const completionTokensRaw = usage.completionTokens ?? usage.outputTokens;
+  const completionTokens = Number.isFinite(completionTokensRaw) ? (completionTokensRaw ?? 0) : 0;
   return {
     type: 'message-finish',
-    finishReason: 'stop',
+    finishReason: readFinishReason(part),
     usage: { promptTokens, completionTokens },
     path: [],
   };
+}
+
+function makeSyntheticFinishChunk(): StreamChunk {
+  return {
+    type: 'message-finish',
+    finishReason: 'other',
+    usage: { promptTokens: 0, completionTokens: 0 },
+    path: [],
+  };
+}
+
+function normalizeFinishReason(reason: string): StreamFinishReason {
+  switch (reason) {
+    case 'stop':
+    case 'length':
+    case 'content-filter':
+    case 'tool-calls':
+    case 'error':
+    case 'other':
+    case 'unknown':
+      return reason;
+    case 'tool_calls':
+      return 'tool-calls';
+    default:
+      return 'unknown';
+  }
+}
+
+function readFinishReason(part: unknown): StreamFinishReason {
+  const p = asMastraStreamPart(part);
+  const direct = p.finishReason;
+  if (typeof direct === 'string' && direct.length > 0) {
+    return normalizeFinishReason(direct);
+  }
+  const nested = p.payload?.stepResult?.reason;
+  if (typeof nested === 'string' && nested.length > 0) {
+    return normalizeFinishReason(nested);
+  }
+  return 'unknown';
 }
 
 function getDeltaText(part: unknown): string {
@@ -526,6 +677,9 @@ async function initializeMastraRuntime(
       code: 'mastra_agent_runtime_init_failed',
       error: err instanceof Error ? err.message : String(err),
     });
+    if (isMastraAgentError(err)) {
+      throw err;
+    }
     const errorDetail = err instanceof Error ? err.message : undefined;
     throw createMastraAgentError(
       'mastra_agent_runtime_init_failed',
@@ -540,7 +694,6 @@ interface StreamIterationParams {
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;
   sanitizedNameMap?: Map<string, string>;
-  useLegacyStream: boolean;
 }
 
 interface StreamGeneratorParams {
@@ -554,7 +707,6 @@ interface StreamResultLike {
   fullStream?: NodeReadableStream<unknown> | ReadableStream<unknown>;
 }
 
-type AgentStreamInput = Parameters<Agent['stream']>[0];
 // Derived from Agent.stream's 2-arg overload (introduced in @mastra/core 1.25 -- the
 // 1-arg overload now refuses `undefined` as the second arg, so callers must either
 // omit the second arg or pass real options). If a future Mastra bump exposes a
@@ -566,11 +718,48 @@ type AgentStreamOptions = Exclude<
   undefined
 >;
 
-const hasStreamLegacy = (
-  agent: Agent
-): agent is Agent & {
-  streamLegacy: (input: AgentStreamInput, options?: AgentStreamOptions) => Promise<unknown>;
-} => typeof (agent as { streamLegacy?: unknown }).streamLegacy === 'function';
+interface BrainstrikeAgentStreamOptions {
+  abortSignal?: AbortSignal;
+  inputProcessors?: unknown[];
+  maxSteps?: number;
+  memory?: AgentMemoryOption;
+  modelSettings?: RuntimeData['modelSettings'];
+  providerOptions?: RuntimeData['providerOptions'];
+}
+
+const DEFAULT_AGENT_MAX_STEPS = 20;
+
+function resolvePositiveIntegerOption(value: unknown, fieldName: string): number | undefined {
+  if (value === undefined || value === null) {
+    return;
+  }
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      detail: `${fieldName} must be a positive finite number`,
+      context: { fieldName, value },
+    });
+  }
+  return Math.floor(value);
+}
+
+function buildToolLoopOptions(
+  runtimeData: RuntimeData | undefined
+): Pick<BrainstrikeAgentStreamOptions, 'inputProcessors' | 'maxSteps'> {
+  const agentLoop = runtimeData?.agentLoop;
+  const maxSteps = resolvePositiveIntegerOption(agentLoop?.maxSteps, 'agentLoop.maxSteps');
+  const inputTokenLimit = resolvePositiveIntegerOption(
+    agentLoop?.inputTokenLimit,
+    'agentLoop.inputTokenLimit'
+  );
+  const inputProcessors: unknown[] | undefined = inputTokenLimit
+    ? [new TokenLimiter({ limit: inputTokenLimit, strategy: 'truncate', trimMode: 'contiguous' })]
+    : undefined;
+
+  return {
+    maxSteps: maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
+    ...(inputProcessors ? { inputProcessors } : {}),
+  };
+}
 
 const resolveFullStream = (
   result: unknown
@@ -630,6 +819,12 @@ async function* streamChunksFromMastra({
         return;
       }
     }
+    if (!runtimeData?.signal?.aborted) {
+      logger.warn('mastra stream ended without finish event', {
+        code: 'mastra_agent_stream_missing_finish',
+      });
+      yield makeSyntheticFinishChunk();
+    }
   } finally {
     if (runtimeData?.signal?.aborted) {
       logger.info('mastra stream aborted', { code: 'mastra_agent_stream_aborted' });
@@ -646,7 +841,6 @@ async function createStreamIteratorFromRuntime({
   messages,
   memory,
   sanitizedNameMap,
-  useLegacyStream,
 }: StreamIterationParams): Promise<StreamIterator> {
   const mastraMessages = convertMessagesToMastra(messages);
 
@@ -654,34 +848,19 @@ async function createStreamIteratorFromRuntime({
     const streamInput = mastraMessages as unknown as Parameters<typeof runtime.agent.stream>[0];
     const memoryOption = resolveMemoryOption(runtimeData, memory);
 
-    // Use streamLegacy for AI SDK V1 models, stream for V2+ models
-    const streamOptions = {
+    const streamOptions: BrainstrikeAgentStreamOptions = {
+      ...buildToolLoopOptions(runtimeData),
       ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
       ...(memoryOption ? { memory: memoryOption } : {}),
       ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
       ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
     };
     const resolvedStreamOptions = Object.keys(streamOptions).length > 0 ? streamOptions : undefined;
-    let streamResult: unknown;
 
-    if (useLegacyStream && hasStreamLegacy(runtime.agent)) {
-      logger.info('using streamLegacy for V1 model', { code: 'mastra_agent_stream_legacy_start' });
-      streamResult = resolvedStreamOptions
-        ? await runtime.agent.streamLegacy(streamInput, resolvedStreamOptions as AgentStreamOptions)
-        : await runtime.agent.streamLegacy(streamInput);
-      logger.info('mastra legacy stream started', { code: 'mastra_agent_stream_legacy_started' });
-    } else {
-      if (useLegacyStream) {
-        logger.warn('streamLegacy unavailable; falling back to stream()', {
-          code: 'mastra_agent_stream_legacy_unavailable',
-        });
-      }
-      const result = resolvedStreamOptions
-        ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
-        : await runtime.agent.stream(streamInput);
-      logger.info('mastra stream started', { code: 'mastra_agent_stream_started' });
-      streamResult = result;
-    }
+    const streamResult = resolvedStreamOptions
+      ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
+      : await runtime.agent.stream(streamInput);
+    logger.info('mastra stream started', { code: 'mastra_agent_stream_started' });
 
     const fullStream = resolveFullStream(streamResult);
     if (!fullStream) {
@@ -736,7 +915,6 @@ export async function streamMastraAgent(
     runtime,
     messages,
     ...(options.memory ? { memory: options.memory } : {}),
-    useLegacyStream: runtime.usesLegacyModel,
     ...(runtimeData ? { runtimeData } : {}),
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });

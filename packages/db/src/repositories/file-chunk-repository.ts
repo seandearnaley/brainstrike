@@ -34,8 +34,12 @@ interface FileChunkRow {
   // Phase 2 columns
   embedding_set_id?: string | null;
   embedding_updated_at?: string | null;
+  end_line?: number | null;
+  end_offset?: number | null;
   file_record_id: string;
   id: string;
+  start_line?: number | null;
+  start_offset?: number | null;
   token_count: number;
   updated_at: string;
 }
@@ -55,12 +59,15 @@ interface FileChunkStatsRow {
   type_count: string;
 }
 
+const FILE_CHUNK_SELECT_COLUMNS =
+  'id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding::text AS embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at';
+
 export class FileChunkRepository {
   constructor(private readonly db: PGlite) {}
 
   async findById(id: string): Promise<FileChunk | null> {
     const result = await this.db.query(
-      'SELECT id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding::text AS embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at FROM file_chunks WHERE id = $1',
+      `SELECT ${FILE_CHUNK_SELECT_COLUMNS} FROM file_chunks WHERE id = $1`,
       [id]
     );
     return result.rows[0] ? this.mapRowToChunk(result.rows[0] as FileChunkRow) : null;
@@ -68,7 +75,7 @@ export class FileChunkRepository {
 
   async findByFileRecordId(fileRecordId: string): Promise<FileChunk[]> {
     const result = await this.db.query(
-      'SELECT id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding::text AS embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at FROM file_chunks WHERE file_record_id = $1 ORDER BY chunk_index ASC',
+      `SELECT ${FILE_CHUNK_SELECT_COLUMNS} FROM file_chunks WHERE file_record_id = $1 ORDER BY chunk_index ASC`,
       [fileRecordId]
     );
     return result.rows.map((row) => this.mapRowToChunk(row as FileChunkRow));
@@ -81,14 +88,18 @@ export class FileChunkRepository {
     const result = await this.db.query(
       `INSERT INTO file_chunks (
         id, file_record_id, chunk_index, content, content_hash,
-        token_count, chunk_type, chunk_size, embedding, embedding_set_id, embedding_updated_at, embedding_hash, content_tsvector, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_tsvector('english', $4), $13, $14)
+        token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding, embedding_set_id, embedding_updated_at, embedding_hash, content_tsvector, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, to_tsvector('english', $4), $17, $18)
       ON CONFLICT (id) DO UPDATE SET
         content = EXCLUDED.content,
         content_hash = EXCLUDED.content_hash,
         token_count = EXCLUDED.token_count,
         chunk_type = EXCLUDED.chunk_type,
         chunk_size = EXCLUDED.chunk_size,
+        start_line = EXCLUDED.start_line,
+        end_line = EXCLUDED.end_line,
+        start_offset = EXCLUDED.start_offset,
+        end_offset = EXCLUDED.end_offset,
         content_tsvector = to_tsvector('english', EXCLUDED.content),
         embedding = EXCLUDED.embedding,
         embedding_set_id = EXCLUDED.embedding_set_id,
@@ -105,6 +116,10 @@ export class FileChunkRepository {
         chunk.tokenCount,
         chunk.chunkType,
         chunk.chunkSize,
+        chunk.startLine ?? null,
+        chunk.endLine ?? null,
+        chunk.startOffset ?? null,
+        chunk.endOffset ?? null,
         chunk.embedding ? `[${chunk.embedding.join(',')}]` : null,
         chunk.embeddingSetId ?? null,
         chunk.embedding ? (chunk.embeddingUpdatedAt ?? chunk.updatedAt) : null,
@@ -135,8 +150,8 @@ export class FileChunkRepository {
       for (const batch of batches) {
         const values = batch
           .map((_, index) => {
-            const baseIndex = index * 14;
-            return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, to_tsvector('english', $${baseIndex + 4}), $${baseIndex + 13}, $${baseIndex + 14})`;
+            const baseIndex = index * 18;
+            return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13}, $${baseIndex + 14}, $${baseIndex + 15}, $${baseIndex + 16}, to_tsvector('english', $${baseIndex + 4}), $${baseIndex + 17}, $${baseIndex + 18})`;
           })
           .join(', ');
 
@@ -149,6 +164,10 @@ export class FileChunkRepository {
           chunk.tokenCount,
           chunk.chunkType,
           chunk.chunkSize,
+          chunk.startLine ?? null,
+          chunk.endLine ?? null,
+          chunk.startOffset ?? null,
+          chunk.endOffset ?? null,
           chunk.embedding ? `[${chunk.embedding.join(',')}]` : null,
           chunk.embeddingSetId ?? null,
           chunk.embedding ? (chunk.embeddingUpdatedAt ?? chunk.updatedAt) : null,
@@ -160,7 +179,7 @@ export class FileChunkRepository {
         const result = await this.db.query(
           `INSERT INTO file_chunks (
               id, file_record_id, chunk_index, content, content_hash, 
-              token_count, chunk_type, chunk_size, embedding, embedding_set_id, embedding_updated_at, embedding_hash, content_tsvector, created_at, updated_at
+              token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding, embedding_set_id, embedding_updated_at, embedding_hash, content_tsvector, created_at, updated_at
             ) VALUES ${values} 
             ON CONFLICT (id) DO UPDATE SET
               content = EXCLUDED.content,
@@ -168,6 +187,10 @@ export class FileChunkRepository {
               token_count = EXCLUDED.token_count,
               chunk_type = EXCLUDED.chunk_type,
               chunk_size = EXCLUDED.chunk_size,
+              start_line = EXCLUDED.start_line,
+              end_line = EXCLUDED.end_line,
+              start_offset = EXCLUDED.start_offset,
+              end_offset = EXCLUDED.end_offset,
               content_tsvector = to_tsvector('english', EXCLUDED.content),
               embedding = EXCLUDED.embedding,
               embedding_set_id = EXCLUDED.embedding_set_id,
@@ -206,8 +229,8 @@ export class FileChunkRepository {
     for (const batch of batches) {
       const values = batch
         .map((_, index) => {
-          const baseIndex = index * 14;
-          return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, to_tsvector('english', $${baseIndex + 4}), $${baseIndex + 13}, $${baseIndex + 14})`;
+          const baseIndex = index * 18;
+          return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13}, $${baseIndex + 14}, $${baseIndex + 15}, $${baseIndex + 16}, to_tsvector('english', $${baseIndex + 4}), $${baseIndex + 17}, $${baseIndex + 18})`;
         })
         .join(', ');
 
@@ -220,6 +243,10 @@ export class FileChunkRepository {
         chunk.tokenCount,
         chunk.chunkType,
         chunk.chunkSize,
+        chunk.startLine ?? null,
+        chunk.endLine ?? null,
+        chunk.startOffset ?? null,
+        chunk.endOffset ?? null,
         chunk.embedding ? `[${chunk.embedding.join(',')}]` : null,
         chunk.embeddingSetId ?? null,
         chunk.embedding ? (chunk.embeddingUpdatedAt ?? chunk.updatedAt) : null,
@@ -231,7 +258,7 @@ export class FileChunkRepository {
       const result = await tx.query(
         `INSERT INTO file_chunks (
             id, file_record_id, chunk_index, content, content_hash,
-            token_count, chunk_type, chunk_size, embedding, embedding_set_id, embedding_updated_at, embedding_hash, content_tsvector, created_at, updated_at
+            token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding, embedding_set_id, embedding_updated_at, embedding_hash, content_tsvector, created_at, updated_at
           ) VALUES ${values}
           ON CONFLICT (id) DO UPDATE SET
             content = EXCLUDED.content,
@@ -239,6 +266,10 @@ export class FileChunkRepository {
             token_count = EXCLUDED.token_count,
             chunk_type = EXCLUDED.chunk_type,
             chunk_size = EXCLUDED.chunk_size,
+            start_line = EXCLUDED.start_line,
+            end_line = EXCLUDED.end_line,
+            start_offset = EXCLUDED.start_offset,
+            end_offset = EXCLUDED.end_offset,
             content_tsvector = to_tsvector('english', EXCLUDED.content),
             embedding = EXCLUDED.embedding,
             embedding_set_id = EXCLUDED.embedding_set_id,
@@ -511,7 +542,7 @@ export class FileChunkRepository {
     const result = await this.db.query(
       `SELECT
         id, file_record_id, chunk_index, content, content_hash,
-        token_count, chunk_type, chunk_size, embedding::text AS embedding,
+        token_count, chunk_type, chunk_size, start_line, end_line, start_offset, end_offset, embedding::text AS embedding,
         embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at,
         ts_rank(content_tsvector, ${tsqueryFunc}($1::regconfig, $2), ${rankNormalization}) as fts_rank,
         ts_headline($1::regconfig, content, ${tsqueryFunc}($1::regconfig, $2),
@@ -563,7 +594,7 @@ export class FileChunkRepository {
 
   async findAll(): Promise<FileChunk[]> {
     const result = await this.db.query(
-      'SELECT id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding::text AS embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at FROM file_chunks ORDER BY created_at DESC'
+      `SELECT ${FILE_CHUNK_SELECT_COLUMNS} FROM file_chunks ORDER BY created_at DESC`
     );
     return result.rows.map((row) => this.mapRowToChunk(row as FileChunkRow));
   }
@@ -883,6 +914,10 @@ export class FileChunkRepository {
       [chunk.tokenCount, 'token_count'],
       [chunk.chunkType, 'chunk_type'],
       [chunk.chunkSize, 'chunk_size'],
+      [chunk.startLine, 'start_line'],
+      [chunk.endLine, 'end_line'],
+      [chunk.startOffset, 'start_offset'],
+      [chunk.endOffset, 'end_offset'],
     ];
 
     for (const [value, column] of simpleFields) {
@@ -921,6 +956,11 @@ export class FileChunkRepository {
       tokenCount: row.token_count,
       chunkType: row.chunk_type,
       chunkSize: row.chunk_size,
+      ...(row.start_line !== null && row.start_line !== undefined && { startLine: row.start_line }),
+      ...(row.end_line !== null && row.end_line !== undefined && { endLine: row.end_line }),
+      ...(row.start_offset !== null &&
+        row.start_offset !== undefined && { startOffset: row.start_offset }),
+      ...(row.end_offset !== null && row.end_offset !== undefined && { endOffset: row.end_offset }),
       ...(embedding && { embedding }),
       ...(row.embedding_set_id !== null && { embeddingSetId: row.embedding_set_id }),
       ...(row.embedding_updated_at !== null && { embeddingUpdatedAt: row.embedding_updated_at }),

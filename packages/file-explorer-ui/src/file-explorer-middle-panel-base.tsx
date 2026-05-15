@@ -4,7 +4,7 @@ import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { generateProjectTreeText } from '@brainstrike/utils/tree-generator';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ContextExportOptions } from './context-export-options';
 import {
   useFileExplorerStoreContext,
@@ -46,6 +46,8 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
   const { storageAdapter } = useAdapters();
 
   const store = useFileExplorerStoreContext();
+  const previewContentRequestQueueRef = useRef(new Set<string>());
+  const previewContentFlushQueuedRef = useRef(false);
   const [
     tokenBudget,
     setTokenBudget,
@@ -199,11 +201,26 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
     [openFileInTab]
   );
 
+  const flushPreviewContentRequests = useCallback(() => {
+    previewContentFlushQueuedRef.current = false;
+    const compositeKeys = Array.from(previewContentRequestQueueRef.current);
+    previewContentRequestQueueRef.current.clear();
+    if (compositeKeys.length === 0) {
+      return;
+    }
+    void loadMultipleFileContents(compositeKeys);
+  }, [loadMultipleFileContents]);
+
   const handlePreviewContentRequest = useCallback(
     (compositeKey: string) => {
-      void loadMultipleFileContents([compositeKey]);
+      previewContentRequestQueueRef.current.add(compositeKey);
+      if (previewContentFlushQueuedRef.current) {
+        return;
+      }
+      previewContentFlushQueuedRef.current = true;
+      queueMicrotask(flushPreviewContentRequests);
     },
-    [loadMultipleFileContents]
+    [flushPreviewContentRequests]
   );
 
   const handleDownloadContextFromPanel = useCallback(

@@ -322,8 +322,17 @@ export {
   type RetrievalToolDependencies,
   type RetrievalToolResult,
   SAFE_ERROR_MESSAGES,
+  type SkippedSourceRangeChunk,
 } from './tools/retrieval-tool';
 export {
+  type ListEmbeddingSetsInput,
+  ListEmbeddingSetsInputSchema,
+  type ListWorkspaceContextInput,
+  ListWorkspaceContextInputSchema,
+  type QueryEmbeddingSpaceInput,
+  QueryEmbeddingSpaceInputSchema,
+  type ReadWorkspaceContextInput,
+  ReadWorkspaceContextInputSchema,
   type ReadWorkspaceDirectoryInput,
   ReadWorkspaceDirectoryInputSchema,
   type ReadWorkspaceFileInput,
@@ -334,6 +343,10 @@ export {
   SelectRootTreeFilesInputSchema,
   type UpdatePreviewContextFilesInput,
   UpdatePreviewContextFilesInputSchema,
+  type UpdateWorkspaceContextSelectionInput,
+  UpdateWorkspaceContextSelectionInputSchema,
+  type UpdateWorkspaceTapestrySelectionsInput,
+  UpdateWorkspaceTapestrySelectionsInputSchema,
   validateToolInput,
 } from './tools/schemas';
 export type {
@@ -357,6 +370,9 @@ export type {
   RuntimeData,
   RuntimeModelSettings,
   RuntimeProviderOptions,
+  RuntimeWorkspaceContextFileMetadata,
+  RuntimeWorkspaceContextMetadata,
+  RuntimeWorkspaceContextRangeMetadata,
   StreamChunk,
   StreamChunkFinish,
   StreamChunkMessageFinish,

@@ -30,22 +30,27 @@ import {
 } from '@brainstrike/agent/tool-metadata';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
 import {
+  type TapestryRange,
+  toolLineRangeToTapestryRange,
   useFileExplorerStoreSelector,
-  useOptionalTokenCacheContext,
   useSelectionManager,
+  useWorkspaceContextCurationStore,
 } from '@brainstrike/file-explorer-ui';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/preferences/stores/assistant-memory-preferences-store';
 import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
+import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
 import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
 import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
-import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
-import { buildWorkspaceLookupCandidates, normalizeWorkspaceLookupPath } from '@brainstrike/types';
+import type {
+  AssistantSelectionUpdatePayload,
+  AssistantWorkspaceContextSelectionUpdatePayload,
+  AssistantWorkspaceTapestryUpdatePayload,
+} from '@brainstrike/types';
+import { normalizeWorkspaceLookupPath } from '@brainstrike/types';
 import {
-  type AssistantContextMenuConfig,
   type AssistantProviderSettings,
   type AssistantProviderSettingsUpdate,
   type AssistantToolMenuConfig,
@@ -55,7 +60,6 @@ import {
   type ModelPickerProvider,
   type ProviderGroupConfig,
 } from '@brainstrike/ui/assistant-ui-panel';
-import { createSafeStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
@@ -123,12 +127,6 @@ function formatToolLabel(toolId: string): string {
 function getToolDescription(toolId: string): string {
   return TOOL_DESCRIPTIONS[toolId] ?? `Tool: ${toolId}`;
 }
-
-const INCLUDE_FILE_REPORT_STORAGE_KEY = 'brainstrike.assistant.include-file-report.v1';
-const includeFileReportStorage = createSafeStorageAdapter();
-const TREE_CONTEXT_LINE_LIMIT = 400;
-const TREE_TOKEN_ESTIMATE_PER_LINE = 4;
-const FILE_REPORT_OVERHEAD_PER_FILE = 8;
 
 function createThreadRunId(): string {
   return `run-${crypto.randomUUID()}`;
@@ -224,11 +222,10 @@ function createAssistantThreadRunPromise(args: {
 }
 
 function buildAssistantRequestData(args: {
-  activeEmbeddingSetId: string | null;
-  contextTokenCount: number;
+  agentLoopSettings: RuntimeData['agentLoop'] | undefined;
+  enabledNativeToolIds: readonly string[];
   hostedMemoryBackendAvailable: boolean;
-  includeFileReport: boolean;
-  includeProjectTree: boolean;
+  memoryOptions: RuntimeMemoryOptions;
   memoryResourceId: string | undefined;
   memorySettings: RuntimeAssistantMemorySettings;
   modelSettings: RuntimeData['modelSettings'] | undefined;
@@ -238,13 +235,16 @@ function buildAssistantRequestData(args: {
     filePaths: string[];
     folderId: string | null | undefined;
   };
-  tokenBudget: number | undefined;
+  workspaceContext: RuntimeData['workspaceContext'] | null;
+  workspaceIndex: {
+    enabled: boolean;
+    embeddingSetId: string | null;
+    mode: string;
+    paused: boolean;
+  };
   workspaceRootPath: string | null;
 }): Record<string, unknown> {
   const data: Record<string, unknown> = {};
-  if (args.activeEmbeddingSetId) {
-    data['embeddingSetId'] = args.activeEmbeddingSetId;
-  }
   if (args.selectionData.filePaths.length > 0) {
     data['selectionFilePaths'] = args.selectionData.filePaths;
   }
@@ -254,23 +254,27 @@ function buildAssistantRequestData(args: {
   if (args.workspaceRootPath) {
     data['workspaceRootPath'] = args.workspaceRootPath;
   }
+  data['enabledNativeToolIds'] = Array.from(args.enabledNativeToolIds);
+  if (args.workspaceContext) {
+    data['workspaceContext'] = args.workspaceContext;
+  }
+  if (args.workspaceIndex.embeddingSetId) {
+    data['workspaceIndexEmbeddingSetId'] = args.workspaceIndex.embeddingSetId;
+  }
+  data['workspaceIndexingEnabled'] = args.workspaceIndex.enabled;
+  data['workspaceIndexingMode'] = args.workspaceIndex.mode;
+  data['workspaceIndexingPaused'] = args.workspaceIndex.paused;
   if (args.memoryResourceId && args.selectedMemoryThreadId && args.hostedMemoryBackendAvailable) {
     data['memory'] = {
       threadId: args.selectedMemoryThreadId,
       resourceId: args.memoryResourceId,
       memorySettings: args.memorySettings,
-      memoryOptions: {
-        lastMessages: 40,
-        workingMemory: { enabled: true, scope: 'resource' },
-      },
+      memoryOptions: args.memoryOptions,
     };
   }
-  if (typeof args.tokenBudget === 'number') {
-    data['tokenBudget'] = args.tokenBudget;
+  if (args.agentLoopSettings) {
+    data['agentLoop'] = args.agentLoopSettings;
   }
-  data['includeFileReport'] = args.includeFileReport;
-  data['includeProjectTree'] = args.includeProjectTree;
-  data['contextTokenCount'] = args.contextTokenCount;
   if (args.modelSettings) {
     data['modelSettings'] = args.modelSettings;
   }
@@ -278,6 +282,59 @@ function buildAssistantRequestData(args: {
     data['providerOptions'] = args.providerOptions;
   }
   return data;
+}
+
+function getAssistantTapestryColor(key: string): string {
+  const palette = ['#2563eb', '#059669', '#dc2626', '#7c3aed', '#d97706', '#0891b2'];
+  let hash = 0;
+  for (let index = 0; index < key.length; index += 1) {
+    hash = (hash * 31 + key.charCodeAt(index)) >>> 0;
+  }
+  return palette[hash % palette.length] ?? '#2563eb';
+}
+
+function buildAssistantTapestryRange(args: {
+  compositeKey: string;
+  endLine: number;
+  index: number;
+  isActive: boolean | undefined;
+  startLine: number;
+}): TapestryRange {
+  const internalRange = toolLineRangeToTapestryRange({
+    startLine: args.startLine,
+    endLine: args.endLine,
+  });
+  const rangeKey = `${args.compositeKey}:${args.index}:${args.startLine}:${args.endLine}`;
+  return {
+    id: `assistant-${rangeKey}`,
+    startLine: internalRange.startLine,
+    endLine: internalRange.endLine,
+    isActive: args.isActive !== false,
+    color: getAssistantTapestryColor(rangeKey),
+    userModified: true,
+  };
+}
+
+function toRuntimeWorkspaceContext(
+  snapshot: ReturnType<typeof useWorkspaceContextCurationStore.getState>['contextSnapshot'],
+  selectionFolderId: string | null | undefined
+): RuntimeData['workspaceContext'] | null {
+  if (!snapshot) {
+    return null;
+  }
+  if (snapshot.selectionFolderId && snapshot.selectionFolderId !== selectionFolderId) {
+    return null;
+  }
+  return {
+    files: snapshot.files,
+    includeProjectTree: snapshot.includeProjectTree,
+    projectTreeApproxTokens: snapshot.projectTreeApproxTokens,
+    projectTreeTokenCountLoading: snapshot.projectTreeTokenCountLoading,
+    selectedOutputApproxTokens: snapshot.selectedOutputApproxTokens,
+    selectedSourceApproxTokens: snapshot.selectedSourceApproxTokens,
+    useTapestryRanges: snapshot.useTapestryRanges,
+    ...(snapshot.tokenBudget === null ? {} : { tokenBudget: snapshot.tokenBudget }),
+  };
 }
 
 function resolveAssistantProviderDisabledReason(args: {
@@ -386,15 +443,6 @@ function resolveLocalRuntimeSelection(args: {
     return true;
   }
   return false;
-}
-
-interface TokenCountRow {
-  path: string;
-  tokenCount: number | null;
-}
-
-interface TotalFilesRow {
-  count: string | number;
 }
 
 type LocalRuntimeStatusMap = Record<LocalRuntimeId, LocalRuntimeAvailabilityState>;
@@ -593,73 +641,6 @@ function findFirstProviderWithEnabledModels(
   return configuredProviders.find((providerId) => providerHasEnabledModels(providerId));
 }
 
-interface QueryableTokenDatabase {
-  query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
-}
-
-async function computeTreeTokenEstimate(
-  db: QueryableTokenDatabase,
-  isCancelled: () => boolean
-): Promise<number> {
-  try {
-    const result = await db.query<TotalFilesRow>('SELECT COUNT(*) AS count FROM file_records');
-    if (isCancelled()) {
-      return 0;
-    }
-    const firstRow = result.rows[0];
-    const rawCount = firstRow ? firstRow.count : undefined;
-    const totalFiles =
-      typeof rawCount === 'number' ? rawCount : Number.parseInt(String(rawCount ?? '0'), 10) || 0;
-    const estimatedLines = Math.min(totalFiles, TREE_CONTEXT_LINE_LIMIT) + (totalFiles > 0 ? 1 : 0);
-    return estimatedLines * TREE_TOKEN_ESTIMATE_PER_LINE;
-  } catch {
-    return 0;
-  }
-}
-
-function loadStoredIncludeFileReport(): boolean {
-  const raw = includeFileReportStorage.getItem(INCLUDE_FILE_REPORT_STORAGE_KEY);
-  if (raw === null) {
-    return true;
-  }
-  return raw === '1';
-}
-
-async function estimateSelectionTokenCountFromDb(
-  db: QueryableTokenDatabase,
-  filePaths: readonly string[]
-): Promise<number> {
-  const candidates = buildWorkspaceLookupCandidates(filePaths);
-  if (candidates.length === 0) {
-    return 0;
-  }
-
-  const result = await db.query<TokenCountRow>(
-    `SELECT path, token_count AS "tokenCount"
-     FROM file_records
-     WHERE path = ANY($1::text[])`,
-    [candidates]
-  );
-
-  const byPath = new Map<string, number>();
-  for (const row of result.rows) {
-    const normalized = normalizeWorkspaceLookupPath(row.path);
-    if (typeof row.tokenCount === 'number') {
-      byPath.set(normalized, row.tokenCount);
-    }
-  }
-
-  let total = 0;
-  for (const filePath of filePaths) {
-    const normalized = normalizeWorkspaceLookupPath(filePath);
-    const tokenCount = byPath.get(normalized);
-    if (typeof tokenCount === 'number') {
-      total += tokenCount;
-    }
-  }
-  return total;
-}
-
 interface McpToolDescriptor {
   description?: string;
   enabled: boolean;
@@ -744,6 +725,8 @@ function buildOptionalOptions<T extends Record<string, unknown>>(
   return returnIfNotEmpty(options);
 }
 
+type RuntimeMemoryOptions = NonNullable<RuntimeData['memory']>['memoryOptions'];
+
 function buildModelSettings(
   settings: AssistantProviderSettings | undefined
 ): RuntimeData['modelSettings'] | undefined {
@@ -752,6 +735,55 @@ function buildModelSettings(
   }
   const value = Math.max(1, Math.floor(settings.maxOutputTokens));
   return Number.isFinite(value) ? { maxOutputTokens: value } : undefined;
+}
+
+function buildPositiveIntegerSetting(value: unknown): number | undefined {
+  if (typeof value !== 'number') {
+    return;
+  }
+  const normalized = Math.floor(value);
+  return Number.isFinite(normalized) && normalized > 0 ? normalized : undefined;
+}
+
+function buildNonNegativeIntegerSetting(value: unknown): number | undefined {
+  if (typeof value !== 'number') {
+    return;
+  }
+  const normalized = Math.floor(value);
+  return Number.isFinite(normalized) && normalized >= 0 ? normalized : undefined;
+}
+
+function buildAgentLoopSettings(
+  settings: AssistantProviderSettings | undefined
+): RuntimeData['agentLoop'] | undefined {
+  const maxSteps = buildPositiveIntegerSetting(settings?.agentMaxSteps);
+  const inputTokenLimit = buildPositiveIntegerSetting(settings?.agentInputTokenLimit);
+  if (!(maxSteps || inputTokenLimit)) {
+    return;
+  }
+  return {
+    ...(maxSteps ? { maxSteps } : {}),
+    ...(inputTokenLimit ? { inputTokenLimit } : {}),
+  };
+}
+
+function buildAssistantMemoryOptions(
+  settings: AssistantProviderSettings | undefined
+): RuntimeMemoryOptions {
+  const configuredLastMessages = buildNonNegativeIntegerSetting(settings?.memoryLastMessages);
+  const lastMessages =
+    configuredLastMessages === undefined
+      ? 40
+      : configuredLastMessages === 0
+        ? false
+        : configuredLastMessages;
+  return {
+    lastMessages,
+    workingMemory: {
+      enabled: settings?.workingMemoryEnabled ?? true,
+      scope: 'resource',
+    },
+  };
 }
 
 function resolveGoogleThinkingLevel(
@@ -909,9 +941,13 @@ function mergeAssistantProviderSettings(
 ): AssistantProviderSettings {
   const merged: Record<string, unknown> = { ...(base ?? {}) };
   for (const [key, value] of Object.entries(updates)) {
-    if (value !== undefined) {
-      merged[key] = value;
+    if (value === undefined) {
+      // Undefined in a provider-settings update is an explicit clear operation.
+      // Callers that want to preserve the base setting must omit the key.
+      delete merged[key];
+      continue;
     }
+    merged[key] = value;
   }
   return merged as AssistantProviderSettings;
 }
@@ -959,29 +995,6 @@ function mcpReducer(_state: McpState, action: McpAction): McpState {
   }
 }
 
-interface TokenEstimateState {
-  projectTreeTokensEstimate: number;
-  selectionTokensFromDb: number;
-}
-
-type TokenEstimateAction =
-  | { type: 'SET_SELECTION'; tokens: number }
-  | { type: 'SET_TREE'; tokens: number };
-
-function tokenEstimateReducer(
-  state: TokenEstimateState,
-  action: TokenEstimateAction
-): TokenEstimateState {
-  switch (action.type) {
-    case 'SET_SELECTION':
-      return { ...state, selectionTokensFromDb: action.tokens };
-    case 'SET_TREE':
-      return { ...state, projectTreeTokensEstimate: action.tokens };
-    default:
-      return state;
-  }
-}
-
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This integration wrapper coordinates multiple stores, runtime probes, and transport paths in one place.
 export function AssistantUiPanelWrapper({
   initialProviders,
@@ -1021,9 +1034,8 @@ export function AssistantUiPanelWrapper({
   const semanticRecallSettings = useAssistantMemoryPreferencesStore(
     (state) => state.semanticRecall
   );
-  const [nativeToolStates, setNativeToolEnabled] = useNativeToolPreferencesStore(
-    (state) => [state.toolStates, state.setToolEnabled] as const
-  );
+  const nativeToolStates = useNativeToolPreferencesStore((state) => state.toolStates);
+  const setNativeToolEnabled = useNativeToolPreferencesStore((state) => state.setToolEnabled);
 
   // Subscribe to secrets changes to re-check available providers when API keys change
   const secretsVersion = useSecretsStore((state) => state.secretsVersion);
@@ -1035,7 +1047,6 @@ export function AssistantUiPanelWrapper({
   const registryError = useModelRegistryStore((state) => state.error);
   const toggleModelInDb = useModelRegistryStore((state) => state.toggleModel);
   const db = usePGliteDatabase();
-  const tokenCache = useOptionalTokenCacheContext();
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
   const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
@@ -1203,6 +1214,14 @@ export function AssistantUiPanelWrapper({
     () => selectedThreadDraftRuntime?.modelSettings ?? buildModelSettings(selectedProviderSettings),
     [selectedProviderSettings, selectedThreadDraftRuntime?.modelSettings]
   );
+  const agentLoopSettings = useMemo(
+    () => buildAgentLoopSettings(selectedProviderSettings),
+    [selectedProviderSettings]
+  );
+  const assistantMemoryOptions = useMemo(
+    () => buildAssistantMemoryOptions(selectedProviderSettings),
+    [selectedProviderSettings]
+  );
   const providerOptions = useMemo(
     () =>
       selectedThreadDraftRuntime?.providerOptions ??
@@ -1234,47 +1253,29 @@ export function AssistantUiPanelWrapper({
     setThreadDraftRuntime,
   ]);
 
-  const activeEmbeddingSetId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
-  const [
-    tokenBudget,
-    currentFolderId,
-    rootDirectoryHandle,
-    includeProjectTree,
-    setTokenBudget,
-    setIncludeProjectTree,
-    setSelectedFiles,
-    addMultipleSelectedFiles,
-    removeMultipleSelectedFiles,
-    clearSelectionRules,
-  ] = useFileExplorerStoreSelector(
-    (s) =>
-      [
-        s.tokenBudget,
-        s.currentFolderId,
-        s.rootDirectoryHandle,
-        s.includeProjectTree,
-        s.setTokenBudget,
-        s.setIncludeProjectTree,
-        s.setSelectedFiles,
-        s.addMultipleSelectedFiles,
-        s.removeMultipleSelectedFiles,
-        s.clearSelectionRules,
-      ] as const
+  const currentFolderId = useFileExplorerStoreSelector((s) => s.currentFolderId);
+  const rootDirectoryHandle = useFileExplorerStoreSelector((s) => s.rootDirectoryHandle);
+  const setSelectedFiles = useFileExplorerStoreSelector((s) => s.setSelectedFiles);
+  const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);
+  const removeMultipleSelectedFiles = useFileExplorerStoreSelector(
+    (s) => s.removeMultipleSelectedFiles
   );
-  const [includeFileReport, setIncludeFileReport] = useState<boolean>(() =>
-    loadStoredIncludeFileReport()
-  );
-  const [tokenEstimateState, dispatchTokenEstimate] = useReducer(tokenEstimateReducer, {
-    selectionTokensFromDb: 0,
-    projectTreeTokensEstimate: 0,
-  });
-  const selectionTokensFromDb = tokenEstimateState.selectionTokensFromDb;
-  const projectTreeTokensEstimate = tokenEstimateState.projectTreeTokensEstimate;
+  const clearSelectionRules = useFileExplorerStoreSelector((s) => s.clearSelectionRules);
   const handleSelectionLimitExceeded = useCallback(() => {}, []);
   const { effectiveSelection } = useSelectionManager({
     onSelectionLimitExceeded: handleSelectionLimitExceeded,
   });
   const effectiveSelectionRef = useRef(effectiveSelection);
+  const workspaceContextSnapshot = useWorkspaceContextCurationStore(
+    (state) => state.contextSnapshot
+  );
+  const runtimeWorkspaceContext = useMemo(
+    () => toRuntimeWorkspaceContext(workspaceContextSnapshot, currentFolderId),
+    [currentFolderId, workspaceContextSnapshot]
+  );
+  const setTapestryRangesForKey = useWorkspaceContextCurationStore(
+    (state) => state.setTapestryRangesForKey
+  );
 
   useEffect(() => {
     effectiveSelectionRef.current = effectiveSelection;
@@ -1306,96 +1307,10 @@ export function AssistantUiPanelWrapper({
     };
   }, [effectiveSelection, currentFolderId]);
 
-  useEffect(() => {
-    includeFileReportStorage.setItem(
-      INCLUDE_FILE_REPORT_STORAGE_KEY,
-      includeFileReport ? '1' : '0'
-    );
-  }, [includeFileReport]);
-
-  useEffect(() => {
-    const folderId = selectionData.folderId;
-    if (!(db && folderId && selectionData.filePaths.length > 0)) {
-      dispatchTokenEstimate({ type: 'SET_SELECTION', tokens: 0 });
-      return;
-    }
-
-    // BST-360: Debounce DB queries to coalesce rapid selection changes
-    // (drag-select, bulk checkbox toggling). Cache-based estimates via
-    // tokensFromCache memo remain instant and unaffected.
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      void estimateSelectionTokenCountFromDb(db as QueryableTokenDatabase, selectionData.filePaths)
-        .then((total) => {
-          if (!cancelled) {
-            dispatchTokenEstimate({ type: 'SET_SELECTION', tokens: total });
-          }
-        })
-        .catch(() => {
-          if (!cancelled) {
-            dispatchTokenEstimate({ type: 'SET_SELECTION', tokens: 0 });
-          }
-        });
-    }, 300);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [db, selectionData.filePaths, selectionData.folderId]);
-
-  useEffect(() => {
-    if (!(db && includeProjectTree)) {
-      dispatchTokenEstimate({ type: 'SET_TREE', tokens: 0 });
-      return;
-    }
-
-    let cancelled = false;
-    void computeTreeTokenEstimate(db, () => cancelled).then((tokens) => {
-      if (!cancelled) {
-        dispatchTokenEstimate({ type: 'SET_TREE', tokens });
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [db, includeProjectTree]);
-
-  const tokenCacheVersion = tokenCache?.cacheVersion;
-
-  const tokensFromCache = useMemo(() => {
-    if (!(tokenCache && selectionData.folderId && selectionData.filePaths.length > 0)) {
-      return 0;
-    }
-    let total = 0;
-    for (const path of selectionData.filePaths) {
-      const count = tokenCache.getTokenCount(selectionData.folderId, path);
-      if (typeof count === 'number' && Number.isFinite(count)) {
-        total += count;
-      }
-    }
-    return total;
-  }, [tokenCache, tokenCacheVersion, selectionData.filePaths, selectionData.folderId]);
-
-  const contextTokenCount = useMemo(() => {
-    const selectedTokens = Math.max(tokensFromCache, selectionTokensFromDb);
-    const reportOverhead = includeFileReport
-      ? selectionData.filePaths.length * FILE_REPORT_OVERHEAD_PER_FILE
-      : 0;
-    const treeTokens = includeProjectTree ? projectTreeTokensEstimate : 0;
-    return selectedTokens + reportOverhead + treeTokens;
-  }, [
-    includeFileReport,
-    includeProjectTree,
-    projectTreeTokensEstimate,
-    selectionData.filePaths.length,
-    selectionTokensFromDb,
-    tokensFromCache,
-  ]);
-
   const handleSelectionUpdate = useCallback(
-    (payload: AssistantSelectionUpdatePayload) => {
+    (
+      payload: AssistantSelectionUpdatePayload | AssistantWorkspaceContextSelectionUpdatePayload
+    ) => {
       if (!(payload.folderId && Array.isArray(payload.filePaths) && payload.filePaths.length > 0)) {
         return;
       }
@@ -1441,6 +1356,42 @@ export function AssistantUiPanelWrapper({
     [addMultipleSelectedFiles, clearSelectionRules, removeMultipleSelectedFiles, setSelectedFiles]
   );
 
+  const handleTapestryUpdate = useCallback(
+    (payload: AssistantWorkspaceTapestryUpdatePayload) => {
+      if (!(payload.folderId && Array.isArray(payload.updates) && payload.updates.length > 0)) {
+        return;
+      }
+      const mode = payload.mode ?? 'replace';
+      for (const update of payload.updates) {
+        const normalizedPath = normalizeWorkspaceLookupPath(String(update.path));
+        if (normalizedPath.length === 0) {
+          continue;
+        }
+        const path = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
+        const compositeKey = encodeFileSelection(payload.folderId, path);
+        const nextRanges =
+          mode === 'clear'
+            ? []
+            : update.ranges.map((range, index) =>
+                buildAssistantTapestryRange({
+                  compositeKey,
+                  index,
+                  startLine: range.startLine,
+                  endLine: range.endLine,
+                  isActive: range.isActive,
+                })
+              );
+        const existingRanges =
+          useWorkspaceContextCurationStore.getState().tapestryRangesByKey[compositeKey] ?? [];
+        setTapestryRangesForKey(
+          compositeKey,
+          mode === 'add' ? [...existingRanges, ...nextRanges] : nextRanges
+        );
+      }
+    },
+    [setTapestryRangesForKey]
+  );
+
   useEffect(() => {
     if (typeof window === 'undefined' || !window.tools?.onRootTreeSelectionUpdate) {
       return;
@@ -1473,6 +1424,38 @@ export function AssistantUiPanelWrapper({
     };
   }, [handleSelectionUpdate]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.tools?.onWorkspaceContextSelectionUpdate) {
+      return;
+    }
+
+    const unsubscribe = window.tools.onWorkspaceContextSelectionUpdate(
+      (payload: AssistantWorkspaceContextSelectionUpdatePayload) => {
+        handleSelectionUpdate(payload);
+      }
+    );
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, [handleSelectionUpdate]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.tools?.onWorkspaceContextTapestryUpdate) {
+      return;
+    }
+
+    const unsubscribe = window.tools.onWorkspaceContextTapestryUpdate(
+      (payload: AssistantWorkspaceTapestryUpdatePayload) => {
+        handleTapestryUpdate(payload);
+      }
+    );
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, [handleTapestryUpdate]);
+
   const nativeToolItems = useMemo<AssistantToolMenuItem[]>(
     () =>
       Object.entries(NATIVE_TOOL_DEFAULTS).map(([toolId, metadata]) => {
@@ -1495,6 +1478,10 @@ export function AssistantUiPanelWrapper({
         };
       }),
     [nativeToolStates]
+  );
+  const enabledNativeToolIds = useMemo(
+    () => nativeToolItems.filter((tool) => tool.enabled !== false).map((tool) => tool.id),
+    [nativeToolItems]
   );
 
   const loadMcpTools = useCallback(async () => {
@@ -1589,34 +1576,27 @@ export function AssistantUiPanelWrapper({
     toolMenuItems,
   ]);
 
-  const selectionCount = selectionData.filePaths.length;
-  const contextMenu = useMemo<AssistantContextMenuConfig>(() => {
-    const selectionLabel = selectionCount > 0 ? `${selectionCount} files selected` : undefined;
-
-    return {
-      selectionCount,
-      includeFileReport,
-      includeProjectTree,
-      contextTokenCount,
-      onIncludeFileReportChange: setIncludeFileReport,
-      onIncludeProjectTreeChange: setIncludeProjectTree,
-      onTokenBudgetChange: setTokenBudget,
-      ...(selectionLabel ? { selectionLabel } : {}),
-      ...(typeof activeEmbeddingSetId === 'string' ? { embeddingSetId: activeEmbeddingSetId } : {}),
-      ...(typeof tokenBudget === 'number' ? { tokenBudget } : {}),
-    };
-  }, [
-    activeEmbeddingSetId,
-    contextTokenCount,
-    includeFileReport,
-    includeProjectTree,
-    selectionCount,
-    setIncludeProjectTree,
-    setTokenBudget,
-    tokenBudget,
-  ]);
-
   const workspaceRootPath = rootDirectoryHandle?.path ?? null;
+  const workspaceIndexEmbeddingSetId = useBackgroundIndexingPreferencesStore(
+    (state) => state.managedCollectionId
+  );
+  const workspaceIndexingEnabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
+  const workspaceIndexingMode = useBackgroundIndexingPreferencesStore((state) => state.mode);
+  const workspaceIndexingPaused = useBackgroundIndexingPreferencesStore((state) => state.paused);
+  const workspaceIndex = useMemo(
+    () => ({
+      enabled: workspaceIndexingEnabled,
+      embeddingSetId: workspaceIndexEmbeddingSetId,
+      mode: workspaceIndexingMode,
+      paused: workspaceIndexingPaused,
+    }),
+    [
+      workspaceIndexEmbeddingSetId,
+      workspaceIndexingEnabled,
+      workspaceIndexingMode,
+      workspaceIndexingPaused,
+    ]
+  );
   const assistantThreadRepository = useMemo(
     () => (db ? createPgliteAssistantThreadRepository(db) : null),
     [db]
@@ -1668,33 +1648,33 @@ export function AssistantUiPanelWrapper({
   const requestData = useMemo(
     () =>
       buildAssistantRequestData({
-        activeEmbeddingSetId,
-        contextTokenCount,
+        agentLoopSettings,
+        enabledNativeToolIds,
         hostedMemoryBackendAvailable,
-        includeFileReport,
-        includeProjectTree,
+        memoryOptions: assistantMemoryOptions,
         memoryResourceId,
         memorySettings: runtimeMemorySettings,
         modelSettings,
         providerOptions,
         selectedMemoryThreadId,
         selectionData,
-        tokenBudget,
+        workspaceContext: runtimeWorkspaceContext,
+        workspaceIndex,
         workspaceRootPath,
       }),
     [
-      activeEmbeddingSetId,
-      contextTokenCount,
+      agentLoopSettings,
+      assistantMemoryOptions,
+      enabledNativeToolIds,
       hostedMemoryBackendAvailable,
-      includeFileReport,
-      includeProjectTree,
       memoryResourceId,
       modelSettings,
       providerOptions,
       runtimeMemorySettings,
       selectedMemoryThreadId,
       selectionData,
-      tokenBudget,
+      runtimeWorkspaceContext,
+      workspaceIndex,
       workspaceRootPath,
     ]
   );
@@ -2250,7 +2230,6 @@ export function AssistantUiPanelWrapper({
   return (
     <AssistantUiPanel
       completePreparedRequest={completePreparedRequest}
-      contextMenu={contextMenu}
       onProviderSettingsChange={handleProviderSettingsChange}
       pickerModels={pickerModels}
       pickerProviders={pickerProviders}

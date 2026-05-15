@@ -101,22 +101,46 @@ function filterEnabledServerTools(
   // At runtime we only filter the already-sanitized tool set against persisted state/config.
   const enabledTools = Object.fromEntries(
     Object.entries(serverTools).filter(([sanitizedToolId]) => {
-      const originalToolId = toolNameMap.get(sanitizedToolId) ?? sanitizedToolId;
-      const persistedMetadata =
-        mcpToolRegistry.getTool(originalToolId) ?? mcpToolRegistry.getTool(sanitizedToolId);
+      const candidateToolIds = getRegistryCandidateToolIds(server, sanitizedToolId, toolNameMap);
+      const persistedMetadata = candidateToolIds
+        .map((toolId) => mcpToolRegistry.getTool(toolId))
+        .find((metadata) => metadata !== undefined);
 
       if (persistedMetadata) {
         return persistedMetadata.enabled;
       }
 
       return isToolEnabledByFilterConfig(
-        originalToolId,
+        candidateToolIds[0] ?? sanitizedToolId,
         server.enabledTools ? { enabledTools: server.enabledTools } : undefined
       );
     })
   );
 
   return Object.keys(enabledTools).length > 0 ? enabledTools : undefined;
+}
+
+function getRegistryCandidateToolIds(
+  server: McpServerConfig,
+  sanitizedToolId: string,
+  toolNameMap: ReadonlyMap<string, string>
+): string[] {
+  const candidates = new Set<string>();
+  const originalToolId = toolNameMap.get(sanitizedToolId) ?? sanitizedToolId;
+
+  if (server.name) {
+    const serverPrefix = `${server.name}_`;
+    if (sanitizedToolId.startsWith(serverPrefix)) {
+      candidates.add(`${server.name}.${sanitizedToolId.slice(serverPrefix.length)}`);
+    }
+    if (originalToolId.startsWith(serverPrefix)) {
+      candidates.add(`${server.name}.${originalToolId.slice(serverPrefix.length)}`);
+    }
+  }
+
+  candidates.add(originalToolId);
+  candidates.add(sanitizedToolId);
+  return Array.from(candidates);
 }
 
 function resolveMcpTimeoutMs(value: number | undefined): number {

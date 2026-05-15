@@ -24,14 +24,34 @@ const REPETITIVE_CONTENT_LINE_THRESHOLD = 1000;
 const REPETITIVE_CONTENT_UNIQUE_RATIO = 0.1;
 const CHARS_PER_TOKEN_SAMPLE_BYTES = 10_000;
 const CHARS_PER_TOKEN_MAX = 8;
+const MAX_WHITESPACE_NORMALIZED_SOURCE_CANDIDATES = 10_000;
 
 export interface PortableChunkingResult {
   avgTokensPerChunk: number;
   chunks: PortableChunk[];
   skipped: boolean;
   skipReason?: string;
+  sourceRangeSkippedChunks?: number;
   strategyUsed: ResolvedChunkingStrategy;
   totalTokens: number;
+}
+
+interface SourceRange {
+  endLine: number;
+  endOffset: number;
+  startLine: number;
+  startOffset: number;
+}
+
+interface SourceRangeMatch {
+  endOffset: number;
+  matchKind: 'exact' | 'whitespace-normalized';
+  startOffset: number;
+}
+
+interface SourceRangeResolution {
+  fuzzyMatchedChunks: number;
+  ranges: Array<SourceRange | null>;
 }
 
 // File patterns that should be skipped or handled differently
@@ -93,15 +113,48 @@ type AstNode = {
 type BabelParserModule = typeof import('@babel/parser');
 type TokenUtilsLiteModule = typeof import('./token-utils-lite');
 
-let babelParserModulePromise: Promise<BabelParserModule> | null = null;
+interface BabelParserRuntimeModule {
+  parse: BabelParserModule['parse'];
+}
+
+let babelParserModulePromise: Promise<BabelParserRuntimeModule> | null = null;
 let tokenUtilsLiteModulePromise: Promise<TokenUtilsLiteModule> | null = null;
 
-async function loadBabelParserModule(): Promise<BabelParserModule> {
+function readBabelParseExport(candidate: unknown): BabelParserModule['parse'] | null {
+  try {
+    const parse = (candidate as { parse?: unknown }).parse;
+    return typeof parse === 'function' ? (parse as BabelParserModule['parse']) : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveBabelParserRuntimeModule(module: unknown): BabelParserRuntimeModule {
+  const namedParse = readBabelParseExport(module);
+  if (namedParse) {
+    return { parse: namedParse };
+  }
+
+  const candidate = module as { default?: unknown };
+  const defaultCandidate = candidate.default;
+  if (defaultCandidate && typeof defaultCandidate === 'object') {
+    const defaultParse = readBabelParseExport(defaultCandidate);
+    if (defaultParse) {
+      return { parse: defaultParse };
+    }
+  }
+
+  throw new Error('Babel parser module did not expose a parse function.');
+}
+
+async function loadBabelParserModule(): Promise<BabelParserRuntimeModule> {
   if (!babelParserModulePromise) {
-    babelParserModulePromise = import('@babel/parser').catch((error: unknown) => {
-      babelParserModulePromise = null;
-      throw error;
-    });
+    babelParserModulePromise = import('@babel/parser')
+      .then(resolveBabelParserRuntimeModule)
+      .catch((error: unknown) => {
+        babelParserModulePromise = null;
+        throw error;
+      });
   }
   return babelParserModulePromise;
 }
@@ -337,6 +390,206 @@ function estimateTokenCount(text: string): number {
   return countTokensHeuristic(text);
 }
 
+function buildLineStartOffsets(content: string): number[] {
+  const lineStarts = [0];
+  for (let index = 0; index < content.length; index += 1) {
+    if (content.charCodeAt(index) === 10) {
+      lineStarts.push(index + 1);
+    }
+  }
+  return lineStarts;
+}
+
+function findLineForOffset(lineStarts: readonly number[], offset: number): number {
+  let low = 0;
+  let high = lineStarts.length - 1;
+  let best = 0;
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const lineStart = lineStarts[mid] ?? 0;
+    if (lineStart <= offset) {
+      best = mid;
+      low = mid + 1;
+      continue;
+    }
+    high = mid - 1;
+  }
+
+  return best + 1;
+}
+
+function findNextNonWhitespaceOffset(content: string, startOffset: number): number {
+  let offset = startOffset;
+  while (offset < content.length) {
+    const character = content[offset];
+    if (!isSourceWhitespace(character)) {
+      break;
+    }
+    offset += 1;
+  }
+  return offset;
+}
+
+function isSourceWhitespace(character: string | undefined): boolean {
+  return character === ' ' || character === '\t' || character === '\n' || character === '\r';
+}
+
+function sourceWhitespaceRunHasLineBreak(
+  content: string,
+  startOffset: number,
+  endOffset: number
+): boolean {
+  for (let offset = startOffset; offset < endOffset; offset += 1) {
+    const character = content[offset];
+    if (character === '\n' || character === '\r') {
+      return true;
+    }
+  }
+  return false;
+}
+
+function canSkipElidedSourceWhitespace(
+  content: string,
+  contentOffset: number,
+  chunkChar: string | undefined
+): number | null {
+  if (!isSourceWhitespace(content[contentOffset])) {
+    return null;
+  }
+
+  const nextSourceOffset = findNextNonWhitespaceOffset(content, contentOffset);
+  if (
+    nextSourceOffset <= contentOffset ||
+    !sourceWhitespaceRunHasLineBreak(content, contentOffset, nextSourceOffset) ||
+    content[nextSourceOffset] !== chunkChar
+  ) {
+    return null;
+  }
+
+  return nextSourceOffset;
+}
+
+function findSourceMatchEndOffset(
+  content: string,
+  chunkContent: string,
+  candidateOffset: number
+): number | null {
+  let contentOffset = candidateOffset;
+  let chunkOffset = 0;
+
+  while (chunkOffset < chunkContent.length && contentOffset < content.length) {
+    const chunkChar = chunkContent[chunkOffset];
+    const sourceChar = content[contentOffset];
+    const skippedWhitespaceOffset = canSkipElidedSourceWhitespace(
+      content,
+      contentOffset,
+      chunkChar
+    );
+
+    if (skippedWhitespaceOffset !== null) {
+      contentOffset = skippedWhitespaceOffset;
+      continue;
+    }
+
+    if (chunkChar === '\n' && sourceChar === '\r' && content[contentOffset + 1] === '\n') {
+      chunkOffset += 1;
+      contentOffset += 2;
+      continue;
+    }
+
+    if (chunkChar !== sourceChar) {
+      return null;
+    }
+
+    chunkOffset += 1;
+    contentOffset += 1;
+  }
+
+  return chunkOffset === chunkContent.length ? contentOffset : null;
+}
+
+function findSourceRangeForChunkContent(
+  content: string,
+  chunkContent: string,
+  searchStart: number
+): SourceRangeMatch | null {
+  const exactStartOffset = content.indexOf(chunkContent, searchStart);
+  if (exactStartOffset >= 0) {
+    return {
+      matchKind: 'exact',
+      startOffset: exactStartOffset,
+      endOffset: exactStartOffset + chunkContent.length,
+    };
+  }
+
+  const firstCharacter = chunkContent[0];
+  if (firstCharacter === undefined) {
+    return null;
+  }
+
+  // Exact matches cover the normal path. This fallback preserves line metadata
+  // through splitter whitespace normalization; the caller advances searchStart
+  // after each resolved chunk so generated files do not repeatedly rescan from
+  // the beginning of the source.
+  let candidateOffset = content.indexOf(firstCharacter, searchStart);
+  let candidateCount = 0;
+  while (candidateOffset >= 0) {
+    candidateCount += 1;
+    if (candidateCount > MAX_WHITESPACE_NORMALIZED_SOURCE_CANDIDATES) {
+      return null;
+    }
+    const endOffset = findSourceMatchEndOffset(content, chunkContent, candidateOffset);
+    if (endOffset !== null) {
+      return {
+        matchKind: 'whitespace-normalized',
+        startOffset: candidateOffset,
+        endOffset,
+      };
+    }
+
+    candidateOffset = content.indexOf(firstCharacter, candidateOffset + 1);
+  }
+
+  return null;
+}
+
+function resolveSourceRanges(
+  content: string,
+  chunks: readonly { content: string }[],
+  overlapChars: number
+): SourceRangeResolution {
+  const lineStarts = buildLineStartOffsets(content);
+  let searchStart = 0;
+  let previousStartOffset = -1;
+  let fuzzyMatchedChunks = 0;
+
+  const ranges = chunks.map((chunk) => {
+    const sourceRange =
+      findSourceRangeForChunkContent(content, chunk.content, searchStart) ??
+      findSourceRangeForChunkContent(content, chunk.content, Math.max(0, previousStartOffset));
+    if (!sourceRange) {
+      return null;
+    }
+
+    const { startOffset, endOffset, matchKind } = sourceRange;
+    if (matchKind === 'whitespace-normalized') {
+      fuzzyMatchedChunks += 1;
+    }
+    previousStartOffset = startOffset;
+    searchStart = Math.max(0, endOffset - overlapChars - 1);
+
+    return {
+      startOffset,
+      endOffset,
+      startLine: findLineForOffset(lineStarts, startOffset),
+      endLine: findLineForOffset(lineStarts, Math.max(startOffset, endOffset - 1)),
+    };
+  });
+
+  return { ranges, fuzzyMatchedChunks };
+}
+
 async function computeCharsPerToken(
   content: string,
   useAccurate: boolean,
@@ -393,6 +646,10 @@ function isTopLevelContainerType(type?: string): boolean {
   );
 }
 
+function hasFunctionAncestor(ancestors: readonly AstNode[]): boolean {
+  return ancestors.some((ancestor) => isFunctionNode(ancestor.type));
+}
+
 function iterateAstChildren(node: AstNode): AstNode[] {
   const children: AstNode[] = [];
   for (const value of Object.values(node)) {
@@ -426,6 +683,7 @@ function collectTopLevelFunctionRanges(
   const parentType = ancestors.at(-1)?.type;
   if (
     isTopLevelContainerType(parentType) &&
+    !hasFunctionAncestor(ancestors) &&
     isFunctionNode(nodeType) &&
     Number.isFinite(node.start) &&
     Number.isFinite(node.end)
@@ -566,9 +824,10 @@ async function splitCodeByFunctions(
       await appendRange(cursor, clampedStart);
     }
 
-    const paddedStart = Math.max(0, clampedStart - overlapChars);
-    const paddedEnd = Math.min(content.length, clampedEnd + overlapChars);
-    await appendRange(paddedStart, paddedEnd);
+    // Function ranges are intentionally emitted without cross-function padding.
+    // The recursive splitter still applies overlap inside oversized segments,
+    // while persisted source ranges stay exact for line-aware retrieval.
+    await appendRange(clampedStart, clampedEnd);
     cursor = clampedEnd;
   }
 
@@ -800,6 +1059,9 @@ export async function chunkContent(
   const HashBatchSize = 50;
   const chunks: PortableChunk[] = [];
   let totalTokens = 0;
+  let sourceRangeSkippedChunks = 0;
+  const sourceRangeResolution = resolveSourceRanges(content, pendingChunks, overlapChars);
+  const sourceRanges = sourceRangeResolution.ranges;
 
   for (let i = 0; i < pendingChunks.length; i += HashBatchSize) {
     const batch = pendingChunks.slice(i, i + HashBatchSize);
@@ -810,10 +1072,22 @@ export async function chunkContent(
       if (!pending) {
         continue;
       }
+      const sourceRange = sourceRanges[i + j];
+      if (!sourceRange) {
+        sourceRangeSkippedChunks += 1;
+        continue;
+      }
       chunks.push({
+        // Preserve the splitter position even when an unresolved source range
+        // creates a gap; downstream diagnostics need to identify the dropped
+        // candidate rather than renumbering the surviving chunks.
         chunkIndex: i + j,
         content: pending.content,
         contentHash: hashes[j] ?? '',
+        startLine: sourceRange.startLine,
+        endLine: sourceRange.endLine,
+        startOffset: sourceRange.startOffset,
+        endOffset: sourceRange.endOffset,
         tokenCount: pending.tokenCount,
         chunkType: pending.chunkType,
         chunkSize: effectiveMaxTokens,
@@ -824,11 +1098,43 @@ export async function chunkContent(
 
   const avgTokensPerChunk = chunks.length ? totalTokens / chunks.length : 0;
 
+  if (sourceRangeSkippedChunks > 0) {
+    // biome-ignore lint/suspicious/noConsole: worker warning surfaces partial line-range indexing gaps.
+    console.warn('[portable-chunking] skipped chunks with unresolved source ranges', {
+      fileName: options.fileName,
+      filePath: options.filePath,
+      sourceRangeSkippedChunks,
+      totalCandidateChunks: pendingChunks.length,
+    });
+  }
+  if (sourceRangeResolution.fuzzyMatchedChunks > 0) {
+    // biome-ignore lint/suspicious/noConsole: worker warning surfaces non-exact line-range matching rates.
+    console.warn('[portable-chunking] resolved source ranges with whitespace-normalized matching', {
+      fileName: options.fileName,
+      filePath: options.filePath,
+      fuzzyMatchedChunks: sourceRangeResolution.fuzzyMatchedChunks,
+      totalCandidateChunks: pendingChunks.length,
+    });
+  }
+
+  if (pendingChunks.length > 0 && chunks.length === 0) {
+    return {
+      chunks,
+      totalTokens: 0,
+      avgTokensPerChunk: 0,
+      strategyUsed: effectiveStrategy,
+      skipped: true,
+      skipReason: 'source range resolution failed',
+      sourceRangeSkippedChunks,
+    };
+  }
+
   return {
     chunks,
     totalTokens,
     avgTokensPerChunk,
     strategyUsed: effectiveStrategy,
     skipped: false,
+    ...(sourceRangeSkippedChunks > 0 ? { sourceRangeSkippedChunks } : {}),
   };
 }

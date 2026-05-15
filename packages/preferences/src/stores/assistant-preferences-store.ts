@@ -518,6 +518,26 @@ function resolveLocalRuntimeBaseUrl(
 }
 
 /**
+ * Applies provider setting updates with explicit delete semantics: omitted keys
+ * keep their current value, while keys present with `undefined` remove that
+ * setting from the persisted provider config.
+ */
+function mergeProviderSettings(
+  current: AssistantProviderSettings,
+  updates: AssistantProviderSettingsUpdate
+): AssistantProviderSettings {
+  const merged: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === undefined) {
+      delete merged[key];
+      continue;
+    }
+    merged[key] = value;
+  }
+  return merged as AssistantProviderSettings;
+}
+
+/**
  * Fetch the optional bearer token for a local runtime from the Electron
  * `window.secrets` bridge. Web builds (no secrets bridge, no stored keys)
  * fall through to `undefined` silently — there is nothing useful to log
@@ -1072,10 +1092,7 @@ export const useAssistantPreferencesStore = create<Store>()(
           return {
             providerSettings: {
               ...state.providerSettings,
-              [provider]: {
-                ...current,
-                ...updates,
-              },
+              [provider]: mergeProviderSettings(current, updates),
             },
           };
         }),

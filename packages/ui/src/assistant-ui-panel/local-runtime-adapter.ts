@@ -199,6 +199,37 @@ function buildLocalToolDefinitions(
   return definitions.length > 0 ? definitions : undefined;
 }
 
+function buildLocalToolUnavailableReason(
+  tools: readonly LocalRuntimeToolConfig[] | undefined,
+  canExecuteTools: boolean
+): string {
+  if (!canExecuteTools) {
+    return 'window.tools.execute is not available in the renderer preload bridge';
+  }
+  if (!tools) {
+    return 'no tool menu was provided to the local runtime adapter';
+  }
+
+  const enabledTools = tools.filter((tool) => tool.enabled !== false);
+  const runnableTools = enabledTools.filter((tool) => tool.isLocalRuntimeRunnable);
+  const schemaBackedTools = runnableTools.filter((tool) => normalizeJsonSchema(tool.inputSchema));
+
+  if (tools.length === 0) {
+    return 'the tool menu is empty';
+  }
+  if (enabledTools.length === 0) {
+    return `all ${tools.length} configured tools are disabled`;
+  }
+  if (runnableTools.length === 0) {
+    return `${enabledTools.length} enabled tools are present, but none are marked runnable by the local runtime`;
+  }
+  if (schemaBackedTools.length === 0) {
+    return `${runnableTools.length} runnable tools are present, but none have an object JSON schema`;
+  }
+
+  return `${schemaBackedTools.length} runnable tools were configured but local tool definitions were not built`;
+}
+
 type LocalLlmBackendProgress = NonNullable<LocalRuntimeAdapterOptions['onLoadingProgress']>;
 type LocalLlmStreamHandlers = NonNullable<LocalLlmGenerationOptions['stream']>;
 
@@ -1110,8 +1141,12 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
           }
 
           if (!toolDefinitions?.length) {
+            const reason = buildLocalToolUnavailableReason(
+              tools,
+              typeof toolExecutor?.execute === 'function'
+            );
             throw new Error(
-              'Local model returned a tool call, but no runnable local tools are configured.'
+              `Local model returned a tool call, but no runnable local tools are configured: ${reason}`
             );
           }
 

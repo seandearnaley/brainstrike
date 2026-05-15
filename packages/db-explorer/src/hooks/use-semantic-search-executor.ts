@@ -188,6 +188,18 @@ function transformToSearchResults(
       filePath: fileInfo.path,
       fileSize: fileInfo.size,
     };
+    if (result.chunk.startLine !== undefined) {
+      searchResult.startLine = result.chunk.startLine;
+    }
+    if (result.chunk.endLine !== undefined) {
+      searchResult.endLine = result.chunk.endLine;
+    }
+    if (result.chunk.startOffset !== undefined) {
+      searchResult.startOffset = result.chunk.startOffset;
+    }
+    if (result.chunk.endOffset !== undefined) {
+      searchResult.endOffset = result.chunk.endOffset;
+    }
     if (result.chunk.embeddingSetId) {
       searchResult.embeddingSetId = result.chunk.embeddingSetId;
     }
