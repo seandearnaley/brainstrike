@@ -332,6 +332,129 @@ describe('initializeQueueTelemetrySink', () => {
     await sink?.dispose();
   });
 
+  it('should cap buffered events during endpoint outages and drop oldest events', async () => {
+    let callCount = 0;
+    fetchSpy.mockImplementation((_endpoint: string, init: RequestInit) => {
+      callCount += 1;
+      if (callCount <= 2) {
+        return Promise.reject(new Error('Network error'));
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        body: init.body,
+      });
+    });
+    beaconSpy.mockReturnValue(false);
+
+    const sinkOptions = {
+      endpoint: 'https://example.com/telemetry',
+      enableInTest: true,
+      flushIntervalMs: 60_000,
+      maxBatchSize: 10,
+      maxBufferedEvents: 3,
+      maxConsecutiveFailures: 10,
+      retryBaseDelayMs: 0,
+      useSendBeacon: false,
+    };
+    const sink = initializeQueueTelemetrySink(sinkOptions);
+
+    try {
+      for (const taskId of ['task-1', 'task-2', 'task-3']) {
+        emitQueueTelemetry({
+          timestamp: Date.now(),
+          adapter: 'workerpool',
+          event: 'enqueue',
+          taskId,
+        });
+      }
+      await sink?.flush();
+
+      for (const taskId of ['task-4', 'task-5']) {
+        emitQueueTelemetry({
+          timestamp: Date.now(),
+          adapter: 'workerpool',
+          event: 'enqueue',
+          taskId,
+        });
+      }
+      await sink?.flush();
+      await sink?.flush();
+
+      const successBody = JSON.parse(fetchSpy.mock.calls[2]?.[1]?.body as string);
+      expect(successBody.events.map((event: QueueTelemetryEvent) => event.taskId)).toEqual([
+        'task-3',
+        'task-4',
+        'task-5',
+      ]);
+      const dropWarnings = mockLogger.warn.mock.calls.filter(
+        ([message]) =>
+          message ===
+          'Queue telemetry sink dropped buffered events after reaching maxBufferedEvents'
+      );
+      expect(
+        dropWarnings.reduce((total, [, details]) => {
+          const droppedEvents =
+            typeof details === 'object' && details !== null && 'droppedEvents' in details
+              ? details.droppedEvents
+              : 0;
+          return total + (typeof droppedEvents === 'number' ? droppedEvents : 0);
+        }, 0)
+      ).toBe(2);
+      expect(dropWarnings).toEqual(
+        expect.arrayContaining([
+          [
+            'Queue telemetry sink dropped buffered events after reaching maxBufferedEvents',
+            expect.objectContaining({
+              maxBufferedEvents: 3,
+            }),
+          ],
+        ])
+      );
+    } finally {
+      await sink?.dispose();
+    }
+  });
+
+  it('should back off retries after a failed flush', async () => {
+    fetchSpy
+      .mockRejectedValueOnce(new Error('Network error'))
+      .mockResolvedValue({ ok: true, status: 200 });
+    beaconSpy.mockReturnValue(false);
+
+    const sinkOptions = {
+      endpoint: 'https://example.com/telemetry',
+      enableInTest: true,
+      flushIntervalMs: 60_000,
+      retryBaseDelayMs: 1000,
+      useSendBeacon: false,
+    };
+    const sink = initializeQueueTelemetrySink(sinkOptions);
+
+    try {
+      emitQueueTelemetry({
+        timestamp: Date.now(),
+        adapter: 'workerpool',
+        event: 'enqueue',
+        taskId: 'task-backoff',
+      });
+
+      await sink?.flush();
+      await sink?.flush();
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(999);
+      await sink?.flush();
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await sink?.flush();
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      await sink?.dispose();
+    }
+  });
+
   describe('Consecutive Failure Disabling', () => {
     it('should disable sink after maxConsecutiveFailures (default 3)', async () => {
       fetchSpy.mockRejectedValue(new Error('Network error'));
@@ -341,6 +464,7 @@ describe('initializeQueueTelemetrySink', () => {
         endpoint: 'https://example.com/telemetry',
         flushIntervalMs: 1000,
         enableInTest: true,
+        retryBaseDelayMs: 0,
       });
 
       // First failure - emit event and flush
@@ -385,6 +509,7 @@ describe('initializeQueueTelemetrySink', () => {
         flushIntervalMs: 1000,
         maxConsecutiveFailures: 2,
         enableInTest: true,
+        retryBaseDelayMs: 0,
       });
 
       // First failure
@@ -472,6 +597,7 @@ describe('initializeQueueTelemetrySink', () => {
         flushIntervalMs: 1000,
         maxConsecutiveFailures: 2,
         enableInTest: true,
+        retryBaseDelayMs: 0,
       });
 
       // First event - will fail

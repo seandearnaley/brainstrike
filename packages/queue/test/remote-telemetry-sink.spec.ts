@@ -108,6 +108,7 @@ describe('initializeQueueTelemetrySink', () => {
       useSendBeacon: false,
       flushIntervalMs: 5,
       maxBatchSize: 10,
+      retryBaseDelayMs: 0,
     });
 
     expect(sink).not.toBeNull();
