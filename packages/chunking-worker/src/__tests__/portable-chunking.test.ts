@@ -256,6 +256,92 @@ describe('portable-chunking', () => {
         warnSpy.mockRestore();
       });
 
+      it('resolves whitespace-normalized ranges beyond the first-character candidate ceiling', async () => {
+        vi.resetModules();
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const prefix = Array.from(
+          { length: 12_050 },
+          (_, index) => `Alpha filler ${index} keeps the prefix unique.`
+        ).join('\n');
+        const target = 'Alpha target line\r\ncontinues with mixed newlines.';
+        const text = `${prefix}\r\n\r\n${target}\r\n\r\nBeta tail.`;
+        const startOffset = text.indexOf('Alpha target line');
+        const endOffset = startOffset + target.length;
+        vi.doMock('@brainstrike/text-splitter', async (importOriginal) => {
+          const actual = await importOriginal<typeof import('@brainstrike/text-splitter')>();
+          return {
+            ...actual,
+            splitTextByStrategy: () => ['Alpha target line\ncontinues with mixed newlines.'],
+          };
+        });
+        const { chunkContent: isolatedChunkContent } = await import('../portable-chunking');
+
+        const result = await isolatedChunkContent(text, {
+          strategy: 'sentence',
+          fileName: 'large-repetitive.txt',
+          maxTokens: 64,
+          overlap: 0,
+          allowLargeFiles: true,
+        });
+
+        expect(result.skipped).toBe(false);
+        expect(result.chunks).toHaveLength(1);
+        expect(result.chunks[0]).toMatchObject({
+          startLine: 12_052,
+          endLine: 12_053,
+          startOffset,
+          endOffset,
+        });
+        expect(warnSpy).toHaveBeenCalledWith(
+          '[portable-chunking] resolved source ranges with whitespace-normalized matching',
+          {
+            fileName: 'large-repetitive.txt',
+            filePath: undefined,
+            fuzzyMatchedChunks: 1,
+            totalCandidateChunks: 1,
+          }
+        );
+        expect(text.slice(startOffset, endOffset).replace(/\r\n/g, '\n')).toBe(
+          'Alpha target line\ncontinues with mixed newlines.'
+        );
+        warnSpy.mockRestore();
+      });
+
+      it('reports skipped chunks when source ranges cannot be resolved', async () => {
+        vi.resetModules();
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        vi.doMock('@brainstrike/text-splitter', async (importOriginal) => {
+          const actual = await importOriginal<typeof import('@brainstrike/text-splitter')>();
+          return {
+            ...actual,
+            splitTextByStrategy: () => ['fabricated chunk text'],
+          };
+        });
+        const { chunkContent: isolatedChunkContent } = await import('../portable-chunking');
+
+        const result = await isolatedChunkContent('real source text', {
+          strategy: 'sentence',
+          fileName: 'source.txt',
+        });
+
+        expect(result).toMatchObject({
+          chunks: [],
+          skipped: true,
+          skipReason: 'source range resolution failed',
+          sourceRangeSkippedChunks: 1,
+        });
+        expect(warnSpy).toHaveBeenCalledWith(
+          '[portable-chunking] skipped chunks with unresolved source ranges',
+          {
+            fileName: 'source.txt',
+            filePath: undefined,
+            sourceRangeSkippedChunks: 1,
+            totalCandidateChunks: 1,
+          }
+        );
+        warnSpy.mockRestore();
+      });
+
       it('resolves source ranges for adjacent exported functions', async () => {
         const createExportedFunction = (name: string): string =>
           `export async function ${name}(): Promise<void> {\n` +

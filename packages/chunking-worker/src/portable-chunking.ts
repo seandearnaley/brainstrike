@@ -25,6 +25,7 @@ const REPETITIVE_CONTENT_UNIQUE_RATIO = 0.1;
 const CHARS_PER_TOKEN_SAMPLE_BYTES = 10_000;
 const CHARS_PER_TOKEN_MAX = 8;
 const MAX_WHITESPACE_NORMALIZED_SOURCE_CANDIDATES = 10_000;
+const MAX_WHITESPACE_NORMALIZED_ANCHORS = 64;
 
 export interface PortableChunkingResult {
   avgTokensPerChunk: number;
@@ -52,6 +53,11 @@ interface SourceRangeMatch {
 interface SourceRangeResolution {
   fuzzyMatchedChunks: number;
   ranges: Array<SourceRange | null>;
+}
+
+interface SourceRangeAnchor {
+  chunkOffset: number;
+  text: string;
 }
 
 // File patterns that should be skipped or handled differently
@@ -509,6 +515,74 @@ function findSourceMatchEndOffset(
   return chunkOffset === chunkContent.length ? contentOffset : null;
 }
 
+function collectSourceRangeAnchors(chunkContent: string): SourceRangeAnchor[] {
+  const anchors: SourceRangeAnchor[] = [];
+  const seen = new Set<string>();
+  let runStart: number | null = null;
+
+  const pushRun = (endOffset: number): void => {
+    if (runStart === null) {
+      return;
+    }
+    const text = chunkContent.slice(runStart, endOffset);
+    if (text.length > 1 && !seen.has(text)) {
+      anchors.push({ chunkOffset: runStart, text });
+      seen.add(text);
+    }
+    runStart = null;
+  };
+
+  for (let offset = 0; offset < chunkContent.length; offset += 1) {
+    if (isSourceWhitespace(chunkContent[offset])) {
+      pushRun(offset);
+      continue;
+    }
+    runStart ??= offset;
+  }
+  pushRun(chunkContent.length);
+
+  return anchors
+    .sort((a, b) => b.text.length - a.text.length || a.chunkOffset - b.chunkOffset)
+    .slice(0, MAX_WHITESPACE_NORMALIZED_ANCHORS);
+}
+
+function findAnchoredSourceRangeForChunkContent(
+  content: string,
+  chunkContent: string,
+  searchStart: number
+): SourceRangeMatch | null {
+  const anchors = collectSourceRangeAnchors(chunkContent);
+  const checkedCandidateOffsets = new Set<number>();
+
+  for (const anchor of anchors) {
+    let anchorOffset = content.indexOf(anchor.text, searchStart);
+    let candidateCount = 0;
+    while (anchorOffset >= 0) {
+      candidateCount += 1;
+      if (candidateCount > MAX_WHITESPACE_NORMALIZED_SOURCE_CANDIDATES) {
+        break;
+      }
+
+      const candidateOffset = anchorOffset - anchor.chunkOffset;
+      if (candidateOffset >= searchStart && !checkedCandidateOffsets.has(candidateOffset)) {
+        checkedCandidateOffsets.add(candidateOffset);
+        const endOffset = findSourceMatchEndOffset(content, chunkContent, candidateOffset);
+        if (endOffset !== null) {
+          return {
+            matchKind: 'whitespace-normalized',
+            startOffset: candidateOffset,
+            endOffset,
+          };
+        }
+      }
+
+      anchorOffset = content.indexOf(anchor.text, anchorOffset + 1);
+    }
+  }
+
+  return null;
+}
+
 function findSourceRangeForChunkContent(
   content: string,
   chunkContent: string,
@@ -526,6 +600,11 @@ function findSourceRangeForChunkContent(
   const firstCharacter = chunkContent[0];
   if (firstCharacter === undefined) {
     return null;
+  }
+
+  const anchoredMatch = findAnchoredSourceRangeForChunkContent(content, chunkContent, searchStart);
+  if (anchoredMatch) {
+    return anchoredMatch;
   }
 
   // Exact matches cover the normal path. This fallback preserves line metadata
