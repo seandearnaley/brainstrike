@@ -448,6 +448,8 @@ describe('useBackgroundTokenIndexer', () => {
         'error',
         new ErrorEvent('error', {
           message: 'event boom',
+          lineno: 0,
+          colno: 0,
         })
       );
     });

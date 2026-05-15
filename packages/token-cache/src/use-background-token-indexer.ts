@@ -120,17 +120,23 @@ function readEventReason(event: Event): unknown {
   return (event as Event & { reason: unknown }).reason;
 }
 
+function readReportedErrorEventLocation(value: number): number | undefined {
+  return value > 0 ? value : undefined;
+}
+
 function createTerminalWorkerErrorDetails(event: Event): TerminalWorkerErrorDetails {
   const details: TerminalWorkerErrorDetails = { type: event.type };
   if (event instanceof ErrorEvent) {
     const eventError: unknown = event.error;
     const eventErrorDetail = formatUnknownDetail(eventError);
+    const lineno = readReportedErrorEventLocation(event.lineno);
+    const colno = readReportedErrorEventLocation(event.colno);
     return {
       ...details,
       ...(event.message ? { eventMessage: event.message } : {}),
       ...(event.filename ? { filename: event.filename } : {}),
-      ...(event.lineno ? { lineno: event.lineno } : {}),
-      ...(event.colno ? { colno: event.colno } : {}),
+      ...(lineno === undefined ? {} : { lineno }),
+      ...(colno === undefined ? {} : { colno }),
       ...(eventErrorDetail ? { eventError: eventErrorDetail } : {}),
       ...(eventError instanceof Error ? { eventErrorName: eventError.name } : {}),
       ...(eventError instanceof Error && eventError.stack
@@ -566,21 +572,10 @@ export function useBackgroundTokenIndexer({
           }
         };
 
-        const handleWorkerError = (error: ErrorEvent | Event, context: string): void => {
-          if (context === 'worker.addEventListener(error)') {
-            const errEvent = error as ErrorEvent;
-            settleFailure(
-              attachTerminalWorkerErrorDetails(
-                new Error(
-                  `Worker error event: ${errEvent.message || 'unknown worker error event'}`
-                ),
-                createTerminalWorkerErrorDetails(error)
-              ),
-              context
-            );
-            return;
-          }
-
+        const handleWorkerError = (
+          error: ErrorEvent | Event,
+          context: 'worker.onerror' | 'worker.onmessageerror'
+        ): void => {
           if (context === 'worker.onmessageerror') {
             settleFailure(
               attachTerminalWorkerErrorDetails(
