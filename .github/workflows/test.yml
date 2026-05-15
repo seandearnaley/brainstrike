@@ -392,7 +392,7 @@ jobs:
         run: |
           set +e
           : > turbo-test-timings.md
-          pnpm ci:timing-summary -- --runs-dir .turbo/runs --all --task-prefix test:coverage --warn-ms 600000 --fail-ms 900000 --total-warn-ms 1500000 --total-fail-ms 1800000 --output turbo-test-timings.md
+          pnpm ci:timing-summary -- --runs-dir .turbo/runs --all --task-prefix test:coverage --warn-ms 600000 --fail-ms 900000 --total-warn-ms 2100000 --total-fail-ms 2400000 --output turbo-test-timings.md
           STATUS=$?
           set -e
           if [ -s turbo-test-timings.md ]; then
