@@ -23,6 +23,7 @@ import type {
   OpenAiReasoningEffort,
   OpenAiReasoningSummary,
 } from '@brainstrike/types';
+import { mergeAssistantProviderSettings } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
@@ -515,26 +516,6 @@ function resolveLocalRuntimeBaseUrl(
   }
   const trimmed = raw.trim();
   return trimmed.length > 0 ? trimmed : undefined;
-}
-
-/**
- * Applies provider setting updates with explicit delete semantics: omitted keys
- * keep their current value, while keys present with `undefined` remove that
- * setting from the persisted provider config.
- */
-function mergeProviderSettings(
-  current: AssistantProviderSettings,
-  updates: AssistantProviderSettingsUpdate
-): AssistantProviderSettings {
-  const merged: Record<string, unknown> = { ...current };
-  for (const [key, value] of Object.entries(updates)) {
-    if (value === undefined) {
-      delete merged[key];
-      continue;
-    }
-    merged[key] = value;
-  }
-  return merged as AssistantProviderSettings;
 }
 
 /**
@@ -1092,7 +1073,7 @@ export const useAssistantPreferencesStore = create<Store>()(
           return {
             providerSettings: {
               ...state.providerSettings,
-              [provider]: mergeProviderSettings(current, updates),
+              [provider]: mergeAssistantProviderSettings(current, updates),
             },
           };
         }),

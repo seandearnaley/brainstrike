@@ -49,7 +49,7 @@ import type {
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
 } from '@brainstrike/types';
-import { normalizeWorkspaceLookupPath } from '@brainstrike/types';
+import { mergeAssistantProviderSettings, normalizeWorkspaceLookupPath } from '@brainstrike/types';
 import {
   type AssistantProviderSettings,
   type AssistantProviderSettingsUpdate,
@@ -933,23 +933,6 @@ function extractPreparedRunId(requestData: Record<string, unknown> | undefined):
   }
   const runId = (memory as Record<string, unknown>)['runId'];
   return typeof runId === 'string' && runId.trim() ? runId : null;
-}
-
-function mergeAssistantProviderSettings(
-  base: AssistantProviderSettings | undefined,
-  updates: AssistantProviderSettingsUpdate
-): AssistantProviderSettings {
-  const merged: Record<string, unknown> = { ...(base ?? {}) };
-  for (const [key, value] of Object.entries(updates)) {
-    if (value === undefined) {
-      // Undefined in a provider-settings update is an explicit clear operation.
-      // Callers that want to preserve the base setting must omit the key.
-      delete merged[key];
-      continue;
-    }
-    merged[key] = value;
-  }
-  return merged as AssistantProviderSettings;
 }
 
 function buildDraftRuntimeForProvider({
