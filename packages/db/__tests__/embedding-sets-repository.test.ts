@@ -211,6 +211,73 @@ describe('EmbeddingSetsRepository', () => {
     expect(spaces[0]?.stats).toBeUndefined();
   });
 
+  it('defaults missing numeric stats to zero when listing embedding spaces with stats', async () => {
+    const trackedRepo = new EmbeddingSetsRepository({
+      exec: db.exec.bind(db),
+      query: async <T = unknown>(): Promise<{ rows: T[] }> => ({
+        rows: [
+          {
+            averageTokensPerChunk: null,
+            createdAt: '2026-05-15T00:00:00.000Z',
+            description: null,
+            dimensions: '384',
+            distance: 'cosine',
+            embeddedChunks: undefined,
+            fileCount: null,
+            id: 'set-without-stats',
+            modelId: 'Xenova/all-MiniLM-L6-v2',
+            modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+            name: null,
+            totalChunks: undefined,
+            totalTokens: null,
+          },
+        ] as T[],
+      }),
+    });
+
+    await expect(trackedRepo.listEmbeddingSpaces({ includeStats: true })).resolves.toEqual([
+      expect.objectContaining({
+        dimensions: 384,
+        stats: {
+          averageTokensPerChunk: 0,
+          embeddedChunks: 0,
+          fileCount: 0,
+          totalChunks: 0,
+          totalTokens: 0,
+        },
+      }),
+    ]);
+  });
+
+  it('rejects invalid numeric values when listing embedding spaces', async () => {
+    const trackedRepo = new EmbeddingSetsRepository({
+      exec: db.exec.bind(db),
+      query: async <T = unknown>(): Promise<{ rows: T[] }> => ({
+        rows: [
+          {
+            averageTokensPerChunk: '0',
+            createdAt: '2026-05-15T00:00:00.000Z',
+            description: null,
+            dimensions: 'not-a-number',
+            distance: 'cosine',
+            embeddedChunks: '0',
+            fileCount: '0',
+            id: 'invalid-dimensions',
+            modelId: 'Xenova/all-MiniLM-L6-v2',
+            modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+            name: null,
+            totalChunks: '0',
+            totalTokens: '0',
+          },
+        ] as T[],
+      }),
+    });
+
+    await expect(trackedRepo.listEmbeddingSpaces({ includeStats: true })).rejects.toThrow(
+      'Invalid embedding space dimensions: not-a-number'
+    );
+  });
+
   describe('metadata', () => {
     it('creates set with default name when metadata not provided', async () => {
       const set = await repo.getOrCreateSet(
