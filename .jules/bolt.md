@@ -54,7 +54,8 @@
 
 ## 2026-05-04 - N+1 Query Optimization using PGlite ANY()
 **Learning:** Checking a condition sequentially via looping database `SELECT` queries (like in MigrationRunner) creates significant N+1 query overhead in PGlite which adds up and delays startup time, especially with larger lists.
+**Action:** Replace iterative looping queries with a single query using the `WHERE column = ANY($1)` syntax with an array parameter to fetch all necessary data in bulk, caching it in an in-memory `Map` for O(1) lookups during the local iteration.
+
 ## 2026-05-06 - Memory-efficient Path Depth Calculation
-## 2024-05-06 - Memory-efficient Path Depth Calculation
 **Learning:** Replaced `.split('/').length - 1` with a memory-efficient `calculatePathDepth` utility function using `indexOf` in a while loop. This avoids intermediate array allocations during hot loop path depth calculations across the monorepo, significantly reducing garbage collection overhead.
 **Action:** Always prefer native string search methods (`indexOf`, `lastIndexOf`) over `.split()` for simple counting or extraction in performance-critical paths.
