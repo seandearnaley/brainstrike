@@ -22,7 +22,11 @@ import {
   type UpdateWorkspaceTapestrySelectionsInput,
   UpdateWorkspaceTapestrySelectionsInputSchema,
 } from '@brainstrike/agent';
-import { EmbeddingSetsRepository, type EmbeddingSpaceListing } from '@brainstrike/db';
+import {
+  EmbeddingSetsRepository,
+  type EmbeddingSpaceListing,
+  type EmbeddingSpaceStats,
+} from '@brainstrike/db';
 import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import type {
   AssistantWorkspaceContextSelectionUpdatePayload,
@@ -67,6 +71,14 @@ const DEFAULT_CONTEXT_MAX_FILES = 20;
 const DEFAULT_CONTEXT_MAX_CHARS_PER_FILE = 12_000;
 const READ_WORKSPACE_CONTEXT_BATCH_SIZE = 10;
 const SELECTABLE_WORKSPACE_FILE_VALIDATION_BATCH_SIZE = 64;
+
+type AssistantEmbeddingSpaceListing = Omit<EmbeddingSpaceListing, 'stats'> & {
+  readonly coverage?: EmbeddingSpaceStats & {
+    readonly coveragePercent: number;
+  };
+  readonly isWorkspaceIndex: boolean;
+  readonly recommendedForWorkspaceSearch: boolean;
+};
 
 type ToolExecuteInput<T> = { context: T } | T;
 
@@ -1244,27 +1256,7 @@ async function runListEmbeddingSpaces(
 ): Promise<{
   count: number;
   workspaceIndex: WorkspaceIndexSummary;
-  spaces: Array<{
-    id: string;
-    name: string | null;
-    description: string | null;
-    modelKey: string;
-    modelId: string;
-    dimensions: number;
-    distance: string | null;
-    createdAt: string;
-    isWorkspaceIndex: boolean;
-    recommendedForWorkspaceSearch: boolean;
-    coverage?: {
-      embeddedChunks: number;
-      fileCount: number;
-      tokenizedChunkCount: number;
-      totalChunks: number;
-      totalTokens: number;
-      averageTokensPerChunk: number;
-      coveragePercent: number;
-    };
-  }>;
+  spaces: AssistantEmbeddingSpaceListing[];
 }> {
   const workspaceIndex = normalizeRuntimeWorkspaceIndex(runtimeData);
   const db = await getDatabase();
