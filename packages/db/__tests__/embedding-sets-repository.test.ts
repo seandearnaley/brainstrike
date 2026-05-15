@@ -218,7 +218,6 @@ describe('EmbeddingSetsRepository', () => {
       exec: db.exec.bind(db),
       query: async <T = unknown>(sql: string): Promise<{ rows: T[] }> => {
         statements.push(sql);
-        expect(sql).toContain('COUNT(token_count)::text AS tokenized_chunk_count');
         return {
           rows: [
             {
@@ -256,6 +255,7 @@ describe('EmbeddingSetsRepository', () => {
       }),
     ]);
     expect(statements).toHaveLength(1);
+    expect(statements[0]).toContain('COUNT(token_count)::text AS tokenized_chunk_count');
   });
 
   it('rejects invalid numeric values when listing embedding spaces', async () => {
