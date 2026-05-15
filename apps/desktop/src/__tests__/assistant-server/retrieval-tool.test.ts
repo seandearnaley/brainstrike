@@ -507,6 +507,15 @@ describe('retrieval-tool', () => {
     });
   });
 
+  it('preserves the safe embedding-generation failure message', async () => {
+    embedMock.mockResolvedValueOnce({ ok: false, error: new Error('provider down') });
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    await expect(
+      tool.execute({ context: { query: 'hello', embeddingSetId: 'set-1' } })
+    ).rejects.toThrow('Unable to generate query embeddings for retrieval.');
+  });
+
   it('continues when snapshot cleanup fails', async () => {
     dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
       if (sql.includes('DELETE FROM selection_snapshots')) {
@@ -595,7 +604,7 @@ describe('retrieval-tool', () => {
   });
 
   it('sanitizes unexpected retrieval errors', async () => {
-    embedMock.mockResolvedValueOnce({ ok: false, error: 'bad' });
+    searchSimilarMock.mockRejectedValueOnce(new Error('bad'));
     const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
 
     await expect(

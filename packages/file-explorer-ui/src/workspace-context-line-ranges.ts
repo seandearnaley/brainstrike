@@ -3,6 +3,7 @@ export interface ToolLineRange {
   startLine: number;
 }
 
+/** Tapestry ranges are 0-indexed half-open intervals: [startLine, endLine). */
 export interface TapestryLineRange {
   endLine: number;
   startLine: number;

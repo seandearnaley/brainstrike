@@ -351,7 +351,7 @@ function assertModernLanguageModel(
   // AI SDK v1 adapter can drop terminal/tool events, so fail explicitly instead
   // of silently falling back to the removed legacy stream path.
   throw createMastraAgentError('mastra_agent_unsupported_model_runtime', {
-    detail: `AI SDK v1 model runtime is not supported for Brainstrike chat streaming: ${provider}/${model}`,
+    detail: `AI SDK v1 model runtime is not supported for Brainstrike chat streaming: ${provider}/${model}. Select a provider/model backed by the modern AI SDK v2 streaming runtime before retrying.`,
     context: { provider, model, specificationVersion: spec },
   });
 }

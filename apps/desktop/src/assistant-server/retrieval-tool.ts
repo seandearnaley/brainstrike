@@ -85,6 +85,7 @@ const SAFE_ERROR_MESSAGES = new Set<string>([
   ERROR_MESSAGES.invalidSelectionFilePaths,
   ERROR_MESSAGES.selectionTooLarge,
   ERROR_MESSAGES.embeddingDimensionMismatch,
+  ERROR_MESSAGES.embeddingFailed,
   ERROR_MESSAGES.missingSourceRange,
 ]);
 

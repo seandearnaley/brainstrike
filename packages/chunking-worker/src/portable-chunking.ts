@@ -24,6 +24,7 @@ const REPETITIVE_CONTENT_LINE_THRESHOLD = 1000;
 const REPETITIVE_CONTENT_UNIQUE_RATIO = 0.1;
 const CHARS_PER_TOKEN_SAMPLE_BYTES = 10_000;
 const CHARS_PER_TOKEN_MAX = 8;
+const MAX_WHITESPACE_NORMALIZED_SOURCE_CANDIDATES = 10_000;
 
 export interface PortableChunkingResult {
   avgTokensPerChunk: number;
@@ -532,7 +533,12 @@ function findSourceRangeForChunkContent(
   // after each resolved chunk so generated files do not repeatedly rescan from
   // the beginning of the source.
   let candidateOffset = content.indexOf(firstCharacter, searchStart);
+  let candidateCount = 0;
   while (candidateOffset >= 0) {
+    candidateCount += 1;
+    if (candidateCount > MAX_WHITESPACE_NORMALIZED_SOURCE_CANDIDATES) {
+      return null;
+    }
     const endOffset = findSourceMatchEndOffset(content, chunkContent, candidateOffset);
     if (endOffset !== null) {
       return {

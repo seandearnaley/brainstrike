@@ -18,18 +18,7 @@ export const migration032FileChunkSourceRanges: Migration = {
     -- could not map back to source lines.
     UPDATE file_records
     SET chunks_processed_at = NULL,
-        chunks_count = 0
-    WHERE EXISTS (
-      SELECT 1
-      FROM file_chunks
-      WHERE file_chunks.file_record_id = file_records.id
-        AND (
-          file_chunks.start_line IS NULL
-          OR file_chunks.end_line IS NULL
-          OR file_chunks.start_offset IS NULL
-          OR file_chunks.end_offset IS NULL
-        )
-    );
+        chunks_count = 0;
 
     DELETE FROM file_chunks
     WHERE start_line IS NULL
