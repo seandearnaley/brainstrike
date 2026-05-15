@@ -449,7 +449,7 @@ function readFinishReason(part: unknown): StreamFinishReason {
   if (typeof nested === 'string' && nested.length > 0) {
     return normalizeFinishReason(nested);
   }
-  return 'stop';
+  return 'unknown';
 }
 
 function getDeltaText(part: unknown): string {

@@ -133,7 +133,7 @@ describe('mastra streaming integration', () => {
   it('yields streaming chunks by awaiting the Mastra fullStream promise', async () => {
     setMockStreamParts([
       { type: 'text-delta', textDelta: 'hello' },
-      { type: 'finish', usage: { promptTokens: 7, completionTokens: 11 } },
+      { type: 'finish', finishReason: 'stop', usage: { promptTokens: 7, completionTokens: 11 } },
     ]);
 
     const iterator = await streamMastraAgent(
@@ -207,7 +207,7 @@ describe('mastra streaming integration', () => {
       { type: 'reasoning-delta', delta: 'Checking memory.' },
       { type: 'step-start', messageId: 'msg-1' },
       { type: 'step-finish', usage: { promptTokens: 3, completionTokens: 4 } },
-      { type: 'finish', usage: { promptTokens: 5, completionTokens: 6 } },
+      { type: 'finish', finishReason: 'stop', usage: { promptTokens: 5, completionTokens: 6 } },
     ]);
 
     const iterator = await streamMastraAgent(
@@ -385,6 +385,27 @@ describe('mastra streaming integration', () => {
       type: 'message-finish',
       finishReason: 'length',
       usage: { promptTokens: 20, completionTokens: 4 },
+      path: [],
+    });
+  });
+
+  it('marks finish chunks without an explicit reason as unknown', async () => {
+    setMockStreamParts([{ type: 'finish', usage: { promptTokens: 3, completionTokens: 5 } }]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'finish without reason' }] }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual({
+      type: 'message-finish',
+      finishReason: 'unknown',
+      usage: { promptTokens: 3, completionTokens: 5 },
       path: [],
     });
   });

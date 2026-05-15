@@ -65,6 +65,7 @@ const DEFAULT_CONTEXT_TOKEN_BUDGET = 4000;
 const DEFAULT_CONTEXT_MAX_FILES = 20;
 const DEFAULT_CONTEXT_MAX_CHARS_PER_FILE = 12_000;
 const READ_WORKSPACE_CONTEXT_BATCH_SIZE = 10;
+const SELECTABLE_WORKSPACE_FILE_VALIDATION_BATCH_SIZE = 64;
 
 type ToolExecuteInput<T> = { context: T } | T;
 
@@ -92,7 +93,7 @@ function resolveToolExecuteInputCandidate<T>(
     if (wrappedResult.success) {
       return wrappedResult.data;
     }
-    return maybeWrapped.context;
+    return input;
   }
 
   return input;
@@ -105,7 +106,7 @@ function parseToolExecuteInput<T>(schema: z.ZodType<T>, input: ToolExecuteInput<
 function escapeSelectionBoundaryTags(content: string): string {
   return content
     .replaceAll('</selection>', '&lt;/selection&gt;')
-    .replaceAll('<selection', '&lt;selection');
+    .replace(/<selection(?=[\s>])/g, '&lt;selection');
 }
 
 function normalizeWorkspacePath(value: string): string {
@@ -1030,6 +1031,10 @@ interface WorkspaceContextSkippedPath {
   reason: 'missing' | 'notFile' | 'outsideWorkspace' | 'readError';
 }
 
+type SelectableWorkspaceFileValidation =
+  | { selectedFile: string }
+  | { skippedFile: WorkspaceContextSkippedPath };
+
 function classifySelectionPathError(
   pathValue: string,
   error: unknown
@@ -1048,6 +1053,22 @@ function classifySelectionPathError(
   return { path: pathValue, reason: 'readError', message };
 }
 
+async function validateSelectableWorkspaceFile(
+  rootPath: string,
+  requestedPath: string
+): Promise<SelectableWorkspaceFileValidation> {
+  try {
+    const resolved = await resolveWorkspaceAbsolutePath(rootPath, requestedPath);
+    const stat = await fsPromises.stat(resolved.absolutePath);
+    if (!stat.isFile()) {
+      throw new Error(`Path "${requestedPath}" is not a file.`);
+    }
+    return { selectedFile: resolved.workspacePath };
+  } catch (error) {
+    return { skippedFile: classifySelectionPathError(requestedPath, error) };
+  }
+}
+
 async function validateSelectableWorkspaceFiles(args: {
   filePaths: readonly string[];
   mode: 'replace' | 'add' | 'remove' | 'clear';
@@ -1058,22 +1079,34 @@ async function validateSelectableWorkspaceFiles(args: {
   skippedFiles: WorkspaceContextSkippedPath[];
 }> {
   const requestedPaths = normalizeWorkspacePaths(args.filePaths);
+  if (args.mode === 'remove' || args.mode === 'clear') {
+    return {
+      requestedCount: requestedPaths.length,
+      selectedFiles: requestedPaths,
+      skippedFiles: [],
+    };
+  }
+
   const selectedFiles: string[] = [];
   const skippedFiles: WorkspaceContextSkippedPath[] = [];
-  for (const requestedPath of requestedPaths) {
-    if (args.mode === 'remove' || args.mode === 'clear') {
-      selectedFiles.push(requestedPath);
-      continue;
-    }
-    try {
-      const resolved = await resolveWorkspaceAbsolutePath(args.rootPath, requestedPath);
-      const stat = await fsPromises.stat(resolved.absolutePath);
-      if (!stat.isFile()) {
-        throw new Error(`Path "${requestedPath}" is not a file.`);
+  let cursor = 0;
+  while (cursor < requestedPaths.length) {
+    const batchPaths = requestedPaths.slice(
+      cursor,
+      cursor + SELECTABLE_WORKSPACE_FILE_VALIDATION_BATCH_SIZE
+    );
+    cursor += batchPaths.length;
+    const validations = await Promise.all(
+      batchPaths.map((requestedPath) =>
+        validateSelectableWorkspaceFile(args.rootPath, requestedPath)
+      )
+    );
+    for (const validation of validations) {
+      if ('selectedFile' in validation) {
+        selectedFiles.push(validation.selectedFile);
+        continue;
       }
-      selectedFiles.push(resolved.workspacePath);
-    } catch (error) {
-      skippedFiles.push(classifySelectionPathError(requestedPath, error));
+      skippedFiles.push(validation.skippedFile);
     }
   }
   return { requestedCount: requestedPaths.length, selectedFiles, skippedFiles };
