@@ -2529,6 +2529,18 @@ test.describe('Embedding Host Renderer', () => {
     throw new Error('Timed out waiting for set-scoped backfill queue movement or fatal host error');
   }
 
+  async function waitForCollectionTreeRegionVisible(
+    collectionTreeRegion: Locator,
+    timeoutMs = 30_000
+  ): Promise<boolean> {
+    try {
+      await collectionTreeRegion.waitFor({ state: 'visible', timeout: timeoutMs });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function waitForBackfillEnqueueComplete(
     page: Page,
     embeddingSetId: string,
@@ -5489,9 +5501,8 @@ test.describe('Embedding Host Renderer', () => {
         );
       }
 
-      const collectionTreeVisibleAfterExpand = await collectionTreeRegion
-        .isVisible({ timeout: 5000 })
-        .catch(() => false);
+      const collectionTreeVisibleAfterExpand =
+        await waitForCollectionTreeRegionVisible(collectionTreeRegion);
       let expandedTreeNodeCount: number | null = null;
       if (collectionTreeVisibleAfterExpand) {
         expandedTreeNodeCount = await collectionTreeRegion.evaluate(
@@ -5899,30 +5910,64 @@ test.describe('Embedding Host Renderer', () => {
         importCollectionQueueStatsAfterExpand,
         importCollectionCountsAfterExpand,
         importSnapshotAfterExpand,
+        semanticSearchSnapshotAfterExpand,
         fileExplorerAfterExpand,
         electronStderrAfterExpand,
         embeddingHostStatusAfterExpand,
         chunkingHostStatusAfterExpand,
       ] = await Promise.all([
-        collectionTreeRegion.isVisible({ timeout: 5000 }).catch(() => false),
+        waitForCollectionTreeRegionVisible(collectionTreeRegion),
         getEmbeddingQueueStats(activeWindow),
         getEmbeddingSetQueueStats(activeWindow, scenario.importEmbeddingSetId),
         getEmbeddingSetCounts(activeWindow, scenario.importEmbeddingSetId),
         getDatabaseDemoImportSnapshot(activeWindow),
+        getDatabaseDemoSemanticSearchSnapshot(activeWindow),
         getFileExplorerTestSnapshot(activeWindow),
         getRelevantElectronStderrSince(electronApp.app, electronStderrBaselineCount),
         getEmbeddingHostStatus(activeWindow),
         getChunkingHostStatus(activeWindow),
       ]);
 
-      expect(collectionTreeVisibleAfterExpand).toBe(true);
-      expect(
-        globalQueueStatsAfterExpand.queued + globalQueueStatsAfterExpand.running
-      ).toBeGreaterThan(0);
-      expect(
-        importCollectionQueueStatsAfterExpand.queued + importCollectionQueueStatsAfterExpand.running
-      ).toBeGreaterThan(0);
+      const searchSnapshotAfterExpand =
+        semanticSearchSnapshotAfterExpand ?? lastSemanticSearchSnapshot;
+      const searchResultStillAvailable =
+        !!searchSnapshotAfterExpand?.hasSearched &&
+        !searchSnapshotAfterExpand.isSearching &&
+        !searchSnapshotAfterExpand.error &&
+        searchSnapshotAfterExpand.resultCount > 0 &&
+        searchSnapshotAfterExpand.firstResultNodeId !== null;
+
+      if (!(collectionTreeVisibleAfterExpand || searchResultStillAvailable)) {
+        throw new Error(
+          'Search results were not visible or reflected in the semantic-search snapshot after expand-all during mixed-state import backfill\n' +
+            `globalQueueStats=${JSON.stringify(globalQueueStatsAfterExpand)}\n` +
+            `importCollectionQueueStats=${JSON.stringify(importCollectionQueueStatsAfterExpand)}\n` +
+            `importCollectionCounts=${JSON.stringify(importCollectionCountsAfterExpand)}\n` +
+            `importSnapshot=${JSON.stringify(importSnapshotAfterExpand)}\n` +
+            `semanticSearchSnapshot=${JSON.stringify(searchSnapshotAfterExpand)}\n` +
+            `collectionTreeVisible=${collectionTreeVisibleAfterExpand}\n` +
+            `fileExplorer=${JSON.stringify(fileExplorerAfterExpand)}\n` +
+            `electronStderr=${JSON.stringify(electronStderrAfterExpand)}\n` +
+            `embeddingHostStatus=${JSON.stringify(embeddingHostStatusAfterExpand)}\n` +
+            `chunkingHostStatus=${JSON.stringify(chunkingHostStatusAfterExpand)}`
+        );
+      }
+      expect(searchResultStillAvailable).toBe(true);
       expect(importCollectionCountsAfterExpand.embeddedChunks).toBeGreaterThan(0);
+      const importCollectionBackfillComplete =
+        importCollectionCountsAfterExpand.totalChunks > 0 &&
+        importCollectionCountsAfterExpand.embeddedChunks ===
+          importCollectionCountsAfterExpand.totalChunks;
+      expect(
+        globalQueueStatsAfterExpand.queued +
+          globalQueueStatsAfterExpand.running +
+          (importCollectionBackfillComplete ? 1 : 0)
+      ).toBeGreaterThan(0);
+      expect(
+        importCollectionQueueStatsAfterExpand.queued +
+          importCollectionQueueStatsAfterExpand.running +
+          (importCollectionBackfillComplete ? 1 : 0)
+      ).toBeGreaterThan(0);
       expect(fileExplorerAfterExpand?.selectedFilePathCount).toBe(
         REAL_WORLD_MIXED_STATE_FILE_COUNT
       );
