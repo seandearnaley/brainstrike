@@ -1921,15 +1921,24 @@ test.describe('Desktop file explorer selection', () => {
     const typesCheckbox = fileTree.getByRole('checkbox', { name: 'Select types' });
     const utilsCheckbox = fileTree.getByRole('checkbox', { name: 'Select utils' });
 
-    await pageObjectsCheckbox.click({ noWaitAfter: true, timeout: 5000 });
+    await pageObjectsCheckbox.click({
+      noWaitAfter: true,
+      timeout: FILE_EXPLORER_CLICK_TIMEOUT_MS,
+    });
     await expect(window.getByText('2/10')).toBeVisible({ timeout: 15_000 });
     await expect(e2eCheckbox).toHaveAttribute('data-state', 'indeterminate');
 
-    await typesCheckbox.click({ noWaitAfter: true, timeout: 5000 });
+    await typesCheckbox.click({
+      noWaitAfter: true,
+      timeout: FILE_EXPLORER_CLICK_TIMEOUT_MS,
+    });
     await expect(window.getByText('3/10')).toBeVisible({ timeout: 15_000 });
     await expect(e2eCheckbox).toHaveAttribute('data-state', 'indeterminate');
 
-    await utilsCheckbox.click({ noWaitAfter: true, timeout: 5000 });
+    await utilsCheckbox.click({
+      noWaitAfter: true,
+      timeout: FILE_EXPLORER_CLICK_TIMEOUT_MS,
+    });
     await expect(window.getByText('5/10')).toBeVisible({ timeout: 15_000 });
     await expect(e2eCheckbox).toHaveAttribute('data-state', 'checked');
   });
