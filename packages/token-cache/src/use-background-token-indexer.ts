@@ -78,6 +78,89 @@ function formatErrorMessage(error: unknown): string {
   return typeof error === 'string' ? error : JSON.stringify(error);
 }
 
+interface TerminalWorkerErrorDetails {
+  readonly colno?: number;
+  readonly eventError?: string;
+  readonly eventErrorName?: string;
+  readonly eventErrorStack?: string;
+  readonly eventMessage?: string;
+  readonly filename?: string;
+  readonly lineno?: number;
+  readonly reason?: string;
+  readonly type: string;
+}
+
+type ErrorWithTerminalWorkerDetails = Error & {
+  terminalWorkerErrorDetails?: TerminalWorkerErrorDetails;
+};
+
+function formatUnknownDetail(value: unknown): string | undefined {
+  if (value === null || value === undefined) {
+    return;
+  }
+  if (value instanceof Error) {
+    return value.message;
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? String(value) : serialized;
+  } catch {
+    return String(value);
+  }
+}
+
+function readEventReason(event: Event): unknown {
+  if (!('reason' in event)) {
+    return;
+  }
+  return (event as Event & { reason: unknown }).reason;
+}
+
+function createTerminalWorkerErrorDetails(event: Event): TerminalWorkerErrorDetails {
+  const details: TerminalWorkerErrorDetails = { type: event.type };
+  if (event instanceof ErrorEvent) {
+    const eventError: unknown = event.error;
+    const eventErrorDetail = formatUnknownDetail(eventError);
+    return {
+      ...details,
+      ...(event.message ? { eventMessage: event.message } : {}),
+      ...(event.filename ? { filename: event.filename } : {}),
+      ...(typeof event.lineno === 'number' ? { lineno: event.lineno } : {}),
+      ...(typeof event.colno === 'number' ? { colno: event.colno } : {}),
+      ...(eventErrorDetail ? { eventError: eventErrorDetail } : {}),
+      ...(eventError instanceof Error ? { eventErrorName: eventError.name } : {}),
+      ...(eventError instanceof Error && eventError.stack
+        ? { eventErrorStack: eventError.stack }
+        : {}),
+    };
+  }
+
+  const reason = formatUnknownDetail(readEventReason(event));
+  return {
+    ...details,
+    ...(reason ? { reason } : {}),
+  };
+}
+
+function attachTerminalWorkerErrorDetails(
+  error: Error,
+  details: TerminalWorkerErrorDetails
+): Error {
+  (error as ErrorWithTerminalWorkerDetails).terminalWorkerErrorDetails = details;
+  return error;
+}
+
+function getTerminalWorkerErrorDetails(error: unknown): TerminalWorkerErrorDetails | undefined {
+  if (!(error instanceof Error)) {
+    return;
+  }
+  return (error as ErrorWithTerminalWorkerDetails).terminalWorkerErrorDetails;
+}
+
 async function persistResultToStore(
   result: IndexerResult,
   store: TokenCacheStoreLike,
@@ -249,6 +332,7 @@ export function useBackgroundTokenIndexer({
       return;
     }
     workerErrorLoggedRef.current = true;
+    const terminalWorkerErrorDetails = getTerminalWorkerErrorDetails(error);
     const normalized =
       error instanceof Error
         ? // Keep both keys for log-schema compatibility while consolidating to one log event.
@@ -257,6 +341,7 @@ export function useBackgroundTokenIndexer({
     logger.error('Background token indexer entered failed state', {
       context,
       ...normalized,
+      ...terminalWorkerErrorDetails,
     });
   }, []);
 
@@ -382,7 +467,10 @@ export function useBackgroundTokenIndexer({
       workerRef.current = worker;
       const runtime = createWorkerRuntimeClient(worker, {
         createErrorFromEvent: (event) =>
-          new Error(`Worker error event: ${event.message || 'unknown worker error event'}`),
+          attachTerminalWorkerErrorDetails(
+            new Error(`Worker error event: ${event.message || 'unknown worker error event'}`),
+            createTerminalWorkerErrorDetails(event)
+          ),
         onFailure: (failure) => {
           failWorker(failure, 'worker.addEventListener(error)');
         },
@@ -477,20 +565,34 @@ export function useBackgroundTokenIndexer({
           if (context === 'worker.addEventListener(error)') {
             const errEvent = error as ErrorEvent;
             settleFailure(
-              new Error(`Worker error event: ${errEvent.message || 'unknown worker error event'}`),
+              attachTerminalWorkerErrorDetails(
+                new Error(
+                  `Worker error event: ${errEvent.message || 'unknown worker error event'}`
+                ),
+                createTerminalWorkerErrorDetails(error)
+              ),
               context
             );
             return;
           }
 
           if (context === 'worker.onmessageerror') {
-            settleFailure(new Error('Worker message channel error (onmessageerror)'), context);
+            settleFailure(
+              attachTerminalWorkerErrorDetails(
+                new Error('Worker message channel error (onmessageerror)'),
+                createTerminalWorkerErrorDetails(error)
+              ),
+              context
+            );
             return;
           }
 
           const errEvent = error as ErrorEvent;
           settleFailure(
-            new Error(`Worker runtime error: ${errEvent?.message ?? 'unknown worker error'}`),
+            attachTerminalWorkerErrorDetails(
+              new Error(`Worker runtime error: ${errEvent?.message ?? 'unknown worker error'}`),
+              createTerminalWorkerErrorDetails(error)
+            ),
             context
           );
         };

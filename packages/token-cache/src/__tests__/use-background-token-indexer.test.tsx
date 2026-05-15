@@ -385,6 +385,51 @@ describe('useBackgroundTokenIndexer', () => {
     );
   });
 
+  it('logs one terminal worker failure with structured ErrorEvent fields', async () => {
+    const onFileError = vi.fn();
+    const eventError = new Error('worker script exploded');
+    eventError.stack = 'Error: worker script exploded\n    at background-indexer.worker.js:22:9';
+
+    renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'accurate',
+        onFileError,
+      })
+    );
+
+    await act(async () => {
+      const worker = mockWorkers[0]!;
+      worker.emitEvent(
+        'error',
+        new ErrorEvent('error', {
+          message: 'event boom',
+          filename: 'background-indexer.worker.js',
+          lineno: 22,
+          colno: 9,
+          error: eventError,
+        })
+      );
+    });
+
+    expect(mockLogger.error).toHaveBeenCalledTimes(1);
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      'Background token indexer entered failed state',
+      expect.objectContaining({
+        context: 'worker.addEventListener(error)',
+        error: expect.stringContaining('Worker error event: event boom'),
+        type: 'error',
+        filename: 'background-indexer.worker.js',
+        lineno: 22,
+        colno: 9,
+        eventMessage: 'event boom',
+        eventError: 'worker script exploded',
+        eventErrorName: 'Error',
+        eventErrorStack: eventError.stack,
+      })
+    );
+  });
+
   it('deduplicates terminal worker failure when both error handlers fire', async () => {
     const onFileError = vi.fn();
 
