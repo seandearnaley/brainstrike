@@ -326,7 +326,6 @@ describe('mastra streaming integration', () => {
     expect(agentInstances.at(-1)?.streamCalls.at(-1)?.options).toMatchObject({
       maxSteps: 20,
     });
-    expect(agentInstances.at(-1)?.streamCalls.at(-1)?.options).not.toHaveProperty('stopWhen');
   });
 
   it('passes configured agent loop limits and input token compaction to agent.stream', async () => {
@@ -353,10 +352,8 @@ describe('mastra streaming integration', () => {
     const options = agentInstances.at(-1)?.streamCalls.at(-1)?.options as {
       inputProcessors?: Array<{ id?: string }>;
       maxSteps?: number;
-      stopWhen?: unknown;
     };
     expect(options.maxSteps).toBe(12);
-    expect(options.stopWhen).toBeUndefined();
     expect(options.inputProcessors?.map((processor) => processor.id)).toEqual(['token-limiter']);
   });
 

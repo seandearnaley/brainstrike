@@ -106,7 +106,7 @@ function parseToolExecuteInput<T>(schema: z.ZodType<T>, input: ToolExecuteInput<
 function escapeSelectionBoundaryTags(content: string): string {
   return content
     .replaceAll('</selection>', '&lt;/selection&gt;')
-    .replace(/<selection(?=[\s>])/g, '&lt;selection');
+    .replace(/<selection(?=[\s/>])/g, '&lt;selection');
 }
 
 function normalizeWorkspacePath(value: string): string {

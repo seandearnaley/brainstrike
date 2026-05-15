@@ -154,6 +154,9 @@ export class EmbeddingHostManager {
 
   async reset(): Promise<EmbeddingHostStatus> {
     this.assertNotDisposed('reset');
+    this.rejectPendingQueryEmbeddingRequests(
+      'Embedding host reset while query embedding requests were in flight.'
+    );
     const window = this.lifecycle.getHostWindow();
     if (!window || window.isDestroyed()) {
       return this.ensureStarted();
@@ -205,6 +208,9 @@ export class EmbeddingHostManager {
    */
   async destroyAndRestart(): Promise<EmbeddingHostStatus> {
     this.assertNotDisposed('destroyAndRestart');
+    this.rejectPendingQueryEmbeddingRequests(
+      'Embedding host restarted while query embedding requests were in flight.'
+    );
     this.clearPendingInactiveStatus();
     this.lifecycle.destroyHostWindow();
     this.lifecycle.clearHostWindow();

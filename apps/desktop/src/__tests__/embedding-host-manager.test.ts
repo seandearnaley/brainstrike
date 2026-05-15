@@ -295,6 +295,47 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     expect(lifecycleState.ensureStarted).toHaveBeenCalledWith({ waitForRunning: true });
   });
 
+  it('rejects pending query embedding requests before destroying and restarting the host', async () => {
+    const manager = new EmbeddingHostManager();
+    const embeddingPromise = manager.queryEmbedding({
+      dimensions: 2,
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      query: 'database config',
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await expect(manager.destroyAndRestart()).resolves.toMatchObject({
+      runtimeId: 'embedding-host-runtime',
+      state: 'running',
+    });
+
+    await expect(embeddingPromise).rejects.toThrow(
+      'Embedding host restarted while query embedding requests were in flight.'
+    );
+  });
+
+  it('rejects pending query embedding requests before resetting the host runtime', async () => {
+    const manager = new EmbeddingHostManager();
+    const embeddingPromise = manager.queryEmbedding({
+      dimensions: 2,
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      query: 'database config',
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await manager.reset();
+
+    await expect(embeddingPromise).rejects.toThrow(
+      'Embedding host reset while query embedding requests were in flight.'
+    );
+  });
+
   it('sends local query embedding requests to the embedding host and resolves responses', async () => {
     const manager = new EmbeddingHostManager();
 

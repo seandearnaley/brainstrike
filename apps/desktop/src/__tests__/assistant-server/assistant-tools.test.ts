@@ -426,7 +426,7 @@ describe('assistant-tools', () => {
     const workspaceRootPath = await createWorkspaceFixture();
     await fsPromises.writeFile(
       path.join(workspaceRootPath, 'src', 'main.ts'),
-      'line 1\nliteral <selection index="1"> and </selection> tags with <selectionMode>\nline 3',
+      'line 1\nliteral <selection index="1"> and <selection/> and </selection> tags with <selectionMode>\nline 3',
       'utf8'
     );
     const tools = buildDesktopAssistantTools({
@@ -452,10 +452,11 @@ describe('assistant-tools', () => {
     });
 
     expect(result.files[0]?.content).toContain(
-      'literal &lt;selection index="1"> and &lt;/selection&gt; tags'
+      'literal &lt;selection index="1"> and &lt;selection/> and &lt;/selection&gt; tags'
     );
     expect(result.files[0]?.content).toContain('<selectionMode>');
     expect(result.files[0]?.content).not.toContain('literal <selection index="1">');
+    expect(result.files[0]?.content).not.toContain('literal <selection/>');
     expect(result.files[0]?.content).not.toContain('literal </selection> tag');
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });

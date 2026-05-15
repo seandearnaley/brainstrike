@@ -725,7 +725,6 @@ interface BrainstrikeAgentStreamOptions {
   memory?: AgentMemoryOption;
   modelSettings?: RuntimeData['modelSettings'];
   providerOptions?: RuntimeData['providerOptions'];
-  stopWhen?: unknown[];
 }
 
 const DEFAULT_AGENT_MAX_STEPS = 20;
@@ -745,7 +744,7 @@ function resolvePositiveIntegerOption(value: unknown, fieldName: string): number
 
 function buildToolLoopOptions(
   runtimeData: RuntimeData | undefined
-): Pick<BrainstrikeAgentStreamOptions, 'inputProcessors' | 'maxSteps' | 'stopWhen'> {
+): Pick<BrainstrikeAgentStreamOptions, 'inputProcessors' | 'maxSteps'> {
   const agentLoop = runtimeData?.agentLoop;
   const maxSteps = resolvePositiveIntegerOption(agentLoop?.maxSteps, 'agentLoop.maxSteps');
   const inputTokenLimit = resolvePositiveIntegerOption(
