@@ -431,6 +431,41 @@ describe('useBackgroundTokenIndexer', () => {
     expect(mockLogger.error.mock.calls[0]?.[1]).not.toHaveProperty('terminalWorkerErrorDetails');
   });
 
+  it('omits unknown ErrorEvent location fields from terminal worker failure logs', async () => {
+    const onFileError = vi.fn();
+
+    renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'accurate',
+        onFileError,
+      })
+    );
+
+    await act(async () => {
+      const worker = mockWorkers[0]!;
+      worker.emitEvent(
+        'error',
+        new ErrorEvent('error', {
+          message: 'event boom',
+        })
+      );
+    });
+
+    expect(mockLogger.error).toHaveBeenCalledTimes(1);
+    const logMetadata = mockLogger.error.mock.calls[0]?.[1];
+    expect(logMetadata).toEqual(
+      expect.objectContaining({
+        context: 'worker.addEventListener(error)',
+        error: expect.stringContaining('Worker error event: event boom'),
+        type: 'error',
+        eventMessage: 'event boom',
+      })
+    );
+    expect(logMetadata).not.toHaveProperty('lineno');
+    expect(logMetadata).not.toHaveProperty('colno');
+  });
+
   it('deduplicates terminal worker failure when both error handlers fire', async () => {
     const onFileError = vi.fn();
 

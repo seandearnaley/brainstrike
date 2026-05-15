@@ -129,8 +129,8 @@ function createTerminalWorkerErrorDetails(event: Event): TerminalWorkerErrorDeta
       ...details,
       ...(event.message ? { eventMessage: event.message } : {}),
       ...(event.filename ? { filename: event.filename } : {}),
-      lineno: event.lineno,
-      colno: event.colno,
+      ...(event.lineno ? { lineno: event.lineno } : {}),
+      ...(event.colno ? { colno: event.colno } : {}),
       ...(eventErrorDetail ? { eventError: eventErrorDetail } : {}),
       ...(eventError instanceof Error ? { eventErrorName: eventError.name } : {}),
       ...(eventError instanceof Error && eventError.stack
