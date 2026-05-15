@@ -1,7 +1,4 @@
-/**
- * Highly optimized function to calculate the depth of a path.
- * Avoids array allocations compared to path.split('/').length - 1
- */
+/** Counts separator occurrences instead of allocating via split(). */
 export function getPathDepth(path: string): number {
   let depth = 0;
   let index = path.indexOf('/');
