@@ -570,6 +570,7 @@ describe('assistant-tools', () => {
                 distance: 'cosine',
                 createdAt: '2026-01-01T00:00:00.000Z',
                 embeddedChunks: '3',
+                fileCount: '2',
                 tokenizedChunkCount: '4',
                 totalChunks: '5',
                 totalTokens: '40',
@@ -609,7 +610,7 @@ describe('assistant-tools', () => {
       recommendedForWorkspaceSearch: true,
       coverage: {
         embeddedChunks: 3,
-        fileCount: 0,
+        fileCount: 2,
         tokenizedChunkCount: 4,
         totalChunks: 5,
         totalTokens: 40,
