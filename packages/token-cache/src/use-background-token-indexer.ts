@@ -131,6 +131,7 @@ function createTerminalWorkerErrorDetails(event: Event): TerminalWorkerErrorDeta
     const eventErrorDetail = formatUnknownDetail(eventError);
     const lineno = readReportedErrorEventLocation(event.lineno);
     const colno = readReportedErrorEventLocation(event.colno);
+    const isEventError = eventError instanceof Error;
     return {
       ...details,
       ...(event.message ? { eventMessage: event.message } : {}),
@@ -138,10 +139,8 @@ function createTerminalWorkerErrorDetails(event: Event): TerminalWorkerErrorDeta
       ...(lineno === undefined ? {} : { lineno }),
       ...(colno === undefined ? {} : { colno }),
       ...(eventErrorDetail ? { eventError: eventErrorDetail } : {}),
-      ...(eventError instanceof Error ? { eventErrorName: eventError.name } : {}),
-      ...(eventError instanceof Error && eventError.stack
-        ? { eventErrorStack: eventError.stack }
-        : {}),
+      ...(isEventError ? { eventErrorName: eventError.name } : {}),
+      ...(isEventError && eventError.stack ? { eventErrorStack: eventError.stack } : {}),
     };
   }
 
@@ -351,8 +350,8 @@ export function useBackgroundTokenIndexer({
         : { error: String(error) };
     logger.error('Background token indexer entered failed state', {
       context,
-      ...normalized,
       ...terminalWorkerErrorDetails,
+      ...normalized,
     });
   }, []);
 
