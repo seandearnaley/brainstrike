@@ -50,6 +50,11 @@ interface SourceRangeMatch {
   startOffset: number;
 }
 
+interface AnchoredSourceRangeMatchResult {
+  exhaustedCandidateBudget: boolean;
+  match: SourceRangeMatch | null;
+}
+
 interface SourceRangeResolution {
   fuzzyMatchedChunks: number;
   ranges: Array<SourceRange | null>;
@@ -437,6 +442,18 @@ function findNextNonWhitespaceOffset(content: string, startOffset: number): numb
   return offset;
 }
 
+function findPreviousNonWhitespaceOffset(content: string, endOffset: number): number {
+  let offset = endOffset - 1;
+  while (offset >= 0) {
+    const character = content[offset];
+    if (!isSourceWhitespace(character)) {
+      break;
+    }
+    offset -= 1;
+  }
+  return offset;
+}
+
 function isSourceWhitespace(character: string | undefined): boolean {
   return character === ' ' || character === '\t' || character === '\n' || character === '\r';
 }
@@ -474,6 +491,24 @@ function canSkipElidedSourceWhitespace(
   }
 
   return nextSourceOffset;
+}
+
+function canSkipElidedSourceWhitespaceBefore(
+  content: string,
+  contentOffset: number,
+  chunkChar: string | undefined
+): number | null {
+  const previousSourceOffset = findPreviousNonWhitespaceOffset(content, contentOffset);
+  const whitespaceStartOffset = previousSourceOffset + 1;
+  if (
+    whitespaceStartOffset >= contentOffset ||
+    !sourceWhitespaceRunHasLineBreak(content, whitespaceStartOffset, contentOffset) ||
+    content[previousSourceOffset] !== chunkChar
+  ) {
+    return null;
+  }
+
+  return previousSourceOffset + 1;
 }
 
 function findSourceMatchEndOffset(
@@ -515,6 +550,52 @@ function findSourceMatchEndOffset(
   return chunkOffset === chunkContent.length ? contentOffset : null;
 }
 
+function findSourceMatchStartOffset(
+  content: string,
+  chunkContent: string,
+  chunkEndOffset: number,
+  sourceEndOffset: number
+): number | null {
+  let contentOffset = sourceEndOffset;
+  let chunkOffset = chunkEndOffset;
+
+  while (chunkOffset > 0) {
+    const chunkChar = chunkContent[chunkOffset - 1];
+    const skippedWhitespaceOffset = canSkipElidedSourceWhitespaceBefore(
+      content,
+      contentOffset,
+      chunkChar
+    );
+
+    if (skippedWhitespaceOffset !== null) {
+      contentOffset = skippedWhitespaceOffset;
+      continue;
+    }
+
+    if (contentOffset <= 0) {
+      return null;
+    }
+
+    if (chunkChar === '\n' && content[contentOffset - 1] === '\n') {
+      const sourceCarriageReturnOffset = contentOffset - 2;
+      if (content[sourceCarriageReturnOffset] === '\r') {
+        chunkOffset -= 1;
+        contentOffset -= 2;
+        continue;
+      }
+    }
+
+    if (chunkChar !== content[contentOffset - 1]) {
+      return null;
+    }
+
+    chunkOffset -= 1;
+    contentOffset -= 1;
+  }
+
+  return contentOffset;
+}
+
 function collectSourceRangeAnchors(chunkContent: string): SourceRangeAnchor[] {
   const anchors: SourceRangeAnchor[] = [];
   const seen = new Set<string>();
@@ -550,28 +631,40 @@ function findAnchoredSourceRangeForChunkContent(
   content: string,
   chunkContent: string,
   searchStart: number
-): SourceRangeMatch | null {
+): AnchoredSourceRangeMatchResult {
   const anchors = collectSourceRangeAnchors(chunkContent);
   const checkedCandidateOffsets = new Set<number>();
+  let candidateCount = 0;
 
   for (const anchor of anchors) {
     let anchorOffset = content.indexOf(anchor.text, searchStart);
-    let candidateCount = 0;
     while (anchorOffset >= 0) {
       candidateCount += 1;
       if (candidateCount > MAX_WHITESPACE_NORMALIZED_SOURCE_CANDIDATES) {
-        break;
+        return { exhaustedCandidateBudget: true, match: null };
       }
 
-      const candidateOffset = anchorOffset - anchor.chunkOffset;
-      if (candidateOffset >= searchStart && !checkedCandidateOffsets.has(candidateOffset)) {
+      const candidateOffset = findSourceMatchStartOffset(
+        content,
+        chunkContent,
+        anchor.chunkOffset,
+        anchorOffset
+      );
+      if (
+        candidateOffset !== null &&
+        candidateOffset >= searchStart &&
+        !checkedCandidateOffsets.has(candidateOffset)
+      ) {
         checkedCandidateOffsets.add(candidateOffset);
         const endOffset = findSourceMatchEndOffset(content, chunkContent, candidateOffset);
         if (endOffset !== null) {
           return {
-            matchKind: 'whitespace-normalized',
-            startOffset: candidateOffset,
-            endOffset,
+            exhaustedCandidateBudget: false,
+            match: {
+              matchKind: 'whitespace-normalized',
+              startOffset: candidateOffset,
+              endOffset,
+            },
           };
         }
       }
@@ -580,7 +673,7 @@ function findAnchoredSourceRangeForChunkContent(
     }
   }
 
-  return null;
+  return { exhaustedCandidateBudget: false, match: null };
 }
 
 function findSourceRangeForChunkContent(
@@ -603,8 +696,11 @@ function findSourceRangeForChunkContent(
   }
 
   const anchoredMatch = findAnchoredSourceRangeForChunkContent(content, chunkContent, searchStart);
-  if (anchoredMatch) {
-    return anchoredMatch;
+  if (anchoredMatch.match) {
+    return anchoredMatch.match;
+  }
+  if (anchoredMatch.exhaustedCandidateBudget) {
+    return null;
   }
 
   // Exact matches cover the normal path. This fallback preserves line metadata
