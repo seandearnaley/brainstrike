@@ -69,17 +69,21 @@ type ToolExecuteInput<T> = { context: T } | T;
 
 function resolveToolExecuteInput<T>(input: ToolExecuteInput<T>): T {
   // Mastra sometimes wraps tool args as { context: T } for compatibility.
-  // Assumption: none of our direct tool input shapes define a top-level `context` field.
   const maybeWrapped = input as { context?: T };
   if (
     typeof input === 'object' &&
     input !== null &&
+    Object.keys(input).length === 1 &&
     'context' in input &&
     maybeWrapped.context !== undefined
   ) {
     return maybeWrapped.context;
   }
   return input as T;
+}
+
+function escapeSelectionBoundaryTags(content: string): string {
+  return content.replaceAll('</selection>', '<\\/selection>');
 }
 
 function normalizeWorkspacePath(value: string): string {
@@ -745,7 +749,7 @@ function buildRangedContextContent(args: {
         range,
         index
       ) => `<selection index="${index + 1}" start_line="${range.startLine}" end_line="${range.endLine}">
-${range.content}
+${escapeSelectionBoundaryTags(range.content)}
 </selection>`
     )
     .join('\n');

@@ -11,6 +11,14 @@ vi.mock('electron', () => ({
 // Mock @brainstrike/agent/client
 vi.mock('@brainstrike/agent/client', () => ({
   isNativeTool: vi.fn(),
+  NATIVE_TOOL_DEFAULTS: {
+    'brainstrike.readWorkspaceContext': {
+      category: 'retrieval',
+      loadingTier: 'critical',
+      requiresApproval: false,
+      estimatedTokens: 180,
+    },
+  },
 }));
 
 // Mock native tool executor
@@ -362,7 +370,12 @@ describe('ipc-tools', () => {
         { tokenBudget: 500 },
         {
           workspaceRootPath: '/tmp/test-workspace',
-          enabledNativeToolIds: ['brainstrike.readWorkspaceContext', null, ''],
+          enabledNativeToolIds: [
+            ' brainstrike.readWorkspaceContext ',
+            null,
+            '',
+            'brainstrike.unknownNativeTool',
+          ],
           agentLoop: {
             maxSteps: 12,
             inputTokenLimit: 8192,

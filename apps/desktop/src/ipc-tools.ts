@@ -6,7 +6,7 @@
  */
 
 import type { RuntimeData } from '@brainstrike/agent';
-import { isNativeTool } from '@brainstrike/agent/client';
+import { isNativeTool, NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/client';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
@@ -28,6 +28,7 @@ const MAX_INPUT_SIZE = 1_000_000;
 // Keep this boundary allowlist in sync with BackgroundIndexingMode in
 // @brainstrike/preferences when additional workspace indexing modes are added.
 const ALLOWED_WORKSPACE_INDEXING_MODES = new Set(['root-folder-cache']);
+const ALLOWED_NATIVE_TOOL_IDS = new Set(Object.keys(NATIVE_TOOL_DEFAULTS));
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null) {
@@ -311,6 +312,35 @@ function sanitizeWorkspaceIndexingMode(value: unknown): string | undefined {
   return;
 }
 
+function sanitizeEnabledNativeToolIds(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return;
+  }
+
+  const rejectedNativeToolIds: string[] = [];
+  const enabledNativeToolIds: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') {
+      continue;
+    }
+    const toolId = item.trim();
+    if (toolId.length === 0) {
+      continue;
+    }
+    if (!ALLOWED_NATIVE_TOOL_IDS.has(toolId)) {
+      rejectedNativeToolIds.push(toolId);
+      continue;
+    }
+    enabledNativeToolIds.push(toolId);
+  }
+  if (rejectedNativeToolIds.length > 0) {
+    logger.warn('Rejected unknown enabled native tool ids at IPC boundary.', {
+      toolIds: rejectedNativeToolIds,
+    });
+  }
+  return enabledNativeToolIds;
+}
+
 function sanitizeRuntimeData(input: unknown): Partial<RuntimeData> | undefined {
   if (!isPlainObject(input)) {
     return;
@@ -353,10 +383,8 @@ function sanitizeRuntimeData(input: unknown): Partial<RuntimeData> | undefined {
       logger.warn('Rejected invalid runtime workspaceContext metadata.');
     }
   }
-  if (Array.isArray(input['enabledNativeToolIds'])) {
-    const enabledNativeToolIds = input['enabledNativeToolIds'].filter(
-      (value): value is string => typeof value === 'string' && value.trim().length > 0
-    );
+  const enabledNativeToolIds = sanitizeEnabledNativeToolIds(input['enabledNativeToolIds']);
+  if (enabledNativeToolIds) {
     runtimeData.enabledNativeToolIds = enabledNativeToolIds;
   }
   if (input['agentLoop'] !== undefined) {

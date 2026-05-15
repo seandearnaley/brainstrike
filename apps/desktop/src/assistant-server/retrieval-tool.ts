@@ -40,9 +40,16 @@ const QUERY_EMBEDDING_SPACE_TOOL_ID = 'brainstrike.queryEmbeddingSpace' as const
 const DEFAULT_LIMIT = 20;
 const DEFAULT_THRESHOLD = 0.3;
 const DEFAULT_TOKEN_BUDGET = 4000;
-/** Maximum file paths to pass inline before switching to snapshot storage. */
+/**
+ * Maximum file paths to pass inline in the tool payload before switching to
+ * server-side snapshot storage. At the cap this is still small enough for the
+ * assistant request, while larger selections move out of the model/tool call.
+ */
 const MAX_INLINE_FILE_PATHS = 500;
-/** Absolute cap on file paths to prevent oversized snapshot payloads. */
+/**
+ * Absolute snapshot cap for large curated selections. Snapshot ids keep the
+ * tool call compact, but this still bounds retained server-side payload size.
+ */
 const MAX_SNAPSHOT_FILE_PATHS = 5000;
 /** Snapshot time-to-live (ms). Expired snapshots are best-effort cleaned up. */
 const SNAPSHOT_TTL_MS = 1000 * 60 * 60; // 1 hour
