@@ -13,6 +13,8 @@ pre-commit:
       stage_fixed: true
   parallel: true
   commands:
+    secrets-scan:
+      run: pnpm secrets:scan:staged
     type-check:
       # Only check packages with staged TypeScript files (canonical pattern)
       # Uses git diff to find changed packages, then runs type-check only on those

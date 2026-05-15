@@ -63,6 +63,12 @@ jobs:
           pnpm test:scripts
           echo "| CI utility scripts | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
 
+      - name: Secret scan
+        run: |
+          START=$SECONDS
+          pnpm secrets:scan
+          echo "| Secret scan | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
+
       - name: Lint
         run: |
           START=$SECONDS
