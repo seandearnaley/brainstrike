@@ -334,6 +334,7 @@ describe('useBackgroundTokenIndexer', () => {
         error: expect.stringContaining('Worker runtime error: runtime boom'),
       }),
     ]);
+    expect(mockLogger.error).toHaveBeenCalledTimes(1);
   });
 
   it('routes worker error events through the terminal fail path', async () => {
@@ -372,6 +373,14 @@ describe('useBackgroundTokenIndexer', () => {
         errorMessage: expect.stringContaining(
           '(worker.addEventListener(error)): Worker error event: event boom'
         ),
+      })
+    );
+    expect(mockLogger.error).toHaveBeenCalledTimes(1);
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      'Background token indexer entered failed state',
+      expect.objectContaining({
+        context: 'worker.addEventListener(error)',
+        error: expect.stringContaining('Worker error event: event boom'),
       })
     );
   });
@@ -457,6 +466,14 @@ describe('useBackgroundTokenIndexer', () => {
         ),
       })
     );
+    expect(mockLogger.error).toHaveBeenCalledTimes(1);
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      'Background token indexer entered failed state',
+      expect.objectContaining({
+        context: 'worker.onmessageerror',
+        error: 'Worker message channel error (onmessageerror)',
+      })
+    );
   });
 
   it('routes readiness timeout through the terminal fail path', async () => {
@@ -520,6 +537,47 @@ describe('useBackgroundTokenIndexer', () => {
         expect.stringContaining('(createWorkerInstance): worker constructor failed')
       )
     );
+    expect(mockEmitIndexingError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        compositeKey: '__worker__',
+        errorMessage: expect.stringContaining('(createWorkerInstance): worker constructor failed'),
+      })
+    );
+  });
+
+  it('does not duplicate terminal telemetry when worker creation fails during indexFiles', async () => {
+    class ThrowingWorker {
+      constructor() {
+        throw new Error('worker constructor failed');
+      }
+    }
+
+    vi.stubGlobal('Worker', ThrowingWorker as unknown as typeof Worker);
+    const onFileError = vi.fn();
+
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({
+        autoStart: false,
+        store: null,
+        mode: 'accurate',
+        onFileError,
+      })
+    );
+
+    await act(async () => {
+      await expect(
+        result.current.indexFiles([
+          { compositeKey: 'folder|@|file.ts', folderId: 'folder', filePath: 'file.ts' },
+        ])
+      ).rejects.toThrow('worker constructor failed');
+    });
+
+    expect(onFileError).toHaveBeenCalledTimes(1);
+    expect(onFileError).toHaveBeenCalledWith(
+      '__worker__',
+      expect.stringContaining('(createWorkerInstance): worker constructor failed')
+    );
+    expect(mockEmitIndexingError).toHaveBeenCalledTimes(1);
     expect(mockEmitIndexingError).toHaveBeenCalledWith(
       expect.objectContaining({
         compositeKey: '__worker__',

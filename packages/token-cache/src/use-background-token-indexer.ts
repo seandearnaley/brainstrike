@@ -384,10 +384,6 @@ export function useBackgroundTokenIndexer({
         createErrorFromEvent: (event) =>
           new Error(`Worker error event: ${event.message || 'unknown worker error event'}`),
         onFailure: (failure) => {
-          logger.error('Worker error event', {
-            type: 'error',
-            message: failure.message,
-          });
           failWorker(failure, 'worker.addEventListener(error)');
         },
       });
@@ -480,14 +476,6 @@ export function useBackgroundTokenIndexer({
         const handleWorkerError = (error: ErrorEvent | Event, context: string): void => {
           if (context === 'worker.addEventListener(error)') {
             const errEvent = error as ErrorEvent;
-            logger.error('Worker error event', {
-              type: errEvent.type,
-              message: errEvent.message,
-              filename: errEvent.filename,
-              lineno: errEvent.lineno,
-              colno: errEvent.colno,
-              error: errEvent.error,
-            });
             settleFailure(
               new Error(`Worker error event: ${errEvent.message || 'unknown worker error event'}`),
               context
@@ -496,23 +484,11 @@ export function useBackgroundTokenIndexer({
           }
 
           if (context === 'worker.onmessageerror') {
-            const messageError = error as MessageEvent;
-            logger.error('Worker messageerror', {
-              type: messageError.type,
-              data: messageError.data,
-            });
             settleFailure(new Error('Worker message channel error (onmessageerror)'), context);
             return;
           }
 
           const errEvent = error as ErrorEvent;
-          logger.error('Worker error', {
-            error: errEvent?.message,
-            filename: errEvent?.filename,
-            lineno: errEvent?.lineno,
-            colno: errEvent?.colno,
-            type: errEvent?.type,
-          });
           settleFailure(
             new Error(`Worker runtime error: ${errEvent?.message ?? 'unknown worker error'}`),
             context
