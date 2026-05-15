@@ -21,6 +21,7 @@ import { migration026UpdateProviderModels2026V2 } from '../migrations/026-update
 import { migration027ViewFilterPresets } from '../migrations/027-view-filter-presets.js';
 import { migration028GemmaLocalLlm } from '../migrations/028-gemma-local-llm.js';
 import { migration030CollectionIndexingStats } from '../migrations/030-collection-indexing-stats.js';
+import { migration032FileChunkSourceRanges } from '../migrations/032-file-chunk-source-ranges.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -141,6 +142,7 @@ const customMigrations: Migration[] = [
   customMigration('custom-027-view-filter-presets-seed', migration027ViewFilterPresets),
   customMigration('custom-028-gemma-local-llm', migration028GemmaLocalLlm),
   customMigration('custom-030-collection-indexing-stats', migration030CollectionIndexingStats),
+  customMigration('custom-032-file-chunk-source-ranges', migration032FileChunkSourceRanges),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

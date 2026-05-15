@@ -4,6 +4,7 @@ export type MastraAgentErrorCode =
   | 'mastra_agent_memory_unavailable'
   | 'mastra_agent_runtime_init_failed'
   | 'mastra_agent_stream_failure'
+  | 'mastra_agent_unsupported_model_runtime'
   | 'mastra_agent_unsupported_provider'
   | 'mcp_tool_discovery_timeout';
 

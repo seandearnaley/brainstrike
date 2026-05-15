@@ -26,21 +26,28 @@ const createMockEmbeddingSet = (overrides: Partial<EmbeddingSetInfo> = {}): Embe
 
 const createMockChunkResult = (
   overrides: Partial<ChunkSearchResultInput> = {}
-): ChunkSearchResultInput => ({
-  chunk: {
-    id: 'chunk-001',
-    content: 'This is test chunk content.',
-    tokenCount: 10,
-    chunkIndex: 0,
-    chunkType: 'text',
-    fileRecordId: 'file-001',
-    embeddingSetId: 'set-001',
-    ...overrides.chunk,
-  },
-  similarity: 0.85,
-  rank: 1,
-  ...overrides,
-});
+): ChunkSearchResultInput => {
+  const { chunk: chunkOverrides, ...resultOverrides } = overrides;
+  return {
+    chunk: {
+      id: 'chunk-001',
+      content: 'This is test chunk content.',
+      tokenCount: 10,
+      chunkIndex: 0,
+      chunkType: 'text',
+      startLine: 1,
+      endLine: 2,
+      startOffset: 0,
+      endOffset: 27,
+      fileRecordId: 'file-001',
+      embeddingSetId: 'set-001',
+      ...chunkOverrides,
+    },
+    similarity: 0.85,
+    rank: 1,
+    ...resultOverrides,
+  };
+};
 
 const createMockFileRecord = (overrides: Partial<FileRecordInfo> = {}): FileRecordInfo => ({
   id: 'file-001',
@@ -123,6 +130,8 @@ describe('createRetrievalTool', () => {
     expect(r.embeddingSetId).toBe('set-001');
     expect(r.chunks).toHaveLength(1);
     expect(r.context).toContain('Source 1:');
+    expect(r.context).toContain('This is test chunk content.');
+    expect(r.chunks[0]).not.toHaveProperty('content');
   });
 
   it('uses runtime embeddingSetId when not in input', async () => {
@@ -381,6 +390,30 @@ describe('createRetrievalTool', () => {
     expect(r.skipped).toBe(1);
   });
 
+  it('reports when the token budget excludes all retrieved chunk content', async () => {
+    const deps = createMockDependencies({
+      searchSimilarChunks: vi.fn().mockResolvedValue([
+        createMockChunkResult({
+          chunk: { content: 'Too large for the requested budget', tokenCount: 10 },
+        }),
+      ]),
+    });
+    const tool = createRetrievalTool({ embeddingSetId: 'set-001' }, deps);
+
+    const result = await runTool(tool, { query: 'test', tokenBudget: 1 });
+
+    const r = result as {
+      chunkContentIncludedInContext: boolean;
+      chunks: unknown[];
+      context: string;
+      skipped: number;
+    };
+    expect(r.chunkContentIncludedInContext).toBe(false);
+    expect(r.chunks).toHaveLength(0);
+    expect(r.context).toBe('');
+    expect(r.skipped).toBe(1);
+  });
+
   it('logs debug messages when logger provided', async () => {
     const logger = {
       debug: vi.fn(),
@@ -418,6 +451,57 @@ describe('createRetrievalTool', () => {
     expect(r.chunks).toHaveLength(0);
     expect(r.context).toBe('');
     expect(r.totalTokens).toBe(0);
+  });
+
+  it('reports and skips retrieved chunks without source ranges', async () => {
+    const sourceRangeChunk = createMockChunkResult();
+    const { startLine: _startLine, ...chunkWithoutStartLine } = sourceRangeChunk.chunk;
+    const missingSourceRange = {
+      ...sourceRangeChunk,
+      chunk: chunkWithoutStartLine,
+    };
+    const withSourceRange = createMockChunkResult({
+      chunk: {
+        id: 'chunk-002',
+        content: 'Line-aware content.',
+        tokenCount: 5,
+        chunkIndex: 1,
+        chunkType: 'code',
+        startLine: 8,
+        endLine: 9,
+        startOffset: 30,
+        endOffset: 51,
+        fileRecordId: 'file-001',
+        embeddingSetId: 'set-001',
+      },
+      rank: 2,
+    });
+    const deps = createMockDependencies({
+      searchSimilarChunks: vi.fn().mockResolvedValue([missingSourceRange, withSourceRange]),
+    });
+    const tool = createRetrievalTool({ embeddingSetId: 'set-001' }, deps);
+
+    const result = await runTool(tool, { query: 'test' });
+
+    const r = result as {
+      chunks: unknown[];
+      context: string;
+      skipped: number;
+      skippedForMissingSourceRange: number;
+      skippedSourceRangeChunks: Array<{
+        chunkId: string;
+        chunkIndex: number;
+        fileRecordId: string;
+      }>;
+    };
+    expect(r.chunks).toHaveLength(1);
+    expect(r.context).toContain('Line-aware content.');
+    expect(r.context).not.toContain('This is test chunk content.');
+    expect(r.skipped).toBe(1);
+    expect(r.skippedForMissingSourceRange).toBe(1);
+    expect(r.skippedSourceRangeChunks).toEqual([
+      { chunkId: 'chunk-001', chunkIndex: 0, fileRecordId: 'file-001' },
+    ]);
   });
 
   it('wraps non-safe errors with generic message', async () => {

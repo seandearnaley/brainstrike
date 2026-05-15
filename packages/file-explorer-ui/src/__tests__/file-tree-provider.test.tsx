@@ -35,9 +35,13 @@ const {
 vi.mock('../file-explorer-provider', () => ({
   useFileExplorerStoreContext: () => storeMock,
   useFileExplorerStoreSelector: (
-    selector: (state: { setExpandedPaths: typeof setExpandedPathsMock }) => unknown
+    selector: (state: {
+      selectionVersion: number;
+      setExpandedPaths: typeof setExpandedPathsMock;
+    }) => unknown
   ) =>
     selector({
+      selectionVersion: 0,
       setExpandedPaths: setExpandedPathsMock,
     }),
 }));
@@ -153,6 +157,7 @@ describe('FileTreeProvider', () => {
       fileTree: [],
       isTreeLoading: false,
       loadSpecificPaths: expect.any(Function),
+      restorationKey: 'selection:0',
       setExpandedPaths: setExpandedPathsMock,
       store: storeMock,
     });

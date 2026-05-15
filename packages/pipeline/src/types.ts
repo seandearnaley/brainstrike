@@ -133,6 +133,14 @@ export interface ChunkOutput {
   content: string;
   /** SHA-256 hash of content */
   contentHash: ContentHash;
+  /** 1-based inclusive ending line in the original file */
+  endLine: number;
+  /** Exclusive ending character offset in the original file */
+  endOffset: number;
+  /** 1-based inclusive starting line in the original file */
+  startLine: number;
+  /** Inclusive starting character offset in the original file */
+  startOffset: number;
   /** Token count for this chunk */
   tokenCount: number;
 }
@@ -434,6 +442,10 @@ export interface DbMapping {
       content: string;
       contentHash: ContentHash;
       tokenCount: number;
+      startLine: number | null;
+      endLine: number | null;
+      startOffset: number | null;
+      endOffset: number | null;
       embedding: number[] | null;
       embeddingSetId: EmbeddingSetId | null;
       embeddingHash: ContentHash | null;

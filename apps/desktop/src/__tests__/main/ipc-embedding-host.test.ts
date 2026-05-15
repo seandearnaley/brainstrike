@@ -31,6 +31,7 @@ vi.mock('electron', async () => {
 import {
   EMBEDDING_HOST_ENSURE_STARTED_CHANNEL,
   EMBEDDING_HOST_GET_STATUS_CHANNEL,
+  EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL,
   EMBEDDING_HOST_REPORT_STATUS_CHANNEL,
   EMBEDDING_HOST_RESET_CHANNEL,
   EMBEDDING_HOST_STOP_CHANNEL,
@@ -46,6 +47,7 @@ describe('embedding host IPC handlers', () => {
 
   it('registers lifecycle handlers and forwards valid status reports', async () => {
     const manager = {
+      acceptQueryEmbeddingResponseReport: vi.fn(),
       acceptStatusReport: vi.fn(),
       ensureStarted: vi.fn().mockResolvedValue({ state: 'running' }),
       getStatus: vi.fn().mockResolvedValue({ state: 'running' }),
@@ -98,6 +100,7 @@ describe('embedding host IPC handlers', () => {
 
   it('fails fast on malformed embedding status reports', () => {
     const manager = {
+      acceptQueryEmbeddingResponseReport: vi.fn(),
       acceptStatusReport: vi.fn(),
       ensureStarted: vi.fn(),
       getStatus: vi.fn(),
@@ -127,8 +130,48 @@ describe('embedding host IPC handlers', () => {
     expect(manager.acceptStatusReport).not.toHaveBeenCalled();
   });
 
+  it('forwards valid query embedding response reports', () => {
+    const manager = {
+      acceptQueryEmbeddingResponseReport: vi.fn(),
+      acceptStatusReport: vi.fn(),
+      ensureStarted: vi.fn(),
+      getStatus: vi.fn(),
+      reset: vi.fn(),
+      stop: vi.fn(),
+    };
+
+    registerEmbeddingHostIpcHandlers(manager as never);
+
+    const queryResponseListener = listeners.get(
+      EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL
+    );
+    if (!queryResponseListener) {
+      throw new Error('Embedding host query embedding response listener not registered.');
+    }
+
+    queryResponseListener(
+      { sender: { id: 17 } },
+      {
+        type: 'result',
+        channel: 'query-embedding-result',
+        requestId: 'embedding-host-query:test',
+        runtimeId: 'embedding-host:runtime-1',
+        payload: { embedding: [0.25, 0.5] },
+      }
+    );
+
+    expect(manager.acceptQueryEmbeddingResponseReport).toHaveBeenCalledWith(17, {
+      type: 'result',
+      channel: 'query-embedding-result',
+      requestId: 'embedding-host-query:test',
+      runtimeId: 'embedding-host:runtime-1',
+      payload: { embedding: [0.25, 0.5] },
+    });
+  });
+
   it('unregisters lifecycle channels on cleanup', () => {
     const manager = {
+      acceptQueryEmbeddingResponseReport: vi.fn(),
       acceptStatusReport: vi.fn(),
       ensureStarted: vi.fn(),
       getStatus: vi.fn(),
@@ -146,6 +189,10 @@ describe('embedding host IPC handlers', () => {
     expect(removeListener).toHaveBeenCalledWith(
       EMBEDDING_HOST_REPORT_STATUS_CHANNEL,
       listeners.get(EMBEDDING_HOST_REPORT_STATUS_CHANNEL)
+    );
+    expect(removeListener).toHaveBeenCalledWith(
+      EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL,
+      listeners.get(EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL)
     );
   });
 });

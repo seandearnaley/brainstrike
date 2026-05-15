@@ -238,6 +238,36 @@ export interface AssistantSelectionUpdatePayload {
   mode: AssistantSelectionMode;
 }
 
+// Keep these mode unions aligned with the canonical Zod schemas in
+// @brainstrike/agent tools/schemas. This leaf package cannot import them
+// directly without creating an agent -> types cycle.
+export type AssistantWorkspaceContextSelectionMode = 'replace' | 'add' | 'remove';
+
+export interface AssistantWorkspaceContextSelectionUpdatePayload {
+  filePaths: string[];
+  folderId: string;
+  mode: AssistantWorkspaceContextSelectionMode;
+}
+
+export type AssistantWorkspaceTapestryUpdateMode = 'replace' | 'add' | 'clear';
+
+export interface AssistantWorkspaceTapestryRangePayload {
+  endLine: number;
+  isActive?: boolean;
+  startLine: number;
+}
+
+export interface AssistantWorkspaceTapestryFileUpdatePayload {
+  path: string;
+  ranges: AssistantWorkspaceTapestryRangePayload[];
+}
+
+export interface AssistantWorkspaceTapestryUpdatePayload {
+  folderId: string;
+  mode: AssistantWorkspaceTapestryUpdateMode;
+  updates: AssistantWorkspaceTapestryFileUpdatePayload[];
+}
+
 /**
  * Electron API exposed to renderer process via preload script
  *

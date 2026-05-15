@@ -5,11 +5,14 @@ import { MastraAgentError, type MastraAgentErrorCode } from '../mastra/mastra-ag
 import { resolveRuntimeConfiguration } from '../mastra/runtime-configuration';
 
 const agentInstances: Array<{
-  config: { memory?: unknown; tools: Record<string, unknown> };
+  config: { instructions?: string; memory?: unknown; tools: Record<string, unknown> };
   streamCalls: Array<{ input: unknown; options: unknown }>;
   tools: Record<string, unknown>;
 }> = [];
 const mcpInstances: unknown[] = [];
+let mcpToolList: Record<string, { description: string; id: string }> = {
+  'remote tool': { id: 'remote tool', description: 'remote' },
+};
 let streamParts: unknown[] = [];
 
 function setMockStreamParts(parts: unknown[]) {
@@ -35,6 +38,7 @@ vi.mock('@ai-sdk/openai', () => ({
   createOpenAI: (config?: { apiKey?: string; baseURL?: string }) => (modelId: string) => ({
     modelId,
     provider: config?.baseURL?.includes('openrouter') ? 'openrouter' : 'openai',
+    ...(modelId === 'legacy-test-model' ? { specificationVersion: 'v1' } : {}),
   }),
 }));
 
@@ -56,15 +60,20 @@ vi.mock('@mastra/core/agent', () => ({
     streamCalls: Array<{ input: unknown; options: unknown }> = [];
     tools: Record<string, unknown>;
     memory?: unknown;
-    model?: { modelId: string; provider?: string } | undefined;
+    model?: { modelId: string; provider?: string; specificationVersion?: string } | undefined;
 
     constructor(config: {
+      instructions?: string;
       memory?: unknown;
       tools?: Record<string, unknown>;
-      model?: { modelId: string; provider?: string } | undefined;
+      model?: { modelId: string; provider?: string; specificationVersion?: string } | undefined;
     }) {
       const tools = (config.tools ?? {}) as Record<string, unknown>;
-      this.config = { tools, ...(config.memory ? { memory: config.memory } : {}) };
+      this.config = {
+        tools,
+        ...(config.instructions ? { instructions: config.instructions } : {}),
+        ...(config.memory ? { memory: config.memory } : {}),
+      };
       this.tools = tools;
       this.memory = config.memory;
       this.model = config.model;
@@ -102,9 +111,7 @@ vi.mock('@mastra/mcp', () => ({
     }
 
     async listTools() {
-      return {
-        'remote tool': { id: 'remote tool', description: 'remote' },
-      } satisfies Record<string, { id: string; description: string }>;
+      return mcpToolList;
     }
 
     async disconnect() {
@@ -117,13 +124,16 @@ describe('mastra streaming integration', () => {
   beforeEach(() => {
     agentInstances.length = 0;
     mcpInstances.length = 0;
+    mcpToolList = {
+      'remote tool': { id: 'remote tool', description: 'remote' },
+    };
     setMockStreamParts([]);
   });
 
   it('yields streaming chunks by awaiting the Mastra fullStream promise', async () => {
     setMockStreamParts([
       { type: 'text-delta', textDelta: 'hello' },
-      { type: 'finish', usage: { promptTokens: 7, completionTokens: 11 } },
+      { type: 'finish', finishReason: 'stop', usage: { promptTokens: 7, completionTokens: 11 } },
     ]);
 
     const iterator = await streamMastraAgent(
@@ -197,7 +207,7 @@ describe('mastra streaming integration', () => {
       { type: 'reasoning-delta', delta: 'Checking memory.' },
       { type: 'step-start', messageId: 'msg-1' },
       { type: 'step-finish', usage: { promptTokens: 3, completionTokens: 4 } },
-      { type: 'finish', usage: { promptTokens: 5, completionTokens: 6 } },
+      { type: 'finish', finishReason: 'stop', usage: { promptTokens: 5, completionTokens: 6 } },
     ]);
 
     const iterator = await streamMastraAgent(
@@ -299,6 +309,161 @@ describe('mastra streaming integration', () => {
     });
   });
 
+  it('uses Brainstrike default stream step cap for native tool loops', async () => {
+    setMockStreamParts([{ type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } }]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'inspect the workspace' }] }],
+      {
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      }
+    );
+
+    for await (const _chunk of iterator) {
+      // drain stream
+    }
+
+    expect(agentInstances.at(-1)?.streamCalls.at(-1)?.options).toMatchObject({
+      maxSteps: 20,
+    });
+  });
+
+  it('passes configured agent loop limits and input token compaction to agent.stream', async () => {
+    setMockStreamParts([{ type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } }]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'inspect the workspace' }] }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          provider: 'openai',
+          agentLoop: {
+            inputTokenLimit: 8192,
+            maxSteps: 12,
+          },
+        } as never,
+      }
+    );
+
+    for await (const _chunk of iterator) {
+      // drain stream
+    }
+
+    const options = agentInstances.at(-1)?.streamCalls.at(-1)?.options as {
+      inputProcessors?: Array<{ id?: string }>;
+      maxSteps?: number;
+    };
+    expect(options.maxSteps).toBe(12);
+    expect(options.inputProcessors?.map((processor) => processor.id)).toEqual(['token-limiter']);
+  });
+
+  it('preserves the Mastra finish reason in the assistant data stream', async () => {
+    setMockStreamParts([
+      {
+        type: 'finish',
+        payload: {
+          stepResult: { reason: 'length' },
+          output: { usage: { inputTokens: 20, completionTokens: 4 } },
+        },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'write a long answer' }] }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual({
+      type: 'message-finish',
+      finishReason: 'length',
+      usage: { promptTokens: 20, completionTokens: 4 },
+      path: [],
+    });
+  });
+
+  it('marks finish chunks without an explicit reason as unknown', async () => {
+    setMockStreamParts([{ type: 'finish', usage: { promptTokens: 3, completionTokens: 5 } }]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'finish without reason' }] }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual({
+      type: 'message-finish',
+      finishReason: 'unknown',
+      usage: { promptTokens: 3, completionTokens: 5 },
+      path: [],
+    });
+  });
+
+  it('throws a typed error when Mastra closes after tool activity without a terminal finish', async () => {
+    setMockStreamParts([
+      {
+        type: 'tool-call',
+        toolName: 'brainstrike.queryEmbeddingSpace',
+        toolCallId: 'call-context',
+        args: { query: 'database config' },
+      },
+      {
+        type: 'tool-result',
+        toolName: 'brainstrike.queryEmbeddingSpace',
+        toolCallId: 'call-context',
+        result: { context: 'database config result' },
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'find database config' }] }],
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual([
+      expect.objectContaining({
+        type: 'tool-event',
+        status: 'start',
+        name: 'brainstrike.queryEmbeddingSpace',
+      }),
+      expect.objectContaining({
+        type: 'tool-event',
+        status: 'success',
+        name: 'brainstrike.queryEmbeddingSpace',
+      }),
+      expect.objectContaining({
+        type: 'message-finish',
+        finishReason: 'other',
+      }),
+    ]);
+  });
+
+  it('rejects AI SDK v1 model runtimes instead of falling back to legacy streaming', async () => {
+    await expectMastraAgentError(
+      streamMastraAgent(
+        [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'inspect the workspace' }] }],
+        {
+          model: 'legacy-test-model',
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+        }
+      ),
+      'mastra_agent_unsupported_model_runtime'
+    );
+  });
+
   it('throws a typed error when memory context is provided without configured memory', async () => {
     await expectMastraAgentError(
       streamMastraAgent([{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }], {
@@ -352,6 +517,88 @@ describe('mastra streaming integration', () => {
 
     expect(runtime.toolNameMap.get('local_tool')).toBe('local tool');
     expect(runtime.toolNameMap.get('remote_tool')).toBe('remote tool');
+  });
+
+  it('uses model-facing Brainstrike native tool names in default instructions', async () => {
+    mcpToolList = {
+      'filesystem.search_files': {
+        id: 'filesystem.search_files',
+        description: 'Search files',
+      },
+    };
+
+    await createMastraAgentRuntime({
+      runtime: { apiKey: 'key', provider: 'openai' },
+      tools: {
+        'brainstrike.listWorkspaceContext': {
+          id: 'brainstrike.listWorkspaceContext',
+          description: 'List workspace context',
+        },
+        'brainstrike.listEmbeddingSpaces': {
+          id: 'brainstrike.listEmbeddingSpaces',
+          description: 'List embedding spaces',
+        },
+        'brainstrike.queryEmbeddingSpace': {
+          id: 'brainstrike.queryEmbeddingSpace',
+          description: 'Query embedding space',
+        },
+        'brainstrike.readWorkspaceContext': {
+          id: 'brainstrike.readWorkspaceContext',
+          description: 'Read workspace context',
+        },
+        'brainstrike.readWorkspaceFile': {
+          id: 'brainstrike.readWorkspaceFile',
+          description: 'Read workspace file',
+        },
+        'brainstrike.updateWorkspaceContextSelection': {
+          id: 'brainstrike.updateWorkspaceContextSelection',
+          description: 'Update workspace context selection',
+        },
+        'brainstrike.updateWorkspaceTapestrySelections': {
+          id: 'brainstrike.updateWorkspaceTapestrySelections',
+          description: 'Update workspace Tapestry selections',
+        },
+      },
+      mcpConfig: {
+        servers: [
+          {
+            transport: 'stdio',
+            name: 'filesystem',
+            command: 'echo',
+          },
+        ],
+      },
+    });
+
+    const instructions = agentInstances[0]?.config.instructions ?? '';
+    expect(instructions).toContain('brainstrike_listWorkspaceContext');
+    expect(instructions).toContain('brainstrike_listEmbeddingSpaces');
+    expect(instructions).toContain('brainstrike_queryEmbeddingSpace');
+    expect(instructions).toContain('semantic chunks with persisted source line ranges');
+    expect(instructions).toContain('surrounding lines are needed');
+    expect(instructions).not.toContain('brainstrike.listWorkspaceContext');
+  });
+
+  it('does not advertise unregistered Brainstrike native tools in default instructions', async () => {
+    await createMastraAgentRuntime({
+      runtime: { apiKey: 'key', provider: 'openai' },
+      tools: {
+        'brainstrike.readWorkspaceFile': {
+          id: 'brainstrike.readWorkspaceFile',
+          description: 'Read workspace file',
+        },
+      },
+    });
+
+    const instructions = agentInstances[0]?.config.instructions ?? '';
+    expect(instructions).toContain('Registered Brainstrike native context tools in this run');
+    expect(instructions).toContain('brainstrike_readWorkspaceFile');
+    expect(instructions).toContain('Workspace-selection inspection is unavailable in this run.');
+    expect(instructions).toContain(
+      'Semantic workspace search is unavailable unless both listEmbeddingSpaces and queryEmbeddingSpace are registered.'
+    );
+    expect(instructions).not.toContain('brainstrike_listWorkspaceContext');
+    expect(instructions).not.toContain('brainstrike_queryEmbeddingSpace');
   });
 
   it('keeps tools distinct when sanitized ids would otherwise collide', async () => {

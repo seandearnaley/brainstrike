@@ -7,6 +7,7 @@ import type {
   StreamChunkRunEvent,
   StreamChunkText,
   StreamChunkTool,
+  StreamFinishReason,
 } from '../types';
 import { DataStreamCode, type EncodedChunk } from './data-stream-codes';
 import { toJsonSafe } from './json';
@@ -18,7 +19,7 @@ interface ToolState {
 }
 
 interface StepState {
-  finishReason: FinishReason;
+  finishReason: StreamFinishReason;
   id: string;
   index: number;
   status: 'success' | 'error';
@@ -29,15 +30,6 @@ interface DataStreamUsage {
   inputTokens: number;
   outputTokens: number;
 }
-
-type FinishReason =
-  | 'stop'
-  | 'length'
-  | 'content-filter'
-  | 'tool-calls'
-  | 'error'
-  | 'other'
-  | 'unknown';
 
 function toDataStreamUsage(raw?: {
   completionTokens?: unknown;
@@ -85,7 +77,9 @@ function extractFinishUsage(chunk: StreamChunkFinish | StreamChunkMessageFinish)
   return toDataStreamUsage(usage ?? {});
 }
 
-function resolveFinishReason(chunk: StreamChunkFinish | StreamChunkMessageFinish): FinishReason {
+function resolveFinishReason(
+  chunk: StreamChunkFinish | StreamChunkMessageFinish
+): StreamFinishReason {
   const reason = (chunk as { finishReason?: unknown }).finishReason;
   if (typeof reason !== 'string') {
     return 'unknown';
@@ -94,13 +88,34 @@ function resolveFinishReason(chunk: StreamChunkFinish | StreamChunkMessageFinish
     case 'stop':
     case 'length':
     case 'content-filter':
+      return reason;
     case 'tool-calls':
+    case 'tool_calls':
+      return 'tool-calls';
     case 'error':
     case 'other':
     case 'unknown':
       return reason;
     default:
       return 'unknown';
+  }
+}
+
+function getAbnormalFinishMessage(reason: StreamFinishReason): string | undefined {
+  switch (reason) {
+    case 'length':
+      return 'Assistant stopped because the model reached its output token limit before completing the response.';
+    case 'content-filter':
+      return 'Assistant stopped because the provider content filter ended the response.';
+    case 'other':
+      return 'Assistant stream ended without a normal stop signal.';
+    case 'stop':
+    case 'tool-calls':
+    case 'error':
+    case 'unknown':
+      return;
+    default:
+      return;
   }
 }
 
@@ -391,6 +406,11 @@ export class DataStreamMapper {
   ): Generator<EncodedChunk> {
     const usage = extractFinishUsage(chunk);
     const finishReason = resolveFinishReason(chunk);
+    const abnormalFinishMessage = getAbnormalFinishMessage(finishReason);
+    if (abnormalFinishMessage) {
+      this.markCurrentStepAsError();
+      yield { code: DataStreamCode.error, value: abnormalFinishMessage } satisfies EncodedChunk;
+    }
     const stepBeforeFinalize = this.currentStep;
     if (this.currentStep) {
       this.currentStep.usage = usage;
@@ -400,7 +420,9 @@ export class DataStreamMapper {
     yield {
       code: DataStreamCode.finishMessage,
       value: {
-        finishReason: stepBeforeFinalize?.finishReason ?? finishReason,
+        finishReason: abnormalFinishMessage
+          ? 'error'
+          : (stepBeforeFinalize?.finishReason ?? finishReason),
         usage,
         path: [],
       },

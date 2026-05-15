@@ -100,6 +100,7 @@ export function FileTreeProvider({
 }: FileTreeProviderProps): React.ReactElement {
   const store = useFileExplorerStoreContext();
   const setExpandedPaths = useFileExplorerStoreSelector((state) => state.setExpandedPaths);
+  const selectionVersion = useFileExplorerStoreSelector((state) => state.selectionVersion);
   // Create a single FileTreeIndex instance that persists across renders
   // Using useState with lazy initializer avoids reading ref during render
   const [index] = useState<FileTreeIndex>(() => new FileTreeIndex());
@@ -160,6 +161,7 @@ export function FileTreeProvider({
     fileTree: fileTreeState.fileTree,
     isTreeLoading: fileTreeState.isLoading,
     loadSpecificPaths: fileTreeState.loadSpecificPaths,
+    restorationKey: `selection:${selectionVersion}`,
     setExpandedPaths,
     store,
   });

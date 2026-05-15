@@ -37,6 +37,10 @@ export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
 export type LocalRuntimeActivation = 'auto' | 'on' | 'off';
 
 export interface AssistantProviderSettings {
+  /** Optional hard cap for request input tokens. Values are normalized to positive integers at runtime. */
+  agentInputTokenLimit?: number;
+  /** Optional Mastra agent loop step cap. Values are normalized to positive integers at runtime. */
+  agentMaxSteps?: number;
   anthropicEffort?: AnthropicEffort;
   anthropicThinkingBudgetTokens?: number;
   googleIncludeThoughts?: boolean;
@@ -55,8 +59,10 @@ export interface AssistantProviderSettings {
   localRuntimeEnabled?: LocalRuntimeActivation;
   localThinkingEnabled?: boolean;
   maxOutputTokens?: number;
+  memoryLastMessages?: number;
   reasoningEffort?: OpenAiReasoningEffort;
   reasoningSummary?: OpenAiReasoningSummary;
+  workingMemoryEnabled?: boolean;
 }
 
 export type AssistantProviderSettingsUpdate = {

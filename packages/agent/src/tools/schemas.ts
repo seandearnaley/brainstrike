@@ -59,6 +59,10 @@ export type QueueStatusInput = z.infer<typeof QueueStatusInputSchema>;
 export const ListEmbeddingSetsInputSchema = z
   .object({
     includeStats: z.boolean().optional().describe('Include coverage statistics'),
+    workspaceIndexOnly: z
+      .boolean()
+      .optional()
+      .describe('Only return the embedding space configured as the current workspace index'),
   })
   .strict();
 
@@ -155,6 +159,123 @@ export const ReadWorkspaceDirectoryInputSchema = z
 
 export type ReadWorkspaceDirectoryInput = z.infer<typeof ReadWorkspaceDirectoryInputSchema>;
 
+export const ListWorkspaceContextInputSchema = z
+  .object({
+    includeTokenEstimates: z
+      .boolean()
+      .optional()
+      .describe('Include token estimates for selected files when available'),
+  })
+  .strict();
+
+export type ListWorkspaceContextInput = z.infer<typeof ListWorkspaceContextInputSchema>;
+
+export const ReadWorkspaceContextInputSchema = z
+  .object({
+    filePaths: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(5000)
+      .optional()
+      .describe('Workspace-relative file paths to read. Defaults to selected workspace context.'),
+    tokenBudget: z
+      .number()
+      .int()
+      .positive()
+      .max(200_000)
+      .optional()
+      .describe('Maximum approximate output tokens for all returned file contents'),
+    maxFiles: z
+      .number()
+      .int()
+      .positive()
+      .max(500)
+      .optional()
+      .describe('Maximum number of files to include'),
+    maxCharsPerFile: z
+      .number()
+      .int()
+      .positive()
+      .max(50_000)
+      .optional()
+      .describe('Maximum characters to return per file before truncation'),
+    useTapestrySelections: z
+      .boolean()
+      .optional()
+      .describe('Apply selected Tapestry line ranges when reading curated workspace context'),
+  })
+  .strict();
+
+export type ReadWorkspaceContextInput = z.infer<typeof ReadWorkspaceContextInputSchema>;
+
+export const UpdateWorkspaceContextSelectionInputSchema = z
+  .object({
+    filePaths: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(5000)
+      .describe('Workspace-relative file paths to select in the workspace context explorer'),
+    mode: z
+      .enum(['replace', 'add', 'remove'])
+      .optional()
+      .describe('Selection update strategy (default: add)'),
+    folderId: z.string().min(1).optional().describe('Optional folder id for multi-root workspaces'),
+  })
+  .strict();
+
+export type UpdateWorkspaceContextSelectionInput = z.infer<
+  typeof UpdateWorkspaceContextSelectionInputSchema
+>;
+
+const WorkspaceTapestryRangeInputSchema = z
+  .object({
+    startLine: z.number().int().positive().describe('1-based inclusive starting line'),
+    endLine: z.number().int().positive().describe('1-based inclusive ending line'),
+    isActive: z.boolean().optional().describe('Whether this range contributes to context output'),
+  })
+  .strict()
+  .refine((value) => value.endLine >= value.startLine, {
+    message: 'endLine must be greater than or equal to startLine',
+    path: ['endLine'],
+  });
+
+export const UpdateWorkspaceTapestrySelectionsInputSchema = z
+  .object({
+    updates: z
+      .array(
+        z
+          .object({
+            path: z.string().min(1).describe('Workspace-relative file path'),
+            ranges: z
+              .array(WorkspaceTapestryRangeInputSchema)
+              .max(50)
+              .describe('1-based inclusive line ranges for this file'),
+          })
+          .strict()
+      )
+      .min(1)
+      .max(500)
+      .describe('Tapestry selection updates grouped by file'),
+    mode: z
+      .enum(['replace', 'add', 'clear'])
+      .optional()
+      .describe('Range update strategy for each file (default: replace)'),
+    folderId: z.string().min(1).optional().describe('Optional folder id for multi-root workspaces'),
+    selectFiles: z
+      .boolean()
+      .optional()
+      .describe('Also add affected files to the workspace context selection (default: true)'),
+  })
+  .strict();
+
+export type UpdateWorkspaceTapestrySelectionsInput = z.infer<
+  typeof UpdateWorkspaceTapestrySelectionsInputSchema
+>;
+
+/**
+ * @deprecated Use UpdateWorkspaceContextSelectionInputSchema. The legacy root-tree
+ * tool is no longer registered in the assistant runtime.
+ */
 export const SelectRootTreeFilesInputSchema = z
   .object({
     filePaths: z
@@ -174,8 +295,13 @@ export const SelectRootTreeFilesInputSchema = z
   })
   .strict();
 
+/** @deprecated Use UpdateWorkspaceContextSelectionInput. */
 export type SelectRootTreeFilesInput = z.infer<typeof SelectRootTreeFilesInputSchema>;
 
+/**
+ * @deprecated Use UpdateWorkspaceContextSelectionInputSchema. The legacy preview
+ * context tool is no longer registered in the assistant runtime.
+ */
 export const UpdatePreviewContextFilesInputSchema = z
   .object({
     filePaths: z
@@ -195,6 +321,7 @@ export const UpdatePreviewContextFilesInputSchema = z
   })
   .strict();
 
+/** @deprecated Use UpdateWorkspaceContextSelectionInput. */
 export type UpdatePreviewContextFilesInput = z.infer<typeof UpdatePreviewContextFilesInputSchema>;
 
 const EchoInput = z.object({ text: z.string().min(1) }).strict();
@@ -214,14 +341,24 @@ export const RetrievalContextInputSchema = z
 
 export type RetrievalContextInput = z.infer<typeof RetrievalContextInputSchema>;
 
+export const QueryEmbeddingSpaceInputSchema = RetrievalContextInputSchema.extend({
+  embeddingSetId: z.string().min(1),
+}).strict();
+
+export type QueryEmbeddingSpaceInput = z.infer<typeof QueryEmbeddingSpaceInputSchema>;
+
 const schemaMap: Record<string, z.ZodSchema> = {
   // Web tools
   'web.echo': EchoInput,
   // Minimal BrainStrike native tools
   'brainstrike.readWorkspaceFile': ReadWorkspaceFileInputSchema,
   'brainstrike.readWorkspaceDirectory': ReadWorkspaceDirectoryInputSchema,
-  'brainstrike.selectRootTreeFiles': SelectRootTreeFilesInputSchema,
-  'brainstrike.updatePreviewContextFiles': UpdatePreviewContextFilesInputSchema,
+  'brainstrike.listWorkspaceContext': ListWorkspaceContextInputSchema,
+  'brainstrike.readWorkspaceContext': ReadWorkspaceContextInputSchema,
+  'brainstrike.updateWorkspaceContextSelection': UpdateWorkspaceContextSelectionInputSchema,
+  'brainstrike.updateWorkspaceTapestrySelections': UpdateWorkspaceTapestrySelectionsInputSchema,
+  'brainstrike.listEmbeddingSpaces': ListEmbeddingSetsInputSchema,
+  'brainstrike.queryEmbeddingSpace': QueryEmbeddingSpaceInputSchema,
 };
 
 function formatZodIssue(issue: z.ZodIssue): string {

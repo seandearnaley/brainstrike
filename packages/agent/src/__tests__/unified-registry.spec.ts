@@ -47,6 +47,24 @@ describe('UnifiedToolRegistry', () => {
       expect(tool?.requiresApproval).toBe(false);
     });
 
+    it('requires approval for native workspace context mutation tools', () => {
+      registry.registerNativeTool({
+        id: 'brainstrike.updateWorkspaceContextSelection',
+        description: 'Update workspace context selection',
+      });
+      registry.registerNativeTool({
+        id: 'brainstrike.updateWorkspaceTapestrySelections',
+        description: 'Update workspace Tapestry selections',
+      });
+
+      expect(
+        registry.getTool('brainstrike.updateWorkspaceContextSelection')?.requiresApproval
+      ).toBe(true);
+      expect(
+        registry.getTool('brainstrike.updateWorkspaceTapestrySelections')?.requiresApproval
+      ).toBe(true);
+    });
+
     it('allows overriding category and tier', () => {
       registry.registerNativeTool({
         id: 'custom.tool',

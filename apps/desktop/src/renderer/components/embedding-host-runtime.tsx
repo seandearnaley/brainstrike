@@ -1,4 +1,6 @@
 import { createEmbeddingCacheRepository, usePGliteDatabase } from '@brainstrike/db';
+import type { EmbeddingResult, ModelConfig } from '@brainstrike/embeddings';
+import { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
 import {
   type EmbeddingWorkerController,
   POWER_BROADCAST_CHANNEL,
@@ -9,7 +11,12 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { type MutableRefObject, useEffect, useRef } from 'react';
 import {
   assertEmbeddingHostCommand,
+  assertEmbeddingHostQueryEmbeddingRequest,
+  createEmbeddingHostQueryEmbeddingErrorReport,
+  createEmbeddingHostQueryEmbeddingResultReport,
   type EmbeddingHostCommand,
+  type EmbeddingHostQueryEmbeddingRequest,
+  type EmbeddingHostQueryEmbeddingResponseReport,
   type EmbeddingHostStatus,
 } from '../../embedding-host-shared';
 import { resolveEmbeddingWorkerUrlHref } from '../resolve-embedding-worker-url';
@@ -34,11 +41,19 @@ async function ensureEmbeddingQueueBootstrapLoaded(): Promise<void> {
 
 function getEmbeddingHostBridge(): {
   onCommand?: (callback: (command: EmbeddingHostCommand) => void) => () => void;
+  onQueryEmbeddingRequest?: (
+    callback: (request: EmbeddingHostQueryEmbeddingRequest) => void
+  ) => () => void;
+  reportQueryEmbeddingResponse?: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;
   reportStatus?: (status: EmbeddingHostStatus) => void;
 } | null {
   const hostWindow = window as Window & {
     embeddingHost?: {
       onCommand?: (callback: (command: EmbeddingHostCommand) => void) => () => void;
+      onQueryEmbeddingRequest?: (
+        callback: (request: EmbeddingHostQueryEmbeddingRequest) => void
+      ) => () => void;
+      reportQueryEmbeddingResponse?: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;
       reportStatus?: (status: EmbeddingHostStatus) => void;
     };
   };
@@ -58,6 +73,43 @@ function getPowerBridge(): {
 
 function reportStatus(status: EmbeddingHostStatus): void {
   getEmbeddingHostBridge()?.reportStatus?.(status);
+}
+
+function reportQueryEmbeddingResponse(response: EmbeddingHostQueryEmbeddingResponseReport): void {
+  getEmbeddingHostBridge()?.reportQueryEmbeddingResponse?.(response);
+}
+
+function getEnvelopeStringField(value: unknown, field: 'requestId' | 'runtimeId'): string | null {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    return null;
+  }
+  const candidate = (value as Record<string, unknown>)[field];
+  return typeof candidate === 'string' && candidate.trim().length > 0 ? candidate.trim() : null;
+}
+
+function createQueryEmbeddingRequestParseErrorReport(
+  rawRequest: unknown,
+  error: unknown
+): EmbeddingHostQueryEmbeddingResponseReport | null {
+  const requestId = getEnvelopeStringField(rawRequest, 'requestId');
+  const runtimeId = getEnvelopeStringField(rawRequest, 'runtimeId');
+  if (!(requestId && runtimeId)) {
+    return null;
+  }
+  return {
+    type: 'error',
+    channel: 'query-embedding-error',
+    requestId,
+    runtimeId,
+    payload: {
+      name: error instanceof Error && error.name.trim().length > 0 ? error.name : 'Error',
+      message:
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : 'Invalid embedding host query embedding request.',
+      ...(error instanceof Error && typeof error.stack === 'string' ? { stack: error.stack } : {}),
+    },
+  };
 }
 
 function createEmbeddingHostStatus(
@@ -122,6 +174,7 @@ function runEmbeddingHostCleanupStep(
   runtimeIdRef: MutableRefObject<string>,
   label:
     | 'Embedding host command cleanup failed'
+    | 'Embedding host query embedding cleanup failed'
     | 'Embedding host power channel cleanup failed'
     | 'Embedding host power cleanup failed',
   cleanup: () => void
@@ -132,6 +185,202 @@ function runEmbeddingHostCleanupStep(
     logger.error(label, {
       error: error instanceof Error ? error.message : String(error),
       runtimeId: runtimeIdRef.current,
+    });
+  }
+}
+
+interface DbModelRow {
+  readonly capabilities: unknown;
+  readonly description: string | null;
+  readonly id: string;
+  readonly name: string;
+  readonly parameters: unknown;
+  readonly providerId: string;
+}
+
+interface QueryEmbeddingServiceState {
+  readonly modelKey: string;
+  readonly service: SimpleEmbeddingService;
+}
+
+function parseRecord(value: unknown): Record<string, unknown> {
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return {};
+    }
+    return {};
+  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function resolveOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function resolveOptionalNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function assertEmbeddingResultDimensions(
+  request: EmbeddingHostQueryEmbeddingRequest,
+  result: EmbeddingResult
+): void {
+  if (result.embedding.length === request.payload.dimensions) {
+    return;
+  }
+  throw new Error(
+    `Local query embedding dimension mismatch for ${request.payload.modelKey}: expected ${request.payload.dimensions}, got ${result.embedding.length}.`
+  );
+}
+
+async function loadQueryEmbeddingModelConfig(
+  db: NonNullable<ReturnType<typeof usePGliteDatabase>>,
+  request: EmbeddingHostQueryEmbeddingRequest
+): Promise<ModelConfig> {
+  const result = await db.query<DbModelRow>(
+    `SELECT
+      id,
+      provider_id AS "providerId",
+      name,
+      description,
+      capabilities,
+      parameters
+     FROM models
+     WHERE id = $1
+     LIMIT 1`,
+    [request.payload.modelId]
+  );
+  const row = result.rows[0];
+  if (!row) {
+    throw new Error(`Local embedding model ${request.payload.modelId} is not registered.`);
+  }
+
+  const capabilities = parseRecord(row.capabilities);
+  const parameters = parseRecord(row.parameters);
+  const dimensions = resolveOptionalNumber(capabilities['defaultDimension']);
+  if (dimensions !== request.payload.dimensions) {
+    throw new Error(
+      `Local embedding model ${request.payload.modelId} dimensions do not match embedding set ${request.payload.modelKey}.`
+    );
+  }
+
+  return {
+    id: row.id,
+    name: row.name,
+    dimensions,
+    quantized: false,
+    description: row.description ?? '',
+    tags: [row.providerId, resolveOptionalString(capabilities['type']) ?? 'embedding'],
+    origin: row.providerId,
+    ...(resolveOptionalString(parameters['size'])
+      ? { size: resolveOptionalString(parameters['size']) }
+      : {}),
+    ...(resolveOptionalNumber(parameters['contextWindow'])
+      ? { contextWindow: resolveOptionalNumber(parameters['contextWindow']) }
+      : {}),
+  };
+}
+
+async function disposeQueryEmbeddingService(
+  runtimeIdRef: MutableRefObject<string>,
+  serviceStateRef: MutableRefObject<QueryEmbeddingServiceState | null>
+): Promise<void> {
+  const state = serviceStateRef.current;
+  serviceStateRef.current = null;
+  if (!state) {
+    return;
+  }
+  try {
+    await state.service.dispose();
+  } catch (error) {
+    logger.warn('Failed to dispose local query embedding service', {
+      error: error instanceof Error ? error.message : String(error),
+      modelKey: state.modelKey,
+      runtimeId: runtimeIdRef.current,
+    });
+  }
+}
+
+async function getQueryEmbeddingService(
+  db: NonNullable<ReturnType<typeof usePGliteDatabase>>,
+  request: EmbeddingHostQueryEmbeddingRequest,
+  runtimeIdRef: MutableRefObject<string>,
+  serviceStateRef: MutableRefObject<QueryEmbeddingServiceState | null>
+): Promise<SimpleEmbeddingService> {
+  const existing = serviceStateRef.current;
+  if (existing?.modelKey === request.payload.modelKey) {
+    return existing.service;
+  }
+  await disposeQueryEmbeddingService(runtimeIdRef, serviceStateRef);
+  const modelConfig = await loadQueryEmbeddingModelConfig(db, request);
+  const { devicePref: hydratedDevicePref } = await ensureVectorPreferencesHydrated({
+    forceReload: true,
+  });
+  const service = new SimpleEmbeddingService({
+    streamingWorkerUrl: resolveEmbeddingWorkerUrlHref(),
+  });
+  await service.initializeWithModel(modelConfig, undefined, hydratedDevicePref);
+  serviceStateRef.current = {
+    modelKey: request.payload.modelKey,
+    service,
+  };
+  return service;
+}
+
+async function handleQueryEmbeddingRequest(options: {
+  readonly activeRef: MutableRefObject<boolean>;
+  readonly db: NonNullable<ReturnType<typeof usePGliteDatabase>>;
+  readonly fatalErrorRef: MutableRefObject<string | null>;
+  readonly queryEmbeddingActiveCountRef: MutableRefObject<number>;
+  readonly request: EmbeddingHostQueryEmbeddingRequest;
+  readonly runtimeIdRef: MutableRefObject<string>;
+  readonly serviceStateRef: MutableRefObject<QueryEmbeddingServiceState | null>;
+}): Promise<void> {
+  const {
+    activeRef,
+    db,
+    fatalErrorRef,
+    queryEmbeddingActiveCountRef,
+    request,
+    runtimeIdRef,
+    serviceStateRef,
+  } = options;
+
+  queryEmbeddingActiveCountRef.current += 1;
+  reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', { active: true });
+  try {
+    if (fatalErrorRef.current) {
+      throw new Error(fatalErrorRef.current);
+    }
+    if (request.runtimeId !== runtimeIdRef.current) {
+      throw new Error('Embedding host query request targeted a stale runtime.');
+    }
+    const service = await getQueryEmbeddingService(db, request, runtimeIdRef, serviceStateRef);
+    const result = await service.generateQueryEmbedding(request.payload.query);
+    assertEmbeddingResultDimensions(request, result);
+    reportQueryEmbeddingResponse(
+      createEmbeddingHostQueryEmbeddingResultReport(request, result.embedding)
+    );
+  } catch (error) {
+    logger.error('Embedding host query embedding request failed', {
+      error: error instanceof Error ? error.message : String(error),
+      modelKey: request.payload.modelKey,
+      requestId: request.requestId,
+      runtimeId: request.runtimeId,
+    });
+    reportQueryEmbeddingResponse(createEmbeddingHostQueryEmbeddingErrorReport(request, error));
+  } finally {
+    queryEmbeddingActiveCountRef.current = Math.max(queryEmbeddingActiveCountRef.current - 1, 0);
+    reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
+      active: activeRef.current || queryEmbeddingActiveCountRef.current > 0,
     });
   }
 }
@@ -252,6 +501,8 @@ export function EmbeddingHostRuntime(): null {
   const activeRef = useRef(false);
   const runtimeIdRef = useRef<string>(resolveEmbeddingHostRuntimeId());
   const stopPromiseRef = useRef<Promise<void> | null>(null);
+  const queryEmbeddingActiveCountRef = useRef(0);
+  const queryEmbeddingServiceStateRef = useRef<QueryEmbeddingServiceState | null>(null);
 
   useEffect(() => {
     if (!db) {
@@ -298,9 +549,11 @@ export function EmbeddingHostRuntime(): null {
         controllerRef.current = null;
         fatalErrorRef.current = null;
         activeRef.current = false;
+        queryEmbeddingActiveCountRef.current = 0;
         if (controller) {
           await controller.stop();
         }
+        await disposeQueryEmbeddingService(runtimeIdRef, queryEmbeddingServiceStateRef);
         if (disposed) {
           return;
         }
@@ -349,6 +602,40 @@ export function EmbeddingHostRuntime(): null {
       }
     });
 
+    const unsubscribeQueryEmbedding = getEmbeddingHostBridge()?.onQueryEmbeddingRequest?.(
+      (rawRequest) => {
+        let request: EmbeddingHostQueryEmbeddingRequest;
+        try {
+          request = assertEmbeddingHostQueryEmbeddingRequest(rawRequest);
+        } catch (error) {
+          const response = createQueryEmbeddingRequestParseErrorReport(rawRequest, error);
+          logger.error('Rejected invalid embedding host query embedding request', {
+            error: error instanceof Error ? error.message : String(error),
+            requestId: response?.requestId ?? null,
+            runtimeId: response?.runtimeId ?? null,
+          });
+          if (response) {
+            reportQueryEmbeddingResponse(response);
+          }
+          return;
+        }
+        void handleQueryEmbeddingRequest({
+          activeRef,
+          db,
+          fatalErrorRef,
+          queryEmbeddingActiveCountRef,
+          request,
+          runtimeIdRef,
+          serviceStateRef: queryEmbeddingServiceStateRef,
+        }).catch((error: unknown) => {
+          logger.error('Unhandled embedding host query embedding request failure', {
+            error,
+            requestId: request.requestId,
+          });
+        });
+      }
+    );
+
     let channel: BroadcastChannel | null = null;
     if (typeof BroadcastChannel !== 'undefined') {
       channel = new BroadcastChannel(POWER_BROADCAST_CHANNEL);
@@ -371,6 +658,13 @@ export function EmbeddingHostRuntime(): null {
       runEmbeddingHostCleanupStep(runtimeIdRef, 'Embedding host command cleanup failed', () => {
         unsubscribeCommand?.();
       });
+      runEmbeddingHostCleanupStep(
+        runtimeIdRef,
+        'Embedding host query embedding cleanup failed',
+        () => {
+          unsubscribeQueryEmbedding?.();
+        }
+      );
       runEmbeddingHostCleanupStep(
         runtimeIdRef,
         'Embedding host power channel cleanup failed',

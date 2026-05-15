@@ -974,6 +974,64 @@ describe('createLocalModelAdapter', () => {
     });
   });
 
+  it('reports why local tools are unavailable when the model returns a tool call', async () => {
+    const generate = vi.fn().mockResolvedValue(
+      createGenerationResult({
+        text: '',
+        reasoningText: 'Need a tool.',
+        toolCalls: [
+          {
+            id: 'tool-1',
+            type: 'function',
+            function: {
+              name: 'brainstrike.listWorkspaceContext',
+              arguments: '{}',
+            },
+          },
+        ],
+      })
+    );
+
+    Object.assign(window as Window & { llmHost?: unknown; tools?: unknown }, {
+      llmHost: {
+        warmup: vi.fn().mockResolvedValue(undefined),
+        generate,
+        onProgress: vi.fn(() => () => {}),
+      },
+      tools: undefined,
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      tools: [
+        {
+          id: 'brainstrike.listWorkspaceContext',
+          description: 'List workspace context',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+          isLocalRuntimeRunnable: true,
+        },
+      ],
+    });
+
+    const updates = await collectRun(adapter.run(createRunOptions()));
+
+    expect(updates.at(-1)).toMatchObject(
+      expect.objectContaining({
+        content: expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.stringContaining(
+              'window.tools.execute is not available in the renderer preload bridge'
+            ),
+            type: 'text',
+          }),
+        ]),
+      })
+    );
+  });
+
   it('feeds only structured tool output back into the model after a tool failure', async () => {
     const generate = vi
       .fn()

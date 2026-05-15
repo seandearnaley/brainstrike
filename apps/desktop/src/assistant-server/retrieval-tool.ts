@@ -2,38 +2,54 @@ import type {
   ContextPackerChunk,
   ContextPackerResult,
   PackedContextChunk,
+  QueryEmbeddingSpaceInput,
   RetrievalContextInput,
   RuntimeData,
 } from '@brainstrike/agent';
-import { ContextPacker, RetrievalContextInputSchema } from '@brainstrike/agent';
+import {
+  ContextPacker,
+  QueryEmbeddingSpaceInputSchema,
+  RetrievalContextInputSchema,
+} from '@brainstrike/agent';
 import type { ChunkSearchResult } from '@brainstrike/db';
 import { FileChunkRepository, FileRecordRepository } from '@brainstrike/db';
 import {
   CohereEmbeddingProvider,
+  type EmbeddingProviderType,
   GoogleEmbeddingProvider,
   type HostedProviderType,
   hostedProviderRequiresApiKey,
   isHostedProvider,
+  isLocalProviderType,
   OpenAIEmbeddingProvider,
   parseProviderModelKey,
   resolveHostedProviderApiKey,
   VoyageEmbeddingProvider,
-} from '@brainstrike/embeddings/provider-core';
+} from '@brainstrike/embeddings';
 import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { PGlite } from '@electric-sql/pglite';
 import { getDatabase } from '../db-main';
+import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { getSecretsService } from '../secrets';
 
 const logger = createLogger('AssistantRetrievalTool');
 
 const TOOL_ID = 'brainstrike.retrieveContext' as const;
+const QUERY_EMBEDDING_SPACE_TOOL_ID = 'brainstrike.queryEmbeddingSpace' as const;
 const DEFAULT_LIMIT = 20;
 const DEFAULT_THRESHOLD = 0.3;
 const DEFAULT_TOKEN_BUDGET = 4000;
-/** Maximum file paths to pass inline before switching to snapshot storage. */
+/**
+ * Maximum file paths to pass inline in the tool payload before switching to
+ * server-side snapshot storage. At the cap this is still small enough for the
+ * assistant request, while larger selections move out of the model/tool call.
+ */
 const MAX_INLINE_FILE_PATHS = 500;
-/** Absolute cap on file paths to prevent oversized snapshot payloads. */
+/**
+ * Absolute snapshot cap for large curated selections. Snapshot ids keep the
+ * tool call compact, but this still bounds retained server-side payload size.
+ */
 const MAX_SNAPSHOT_FILE_PATHS = 5000;
 /** Snapshot time-to-live (ms). Expired snapshots are best-effort cleaned up. */
 const SNAPSHOT_TTL_MS = 1000 * 60 * 60; // 1 hour
@@ -41,29 +57,36 @@ const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 
 const ERROR_MESSAGES = {
   missingEmbeddingSet: 'Select an active embedding set to enable retrieval.',
+  missingExplicitEmbeddingSet: 'queryEmbeddingSpace requires an explicit embeddingSetId.',
   invalidEmbeddingSet: 'Active embedding set metadata is unavailable.',
   embeddingSetLookupFailed: 'Unable to load embedding set metadata.',
-  unsupportedProvider:
-    'Local embedding models are not available in the assistant. Choose a hosted embedding set.',
+  unsupportedProvider: 'Embedding provider is not supported by assistant retrieval.',
+  localEmbeddingHostUnavailable: 'Local embedding query host is unavailable.',
   missingApiKey: 'No API key configured for the embedding provider.',
   invalidSelectionSnapshot: 'Selection snapshot reference is invalid.',
   invalidSelectionFilePaths: 'Selection file paths are invalid.',
   selectionTooLarge: 'Selection exceeds retrieval limits.',
   embeddingDimensionMismatch: 'Embedding dimensions do not match the active set.',
   embeddingFailed: 'Unable to generate query embeddings for retrieval.',
+  missingSourceRange:
+    'Retrieved chunks are missing source line metadata. Rebuild the embedding space.',
   retrievalFailed: 'Unable to retrieve context right now. Try again.',
 } as const;
 
 const SAFE_ERROR_MESSAGES = new Set<string>([
   ERROR_MESSAGES.missingEmbeddingSet,
+  ERROR_MESSAGES.missingExplicitEmbeddingSet,
   ERROR_MESSAGES.invalidEmbeddingSet,
   ERROR_MESSAGES.embeddingSetLookupFailed,
   ERROR_MESSAGES.unsupportedProvider,
+  ERROR_MESSAGES.localEmbeddingHostUnavailable,
   ERROR_MESSAGES.missingApiKey,
   ERROR_MESSAGES.invalidSelectionSnapshot,
   ERROR_MESSAGES.invalidSelectionFilePaths,
   ERROR_MESSAGES.selectionTooLarge,
   ERROR_MESSAGES.embeddingDimensionMismatch,
+  ERROR_MESSAGES.embeddingFailed,
+  ERROR_MESSAGES.missingSourceRange,
 ]);
 
 interface EmbeddingSetRow {
@@ -91,7 +114,25 @@ interface RetrievalSelectionState {
   selectionSnapshotId?: string;
 }
 
+type RetrievalResultChunk = Omit<PackedContextChunk, 'content'>;
+
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
+type QueryEmbeddingHost = Pick<EmbeddingHostManager, 'queryEmbedding'>;
+
+interface SkippedSourceRangeChunk {
+  chunkId: string;
+  chunkIndex: number;
+  fileRecordId: string;
+}
+
+interface ContextChunkConversionResult {
+  chunks: ContextPackerChunk[];
+  skippedSourceRangeChunks: SkippedSourceRangeChunk[];
+}
+
+export interface RetrievalToolDependencies {
+  embeddingHostManager?: QueryEmbeddingHost | null | undefined;
+}
 
 interface ToolContext<TInput> {
   context: TInput;
@@ -99,7 +140,8 @@ interface ToolContext<TInput> {
 
 interface RetrievalToolResult {
   budget: number;
-  chunks: PackedContextChunk[];
+  chunkContentIncludedInContext: boolean;
+  chunks: RetrievalResultChunk[];
   context: string;
   embeddingSetId: string;
   limit: number;
@@ -107,6 +149,8 @@ interface RetrievalToolResult {
   remainingTokens: number;
   selectionSnapshotId?: string;
   skipped: number;
+  skippedForMissingSourceRange: number;
+  skippedSourceRangeChunks: SkippedSourceRangeChunk[];
   threshold: number;
   totalTokens: number;
 }
@@ -208,7 +252,7 @@ function createHostedProvider(
         provider: 'openai',
         modelId,
         targetDimensions: dimensions,
-        apiKey,
+        ...(apiKey ? { apiKey } : {}),
       });
     case 'ollama':
       return new OpenAIEmbeddingProvider({
@@ -287,10 +331,26 @@ function formatContext(chunks: readonly PackedContextChunk[]): string {
   return chunks
     .map((chunk, index) => {
       const location = chunk.filePath ?? chunk.fileName ?? 'Unknown file';
+      const lineSuffix = chunk.lineRange ? `:${chunk.lineRange.start}-${chunk.lineRange.end}` : '';
       const chunkLabel = chunk.chunkIndex === undefined ? '' : ` (chunk ${chunk.chunkIndex})`;
-      return `Source ${index + 1}: ${location}${chunkLabel}\n${chunk.content}`;
+      return `Source ${index + 1}: ${location}${lineSuffix}${chunkLabel}\n${chunk.content}`;
     })
     .join('\n\n---\n\n');
+}
+
+function stripChunkContent(chunks: readonly PackedContextChunk[]): RetrievalResultChunk[] {
+  return chunks.map((chunk) => ({
+    id: chunk.id,
+    rank: chunk.rank,
+    tokenCount: chunk.tokenCount,
+    ...(chunk.chunkIndex === undefined ? {} : { chunkIndex: chunk.chunkIndex }),
+    ...(chunk.fileName === undefined ? {} : { fileName: chunk.fileName }),
+    ...(chunk.filePath === undefined ? {} : { filePath: chunk.filePath }),
+    ...(chunk.lineRange === undefined ? {} : { lineRange: chunk.lineRange }),
+    ...(chunk.metadata === undefined ? {} : { metadata: chunk.metadata }),
+    ...(chunk.offsets === undefined ? {} : { offsets: chunk.offsets }),
+    ...(chunk.score === undefined ? {} : { score: chunk.score }),
+  }));
 }
 
 function resolveRuntimeEmbeddingSetId(
@@ -332,15 +392,34 @@ function toContextChunks(
       tokenCount?: number;
       chunkIndex: number;
       chunkType?: string;
+      endLine?: number;
+      endOffset?: number;
       fileRecordId: string;
       embeddingSetId?: string;
+      startLine?: number;
+      startOffset?: number;
     };
     similarity: number;
     rank: number;
   }>,
   fileMap: Map<string, FileRecordRow>
-): ContextPackerChunk[] {
-  return results.map((result) => {
+): ContextChunkConversionResult {
+  const chunks: ContextPackerChunk[] = [];
+  const skippedSourceRangeChunks: SkippedSourceRangeChunk[] = [];
+  for (const result of results) {
+    if (
+      result.chunk.startLine === undefined ||
+      result.chunk.endLine === undefined ||
+      result.chunk.startOffset === undefined ||
+      result.chunk.endOffset === undefined
+    ) {
+      skippedSourceRangeChunks.push({
+        chunkId: result.chunk.id,
+        chunkIndex: result.chunk.chunkIndex,
+        fileRecordId: result.chunk.fileRecordId,
+      });
+      continue;
+    }
     const fileInfo = fileMap.get(result.chunk.fileRecordId);
     if (!fileInfo) {
       logger.warn('File record missing for retrieved chunk', {
@@ -353,6 +432,10 @@ function toContextChunks(
       content: result.chunk.content,
       tokenCount: result.chunk.tokenCount ?? null,
       chunkIndex: result.chunk.chunkIndex,
+      startLine: result.chunk.startLine,
+      endLine: result.chunk.endLine,
+      startOffset: result.chunk.startOffset,
+      endOffset: result.chunk.endOffset,
       score: result.similarity,
       metadata: {
         fileRecordId: result.chunk.fileRecordId,
@@ -368,8 +451,9 @@ function toContextChunks(
     if (fileInfo?.name !== undefined) {
       chunk.fileName = fileInfo.name;
     }
-    return chunk;
-  });
+    chunks.push(chunk);
+  }
+  return { chunks, skippedSourceRangeChunks };
 }
 
 async function buildFileRecordMap(
@@ -412,15 +496,36 @@ async function generateQueryEmbedding(
   return result.value.embedding;
 }
 
-function resolveHostedProviderForSet(embeddingSet: EmbeddingSetRow): HostedProviderType {
+function resolveProviderForSet(embeddingSet: EmbeddingSetRow): EmbeddingProviderType {
   const parsed = parseProviderModelKey(embeddingSet.modelKey);
   if (!parsed) {
     throw new Error(ERROR_MESSAGES.invalidEmbeddingSet);
   }
-  if (!isHostedProvider(parsed.provider)) {
-    throw new Error(ERROR_MESSAGES.unsupportedProvider);
+  return parsed.provider;
+}
+
+async function generateQueryEmbeddingForSet(
+  embeddingSet: EmbeddingSetRow,
+  query: string,
+  dependencies: RetrievalToolDependencies
+): Promise<number[]> {
+  const provider = resolveProviderForSet(embeddingSet);
+  if (isHostedProvider(provider)) {
+    return generateQueryEmbedding(provider, embeddingSet.modelId, embeddingSet.dimensions, query);
   }
-  return parsed.provider as HostedProviderType;
+  if (isLocalProviderType(provider)) {
+    const embeddingHostManager = dependencies.embeddingHostManager;
+    if (!embeddingHostManager) {
+      throw new Error(ERROR_MESSAGES.localEmbeddingHostUnavailable);
+    }
+    return embeddingHostManager.queryEmbedding({
+      dimensions: embeddingSet.dimensions,
+      modelId: embeddingSet.modelId,
+      modelKey: embeddingSet.modelKey,
+      query,
+    });
+  }
+  throw new Error(ERROR_MESSAGES.unsupportedProvider);
 }
 
 function normalizeQuery(query: string): string {
@@ -513,11 +618,27 @@ async function packRetrievedContext(
   }>,
   runtimeData: RuntimeData | undefined,
   input: RetrievalContextInput
-): Promise<{ packed: ContextPackerResult; contextText: string }> {
+): Promise<{
+  packed: ContextPackerResult;
+  contextText: string;
+  skippedSourceRangeChunks: SkippedSourceRangeChunk[];
+}> {
   const recordRepository = new FileRecordRepository(db);
   const fileIds = Array.from(new Set(searchResults.map((result) => result.chunk.fileRecordId)));
   const fileMap = await buildFileRecordMap(recordRepository, fileIds);
-  const chunkInputs = toContextChunks(searchResults, fileMap);
+  const { chunks: chunkInputs, skippedSourceRangeChunks } = toContextChunks(searchResults, fileMap);
+  if (searchResults.length > 0 && skippedSourceRangeChunks.length === searchResults.length) {
+    logger.warn('All retrieved chunks are missing source ranges', {
+      skippedForMissingSourceRange: skippedSourceRangeChunks.length,
+    });
+    throw new Error(ERROR_MESSAGES.missingSourceRange);
+  }
+  if (skippedSourceRangeChunks.length > 0) {
+    logger.warn('Some retrieved chunks are missing source ranges', {
+      retrievedChunks: searchResults.length,
+      skippedForMissingSourceRange: skippedSourceRangeChunks.length,
+    });
+  }
 
   const packerOptions = {
     budgetTokens: resolveTokenBudget(runtimeData, input.tokenBudget),
@@ -528,12 +649,13 @@ async function packRetrievedContext(
   const packed = packer.pack(chunkInputs);
   const contextText = formatContext(packed.chunks);
 
-  return { packed, contextText };
+  return { packed, contextText, skippedSourceRangeChunks };
 }
 
 async function runRetrieval(
   input: RetrievalContextInput,
-  runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  dependencies: RetrievalToolDependencies = {}
 ): Promise<RetrievalToolResult> {
   const query = normalizeQuery(input.query);
   const embeddingSetId = resolveRuntimeEmbeddingSetId(runtimeData, input.embeddingSetId);
@@ -543,18 +665,17 @@ async function runRetrieval(
 
   const db = (await getDatabase()) as unknown as PGlite;
   const embeddingSet = await resolveEmbeddingSet(db, embeddingSetId);
-  const provider = resolveHostedProviderForSet(embeddingSet);
-  const embedding = await generateQueryEmbedding(
-    provider,
-    embeddingSet.modelId,
-    embeddingSet.dimensions,
-    query
-  );
+  const embedding = await generateQueryEmbeddingForSet(embeddingSet, query, dependencies);
   assertEmbeddingDimensions(embeddingSet.dimensions, embedding.length);
 
   const selectionState = await resolveSelectionState(db, runtimeData, input);
   const searchResults = await searchForChunks(db, embedding, embeddingSetId, input, selectionState);
-  const { packed, contextText } = await packRetrievedContext(db, searchResults, runtimeData, input);
+  const { packed, contextText, skippedSourceRangeChunks } = await packRetrievedContext(
+    db,
+    searchResults,
+    runtimeData,
+    input
+  );
 
   return {
     query,
@@ -564,9 +685,12 @@ async function runRetrieval(
     totalTokens: packed.totalTokens,
     budget: packed.budget,
     remainingTokens: packed.remainingTokens,
-    skipped: packed.skipped,
+    skipped: packed.skipped + skippedSourceRangeChunks.length,
     context: contextText,
-    chunks: [...packed.chunks],
+    chunkContentIncludedInContext: packed.chunks.length > 0,
+    chunks: stripChunkContent(packed.chunks),
+    skippedForMissingSourceRange: skippedSourceRangeChunks.length,
+    skippedSourceRangeChunks,
     ...(selectionState.selectionSnapshotId
       ? { selectionSnapshotId: selectionState.selectionSnapshotId }
       : {}),
@@ -587,7 +711,10 @@ function handleRetrievalError(error: unknown): never {
   throw new Error(ERROR_MESSAGES.retrievalFailed);
 }
 
-export function createRetrievalTool(runtimeData: RuntimeData | undefined): MastraTools[string] {
+export function createRetrievalTool(
+  runtimeData: RuntimeData | undefined,
+  dependencies: RetrievalToolDependencies = {}
+): MastraTools[string] {
   return {
     id: TOOL_ID,
     description:
@@ -595,7 +722,55 @@ export function createRetrievalTool(runtimeData: RuntimeData | undefined): Mastr
     inputSchema: RetrievalContextInputSchema,
     execute: async (context: ToolContext<RetrievalContextInput>) => {
       try {
-        return await runRetrieval(context.context, runtimeData);
+        return await runRetrieval(context.context, runtimeData, dependencies);
+      } catch (error) {
+        handleRetrievalError(error);
+      }
+    },
+  };
+}
+
+export async function runQueryEmbeddingSpace(
+  input: QueryEmbeddingSpaceInput,
+  runtimeData: RuntimeData | undefined,
+  dependencies: RetrievalToolDependencies = {}
+): Promise<RetrievalToolResult> {
+  if (!normalizeText(input.embeddingSetId)) {
+    throw new Error(ERROR_MESSAGES.missingExplicitEmbeddingSet);
+  }
+  const explicitRuntimeData = omitImplicitContextRuntimeData(runtimeData);
+  return await runRetrieval(input, explicitRuntimeData, dependencies);
+}
+
+function omitImplicitContextRuntimeData(
+  runtimeData: RuntimeData | undefined
+): RuntimeData | undefined {
+  if (!runtimeData) {
+    return;
+  }
+  const {
+    embeddingSetId: _embeddingSetId,
+    selectionFilePaths: _selectionFilePaths,
+    selectionSnapshotId: _selectionSnapshotId,
+    tokenBudget: _tokenBudget,
+    ...explicitRuntimeData
+  } = runtimeData;
+  return explicitRuntimeData;
+}
+
+export function createQueryEmbeddingSpaceTool(
+  runtimeData: RuntimeData | undefined,
+  dependencies: RetrievalToolDependencies = {}
+): MastraTools[string] {
+  return {
+    id: QUERY_EMBEDDING_SPACE_TOOL_ID,
+    description:
+      'Query a specific embedding space by explicit embeddingSetId. Use listEmbeddingSpaces first when the ID is unknown. Provide tokenBudget, limit, threshold, and optional filePaths to keep retrieval bounded.',
+    inputSchema: QueryEmbeddingSpaceInputSchema,
+    execute: async (context: ToolContext<QueryEmbeddingSpaceInput>) => {
+      const input = QueryEmbeddingSpaceInputSchema.parse(context.context);
+      try {
+        return await runQueryEmbeddingSpace(input, runtimeData, dependencies);
       } catch (error) {
         handleRetrievalError(error);
       }
@@ -605,10 +780,11 @@ export function createRetrievalTool(runtimeData: RuntimeData | undefined): Mastr
 
 export function buildAssistantTools(
   runtimeData: RuntimeData | undefined,
-  base: MastraTools
+  base: MastraTools,
+  dependencies: RetrievalToolDependencies = {}
 ): MastraTools {
   return {
     ...base,
-    [TOOL_ID]: createRetrievalTool(runtimeData),
+    [TOOL_ID]: createRetrievalTool(runtimeData, dependencies),
   };
 }

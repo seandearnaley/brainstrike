@@ -64,6 +64,8 @@ export interface AssistantUiMessage {
 }
 
 export interface RuntimeData {
+  /** Optional agent-loop and prompt compaction controls. */
+  agentLoop?: RuntimeAgentLoopSettings;
   /** API key for the specified provider. Falls back to environment variables if not provided. */
   apiKey?: string;
   // Optional tool dispatcher provided by host (desktop main via IPC)
@@ -76,6 +78,8 @@ export interface RuntimeData {
   contextTokenCount?: number;
   /** Active embedding set ID for retrieval tools. */
   embeddingSetId?: string;
+  /** Native tool ids enabled for this run. Undefined preserves host defaults. */
+  enabledNativeToolIds?: readonly string[];
   /** Include a selected-file report block in assistant context. */
   includeFileReport?: boolean;
   /** Include a workspace tree block in assistant context. */
@@ -102,9 +106,44 @@ export interface RuntimeData {
   selectionSnapshotId?: string;
   signal?: AbortSignal;
   /** Optional token budget override for context packing. */
-  tokenBudget?: number;
+  tokenBudget?: number | null;
+  /** Token-aware, content-free snapshot of user/assistant curated workspace context. */
+  workspaceContext?: RuntimeWorkspaceContextMetadata;
+  /** Optional embedding set currently configured as the workspace background index. */
+  workspaceIndexEmbeddingSetId?: string;
+  /** Whether workspace background indexing is enabled in the current workspace. */
+  workspaceIndexingEnabled?: boolean;
+  /** Workspace indexing mode configured for the current workspace. */
+  workspaceIndexingMode?: string;
+  /** Whether workspace background indexing is paused. */
+  workspaceIndexingPaused?: boolean;
   /** Optional absolute workspace root path for workspace read tools. */
   workspaceRootPath?: string;
+}
+
+export interface RuntimeWorkspaceContextRangeMetadata {
+  approxTokens?: number | null;
+  endLine: number;
+  isActive?: boolean;
+  startLine: number;
+}
+
+export interface RuntimeWorkspaceContextFileMetadata {
+  approxTokens?: number | null;
+  outputApproxTokens?: number | null;
+  path: string;
+  ranges?: readonly RuntimeWorkspaceContextRangeMetadata[];
+}
+
+export interface RuntimeWorkspaceContextMetadata {
+  files?: readonly RuntimeWorkspaceContextFileMetadata[];
+  includeProjectTree?: boolean;
+  projectTreeApproxTokens?: number | null;
+  projectTreeTokenCountLoading?: boolean;
+  selectedOutputApproxTokens?: number | null;
+  selectedSourceApproxTokens?: number | null;
+  tokenBudget?: number;
+  useTapestryRanges?: boolean;
 }
 
 export interface RuntimeMemoryContext {
@@ -113,6 +152,13 @@ export interface RuntimeMemoryContext {
   resourceId: string;
   runId?: string;
   threadId: string;
+}
+
+export interface RuntimeAgentLoopSettings {
+  /** Per-step input token limit applied before each model call. */
+  inputTokenLimit?: number;
+  /** Maximum Mastra agent-loop steps. Omit to use Brainstrike's default cap. */
+  maxSteps?: number;
 }
 
 export type OpenAiReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
@@ -192,8 +238,18 @@ export interface StreamChunkFinish {
   type: 'finish';
   usage: { promptTokens: number; completionTokens: number };
 }
+
+export type StreamFinishReason =
+  | 'stop'
+  | 'length'
+  | 'content-filter'
+  | 'tool-calls'
+  | 'error'
+  | 'other'
+  | 'unknown';
+
 export interface StreamChunkMessageFinish {
-  finishReason: 'stop';
+  finishReason: StreamFinishReason;
   path: readonly number[];
   type: 'message-finish';
   usage: { promptTokens: number; completionTokens: number };

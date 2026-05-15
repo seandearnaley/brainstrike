@@ -6,20 +6,29 @@
  */
 
 import type { RuntimeData } from '@brainstrike/agent';
-import { isNativeTool } from '@brainstrike/agent/client';
+import { isNativeTool, NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/client';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
+import type { EmbeddingHostManager } from './embedding-host-manager';
 import { callTool } from './mcp';
 import { executeNativeTool, isExecutableNativeTool } from './native-tool-executor';
 
 const logger = createLogger('IpcTools');
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+type RuntimeWorkspaceContext = NonNullable<RuntimeData['workspaceContext']>;
+type RuntimeWorkspaceContextFile = NonNullable<RuntimeWorkspaceContext['files']>[number];
+type RuntimeWorkspaceContextRange = NonNullable<RuntimeWorkspaceContextFile['ranges']>[number];
+type RuntimeAgentLoop = NonNullable<RuntimeData['agentLoop']>;
 
 const MAX_INPUT_DEPTH = 12;
 const MAX_INPUT_SIZE = 1_000_000;
+// Keep this boundary allowlist in sync with BackgroundIndexingMode in
+// @brainstrike/preferences when additional workspace indexing modes are added.
+const ALLOWED_WORKSPACE_INDEXING_MODES = new Set(['root-folder-cache']);
+const ALLOWED_NATIVE_TOOL_IDS = new Set(Object.keys(NATIVE_TOOL_DEFAULTS));
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null) {
@@ -118,6 +127,220 @@ function sanitizeMcpInput(
   return { ok: true, value: input as Record<string, JsonValue> };
 }
 
+function isFiniteTokenValue(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function readOptionalTokenValue(
+  source: Record<string, unknown>,
+  key: string
+): number | null | undefined {
+  const value = source[key];
+  if (value === undefined) {
+    return;
+  }
+  if (value === null) {
+    return null;
+  }
+  return isFiniteTokenValue(value) ? value : undefined;
+}
+
+function readOptionalBoolean(source: Record<string, unknown>, key: string): boolean | undefined {
+  const value = source[key];
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function readOptionalPositiveInteger(
+  source: Record<string, unknown>,
+  key: string
+): number | undefined {
+  const value = source[key];
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+function sanitizeWorkspaceContextRange(input: unknown): RuntimeWorkspaceContextRange | null {
+  if (!isPlainObject(input)) {
+    return null;
+  }
+
+  const startLine = input['startLine'];
+  const endLine = input['endLine'];
+  if (
+    typeof startLine !== 'number' ||
+    typeof endLine !== 'number' ||
+    !Number.isSafeInteger(startLine) ||
+    !Number.isSafeInteger(endLine) ||
+    startLine < 1 ||
+    endLine < startLine
+  ) {
+    return null;
+  }
+
+  const range: RuntimeWorkspaceContextRange = { startLine, endLine };
+  const approxTokens = readOptionalTokenValue(input, 'approxTokens');
+  if (approxTokens !== undefined) {
+    range.approxTokens = approxTokens;
+  }
+  const isActive = readOptionalBoolean(input, 'isActive');
+  if (isActive !== undefined) {
+    range.isActive = isActive;
+  }
+  return range;
+}
+
+function sanitizeWorkspaceContextFile(input: unknown): RuntimeWorkspaceContextFile | null {
+  if (!isPlainObject(input)) {
+    return null;
+  }
+
+  const pathValue = input['path'];
+  if (typeof pathValue !== 'string' || pathValue.trim().length === 0) {
+    return null;
+  }
+
+  const file: RuntimeWorkspaceContextFile = { path: pathValue };
+  const approxTokens = readOptionalTokenValue(input, 'approxTokens');
+  if (approxTokens !== undefined) {
+    file.approxTokens = approxTokens;
+  }
+  const outputApproxTokens = readOptionalTokenValue(input, 'outputApproxTokens');
+  if (outputApproxTokens !== undefined) {
+    file.outputApproxTokens = outputApproxTokens;
+  }
+  const rangesValue = input['ranges'];
+  if (rangesValue !== undefined) {
+    if (!Array.isArray(rangesValue)) {
+      return null;
+    }
+    const ranges: RuntimeWorkspaceContextRange[] = [];
+    for (const rangeValue of rangesValue) {
+      const range = sanitizeWorkspaceContextRange(rangeValue);
+      if (!range) {
+        return null;
+      }
+      ranges.push(range);
+    }
+    file.ranges = ranges;
+  }
+  return file;
+}
+
+function sanitizeWorkspaceContext(input: unknown): RuntimeWorkspaceContext | undefined {
+  if (!isPlainObject(input)) {
+    return;
+  }
+
+  const workspaceContext: RuntimeWorkspaceContext = {};
+  const filesValue = input['files'];
+  if (filesValue !== undefined) {
+    if (!Array.isArray(filesValue)) {
+      return;
+    }
+    const files: RuntimeWorkspaceContextFile[] = [];
+    for (const fileValue of filesValue) {
+      const file = sanitizeWorkspaceContextFile(fileValue);
+      if (!file) {
+        return;
+      }
+      files.push(file);
+    }
+    workspaceContext.files = files;
+  }
+
+  const includeProjectTree = readOptionalBoolean(input, 'includeProjectTree');
+  if (includeProjectTree !== undefined) {
+    workspaceContext.includeProjectTree = includeProjectTree;
+  }
+  const projectTreeApproxTokens = readOptionalTokenValue(input, 'projectTreeApproxTokens');
+  if (projectTreeApproxTokens !== undefined) {
+    workspaceContext.projectTreeApproxTokens = projectTreeApproxTokens;
+  }
+  const projectTreeTokenCountLoading = readOptionalBoolean(input, 'projectTreeTokenCountLoading');
+  if (projectTreeTokenCountLoading !== undefined) {
+    workspaceContext.projectTreeTokenCountLoading = projectTreeTokenCountLoading;
+  }
+  const selectedOutputApproxTokens = readOptionalTokenValue(input, 'selectedOutputApproxTokens');
+  if (selectedOutputApproxTokens !== undefined) {
+    workspaceContext.selectedOutputApproxTokens = selectedOutputApproxTokens;
+  }
+  const selectedSourceApproxTokens = readOptionalTokenValue(input, 'selectedSourceApproxTokens');
+  if (selectedSourceApproxTokens !== undefined) {
+    workspaceContext.selectedSourceApproxTokens = selectedSourceApproxTokens;
+  }
+  const tokenBudget = input['tokenBudget'];
+  if (tokenBudget !== undefined) {
+    if (!isFiniteTokenValue(tokenBudget)) {
+      return;
+    }
+    workspaceContext.tokenBudget = tokenBudget;
+  }
+  const useTapestryRanges = readOptionalBoolean(input, 'useTapestryRanges');
+  if (useTapestryRanges !== undefined) {
+    workspaceContext.useTapestryRanges = useTapestryRanges;
+  }
+
+  return workspaceContext;
+}
+
+function sanitizeAgentLoop(input: unknown): RuntimeAgentLoop | undefined {
+  if (!isPlainObject(input)) {
+    return;
+  }
+
+  const agentLoop: RuntimeAgentLoop = {};
+  const maxSteps = readOptionalPositiveInteger(input, 'maxSteps');
+  if (maxSteps !== undefined) {
+    agentLoop.maxSteps = maxSteps;
+  }
+  const inputTokenLimit = readOptionalPositiveInteger(input, 'inputTokenLimit');
+  if (inputTokenLimit !== undefined) {
+    agentLoop.inputTokenLimit = inputTokenLimit;
+  }
+
+  return Object.keys(agentLoop).length > 0 ? agentLoop : undefined;
+}
+
+function sanitizeWorkspaceIndexingMode(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return;
+  }
+  const workspaceIndexingMode = value.trim();
+  if (ALLOWED_WORKSPACE_INDEXING_MODES.has(workspaceIndexingMode)) {
+    return workspaceIndexingMode;
+  }
+  logger.warn('Rejected invalid runtime workspaceIndexingMode.', { workspaceIndexingMode });
+  return;
+}
+
+function sanitizeEnabledNativeToolIds(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return;
+  }
+
+  const rejectedNativeToolIds: string[] = [];
+  const enabledNativeToolIds: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') {
+      continue;
+    }
+    const toolId = item.trim();
+    if (toolId.length === 0) {
+      continue;
+    }
+    if (!ALLOWED_NATIVE_TOOL_IDS.has(toolId)) {
+      rejectedNativeToolIds.push(toolId);
+      continue;
+    }
+    enabledNativeToolIds.push(toolId);
+  }
+  if (rejectedNativeToolIds.length > 0) {
+    logger.warn('Rejected unknown enabled native tool ids at IPC boundary.', {
+      toolIds: rejectedNativeToolIds,
+    });
+  }
+  return enabledNativeToolIds;
+}
+
 function sanitizeRuntimeData(input: unknown): Partial<RuntimeData> | undefined {
   if (!isPlainObject(input)) {
     return;
@@ -139,23 +362,38 @@ function sanitizeRuntimeData(input: unknown): Partial<RuntimeData> | undefined {
       runtimeData.selectionFilePaths = selectionFilePaths;
     }
   }
-  if (typeof input['embeddingSetId'] === 'string') {
-    runtimeData.embeddingSetId = input['embeddingSetId'];
+  if (typeof input['workspaceIndexEmbeddingSetId'] === 'string') {
+    runtimeData.workspaceIndexEmbeddingSetId = input['workspaceIndexEmbeddingSetId'];
   }
-  if (typeof input['tokenBudget'] === 'number' && Number.isFinite(input['tokenBudget'])) {
-    runtimeData.tokenBudget = input['tokenBudget'];
+  if (typeof input['workspaceIndexingEnabled'] === 'boolean') {
+    runtimeData.workspaceIndexingEnabled = input['workspaceIndexingEnabled'];
   }
-  if (typeof input['includeFileReport'] === 'boolean') {
-    runtimeData.includeFileReport = input['includeFileReport'];
+  const workspaceIndexingMode = sanitizeWorkspaceIndexingMode(input['workspaceIndexingMode']);
+  if (workspaceIndexingMode) {
+    runtimeData.workspaceIndexingMode = workspaceIndexingMode;
   }
-  if (typeof input['includeProjectTree'] === 'boolean') {
-    runtimeData.includeProjectTree = input['includeProjectTree'];
+  if (typeof input['workspaceIndexingPaused'] === 'boolean') {
+    runtimeData.workspaceIndexingPaused = input['workspaceIndexingPaused'];
   }
-  if (
-    typeof input['contextTokenCount'] === 'number' &&
-    Number.isFinite(input['contextTokenCount'])
-  ) {
-    runtimeData.contextTokenCount = input['contextTokenCount'];
+  if (input['workspaceContext'] !== undefined) {
+    const workspaceContext = sanitizeWorkspaceContext(input['workspaceContext']);
+    if (workspaceContext) {
+      runtimeData.workspaceContext = workspaceContext;
+    } else {
+      logger.warn('Rejected invalid runtime workspaceContext metadata.');
+    }
+  }
+  const enabledNativeToolIds = sanitizeEnabledNativeToolIds(input['enabledNativeToolIds']);
+  if (enabledNativeToolIds) {
+    runtimeData.enabledNativeToolIds = enabledNativeToolIds;
+  }
+  if (input['agentLoop'] !== undefined) {
+    const agentLoop = sanitizeAgentLoop(input['agentLoop']);
+    if (agentLoop) {
+      runtimeData.agentLoop = agentLoop;
+    } else {
+      logger.warn('Rejected invalid runtime agentLoop metadata.');
+    }
   }
 
   return Object.keys(runtimeData).length > 0 ? runtimeData : undefined;
@@ -175,6 +413,10 @@ type ToolExecutionResult<T = unknown> =
       error: string;
       durationMs: number;
     };
+
+interface ToolsIpcDependencies {
+  embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
+}
 
 function buildDuration(startTime: number): number {
   return Math.round(performance.now() - startTime);
@@ -213,9 +455,12 @@ async function tryExecuteAssistantRuntimeTool(
   startTime: number,
   toolId: string,
   input: unknown,
-  runtimeData: Partial<RuntimeData> | undefined
+  runtimeData: Partial<RuntimeData> | undefined,
+  dependencies: ToolsIpcDependencies
 ): Promise<ToolExecutionResult | null> {
-  const assistantTool = buildDesktopAssistantTools(runtimeData)[toolId];
+  const assistantTool = buildDesktopAssistantTools(runtimeData, {
+    embeddingHostManager: dependencies.embeddingHostManager,
+  })[toolId];
   if (!assistantTool?.execute) {
     return null;
   }
@@ -261,7 +506,7 @@ async function executeMcpTool(
 /**
  * Register IPC handlers for tool execution.
  */
-export function registerToolsIpcHandlers(): void {
+export function registerToolsIpcHandlers(dependencies: ToolsIpcDependencies = {}): void {
   logger.debug('Registering tools IPC handlers');
 
   ipcMain.handle(
@@ -294,7 +539,8 @@ export function registerToolsIpcHandlers(): void {
             startTime,
             normalizedToolId,
             input,
-            runtimeData
+            runtimeData,
+            dependencies
           );
           if (assistantRuntimeResult) {
             return assistantRuntimeResult;

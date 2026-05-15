@@ -563,9 +563,12 @@ test.describe('File Explorer', () => {
       ).toHaveAttribute('data-state', 'unchecked');
 
       const srcRow = filteredExplorer.fileTree.getByRole('row', {
-        name: /Expand Select src src/i,
+        name: /Select src src/i,
       });
-      await srcRow.getByRole('button', { name: 'Expand' }).click();
+      const srcExpandButton = srcRow.getByRole('button', { name: 'Expand' });
+      if (await srcExpandButton.isVisible()) {
+        await srcExpandButton.click();
+      }
 
       await expect(filteredExplorer.fileTree.getByText('app.ts')).toBeVisible({ timeout: 10_000 });
       await expect(
@@ -574,9 +577,12 @@ test.describe('File Explorer', () => {
       await expect(filteredExplorer.fileTree.getByText('readme.md')).not.toBeVisible();
 
       const nestedRow = filteredExplorer.fileTree.getByRole('row', {
-        name: /Expand Select nested nested/i,
+        name: /Select nested nested/i,
       });
-      await nestedRow.getByRole('button', { name: 'Expand' }).click();
+      const nestedExpandButton = nestedRow.getByRole('button', { name: 'Expand' });
+      if (await nestedExpandButton.isVisible()) {
+        await nestedExpandButton.click();
+      }
 
       await expect(filteredExplorer.fileTree.getByText('deep.tsx')).toBeVisible({
         timeout: 10_000,
@@ -746,7 +752,7 @@ test.describe('File Explorer', () => {
       // Sanity-check the bug surface: both subfolder rows are present but
       // collapsed. We deliberately do NOT click any expand chevron — that is
       // exactly the state where the web indexer used to skip nested files.
-      const srcRow = explorer.fileTree.getByRole('row', { name: /Expand Select src src/i });
+      const srcRow = explorer.fileTree.getByRole('row', { name: /Select src src/i });
       await expect(srcRow.getByRole('button', { name: 'Expand' })).toBeVisible();
       await expect(explorer.fileTree.getByText('shallow.ts')).toHaveCount(0);
       await expect(explorer.fileTree.getByText('deep.ts')).toHaveCount(0);

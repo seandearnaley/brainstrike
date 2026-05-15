@@ -940,7 +940,7 @@ if (singleInstanceLockAcquired) {
       registerSecretsIpcHandlers(createSecretsService());
       registerAgentIpcHandlers();
       registerMcpIpcHandlers();
-      registerToolsIpcHandlers();
+      registerToolsIpcHandlers({ embeddingHostManager });
       registerRuntimeIpcHandlers();
       logger.debug('Ready-dependent IPC handlers registered successfully');
       desktopDatabaseMaintenanceScheduler?.start();
@@ -1053,7 +1053,7 @@ if (singleInstanceLockAcquired) {
       // Start local data stream server for desktop assistant-ui
       let assistantUrl = '';
       try {
-        const { url, stop } = await startAssistantServer();
+        const { url, stop } = await startAssistantServer(undefined, { embeddingHostManager });
         assistantUrl = url;
         stopAssistantServer = stop;
         logger.debug(`Assistant server started at ${assistantUrl}`);

@@ -112,11 +112,9 @@ export function syncTapestryRanges(args: {
     }
   }
 
-  for (const key of Object.keys(next)) {
+  for (const key of nextTotals.keys()) {
     if (!args.bases.has(key)) {
-      delete next[key];
       nextTotals.delete(key);
-      changed = true;
     }
   }
 

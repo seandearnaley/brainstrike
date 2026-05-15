@@ -139,6 +139,10 @@ describe('createChunkingWorkerPort', () => {
             chunkIndex: 0,
             content: 'content',
             contentHash: 'hash-1',
+            startLine: 1,
+            endLine: 1,
+            startOffset: 0,
+            endOffset: 7,
             tokenCount: 10,
             chunkType: 'sentence',
             chunkSize: 7,
@@ -430,6 +434,10 @@ describe('toFileChunkInserts', () => {
         tokenCount: 10,
         chunkType: 'sentence' as const,
         chunkSize: 11,
+        startLine: 1,
+        endLine: 2,
+        startOffset: 0,
+        endOffset: 11,
       },
       {
         chunkIndex: 1,
@@ -438,6 +446,10 @@ describe('toFileChunkInserts', () => {
         tokenCount: 15,
         chunkType: 'sentence' as const,
         chunkSize: 12,
+        startLine: 4,
+        endLine: 6,
+        startOffset: 13,
+        endOffset: 25,
       },
     ];
 
@@ -451,6 +463,10 @@ describe('toFileChunkInserts', () => {
       content: 'First chunk',
       contentHash: 'hash-1',
       tokenCount: 10,
+      startLine: 1,
+      endLine: 2,
+      startOffset: 0,
+      endOffset: 11,
     });
     expect(inserts[1]).toMatchObject({
       id: 'file-123_chunk_1',
@@ -465,6 +481,10 @@ describe('toFileChunkInserts', () => {
         chunkIndex: 0,
         content: 'Chunk',
         contentHash: 'hash-1',
+        startLine: 1,
+        endLine: 1,
+        startOffset: 0,
+        endOffset: 5,
         tokenCount: 5,
         chunkType: 'sentence' as const,
         chunkSize: 5,
@@ -482,6 +502,10 @@ describe('toFileChunkInserts', () => {
         chunkIndex: 0,
         content: 'Chunk',
         contentHash: 'hash-1',
+        startLine: 1,
+        endLine: 1,
+        startOffset: 0,
+        endOffset: 5,
         tokenCount: 5,
         chunkType: 'sentence' as const,
         chunkSize: 5,
@@ -492,5 +516,22 @@ describe('toFileChunkInserts', () => {
 
     expect(inserts[0]).toBeDefined();
     expect(Object.hasOwn(inserts[0] as object, 'embeddingSetId')).toBe(false);
+  });
+
+  it('should reject chunks missing source range metadata', () => {
+    const chunks = [
+      {
+        chunkIndex: 0,
+        content: 'Chunk',
+        contentHash: 'hash-1',
+        tokenCount: 5,
+        chunkType: 'sentence' as const,
+        chunkSize: 5,
+      },
+    ];
+
+    expect(() =>
+      toFileChunkInserts('file-123', chunks as unknown as Parameters<typeof toFileChunkInserts>[1])
+    ).toThrow('Chunk 0 has invalid required source range metadata.');
   });
 });

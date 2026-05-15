@@ -455,5 +455,72 @@ describe('mcp-tool-loader', () => {
         expect.arrayContaining([expect.objectContaining({ id: 'filesystem.read_file' })])
       );
     });
+
+    it('applies persisted enabled state when Mastra exposes server tools under sanitized ids', async () => {
+      mcpToolRegistry.register('filesystem', {
+        'filesystem.read_file': { id: 'filesystem.read_file', description: 'read file' },
+        'filesystem.list_directory': { id: 'filesystem.list_directory', description: 'list dir' },
+      });
+      mcpToolRegistry.disableTools(['filesystem.read_file']);
+
+      const mockMcpTools: ToolsInput = {
+        filesystem_read_file: { id: 'filesystem_read_file', description: 'read file' },
+        filesystem_list_directory: { id: 'filesystem_list_directory', description: 'list dir' },
+      };
+
+      const mockMcpClient = {
+        listTools: vi.fn().mockResolvedValue(mockMcpTools),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'filesystem',
+              transport: 'stdio' as const,
+              command: 'echo',
+            },
+          ],
+        },
+        toolNameMap: new Map(),
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(result).not.toHaveProperty('filesystem_read_file');
+      expect(result).toHaveProperty('filesystem_list_directory');
+    });
+
+    it('applies config enabledTools patterns to sanitized Mastra MCP ids through registry ids', async () => {
+      const mockMcpTools: ToolsInput = {
+        filesystem_read_file: { id: 'filesystem_read_file', description: 'read file' },
+        filesystem_list_directory: { id: 'filesystem_list_directory', description: 'list dir' },
+      };
+
+      const mockMcpClient = {
+        listTools: vi.fn().mockResolvedValue(mockMcpTools),
+      };
+
+      const result = await collectCombinedTools({
+        sanitizedLocalTools: undefined,
+        mcpClient: mockMcpClient as unknown as MCPClient,
+        mcpConfig: {
+          servers: [
+            {
+              name: 'filesystem',
+              transport: 'stdio' as const,
+              command: 'echo',
+              enabledTools: ['filesystem.list_directory'],
+            },
+          ],
+        },
+        toolNameMap: new Map(),
+        timeoutOverrideMs: undefined,
+      });
+
+      expect(result).not.toHaveProperty('filesystem_read_file');
+      expect(result).toHaveProperty('filesystem_list_directory');
+    });
   });
 });

@@ -162,6 +162,10 @@ export const fileChunks = pgTable(
     tokenCount: integer('token_count'),
     chunkType: text('chunk_type').$type<'text' | 'code' | 'sentence' | 'recursive'>(),
     chunkSize: integer('chunk_size'),
+    startLine: integer('start_line'),
+    endLine: integer('end_line'),
+    startOffset: integer('start_offset'),
+    endOffset: integer('end_offset'),
     // Flexible vector column (dimensions determined at runtime)
     embedding: vector('embedding'),
     embeddingSetId: text('embedding_set_id'),

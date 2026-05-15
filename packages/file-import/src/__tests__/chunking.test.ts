@@ -1,3 +1,4 @@
+import type { PortableChunk } from '@brainstrike/chunking-worker';
 import type { FileChunk, FileImportResult, FileRecord, IDatabase } from '@brainstrike/db';
 import { ChunkingService } from '@brainstrike/db';
 import type { Mock } from 'vitest';
@@ -7,6 +8,22 @@ import type { ChunkingWorkerPort } from '../chunking-worker-port';
 import type { EnhancedImportProgress, EnhancedImportResult } from '../types';
 
 // Helper to create a mock worker port for tests
+function createMockPortableChunk(overrides: Partial<PortableChunk> = {}): PortableChunk {
+  return {
+    chunkIndex: 0,
+    content: 'Chunk content',
+    contentHash: 'hash-1',
+    tokenCount: 10,
+    chunkType: 'sentence',
+    chunkSize: 100,
+    startLine: 1,
+    endLine: 1,
+    startOffset: 0,
+    endOffset: 13,
+    ...overrides,
+  };
+}
+
 function createMockChunkingWorkerPort(overrides?: Partial<ChunkingWorkerPort>): ChunkingWorkerPort {
   return {
     transportKind: 'local-worker',
@@ -14,15 +31,7 @@ function createMockChunkingWorkerPort(overrides?: Partial<ChunkingWorkerPort>): 
     terminate: vi.fn(),
     chunkFile: vi.fn().mockResolvedValue({
       fileRecordId: 'file-1',
-      chunks: [
-        {
-          chunkIndex: 0,
-          content: 'Chunk content',
-          contentHash: 'hash-1',
-          tokenCount: 10,
-          chunkType: 'sentence',
-        },
-      ],
+      chunks: [createMockPortableChunk()],
       strategyUsed: 'sentence',
       totalTokens: 10,
       skipped: false,
@@ -30,16 +39,7 @@ function createMockChunkingWorkerPort(overrides?: Partial<ChunkingWorkerPort>): 
     chunkBatch: vi.fn().mockResolvedValue([]),
     chunkFileById: vi.fn().mockResolvedValue({
       fileRecordId: 'file-1',
-      chunks: [
-        {
-          chunkIndex: 0,
-          content: 'Chunk content',
-          contentHash: 'hash-1',
-          tokenCount: 10,
-          chunkType: 'sentence',
-          chunkSize: 100,
-        },
-      ],
+      chunks: [createMockPortableChunk()],
       strategyUsed: 'sentence',
       totalTokens: 10,
       skipped: false,
@@ -736,14 +736,10 @@ describe('processChunking', () => {
       chunkFileById: vi.fn().mockResolvedValue({
         fileRecordId: 'file-1',
         chunks: [
-          {
-            chunkIndex: 0,
+          createMockPortableChunk({
             content: 'Scoped chunk content',
             contentHash: 'scoped-hash-1',
-            tokenCount: 10,
-            chunkType: 'sentence',
-            chunkSize: 100,
-          },
+          }),
         ],
         strategyUsed: 'sentence',
         totalTokens: 10,
@@ -810,13 +806,11 @@ describe('processChunking', () => {
         return {
           fileRecordId,
           chunks: [
-            {
-              chunkIndex: 0,
+            createMockPortableChunk({
               content: `Chunk content for ${fileRecordId}`,
               contentHash: `hash-${fileRecordId}`,
-              tokenCount: 10,
-              chunkType: 'sentence',
-            },
+              endOffset: `Chunk content for ${fileRecordId}`.length,
+            }),
           ],
           strategyUsed: 'sentence',
           totalTokens: 10,
@@ -857,13 +851,11 @@ describe('processChunking', () => {
         return {
           fileRecordId,
           chunks: [
-            {
-              chunkIndex: 0,
+            createMockPortableChunk({
               content: `Chunk content for ${fileRecordId}`,
               contentHash: `hash-${fileRecordId}`,
-              tokenCount: 10,
-              chunkType: 'sentence',
-            },
+              endOffset: `Chunk content for ${fileRecordId}`.length,
+            }),
           ],
           strategyUsed: 'sentence',
           totalTokens: 10,
@@ -928,13 +920,11 @@ describe('processChunking', () => {
             return {
               fileRecordId,
               chunks: [
-                {
-                  chunkIndex: 0,
+                createMockPortableChunk({
                   content: `Chunk content for ${fileRecordId}`,
                   contentHash: `hash-${fileRecordId}`,
-                  tokenCount: 10,
-                  chunkType: 'sentence',
-                },
+                  endOffset: `Chunk content for ${fileRecordId}`.length,
+                }),
               ],
               strategyUsed: 'sentence',
               totalTokens: 10,

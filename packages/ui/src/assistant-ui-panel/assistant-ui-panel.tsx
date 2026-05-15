@@ -66,13 +66,10 @@ import { Switch } from '../switch';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantRunTimeline } from './assistant-run-timeline';
 import {
-  type BudgetStatus,
   clampNumber,
   clampProgress,
   getLocalModelStatusLabel,
   parseNumber,
-  resolveBudgetStatus,
-  truncateMiddle,
 } from './assistant-ui-panel-utils';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import { ToolFallback } from './tool-fallback';
@@ -150,19 +147,6 @@ export interface AssistantToolMenuConfig {
   summary?: string;
 }
 
-export interface AssistantContextMenuConfig {
-  contextTokenCount?: number;
-  embeddingSetId?: string;
-  includeFileReport?: boolean;
-  includeProjectTree?: boolean;
-  onIncludeFileReportChange?: (value: boolean) => void;
-  onIncludeProjectTreeChange?: (value: boolean) => void;
-  onTokenBudgetChange?: (value: number) => void;
-  selectionCount?: number;
-  selectionLabel?: string;
-  tokenBudget?: number;
-}
-
 // Provider-settings types live in `@brainstrike/types` so `packages/ui` and
 // `packages/preferences` share a single canonical definition. They are
 // re-exported here to keep the existing public surface of the
@@ -196,7 +180,6 @@ export interface AssistantUiPanelProps {
     status: 'cancelled' | 'completed' | 'failed',
     error?: string
   ) => Promise<void> | void;
-  contextMenu?: AssistantContextMenuConfig;
   disabled?: boolean;
   disabledReason?: string;
   historyAdapter?: ThreadHistoryAdapter;
@@ -470,7 +453,6 @@ interface ChatThreadProps {
         error?: string
       ) => Promise<void> | void)
     | undefined;
-  contextMenu?: AssistantContextMenuConfig | undefined;
   disabled: boolean;
   disabledReason: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
@@ -515,7 +497,6 @@ const LocalRuntimeChat: FC<
   modelId,
   onLoadingStateChange,
   toolMenu,
-  contextMenu,
   requestData,
   prepareRequestData,
   completePreparedRequest,
@@ -573,7 +554,6 @@ const LocalRuntimeChat: FC<
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ChatThreadUI
-        contextMenu={contextMenu}
         disabledReason={disabledReason}
         hasGroupedProviders={hasGroupedProviders}
         isComposerDisabled={isComposerDisabled}
@@ -631,7 +611,6 @@ const DataStreamRuntimeChat: FC<
   prepareRequestData,
   modelName,
   toolMenu,
-  contextMenu,
 }) => {
   const hasGroupedProviders = providerGroups.length > 0;
   const isComposerDisabled = Boolean(disabled);
@@ -686,7 +665,6 @@ const DataStreamRuntimeChat: FC<
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ChatThreadUI
-        contextMenu={contextMenu}
         disabledReason={disabledReason}
         hasGroupedProviders={hasGroupedProviders}
         isComposerDisabled={isComposerDisabled}
@@ -726,7 +704,6 @@ const ChatThreadUI: FC<{
   disabledReason: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   toolMenu?: AssistantToolMenuConfig | undefined;
-  contextMenu?: AssistantContextMenuConfig | undefined;
 }> = ({
   providerGroups,
   hasGroupedProviders,
@@ -742,7 +719,6 @@ const ChatThreadUI: FC<{
   disabledReason,
   localLoadingState,
   toolMenu,
-  contextMenu,
 }) => {
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const messageCount = useAuiState((state) => state.thread.messages.length);
@@ -866,7 +842,6 @@ const ChatThreadUI: FC<{
           </div>
           {hasGroupedProviders && (
             <ProviderModelHeader
-              contextMenu={contextMenu}
               groups={providerGroups}
               onModelChange={onModelChange}
               onProviderSettingsChange={onProviderSettingsChange}
@@ -900,7 +875,6 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   onModelChange,
   onThreadRunStart,
   toolMenu,
-  contextMenu,
   disabled = false,
   disabledReason,
   historyAdapter,
@@ -981,7 +955,6 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
       {isLocalProvider && modelName ? (
         <LocalRuntimeChat
           completePreparedRequest={completePreparedRequest}
-          contextMenu={contextMenu}
           disabled={disabled}
           disabledReason={disabledReason}
           key={threadKey ? `local:${threadKey}` : 'local'}
@@ -1005,7 +978,6 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
         <DataStreamRuntimeChat
           api={api}
           completePreparedRequest={completePreparedRequest}
-          contextMenu={contextMenu}
           disabled={disabled}
           disabledReason={disabledReason}
           historyAdapter={historyAdapter}
@@ -1181,7 +1153,6 @@ interface NormalizedProviderGroup {
 }
 
 interface ProviderModelHeaderProps {
-  contextMenu?: AssistantContextMenuConfig | undefined;
   groups: ProviderGroupConfig[];
   onModelChange?: ((compositeKey: string) => void) | undefined;
   onProviderSettingsChange?:
@@ -1205,7 +1176,6 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
   selectedModel,
   onModelChange,
   toolMenu,
-  contextMenu,
 }) => {
   // Extract model name from composite key (format: "provider::model")
   const modelName = useMemo(() => {
@@ -1300,7 +1270,6 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
         </div>
         <div className="bs-composer-controls-slot">
           <ControlsMenu
-            contextMenu={contextMenu}
             modelName={modelName}
             onProviderSettingsChange={onProviderSettingsChange}
             providerSettings={providerSettings}
@@ -1309,15 +1278,12 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
           />
         </div>
       </div>
-      <div className="bs-composer-context-slot">
-        <ContextSummaryRow contextMenu={contextMenu} />
-      </div>
+      <div className="bs-composer-context-slot" />
     </div>
   );
 };
 
 interface ControlsMenuProps {
-  contextMenu?: AssistantContextMenuConfig | undefined;
   modelName?: string | undefined;
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
@@ -1335,104 +1301,6 @@ interface ToolMenuGroup {
 }
 
 const TOOL_SOURCE_ORDER: AssistantToolSource[] = ['native', 'mcp'];
-
-const ContextControlsSection: FC<{
-  contextMenu: AssistantContextMenuConfig;
-  budgetStatus: BudgetStatus | undefined;
-}> = ({ contextMenu, budgetStatus }) => (
-  <div className="space-y-2">
-    <DropdownMenuLabel className="px-1 text-[10px] text-muted-foreground uppercase tracking-wide">
-      Context
-    </DropdownMenuLabel>
-    <div className="space-y-2 rounded-md border border-border/70 bg-background/80 p-2 text-xs">
-      <div className="grid grid-cols-[120px_1fr] items-center gap-2">
-        <span className="text-muted-foreground">Selection</span>
-        <span className="font-medium">
-          {contextMenu.selectionLabel ??
-            (contextMenu.selectionCount ? `${contextMenu.selectionCount} files` : 'None')}
-        </span>
-      </div>
-      {contextMenu.embeddingSetId && (
-        <div className="grid grid-cols-[120px_1fr] items-center gap-2">
-          <span className="text-muted-foreground">Embedding set</span>
-          <span className="font-medium">{truncateMiddle(contextMenu.embeddingSetId, 10, 6)}</span>
-        </div>
-      )}
-      <div className="grid grid-cols-[120px_1fr] items-center gap-2">
-        <span className="text-muted-foreground">Include file report</span>
-        <div className="flex justify-end">
-          <Switch
-            checked={contextMenu.includeFileReport ?? true}
-            onCheckedChange={(checked) => contextMenu.onIncludeFileReportChange?.(checked)}
-          />
-        </div>
-      </div>
-      <div className="grid grid-cols-[120px_1fr] items-center gap-2">
-        <span className="text-muted-foreground">Include file tree</span>
-        <div className="flex justify-end">
-          <Switch
-            checked={contextMenu.includeProjectTree ?? false}
-            onCheckedChange={(checked) => contextMenu.onIncludeProjectTreeChange?.(checked)}
-          />
-        </div>
-      </div>
-      {typeof contextMenu.tokenBudget === 'number' && (
-        <div className="grid grid-cols-[120px_1fr] items-center gap-2">
-          <Label className="text-muted-foreground">Token budget</Label>
-          <div className="flex items-center gap-2">
-            <Input
-              className="h-7 text-xs"
-              disabled={!contextMenu.onTokenBudgetChange}
-              inputMode="numeric"
-              onChange={(event) => {
-                if (!contextMenu.onTokenBudgetChange) {
-                  return;
-                }
-                const parsed = parseNumber(event.target.value);
-                if (parsed === undefined) {
-                  return;
-                }
-                contextMenu.onTokenBudgetChange(parsed);
-              }}
-              type="number"
-              value={contextMenu.tokenBudget}
-            />
-            <span className="text-[10px] text-muted-foreground">
-              {settingsNumberFormatter.format(contextMenu.tokenBudget)}
-            </span>
-          </div>
-        </div>
-      )}
-      {typeof contextMenu.contextTokenCount === 'number' && (
-        <div className="grid grid-cols-[120px_1fr] items-center gap-2">
-          <span className="text-muted-foreground">Est. context tokens</span>
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-medium">
-              {settingsNumberFormatter.format(contextMenu.contextTokenCount)} tokens
-            </span>
-            {budgetStatus && (
-              <Badge
-                variant={
-                  budgetStatus === 'over'
-                    ? 'destructive'
-                    : budgetStatus === 'near'
-                      ? 'secondary'
-                      : 'outline'
-                }
-              >
-                {budgetStatus === 'over'
-                  ? 'Over budget'
-                  : budgetStatus === 'near'
-                    ? 'Near budget'
-                    : 'Within budget'}
-              </Badge>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  </div>
-);
 
 const ReasoningControlsSection: FC<{
   hasReasoning: boolean;
@@ -1548,7 +1416,6 @@ const ToolsControlsSection: FC<{
 };
 
 const ControlsMenu: FC<ControlsMenuProps> = ({
-  contextMenu,
   toolMenu,
   providerSettings,
   onProviderSettingsChange,
@@ -1568,7 +1435,6 @@ const ControlsMenu: FC<ControlsMenuProps> = ({
     );
   }, [selectedProvider]);
 
-  const hasContext = Boolean(contextMenu);
   const hasReasoning = Boolean(supportsReasoningSettings && onProviderSettingsChange);
 
   const toolMenuItems = toolMenu?.items;
@@ -1626,12 +1492,11 @@ const ControlsMenu: FC<ControlsMenuProps> = ({
     [toolMenuOnToggleTool]
   );
 
-  if (!(hasContext || hasTools || hasReasoning)) {
+  if (!(hasTools || hasReasoning)) {
     return null;
   }
 
   const activeSettings = selectedProvider ? providerSettings?.[selectedProvider] : undefined;
-  const budgetStatus = resolveBudgetStatus(contextMenu);
 
   return (
     <DropdownMenu>
@@ -1647,9 +1512,6 @@ const ControlsMenu: FC<ControlsMenuProps> = ({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[340px] p-2">
-        {hasContext && contextMenu && (
-          <ContextControlsSection budgetStatus={budgetStatus} contextMenu={contextMenu} />
-        )}
         <ReasoningControlsSection
           hasReasoning={hasReasoning}
           modelName={modelName}
@@ -1671,71 +1533,22 @@ const ControlsMenu: FC<ControlsMenuProps> = ({
   );
 };
 
-const ContextSummaryRow: FC<{ contextMenu?: AssistantContextMenuConfig | undefined }> = ({
-  contextMenu,
-}) => {
-  if (!contextMenu) {
-    return null;
-  }
-
-  const badges: Array<{ key: string; label: string }> = [];
-  if (contextMenu.selectionLabel) {
-    badges.push({ key: 'selection', label: contextMenu.selectionLabel });
-  } else if (contextMenu.selectionCount) {
-    badges.push({ key: 'selection', label: `${contextMenu.selectionCount} files` });
-  }
-  if (contextMenu.embeddingSetId) {
-    badges.push({
-      key: 'embedding',
-      label: `Set ${truncateMiddle(contextMenu.embeddingSetId, 8, 6)}`,
-    });
-  }
-  if (typeof contextMenu.tokenBudget === 'number') {
-    badges.push({
-      key: 'budget',
-      label: `${settingsNumberFormatter.format(contextMenu.tokenBudget)} tokens`,
-    });
-  }
-  if (typeof contextMenu.contextTokenCount === 'number') {
-    badges.push({
-      key: 'estimate',
-      label: `${settingsNumberFormatter.format(contextMenu.contextTokenCount)} est.`,
-    });
-  }
-  badges.push({
-    key: 'report',
-    label: `Report ${(contextMenu.includeFileReport ?? true) ? 'on' : 'off'}`,
-  });
-  badges.push({
-    key: 'tree',
-    label: `Tree ${contextMenu.includeProjectTree ? 'on' : 'off'}`,
-  });
-
-  if (badges.length === 0) {
-    return null;
-  }
-
-  return (
-    <div
-      className="bs-context-summary text-[10px] text-muted-foreground"
-      data-testid="assistant-context-summary"
-    >
-      <span className="font-semibold uppercase tracking-wide">Context</span>
-      {badges.map((badge) => (
-        <Badge className="bs-context-summary-badge text-[10px]" key={badge.key} variant="outline">
-          {badge.label}
-        </Badge>
-      ))}
-    </div>
-  );
-};
-
 const settingsNumberFormatter = new Intl.NumberFormat();
 
 const MAX_OUTPUT_DEFAULT = 2048;
 const MAX_OUTPUT_MIN = 128;
 const MAX_OUTPUT_MAX = 8192;
 const MAX_OUTPUT_STEP = 64;
+
+const AGENT_MAX_STEPS_DEFAULT = 20;
+const AGENT_MAX_STEPS_MIN = 1;
+const AGENT_MAX_STEPS_MAX = 100;
+const INPUT_TOKEN_LIMIT_DEFAULT = 64_000;
+const INPUT_TOKEN_LIMIT_MIN = 4096;
+const INPUT_TOKEN_LIMIT_MAX = 256_000;
+const MEMORY_LAST_MESSAGES_DEFAULT = 40;
+const MEMORY_LAST_MESSAGES_MIN = 0;
+const MEMORY_LAST_MESSAGES_MAX = 200;
 
 const ANTHROPIC_THINKING_DEFAULT = 12_000;
 const ANTHROPIC_THINKING_MIN = 1024;
@@ -1788,6 +1601,154 @@ interface ProviderSettingsSectionProps {
   settings: AssistantProviderSettings;
 }
 
+const AgentRuntimeSection: FC<ProviderSettingsSectionProps> = ({
+  settings,
+  onUpdate,
+  disabled,
+}) => {
+  const maxStepsEnabled = typeof settings.agentMaxSteps === 'number';
+  const maxStepsValue = clampNumber(
+    settings.agentMaxSteps ?? AGENT_MAX_STEPS_DEFAULT,
+    AGENT_MAX_STEPS_MIN,
+    AGENT_MAX_STEPS_MAX
+  );
+  const inputTokenLimitEnabled = typeof settings.agentInputTokenLimit === 'number';
+  const inputTokenLimitValue = clampNumber(
+    settings.agentInputTokenLimit ?? INPUT_TOKEN_LIMIT_DEFAULT,
+    INPUT_TOKEN_LIMIT_MIN,
+    INPUT_TOKEN_LIMIT_MAX
+  );
+  const memoryLastMessagesValue = clampNumber(
+    settings.memoryLastMessages ?? MEMORY_LAST_MESSAGES_DEFAULT,
+    MEMORY_LAST_MESSAGES_MIN,
+    MEMORY_LAST_MESSAGES_MAX
+  );
+  const workingMemoryEnabled = settings.workingMemoryEnabled ?? true;
+
+  return (
+    <div className="space-y-2 rounded-md bg-muted/30 p-2">
+      <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
+        Agent context
+      </Label>
+      <div className="grid gap-2">
+        <div className="grid grid-cols-[1fr_72px_auto] items-center gap-2">
+          <span className="text-[10px] text-muted-foreground">Max steps</span>
+          <Input
+            aria-label="Max agent steps"
+            className="h-7 text-xs"
+            disabled={disabled || !maxStepsEnabled}
+            inputMode="numeric"
+            max={AGENT_MAX_STEPS_MAX}
+            min={AGENT_MAX_STEPS_MIN}
+            onChange={(event) => {
+              const parsed = parseNumber(event.target.value);
+              if (parsed === undefined) {
+                onUpdate({ agentMaxSteps: undefined });
+                return;
+              }
+              onUpdate({
+                agentMaxSteps: clampNumber(parsed, AGENT_MAX_STEPS_MIN, AGENT_MAX_STEPS_MAX),
+              });
+            }}
+            placeholder="Open"
+            type="number"
+            value={maxStepsEnabled ? maxStepsValue : ''}
+          />
+          <Switch
+            aria-label="Limit agent steps"
+            checked={maxStepsEnabled}
+            disabled={disabled}
+            onCheckedChange={(checked) =>
+              onUpdate({
+                agentMaxSteps: checked ? maxStepsValue : undefined,
+              })
+            }
+          />
+        </div>
+        <div className="grid grid-cols-[1fr_96px_auto] items-center gap-2">
+          <span className="text-[10px] text-muted-foreground">Input tokens</span>
+          <Input
+            aria-label="Input token limit"
+            className="h-7 text-xs"
+            disabled={disabled || !inputTokenLimitEnabled}
+            inputMode="numeric"
+            max={INPUT_TOKEN_LIMIT_MAX}
+            min={INPUT_TOKEN_LIMIT_MIN}
+            onChange={(event) => {
+              const parsed = parseNumber(event.target.value);
+              if (parsed === undefined) {
+                onUpdate({ agentInputTokenLimit: undefined });
+                return;
+              }
+              onUpdate({
+                agentInputTokenLimit: clampNumber(
+                  parsed,
+                  INPUT_TOKEN_LIMIT_MIN,
+                  INPUT_TOKEN_LIMIT_MAX
+                ),
+              });
+            }}
+            placeholder="Off"
+            type="number"
+            value={inputTokenLimitEnabled ? inputTokenLimitValue : ''}
+          />
+          <Switch
+            aria-label="Limit input tokens"
+            checked={inputTokenLimitEnabled}
+            disabled={disabled}
+            onCheckedChange={(checked) =>
+              onUpdate({
+                agentInputTokenLimit: checked ? inputTokenLimitValue : undefined,
+              })
+            }
+          />
+        </div>
+        <div className="grid grid-cols-[1fr_72px_auto] items-center gap-2">
+          <span className="text-[10px] text-muted-foreground">Memory messages</span>
+          <Input
+            aria-label="Memory messages"
+            className="h-7 text-xs"
+            disabled={disabled}
+            inputMode="numeric"
+            max={MEMORY_LAST_MESSAGES_MAX}
+            min={MEMORY_LAST_MESSAGES_MIN}
+            onChange={(event) => {
+              const parsed = parseNumber(event.target.value);
+              if (parsed === undefined) {
+                onUpdate({ memoryLastMessages: undefined });
+                return;
+              }
+              onUpdate({
+                memoryLastMessages: clampNumber(
+                  parsed,
+                  MEMORY_LAST_MESSAGES_MIN,
+                  MEMORY_LAST_MESSAGES_MAX
+                ),
+              });
+            }}
+            type="number"
+            value={memoryLastMessagesValue}
+          />
+          <span className="text-right text-[10px] text-muted-foreground">
+            {memoryLastMessagesValue === 0
+              ? 'Off'
+              : settingsNumberFormatter.format(memoryLastMessagesValue)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] text-muted-foreground">Working memory</span>
+          <Switch
+            aria-label="Enable working memory"
+            checked={workingMemoryEnabled}
+            disabled={disabled}
+            onCheckedChange={(checked) => onUpdate({ workingMemoryEnabled: checked })}
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const MaxOutputSection: FC<ProviderSettingsSectionProps> = ({ settings, onUpdate, disabled }) => {
   const maxOutputEnabled = typeof settings.maxOutputTokens === 'number';
   const maxOutputValue = clampNumber(
@@ -1800,9 +1761,10 @@ const MaxOutputSection: FC<ProviderSettingsSectionProps> = ({ settings, onUpdate
     <div className="space-y-2 rounded-md bg-muted/30 p-2">
       <div className="flex items-center justify-between">
         <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
-          Max output tokens
+          Output tokens / step
         </Label>
         <Switch
+          aria-label="Limit output tokens per step"
           checked={maxOutputEnabled}
           disabled={disabled}
           onCheckedChange={(checked) =>
@@ -1978,6 +1940,7 @@ const AnthropicReasoningSection: FC<ProviderSettingsSectionProps> = ({
           </div>
           <div className="flex items-center gap-2">
             <Input
+              aria-label="Anthropic thinking budget input"
               className="h-8 text-xs"
               disabled={disabled || !thinkingEnabled}
               inputMode="numeric"
@@ -2161,6 +2124,11 @@ export const ProviderSettingsPanel: FC<ProviderSettingsPanelProps> = ({
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
+        <AgentRuntimeSection
+          disabled={!canUpdate}
+          onUpdate={updateSettings}
+          settings={currentSettings}
+        />
         <MaxOutputSection
           disabled={!canUpdate}
           onUpdate={updateSettings}

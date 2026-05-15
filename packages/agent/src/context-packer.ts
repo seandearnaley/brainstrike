@@ -5,15 +5,22 @@ interface OffsetRange {
   start?: number;
 }
 
+interface LineRange {
+  end: number;
+  start: number;
+}
+
 export interface ContextPackerChunk {
   chunkIndex?: number;
   content: string;
+  endLine?: number;
   endOffset?: number;
   fileName?: string;
   filePath?: string;
   id: string;
   metadata?: Record<string, unknown>;
   score?: number;
+  startLine?: number;
   startOffset?: number;
   tokenCount?: number | null;
 }
@@ -24,6 +31,7 @@ export interface PackedContextChunk {
   fileName?: string;
   filePath?: string;
   id: string;
+  lineRange?: LineRange;
   metadata?: Record<string, unknown>;
   offsets?: OffsetRange;
   rank: number;
@@ -72,6 +80,26 @@ function resolveOffsets(chunk: ContextPackerChunk): OffsetRange | undefined {
   return offsets;
 }
 
+function resolveLineRange(chunk: ContextPackerChunk): LineRange | undefined {
+  const { startLine, endLine } = chunk;
+  if (startLine === undefined && endLine === undefined) {
+    return;
+  }
+  if (
+    startLine === undefined ||
+    endLine === undefined ||
+    !Number.isSafeInteger(startLine) ||
+    !Number.isSafeInteger(endLine) ||
+    startLine <= 0 ||
+    endLine < startLine
+  ) {
+    throw new Error(
+      `ContextPacker: invalid 1-based line range [${String(startLine)}, ${String(endLine)}] for chunk ${chunk.id}.`
+    );
+  }
+  return { start: startLine, end: endLine };
+}
+
 function resolveTokenCount(
   chunk: ContextPackerChunk,
   estimateTokens: (content: string) => number
@@ -111,6 +139,7 @@ function buildPackedChunk(
   rank: number
 ): PackedContextChunk {
   const offsets = resolveOffsets(chunk);
+  const lineRange = resolveLineRange(chunk);
   const packed: PackedContextChunk = {
     id: chunk.id,
     content: chunk.content,
@@ -129,6 +158,9 @@ function buildPackedChunk(
   }
   if (offsets) {
     packed.offsets = offsets;
+  }
+  if (lineRange) {
+    packed.lineRange = lineRange;
   }
   if (chunk.score !== undefined) {
     packed.score = chunk.score;

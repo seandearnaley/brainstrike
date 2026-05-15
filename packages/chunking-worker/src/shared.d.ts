@@ -53,6 +53,14 @@ export interface PortableChunk {
   content: string;
   /** Hash of the content for deduplication/caching */
   contentHash: string;
+  /** 1-based inclusive ending line in the original file */
+  endLine: number;
+  /** Exclusive ending character offset in the original file */
+  endOffset: number;
+  /** 1-based inclusive starting line in the original file */
+  startLine: number;
+  /** Inclusive starting character offset in the original file */
+  startOffset: number;
   /** Token count for this chunk */
   tokenCount: number;
 }
@@ -119,6 +127,8 @@ export interface ChunkResult {
   skipped: boolean;
   /** Reason for skipping, if applicable */
   skipReason?: string;
+  /** Number of candidate chunks dropped because source line/offset ranges could not be resolved */
+  sourceRangeSkippedChunks?: number;
   /** Strategy that was actually used after file-type heuristics */
   strategyUsed: ResolvedChunkingStrategy;
   /** Total tokens across all chunks */
