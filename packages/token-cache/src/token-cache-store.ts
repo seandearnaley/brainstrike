@@ -282,7 +282,12 @@ export class TokenCacheStore {
       }
       await this.db.query('COMMIT');
     } catch (error) {
-      await this.db.query('ROLLBACK');
+      await this.db.query('ROLLBACK').catch((rollbackError: unknown) => {
+        logger.warn('Token cache batch transaction rollback failed', {
+          originalReason: getErrorMessage(error),
+          rollbackReason: getErrorMessage(rollbackError),
+        });
+      });
       throw error;
     }
   }

@@ -492,6 +492,45 @@ describe('TokenCacheStore', () => {
       );
     });
 
+    it('retries using the original transaction error when rollback also fails', async () => {
+      const transientError = Object.assign(new Error('could not serialize access'), {
+        code: '40001',
+      });
+      const rollbackError = new Error('rollback connection lost');
+      const defaultQuery = mockDb.query.getMockImplementation();
+      let failedCommits = 0;
+      let failedRollbacks = 0;
+      mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
+        const normalizedSql = sql.trim().toUpperCase();
+        if (normalizedSql === 'COMMIT' && failedCommits === 0) {
+          failedCommits += 1;
+          throw transientError;
+        }
+        if (normalizedSql === 'ROLLBACK' && failedRollbacks === 0) {
+          failedRollbacks += 1;
+          throw rollbackError;
+        }
+        if (!defaultQuery) {
+          throw new Error('Expected default token cache mock query implementation');
+        }
+        return defaultQuery(sql, params);
+      });
+
+      await store.setBatch([createEntry({ filePath: 'file1.ts', tokenCount: 100 })]);
+
+      const transactionStatements = mockDb.query.mock.calls
+        .map(([sql]) => sql.trim().toUpperCase())
+        .filter((sql) => sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK');
+      expect(transactionStatements).toEqual(['BEGIN', 'COMMIT', 'ROLLBACK', 'BEGIN', 'COMMIT']);
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
+        'Retrying token cache batch transaction after transient failure',
+        expect.objectContaining({
+          attempt: 1,
+          reason: 'could not serialize access',
+        })
+      );
+    });
+
     it('fails after exhausting transient transaction retries', async () => {
       const transientError = Object.assign(new Error('database is locked'), {
         code: 'SQLITE_BUSY',
