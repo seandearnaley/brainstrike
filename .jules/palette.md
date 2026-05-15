@@ -39,6 +39,6 @@
 **Learning:** Collapsible sections like `LocalChainOfThought` and `ExpandableMessageContent` use native `<button>` tags to toggle `aria-expanded` and render content conditionally, but they often omit the `aria-controls` attribute linking them to a static `id` on their content container. This is a common accessibility gap in custom Radix/framer-motion wrappers in this app.
 **Action:** When auditing custom toggle or accordion-like components, ensure the target content container receives an explicitly assigned `id` (via `useId()`) and the triggering button references it with `aria-controls`.
 
-## 2024-05-13 - Prevent Double Tooltips on Custom Tooltip Triggers
+## 2026-05-13 - Prevent Double Tooltips on Custom Tooltip Triggers
 **Learning:** Adding native `title` attributes to elements wrapped in custom tooltip components (like Radix UI's `Tooltip`) creates a jarring "double tooltip" effect where the unstyled browser tooltip appears alongside the styled tooltip. Toggle buttons also need explicit `aria-pressed` states to communicate accurately with screen readers.
 **Action:** When adding or updating buttons inside a `TooltipTrigger`, map the descriptive text exclusively to the `aria-label` attribute on the underlying button and remove any native `title` attributes. For stateful toggle buttons, ensure `aria-pressed` is always explicitly defined.
