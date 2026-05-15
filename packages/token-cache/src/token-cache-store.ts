@@ -16,6 +16,25 @@ import type {
 
 const logger = createLogger('TokenCacheStore');
 const TOKEN_CACHE_FILE_PATH_LABEL = 'Token cache file path';
+const DEFAULT_TRANSACTION_RETRY_MAX_ATTEMPTS = 3;
+const DEFAULT_TRANSACTION_RETRY_BASE_DELAY_MS = 25;
+const TRANSIENT_TRANSACTION_ERROR_CODES = new Set([
+  '40001',
+  '40P01',
+  '55P03',
+  'SQLITE_BUSY',
+  'SQLITE_LOCKED',
+]);
+const TRANSIENT_TRANSACTION_MESSAGE_PATTERNS = [
+  'could not serialize',
+  'database is busy',
+  'database is locked',
+  'deadlock detected',
+  'io error',
+  'lock timeout',
+  'temporarily unavailable',
+  'transaction conflict',
+];
 
 /**
  * Database row type (snake_case from SQL)
@@ -32,6 +51,49 @@ interface TokenCacheRow {
   mtime_ms: string | null;
   token_count: number;
   updated_at: string;
+}
+
+interface ValidatedTokenCacheEntry {
+  readonly entry: TokenCacheEntry;
+  readonly validatedPath: string;
+}
+
+function resolvePositiveInteger(value: number | undefined, fallback: number): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.max(1, Math.floor(value));
+}
+
+function getErrorCode(error: unknown): string | null {
+  if (typeof error !== 'object' || error === null || !('code' in error)) {
+    return null;
+  }
+  const code = (error as { readonly code?: unknown }).code;
+  return typeof code === 'string' && code.trim().length > 0 ? code : null;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isTransientTransactionError(error: unknown): boolean {
+  const code = getErrorCode(error);
+  if (code && TRANSIENT_TRANSACTION_ERROR_CODES.has(code)) {
+    return true;
+  }
+
+  const message = getErrorMessage(error).toLowerCase();
+  return TRANSIENT_TRANSACTION_MESSAGE_PATTERNS.some((pattern) => message.includes(pattern));
+}
+
+async function waitForRetry(delayMs: number): Promise<void> {
+  if (delayMs <= 0) {
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
 }
 
 /**
@@ -63,9 +125,19 @@ function rowToEntry(row: TokenCacheRow): TokenCacheEntry {
  */
 export class TokenCacheStore {
   private readonly db: PGlite;
+  private readonly transactionRetryBaseDelayMs: number;
+  private readonly transactionRetryMaxAttempts: number;
 
-  constructor(db: PGlite, _options: TokenCacheStoreOptions = {}) {
+  constructor(db: PGlite, options: TokenCacheStoreOptions = {}) {
     this.db = db;
+    this.transactionRetryBaseDelayMs = resolvePositiveInteger(
+      options.transactionRetryBaseDelayMs,
+      DEFAULT_TRANSACTION_RETRY_BASE_DELAY_MS
+    );
+    this.transactionRetryMaxAttempts = resolvePositiveInteger(
+      options.transactionRetryMaxAttempts,
+      DEFAULT_TRANSACTION_RETRY_MAX_ATTEMPTS
+    );
   }
 
   private validateFilePath(filePath: string): string {
@@ -194,21 +266,51 @@ export class TokenCacheStore {
     }
 
     // Validate all paths up-front so invalid batches fail before any writes begin.
-    const validatedEntries = entries.map((entry) => ({
+    const validatedEntries: ValidatedTokenCacheEntry[] = entries.map((entry) => ({
       entry,
       validatedPath: this.validateFilePath(entry.filePath),
     }));
 
-    // Use a transaction for atomicity
+    await this.runBatchTransactionWithRetry(validatedEntries);
+  }
+
+  private async runBatchTransaction(entries: readonly ValidatedTokenCacheEntry[]): Promise<void> {
     await this.db.query('BEGIN');
     try {
-      for (const { entry, validatedPath } of validatedEntries) {
+      for (const { entry, validatedPath } of entries) {
         await this.upsertEntryWithValidatedPath(entry, validatedPath);
       }
       await this.db.query('COMMIT');
     } catch (error) {
       await this.db.query('ROLLBACK');
       throw error;
+    }
+  }
+
+  private async runBatchTransactionWithRetry(
+    entries: readonly ValidatedTokenCacheEntry[]
+  ): Promise<void> {
+    for (let attempt = 1; attempt <= this.transactionRetryMaxAttempts; attempt += 1) {
+      try {
+        await this.runBatchTransaction(entries);
+        return;
+      } catch (error) {
+        const canRetry =
+          attempt < this.transactionRetryMaxAttempts && isTransientTransactionError(error);
+        if (!canRetry) {
+          throw error;
+        }
+
+        const retryDelayMs = this.transactionRetryBaseDelayMs * 2 ** (attempt - 1);
+        logger.warn('Retrying token cache batch transaction after transient failure', {
+          attempt,
+          code: getErrorCode(error),
+          delayMs: retryDelayMs,
+          maxAttempts: this.transactionRetryMaxAttempts,
+          reason: getErrorMessage(error),
+        });
+        await waitForRetry(retryDelayMs);
+      }
     }
   }
 

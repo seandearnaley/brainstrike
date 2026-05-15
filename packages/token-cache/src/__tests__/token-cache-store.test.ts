@@ -455,6 +455,78 @@ describe('TokenCacheStore', () => {
         reason: 'Token cache file path must not contain relative traversal segments',
       });
     });
+
+    it('retries the transaction when a transient commit failure occurs', async () => {
+      const transientError = Object.assign(new Error('could not serialize access'), {
+        code: '40001',
+      });
+      const defaultQuery = mockDb.query.getMockImplementation();
+      let failedCommits = 0;
+      mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
+        if (sql.toLowerCase().includes('commit') && failedCommits === 0) {
+          failedCommits += 1;
+          throw transientError;
+        }
+        if (!defaultQuery) {
+          throw new Error('Expected default token cache mock query implementation');
+        }
+        return defaultQuery(sql, params);
+      });
+
+      await store.setBatch([
+        createEntry({ filePath: 'file1.ts', tokenCount: 100 }),
+        createEntry({ filePath: 'file2.ts', tokenCount: 200 }),
+      ]);
+
+      const transactionStatements = mockDb.query.mock.calls
+        .map(([sql]) => sql.trim().toUpperCase())
+        .filter((sql) => sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK');
+      expect(transactionStatements).toEqual(['BEGIN', 'COMMIT', 'ROLLBACK', 'BEGIN', 'COMMIT']);
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
+        'Retrying token cache batch transaction after transient failure',
+        expect.objectContaining({
+          attempt: 1,
+          maxAttempts: 3,
+          reason: 'could not serialize access',
+        })
+      );
+    });
+
+    it('fails after exhausting transient transaction retries', async () => {
+      const transientError = Object.assign(new Error('database is locked'), {
+        code: 'SQLITE_BUSY',
+      });
+      const defaultQuery = mockDb.query.getMockImplementation();
+      mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
+        if (sql.toLowerCase().includes('commit')) {
+          throw transientError;
+        }
+        if (!defaultQuery) {
+          throw new Error('Expected default token cache mock query implementation');
+        }
+        return defaultQuery(sql, params);
+      });
+
+      await expect(
+        store.setBatch([createEntry({ filePath: 'file1.ts', tokenCount: 100 })])
+      ).rejects.toThrow('database is locked');
+
+      const transactionStatements = mockDb.query.mock.calls
+        .map(([sql]) => sql.trim().toUpperCase())
+        .filter((sql) => sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK');
+      expect(transactionStatements).toEqual([
+        'BEGIN',
+        'COMMIT',
+        'ROLLBACK',
+        'BEGIN',
+        'COMMIT',
+        'ROLLBACK',
+        'BEGIN',
+        'COMMIT',
+        'ROLLBACK',
+      ]);
+      expect(mockLoggerWarn).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('delete', () => {
