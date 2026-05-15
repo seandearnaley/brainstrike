@@ -53,7 +53,6 @@ export const PreviewViewToolbar = memo<PreviewViewToolbarProps>(function Preview
                   data-testid="expand-all-groups-button"
                   onClick={onExpandAllGroups}
                   size="sm"
-                  title="Expand all"
                   variant="ghost"
                 >
                   <ChevronsUpDown className="h-4 w-4" />
@@ -70,7 +69,6 @@ export const PreviewViewToolbar = memo<PreviewViewToolbarProps>(function Preview
                   data-testid="collapse-all-groups-button"
                   onClick={onCollapseAllGroups}
                   size="sm"
-                  title="Collapse all"
                   variant="ghost"
                 >
                   <ChevronsDownUp className="h-4 w-4" />
@@ -87,6 +85,7 @@ export const PreviewViewToolbar = memo<PreviewViewToolbarProps>(function Preview
           <TooltipTrigger asChild>
             <Button
               aria-label="Toggle multi-select"
+              aria-pressed={selectionControlsEnabled}
               className={cn(
                 'h-9 w-9 p-0',
                 selectionControlsEnabled && 'bg-accent text-accent-foreground'
@@ -94,7 +93,6 @@ export const PreviewViewToolbar = memo<PreviewViewToolbarProps>(function Preview
               data-testid="toggle-multi-select-button"
               onClick={() => onSelectionControlsToggle(!selectionControlsEnabled)}
               size="sm"
-              title="Toggle multi-select"
               variant="ghost"
             >
               <ListChecks className="h-4 w-4" />
@@ -112,7 +110,6 @@ export const PreviewViewToolbar = memo<PreviewViewToolbarProps>(function Preview
                   className={cn('h-9 w-9 p-0', isGrouped && 'bg-accent text-accent-foreground')}
                   data-testid="group-by-button"
                   size="sm"
-                  title="Group by"
                   variant="ghost"
                 >
                   <Group className="h-4 w-4" />
