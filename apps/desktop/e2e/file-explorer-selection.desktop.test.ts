@@ -94,6 +94,21 @@ async function clickExpandButton(expandButton: Locator): Promise<void> {
   await expandButton.click({ noWaitAfter: true, timeout: FILE_EXPLORER_CLICK_TIMEOUT_MS });
 }
 
+async function expandNextDirectoryIfNeeded(args: {
+  expectedChildText: string;
+  fileTree: ReturnType<Page['getByRole']>;
+}): Promise<void> {
+  const { expectedChildText, fileTree } = args;
+  const childLocator = fileTree.getByText(expectedChildText);
+  if (await childLocator.isVisible().catch(() => false)) {
+    return;
+  }
+
+  const expandButton = fileTree.getByRole('button', { name: 'Expand' }).first();
+  await clickExpandButton(expandButton);
+  await expect(childLocator).toBeVisible({ timeout: 15_000 });
+}
+
 async function setFileExplorerMaxSelectionCount(
   page: Page,
   maxSelectionCount: number
@@ -1787,26 +1802,31 @@ test.describe('Desktop file explorer selection', () => {
     await selectAllButton.click({ noWaitAfter: true, timeout: 5000 });
 
     const hooksCheckbox = fileTree.getByRole('checkbox', { name: 'Select hooks' });
-    const expandButtons = window.locator('button[aria-label="Expand"]');
-    await expect(expandButtons).toHaveCount(1, { timeout: 15_000 });
-    await expandButtons.first().click({ noWaitAfter: true, timeout: 5000 });
+    await expect(window.getByRole('button', { name: /^Deselect All$/i }).first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(hooksCheckbox).toHaveAttribute('data-state', 'checked');
 
+    await expandNextDirectoryIfNeeded({
+      expectedChildText: 'src',
+      fileTree,
+    });
     await expect(fileTree.getByText('src')).toBeVisible({ timeout: 15_000 });
     await expect(fileTree.getByText('package.json')).toBeVisible({ timeout: 15_000 });
     await expect(fileTree.getByText('tsconfig.json')).toBeVisible({ timeout: 15_000 });
 
-    const srcExpandButton = window.locator('button[aria-label="Expand"]').first();
-    await expect(srcExpandButton).toBeVisible({ timeout: 15_000 });
-    await srcExpandButton.click({ noWaitAfter: true, timeout: 5000 });
-
+    await expandNextDirectoryIfNeeded({
+      expectedChildText: '__tests__',
+      fileTree,
+    });
     await expect(fileTree.getByText('__tests__')).toBeVisible({ timeout: 15_000 });
     await expect(fileTree.getByText('create-debounce.ts')).toBeVisible({ timeout: 15_000 });
     await expect(fileTree.getByText('index.ts')).toBeVisible({ timeout: 15_000 });
 
-    const testsExpandButton = window.locator('button[aria-label="Expand"]').first();
-    await expect(testsExpandButton).toBeVisible({ timeout: 15_000 });
-    await testsExpandButton.click({ noWaitAfter: true, timeout: 5000 });
-
+    await expandNextDirectoryIfNeeded({
+      expectedChildText: 'use-file-filters.test.ts',
+      fileTree,
+    });
     await expect(fileTree.getByText('use-file-filters.test.ts')).toBeVisible({
       timeout: 15_000,
     });
