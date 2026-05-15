@@ -190,6 +190,29 @@ describe('useWorkerFlattenedTree', () => {
       expect(mockPort.flattenTree).toHaveBeenLastCalledWith(['/root', '/root/src', '/root/tests']);
     });
 
+    it('re-requests flatten when tree content changes without expansion changes', () => {
+      const portRef = { current: mockPort as unknown as FileTreeWorkerPort };
+      const expandedPaths = new Set(['/root']);
+
+      const { rerender } = renderHook(
+        ({ revision }) =>
+          useWorkerFlattenedTree({
+            portRef,
+            expandedPaths,
+            approximateNodeCount: 15_000,
+            treeRevision: revision,
+          }),
+        { initialProps: { revision: 1 } }
+      );
+
+      expect(mockPort.flattenTree).toHaveBeenCalledTimes(1);
+
+      rerender({ revision: 2 });
+
+      expect(mockPort.flattenTree).toHaveBeenCalledTimes(2);
+      expect(mockPort.flattenTree).toHaveBeenLastCalledWith(['/root']);
+    });
+
     it('requestFlatten can be called manually', () => {
       const portRef = { current: mockPort as unknown as FileTreeWorkerPort };
       const expandedPaths = new Set(['/root']);

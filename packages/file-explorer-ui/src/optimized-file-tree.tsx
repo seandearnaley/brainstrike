@@ -2032,6 +2032,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       approximateNodeCount,
       expandedPaths: expandedDirectoryPaths,
       portRef: workerPortRef,
+      treeRevision: normalizedTreeContext?.version ?? fileTree,
     });
 
     // Build a path-indexed map of all IFileNodes for worker result mapping.
