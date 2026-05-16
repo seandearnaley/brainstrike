@@ -3,7 +3,6 @@
  * Extracted from @brainstrike/db ChunkingService, removing all database dependencies.
  */
 
-import type { ParserPlugin } from '@babel/parser';
 import {
   countTokensHeuristic,
   RecursiveTextSplitter,
@@ -17,6 +16,8 @@ import {
   splitMarkdownIntoBlocks,
 } from '@brainstrike/text-splitter/chunking-core';
 import { CHUNKING_CONFIG, type CodeLanguage } from './chunking-config';
+import { selectAdapter } from './parsers/select-adapter';
+import type { AstNode } from './parsers/types';
 import type { ChunkingRequestOptions, ChunkType, PortableChunk } from './shared';
 
 const BINARY_DETECTION_PROBE_BYTES = 4096;
@@ -104,60 +105,9 @@ const LARGE_STRUCTURED_PATTERNS = [
   /\.log$/i,
 ];
 
-type AstNode = {
-  type?: string;
-  start?: number;
-  end?: number;
-} & Record<string, unknown>;
-
-type BabelParserModule = typeof import('@babel/parser');
 type TokenUtilsLiteModule = typeof import('./token-utils-lite');
 
-interface BabelParserRuntimeModule {
-  parse: BabelParserModule['parse'];
-}
-
-let babelParserModulePromise: Promise<BabelParserRuntimeModule> | null = null;
 let tokenUtilsLiteModulePromise: Promise<TokenUtilsLiteModule> | null = null;
-
-function readBabelParseExport(candidate: unknown): BabelParserModule['parse'] | null {
-  try {
-    const parse = (candidate as { parse?: unknown }).parse;
-    return typeof parse === 'function' ? (parse as BabelParserModule['parse']) : null;
-  } catch {
-    return null;
-  }
-}
-
-function resolveBabelParserRuntimeModule(module: unknown): BabelParserRuntimeModule {
-  const namedParse = readBabelParseExport(module);
-  if (namedParse) {
-    return { parse: namedParse };
-  }
-
-  const candidate = module as { default?: unknown };
-  const defaultCandidate = candidate.default;
-  if (defaultCandidate && typeof defaultCandidate === 'object') {
-    const defaultParse = readBabelParseExport(defaultCandidate);
-    if (defaultParse) {
-      return { parse: defaultParse };
-    }
-  }
-
-  throw new Error('Babel parser module did not expose a parse function.');
-}
-
-async function loadBabelParserModule(): Promise<BabelParserRuntimeModule> {
-  if (!babelParserModulePromise) {
-    babelParserModulePromise = import('@babel/parser')
-      .then(resolveBabelParserRuntimeModule)
-      .catch((error: unknown) => {
-        babelParserModulePromise = null;
-        throw error;
-      });
-  }
-  return babelParserModulePromise;
-}
 
 async function loadTokenUtilsLiteModule(): Promise<TokenUtilsLiteModule> {
   if (!tokenUtilsLiteModulePromise) {
@@ -744,30 +694,13 @@ async function splitCodeByFunctions(
     separators,
   }: { maxChars: number; overlapChars: number; language: CodeLanguage | null; separators: string[] }
 ): Promise<string[] | null> {
-  const { parse } = await loadBabelParserModule();
-  const plugins: ParserPlugin[] = [
-    'classProperties',
-    'classPrivateProperties',
-    'classPrivateMethods',
-    'decorators-legacy',
-    'dynamicImport',
-    'importAttributes',
-    'topLevelAwait',
-    'jsx',
-  ];
-
-  if (language === 'typescript') {
-    plugins.push('typescript');
-  }
-
   let ast: AstNode | null = null;
   try {
-    ast = parse(content, {
-      sourceType: 'module',
-      plugins,
+    ast = await selectAdapter().parse(content, {
       errorRecovery: true,
-      allowReturnOutsideFunction: true,
-    }) as unknown as AstNode;
+      jsx: true,
+      language: language === 'typescript' ? 'typescript' : 'javascript',
+    });
   } catch (err) {
     // Log at debug level to help diagnose why code isn't being chunked at function boundaries
     // biome-ignore lint/suspicious/noConsole: debug logging for AST parsing failures
