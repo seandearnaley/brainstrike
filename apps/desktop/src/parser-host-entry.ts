@@ -161,25 +161,44 @@ function unwrapMessage(message: unknown): unknown {
 }
 
 /**
- * STUB — Phase 4 Cycle 4.1 RED state.
- *
- * Returns immediately even when parentPort is present, so all the wiring
- * tests fail honestly at runtime. Replaced wholesale in Cycle 4.1 GREEN.
- *
- * The `void` references on isParseRequest, unwrapMessage, and ParentPortLike
- * are intentional — they keep these symbols anchored across the RED commit
- * (lint requires "no unused declarations"). Cycle 4.1 GREEN uses all three
- * in the actual wiring.
- *
- * TODO(Phase 4 Cycle 4.1 GREEN): register a `message` listener on
- * `process.parentPort` that unwraps the envelope, validates via
- * `isParseRequest`, calls `handleParseRequest`, and posts the response
- * back via `parentPort.postMessage`.
+ * Best-effort extraction of `requestId` from an unknown payload — used to
+ * preserve correlation IDs even when the payload is otherwise malformed.
+ */
+function extractRequestId(value: unknown): string {
+  if (value !== null && typeof value === 'object' && 'requestId' in value) {
+    const id = (value as { requestId?: unknown }).requestId;
+    if (typeof id === 'string') {
+      return id;
+    }
+  }
+  return 'unknown';
+}
+
+/**
+ * Wire the parser host to Electron's `process.parentPort`. Idempotent at
+ * module load: if `process.parentPort` is undefined (test/Node-without-
+ * Electron), this returns without side effects, so tests can import
+ * `handleParseRequest` directly without setting up a parentPort mock.
  */
 export function wireParentPort(): void {
-  void isParseRequest;
-  void unwrapMessage;
-  void (null as ParentPortLike | null);
+  const port = (process as NodeJS.Process & { parentPort?: ParentPortLike | null }).parentPort;
+  if (!port) {
+    return;
+  }
+  port.on('message', (rawMessage: unknown) => {
+    const payload = unwrapMessage(rawMessage);
+    if (!isParseRequest(payload)) {
+      port.postMessage({
+        error: 'Malformed parser host request envelope.',
+        ok: false,
+        requestId: extractRequestId(payload),
+      });
+      return;
+    }
+    void handleParseRequest(payload).then((response) => {
+      port.postMessage(response);
+    });
+  });
 }
 
 // Auto-run at module load. Safe in tests: when process.parentPort is
