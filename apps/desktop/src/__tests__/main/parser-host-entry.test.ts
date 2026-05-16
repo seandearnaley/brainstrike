@@ -231,6 +231,56 @@ describe('handleParseRequest', () => {
     });
   });
 
+  describe('perf smoke (Cycle 3.4)', () => {
+    // Sanity check, not the real benchmark (Phase 7 owns benchmarking against
+    // a real codebase). The threshold is deliberately loose: if parsing 100
+    // small files takes longer than this, something is very wrong (e.g. a
+    // future regression made every parse synchronously load oxc-parser).
+    //
+    // We use a per-file budget rather than a total budget so the assertion
+    // scales with corpus size. 5ms/file leaves orders of magnitude of
+    // headroom over oxc's actual ~50µs/file on this kind of input.
+    it('parses 100 small files within budget', async () => {
+      const source = `
+        function alpha() { return 1; }
+        function beta() { return 2; }
+        export const gamma = () => alpha() + beta();
+        class Delta {
+          constructor(private readonly x: number) {}
+          method() { return this.x; }
+        }
+      `.trim();
+
+      const startMs = performance.now();
+      const responses = await Promise.all(
+        Array.from({ length: 100 }, (_, i) =>
+          handleParseRequest({
+            content: source,
+            options: {
+              errorRecovery: true,
+              jsx: false,
+              language: 'typescript',
+            },
+            requestId: `perf-${i}`,
+          })
+        )
+      );
+      const elapsedMs = performance.now() - startMs;
+
+      // All parses succeeded
+      for (const r of responses) {
+        expect(r.ok).toBe(true);
+      }
+
+      // 5ms per file budget. oxc actually does ~50µs/file on inputs this size,
+      // so this leaves ~100x headroom. If this ever fails, suspect:
+      //   - oxc-parser was replaced with a slow JS parser
+      //   - handleParseRequest grew an unintended I/O step
+      //   - the test environment lost native NAPI support
+      expect(elapsedMs).toBeLessThan(100 * 5);
+    });
+  });
+
   describe('defensive', () => {
     it('returns failure with a string error when content is empty and errorRecovery is off', async () => {
       // Empty input is technically valid (a Program with no body), so this
