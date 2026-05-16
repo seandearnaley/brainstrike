@@ -1,10 +1,10 @@
 /**
  * Parser host utility process entry point.
  *
- * Loaded by `ParserHostManager` (Phase 4) via Electron `utilityProcess.fork()`.
- * Exposes `handleParseRequest()` as a pure function for unit testing, and
- * (Phase 4 work) wires it to `process.parentPort` when run as a utility-process
- * entry.
+ * Loaded by `ParserHostManager` via Electron `utilityProcess.fork()`. Exposes
+ * `handleParseRequest()` as a pure function for unit testing, and runs
+ * `wireParentPort()` at module load to register the IPC listener when
+ * launched as a utility-process entry.
  *
  * The actual parsing uses `oxc-parser` (Rust NAPI) — much faster than the
  * Babel parser used historically by the chunking-worker. The chunking-worker
@@ -21,6 +21,17 @@ import type {
   ParserHostParseRequest,
   ParserHostParseResponse,
 } from './parser-host-shared';
+
+/**
+ * Minimal parentPort shape we depend on. Mirrors the surface in
+ * `db-host-entry.ts` rather than importing Electron types directly so this
+ * module remains testable in the same vitest environment that runs
+ * pure-Node unit tests.
+ */
+interface ParentPortLike {
+  readonly on: (event: 'message', listener: (message: unknown) => void) => unknown;
+  readonly postMessage: (message: ParserHostParseResponse) => void;
+}
 
 /**
  * Map our `ParseOptions` to a synthetic filename whose extension oxc-parser
@@ -110,3 +121,69 @@ export async function handleParseRequest(
     };
   }
 }
+
+/**
+ * Validate that an unknown payload looks like a `ParserHostParseRequest`.
+ * Conservative on purpose — anything not strictly matching the shape is
+ * rejected with a failure response rather than crashing the host.
+ */
+function isParseRequest(value: unknown): value is ParserHostParseRequest {
+  if (value === null || typeof value !== 'object') {
+    return false;
+  }
+  const v = value as Record<string, unknown>;
+  if (typeof v['requestId'] !== 'string' || typeof v['content'] !== 'string') {
+    return false;
+  }
+  const opts = v['options'];
+  if (opts === null || typeof opts !== 'object') {
+    return false;
+  }
+  const o = opts as Record<string, unknown>;
+  return (
+    (o['language'] === 'javascript' || o['language'] === 'typescript') &&
+    typeof o['jsx'] === 'boolean' &&
+    typeof o['errorRecovery'] === 'boolean'
+  );
+}
+
+/**
+ * Unwrap the Electron MessageEvent envelope. Some `parentPort.on('message')`
+ * deliveries arrive as `{ data: payload }` (the MessageEvent shape) rather
+ * than as the raw payload. Mirrors `unwrapParentPortMessage` in
+ * `db-host-entry.ts`.
+ */
+function unwrapMessage(message: unknown): unknown {
+  if (message !== null && typeof message === 'object' && 'data' in message) {
+    return (message as { readonly data?: unknown }).data;
+  }
+  return message;
+}
+
+/**
+ * STUB — Phase 4 Cycle 4.1 RED state.
+ *
+ * Returns immediately even when parentPort is present, so all the wiring
+ * tests fail honestly at runtime. Replaced wholesale in Cycle 4.1 GREEN.
+ *
+ * The `void` references on isParseRequest, unwrapMessage, and ParentPortLike
+ * are intentional — they keep these symbols anchored across the RED commit
+ * (lint requires "no unused declarations"). Cycle 4.1 GREEN uses all three
+ * in the actual wiring.
+ *
+ * TODO(Phase 4 Cycle 4.1 GREEN): register a `message` listener on
+ * `process.parentPort` that unwraps the envelope, validates via
+ * `isParseRequest`, calls `handleParseRequest`, and posts the response
+ * back via `parentPort.postMessage`.
+ */
+export function wireParentPort(): void {
+  void isParseRequest;
+  void unwrapMessage;
+  void (null as ParentPortLike | null);
+}
+
+// Auto-run at module load. Safe in tests: when process.parentPort is
+// undefined (the default in vitest), wireParentPort returns without side
+// effects. When the module is loaded inside an Electron utilityProcess,
+// parentPort is defined and the wiring activates.
+wireParentPort();
