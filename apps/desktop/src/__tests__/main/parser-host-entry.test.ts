@@ -33,6 +33,55 @@ function expectOk(response: Awaited<ReturnType<typeof handleParseRequest>>) {
   return response;
 }
 
+/**
+ * Mirror of the chunking consumer's generic AST walk
+ * (`iterateAstChildren` in packages/chunking-worker/src/portable-chunking.ts).
+ *
+ * Used by Cycle 3.3 tests below to verify that oxc's output is consumer-
+ * compatible WITHOUT introducing a cross-package dependency from apps/desktop
+ * tests into chunking-worker. Kept locally because copying ~10 lines of walk
+ * logic is cheaper than exposing the predicate via a published export.
+ */
+function isAstObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && 'type' in (value as object));
+}
+function walkChildren(node: Record<string, unknown>): Record<string, unknown>[] {
+  const children: Record<string, unknown>[] = [];
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) {
+      for (const child of value) {
+        if (isAstObject(child)) {
+          children.push(child);
+        }
+      }
+    } else if (isAstObject(value)) {
+      children.push(value);
+    }
+  }
+  return children;
+}
+function findNodesByType(
+  root: Record<string, unknown>,
+  types: ReadonlySet<string>
+): Array<{ type: string; start: number; end: number }> {
+  const found: Array<{ type: string; start: number; end: number }> = [];
+  const stack: Record<string, unknown>[] = [root];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) {
+      continue;
+    }
+    const t = typeof node['type'] === 'string' ? (node['type'] as string) : '';
+    if (types.has(t) && typeof node['start'] === 'number' && typeof node['end'] === 'number') {
+      found.push({ end: node['end'] as number, start: node['start'] as number, type: t });
+    }
+    for (const child of walkChildren(node)) {
+      stack.push(child);
+    }
+  }
+  return found;
+}
+
 describe('handleParseRequest', () => {
   it('echoes the requestId on the response', async () => {
     const response = await handleParseRequest(baseRequest);
@@ -120,6 +169,65 @@ describe('handleParseRequest', () => {
         throw new Error('expected failure response');
       }
       expect(response.error).toBeTruthy();
+    });
+  });
+
+  describe('chunking-consumer compatibility (Cycle 3.3)', () => {
+    // Cycle 3.3 verification: the chunking consumer walks the AST generically
+    // and looks for function-shaped nodes with finite start/end. We pin the
+    // assumption that oxc's output satisfies this contract WITHOUT any
+    // normalization step. If these tests ever fail, it means oxc changed
+    // its emit shape and we need an adapter-level normalization layer.
+
+    const FUNCTION_TYPES: ReadonlySet<string> = new Set([
+      'FunctionDeclaration',
+      'FunctionExpression',
+      'ArrowFunctionExpression',
+      'ClassMethod',
+      'MethodDefinition',
+    ]);
+
+    it('produces a tree with discoverable FunctionDeclaration nodes carrying finite start/end', async () => {
+      const source = `
+        function alpha() { return 1; }
+        function beta() { return 2; }
+        const gamma = () => alpha() + beta();
+      `.trim();
+
+      const response = await handleParseRequest({
+        ...baseRequest,
+        content: source,
+      });
+      const ok = expectOk(response);
+
+      const found = findNodesByType(ok.root as unknown as Record<string, unknown>, FUNCTION_TYPES);
+
+      // Two FunctionDeclarations + one ArrowFunctionExpression.
+      const decls = found.filter((n) => n.type === 'FunctionDeclaration');
+      const arrows = found.filter((n) => n.type === 'ArrowFunctionExpression');
+      expect(decls).toHaveLength(2);
+      expect(arrows).toHaveLength(1);
+
+      // Spans are sane (start < end, within source bounds).
+      for (const node of found) {
+        expect(node.start).toBeGreaterThanOrEqual(0);
+        expect(node.end).toBeLessThanOrEqual(source.length);
+        expect(node.start).toBeLessThan(node.end);
+      }
+    });
+
+    it('produces a Program-rooted tree (not File-rooted like Babel)', async () => {
+      // Pinning the known shape difference. The chunking consumer is shape-
+      // agnostic (walks parents generically), so this difference is fine —
+      // but documenting it here means anyone investigating chunk parity
+      // failures in Phase 6 can rule it out as a cause.
+      const response = await handleParseRequest({
+        ...baseRequest,
+        content: 'function foo() {}',
+      });
+      const ok = expectOk(response);
+
+      expect(ok.root.type).toBe('Program');
     });
   });
 
