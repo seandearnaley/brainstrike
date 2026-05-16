@@ -116,4 +116,37 @@ describe('withFallback', () => {
 
     expect(wrapped.id).toBe('oxc-native');
   });
+
+  it('still runs the fallback when the telemetry hook throws (P1 #991)', async () => {
+    // Regression test for the chatgpt-codex P1 on #991: if a bad
+    // telemetry sink throws, the fallback MUST still run. Without the
+    // guard the throw would propagate, the fallback would never be
+    // called, and a downstream-sink bug would turn into a chunking
+    // pipeline failure.
+    const primary = makeAdapter(
+      'oxc-native',
+      vi.fn(async () => {
+        throw new Error('primary failed');
+      })
+    );
+    const fallbackResult = { end: 11, start: 0, type: 'File' };
+    const fallback = makeAdapter(
+      'babel',
+      vi.fn(async () => fallbackResult)
+    );
+    const buggyTelemetry = vi.fn(() => {
+      throw new Error('telemetry sink misconfigured');
+    });
+    // biome-ignore lint/suspicious/noConsole: silence the expected console.error
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const wrapped = withFallback(primary, fallback, buggyTelemetry);
+    const result = await wrapped.parse('x', baseOptions);
+
+    expect(result).toEqual(fallbackResult);
+    expect(buggyTelemetry).toHaveBeenCalledTimes(1);
+    expect(fallback.parse).toHaveBeenCalledTimes(1);
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
 });

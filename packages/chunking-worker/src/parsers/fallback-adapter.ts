@@ -51,11 +51,22 @@ export function withFallback(
       try {
         return await primary.parse(content, options);
       } catch (error) {
-        telemetry({
-          error: error instanceof Error ? error.message : String(error),
-          fallback: fallback.id,
-          primary: primary.id,
-        });
+        // Telemetry is best-effort: a throwing hook MUST NOT prevent the
+        // fallback parse from running, otherwise a bad telemetry sink
+        // would cascade into chunking-pipeline failures and defeat the
+        // whole point of the fallback. We swallow telemetry errors and
+        // log a single console.error so the misbehaving sink is visible
+        // without taking the user's chunking job down.
+        try {
+          telemetry({
+            error: error instanceof Error ? error.message : String(error),
+            fallback: fallback.id,
+            primary: primary.id,
+          });
+        } catch (telemetryError) {
+          // biome-ignore lint/suspicious/noConsole: surface telemetry hook bugs without crashing fallback
+          console.error('[chunking-parser] telemetry hook threw; suppressing', telemetryError);
+        }
         return fallback.parse(content, options);
       }
     },
