@@ -28,6 +28,11 @@ import {
 } from './hooks';
 import type { AddMultipleSelectedFilesChunked } from './hooks/recursive-selection-utils';
 import type { ExpandAllExecutorArgs, ExpandAllExecutorResult } from './hooks/use-expand-all';
+import {
+  estimateTreePayloadBytes,
+  measureFileTreeOperation,
+  recordFileTreeTelemetry,
+} from './utils/file-tree-telemetry';
 import { getRootFolderId } from './utils/get-root-folder-id';
 import {
   needsLoading as checkNeedsLoading,
@@ -233,6 +238,13 @@ function handleLoadRootSuccess(
   // Initialize worker with root nodes
   if (portRef.current) {
     const workerNodes = toWorkerFileNodes(children);
+    const snapshotEstimate = estimateTreePayloadBytes(workerNodes);
+    recordFileTreeTelemetry({
+      bytes: snapshotEstimate.bytes,
+      event: 'file-tree.snapshot',
+      kind: 'full',
+      nodeCount: snapshotEstimate.nodeCount,
+    });
     portRef.current.init(workerNodes, rootFolderId);
   }
 
@@ -392,7 +404,21 @@ async function loadSpecificPathsWithWorker(args: {
   onProgress?.(0, total, paths[0] ?? '');
 
   const result = await port.loadPaths(paths);
-  const hydratedTree = rehydrateTree(result.tree, handleMapRef.current);
+  const snapshotEstimate = estimateTreePayloadBytes(result.tree);
+  recordFileTreeTelemetry({
+    bytes: snapshotEstimate.bytes,
+    event: 'file-tree.snapshot',
+    kind: 'full',
+    nodeCount: snapshotEstimate.nodeCount,
+  });
+  const { result: hydratedTree, durationMs } = measureFileTreeOperation(() =>
+    rehydrateTree(result.tree, handleMapRef.current)
+  );
+  recordFileTreeTelemetry({
+    durationMs,
+    event: 'file-tree.rehydrate',
+    nodeCount: snapshotEstimate.nodeCount,
+  });
   syncNormalizedTree(hydratedTree);
   setState((s) => ({
     ...s,
@@ -445,7 +471,21 @@ function applyWorkerExpandAllResult(args: {
   syncNormalizedTree: (tree: IFileNode[]) => void;
 }): { discoveredDirectories: number; pathsToCommit: readonly string[] } {
   const { handleMapRef, onNodesIndexedRef, result, setState, syncNormalizedTree } = args;
-  const hydratedTree = rehydrateTree(result.tree, handleMapRef.current);
+  const snapshotEstimate = estimateTreePayloadBytes(result.tree);
+  recordFileTreeTelemetry({
+    bytes: snapshotEstimate.bytes,
+    event: 'file-tree.snapshot',
+    kind: 'full',
+    nodeCount: snapshotEstimate.nodeCount,
+  });
+  const { result: hydratedTree, durationMs } = measureFileTreeOperation(() =>
+    rehydrateTree(result.tree, handleMapRef.current)
+  );
+  recordFileTreeTelemetry({
+    durationMs,
+    event: 'file-tree.rehydrate',
+    nodeCount: snapshotEstimate.nodeCount,
+  });
   const expectedNodeCount = countTreeNodes(result.tree);
   const actualNodeCount = countTreeNodes(hydratedTree);
 
@@ -881,6 +921,13 @@ export function useLazyFileTree(
       // Update worker tree
       if (portRef.current) {
         const workerChildren = toWorkerFileNodes(children);
+        const patchEstimate = estimateTreePayloadBytes(workerChildren);
+        recordFileTreeTelemetry({
+          bytes: patchEstimate.bytes,
+          event: 'file-tree.patch',
+          kind: 'patch',
+          nodeCount: patchEstimate.nodeCount,
+        });
         portRef.current.updateTree(path, workerChildren);
       }
 

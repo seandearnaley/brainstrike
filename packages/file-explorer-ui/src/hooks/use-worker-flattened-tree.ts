@@ -11,6 +11,8 @@
 import type { FileTreeWorkerPort, FlattenedNode } from '@brainstrike/file-tree-worker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { recordFileTreeTelemetry } from '../utils/file-tree-telemetry';
+
 /**
  * Node count threshold above which we use worker flattening.
  * Below this, main thread flattening is fast enough (~0.5ms for 7K nodes).
@@ -75,6 +77,13 @@ export function useWorkerFlattenedTree(
     cleanupRef.current = port.onFlattenedResult((nodes, _count, durationMs) => {
       setFlattenedNodes(nodes);
       setLastDurationMs(durationMs);
+      recordFileTreeTelemetry({
+        durationMs,
+        event: 'file-tree.flatten',
+        nodeCount: _count,
+        rowCount: nodes.length,
+        source: 'worker',
+      });
     });
 
     return () => {

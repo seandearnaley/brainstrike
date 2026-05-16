@@ -42,6 +42,7 @@ import {
   useOptionalFileTreeNormalizedContext,
 } from './file-tree-provider';
 import { useWorkerFlattenedTree } from './hooks/use-worker-flattened-tree';
+import { measureFileTreeOperation, recordFileTreeTelemetry } from './utils/file-tree-telemetry';
 import {
   getQuerySelectionMatchingCount,
   getSelectionCount,
@@ -2061,30 +2062,48 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // do not trigger full tree row reconstruction for large trees.
     const treeRows = useMemo(() => {
       fileTreeTelemetry.treeRowsRebuildCount++;
-      const options: BuildFileTreeRowsOptions = {
-        expandedDirectoryPaths,
-        folderId,
-        loadingFiles,
-        ...(loadingPaths ? { loadingPaths } : {}),
-        ...(isLoadingForSelection === undefined ? {} : { isLoadingForSelection }),
-        ...(loadingPathForSelection === undefined ? {} : { loadingPathForSelection }),
-      };
+      let source: 'main-thread' | 'normalized' | 'worker' = 'main-thread';
+      const measured = measureFileTreeOperation(() => {
+        const options: BuildFileTreeRowsOptions = {
+          expandedDirectoryPaths,
+          folderId,
+          loadingFiles,
+          ...(loadingPaths ? { loadingPaths } : {}),
+          ...(isLoadingForSelection === undefined ? {} : { isLoadingForSelection }),
+          ...(loadingPathForSelection === undefined ? {} : { loadingPathForSelection }),
+        };
 
-      if (normalizedTreeContext) {
-        return buildRowsFromNormalizedTree(
-          normalizedTreeContext.normalizedTreeRef.current,
-          options,
-          normalizedTreeContext.getDescendantFileCount,
-          filteredPathSet
-        );
-      }
+        if (normalizedTreeContext) {
+          source = 'normalized';
+          return buildRowsFromNormalizedTree(
+            normalizedTreeContext.normalizedTreeRef.current,
+            options,
+            normalizedTreeContext.getDescendantFileCount,
+            filteredPathSet
+          );
+        }
 
-      // When worker-flattened nodes are available, use them to avoid main-thread DFS
-      if (flattenedNodes && fileNodeIndex) {
-        return buildRowsFromWorkerNodes(flattenedNodes, (path) => fileNodeIndex.get(path), options);
-      }
+        // When worker-flattened nodes are available, use them to avoid main-thread DFS
+        if (flattenedNodes && fileNodeIndex) {
+          source = 'worker';
+          return buildRowsFromWorkerNodes(
+            flattenedNodes,
+            (path) => fileNodeIndex.get(path),
+            options
+          );
+        }
 
-      return buildFileTreeRows(fileTree, options);
+        return buildFileTreeRows(fileTree, options);
+      });
+
+      recordFileTreeTelemetry({
+        durationMs: measured.durationMs,
+        event: 'file-tree.row-build',
+        rowCount: measured.result.length,
+        source,
+      });
+
+      return measured.result;
     }, [
       fileTree,
       expandedDirectoryPaths,
