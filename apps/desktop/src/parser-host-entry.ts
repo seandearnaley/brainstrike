@@ -3,7 +3,8 @@
  *
  * Loaded by `ParserHostManager` (Phase 4) via Electron `utilityProcess.fork()`.
  * Exposes `handleParseRequest()` as a pure function for unit testing, and
- * wires it to `process.parentPort` when run as a utility-process entry.
+ * (Phase 4 work) wires it to `process.parentPort` when run as a utility-process
+ * entry.
  *
  * The actual parsing uses `oxc-parser` (Rust NAPI) — much faster than the
  * Babel parser used historically by the chunking-worker. The chunking-worker
@@ -13,26 +14,76 @@
  * See: docs/prd-chunking-wasm-parser-2026-05.md §4
  */
 
-import type { ParserHostParseRequest, ParserHostParseResponse } from './parser-host-shared';
+import { parseSync } from 'oxc-parser';
+import type {
+  ParserHostAstNode,
+  ParserHostParseOptions,
+  ParserHostParseRequest,
+  ParserHostParseResponse,
+} from './parser-host-shared';
 
 /**
- * STUB — Phase 3 Cycle 3.1 RED state.
+ * Map our `ParseOptions` to a synthetic filename whose extension oxc-parser
+ * uses to choose the parser dialect. This is the documented oxc API: it
+ * looks at the filename extension to pick js/jsx/ts/tsx parsing rules.
  *
- * Returns a failure response so the test's success-path assertion fails at
- * runtime (not at the import). Replaced wholesale in Cycle 3.1 GREEN with
- * a real call to oxc.parseSync().
+ * The synthetic name never touches disk — it's purely a dialect signal.
+ */
+function deriveFilename(options: ParserHostParseOptions): string {
+  if (options.language === 'typescript') {
+    return options.jsx ? 'source.tsx' : 'source.ts';
+  }
+  return options.jsx ? 'source.jsx' : 'source.js';
+}
+
+/**
+ * Parse a single source file using oxc-parser.
  *
- * TODO(Phase 3 Cycle 3.1 GREEN): replace with oxc-parser call. Map
- * options.language → file extension (.ts/.js) for parseSync's filename arg
- * (oxc uses extension to choose the parser dialect), thread options.jsx and
- * options.errorRecovery through, and return { ok: true, root: result.program }.
+ * Error model (oxc differs from Babel here):
+ *   - oxc.parseSync ALWAYS returns a `program` even when source is malformed
+ *     (best-effort recovery is the default)
+ *   - Errors are surfaced via `result.errors` (an array)
+ *
+ * Our adapter contract treats the flag this way:
+ *   - errorRecovery: true  → always return ok with the (possibly partial) tree
+ *   - errorRecovery: false → return ok only if errors.length === 0; otherwise
+ *     return a failure response with the first error message
  */
 export async function handleParseRequest(
   request: ParserHostParseRequest
 ): Promise<ParserHostParseResponse> {
-  return {
-    error: 'handleParseRequest not implemented (Phase 3 Cycle 3.1 GREEN pending)',
-    ok: false,
-    requestId: request.requestId,
-  };
+  try {
+    const filename = deriveFilename(request.options);
+    const result = parseSync(filename, request.content);
+
+    if (!request.options.errorRecovery && result.errors.length > 0) {
+      const firstError = result.errors[0];
+      const message =
+        typeof firstError === 'object' && firstError !== null && 'message' in firstError
+          ? String((firstError as { message: unknown }).message)
+          : 'oxc-parser reported errors and errorRecovery is disabled';
+      return {
+        error: message,
+        ok: false,
+        requestId: request.requestId,
+      };
+    }
+
+    // The double cast through `unknown` is the documented TS pattern for
+    // crossing between an incompatible-but-runtime-safe type pair. Our
+    // ParserHostAstNode is intentionally permissive (type/start/end optional,
+    // arbitrary other props) while oxc's Program is a closed shape — at
+    // runtime they overlap perfectly, but the static types don't.
+    return {
+      ok: true,
+      requestId: request.requestId,
+      root: result.program as unknown as ParserHostAstNode,
+    };
+  } catch (err) {
+    return {
+      error: err instanceof Error ? err.message : String(err),
+      ok: false,
+      requestId: request.requestId,
+    };
+  }
 }
