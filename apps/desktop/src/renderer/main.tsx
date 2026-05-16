@@ -84,18 +84,23 @@ const rendererRuntimeKind =
     ? desktopRendererRole
     : null;
 
-// Phase 8 rollout: when this renderer is the chunking host, advertise the
-// parser-routing environment to the chunking-worker BEFORE any worker code
-// imports. selectAdapter() reads these globals to decide whether to route
-// parses through the native oxc utility process (with per-file Babel
-// fallback) or to use the in-process Babel adapter.
+// Phase 8 rollout + P1 #994 fix: when this renderer is the chunking host,
+// read the optional URL-param kill switch into globalThis for the
+// chunking-worker provider to propagate to the worker via init message.
+//
+// The parser ENVIRONMENT itself is auto-detected downstream: the
+// chunking-worker-port's buildInitMessage checks for `globalThis.parserHost`
+// (exposed by preload's contextBridge in this renderer) and tells the
+// worker to advertise itself as electron-chunking-host. Setting
+// __BRAINSTRIKE_PARSER_ENV__ on `window` here used to do nothing useful —
+// the worker has its own globalThis realm — so it's removed.
 //
 // Operator kill switch: append `?parserFlag=babel` to the chunking-host
 // renderer URL to force the legacy Babel path. The chunking-host's URL is
-// constructed in main.ts when launching the BrowserWindow, so this is a
-// one-line change there if the rollout needs to be reverted in the field.
+// constructed in chunking-host-manager.ts when launching the BrowserWindow,
+// so this is a one-line change there if the rollout needs to be reverted
+// in the field.
 if (desktopRendererRole === 'chunking-host') {
-  globalThis.__BRAINSTRIKE_PARSER_ENV__ = 'electron-chunking-host';
   const flagParam = new URLSearchParams(window.location.search).get('parserFlag');
   if (flagParam === 'babel' || flagParam === 'oxc' || flagParam === 'auto') {
     globalThis.__BRAINSTRIKE_PARSER_FLAG__ = flagParam;

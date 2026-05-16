@@ -163,6 +163,46 @@ export function toFileChunkInserts(
   });
 }
 
+interface ChunkingWorkerInitMessage {
+  parserEnv?: 'browser' | 'electron-chunking-host';
+  parserFlag?: 'auto' | 'babel' | 'oxc';
+  type: 'init';
+}
+
+/**
+ * Build the worker's init payload. When this code runs inside the Electron
+ * chunking-host renderer, the preload bridge has exposed
+ * `globalThis.parserHost.parse` — its presence is our deterministic signal
+ * that the worker should advertise the chunking-host environment so its
+ * selectAdapter routes oxc parses through the IPC bridge.
+ *
+ * In apps/web (no preload) and tests without the bridge mocked, parserEnv
+ * stays undefined and the worker keeps its 'browser' default.
+ */
+function buildInitMessage(): ChunkingWorkerInitMessage {
+  const init: ChunkingWorkerInitMessage = { type: 'init' };
+  if (typeof globalThis !== 'undefined') {
+    const bridge = (globalThis as { parserHost?: unknown }).parserHost;
+    if (
+      bridge &&
+      typeof bridge === 'object' &&
+      typeof (bridge as { parse?: unknown }).parse === 'function'
+    ) {
+      init.parserEnv = 'electron-chunking-host';
+    }
+    // biome-ignore-start lint/style/useNamingConvention: shared global key, intentional UPPER_SNAKE_CASE
+    interface ParserFlagGlobal {
+      __BRAINSTRIKE_PARSER_FLAG__?: unknown;
+    }
+    // biome-ignore-end lint/style/useNamingConvention: shared global key, intentional UPPER_SNAKE_CASE
+    const flag = (globalThis as ParserFlagGlobal).__BRAINSTRIKE_PARSER_FLAG__;
+    if (flag === 'auto' || flag === 'babel' || flag === 'oxc') {
+      init.parserFlag = flag;
+    }
+  }
+  return init;
+}
+
 /**
  * Create a ChunkingWorkerPort from a Worker instance.
  *
@@ -333,7 +373,14 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
   removeMessageListener = transport.onMessage((message) => {
     handleMessage(message as WorkerResponse);
   });
-  transport.postMessage({ type: 'init' });
+  // P1 #994 fix: tell the worker which parser-routing environment it's in.
+  // Workers have their own globalThis realm and can't read flags the
+  // renderer sets on window, so we propagate via the existing init
+  // message. The chunking-host renderer is the only context where the
+  // parser-host bridge (window.parserHost, set up via preload contextBridge)
+  // is available — its presence is the deterministic signal that this
+  // worker should route oxc parses through the IPC bridge.
+  transport.postMessage(buildInitMessage());
 
   let requestIdCounter = 0;
 
