@@ -54,3 +54,10 @@ export interface ParserHostParseFailure {
 }
 
 export type ParserHostParseResponse = ParserHostParseFailure | ParserHostParseSuccess;
+
+/**
+ * IPC channel name for parse requests from chunking-host renderer to main.
+ * Main process forwards to the parser-host utility process via
+ * `ParserHostManager.parse()`.
+ */
+export const PARSER_HOST_PARSE_CHANNEL = 'parser-host:parse';

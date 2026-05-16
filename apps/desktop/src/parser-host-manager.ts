@@ -14,7 +14,6 @@
  */
 
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { type UtilityProcess, utilityProcess } from 'electron';
 import type { ParserHostParseRequest, ParserHostParseResponse } from './parser-host-shared';
 
@@ -33,11 +32,14 @@ export interface ParserHostManagerOptions {
 }
 
 function resolveDefaultEntryPath(): string {
-  const here =
-    typeof module !== 'undefined' && typeof module.filename === 'string' && module.filename.length
+  // Mirror db-host-manager.resolveDefaultEntryPath. The main process build
+  // is CommonJS, so module.filename is reliable; the cwd fallback only
+  // matters in the (rare) case where the bundler stripped module info.
+  const currentModuleFilename =
+    typeof module.filename === 'string' && module.filename.length > 0
       ? module.filename
-      : fileURLToPath(import.meta.url);
-  return path.join(path.dirname(here), 'parser-host-entry.js');
+      : path.join(process.cwd(), 'parser-host-manager.js');
+  return path.join(path.dirname(currentModuleFilename), 'parser-host-entry.js');
 }
 
 function isParserHostParseResponse(value: unknown): value is ParserHostParseResponse {
