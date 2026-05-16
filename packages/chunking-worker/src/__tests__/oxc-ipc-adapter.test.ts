@@ -1,25 +1,74 @@
 /**
  * Contract tests for the oxc-IPC parser adapter (Phase 4 Cycle 4.4).
  *
- * Mocks the dynamic `import('electron')` to provide a fake `ipcRenderer`
- * with a controllable `invoke` mock. Verifies the adapter:
- *   - identifies as 'oxc-native'
- *   - sends correctly-shaped requests via IPC
- *   - returns the AstNode on success
- *   - throws on failure responses, malformed responses, missing renderer
+ * The adapter runs inside a Web Worker and bridges parse requests to its
+ * parent renderer via `self.postMessage` (which the renderer routes to the
+ * Electron main process via the contextBridge-exposed `window.parserHost`).
+ *
+ * These tests install a fake `self` on globalThis that captures
+ * postMessage calls and lets the test simulate reply messages — the same
+ * shape the renderer-side bridge would produce in production.
  *
  * See: docs/prd-chunking-wasm-parser-2026-05.md §5 (Phase 4)
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const invokeMock = vi.hoisted(() => vi.fn());
+interface PostedMessage {
+  payload?: unknown;
+  requestId: string;
+  type: string;
+}
+type MessageListener = (event: { data?: unknown }) => void;
 
-vi.mock('electron', () => ({
-  ipcRenderer: {
-    invoke: invokeMock,
-  },
-}));
+interface FakeWorkerSelf {
+  addEventListener: (type: 'message', listener: MessageListener) => void;
+  emit: (data: unknown) => void;
+  postMessage: ReturnType<typeof vi.fn<(m: PostedMessage) => void>>;
+}
+
+function installFakeSelf(): FakeWorkerSelf {
+  const listeners: MessageListener[] = [];
+  const fake: FakeWorkerSelf = {
+    addEventListener: (type, listener) => {
+      if (type === 'message') {
+        listeners.push(listener);
+      }
+    },
+    emit: (data: unknown) => {
+      for (const l of listeners) {
+        l({ data });
+      }
+    },
+    postMessage: vi.fn(),
+  };
+  Object.defineProperty(globalThis, 'self', {
+    configurable: true,
+    value: fake,
+    writable: true,
+  });
+  // Ensure `window` !== `self` so the adapter's worker-context heuristic
+  // recognizes this as a worker realm.
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: undefined,
+    writable: true,
+  });
+  return fake;
+}
+
+function restoreSelf(): void {
+  Object.defineProperty(globalThis, 'self', {
+    configurable: true,
+    value: undefined,
+    writable: true,
+  });
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: undefined,
+    writable: true,
+  });
+}
 
 const baseOptions = {
   errorRecovery: true,
@@ -27,15 +76,16 @@ const baseOptions = {
   language: 'javascript',
 } as const;
 
+let fakeSelf: FakeWorkerSelf;
+
 beforeEach(async () => {
-  invokeMock.mockReset();
-  // Reset the adapter's lazy-loaded renderer cache between tests so each
-  // test sees a fresh import('electron') chain with the current invokeMock.
-  const { __resetIpcRendererCacheForTesting } = await import('../parsers/oxc-ipc-adapter');
-  __resetIpcRendererCacheForTesting();
+  fakeSelf = installFakeSelf();
+  const { __resetIpcAdapterForTesting } = await import('../parsers/oxc-ipc-adapter');
+  __resetIpcAdapterForTesting();
 });
 
 afterEach(() => {
+  restoreSelf();
   vi.resetModules();
 });
 
@@ -46,67 +96,134 @@ describe('oxcIpcAdapter', () => {
     expect(oxcIpcAdapter.id).toBe('oxc-native');
   });
 
-  it('sends a correctly-shaped request to the parser-host:parse channel', async () => {
-    invokeMock.mockResolvedValue({
-      ok: true,
-      requestId: 'whatever',
-      root: { type: 'Program' },
-    });
+  it('posts a parser-host:invoke envelope with the correct payload', async () => {
     const { oxcIpcAdapter } = await import('../parsers/oxc-ipc-adapter');
 
-    await oxcIpcAdapter.parse('const x = 1', baseOptions);
+    const parsePromise = oxcIpcAdapter.parse('const x = 1', baseOptions);
 
-    expect(invokeMock).toHaveBeenCalledTimes(1);
-    const [channel, payload] = invokeMock.mock.calls[0] ?? [];
-    expect(channel).toBe('parser-host:parse');
-    expect(payload).toMatchObject({
-      content: 'const x = 1',
-      options: baseOptions,
+    // Capture the invoke envelope sent to the parent.
+    expect(fakeSelf.postMessage).toHaveBeenCalledTimes(1);
+    const sent = fakeSelf.postMessage.mock.calls[0]?.[0] as {
+      type: string;
+      requestId: string;
+      payload: { content: string; options: typeof baseOptions; requestId: string };
+    };
+    expect(sent.type).toBe('parser-host:invoke');
+    expect(sent.payload.content).toBe('const x = 1');
+    expect(sent.payload.options).toEqual(baseOptions);
+    expect(typeof sent.requestId).toBe('string');
+    expect(sent.payload.requestId).toBe(sent.requestId);
+
+    // Now simulate the renderer replying with success.
+    fakeSelf.emit({
+      requestId: sent.requestId,
+      response: { ok: true, requestId: sent.requestId, root: { type: 'Program' } },
+      type: 'parser-host:reply',
     });
-    expect(typeof (payload as { requestId?: unknown }).requestId).toBe('string');
-  });
 
-  it('returns the root AstNode on a success response', async () => {
-    invokeMock.mockResolvedValue({
-      ok: true,
-      requestId: 'r-1',
-      root: { type: 'Program', start: 0, end: 11 },
-    });
-    const { oxcIpcAdapter } = await import('../parsers/oxc-ipc-adapter');
-
-    const result = await oxcIpcAdapter.parse('const x = 1', baseOptions);
-
+    const result = await parsePromise;
     expect(result.type).toBe('Program');
-    expect(result.start).toBe(0);
   });
 
-  it('throws when the host returns a failure response', async () => {
-    invokeMock.mockResolvedValue({ ok: false, requestId: 'r-2', error: 'oxc died' });
+  it('rejects when the renderer replies with a failure response', async () => {
     const { oxcIpcAdapter } = await import('../parsers/oxc-ipc-adapter');
 
-    await expect(oxcIpcAdapter.parse('const x = 1', baseOptions)).rejects.toThrow(/oxc died/);
+    const parsePromise = oxcIpcAdapter.parse('const x = 1', baseOptions);
+    const sent = fakeSelf.postMessage.mock.calls[0]?.[0] as { requestId: string };
+
+    fakeSelf.emit({
+      requestId: sent.requestId,
+      response: { error: 'oxc died', ok: false, requestId: sent.requestId },
+      type: 'parser-host:reply',
+    });
+
+    await expect(parsePromise).rejects.toThrow(/oxc died/);
   });
 
-  it('throws when the host returns a malformed response', async () => {
-    invokeMock.mockResolvedValue({ surprise: 'no requestId or ok' });
+  it('ignores reply messages for unknown requestIds', async () => {
     const { oxcIpcAdapter } = await import('../parsers/oxc-ipc-adapter');
 
-    await expect(oxcIpcAdapter.parse('const x = 1', baseOptions)).rejects.toThrow(/malformed/i);
+    const parsePromise = oxcIpcAdapter.parse('const x = 1', baseOptions);
+    const sent = fakeSelf.postMessage.mock.calls[0]?.[0] as { requestId: string };
+
+    // Spurious reply for an unrelated requestId — should not resolve our promise.
+    fakeSelf.emit({
+      requestId: 'someone-elses-request',
+      response: { ok: true, requestId: 'someone-elses-request', root: { type: 'Program' } },
+      type: 'parser-host:reply',
+    });
+
+    // Now the real reply.
+    fakeSelf.emit({
+      requestId: sent.requestId,
+      response: {
+        ok: true,
+        requestId: sent.requestId,
+        root: { sentinel: 'real', type: 'Program' },
+      },
+      type: 'parser-host:reply',
+    });
+
+    const result = await parsePromise;
+    expect((result as { sentinel?: string }).sentinel).toBe('real');
+  });
+
+  it('ignores non-reply messages on the same worker channel', async () => {
+    const { oxcIpcAdapter } = await import('../parsers/oxc-ipc-adapter');
+
+    const parsePromise = oxcIpcAdapter.parse('const x = 1', baseOptions);
+    const sent = fakeSelf.postMessage.mock.calls[0]?.[0] as { requestId: string };
+
+    // The chunking worker has its own message types (init, chunk-file, etc.) —
+    // those should not be misinterpreted as parser-host replies.
+    fakeSelf.emit({ type: 'init' });
+    fakeSelf.emit({ chunks: [], type: 'chunking:result' });
+    fakeSelf.emit('totally not an envelope');
+
+    // Real reply still resolves.
+    fakeSelf.emit({
+      requestId: sent.requestId,
+      response: { ok: true, requestId: sent.requestId, root: { type: 'Program' } },
+      type: 'parser-host:reply',
+    });
+
+    const result = await parsePromise;
+    expect(result.type).toBe('Program');
+  });
+
+  it('rejects with a clear error when not running in a worker realm', async () => {
+    // Reinstall fake self where `window` === `self` (renderer main thread shape).
+    restoreSelf();
+    const sharedSelf = { addEventListener: vi.fn(), postMessage: vi.fn() };
+    Object.defineProperty(globalThis, 'self', {
+      configurable: true,
+      value: sharedSelf,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: sharedSelf,
+      writable: true,
+    });
+    vi.resetModules();
+    const { oxcIpcAdapter, __resetIpcAdapterForTesting } = await import(
+      '../parsers/oxc-ipc-adapter'
+    );
+    __resetIpcAdapterForTesting();
+
+    await expect(oxcIpcAdapter.parse('const x = 1', baseOptions)).rejects.toThrow(
+      /parent worker scope not detected/
+    );
   });
 
   it('generates unique requestIds across calls', async () => {
-    invokeMock.mockResolvedValue({
-      ok: true,
-      requestId: 'echoed',
-      root: { type: 'Program' },
-    });
     const { oxcIpcAdapter } = await import('../parsers/oxc-ipc-adapter');
 
-    await oxcIpcAdapter.parse('a', baseOptions);
-    await oxcIpcAdapter.parse('b', baseOptions);
+    void oxcIpcAdapter.parse('a', baseOptions);
+    void oxcIpcAdapter.parse('b', baseOptions);
 
-    const id1 = (invokeMock.mock.calls[0]?.[1] as { requestId: string }).requestId;
-    const id2 = (invokeMock.mock.calls[1]?.[1] as { requestId: string }).requestId;
+    const id1 = (fakeSelf.postMessage.mock.calls[0]?.[0] as { requestId: string }).requestId;
+    const id2 = (fakeSelf.postMessage.mock.calls[1]?.[0] as { requestId: string }).requestId;
     expect(id1).not.toBe(id2);
   });
 });

@@ -428,6 +428,18 @@ contextBridge.exposeInMainWorld('desktopLifecycle', {
   isTestMode: DESKTOP_TEST_MODE,
 });
 
+// Parser host bridge — exposed for the chunking-host renderer so its
+// chunking-worker (Web Worker context) can route parse requests through the
+// preload-bridged IPC channel instead of trying to `import('electron')` from
+// the worker realm (which fails under contextIsolation+sandbox). The worker
+// postMessages a parse request to its parent (the renderer), the renderer
+// calls window.parserHost.parse(request) here, and posts the response back
+// to the worker. See packages/chunking-worker/src/parsers/oxc-ipc-adapter.ts
+// and the bridge handler in packages/file-import/src/chunking-worker-context.tsx.
+contextBridge.exposeInMainWorld('parserHost', {
+  parse: (request: unknown) => ipcRenderer.invoke('parser-host:parse', request),
+});
+
 // Local Agent API (non-streaming aggregate; renderer can pseudo-stream chunks)
 contextBridge.exposeInMainWorld('agent', {
   chat: (messages: unknown[], runtime?: unknown) =>
