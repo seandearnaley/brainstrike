@@ -29,6 +29,28 @@ import type {
  *
  * The synthetic name never touches disk — it's purely a dialect signal.
  */
+/**
+ * Extract a human-readable error message from oxc's `result.errors`.
+ *
+ * oxc's diagnostic shape is version-dependent: in some configurations it
+ * returns rich `OxcDiagnostic` objects (with `.message`), in others a
+ * plain `string[]`. We handle both rather than falling through to a
+ * generic "errors reported" message that loses signal.
+ */
+function extractFirstErrorMessage(errors: readonly unknown[]): string {
+  const first = errors[0];
+  if (typeof first === 'string' && first.length > 0) {
+    return first;
+  }
+  if (first && typeof first === 'object' && 'message' in first) {
+    const message = (first as { message: unknown }).message;
+    if (typeof message === 'string' && message.length > 0) {
+      return message;
+    }
+  }
+  return 'oxc-parser reported errors and errorRecovery is disabled';
+}
+
 function deriveFilename(options: ParserHostParseOptions): string {
   if (options.language === 'typescript') {
     return options.jsx ? 'source.tsx' : 'source.ts';
@@ -49,6 +71,12 @@ function deriveFilename(options: ParserHostParseOptions): string {
  *   - errorRecovery: false → return ok only if errors.length === 0; otherwise
  *     return a failure response with the first error message
  */
+// The signature is async/Promise even though the body is fully synchronous
+// today (oxc-parser.parseSync). Intentional, for two reasons: (1) the IPC
+// boundary in Phase 4 always returns a Promise, so callers already await,
+// and changing this to sync would force one more API rev with no payoff;
+// (2) the Phase 7+ benchmark and any future remote-parser path are async.
+// The per-call microtask cost is negligible against the parse work itself.
 export async function handleParseRequest(
   request: ParserHostParseRequest
 ): Promise<ParserHostParseResponse> {
@@ -57,13 +85,8 @@ export async function handleParseRequest(
     const result = parseSync(filename, request.content);
 
     if (!request.options.errorRecovery && result.errors.length > 0) {
-      const firstError = result.errors[0];
-      const message =
-        typeof firstError === 'object' && firstError !== null && 'message' in firstError
-          ? String((firstError as { message: unknown }).message)
-          : 'oxc-parser reported errors and errorRecovery is disabled';
       return {
-        error: message,
+        error: extractFirstErrorMessage(result.errors),
         ok: false,
         requestId: request.requestId,
       };

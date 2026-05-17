@@ -282,7 +282,7 @@ describe('handleParseRequest', () => {
   });
 
   describe('defensive', () => {
-    it('returns failure with a string error when content is empty and errorRecovery is off', async () => {
+    it('returns success on empty input even with errorRecovery off (oxc treats empty as valid Program)', async () => {
       // Empty input is technically valid (a Program with no body), so this
       // should still succeed. The test pins the behavior so we notice if oxc
       // ever changes its empty-input handling.
