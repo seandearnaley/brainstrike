@@ -575,6 +575,12 @@ function isFunctionNode(type?: string): boolean {
     type === 'ObjectMethod' ||
     type === 'ClassMethod' ||
     type === 'ClassPrivateMethod' ||
+    // ESTree-style class method wrapper used by oxc-parser and most non-Babel
+    // tooling. Without this, every class method in an oxc-parsed tree would
+    // be invisible to function-level chunking (Babel calls these ClassMethod
+    // directly; oxc emits MethodDefinition wrapping a FunctionExpression).
+    // Surfaced by Phase 6 differential test reviewer (#992).
+    type === 'MethodDefinition' ||
     type === 'TSDeclareFunction' ||
     type === 'TSMethodSignature' ||
     type === 'TSCallSignatureDeclaration'
