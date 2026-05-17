@@ -1,0 +1,77 @@
+export type AgentDevtoolsConfig =
+  | { readonly enabled: false }
+  | {
+      readonly enabled: true;
+      readonly host: '127.0.0.1' | 'localhost';
+      readonly port: number;
+    };
+
+type EnvLike = Readonly<Record<string, string | undefined>>;
+
+interface ElectronCommandLineLike {
+  appendSwitch(name: string, value: string): void;
+}
+
+const DEFAULT_AGENT_DEVTOOLS_PORT = 9222;
+const DEFAULT_AGENT_DEVTOOLS_HOST = '127.0.0.1';
+const MIN_PORT = 1024;
+const MAX_PORT = 65_535;
+
+export function resolveAgentDevtoolsConfig(
+  env: EnvLike,
+  argv: readonly string[]
+): AgentDevtoolsConfig {
+  const enabled =
+    env['BRAINSTRIKE_AGENT_DEVTOOLS'] === '1' || argv.includes('--brainstrike-agent-devtools');
+
+  if (!enabled) {
+    return { enabled: false };
+  }
+
+  const host = resolveHost(env['BRAINSTRIKE_AGENT_DEVTOOLS_HOST']);
+  const port = resolvePort(env['BRAINSTRIKE_AGENT_DEVTOOLS_PORT'], argv);
+  return { enabled: true, host, port };
+}
+
+export function toAgentDevtoolsSwitches(
+  config: AgentDevtoolsConfig
+): ReadonlyArray<readonly [name: string, value: string]> {
+  if (!config.enabled) {
+    return [];
+  }
+  return [
+    ['remote-debugging-port', String(config.port)],
+    ['remote-debugging-address', config.host],
+  ];
+}
+
+export function configureAgentDevtoolsCommandLine(
+  commandLine: ElectronCommandLineLike,
+  env: EnvLike,
+  argv: readonly string[]
+): void {
+  const config = resolveAgentDevtoolsConfig(env, argv);
+  for (const [name, value] of toAgentDevtoolsSwitches(config)) {
+    commandLine.appendSwitch(name, value);
+  }
+}
+
+function resolveHost(value: string | undefined): '127.0.0.1' | 'localhost' {
+  const host = value?.trim() || DEFAULT_AGENT_DEVTOOLS_HOST;
+  if (host === '127.0.0.1' || host === 'localhost') {
+    return host;
+  }
+  throw new Error('BRAINSTRIKE_AGENT_DEVTOOLS_HOST must be 127.0.0.1 or localhost.');
+}
+
+function resolvePort(envValue: string | undefined, argv: readonly string[]): number {
+  const argvValue = argv
+    .find((arg: string): boolean => arg.startsWith('--brainstrike-agent-devtools-port='))
+    ?.split('=')[1];
+  const raw = envValue?.trim() || argvValue?.trim() || String(DEFAULT_AGENT_DEVTOOLS_PORT);
+  const port = Number.parseInt(raw, 10);
+  if (!Number.isInteger(port) || String(port) !== raw || port < MIN_PORT || port > MAX_PORT) {
+    throw new Error('BRAINSTRIKE_AGENT_DEVTOOLS_PORT must be an integer from 1024 to 65535.');
+  }
+  return port;
+}
