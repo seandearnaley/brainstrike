@@ -39,12 +39,22 @@ export function getEnvironment(): ParserEnvironment {
 /**
  * Returns the currently-configured parser flag.
  *
- * Defaults to 'auto', which means selectAdapter picks the best adapter for
- * the environment (oxc in Electron, Babel in browser). Explicit 'babel'
- * forces Babel everywhere — kill-switch for the rollout. Explicit 'oxc'
- * forces oxc but is only meaningful in Electron contexts.
+ * Recognized values: 'auto' (let selectAdapter pick per environment),
+ * 'babel' (kill switch — Babel everywhere), 'oxc' (force oxc, meaningful
+ * only in Electron).
+ *
+ * **Unset → 'auto'** (default behavior).
+ * **Set but unrecognized → 'babel'** (rollout-safety nit #991): if an
+ * operator types `?parserFlag=foo`, they clearly intended *something
+ * non-default*. The safest interpretation of "non-default but unknown"
+ * for a kill-switch is to stay on the known-good path. The previous
+ * "coerce unknown to auto" behavior would route to oxc in Electron
+ * on a typo — exactly the case where defensiveness matters most.
  */
 export function getParserFlag(): ParserFlag {
   const value = globalThis.__BRAINSTRIKE_PARSER_FLAG__;
-  return value === 'babel' || value === 'oxc' ? value : 'auto';
+  if (value === 'auto' || value === 'babel' || value === 'oxc') {
+    return value;
+  }
+  return value === undefined ? 'auto' : 'babel';
 }

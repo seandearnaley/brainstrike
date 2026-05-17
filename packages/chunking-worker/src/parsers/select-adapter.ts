@@ -27,6 +27,19 @@ import type { ParserAdapter } from './types';
 
 // Lazy-cache the wrapped oxc adapter so we don't re-wrap on every selectAdapter
 // call. The wrapper itself is stateless, so caching is safe.
+//
+// Reviewer note (#991): the cache captures the default `console.warn`
+// telemetry hook at first call. If a real telemetry sink is introduced
+// later (e.g., the Phase 8 follow-up that wires structured logging),
+// it'll need to either:
+//   (a) be available at module-load time so the first capture is the right
+//       one — preferred, ship as part of the worker bootstrap
+//   (b) call `__resetSelectAdapterCacheForTesting()` after wiring (renamed
+//       and made non-test-only at that point), or
+//   (c) accept a telemetry injection point on `selectAdapter()` —
+//       breaks the zero-arg sync contract this facade was built around
+// Option (a) is the path of least resistance and the one I'd recommend if
+// a real sink lands in this codebase.
 let cachedOxcWithFallback: ParserAdapter | null = null;
 function oxcWithFallback(): ParserAdapter {
   if (!cachedOxcWithFallback) {

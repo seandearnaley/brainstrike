@@ -95,12 +95,22 @@ describe('withFallback', () => {
         throw new Error('fallback also failed');
       })
     );
-    const wrapped = withFallback(primary, fallback, vi.fn());
+    const telemetry = vi.fn();
+    const wrapped = withFallback(primary, fallback, telemetry);
 
     // We accept that the fallback's error propagates — there's no third
     // safety net. But the message should be the fallback's, not the
     // primary's, so debugging starts from the right place.
     await expect(wrapped.parse('x', baseOptions)).rejects.toThrow(/fallback also failed/);
+
+    // Nit #991: double-failure case must fire a distinct telemetry event
+    // so dashboards can distinguish "primary fell back to babel (normal)"
+    // from "primary AND babel both died (urgent)".
+    expect(telemetry).toHaveBeenCalledTimes(2);
+    const doubleFailureCall = telemetry.mock.calls.find((call) =>
+      String((call[0] as { error?: unknown }).error ?? '').startsWith('DOUBLE-FAILURE')
+    );
+    expect(doubleFailureCall).toBeDefined();
   });
 
   it('reports the primary id (not babel) so downstream telemetry attributes correctly', async () => {
@@ -137,7 +147,6 @@ describe('withFallback', () => {
     const buggyTelemetry = vi.fn(() => {
       throw new Error('telemetry sink misconfigured');
     });
-    // biome-ignore lint/suspicious/noConsole: silence the expected console.error
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const wrapped = withFallback(primary, fallback, buggyTelemetry);

@@ -87,12 +87,17 @@ describe('selectAdapter', () => {
       expect(selectAdapter().id).toBe('babel');
     });
 
-    it('treats unknown flag values as auto', () => {
+    it('treats unknown (non-undefined) flag values as the babel kill switch (rollout safety)', () => {
+      // Updated for rollout-safety nit on #991: a set-but-unrecognized
+      // flag value (e.g., `?parserFlag=foo`) indicates the operator
+      // intended *something*, but we can't tell what. The safest
+      // interpretation is the known-good path (babel) rather than
+      // assuming they meant 'auto' (which routes to oxc in Electron).
       setEnv('electron-chunking-host');
       // @ts-expect-error — testing invalid flag value
       globalThis.__BRAINSTRIKE_PARSER_FLAG__ = 'something-else';
 
-      expect(selectAdapter().id).toBe('oxc-native');
+      expect(selectAdapter().id).toBe('babel');
     });
   });
 });

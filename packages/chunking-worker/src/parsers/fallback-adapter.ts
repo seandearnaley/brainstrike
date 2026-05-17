@@ -40,6 +40,28 @@ const defaultTelemetry: FallbackTelemetry = (event) => {
  * `fallback` on any error. The returned adapter takes the primary's `id` so
  * downstream code that introspects the id sees the *intended* adapter.
  */
+function safeFireTelemetry(
+  telemetry: FallbackTelemetry,
+  event: { error: string; fallback: ParserAdapter['id']; primary: ParserAdapter['id'] }
+): void {
+  // Telemetry is best-effort: a throwing hook MUST NOT prevent the
+  // fallback parse from running, otherwise a bad telemetry sink would
+  // cascade into chunking-pipeline failures and defeat the whole point
+  // of the fallback. We swallow telemetry errors and log a single
+  // console.error so the misbehaving sink is visible without taking
+  // the user's chunking job down.
+  try {
+    telemetry(event);
+  } catch (telemetryError) {
+    // biome-ignore lint/suspicious/noConsole: surface telemetry hook bugs without crashing fallback
+    console.error('[chunking-parser] telemetry hook threw; suppressing', telemetryError);
+  }
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function withFallback(
   primary: ParserAdapter,
   fallback: ParserAdapter,
@@ -50,24 +72,26 @@ export function withFallback(
     async parse(content: string, options: ParseOptions) {
       try {
         return await primary.parse(content, options);
-      } catch (error) {
-        // Telemetry is best-effort: a throwing hook MUST NOT prevent the
-        // fallback parse from running, otherwise a bad telemetry sink
-        // would cascade into chunking-pipeline failures and defeat the
-        // whole point of the fallback. We swallow telemetry errors and
-        // log a single console.error so the misbehaving sink is visible
-        // without taking the user's chunking job down.
+      } catch (primaryError) {
+        safeFireTelemetry(telemetry, {
+          error: describeError(primaryError),
+          fallback: fallback.id,
+          primary: primary.id,
+        });
+        // Double-failure (nit #991): if the fallback ALSO throws, fire a
+        // distinct DOUBLE-FAILURE telemetry event so dashboards can
+        // distinguish "primary fell back to babel" (normal) from "both
+        // adapters died" (urgent).
         try {
-          telemetry({
-            error: error instanceof Error ? error.message : String(error),
+          return await fallback.parse(content, options);
+        } catch (fallbackError) {
+          safeFireTelemetry(telemetry, {
+            error: `DOUBLE-FAILURE: primary ${primary.id} threw "${describeError(primaryError)}"; fallback ${fallback.id} also threw "${describeError(fallbackError)}"`,
             fallback: fallback.id,
             primary: primary.id,
           });
-        } catch (telemetryError) {
-          // biome-ignore lint/suspicious/noConsole: surface telemetry hook bugs without crashing fallback
-          console.error('[chunking-parser] telemetry hook threw; suppressing', telemetryError);
+          throw fallbackError;
         }
-        return fallback.parse(content, options);
       }
     },
   };
