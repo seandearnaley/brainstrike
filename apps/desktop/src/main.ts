@@ -15,6 +15,7 @@ import {
 } from '@brainstrike/utils/logging-preferences';
 import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
+import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import { startAssistantServer } from './assistant-server';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { ChunkingHostManager } from './chunking-host-manager';
@@ -62,6 +63,8 @@ const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
 const E2E_USER_DATA_DIR_ENV = 'BRAINSTRIKE_E2E_USER_DATA_DIR';
 const LOG_FILE_VERIFICATION_POLL_INTERVAL_MS = 250;
 const LOG_FILE_VERIFICATION_TIMEOUT_MS = 5000;
+
+configureAgentDevtoolsCommandLine(app.commandLine, process.env, process.argv);
 
 function isElectronE2ETestMode(): boolean {
   return process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
