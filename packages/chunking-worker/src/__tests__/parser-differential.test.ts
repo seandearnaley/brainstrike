@@ -33,19 +33,33 @@ import type { AstNode, ParseOptions } from '../parsers/types';
 // If portable-chunking's logic ever changes, these mirror functions
 // must be updated in lockstep (this is the brittle part; documented).
 
+/**
+ * EXACT mirror of `isFunctionNode` in portable-chunking.ts. The previous
+ * version of this predicate was more permissive (had `MethodDefinition`,
+ * `TSFunctionType`, `TSConstructSignatureDeclaration` that production
+ * doesn't) — which masked a real production bug where oxc's
+ * `MethodDefinition` wasn't recognized at all. Production now includes
+ * MethodDefinition (added in same commit as this sync); the test
+ * predicate stays in lockstep.
+ *
+ * If portable-chunking's `isFunctionNode` changes, this MUST change with
+ * it — they're a contract pair. Diff-time discipline: grep both files
+ * when modifying either.
+ */
 function isFunctionType(type?: string): boolean {
+  if (!type) {
+    return false;
+  }
   return (
     type === 'FunctionDeclaration' ||
     type === 'FunctionExpression' ||
     type === 'ArrowFunctionExpression' ||
+    type === 'ObjectMethod' ||
     type === 'ClassMethod' ||
     type === 'ClassPrivateMethod' ||
-    type === 'ObjectMethod' ||
     type === 'MethodDefinition' ||
     type === 'TSDeclareFunction' ||
-    type === 'TSFunctionType' ||
     type === 'TSMethodSignature' ||
-    type === 'TSConstructSignatureDeclaration' ||
     type === 'TSCallSignatureDeclaration'
   );
 }
