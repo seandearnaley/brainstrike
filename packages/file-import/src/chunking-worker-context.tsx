@@ -127,6 +127,127 @@ export interface ChunkingWorkerContextValue {
   reinitialize: () => void;
 }
 
+// ─── Parser-host bridge (Phase 4 / chunking-parser PRD §4) ──────────────
+//
+// The chunking-worker's oxc-ipc-adapter runs in a Web Worker realm that
+// cannot directly `import('electron')` or call ipcRenderer (contextIsolation
+// + sandbox + nodeIntegrationInWorker=off). Instead, the worker posts an
+// envelope to its parent (this renderer thread), which routes the request
+// through the preload-exposed `window.parserHost.parse(...)` and posts the
+// response back to the worker.
+//
+// Both ends agree on envelope shape:
+//   invoke: { type: 'parser-host:invoke', requestId, payload }
+//   reply:  { type: 'parser-host:reply',  requestId, response }
+//
+// In environments without the preload bridge (apps/web, tests without the
+// global mocked) we silently no-op — the adapter's timeout fires and the
+// per-file fallback wrapper routes to Babel. No crashes.
+//
+// Source-of-truth for the request payload shape lives in
+// `apps/desktop/src/parser-host-shared.ts`; we don't import it across the
+// package boundary, we just pass the payload through opaquely.
+
+const PARSER_HOST_INVOKE = 'parser-host:invoke';
+const PARSER_HOST_REPLY = 'parser-host:reply';
+
+interface ParserHostBridge {
+  parse(payload: unknown): Promise<unknown>;
+}
+
+function getParserHostBridge(): ParserHostBridge | null {
+  if (typeof globalThis === 'undefined') {
+    return null;
+  }
+  const bridge = (globalThis as { parserHost?: unknown }).parserHost;
+  if (
+    bridge &&
+    typeof bridge === 'object' &&
+    typeof (bridge as ParserHostBridge).parse === 'function'
+  ) {
+    return bridge as ParserHostBridge;
+  }
+  return null;
+}
+
+function isInvokeEnvelope(value: unknown): value is {
+  type: typeof PARSER_HOST_INVOKE;
+  requestId: string;
+  payload: unknown;
+} {
+  if (value === null || typeof value !== 'object') {
+    return false;
+  }
+  const v = value as Record<string, unknown>;
+  return v['type'] === PARSER_HOST_INVOKE && typeof v['requestId'] === 'string';
+}
+
+/**
+ * Safe wrapper around `worker.postMessage`. If the worker has been
+ * terminated while a bridge.parse() call was in flight, postMessage
+ * throws — we swallow and log, because the worker is gone and there's
+ * no one left to reply to. Without the guard the throw surfaces as
+ * an unhandled rejection.
+ */
+function safeWorkerPost(
+  worker: Worker,
+  envelope: { requestId: string; response: unknown; type: string }
+): void {
+  try {
+    worker.postMessage(envelope);
+  } catch (err) {
+    logger.warn('parser-host bridge: worker.postMessage failed (worker likely terminated)', {
+      error: err instanceof Error ? err.message : String(err),
+      requestId: envelope.requestId,
+    });
+  }
+}
+
+function createParserHostBridgeHandler(worker: Worker): (event: MessageEvent) => void {
+  return (event: MessageEvent) => {
+    const data = event.data;
+    if (!isInvokeEnvelope(data)) {
+      return;
+    }
+    const bridge = getParserHostBridge();
+    if (!bridge) {
+      // No bridge available in this environment — reply with a failure so
+      // the worker's pending promise rejects quickly rather than waiting
+      // for the timeout, and the per-file fallback runs.
+      safeWorkerPost(worker, {
+        requestId: data.requestId,
+        response: {
+          error: 'parser host bridge unavailable in this environment',
+          ok: false,
+          requestId: data.requestId,
+        },
+        type: PARSER_HOST_REPLY,
+      });
+      return;
+    }
+    bridge
+      .parse(data.payload)
+      .then((response) => {
+        safeWorkerPost(worker, {
+          requestId: data.requestId,
+          response,
+          type: PARSER_HOST_REPLY,
+        });
+      })
+      .catch((error: unknown) => {
+        safeWorkerPost(worker, {
+          requestId: data.requestId,
+          response: {
+            error: error instanceof Error ? error.message : String(error),
+            ok: false,
+            requestId: data.requestId,
+          },
+          type: PARSER_HOST_REPLY,
+        });
+      });
+  };
+}
+
 const ChunkingWorkerContext = createContext<ChunkingWorkerContextValue | null>(null);
 
 let chunkingWorkerPortFactoryPromise: Promise<typeof import('./chunking-worker-port')> | null =
@@ -592,9 +713,17 @@ function ChunkingLocalWorkerProvider({
 
         worker.addEventListener('message', handleMessage);
         worker.addEventListener('error', handleError);
+        // Parser-host bridge: when the chunking-worker's oxc-ipc-adapter
+        // posts a parser-host:invoke envelope, route it through the
+        // preload-exposed `window.parserHost.parse` IPC channel and post
+        // the response back to the worker. No-op when the global isn't
+        // present (apps/web, tests without bridge mocked).
+        const handleParserHostBridge = createParserHostBridgeHandler(worker);
+        worker.addEventListener('message', handleParserHostBridge);
         const cleanupWorkerListeners = () => {
           worker.removeEventListener('message', handleMessage);
           worker.removeEventListener('error', handleError);
+          worker.removeEventListener('message', handleParserHostBridge);
         };
         workerListenerCleanupRef.current = cleanupWorkerListeners;
 

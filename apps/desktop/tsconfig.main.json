@@ -81,6 +81,8 @@
     "src/db-main.ts",
     "src/parser-host-entry.ts",
     "src/parser-host-shared.ts",
+    "src/parser-host-manager.ts",
+    "src/ipc-parser-host.ts",
     "src/ipc-handlers.ts",
     "src/ipc-secrets.ts",
     "src/ipc-agent.ts",

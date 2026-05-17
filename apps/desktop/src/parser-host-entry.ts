@@ -1,10 +1,10 @@
 /**
  * Parser host utility process entry point.
  *
- * Loaded by `ParserHostManager` (Phase 4) via Electron `utilityProcess.fork()`.
- * Exposes `handleParseRequest()` as a pure function for unit testing, and
- * (Phase 4 work) wires it to `process.parentPort` when run as a utility-process
- * entry.
+ * Loaded by `ParserHostManager` via Electron `utilityProcess.fork()`. Exposes
+ * `handleParseRequest()` as a pure function for unit testing, and runs
+ * `wireParentPort()` at module load to register the IPC listener when
+ * launched as a utility-process entry.
  *
  * The actual parsing uses `oxc-parser` (Rust NAPI) — much faster than the
  * Babel parser used historically by the chunking-worker. The chunking-worker
@@ -15,12 +15,25 @@
  */
 
 import { parseSync } from 'oxc-parser';
-import type {
-  ParserHostAstNode,
-  ParserHostParseOptions,
-  ParserHostParseRequest,
-  ParserHostParseResponse,
+import {
+  extractParserHostRequestId,
+  isParserHostParseRequest,
+  type ParserHostAstNode,
+  type ParserHostParseOptions,
+  type ParserHostParseRequest,
+  type ParserHostParseResponse,
 } from './parser-host-shared';
+
+/**
+ * Minimal parentPort shape we depend on. Mirrors the surface in
+ * `db-host-entry.ts` rather than importing Electron types directly so this
+ * module remains testable in the same vitest environment that runs
+ * pure-Node unit tests.
+ */
+interface ParentPortLike {
+  readonly on: (event: 'message', listener: (message: unknown) => void) => unknown;
+  readonly postMessage: (message: ParserHostParseResponse) => void;
+}
 
 /**
  * Map our `ParseOptions` to a synthetic filename whose extension oxc-parser
@@ -110,3 +123,67 @@ export async function handleParseRequest(
     };
   }
 }
+
+/**
+ * Unwrap the Electron MessageEvent envelope. Some `parentPort.on('message')`
+ * deliveries arrive as `{ data: payload }` (the MessageEvent shape) rather
+ * than as the raw payload. Mirrors `unwrapParentPortMessage` in
+ * `db-host-entry.ts`.
+ */
+function unwrapMessage(message: unknown): unknown {
+  if (message !== null && typeof message === 'object' && 'data' in message) {
+    return (message as { readonly data?: unknown }).data;
+  }
+  return message;
+}
+
+/**
+ * Safe wrapper around `parentPort.postMessage`. If the parent has gone
+ * away (host being killed during shutdown, structured-clone error, etc.)
+ * postMessage throws — without this guard the throw would surface as an
+ * unhandled rejection that's hard to diagnose. We swallow and log.
+ */
+function safePost(port: ParentPortLike, response: ParserHostParseResponse): void {
+  try {
+    port.postMessage(response);
+  } catch (err) {
+    // biome-ignore lint/suspicious/noConsole: surfacing parentPort failure
+    console.error(
+      '[parser-host-entry] parentPort.postMessage failed',
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+/**
+ * Wire the parser host to Electron's `process.parentPort`. Idempotent at
+ * module load: if `process.parentPort` is undefined (test/Node-without-
+ * Electron), this returns without side effects, so tests can import
+ * `handleParseRequest` directly without setting up a parentPort mock.
+ */
+export function wireParentPort(): void {
+  const port = (process as NodeJS.Process & { parentPort?: ParentPortLike | null }).parentPort;
+  if (!port) {
+    return;
+  }
+  port.on('message', (rawMessage: unknown) => {
+    const payload = unwrapMessage(rawMessage);
+    if (!isParserHostParseRequest(payload)) {
+      safePost(port, {
+        error: 'Malformed parser host request envelope.',
+        ok: false,
+        requestId: extractParserHostRequestId(payload),
+      });
+      return;
+    }
+    void handleParseRequest(payload).then((response) => {
+      safePost(port, response);
+    });
+  });
+}
+
+// Auto-run at module load. Safe in tests: when process.parentPort is
+// undefined (the default in vitest), wireParentPort returns without side
+// effects. When the module is loaded inside an Electron utilityProcess,
+// parentPort is defined and the wiring activates.
+wireParentPort();

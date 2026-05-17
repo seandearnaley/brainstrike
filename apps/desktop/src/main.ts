@@ -42,6 +42,7 @@ import {
 } from './ipc-handlers';
 import { registerLlmHostIpcHandlers } from './ipc-llm-host';
 import { registerMcpIpcHandlers } from './ipc-mcp';
+import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerToolsIpcHandlers } from './ipc-tools';
@@ -52,6 +53,7 @@ import {
   registerLoggingIpcHandlers,
 } from './logging-ipc';
 import type { LoggingSettingsPayload } from './logging-shared';
+import { ParserHostManager } from './parser-host-manager';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
@@ -583,6 +585,7 @@ async function openLogDestination(target: string | null): Promise<boolean> {
 let stopAssistantServer: null | (() => Promise<void>) = null;
 let unregisterMainIpcHandlers: null | (() => void) = null;
 let unregisterChunkingHostIpcHandlers: null | (() => void) = null;
+let unregisterParserHostIpcHandlers: null | (() => void) = null;
 let unregisterEmbeddingHostIpcHandlers: null | (() => void) = null;
 let unregisterLlmHostIpcHandlers: null | (() => void) = null;
 let unregisterLoggingIpcHandlers: null | (() => void) = null;
@@ -701,6 +704,13 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
       failures.push(chunkingFailure);
     }
 
+    const parserFailure = await runShutdownStep('parser-host', async () => {
+      await parserHostManager.stop();
+    });
+    if (parserFailure) {
+      failures.push(parserFailure);
+    }
+
     const embeddingFailure = await runShutdownStep('embedding-host', async () => {
       await embeddingHostManager.dispose();
     });
@@ -776,6 +786,7 @@ function registerShutdownSignalHandlers(): void {
 const fileSystem = new ElectronFileSystemAdapter();
 const storage = new ElectronStorageAdapter();
 const chunkingHostManager = new ChunkingHostManager();
+const parserHostManager = new ParserHostManager();
 const embeddingHostManager = new EmbeddingHostManager();
 const llmHostManager = new LlmHostManager();
 
@@ -812,6 +823,7 @@ unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettings
   onResetLocal: handleResetLocal,
 });
 unregisterChunkingHostIpcHandlers = registerChunkingHostIpcHandlers(chunkingHostManager);
+unregisterParserHostIpcHandlers = registerParserHostIpcHandlers(parserHostManager);
 unregisterEmbeddingHostIpcHandlers = registerEmbeddingHostIpcHandlers(embeddingHostManager);
 unregisterLlmHostIpcHandlers = registerLlmHostIpcHandlers(llmHostManager);
 
@@ -1335,6 +1347,10 @@ app.on('will-quit', () => {
   if (unregisterChunkingHostIpcHandlers) {
     unregisterChunkingHostIpcHandlers();
     unregisterChunkingHostIpcHandlers = null;
+  }
+  if (unregisterParserHostIpcHandlers) {
+    unregisterParserHostIpcHandlers();
+    unregisterParserHostIpcHandlers = null;
   }
   if (unregisterMainIpcHandlers) {
     unregisterMainIpcHandlers();
