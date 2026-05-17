@@ -62,16 +62,29 @@ export interface ParseOptions {
  *  - `babel-adapter` — pure-JS @babel/parser, runs everywhere
  *  - `oxc-ipc-adapter` — Electron IPC client for the native oxc parser host
  *    (added in Phase 4)
+ *  - `tree-sitter-adapter` — WASM tree-sitter for non-JS/TS languages
+ *    (added in tree-sitter Phase 2; Phase 1 grammar = Python)
+ *
+ * Note on tree-sitter adapters: they ignore `ParseOptions.language` (which is
+ * a JS-vs-TS dial); the source language for tree-sitter is baked in at
+ * factory time via `treeSitterAdapter(language)`. Extending
+ * `ParseOptions.language` to add `'python'` etc. would force every adapter
+ * to handle every language, which doesn't match the per-language WASM
+ * grammar model. Factory-time binding keeps each adapter focused.
+ *
+ * See: docs/prd-chunking-tree-sitter-2026-05.md §3.2
  */
 export interface ParserAdapter {
   /** Adapter identity, used for telemetry and routing decisions. */
-  readonly id: 'babel' | 'oxc-native';
+  readonly id: 'babel' | 'oxc-native' | 'tree-sitter';
 
   /**
    * Parse the given source into an `AstNode` tree.
    *
-   * @param content - JS/TS source text
-   * @param options - language/JSX/error-recovery flags
+   * @param content - source text in the adapter's configured language
+   * @param options - language/JSX/error-recovery flags (tree-sitter
+   *                  adapters ignore `language`; their language is
+   *                  fixed at factory time)
    * @returns root AstNode of the parsed tree
    * @throws when `options.errorRecovery === false` and source is malformed
    */
