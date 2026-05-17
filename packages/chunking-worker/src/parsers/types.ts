@@ -20,8 +20,17 @@
 
 /**
  * Generic AST node shape consumed by `iterateAstChildren` in portable-chunking.
- * Intentionally permissive — we only rely on `type`, `start`, and `end`, and
- * walk children generically via `Object.values`/array iteration.
+ *
+ * The walker visits ANY object found in any field — including interior nodes
+ * that legitimately don't carry `type` or `start`/`end` (e.g., comment
+ * nodes, source-location objects, plugin metadata). That's why all three
+ * fields are optional here.
+ *
+ * **Adapters MUST nonetheless return a ROOT whose `type` is defined.** The
+ * test suite asserts this on every fixture (e.g.,
+ * `expect(root.type).toBe('File' | 'Program')`). The optionality at the
+ * type level is a concession to the generic walker, not a license for
+ * adapters to return rootless results.
  */
 export type AstNode = {
   type?: string;
