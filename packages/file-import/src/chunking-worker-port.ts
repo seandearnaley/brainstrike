@@ -264,6 +264,18 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
 
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Worker message dispatch handles multiple variants.
   function handleMessage(message: WorkerResponse) {
+    // Parser-host bridge envelopes (parser-host:invoke from the worker,
+    // parser-host:reply from the renderer) are consumed by the dedicated
+    // bridge handler in chunking-worker-context.tsx. They flow through
+    // the same worker `message` event channel that this port listens on,
+    // but they aren't chunking responses — silently ignore so we don't
+    // spam "Unknown message type from worker" warns (regression
+    // discovered 2026-05-17 in real-world log capture: 1830+ warns
+    // per chunking session).
+    const messageType = (message as { type?: unknown }).type;
+    if (typeof messageType === 'string' && messageType.startsWith('parser-host:')) {
+      return;
+    }
     switch (message.type) {
       case 'ready':
         runtime.markReady();
@@ -359,10 +371,21 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
         break;
       }
 
-      case 'log':
-        // Forward worker logs
-        logger.debug(`[Worker] ${message.message}`, message.data);
+      case 'log': {
+        // Forward worker logs at the worker's reported level so info/warn
+        // messages aren't silently buried under the dev log-level filter.
+        const workerLevel = message.level;
+        const forward =
+          workerLevel === 'error'
+            ? logger.error
+            : workerLevel === 'warn'
+              ? logger.warn
+              : workerLevel === 'info'
+                ? logger.info
+                : logger.debug;
+        forward.call(logger, `[Worker] ${message.message}`, message.data);
         break;
+      }
 
       default:
         logger.warn('Unknown message type from worker', {

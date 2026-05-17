@@ -28,10 +28,29 @@ function auditFirstSuccessfulParse(adapterId: string): void {
     return;
   }
   auditFired = true;
+  const message = `[chunking-parser] first parse succeeded using adapter "${adapterId}" — IPC chain confirmed`;
+  // When running inside the chunking Web Worker, post a WorkerLog message
+  // so the parent (file-import's chunking-worker-port) can forward it
+  // through the project's logger system at info level. That makes the
+  // audit visible in the unified `pnpm dev` output without requiring
+  // the operator to open the chunking-host renderer's DevTools.
+  // Falls back to console.info for non-worker contexts (unit tests,
+  // direct use from a non-Electron browser).
+  const workerSelf = (globalThis as { self?: { postMessage?: (msg: unknown) => void } }).self;
+  if (
+    workerSelf &&
+    typeof workerSelf.postMessage === 'function' &&
+    (globalThis as { window?: unknown }).window !== workerSelf
+  ) {
+    try {
+      workerSelf.postMessage({ type: 'log', level: 'info', message });
+      return;
+    } catch {
+      // structured-clone or transport failure — fall through to console
+    }
+  }
   // biome-ignore lint/suspicious/noConsole: one-time operational signal
-  console.info(
-    `[chunking-parser] first parse succeeded using adapter "${adapterId}" — IPC chain confirmed`
-  );
+  console.info(message);
 }
 
 const BINARY_DETECTION_PROBE_BYTES = 4096;
