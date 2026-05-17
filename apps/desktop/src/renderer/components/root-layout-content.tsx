@@ -129,6 +129,15 @@ export default function RootLayoutContent() {
     let maxFrameGapMs = 0;
     let frameCount = 0;
     let stalledFrameCount = 0;
+    // Startup grace: skip warns until the renderer has had at least one
+    // clean 15s window. App boot inherently includes expensive work
+    // (FileTreeWorker loading 253 directories, DB demo hydration, MCP
+    // tool registration, React mount) which routinely exceeds the 500ms
+    // frame threshold. The diagnostic exists to catch REGRESSIONS during
+    // normal use — those only surface after the app has settled. Once we
+    // observe a clean window, switch into "armed" mode and warn on any
+    // future stall.
+    let warnsArmed = false;
 
     const resetFrameWindow = () => {
       maxFrameGapMs = 0;
@@ -172,6 +181,24 @@ export default function RootLayoutContent() {
       }
 
       if (maxFrameGapMs < RENDERER_FRAME_STALL_WARN_THRESHOLD_MS) {
+        // First clean window — the app has settled. From here on, real
+        // stalls indicate something changed mid-session and are worth a
+        // warn.
+        if (!warnsArmed) {
+          warnsArmed = true;
+          logger.debug('Desktop visible renderer frame diagnostic armed');
+        }
+        resetFrameWindow();
+        return;
+      }
+
+      if (!warnsArmed) {
+        // Still in startup; expected to be busy. Log at debug so devs
+        // who want the data can find it, but don't surface as a warn.
+        logger.debug('Desktop visible renderer frame gap during startup (expected)', {
+          maxFrameGapMs: Math.round(maxFrameGapMs),
+          stalledFrameCount,
+        });
         resetFrameWindow();
         return;
       }
