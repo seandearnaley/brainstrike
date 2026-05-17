@@ -211,13 +211,25 @@ function createParserHostBridgeHandler(worker: Worker): (event: MessageEvent) =>
     }
     const bridge = getParserHostBridge();
     if (!bridge) {
-      // No bridge available in this environment — reply with a failure so
-      // the worker's pending promise rejects quickly rather than waiting
-      // for the timeout, and the per-file fallback runs.
+      // No bridge available in this environment. The worker shouldn't even
+      // be calling parser-host:invoke here — selectAdapter is supposed to
+      // gate this path on chunking-host context only. If we hit it
+      // anyway, that's a real configuration bug (e.g., env globals set
+      // incorrectly OR the chunking worker is running where
+      // window.parserHost was never exposed). LOG LOUDLY so the bug
+      // surfaces; reply with a clear error so the worker's promise
+      // rejects with a meaningful message rather than timing out.
+      logger.error('parser-host bridge invoked but window.parserHost is missing', {
+        requestId: data.requestId,
+        diagnosis:
+          "Either the worker shouldn't be using the IPC parser here, or preload.ts's parserHost contextBridge exposure isn't running. Check selectAdapter routing and preload load order.",
+      });
       safeWorkerPost(worker, {
         requestId: data.requestId,
         response: {
-          error: 'parser host bridge unavailable in this environment',
+          error:
+            'parser-host bridge unavailable: window.parserHost is missing. ' +
+            'Check selectAdapter routing and preload script load order.',
           ok: false,
           requestId: data.requestId,
         },
@@ -235,6 +247,13 @@ function createParserHostBridgeHandler(worker: Worker): (event: MessageEvent) =>
         });
       })
       .catch((error: unknown) => {
+        // Bridge errors are real (utility process crash, oxc-parser
+        // upstream bug, IPC channel torn down). Surface them at error
+        // level so the user sees them in real testing.
+        logger.error('parser-host bridge.parse threw', {
+          requestId: data.requestId,
+          error: error instanceof Error ? error.message : String(error),
+        });
         safeWorkerPost(worker, {
           requestId: data.requestId,
           response: {

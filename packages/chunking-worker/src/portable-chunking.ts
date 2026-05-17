@@ -708,9 +708,16 @@ async function splitCodeByFunctions(
       language: language === 'typescript' ? 'typescript' : 'javascript',
     });
   } catch (err) {
-    // Log at debug level to help diagnose why code isn't being chunked at function boundaries
-    // biome-ignore lint/suspicious/noConsole: debug logging for AST parsing failures
-    console.debug('[portable-chunking] AST parsing failed for function-level splitting', {
+    // WARN level (not debug): an AST parse failure means function-aware
+    // chunking degraded to non-AST recursive splitting for this file.
+    // That's a meaningful quality regression for code retrieval, and a
+    // sustained pattern (e.g., every file failing) indicates the parser
+    // is broken — which we want LOUD, not hidden. The caller-side
+    // catch returns null so the pipeline still produces chunks via
+    // the recursive splitter; this log is the signal that we paid a
+    // quality cost to do so.
+    // biome-ignore lint/suspicious/noConsole: visible signal for parser quality regression
+    console.warn('[portable-chunking] AST parsing failed; falling back to recursive splitting', {
       language,
       contentLength: content.length,
       error: err instanceof Error ? err.message : String(err),

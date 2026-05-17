@@ -553,6 +553,15 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       return;
     }
 
+    // Parser-host bridge envelopes are consumed by a SEPARATE
+    // self.addEventListener('message', ...) installed by oxc-ipc-adapter.
+    // Skip them here — falling through to handleInvalidMessage would
+    // post a __init__ error and the renderer would terminate the worker
+    // on every parser-host round-trip (regression discovered 2026-05-16).
+    if (typeof messageType === 'string' && messageType.startsWith('parser-host:')) {
+      return;
+    }
+
     if (messageType === 'init') {
       // Parser-routing config (Phase 8 / P1 #994 fix): the renderer parent
       // tells the worker which parser environment it's running in, since
