@@ -6,47 +6,28 @@
  * imports a specific adapter directly. That isolation is what lets the
  * routing matrix grow without touching the consumer.
  *
- * Routing matrix (Phase 5):
- *   environment == 'browser'              → babel  (no Electron IPC available)
- *   environment == 'electron-chunking-host' AND flag == 'babel'    → babel  (kill switch)
- *   environment == 'electron-chunking-host' AND flag == 'oxc'      → oxc + babel fallback
- *   environment == 'electron-chunking-host' AND flag == 'auto'     → oxc + babel fallback
+ * Routing matrix:
+ *   environment == 'browser'                                      → babel
+ *   environment == 'electron-chunking-host' AND flag == 'babel'   → babel  (kill switch)
+ *   environment == 'electron-chunking-host' AND flag == 'oxc'     → oxc
+ *   environment == 'electron-chunking-host' AND flag == 'auto'    → oxc
  *
- * Per-file fallback to babel is wired in via `withFallback` so a single oxc
- * failure never breaks the pipeline. Telemetry counts the events; sustained
- * fallback rate is the health signal Phase 8 monitors.
+ * **No per-file Babel fallback** (decision: 2026-05-16). The earlier
+ * `withFallback` wrapper silently routed failing oxc parses to Babel and
+ * counted them via telemetry. Project owner direction: that hides bugs
+ * exactly when they matter most — a single misbehaving codepath would
+ * generate thousands of fallback events and the perf win would silently
+ * evaporate without anyone noticing. Now: if oxc breaks, the parser
+ * throws and the call site's existing strategy fallback (non-AST
+ * recursive chunking) takes over, logged at warn level so it's visible.
  *
  * See: docs/prd-chunking-wasm-parser-2026-05.md §4, §9
  */
 
 import { babelAdapter } from './babel-adapter';
 import { getEnvironment, getParserFlag } from './environment';
-import { withFallback } from './fallback-adapter';
 import { oxcIpcAdapter } from './oxc-ipc-adapter';
 import type { ParserAdapter } from './types';
-
-// Lazy-cache the wrapped oxc adapter so we don't re-wrap on every selectAdapter
-// call. The wrapper itself is stateless, so caching is safe.
-//
-// Reviewer note (#991): the cache captures the default `console.warn`
-// telemetry hook at first call. If a real telemetry sink is introduced
-// later (e.g., the Phase 8 follow-up that wires structured logging),
-// it'll need to either:
-//   (a) be available at module-load time so the first capture is the right
-//       one — preferred, ship as part of the worker bootstrap
-//   (b) call `__resetSelectAdapterCacheForTesting()` after wiring (renamed
-//       and made non-test-only at that point), or
-//   (c) accept a telemetry injection point on `selectAdapter()` —
-//       breaks the zero-arg sync contract this facade was built around
-// Option (a) is the path of least resistance and the one I'd recommend if
-// a real sink lands in this codebase.
-let cachedOxcWithFallback: ParserAdapter | null = null;
-function oxcWithFallback(): ParserAdapter {
-  if (!cachedOxcWithFallback) {
-    cachedOxcWithFallback = withFallback(oxcIpcAdapter, babelAdapter);
-  }
-  return cachedOxcWithFallback;
-}
 
 /**
  * Pick the parser adapter for the current call site.
@@ -57,8 +38,11 @@ function oxcWithFallback(): ParserAdapter {
  *
  * Constraints encoded:
  *   - Must be synchronous (chunking hot path)
- *   - Must never throw — falling back to Babel is always valid
- *   - Should be cheap (called per-file, not per-batch)
+ *   - Selecting is safe; the *returned adapter's* parse() may throw on
+ *     failure — by design, so the caller can decide whether to escalate
+ *     or degrade gracefully (`portable-chunking.ts`'s catch falls
+ *     through to non-AST recursive splitting with a warn log).
+ *   - Should be cheap (called per-file, not per-batch).
  */
 export function selectAdapter(): ParserAdapter {
   const env = getEnvironment();
@@ -74,14 +58,7 @@ export function selectAdapter(): ParserAdapter {
     return babelAdapter;
   }
 
-  // 'oxc' or 'auto' both pick the wrapped oxc adapter (with per-file Babel fallback).
-  return oxcWithFallback();
-}
-
-/**
- * @internal — clears the wrapped-adapter cache so tests that swap globals
- * see fresh routing decisions without holding onto a stale wrapper.
- */
-export function __resetSelectAdapterCacheForTesting(): void {
-  cachedOxcWithFallback = null;
+  // 'oxc' or 'auto' → native oxc via IPC. No fallback wrapper: if oxc
+  // fails, the failure surfaces loudly to the caller's catch block.
+  return oxcIpcAdapter;
 }

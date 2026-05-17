@@ -20,6 +20,39 @@ import { selectAdapter } from './parsers/select-adapter';
 import type { AstNode } from './parsers/types';
 import type { ChunkingRequestOptions, ChunkType, PortableChunk } from './shared';
 
+// Module-scoped flag for the one-shot "first parse audit" — see the
+// auditFirstSuccessfulParse() helper below.
+let auditFired = false;
+function auditFirstSuccessfulParse(adapterId: string): void {
+  if (auditFired) {
+    return;
+  }
+  auditFired = true;
+  const message = `[chunking-parser] first parse succeeded using adapter "${adapterId}" — IPC chain confirmed`;
+  // When running inside the chunking Web Worker, post a WorkerLog message
+  // so the parent (file-import's chunking-worker-port) can forward it
+  // through the project's logger system at info level. That makes the
+  // audit visible in the unified `pnpm dev` output without requiring
+  // the operator to open the chunking-host renderer's DevTools.
+  // Falls back to console.info for non-worker contexts (unit tests,
+  // direct use from a non-Electron browser).
+  const workerSelf = (globalThis as { self?: { postMessage?: (msg: unknown) => void } }).self;
+  if (
+    workerSelf &&
+    typeof workerSelf.postMessage === 'function' &&
+    (globalThis as { window?: unknown }).window !== workerSelf
+  ) {
+    try {
+      workerSelf.postMessage({ type: 'log', level: 'info', message });
+      return;
+    } catch {
+      // structured-clone or transport failure — fall through to console
+    }
+  }
+  // biome-ignore lint/suspicious/noConsole: one-time operational signal
+  console.info(message);
+}
+
 const BINARY_DETECTION_PROBE_BYTES = 4096;
 const REPETITIVE_CONTENT_LINE_THRESHOLD = 1000;
 const REPETITIVE_CONTENT_UNIQUE_RATIO = 0.1;
@@ -701,16 +734,31 @@ async function splitCodeByFunctions(
   }: { maxChars: number; overlapChars: number; language: CodeLanguage | null; separators: string[] }
 ): Promise<string[] | null> {
   let ast: AstNode | null = null;
+  const adapter = selectAdapter();
   try {
-    ast = await selectAdapter().parse(content, {
+    ast = await adapter.parse(content, {
       errorRecovery: true,
       jsx: true,
       language: language === 'typescript' ? 'typescript' : 'javascript',
     });
+    // First-parse audit (logs once per worker session). This is the
+    // operator's confirmation that selectAdapter picked the right adapter
+    // AND that the first parse round-trip actually completed — without
+    // this, "no errors in the log" is ambiguous between "oxc works" and
+    // "oxc is silently bypassed." After the first successful parse the
+    // audit goes silent so the log isn't spammy.
+    auditFirstSuccessfulParse(adapter.id);
   } catch (err) {
-    // Log at debug level to help diagnose why code isn't being chunked at function boundaries
-    // biome-ignore lint/suspicious/noConsole: debug logging for AST parsing failures
-    console.debug('[portable-chunking] AST parsing failed for function-level splitting', {
+    // WARN level (not debug): an AST parse failure means function-aware
+    // chunking degraded to non-AST recursive splitting for this file.
+    // That's a meaningful quality regression for code retrieval, and a
+    // sustained pattern (e.g., every file failing) indicates the parser
+    // is broken — which we want LOUD, not hidden. The caller-side
+    // catch returns null so the pipeline still produces chunks via
+    // the recursive splitter; this log is the signal that we paid a
+    // quality cost to do so.
+    // biome-ignore lint/suspicious/noConsole: visible signal for parser quality regression
+    console.warn('[portable-chunking] AST parsing failed; falling back to recursive splitting', {
       language,
       contentLength: content.length,
       error: err instanceof Error ? err.message : String(err),

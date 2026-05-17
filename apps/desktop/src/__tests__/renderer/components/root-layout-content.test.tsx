@@ -327,8 +327,23 @@ describe('RootLayoutContent', () => {
     const { unmount } = render(<RootLayoutContent />);
 
     expect(requestAnimationFrameSpy).toHaveBeenCalled();
-    rafCallback?.(0);
-    rafCallback?.(650);
+
+    // First window: clean 16ms frames spanning the 15s diagnostic
+    // interval — arms the diagnostic for subsequent windows but does
+    // NOT warn (startup grace, added 2026-05-17).
+    for (let t = 0; t <= 15_000; t += 16) {
+      rafCallback?.(t);
+    }
+    vi.advanceTimersByTime(15_000);
+    expect(loggerWarnMock).not.toHaveBeenCalledWith(
+      'Desktop visible renderer frame health degraded',
+      expect.anything()
+    );
+
+    // Second window: clean frames followed by a real stall after the
+    // app has settled — warn fires.
+    rafCallback?.(15_020);
+    rafCallback?.(15_670); // 650ms gap
     vi.advanceTimersByTime(15_000);
 
     expect(loggerWarnMock).toHaveBeenCalledWith(

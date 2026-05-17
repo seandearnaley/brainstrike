@@ -104,6 +104,38 @@ describe('createChunkingWorkerPort', () => {
 
       expect(port.isReady()).toBe(true);
     });
+
+    it('silently ignores parser-host bridge envelopes (regression #1830-warns)', () => {
+      // Regression: real-world capture showed 1833 "Unknown message type
+      // from worker" warns per chunking session because parser-host:invoke
+      // envelopes (from oxc-ipc-adapter) flow through the same worker
+      // `message` channel that this port listens on. The dedicated bridge
+      // handler in chunking-worker-context.tsx is the sole consumer.
+      // This handler must silently skip them.
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      createChunkingWorkerPort(mockWorker);
+      mockWorker.simulateMessage({ type: 'ready' });
+
+      mockWorker.simulateMessage({
+        type: 'parser-host:invoke',
+        requestId: 'oxc-ipc-1',
+        payload: { content: 'x', options: {}, requestId: 'oxc-ipc-1' },
+      } as unknown as Parameters<typeof mockWorker.simulateMessage>[0]);
+      mockWorker.simulateMessage({
+        type: 'parser-host:reply',
+        requestId: 'oxc-ipc-1',
+        response: { ok: true, requestId: 'oxc-ipc-1', root: { type: 'Program' } },
+      } as unknown as Parameters<typeof mockWorker.simulateMessage>[0]);
+
+      // No warn about unknown message type — those envelopes must be
+      // silently passed through to the dedicated bridge handler.
+      const unknownTypeWarn = warnSpy.mock.calls.find(
+        (call) =>
+          typeof call[0] === 'string' && call[0].includes('Unknown message type from worker')
+      );
+      expect(unknownTypeWarn).toBeUndefined();
+      warnSpy.mockRestore();
+    });
   });
 
   describe('chunkFile', () => {

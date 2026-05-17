@@ -42,7 +42,12 @@ import {
   EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL,
   type EmbeddingBackfillSource,
 } from './embedding-host-shared';
-import { createFileReadErrorPayload } from './file-read-errors';
+import {
+  createFileReadErrorPayload,
+  FILE_READ_ERROR_CODE_NOT_FOUND,
+  type FileReadErrorPayload,
+  isFileNotFoundError,
+} from './file-read-errors';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 
 // import { getDatabase } from './db-main'; // Disabled - using renderer process database
@@ -527,6 +532,35 @@ function getFileTooLargeMessage(error: unknown): string | null {
   }
   if (error instanceof Error && error.message.startsWith('File too large:')) {
     return error.message;
+  }
+  return null;
+}
+
+/**
+ * Convert a thrown error from `fileSystem.readFile*` into a typed
+ * `FileReadErrorPayload` for known expected cases (too-large, not-found).
+ * Returns `null` if the error is something else — caller should rethrow.
+ *
+ * Returning a payload (instead of throwing) lets ipcMain skip its
+ * automatic "Error occurred in handler" log for these normal cases.
+ * The preload-side `unwrapFileReadResult` still converts the payload
+ * back into a thrown Error before it reaches the renderer, preserving
+ * the caller-side contract.
+ */
+function toFileReadErrorPayload(error: unknown, path: string): FileReadErrorPayload | null {
+  const tooLargeMessage = getFileTooLargeMessage(error);
+  if (tooLargeMessage) {
+    logger.debug('Skipping oversized file read', { path, message: tooLargeMessage });
+    return createFileReadErrorPayload(tooLargeMessage);
+  }
+  if (isFileNotFoundError(error)) {
+    // File deleted between directory scan and read — expected during
+    // normal file-tree refresh after deletes/renames.
+    logger.debug('File not found during read', { path });
+    return createFileReadErrorPayload(
+      error instanceof Error ? error.message : 'File not found',
+      FILE_READ_ERROR_CODE_NOT_FOUND
+    );
   }
   return null;
 }
@@ -1069,15 +1103,11 @@ export function registerIpcHandlers(
     try {
       return await fileSystem.readFile(handle);
     } catch (error) {
-      const tooLargeMessage = getFileTooLargeMessage(error);
-      if (!tooLargeMessage) {
-        throw error;
+      const payload = toFileReadErrorPayload(error, handle.path);
+      if (payload) {
+        return payload;
       }
-      logger.debug('Skipping oversized file read', {
-        path: handle.path,
-        message: tooLargeMessage,
-      });
-      return createFileReadErrorPayload(tooLargeMessage);
+      throw error;
     }
   });
 
@@ -1111,15 +1141,11 @@ export function registerIpcHandlers(
     try {
       return await fileSystem.readFileByPath(resolved.path);
     } catch (error) {
-      const tooLargeMessage = getFileTooLargeMessage(error);
-      if (!tooLargeMessage) {
-        throw error;
+      const payload = toFileReadErrorPayload(error, resolved.path);
+      if (payload) {
+        return payload;
       }
-      logger.debug('Skipping oversized file read by path', {
-        path: resolved.path,
-        message: tooLargeMessage,
-      });
-      return createFileReadErrorPayload(tooLargeMessage);
+      throw error;
     }
   });
 

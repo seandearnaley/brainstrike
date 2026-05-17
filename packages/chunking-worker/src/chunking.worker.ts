@@ -553,7 +553,47 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       return;
     }
 
+    // Parser-host bridge envelopes are consumed by a SEPARATE
+    // self.addEventListener('message', ...) installed by oxc-ipc-adapter.
+    // Skip them here — falling through to handleInvalidMessage would
+    // post a __init__ error and the renderer would terminate the worker
+    // on every parser-host round-trip (regression discovered 2026-05-16).
+    if (typeof messageType === 'string' && messageType.startsWith('parser-host:')) {
+      return;
+    }
+
     if (messageType === 'init') {
+      // Parser-routing config (Phase 8 / P1 #994 fix): the renderer parent
+      // tells the worker which parser environment it's running in, since
+      // workers have their own globalThis realm and can't read flags the
+      // renderer sets on window. Stored on the worker's own globalThis
+      // (DedicatedWorkerGlobalScope) so selectAdapter's existing
+      // environment.ts reader picks it up without modification.
+      const initPayload = message as {
+        type: 'init';
+        parserEnv?: 'browser' | 'electron-chunking-host';
+        parserFlag?: 'auto' | 'babel' | 'oxc';
+      };
+      if (initPayload.parserEnv === 'electron-chunking-host') {
+        // biome-ignore-start lint/style/useNamingConvention: shared global key, intentional UPPER_SNAKE_CASE
+        interface ParserEnvGlobal {
+          __BRAINSTRIKE_PARSER_ENV__?: 'browser' | 'electron-chunking-host';
+        }
+        // biome-ignore-end lint/style/useNamingConvention: shared global key, intentional UPPER_SNAKE_CASE
+        (globalThis as ParserEnvGlobal).__BRAINSTRIKE_PARSER_ENV__ = 'electron-chunking-host';
+      }
+      if (
+        initPayload.parserFlag === 'babel' ||
+        initPayload.parserFlag === 'oxc' ||
+        initPayload.parserFlag === 'auto'
+      ) {
+        // biome-ignore-start lint/style/useNamingConvention: shared global key, intentional UPPER_SNAKE_CASE
+        interface ParserFlagGlobal {
+          __BRAINSTRIKE_PARSER_FLAG__?: 'auto' | 'babel' | 'oxc';
+        }
+        // biome-ignore-end lint/style/useNamingConvention: shared global key, intentional UPPER_SNAKE_CASE
+        (globalThis as ParserFlagGlobal).__BRAINSTRIKE_PARSER_FLAG__ = initPayload.parserFlag;
+      }
       self.postMessage({ type: 'ready' });
       return;
     }

@@ -18,9 +18,9 @@ export type ParserEnvironment = 'browser' | 'electron-chunking-host';
 export type ParserFlag = 'auto' | 'babel' | 'oxc';
 
 declare global {
-  // biome-ignore lint: global declarations require var
+  // biome-ignore lint/style/useNamingConvention: shared global keyed by intentionally-unique screaming-snake name
   var __BRAINSTRIKE_PARSER_ENV__: ParserEnvironment | undefined;
-  // biome-ignore lint: global declarations require var
+  // biome-ignore lint/style/useNamingConvention: shared global keyed by intentionally-unique screaming-snake name
   var __BRAINSTRIKE_PARSER_FLAG__: ParserFlag | undefined;
 }
 

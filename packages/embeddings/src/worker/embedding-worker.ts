@@ -1897,20 +1897,50 @@ export async function startEmbeddingWorker(
     const loadedChunks = await loadChunksBatch(options.db, chunkIds, fileChunkIdType);
     const chunkMap = new Map(loadedChunks.map((c) => [c.id, c]));
 
-    const chunks = jobs.map((job) => {
+    // 2. Partition jobs into "chunk exists" vs "orphaned" (referenced chunk
+    // was deleted between queue claim and load). Re-chunking the same file
+    // is the most common cause: old chunks are deleted, new chunks have
+    // new IDs, but in-flight jobs still point at the deleted IDs. Failing
+    // the whole batch on one orphan poisoned the other ~15 jobs in the
+    // same batch (real-world capture 2026-05-17: 15 batches × ~16 jobs
+    // each lost to a single orphan per batch). Fix: terminally fail JUST
+    // the orphan jobs and let the rest of the batch proceed.
+    const found: {
+      job: ClaimedJob;
+      chunk: NonNullable<ReturnType<typeof chunkMap.get>>;
+      payload: ReturnType<typeof assertEmbedChunkJob>;
+    }[] = [];
+    const orphans: { job: ClaimedJob; chunkId: string }[] = [];
+    for (const job of jobs) {
       const p = assertEmbedChunkJob(job);
       const chunk = chunkMap.get(p.chunkId);
-      if (!chunk) {
-        throw new Error(`Chunk not found: ${p.chunkId}`);
+      if (chunk) {
+        found.push({ job, chunk, payload: p });
+      } else {
+        orphans.push({ job, chunkId: p.chunkId });
       }
-      return { job, chunk, payload: p };
-    });
+    }
 
-    // 2. Filter out up-to-date chunks
+    if (orphans.length > 0) {
+      // Log once per batch at warn level — not error, because this is an
+      // expected outcome of re-chunking. If it sustains at high volume,
+      // it's worth investigating the chunking↔embedding queue cleanup.
+      workerLogger.warn('Embedding jobs reference deleted chunks; failing as terminal', {
+        orphanCount: orphans.length,
+        sampleChunkIds: orphans.slice(0, 3).map((o) => o.chunkId),
+      });
+      await jq.failBatch({
+        jobs: orphans.map((o) => ({ id: o.job.id, leaseToken: o.job.lease_token })),
+        error: 'Chunk no longer exists (likely re-chunked or deleted)',
+        terminal: true,
+      });
+      metrics.jobsFailed += orphans.length;
+    }
+
+    // 3. Filter remaining jobs into "up to date" vs "needs processing"
     const toProcess: LoadedChunkItem[] = [];
     const completed: LoadedChunkItem[] = [];
-
-    for (const item of chunks) {
+    for (const item of found) {
       const expectedHash = await sha256Hex(`${item.chunk.contentHash}:${jobModel.compositeKey}`);
       const tagged = { ...item, expectedHash };
       if (isEmbeddingUpToDate(item.chunk, expectedHash)) {

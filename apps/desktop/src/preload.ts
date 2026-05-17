@@ -305,8 +305,13 @@ interface LlmHostResponseReport {
   readonly type: 'error' | 'progress' | 'result';
 }
 
+// NOTE: preload is sandboxed CJS and can't import from workspace TS files,
+// so these constants are intentionally duplicated from
+// `apps/desktop/src/file-read-errors.ts`. Keep in sync.
+const FILE_READ_ERROR_CODE_NOT_FOUND = 'NOT_FOUND' as const;
+
 interface FileReadErrorPayload {
-  code: typeof FILE_READ_ERROR_CODE_TOO_LARGE;
+  code: typeof FILE_READ_ERROR_CODE_TOO_LARGE | typeof FILE_READ_ERROR_CODE_NOT_FOUND;
   message: string;
 }
 
@@ -318,7 +323,11 @@ function isFileReadErrorPayload(value: unknown): value is FileReadErrorPayload {
     code?: unknown;
     message?: unknown;
   };
-  return candidate.code === FILE_READ_ERROR_CODE_TOO_LARGE && typeof candidate.message === 'string';
+  return (
+    (candidate.code === FILE_READ_ERROR_CODE_TOO_LARGE ||
+      candidate.code === FILE_READ_ERROR_CODE_NOT_FOUND) &&
+    typeof candidate.message === 'string'
+  );
 }
 
 function unwrapFileReadResult(result: unknown): string {

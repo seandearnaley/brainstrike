@@ -8,7 +8,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { __resetSelectAdapterCacheForTesting, selectAdapter } from '../parsers/select-adapter';
+import { selectAdapter } from '../parsers/select-adapter';
 
 function setEnv(env: 'browser' | 'electron-chunking-host' | undefined): void {
   if (env === undefined) {
@@ -30,12 +30,10 @@ describe('selectAdapter', () => {
   beforeEach(() => {
     setEnv(undefined);
     setFlag(undefined);
-    __resetSelectAdapterCacheForTesting();
   });
   afterEach(() => {
     setEnv(undefined);
     setFlag(undefined);
-    __resetSelectAdapterCacheForTesting();
   });
 
   it('defaults to babel when no env/flag globals are set (browser-like)', () => {
