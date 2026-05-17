@@ -20,6 +20,20 @@ import { selectAdapter } from './parsers/select-adapter';
 import type { AstNode } from './parsers/types';
 import type { ChunkingRequestOptions, ChunkType, PortableChunk } from './shared';
 
+// Module-scoped flag for the one-shot "first parse audit" — see the
+// auditFirstSuccessfulParse() helper below.
+let auditFired = false;
+function auditFirstSuccessfulParse(adapterId: string): void {
+  if (auditFired) {
+    return;
+  }
+  auditFired = true;
+  // biome-ignore lint/suspicious/noConsole: one-time operational signal
+  console.info(
+    `[chunking-parser] first parse succeeded using adapter "${adapterId}" — IPC chain confirmed`
+  );
+}
+
 const BINARY_DETECTION_PROBE_BYTES = 4096;
 const REPETITIVE_CONTENT_LINE_THRESHOLD = 1000;
 const REPETITIVE_CONTENT_UNIQUE_RATIO = 0.1;
@@ -701,12 +715,20 @@ async function splitCodeByFunctions(
   }: { maxChars: number; overlapChars: number; language: CodeLanguage | null; separators: string[] }
 ): Promise<string[] | null> {
   let ast: AstNode | null = null;
+  const adapter = selectAdapter();
   try {
-    ast = await selectAdapter().parse(content, {
+    ast = await adapter.parse(content, {
       errorRecovery: true,
       jsx: true,
       language: language === 'typescript' ? 'typescript' : 'javascript',
     });
+    // First-parse audit (logs once per worker session). This is the
+    // operator's confirmation that selectAdapter picked the right adapter
+    // AND that the first parse round-trip actually completed — without
+    // this, "no errors in the log" is ambiguous between "oxc works" and
+    // "oxc is silently bypassed." After the first successful parse the
+    // audit goes silent so the log isn't spammy.
+    auditFirstSuccessfulParse(adapter.id);
   } catch (err) {
     // WARN level (not debug): an AST parse failure means function-aware
     // chunking degraded to non-AST recursive splitting for this file.
