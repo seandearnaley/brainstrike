@@ -61,3 +61,43 @@ export type ParserHostParseResponse = ParserHostParseFailure | ParserHostParseSu
  * `ParserHostManager.parse()`.
  */
 export const PARSER_HOST_PARSE_CHANNEL = 'parser-host:parse';
+
+/**
+ * Conservative type guard for `ParserHostParseRequest`. Shared between the
+ * IPC layer (`ipc-parser-host.ts`) and the utility-process entry
+ * (`parser-host-entry.ts`) so we don't drift two copies of the same logic.
+ */
+export function isParserHostParseRequest(value: unknown): value is ParserHostParseRequest {
+  if (value === null || typeof value !== 'object') {
+    return false;
+  }
+  const v = value as Record<string, unknown>;
+  if (typeof v['requestId'] !== 'string' || typeof v['content'] !== 'string') {
+    return false;
+  }
+  const opts = v['options'];
+  if (opts === null || typeof opts !== 'object') {
+    return false;
+  }
+  const o = opts as Record<string, unknown>;
+  return (
+    (o['language'] === 'javascript' || o['language'] === 'typescript') &&
+    typeof o['jsx'] === 'boolean' &&
+    typeof o['errorRecovery'] === 'boolean'
+  );
+}
+
+/**
+ * Best-effort extraction of `requestId` from an unknown payload — preserves
+ * the correlation ID even when the overall payload is malformed so the
+ * client's pending-request map can clean up.
+ */
+export function extractParserHostRequestId(value: unknown): string {
+  if (value !== null && typeof value === 'object' && 'requestId' in value) {
+    const id = (value as { requestId?: unknown }).requestId;
+    if (typeof id === 'string') {
+      return id;
+    }
+  }
+  return 'unknown';
+}

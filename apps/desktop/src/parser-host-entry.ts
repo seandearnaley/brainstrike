@@ -15,11 +15,13 @@
  */
 
 import { parseSync } from 'oxc-parser';
-import type {
-  ParserHostAstNode,
-  ParserHostParseOptions,
-  ParserHostParseRequest,
-  ParserHostParseResponse,
+import {
+  extractParserHostRequestId,
+  isParserHostParseRequest,
+  type ParserHostAstNode,
+  type ParserHostParseOptions,
+  type ParserHostParseRequest,
+  type ParserHostParseResponse,
 } from './parser-host-shared';
 
 /**
@@ -123,31 +125,6 @@ export async function handleParseRequest(
 }
 
 /**
- * Validate that an unknown payload looks like a `ParserHostParseRequest`.
- * Conservative on purpose — anything not strictly matching the shape is
- * rejected with a failure response rather than crashing the host.
- */
-function isParseRequest(value: unknown): value is ParserHostParseRequest {
-  if (value === null || typeof value !== 'object') {
-    return false;
-  }
-  const v = value as Record<string, unknown>;
-  if (typeof v['requestId'] !== 'string' || typeof v['content'] !== 'string') {
-    return false;
-  }
-  const opts = v['options'];
-  if (opts === null || typeof opts !== 'object') {
-    return false;
-  }
-  const o = opts as Record<string, unknown>;
-  return (
-    (o['language'] === 'javascript' || o['language'] === 'typescript') &&
-    typeof o['jsx'] === 'boolean' &&
-    typeof o['errorRecovery'] === 'boolean'
-  );
-}
-
-/**
  * Unwrap the Electron MessageEvent envelope. Some `parentPort.on('message')`
  * deliveries arrive as `{ data: payload }` (the MessageEvent shape) rather
  * than as the raw payload. Mirrors `unwrapParentPortMessage` in
@@ -161,17 +138,21 @@ function unwrapMessage(message: unknown): unknown {
 }
 
 /**
- * Best-effort extraction of `requestId` from an unknown payload — used to
- * preserve correlation IDs even when the payload is otherwise malformed.
+ * Safe wrapper around `parentPort.postMessage`. If the parent has gone
+ * away (host being killed during shutdown, structured-clone error, etc.)
+ * postMessage throws — without this guard the throw would surface as an
+ * unhandled rejection that's hard to diagnose. We swallow and log.
  */
-function extractRequestId(value: unknown): string {
-  if (value !== null && typeof value === 'object' && 'requestId' in value) {
-    const id = (value as { requestId?: unknown }).requestId;
-    if (typeof id === 'string') {
-      return id;
-    }
+function safePost(port: ParentPortLike, response: ParserHostParseResponse): void {
+  try {
+    port.postMessage(response);
+  } catch (err) {
+    // biome-ignore lint/suspicious/noConsole: surfacing parentPort failure
+    console.error(
+      '[parser-host-entry] parentPort.postMessage failed',
+      err instanceof Error ? err.message : err
+    );
   }
-  return 'unknown';
 }
 
 /**
@@ -187,16 +168,16 @@ export function wireParentPort(): void {
   }
   port.on('message', (rawMessage: unknown) => {
     const payload = unwrapMessage(rawMessage);
-    if (!isParseRequest(payload)) {
-      port.postMessage({
+    if (!isParserHostParseRequest(payload)) {
+      safePost(port, {
         error: 'Malformed parser host request envelope.',
         ok: false,
-        requestId: extractRequestId(payload),
+        requestId: extractParserHostRequestId(payload),
       });
       return;
     }
     void handleParseRequest(payload).then((response) => {
-      port.postMessage(response);
+      safePost(port, response);
     });
   });
 }

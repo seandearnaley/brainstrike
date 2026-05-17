@@ -13,55 +13,29 @@
 import { type IpcMainInvokeEvent, ipcMain } from 'electron';
 import type { ParserHostManager } from './parser-host-manager';
 import {
+  extractParserHostRequestId,
+  isParserHostParseRequest,
   PARSER_HOST_PARSE_CHANNEL,
-  type ParserHostParseRequest,
   type ParserHostParseResponse,
 } from './parser-host-shared';
 
 /**
- * Conservative payload validation. Mirrors the type guard in
- * parser-host-entry.ts so the main process refuses to forward malformed
- * requests rather than letting them propagate to the utility process.
- */
-function isParseRequest(value: unknown): value is ParserHostParseRequest {
-  if (value === null || typeof value !== 'object') {
-    return false;
-  }
-  const v = value as Record<string, unknown>;
-  if (typeof v['requestId'] !== 'string' || typeof v['content'] !== 'string') {
-    return false;
-  }
-  const opts = v['options'];
-  if (opts === null || typeof opts !== 'object') {
-    return false;
-  }
-  const o = opts as Record<string, unknown>;
-  return (
-    (o['language'] === 'javascript' || o['language'] === 'typescript') &&
-    typeof o['jsx'] === 'boolean' &&
-    typeof o['errorRecovery'] === 'boolean'
-  );
-}
-
-/**
  * Register the parser host IPC handler. Returns an unregister callback so
  * the caller can clean up during shutdown.
+ *
+ * Payload validation uses the shared `isParserHostParseRequest` guard from
+ * `parser-host-shared.ts` — same predicate the utility-process entry uses
+ * on the other side of the IPC boundary, so the two sides can't drift.
  */
 export function registerParserHostIpcHandlers(manager: ParserHostManager): () => void {
   ipcMain.handle(
     PARSER_HOST_PARSE_CHANNEL,
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<ParserHostParseResponse> => {
-      if (!isParseRequest(payload)) {
+      if (!isParserHostParseRequest(payload)) {
         return {
           error: 'Malformed parser host parse request.',
           ok: false,
-          requestId:
-            payload !== null &&
-            typeof payload === 'object' &&
-            'requestId' in payload &&
-            typeof (payload as { requestId?: unknown }).requestId === 'string'
-              ? (payload as { requestId: string }).requestId
-              : 'unknown',
+          requestId: extractParserHostRequestId(payload),
         };
       }
       return manager.parse(payload);

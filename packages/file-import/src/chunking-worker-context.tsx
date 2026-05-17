@@ -182,6 +182,27 @@ function isInvokeEnvelope(value: unknown): value is {
   return v['type'] === PARSER_HOST_INVOKE && typeof v['requestId'] === 'string';
 }
 
+/**
+ * Safe wrapper around `worker.postMessage`. If the worker has been
+ * terminated while a bridge.parse() call was in flight, postMessage
+ * throws — we swallow and log, because the worker is gone and there's
+ * no one left to reply to. Without the guard the throw surfaces as
+ * an unhandled rejection.
+ */
+function safeWorkerPost(
+  worker: Worker,
+  envelope: { requestId: string; response: unknown; type: string }
+): void {
+  try {
+    worker.postMessage(envelope);
+  } catch (err) {
+    logger.warn('parser-host bridge: worker.postMessage failed (worker likely terminated)', {
+      error: err instanceof Error ? err.message : String(err),
+      requestId: envelope.requestId,
+    });
+  }
+}
+
 function createParserHostBridgeHandler(worker: Worker): (event: MessageEvent) => void {
   return (event: MessageEvent) => {
     const data = event.data;
@@ -193,7 +214,7 @@ function createParserHostBridgeHandler(worker: Worker): (event: MessageEvent) =>
       // No bridge available in this environment — reply with a failure so
       // the worker's pending promise rejects quickly rather than waiting
       // for the timeout, and the per-file fallback runs.
-      worker.postMessage({
+      safeWorkerPost(worker, {
         requestId: data.requestId,
         response: {
           error: 'parser host bridge unavailable in this environment',
@@ -207,14 +228,14 @@ function createParserHostBridgeHandler(worker: Worker): (event: MessageEvent) =>
     bridge
       .parse(data.payload)
       .then((response) => {
-        worker.postMessage({
+        safeWorkerPost(worker, {
           requestId: data.requestId,
           response,
           type: PARSER_HOST_REPLY,
         });
       })
       .catch((error: unknown) => {
-        worker.postMessage({
+        safeWorkerPost(worker, {
           requestId: data.requestId,
           response: {
             error: error instanceof Error ? error.message : String(error),

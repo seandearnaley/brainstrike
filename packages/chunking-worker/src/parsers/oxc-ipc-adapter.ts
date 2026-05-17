@@ -107,12 +107,26 @@ function isReplyEnvelope(value: unknown): value is ReplyEnvelope {
     return false;
   }
   const v = value as Record<string, unknown>;
-  return (
-    v['type'] === PARSER_HOST_REPLY &&
-    typeof v['requestId'] === 'string' &&
-    v['response'] !== null &&
-    typeof v['response'] === 'object'
-  );
+  if (
+    v['type'] !== PARSER_HOST_REPLY ||
+    typeof v['requestId'] !== 'string' ||
+    v['response'] === null ||
+    typeof v['response'] !== 'object'
+  ) {
+    return false;
+  }
+  // P2 #990: validate the inner response payload too. Without this, a
+  // success-shaped envelope like `{ ok: true, requestId, root: null }` or
+  // a failure envelope without an error string would slip through and
+  // either crash the consumer (`root.type`) or surface as an empty error.
+  const response = v['response'] as Record<string, unknown>;
+  if (typeof response['requestId'] !== 'string' || typeof response['ok'] !== 'boolean') {
+    return false;
+  }
+  if (response['ok']) {
+    return response['root'] !== null && typeof response['root'] === 'object';
+  }
+  return typeof response['error'] === 'string';
 }
 
 function getWorkerSelf(): WorkerSelfLike | null {
@@ -139,7 +153,14 @@ function getWorkerSelf(): WorkerSelfLike | null {
 let counter = 0;
 function generateRequestId(): string {
   counter += 1;
-  return `oxc-ipc-${Date.now().toString(36)}-${counter.toString(36)}`;
+  // crypto.randomUUID is available in Web Workers and Node 18+ — guards
+  // against worker-respawn collisions that the bare Date.now()+counter
+  // form could hit (counter resets on module reload; Date.now is
+  // millisecond-resolution so two workers spawned in the same tick can
+  // collide on the first few requestIds).
+  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  const uuid = c && typeof c.randomUUID === 'function' ? c.randomUUID() : '';
+  return uuid ? `oxc-ipc-${uuid}` : `oxc-ipc-${Date.now().toString(36)}-${counter.toString(36)}`;
 }
 
 export const oxcIpcAdapter: ParserAdapter = {
