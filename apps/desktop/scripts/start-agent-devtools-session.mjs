@@ -1,0 +1,104 @@
+import { spawn } from 'node:child_process';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
+const DEFAULT_PORT = 9222;
+const POLL_TIMEOUT_MS = 30_000;
+const POLL_INTERVAL_MS = 500;
+
+export function parsePort(value) {
+  const raw = value?.trim() || String(DEFAULT_PORT);
+  const port = Number.parseInt(raw, 10);
+  if (!Number.isInteger(port) || String(port) !== raw || port < 1024 || port > 65_535) {
+    throw new Error('Agent DevTools port must be an integer from 1024 to 65535.');
+  }
+  return port;
+}
+
+export function resolveEndpoint(port) {
+  return `http://127.0.0.1:${port}`;
+}
+
+export function formatMcpConfig(endpoint) {
+  return JSON.stringify(
+    {
+      mcpServers: {
+        'brainstrike-devtools': {
+          command: 'npx',
+          args: [
+            '-y',
+            'chrome-devtools-mcp@latest',
+            `--browser-url=${endpoint}`,
+            '--no-usage-statistics',
+          ],
+        },
+      },
+    },
+    null,
+    2
+  );
+}
+
+async function waitForEndpoint(endpoint) {
+  const startedAt = Date.now();
+  const url = `${endpoint}/json/version`;
+  while (Date.now() - startedAt < POLL_TIMEOUT_MS) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        return;
+      }
+    } catch {
+      await new Promise((resolve) => {
+        setTimeout(resolve, POLL_INTERVAL_MS);
+      });
+    }
+  }
+  throw new Error(`Timed out waiting for ${url}`);
+}
+
+function spawnPnpm(args, env) {
+  return spawn('pnpm', [...args], {
+    cwd: path.resolve(import.meta.dirname, '..'),
+    env,
+    stdio: 'inherit',
+  });
+}
+
+async function main() {
+  const port = parsePort(process.env.BRAINSTRIKE_AGENT_DEVTOOLS_PORT);
+  const endpoint = resolveEndpoint(port);
+  if (process.argv.includes('--print-config')) {
+    console.log(formatMcpConfig(endpoint));
+    return;
+  }
+
+  const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'brainstrike-agent-devtools-'));
+  const env = {
+    ...process.env,
+    BRAINSTRIKE_AGENT_DEVTOOLS: '1',
+    BRAINSTRIKE_AGENT_DEVTOOLS_PORT: String(port),
+    BRAINSTRIKE_AGENT_DEVTOOLS_HOST: '127.0.0.1',
+    BRAINSTRIKE_DB_ROOT_PATH: userDataDir,
+    BRAINSTRIKE_E2E_USER_DATA_DIR: userDataDir,
+  };
+
+  console.log(`Agent DevTools profile: ${userDataDir}`);
+  console.log(`Agent DevTools endpoint: ${endpoint}`);
+
+  const child = spawnPnpm(['dev'], env);
+  const cleanup = () => {
+    child.kill('SIGTERM');
+  };
+  process.once('SIGINT', cleanup);
+  process.once('SIGTERM', cleanup);
+
+  await waitForEndpoint(endpoint);
+  console.log('\nMCP config:\n');
+  console.log(formatMcpConfig(endpoint));
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  await main();
+}
