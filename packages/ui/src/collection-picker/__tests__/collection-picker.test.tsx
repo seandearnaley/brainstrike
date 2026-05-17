@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { TooltipProvider } from '../../tooltip';
 import { CollectionPicker } from '../collection-picker';
 import type { CollectionPickerCollection } from '../types';
 
@@ -64,8 +65,11 @@ describe('CollectionPicker', () => {
     onCreate: vi.fn(),
   };
 
+  const renderWithProvider = (ui: React.ReactElement) =>
+    render(<TooltipProvider>{ui}</TooltipProvider>);
+
   it('renders collections correctly', () => {
-    render(<CollectionPicker {...defaultProps} />);
+    renderWithProvider(<CollectionPicker {...defaultProps} />);
 
     expect(screen.getByText('Collection 1')).toBeInTheDocument();
     expect(screen.getByText('bge-m3')).toBeInTheDocument();
@@ -74,33 +78,33 @@ describe('CollectionPicker', () => {
   });
 
   it('shows loading state', () => {
-    render(<CollectionPicker {...defaultProps} collections={[]} loading={true} />);
+    renderWithProvider(<CollectionPicker {...defaultProps} collections={[]} loading={true} />);
 
     expect(screen.getByText('Loading collections...')).toBeInTheDocument();
   });
 
   it('keeps cached collections visible while a refresh is in flight', () => {
-    render(<CollectionPicker {...defaultProps} loading={true} />);
+    renderWithProvider(<CollectionPicker {...defaultProps} loading={true} />);
 
     expect(screen.getByText('Collection 1')).toBeInTheDocument();
     expect(screen.queryByText('Loading collections...')).not.toBeInTheDocument();
   });
 
   it('shows empty state', () => {
-    render(<CollectionPicker {...defaultProps} collections={[]} />);
+    renderWithProvider(<CollectionPicker {...defaultProps} collections={[]} />);
 
     expect(screen.getByText(/No collections yet/i)).toBeInTheDocument();
   });
 
   it('calls onSelect when an item is clicked', () => {
-    render(<CollectionPicker {...defaultProps} />);
+    renderWithProvider(<CollectionPicker {...defaultProps} />);
 
     fireEvent.click(screen.getByText('Collection 1'));
     expect(defaultProps.onSelect).toHaveBeenCalledWith('1');
   });
 
   it('handles keyboard navigation (arrow keys)', () => {
-    render(<CollectionPicker {...defaultProps} />);
+    renderWithProvider(<CollectionPicker {...defaultProps} />);
 
     const listbox = screen.getByRole('listbox');
 
@@ -114,7 +118,7 @@ describe('CollectionPicker', () => {
   });
 
   it('handles keyboard selection (Enter/Space)', () => {
-    render(<CollectionPicker {...defaultProps} />);
+    renderWithProvider(<CollectionPicker {...defaultProps} />);
 
     const listbox = screen.getByRole('listbox');
     listbox.focus();
@@ -128,7 +132,7 @@ describe('CollectionPicker', () => {
   });
 
   it('uses the icon-xs size token for collection action buttons', () => {
-    render(<CollectionPicker {...defaultProps} />);
+    renderWithProvider(<CollectionPicker {...defaultProps} />);
 
     expect(screen.getAllByRole('button', { name: 'Edit collection' })[0]).toHaveAttribute(
       'data-size',

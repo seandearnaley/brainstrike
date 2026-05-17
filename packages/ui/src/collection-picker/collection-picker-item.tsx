@@ -127,21 +127,27 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
             </span>
             {/* Embedding coverage display */}
             <span className="h-1 w-1 rounded-full bg-border" />
-            <span
-              className={cn(
-                'flex items-center gap-1',
-                collection.embeddingCount >= collection.chunkCount && collection.chunkCount > 0
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : ''
-              )}
-              title={`${collection.embeddingCount} of ${collection.chunkCount} chunks embedded`}
-            >
-              <span className="font-medium text-foreground/60">
-                {collection.embeddingCount.toLocaleString()}/
-                {collection.chunkCount.toLocaleString()}
-              </span>
-              <span>embedded</span>
-            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className={cn(
+                    'flex cursor-default items-center gap-1',
+                    collection.embeddingCount >= collection.chunkCount && collection.chunkCount > 0
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : ''
+                  )}
+                >
+                  <span className="font-medium text-foreground/60">
+                    {collection.embeddingCount.toLocaleString()}/
+                    {collection.chunkCount.toLocaleString()}
+                  </span>
+                  <span>embedded</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                {collection.embeddingCount} of {collection.chunkCount} chunks embedded
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
 
