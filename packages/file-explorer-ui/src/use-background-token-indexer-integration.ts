@@ -152,6 +152,33 @@ interface ElectronFileHandle {
 /**
  * Type guard to check if handle is an Electron handle with path
  */
+/**
+ * Detect "file no longer exists" errors arriving from the file-system
+ * adapter. Files vanish between when we cache a handle and when we read
+ * (delete, rename, git checkout, watch event reordering) — that's normal
+ * and the indexer correctly evicts them from its in-flight set, so the
+ * absence shouldn't surface as an error log to the operator.
+ *
+ * Recognizes both Node-style `ENOENT` error codes and the
+ * `AccessError`-wrapped messages we get back through the Electron preload
+ * bridge. Other IO errors (permission, disk full, etc.) are NOT swallowed.
+ */
+function isMissingFileError(
+  error: string | Error | { code?: unknown; message?: unknown }
+): boolean {
+  if (typeof error === 'string') {
+    return error.includes('ENOENT') || error.includes('NOT_FOUND');
+  }
+  const code = (error as { code?: unknown }).code;
+  if (code === 'ENOENT' || code === 'NOT_FOUND') {
+    return true;
+  }
+  const message = (error as { message?: unknown }).message;
+  return (
+    typeof message === 'string' && (message.includes('ENOENT') || message.includes('NOT_FOUND'))
+  );
+}
+
 function isElectronHandle(handle: unknown): handle is ElectronFileHandle {
   return (
     handle !== null &&
@@ -877,6 +904,14 @@ export function useBackgroundTokenIndexerIntegration({
     if (inFlightRef.current.size === 0) {
       bumpInFlightPulse((value) => value + 1);
     }
+    // ENOENT means the file vanished between when we cached its handle and
+    // when we tried to read it (delete, rename, git checkout, etc.). The
+    // indexer correctly removed it from in-flight above; the absence isn't
+    // alert-worthy. Other IO errors are still real bugs and stay at error.
+    if (isMissingFileError(error)) {
+      logger.debug('Background indexer skipping deleted file', { compositeKey });
+      return;
+    }
     logger.error('Background indexer file error', { compositeKey, error });
   }, []);
 
@@ -1325,11 +1360,20 @@ export function useBackgroundTokenIndexerIntegration({
           const electronFilesReady: FileToIndex[] = [];
           for (const result of results) {
             if (result.error || result.content === null) {
-              logger.error('Failed to read Electron file', {
-                compositeKey: result.compositeKey,
-                error: result.error ?? 'No content returned',
-              });
-              handleFileError(result.compositeKey, result.error ?? 'No content returned');
+              const errorMessage = result.error ?? 'No content returned';
+              // Match the level used by handleFileError so ENOENT
+              // doesn't surface here as error AND there as debug.
+              if (isMissingFileError(errorMessage)) {
+                logger.debug('Skipping deleted Electron file', {
+                  compositeKey: result.compositeKey,
+                });
+              } else {
+                logger.error('Failed to read Electron file', {
+                  compositeKey: result.compositeKey,
+                  error: errorMessage,
+                });
+              }
+              handleFileError(result.compositeKey, errorMessage);
               continue;
             }
 

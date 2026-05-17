@@ -156,7 +156,7 @@ describe('embedding-worker error logging', () => {
     await db.close();
   });
 
-  it('logs the error message and stack when a batch fails', async () => {
+  it('logs missing-chunk jobs at warn level and terminally fails them without poisoning the batch', async () => {
     const now = new Date().toISOString();
     await db.query(
       `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
@@ -185,14 +185,25 @@ describe('embedding-worker error logging', () => {
       return res.rows[0]?.state === 'failed';
     });
 
-    const failureLog = loggerCalls.error.find(
-      ([message]) => message === 'handleBatchFailure: Job(s) failed'
+    // After 2026-05-17 fix: missing-chunk jobs no longer poison the batch
+    // via the generic handleBatchFailure path. They're partitioned out,
+    // terminally failed in one batched call, and logged at WARN (because
+    // it's an expected outcome of re-chunking — not an alert-worthy
+    // failure). The orphan log is per-batch, not per-job, so we expect
+    // exactly one warn entry referencing this specific chunk id.
+    const orphanWarn = loggerCalls.warn.find(
+      ([message]) => message === 'Embedding jobs reference deleted chunks; failing as terminal'
     );
-    expect(failureLog).toBeDefined();
-    const [, meta] = (failureLog ?? []) as [unknown, { error?: unknown; stack?: unknown }];
-    expect(typeof meta?.error).toBe('string');
-    expect(String(meta?.error)).toMatch(/Chunk not found/i);
-    expect(String(meta?.stack)).toContain('Chunk not found');
+    expect(orphanWarn).toBeDefined();
+    const [, orphanMeta] = (orphanWarn ?? []) as [unknown, { sampleChunkIds?: unknown }];
+    expect(Array.isArray(orphanMeta?.sampleChunkIds)).toBe(true);
+    expect(orphanMeta?.sampleChunkIds as string[]).toContain('missing-chunk');
+
+    // The job-level outcome should be unchanged: the job is in 'failed'
+    // state with terminal=true, so the queue doesn't retry it.
+    expect(
+      loggerCalls.error.some(([message]) => message === 'handleBatchFailure: Job(s) failed')
+    ).toBe(false);
 
     await controller.stop();
   });
