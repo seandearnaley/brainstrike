@@ -27,7 +27,11 @@ import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
-const REPORT_PATH = join(REPO_ROOT, 'docs', 'bench-chunking-parser-2026-05.md');
+// nit #993: filename auto-derives from today's date so re-running in a
+// different month doesn't overwrite a stale-named file or silently land
+// in the wrong path.
+const REPORT_DATE = new Date().toISOString().slice(0, 7); // YYYY-MM
+const REPORT_PATH = join(REPO_ROOT, 'docs', `bench-chunking-parser-${REPORT_DATE}.md`);
 
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
 const EXCLUDED_DIRS = new Set([
@@ -111,11 +115,13 @@ async function main() {
   }
   console.log(`Found ${files.length} JS/TS source files.`);
 
-  // Lazy-load both parsers from the chunking-worker's perspective.
-  const { babelAdapter } = await import('../src/parsers/babel-adapter.ts').catch(async () => {
-    // Fallback when running from the bundled output instead of source.
-    return import('../dist/index.js');
-  });
+  // Load both parsers from the chunking-worker's perspective. The .ts
+  // source loads under tsx/vitest/Node 22+ with type-stripping; if neither
+  // works the bench refuses to silently use a stale/different parser.
+  // (nit #993: removed the .ts → .js fallback because '.dist/index.js'
+  // doesn't export babelAdapter in the same shape, which would skew the
+  // benchmark without surfacing the discrepancy.)
+  const { babelAdapter } = await import('../src/parsers/babel-adapter.ts');
   const { parseSync } = await import('oxc-parser');
 
   // Per-file timings keyed by parser id.
@@ -128,8 +134,39 @@ async function main() {
     timings.oxc.byBucket.set(b.label, []);
   }
 
+  // nit #993: timing helpers extracted so we can alternate which parser
+  // runs first per file. Without alternation, the parser that always
+  // runs second benefits from a warm FS cache for the same content,
+  // and the parser that always runs first pays more JIT warm-up cost.
+  // Alternating (or randomizing) cancels both biases over the corpus.
+  // We use a deterministic alternation (index parity) rather than RNG so
+  // the bench is reproducible.
+  const timeBabel = async (content, language, jsx, bucket) => {
+    try {
+      const start = performance.now();
+      await babelAdapter.parse(content, { errorRecovery: true, jsx, language });
+      const ms = performance.now() - start;
+      timings.babel.all.push(ms);
+      timings.babel.byBucket.get(bucket).push(ms);
+    } catch {
+      timings.babel.errors += 1;
+    }
+  };
+  const timeOxc = (content, path, bucket) => {
+    try {
+      const start = performance.now();
+      parseSync(deriveOxcFilename(path), content);
+      const ms = performance.now() - start;
+      timings.oxc.all.push(ms);
+      timings.oxc.byBucket.get(bucket).push(ms);
+    } catch {
+      timings.oxc.errors += 1;
+    }
+  };
+
   let processed = 0;
-  for (const path of files) {
+  for (let i = 0; i < files.length; i += 1) {
+    const path = files[i];
     let content;
     let size;
     try {
@@ -143,26 +180,13 @@ async function main() {
     const language = languageFor(path);
     const jsx = jsxFor(path);
 
-    // Babel
-    try {
-      const start = performance.now();
-      await babelAdapter.parse(content, { errorRecovery: true, jsx, language });
-      const ms = performance.now() - start;
-      timings.babel.all.push(ms);
-      timings.babel.byBucket.get(bucket).push(ms);
-    } catch {
-      timings.babel.errors += 1;
-    }
-
-    // oxc
-    try {
-      const start = performance.now();
-      parseSync(deriveOxcFilename(path), content);
-      const ms = performance.now() - start;
-      timings.oxc.all.push(ms);
-      timings.oxc.byBucket.get(bucket).push(ms);
-    } catch {
-      timings.oxc.errors += 1;
+    // Alternate parser order per file (even index → Babel first, odd → oxc first).
+    if (i % 2 === 0) {
+      await timeBabel(content, language, jsx, bucket);
+      timeOxc(content, path, bucket);
+    } else {
+      timeOxc(content, path, bucket);
+      await timeBabel(content, language, jsx, bucket);
     }
 
     processed += 1;
@@ -220,13 +244,27 @@ async function main() {
   lines.push('- Includes the cost of Babel’s lazy module load (first-call penalty); ');
   lines.push('  amortizes over thousands of subsequent files. oxc-parser’s NAPI bindings ');
   lines.push('  load eagerly at module-resolution time so they don’t carry a first-call hit.');
+  lines.push('- **Parser order alternates per file** (even index → Babel first, odd → oxc');
+  lines.push('  first). Without alternation the parser that always ran second would benefit');
+  lines.push('  from a warm FS cache for the same content and the first-running parser would');
+  lines.push('  pay more JIT warm-up cost — both biases skew the headline ratio. Alternating');
+  lines.push('  cancels them over the corpus. Deterministic (index parity) for reproducibility.');
+  lines.push('- **Async vs sync asymmetry**: `babelAdapter.parse` is async (returns a Promise);');
+  lines.push('  `oxc-parser.parseSync` is synchronous. We `await` Babel and don\'t await oxc, so');
+  lines.push('  Babel\'s timing includes one extra microtask per call (~1–10 µs on V8). Negligible');
+  lines.push('  against the parse work itself; explicitly noted so reviewers can rule it out.');
   lines.push('- Excludes IPC roundtrip cost (Phase 4 architecture) — measures the underlying ');
   lines.push('  parser engines, not the Electron transport. IPC overhead is a separate concern ');
   lines.push('  evaluated at integration time.');
   lines.push('- No warm-up runs; first file pays cold-cache cost. With thousands of files this ');
   lines.push('  rounds out, but small samples may show distorted percentiles.');
   lines.push('- Parses use `errorRecovery: true` for both parsers so neither bails out on ');
-  lines.push('  malformed code (the chunking pipeline’s production posture).');
+  lines.push('  malformed code (the chunking pipeline’s production posture). Note: oxc\'s');
+  lines.push('  errorRecovery semantics differ from Babel\'s — oxc *always* recovers and');
+  lines.push('  reports errors via `result.errors` rather than throwing (P2 #993). The error');
+  lines.push('  counts above are catch-counts, so an oxc soft-failure won\'t register; if the');
+  lines.push('  bench reports zero oxc errors but you suspect parse problems, inspect');
+  lines.push('  `result.errors` directly on a sample.');
   lines.push('');
   lines.push('## Conclusion');
   lines.push('');
