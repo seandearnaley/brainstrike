@@ -17,11 +17,21 @@
 export type ParserEnvironment = 'browser' | 'electron-chunking-host';
 export type ParserFlag = 'auto' | 'babel' | 'oxc';
 
+/**
+ * Tree-sitter-supported languages. Phase 1 of the tree-sitter rollout
+ * (PRD #998) ships Python only; follow-on PRDs add Rust/Go/Markdown/etc.
+ * The chunking-worker treats this list as the operator-controlled
+ * opt-in for tree-sitter routing per language.
+ */
+export type TreeSitterLanguage = 'python';
+
 declare global {
   // biome-ignore lint/style/useNamingConvention: shared global keyed by intentionally-unique screaming-snake name
   var __BRAINSTRIKE_PARSER_ENV__: ParserEnvironment | undefined;
   // biome-ignore lint/style/useNamingConvention: shared global keyed by intentionally-unique screaming-snake name
   var __BRAINSTRIKE_PARSER_FLAG__: ParserFlag | undefined;
+  // biome-ignore lint/style/useNamingConvention: shared global keyed by intentionally-unique screaming-snake name
+  var __BRAINSTRIKE_TREE_SITTER_LANGUAGES__: readonly string[] | undefined;
 }
 
 /**
@@ -57,4 +67,42 @@ export function getParserFlag(): ParserFlag {
     return value;
   }
   return value === undefined ? 'auto' : 'babel';
+}
+
+/**
+ * Recognized tree-sitter languages this build understands. Mirrors the
+ * `TreeSitterLanguage` union; kept as a runtime array because the
+ * globalThis-injected list comes from arbitrary `?treeSitterLanguages=`
+ * URL params or test setup and needs validation, not just type narrowing.
+ */
+const RECOGNIZED_TREE_SITTER_LANGUAGES: readonly TreeSitterLanguage[] = ['python'];
+
+function isRecognizedTreeSitterLanguage(value: unknown): value is TreeSitterLanguage {
+  return (
+    typeof value === 'string' &&
+    (RECOGNIZED_TREE_SITTER_LANGUAGES as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * Returns the tree-sitter languages the operator has opted in to.
+ *
+ * Production: set by the renderer's bootstrap (Phase 8 of #998) based on
+ * the `?treeSitterLanguages=python,rust,...` URL param. Defaults to `[]`
+ * (no tree-sitter routing) during the disabled-by-default phases.
+ *
+ * Defensive coercion mirrors `getParserFlag`'s rollout-safety stance:
+ *  - undefined → []  (default-off; routing falls back to the JS/TS path)
+ *  - non-array → []  (malformed setup → safest interpretation is "off")
+ *  - array filtered to recognized languages only (silently drops typos
+ *    rather than failing the parse). Unknown language strings would
+ *    otherwise propagate to `selectAdapter` and produce surprising
+ *    routing; dropping them here keeps the routing matrix closed.
+ */
+export function getEnabledTreeSitterLanguages(): readonly TreeSitterLanguage[] {
+  const raw = globalThis.__BRAINSTRIKE_TREE_SITTER_LANGUAGES__;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.filter(isRecognizedTreeSitterLanguage);
 }
