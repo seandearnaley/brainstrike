@@ -1,8 +1,31 @@
 # lefthook.yml
+#
+# 2026-05-18 hardening (PR #1007 follow-up): three root causes of the hook
+# appearing to hang on commits were identified and fixed here.
+#
+# 1. `pnpm dlx ultracite fix` re-downloads ultracite from npm on every
+#    commit when pnpm's dlx cache misses. On a cold cache that can take
+#    minutes. Ultracite is already in root devDependencies (v7.6.0), so
+#    `pnpm exec ultracite fix` uses the local install — sub-second startup
+#    instead of an npm round-trip.
+# 2. `pnpm dlx ultracite fix` with no file arg scans the entire workspace
+#    (2062 files in this repo) every commit. Passing `{staged_files}`
+#    via lefthook's template makes it scan only the staged files — about
+#    1 second per typical commit instead of 10+ seconds.
+# 3. Mixing `jobs:` (1.7+ format) with `commands:` (legacy format) under
+#    the same hook produced unusual scheduling. Unified on `jobs:` so the
+#    parallel/sequencing semantics are well-defined.
+#
+# `pnpm exec` is the deliberate choice over `pnpm dlx` for every tool here:
+# if a tool isn't in the workspace deps, we WANT the commit to fail loudly
+# rather than silently fetch an unpinned version from the registry.
+
 pre-commit:
+  parallel: true
   jobs:
-    - run: pnpm dlx ultracite fix
-      glob: 
+    - name: ultracite-fix
+      run: pnpm exec ultracite fix {staged_files}
+      glob:
         - "*.js"
         - "*.jsx"
         - "*.ts"
@@ -11,15 +34,13 @@ pre-commit:
         - "*.jsonc"
         - "*.css"
       stage_fixed: true
-  parallel: true
-  commands:
-    type-check:
-      # Only check packages with staged TypeScript files (canonical pattern)
-      # Uses git diff to find changed packages, then runs type-check only on those
+    - name: type-check
       glob: "*.{ts,tsx,mts,cts}"
+      # Only type-checks packages whose files changed since HEAD (the diff
+      # filter does the package resolution via turbo's --filter flag).
       run: pnpm turbo run type-check --filter="[HEAD]"
 
 commit-msg:
-  commands:
-    lint-msg:
+  jobs:
+    - name: lint-msg
       run: pnpm exec commitlint --edit {1}
