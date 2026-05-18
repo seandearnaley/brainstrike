@@ -338,7 +338,10 @@ function comparableSelection(selection) {
     lanes: selection.lanes,
     expandedLanes: selection.expandedLanes,
     labels: selection.labels,
-    commandNames: selection.commands.map((command) => command.name),
+    commands: selection.commands.map((command) => ({
+      name: command.name,
+      command: command.command,
+    })),
   };
 }
 
@@ -354,6 +357,33 @@ function compareArrays(name, actual, expected) {
     if (actual[index] !== expected[index]) {
       failures.push(
         `${name}[${index}] differs: expected ${expected[index]}, got ${actual[index]}`
+      );
+    }
+  }
+  return failures;
+}
+
+function compareCommandEntries(actual, expected) {
+  if (!Array.isArray(actual) || !Array.isArray(expected)) {
+    return ['selection.commands must be an array'];
+  }
+  if (actual.length !== expected.length) {
+    return ['selection.commands length differs'];
+  }
+  const failures = [];
+  for (let index = 0; index < actual.length; index += 1) {
+    if (actual[index]?.name !== expected[index]?.name) {
+      failures.push(
+        `selection.commands[${index}].name differs: expected ${
+          expected[index]?.name
+        }, got ${actual[index]?.name}`
+      );
+    }
+    if (actual[index]?.command !== expected[index]?.command) {
+      failures.push(
+        `selection.commands[${index}].command differs: expected ${
+          expected[index]?.command
+        }, got ${actual[index]?.command}`
       );
     }
   }
@@ -376,10 +406,9 @@ function compareSelections(actual, expected) {
       actualSelection.labels,
       expectedSelection.labels
     ),
-    ...compareArrays(
-      'selection.commandNames',
-      actualSelection.commandNames,
-      expectedSelection.commandNames
+    ...compareCommandEntries(
+      actualSelection.commands,
+      expectedSelection.commands
     ),
   ];
 }
