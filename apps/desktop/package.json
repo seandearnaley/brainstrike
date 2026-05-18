@@ -64,6 +64,7 @@
     "@babel/runtime": "^7.29.2",
     "@brainstrike/build-utils": "workspace:*",
     "@brainstrike/config": "workspace:*",
+    "@brainstrike/file-explorer": "workspace:*",
     "@brainstrike/tailwind-config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@modelcontextprotocol/server-filesystem": "^2026.1.14",

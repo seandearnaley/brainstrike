@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/worker-storage.worker.js'],
+  entry: ['src/index.ts', 'src/testing.ts', 'src/worker-storage.worker.js'],
   format: ['esm', 'cjs'],
   splitting: false,
   clean: false,

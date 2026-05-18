@@ -1,3 +1,4 @@
+import { FILE_EXPLORER_STORAGE_KEY } from '@brainstrike/file-explorer/testing';
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { getContextExplorerLeftPanel } from './utils/context-explorer-locators';
@@ -24,6 +25,7 @@ const PRESET_LOAD_TIMEOUT_MS = 25_000;
 const FILTER_PRESET_TEST_TIMEOUT_MS = 60_000;
 const ELECTRON_CONTROL_CLICK_TIMEOUT_MS = 10_000;
 const PRESET_DATABASE_READY_TIMEOUT_MS = 15_000;
+const PRESET_PERSIST_READY_TIMEOUT_MS = 15_000;
 
 interface ViewFilterPresetReadinessResult {
   count: number | null;
@@ -43,6 +45,43 @@ interface ElectronApiBridge {
   electronAPI?: {
     db?: ElectronDatabaseBridge;
   };
+}
+
+interface FileExplorerPersistStorage {
+  getItem?: (key: string) => Promise<unknown> | unknown;
+}
+
+interface FileExplorerPersistOptions {
+  name?: string;
+  storage?: FileExplorerPersistStorage;
+}
+
+interface FileExplorerPersistApi {
+  getOptions?: () => FileExplorerPersistOptions | undefined;
+}
+
+interface FileExplorerStoreBridge {
+  getState?: () => unknown;
+  persist?: FileExplorerPersistApi;
+}
+
+interface FileExplorerStoreWindow {
+  __brainstrike_file_explorer_provider_store__?: FileExplorerStoreBridge;
+}
+
+interface ViewFilterPresetLookupResult {
+  error: string | null;
+  id: string | null;
+  ok: boolean;
+}
+
+interface PersistedPresetReadinessResult {
+  currentFolderId: string | null;
+  error: string | null;
+  folderPresetId: string | null;
+  livePresetId: string | null;
+  ok: boolean;
+  topLevelPresetId: string | null;
 }
 
 async function clickElectronControl(locator: Locator): Promise<void> {
@@ -136,6 +175,182 @@ async function waitForViewFilterPresetsDatabase(window: Page): Promise<void> {
   );
 
   expect(result, result.error ?? 'View filter presets were not ready.').toMatchObject({ ok: true });
+}
+
+async function resolveViewFilterPresetId(window: Page, presetName: string): Promise<string> {
+  const result = await window.evaluate(async (name): Promise<ViewFilterPresetLookupResult> => {
+    const api = (globalThis as typeof globalThis & ElectronApiBridge).electronAPI;
+    const query = api?.db?.query;
+    if (!query) {
+      return {
+        error: 'Desktop database query bridge is unavailable.',
+        id: null,
+        ok: false,
+      };
+    }
+
+    try {
+      const queryResult = await query(
+        'SELECT id FROM view_filter_presets WHERE name = $1 LIMIT 1',
+        [name],
+        {
+          label: 'desktop e2e view filter preset id lookup',
+          priority: 'foreground',
+        }
+      );
+      const row = queryResult.rows[0] as { id?: unknown } | undefined;
+      const id = typeof row?.id === 'string' ? row.id : null;
+      return {
+        error: id ? null : `View filter preset "${name}" was not found.`,
+        id,
+        ok: Boolean(id),
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { error: message, id: null, ok: false };
+    }
+  }, presetName);
+
+  expect(result, result.error ?? `View filter preset "${presetName}" was not found.`).toMatchObject(
+    {
+      ok: true,
+    }
+  );
+
+  if (!result.id) {
+    throw new Error(`View filter preset "${presetName}" did not resolve to an id.`);
+  }
+  return result.id;
+}
+
+async function waitForPresetSelectionPersisted(
+  window: Page,
+  expectedPresetId: string
+): Promise<void> {
+  await expect
+    .poll(
+      async () =>
+        await window.evaluate(
+          async (args): Promise<PersistedPresetReadinessResult> => {
+            // Restart safety requires all three surfaces to agree: live store,
+            // top-level persisted state, and the current folder's persisted state.
+            const asRecord = (value: unknown): Record<string, unknown> =>
+              value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+            const readStringField = (
+              source: Record<string, unknown>,
+              key: string
+            ): string | null => {
+              const value = source[key];
+              return typeof value === 'string' ? value : null;
+            };
+
+            const store = (globalThis as typeof globalThis & FileExplorerStoreWindow)
+              .__brainstrike_file_explorer_provider_store__;
+            const liveState = asRecord(store?.getState?.());
+            const livePresetId = readStringField(liveState, 'viewFilterPresetId');
+            const currentFolderId = readStringField(liveState, 'currentFolderId');
+            const persistApi = store?.persist;
+            if (typeof persistApi?.getOptions !== 'function') {
+              return {
+                currentFolderId,
+                error: 'File explorer persist getOptions API is unavailable.',
+                folderPresetId: null,
+                livePresetId,
+                ok: false,
+                topLevelPresetId: null,
+              };
+            }
+
+            const persistOptions = persistApi.getOptions();
+            const storage = persistOptions?.storage;
+
+            if (!currentFolderId) {
+              return {
+                currentFolderId,
+                error: 'Waiting for file explorer currentFolderId before checking folder state.',
+                folderPresetId: null,
+                livePresetId,
+                ok: false,
+                topLevelPresetId: null,
+              };
+            }
+
+            if (!storage || typeof storage.getItem !== 'function') {
+              return {
+                currentFolderId,
+                error: 'File explorer persist storage is unavailable.',
+                folderPresetId: null,
+                livePresetId,
+                ok: false,
+                topLevelPresetId: null,
+              };
+            }
+
+            let rawValue: unknown;
+            try {
+              rawValue = await storage.getItem(persistOptions?.name ?? args.storageKey);
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              return {
+                currentFolderId,
+                error: message,
+                folderPresetId: null,
+                livePresetId,
+                ok: false,
+                topLevelPresetId: null,
+              };
+            }
+
+            let parsedValue: unknown = rawValue;
+            try {
+              parsedValue =
+                typeof rawValue === 'string' && rawValue.length > 0
+                  ? JSON.parse(rawValue)
+                  : rawValue;
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              return {
+                currentFolderId,
+                error: `Failed to parse persisted file explorer state: ${message}`,
+                folderPresetId: null,
+                livePresetId,
+                ok: false,
+                topLevelPresetId: null,
+              };
+            }
+
+            const persistedEnvelope = asRecord(parsedValue);
+            const persistedState = asRecord(persistedEnvelope['state'] ?? persistedEnvelope);
+            const topLevelPresetId = readStringField(persistedState, 'viewFilterPresetId');
+            const folderStates = asRecord(persistedState['folderStates']);
+            const folderState = asRecord(folderStates[currentFolderId]);
+            const folderPresetId = readStringField(folderState, 'viewFilterPresetId');
+            const ok =
+              livePresetId === args.expectedPresetId &&
+              topLevelPresetId === args.expectedPresetId &&
+              folderPresetId === args.expectedPresetId;
+
+            return {
+              currentFolderId,
+              error: ok
+                ? null
+                : `Waiting for persisted preset id ${args.expectedPresetId}; live=${String(
+                    livePresetId
+                  )}, topLevel=${String(topLevelPresetId)}, folder=${String(folderPresetId)}.`,
+              folderPresetId,
+              livePresetId,
+              ok,
+              topLevelPresetId,
+            };
+          },
+          { expectedPresetId, storageKey: FILE_EXPLORER_STORAGE_KEY }
+        ),
+      {
+        intervals: [100, 250, 500],
+        timeout: PRESET_PERSIST_READY_TIMEOUT_MS,
+      }
+    )
+    .toMatchObject({ ok: true });
 }
 
 async function resolvePresetTrigger(window: Page): Promise<Locator> {
@@ -419,10 +634,13 @@ test.describe('Desktop filter presets', () => {
     await selectMockRoot(window);
     await ensureViewFiltersExpanded(window);
     await selectDocumentationPreset(window);
+    const documentationPresetId = await resolveViewFilterPresetId(window, 'Documentation');
+    await waitForPresetSelectionPersisted(window, documentationPresetId);
 
     const relaunched = await electron.restart();
     const relaunchedWindow = relaunched.window;
-    const { mockFileSystemOperations } = await loadElectronHelpers();
+    const { mockFileSystemOperations, waitForAppReady } = await loadElectronHelpers();
+    await waitForAppReady(relaunchedWindow);
     await mockFileSystemOperations(relaunchedWindow);
     await ensureLeftPanelVisible(relaunchedWindow);
 
@@ -432,9 +650,10 @@ test.describe('Desktop filter presets', () => {
     }
 
     await ensureViewFiltersExpanded(relaunchedWindow);
-    await expect(relaunchedWindow.getByRole('button', { name: /documentation/i })).toBeVisible({
-      timeout: 10_000,
-    });
+    await waitForViewFilterPresetsDatabase(relaunchedWindow);
+    await expect(
+      getContextExplorerLeftPanel(relaunchedWindow).getByRole('button', { name: /documentation/i })
+    ).toBeVisible({ timeout: 10_000 });
     await expect(relaunchedWindow.getByText('Select filter...')).toBeHidden({ timeout: 10_000 });
   });
 
