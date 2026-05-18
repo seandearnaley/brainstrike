@@ -1,8 +1,10 @@
+import agentDevToolsDefaults from '../agent-devtools-defaults.json';
+
 export type AgentDevtoolsConfig =
   | { readonly enabled: false }
   | {
       readonly enabled: true;
-      readonly host: '127.0.0.1' | 'localhost';
+      readonly host: '127.0.0.1';
       readonly port: number;
     };
 
@@ -12,10 +14,10 @@ interface ElectronCommandLineLike {
   appendSwitch(name: string, value: string): void;
 }
 
-const DEFAULT_AGENT_DEVTOOLS_PORT = 9222;
-const DEFAULT_AGENT_DEVTOOLS_HOST = '127.0.0.1';
-const MIN_PORT = 1024;
-const MAX_PORT = 65_535;
+const DEFAULT_AGENT_DEVTOOLS_PORT = agentDevToolsDefaults.defaultPort;
+const DEFAULT_AGENT_DEVTOOLS_HOST = agentDevToolsDefaults.defaultHost as '127.0.0.1';
+const MIN_PORT = agentDevToolsDefaults.minPort;
+const MAX_PORT = agentDevToolsDefaults.maxPort;
 
 export function resolveAgentDevtoolsConfig(
   env: EnvLike,
@@ -56,12 +58,12 @@ export function configureAgentDevtoolsCommandLine(
   }
 }
 
-function resolveHost(value: string | undefined): '127.0.0.1' | 'localhost' {
+function resolveHost(value: string | undefined): '127.0.0.1' {
   const host = value?.trim() || DEFAULT_AGENT_DEVTOOLS_HOST;
-  if (host === '127.0.0.1' || host === 'localhost') {
+  if (host === '127.0.0.1') {
     return host;
   }
-  throw new Error('BRAINSTRIKE_AGENT_DEVTOOLS_HOST must be 127.0.0.1 or localhost.');
+  throw new Error('BRAINSTRIKE_AGENT_DEVTOOLS_HOST must be 127.0.0.1.');
 }
 
 function resolvePort(envValue: string | undefined, argv: readonly string[]): number {
@@ -72,7 +74,9 @@ function resolvePort(envValue: string | undefined, argv: readonly string[]): num
   const raw = envValue?.trim() || argvValue?.trim() || String(DEFAULT_AGENT_DEVTOOLS_PORT);
   const port = Number.parseInt(raw, 10);
   if (!Number.isInteger(port) || String(port) !== raw || port < MIN_PORT || port > MAX_PORT) {
-    throw new Error('BRAINSTRIKE_AGENT_DEVTOOLS_PORT must be an integer from 1024 to 65535.');
+    throw new Error(
+      `BRAINSTRIKE_AGENT_DEVTOOLS_PORT must be an integer from ${MIN_PORT} to ${MAX_PORT}.`
+    );
   }
   return port;
 }

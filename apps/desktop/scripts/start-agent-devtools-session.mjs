@@ -7,14 +7,16 @@ import { fileURLToPath } from 'node:url';
 import agentDevToolsDefaults from '../agent-devtools-defaults.json' with { type: 'json' };
 
 const DEFAULT_PORT = agentDevToolsDefaults.defaultPort;
+const MIN_PORT = agentDevToolsDefaults.minPort;
+const MAX_PORT = agentDevToolsDefaults.maxPort;
 const POLL_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 500;
 
 export function parsePort(value) {
   const raw = value?.trim() || String(DEFAULT_PORT);
   const port = Number.parseInt(raw, 10);
-  if (!Number.isInteger(port) || String(port) !== raw || port < 1024 || port > 65_535) {
-    throw new Error('Agent DevTools port must be an integer from 1024 to 65535.');
+  if (!Number.isInteger(port) || String(port) !== raw || port < MIN_PORT || port > MAX_PORT) {
+    throw new Error(`Agent DevTools port must be an integer from ${MIN_PORT} to ${MAX_PORT}.`);
   }
   return port;
 }
@@ -43,21 +45,48 @@ export function formatMcpConfig(endpoint) {
   );
 }
 
-export async function waitForEndpoint(endpoint) {
+function throwIfAborted(signal) {
+  if (signal?.aborted) {
+    throw signal.reason instanceof Error ? signal.reason : new Error('Endpoint wait aborted.');
+  }
+}
+
+async function sleep(ms, signal) {
+  throwIfAborted(signal);
+  await new Promise((resolve, reject) => {
+    let timeout;
+    const cleanup = () => {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', abort);
+    };
+    const abort = () => {
+      cleanup();
+      reject(signal.reason instanceof Error ? signal.reason : new Error('Endpoint wait aborted.'));
+    };
+    timeout = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', abort, { once: true });
+  });
+}
+
+export async function waitForEndpoint(endpoint, options = {}) {
   const startedAt = Date.now();
   const url = `${endpoint}/json/version`;
+  const { signal } = options;
   while (Date.now() - startedAt < POLL_TIMEOUT_MS) {
+    throwIfAborted(signal);
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, { signal });
       if (response.ok) {
         return;
       }
     } catch {
+      throwIfAborted(signal);
       // Connection refused or other startup network errors are expected here.
     }
-    await new Promise((resolve) => {
-      setTimeout(resolve, POLL_INTERVAL_MS);
-    });
+    await sleep(POLL_INTERVAL_MS, signal);
   }
   throw new Error(`Timed out waiting for ${url}`);
 }
@@ -88,6 +117,40 @@ async function waitForChildExit(child) {
   }
   const [code] = await once(child, 'exit');
   return typeof code === 'number' ? code : 0;
+}
+
+function describeChildExit(code, signal) {
+  if (typeof code === 'number') {
+    return `dev server exited with code ${code}`;
+  }
+  if (typeof signal === 'string') {
+    return `dev server exited from signal ${signal}`;
+  }
+  return 'dev server exited';
+}
+
+export async function waitForEndpointOrChildExit(endpoint, child) {
+  if (!isChildRunning(child)) {
+    throw new Error(`${describeChildExit(child.exitCode, child.signalCode)} before ${endpoint} was ready.`);
+  }
+
+  const controller = new AbortController();
+  let onExit;
+  const childExit = new Promise((_, reject) => {
+    onExit = (code, signal) => {
+      reject(new Error(`${describeChildExit(code, signal)} before ${endpoint} was ready.`));
+    };
+    child.once('exit', onExit);
+  });
+
+  try {
+    await Promise.race([waitForEndpoint(endpoint, { signal: controller.signal }), childExit]);
+  } finally {
+    controller.abort();
+    if (onExit) {
+      child.off('exit', onExit);
+    }
+  }
 }
 
 function stopChild(child) {
@@ -144,7 +207,7 @@ async function main() {
   const child = spawnPnpm(['dev'], env);
   const uninstallSignalCleanup = installSignalCleanup(child, userDataDir);
   try {
-    await waitForEndpoint(endpoint);
+    await waitForEndpointOrChildExit(endpoint, child);
     console.log('\nMCP config:\n');
     console.log(formatMcpConfig(endpoint));
     const exitCode = await waitForChildExit(child);

@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import {
   formatMcpConfig,
   parsePort,
   resolveEndpoint,
   waitForEndpoint,
+  waitForEndpointOrChildExit,
 } from '../start-agent-devtools-session.mjs';
 import agentDevToolsDefaults from '../../agent-devtools-defaults.json' with { type: 'json' };
 
@@ -46,4 +48,21 @@ test('waitForEndpoint sleeps between non-ok responses', async () => {
   }
   assert.equal(calls, 2);
   assert.ok(Date.now() - startedAt >= 450);
+});
+
+test('waitForEndpointOrChildExit rejects when the dev server exits before the endpoint is ready', async () => {
+  const originalFetch = globalThis.fetch;
+  const child = new EventEmitter();
+  child.exitCode = null;
+  child.signalCode = null;
+  globalThis.fetch = async () => ({ ok: false });
+
+  const wait = waitForEndpointOrChildExit('http://127.0.0.1:9222', child);
+  child.emit('exit', 1, null);
+
+  try {
+    await assert.rejects(wait, /dev server exited with code 1/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

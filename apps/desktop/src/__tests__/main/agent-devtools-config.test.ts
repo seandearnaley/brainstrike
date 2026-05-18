@@ -40,7 +40,7 @@ describe('agent devtools config', () => {
         },
         []
       )
-    ).toThrow('BRAINSTRIKE_AGENT_DEVTOOLS_HOST must be 127.0.0.1 or localhost.');
+    ).toThrow('BRAINSTRIKE_AGENT_DEVTOOLS_HOST must be 127.0.0.1.');
   });
 
   it('rejects invalid ports', () => {
