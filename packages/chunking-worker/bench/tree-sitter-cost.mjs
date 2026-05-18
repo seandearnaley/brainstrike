@@ -59,15 +59,42 @@ function bucketFor(size) {
 function generateCorpus(count) {
   const corpus = [];
   for (let i = 0; i < count; i += 1) {
-    // Vary the structure: ~30% trivial, ~50% mid-sized, ~20% large
-    const sizeBucket = i % 10 < 3 ? 'trivial' : i % 10 < 8 ? 'medium' : 'large';
+    // Distribution chosen to hit ALL the SIZE_BUCKETS the report displays
+    // (per #1004 review: previously only < 1 KB and 1–10 KB had any files).
+    // Each definition is ~120 chars, so:
+    //   trivial    ~1 def   →    <1 KB
+    //   medium     ~5 defs  →  1-10 KB
+    //   large    ~100 defs  → 10-100 KB
+    //   xlarge   ~900 defs  →   >100 KB
+    // ~30/50/15/5% to mirror real-world Python file size distributions.
+    let sizeBucket;
+    const bucketRoll = i % 100;
+    if (bucketRoll < 30) {
+      sizeBucket = 'trivial';
+    } else if (bucketRoll < 80) {
+      sizeBucket = 'medium';
+    } else if (bucketRoll < 95) {
+      sizeBucket = 'large';
+    } else {
+      sizeBucket = 'xlarge';
+    }
     corpus.push({ name: `synth-${i}.py`, source: generateFile(sizeBucket, i) });
   }
   return corpus;
 }
 
 function generateFile(sizeBucket, seed) {
-  const defCount = sizeBucket === 'trivial' ? 1 : sizeBucket === 'medium' ? 5 : 20;
+  // Per-definition size averages ~180 chars (functions ~140, classes ~250,
+  // async ~180). Counts chosen to actually land each tier in its target
+  // SIZE_BUCKET, verified by post-run report inspection.
+  const defCount =
+    sizeBucket === 'trivial'
+      ? 1 // → <1 KB
+      : sizeBucket === 'medium'
+        ? 15 // → 1-10 KB
+        : sizeBucket === 'large'
+          ? 100 // → 10-100 KB
+          : 900; // xlarge → >100 KB
   const lines = [
     '"""Generated synthetic module for benchmarking."""',
     '',
