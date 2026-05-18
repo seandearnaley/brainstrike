@@ -4,6 +4,7 @@ import path from 'node:path';
 
 const rootDir = process.cwd();
 const workflowPath = path.join(rootDir, '.github/workflows/test.yml');
+const claudeReviewWorkflowPath = path.join(rootDir, '.github/workflows/claude-code-review.yml');
 const setupMonorepoActionPath = path.join(rootDir, '.github/actions/setup-monorepo/action.yml');
 const setupDesktopE2EActionPath = path.join(rootDir, '.github/actions/setup-desktop-e2e/action.yml');
 const turboConfigPath = path.join(rootDir, 'turbo.jsonc');
@@ -127,6 +128,79 @@ export function extractJsonObjectBlock(source, key) {
   }
 
   return null;
+}
+
+export function validateClaudeReviewWorkflowContracts(source) {
+  const failures = [];
+  const reviewJob = extractJob(source, 'review');
+  if (!reviewJob) {
+    failures.push('Claude auto-review workflow must define a review job.');
+    return failures;
+  }
+
+  requireNumericMatchAtLeast(
+    extractJobHeader(reviewJob),
+    /^    timeout-minutes:\s*(\d+)\s*$/m,
+    60,
+    'Claude auto-review timeout must allow large PR reviews.',
+    failures
+  );
+  requireNumericMatchAtLeast(
+    reviewJob,
+    /--max-turns\s+(\d+)/,
+    80,
+    'Claude auto-review max-turns must allow large PR reviews.',
+    failures
+  );
+  requireIncludes(
+    reviewJob,
+    'id-token: write',
+    'Claude auto-review must keep OIDC id-token permission enabled.',
+    failures
+  );
+  requireIncludes(
+    reviewJob,
+    'anthropics/claude-code-action@v1',
+    'Claude auto-review must use the Claude Code action.',
+    failures
+  );
+  const selfChangeStep = extractWorkflowStep(reviewJob, 'Detect Claude workflow self-change');
+  if (!selfChangeStep) {
+    failures.push('Claude auto-review must detect self-edits before invoking Claude.');
+  } else {
+    requireIncludes(
+      selfChangeStep,
+      'id: claude-workflow-change',
+      'Claude auto-review self-edit detector must expose a stable step id.',
+      failures
+    );
+    requireIncludes(
+      selfChangeStep,
+      '.github/workflows/claude-code-review.yml',
+      'Claude auto-review self-edit detector must check the review workflow path.',
+      failures
+    );
+    requireIncludes(
+      selfChangeStep,
+      'gh pr diff',
+      'Claude auto-review self-edit detector must inspect PR changed files.',
+      failures
+    );
+  }
+  requireIncludes(
+    reviewJob,
+    "if: ${{ steps.claude-workflow-change.outputs.changed != 'true' }}",
+    'Claude auto-review must skip Claude when this workflow changes.',
+    failures
+  );
+  requireNotIncludes(
+    reviewJob,
+    'continue-on-error: true',
+    'Claude auto-review must not continue-on-error.',
+    failures
+  );
+
+  return failures;
 }
 
 function requireYamlListItem(source, item, message, failures) {
@@ -1164,6 +1238,7 @@ export function validateDesktopE2EContracts({
 export async function main() {
   const [
     source,
+    claudeReviewWorkflowSource,
     setupMonorepoActionSource,
     setupDesktopE2EActionSource,
     turboConfigSource,
@@ -1171,6 +1246,7 @@ export async function main() {
     playwrightEnvironmentSource,
   ] = await Promise.all([
     readFile(workflowPath, 'utf8'),
+    readFile(claudeReviewWorkflowPath, 'utf8'),
     readFile(setupMonorepoActionPath, 'utf8'),
     readFile(setupDesktopE2EActionPath, 'utf8'),
     readFile(turboConfigPath, 'utf8'),
@@ -1179,6 +1255,7 @@ export async function main() {
   ]);
   const failures = [
     ...validateWorkflowContracts(source),
+    ...validateClaudeReviewWorkflowContracts(claudeReviewWorkflowSource),
     ...validateSetupMonorepoContracts(setupMonorepoActionSource),
     ...validateSetupDesktopE2EContracts(setupDesktopE2EActionSource),
     ...validateTurboContracts(turboConfigSource),

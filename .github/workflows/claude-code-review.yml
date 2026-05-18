@@ -6,7 +6,9 @@ on:
 jobs:
   review:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Large PRs can exceed Claude's default review budget while still producing
+    # valid review output. Keep this aligned with the --max-turns budget below.
+    timeout-minutes: 60
     permissions:
       contents: read
       pull-requests: write
@@ -16,7 +18,21 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Detect Claude workflow self-change
+        id: claude-workflow-change
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --name-only | grep -Fxq ".github/workflows/claude-code-review.yml"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping Claude auto-review because this PR changes the review workflow; Claude OIDC validation requires this workflow to match the default branch."
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: anthropics/claude-code-action@v1
+        if: ${{ steps.claude-workflow-change.outputs.changed != 'true' }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
@@ -36,6 +52,6 @@ jobs:
             Only post GitHub comments - don't submit review text as messages.
 
           claude_args: |
-            --model claude-opus-4-6 --max-turns 30 --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+            --model claude-opus-4-6 --max-turns 80 --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options

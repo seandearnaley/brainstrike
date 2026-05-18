@@ -6,12 +6,17 @@ import {
   extractJob,
   validateTurboContracts,
   validateDesktopE2EContracts,
+  validateClaudeReviewWorkflowContracts,
   validateSetupDesktopE2EContracts,
   validateSetupMonorepoContracts,
   validateWorkflowContracts,
 } from '../check-ci-workflow-contracts.mjs';
 
 const workflowSource = await readFile('.github/workflows/test.yml', 'utf8');
+const claudeReviewWorkflowSource = await readFile(
+  '.github/workflows/claude-code-review.yml',
+  'utf8'
+);
 const setupMonorepoSource = await readFile('.github/actions/setup-monorepo/action.yml', 'utf8');
 const setupDesktopE2ESource = await readFile('.github/actions/setup-desktop-e2e/action.yml', 'utf8');
 const turboConfigSource = await readFile('turbo.jsonc', 'utf8');
@@ -45,6 +50,42 @@ test('extractJob stops before dotted job names', () => {
 
 test('current workflow satisfies CI cost and E2E routing contracts', () => {
   assert.deepEqual(validateWorkflowContracts(workflowSource), []);
+});
+
+test('Claude auto-review workflow keeps large PR review budget fail-closed', () => {
+  assert.deepEqual(validateClaudeReviewWorkflowContracts(claudeReviewWorkflowSource), []);
+});
+
+test('Claude auto-review workflow contract fails when large PR budget regresses', () => {
+  const source = claudeReviewWorkflowSource
+    .replace('    timeout-minutes: 60', '    timeout-minutes: 30')
+    .replace('--max-turns 80', '--max-turns 30');
+
+  const failures = validateClaudeReviewWorkflowContracts(source).join('\n');
+  assert.match(failures, /timeout must allow large PR reviews/);
+  assert.match(failures, /max-turns must allow large PR reviews/);
+});
+
+test('Claude auto-review workflow contract fails when review errors are hidden', () => {
+  const source = claudeReviewWorkflowSource.replace(
+    '- uses: anthropics/claude-code-action@v1',
+    '- uses: anthropics/claude-code-action@v1\n        continue-on-error: true'
+  );
+
+  assert.match(
+    validateClaudeReviewWorkflowContracts(source).join('\n'),
+    /must not continue-on-error/
+  );
+});
+
+test('Claude auto-review workflow contract fails when self-change guard is removed', () => {
+  const source = claudeReviewWorkflowSource
+    .replace(/      - name: Detect Claude workflow self-change[\s\S]*?\n\n      - uses:/, '      - uses:')
+    .replace(/\n        if: \${{ steps\.claude-workflow-change\.outputs\.changed != 'true' }}/, '');
+
+  const failures = validateClaudeReviewWorkflowContracts(source).join('\n');
+  assert.match(failures, /must detect self-edits before invoking Claude/);
+  assert.match(failures, /must skip Claude when this workflow changes/);
 });
 
 test('workflow contract fails when unit coverage phases are collapsed', () => {
