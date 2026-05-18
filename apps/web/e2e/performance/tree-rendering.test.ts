@@ -5,6 +5,9 @@ import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
 import { PERFORMANCE_THRESHOLDS } from '../utils/performance-config';
 
 test.describe('Performance: Tree Rendering', () => {
+  const restoredResizeObserverTestTitle =
+    'restored fixed-height tree rows do not register row resize observers';
+
   // Create a large file tree for stress testing
   const createLargeFileTree = (depth: number, breadth: number): FileTree => {
     const tree: FileTree = {};
@@ -35,6 +38,58 @@ test.describe('Performance: Tree Rendering', () => {
 
     return tree;
   };
+
+  const installResizeObserverTracker = async (page: Page) => {
+    await page.addInitScript(() => {
+      interface ObservedResizeTarget {
+        nodeId: string | null;
+        testId: string | null;
+        virtualIndex: string | null;
+      }
+
+      const NativeResizeObserver = window.ResizeObserver;
+      const observedTargets: ObservedResizeTarget[] = [];
+
+      class TrackingResizeObserver extends NativeResizeObserver {
+        override observe(target: Element, options?: ResizeObserverOptions): void {
+          const element = target as HTMLElement;
+          observedTargets.push({
+            nodeId: element.getAttribute('data-node-id'),
+            testId: element.getAttribute('data-testid'),
+            virtualIndex: element.getAttribute('data-index'),
+          });
+          super.observe(target, options);
+        }
+      }
+
+      Object.defineProperty(window, 'ResizeObserver', {
+        configurable: true,
+        writable: true,
+        value: TrackingResizeObserver,
+      });
+
+      Object.defineProperty(window, '__brainstrikeResizeObserverTargets__', {
+        configurable: true,
+        value: observedTargets,
+      });
+    });
+  };
+
+  const getObservedVirtualRowCount = async (page: Page) =>
+    page.evaluate(() => {
+      const targetWindow = window as Window & {
+        __brainstrikeResizeObserverTargets__?: Array<{
+          nodeId: string | null;
+          testId: string | null;
+          virtualIndex: string | null;
+        }>;
+      };
+      return (
+        targetWindow.__brainstrikeResizeObserverTargets__?.filter(
+          (target) => target.virtualIndex !== null && target.nodeId !== null
+        ).length ?? 0
+      );
+    });
 
   const getExpandedDirectoryCount = async (page: Page) =>
     page.evaluate(() => {
@@ -113,7 +168,17 @@ test.describe('Performance: Tree Rendering', () => {
       return targetWindow.__brainstrikeSawExpandAllSpinner__ ?? false;
     });
 
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page }, testInfo) => {
+    if (testInfo.title === restoredResizeObserverTestTitle) {
+      const tree = createExpandAllPerfTree(24, 10);
+      await installResizeObserverTracker(page);
+      await mockBrowserApis(page, 'restored-resize-observer-test', tree);
+
+      const home = new HomePage(page);
+      await home.goto({ waitForDatabase: false });
+      return;
+    }
+
     // Create a moderately large tree (3 levels, ~100 total files)
     const tree = createLargeFileTree(3, 10);
 
@@ -387,6 +452,27 @@ test.describe('Performance: Tree Rendering', () => {
 
     expect(await stopObservingExpandAllSpinner(page)).toBe(false);
     await expect(expandAllButton).toBeEnabled();
+  });
+
+  test(restoredResizeObserverTestTitle, async ({ page }) => {
+    const explorer = new FileExplorerPage(page);
+    await explorer.selectRoot();
+
+    await page.getByTestId('expand-all-button-small').click();
+    await expect(page.getByTestId('expand-all-button-small')).toBeEnabled({ timeout: 30_000 });
+
+    const treeContainer = explorer.fileTreeScrollContainer;
+    await expect(treeContainer).toBeVisible();
+    await treeContainer.evaluate((element) => {
+      element.style.width = '280px';
+    });
+    await page.waitForTimeout(100);
+    await treeContainer.evaluate((element) => {
+      element.style.width = '420px';
+    });
+    await page.waitForTimeout(100);
+
+    expect(await getObservedVirtualRowCount(page)).toBe(0);
   });
 
   test('cancel during expand-all leaves a valid partially expanded tree', async ({ page }) => {

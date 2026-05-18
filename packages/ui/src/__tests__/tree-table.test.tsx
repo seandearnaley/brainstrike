@@ -9,6 +9,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TreeTable } from '../tree-table/tree-table';
 import type { TreeNode, TreeTableColumn } from '../tree-table/types';
 
+const virtualizerMocks = vi.hoisted(() => ({
+  measureElement: vi.fn(),
+}));
+
 let virtualizerMode: 'full' | 'empty' = 'full';
 
 // Mock @tanstack/react-virtual to avoid JSDOM dimension issues
@@ -28,7 +32,7 @@ vi.mock('@tanstack/react-virtual', () => ({
     },
     getTotalSize: () => count * 40,
     scrollToIndex: vi.fn(),
-    measureElement: vi.fn(),
+    measureElement: virtualizerMocks.measureElement,
   })),
 }));
 
@@ -374,6 +378,48 @@ describe('TreeTable', () => {
       expect(screen.getByText('File 1')).toBeInTheDocument();
       expect(screen.getByText('File 2')).toBeInTheDocument();
       expect(screen.getByText('File 3')).toBeInTheDocument();
+    });
+
+    it('does not measure virtual rows when row height is fixed', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          rowHeight={32}
+          windowingStrategy="virtual"
+        />
+      );
+
+      expect(virtualizerMocks.measureElement).not.toHaveBeenCalled();
+    });
+
+    it('keeps measuring virtual rows when row height is dynamic', async () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          rowHeight={() => 32}
+          windowingStrategy="virtual"
+        />
+      );
+
+      await waitFor(() => {
+        expect(virtualizerMocks.measureElement).toHaveBeenCalled();
+      });
     });
 
     it('keeps focused rows visible after crossing a page boundary', async () => {
