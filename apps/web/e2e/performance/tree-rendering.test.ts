@@ -1,14 +1,17 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 import { FileExplorerPage } from '../page-objects/file-explorer-page';
 import { HomePage } from '../page-objects/home-page';
+import {
+  getExpandedDirectoryCount,
+  persistCurrentExplorerStoreSnapshot,
+  restoreInlineFixture,
+} from '../utils/file-explorer-restoration';
 import { waitForAppLoad } from '../utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
 import { PERFORMANCE_THRESHOLDS } from '../utils/performance-config';
 
 test.describe('Performance: Tree Rendering', () => {
   const restoredResizeObserverRootName = 'restored-resize-observer-test';
-  const restoredResizeObserverTestTitle =
-    'restored fixed-height tree rows do not register row resize observers';
 
   // Create a large file tree for stress testing
   const createLargeFileTree = (depth: number, breadth: number): FileTree => {
@@ -93,98 +96,55 @@ test.describe('Performance: Tree Rendering', () => {
       );
     });
 
-  const getExpandedDirectoryCount = async (page: Page) =>
-    page.evaluate(() => {
-      const fileExplorerStore = (
-        window as Window & {
-          __brainstrike_file_explorer_provider_store__?: {
-            getState?: () => { expandedDirectoryPaths?: Set<string> };
-          };
-        }
-      ).__brainstrike_file_explorer_provider_store__;
-      return fileExplorerStore?.getState?.().expandedDirectoryPaths?.size ?? 0;
-    });
-
-  const persistCurrentExplorerStoreSnapshot = async (page: Page) =>
-    page.evaluate(() => {
-      const store = (
-        window as Window & {
-          __brainstrike_file_explorer_provider_store__?: {
-            getState?: () => {
-              currentFolderId?: string | null;
-              expandedDirectoryPaths?: Set<string>;
-              folderStates?: Record<string, { expandedDirectoryPaths?: Set<string> }>;
-            };
-            persist?: {
-              getOptions?: () => {
-                name?: string;
-                partialize?: (state: unknown) => unknown;
-                version?: number;
-              };
-            };
-          };
-        }
-      ).__brainstrike_file_explorer_provider_store__;
-      const state = store?.getState?.();
-      const options = store?.persist?.getOptions?.();
-      if (!(state && options?.name && options.partialize)) {
-        throw new Error('File explorer persistence API is unavailable');
-      }
-
-      const snapshot = {
-        state: options.partialize(state) as {
-          currentFolderId?: string | null;
-          devInlineFixtureEnabled?: boolean;
-          expandedDirectoryPaths?: string[];
-          folderStates?: Record<string, { expandedDirectoryPaths?: string[] }>;
-        },
-        version: options.version ?? 0,
-      };
-      snapshot.state.devInlineFixtureEnabled = false;
-      localStorage.setItem(options.name, JSON.stringify(snapshot));
-
-      const currentFolderId = snapshot.state.currentFolderId ?? null;
-      const folderExpandedCount = currentFolderId
-        ? (snapshot.state.folderStates?.[currentFolderId]?.expandedDirectoryPaths?.length ?? 0)
-        : 0;
-      return {
-        currentFolderId,
-        folderExpandedCount,
-        topLevelExpandedCount: snapshot.state.expandedDirectoryPaths?.length ?? 0,
-      };
-    });
-
-  const restoreInlineFixture = async (
-    page: Page,
-    rootName: string,
-    tree: FileTree
-  ): Promise<void> => {
+  const waitForAnimationFrames = async (page: Page, frameCount = 2): Promise<void> => {
     await page.evaluate(
-      async ({ root, contents }) => {
-        const loadFixture = (
-          window as Window & {
-            __BRAINSTRIKE_LOAD_FIXTURE__?: (fixture: {
-              name: string;
-              tree: FileTree;
-            }) => Promise<unknown> | unknown;
-          }
-        ).__BRAINSTRIKE_LOAD_FIXTURE__;
-        if (typeof loadFixture !== 'function') {
-          throw new Error('Fixture testing API was not exposed in time');
-        }
-        const handle = await loadFixture({
-          name: root,
-          tree: contents,
-        });
-        if (!handle) {
-          throw new Error('Fixture testing API did not return a directory handle');
-        }
-      },
-      {
-        root: rootName,
-        contents: tree,
-      }
+      (frames) =>
+        new Promise<void>((resolve) => {
+          let remainingFrames = frames;
+          const tick = (): void => {
+            remainingFrames -= 1;
+            if (remainingFrames <= 0) {
+              resolve();
+              return;
+            }
+            requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }),
+      frameCount
     );
+  };
+
+  const setupDefaultPerformanceTree = async (page: Page): Promise<void> => {
+    const tree = createLargeFileTree(3, 10);
+    await mockBrowserApis(page, 'performance-test', tree);
+
+    const home = new HomePage(page);
+    await home.goto();
+  };
+
+  const setupRestoredResizeObserverTree = async (page: Page): Promise<void> => {
+    const tree = createExpandAllPerfTree(24, 10);
+    await installResizeObserverTracker(page);
+    await mockBrowserApis(page, restoredResizeObserverRootName, tree);
+
+    const home = new HomePage(page);
+    await home.goto({ waitForDatabase: false });
+  };
+
+  const waitForContainerWidth = async (
+    page: Page,
+    treeContainer: Locator,
+    expectedWidth: number
+  ): Promise<void> => {
+    await expect
+      .poll(
+        async () =>
+          treeContainer.evaluate((element) => Math.round(element.getBoundingClientRect().width)),
+        { timeout: 5000 }
+      )
+      .toBe(expectedWidth);
+    await waitForAnimationFrames(page);
   };
 
   const removeOneExpandedDirectoryPath = async (page: Page) =>
@@ -252,27 +212,8 @@ test.describe('Performance: Tree Rendering', () => {
       return targetWindow.__brainstrikeSawExpandAllSpinner__ ?? false;
     });
 
-  test.beforeEach(async ({ page }, testInfo) => {
-    if (testInfo.title === restoredResizeObserverTestTitle) {
-      const tree = createExpandAllPerfTree(24, 10);
-      await installResizeObserverTracker(page);
-      await mockBrowserApis(page, restoredResizeObserverRootName, tree);
-
-      const home = new HomePage(page);
-      await home.goto({ waitForDatabase: false });
-      return;
-    }
-
-    // Create a moderately large tree (3 levels, ~100 total files)
-    const tree = createLargeFileTree(3, 10);
-
-    await mockBrowserApis(page, 'performance-test', tree);
-
-    const home = new HomePage(page);
-    await home.goto();
-  });
-
   test('initial tree load performance', async ({ page }) => {
+    await setupDefaultPerformanceTree(page);
     const explorer = new FileExplorerPage(page);
 
     // Start performance monitoring
@@ -302,6 +243,7 @@ test.describe('Performance: Tree Rendering', () => {
   });
 
   test('tree expansion performance', async ({ page }) => {
+    await setupDefaultPerformanceTree(page);
     const explorer = new FileExplorerPage(page);
 
     await explorer.selectRoot();
@@ -336,6 +278,7 @@ test.describe('Performance: Tree Rendering', () => {
   });
 
   test('tree scrolling performance with virtualization', async ({ page }) => {
+    await setupDefaultPerformanceTree(page);
     const explorer = new FileExplorerPage(page);
 
     await explorer.selectRoot();
@@ -532,13 +475,14 @@ test.describe('Performance: Tree Rendering', () => {
       },
       { path: removedPath }
     );
-    await page.waitForTimeout(100);
+    await expect(expandAllButton).toBeEnabled();
+    await waitForAnimationFrames(page);
 
     expect(await stopObservingExpandAllSpinner(page)).toBe(false);
-    await expect(expandAllButton).toBeEnabled();
   });
 
-  test(restoredResizeObserverTestTitle, async ({ page }) => {
+  test('restored fixed-height tree rows do not register row resize observers', async ({ page }) => {
+    await setupRestoredResizeObserverTree(page);
     const tree = createExpandAllPerfTree(24, 10);
     const explorer = new FileExplorerPage(page);
     await explorer.selectRoot();
@@ -563,11 +507,11 @@ test.describe('Performance: Tree Rendering', () => {
     await treeContainer.evaluate((element) => {
       element.style.width = '280px';
     });
-    await page.waitForTimeout(100);
+    await waitForContainerWidth(page, treeContainer, 280);
     await treeContainer.evaluate((element) => {
       element.style.width = '420px';
     });
-    await page.waitForTimeout(100);
+    await waitForContainerWidth(page, treeContainer, 420);
 
     expect(await getObservedVirtualRowCount(page)).toBe(0);
   });

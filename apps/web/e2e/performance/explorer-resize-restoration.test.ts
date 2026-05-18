@@ -1,6 +1,11 @@
 import { expect, type Page, test } from '@playwright/test';
 import { FileExplorerPage } from '../page-objects/file-explorer-page';
 import { HomePage } from '../page-objects/home-page';
+import {
+  getExpandedDirectoryCount,
+  persistCurrentExplorerStoreSnapshot,
+  restoreInlineFixture,
+} from '../utils/file-explorer-restoration';
 import { waitForAppLoad } from '../utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
 
@@ -49,75 +54,12 @@ function createExpandedTree(rootDirectoryCount: number, childDirectoryCount: num
   return tree;
 }
 
-async function persistCurrentExplorerStoreSnapshot(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const store = (
-      window as Window & {
-        __brainstrike_file_explorer_provider_store__?: {
-          getState?: () => unknown;
-          persist?: {
-            getOptions?: () => {
-              name?: string;
-              partialize?: (state: unknown) => unknown;
-              version?: number;
-            };
-          };
-        };
-      }
-    ).__brainstrike_file_explorer_provider_store__;
-    const state = store?.getState?.();
-    const options = store?.persist?.getOptions?.();
-    if (!(state && options?.name && options.partialize)) {
-      throw new Error('File explorer persistence API is unavailable');
-    }
-
-    const snapshot = {
-      state: options.partialize(state) as { devInlineFixtureEnabled?: boolean },
-      version: options.version ?? 0,
-    };
-    snapshot.state.devInlineFixtureEnabled = false;
-    localStorage.setItem(options.name, JSON.stringify(snapshot));
-  });
-}
-
-async function restoreInlineFixture(page: Page, rootName: string, tree: FileTree): Promise<void> {
-  await page.evaluate(
-    async ({ contents, root }) => {
-      const loadFixture = (
-        window as Window & {
-          __BRAINSTRIKE_LOAD_FIXTURE__?: (fixture: {
-            name: string;
-            tree: FileTree;
-          }) => Promise<unknown> | unknown;
-        }
-      ).__BRAINSTRIKE_LOAD_FIXTURE__;
-      if (typeof loadFixture !== 'function') {
-        throw new Error('Fixture testing API was not exposed');
-      }
-      await loadFixture({ name: root, tree: contents });
-    },
-    { contents: tree, root: rootName }
-  );
-}
-
-async function getExpandedDirectoryCount(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    const store = (
-      window as Window & {
-        __brainstrike_file_explorer_provider_store__?: {
-          getState?: () => { expandedDirectoryPaths?: Set<string> };
-        };
-      }
-    ).__brainstrike_file_explorer_provider_store__;
-    return store?.getState?.().expandedDirectoryPaths?.size ?? 0;
-  });
-}
-
 async function installFrameProbe(page: Page): Promise<void> {
   await page.evaluate(() => {
     const targetWindow = window as Window & {
       __brainstrikeResizeProbe__?: {
         finish: () => DragMetrics;
+        frameCount: () => number;
       };
     };
 
@@ -162,6 +104,7 @@ async function installFrameProbe(page: Page): Promise<void> {
     requestAnimationFrame(tick);
 
     targetWindow.__brainstrikeResizeProbe__ = {
+      frameCount: () => frameGaps.length,
       finish: () => {
         isRunning = false;
         observer?.disconnect();
@@ -218,6 +161,29 @@ async function installFrameProbe(page: Page): Promise<void> {
   });
 }
 
+async function getFrameProbeFrameCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const probe = (
+      window as Window & {
+        __brainstrikeResizeProbe__?: {
+          frameCount: () => number;
+        };
+      }
+    ).__brainstrikeResizeProbe__;
+    if (!probe) {
+      throw new Error('Resize probe was not installed');
+    }
+    return probe.frameCount();
+  });
+}
+
+async function waitForFrameProbeFrames(page: Page, additionalFrameCount: number): Promise<void> {
+  const initialFrameCount = await getFrameProbeFrameCount(page);
+  await expect
+    .poll(() => getFrameProbeFrameCount(page), { timeout: 5000 })
+    .toBeGreaterThanOrEqual(initialFrameCount + additionalFrameCount);
+}
+
 async function finishFrameProbe(page: Page): Promise<DragMetrics> {
   return page.evaluate(() => {
     const probe = (
@@ -270,7 +236,7 @@ test('keeps restored expanded explorer windowed during panel resize drag', async
     await page.mouse.move(x + delta, y, { steps: 2 });
   }
   await page.mouse.up();
-  await page.waitForTimeout(500);
+  await waitForFrameProbeFrames(page, 5);
 
   const metrics = await finishFrameProbe(page);
   console.log(`RESTORED_EXPLORER_RESIZE_METRICS ${JSON.stringify(metrics)}`);

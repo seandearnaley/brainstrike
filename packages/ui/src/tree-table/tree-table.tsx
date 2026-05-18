@@ -53,7 +53,13 @@ const MIN_FALLBACK_VIRTUAL_ROWS = 1;
 // and invalidated on displayed-row updates to bound stale detached row refs.
 const rowFallbackLookupCache = new WeakMap<HTMLElement, Map<string, HTMLTableRowElement>>();
 
-type VirtualRowMeasureProps<T> = Pick<TreeTableRowProps<T>, 'measureRef'> | Record<string, never>;
+interface EmptyVirtualRowMeasureProps {
+  measureRef?: never;
+}
+
+type VirtualRowMeasureProps<T> =
+  | Pick<TreeTableRowProps<T>, 'measureRef'>
+  | EmptyVirtualRowMeasureProps;
 
 function resolveVirtualRowMeasureProps<T>(
   hasFixedRowHeight: boolean,
