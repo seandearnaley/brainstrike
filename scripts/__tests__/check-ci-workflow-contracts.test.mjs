@@ -525,6 +525,42 @@ test('workflow contract fails when the PR gate accepts skipped selected lanes', 
   );
 });
 
+test('workflow contract fails when the PR gate rejects unselected skipped lanes', () => {
+  const prGate = extractJob(workflowSource, 'required-pr-gate');
+  assert.ok(prGate);
+
+  const source = workflowSource.replace(
+    prGate,
+    prGate.replace(
+      "job.result === 'failure' || job.result === 'cancelled' || job.result === 'timed_out'",
+      "job.result !== 'success'"
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Required PR Gate must not require unselected skipped jobs to succeed/
+  );
+});
+
+test('workflow contract fails when the PR gate label job map drifts', () => {
+  const prGate = extractJob(workflowSource, 'required-pr-gate');
+  assert.ok(prGate);
+
+  const source = workflowSource.replace(
+    prGate,
+    prGate.replace(
+      "['ci:web-e2e', ['prepare-web', 'e2e', 'e2e-stateful', 'e2e-destructive']]",
+      "['ci:web-e2e', ['prepare-web', 'e2e']]"
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Required PR Gate must map ci:web-e2e to prepare-web, e2e, e2e-stateful, e2e-destructive/
+  );
+});
+
 test('workflow contract fails when PR desktop E2E is smoke-only', () => {
   const desktopPr = extractJob(workflowSource, 'desktop-e2e-pr');
   assert.ok(desktopPr);

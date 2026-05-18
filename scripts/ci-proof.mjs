@@ -18,6 +18,10 @@ const DEFAULT_OPTIONS = {
 
 const PROOF_PATH = '.ci/proof/latest.json';
 
+function isGitSha(value) {
+  return typeof value === 'string' && /^[0-9a-f]{40}$/i.test(value);
+}
+
 function readExpectedPackageManager() {
   const packageJson = JSON.parse(
     readFileSync(new URL('../package.json', import.meta.url), 'utf8')
@@ -162,8 +166,8 @@ export function validateProofManifest(manifest) {
   if (manifest.pnpmVersion !== expectedPnpmVersion) {
     failures.push(`pnpmVersion must be ${expectedPnpmVersion}`);
   }
-  if (typeof manifest.testedHeadSha !== 'string') {
-    failures.push('testedHeadSha must be a string');
+  if (!isGitSha(manifest.testedHeadSha)) {
+    failures.push('testedHeadSha must be a 40-character hex SHA');
   }
   if (!isObject(manifest.selection)) {
     failures.push('selection must be an object');
@@ -275,6 +279,7 @@ async function readRepositoryIdentifier(runner) {
 async function runProofCommand(command, runner) {
   const startedAt = Date.now();
   try {
+    // Shell commands must come from the repo-owned command registry in ci-select.
     await runner(command.command, [], { shell: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -380,6 +385,9 @@ function compareSelections(actual, expected) {
 }
 
 function appendGithubOutput(path, manifest) {
+  if (!isGitSha(manifest.testedHeadSha)) {
+    throw new Error('testedHeadSha must be a 40-character hex SHA');
+  }
   const lines = [
     `required-labels=${manifest.selection.labels.join(',')}`,
     `expanded-lanes=${manifest.selection.expandedLanes.join(',')}`,

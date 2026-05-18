@@ -1144,6 +1144,20 @@ export function validateWorkflowContracts(source) {
       'Required PR Gate must map selected risk labels to matching cloud jobs.',
       failures
     );
+    for (const [label, jobs] of [
+      ['ci:coverage', ['unit_coverage']],
+      ['ci:browser', ['browser-tests']],
+      ['ci:web-e2e', ['prepare-web', 'e2e', 'e2e-stateful', 'e2e-destructive']],
+      ['ci:desktop', ['prepare-desktop', 'desktop-e2e-pr']],
+      ['ci:embedding', ['prepare-desktop', 'desktop-e2e-embedding-pr']],
+    ]) {
+      requireIncludes(
+        requiredPrGate,
+        `['${label}', [${jobs.map((job) => `'${job}'`).join(', ')}]]`,
+        `Required PR Gate must map ${label} to ${jobs.join(', ')}.`,
+        failures
+      );
+    }
     requireIncludes(
       requiredPrGate,
       "needs[jobName]?.result !== 'success'",

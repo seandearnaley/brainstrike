@@ -97,6 +97,24 @@ test('validateProofManifest rejects failed command results', () => {
   assert.match(failures.join('\n'), /command build failed/);
 });
 
+test('validateProofManifest rejects invalid tested head SHAs', () => {
+  const failures = validateProofManifest({
+    schemaVersion: 1,
+    commandResults: [],
+    generatedAt: '2026-05-18T12:00:00.000Z',
+    packageManager: 'pnpm@10.33.0',
+    pnpmVersion: '10.33.0',
+    repository: 'seandearnaley/brainstrike',
+    selection: { labels: [], commands: [] },
+    testedHeadSha: 'abc\nextra-output=injected',
+  });
+
+  assert.match(
+    failures.join('\n'),
+    /testedHeadSha must be a 40-character hex SHA/
+  );
+});
+
 test('verifyLabels requires every selected risk label', () => {
   assert.deepEqual(verifyLabels(['ci:browser', 'ci:coverage'], ['ci:browser']), [
     'missing required PR label ci:coverage',
