@@ -1095,7 +1095,7 @@ describe('TreeTable', () => {
   });
 
   describe('styling', () => {
-    it('keeps root and viewport wrappers shrinkable for narrow side panels', () => {
+    it('keeps root and viewport wrappers constrained for resizable side panels', () => {
       const { container } = render(
         <TreeTable
           columns={testColumns}
@@ -1107,9 +1107,11 @@ describe('TreeTable', () => {
 
       const root = container.firstElementChild;
       expect(root).toHaveClass('min-w-0');
+      expect(root).toHaveClass('h-full');
 
       const viewport = root?.firstElementChild;
       expect(viewport).toHaveClass('min-w-0');
+      expect(viewport).toHaveStyle({ height: '100%' });
     });
 
     it('applies className to container', () => {
