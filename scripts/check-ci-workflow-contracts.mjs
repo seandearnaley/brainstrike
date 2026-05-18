@@ -236,6 +236,23 @@ function requireRiskLabelGate(job, jobName, labels, failures) {
   }
 }
 
+function requirePrRiskLabelGate(job, jobName, labels, failures) {
+  requireIncludes(
+    job,
+    "contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full')",
+    `${jobName} must run on PRs labeled ci:full.`,
+    failures
+  );
+  for (const label of labels) {
+    requireIncludes(
+      job,
+      `contains(join(github.event.pull_request.labels.*.name, ','), '${label}')`,
+      `${jobName} must run on PRs labeled ${label}.`,
+      failures
+    );
+  }
+}
+
 function extractTurboRunCommandLines(source) {
   return source.split('\n').filter((line) => /\bturbo\s+run\b/.test(line));
 }
@@ -681,7 +698,7 @@ export function validateWorkflowContracts(source) {
   if (!desktopPr) {
     failures.push('Missing desktop-e2e-pr job.');
   } else {
-    requireRiskLabelGate(desktopPr, 'PR desktop regression', ['ci:desktop'], failures);
+    requirePrRiskLabelGate(desktopPr, 'PR desktop regression', ['ci:desktop'], failures);
     requireIncludes(
       desktopPr,
       'name: Desktop E2E Regression',
@@ -716,7 +733,7 @@ export function validateWorkflowContracts(source) {
   if (!desktopEmbeddingPr) {
     failures.push('Missing desktop-e2e-embedding-pr job.');
   } else {
-    requireRiskLabelGate(
+    requirePrRiskLabelGate(
       desktopEmbeddingPr,
       'PR desktop embedding regression',
       ['ci:embedding'],
@@ -1116,6 +1133,12 @@ export function validateWorkflowContracts(source) {
       requiredPrGate,
       "jobByLabel.get(label)",
       'Required PR Gate must map selected risk labels to matching cloud jobs.',
+      failures
+    );
+    requireIncludes(
+      requiredPrGate,
+      "needs[jobName]?.result !== 'success'",
+      'Required PR Gate must fail when a selected risk lane is skipped, failed, or cancelled.',
       failures
     );
     requireIncludes(
