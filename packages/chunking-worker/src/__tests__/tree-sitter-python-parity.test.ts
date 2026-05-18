@@ -77,7 +77,12 @@ const PYTHON_CORPUS: { readonly name: string; readonly source: string }[] = [
   },
   {
     name: 'multiple decorators',
-    source: '@staticmethod\n@property\ndef compute():\n    return 42\n',
+    // Valid Python: @classmethod + @functools.lru_cache compose cleanly.
+    // The original fixture used @staticmethod + @property which is invalid
+    // (mutually exclusive decorators; @property needs `self`) — caught
+    // in #1003 review.
+    source:
+      'import functools\n\n@classmethod\n@functools.lru_cache\ndef compute(cls):\n    return 42\n',
   },
   {
     name: 'decorated class',
