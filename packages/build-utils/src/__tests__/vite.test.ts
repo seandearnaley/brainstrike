@@ -12,6 +12,7 @@ const {
   getDatabaseOptimizeDepsInclude,
   getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
+  getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
   resolveAssistantVendorChunk,
 } = await import('../vite');
@@ -202,5 +203,40 @@ describe('getWorkerpoolBrowserStubAliases', () => {
     expect(aliases['worker_threads']).toBe(
       '/packages/build-utils/src/browser-node-stubs/worker-threads.ts'
     );
+  });
+});
+
+describe('getTreeSitterGrammarCopyTargets', () => {
+  // The helper centralizes the static-copy target list so apps/web and
+  // apps/desktop don't drift. When tree-sitter Phase 1 ships only Python,
+  // there's exactly one target; future phases add Rust/Go/Markdown by
+  // editing this helper, not every vite config.
+
+  it('returns one target per shipped grammar with dest under assets/grammars', () => {
+    const targets = getTreeSitterGrammarCopyTargets('/tmp/brainstrike-app');
+
+    // Phase 1 ships Python only.
+    expect(targets).toHaveLength(1);
+    expect(targets[0]?.dest).toBe('assets/grammars');
+  });
+
+  it('resolves the Python grammar src to the chunking-worker vendored copy', () => {
+    const targets = getTreeSitterGrammarCopyTargets('/tmp/brainstrike-app');
+
+    const pythonTarget = targets.find((t) => t.src.endsWith('python.wasm'));
+    expect(pythonTarget).toBeDefined();
+    // Expected resolution: <baseDir>/../../packages/chunking-worker/grammars/python.wasm
+    // (mirrors the findPGliteWasm baseDir convention)
+    expect(pythonTarget?.src).toBe('/packages/chunking-worker/grammars/python.wasm');
+  });
+
+  it('sets rename.stripBase so the wasm lands flat at dest/<lang>.wasm', () => {
+    // Without rename.stripBase=true, vite-plugin-static-copy preserves
+    // the absolute source path beyond the workspace root, producing
+    // `dist/assets/grammars/packages/chunking-worker/grammars/python.wasm`
+    // instead of `dist/assets/grammars/python.wasm`. Confirmed via a real
+    // `pnpm -F @brainstrike/web build` run before this assertion landed.
+    const targets = getTreeSitterGrammarCopyTargets('/tmp/brainstrike-app');
+    expect(targets[0]?.rename).toEqual({ stripBase: true });
   });
 });

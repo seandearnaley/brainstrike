@@ -4,6 +4,7 @@
   "dependencies": {
     "@brainstrike/agent": "workspace:*",
     "@brainstrike/app-shell": "workspace:*",
+    "@brainstrike/chunking-worker": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",

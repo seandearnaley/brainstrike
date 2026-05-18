@@ -1,3 +1,4 @@
+import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
@@ -40,6 +41,8 @@ declare global {
   var __BRAINSTRIKE_PARSER_ENV__: 'browser' | 'electron-chunking-host' | undefined;
   // biome-ignore lint: global declarations require var
   var __BRAINSTRIKE_PARSER_FLAG__: 'auto' | 'babel' | 'oxc' | undefined;
+  // biome-ignore lint: global declarations require var
+  var __BRAINSTRIKE_TREE_SITTER_LANGUAGES__: readonly string[] | undefined;
 }
 
 // Import layout component
@@ -105,6 +108,19 @@ if (desktopRendererRole === 'chunking-host') {
   if (flagParam === 'babel' || flagParam === 'oxc' || flagParam === 'auto') {
     globalThis.__BRAINSTRIKE_PARSER_FLAG__ = flagParam;
   }
+
+  // Tree-sitter rollout (Phase 8 of #998): enable Python by default in the
+  // chunking-host. Operator kill switch: append `?treeSitterLanguages=`
+  // (empty) to disable, or `?treeSitterLanguages=python,rust` to specify
+  // a custom list. The renderer's URL is built in chunking-host-manager.ts
+  // so this is a one-line change there if the rollout needs to be reverted
+  // in the field. The helper centralizes the parse + default logic and is
+  // unit-tested in chunking-worker/src/__tests__/tree-sitter-rollout.test.ts.
+  // The chunking-worker-port's buildInitMessage forwards this to the worker
+  // realm via the existing init message, same pattern as parserEnv/parserFlag.
+  globalThis.__BRAINSTRIKE_TREE_SITTER_LANGUAGES__ = resolveBootstrapTreeSitterLanguages(
+    window.location.search
+  );
 }
 
 if (typeof window !== 'undefined') {

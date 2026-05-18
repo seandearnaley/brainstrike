@@ -573,6 +573,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         type: 'init';
         parserEnv?: 'browser' | 'electron-chunking-host';
         parserFlag?: 'auto' | 'babel' | 'oxc';
+        treeSitterLanguages?: readonly string[];
       };
       if (initPayload.parserEnv === 'electron-chunking-host') {
         // biome-ignore-start lint/style/useNamingConvention: shared global key, intentional UPPER_SNAKE_CASE
@@ -593,6 +594,26 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         }
         // biome-ignore-end lint/style/useNamingConvention: shared global key, intentional UPPER_SNAKE_CASE
         (globalThis as ParserFlagGlobal).__BRAINSTRIKE_PARSER_FLAG__ = initPayload.parserFlag;
+      }
+      // Tree-sitter languages (Phase 8 of #998). The renderer's bootstrap
+      // resolved this from `?treeSitterLanguages=` URL param + default-on
+      // policy and validated it strictly (Phase 9 hardening) before
+      // assigning to its globalThis. Here we forward it to the worker's
+      // separate globalThis realm. The reader
+      // (getEnabledTreeSitterLanguages) re-validates strictly on first
+      // access — defense in depth in case the worker is initialized from
+      // a different code path than the standard renderer bootstrap.
+      // Undefined and empty array are meaningfully different:
+      // undefined → "renderer didn't say" (rare; reader defaults to []),
+      // [] → "renderer explicitly disabled all tree-sitter".
+      if (Array.isArray(initPayload.treeSitterLanguages)) {
+        // biome-ignore-start lint/style/useNamingConvention: shared global key, intentional UPPER_SNAKE_CASE
+        interface TreeSitterLanguagesGlobal {
+          __BRAINSTRIKE_TREE_SITTER_LANGUAGES__?: readonly string[];
+        }
+        // biome-ignore-end lint/style/useNamingConvention: shared global key, intentional UPPER_SNAKE_CASE
+        (globalThis as TreeSitterLanguagesGlobal).__BRAINSTRIKE_TREE_SITTER_LANGUAGES__ =
+          initPayload.treeSitterLanguages;
       }
       self.postMessage({ type: 'ready' });
       return;

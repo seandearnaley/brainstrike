@@ -1,3 +1,4 @@
+import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter, createWebFileSystemAdapter } from '@brainstrike/file-system';
@@ -35,7 +36,23 @@ declare global {
     // biome-ignore lint/style/useNamingConvention: Shared global sentinel uses double underscores for clarity
     __BRAINSTRIKE_WEB_REACT_ROOT__?: ReactRoot;
   }
+  // biome-ignore lint: global declarations require var
+  var __BRAINSTRIKE_TREE_SITTER_LANGUAGES__: readonly string[] | undefined;
 }
+
+// Tree-sitter rollout (Phase 8 of #998): default-enable Python on web too.
+// apps/web bundles the python.wasm grammar via Phase 4's vite static-copy;
+// chunking happens in the web worker. The helper centralizes default-vs-
+// kill-switch logic (tested in tree-sitter-rollout.test.ts). Operator
+// override: append `?treeSitterLanguages=` (empty) to disable or
+// `?treeSitterLanguages=python,rust` for a custom list.
+//
+// Set BEFORE any code that might import the chunking-worker — the worker
+// itself runs in a separate realm but the chunking-worker-port forwards
+// this global through its init message.
+globalThis.__BRAINSTRIKE_TREE_SITTER_LANGUAGES__ = resolveBootstrapTreeSitterLanguages(
+  window.location.search
+);
 
 const DEFAULT_WEB_DB_PATH = 'idb://web';
 const E2E_DB_PATH_SESSION_KEY = 'brainstrike.e2e.dbPath.v1';

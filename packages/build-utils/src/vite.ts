@@ -149,6 +149,60 @@ export function getWorkerpoolBrowserStubAliases(baseDir: string): Readonly<Recor
   ]);
 }
 
+/**
+ * Static-copy target for a vendored tree-sitter grammar `.wasm` file.
+ * Shape matches `vite-plugin-static-copy`'s Target interface so the helper's
+ * return value plugs straight into the `targets` array.
+ *
+ * The `rename: { stripBase: true }` field forces flat output: without it,
+ * vite-plugin-static-copy preserves the source path beyond the workspace
+ * root and the file ends up at `dist/assets/grammars/packages/
+ * chunking-worker/grammars/python.wasm` instead of the expected
+ * `dist/assets/grammars/python.wasm`. `stripBase: true` removes the entire
+ * directory prefix, keeping just the basename.
+ */
+export interface TreeSitterGrammarCopyTarget {
+  /** Output directory under the app's build `dist/` (the plugin handles the prefix). */
+  readonly dest: string;
+  /** Strip the source-path prefix so the file lands flat at `dest/<basename>`. */
+  readonly rename: { readonly stripBase: true };
+  /** Absolute path to the vendored grammar file in the monorepo. */
+  readonly src: string;
+}
+
+/**
+ * Tree-sitter languages whose grammars are vendored under
+ * `packages/chunking-worker/grammars/`. Adding a language to the rollout
+ * means adding it here + landing the matching `<lang>.wasm` file +
+ * extending the chunking-worker's adapter.
+ *
+ * Phase 1 (#998) ships Python only. Follow-on PRDs add Rust, Go,
+ * Markdown, etc. by extending this list.
+ */
+const VENDORED_TREE_SITTER_GRAMMARS = ['python'] as const;
+
+/**
+ * Build the static-copy target list for tree-sitter grammars.
+ *
+ * Both apps/web and apps/desktop call this from their vite configs so the
+ * same grammar `.wasm` files ship to `dist/assets/grammars/<lang>.wasm`.
+ * Centralizing here means future grammar additions don't require touching
+ * each app's vite config — just extend `VENDORED_TREE_SITTER_GRAMMARS`.
+ *
+ * @param baseDir - the calling app's directory (`__dirname` from the
+ *                  vite config). Path resolution mirrors `findPGliteWasm`:
+ *                  `<baseDir>/../../packages/chunking-worker/grammars/<lang>.wasm`.
+ * @returns Array of `{ src, dest, rename }` targets; pass directly into
+ *          `viteStaticCopy({ targets: [...] })`.
+ */
+export function getTreeSitterGrammarCopyTargets(baseDir: string): TreeSitterGrammarCopyTarget[] {
+  return VENDORED_TREE_SITTER_GRAMMARS.map((language) => ({
+    src: path.resolve(baseDir, '../../packages/chunking-worker/grammars', `${language}.wasm`),
+    dest: 'assets/grammars',
+    rename: { stripBase: true },
+  }));
+}
+
 export function findPGliteWasm(baseDir: string): string | null {
   const possiblePaths = [
     path.resolve(baseDir, '../../node_modules/@electric-sql/pglite/dist/pglite.wasm'),

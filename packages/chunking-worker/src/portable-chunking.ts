@@ -16,6 +16,7 @@ import {
   splitMarkdownIntoBlocks,
 } from '@brainstrike/text-splitter/chunking-core';
 import { CHUNKING_CONFIG, type CodeLanguage } from './chunking-config';
+import { getEnabledTreeSitterLanguages } from './parsers/environment';
 import { selectAdapter } from './parsers/select-adapter';
 import type { AstNode } from './parsers/types';
 import type { ChunkingRequestOptions, ChunkType, PortableChunk } from './shared';
@@ -128,7 +129,13 @@ const CODE_LANGUAGE_PATTERNS: Array<{ pattern: RegExp; language: CodeLanguage }>
   { pattern: /\.(js|jsx|mjs|cjs)$/i, language: 'javascript' },
   { pattern: /\.mm$/i, language: 'cpp' },
   { pattern: /\.m$/i, language: 'cpp' },
-  { pattern: /\.py$/i, language: 'python' },
+  // P2 fix from #1002 review: .pyi (Python stub files) also count as
+  // Python source. Without this, the routing test for .pyi passes at the
+  // selectAdapter level but the chunker's supportsAst gate (in chunkCode)
+  // returns false for .pyi files because detectCodeLanguage returns null.
+  // Net effect: .pyi files would silently bypass tree-sitter even when
+  // the operator enables it.
+  { pattern: /\.pyi?$/i, language: 'python' },
   { pattern: /\.rs$/i, language: 'rust' },
   { pattern: /\.go$/i, language: 'go' },
   { pattern: /\.(java|class)$/i, language: 'java' },
@@ -795,7 +802,14 @@ function isFunctionNode(type?: string): boolean {
     type === 'MethodDefinition' ||
     type === 'TSDeclareFunction' ||
     type === 'TSMethodSignature' ||
-    type === 'TSCallSignatureDeclaration'
+    type === 'TSCallSignatureDeclaration' ||
+    // Tree-sitter Python node types (Phase 5 of #998). The Python grammar
+    // emits these for top-level definitions; the chunker treats them as
+    // chunk-worthy units identically to JS/TS functions. class_definition
+    // is included as a single chunk (per-method splitting deferred).
+    type === 'function_definition' ||
+    type === 'class_definition' ||
+    type === 'decorated_definition'
   );
 }
 
@@ -810,7 +824,12 @@ function isTopLevelContainerType(type?: string): boolean {
     type === 'Program' ||
     type === 'ExportNamedDeclaration' ||
     type === 'ExportDefaultDeclaration' ||
-    type === 'ClassBody'
+    type === 'ClassBody' ||
+    // Tree-sitter Python root (Phase 5 of #998). Without 'module' here,
+    // function_definition / class_definition / decorated_definition would
+    // never qualify as top-level chunks because their parent type would
+    // not match any container.
+    type === 'module'
   );
 }
 
@@ -910,10 +929,37 @@ async function splitCodeByFunctions(
     overlapChars,
     language,
     separators,
-  }: { maxChars: number; overlapChars: number; language: CodeLanguage | null; separators: string[] }
+    fileName,
+  }: {
+    maxChars: number;
+    overlapChars: number;
+    language: CodeLanguage | null;
+    separators: string[];
+    /**
+     * Optional file name/path. Plumbed through so selectAdapter (Phase 5
+     * of #998) can route extensions like .py to tree-sitter.
+     */
+    fileName?: string;
+  }
 ): Promise<string[] | null> {
   let ast: AstNode | null = null;
-  const adapter = selectAdapter();
+  const adapter = selectAdapter(fileName);
+  if (adapter === null) {
+    // selectAdapter returned null (Phase 9 strict): the file is not
+    // AST-chunkable in this configuration. Most common case: a .py file
+    // with tree-sitter Python disabled. We log at warn (same level as
+    // parse failures) and return null so the chunker falls back to the
+    // recursive splitter — the loud-degrade pattern from PRD §8.2.
+    // biome-ignore lint/suspicious/noConsole: visible signal that AST chunking is skipped
+    console.warn(
+      '[portable-chunking] No AST adapter for file; falling back to recursive splitting',
+      {
+        fileName,
+        language,
+      }
+    );
+    return null;
+  }
   try {
     ast = await adapter.parse(content, {
       errorRecovery: true,
@@ -1084,7 +1130,17 @@ export async function chunkContent(
   };
 
   const chunkCode = async (): Promise<ChunkGroup[]> => {
-    const supportsAst = codeLanguage === 'typescript' || codeLanguage === 'javascript';
+    // AST chunking is supported for:
+    //  - JS/TS (always — via Babel in browser or oxc in chunking-host)
+    //  - Python (when tree-sitter is opted in via
+    //    __BRAINSTRIKE_TREE_SITTER_LANGUAGES__; Phase 5 of #998)
+    // The flag is read at chunk time (not at module load) so the rollout
+    // flip in Phase 8 doesn't require reloading the worker.
+    const enabledTreeSitterLanguages = getEnabledTreeSitterLanguages();
+    const supportsAst =
+      codeLanguage === 'typescript' ||
+      codeLanguage === 'javascript' ||
+      (codeLanguage === 'python' && enabledTreeSitterLanguages.includes('python'));
 
     const chunkWithCodeSeparators = async (): Promise<ChunkGroup[]> => {
       const codeSeparators = getCodeSeparators(options.separators);
@@ -1097,11 +1153,18 @@ export async function chunkContent(
     };
 
     if (supportsAst) {
+      const resolvedFileName = options.fileName ?? options.filePath;
       const pieces = await splitCodeByFunctions(content, {
         maxChars,
         overlapChars,
         language: codeLanguage,
         separators: getCodeSeparators(options.separators),
+        // Plumb fileName so selectAdapter(fileName) can extension-route
+        // (e.g., .py → tree-sitter). For JS/TS the routing ignores
+        // fileName and uses the env/flag globals, so this is a no-op for
+        // the existing path. Conditional spread keeps the property absent
+        // when no name is available (exactOptionalPropertyTypes).
+        ...(resolvedFileName ? { fileName: resolvedFileName } : {}),
       });
 
       if (pieces && pieces.length > 0) {
