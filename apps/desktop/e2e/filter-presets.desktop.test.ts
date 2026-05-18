@@ -1,5 +1,5 @@
+import { FILE_EXPLORER_STORAGE_KEY } from '@brainstrike/file-explorer';
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
-import { FILE_EXPLORER_STORAGE_KEY } from '../../../packages/file-explorer/src/persistence/persistence-constants.ts';
 import { expect, test } from './fixtures/electron-fixture';
 import { getContextExplorerLeftPanel } from './utils/context-explorer-locators';
 import { loadElectronHelpers } from './utils/load-electron-helpers';

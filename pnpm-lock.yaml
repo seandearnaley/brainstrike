@@ -218,6 +218,9 @@ importers:
       '@brainstrike/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@brainstrike/file-explorer':
+        specifier: workspace:*
+        version: link:../../packages/file-explorer
       '@brainstrike/tailwind-config':
         specifier: workspace:*
         version: link:../../packages/tailwind-config
