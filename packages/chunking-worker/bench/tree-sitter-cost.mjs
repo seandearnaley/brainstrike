@@ -177,23 +177,41 @@ async function bench() {
     const bucket = bucketFor(size);
     const stats = sizesByBucket.get(bucket) ?? { count: 0, tsTimes: [], recTimes: [] };
 
+    // Separate try/catch per parser so error attribution is correct.
+    // P2 fix (#1004 review): the original combined catch incremented BOTH
+    // counters whenever EITHER parser threw, because the catch ran with
+    // both locals undefined when the first parser threw before the second
+    // could run. Now each parser is timed independently; only the parser
+    // that actually threw gets a hit.
     const tsFirst = i % 2 === 0;
     let tsMs, recMs;
-    try {
-      if (tsFirst) {
+
+    const runTs = async () => {
+      try {
         tsMs = await timeOne(() => tsAdapter.parse(source, parseOptions));
-        recMs = await timeOne(() => recursive.splitText(source));
-      } else {
-        recMs = await timeOne(() => recursive.splitText(source));
-        tsMs = await timeOne(() => tsAdapter.parse(source, parseOptions));
-      }
-    } catch (err) {
-      if (tsMs === undefined) {
+      } catch {
         tsErrors += 1;
       }
-      if (recMs === undefined) {
+    };
+    const runRec = async () => {
+      try {
+        recMs = await timeOne(() => recursive.splitText(source));
+      } catch {
         recErrors += 1;
       }
+    };
+
+    if (tsFirst) {
+      await runTs();
+      await runRec();
+    } else {
+      await runRec();
+      await runTs();
+    }
+
+    // Only record this file if BOTH parsers produced a timing. Partial
+    // data would skew per-bucket medians.
+    if (tsMs === undefined || recMs === undefined) {
       continue;
     }
 

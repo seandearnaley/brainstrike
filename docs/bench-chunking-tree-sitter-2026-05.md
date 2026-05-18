@@ -7,10 +7,10 @@
 
 ## Headline
 
-- **Tree-sitter total**: 324.6 ms
-- **Recursive splitter total**: 2.3 ms (baseline reference, not a quality competitor — see Phase 6 parity test)
-- **Tree-sitter cost relative to recursive**: 143.70× (parsing is more work than string splitting; the value comes from the quality of the chunks)
-- **First-parse cold start (WASM instantiate)**: 14.7 ms — amortized over the corpus
+- **Tree-sitter total**: 315.7 ms
+- **Recursive splitter total**: 2.1 ms (baseline reference, not a quality competitor — see Phase 6 parity test)
+- **Tree-sitter cost relative to recursive**: 148.35× (parsing is more work than string splitting; the value comes from the quality of the chunks)
+- **First-parse cold start (WASM instantiate)**: 14.5 ms — amortized over the corpus
 - Tree-sitter parse errors: 0
 - Recursive splitter errors: 0
 
@@ -18,16 +18,16 @@
 
 | Stat | Tree-sitter |
 |---|---|
-| Median | 0.553 ms |
-| p95 | 1.144 ms |
-| p99 | 1.369 ms |
+| Median | 0.533 ms |
+| p95 | 1.101 ms |
+| p99 | 1.346 ms |
 
 ## By file size bucket (median ms)
 
 | Bucket | Files | Tree-sitter | Recursive |
 |---|---|---|---|
-| < 1 KB | 400 | 0.524 | 0.001 |
-| 1–10 KB | 100 | 0.999 | 0.009 |
+| < 1 KB | 400 | 0.512 | 0.001 |
+| 1–10 KB | 100 | 0.960 | 0.009 |
 
 ## Methodology notes
 
