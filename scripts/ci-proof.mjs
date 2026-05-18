@@ -1,11 +1,10 @@
-import { exec, execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { promisify } from 'node:util';
 
 import { collectGitSelection, renderSelectionJson } from './ci-select.mjs';
 
-const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
 const DEFAULT_OPTIONS = {
@@ -21,12 +20,21 @@ const PROOF_PATH = '.ci/proof/latest.json';
 
 async function defaultRunner(command, args = [], options = {}) {
   if (options.shell === true) {
-    const { stdout } = await execAsync(command, {
-      encoding: 'utf8',
-      maxBuffer: 1024 * 1024 * 200,
-      shell: '/bin/bash',
+    await new Promise((resolve, reject) => {
+      const child = spawn(command, {
+        shell: '/bin/bash',
+        stdio: 'inherit',
+      });
+      child.on('error', reject);
+      child.on('close', (exitCode) => {
+        if (exitCode === 0) {
+          resolve();
+          return;
+        }
+        reject(new Error(`command failed with exit code ${exitCode}: ${command}`));
+      });
     });
-    return stdout;
+    return '';
   }
 
   const { stdout } = await execFileAsync(command, args, {
