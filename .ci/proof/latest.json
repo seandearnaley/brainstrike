@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-18T19:24:33.263Z",
+  "generatedAt": "2026-05-18T20:23:29.164Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.22.1",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "df3d7d03dcf55b4fc202cdcbe661f3993e757a72",
+  "testedHeadSha": "903161d18326d7835bc976b7d9b0a551ef9d1659",
   "selection": {
     "base": "origin/main",
     "baseSha": "37585876b125d3fbd6c3930cf2fac9e28e606bf6",
     "head": "HEAD",
-    "headSha": "df3d7d03dcf55b4fc202cdcbe661f3993e757a72",
+    "headSha": "903161d18326d7835bc976b7d9b0a551ef9d1659",
     "mergeBase": "4c238e23ffca15b635c552c852b5d9930f5fb88f",
     "files": [
       ".ci/proof/latest.json",
@@ -114,55 +114,55 @@
       "name": "lint-ci",
       "command": "pnpm lint:ci",
       "exitCode": 0,
-      "durationMs": 10356
+      "durationMs": 9783
     },
     {
       "name": "type-check",
       "command": "pnpm type-check",
       "exitCode": 0,
-      "durationMs": 665
+      "durationMs": 1462
     },
     {
       "name": "build",
       "command": "pnpm build",
       "exitCode": 0,
-      "durationMs": 611
+      "durationMs": 612
     },
     {
       "name": "unit",
       "command": "TURBO_TEST_MODE=unit pnpm exec turbo run test --summarize --log-order=grouped --concurrency=2",
       "exitCode": 0,
-      "durationMs": 610
+      "durationMs": 616
     },
     {
       "name": "browser-vitest",
       "command": "pnpm run test:browser",
       "exitCode": 0,
-      "durationMs": 2420
+      "durationMs": 3029
     },
     {
       "name": "web-functional-e2e",
       "command": "cd apps/web && pnpm exec playwright test --project=functional --workers=2 --grep-invert \"@destructive|@stateful\"",
       "exitCode": 0,
-      "durationMs": 64520
+      "durationMs": 65170
     },
     {
       "name": "desktop-regression",
       "command": "cd apps/desktop && pnpm exec playwright test --project=regression --workers=1 --grep-invert \"@desktop-embedding-\"",
       "exitCode": 0,
-      "durationMs": 319311
+      "durationMs": 322486
     },
     {
       "name": "desktop-embedding",
       "command": "cd apps/desktop && pnpm exec playwright test --workers=1 --grep \"@desktop-embedding-\"",
       "exitCode": 0,
-      "durationMs": 1581092
+      "durationMs": 1570483
     },
     {
       "name": "affected-coverage",
       "command": "TURBO_TEST_MODE=coverage COVERAGE=true pnpm exec turbo run test:coverage --filter=\"...[4c238e23ffca15b635c552c852b5d9930f5fb88f]\" --concurrency=4 --summarize --log-order=grouped",
       "exitCode": 0,
-      "durationMs": 1489
+      "durationMs": 1482
     }
   ]
 }
