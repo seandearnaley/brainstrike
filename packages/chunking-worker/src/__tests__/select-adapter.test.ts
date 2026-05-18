@@ -139,28 +139,19 @@ describe('selectAdapter', () => {
       expect(selectAdapter('module.pyi').id).toBe('tree-sitter');
     });
 
-    it('falls back to the JS/TS default adapter for .py files when python is NOT enabled (default-off rollout)', () => {
-      // Per PRD §8 "Aggressive (same as oxc)": Phases 2-7 land disabled
-      // by default. Until Phase 8 flips the flag default, .py files
-      // route to the same place .ts/.js would — which then degrades to
-      // the recursive splitter at the caller because Python source is
-      // not valid JS/TS. This is by design: the routing infrastructure
-      // is in place; the operator opts in via the flag.
+    it('returns NULL for .py files when python is NOT enabled (Phase 9 strict)', () => {
+      // Per strictness: don't return the wrong adapter (babel can't parse
+      // Python). Return null and force the caller to handle "no AST help"
+      // explicitly. The previous "fall through to babel" behavior was a
+      // silent contract violation — babel parsing Python would fail at
+      // call time with a confusing error.
       setTreeSitterLanguages(undefined);
-
-      // selectAdapter doesn't itself return null for .py — that decision
-      // is the caller's, which only invokes selectAdapter for supportsAst
-      // files. The caller's supportsAst check is gated by the same flag.
-      // What we assert HERE: when the flag is off, selectAdapter doesn't
-      // route to tree-sitter for .py.
-      const adapter = selectAdapter('script.py');
-      expect(adapter.id).not.toBe('tree-sitter');
+      expect(selectAdapter('script.py')).toBeNull();
     });
 
-    it('falls back to JS/TS adapter when language list is set but does not include python', () => {
+    it('returns NULL when language list is set but does not include python (Phase 9 strict)', () => {
       setTreeSitterLanguages([]);
-
-      expect(selectAdapter('script.py').id).not.toBe('tree-sitter');
+      expect(selectAdapter('script.py')).toBeNull();
     });
 
     it('is case-insensitive on file extensions', () => {

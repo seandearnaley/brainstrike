@@ -41,27 +41,24 @@ describe('resolveBootstrapTreeSitterLanguages', () => {
     expect(resolveBootstrapTreeSitterLanguages('?treeSitterLanguages=python')).toEqual(['python']);
   });
 
-  it('filters out unrecognized languages silently', () => {
-    // 'rust' is in the operator's intent but not yet shipped — drop it.
-    // Real protection: shipping 'rust' here without the grammar would
-    // crash at parse time (Language.load fails). Filter early.
-    expect(resolveBootstrapTreeSitterLanguages('?treeSitterLanguages=python,rust')).toEqual([
-      'python',
-    ]);
+  it('THROWS on unrecognized languages — operator typos must surface, not silently drop (Phase 9 strict)', () => {
+    // Per the strictness directive (memory: feedback_no_silent_fallbacks):
+    // a typo'd language name like 'rust' (grammar not yet shipped) or
+    // 'pithon' (typo) is a deployment error. Silently filtering would
+    // hide it; throwing surfaces it at boot.
+    expect(() => resolveBootstrapTreeSitterLanguages('?treeSitterLanguages=python,rust')).toThrow(
+      /unknown tree-sitter language: rust/i
+    );
+    expect(() => resolveBootstrapTreeSitterLanguages('?treeSitterLanguages=pithon')).toThrow(
+      /unknown tree-sitter language: pithon/i
+    );
   });
 
-  it('returns [] when the list contains only unrecognized languages', () => {
-    // Typo case: operator wanted to enable something, we don't recognize
-    // it. The safest interpretation is "don't fall back to default" —
-    // because the operator clearly intended SOMETHING non-default.
-    expect(resolveBootstrapTreeSitterLanguages('?treeSitterLanguages=pithon')).toEqual([]);
-  });
-
-  it('trims whitespace and ignores empty entries in comma lists', () => {
-    expect(resolveBootstrapTreeSitterLanguages('?treeSitterLanguages=python, , python')).toEqual([
-      'python',
-      'python',
-    ]);
+  it('THROWS on empty entries from malformed comma lists (Phase 9 strict)', () => {
+    // `python, ,python` is not a comprehensible operator intent — fail.
+    expect(() =>
+      resolveBootstrapTreeSitterLanguages('?treeSitterLanguages=python, ,python')
+    ).toThrow();
   });
 
   it('preserves the order from the URL', () => {
@@ -69,5 +66,14 @@ describe('resolveBootstrapTreeSitterLanguages', () => {
     // For now there's only python, but the helper shouldn't sort or
     // dedupe — that's the caller's concern.
     expect(resolveBootstrapTreeSitterLanguages('?treeSitterLanguages=python')).toEqual(['python']);
+  });
+
+  it('allows duplicates in the URL (caller dedupes if needed)', () => {
+    // `?treeSitterLanguages=python,python` is unambiguous — the operator
+    // listed it twice. Not a typo; not an error. Preserve as-is.
+    expect(resolveBootstrapTreeSitterLanguages('?treeSitterLanguages=python,python')).toEqual([
+      'python',
+      'python',
+    ]);
   });
 });
