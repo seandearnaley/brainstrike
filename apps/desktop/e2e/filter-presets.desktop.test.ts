@@ -250,6 +250,17 @@ async function waitForPresetSelectionPersisted(
             const persistOptions = store?.persist?.getOptions?.();
             const storage = persistOptions?.storage;
 
+            if (!currentFolderId) {
+              return {
+                currentFolderId,
+                error: 'Waiting for file explorer currentFolderId before checking folder state.',
+                folderPresetId: null,
+                livePresetId,
+                ok: false,
+                topLevelPresetId: null,
+              };
+            }
+
             if (!storage || typeof storage.getItem !== 'function') {
               return {
                 currentFolderId,
@@ -298,7 +309,7 @@ async function waitForPresetSelectionPersisted(
             const persistedState = asRecord(persistedEnvelope['state'] ?? persistedEnvelope);
             const topLevelPresetId = readStringField(persistedState, 'viewFilterPresetId');
             const folderStates = asRecord(persistedState['folderStates']);
-            const folderState = currentFolderId ? asRecord(folderStates[currentFolderId]) : {};
+            const folderState = asRecord(folderStates[currentFolderId]);
             const folderPresetId = readStringField(folderState, 'viewFilterPresetId');
             const ok =
               livePresetId === args.expectedPresetId &&
