@@ -20,11 +20,15 @@
  * See: docs/prd-chunking-tree-sitter-2026-05.md §8, §9.1
  */
 
+import { RECOGNIZED_TREE_SITTER_LANGUAGES } from './environment';
+
 /** Languages enabled by default when no URL param is present (Phase 8). */
 const DEFAULT_ENABLED_LANGUAGES: readonly string[] = ['python'];
 
-/** Languages whose grammars are vendored and known to load. */
-const RECOGNIZED_LANGUAGES: readonly string[] = ['python'];
+// `RECOGNIZED_TREE_SITTER_LANGUAGES` lives in environment.ts (single
+// source of truth). Importing it here prevents the drift hazard called
+// out in #1007 review where two parallel `['python']` arrays would need
+// to be updated together every time a grammar lands.
 
 /**
  * Compute the tree-sitter language list to install on globalThis for the
@@ -57,23 +61,26 @@ export function resolveBootstrapTreeSitterLanguages(search: string): readonly st
     return [];
   }
 
-  // Explicit list — split, parse, validate. We DON'T trim+filter empty
-  // entries silently: `python, ,python` is not a coherent operator
-  // intent — fail loudly so the operator notices the malformed URL.
+  // Explicit list — split, parse, validate.
+  //
+  // P1 fix (#1007 review, multiple reviewers): empty entries are URL
+  // serialization artifacts, not operator intent. A trailing comma
+  // `?treeSitterLanguages=python,` is the common case — operators
+  // construct URLs by joining arrays and the resulting trailing
+  // separator should not crash the boot. Skip empties silently.
+  // Unknown NON-EMPTY entries are still operator-provided values we
+  // can't make sense of — those throw (strict directive preserved).
   const entries = raw.split(',');
   const result: string[] = [];
   for (const entry of entries) {
     const trimmed = entry.trim();
     if (trimmed.length === 0) {
-      throw new Error(
-        `treeSitterLanguages URL param contains an empty entry: "${raw}". ` +
-          'Use comma-separated language names with no blank entries.'
-      );
+      continue; // URL artifact, not operator intent
     }
-    if (!RECOGNIZED_LANGUAGES.includes(trimmed)) {
+    if (!(RECOGNIZED_TREE_SITTER_LANGUAGES as readonly string[]).includes(trimmed)) {
       throw new Error(
         `Unknown tree-sitter language: ${trimmed}. ` +
-          `Recognized languages: ${RECOGNIZED_LANGUAGES.join(', ')}. ` +
+          `Recognized languages: ${RECOGNIZED_TREE_SITTER_LANGUAGES.join(', ')}. ` +
           'A typo or unshipped language was specified — fix the URL param.'
       );
     }

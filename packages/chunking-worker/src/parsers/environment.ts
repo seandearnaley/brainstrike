@@ -74,8 +74,13 @@ export function getParserFlag(): ParserFlag {
  * `TreeSitterLanguage` union; kept as a runtime array because the
  * globalThis-injected list comes from arbitrary `?treeSitterLanguages=`
  * URL params or test setup and needs validation, not just type narrowing.
+ *
+ * Exported so `tree-sitter-rollout.ts` can import it — keeps a single
+ * source of truth (per #1007 review feedback). Adding a language means
+ * updating this constant + the `TreeSitterLanguage` union + landing
+ * the grammar; nothing else needs to track the list.
  */
-const RECOGNIZED_TREE_SITTER_LANGUAGES: readonly TreeSitterLanguage[] = ['python'];
+export const RECOGNIZED_TREE_SITTER_LANGUAGES: readonly TreeSitterLanguage[] = ['python'];
 
 /**
  * Returns the tree-sitter languages the operator has opted in to.
@@ -110,15 +115,17 @@ export function getEnabledTreeSitterLanguages(): readonly TreeSitterLanguage[] {
     );
   }
   const result: TreeSitterLanguage[] = [];
-  for (const entry of raw) {
+  for (let i = 0; i < raw.length; i += 1) {
+    const entry = raw[i];
     if (typeof entry !== 'string') {
       throw new Error(
-        `__BRAINSTRIKE_TREE_SITTER_LANGUAGES__ must contain only strings, got ${typeof entry}.`
+        '__BRAINSTRIKE_TREE_SITTER_LANGUAGES__ must contain only strings, ' +
+          `got ${typeof entry} at index ${i}.`
       );
     }
     if (!(RECOGNIZED_TREE_SITTER_LANGUAGES as readonly string[]).includes(entry)) {
       throw new Error(
-        `Unknown tree-sitter language: ${entry}. ` +
+        `Unknown tree-sitter language: ${entry} (index ${i}). ` +
           `Recognized: ${RECOGNIZED_TREE_SITTER_LANGUAGES.join(', ')}. ` +
           'A typo or unshipped language was specified.'
       );

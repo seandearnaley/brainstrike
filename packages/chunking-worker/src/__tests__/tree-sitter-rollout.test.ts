@@ -54,11 +54,19 @@ describe('resolveBootstrapTreeSitterLanguages', () => {
     );
   });
 
-  it('THROWS on empty entries from malformed comma lists (Phase 9 strict)', () => {
-    // `python, ,python` is not a comprehensible operator intent — fail.
-    expect(() =>
-      resolveBootstrapTreeSitterLanguages('?treeSitterLanguages=python, ,python')
-    ).toThrow();
+  it('SKIPS empty entries — trailing commas and whitespace are URL artifacts not operator intent (#1007 review)', () => {
+    // Trailing commas are common when URLs are constructed by joining
+    // arrays (`langs.join(',')` over `['python']` gives `'python'` but
+    // `langs.map(...).join(',')` can leave separators). Don't crash boot
+    // on URL serialization quirks. Only unknown NON-EMPTY entries throw.
+    expect(resolveBootstrapTreeSitterLanguages('?treeSitterLanguages=python,')).toEqual(['python']);
+    expect(resolveBootstrapTreeSitterLanguages('?treeSitterLanguages=,python,')).toEqual([
+      'python',
+    ]);
+    expect(resolveBootstrapTreeSitterLanguages('?treeSitterLanguages=python, ,python')).toEqual([
+      'python',
+      'python',
+    ]);
   });
 
   it('preserves the order from the URL', () => {
