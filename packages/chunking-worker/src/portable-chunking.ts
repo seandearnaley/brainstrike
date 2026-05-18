@@ -944,6 +944,22 @@ async function splitCodeByFunctions(
 ): Promise<string[] | null> {
   let ast: AstNode | null = null;
   const adapter = selectAdapter(fileName);
+  if (adapter === null) {
+    // selectAdapter returned null (Phase 9 strict): the file is not
+    // AST-chunkable in this configuration. Most common case: a .py file
+    // with tree-sitter Python disabled. We log at warn (same level as
+    // parse failures) and return null so the chunker falls back to the
+    // recursive splitter — the loud-degrade pattern from PRD §8.2.
+    // biome-ignore lint/suspicious/noConsole: visible signal that AST chunking is skipped
+    console.warn(
+      '[portable-chunking] No AST adapter for file; falling back to recursive splitting',
+      {
+        fileName,
+        language,
+      }
+    );
+    return null;
+  }
   try {
     ast = await adapter.parse(content, {
       errorRecovery: true,

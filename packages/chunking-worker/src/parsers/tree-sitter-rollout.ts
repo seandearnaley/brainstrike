@@ -30,10 +30,18 @@ const RECOGNIZED_LANGUAGES: readonly string[] = ['python'];
  * Compute the tree-sitter language list to install on globalThis for the
  * worker to pick up.
  *
+ * Strict mode (Phase 9 of #998 hardening, per user directive
+ * feedback_no_silent_fallbacks): unknown or malformed entries THROW
+ * rather than silently coerce. A typo'd flag is a deployment error,
+ * not "operator probably meant something" — surface it at boot so the
+ * operator fixes it before traffic.
+ *
  * @param search - the URL's search string (e.g., `?treeSitterLanguages=python`).
  *                 Accept the raw string rather than pre-parsed
  *                 URLSearchParams so this function is callable from any
  *                 context (including server-side or test environments).
+ * @throws when the `treeSitterLanguages` param contains unknown language
+ *         names or malformed entries (empty items inside a list).
  */
 export function resolveBootstrapTreeSitterLanguages(search: string): readonly string[] {
   const params = new URLSearchParams(search);
@@ -49,14 +57,27 @@ export function resolveBootstrapTreeSitterLanguages(search: string): readonly st
     return [];
   }
 
-  // Explicit list — split on comma, trim, drop empties, filter to
-  // shipped grammars. An operator typo that filters to [] yields []
-  // (not the default), because the presence of the param means the
-  // operator wanted SOMETHING non-default; running the default in
-  // that case would be confusing.
-  return raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
-    .filter((s) => RECOGNIZED_LANGUAGES.includes(s));
+  // Explicit list — split, parse, validate. We DON'T trim+filter empty
+  // entries silently: `python, ,python` is not a coherent operator
+  // intent — fail loudly so the operator notices the malformed URL.
+  const entries = raw.split(',');
+  const result: string[] = [];
+  for (const entry of entries) {
+    const trimmed = entry.trim();
+    if (trimmed.length === 0) {
+      throw new Error(
+        `treeSitterLanguages URL param contains an empty entry: "${raw}". ` +
+          'Use comma-separated language names with no blank entries.'
+      );
+    }
+    if (!RECOGNIZED_LANGUAGES.includes(trimmed)) {
+      throw new Error(
+        `Unknown tree-sitter language: ${trimmed}. ` +
+          `Recognized languages: ${RECOGNIZED_LANGUAGES.join(', ')}. ` +
+          'A typo or unshipped language was specified — fix the URL param.'
+      );
+    }
+    result.push(trimmed);
+  }
+  return result;
 }

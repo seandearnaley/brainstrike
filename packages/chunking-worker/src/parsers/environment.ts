@@ -77,32 +77,53 @@ export function getParserFlag(): ParserFlag {
  */
 const RECOGNIZED_TREE_SITTER_LANGUAGES: readonly TreeSitterLanguage[] = ['python'];
 
-function isRecognizedTreeSitterLanguage(value: unknown): value is TreeSitterLanguage {
-  return (
-    typeof value === 'string' &&
-    (RECOGNIZED_TREE_SITTER_LANGUAGES as readonly string[]).includes(value)
-  );
-}
-
 /**
  * Returns the tree-sitter languages the operator has opted in to.
  *
  * Production: set by the renderer's bootstrap (Phase 8 of #998) based on
- * the `?treeSitterLanguages=python,rust,...` URL param. Defaults to `[]`
- * (no tree-sitter routing) during the disabled-by-default phases.
+ * the `?treeSitterLanguages=python,rust,...` URL param. The bootstrap
+ * helper validates entries before assigning to globalThis; this function
+ * is the second-line validator in case the global was set directly
+ * (tests, future code paths).
  *
- * Defensive coercion mirrors `getParserFlag`'s rollout-safety stance:
- *  - undefined → []  (default-off; routing falls back to the JS/TS path)
- *  - non-array → []  (malformed setup → safest interpretation is "off")
- *  - array filtered to recognized languages only (silently drops typos
- *    rather than failing the parse). Unknown language strings would
- *    otherwise propagate to `selectAdapter` and produce surprising
- *    routing; dropping them here keeps the routing matrix closed.
+ * Strict mode (Phase 9 hardening, per user directive
+ * feedback_no_silent_fallbacks):
+ *  - undefined → []         (valid pre-bootstrap state)
+ *  - empty array → []       (explicit kill switch)
+ *  - non-array → THROW      (shape error — bootstrap is buggy)
+ *  - unknown entry → THROW  (deployment error — typo or unshipped lang)
+ *  - non-string entry → THROW
+ *
+ * The previous (Phase 5) coerce-silently-to-[] behavior was a footgun:
+ * an operator typo would default-disable tree-sitter without any signal.
+ * Failing here surfaces the misconfiguration.
  */
 export function getEnabledTreeSitterLanguages(): readonly TreeSitterLanguage[] {
   const raw = globalThis.__BRAINSTRIKE_TREE_SITTER_LANGUAGES__;
-  if (!Array.isArray(raw)) {
+  if (raw === undefined) {
     return [];
   }
-  return raw.filter(isRecognizedTreeSitterLanguage);
+  if (!Array.isArray(raw)) {
+    throw new Error(
+      `__BRAINSTRIKE_TREE_SITTER_LANGUAGES__ must be an array, got ${typeof raw}. ` +
+        'The renderer bootstrap is buggy — fix it before deploying.'
+    );
+  }
+  const result: TreeSitterLanguage[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== 'string') {
+      throw new Error(
+        `__BRAINSTRIKE_TREE_SITTER_LANGUAGES__ must contain only strings, got ${typeof entry}.`
+      );
+    }
+    if (!(RECOGNIZED_TREE_SITTER_LANGUAGES as readonly string[]).includes(entry)) {
+      throw new Error(
+        `Unknown tree-sitter language: ${entry}. ` +
+          `Recognized: ${RECOGNIZED_TREE_SITTER_LANGUAGES.join(', ')}. ` +
+          'A typo or unshipped language was specified.'
+      );
+    }
+    result.push(entry as TreeSitterLanguage);
+  }
+  return result;
 }

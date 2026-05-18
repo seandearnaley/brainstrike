@@ -55,20 +55,29 @@ function endsWithAny(fileName: string, extensions: readonly string[]): boolean {
  * @param fileName - optional file name/path. When provided, used to route
  *                   tree-sitter-supported extensions (Phase 5+). When
  *                   omitted, behaves as pre-Phase-5 (JS/TS only).
+ * @returns the ParserAdapter for this file, OR null when no parser can
+ *          honestly handle it (e.g., `.py` file but python tree-sitter is
+ *          disabled — babel can't parse Python so returning babel would
+ *          be a contract violation). Callers MUST handle null by either
+ *          falling back to a non-AST strategy (recursive splitter) or
+ *          surfacing the unsupported-file condition.
  */
-export function selectAdapter(fileName?: string): ParserAdapter {
+export function selectAdapter(fileName?: string): ParserAdapter | null {
   // Tree-sitter routing (PRD §9.1): only when both extension matches AND
   // operator has opted in via the languages flag. Default-off during
   // Phases 2-7; Phase 8 flips the default.
+  //
+  // Strict mode (Phase 9, per feedback_no_silent_fallbacks): a .py file
+  // with python disabled returns NULL — not babel. Returning babel for
+  // Python would be a lie (babel cannot parse Python source); the call
+  // would fail with a confusing syntax error at parse time. Null forces
+  // the caller to choose: recursive fallback (loud-degrade) or refusal.
   if (fileName && endsWithAny(fileName, PYTHON_EXTENSIONS)) {
     const enabled = getEnabledTreeSitterLanguages();
     if (enabled.includes('python')) {
       return treeSitterAdapter('python');
     }
-    // Python file but tree-sitter Python disabled — fall through to the
-    // JS/TS path. The caller's `supportsAst` gate (in chunkCode) is what
-    // actually decides whether splitCodeByFunctions runs at all; here we
-    // just preserve the contract that selectAdapter never returns null.
+    return null;
   }
 
   const env = getEnvironment();
