@@ -1,4 +1,5 @@
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
+import { FILE_EXPLORER_STORAGE_KEY } from '../../../packages/file-explorer/src/persistence/persistence-constants.ts';
 import { expect, test } from './fixtures/electron-fixture';
 import { getContextExplorerLeftPanel } from './utils/context-explorer-locators';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
@@ -25,7 +26,6 @@ const FILTER_PRESET_TEST_TIMEOUT_MS = 60_000;
 const ELECTRON_CONTROL_CLICK_TIMEOUT_MS = 10_000;
 const PRESET_DATABASE_READY_TIMEOUT_MS = 15_000;
 const PRESET_PERSIST_READY_TIMEOUT_MS = 15_000;
-const FILE_EXPLORER_STORAGE_KEY = 'file-explorer-storage-v4';
 
 interface ViewFilterPresetReadinessResult {
   count: number | null;
@@ -232,6 +232,8 @@ async function waitForPresetSelectionPersisted(
       async () =>
         await window.evaluate(
           async (args): Promise<PersistedPresetReadinessResult> => {
+            // Restart safety requires all three surfaces to agree: live store,
+            // top-level persisted state, and the current folder's persisted state.
             const asRecord = (value: unknown): Record<string, unknown> =>
               value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
             const readStringField = (
