@@ -26,6 +26,8 @@ export interface UseWorkerFlattenedTreeOptions {
   forceWorker?: boolean;
   /** Ref to the worker port */
   portRef: React.RefObject<FileTreeWorkerPort | null>;
+  /** Token that changes when tree contents mutate without expansion changes */
+  treeRevision?: unknown;
 }
 
 export interface UseWorkerFlattenedTreeReturn {
@@ -52,7 +54,13 @@ export interface UseWorkerFlattenedTreeReturn {
 export function useWorkerFlattenedTree(
   options: UseWorkerFlattenedTreeOptions
 ): UseWorkerFlattenedTreeReturn {
-  const { portRef, expandedPaths, approximateNodeCount, forceWorker = false } = options;
+  const {
+    portRef,
+    expandedPaths,
+    approximateNodeCount,
+    forceWorker = false,
+    treeRevision,
+  } = options;
 
   // State for flattened result
   const [flattenedNodes, setFlattenedNodes] = useState<FlattenedNode[] | null>(null);
@@ -94,7 +102,7 @@ export function useWorkerFlattenedTree(
     port.flattenTree(Array.from(expandedPaths));
   }, [portRef, expandedPaths, isWorkerEnabled]);
 
-  // Auto-request flatten when expandedPaths changes (if worker is enabled)
+  // Auto-request flatten when visible paths or tree contents change.
   useEffect(() => {
     if (!isWorkerEnabled) {
       return;
@@ -104,7 +112,7 @@ export function useWorkerFlattenedTree(
       return;
     }
     port.flattenTree(Array.from(expandedPaths));
-  }, [isWorkerEnabled, portRef, expandedPaths]);
+  }, [isWorkerEnabled, portRef, expandedPaths, treeRevision]);
 
   return {
     requestFlatten,
