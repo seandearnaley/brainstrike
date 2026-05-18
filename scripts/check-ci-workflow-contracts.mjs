@@ -1063,6 +1063,24 @@ export function validateWorkflowContracts(source) {
     );
     requireIncludes(
       prSentinel,
+      'PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}',
+      'PR Sentinel must verify proof against the pull request head SHA, not the synthetic merge commit.',
+      failures
+    );
+    requireIncludes(
+      prSentinel,
+      '--head "$PR_HEAD_SHA"',
+      'PR Sentinel must pass the pull request head SHA to the proof verifier.',
+      failures
+    );
+    requireNotIncludes(
+      prSentinel,
+      '--head "$GITHUB_SHA"',
+      'PR Sentinel must not verify proof against GITHUB_SHA because pull_request events use a synthetic merge commit.',
+      failures
+    );
+    requireIncludes(
+      prSentinel,
       'github.event.pull_request.labels.*.name',
       'PR Sentinel must pass pull request labels to the proof verifier.',
       failures

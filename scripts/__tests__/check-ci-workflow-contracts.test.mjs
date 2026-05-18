@@ -441,6 +441,19 @@ test('workflow contract requires PR Sentinel to verify local proof', () => {
   assert.match(failures, /Required PR Gate must depend on pr-sentinel/);
 });
 
+test('workflow contract requires PR Sentinel to verify the pull request head', () => {
+  const source = workflowSource
+    .replace(
+      'PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}',
+      'PR_HEAD_SHA: ${{ github.sha }}'
+    )
+    .replace('--head "$PR_HEAD_SHA"', '--head "$GITHUB_SHA"');
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /pull request head SHA/);
+  assert.match(failures, /must not verify proof against GITHUB_SHA/);
+});
+
 test('workflow contract requires selected risk labels to gate matching cloud jobs', () => {
   const browserTests = extractJob(workflowSource, 'browser-tests');
   assert.ok(browserTests);

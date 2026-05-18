@@ -53,9 +53,10 @@ jobs:
         id: verify-proof
         env:
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          pnpm ci:verify-proof --head "$GITHUB_SHA" --base "origin/${GITHUB_BASE_REF}" --labels "$PR_LABELS" --github-output "$GITHUB_OUTPUT"
+          pnpm ci:verify-proof --head "$PR_HEAD_SHA" --base "origin/${GITHUB_BASE_REF}" --labels "$PR_LABELS" --github-output "$GITHUB_OUTPUT"
           pnpm lint:ci-workflow-contracts
           pnpm test:scripts
 
