@@ -334,6 +334,7 @@ describe('useBackgroundTokenIndexer', () => {
         error: expect.stringContaining('Worker runtime error: runtime boom'),
       }),
     ]);
+    expect(mockLogger.error).toHaveBeenCalledTimes(1);
   });
 
   it('routes worker error events through the terminal fail path', async () => {
@@ -374,6 +375,97 @@ describe('useBackgroundTokenIndexer', () => {
         ),
       })
     );
+    expect(mockLogger.error).toHaveBeenCalledTimes(1);
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      'Background token indexer entered failed state',
+      expect.objectContaining({
+        context: 'worker.addEventListener(error)',
+        error: expect.stringContaining('Worker error event: event boom'),
+      })
+    );
+  });
+
+  it('logs one terminal worker failure with structured ErrorEvent fields', async () => {
+    const onFileError = vi.fn();
+    const eventError = new Error('worker script exploded');
+    eventError.stack = 'Error: worker script exploded\n    at background-indexer.worker.js:22:9';
+
+    renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'accurate',
+        onFileError,
+      })
+    );
+
+    await act(async () => {
+      const worker = mockWorkers[0]!;
+      worker.emitEvent(
+        'error',
+        new ErrorEvent('error', {
+          message: 'event boom',
+          filename: 'background-indexer.worker.js',
+          lineno: 22,
+          colno: 9,
+          error: eventError,
+        })
+      );
+    });
+
+    expect(mockLogger.error).toHaveBeenCalledTimes(1);
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      'Background token indexer entered failed state',
+      expect.objectContaining({
+        context: 'worker.addEventListener(error)',
+        error: expect.stringContaining('Worker error event: event boom'),
+        type: 'error',
+        filename: 'background-indexer.worker.js',
+        lineno: 22,
+        colno: 9,
+        eventMessage: 'event boom',
+        eventError: 'worker script exploded',
+        eventErrorName: 'Error',
+        eventErrorStack: eventError.stack,
+      })
+    );
+    expect(mockLogger.error.mock.calls[0]?.[1]).not.toHaveProperty('terminalWorkerErrorDetails');
+  });
+
+  it('omits unknown ErrorEvent location fields from terminal worker failure logs', async () => {
+    const onFileError = vi.fn();
+
+    renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'accurate',
+        onFileError,
+      })
+    );
+
+    await act(async () => {
+      const worker = mockWorkers[0]!;
+      worker.emitEvent(
+        'error',
+        new ErrorEvent('error', {
+          message: 'event boom',
+          lineno: 0,
+          colno: 0,
+        })
+      );
+    });
+
+    expect(mockLogger.error).toHaveBeenCalledTimes(1);
+    const logMetadata = mockLogger.error.mock.calls[0]?.[1];
+    expect(logMetadata).toEqual(
+      expect.objectContaining({
+        context: 'worker.addEventListener(error)',
+        error: expect.stringContaining('Worker error event: event boom'),
+        type: 'error',
+        eventMessage: 'event boom',
+      })
+    );
+    expect(logMetadata).not.toHaveProperty('lineno');
+    expect(logMetadata).not.toHaveProperty('colno');
   });
 
   it('deduplicates terminal worker failure when both error handlers fire', async () => {
@@ -457,6 +549,14 @@ describe('useBackgroundTokenIndexer', () => {
         ),
       })
     );
+    expect(mockLogger.error).toHaveBeenCalledTimes(1);
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      'Background token indexer entered failed state',
+      expect.objectContaining({
+        context: 'worker.onmessageerror',
+        error: 'Worker message channel error (onmessageerror)',
+      })
+    );
   });
 
   it('routes readiness timeout through the terminal fail path', async () => {
@@ -520,6 +620,47 @@ describe('useBackgroundTokenIndexer', () => {
         expect.stringContaining('(createWorkerInstance): worker constructor failed')
       )
     );
+    expect(mockEmitIndexingError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        compositeKey: '__worker__',
+        errorMessage: expect.stringContaining('(createWorkerInstance): worker constructor failed'),
+      })
+    );
+  });
+
+  it('does not duplicate terminal telemetry when worker creation fails during indexFiles', async () => {
+    class ThrowingWorker {
+      constructor() {
+        throw new Error('worker constructor failed');
+      }
+    }
+
+    vi.stubGlobal('Worker', ThrowingWorker as unknown as typeof Worker);
+    const onFileError = vi.fn();
+
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({
+        autoStart: false,
+        store: null,
+        mode: 'accurate',
+        onFileError,
+      })
+    );
+
+    await act(async () => {
+      await expect(
+        result.current.indexFiles([
+          { compositeKey: 'folder|@|file.ts', folderId: 'folder', filePath: 'file.ts' },
+        ])
+      ).rejects.toThrow('worker constructor failed');
+    });
+
+    expect(onFileError).toHaveBeenCalledTimes(1);
+    expect(onFileError).toHaveBeenCalledWith(
+      '__worker__',
+      expect.stringContaining('(createWorkerInstance): worker constructor failed')
+    );
+    expect(mockEmitIndexingError).toHaveBeenCalledTimes(1);
     expect(mockEmitIndexingError).toHaveBeenCalledWith(
       expect.objectContaining({
         compositeKey: '__worker__',
