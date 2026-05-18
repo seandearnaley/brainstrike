@@ -218,8 +218,7 @@ function requireFullMatrixEvents(job, jobName, failures) {
   }
 }
 
-function requireRiskLabelGate(job, jobName, labels, failures) {
-  requireFullMatrixEvents(job, jobName, failures);
+function requireRiskLabelIncludes(job, jobName, labels, failures) {
   requireIncludes(
     job,
     "contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full')",
@@ -236,21 +235,13 @@ function requireRiskLabelGate(job, jobName, labels, failures) {
   }
 }
 
+function requireRiskLabelGate(job, jobName, labels, failures) {
+  requireFullMatrixEvents(job, jobName, failures);
+  requireRiskLabelIncludes(job, jobName, labels, failures);
+}
+
 function requirePrRiskLabelGate(job, jobName, labels, failures) {
-  requireIncludes(
-    job,
-    "contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full')",
-    `${jobName} must run on PRs labeled ci:full.`,
-    failures
-  );
-  for (const label of labels) {
-    requireIncludes(
-      job,
-      `contains(join(github.event.pull_request.labels.*.name, ','), '${label}')`,
-      `${jobName} must run on PRs labeled ${label}.`,
-      failures
-    );
-  }
+  requireRiskLabelIncludes(job, jobName, labels, failures);
 }
 
 function extractTurboRunCommandLines(source) {

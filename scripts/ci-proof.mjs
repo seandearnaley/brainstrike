@@ -41,7 +41,7 @@ async function defaultRunner(command, args = [], options = {}) {
   if (options.shell === true) {
     await new Promise((resolve, reject) => {
       const child = spawn(command, {
-        shell: '/bin/bash',
+        shell: process.env.SHELL || true,
         stdio: 'inherit',
       });
       child.on('error', reject);
@@ -114,7 +114,7 @@ export function buildProofManifest(input) {
   return {
     schemaVersion: 1,
     generatedAt: input.generatedAt,
-    repository: input.repository ?? 'seandearnaley/brainstrike',
+    repository: input.repository,
     packageManager: input.packageManager,
     pnpmVersion: input.pnpmVersion,
     nodeVersion: input.nodeVersion,
@@ -148,6 +148,9 @@ export function validateProofManifest(manifest) {
   }
   if (typeof manifest.generatedAt !== 'string') {
     failures.push('generatedAt must be a string');
+  }
+  if (typeof manifest.repository !== 'string') {
+    failures.push('repository must be a string');
   }
   if (manifest.packageManager !== EXPECTED_PACKAGE_MANAGER) {
     failures.push(`packageManager must be ${EXPECTED_PACKAGE_MANAGER}`);
@@ -250,9 +253,36 @@ async function readPackageManager() {
   return packageJson.packageManager;
 }
 
+export function normalizeRepositoryIdentifier(remoteUrl) {
+  const trimmed = remoteUrl.trim().replace(/\.git$/, '');
+  const sshMatch = /^git@github\.com:(?<repository>[^/]+\/[^/]+)$/.exec(trimmed);
+  if (sshMatch?.groups?.repository) {
+    return sshMatch.groups.repository;
+  }
+
+  const httpsMatch = /^https:\/\/github\.com\/(?<repository>[^/]+\/[^/]+)$/.exec(
+    trimmed
+  );
+  if (httpsMatch?.groups?.repository) {
+    return httpsMatch.groups.repository;
+  }
+
+  return trimmed;
+}
+
+async function readRepositoryIdentifier(runner) {
+  const remoteUrl = await runner('git', ['remote', 'get-url', 'origin']);
+  return normalizeRepositoryIdentifier(remoteUrl);
+}
+
 async function runProofCommand(command, runner) {
   const startedAt = Date.now();
-  await runner(command.command, [], { shell: true });
+  try {
+    await runner(command.command, [], { shell: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`proof command "${command.name}" failed: ${message}`);
+  }
   return {
     name: command.name,
     command: command.command,
@@ -272,6 +302,7 @@ export async function prove(options, runner = defaultRunner) {
   if (pnpmVersion !== EXPECTED_PNPM_VERSION) {
     throw new Error(`pnpm --version must be ${EXPECTED_PNPM_VERSION}`);
   }
+  const repository = await readRepositoryIdentifier(runner);
 
   const commandResults = [];
   for (const command of selection.commands) {
@@ -281,6 +312,7 @@ export async function prove(options, runner = defaultRunner) {
   const manifest = buildProofManifest({
     commandResults,
     generatedAt: new Date().toISOString(),
+    repository,
     packageManager,
     pnpmVersion,
     nodeVersion: process.version,

@@ -3,7 +3,9 @@ import { test } from 'node:test';
 
 import {
   buildProofManifest,
+  normalizeRepositoryIdentifier,
   parseProofArgs,
+  prove,
   validateProofManifest,
   verifyLabels,
   verifyProofTipDiff,
@@ -49,6 +51,7 @@ test('buildProofManifest records successful baseline and selected commands', () 
     nodeVersion: 'v24.0.0',
     packageManager: 'pnpm@10.33.0',
     pnpmVersion: '10.33.0',
+    repository: 'seandearnaley/brainstrike',
     selection: {
       base: 'origin/main',
       baseSha: '1',
@@ -66,6 +69,17 @@ test('buildProofManifest records successful baseline and selected commands', () 
 
   assert.equal(manifest.schemaVersion, 1);
   assert.equal(validateProofManifest(manifest).length, 0);
+});
+
+test('normalizeRepositoryIdentifier extracts GitHub owner and repo', () => {
+  assert.equal(
+    normalizeRepositoryIdentifier('git@github.com:seandearnaley/brainstrike.git\n'),
+    'seandearnaley/brainstrike'
+  );
+  assert.equal(
+    normalizeRepositoryIdentifier('https://github.com/seandearnaley/brainstrike.git'),
+    'seandearnaley/brainstrike'
+  );
 });
 
 test('validateProofManifest rejects failed command results', () => {
@@ -93,5 +107,46 @@ test('verifyProofTipDiff only allows the proof manifest after tested head', () =
   assert.deepEqual(
     verifyProofTipDiff(['.ci/proof/latest.json', 'src/app.ts']),
     ['proof is stale: src/app.ts changed after testedHeadSha']
+  );
+});
+
+test('prove reports the failing proof command name', async () => {
+  const baseSha = '1111111111111111111111111111111111111111';
+  const headSha = '2222222222222222222222222222222222222222';
+  const runner = async (command, args, options = {}) => {
+    if (options.shell === true) {
+      throw new Error('exit 1');
+    }
+    if (command === 'git' && args.join(' ') === 'status --porcelain') {
+      return '';
+    }
+    if (command === 'git' && args.join(' ') === 'merge-base origin/main HEAD') {
+      return `${baseSha}\n`;
+    }
+    if (command === 'git' && args.join(' ') === 'rev-parse origin/main') {
+      return `${baseSha}\n`;
+    }
+    if (command === 'git' && args.join(' ') === 'rev-parse HEAD') {
+      return `${headSha}\n`;
+    }
+    if (
+      command === 'git' &&
+      args.join(' ') ===
+        `diff --name-only --diff-filter=ACMRTUXB ${baseSha} HEAD`
+    ) {
+      return 'apps/docs/docs/development/local-ci.md\n';
+    }
+    if (command === 'git' && args.join(' ') === 'remote get-url origin') {
+      return 'git@github.com:seandearnaley/brainstrike.git\n';
+    }
+    if (command === 'pnpm' && args.join(' ') === '--version') {
+      return '10.33.0\n';
+    }
+    throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
+  };
+
+  await assert.rejects(
+    () => prove({ base: 'origin/main', head: 'HEAD' }, runner),
+    /proof command "lint-ci" failed: exit 1/
   );
 });
