@@ -207,6 +207,35 @@ function requireYamlListItem(source, item, message, failures) {
   requireMatch(source, new RegExp(`^\\s+- ${escapeRegExp(item)}\\s*$`, 'm'), message, failures);
 }
 
+function requireFullMatrixEvents(job, jobName, failures) {
+  for (const eventName of ['push', 'schedule', 'workflow_dispatch']) {
+    requireIncludes(
+      job,
+      `github.event_name == '${eventName}'`,
+      `${jobName} must remain available for ${eventName} full-matrix runs.`,
+      failures
+    );
+  }
+}
+
+function requireRiskLabelGate(job, jobName, labels, failures) {
+  requireFullMatrixEvents(job, jobName, failures);
+  requireIncludes(
+    job,
+    "contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full')",
+    `${jobName} must run on PRs labeled ci:full.`,
+    failures
+  );
+  for (const label of labels) {
+    requireIncludes(
+      job,
+      `contains(join(github.event.pull_request.labels.*.name, ','), '${label}')`,
+      `${jobName} must run on PRs labeled ${label}.`,
+      failures
+    );
+  }
+}
+
 function extractTurboRunCommandLines(source) {
   return source.split('\n').filter((line) => /\bturbo\s+run\b/.test(line));
 }
@@ -453,6 +482,12 @@ export function validateWorkflowContracts(source) {
     'Test workflow must cancel superseded pull_request runs.',
     failures
   );
+  requireIncludes(
+    source,
+    "cron: '23 7 * * *'",
+    'Test workflow must keep scheduled full-matrix validation.',
+    failures
+  );
   requireEveryTurboCommandHas(
     source,
     '--cache-dir=.turbo',
@@ -478,6 +513,12 @@ export function validateWorkflowContracts(source) {
   if (!determineMatrix) {
     failures.push('Missing determine-matrix job.');
   } else {
+    requireRiskLabelGate(
+      determineMatrix,
+      'Determine E2E Matrix',
+      ['ci:web-e2e', 'ci:desktop'],
+      failures
+    );
     requireIncludes(
       determineMatrix,
       'web-shards=["1","2","3","4","5"]',
@@ -508,6 +549,7 @@ export function validateWorkflowContracts(source) {
   if (!e2e) {
     failures.push('Missing e2e job.');
   } else {
+    requireRiskLabelGate(e2e, 'Functional E2E', ['ci:web-e2e'], failures);
     requirePreprovisionedPlaywrightJobContracts(e2e, 'Functional E2E', failures);
     requireIncludes(
       e2e,
@@ -539,6 +581,7 @@ export function validateWorkflowContracts(source) {
   if (!stateful) {
     failures.push('Missing e2e-stateful job.');
   } else {
+    requireRiskLabelGate(stateful, 'Stateful E2E', ['ci:web-e2e'], failures);
     requirePreprovisionedPlaywrightJobContracts(stateful, 'Stateful E2E', failures);
     requireIncludes(
       stateful,
@@ -558,6 +601,7 @@ export function validateWorkflowContracts(source) {
   if (!destructive) {
     failures.push('Missing e2e-destructive job.');
   } else {
+    requireRiskLabelGate(destructive, 'Destructive E2E', ['ci:web-e2e'], failures);
     requirePreprovisionedPlaywrightJobContracts(destructive, 'Destructive E2E', failures);
     requireIncludes(
       destructive,
@@ -601,6 +645,12 @@ export function validateWorkflowContracts(source) {
   if (!mergeReports) {
     failures.push('Missing merge-reports job.');
   } else {
+    requireRiskLabelGate(
+      mergeReports,
+      'Merge Test Reports',
+      ['ci:web-e2e', 'ci:desktop', 'ci:embedding'],
+      failures
+    );
     requireIncludes(
       mergeReports,
       'find all-blob-reports -type f -name "*.tar" -print0',
@@ -631,16 +681,11 @@ export function validateWorkflowContracts(source) {
   if (!desktopPr) {
     failures.push('Missing desktop-e2e-pr job.');
   } else {
+    requireRiskLabelGate(desktopPr, 'PR desktop regression', ['ci:desktop'], failures);
     requireIncludes(
       desktopPr,
       'name: Desktop E2E Regression',
       'PR desktop E2E status must prove the desktop regression suite.',
-      failures
-    );
-    requireIncludes(
-      desktopPr,
-      "if: github.event_name == 'pull_request'",
-      'PR desktop regression job must run on pull_request.',
       failures
     );
     requireIncludes(
@@ -671,16 +716,16 @@ export function validateWorkflowContracts(source) {
   if (!desktopEmbeddingPr) {
     failures.push('Missing desktop-e2e-embedding-pr job.');
   } else {
-    requireIncludes(
+    requireRiskLabelGate(
       desktopEmbeddingPr,
-      'name: Desktop E2E Embedding Regression',
-      'PR desktop embedding E2E status must prove embedding regressions.',
+      'PR desktop embedding regression',
+      ['ci:embedding'],
       failures
     );
     requireIncludes(
       desktopEmbeddingPr,
-      "if: github.event_name == 'pull_request'",
-      'PR desktop embedding regression job must run on pull_request.',
+      'name: Desktop E2E Embedding Regression',
+      'PR desktop embedding E2E status must prove embedding regressions.',
       failures
     );
     for (const group of [
@@ -772,10 +817,30 @@ export function validateWorkflowContracts(source) {
     requireDesktopEmbeddingJobContracts(desktopEmbeddingMain, 'Main', failures);
   }
 
+  const prepareWeb = extractJob(source, 'prepare-web');
+  if (!prepareWeb) {
+    failures.push('Missing prepare-web job.');
+  } else {
+    requireRiskLabelGate(prepareWeb, 'Build Web App', ['ci:web-e2e'], failures);
+  }
+
+  const prepareDesktop = extractJob(source, 'prepare-desktop');
+  if (!prepareDesktop) {
+    failures.push('Missing prepare-desktop job.');
+  } else {
+    requireRiskLabelGate(
+      prepareDesktop,
+      'Build Desktop App',
+      ['ci:desktop', 'ci:embedding'],
+      failures
+    );
+  }
+
   const unitCoverage = extractJob(source, 'unit_coverage');
   if (!unitCoverage) {
     failures.push('Missing unit_coverage job.');
   } else {
+    requireRiskLabelGate(unitCoverage, 'Checks (unit-coverage)', ['ci:coverage'], failures);
     requireNumericMatchAtLeast(
       extractJobHeader(unitCoverage),
       /^    timeout-minutes:\s*(\d+)\s*$/m,
@@ -938,7 +1003,70 @@ export function validateWorkflowContracts(source) {
   if (!browserTests) {
     failures.push('Missing browser-tests job.');
   } else {
+    requireRiskLabelGate(browserTests, 'Browser Vitest', ['ci:browser'], failures);
     requirePreprovisionedPlaywrightJobContracts(browserTests, 'Browser Vitest', failures);
+  }
+
+  const prSentinel = extractJob(source, 'pr-sentinel');
+  if (!prSentinel) {
+    failures.push('Missing pr-sentinel job.');
+  } else {
+    requireIncludes(
+      prSentinel,
+      'name: PR Sentinel',
+      'PR Sentinel status name must stay stable.',
+      failures
+    );
+    requireIncludes(
+      prSentinel,
+      "if: github.event_name == 'pull_request'",
+      'PR Sentinel must only run on pull_request.',
+      failures
+    );
+    requireIncludes(
+      prSentinel,
+      'timeout-minutes: 10',
+      'PR Sentinel must keep a tight ten minute timeout.',
+      failures
+    );
+    requireIncludes(
+      prSentinel,
+      'uses: actions/checkout@v6',
+      'PR Sentinel must use actions/checkout@v6.',
+      failures
+    );
+    requireIncludes(
+      prSentinel,
+      'fetch-depth: 0',
+      'PR Sentinel checkout must fetch full history for proof ancestry checks.',
+      failures
+    );
+    requireIncludes(
+      prSentinel,
+      'uses: ./.github/actions/setup-monorepo',
+      'PR Sentinel must use the shared monorepo setup action.',
+      failures
+    );
+    requireIncludes(
+      prSentinel,
+      'pnpm ci:verify-proof',
+      'PR Sentinel must verify the local proof manifest.',
+      failures
+    );
+    requireIncludes(
+      prSentinel,
+      'github.event.pull_request.labels.*.name',
+      'PR Sentinel must pass pull request labels to the proof verifier.',
+      failures
+    );
+    for (const outputName of ['required-labels', 'expanded-lanes', 'tested-head-sha']) {
+      requireIncludes(
+        prSentinel,
+        outputName,
+        `PR Sentinel must write the ${outputName} output.`,
+        failures
+      );
+    }
   }
 
   const requiredPrGate = extractJob(source, 'required-pr-gate');
@@ -952,6 +1080,7 @@ export function validateWorkflowContracts(source) {
       failures
     );
     for (const jobName of [
+      'pr-sentinel',
       'checks',
       'unit_coverage',
       'browser-tests',
@@ -973,8 +1102,32 @@ export function validateWorkflowContracts(source) {
     }
     requireIncludes(
       requiredPrGate,
+      "needs['pr-sentinel']?.result !== 'success'",
+      'Required PR Gate must require PR Sentinel success.',
+      failures
+    );
+    requireIncludes(
+      requiredPrGate,
+      'REQUIRED_LABELS: ${{ needs.pr-sentinel.outputs.required-labels }}',
+      'Required PR Gate must read selected labels from PR Sentinel outputs.',
+      failures
+    );
+    requireIncludes(
+      requiredPrGate,
+      "jobByLabel.get(label)",
+      'Required PR Gate must map selected risk labels to matching cloud jobs.',
+      failures
+    );
+    requireIncludes(
+      requiredPrGate,
+      "job.result === 'failure' || job.result === 'cancelled' || job.result === 'timed_out'",
+      'Required PR Gate must fail failed, cancelled, and timed out optional jobs.',
+      failures
+    );
+    requireNotIncludes(
+      requiredPrGate,
       "job.result !== 'success'",
-      'Required PR Gate must fail unless every dependency succeeds.',
+      'Required PR Gate must not require unselected skipped jobs to succeed.',
       failures
     );
   }
