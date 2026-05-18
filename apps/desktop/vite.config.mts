@@ -9,6 +9,7 @@ import {
   getDatabaseOptimizeDepsInclude,
   getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
+  getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
   resolveAssistantVendorChunk,
 } from '@brainstrike/build-utils';
@@ -63,18 +64,17 @@ export default defineConfig({
       presets: [reactCompilerBabelPreset],
     }),
     tailwindcss(),
-    ...(wasmPath
-      ? [
-          viteStaticCopy({
-            targets: [
-              {
-                src: wasmPath,
-                dest: 'assets',
-              },
-            ],
-          }),
-        ]
-      : []),
+    viteStaticCopy({
+      targets: [
+        // PGlite WASM (existing).
+        ...(wasmPath ? [{ src: wasmPath, dest: 'assets' }] : []),
+        // Tree-sitter grammar files (Phase 4 of #998). Vendored under
+        // packages/chunking-worker/grammars/, copied to dist/renderer/
+        // assets/grammars/. The chunking worker fetches them at runtime
+        // via `fetch('/assets/grammars/<lang>.wasm')`.
+        ...getTreeSitterGrammarCopyTargets(__dirname),
+      ],
+    }),
   ],
   build: {
     outDir: 'dist/renderer',

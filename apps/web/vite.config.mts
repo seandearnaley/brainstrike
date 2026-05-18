@@ -35,6 +35,7 @@ const {
   getDatabaseOptimizeDepsInclude,
   getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
+  getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
   resolveAssistantVendorChunk,
 } = await import('@brainstrike/build-utils');
@@ -93,18 +94,18 @@ export default defineConfig({
       presets: [reactCompilerBabelPreset],
     }),
     tailwindcss(), // Automatically finds and uses the root tailwind.config.js
-    ...(wasmPath
-      ? [
-          viteStaticCopy({
-            targets: [
-              {
-                src: wasmPath,
-                dest: 'assets',
-              },
-            ],
-          }),
-        ]
-      : []),
+    viteStaticCopy({
+      targets: [
+        // PGlite WASM (existing). Conditionally included via spread so the
+        // build doesn't fail when pglite isn't yet built.
+        ...(wasmPath ? [{ src: wasmPath, dest: 'assets' }] : []),
+        // Tree-sitter grammar files (Phase 4 of #998). Vendored under
+        // packages/chunking-worker/grammars/, copied to dist/assets/grammars/.
+        // The chunking worker fetches them at runtime via
+        // `fetch('/assets/grammars/<lang>.wasm')`.
+        ...getTreeSitterGrammarCopyTargets(__dirname),
+      ],
+    }),
     // Conditionally configure Codecov plugin
     ...(process.env['CODECOV_TOKEN']
       ? [
