@@ -149,19 +149,47 @@ const PYTHON_CORPUS: { readonly name: string; readonly source: string }[] = [
 
 /**
  * Find all top-level function/class/decorated definition boundary
- * positions in a source file using tree-sitter as the ground truth.
+ * positions in Python source via a regex scan — INDEPENDENT of tree-sitter.
+ *
+ * P2 fix from #1003 review: the previous implementation used tree-sitter
+ * to find boundaries AND to extract chunks, making the alignment check
+ * tautologically true. A regex-based boundary source breaks the cycle:
+ * the test now verifies tree-sitter's chunk starts match what a simple
+ * Python convention scanner would identify as top-level definitions.
+ *
+ * Rules encoded:
+ *  - `def NAME` / `async def NAME` / `class NAME` at column 0 is a boundary
+ *  - `@decorator` lines at column 0 are part of the next def/class chunk;
+ *    the boundary is the FIRST decorator's start (so decorated chunks
+ *    include their decorators)
+ *  - Anything else at column 0 (imports, module-level code, etc.) is NOT
+ *    a chunk boundary and clears any pending decorator state
  */
-async function findTopLevelBoundaries(source: string): Promise<Set<number>> {
-  const adapter = treeSitterAdapter('python');
-  const root = await adapter.parse(source, baseOptions);
-  const children = Array.isArray((root as { children?: AstNode[] }).children)
-    ? (root as { children: AstNode[] }).children
-    : [];
+function findTopLevelBoundaries(source: string): Set<number> {
   const boundaries = new Set<number>();
-  for (const child of children) {
-    if (typeof child.start === 'number') {
-      boundaries.add(child.start);
+  const lines = source.split('\n');
+  let offset = 0;
+  let pendingDecoratorStart: number | null = null;
+
+  for (const line of lines) {
+    const isDecoratorAtCol0 = line.startsWith('@');
+    const isDefOrClassAtCol0 =
+      line.startsWith('def ') || line.startsWith('async def ') || line.startsWith('class ');
+    const isCol0NonBlankNonContinuation =
+      line.length > 0 && !line.startsWith(' ') && !line.startsWith('\t');
+
+    if (isDecoratorAtCol0 && pendingDecoratorStart === null) {
+      pendingDecoratorStart = offset;
+    } else if (isDefOrClassAtCol0) {
+      boundaries.add(pendingDecoratorStart ?? offset);
+      pendingDecoratorStart = null;
+    } else if (isCol0NonBlankNonContinuation && !isDecoratorAtCol0) {
+      // Some other column-0 construct (import, assignment, etc.) — clear
+      // any pending decorator state. Blank/indented lines don't reset.
+      pendingDecoratorStart = null;
     }
+
+    offset += line.length + 1; // +1 for the newline
   }
   return boundaries;
 }
@@ -207,7 +235,7 @@ describe('tree-sitter Python differential parity (Phase 6)', () => {
     let aligned = 0;
     let total = 0;
     for (const fixture of PYTHON_CORPUS) {
-      const boundaries = await findTopLevelBoundaries(fixture.source);
+      const boundaries = findTopLevelBoundaries(fixture.source);
       if (boundaries.size === 0) {
         // No top-level definitions (e.g., imports-only) — skip; the
         // ratio for zero-chunk inputs is undefined.
@@ -236,7 +264,7 @@ describe('tree-sitter Python differential parity (Phase 6)', () => {
     // results would be function-aligned".
     const concatenated = PYTHON_CORPUS.map((f) => f.source).join('\n\n');
 
-    const boundaries = await findTopLevelBoundaries(concatenated);
+    const boundaries = findTopLevelBoundaries(concatenated);
     expect(boundaries.size).toBeGreaterThan(10); // sanity: ≥10 top-level defs
 
     const tsStarts = await treeSitterChunkStarts(concatenated);
@@ -278,7 +306,7 @@ describe('tree-sitter Python differential parity (Phase 6)', () => {
     // either another boundary start (start of the NEXT definition) or
     // the end of the file.
     const concatenated = PYTHON_CORPUS.map((f) => f.source).join('\n\n');
-    const boundaries = await findTopLevelBoundaries(concatenated);
+    const boundaries = findTopLevelBoundaries(concatenated);
 
     const adapter = treeSitterAdapter('python');
     const root = await adapter.parse(concatenated, baseOptions);
