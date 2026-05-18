@@ -193,7 +193,7 @@ test('verifyProof rejects stale command definitions', async () => {
     if (
       command === 'git' &&
       args.join(' ') ===
-        `diff --name-only --diff-filter=ACMRTUXB ${baseSha} ${headSha}`
+        `diff --name-only --diff-filter=ACDMRTUXB ${baseSha} ${headSha}`
     ) {
       return 'apps/docs/docs/development/local-ci.md\n';
     }
@@ -206,7 +206,7 @@ test('verifyProof rejects stale command definitions', async () => {
     if (
       command === 'git' &&
       args.join(' ') ===
-        `diff --name-only --diff-filter=ACMRTUXB ${headSha} HEAD`
+        `diff --name-only --diff-filter=ACDMRTUXB ${headSha} HEAD`
     ) {
       return '.ci/proof/latest.json\n';
     }
@@ -250,6 +250,87 @@ test('verifyProof explains missing proof manifests', async () => {
   }
 });
 
+test('verifyProof treats deleted files after proof as stale changes', async () => {
+  const baseSha = '1111111111111111111111111111111111111111';
+  const headSha = '2222222222222222222222222222222222222222';
+  const selection = buildSelection({
+    base: 'origin/main',
+    baseSha,
+    files: ['apps/docs/docs/development/local-ci.md'],
+    head: headSha,
+    headSha,
+    mergeBase: baseSha,
+  });
+  const manifest = buildProofManifest({
+    commandResults: selection.commands.map((command) => ({
+      command: command.command,
+      durationMs: 1,
+      exitCode: 0,
+      name: command.name,
+    })),
+    generatedAt: '2026-05-18T12:00:00.000Z',
+    nodeVersion: 'v24.0.0',
+    packageManager: 'pnpm@10.33.0',
+    pnpmVersion: '10.33.0',
+    repository: 'seandearnaley/brainstrike',
+    selection,
+    testedHeadSha: headSha,
+  });
+  const tempDir = await mkdtemp(join(tmpdir(), 'brainstrike-proof-test-'));
+  const proofPath = join(tempDir, 'latest.json');
+  await writeFile(proofPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  const runner = async (command, args) => {
+    if (command === 'git' && args.join(' ') === `merge-base origin/main ${headSha}`) {
+      return `${baseSha}\n`;
+    }
+    if (command === 'git' && args.join(' ') === 'rev-parse origin/main') {
+      return `${baseSha}\n`;
+    }
+    if (command === 'git' && args.join(' ') === `rev-parse ${headSha}`) {
+      return `${headSha}\n`;
+    }
+    if (
+      command === 'git' &&
+      args.join(' ') ===
+        `diff --name-only --diff-filter=ACDMRTUXB ${baseSha} ${headSha}`
+    ) {
+      return 'apps/docs/docs/development/local-ci.md\n';
+    }
+    if (
+      command === 'git' &&
+      args.join(' ') === `merge-base --is-ancestor ${headSha} HEAD`
+    ) {
+      return '';
+    }
+    if (
+      command === 'git' &&
+      args.join(' ') ===
+        `diff --name-only --diff-filter=ACDMRTUXB ${headSha} HEAD`
+    ) {
+      return 'apps/web/src/deleted-route.tsx\n';
+    }
+    throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
+  };
+
+  try {
+    await assert.rejects(
+      () =>
+        verifyProof(
+          {
+            base: 'origin/main',
+            head: 'HEAD',
+            labels: '',
+            proof: proofPath,
+          },
+          runner
+        ),
+      /proof is stale: apps\/web\/src\/deleted-route\.tsx changed after testedHeadSha/
+    );
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('prove reports the failing proof command name', async () => {
   const baseSha = '1111111111111111111111111111111111111111';
   const headSha = '2222222222222222222222222222222222222222';
@@ -272,7 +353,7 @@ test('prove reports the failing proof command name', async () => {
     if (
       command === 'git' &&
       args.join(' ') ===
-        `diff --name-only --diff-filter=ACMRTUXB ${baseSha} HEAD`
+        `diff --name-only --diff-filter=ACDMRTUXB ${baseSha} HEAD`
     ) {
       return 'apps/docs/docs/development/local-ci.md\n';
     }

@@ -10,6 +10,8 @@ import { splitLines } from './ci-script-utils.mjs';
 
 const execFileAsync = promisify(execFile);
 
+export const CI_DIFF_FILTER = 'ACDMRTUXB';
+
 const BASELINE_COMMANDS = [
   { name: 'lint-ci', command: 'pnpm lint:ci', requiredFor: ['baseline'] },
   { name: 'type-check', command: 'pnpm type-check', requiredFor: ['baseline'] },
@@ -185,7 +187,7 @@ export async function collectGitSelection(options, runner = defaultRunner) {
     await runner('git', [
       'diff',
       '--name-only',
-      '--diff-filter=ACMRTUXB',
+      `--diff-filter=${CI_DIFF_FILTER}`,
       mergeBase,
       options.head,
     ])

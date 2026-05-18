@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   buildSelection,
+  collectGitSelection,
   parseSelectArgs,
   renderSelectionJson,
 } from '../ci-select.mjs';
@@ -69,6 +70,47 @@ test('buildSelection rejects unsafe merge-base placeholders', () => {
         mergeBase: 'main;echo unsafe',
       }),
     /mergeBase must be a 40-character git SHA/
+  );
+});
+
+test('collectGitSelection includes deleted files in risk selection', async () => {
+  const commands = [];
+  const runner = async (command, args) => {
+    commands.push([command, args]);
+    if (command === 'git' && args.join(' ') === 'merge-base origin/main HEAD') {
+      return '1111111111111111111111111111111111111111\n';
+    }
+    if (command === 'git' && args.join(' ') === 'rev-parse origin/main') {
+      return '1111111111111111111111111111111111111111\n';
+    }
+    if (command === 'git' && args.join(' ') === 'rev-parse HEAD') {
+      return '2222222222222222222222222222222222222222\n';
+    }
+    if (
+      command === 'git' &&
+      args.join(' ') ===
+        'diff --name-only --diff-filter=ACDMRTUXB 1111111111111111111111111111111111111111 HEAD'
+    ) {
+      return 'apps/web/src/deleted-route.tsx\n';
+    }
+    throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
+  };
+
+  const selection = await collectGitSelection(
+    { base: 'origin/main', head: 'HEAD' },
+    runner
+  );
+
+  assert.deepEqual(selection.files, ['apps/web/src/deleted-route.tsx']);
+  assert.deepEqual(selection.lanes, ['ci:web-e2e', 'ci:coverage']);
+  assert.equal(
+    commands.some(
+      ([command, args]) =>
+        command === 'git' &&
+        args.join(' ') ===
+          'diff --name-only --diff-filter=ACDMRTUXB 1111111111111111111111111111111111111111 HEAD'
+    ),
+    true
   );
 });
 

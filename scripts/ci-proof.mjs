@@ -4,7 +4,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { promisify } from 'node:util';
 
-import { collectGitSelection, renderSelectionJson } from './ci-select.mjs';
+import {
+  CI_DIFF_FILTER,
+  collectGitSelection,
+  renderSelectionJson,
+} from './ci-select.mjs';
 import { splitLines } from './ci-script-utils.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -477,7 +481,7 @@ export async function verifyProof(options, runner = defaultRunner) {
     await runner('git', [
       'diff',
       '--name-only',
-      '--diff-filter=ACMRTUXB',
+      `--diff-filter=${CI_DIFF_FILTER}`,
       manifest.testedHeadSha,
       options.head,
     ])
