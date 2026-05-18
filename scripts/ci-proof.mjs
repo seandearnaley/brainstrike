@@ -71,19 +71,18 @@ export async function defaultRunner(command, args = [], options = {}) {
   return stdout;
 }
 
-function parseMode(args) {
-  const invokedName = process.argv[1] ?? '';
+function parseMode(args, invokedName) {
+  const [mode, ...rest] = args;
+  if (['prove', 'verify-proof'].includes(mode)) {
+    return { mode, rest };
+  }
   if (invokedName.endsWith('ci-prove.mjs')) {
     return { mode: 'prove', rest: args };
   }
   if (invokedName.endsWith('ci-verify-proof.mjs')) {
     return { mode: 'verify-proof', rest: args };
   }
-  const [mode, ...rest] = args;
-  if (!['prove', 'verify-proof'].includes(mode)) {
-    throw new Error('mode must be prove or verify-proof');
-  }
-  return { mode, rest };
+  throw new Error('mode must be prove or verify-proof');
 }
 
 function parseFlags(args, mode) {
@@ -113,8 +112,11 @@ function parseFlags(args, mode) {
   return options;
 }
 
-export function parseProofArgs(args = process.argv.slice(2)) {
-  const { mode, rest } = parseMode(args);
+export function parseProofArgs(
+  args = process.argv.slice(2),
+  invokedName = process.argv[1] ?? ''
+) {
+  const { mode, rest } = parseMode(args, invokedName);
   return parseFlags(rest, mode);
 }
 
@@ -473,12 +475,12 @@ export async function verifyProof(options, runner = defaultRunner) {
   );
   failures.push(...verifyProofTipDiff(changedAfterProof));
 
-  if (options['github-output']) {
-    await appendGithubOutput(options['github-output'], manifest);
-  }
-
   if (failures.length > 0) {
     throw new Error(failures.join('\n'));
+  }
+
+  if (options['github-output']) {
+    await appendGithubOutput(options['github-output'], manifest);
   }
 
   return manifest;

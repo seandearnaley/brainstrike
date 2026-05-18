@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -26,6 +26,16 @@ test('parseProofArgs requires known mode', () => {
 
 test('parseProofArgs accepts an empty labels value for PRs without labels', () => {
   assert.deepEqual(parseProofArgs(['verify-proof', '--labels', '']), {
+    base: 'origin/main',
+    head: 'HEAD',
+    labels: '',
+    mode: 'verify-proof',
+    proof: '.ci/proof/latest.json',
+  });
+});
+
+test('parseProofArgs explicit mode is independent of invoked filename', () => {
+  assert.deepEqual(parseProofArgs(['verify-proof'], '/tmp/ci-prove.mjs'), {
     base: 'origin/main',
     head: 'HEAD',
     labels: '',
@@ -168,6 +178,7 @@ test('verifyProof rejects stale command definitions', async () => {
   });
   const tempDir = await mkdtemp(join(tmpdir(), 'brainstrike-proof-test-'));
   const proofPath = join(tempDir, 'latest.json');
+  const githubOutputPath = join(tempDir, 'github-output.txt');
   await writeFile(proofPath, `${JSON.stringify(manifest, null, 2)}\n`);
   const runner = async (command, args) => {
     if (command === 'git' && args.join(' ') === `merge-base origin/main ${headSha}`) {
@@ -206,11 +217,20 @@ test('verifyProof rejects stale command definitions', async () => {
     await assert.rejects(
       () =>
         verifyProof(
-          { base: 'origin/main', head: 'HEAD', labels: '', proof: proofPath },
+          {
+            base: 'origin/main',
+            'github-output': githubOutputPath,
+            head: 'HEAD',
+            labels: '',
+            proof: proofPath,
+          },
           runner
         ),
       /selection\.commands\[0\]\.command differs/
     );
+    await assert.rejects(() => readFile(githubOutputPath, 'utf8'), {
+      code: 'ENOENT',
+    });
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
