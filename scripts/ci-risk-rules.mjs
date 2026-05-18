@@ -16,6 +16,8 @@ export const EXPANDED_FULL_LANES = [
 ];
 
 const FULL_PATTERNS = [
+  // CI and repo-tooling edits intentionally take the conservative all-lanes
+  // route. Narrower carve-outs should be based on observed false positives.
   /^\.github\//,
   /^scripts\//,
   /^package\.json$/,

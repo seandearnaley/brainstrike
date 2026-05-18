@@ -1128,8 +1128,20 @@ export function validateWorkflowContracts(source) {
     }
     requireIncludes(
       requiredPrGate,
-      "needs['pr-sentinel']?.result !== 'success'",
+      "const alwaysRequiredJobs = ['pr-sentinel', 'checks'];",
+      'Required PR Gate must define always-required PR jobs.',
+      failures
+    );
+    requireIncludes(
+      requiredPrGate,
+      "if (needs[jobName]?.result !== 'success')",
       'Required PR Gate must require PR Sentinel success.',
+      failures
+    );
+    requireIncludes(
+      requiredPrGate,
+      "'checks'",
+      'Required PR Gate must require static checks success.',
       failures
     );
     requireIncludes(
@@ -1160,7 +1172,7 @@ export function validateWorkflowContracts(source) {
     }
     requireIncludes(
       requiredPrGate,
-      "needs[jobName]?.result !== 'success'",
+      "if (needs[jobName]?.result !== 'success') {\n                failures.push(`${label} requires ${jobName}, got ${needs[jobName]?.result ?? 'missing'}`);",
       'Required PR Gate must fail when a selected risk lane is skipped, failed, or cancelled.',
       failures
     );

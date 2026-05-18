@@ -516,12 +516,33 @@ test('workflow contract fails when the PR gate accepts skipped selected lanes', 
 
   const source = workflowSource.replace(
     prGate,
-    prGate.replace("needs[jobName]?.result !== 'success'", "needs[jobName]?.result === 'failure'")
+    prGate.replace(
+      "              if (needs[jobName]?.result !== 'success') {",
+      "              if (needs[jobName]?.result === 'failure') {"
+    )
   );
 
   assert.match(
     validateWorkflowContracts(source).join('\n'),
     /Required PR Gate must fail when a selected risk lane is skipped, failed, or cancelled/
+  );
+});
+
+test('workflow contract fails when the PR gate allows skipped static checks', () => {
+  const prGate = extractJob(workflowSource, 'required-pr-gate');
+  assert.ok(prGate);
+
+  const source = workflowSource.replace(
+    prGate,
+    prGate.replace(
+      "const alwaysRequiredJobs = ['pr-sentinel', 'checks'];",
+      "const alwaysRequiredJobs = ['pr-sentinel'];"
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Required PR Gate must define always-required PR jobs/
   );
 });
 

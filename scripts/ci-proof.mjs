@@ -49,7 +49,7 @@ export async function defaultRunner(command, args = [], options = {}) {
     }
     await new Promise((resolve, reject) => {
       const child = spawn(command, {
-        shell: process.env.SHELL || true,
+        shell: process.env.SHELL || '/bin/sh',
         stdio: 'inherit',
       });
       child.on('error', reject);
@@ -225,6 +225,7 @@ export function validateProofManifest(manifest) {
 }
 
 export function verifyLabels(requiredLabels, actualLabels) {
+  // Extra PR labels are allowed; every selected risk label must be present.
   const actual = new Set(actualLabels);
   return requiredLabels
     .filter((label) => !actual.has(label))
@@ -431,7 +432,15 @@ async function appendGithubOutput(path, manifest) {
 
 export async function verifyProof(options, runner = defaultRunner) {
   const proofPath = options.proof ?? DEFAULT_OPTIONS.proof;
-  const manifest = JSON.parse(await readFile(proofPath, 'utf8'));
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(proofPath, 'utf8'));
+  } catch (cause) {
+    throw new Error(
+      `could not read proof manifest at ${proofPath}; did you run "pnpm ci:prove"?`,
+      { cause }
+    );
+  }
   const failures = validateProofManifest(manifest);
 
   if (failures.length === 0) {

@@ -236,6 +236,20 @@ test('verifyProof rejects stale command definitions', async () => {
   }
 });
 
+test('verifyProof explains missing proof manifests', async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), 'brainstrike-proof-test-'));
+  const proofPath = join(tempDir, 'missing.json');
+
+  try {
+    await assert.rejects(
+      () => verifyProof({ base: 'origin/main', head: 'HEAD', labels: '', proof: proofPath }),
+      /could not read proof manifest.*pnpm ci:prove/
+    );
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('prove reports the failing proof command name', async () => {
   const baseSha = '1111111111111111111111111111111111111111';
   const headSha = '2222222222222222222222222222222222222222';
