@@ -49,8 +49,10 @@ export default defineConfig({
           env: {
             TEST_PGLITE_MOCK: 'true',
           },
-          pool: 'threads',
-          // Vitest 4: use maxWorkers: 1 instead of poolOptions.threads.singleThread
+          // PGlite coverage runs can leave the thread pool alive after all
+          // assertions pass. Forks isolate those native resources and exit
+          // cleanly under the full repository gate.
+          pool: 'forks',
           maxWorkers: 1,
           hookTimeout: 10_000,
           testTimeout: 10_000,

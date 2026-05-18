@@ -19,6 +19,12 @@ Playwright:
 - Run non interactively.
 - Prefer role/text/data-testid selectors over raw CSS.
 
+Agent DevTools Debugging:
+- For local, agent-driven Electron renderer debugging, use:
+  `pnpm --filter @brainstrike/desktop dev:agent-debug`
+- This is opt-in only. Do not add `--remote-debugging-port` to default desktop E2E.
+- Main process debugging remains separate via Electron `--inspect`.
+
 ---
 
 ## 5. EMBEDDING ARCHITECTURE (CRITICAL)
