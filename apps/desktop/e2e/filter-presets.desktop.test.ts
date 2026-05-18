@@ -1,4 +1,4 @@
-import { FILE_EXPLORER_STORAGE_KEY } from '@brainstrike/file-explorer';
+import { FILE_EXPLORER_STORAGE_KEY } from '@brainstrike/file-explorer/testing';
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { getContextExplorerLeftPanel } from './utils/context-explorer-locators';
@@ -249,7 +249,19 @@ async function waitForPresetSelectionPersisted(
             const liveState = asRecord(store?.getState?.());
             const livePresetId = readStringField(liveState, 'viewFilterPresetId');
             const currentFolderId = readStringField(liveState, 'currentFolderId');
-            const persistOptions = store?.persist?.getOptions?.();
+            const persistApi = store?.persist;
+            if (typeof persistApi?.getOptions !== 'function') {
+              return {
+                currentFolderId,
+                error: 'File explorer persist getOptions API is unavailable.',
+                folderPresetId: null,
+                livePresetId,
+                ok: false,
+                topLevelPresetId: null,
+              };
+            }
+
+            const persistOptions = persistApi.getOptions();
             const storage = persistOptions?.storage;
 
             if (!currentFolderId) {
