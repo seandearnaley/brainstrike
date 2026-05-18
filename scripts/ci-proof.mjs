@@ -1,9 +1,10 @@
 import { execFile, spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, isAbsolute, relative } from 'node:path';
 import { promisify } from 'node:util';
 
+import { normalizePath } from './ci-risk-rules.mjs';
 import {
   CI_DIFF_FILTER,
   collectGitSelection,
@@ -19,8 +20,6 @@ const DEFAULT_OPTIONS = {
   labels: '',
   proof: '.ci/proof/latest.json',
 };
-
-const PROOF_PATH = DEFAULT_OPTIONS.proof;
 
 function isGitSha(value) {
   return typeof value === 'string' && /^[0-9a-f]{40}$/i.test(value);
@@ -53,7 +52,7 @@ export async function defaultRunner(command, args = [], options = {}) {
     }
     await new Promise((resolve, reject) => {
       const child = spawn(command, {
-        shell: process.env.SHELL || '/bin/sh',
+        shell: '/bin/sh',
         stdio: 'inherit',
       });
       child.on('error', reject);
@@ -236,9 +235,18 @@ export function verifyLabels(requiredLabels, actualLabels) {
     .map((label) => `missing required PR label ${label}`);
 }
 
-export function verifyProofTipDiff(files) {
+function proofPathCandidates(proofPath) {
+  const candidates = new Set([normalizePath(proofPath)]);
+  if (isAbsolute(proofPath)) {
+    candidates.add(normalizePath(relative(process.cwd(), proofPath)));
+  }
+  return candidates;
+}
+
+export function verifyProofTipDiff(files, proofPath = DEFAULT_OPTIONS.proof) {
+  const allowedProofPaths = proofPathCandidates(proofPath);
   return files
-    .filter((filePath) => filePath !== PROOF_PATH)
+    .filter((filePath) => !allowedProofPaths.has(normalizePath(filePath)))
     .map((filePath) => `proof is stale: ${filePath} changed after testedHeadSha`);
 }
 
@@ -486,7 +494,7 @@ export async function verifyProof(options, runner = defaultRunner) {
       options.head,
     ])
   );
-  failures.push(...verifyProofTipDiff(changedAfterProof));
+  failures.push(...verifyProofTipDiff(changedAfterProof, proofPath));
 
   if (failures.length > 0) {
     throw new Error(failures.join('\n'));

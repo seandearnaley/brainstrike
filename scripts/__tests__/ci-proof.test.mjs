@@ -144,6 +144,17 @@ test('verifyProofTipDiff only allows the proof manifest after tested head', () =
   );
 });
 
+test('verifyProofTipDiff allows custom proof manifest paths', () => {
+  assert.deepEqual(
+    verifyProofTipDiff(['custom/proof.json'], 'custom/proof.json'),
+    []
+  );
+  assert.deepEqual(
+    verifyProofTipDiff(['custom/proof.json', 'src/app.ts'], 'custom/proof.json'),
+    ['proof is stale: src/app.ts changed after testedHeadSha']
+  );
+});
+
 test('verifyProof rejects stale command definitions', async () => {
   const baseSha = '1111111111111111111111111111111111111111';
   const headSha = '2222222222222222222222222222222222222222';
