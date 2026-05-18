@@ -929,10 +929,12 @@ function sortJsonValue(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map((item) => sortJsonValue(item));
   }
+  // Relational operators are significantly faster than localeCompare for ASCII strings
+  // which is exactly what object keys are in 99% of these payloads
   return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, nested]) => [key, sortJsonValue(nested)])
+    Object.keys(value)
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+      .map((key) => [key, sortJsonValue((value as Record<string, unknown>)[key])])
   );
 }
 
