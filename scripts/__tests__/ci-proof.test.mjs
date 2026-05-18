@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   buildProofManifest,
+  defaultRunner,
   normalizeRepositoryIdentifier,
   parseProofArgs,
   prove,
@@ -148,5 +149,12 @@ test('prove reports the failing proof command name', async () => {
   await assert.rejects(
     () => prove({ base: 'origin/main', head: 'HEAD' }, runner),
     /proof command "lint-ci" failed: exit 1/
+  );
+});
+
+test('defaultRunner rejects shell args before dropping them', async () => {
+  await assert.rejects(
+    () => defaultRunner('node', ['--version'], { shell: true }),
+    /args must be empty when shell is true/
   );
 });

@@ -5,6 +5,7 @@ import { dirname } from 'node:path';
 import { promisify } from 'node:util';
 
 import { collectGitSelection, renderSelectionJson } from './ci-select.mjs';
+import { splitLines } from './ci-script-utils.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -15,8 +16,6 @@ const DEFAULT_OPTIONS = {
   proof: '.ci/proof/latest.json',
 };
 
-const EXPECTED_PACKAGE_MANAGER = readExpectedPackageManager();
-const EXPECTED_PNPM_VERSION = parsePnpmVersion(EXPECTED_PACKAGE_MANAGER);
 const PROOF_PATH = '.ci/proof/latest.json';
 
 function readExpectedPackageManager() {
@@ -37,8 +36,11 @@ function parsePnpmVersion(packageManager) {
   return match[1];
 }
 
-async function defaultRunner(command, args = [], options = {}) {
+export async function defaultRunner(command, args = [], options = {}) {
   if (options.shell === true) {
+    if (args.length > 0) {
+      throw new Error('args must be empty when shell is true');
+    }
     await new Promise((resolve, reject) => {
       const child = spawn(command, {
         shell: process.env.SHELL || true,
@@ -152,11 +154,13 @@ export function validateProofManifest(manifest) {
   if (typeof manifest.repository !== 'string') {
     failures.push('repository must be a string');
   }
-  if (manifest.packageManager !== EXPECTED_PACKAGE_MANAGER) {
-    failures.push(`packageManager must be ${EXPECTED_PACKAGE_MANAGER}`);
+  const expectedPackageManager = readExpectedPackageManager();
+  const expectedPnpmVersion = parsePnpmVersion(expectedPackageManager);
+  if (manifest.packageManager !== expectedPackageManager) {
+    failures.push(`packageManager must be ${expectedPackageManager}`);
   }
-  if (manifest.pnpmVersion !== EXPECTED_PNPM_VERSION) {
-    failures.push(`pnpmVersion must be ${EXPECTED_PNPM_VERSION}`);
+  if (manifest.pnpmVersion !== expectedPnpmVersion) {
+    failures.push(`pnpmVersion must be ${expectedPnpmVersion}`);
   }
   if (typeof manifest.testedHeadSha !== 'string') {
     failures.push('testedHeadSha must be a string');
@@ -225,13 +229,6 @@ export function verifyProofTipDiff(files) {
     .map((filePath) => `proof is stale: ${filePath} changed after testedHeadSha`);
 }
 
-function splitLines(stdout) {
-  return stdout
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
 function splitLabels(labels) {
   return labels
     .split(',')
@@ -295,12 +292,14 @@ export async function prove(options, runner = defaultRunner) {
   await assertCleanWorktree(runner);
   const selection = await collectGitSelection(options, runner);
   const packageManager = await readPackageManager();
-  if (packageManager !== EXPECTED_PACKAGE_MANAGER) {
-    throw new Error(`packageManager must be ${EXPECTED_PACKAGE_MANAGER}`);
+  const expectedPackageManager = readExpectedPackageManager();
+  const expectedPnpmVersion = parsePnpmVersion(expectedPackageManager);
+  if (packageManager !== expectedPackageManager) {
+    throw new Error(`packageManager must be ${expectedPackageManager}`);
   }
   const pnpmVersion = (await runner('pnpm', ['--version'])).trim();
-  if (pnpmVersion !== EXPECTED_PNPM_VERSION) {
-    throw new Error(`pnpm --version must be ${EXPECTED_PNPM_VERSION}`);
+  if (pnpmVersion !== expectedPnpmVersion) {
+    throw new Error(`pnpm --version must be ${expectedPnpmVersion}`);
   }
   const repository = await readRepositoryIdentifier(runner);
 

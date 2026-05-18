@@ -52,6 +52,12 @@ test('web app changes select web e2e and coverage lanes', () => {
   ]);
 });
 
+test('new runtime app changes fall back to coverage', () => {
+  assert.deepEqual(selectRiskLanesForFiles(['apps/new-app/src/index.ts']), [
+    'ci:coverage',
+  ]);
+});
+
 test('risk labels match lane names', () => {
   assert.deepEqual(toRiskLabels(['ci:browser', 'ci:desktop']), [
     'ci:browser',

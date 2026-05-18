@@ -68,6 +68,8 @@ const COVERAGE_PATTERNS = [
   /^scripts\/merge-coverage\.js$/,
 ];
 
+const RUNTIME_FALLBACK_COVERAGE_PATTERNS = [/^apps\/(?!docs\/)/, /^packages\//];
+
 const LANE_PATTERNS = new Map([
   ['ci:browser', BROWSER_PATTERNS],
   ['ci:web-e2e', WEB_E2E_PATTERNS],
@@ -105,6 +107,12 @@ export function selectRiskLanesForFiles(files) {
       if (matchesAny(filePath, patterns)) {
         selected.add(lane);
       }
+    }
+    if (
+      !selected.has('ci:coverage') &&
+      matchesAny(filePath, RUNTIME_FALLBACK_COVERAGE_PATTERNS)
+    ) {
+      selected.add('ci:coverage');
     }
   }
 

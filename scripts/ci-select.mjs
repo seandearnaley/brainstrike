@@ -6,6 +6,7 @@ import {
   selectRiskLanesForFiles,
   toRiskLabels,
 } from './ci-risk-rules.mjs';
+import { splitLines } from './ci-script-utils.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -168,13 +169,6 @@ export function renderSelectionJson(selection) {
     null,
     2
   )}\n`;
-}
-
-function splitLines(stdout) {
-  return stdout
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
 }
 
 export async function collectGitSelection(options, runner = defaultRunner) {
