@@ -27,7 +27,7 @@ import {
   flattenTreeRecursive,
   getDescendantIds,
 } from './tree-utils';
-import type { CheckboxState, TreeNode, TreeTableProps } from './types';
+import type { CheckboxState, TreeNode, TreeTableProps, TreeTableRowProps } from './types';
 import { type UseTreeKeyboardOptions, useTreeKeyboard } from './use-tree-keyboard';
 import { useTreeTableHandlers } from './use-tree-table-handlers';
 
@@ -52,6 +52,25 @@ const MIN_FALLBACK_VIRTUAL_ROWS = 1;
 // Each inner map is fully rebuilt from currently rendered rows on fallback miss,
 // and invalidated on displayed-row updates to bound stale detached row refs.
 const rowFallbackLookupCache = new WeakMap<HTMLElement, Map<string, HTMLTableRowElement>>();
+
+interface EmptyVirtualRowMeasureProps {
+  measureRef?: never;
+}
+
+type VirtualRowMeasureProps<T> =
+  | Pick<TreeTableRowProps<T>, 'measureRef'>
+  | EmptyVirtualRowMeasureProps;
+
+function resolveVirtualRowMeasureProps<T>(
+  hasFixedRowHeight: boolean,
+  measureRow: NonNullable<TreeTableRowProps<T>['measureRef']>
+): VirtualRowMeasureProps<T> {
+  if (hasFixedRowHeight) {
+    return {};
+  }
+
+  return { measureRef: measureRow };
+}
 
 /**
  * Maps our SortDirection to ARIA sort values.
@@ -594,6 +613,7 @@ export function TreeTable<T>({
     });
 
   const totalRowCount = resolveTotalRowCount(rows.length, showHeader);
+  const hasFixedRowHeight = typeof rowHeight === 'number';
 
   // O(1) node lookup map — avoids O(N) nodes.find() per row
   const nodeById = React.useMemo(() => {
@@ -870,6 +890,7 @@ export function TreeTable<T>({
   );
 
   const virtualItems = isVirtualWindowing ? rowVirtualizer.getVirtualItems() : [];
+  const virtualRowMeasureProps = resolveVirtualRowMeasureProps(hasFixedRowHeight, measureRow);
   const renderedVirtualItems = resolveRenderedVirtualItems(
     isVirtualWindowing,
     virtualItems as Array<{ index: number }>,
@@ -927,7 +948,7 @@ export function TreeTable<T>({
   }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <TreeTableViewport
         className="min-w-0 overflow-auto"
         maxHeight={maxHeight}
@@ -968,7 +989,6 @@ export function TreeTable<T>({
                       insetTreeControls={insetTreeControls}
                       isFocused={keyboard.state.focusedId === row.node.id}
                       key={row.node.id}
-                      measureRef={measureRow}
                       onCheckboxChange={showCheckbox ? handleCheckboxChange : undefined}
                       onClick={handleRowClick}
                       onContextMenu={handleRowContextMenu}
@@ -978,6 +998,7 @@ export function TreeTable<T>({
                       showCheckbox={showCheckbox}
                       totalRowCount={totalRowCount}
                       virtualIndex={virtualRow.index}
+                      {...virtualRowMeasureProps}
                     />
                   );
                 })

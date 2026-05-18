@@ -1,10 +1,18 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 import { FileExplorerPage } from '../page-objects/file-explorer-page';
 import { HomePage } from '../page-objects/home-page';
+import {
+  getExpandedDirectoryCount,
+  persistCurrentExplorerStoreSnapshot,
+  restoreInlineFixture,
+} from '../utils/file-explorer-restoration';
+import { waitForAppLoad } from '../utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
 import { PERFORMANCE_THRESHOLDS } from '../utils/performance-config';
 
 test.describe('Performance: Tree Rendering', () => {
+  const restoredResizeObserverRootName = 'restored-resize-observer-test';
+
   // Create a large file tree for stress testing
   const createLargeFileTree = (depth: number, breadth: number): FileTree => {
     const tree: FileTree = {};
@@ -36,17 +44,108 @@ test.describe('Performance: Tree Rendering', () => {
     return tree;
   };
 
-  const getExpandedDirectoryCount = async (page: Page) =>
-    page.evaluate(() => {
-      const fileExplorerStore = (
-        window as Window & {
-          __brainstrike_file_explorer_provider_store__?: {
-            getState?: () => { expandedDirectoryPaths?: Set<string> };
-          };
+  const installResizeObserverTracker = async (page: Page) => {
+    await page.addInitScript(() => {
+      interface ObservedResizeTarget {
+        nodeId: string | null;
+        testId: string | null;
+        virtualIndex: string | null;
+      }
+
+      const NativeResizeObserver = window.ResizeObserver;
+      const observedTargets: ObservedResizeTarget[] = [];
+
+      class TrackingResizeObserver extends NativeResizeObserver {
+        override observe(target: Element, options?: ResizeObserverOptions): void {
+          const element = target as HTMLElement;
+          observedTargets.push({
+            nodeId: element.getAttribute('data-node-id'),
+            testId: element.getAttribute('data-testid'),
+            virtualIndex: element.getAttribute('data-index'),
+          });
+          super.observe(target, options);
         }
-      ).__brainstrike_file_explorer_provider_store__;
-      return fileExplorerStore?.getState?.().expandedDirectoryPaths?.size ?? 0;
+      }
+
+      Object.defineProperty(window, 'ResizeObserver', {
+        configurable: true,
+        writable: true,
+        value: TrackingResizeObserver,
+      });
+
+      Object.defineProperty(window, '__brainstrikeResizeObserverTargets__', {
+        configurable: true,
+        value: observedTargets,
+      });
     });
+  };
+
+  const getObservedVirtualRowCount = async (page: Page) =>
+    page.evaluate(() => {
+      const targetWindow = window as Window & {
+        __brainstrikeResizeObserverTargets__?: Array<{
+          nodeId: string | null;
+          testId: string | null;
+          virtualIndex: string | null;
+        }>;
+      };
+      return (
+        targetWindow.__brainstrikeResizeObserverTargets__?.filter(
+          (target) => target.virtualIndex !== null && target.nodeId !== null
+        ).length ?? 0
+      );
+    });
+
+  const waitForAnimationFrames = async (page: Page, frameCount = 2): Promise<void> => {
+    await page.evaluate(
+      (frames) =>
+        new Promise<void>((resolve) => {
+          let remainingFrames = frames;
+          const tick = (): void => {
+            remainingFrames -= 1;
+            if (remainingFrames <= 0) {
+              resolve();
+              return;
+            }
+            requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }),
+      frameCount
+    );
+  };
+
+  const setupDefaultPerformanceTree = async (page: Page): Promise<void> => {
+    const tree = createLargeFileTree(3, 10);
+    await mockBrowserApis(page, 'performance-test', tree);
+
+    const home = new HomePage(page);
+    await home.goto();
+  };
+
+  const setupRestoredResizeObserverTree = async (page: Page): Promise<void> => {
+    const tree = createExpandAllPerfTree(24, 10);
+    await installResizeObserverTracker(page);
+    await mockBrowserApis(page, restoredResizeObserverRootName, tree);
+
+    const home = new HomePage(page);
+    await home.goto({ waitForDatabase: false });
+  };
+
+  const waitForContainerWidth = async (
+    page: Page,
+    treeContainer: Locator,
+    expectedWidth: number
+  ): Promise<void> => {
+    await expect
+      .poll(
+        async () =>
+          treeContainer.evaluate((element) => Math.round(element.getBoundingClientRect().width)),
+        { timeout: 5000 }
+      )
+      .toBe(expectedWidth);
+    await waitForAnimationFrames(page);
+  };
 
   const removeOneExpandedDirectoryPath = async (page: Page) =>
     page.evaluate(() => {
@@ -113,17 +212,8 @@ test.describe('Performance: Tree Rendering', () => {
       return targetWindow.__brainstrikeSawExpandAllSpinner__ ?? false;
     });
 
-  test.beforeEach(async ({ page }) => {
-    // Create a moderately large tree (3 levels, ~100 total files)
-    const tree = createLargeFileTree(3, 10);
-
-    await mockBrowserApis(page, 'performance-test', tree);
-
-    const home = new HomePage(page);
-    await home.goto();
-  });
-
   test('initial tree load performance', async ({ page }) => {
+    await setupDefaultPerformanceTree(page);
     const explorer = new FileExplorerPage(page);
 
     // Start performance monitoring
@@ -153,6 +243,7 @@ test.describe('Performance: Tree Rendering', () => {
   });
 
   test('tree expansion performance', async ({ page }) => {
+    await setupDefaultPerformanceTree(page);
     const explorer = new FileExplorerPage(page);
 
     await explorer.selectRoot();
@@ -187,6 +278,7 @@ test.describe('Performance: Tree Rendering', () => {
   });
 
   test('tree scrolling performance with virtualization', async ({ page }) => {
+    await setupDefaultPerformanceTree(page);
     const explorer = new FileExplorerPage(page);
 
     await explorer.selectRoot();
@@ -241,6 +333,7 @@ test.describe('Performance: Tree Rendering', () => {
     });
 
     await mockBrowserApis(page, 'stress-test', stressTree);
+    await new HomePage(page).goto();
 
     const explorer = new FileExplorerPage(page);
 
@@ -383,10 +476,45 @@ test.describe('Performance: Tree Rendering', () => {
       },
       { path: removedPath }
     );
-    await page.waitForTimeout(100);
+    await expect(expandAllButton).toBeEnabled();
+    await waitForAnimationFrames(page);
 
     expect(await stopObservingExpandAllSpinner(page)).toBe(false);
-    await expect(expandAllButton).toBeEnabled();
+  });
+
+  test('restored fixed-height tree rows do not register row resize observers', async ({ page }) => {
+    await setupRestoredResizeObserverTree(page);
+    const tree = createExpandAllPerfTree(24, 10);
+    const explorer = new FileExplorerPage(page);
+    await explorer.selectRoot();
+
+    await page.getByTestId('expand-all-button-small').click();
+    await expect(page.getByTestId('expand-all-button-small')).toBeEnabled({ timeout: 30_000 });
+
+    const persistedSnapshot = await persistCurrentExplorerStoreSnapshot(page);
+    expect(persistedSnapshot.currentFolderId).toBe(restoredResizeObserverRootName);
+    expect(persistedSnapshot.topLevelExpandedCount).toBeGreaterThan(0);
+    expect(persistedSnapshot.folderExpandedCount).toBeGreaterThan(0);
+
+    await page.reload();
+    await waitForAppLoad(page, { waitForDatabase: false });
+    await restoreInlineFixture(page, restoredResizeObserverRootName, tree);
+
+    await expect(explorer.fileTree).toBeVisible({ timeout: 15_000 });
+    await expect.poll(() => getExpandedDirectoryCount(page)).toBeGreaterThan(0);
+
+    const treeContainer = explorer.fileTreeScrollContainer;
+    await expect(treeContainer).toBeVisible();
+    await treeContainer.evaluate((element) => {
+      element.style.width = '280px';
+    });
+    await waitForContainerWidth(page, treeContainer, 280);
+    await treeContainer.evaluate((element) => {
+      element.style.width = '420px';
+    });
+    await waitForContainerWidth(page, treeContainer, 420);
+
+    expect(await getObservedVirtualRowCount(page)).toBe(0);
   });
 
   test('cancel during expand-all leaves a valid partially expanded tree', async ({ page }) => {
