@@ -129,7 +129,13 @@ const CODE_LANGUAGE_PATTERNS: Array<{ pattern: RegExp; language: CodeLanguage }>
   { pattern: /\.(js|jsx|mjs|cjs)$/i, language: 'javascript' },
   { pattern: /\.mm$/i, language: 'cpp' },
   { pattern: /\.m$/i, language: 'cpp' },
-  { pattern: /\.py$/i, language: 'python' },
+  // P2 fix from #1002 review: .pyi (Python stub files) also count as
+  // Python source. Without this, the routing test for .pyi passes at the
+  // selectAdapter level but the chunker's supportsAst gate (in chunkCode)
+  // returns false for .pyi files because detectCodeLanguage returns null.
+  // Net effect: .pyi files would silently bypass tree-sitter even when
+  // the operator enables it.
+  { pattern: /\.pyi?$/i, language: 'python' },
   { pattern: /\.rs$/i, language: 'rust' },
   { pattern: /\.go$/i, language: 'go' },
   { pattern: /\.(java|class)$/i, language: 'java' },
