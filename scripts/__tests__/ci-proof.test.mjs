@@ -16,6 +16,16 @@ test('parseProofArgs requires known mode', () => {
   );
 });
 
+test('parseProofArgs accepts an empty labels value for PRs without labels', () => {
+  assert.deepEqual(parseProofArgs(['verify-proof', '--labels', '']), {
+    base: 'origin/main',
+    head: 'HEAD',
+    labels: '',
+    mode: 'verify-proof',
+    proof: '.ci/proof/latest.json',
+  });
+});
+
 test('buildProofManifest records successful baseline and selected commands', () => {
   const manifest = buildProofManifest({
     commandResults: [

@@ -76,7 +76,7 @@ function parseFlags(args, mode) {
       throw new Error(`${flag} can only be provided once`);
     }
     const value = args[index + 1];
-    if (!value || value.startsWith('--')) {
+    if (value === undefined || value.startsWith('--') || (value === '' && flag !== '--labels')) {
       throw new Error(`${flag} requires a value`);
     }
     seen.add(flag);
