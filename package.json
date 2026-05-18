@@ -81,6 +81,7 @@
     "check:full": "node scripts/check.mjs --full",
     "check:headless": "pnpm -s run setup:headless && pnpm -s run check",
     "ci:local": "./scripts/local-ci.sh",
+    "ci:select": "node scripts/ci-select.mjs",
     "ci:timing-summary": "node scripts/ci-timing-summary.mjs",
     "ci:turbo-diagnostics": "node scripts/turbo-run-diagnostics.mjs",
     "clean": "turbo run clean --summarize --log-order=grouped",
