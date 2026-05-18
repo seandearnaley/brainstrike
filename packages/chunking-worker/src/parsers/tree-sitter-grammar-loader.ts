@@ -60,10 +60,23 @@ async function loadGrammarBytes(language: TreeSitterLanguage): Promise<Uint8Arra
     const wasmPath = path.join(here, '..', '..', 'grammars', `${language}.wasm`);
     return new Uint8Array(await readFile(wasmPath));
   }
-  // Browser / Web Worker. Apps put grammars under /assets/grammars/.
-  const response = await fetch(`/assets/grammars/${language}.wasm`);
+  // Browser / Web Worker. Apps put grammars under <base>/assets/grammars/.
+  //
+  // Resolve relative to the worker module's OWN URL (import.meta.url) rather
+  // than using an absolute `/assets/...` path. Reasons:
+  //  - apps/web serves from the document root, so /assets/... happens to work
+  //  - apps/desktop runs under file:// with `base: './'` in vite.config; an
+  //    absolute `/assets/...` resolves to file:///assets/... — wrong path
+  //  - Vite's static-copy plugin (Phase 4) puts grammars under the same
+  //    /assets/ dir as the worker bundle. `./grammars/<lang>.wasm` relative
+  //    to a worker URL like `<base>/assets/chunking-worker-XYZ.js` resolves
+  //    correctly in BOTH environments.
+  //
+  // P1 fix (review comment on #1000): absolute path crashed Electron.
+  const grammarUrl = new URL(`./grammars/${language}.wasm`, import.meta.url).href;
+  const response = await fetch(grammarUrl);
   if (!response.ok) {
-    throw new Error(`Failed to fetch grammar for ${language}: ${response.status}`);
+    throw new Error(`Failed to fetch grammar for ${language} at ${grammarUrl}: ${response.status}`);
   }
   return new Uint8Array(await response.arrayBuffer());
 }
@@ -87,6 +100,14 @@ function initParser(): Promise<void> {
  * Get (or lazily load) the Language for a given grammar.
  * Cached per-language so the WASM instantiate cost is paid at most once
  * per process per language.
+ *
+ * P1 fix (review comment on #1000): if the underlying load REJECTS (network
+ * blip, missing asset, corrupt wasm), the rejected promise must be evicted
+ * from the cache. The original code stored the in-flight promise, never
+ * cleaned it up on failure, and every subsequent `loadLanguage('python')`
+ * returned the same rejected promise — permanently breaking Python
+ * chunking until the worker restarted. Now: on rejection, drop the entry
+ * so the next call retries cold.
  */
 export async function loadLanguage(language: TreeSitterLanguage): Promise<Language> {
   await initParser();
@@ -96,6 +117,14 @@ export async function loadLanguage(language: TreeSitterLanguage): Promise<Langua
       const bytes = await loadGrammarBytes(language);
       return Language.load(bytes);
     })();
+    cached.catch(() => {
+      // Evict failed entry so the next attempt isn't permanently poisoned.
+      // The check guards against racing entries: if another caller already
+      // replaced the cache with a new attempt, leave it alone.
+      if (languageCache.get(language) === cached) {
+        languageCache.delete(language);
+      }
+    });
     languageCache.set(language, cached);
   }
   return cached;
