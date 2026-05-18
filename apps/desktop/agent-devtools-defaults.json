@@ -1,0 +1,4 @@
+{
+  "defaultPort": 9222,
+  "mcpPackage": "chrome-devtools-mcp@0.26.0"
+}

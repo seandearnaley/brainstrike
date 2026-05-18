@@ -28,7 +28,7 @@ The launcher prints:
       "command": "npx",
       "args": [
         "-y",
-        "chrome-devtools-mcp@latest",
+        "chrome-devtools-mcp@0.26.0",
         "--browser-url=http://127.0.0.1:9222",
         "--no-usage-statistics"
       ]

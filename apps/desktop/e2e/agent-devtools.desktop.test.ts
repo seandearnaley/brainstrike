@@ -1,10 +1,11 @@
+import agentDevToolsDefaults from '../agent-devtools-defaults.json' with { type: 'json' };
 import { expect, test } from './fixtures/electron-fixture';
 
 test.describe('Agent DevTools endpoint', { tag: '@smoke' }, () => {
   test.skip(process.env['BRAINSTRIKE_E2E_AGENT_DEVTOOLS'] !== '1', 'Agent DevTools is opt-in.');
 
   test('is available only when the opt-in debug env is enabled', async ({ electronApp }) => {
-    const response = await fetch('http://127.0.0.1:9222/json/list');
+    const response = await fetch(`http://127.0.0.1:${agentDevToolsDefaults.defaultPort}/json/list`);
     expect(response.ok).toBe(true);
     const targets = (await response.json()) as Array<{
       readonly type?: string;

@@ -1,9 +1,11 @@
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import agentDevToolsDefaults from '../agent-devtools-defaults.json' with { type: 'json' };
 
-const DEFAULT_PORT = 9222;
+const DEFAULT_PORT = agentDevToolsDefaults.defaultPort;
 const POLL_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 500;
 
@@ -28,7 +30,7 @@ export function formatMcpConfig(endpoint) {
           command: 'npx',
           args: [
             '-y',
-            'chrome-devtools-mcp@latest',
+            agentDevToolsDefaults.mcpPackage,
             `--browser-url=${endpoint}`,
             '--no-usage-statistics',
           ],
@@ -40,7 +42,7 @@ export function formatMcpConfig(endpoint) {
   );
 }
 
-async function waitForEndpoint(endpoint) {
+export async function waitForEndpoint(endpoint) {
   const startedAt = Date.now();
   const url = `${endpoint}/json/version`;
   while (Date.now() - startedAt < POLL_TIMEOUT_MS) {
@@ -50,10 +52,11 @@ async function waitForEndpoint(endpoint) {
         return;
       }
     } catch {
-      await new Promise((resolve) => {
-        setTimeout(resolve, POLL_INTERVAL_MS);
-      });
+      // Connection refused or other startup network errors are expected here.
     }
+    await new Promise((resolve) => {
+      setTimeout(resolve, POLL_INTERVAL_MS);
+    });
   }
   throw new Error(`Timed out waiting for ${url}`);
 }
@@ -64,6 +67,56 @@ function spawnPnpm(args, env) {
     env,
     stdio: 'inherit',
   });
+}
+
+async function removeUserDataDir(userDataDir) {
+  try {
+    await fs.rm(userDataDir, { force: true, recursive: true });
+  } catch (error) {
+    console.warn(`Failed to remove Agent DevTools profile ${userDataDir}:`, error);
+  }
+}
+
+function isChildRunning(child) {
+  return child.exitCode === null && child.signalCode === null;
+}
+
+async function waitForChildExit(child) {
+  if (!isChildRunning(child)) {
+    return child.exitCode ?? 0;
+  }
+  const [code] = await once(child, 'exit');
+  return typeof code === 'number' ? code : 0;
+}
+
+function stopChild(child) {
+  if (isChildRunning(child)) {
+    child.kill('SIGTERM');
+  }
+}
+
+async function cleanupChildAndProfile(child, userDataDir) {
+  stopChild(child);
+  await removeUserDataDir(userDataDir);
+}
+
+function installSignalCleanup(child, userDataDir) {
+  let cleanupStarted = false;
+  const cleanup = (signal) => {
+    if (cleanupStarted) {
+      return;
+    }
+    cleanupStarted = true;
+    void cleanupChildAndProfile(child, userDataDir).finally(() => {
+      process.exit(signal === 'SIGINT' ? 130 : 143);
+    });
+  };
+  process.once('SIGINT', cleanup);
+  process.once('SIGTERM', cleanup);
+  return () => {
+    process.off('SIGINT', cleanup);
+    process.off('SIGTERM', cleanup);
+  };
 }
 
 async function main() {
@@ -88,15 +141,17 @@ async function main() {
   console.log(`Agent DevTools endpoint: ${endpoint}`);
 
   const child = spawnPnpm(['dev'], env);
-  const cleanup = () => {
-    child.kill('SIGTERM');
-  };
-  process.once('SIGINT', cleanup);
-  process.once('SIGTERM', cleanup);
-
-  await waitForEndpoint(endpoint);
-  console.log('\nMCP config:\n');
-  console.log(formatMcpConfig(endpoint));
+  const uninstallSignalCleanup = installSignalCleanup(child, userDataDir);
+  try {
+    await waitForEndpoint(endpoint);
+    console.log('\nMCP config:\n');
+    console.log(formatMcpConfig(endpoint));
+    const exitCode = await waitForChildExit(child);
+    process.exitCode = exitCode;
+  } finally {
+    uninstallSignalCleanup();
+    await cleanupChildAndProfile(child, userDataDir);
+  }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
