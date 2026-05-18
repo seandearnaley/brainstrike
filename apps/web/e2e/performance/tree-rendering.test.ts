@@ -333,6 +333,7 @@ test.describe('Performance: Tree Rendering', () => {
     });
 
     await mockBrowserApis(page, 'stress-test', stressTree);
+    await new HomePage(page).goto();
 
     const explorer = new FileExplorerPage(page);
 
