@@ -59,6 +59,7 @@ const REPETITIVE_CONTENT_UNIQUE_RATIO = 0.1;
 const CHARS_PER_TOKEN_SAMPLE_BYTES = 10_000;
 const CHARS_PER_TOKEN_MAX = 8;
 const MAX_WHITESPACE_NORMALIZED_SOURCE_CANDIDATES = 10_000;
+const MAX_WHITESPACE_NORMALIZED_ANCHORS = 64;
 
 export interface PortableChunkingResult {
   avgTokensPerChunk: number;
@@ -83,9 +84,19 @@ interface SourceRangeMatch {
   startOffset: number;
 }
 
+interface AnchoredSourceRangeMatchResult {
+  exhaustedCandidateBudget: boolean;
+  match: SourceRangeMatch | null;
+}
+
 interface SourceRangeResolution {
   fuzzyMatchedChunks: number;
   ranges: Array<SourceRange | null>;
+}
+
+interface SourceRangeAnchor {
+  chunkOffset: number;
+  text: string;
 }
 
 // File patterns that should be skipped or handled differently
@@ -414,6 +425,18 @@ function findNextNonWhitespaceOffset(content: string, startOffset: number): numb
   return offset;
 }
 
+function findPreviousNonWhitespaceOffset(content: string, endOffset: number): number {
+  let offset = endOffset - 1;
+  while (offset >= 0) {
+    const character = content[offset];
+    if (!isSourceWhitespace(character)) {
+      break;
+    }
+    offset -= 1;
+  }
+  return offset;
+}
+
 function isSourceWhitespace(character: string | undefined): boolean {
   return character === ' ' || character === '\t' || character === '\n' || character === '\r';
 }
@@ -451,6 +474,28 @@ function canSkipElidedSourceWhitespace(
   }
 
   return nextSourceOffset;
+}
+
+function canSkipElidedSourceWhitespaceBefore(
+  content: string,
+  contentOffset: number,
+  chunkChar: string | undefined
+): number | null {
+  if (!isSourceWhitespace(content[contentOffset - 1])) {
+    return null;
+  }
+
+  const previousSourceOffset = findPreviousNonWhitespaceOffset(content, contentOffset);
+  const whitespaceStartOffset = previousSourceOffset + 1;
+  if (
+    whitespaceStartOffset >= contentOffset ||
+    !sourceWhitespaceRunHasLineBreak(content, whitespaceStartOffset, contentOffset) ||
+    content[previousSourceOffset] !== chunkChar
+  ) {
+    return null;
+  }
+
+  return previousSourceOffset + 1;
 }
 
 function findSourceMatchEndOffset(
@@ -492,6 +537,132 @@ function findSourceMatchEndOffset(
   return chunkOffset === chunkContent.length ? contentOffset : null;
 }
 
+function findSourceMatchStartOffset(
+  content: string,
+  chunkContent: string,
+  chunkEndOffset: number,
+  sourceEndOffset: number
+): number | null {
+  let contentOffset = sourceEndOffset;
+  let chunkOffset = chunkEndOffset;
+
+  while (chunkOffset > 0) {
+    const chunkChar = chunkContent[chunkOffset - 1];
+    const skippedWhitespaceOffset = canSkipElidedSourceWhitespaceBefore(
+      content,
+      contentOffset,
+      chunkChar
+    );
+
+    if (skippedWhitespaceOffset !== null) {
+      contentOffset = skippedWhitespaceOffset;
+      continue;
+    }
+
+    if (contentOffset <= 0) {
+      return null;
+    }
+
+    if (chunkChar === '\n' && content[contentOffset - 1] === '\n') {
+      const sourceCarriageReturnOffset = contentOffset - 2;
+      if (content[sourceCarriageReturnOffset] === '\r') {
+        chunkOffset -= 1;
+        contentOffset -= 2;
+        continue;
+      }
+    }
+
+    if (chunkChar !== content[contentOffset - 1]) {
+      return null;
+    }
+
+    chunkOffset -= 1;
+    contentOffset -= 1;
+  }
+
+  return contentOffset;
+}
+
+function collectSourceRangeAnchors(chunkContent: string): SourceRangeAnchor[] {
+  const anchors: SourceRangeAnchor[] = [];
+  const seen = new Set<string>();
+  let runStart: number | null = null;
+
+  const pushRun = (endOffset: number): void => {
+    if (runStart === null) {
+      return;
+    }
+    const text = chunkContent.slice(runStart, endOffset);
+    if (text.length > 1 && !seen.has(text)) {
+      anchors.push({ chunkOffset: runStart, text });
+      seen.add(text);
+    }
+    runStart = null;
+  };
+
+  for (let offset = 0; offset < chunkContent.length; offset += 1) {
+    if (isSourceWhitespace(chunkContent[offset])) {
+      pushRun(offset);
+      continue;
+    }
+    runStart ??= offset;
+  }
+  pushRun(chunkContent.length);
+
+  return anchors
+    .sort((a, b) => b.text.length - a.text.length || a.chunkOffset - b.chunkOffset)
+    .slice(0, MAX_WHITESPACE_NORMALIZED_ANCHORS);
+}
+
+function findAnchoredSourceRangeForChunkContent(
+  content: string,
+  chunkContent: string,
+  searchStart: number
+): AnchoredSourceRangeMatchResult {
+  const anchors = collectSourceRangeAnchors(chunkContent);
+  const checkedCandidateOffsets = new Set<number>();
+  let candidateCount = 0;
+
+  for (const anchor of anchors) {
+    let anchorOffset = content.indexOf(anchor.text, searchStart);
+    while (anchorOffset >= 0) {
+      candidateCount += 1;
+      if (candidateCount > MAX_WHITESPACE_NORMALIZED_SOURCE_CANDIDATES) {
+        return { exhaustedCandidateBudget: true, match: null };
+      }
+
+      const candidateOffset = findSourceMatchStartOffset(
+        content,
+        chunkContent,
+        anchor.chunkOffset,
+        anchorOffset
+      );
+      if (
+        candidateOffset !== null &&
+        candidateOffset >= searchStart &&
+        !checkedCandidateOffsets.has(candidateOffset)
+      ) {
+        checkedCandidateOffsets.add(candidateOffset);
+        const endOffset = findSourceMatchEndOffset(content, chunkContent, candidateOffset);
+        if (endOffset !== null) {
+          return {
+            exhaustedCandidateBudget: false,
+            match: {
+              matchKind: 'whitespace-normalized',
+              startOffset: candidateOffset,
+              endOffset,
+            },
+          };
+        }
+      }
+
+      anchorOffset = content.indexOf(anchor.text, anchorOffset + 1);
+    }
+  }
+
+  return { exhaustedCandidateBudget: false, match: null };
+}
+
 function findSourceRangeForChunkContent(
   content: string,
   chunkContent: string,
@@ -508,6 +679,14 @@ function findSourceRangeForChunkContent(
 
   const firstCharacter = chunkContent[0];
   if (firstCharacter === undefined) {
+    return null;
+  }
+
+  const anchoredMatch = findAnchoredSourceRangeForChunkContent(content, chunkContent, searchStart);
+  if (anchoredMatch.match) {
+    return anchoredMatch.match;
+  }
+  if (anchoredMatch.exhaustedCandidateBudget) {
     return null;
   }
 
