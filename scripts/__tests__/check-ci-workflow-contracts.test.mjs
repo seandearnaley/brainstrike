@@ -429,7 +429,76 @@ test('workflow contract fails when stateful E2E waits on determine-matrix', () =
   );
 });
 
-test('workflow contract fails when the aggregate PR gate drops functional E2E', () => {
+test('workflow contract requires PR Sentinel to verify local proof', () => {
+  const prGate = extractJob(workflowSource, 'required-pr-gate');
+  assert.ok(prGate);
+  const source = workflowSource
+    .replace(/  pr-sentinel:[\s\S]*?\n  checks:/, '  checks:')
+    .replace(prGate, prGate.replace('\n      - pr-sentinel\n', '\n'));
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /Missing pr-sentinel job/);
+  assert.match(failures, /Required PR Gate must depend on pr-sentinel/);
+});
+
+test('workflow contract requires PR Sentinel to verify the pull request head', () => {
+  const source = workflowSource
+    .replace(
+      'PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}',
+      'PR_HEAD_SHA: ${{ github.sha }}'
+    )
+    .replace('--head "$PR_HEAD_SHA"', '--head "$GITHUB_SHA"');
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /pull request head SHA/);
+  assert.match(failures, /must not verify proof against GITHUB_SHA/);
+});
+
+test('workflow contract requires selected risk labels to gate matching cloud jobs', () => {
+  const browserTests = extractJob(workflowSource, 'browser-tests');
+  assert.ok(browserTests);
+
+  const source = workflowSource.replace(
+    browserTests,
+    browserTests.replace(
+      "contains(join(github.event.pull_request.labels.*.name, ','), 'ci:browser')",
+      "contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-e2e')"
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Browser Vitest must run on PRs labeled ci:browser/
+  );
+});
+
+test('workflow contract keeps full matrix available outside pull requests', () => {
+  const e2e = extractJob(workflowSource, 'e2e');
+  assert.ok(e2e);
+
+  const source = workflowSource.replace(e2e, e2e.replace("github.event_name == 'schedule' ||\n  ", ''));
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Functional E2E must remain available for schedule full-matrix runs/
+  );
+});
+
+test('workflow contract fails when PR heavy jobs run without risk labels', () => {
+  const e2e = extractJob(workflowSource, 'e2e');
+  assert.ok(e2e);
+
+  const source = workflowSource.replace(
+    e2e,
+    e2e.replace(/contains\(join\(github\.event\.pull_request\.labels\.\*\.name, ','\), 'ci:full'\) \|\|\n\s+contains\(join\(github\.event\.pull_request\.labels\.\*\.name, ','\), 'ci:web-e2e'\)/, "github.event_name == 'pull_request'")
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /Functional E2E must run on PRs labeled ci:full/);
+  assert.match(failures, /Functional E2E must run on PRs labeled ci:web-e2e/);
+});
+
+test('workflow contract fails when the aggregate PR gate requires skipped jobs', () => {
   const prGate = extractJob(workflowSource, 'required-pr-gate');
   assert.ok(prGate);
 
@@ -438,6 +507,78 @@ test('workflow contract fails when the aggregate PR gate drops functional E2E', 
   assert.match(
     validateWorkflowContracts(source).join('\n'),
     /Required PR Gate must depend on e2e/
+  );
+});
+
+test('workflow contract fails when the PR gate accepts skipped selected lanes', () => {
+  const prGate = extractJob(workflowSource, 'required-pr-gate');
+  assert.ok(prGate);
+
+  const source = workflowSource.replace(
+    prGate,
+    prGate.replace(
+      "              if (needs[jobName]?.result !== 'success') {",
+      "              if (needs[jobName]?.result === 'failure') {"
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Required PR Gate must fail when a selected risk lane is skipped, failed, or cancelled/
+  );
+});
+
+test('workflow contract fails when the PR gate allows skipped static checks', () => {
+  const prGate = extractJob(workflowSource, 'required-pr-gate');
+  assert.ok(prGate);
+
+  const source = workflowSource.replace(
+    prGate,
+    prGate.replace(
+      "const alwaysRequiredJobs = ['pr-sentinel', 'checks'];",
+      "const alwaysRequiredJobs = ['pr-sentinel'];"
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Required PR Gate must define always-required PR jobs/
+  );
+});
+
+test('workflow contract fails when the PR gate rejects unselected skipped lanes', () => {
+  const prGate = extractJob(workflowSource, 'required-pr-gate');
+  assert.ok(prGate);
+
+  const source = workflowSource.replace(
+    prGate,
+    prGate.replace(
+      "job.result === 'failure' || job.result === 'cancelled' || job.result === 'timed_out'",
+      "job.result !== 'success'"
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Required PR Gate must not require unselected skipped jobs to succeed/
+  );
+});
+
+test('workflow contract fails when the PR gate label job map drifts', () => {
+  const prGate = extractJob(workflowSource, 'required-pr-gate');
+  assert.ok(prGate);
+
+  const source = workflowSource.replace(
+    prGate,
+    prGate.replace(
+      "['ci:web-e2e', ['prepare-web', 'e2e', 'e2e-stateful', 'e2e-destructive']]",
+      "['ci:web-e2e', ['prepare-web', 'e2e']]"
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Required PR Gate must map ci:web-e2e to prepare-web, e2e, e2e-stateful, e2e-destructive/
   );
 });
 
