@@ -3,6 +3,7 @@ import { once } from 'node:events';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import agentDevToolsDefaults from '../agent-devtools-defaults.json' with { type: 'json' };
 
 const DEFAULT_PORT = agentDevToolsDefaults.defaultPort;
@@ -154,6 +155,6 @@ async function main() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   await main();
 }

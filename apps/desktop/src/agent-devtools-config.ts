@@ -68,6 +68,7 @@ function resolvePort(envValue: string | undefined, argv: readonly string[]): num
   const argvValue = argv
     .find((arg: string): boolean => arg.startsWith('--brainstrike-agent-devtools-port='))
     ?.split('=')[1];
+  // Keep env precedence explicit so launched desktop sessions can override inherited argv.
   const raw = envValue?.trim() || argvValue?.trim() || String(DEFAULT_AGENT_DEVTOOLS_PORT);
   const port = Number.parseInt(raw, 10);
   if (!Number.isInteger(port) || String(port) !== raw || port < MIN_PORT || port > MAX_PORT) {
