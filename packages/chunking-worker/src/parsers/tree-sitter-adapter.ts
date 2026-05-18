@@ -24,7 +24,7 @@
  * See: docs/prd-chunking-tree-sitter-2026-05.md §3.2, §3.4
  */
 
-import { Query, type Node as TsNode } from 'web-tree-sitter';
+import { type Language, Query, type Node as TsNode } from 'web-tree-sitter';
 import { loadLanguage } from './tree-sitter-grammar-loader';
 import type { AstNode, ParseOptions, ParserAdapter } from './types';
 
@@ -63,13 +63,17 @@ const ROOT_TYPES: Record<TreeSitterLanguage, string> = {
  * Cache one compiled Query per language, keyed by the loaded Language
  * instance. Compiling a Query is cheap relative to loading the WASM
  * grammar, but still worth caching since every parse re-runs it.
+ *
+ * WeakMap keying ensures that if `resetLoaderForTests()` evicts a
+ * Language, its compiled Query is also collected — no stale-reference
+ * leak across test runs.
  */
-const queryCache = new WeakMap<object, Query>();
+const queryCache = new WeakMap<Language, Query>();
 
-function getOrCompileQuery(language: TreeSitterLanguage, lang: object): Query {
+function getOrCompileQuery(language: TreeSitterLanguage, lang: Language): Query {
   let query = queryCache.get(lang);
   if (!query) {
-    query = new Query(lang as never, QUERIES[language]);
+    query = new Query(lang, QUERIES[language]);
     queryCache.set(lang, query);
   }
   return query;
