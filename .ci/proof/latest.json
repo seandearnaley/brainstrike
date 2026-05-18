@@ -1,0 +1,166 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-18T09:07:57.927Z",
+  "repository": "seandearnaley/brainstrike",
+  "packageManager": "pnpm@10.33.0",
+  "pnpmVersion": "10.33.0",
+  "nodeVersion": "v22.22.1",
+  "baseRef": "origin/main",
+  "headRef": "HEAD",
+  "testedHeadSha": "b1dfc91e79372b4a7f4333984f7a12636451d596",
+  "selection": {
+    "base": "origin/main",
+    "baseSha": "4c238e23ffca15b635c552c852b5d9930f5fb88f",
+    "head": "HEAD",
+    "headSha": "b1dfc91e79372b4a7f4333984f7a12636451d596",
+    "mergeBase": "4c238e23ffca15b635c552c852b5d9930f5fb88f",
+    "files": [
+      ".github/workflows/test.yml",
+      "apps/docs/docs/development/local-ci.md",
+      "apps/docs/docs/testing/e2e-strategy.md",
+      "package.json",
+      "scripts/__tests__/check-ci-workflow-contracts.test.mjs",
+      "scripts/__tests__/ci-proof.test.mjs",
+      "scripts/__tests__/ci-risk-rules.test.mjs",
+      "scripts/__tests__/ci-select.test.mjs",
+      "scripts/check-ci-workflow-contracts.mjs",
+      "scripts/ci-proof.mjs",
+      "scripts/ci-risk-rules.mjs",
+      "scripts/ci-select.mjs"
+    ],
+    "lanes": [
+      "ci:full"
+    ],
+    "expandedLanes": [
+      "ci:browser",
+      "ci:web-e2e",
+      "ci:desktop",
+      "ci:embedding",
+      "ci:coverage"
+    ],
+    "labels": [
+      "ci:full"
+    ],
+    "commands": [
+      {
+        "name": "lint-ci",
+        "command": "pnpm lint:ci",
+        "requiredFor": [
+          "baseline"
+        ]
+      },
+      {
+        "name": "type-check",
+        "command": "pnpm type-check",
+        "requiredFor": [
+          "baseline"
+        ]
+      },
+      {
+        "name": "build",
+        "command": "pnpm build",
+        "requiredFor": [
+          "baseline"
+        ]
+      },
+      {
+        "name": "unit",
+        "command": "TURBO_TEST_MODE=unit pnpm exec turbo run test --summarize --log-order=grouped --concurrency=2",
+        "requiredFor": [
+          "baseline"
+        ]
+      },
+      {
+        "name": "browser-vitest",
+        "command": "pnpm run test:browser",
+        "requiredFor": [
+          "ci:browser"
+        ]
+      },
+      {
+        "name": "web-functional-e2e",
+        "command": "cd apps/web && pnpm exec playwright test --project=functional --workers=2 --grep-invert \"@destructive|@stateful\"",
+        "requiredFor": [
+          "ci:web-e2e"
+        ]
+      },
+      {
+        "name": "desktop-regression",
+        "command": "cd apps/desktop && pnpm exec playwright test --project=regression --workers=1 --grep-invert \"@desktop-embedding-\"",
+        "requiredFor": [
+          "ci:desktop"
+        ]
+      },
+      {
+        "name": "desktop-embedding",
+        "command": "cd apps/desktop && pnpm exec playwright test --workers=1 --grep \"@desktop-embedding-\"",
+        "requiredFor": [
+          "ci:embedding"
+        ]
+      },
+      {
+        "name": "affected-coverage",
+        "command": "TURBO_TEST_MODE=coverage COVERAGE=true pnpm exec turbo run test:coverage --filter=\"...[4c238e23ffca15b635c552c852b5d9930f5fb88f]\" --concurrency=4 --summarize --log-order=grouped",
+        "requiredFor": [
+          "ci:coverage"
+        ]
+      }
+    ]
+  },
+  "commandResults": [
+    {
+      "name": "lint-ci",
+      "command": "pnpm lint:ci",
+      "exitCode": 0,
+      "durationMs": 10405
+    },
+    {
+      "name": "type-check",
+      "command": "pnpm type-check",
+      "exitCode": 0,
+      "durationMs": 648
+    },
+    {
+      "name": "build",
+      "command": "pnpm build",
+      "exitCode": 0,
+      "durationMs": 628
+    },
+    {
+      "name": "unit",
+      "command": "TURBO_TEST_MODE=unit pnpm exec turbo run test --summarize --log-order=grouped --concurrency=2",
+      "exitCode": 0,
+      "durationMs": 366542
+    },
+    {
+      "name": "browser-vitest",
+      "command": "pnpm run test:browser",
+      "exitCode": 0,
+      "durationMs": 3088
+    },
+    {
+      "name": "web-functional-e2e",
+      "command": "cd apps/web && pnpm exec playwright test --project=functional --workers=2 --grep-invert \"@destructive|@stateful\"",
+      "exitCode": 0,
+      "durationMs": 65212
+    },
+    {
+      "name": "desktop-regression",
+      "command": "cd apps/desktop && pnpm exec playwright test --project=regression --workers=1 --grep-invert \"@desktop-embedding-\"",
+      "exitCode": 0,
+      "durationMs": 324824
+    },
+    {
+      "name": "desktop-embedding",
+      "command": "cd apps/desktop && pnpm exec playwright test --workers=1 --grep \"@desktop-embedding-\"",
+      "exitCode": 0,
+      "durationMs": 1569082
+    },
+    {
+      "name": "affected-coverage",
+      "command": "TURBO_TEST_MODE=coverage COVERAGE=true pnpm exec turbo run test:coverage --filter=\"...[4c238e23ffca15b635c552c852b5d9930f5fb88f]\" --concurrency=4 --summarize --log-order=grouped",
+      "exitCode": 0,
+      "durationMs": 1444
+    }
+  ]
+}
