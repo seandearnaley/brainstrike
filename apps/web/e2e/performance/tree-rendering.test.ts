@@ -1,10 +1,12 @@
 import { expect, type Page, test } from '@playwright/test';
 import { FileExplorerPage } from '../page-objects/file-explorer-page';
 import { HomePage } from '../page-objects/home-page';
+import { waitForAppLoad } from '../utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
 import { PERFORMANCE_THRESHOLDS } from '../utils/performance-config';
 
 test.describe('Performance: Tree Rendering', () => {
+  const restoredResizeObserverRootName = 'restored-resize-observer-test';
   const restoredResizeObserverTestTitle =
     'restored fixed-height tree rows do not register row resize observers';
 
@@ -103,6 +105,88 @@ test.describe('Performance: Tree Rendering', () => {
       return fileExplorerStore?.getState?.().expandedDirectoryPaths?.size ?? 0;
     });
 
+  const persistCurrentExplorerStoreSnapshot = async (page: Page) =>
+    page.evaluate(() => {
+      const store = (
+        window as Window & {
+          __brainstrike_file_explorer_provider_store__?: {
+            getState?: () => {
+              currentFolderId?: string | null;
+              expandedDirectoryPaths?: Set<string>;
+              folderStates?: Record<string, { expandedDirectoryPaths?: Set<string> }>;
+            };
+            persist?: {
+              getOptions?: () => {
+                name?: string;
+                partialize?: (state: unknown) => unknown;
+                version?: number;
+              };
+            };
+          };
+        }
+      ).__brainstrike_file_explorer_provider_store__;
+      const state = store?.getState?.();
+      const options = store?.persist?.getOptions?.();
+      if (!(state && options?.name && options.partialize)) {
+        throw new Error('File explorer persistence API is unavailable');
+      }
+
+      const snapshot = {
+        state: options.partialize(state) as {
+          currentFolderId?: string | null;
+          devInlineFixtureEnabled?: boolean;
+          expandedDirectoryPaths?: string[];
+          folderStates?: Record<string, { expandedDirectoryPaths?: string[] }>;
+        },
+        version: options.version ?? 0,
+      };
+      snapshot.state.devInlineFixtureEnabled = false;
+      localStorage.setItem(options.name, JSON.stringify(snapshot));
+
+      const currentFolderId = snapshot.state.currentFolderId ?? null;
+      const folderExpandedCount = currentFolderId
+        ? (snapshot.state.folderStates?.[currentFolderId]?.expandedDirectoryPaths?.length ?? 0)
+        : 0;
+      return {
+        currentFolderId,
+        folderExpandedCount,
+        topLevelExpandedCount: snapshot.state.expandedDirectoryPaths?.length ?? 0,
+      };
+    });
+
+  const restoreInlineFixture = async (
+    page: Page,
+    rootName: string,
+    tree: FileTree
+  ): Promise<void> => {
+    await page.evaluate(
+      async ({ root, contents }) => {
+        const loadFixture = (
+          window as Window & {
+            __BRAINSTRIKE_LOAD_FIXTURE__?: (fixture: {
+              name: string;
+              tree: FileTree;
+            }) => Promise<unknown> | unknown;
+          }
+        ).__BRAINSTRIKE_LOAD_FIXTURE__;
+        if (typeof loadFixture !== 'function') {
+          throw new Error('Fixture testing API was not exposed in time');
+        }
+        const handle = await loadFixture({
+          name: root,
+          tree: contents,
+        });
+        if (!handle) {
+          throw new Error('Fixture testing API did not return a directory handle');
+        }
+      },
+      {
+        root: rootName,
+        contents: tree,
+      }
+    );
+  };
+
   const removeOneExpandedDirectoryPath = async (page: Page) =>
     page.evaluate(() => {
       const fileExplorerStore = (
@@ -172,7 +256,7 @@ test.describe('Performance: Tree Rendering', () => {
     if (testInfo.title === restoredResizeObserverTestTitle) {
       const tree = createExpandAllPerfTree(24, 10);
       await installResizeObserverTracker(page);
-      await mockBrowserApis(page, 'restored-resize-observer-test', tree);
+      await mockBrowserApis(page, restoredResizeObserverRootName, tree);
 
       const home = new HomePage(page);
       await home.goto({ waitForDatabase: false });
@@ -455,11 +539,24 @@ test.describe('Performance: Tree Rendering', () => {
   });
 
   test(restoredResizeObserverTestTitle, async ({ page }) => {
+    const tree = createExpandAllPerfTree(24, 10);
     const explorer = new FileExplorerPage(page);
     await explorer.selectRoot();
 
     await page.getByTestId('expand-all-button-small').click();
     await expect(page.getByTestId('expand-all-button-small')).toBeEnabled({ timeout: 30_000 });
+
+    const persistedSnapshot = await persistCurrentExplorerStoreSnapshot(page);
+    expect(persistedSnapshot.currentFolderId).toBe(restoredResizeObserverRootName);
+    expect(persistedSnapshot.topLevelExpandedCount).toBeGreaterThan(0);
+    expect(persistedSnapshot.folderExpandedCount).toBeGreaterThan(0);
+
+    await page.reload();
+    await waitForAppLoad(page, { waitForDatabase: false });
+    await restoreInlineFixture(page, restoredResizeObserverRootName, tree);
+
+    await expect(explorer.fileTree).toBeVisible({ timeout: 15_000 });
+    await expect.poll(() => getExpandedDirectoryCount(page)).toBeGreaterThan(0);
 
     const treeContainer = explorer.fileTreeScrollContainer;
     await expect(treeContainer).toBeVisible();
