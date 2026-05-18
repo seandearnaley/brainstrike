@@ -1,4 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { promisify } from 'node:util';
@@ -14,9 +15,27 @@ const DEFAULT_OPTIONS = {
   proof: '.ci/proof/latest.json',
 };
 
-const EXPECTED_PACKAGE_MANAGER = 'pnpm@10.33.0';
-const EXPECTED_PNPM_VERSION = '10.33.0';
+const EXPECTED_PACKAGE_MANAGER = readExpectedPackageManager();
+const EXPECTED_PNPM_VERSION = parsePnpmVersion(EXPECTED_PACKAGE_MANAGER);
 const PROOF_PATH = '.ci/proof/latest.json';
+
+function readExpectedPackageManager() {
+  const packageJson = JSON.parse(
+    readFileSync(new URL('../package.json', import.meta.url), 'utf8')
+  );
+  if (typeof packageJson.packageManager !== 'string') {
+    throw new Error('package.json packageManager must be a string');
+  }
+  return packageJson.packageManager;
+}
+
+function parsePnpmVersion(packageManager) {
+  const match = /^pnpm@(.+)$/.exec(packageManager);
+  if (!match) {
+    throw new Error('package.json packageManager must use pnpm');
+  }
+  return match[1];
+}
 
 async function defaultRunner(command, args = [], options = {}) {
   if (options.shell === true) {
@@ -287,6 +306,48 @@ function comparableSelection(selection) {
   };
 }
 
+function compareArrays(name, actual, expected) {
+  if (!Array.isArray(actual) || !Array.isArray(expected)) {
+    return [`${name} must be an array`];
+  }
+  if (actual.length !== expected.length) {
+    return [`${name} length differs`];
+  }
+  const failures = [];
+  for (let index = 0; index < actual.length; index += 1) {
+    if (actual[index] !== expected[index]) {
+      failures.push(
+        `${name}[${index}] differs: expected ${expected[index]}, got ${actual[index]}`
+      );
+    }
+  }
+  return failures;
+}
+
+function compareSelections(actual, expected) {
+  const actualSelection = comparableSelection(actual);
+  const expectedSelection = comparableSelection(expected);
+  return [
+    ...compareArrays('selection.files', actualSelection.files, expectedSelection.files),
+    ...compareArrays('selection.lanes', actualSelection.lanes, expectedSelection.lanes),
+    ...compareArrays(
+      'selection.expandedLanes',
+      actualSelection.expandedLanes,
+      expectedSelection.expandedLanes
+    ),
+    ...compareArrays(
+      'selection.labels',
+      actualSelection.labels,
+      expectedSelection.labels
+    ),
+    ...compareArrays(
+      'selection.commandNames',
+      actualSelection.commandNames,
+      expectedSelection.commandNames
+    ),
+  ];
+}
+
 function appendGithubOutput(path, manifest) {
   const lines = [
     `required-labels=${manifest.selection.labels.join(',')}`,
@@ -306,11 +367,13 @@ export async function verifyProof(options, runner = defaultRunner) {
       { base: options.base, head: manifest.testedHeadSha },
       runner
     );
-    if (
-      JSON.stringify(comparableSelection(recomputedSelection)) !==
-      JSON.stringify(comparableSelection(manifest.selection))
-    ) {
+    const selectionFailures = compareSelections(
+      recomputedSelection,
+      manifest.selection
+    );
+    if (selectionFailures.length > 0) {
       failures.push('proof selection does not match recomputed risk selection');
+      failures.push(...selectionFailures);
     }
   }
 

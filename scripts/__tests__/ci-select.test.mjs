@@ -57,6 +57,21 @@ test('buildSelection returns files, lanes, expanded lanes, labels, and commands'
   );
 });
 
+test('buildSelection rejects unsafe merge-base placeholders', () => {
+  assert.throws(
+    () =>
+      buildSelection({
+        base: 'origin/main',
+        baseSha: '1111111111111111111111111111111111111111',
+        files: ['packages/storage/src/opfs.ts'],
+        head: 'HEAD',
+        headSha: '2222222222222222222222222222222222222222',
+        mergeBase: 'main;echo unsafe',
+      }),
+    /mergeBase must be a 40-character git SHA/
+  );
+});
+
 test('renderSelectionJson emits stable JSON', () => {
   const json = renderSelectionJson({
     base: 'origin/main',

@@ -108,6 +108,12 @@ export function parseSelectArgs(args = process.argv.slice(2)) {
 }
 
 function renderCommand(command, mergeBase) {
+  if (
+    command.command.includes('<mergeBase>') &&
+    !/^[0-9a-f]{40}$/i.test(mergeBase)
+  ) {
+    throw new Error(`mergeBase must be a 40-character git SHA: ${mergeBase}`);
+  }
   return {
     ...command,
     command: command.command.replaceAll('<mergeBase>', mergeBase),
@@ -118,11 +124,13 @@ export function buildSelection(input) {
   const lanes = selectRiskLanesForFiles(input.files);
   const expandedLanes = expandRiskLanes(lanes);
   const labels = toRiskLabels(lanes);
-  const laneCommands = expandedLanes.flatMap((lane) =>
-    LANE_COMMANDS[lane].map((command) =>
-      renderCommand(command, input.mergeBase)
-    )
-  );
+  const laneCommands = expandedLanes.flatMap((lane) => {
+    const commands = LANE_COMMANDS[lane];
+    if (!commands) {
+      throw new Error(`no commands defined for lane ${lane}`);
+    }
+    return commands.map((command) => renderCommand(command, input.mergeBase));
+  });
 
   return {
     base: input.base,

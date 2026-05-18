@@ -55,6 +55,9 @@ git commit -m "ci: add local proof manifest"
 
 The proof commit must be the PR tip. Any later change invalidates proof and
 requires a new `pnpm ci:prove` run.
+Rebasing or merging `main` into the branch also changes the proof context, so
+refresh the manifest and recommit `.ci/proof/latest.json` after updating the
+branch.
 
 The PR Sentinel verifies the manifest, selected labels, and proof-tip invariant.
 It fails hard when proof is missing, stale, or does not match selected risk
