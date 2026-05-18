@@ -16,13 +16,15 @@ const DEFAULT_OPTIONS = {
   proof: '.ci/proof/latest.json',
 };
 
-const PROOF_PATH = '.ci/proof/latest.json';
+const PROOF_PATH = DEFAULT_OPTIONS.proof;
 
 function isGitSha(value) {
   return typeof value === 'string' && /^[0-9a-f]{40}$/i.test(value);
 }
 
 function readExpectedPackageManager() {
+  // Manifest validation is synchronous so tests and pure validation callers can
+  // get deterministic failures without wiring async I/O through the API.
   const packageJson = JSON.parse(
     readFileSync(new URL('../package.json', import.meta.url), 'utf8')
   );
@@ -413,7 +415,7 @@ function compareSelections(actual, expected) {
   ];
 }
 
-function appendGithubOutput(path, manifest) {
+async function appendGithubOutput(path, manifest) {
   if (!isGitSha(manifest.testedHeadSha)) {
     throw new Error('testedHeadSha must be a 40-character hex SHA');
   }
@@ -422,7 +424,7 @@ function appendGithubOutput(path, manifest) {
     `expanded-lanes=${manifest.selection.expandedLanes.join(',')}`,
     `tested-head-sha=${manifest.testedHeadSha}`,
   ];
-  return writeFile(path, `${lines.join('\n')}\n`, { flag: 'a' });
+  await writeFile(path, `${lines.join('\n')}\n`, { flag: 'a' });
 }
 
 export async function verifyProof(options, runner = defaultRunner) {
