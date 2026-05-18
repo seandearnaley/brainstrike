@@ -597,10 +597,13 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       }
       // Tree-sitter languages (Phase 8 of #998). The renderer's bootstrap
       // resolved this from `?treeSitterLanguages=` URL param + default-on
-      // policy; we mirror it onto the worker's globalThis so
-      // getEnabledTreeSitterLanguages() picks it up. Defensive coercion in
-      // the reader filters to recognized languages — we just forward what
-      // we got. Undefined and empty array are meaningfully different:
+      // policy and validated it strictly (Phase 9 hardening) before
+      // assigning to its globalThis. Here we forward it to the worker's
+      // separate globalThis realm. The reader
+      // (getEnabledTreeSitterLanguages) re-validates strictly on first
+      // access — defense in depth in case the worker is initialized from
+      // a different code path than the standard renderer bootstrap.
+      // Undefined and empty array are meaningfully different:
       // undefined → "renderer didn't say" (rare; reader defaults to []),
       // [] → "renderer explicitly disabled all tree-sitter".
       if (Array.isArray(initPayload.treeSitterLanguages)) {
