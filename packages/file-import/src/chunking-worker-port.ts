@@ -166,6 +166,7 @@ export function toFileChunkInserts(
 interface ChunkingWorkerInitMessage {
   parserEnv?: 'browser' | 'electron-chunking-host';
   parserFlag?: 'auto' | 'babel' | 'oxc';
+  treeSitterLanguages?: readonly string[];
   type: 'init';
 }
 
@@ -178,6 +179,11 @@ interface ChunkingWorkerInitMessage {
  *
  * In apps/web (no preload) and tests without the bridge mocked, parserEnv
  * stays undefined and the worker keeps its 'browser' default.
+ *
+ * Tree-sitter languages (Phase 8 of #998) are forwarded from the renderer's
+ * globalThis to the worker's realm via the same init message. Without this
+ * forward the worker would always see an empty list and never enable
+ * tree-sitter routing.
  */
 function buildInitMessage(): ChunkingWorkerInitMessage {
   const init: ChunkingWorkerInitMessage = { type: 'init' };
@@ -190,14 +196,23 @@ function buildInitMessage(): ChunkingWorkerInitMessage {
     ) {
       init.parserEnv = 'electron-chunking-host';
     }
-    // biome-ignore-start lint/style/useNamingConvention: shared global key, intentional UPPER_SNAKE_CASE
-    interface ParserFlagGlobal {
+    // biome-ignore-start lint/style/useNamingConvention: shared global keys, intentional UPPER_SNAKE_CASE
+    interface ParserGlobals {
       __BRAINSTRIKE_PARSER_FLAG__?: unknown;
+      __BRAINSTRIKE_TREE_SITTER_LANGUAGES__?: unknown;
     }
-    // biome-ignore-end lint/style/useNamingConvention: shared global key, intentional UPPER_SNAKE_CASE
-    const flag = (globalThis as ParserFlagGlobal).__BRAINSTRIKE_PARSER_FLAG__;
+    // biome-ignore-end lint/style/useNamingConvention: shared global keys, intentional UPPER_SNAKE_CASE
+    const flag = (globalThis as ParserGlobals).__BRAINSTRIKE_PARSER_FLAG__;
     if (flag === 'auto' || flag === 'babel' || flag === 'oxc') {
       init.parserFlag = flag;
+    }
+    const languages = (globalThis as ParserGlobals).__BRAINSTRIKE_TREE_SITTER_LANGUAGES__;
+    if (Array.isArray(languages)) {
+      // The worker's defensive coercion in getEnabledTreeSitterLanguages
+      // re-validates entries; we just need to ensure SOMETHING serializable
+      // gets across. Empty array (kill switch) and undefined (default-on)
+      // are meaningfully different — keep that distinction.
+      init.treeSitterLanguages = languages.filter((s): s is string => typeof s === 'string');
     }
   }
   return init;
