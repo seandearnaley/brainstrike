@@ -1,67 +1,29 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-19T08:44:04.630Z",
+  "generatedAt": "2026-05-19T17:12:23.136Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
-  "nodeVersion": "v22.22.1",
+  "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "93712acc0c322b29e1cb86f9a492955ffc3a0844",
+  "testedHeadSha": "1e890540b6e763c1d0c7fc9318e165cf7035df05",
   "selection": {
     "base": "origin/main",
-    "baseSha": "bc6ecc456fecf16e5c510b3c6fd625096785640d",
+    "baseSha": "0fc94414c0edb4f546faad2385762cc634df1008",
     "head": "HEAD",
-    "headSha": "93712acc0c322b29e1cb86f9a492955ffc3a0844",
-    "mergeBase": "bc6ecc456fecf16e5c510b3c6fd625096785640d",
+    "headSha": "1e890540b6e763c1d0c7fc9318e165cf7035df05",
+    "mergeBase": "0fc94414c0edb4f546faad2385762cc634df1008",
     "files": [
-      ".ci/proof/latest.json",
-      ".github/workflows/test.yml",
-      ".jules/palette.md",
-      "AGENTS.md",
-      "apps/desktop/agent-devtools-defaults.json",
-      "apps/desktop/e2e/agent-devtools.desktop.test.ts",
-      "apps/desktop/e2e/utils/electron-helpers.mts",
-      "apps/desktop/package.json",
-      "apps/desktop/scripts/__tests__/start-agent-devtools-session.test.mjs",
-      "apps/desktop/scripts/start-agent-devtools-session.mjs",
-      "apps/desktop/src/__tests__/main/agent-devtools-config.test.ts",
-      "apps/desktop/src/__tests__/main/agent-devtools-main-wiring.test.ts",
-      "apps/desktop/src/agent-devtools-config.ts",
-      "apps/desktop/src/main.ts",
-      "apps/desktop/vitest.config.mts",
-      "apps/docs/docs/development/agent-devtools-debugging.md",
-      "apps/docs/sidebars.ts",
-      "docs/diagnostics-privacy-contract.md",
-      "docs/security/secret-scanning.md",
-      "lefthook.yml",
+      "architecture/domain-map.json",
+      "docs/architecture-reset/phase-0-domain-contract-plan-2026-05-19.html",
+      "docs/architecture-reset/phase-1-guardrails-plan-2026-05-19.html",
+      "docs/architecture-reset/phase-2-platform-contracts-plan-2026-05-19.html",
+      "docs/architecture-reset/phase-3-workflow-owners-plan-2026-05-19.html",
+      "docs/architecture-reset/phase-4-domain-moves-plan-2026-05-19.html",
       "package.json",
-      "packages/db/vitest.config.mts",
-      "packages/file-explorer-hooks/src/__tests__/use-restore-access.test.tsx",
-      "packages/file-explorer-hooks/src/use-restore-access.ts",
-      "packages/file-explorer-ui/src/hooks/__tests__/use-worker-flattened-tree.test.ts",
-      "packages/file-explorer-ui/src/hooks/use-worker-flattened-tree.ts",
-      "packages/file-explorer-ui/src/optimized-file-tree.tsx",
-      "packages/file-explorer-ui/src/use-lazy-file-tree.ts",
-      "packages/file-explorer-ui/src/utils/__tests__/file-tree-telemetry.test.ts",
-      "packages/file-explorer-ui/src/utils/file-tree-telemetry.ts",
-      "packages/preferences/src/settings/tools/__tests__/tool-playground.test.tsx",
-      "packages/preferences/src/settings/tools/tool-playground.tsx",
-      "packages/queue/src/__tests__/remote-telemetry-sink.test.ts",
-      "packages/queue/src/remote-telemetry-sink.ts",
-      "packages/queue/test/remote-telemetry-sink.spec.ts",
-      "packages/ui/src/__tests__/table-pagination.test.tsx",
-      "packages/ui/src/collection-picker/__tests__/collection-picker-empty.test.tsx",
-      "packages/ui/src/collection-picker/__tests__/collection-picker.test.tsx",
-      "packages/ui/src/collection-picker/collection-picker-empty.tsx",
-      "packages/ui/src/collection-picker/collection-picker-header.tsx",
-      "packages/ui/src/collection-picker/collection-picker-item.tsx",
-      "packages/ui/src/table-pagination.tsx",
-      "packages/vector-management/src/__tests__/create-embedding-set-dialog.test.tsx",
-      "scripts/__tests__/diagnostics-privacy-contract.test.mjs",
-      "scripts/__tests__/secret-scan.test.mjs",
-      "scripts/secret-scan.mjs",
-      "secret-scan.config.json"
+      "scripts/__tests__/architecture-domain-contract.test.mjs",
+      "scripts/architecture-domain-contract.mjs"
     ],
     "lanes": [
       "ci:full"
@@ -135,7 +97,7 @@
       },
       {
         "name": "affected-coverage",
-        "command": "TURBO_TEST_MODE=coverage COVERAGE=true pnpm exec turbo run test:coverage --filter=\"...[bc6ecc456fecf16e5c510b3c6fd625096785640d]\" --concurrency=4 --summarize --log-order=grouped",
+        "command": "TURBO_TEST_MODE=coverage COVERAGE=true pnpm exec turbo run test:coverage --filter=\"...[0fc94414c0edb4f546faad2385762cc634df1008]\" --concurrency=4 --summarize --log-order=grouped",
         "requiredFor": [
           "ci:coverage"
         ]
@@ -147,55 +109,55 @@
       "name": "lint-ci",
       "command": "pnpm lint:ci",
       "exitCode": 0,
-      "durationMs": 11016
+      "durationMs": 7645
     },
     {
       "name": "type-check",
       "command": "pnpm type-check",
       "exitCode": 0,
-      "durationMs": 844
+      "durationMs": 635
     },
     {
       "name": "build",
       "command": "pnpm build",
       "exitCode": 0,
-      "durationMs": 715
+      "durationMs": 632
     },
     {
       "name": "unit",
       "command": "TURBO_TEST_MODE=unit pnpm exec turbo run test --summarize --log-order=grouped --concurrency=2",
       "exitCode": 0,
-      "durationMs": 714
+      "durationMs": 646
     },
     {
       "name": "browser-vitest",
       "command": "pnpm run test:browser",
       "exitCode": 0,
-      "durationMs": 2598
+      "durationMs": 2322
     },
     {
       "name": "web-functional-e2e",
       "command": "cd apps/web && pnpm exec playwright test --project=functional --workers=2 --grep-invert \"@destructive|@stateful\"",
       "exitCode": 0,
-      "durationMs": 64832
+      "durationMs": 52864
     },
     {
       "name": "desktop-regression",
       "command": "cd apps/desktop && pnpm exec playwright test --project=regression --workers=1 --grep-invert \"@desktop-embedding-\"",
       "exitCode": 0,
-      "durationMs": 323956
+      "durationMs": 283962
     },
     {
       "name": "desktop-embedding",
       "command": "cd apps/desktop && pnpm exec playwright test --workers=1 --grep \"@desktop-embedding-\"",
       "exitCode": 0,
-      "durationMs": 1570735
+      "durationMs": 1478206
     },
     {
       "name": "affected-coverage",
-      "command": "TURBO_TEST_MODE=coverage COVERAGE=true pnpm exec turbo run test:coverage --filter=\"...[bc6ecc456fecf16e5c510b3c6fd625096785640d]\" --concurrency=4 --summarize --log-order=grouped",
+      "command": "TURBO_TEST_MODE=coverage COVERAGE=true pnpm exec turbo run test:coverage --filter=\"...[0fc94414c0edb4f546faad2385762cc634df1008]\" --concurrency=4 --summarize --log-order=grouped",
       "exitCode": 0,
-      "durationMs": 92806
+      "durationMs": 1447
     }
   ]
 }
