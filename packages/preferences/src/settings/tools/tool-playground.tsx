@@ -124,7 +124,7 @@ function ParametersSection({ schema }: { schema: ToolSchemaDisplay }) {
   return (
     <div className="mb-3">
       <button
-        aria-controls={contentId}
+        aria-controls={expanded ? contentId : undefined}
         aria-expanded={expanded}
         className="mb-2 flex items-center gap-1 font-medium text-muted-foreground text-xs hover:text-foreground"
         onClick={() => setExpanded(!expanded)}

@@ -10,6 +10,19 @@ import type { ToolExecutionResult } from '../types';
 
 // Mock @brainstrike/ui
 vi.mock('@brainstrike/ui', () => ({
+  Badge: ({
+    children,
+    className,
+    variant,
+  }: {
+    children: React.ReactNode;
+    className?: string;
+    variant?: string;
+  }) => (
+    <span className={className} data-variant={variant}>
+      {children}
+    </span>
+  ),
   Button: ({
     children,
     disabled,
@@ -80,6 +93,24 @@ describe('ToolPlayground', () => {
 
       const input = screen.getByTestId('json-input') as HTMLTextAreaElement;
       expect(input.value).toBe('{"query": "test"}');
+    });
+
+    it('removes aria-controls when the parameters panel is collapsed', () => {
+      render(<ToolPlayground onExecute={mockOnExecute} toolId="brainstrike.readWorkspaceFile" />);
+
+      const parametersButton = screen.getByRole('button', { name: /Parameters/ });
+      const expandedContentId = parametersButton.getAttribute('aria-controls');
+      expect(expandedContentId).not.toBeNull();
+      if (expandedContentId === null) {
+        throw new Error('Expected expanded parameters button to control visible content');
+      }
+      expect(document.getElementById(expandedContentId)).toBeInTheDocument();
+
+      fireEvent.click(parametersButton);
+
+      expect(parametersButton).toHaveAttribute('aria-expanded', 'false');
+      expect(parametersButton).not.toHaveAttribute('aria-controls');
+      expect(document.getElementById(expandedContentId)).not.toBeInTheDocument();
     });
   });
 

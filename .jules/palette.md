@@ -43,6 +43,6 @@
 **Learning:** Adding native `title` attributes to elements wrapped in custom tooltip components (like Radix UI's `Tooltip`) creates a jarring "double tooltip" effect where the unstyled browser tooltip appears alongside the styled tooltip. Toggle buttons also need explicit `aria-pressed` states to communicate accurately with screen readers.
 **Action:** When adding or updating buttons inside a `TooltipTrigger`, map the descriptive text exclusively to the `aria-label` attribute on the underlying button and remove any native `title` attributes. For stateful toggle buttons, ensure `aria-pressed` is always explicitly defined.
 
-## 2024-05-18 - Missing aria-expanded on collapsible sections
+## 2026-05-18 - Missing aria-expanded on collapsible sections
 **Learning:** Collapsible sections built manually with a button and conditionally rendered content often forget to explicitly wire up the `aria-controls` and `aria-expanded` properties for screen reader accessibility. I found instances where `<button>` toggled the visibility of `expanded` UI details (like parameters) but missed these attributes.
 **Action:** When inspecting manual disclosure widgets or accordions, ensure the toggle button always has `aria-expanded={isExpanded}` and `aria-controls={contentId}` mapping to a unique `id` (e.g. via React `useId()`) on the expanded section container.
