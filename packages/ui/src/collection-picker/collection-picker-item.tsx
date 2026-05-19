@@ -62,6 +62,19 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
     [collection.id, onSelect]
   );
 
+  const handleTooltipTriggerClick = useCallback((e: React.MouseEvent<HTMLButtonElement>): void => {
+    e.stopPropagation();
+  }, []);
+
+  const handleTooltipTriggerKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLButtonElement>): void => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.stopPropagation();
+      }
+    },
+    []
+  );
+
   return (
     <div
       aria-selected={isSelected}
@@ -129,20 +142,24 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
             <span className="h-1 w-1 rounded-full bg-border" />
             <Tooltip>
               <TooltipTrigger asChild>
-                <span
+                <button
+                  aria-label={`${collection.embeddingCount} of ${collection.chunkCount} chunks embedded`}
                   className={cn(
-                    'flex cursor-default items-center gap-1',
+                    'flex cursor-default items-center gap-1 rounded-sm border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
                     collection.embeddingCount >= collection.chunkCount && collection.chunkCount > 0
                       ? 'text-emerald-600 dark:text-emerald-400'
                       : ''
                   )}
+                  onClick={handleTooltipTriggerClick}
+                  onKeyDown={handleTooltipTriggerKeyDown}
+                  type="button"
                 >
                   <span className="font-medium text-foreground/60">
                     {collection.embeddingCount.toLocaleString()}/
                     {collection.chunkCount.toLocaleString()}
                   </span>
                   <span>embedded</span>
-                </span>
+                </button>
               </TooltipTrigger>
               <TooltipContent side="top">
                 {collection.embeddingCount} of {collection.chunkCount} chunks embedded

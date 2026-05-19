@@ -1,6 +1,5 @@
 import { Plus } from 'lucide-react';
 import { Button } from '../button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
 import type { CollectionPickerEmptyProps } from './types';
 
 /**
@@ -14,15 +13,10 @@ export function CollectionPickerEmpty({ onCreate }: CollectionPickerEmptyProps) 
       <p className="mb-3 text-muted-foreground text-sm">
         No collections yet. Create your first collection to start searching files.
       </p>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button className="gap-2" onClick={onCreate} size="sm" variant="outline">
-            <Plus className="h-4 w-4" />
-            Create First Collection
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="top">Create new collection</TooltipContent>
-      </Tooltip>
+      <Button className="gap-2" onClick={onCreate} size="sm" variant="outline">
+        <Plus className="h-4 w-4" />
+        Create First Collection
+      </Button>
     </div>
   );
 }

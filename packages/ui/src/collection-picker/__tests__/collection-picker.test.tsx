@@ -15,7 +15,7 @@ vi.mock('../../theme-provider', () => ({
 
 // Mock ScrollArea because it might need ResizeObserver or other browser APIs
 vi.mock('../../scroll-area', () => ({
-  ScrollArea: ({ children, style }: { children: React.ReactNode; style?: any }) => (
+  ScrollArea: ({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) => (
     <div data-testid="scroll-area" style={style}>
       {children}
     </div>
@@ -142,5 +142,29 @@ describe('CollectionPicker', () => {
       'data-size',
       'icon-xs'
     );
+  });
+
+  it('makes the embedded-count tooltip trigger keyboard focusable with a visible focus style', () => {
+    const onSelect = vi.fn();
+
+    renderWithProvider(<CollectionPicker {...defaultProps} onSelect={onSelect} />);
+
+    const [embeddedLabel] = screen.getAllByText('embedded');
+    if (!embeddedLabel) {
+      throw new Error('Expected embedded count label to render');
+    }
+    const embeddedTrigger = embeddedLabel.closest('button');
+    if (!embeddedTrigger) {
+      throw new Error('Expected embedded count label to be inside a focusable button');
+    }
+
+    expect(embeddedTrigger).toHaveAttribute('aria-label', '100 of 100 chunks embedded');
+    expect(embeddedTrigger).toHaveAttribute('type', 'button');
+    expect(embeddedTrigger).toHaveClass('focus-visible:ring-2', 'focus-visible:ring-ring');
+
+    fireEvent.click(embeddedTrigger);
+    fireEvent.keyDown(embeddedTrigger, { key: 'Enter' });
+
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });
