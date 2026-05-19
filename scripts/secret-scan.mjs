@@ -2,7 +2,7 @@
 
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, readSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const DEFAULT_CONFIG_PATH = 'secret-scan.config.json';
@@ -12,6 +12,15 @@ const DEFAULT_CONFIG = {
   excludePaths: [],
 };
 
+const BINARY_SNIFF_BYTES = 8192;
+const EXPECTED_READ_ERROR_CODES = new Set([
+  'EACCES',
+  'EISDIR',
+  'ENOENT',
+  'ENOTDIR',
+  'EPERM',
+]);
+
 const SECRET_RULES = [
   {
     id: 'private-key',
@@ -19,7 +28,7 @@ const SECRET_RULES = [
   },
   {
     id: 'openai-api-key',
-    pattern: /\bsk-[A-Za-z0-9]{20,}\b/g,
+    pattern: /\bsk-(?:(?:proj|svcacct)-[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{20,})\b/g,
   },
   {
     id: 'anthropic-api-key',
@@ -31,7 +40,7 @@ const SECRET_RULES = [
   },
   {
     id: 'github-token',
-    pattern: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,}\b/g,
+    pattern: /\b(?:github_pat_[A-Za-z0-9_]{82,}|(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,})\b/g,
   },
   {
     id: 'slack-token',
@@ -161,7 +170,36 @@ function getStagedFiles() {
   return splitNullDelimited(git(['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMR']));
 }
 
+function isExpectedReadFailure(error) {
+  return (
+    error instanceof Error &&
+    'code' in error &&
+    EXPECTED_READ_ERROR_CODES.has(String(error.code))
+  );
+}
+
+function isProbablyBinaryFile(filePath) {
+  let fileDescriptor;
+  try {
+    fileDescriptor = openSync(filePath, 'r');
+    const buffer = Buffer.allocUnsafe(BINARY_SNIFF_BYTES);
+    const bytesRead = readSync(fileDescriptor, buffer, 0, BINARY_SNIFF_BYTES, 0);
+    return buffer.subarray(0, bytesRead).includes(0);
+  } finally {
+    if (fileDescriptor !== undefined) {
+      closeSync(fileDescriptor);
+    }
+  }
+}
+
 function readTrackedFile(filePath) {
+  if (isProbablyBinaryFile(filePath)) {
+    return null;
+  }
+  return readFileSync(filePath, 'utf8');
+}
+
+function readProvidedFile(filePath) {
   return readFileSync(filePath, 'utf8');
 }
 
@@ -169,7 +207,7 @@ function readStagedFile(filePath) {
   return git(['show', `:${filePath}`]);
 }
 
-function scanFileList({ config, files, readFile }) {
+export function scanFileList({ config, files, readFile }) {
   const findings = [];
   for (const filePath of files) {
     if (isExcluded(filePath, config)) {
@@ -178,7 +216,13 @@ function scanFileList({ config, files, readFile }) {
     let text;
     try {
       text = readFile(filePath);
-    } catch {
+    } catch (error) {
+      if (isExpectedReadFailure(error)) {
+        continue;
+      }
+      throw error;
+    }
+    if (text === null) {
       continue;
     }
     findings.push(...scanText({ filePath, text }));
@@ -251,7 +295,7 @@ function runCli() {
     args.mode === 'staged'
       ? { files: getStagedFiles(), readFile: readStagedFile }
       : args.mode === 'files'
-        ? { files: args.files, readFile: readTrackedFile }
+        ? { files: args.files, readFile: readProvidedFile }
         : { files: getTrackedFiles(), readFile: readTrackedFile };
 
   const findings = scanFileList({ config, files: scan.files, readFile: scan.readFile });
