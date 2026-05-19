@@ -59,6 +59,35 @@ describe('runtime host boundary', () => {
     ]);
   });
 
+  it('rejects dynamic imports and require calls that can execute renderer-only local runtimes', () => {
+    const violations = findRuntimeHostBoundaryViolations([
+      {
+        path: 'apps/desktop/src/main.ts',
+        source:
+          "async function loadLocalRuntime() { return import('@brainstrike/agent/local-llm'); }",
+      },
+      {
+        path: 'apps/desktop/src/ipc-handlers.ts',
+        source: "const embeddingWorker = require('@brainstrike/embeddings/worker');",
+      },
+    ]);
+
+    expect(violations).toEqual([
+      {
+        importSource: '@brainstrike/agent/local-llm',
+        message:
+          'Built-in local LLM execution is renderer-only; Electron main must talk to llm-host.',
+        path: 'apps/desktop/src/main.ts',
+      },
+      {
+        importSource: '@brainstrike/embeddings/worker',
+        message:
+          'Local embedding worker execution is renderer-only; Electron main must talk to embedding-host.',
+        path: 'apps/desktop/src/ipc-handlers.ts',
+      },
+    ]);
+  });
+
   it('keeps current desktop source free of runtime-host boundary violations', () => {
     expect(findRuntimeHostBoundaryViolationsInDesktopSource()).toEqual([]);
   });

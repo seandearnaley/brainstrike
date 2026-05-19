@@ -47,6 +47,9 @@ describe('logging API contract', () => {
   });
 
   it('rejects malformed logging preferences before they reach mutable main-process state', () => {
+    const sparseRedactPaths = new Array<string>(2);
+    sparseRedactPaths[1] = 'token';
+
     expect(() => assertLoggingPreferences(null)).toThrow('Logging preferences must be an object.');
     expect(() =>
       assertLoggingPreferences({
@@ -63,6 +66,12 @@ describe('logging API contract', () => {
         },
       })
     ).toThrow('Logging file preferences level must be a valid log level.');
+    expect(() =>
+      assertLoggingPreferences({
+        ...createDefaultLoggingPreferences(),
+        redactPaths: sparseRedactPaths,
+      })
+    ).toThrow('Logging preferences redactPaths must be a string array.');
   });
 
   it('normalizes only supported open-destination targets', () => {

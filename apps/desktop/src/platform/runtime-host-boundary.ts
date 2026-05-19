@@ -81,6 +81,23 @@ function getImportSource(node: ts.ImportDeclaration): string | null {
   return moduleSpecifier.text;
 }
 
+function getForbiddenCallImportSource(node: ts.CallExpression): string | null {
+  const [firstArgument] = node.arguments;
+  if (!(firstArgument && ts.isStringLiteral(firstArgument))) {
+    return null;
+  }
+
+  if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+    return firstArgument.text;
+  }
+
+  if (ts.isIdentifier(node.expression) && node.expression.text === 'require') {
+    return firstArgument.text;
+  }
+
+  return null;
+}
+
 function isTypeOnlyImport(node: ts.ImportDeclaration): boolean {
   if (node.importClause?.isTypeOnly) {
     return true;
@@ -92,6 +109,33 @@ function isTypeOnlyImport(node: ts.ImportDeclaration): boolean {
   }
 
   return namedBindings.elements.every((element) => element.isTypeOnly);
+}
+
+function getForbiddenImportSource(node: ts.Node): string | null {
+  if (ts.isImportDeclaration(node)) {
+    return isTypeOnlyImport(node) ? null : getImportSource(node);
+  }
+
+  if (ts.isCallExpression(node)) {
+    return getForbiddenCallImportSource(node);
+  }
+
+  return null;
+}
+
+function appendForbiddenImportViolation(
+  violations: RuntimeHostBoundaryViolation[],
+  filePath: string,
+  node: ts.Node
+): void {
+  const importSource = getForbiddenImportSource(node);
+  const message = importSource ? FORBIDDEN_EXECUTION_IMPORTS.get(importSource) : null;
+
+  if (!(importSource && message)) {
+    return;
+  }
+
+  violations.push({ importSource, message, path: filePath });
 }
 
 export function findRuntimeHostBoundaryViolations(
@@ -106,23 +150,12 @@ export function findRuntimeHostBoundaryViolations(
 
     const sourceFile = ts.createSourceFile(file.path, file.source, ts.ScriptTarget.Latest, true);
 
-    for (const statement of sourceFile.statements) {
-      if (!ts.isImportDeclaration(statement) || isTypeOnlyImport(statement)) {
-        continue;
-      }
+    const visit = (node: ts.Node): void => {
+      appendForbiddenImportViolation(violations, file.path, node);
+      ts.forEachChild(node, visit);
+    };
 
-      const importSource = getImportSource(statement);
-      if (!importSource) {
-        continue;
-      }
-
-      const message = FORBIDDEN_EXECUTION_IMPORTS.get(importSource);
-      if (!message) {
-        continue;
-      }
-
-      violations.push({ importSource, message, path: file.path });
-    }
+    visit(sourceFile);
   }
 
   return violations;

@@ -40,9 +40,16 @@ function assertBoolean(value: unknown, message: string): boolean {
 }
 
 function assertStringArray(value: unknown, message: string): readonly string[] {
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+  if (!Array.isArray(value)) {
     throw new Error(message);
   }
+
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      throw new Error(message);
+    }
+  }
+
   return [...value];
 }
 
