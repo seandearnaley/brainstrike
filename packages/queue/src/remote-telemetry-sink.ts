@@ -177,21 +177,32 @@ export function initializeQueueTelemetrySink(
 
   const events: QueueTelemetryEvent[] = [];
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let timerDueAt: number | null = null;
   let flushing = false;
+  let disposed = false;
   // Track consecutive failures to disable sink after too many in a row
   const failureState = { consecutiveFailures: 0, disabled: false, nextRetryAt: 0 };
-  const boundedMaxBufferedEvents = Math.max(0, Math.floor(maxBufferedEvents));
+  const boundedMaxBufferedEvents = Math.max(1, Math.floor(maxBufferedEvents));
   const boundedRetryBaseDelayMs = Math.max(0, retryBaseDelayMs);
   const boundedMaxRetryDelayMs = Math.max(boundedRetryBaseDelayMs, maxRetryDelayMs);
 
   const scheduleFlush = (delayMs: number): void => {
-    if (timer !== null) {
+    const boundedDelayMs = Math.max(0, delayMs);
+    const nextTimerDueAt = Date.now() + boundedDelayMs;
+    if (timer !== null && timerDueAt !== null && timerDueAt <= nextTimerDueAt) {
       return;
     }
+
+    if (timer !== null) {
+      clearTimeout(timer);
+    }
+
+    timerDueAt = nextTimerDueAt;
     timer = setTimeout(() => {
       timer = null;
+      timerDueAt = null;
       void flush();
-    }, delayMs);
+    }, boundedDelayMs);
   };
 
   const trimBufferedEvents = (): void => {
@@ -199,12 +210,14 @@ export function initializeQueueTelemetrySink(
       return;
     }
 
-    const droppedEvents = events.length - boundedMaxBufferedEvents;
+    const bufferedEvents = events.length;
+    const droppedEvents = bufferedEvents - boundedMaxBufferedEvents;
     events.splice(0, droppedEvents);
     logger.warn('Queue telemetry sink dropped buffered events after reaching maxBufferedEvents', {
-      bufferedEvents: events.length,
+      bufferedEvents,
       droppedEvents,
       maxBufferedEvents: boundedMaxBufferedEvents,
+      retainedEvents: events.length,
     });
   };
 
@@ -217,8 +230,8 @@ export function initializeQueueTelemetrySink(
   };
 
   const unsubscribe = addQueueTelemetryListener((event) => {
-    // Drop events if sink is disabled due to repeated failures
-    if (failureState.disabled) {
+    // Drop events after shutdown or when disabled due to repeated failures.
+    if (disposed || failureState.disabled) {
       return;
     }
     events.push(event);
@@ -227,10 +240,8 @@ export function initializeQueueTelemetrySink(
       void flush();
       return;
     }
-    if (timer === null) {
-      const retryDelayMs = Math.max(0, failureState.nextRetryAt - Date.now());
-      scheduleFlush(retryDelayMs > 0 ? retryDelayMs : flushIntervalMs);
-    }
+    const retryDelayMs = Math.max(0, failureState.nextRetryAt - Date.now());
+    scheduleFlush(retryDelayMs > 0 ? retryDelayMs : flushIntervalMs);
   });
 
   const handleFlushError = (error: unknown, payloadEvents: QueueTelemetryEvent[]): void => {
@@ -257,6 +268,9 @@ export function initializeQueueTelemetrySink(
     });
     events.unshift(...payloadEvents);
     trimBufferedEvents();
+    if (disposed) {
+      return;
+    }
     const retryDelayMs = resolveRetryDelayMs();
     failureState.nextRetryAt = retryDelayMs > 0 ? Date.now() + retryDelayMs : 0;
     if (events.length > 0 && retryDelayMs > 0) {
@@ -264,12 +278,12 @@ export function initializeQueueTelemetrySink(
     }
   };
 
-  const flush = async () => {
+  const flushInternal = async (bypassRetryBackoff: boolean): Promise<void> => {
     if (flushing || failureState.disabled || events.length === 0) {
       return;
     }
     const retryDelayMs = Math.max(0, failureState.nextRetryAt - Date.now());
-    if (retryDelayMs > 0) {
+    if (!bypassRetryBackoff && retryDelayMs > 0) {
       scheduleFlush(retryDelayMs);
       return;
     }
@@ -293,13 +307,19 @@ export function initializeQueueTelemetrySink(
     }
   };
 
+  const flush = async (): Promise<void> => {
+    await flushInternal(false);
+  };
+
   const dispose = async () => {
+    disposed = true;
     unsubscribe();
     if (timer) {
       clearTimeout(timer);
       timer = null;
+      timerDueAt = null;
     }
-    await flush();
+    await flushInternal(true);
   };
 
   return {

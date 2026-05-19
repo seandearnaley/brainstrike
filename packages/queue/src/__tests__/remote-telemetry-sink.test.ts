@@ -406,6 +406,8 @@ describe('initializeQueueTelemetrySink', () => {
           [
             'Queue telemetry sink dropped buffered events after reaching maxBufferedEvents',
             expect.objectContaining({
+              bufferedEvents: 4,
+              retainedEvents: 3,
               maxBufferedEvents: 3,
             }),
           ],
@@ -453,6 +455,90 @@ describe('initializeQueueTelemetrySink', () => {
     } finally {
       await sink?.dispose();
     }
+  });
+
+  it('should bypass retry backoff when disposing with buffered events', async () => {
+    fetchSpy
+      .mockRejectedValueOnce(new Error('Network error'))
+      .mockResolvedValue({ ok: true, status: 200 });
+    beaconSpy.mockReturnValue(false);
+
+    const sink = initializeQueueTelemetrySink({
+      endpoint: 'https://example.com/telemetry',
+      enableInTest: true,
+      flushIntervalMs: 60_000,
+      retryBaseDelayMs: 10_000,
+      useSendBeacon: false,
+    });
+
+    emitQueueTelemetry({
+      timestamp: Date.now(),
+      adapter: 'workerpool',
+      event: 'enqueue',
+      taskId: 'task-dispose-backoff',
+    });
+
+    await sink?.flush();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await sink?.dispose();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('should replace a pending interval timer with a shorter retry timer', async () => {
+    fetchSpy
+      .mockRejectedValueOnce(new Error('Network error'))
+      .mockResolvedValue({ ok: true, status: 200 });
+    beaconSpy.mockReturnValue(false);
+
+    const sink = initializeQueueTelemetrySink({
+      endpoint: 'https://example.com/telemetry',
+      enableInTest: true,
+      flushIntervalMs: 60_000,
+      retryBaseDelayMs: 1000,
+      useSendBeacon: false,
+    });
+
+    emitQueueTelemetry({
+      timestamp: Date.now(),
+      adapter: 'workerpool',
+      event: 'enqueue',
+      taskId: 'task-shorter-retry',
+    });
+
+    await sink?.flush();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    await sink?.dispose();
+  });
+
+  it('should retain at least one buffered event when maxBufferedEvents is zero', async () => {
+    const sink = initializeQueueTelemetrySink({
+      endpoint: 'https://example.com/telemetry',
+      enableInTest: true,
+      flushIntervalMs: 60_000,
+      maxBufferedEvents: 0,
+      useSendBeacon: false,
+    });
+
+    emitQueueTelemetry({
+      timestamp: Date.now(),
+      adapter: 'workerpool',
+      event: 'enqueue',
+      taskId: 'task-min-buffer',
+    });
+
+    await sink?.dispose();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(fetchSpy.mock.calls[0]?.[1]?.body as string);
+    expect(body.events).toHaveLength(1);
+    expect(body.events[0].taskId).toBe('task-min-buffer');
   });
 
   describe('Consecutive Failure Disabling', () => {
