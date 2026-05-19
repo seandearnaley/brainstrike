@@ -110,7 +110,8 @@ describe('logging API contract', () => {
     expect(source).toContain('LOGGING_API_CHANNELS.getPreferences');
     expect(source).toContain('LOGGING_API_CHANNELS.setPreferences');
     expect(source).toContain('LOGGING_API_CHANNELS.preferencesUpdated');
-    expect(source).not.toContain("ipcMain.handle('logging:get-preferences'");
-    expect(source).not.toContain("contents.send('logging:preferences-updated'");
+    expect(source).not.toMatch(
+      /(?:ipcMain\.(?:handle|on|removeHandler|removeListener)|contents\.send)\(\s*['"`]logging:/
+    );
   });
 });

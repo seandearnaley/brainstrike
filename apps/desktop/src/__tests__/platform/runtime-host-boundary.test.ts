@@ -1,5 +1,9 @@
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  collectDesktopSourceFiles,
   findRuntimeHostBoundaryViolations,
   findRuntimeHostBoundaryViolationsInDesktopSource,
 } from '../../platform/runtime-host-boundary';
@@ -90,5 +94,32 @@ describe('runtime host boundary', () => {
 
   it('keeps current desktop source free of runtime-host boundary violations', () => {
     expect(findRuntimeHostBoundaryViolationsInDesktopSource()).toEqual([]);
+  });
+
+  it('skips symlinked entries while collecting desktop source files', () => {
+    const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'brainstrike-runtime-boundary-'));
+    const externalRoot = mkdtempSync(path.join(tmpdir(), 'brainstrike-runtime-boundary-external-'));
+
+    try {
+      const sourceRoot = path.join(temporaryRoot, 'src');
+      mkdirSync(sourceRoot);
+      writeFileSync(path.join(sourceRoot, 'main.ts'), "import './safe';", 'utf8');
+      writeFileSync(
+        path.join(externalRoot, 'outside.ts'),
+        "import '@brainstrike/agent/local-llm';",
+        'utf8'
+      );
+      symlinkSync(path.join(externalRoot, 'outside.ts'), path.join(sourceRoot, 'outside.ts'));
+
+      expect(collectDesktopSourceFiles(sourceRoot)).toEqual([
+        {
+          path: path.relative(process.cwd(), path.join(sourceRoot, 'main.ts')),
+          source: "import './safe';",
+        },
+      ]);
+    } finally {
+      rmSync(temporaryRoot, { force: true, recursive: true });
+      rmSync(externalRoot, { force: true, recursive: true });
+    }
   });
 });

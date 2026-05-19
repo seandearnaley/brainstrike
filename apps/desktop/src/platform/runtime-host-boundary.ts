@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
 
@@ -45,12 +45,16 @@ function isTestSource(filePath: string): boolean {
   );
 }
 
-function collectDesktopSourceFiles(directory: string): RuntimeHostSourceFile[] {
+export function collectDesktopSourceFiles(directory: string): RuntimeHostSourceFile[] {
   const files: RuntimeHostSourceFile[] = [];
 
   for (const entry of readdirSync(directory)) {
     const absolutePath = path.join(directory, entry);
-    const stats = statSync(absolutePath);
+    const stats = lstatSync(absolutePath);
+
+    if (stats.isSymbolicLink()) {
+      continue;
+    }
 
     if (stats.isDirectory()) {
       if (entry === '__tests__' || entry === 'dist' || entry === 'node_modules') {

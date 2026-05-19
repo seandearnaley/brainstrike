@@ -44,7 +44,12 @@ function assertStringArray(value: unknown, message: string): readonly string[] {
     throw new Error(message);
   }
 
-  for (const entry of value) {
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.hasOwn(value, index)) {
+      throw new Error(message);
+    }
+
+    const entry = value[index];
     if (typeof entry !== 'string') {
       throw new Error(message);
     }
