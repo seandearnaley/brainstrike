@@ -166,6 +166,7 @@ describe('logging IPC handler performance', () => {
   it('uses asynchronous fs.promises.stat (Optimized)', async () => {
     const newPreferences: LoggingPreferences = {
       level: LogLevel.INFO,
+      consoleEnabled: true,
       consoleLevel: LogLevel.INFO,
       includeTimestamp: true,
       redactPaths: [],
@@ -205,6 +206,7 @@ describe('logging IPC handler performance', () => {
 
     const newPreferences: LoggingPreferences = {
       level: LogLevel.INFO,
+      consoleEnabled: true,
       consoleLevel: LogLevel.INFO,
       includeTimestamp: true,
       redactPaths: [],

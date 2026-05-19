@@ -11,8 +11,15 @@ describe('preload runtime contract', () => {
     const preloadSource = readPreloadSource();
 
     expect(preloadSource).not.toContain("from './db-shared'");
+    expect(preloadSource).not.toContain("from './platform/logging-api-contract'");
     expect(preloadSource).toContain(
       "const DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL = 'db:managed-cache:apply-batch'"
+    );
+    expect(preloadSource).toContain(
+      "const LOGGING_GET_PREFERENCES_CHANNEL = 'logging:get-preferences'"
+    );
+    expect(preloadSource).toContain(
+      "const LOGGING_PREFERENCES_UPDATED_EVENT = 'logging:preferences-updated'"
     );
   });
 

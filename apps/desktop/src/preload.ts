@@ -8,6 +8,13 @@ const ASSISTANT_WORKSPACE_CONTEXT_TAPESTRY_EVENT = 'assistant:workspace-context-
 const MCP_TOOLS_UPDATED_EVENT = 'mcp:tools:updated';
 const DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL = 'db:managed-cache:apply-batch' as const;
 const DB_SCHEDULER_SNAPSHOT_CHANNEL = 'db:scheduler:snapshot' as const;
+const LOGGING_GET_PREFERENCES_CHANNEL = 'logging:get-preferences' as const;
+const LOGGING_SET_PREFERENCES_CHANNEL = 'logging:set-preferences' as const;
+const LOGGING_SELECT_DESTINATION_CHANNEL = 'logging:select-destination' as const;
+const LOGGING_OPEN_DESTINATION_CHANNEL = 'logging:open-destination' as const;
+const LOGGING_GET_BUFFERED_LOGS_CHANNEL = 'logging:get-buffered-logs' as const;
+const LOGGING_INGEST_BUFFERED_RECORD_CHANNEL = 'logging:ingest-buffered-record' as const;
+const LOGGING_PREFERENCES_UPDATED_EVENT = 'logging:preferences-updated' as const;
 
 import type { ApplyManagedCacheBatchArgs } from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
@@ -606,22 +613,23 @@ if (shouldExposeBridge('runtime')) {
 if (shouldExposeBridge('logging')) {
   contextBridge.exposeInMainWorld('logging', {
     getPreferences: (): Promise<LoggingSettingsPayload> =>
-      ipcRenderer.invoke('logging:get-preferences'),
+      ipcRenderer.invoke(LOGGING_GET_PREFERENCES_CHANNEL),
     setPreferences: (preferences: LoggingPreferences): Promise<LoggingSettingsPayload> =>
-      ipcRenderer.invoke('logging:set-preferences', preferences),
+      ipcRenderer.invoke(LOGGING_SET_PREFERENCES_CHANNEL, preferences),
     selectDestination: (): Promise<string | null> =>
-      ipcRenderer.invoke('logging:select-destination'),
+      ipcRenderer.invoke(LOGGING_SELECT_DESTINATION_CHANNEL),
     openDestination: (target: string | null): Promise<boolean> =>
-      ipcRenderer.invoke('logging:open-destination', target ?? null),
-    getBufferedLogs: (): Promise<LogRecord[]> => ipcRenderer.invoke('logging:get-buffered-logs'),
+      ipcRenderer.invoke(LOGGING_OPEN_DESTINATION_CHANNEL, target ?? null),
+    getBufferedLogs: (): Promise<LogRecord[]> =>
+      ipcRenderer.invoke(LOGGING_GET_BUFFERED_LOGS_CHANNEL),
     ingestBufferedRecord: (record: LogRecord): void => {
-      ipcRenderer.send('logging:ingest-buffered-record', record);
+      ipcRenderer.send(LOGGING_INGEST_BUFFERED_RECORD_CHANNEL, record);
     },
     onPreferencesUpdated: (callback: (preferences: LoggingPreferences) => void) => {
       const listener = (_event: unknown, prefs: LoggingPreferences) => callback(prefs);
-      ipcRenderer.on('logging:preferences-updated', listener);
+      ipcRenderer.on(LOGGING_PREFERENCES_UPDATED_EVENT, listener);
       return () => {
-        ipcRenderer.removeListener('logging:preferences-updated', listener);
+        ipcRenderer.removeListener(LOGGING_PREFERENCES_UPDATED_EVENT, listener);
       };
     },
   });

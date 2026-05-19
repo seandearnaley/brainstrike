@@ -3,6 +3,11 @@ import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences'
 import type { IpcMainEvent } from 'electron';
 import { ipcMain, webContents } from 'electron';
 import type { LoggingSettingsPayload } from './logging-shared';
+import {
+  assertLoggingOpenDestinationTarget,
+  assertLoggingPreferences,
+  LOGGING_API_CHANNELS,
+} from './platform/logging-api-contract';
 
 const logger = createLogger('LoggingIPC');
 
@@ -18,15 +23,16 @@ export interface LoggingIpcHandlers {
 }
 
 export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): () => void {
-  ipcMain.handle('logging:get-preferences', () => handlers.getState());
+  ipcMain.handle(LOGGING_API_CHANNELS.getPreferences, () => handlers.getState());
 
   let preferencesUpdateQueue: Promise<void> = Promise.resolve();
 
   ipcMain.handle(
-    'logging:set-preferences',
-    async (_event, preferences: LoggingPreferences): Promise<LoggingSettingsPayload> => {
+    LOGGING_API_CHANNELS.setPreferences,
+    async (_event, preferences: unknown): Promise<LoggingSettingsPayload> => {
+      const parsedPreferences = assertLoggingPreferences(preferences);
       const runUpdate = async (): Promise<LoggingSettingsPayload> => {
-        const payload = await handlers.setPreferences(preferences);
+        const payload = await handlers.setPreferences(parsedPreferences);
         broadcastLoggingPreferences(payload.preferences);
         return payload;
       };
@@ -41,26 +47,27 @@ export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): () => 
     }
   );
 
-  ipcMain.handle('logging:select-destination', async () => handlers.selectDestination());
+  ipcMain.handle(LOGGING_API_CHANNELS.selectDestination, async () => handlers.selectDestination());
 
   ipcMain.handle(
-    'logging:open-destination',
-    async (_event, target: string | null): Promise<boolean> => handlers.openDestination(target)
+    LOGGING_API_CHANNELS.openDestination,
+    async (_event, target: unknown): Promise<boolean> =>
+      handlers.openDestination(assertLoggingOpenDestinationTarget(target))
   );
 
-  ipcMain.handle('logging:get-buffered-logs', async () => handlers.getBufferedLogs());
+  ipcMain.handle(LOGGING_API_CHANNELS.getBufferedLogs, async () => handlers.getBufferedLogs());
   const ingestBufferedRecord = (event: IpcMainEvent, payload: unknown) => {
     handlers.ingestBufferedLog(event.sender.id, assertLogRecord(payload));
   };
-  ipcMain.on('logging:ingest-buffered-record', ingestBufferedRecord);
+  ipcMain.on(LOGGING_API_CHANNELS.ingestBufferedRecord, ingestBufferedRecord);
 
   return () => {
-    ipcMain.removeHandler('logging:get-preferences');
-    ipcMain.removeHandler('logging:set-preferences');
-    ipcMain.removeHandler('logging:select-destination');
-    ipcMain.removeHandler('logging:open-destination');
-    ipcMain.removeHandler('logging:get-buffered-logs');
-    ipcMain.removeListener('logging:ingest-buffered-record', ingestBufferedRecord);
+    ipcMain.removeHandler(LOGGING_API_CHANNELS.getPreferences);
+    ipcMain.removeHandler(LOGGING_API_CHANNELS.setPreferences);
+    ipcMain.removeHandler(LOGGING_API_CHANNELS.selectDestination);
+    ipcMain.removeHandler(LOGGING_API_CHANNELS.openDestination);
+    ipcMain.removeHandler(LOGGING_API_CHANNELS.getBufferedLogs);
+    ipcMain.removeListener(LOGGING_API_CHANNELS.ingestBufferedRecord, ingestBufferedRecord);
   };
 }
 
@@ -120,7 +127,7 @@ function broadcastLoggingPreferences(preferences: LoggingPreferences): void {
     }
     if (targetType === 'window' || targetType === 'webview') {
       try {
-        contents.send('logging:preferences-updated', cloned);
+        contents.send(LOGGING_API_CHANNELS.preferencesUpdated, cloned);
       } catch {
         // A WebContents can disappear between enumeration and send during shutdown churn.
       }
