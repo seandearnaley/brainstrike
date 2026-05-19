@@ -34,6 +34,8 @@ export interface MeasuredFileTreeOperation<T> {
 
 function stringByteLength(value: string): number {
   let bytes = 0;
+  // Avoid TextEncoder allocation here because snapshot estimation can visit
+  // thousands of path/name strings during worker-backed tree operations.
   for (const char of value) {
     const codePoint = char.codePointAt(0) ?? 0;
     if (codePoint <= 0x7f) {

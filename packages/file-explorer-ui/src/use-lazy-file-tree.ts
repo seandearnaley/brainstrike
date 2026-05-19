@@ -12,7 +12,7 @@
  */
 
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
-import type { FileTreeWorkerPort } from '@brainstrike/file-tree-worker';
+import type { FileTreeWorkerPort, WorkerFileNode } from '@brainstrike/file-tree-worker';
 import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -92,6 +92,29 @@ function countTreeNodes(nodes: readonly CountableTreeNode[]): number {
     }
   }
   return count;
+}
+
+function rehydrateTreeWithTelemetry(
+  tree: WorkerFileNode[],
+  handleMap: Map<string, FileSystemHandle>
+): IFileNode[] {
+  const snapshotEstimate = estimateTreePayloadBytes(tree);
+  recordFileTreeTelemetry({
+    bytes: snapshotEstimate.bytes,
+    event: 'file-tree.snapshot',
+    kind: 'full',
+    nodeCount: snapshotEstimate.nodeCount,
+  });
+  const { result: hydratedTree, durationMs } = measureFileTreeOperation(() =>
+    rehydrateTree(tree, handleMap)
+  );
+  recordFileTreeTelemetry({
+    durationMs,
+    event: 'file-tree.rehydrate',
+    nodeCount: snapshotEstimate.nodeCount,
+  });
+
+  return hydratedTree;
 }
 
 /**
@@ -404,21 +427,7 @@ async function loadSpecificPathsWithWorker(args: {
   onProgress?.(0, total, paths[0] ?? '');
 
   const result = await port.loadPaths(paths);
-  const snapshotEstimate = estimateTreePayloadBytes(result.tree);
-  recordFileTreeTelemetry({
-    bytes: snapshotEstimate.bytes,
-    event: 'file-tree.snapshot',
-    kind: 'full',
-    nodeCount: snapshotEstimate.nodeCount,
-  });
-  const { result: hydratedTree, durationMs } = measureFileTreeOperation(() =>
-    rehydrateTree(result.tree, handleMapRef.current)
-  );
-  recordFileTreeTelemetry({
-    durationMs,
-    event: 'file-tree.rehydrate',
-    nodeCount: snapshotEstimate.nodeCount,
-  });
+  const hydratedTree = rehydrateTreeWithTelemetry(result.tree, handleMapRef.current);
   syncNormalizedTree(hydratedTree);
   setState((s) => ({
     ...s,
@@ -471,21 +480,7 @@ function applyWorkerExpandAllResult(args: {
   syncNormalizedTree: (tree: IFileNode[]) => void;
 }): { discoveredDirectories: number; pathsToCommit: readonly string[] } {
   const { handleMapRef, onNodesIndexedRef, result, setState, syncNormalizedTree } = args;
-  const snapshotEstimate = estimateTreePayloadBytes(result.tree);
-  recordFileTreeTelemetry({
-    bytes: snapshotEstimate.bytes,
-    event: 'file-tree.snapshot',
-    kind: 'full',
-    nodeCount: snapshotEstimate.nodeCount,
-  });
-  const { result: hydratedTree, durationMs } = measureFileTreeOperation(() =>
-    rehydrateTree(result.tree, handleMapRef.current)
-  );
-  recordFileTreeTelemetry({
-    durationMs,
-    event: 'file-tree.rehydrate',
-    nodeCount: snapshotEstimate.nodeCount,
-  });
+  const hydratedTree = rehydrateTreeWithTelemetry(result.tree, handleMapRef.current);
   const expectedNodeCount = countTreeNodes(result.tree);
   const actualNodeCount = countTreeNodes(hydratedTree);
 

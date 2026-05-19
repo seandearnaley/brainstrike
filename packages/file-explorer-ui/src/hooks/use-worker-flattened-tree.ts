@@ -74,13 +74,13 @@ export function useWorkerFlattenedTree(
     }
 
     // Register handler for flattened results
-    cleanupRef.current = port.onFlattenedResult((nodes, _count, durationMs) => {
+    cleanupRef.current = port.onFlattenedResult((nodes, count, durationMs) => {
       setFlattenedNodes(nodes);
       setLastDurationMs(durationMs);
       recordFileTreeTelemetry({
         durationMs,
         event: 'file-tree.flatten',
-        nodeCount: _count,
+        nodeCount: count,
         rowCount: nodes.length,
         source: 'worker',
       });

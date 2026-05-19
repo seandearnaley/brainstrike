@@ -52,6 +52,12 @@ import {
 
 /** Pixel height of one virtualized tree row. */
 const ROW_HEIGHT = 32;
+type FileTreeRowBuildSource = 'main-thread' | 'normalized' | 'worker';
+
+interface FileTreeRowsBuildResult {
+  rows: TreeNode<FileTreeRowData>[];
+  source: FileTreeRowBuildSource;
+}
 
 interface IOptimizedFileTreeProps {
   /** Cancel loading for a directory (called on collapse) */
@@ -2060,10 +2066,8 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
     // Keep row structure independent from selectedFilePaths so checkbox toggles
     // do not trigger full tree row reconstruction for large trees.
-    const treeRows = useMemo(() => {
-      fileTreeTelemetry.treeRowsRebuildCount++;
-      let source: 'main-thread' | 'normalized' | 'worker' = 'main-thread';
-      const measured = measureFileTreeOperation(() => {
+    const treeRowsBuild = useMemo(() => {
+      const measured = measureFileTreeOperation<FileTreeRowsBuildResult>(() => {
         const options: BuildFileTreeRowsOptions = {
           expandedDirectoryPaths,
           folderId,
@@ -2074,36 +2078,44 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         };
 
         if (normalizedTreeContext) {
-          source = 'normalized';
-          return buildRowsFromNormalizedTree(
-            normalizedTreeContext.normalizedTreeRef.current,
-            options,
-            normalizedTreeContext.getDescendantFileCount,
-            filteredPathSet
-          );
+          return {
+            rows: buildRowsFromNormalizedTree(
+              normalizedTreeContext.normalizedTreeRef.current,
+              options,
+              normalizedTreeContext.getDescendantFileCount,
+              filteredPathSet
+            ),
+            source: 'normalized' satisfies FileTreeRowBuildSource,
+          };
         }
 
         // When worker-flattened nodes are available, use them to avoid main-thread DFS
         if (flattenedNodes && fileNodeIndex) {
-          source = 'worker';
-          return buildRowsFromWorkerNodes(
-            flattenedNodes,
-            (path) => fileNodeIndex.get(path),
-            options
-          );
+          return {
+            rows: buildRowsFromWorkerNodes(
+              flattenedNodes,
+              (path) => fileNodeIndex.get(path),
+              options
+            ),
+            source: 'worker' satisfies FileTreeRowBuildSource,
+          };
         }
 
-        return buildFileTreeRows(fileTree, options);
+        return {
+          rows: buildFileTreeRows(fileTree, options),
+          source: 'main-thread' satisfies FileTreeRowBuildSource,
+        };
       });
 
-      recordFileTreeTelemetry({
-        durationMs: measured.durationMs,
-        event: 'file-tree.row-build',
-        rowCount: measured.result.length,
-        source,
-      });
-
-      return measured.result;
+      return {
+        rows: measured.result.rows,
+        telemetry: {
+          durationMs: measured.durationMs,
+          event: 'file-tree.row-build' as const,
+          rowCount: measured.result.rows.length,
+          source: measured.result.source,
+        },
+      };
     }, [
       fileTree,
       expandedDirectoryPaths,
@@ -2118,6 +2130,12 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       normalizedTreeContext,
       normalizedTreeContext?.version,
     ]);
+    const treeRows = treeRowsBuild.rows;
+
+    useEffect(() => {
+      fileTreeTelemetry.treeRowsRebuildCount++;
+      recordFileTreeTelemetry(treeRowsBuild.telemetry);
+    }, [treeRowsBuild.telemetry]);
 
     const fileNodeByPath = useMemo(() => {
       const nodeMap = new Map<string, IFileNode>();
