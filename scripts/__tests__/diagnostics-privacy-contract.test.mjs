@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
-const contractPath = 'docs/diagnostics-privacy-contract.md';
+const contractPath = new URL('../../docs/diagnostics-privacy-contract.md', import.meta.url);
 let contractSource = '';
 let contractReadError = null;
 
@@ -13,10 +13,27 @@ try {
 }
 
 test('diagnostics privacy contract exists in the repo docs', () => {
-  assert.equal(contractReadError, null, `${contractPath} should exist`);
+  assert.equal(contractReadError, null, `${contractPath.pathname} should exist`);
 });
 
-test('diagnostics privacy contract documents default allowed telemetry fields', () => {
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const assertContractIncludes = (term, flags = 'i') => {
+  assert.match(contractSource, new RegExp(escapeRegExp(term), flags));
+};
+
+const testWithContract = (name, callback) => {
+  test(name, (context) => {
+    if (contractReadError !== null) {
+      context.skip(`${contractPath.pathname} is unavailable`);
+      return;
+    }
+
+    callback();
+  });
+};
+
+testWithContract('diagnostics privacy contract documents default allowed telemetry fields', () => {
   for (const term of [
     'durations',
     'counts',
@@ -25,11 +42,11 @@ test('diagnostics privacy contract documents default allowed telemetry fields', 
     'feature names',
     'coarse route or surface identifiers',
   ]) {
-    assert.match(contractSource, new RegExp(term, 'i'));
+    assertContractIncludes(term);
   }
 });
 
-test('diagnostics privacy contract documents data that background telemetry must not collect', () => {
+testWithContract('diagnostics privacy contract documents data that background telemetry must not collect', () => {
   for (const term of [
     'raw file paths',
     'filenames',
@@ -39,19 +56,19 @@ test('diagnostics privacy contract documents data that background telemetry must
     'provider keys',
     'raw local database rows',
   ]) {
-    assert.match(contractSource, new RegExp(term, 'i'));
+    assertContractIncludes(term);
   }
 });
 
-test('diagnostics privacy contract distinguishes background telemetry from user exports', () => {
-  assert.match(contractSource, /background telemetry/i);
-  assert.match(contractSource, /user-initiated diagnostic export/i);
-  assert.match(contractSource, /explicit consent/i);
-  assert.match(contractSource, /leaving the device/i);
+testWithContract('diagnostics privacy contract distinguishes background telemetry from user exports', () => {
+  assertContractIncludes('background telemetry');
+  assertContractIncludes('user-initiated diagnostic export');
+  assertContractIncludes('explicit consent');
+  assertContractIncludes('leaving the device');
 });
 
-test('diagnostics privacy contract links related performance telemetry tickets', () => {
+testWithContract('diagnostics privacy contract links related performance telemetry tickets', () => {
   for (const issueId of ['BST-376', 'BST-400', 'BST-401', 'BST-402', 'BST-403']) {
-    assert.match(contractSource, new RegExp(issueId));
+    assertContractIncludes(issueId, '');
   }
 });
