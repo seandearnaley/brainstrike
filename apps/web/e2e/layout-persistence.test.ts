@@ -91,14 +91,19 @@ async function dragPanelWider({
     await page.mouse.move(startX + dragDelta, startY, { steps: 8 });
     await page.mouse.up();
 
-    const deadline = Date.now() + 2000;
-    while (Date.now() < deadline) {
-      const width = await panel.evaluate((el) => el.getBoundingClientRect().width);
-      if (width > initialWidth + 1) {
-        return width;
-      }
-      await page.waitForTimeout(100);
-    }
+    let observedWidth = initialWidth;
+    try {
+      await expect
+        .poll(
+          async () => {
+            observedWidth = await panel.evaluate((el) => el.getBoundingClientRect().width);
+            return observedWidth;
+          },
+          { intervals: [100, 100, 250, 500], timeout: 2000 }
+        )
+        .toBeGreaterThan(initialWidth + 1);
+      return observedWidth;
+    } catch {}
   }
 
   const finalWidth = await panel.evaluate((el) => el.getBoundingClientRect().width);

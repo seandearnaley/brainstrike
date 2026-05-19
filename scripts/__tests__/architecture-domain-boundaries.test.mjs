@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -18,8 +18,11 @@ const writeSource = async (filePath, source) => {
   await writeFile(filePath, source);
 };
 
-const makeWorkspace = async ({ sources }) => {
+const makeWorkspace = async ({ sources }, testContext) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-domain-boundaries-'));
+  testContext.after(async () => {
+    await rm(root, { force: true, recursive: true });
+  });
 
   const packages = [
     ['apps/web', '@brainstrike/web'],
@@ -79,7 +82,7 @@ const makeWorkspace = async ({ sources }) => {
   return root;
 };
 
-test('accepts same-domain and explicitly allowed lower-domain imports', async () => {
+test('accepts same-domain and explicitly allowed lower-domain imports', async (t) => {
   const root = await makeWorkspace({
     sources: [
       [
@@ -91,7 +94,7 @@ test('accepts same-domain and explicitly allowed lower-domain imports', async ()
         "export { Button } from '@brainstrike/ui';\nimport type { Logger } from '@brainstrike/utils/logger';\n",
       ],
     ],
-  });
+  }, t);
 
   const result = await validateArchitectureDomainBoundaries({ root });
 
@@ -99,7 +102,7 @@ test('accepts same-domain and explicitly allowed lower-domain imports', async ()
   assert.equal(result.summary.checkedImportCount, 4);
 });
 
-test('rejects imports from lower-level domains into higher-level domains', async () => {
+test('rejects imports from lower-level domains into higher-level domains', async (t) => {
   const root = await makeWorkspace({
     sources: [
       [
@@ -107,7 +110,7 @@ test('rejects imports from lower-level domains into higher-level domains', async
         "import { Shell } from '@brainstrike/app-shell';\nimport type { WebApp } from '@brainstrike/web';\n",
       ],
     ],
-  });
+  }, t);
 
   const result = await validateArchitectureDomainBoundaries({ root });
 
@@ -117,7 +120,7 @@ test('rejects imports from lower-level domains into higher-level domains', async
   ]);
 });
 
-test('recognizes subpath imports, dynamic imports, require calls, import-equals, and import types', async () => {
+test('recognizes subpath imports, dynamic imports, require calls, import-equals, and import types', async (t) => {
   const root = await makeWorkspace({
     sources: [
       [
@@ -125,7 +128,7 @@ test('recognizes subpath imports, dynamic imports, require calls, import-equals,
         "type Shell = import('@brainstrike/app-shell/panel').Shell;\nconst data = import('@brainstrike/db/client');\nconst shell = require('@brainstrike/app-shell');\nimport legacyWeb = require('@brainstrike/web/legacy');\nvoid data;\nvoid shell;\nvoid legacyWeb;\n",
       ],
     ],
-  });
+  }, t);
 
   const result = await validateArchitectureDomainBoundaries({ root });
 
@@ -137,7 +140,7 @@ test('recognizes subpath imports, dynamic imports, require calls, import-equals,
   ]);
 });
 
-test('sorts violations numerically within each file', async () => {
+test('sorts violations numerically within each file', async (t) => {
   const root = await makeWorkspace({
     sources: [
       [
@@ -160,7 +163,7 @@ test('sorts violations numerically within each file', async () => {
         ].join('\n'),
       ],
     ],
-  });
+  }, t);
 
   const result = await validateArchitectureDomainBoundaries({ root });
 
@@ -170,10 +173,10 @@ test('sorts violations numerically within each file', async () => {
   );
 });
 
-test('reports stale approved boundary exceptions', async () => {
+test('reports stale approved boundary exceptions', async (t) => {
   const root = await makeWorkspace({
     sources: [['packages/ui/src/component.ts', "export const value = 'safe';\n"]],
-  });
+  }, t);
   const contractPath = path.join(root, 'architecture/domain-map.json');
   const contract = JSON.parse(await readFile(contractPath, 'utf8'));
   await writeFile(path.join(root, 'phase-test.html'), '<!doctype html><title>Phase test</title>\n');

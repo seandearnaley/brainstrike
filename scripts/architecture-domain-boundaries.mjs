@@ -266,6 +266,7 @@ export const validateArchitectureDomainBoundaries = async ({ root = process.cwd(
 
         checkedImportCount += 1;
         const importedDomain = packageToDomain.get(importedPackage);
+        const importedDomainLabel = importedDomain ?? 'unassigned-domain';
         const allowedDomains = allowedDomainDependencies.get(sourcePackageDomain);
         if (allowedDomains?.has(importedDomain)) {
           continue;
@@ -286,7 +287,7 @@ export const validateArchitectureDomainBoundaries = async ({ root = process.cwd(
           importedPackage,
           importedDomain,
           specifier: importedSpecifier.specifier,
-          message: `${sourceWorkspacePackage.name} (${sourcePackageDomain}) must not import ${importedPackage} (${importedDomain})`,
+          message: `${sourceWorkspacePackage.name} (${sourcePackageDomain}) must not import ${importedPackage} (${importedDomainLabel})`,
         });
       }
     }
