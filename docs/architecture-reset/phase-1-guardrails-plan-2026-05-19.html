@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brainstrike Phase 1 - Guardrails Plan</title>
+    <style>
+      body { margin: 0; background: #f8f4e8; color: #171717; font-family: Aptos, "Segoe UI", sans-serif; line-height: 1.45; }
+      main { width: min(980px, calc(100% - 32px)); margin: 0 auto; padding: 48px 0; }
+      h1, h2 { font-family: Georgia, "Times New Roman", serif; line-height: .98; margin: 0; }
+      h1 { font-size: clamp(3rem, 7vw, 6.5rem); }
+      h2 { font-size: 2rem; }
+      p, li { color: #5f625c; }
+      code { background: #f0eadb; border: 1px solid #d8cfba; border-radius: 5px; padding: .08rem .28rem; }
+      .panel { background: #fffdf6; border: 1px solid #d8cfba; border-radius: 8px; padding: 20px; margin: 14px 0; }
+      .eyebrow { color: #a33d31; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; font-size: .76rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Phase 1 stacked PR artifact</p>
+      <h1>Guardrails before movement.</h1>
+      <section class="panel">
+        <h2>Goal</h2>
+        <p>
+          Make architecture checks deterministic before code movement starts. This PR narrows Turbo
+          cache inputs, creates an owned boundary baseline, classifies zero-inbound package claims
+          using both TypeScript and non-TypeScript consumers, and documents the `@brainstrike/agent`
+          path-mapping decision.
+        </p>
+      </section>
+      <section class="panel">
+        <h2>Acceptance checks</h2>
+        <ul>
+          <li><code>pnpm exec turbo run build --dry=json</code> has no `.claude/worktrees` inputs.</li>
+          <li><code>pnpm exec turbo boundaries</code> output is grouped into owned categories.</li>
+          <li>Package prune candidates are not based on TypeScript imports alone.</li>
+          <li>The domain contract from phase 0 stays green.</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

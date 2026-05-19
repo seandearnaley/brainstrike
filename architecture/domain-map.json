@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "stack": [
+    {
+      "id": "phase-0",
+      "branch": "codex/domain-reset-phase-0-contract",
+      "title": "Domain contract and stacked reset plan",
+      "dependsOn": null,
+      "planningArtifact": "docs/architecture-reset/phase-0-domain-contract-plan-2026-05-19.html"
+    },
+    {
+      "id": "phase-1",
+      "branch": "codex/domain-reset-phase-1-guardrails",
+      "title": "Deterministic build inputs and boundary baseline",
+      "dependsOn": "phase-0",
+      "planningArtifact": "docs/architecture-reset/phase-1-guardrails-plan-2026-05-19.html"
+    },
+    {
+      "id": "phase-2",
+      "branch": "codex/domain-reset-phase-2-platform-contracts",
+      "title": "Runtime hosts and typed desktop API contracts",
+      "dependsOn": "phase-1",
+      "planningArtifact": "docs/architecture-reset/phase-2-platform-contracts-plan-2026-05-19.html"
+    },
+    {
+      "id": "phase-3",
+      "branch": "codex/domain-reset-phase-3-workflow-owners",
+      "title": "Pipeline and assistant workflow ownership",
+      "dependsOn": "phase-2",
+      "planningArtifact": "docs/architecture-reset/phase-3-workflow-owners-plan-2026-05-19.html"
+    },
+    {
+      "id": "phase-4",
+      "branch": "codex/domain-reset-phase-4-domain-moves",
+      "title": "Workspace domain moves and release gate",
+      "dependsOn": "phase-3",
+      "planningArtifact": "docs/architecture-reset/phase-4-domain-moves-plan-2026-05-19.html"
+    }
+  ],
+  "domains": [
+    {
+      "id": "applications",
+      "title": "Application shells",
+      "owner": "platform",
+      "packages": [
+        "@brainstrike/desktop",
+        "@brainstrike/docs",
+        "@brainstrike/web"
+      ],
+      "mayDependOn": [
+        "workspace-experience",
+        "assistant-experience",
+        "indexing",
+        "data-platform",
+        "shared-foundation",
+        "tooling"
+      ]
+    },
+    {
+      "id": "workspace-experience",
+      "title": "Workspace, tree, preview, and collection experience",
+      "owner": "workspace",
+      "packages": [
+        "@brainstrike/app-shell",
+        "@brainstrike/db-explorer",
+        "@brainstrike/file-explorer",
+        "@brainstrike/file-explorer-hooks",
+        "@brainstrike/file-explorer-ui",
+        "@brainstrike/file-tree-worker",
+        "@brainstrike/selection-rules",
+        "@brainstrike/vector-management"
+      ],
+      "mayDependOn": [
+        "indexing",
+        "data-platform",
+        "shared-foundation",
+        "tooling"
+      ]
+    },
+    {
+      "id": "assistant-experience",
+      "title": "Assistant providers, local runtime, tools, and context",
+      "owner": "assistant",
+      "packages": [
+        "@brainstrike/agent"
+      ],
+      "mayDependOn": [
+        "indexing",
+        "data-platform",
+        "shared-foundation",
+        "tooling"
+      ]
+    },
+    {
+      "id": "indexing",
+      "title": "File import, chunking, embeddings, and pipeline orchestration",
+      "owner": "indexing",
+      "packages": [
+        "@brainstrike/chunking-worker",
+        "@brainstrike/embedding-worker",
+        "@brainstrike/embeddings",
+        "@brainstrike/file-import",
+        "@brainstrike/pipeline",
+        "@brainstrike/queue-telemetry-collector",
+        "@brainstrike/text-splitter",
+        "@brainstrike/token-cache",
+        "@brainstrike/worker-runtime",
+        "@brainstrike/workers"
+      ],
+      "mayDependOn": [
+        "data-platform",
+        "shared-foundation",
+        "tooling"
+      ]
+    },
+    {
+      "id": "data-platform",
+      "title": "Local-first data, persistence, and queue platform",
+      "owner": "data-platform",
+      "packages": [
+        "@brainstrike/db",
+        "@brainstrike/preferences",
+        "@brainstrike/queue",
+        "@brainstrike/storage"
+      ],
+      "mayDependOn": [
+        "shared-foundation",
+        "tooling"
+      ]
+    },
+    {
+      "id": "shared-foundation",
+      "title": "Shared UI, types, filesystem, hooks, and utilities",
+      "owner": "foundation",
+      "packages": [
+        "@brainstrike/file-system",
+        "@brainstrike/hooks",
+        "@brainstrike/test-utils",
+        "@brainstrike/types",
+        "@brainstrike/ui",
+        "@brainstrike/utils"
+      ],
+      "mayDependOn": [
+        "tooling"
+      ]
+    },
+    {
+      "id": "tooling",
+      "title": "Build, config, server config, and design tokens",
+      "owner": "tooling",
+      "packages": [
+        "@brainstrike/build-utils",
+        "@brainstrike/config",
+        "@brainstrike/platform-utils",
+        "@brainstrike/server-config",
+        "@brainstrike/tailwind-config"
+      ],
+      "mayDependOn": []
+    }
+  ]
+}

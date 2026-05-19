@@ -104,6 +104,7 @@
     "format": "biome format . --write",
     "format-and-lint": "biome check .",
     "format-and-lint:fix": "biome check . --write",
+    "arch:domain-contract": "node scripts/architecture-domain-contract.mjs",
     "knip": "knip",
     "lint": "pnpm run lint:no-no-memo && pnpm run lint:e2e-destructive-tags && pnpm run lint:e2e-stateful-matrix && pnpm run lint:e2e-readiness-contracts && pnpm run lint:ci-workflow-contracts && pnpm run lint:eslint && biome check . --fix",
     "lint:ci": "pnpm run lint:no-no-memo && pnpm run lint:e2e-destructive-tags && pnpm run lint:e2e-stateful-matrix && pnpm run lint:e2e-readiness-contracts && pnpm run lint:ci-workflow-contracts && pnpm run lint:eslint && biome check .",
