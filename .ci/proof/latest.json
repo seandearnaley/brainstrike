@@ -1,42 +1,42 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-19T20:33:57.699Z",
+  "generatedAt": "2026-05-19T20:44:01.736Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
-  "baseRef": "origin/codex/domain-reset-phase-0-contract",
+  "baseRef": "origin/codex/domain-reset-phase-1-guardrails",
   "headRef": "HEAD",
-  "testedHeadSha": "fe73a9c131ffcde91f0d2da52233a68497ea68b9",
+  "testedHeadSha": "66e25641ef43c8a57bf7a0f017a91cfd3057884c",
   "selection": {
-    "base": "origin/codex/domain-reset-phase-0-contract",
-    "baseSha": "069966598946e5f782d2bcab7df550ce114efe0f",
+    "base": "origin/codex/domain-reset-phase-1-guardrails",
+    "baseSha": "543b2949051cfa547aacbd58f0ef683d8e062a47",
     "head": "HEAD",
-    "headSha": "fe73a9c131ffcde91f0d2da52233a68497ea68b9",
-    "mergeBase": "069966598946e5f782d2bcab7df550ce114efe0f",
+    "headSha": "66e25641ef43c8a57bf7a0f017a91cfd3057884c",
+    "mergeBase": "543b2949051cfa547aacbd58f0ef683d8e062a47",
     "files": [
-      ".ci/proof/latest.json",
-      "apps/desktop/e2e/file-explorer-selection.desktop.test.ts",
-      "apps/web/e2e/layout-persistence.test.ts",
-      "architecture/domain-map.json",
-      "docs/architecture-reset/phase-1-guardrails-plan-2026-05-19.html",
-      "package.json",
-      "scripts/__tests__/architecture-domain-boundaries.test.mjs",
-      "scripts/architecture-domain-boundaries.mjs",
-      "scripts/architecture-domain-contract.mjs"
+      "apps/desktop/src/__tests__/main/logging-fs.test.ts",
+      "apps/desktop/src/__tests__/main/logging-ipc.test.ts",
+      "apps/desktop/src/__tests__/platform/logging-api-contract.test.ts",
+      "apps/desktop/src/__tests__/platform/runtime-host-boundary.test.ts",
+      "apps/desktop/src/__tests__/preload-runtime-contract.test.ts",
+      "apps/desktop/src/logging-ipc.ts",
+      "apps/desktop/src/platform/logging-api-contract.ts",
+      "apps/desktop/src/platform/runtime-host-boundary.ts",
+      "apps/desktop/src/preload.ts",
+      "docs/architecture-reset/phase-2-platform-contracts-plan-2026-05-19.html"
     ],
     "lanes": [
-      "ci:full"
+      "ci:desktop",
+      "ci:coverage"
     ],
     "expandedLanes": [
-      "ci:browser",
-      "ci:web-e2e",
       "ci:desktop",
-      "ci:embedding",
       "ci:coverage"
     ],
     "labels": [
-      "ci:full"
+      "ci:desktop",
+      "ci:coverage"
     ],
     "commands": [
       {
@@ -68,20 +68,6 @@
         ]
       },
       {
-        "name": "browser-vitest",
-        "command": "pnpm run test:browser",
-        "requiredFor": [
-          "ci:browser"
-        ]
-      },
-      {
-        "name": "web-functional-e2e",
-        "command": "cd apps/web && pnpm exec playwright test --project=functional --workers=2 --grep-invert \"@destructive|@stateful\"",
-        "requiredFor": [
-          "ci:web-e2e"
-        ]
-      },
-      {
         "name": "desktop-regression",
         "command": "cd apps/desktop && pnpm exec playwright test --project=regression --workers=1 --grep-invert \"@desktop-embedding-\"",
         "requiredFor": [
@@ -89,15 +75,8 @@
         ]
       },
       {
-        "name": "desktop-embedding",
-        "command": "cd apps/desktop && pnpm exec playwright test --workers=1 --grep \"@desktop-embedding-\"",
-        "requiredFor": [
-          "ci:embedding"
-        ]
-      },
-      {
         "name": "affected-coverage",
-        "command": "TURBO_TEST_MODE=coverage COVERAGE=true pnpm exec turbo run test:coverage --filter=\"...[069966598946e5f782d2bcab7df550ce114efe0f]\" --concurrency=4 --summarize --log-order=grouped",
+        "command": "TURBO_TEST_MODE=coverage COVERAGE=true pnpm exec turbo run test:coverage --filter=\"...[543b2949051cfa547aacbd58f0ef683d8e062a47]\" --concurrency=4 --summarize --log-order=grouped",
         "requiredFor": [
           "ci:coverage"
         ]
@@ -109,55 +88,37 @@
       "name": "lint-ci",
       "command": "pnpm lint:ci",
       "exitCode": 0,
-      "durationMs": 8983
+      "durationMs": 10992
     },
     {
       "name": "type-check",
       "command": "pnpm type-check",
       "exitCode": 0,
-      "durationMs": 387
+      "durationMs": 39376
     },
     {
       "name": "build",
       "command": "pnpm build",
       "exitCode": 0,
-      "durationMs": 381
+      "durationMs": 956
     },
     {
       "name": "unit",
       "command": "TURBO_TEST_MODE=unit pnpm exec turbo run test --summarize --log-order=grouped --concurrency=2",
       "exitCode": 0,
-      "durationMs": 385
-    },
-    {
-      "name": "browser-vitest",
-      "command": "pnpm run test:browser",
-      "exitCode": 0,
-      "durationMs": 2552
-    },
-    {
-      "name": "web-functional-e2e",
-      "command": "cd apps/web && pnpm exec playwright test --project=functional --workers=2 --grep-invert \"@destructive|@stateful\"",
-      "exitCode": 0,
-      "durationMs": 54122
+      "durationMs": 55453
     },
     {
       "name": "desktop-regression",
       "command": "cd apps/desktop && pnpm exec playwright test --project=regression --workers=1 --grep-invert \"@desktop-embedding-\"",
       "exitCode": 0,
-      "durationMs": 289233
-    },
-    {
-      "name": "desktop-embedding",
-      "command": "cd apps/desktop && pnpm exec playwright test --workers=1 --grep \"@desktop-embedding-\"",
-      "exitCode": 0,
-      "durationMs": 1491633
+      "durationMs": 292254
     },
     {
       "name": "affected-coverage",
-      "command": "TURBO_TEST_MODE=coverage COVERAGE=true pnpm exec turbo run test:coverage --filter=\"...[069966598946e5f782d2bcab7df550ce114efe0f]\" --concurrency=4 --summarize --log-order=grouped",
+      "command": "TURBO_TEST_MODE=coverage COVERAGE=true pnpm exec turbo run test:coverage --filter=\"...[543b2949051cfa547aacbd58f0ef683d8e062a47]\" --concurrency=4 --summarize --log-order=grouped",
       "exitCode": 0,
-      "durationMs": 59672
+      "durationMs": 77549
     }
   ]
 }
