@@ -90,6 +90,36 @@ describe('logging API contract', () => {
         redactPaths: sparseRedactPaths,
       })
     ).toThrow('Logging preferences redactPaths must be a string array.');
+    expect(() =>
+      assertLoggingPreferences({
+        ...createDefaultLoggingPreferences(),
+        redactPaths: Array.from({ length: 257 }, (_, index) => `secret-${index}`),
+      })
+    ).toThrow('Logging preferences redactPaths cannot exceed 256 entries.');
+    expect(() =>
+      assertLoggingPreferences({
+        ...createDefaultLoggingPreferences(),
+        redactPaths: ['x'.repeat(513)],
+      })
+    ).toThrow('Logging preferences redactPaths entries cannot exceed 512 characters.');
+    expect(() =>
+      assertLoggingPreferences({
+        ...createDefaultLoggingPreferences(),
+        file: {
+          ...createDefaultLoggingPreferences().file,
+          destination: '/tmp/brainstrike\0.log',
+        },
+      })
+    ).toThrow('Logging file preferences destination cannot contain null bytes.');
+    expect(() =>
+      assertLoggingPreferences({
+        ...createDefaultLoggingPreferences(),
+        file: {
+          ...createDefaultLoggingPreferences().file,
+          destination: '/tmp/'.concat('x'.repeat(1025)),
+        },
+      })
+    ).toThrow('Logging file preferences destination cannot exceed 1024 characters.');
   });
 
   it('normalizes only supported open-destination targets', () => {
@@ -101,6 +131,12 @@ describe('logging API contract', () => {
     );
     expect(() => assertLoggingOpenDestinationTarget({ path: '/tmp/brainstrike.log' })).toThrow(
       'Logging open-destination target must be a string or null.'
+    );
+    expect(() => assertLoggingOpenDestinationTarget('/tmp/brainstrike\0.log')).toThrow(
+      'Logging open-destination target cannot contain null bytes.'
+    );
+    expect(() => assertLoggingOpenDestinationTarget('/tmp/'.concat('x'.repeat(1025)))).toThrow(
+      'Logging open-destination target cannot exceed 1024 characters.'
     );
   });
 

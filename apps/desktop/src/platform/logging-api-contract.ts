@@ -20,6 +20,9 @@ const VALID_LOG_LEVELS = new Set<unknown>([
   LogLevel.FATAL,
   LogLevel.SILENT,
 ]);
+const MAX_LOGGING_DESTINATION_LENGTH = 1024;
+const MAX_REDACT_PATHS = 256;
+const MAX_REDACT_PATH_LENGTH = 512;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -43,6 +46,9 @@ function assertStringArray(value: unknown, message: string): readonly string[] {
   if (!Array.isArray(value)) {
     throw new Error(message);
   }
+  if (value.length > MAX_REDACT_PATHS) {
+    throw new Error(`Logging preferences redactPaths cannot exceed ${MAX_REDACT_PATHS} entries.`);
+  }
 
   for (let index = 0; index < value.length; index += 1) {
     if (!Object.hasOwn(value, index)) {
@@ -53,20 +59,42 @@ function assertStringArray(value: unknown, message: string): readonly string[] {
     if (typeof entry !== 'string') {
       throw new Error(message);
     }
+    if (entry.length > MAX_REDACT_PATH_LENGTH) {
+      throw new Error(
+        `Logging preferences redactPaths entries cannot exceed ${MAX_REDACT_PATH_LENGTH} characters.`
+      );
+    }
   }
 
   return [...value];
 }
 
-function assertNullableString(value: unknown, message: string): string | null {
-  if (value === null || typeof value === 'string') {
+function assertNullableDestinationString(
+  value: unknown,
+  invalidTypeMessage: string,
+  label: string
+): string | null {
+  if (value === null) {
     return value;
   }
-  throw new Error(message);
+  if (typeof value !== 'string') {
+    throw new Error(invalidTypeMessage);
+  }
+  if (value.includes('\0')) {
+    throw new Error(`${label} cannot contain null bytes.`);
+  }
+  if (value.length > MAX_LOGGING_DESTINATION_LENGTH) {
+    throw new Error(`${label} cannot exceed ${MAX_LOGGING_DESTINATION_LENGTH} characters.`);
+  }
+  return value;
 }
 
 export function assertLoggingOpenDestinationTarget(value: unknown): string | null {
-  return assertNullableString(value, 'Logging open-destination target must be a string or null.');
+  return assertNullableDestinationString(
+    value,
+    'Logging open-destination target must be a string or null.',
+    'Logging open-destination target'
+  );
 }
 
 export function assertLoggingPreferences(value: unknown): LoggingPreferences {
@@ -90,9 +118,10 @@ export function assertLoggingPreferences(value: unknown): LoggingPreferences {
     ),
     file: {
       append: assertBoolean(file['append'], 'Logging file preferences append must be a boolean.'),
-      destination: assertNullableString(
+      destination: assertNullableDestinationString(
         file['destination'],
-        'Logging file preferences destination must be a string or null.'
+        'Logging file preferences destination must be a string or null.',
+        'Logging file preferences destination'
       ),
       enabled: assertBoolean(
         file['enabled'],
