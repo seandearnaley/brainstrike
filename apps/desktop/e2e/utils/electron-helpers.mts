@@ -6,6 +6,7 @@ import * as playwrightEnvironment from '@brainstrike/config/playwright-environme
 import { getTestDirectoryStructure } from '@brainstrike/file-system';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
+import agentDevToolsDefaults from '../../agent-devtools-defaults.json' with { type: 'json' };
 
 declare const process: NodeJS.Process;
 const require = createRequire(import.meta.url);
@@ -351,6 +352,12 @@ function createLaunchOptions(
     // Specifying an explicit port can cause "Waiting for debugger to disconnect" hangs.
     // Explicitly set user data dir to avoid collisions in shared environments
     ...(userDataDir ? [`--user-data-dir=${userDataDir}`] : []),
+    ...(process.env['BRAINSTRIKE_E2E_AGENT_DEVTOOLS'] === '1'
+      ? [
+          '--brainstrike-agent-devtools',
+          `--brainstrike-agent-devtools-port=${agentDevToolsDefaults.defaultPort}`,
+        ]
+      : []),
     // Disable GPU features to prevent crashes/hangs in CI.
     // Allow GPU in specific tests (e.g., WebGPU memory diagnostics) via env var.
     ...(shouldDisableGpuForE2e

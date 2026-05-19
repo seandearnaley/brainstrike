@@ -23,6 +23,7 @@ export default defineConfig({
       '**/node_modules/**',
       '**/dist/**',
       '**/e2e/**', // Exclude Playwright e2e tests
+      '**/scripts/**', // Script helper tests use node:test directly.
     ],
     // Package-local coverage for reliability (root still consolidates)
     coverage: {

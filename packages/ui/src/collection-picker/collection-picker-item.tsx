@@ -31,6 +31,16 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
 
   const displayName = collection.name ?? collection.modelId;
   const providerLabel = formatProviderLabel(collection.modelKey);
+  const embeddingSummary = `${collection.embeddingCount.toLocaleString()} of ${collection.chunkCount.toLocaleString()} chunks embedded`;
+  const optionLabel = [
+    displayName,
+    providerLabel,
+    `${collection.dimensions} dimensions`,
+    collection.distance,
+    `${collection.fileCount.toLocaleString()} ${collection.fileCount === 1 ? 'file' : 'files'}`,
+    `${collection.chunkCount.toLocaleString()} ${collection.chunkCount === 1 ? 'chunk' : 'chunks'}`,
+    embeddingSummary,
+  ].join(', ');
 
   const handleClick = useCallback(() => {
     onSelect(collection.id);
@@ -64,6 +74,7 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
 
   return (
     <div
+      aria-label={optionLabel}
       aria-selected={isSelected}
       className={cn(
         'group relative cursor-pointer rounded-md border p-3 outline-none transition-all',
@@ -127,21 +138,25 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
             </span>
             {/* Embedding coverage display */}
             <span className="h-1 w-1 rounded-full bg-border" />
-            <span
-              className={cn(
-                'flex items-center gap-1',
-                collection.embeddingCount >= collection.chunkCount && collection.chunkCount > 0
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : ''
-              )}
-              title={`${collection.embeddingCount} of ${collection.chunkCount} chunks embedded`}
-            >
-              <span className="font-medium text-foreground/60">
-                {collection.embeddingCount.toLocaleString()}/
-                {collection.chunkCount.toLocaleString()}
-              </span>
-              <span>embedded</span>
-            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className={cn(
+                    'flex cursor-default items-center gap-1 rounded-sm border-0 bg-transparent p-0 text-left',
+                    collection.embeddingCount >= collection.chunkCount && collection.chunkCount > 0
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : ''
+                  )}
+                >
+                  <span className="font-medium text-foreground/60">
+                    {collection.embeddingCount.toLocaleString()}/
+                    {collection.chunkCount.toLocaleString()}
+                  </span>
+                  <span>embedded</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top">{embeddingSummary}</TooltipContent>
+            </Tooltip>
           </div>
         </div>
 

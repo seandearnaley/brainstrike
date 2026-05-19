@@ -5,6 +5,11 @@ import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { CreateEmbeddingSetDialog } from '../embedding-set-management/create-embedding-set-dialog';
 
+const toastMocks = vi.hoisted(() => ({
+  dismiss: vi.fn(),
+  toast: vi.fn(),
+}));
+
 // Mock dependencies
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/ui')>();
@@ -38,6 +43,12 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
         </select>
       </div>
     ),
+    Toaster: () => null,
+    useToast: () => ({
+      dismiss: toastMocks.dismiss,
+      toast: toastMocks.toast,
+      toasts: [],
+    }),
   };
 });
 

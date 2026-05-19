@@ -7,6 +7,7 @@
 import type { FileTreeWorkerPort, FlattenedNode } from '@brainstrike/file-tree-worker';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import * as fileTreeTelemetry from '../../utils/file-tree-telemetry';
 import { shouldUseWorkerFlattening, useWorkerFlattenedTree } from '../use-worker-flattened-tree';
 
 describe('useWorkerFlattenedTree', () => {
@@ -239,6 +240,7 @@ describe('useWorkerFlattenedTree', () => {
 
   describe('result handling', () => {
     it('updates state when flattened result is received', async () => {
+      const recordTelemetrySpy = vi.spyOn(fileTreeTelemetry, 'recordFileTreeTelemetry');
       const portRef = { current: mockPort as unknown as FileTreeWorkerPort };
       const expandedPaths = new Set<string>();
 
@@ -285,6 +287,13 @@ describe('useWorkerFlattenedTree', () => {
 
       expect(result.current.flattenedNodes).toEqual(mockNodes);
       expect(result.current.lastDurationMs).toBe(5.5);
+      expect(recordTelemetrySpy).toHaveBeenCalledWith({
+        durationMs: 5.5,
+        event: 'file-tree.flatten',
+        nodeCount: 2,
+        rowCount: 2,
+        source: 'worker',
+      });
     });
 
     it('returns null flattenedNodes when disabled', () => {

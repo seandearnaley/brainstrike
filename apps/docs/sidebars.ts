@@ -34,6 +34,7 @@ const sidebars = {
         'development/index',
         'development/monorepo-workflow',
         'development/local-ci',
+        'development/agent-devtools-debugging',
         'development/typescript-declaration-files',
         'development/zod-v4-migration',
         'development/code-review-guidelines',
