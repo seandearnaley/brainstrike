@@ -325,6 +325,75 @@ async function clickFileTreeCheckboxAndWaitForSelection(args: {
   });
 }
 
+async function toggleFileTreeCheckboxAndWaitForSelection(args: {
+  checkboxName: string;
+  expectedCheckboxStateAfter: 'checked' | 'indeterminate' | 'unchecked';
+  expectedCheckboxStateBefore?: 'checked' | 'indeterminate' | 'unchecked';
+  expectedSelectedCountAfter: number;
+  expectedSelectedCountBefore?: number;
+  fileTree: ReturnType<Page['getByRole']>;
+  page: Page;
+}): Promise<void> {
+  const {
+    checkboxName,
+    expectedCheckboxStateAfter,
+    expectedCheckboxStateBefore,
+    expectedSelectedCountAfter,
+    expectedSelectedCountBefore,
+    fileTree,
+    page,
+  } = args;
+  const checkbox = fileTree.getByRole('checkbox', { name: `Select ${checkboxName}` });
+  const deadline = Date.now() + FILE_TREE_CHECKBOX_INTERACTION_TIMEOUT_MS;
+
+  await waitForFileExplorerSelectionIdle({
+    expectedSelectedCount: expectedSelectedCountBefore,
+    page,
+    timeoutMs: getRemainingInteractionTimeout({
+      deadline,
+      label: `selection idle before toggling ${checkboxName}`,
+    }),
+  });
+
+  if (expectedCheckboxStateBefore) {
+    await expect(checkbox).toHaveAttribute('data-state', expectedCheckboxStateBefore, {
+      timeout: getRemainingInteractionTimeout({
+        deadline,
+        label: `pre-click ${expectedCheckboxStateBefore} assertion for ${checkboxName}`,
+      }),
+    });
+  }
+
+  await checkbox.click({
+    noWaitAfter: true,
+    timeout: getRemainingInteractionTimeout({
+      deadline,
+      label: `clicking ${checkboxName}`,
+    }),
+  });
+
+  await expect(checkbox).toHaveAttribute('data-state', expectedCheckboxStateAfter, {
+    timeout: getRemainingInteractionTimeout({
+      deadline,
+      label: `post-click ${expectedCheckboxStateAfter} assertion for ${checkboxName}`,
+    }),
+  });
+  await expect(page.getByTestId('selection-count')).toHaveText(String(expectedSelectedCountAfter), {
+    timeout: getRemainingInteractionTimeout({
+      deadline,
+      label: `selection count assertion for ${checkboxName}`,
+    }),
+  });
+  await waitForFileExplorerSelectionIdle({
+    expectedSelectedCount: expectedSelectedCountAfter,
+    page,
+    timeoutMs: getRemainingInteractionTimeout({
+      deadline,
+      label: `selection idle after toggling ${checkboxName}`,
+    }),
+  });
+}
+
 async function expectContextExplorerFileVisibility(args: {
   fileName: string;
   page: Page;
@@ -2268,7 +2337,6 @@ test.describe('Desktop file explorer selection', () => {
       });
 
       const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
-      const docsCheckbox = fileTree.getByRole('checkbox', { name: 'Select docs' });
       const mainCheckbox = fileTree.getByRole('checkbox', { name: 'Select main.tsx' });
       const viteCheckbox = fileTree.getByRole('checkbox', { name: 'Select vite-env.d.ts' });
       const appCheckbox = fileTree.getByRole('checkbox', { name: 'Select App.tsx' });
@@ -2288,11 +2356,15 @@ test.describe('Desktop file explorer selection', () => {
         visible: true,
       });
 
-      await mainCheckbox.click({ noWaitAfter: true, timeout: 5000 });
-      await expect(restartedWindow.getByTestId('selection-count')).toHaveText('1', {
-        timeout: 15_000,
+      await toggleFileTreeCheckboxAndWaitForSelection({
+        checkboxName: 'main.tsx',
+        expectedCheckboxStateBefore: 'checked',
+        expectedCheckboxStateAfter: 'unchecked',
+        expectedSelectedCountBefore: 2,
+        expectedSelectedCountAfter: 1,
+        fileTree,
+        page: restartedWindow,
       });
-      await expect(mainCheckbox).toHaveAttribute('data-state', 'unchecked');
       await expect(srcCheckbox).toHaveAttribute('data-state', 'indeterminate');
       await expectContextExplorerFileVisibility({
         fileName: 'vite-env.d.ts',
@@ -2305,11 +2377,15 @@ test.describe('Desktop file explorer selection', () => {
         visible: false,
       });
 
-      await appCheckbox.click({ noWaitAfter: true, timeout: 5000 });
-      await expect(restartedWindow.getByTestId('selection-count')).toHaveText('2', {
-        timeout: 15_000,
+      await toggleFileTreeCheckboxAndWaitForSelection({
+        checkboxName: 'App.tsx',
+        expectedCheckboxStateBefore: 'unchecked',
+        expectedCheckboxStateAfter: 'checked',
+        expectedSelectedCountBefore: 1,
+        expectedSelectedCountAfter: 2,
+        fileTree,
+        page: restartedWindow,
       });
-      await expect(appCheckbox).toHaveAttribute('data-state', 'checked');
       await expect(srcCheckbox).toHaveAttribute('data-state', 'indeterminate');
       await expectContextExplorerFileVisibility({
         fileName: 'App.tsx',
@@ -2317,11 +2393,15 @@ test.describe('Desktop file explorer selection', () => {
         visible: true,
       });
 
-      await srcCheckbox.click({ noWaitAfter: true, timeout: 5000 });
-      await expect(restartedWindow.getByTestId('selection-count')).toHaveText('0', {
-        timeout: 15_000,
+      await toggleFileTreeCheckboxAndWaitForSelection({
+        checkboxName: 'src',
+        expectedCheckboxStateBefore: 'indeterminate',
+        expectedCheckboxStateAfter: 'unchecked',
+        expectedSelectedCountBefore: 2,
+        expectedSelectedCountAfter: 0,
+        fileTree,
+        page: restartedWindow,
       });
-      await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
       await expectContextExplorerFileVisibility({
         fileName: 'main.tsx',
         page: restartedWindow,
@@ -2338,15 +2418,15 @@ test.describe('Desktop file explorer selection', () => {
         visible: false,
       });
 
-      await srcCheckbox.click({ noWaitAfter: true, timeout: 5000 });
-      await expect(restartedWindow.getByTestId('selection-count')).toHaveText('5', {
-        timeout: 15_000,
-      });
-      await waitForFileExplorerSelectionIdle({
-        expectedSelectedCount: 5,
+      await toggleFileTreeCheckboxAndWaitForSelection({
+        checkboxName: 'src',
+        expectedCheckboxStateBefore: 'unchecked',
+        expectedCheckboxStateAfter: 'checked',
+        expectedSelectedCountBefore: 0,
+        expectedSelectedCountAfter: 5,
+        fileTree,
         page: restartedWindow,
       });
-      await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
       await expectContextExplorerFileVisibility({
         fileName: 'main.tsx',
         page: restartedWindow,
@@ -2363,23 +2443,35 @@ test.describe('Desktop file explorer selection', () => {
         visible: true,
       });
 
-      await srcCheckbox.click({ noWaitAfter: true, timeout: 5000 });
-      await expect(restartedWindow.getByTestId('selection-count')).toHaveText('0', {
-        timeout: 15_000,
+      await toggleFileTreeCheckboxAndWaitForSelection({
+        checkboxName: 'src',
+        expectedCheckboxStateBefore: 'checked',
+        expectedCheckboxStateAfter: 'unchecked',
+        expectedSelectedCountBefore: 5,
+        expectedSelectedCountAfter: 0,
+        fileTree,
+        page: restartedWindow,
       });
-      await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
 
-      await docsCheckbox.click({ noWaitAfter: true, timeout: 5000 });
-      await expect(restartedWindow.getByTestId('selection-count')).toHaveText('1', {
-        timeout: 15_000,
+      await toggleFileTreeCheckboxAndWaitForSelection({
+        checkboxName: 'docs',
+        expectedCheckboxStateBefore: 'unchecked',
+        expectedCheckboxStateAfter: 'checked',
+        expectedSelectedCountBefore: 0,
+        expectedSelectedCountAfter: 1,
+        fileTree,
+        page: restartedWindow,
       });
-      await expect(docsCheckbox).toHaveAttribute('data-state', 'checked');
 
-      await docsCheckbox.click({ noWaitAfter: true, timeout: 5000 });
-      await expect(restartedWindow.getByTestId('selection-count')).toHaveText('0', {
-        timeout: 15_000,
+      await toggleFileTreeCheckboxAndWaitForSelection({
+        checkboxName: 'docs',
+        expectedCheckboxStateBefore: 'checked',
+        expectedCheckboxStateAfter: 'unchecked',
+        expectedSelectedCountBefore: 1,
+        expectedSelectedCountAfter: 0,
+        fileTree,
+        page: restartedWindow,
       });
-      await expect(docsCheckbox).toHaveAttribute('data-state', 'unchecked');
     } finally {
       await rm(rootPath, { force: true, recursive: true });
     }
