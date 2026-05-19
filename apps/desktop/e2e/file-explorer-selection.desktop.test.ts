@@ -2247,13 +2247,25 @@ test.describe('Desktop file explorer selection', () => {
       await expect(fileTree.getByText('hooks')).toBeVisible({ timeout: 15_000 });
       await expect(hooksCheckbox).toHaveAttribute('data-state', 'checked');
 
-      await hooksCheckbox.click({ noWaitAfter: true, timeout: 5000 });
+      await toggleFileTreeCheckboxAndWaitForSelection({
+        checkboxName: 'hooks',
+        expectedCheckboxStateBefore: 'checked',
+        expectedCheckboxStateAfter: 'unchecked',
+        expectedSelectedCountBefore: 4,
+        expectedSelectedCountAfter: 0,
+        fileTree,
+        page: restartedWindow,
+      });
 
-      await expect(hooksCheckbox).toHaveAttribute('data-state', 'unchecked');
-
-      await hooksCheckbox.click({ noWaitAfter: true, timeout: 5000 });
-
-      await expect(hooksCheckbox).toHaveAttribute('data-state', 'checked');
+      await toggleFileTreeCheckboxAndWaitForSelection({
+        checkboxName: 'hooks',
+        expectedCheckboxStateBefore: 'unchecked',
+        expectedCheckboxStateAfter: 'checked',
+        expectedSelectedCountBefore: 0,
+        expectedSelectedCountAfter: 4,
+        fileTree,
+        page: restartedWindow,
+      });
 
       await expandDirectoryIfNeeded({
         directoryName: 'hooks',
