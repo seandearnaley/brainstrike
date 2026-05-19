@@ -122,7 +122,6 @@ const PageSizeControl = memo(function PageSizeControl({
             'h-7 text-xs tabular-nums [&>svg]:h-3 [&>svg]:w-3',
             resolvePageSizeSelectWidthClass(resolvedDensity)
           )}
-          title="Items per page"
         >
           <SelectValue />
         </SelectTrigger>
@@ -175,101 +174,99 @@ const NavigationControls = memo(function NavigationControls({
   onInputKeyDown,
 }: NavigationControlsProps) {
   return (
-    <TooltipProvider delayDuration={300}>
-      <div className="flex shrink-0 items-center justify-center gap-1">
-        {!isMiniDensity && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                aria-label="Go to first page"
-                disabled={isFirstPage}
-                onClick={onGoToFirstPage}
-                size="icon-xs"
-                variant="ghost"
-              >
-                <ChevronsLeft aria-hidden="true" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Go to first page</TooltipContent>
-          </Tooltip>
-        )}
+    <div className="flex shrink-0 items-center justify-center gap-1">
+      {!isMiniDensity && (
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
-              aria-label="Go to previous page"
+              aria-label="Go to first page"
               disabled={isFirstPage}
-              onClick={onGoToPreviousPage}
+              onClick={onGoToFirstPage}
               size="icon-xs"
               variant="ghost"
             >
-              <ChevronLeft aria-hidden="true" />
+              <ChevronsLeft aria-hidden="true" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="bottom">Go to previous page</TooltipContent>
+          <TooltipContent side="bottom">Go to first page</TooltipContent>
         </Tooltip>
-
-        <div className={cn('flex items-center gap-1 px-1', isMiniDensity && 'px-0.5')}>
-          <Input
-            aria-label="Page number"
-            className={cn(
-              'h-7 px-2 text-center text-xs tabular-nums',
-              isMiniDensity ? 'w-11 px-1.5' : isReducedDensity ? 'w-12' : 'w-14'
-            )}
-            disabled={totalPages === 0}
-            max={totalPages}
-            min={1}
-            onBlur={onInputBlur}
-            onChange={onInputChange}
-            onFocus={onInputFocus}
-            onKeyDown={onInputKeyDown}
-            type="number"
-            value={inputValue}
-          />
-          <span
-            className={cn(
-              'whitespace-nowrap text-muted-foreground text-xs tabular-nums',
-              isMiniDensity ? 'min-w-0' : 'min-w-[4rem]'
-            )}
+      )}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            aria-label="Go to previous page"
+            disabled={isFirstPage}
+            onClick={onGoToPreviousPage}
+            size="icon-xs"
+            variant="ghost"
           >
-            {isMiniDensity ? `/${totalPages}` : `of ${totalPages}`}
-          </span>
-        </div>
+            <ChevronLeft aria-hidden="true" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Go to previous page</TooltipContent>
+      </Tooltip>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              aria-label="Go to next page"
-              disabled={isLastPage}
-              onClick={onGoToNextPage}
-              size="icon-xs"
-              variant="ghost"
-            >
-              <ChevronRight aria-hidden="true" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">Go to next page</TooltipContent>
-        </Tooltip>
-        {!isMiniDensity && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                aria-label="Go to last page"
-                disabled={isLastPage}
-                onClick={onGoToLastPage}
-                size="icon-xs"
-                variant="ghost"
-              >
-                <ChevronsRight aria-hidden="true" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Go to last page</TooltipContent>
-          </Tooltip>
-        )}
-        <span className="sr-only">
-          {totalItems === 0 ? 'No items available' : `${totalItems.toLocaleString()} total items`}
+      <div className={cn('flex items-center gap-1 px-1', isMiniDensity && 'px-0.5')}>
+        <Input
+          aria-label="Page number"
+          className={cn(
+            'h-7 px-2 text-center text-xs tabular-nums',
+            isMiniDensity ? 'w-11 px-1.5' : isReducedDensity ? 'w-12' : 'w-14'
+          )}
+          disabled={totalPages === 0}
+          max={totalPages}
+          min={1}
+          onBlur={onInputBlur}
+          onChange={onInputChange}
+          onFocus={onInputFocus}
+          onKeyDown={onInputKeyDown}
+          type="number"
+          value={inputValue}
+        />
+        <span
+          className={cn(
+            'whitespace-nowrap text-muted-foreground text-xs tabular-nums',
+            isMiniDensity ? 'min-w-0' : 'min-w-[4rem]'
+          )}
+        >
+          {isMiniDensity ? `/${totalPages}` : `of ${totalPages}`}
         </span>
       </div>
-    </TooltipProvider>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            aria-label="Go to next page"
+            disabled={isLastPage}
+            onClick={onGoToNextPage}
+            size="icon-xs"
+            variant="ghost"
+          >
+            <ChevronRight aria-hidden="true" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Go to next page</TooltipContent>
+      </Tooltip>
+      {!isMiniDensity && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              aria-label="Go to last page"
+              disabled={isLastPage}
+              onClick={onGoToLastPage}
+              size="icon-xs"
+              variant="ghost"
+            >
+              <ChevronsRight aria-hidden="true" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Go to last page</TooltipContent>
+        </Tooltip>
+      )}
+      <span className="sr-only">
+        {totalItems === 0 ? 'No items available' : `${totalItems.toLocaleString()} total items`}
+      </span>
+    </div>
   );
 });
 NavigationControls.displayName = 'NavigationControls';
@@ -288,9 +285,18 @@ const RangeSummary = memo(function RangeSummary({
   }
   return (
     <div className="flex min-w-0 flex-1 justify-end text-muted-foreground text-xs tabular-nums">
-      <span className="truncate" title={rangeSummary}>
-        {rangeSummary}
-      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            className="truncate rounded-sm outline-hidden focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: Range summary is a Radix tooltip trigger; focus enables keyboard tooltip access.
+            tabIndex={0}
+          >
+            {rangeSummary}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top">{rangeSummary}</TooltipContent>
+      </Tooltip>
     </div>
   );
 });
@@ -475,46 +481,48 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
   }
 
   return (
-    <div
-      className="flex w-full min-w-0 max-w-full items-center gap-2 border-t bg-background px-3 py-1.5"
-      ref={containerRef}
-    >
-      {/* Left side: Page size selector */}
-      <div className="flex min-w-0 flex-1 items-center justify-start gap-1">
-        <PageSizeControl
-          actualPageSizeOptions={actualPageSizeOptions}
+    <TooltipProvider delayDuration={300}>
+      <div
+        className="flex w-full min-w-0 max-w-full items-center gap-2 border-t bg-background px-3 py-1.5"
+        ref={containerRef}
+      >
+        {/* Left side: Page size selector */}
+        <div className="flex min-w-0 flex-1 items-center justify-start gap-1">
+          <PageSizeControl
+            actualPageSizeOptions={actualPageSizeOptions}
+            isReducedDensity={isReducedDensity}
+            onPageSizeChange={onPageSizeChange ? handlePageSizeChange : undefined}
+            pageSize={pageSize}
+            resolvedDensity={resolvedDensity}
+          />
+        </div>
+
+        {/* Center: Navigation controls */}
+        <NavigationControls
+          inputValue={inputValue}
+          isFirstPage={isFirstPage}
+          isLastPage={isLastPage}
+          isMiniDensity={isMiniDensity}
           isReducedDensity={isReducedDensity}
-          onPageSizeChange={onPageSizeChange ? handlePageSizeChange : undefined}
-          pageSize={pageSize}
-          resolvedDensity={resolvedDensity}
+          onGoToFirstPage={goToFirstPage}
+          onGoToLastPage={goToLastPage}
+          onGoToNextPage={goToNextPage}
+          onGoToPreviousPage={goToPreviousPage}
+          onInputBlur={handleInputBlur}
+          onInputChange={handleInputChange}
+          onInputFocus={handleInputFocus}
+          onInputKeyDown={handleInputKeyDown}
+          totalItems={totalItems}
+          totalPages={totalPages}
+        />
+
+        {/* Right side: Item range display */}
+        <RangeSummary
+          rangeSummary={rangeSummary}
+          shouldRenderRangeSummary={shouldRenderRangeSummary}
         />
       </div>
-
-      {/* Center: Navigation controls */}
-      <NavigationControls
-        inputValue={inputValue}
-        isFirstPage={isFirstPage}
-        isLastPage={isLastPage}
-        isMiniDensity={isMiniDensity}
-        isReducedDensity={isReducedDensity}
-        onGoToFirstPage={goToFirstPage}
-        onGoToLastPage={goToLastPage}
-        onGoToNextPage={goToNextPage}
-        onGoToPreviousPage={goToPreviousPage}
-        onInputBlur={handleInputBlur}
-        onInputChange={handleInputChange}
-        onInputFocus={handleInputFocus}
-        onInputKeyDown={handleInputKeyDown}
-        totalItems={totalItems}
-        totalPages={totalPages}
-      />
-
-      {/* Right side: Item range display */}
-      <RangeSummary
-        rangeSummary={rangeSummary}
-        shouldRenderRangeSummary={shouldRenderRangeSummary}
-      />
-    </div>
+    </TooltipProvider>
   );
 });
 

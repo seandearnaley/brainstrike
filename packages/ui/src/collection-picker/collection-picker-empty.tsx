@@ -13,13 +13,7 @@ export function CollectionPickerEmpty({ onCreate }: CollectionPickerEmptyProps) 
       <p className="mb-3 text-muted-foreground text-sm">
         No collections yet. Create your first collection to start searching files.
       </p>
-      <Button
-        className="gap-2"
-        onClick={onCreate}
-        size="sm"
-        title="Create new collection"
-        variant="outline"
-      >
+      <Button className="gap-2" onClick={onCreate} size="sm" variant="outline">
         <Plus className="h-4 w-4" />
         Create First Collection
       </Button>

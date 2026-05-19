@@ -12,13 +12,16 @@ export interface QueueTelemetrySinkOptions {
   readonly flushIntervalMs?: number;
   readonly headers?: Record<string, string>;
   readonly maxBatchSize?: number;
+  readonly maxBufferedEvents?: number;
   /**
    * Maximum consecutive failures before disabling the sink.
    * After this many failures in a row, the sink stops attempting to send.
    * Defaults to 3.
    */
   readonly maxConsecutiveFailures?: number;
+  readonly maxRetryDelayMs?: number;
   readonly metadata?: Record<string, unknown>;
+  readonly retryBaseDelayMs?: number;
   readonly runtime?: QueueTelemetryRuntime;
   readonly useSendBeacon?: boolean;
 }
@@ -143,6 +146,9 @@ export function initializeQueueTelemetrySink(
     useSendBeacon,
     enableInTest = false,
     maxConsecutiveFailures = 3,
+    maxBufferedEvents = 1000,
+    retryBaseDelayMs = 1000,
+    maxRetryDelayMs = 30_000,
   } = options;
 
   if (!endpoint) {
@@ -171,25 +177,71 @@ export function initializeQueueTelemetrySink(
 
   const events: QueueTelemetryEvent[] = [];
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let timerDueAt: number | null = null;
   let flushing = false;
+  let disposed = false;
   // Track consecutive failures to disable sink after too many in a row
-  const failureState = { consecutiveFailures: 0, disabled: false };
+  const failureState = { consecutiveFailures: 0, disabled: false, nextRetryAt: 0 };
+  const boundedMaxBufferedEvents = Math.max(1, Math.floor(maxBufferedEvents));
+  const boundedRetryBaseDelayMs = Math.max(0, retryBaseDelayMs);
+  const boundedMaxRetryDelayMs = Math.max(boundedRetryBaseDelayMs, maxRetryDelayMs);
+
+  const scheduleFlush = (delayMs: number): void => {
+    const boundedDelayMs = Math.max(0, delayMs);
+    const nextTimerDueAt = Date.now() + boundedDelayMs;
+    if (timer !== null && timerDueAt !== null && timerDueAt <= nextTimerDueAt) {
+      return;
+    }
+
+    if (timer !== null) {
+      clearTimeout(timer);
+    }
+
+    timerDueAt = nextTimerDueAt;
+    timer = setTimeout(() => {
+      timer = null;
+      timerDueAt = null;
+      void flush();
+    }, boundedDelayMs);
+  };
+
+  const trimBufferedEvents = (): void => {
+    if (events.length <= boundedMaxBufferedEvents) {
+      return;
+    }
+
+    const bufferedEvents = events.length;
+    const droppedEvents = bufferedEvents - boundedMaxBufferedEvents;
+    events.splice(0, droppedEvents);
+    logger.warn('Queue telemetry sink dropped buffered events after reaching maxBufferedEvents', {
+      bufferedEvents,
+      droppedEvents,
+      maxBufferedEvents: boundedMaxBufferedEvents,
+      retainedEvents: events.length,
+    });
+  };
+
+  const resolveRetryDelayMs = (): number => {
+    if (boundedRetryBaseDelayMs === 0) {
+      return 0;
+    }
+    const failureExponent = Math.max(0, failureState.consecutiveFailures - 1);
+    return Math.min(boundedRetryBaseDelayMs * 2 ** failureExponent, boundedMaxRetryDelayMs);
+  };
+
   const unsubscribe = addQueueTelemetryListener((event) => {
-    // Drop events if sink is disabled due to repeated failures
-    if (failureState.disabled) {
+    // Drop events after shutdown or when disabled due to repeated failures.
+    if (disposed || failureState.disabled) {
       return;
     }
     events.push(event);
+    trimBufferedEvents();
     if (events.length >= maxBatchSize) {
       void flush();
       return;
     }
-    if (timer === null) {
-      timer = setTimeout(() => {
-        timer = null;
-        void flush();
-      }, flushIntervalMs);
-    }
+    const retryDelayMs = Math.max(0, failureState.nextRetryAt - Date.now());
+    scheduleFlush(retryDelayMs > 0 ? retryDelayMs : flushIntervalMs);
   });
 
   const handleFlushError = (error: unknown, payloadEvents: QueueTelemetryEvent[]): void => {
@@ -215,10 +267,24 @@ export function initializeQueueTelemetrySink(
       consecutiveFailures: failureState.consecutiveFailures,
     });
     events.unshift(...payloadEvents);
+    trimBufferedEvents();
+    if (disposed) {
+      return;
+    }
+    const retryDelayMs = resolveRetryDelayMs();
+    failureState.nextRetryAt = retryDelayMs > 0 ? Date.now() + retryDelayMs : 0;
+    if (events.length > 0 && retryDelayMs > 0) {
+      scheduleFlush(retryDelayMs);
+    }
   };
 
-  const flush = async () => {
+  const flushInternal = async (bypassRetryBackoff: boolean): Promise<void> => {
     if (flushing || failureState.disabled || events.length === 0) {
+      return;
+    }
+    const retryDelayMs = Math.max(0, failureState.nextRetryAt - Date.now());
+    if (!bypassRetryBackoff && retryDelayMs > 0) {
+      scheduleFlush(retryDelayMs);
       return;
     }
     flushing = true;
@@ -233,6 +299,7 @@ export function initializeQueueTelemetrySink(
     try {
       await sendPayload(endpoint, body, headers, useSendBeacon);
       failureState.consecutiveFailures = 0;
+      failureState.nextRetryAt = 0;
     } catch (error) {
       handleFlushError(error, payloadEvents);
     } finally {
@@ -240,13 +307,19 @@ export function initializeQueueTelemetrySink(
     }
   };
 
+  const flush = async (): Promise<void> => {
+    await flushInternal(false);
+  };
+
   const dispose = async () => {
+    disposed = true;
     unsubscribe();
     if (timer) {
       clearTimeout(timer);
       timer = null;
+      timerDueAt = null;
     }
-    await flush();
+    await flushInternal(true);
   };
 
   return {

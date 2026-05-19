@@ -13,7 +13,7 @@ import {
 } from '@brainstrike/agent/tool-metadata';
 import { Badge, Button } from '@brainstrike/ui';
 import { ChevronDown, ChevronRight, Play, Sparkles } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useId, useMemo, useState } from 'react';
 import type { ToolExecutionResult, ToolPlaygroundProps } from './types';
 
 /**
@@ -117,12 +117,15 @@ function ParameterRow({ param }: { param: ToolParameterDisplay }) {
  */
 function ParametersSection({ schema }: { schema: ToolSchemaDisplay }) {
   const [expanded, setExpanded] = useState(true);
+  const contentId = useId();
   const requiredParams = schema.parameters.filter((param: ToolParameterDisplay) => param.required);
   const optionalParams = schema.parameters.filter((param: ToolParameterDisplay) => !param.required);
 
   return (
     <div className="mb-3">
       <button
+        aria-controls={expanded ? contentId : undefined}
+        aria-expanded={expanded}
         className="mb-2 flex items-center gap-1 font-medium text-muted-foreground text-xs hover:text-foreground"
         onClick={() => setExpanded(!expanded)}
         type="button"
@@ -132,7 +135,7 @@ function ParametersSection({ schema }: { schema: ToolSchemaDisplay }) {
       </button>
 
       {expanded && (
-        <div className="rounded-md border border-border/50 bg-muted/20 p-2">
+        <div className="rounded-md border border-border/50 bg-muted/20 p-2" id={contentId}>
           {requiredParams.length > 0 && (
             <div className="mb-2">
               <span className="font-medium text-[10px] text-muted-foreground uppercase tracking-wide">

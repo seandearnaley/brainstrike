@@ -1,0 +1,7 @@
+{
+  "defaultPort": 9222,
+  "defaultHost": "127.0.0.1",
+  "minPort": 1024,
+  "maxPort": 65535,
+  "mcpPackage": "chrome-devtools-mcp@0.26.0"
+}

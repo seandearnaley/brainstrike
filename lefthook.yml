@@ -34,6 +34,8 @@ pre-commit:
         - "*.jsonc"
         - "*.css"
       stage_fixed: true
+    - name: secrets-scan
+      run: pnpm secrets:scan:staged
     - name: type-check
       glob: "*.{ts,tsx,mts,cts}"
       # Only type-checks packages whose files changed since HEAD (the diff

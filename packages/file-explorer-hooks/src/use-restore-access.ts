@@ -12,6 +12,44 @@ const logger = createLogger('useRestoreAccess');
  */
 const HANDLE_CHECK_DELAY_MS = 500;
 
+type RestoreAccessClearListener = () => void;
+
+const clearListenersByHandleCache = new WeakMap<
+  WebHandleCacheShape,
+  Set<RestoreAccessClearListener>
+>();
+
+function subscribeToStoredHandlesCleared(
+  handleCache: WebHandleCacheShape | null,
+  listener: RestoreAccessClearListener
+): () => void {
+  if (!handleCache) {
+    return () => {};
+  }
+
+  let listeners = clearListenersByHandleCache.get(handleCache);
+  if (!listeners) {
+    listeners = new Set<RestoreAccessClearListener>();
+    clearListenersByHandleCache.set(handleCache, listeners);
+  }
+
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function broadcastStoredHandlesCleared(handleCache: WebHandleCacheShape): void {
+  const listeners = clearListenersByHandleCache.get(handleCache);
+  if (!listeners) {
+    return;
+  }
+
+  for (const listener of Array.from(listeners)) {
+    listener();
+  }
+}
+
 export interface PendingRestoreState {
   folderId: string;
   name: string;
@@ -60,6 +98,16 @@ interface WebAdapterWithCache {
   getHandleCache?: () => WebHandleCacheShape;
 }
 
+interface LoadStoredHandlesOptions {
+  dismissedRef: { current: boolean };
+  handleCache: WebHandleCacheShape | null;
+  hasNewMethod: boolean;
+  hasOldMethod: boolean;
+  setPendingRestore: (state: PendingRestoreState | null) => void;
+  setStoredFolders: (folders: Array<{ folderId: string; name: string }>) => void;
+  shouldApplyLoadedHandles: () => boolean;
+}
+
 /** Convert a raw FileSystemDirectoryHandle to our DirectoryHandle type */
 function toDirectoryHandle(rawHandle: FileSystemDirectoryHandle): DirectoryHandle {
   return {
@@ -75,9 +123,14 @@ function toDirectoryHandle(rawHandle: FileSystemDirectoryHandle): DirectoryHandl
 async function loadHandlesNewMethod(
   handleCache: WebHandleCacheShape,
   setPendingRestore: (state: PendingRestoreState | null) => void,
-  setStoredFolders: (folders: Array<{ folderId: string; name: string }>) => void
+  setStoredFolders: (folders: Array<{ folderId: string; name: string }>) => void,
+  shouldApplyLoadedHandles: () => boolean
 ): Promise<void> {
   const result = await handleCache.getLastRootHandleForRestore?.();
+  if (!shouldApplyLoadedHandles()) {
+    return;
+  }
+
   logger.info('getLastRootHandleForRestore result', {
     hasResult: !!result,
     permissionState: result?.permissionState,
@@ -92,6 +145,10 @@ async function loadHandlesNewMethod(
     });
 
     const allHandles = await handleCache.getAllRootHandles?.();
+    if (!shouldApplyLoadedHandles()) {
+      return;
+    }
+
     if (allHandles) {
       setStoredFolders(allHandles.map((h) => ({ folderId: h.folderId, name: h.name })));
     }
@@ -103,15 +160,46 @@ async function loadHandlesNewMethod(
 /** Load handles using the legacy getAllRootHandles method */
 async function loadHandlesLegacyMethod(
   handleCache: WebHandleCacheShape,
-  setStoredFolders: (folders: Array<{ folderId: string; name: string }>) => void
+  setStoredFolders: (folders: Array<{ folderId: string; name: string }>) => void,
+  shouldApplyLoadedHandles: () => boolean
 ): Promise<void> {
   const handles = await handleCache.getAllRootHandles?.();
+  if (!shouldApplyLoadedHandles()) {
+    return;
+  }
+
   logger.info('Loaded stored root handles (legacy)', { count: handles?.length ?? 0 });
   if (!handles || handles.length === 0) {
     setStoredFolders([]);
     return;
   }
   setStoredFolders(handles.map((h) => ({ folderId: h.folderId, name: h.name })));
+}
+
+async function loadStoredHandles({
+  dismissedRef,
+  handleCache,
+  hasNewMethod,
+  hasOldMethod,
+  setPendingRestore,
+  setStoredFolders,
+  shouldApplyLoadedHandles,
+}: LoadStoredHandlesOptions): Promise<void> {
+  if (dismissedRef.current || !handleCache) {
+    return;
+  }
+  if (hasNewMethod) {
+    await loadHandlesNewMethod(
+      handleCache,
+      setPendingRestore,
+      setStoredFolders,
+      shouldApplyLoadedHandles
+    );
+    return;
+  }
+  if (hasOldMethod) {
+    await loadHandlesLegacyMethod(handleCache, setStoredFolders, shouldApplyLoadedHandles);
+  }
 }
 
 /**
@@ -237,6 +325,7 @@ export function useRestoreAccess(): RestoreAccessState {
   const [storedFolders, setStoredFolders] = useState<Array<{ folderId: string; name: string }>>([]);
   const [isCheckingStoredHandles, setIsCheckingStoredHandles] = useState(true);
   const dismissedRef = useRef(false);
+  const clearGenerationRef = useRef(0);
   const isMountedRef = useRef(true);
 
   // Track mounted state to prevent stale state updates after unmount
@@ -258,6 +347,21 @@ export function useRestoreAccess(): RestoreAccessState {
     return cache;
   }, [fileSystemAdapter]);
 
+  const clearLocalRestoreState = useCallback((): void => {
+    clearGenerationRef.current += 1;
+    dismissedRef.current = true;
+    setPendingRestore(null);
+    setShowDeniedBanner(false);
+    setShowStaleBanner(false);
+    setStoredFolders([]);
+    setIsCheckingStoredHandles(false);
+  }, []);
+
+  useEffect(
+    () => subscribeToStoredHandlesCleared(handleCache, clearLocalRestoreState),
+    [clearLocalRestoreState, handleCache]
+  );
+
   // Load stored handles on startup
   useEffect(() => {
     if (dismissedRef.current) {
@@ -275,13 +379,23 @@ export function useRestoreAccess(): RestoreAccessState {
     }
 
     const timer = setTimeout(() => {
+      const loadGeneration = clearGenerationRef.current;
+      const shouldApplyLoadedHandles = (): boolean =>
+        isMountedRef.current &&
+        !dismissedRef.current &&
+        clearGenerationRef.current === loadGeneration;
+
       void (async () => {
         try {
-          if (hasNewMethod && handleCache) {
-            await loadHandlesNewMethod(handleCache, setPendingRestore, setStoredFolders);
-          } else if (hasOldMethod && handleCache) {
-            await loadHandlesLegacyMethod(handleCache, setStoredFolders);
-          }
+          await loadStoredHandles({
+            dismissedRef,
+            handleCache,
+            hasNewMethod,
+            hasOldMethod,
+            setPendingRestore,
+            setStoredFolders,
+            shouldApplyLoadedHandles,
+          });
         } catch (error) {
           logger.warn('Failed to load stored root handles', { error });
         } finally {
@@ -385,12 +499,12 @@ export function useRestoreAccess(): RestoreAccessState {
     if (handleCache?.clear) {
       await handleCache.clear();
     }
-    setPendingRestore(null);
-    setShowDeniedBanner(false);
-    setShowStaleBanner(false);
-    setStoredFolders([]);
-    dismissedRef.current = true;
-  }, [handleCache]);
+    if (handleCache) {
+      broadcastStoredHandlesCleared(handleCache);
+    } else {
+      clearLocalRestoreState();
+    }
+  }, [clearLocalRestoreState, handleCache]);
 
   return {
     isCheckingStoredHandles,

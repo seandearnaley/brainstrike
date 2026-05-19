@@ -119,6 +119,8 @@
     "prepare": "node scripts/postinstall.js",
     "profile:vitest-hotspots": "node scripts/profile-vitest-hotspots.mjs",
     "queue": "pnpm -w build --filter @brainstrike/db && node packages/db/dist/cli/queue-cli.js",
+    "secrets:scan": "node scripts/secret-scan.mjs --all",
+    "secrets:scan:staged": "node scripts/secret-scan.mjs --staged",
     "setup:headless": "bash scripts/setup-headless-display.sh",
     "test": "TURBO_TEST_MODE=unit turbo run test --summarize --log-order=grouped",
     "test:browser": "turbo run test:browser --summarize --log-order=grouped",
