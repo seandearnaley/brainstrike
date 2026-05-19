@@ -19,7 +19,7 @@ const pathExists = async (filePath) => {
   }
 };
 
-const listWorkspacePackageJsons = async ({ root }) => {
+export const listWorkspacePackageJsons = async ({ root }) => {
   const workspaceRoots = ['apps', 'packages'];
   const packageJsons = [];
 
@@ -40,7 +40,7 @@ const listWorkspacePackageJsons = async ({ root }) => {
   return packageJsons.sort();
 };
 
-const listWorkspacePackages = async ({ root }) => {
+export const listWorkspacePackages = async ({ root }) => {
   const packageJsons = await listWorkspacePackageJsons({ root });
   const packages = [];
 
@@ -203,6 +203,46 @@ export const validateArchitectureDomainContract = async ({
     }
 
     previousPhaseId = phase.id;
+  }
+
+  const boundaryExceptions = contract.boundaryExceptions ?? [];
+  if (!Array.isArray(boundaryExceptions)) {
+    errors.push('boundaryExceptions must be an array when present');
+  } else {
+    const exceptionIds = new Set();
+    for (const exception of boundaryExceptions) {
+      if (!exception || typeof exception !== 'object') {
+        errors.push('Every boundary exception must be an object');
+        continue;
+      }
+
+      if (typeof exception.id !== 'string' || exception.id.length === 0) {
+        errors.push('Every boundary exception must have a non-empty id');
+      } else if (exceptionIds.has(exception.id)) {
+        errors.push(`Boundary exception ${exception.id} is declared more than once`);
+      } else {
+        exceptionIds.add(exception.id);
+      }
+
+      if (!workspacePackageNames.has(exception.sourcePackage)) {
+        errors.push(
+          `Boundary exception ${exception.id ?? '<missing-id>'} references unknown sourcePackage ${exception.sourcePackage}`
+        );
+      }
+      if (!workspacePackageNames.has(exception.importedPackage)) {
+        errors.push(
+          `Boundary exception ${exception.id ?? '<missing-id>'} references unknown importedPackage ${exception.importedPackage}`
+        );
+      }
+      if (typeof exception.reason !== 'string' || exception.reason.trim().length === 0) {
+        errors.push(`Boundary exception ${exception.id ?? '<missing-id>'} must have a reason`);
+      }
+      if (!stackIds.has(exception.retireByPhase)) {
+        errors.push(
+          `Boundary exception ${exception.id ?? '<missing-id>'} retireByPhase must reference a stack phase`
+        );
+      }
+    }
   }
 
   return {

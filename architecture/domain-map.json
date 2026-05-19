@@ -37,6 +37,99 @@
       "planningArtifact": "docs/architecture-reset/phase-4-domain-moves-plan-2026-05-19.html"
     }
   ],
+  "boundaryExceptions": [
+    {
+      "id": "app-shell-agent-contract-extraction",
+      "sourcePackage": "@brainstrike/app-shell",
+      "importedPackage": "@brainstrike/agent",
+      "reason": "App shell currently wires assistant runtime, local LLM availability, memory, and tool metadata. Phase 3 extracts a dedicated assistant contract so the shell composes interfaces instead of importing runtime internals.",
+      "retireByPhase": "phase-3"
+    },
+    {
+      "id": "build-utils-logger-coupling",
+      "sourcePackage": "@brainstrike/build-utils",
+      "importedPackage": "@brainstrike/utils",
+      "reason": "Build utilities reuse shared logging. Phase 4 decides whether logging remains shared-foundation or moves a build-safe logger into tooling.",
+      "retireByPhase": "phase-4"
+    },
+    {
+      "id": "db-text-splitter-schema-coupling",
+      "sourcePackage": "@brainstrike/db",
+      "importedPackage": "@brainstrike/text-splitter",
+      "reason": "Database models and chunking services currently reference text splitter types and chunking helpers. Phase 3 moves chunk orchestration behind indexing-owned contracts.",
+      "retireByPhase": "phase-3"
+    },
+    {
+      "id": "db-explorer-agent-model-coupling",
+      "sourcePackage": "@brainstrike/db-explorer",
+      "importedPackage": "@brainstrike/agent",
+      "reason": "DB explorer currently reads agent model and context-packer helpers for assistant-facing preview flows. Phase 3 extracts assistant contracts consumed by workspace features.",
+      "retireByPhase": "phase-3"
+    },
+    {
+      "id": "file-import-agent-provider-metadata",
+      "sourcePackage": "@brainstrike/file-import",
+      "importedPackage": "@brainstrike/agent",
+      "reason": "File import currently reads provider metadata while constructing enhanced import behavior. Phase 3 moves provider metadata behind an indexing-safe contract.",
+      "retireByPhase": "phase-3"
+    },
+    {
+      "id": "hooks-report-worker-coupling",
+      "sourcePackage": "@brainstrike/hooks",
+      "importedPackage": "@brainstrike/workers",
+      "reason": "Shared hooks currently expose report-generation worker orchestration. Phase 4 either moves that hook into indexing/workspace experience or extracts a lower-level worker contract.",
+      "retireByPhase": "phase-4"
+    },
+    {
+      "id": "preferences-agent-settings-coupling",
+      "sourcePackage": "@brainstrike/preferences",
+      "importedPackage": "@brainstrike/agent",
+      "reason": "Preferences currently owns assistant, provider, local runtime, tools, and memory settings UI. Phase 3 extracts settings contracts from runtime implementations.",
+      "retireByPhase": "phase-3"
+    },
+    {
+      "id": "preferences-embeddings-settings-coupling",
+      "sourcePackage": "@brainstrike/preferences",
+      "importedPackage": "@brainstrike/embeddings",
+      "reason": "Preferences currently imports embedding provider and service metadata. Phase 3 extracts a model/provider registry contract consumed by settings UI.",
+      "retireByPhase": "phase-3"
+    },
+    {
+      "id": "preferences-text-splitter-settings-coupling",
+      "sourcePackage": "@brainstrike/preferences",
+      "importedPackage": "@brainstrike/text-splitter",
+      "reason": "Preferences currently stores import and chunking settings with text splitter constants. Phase 3 moves indexing settings behind an indexing-owned contract.",
+      "retireByPhase": "phase-3"
+    },
+    {
+      "id": "queue-embedding-worker-type-coupling",
+      "sourcePackage": "@brainstrike/queue",
+      "importedPackage": "@brainstrike/embedding-worker",
+      "reason": "Queue types currently reference embedding worker job payloads. Phase 3 moves job payload contracts into indexing or queue-owned shared types.",
+      "retireByPhase": "phase-3"
+    },
+    {
+      "id": "ui-agent-panel-contract-coupling",
+      "sourcePackage": "@brainstrike/ui",
+      "importedPackage": "@brainstrike/agent",
+      "reason": "Shared UI currently renders assistant timeline and local runtime adapters with agent runtime types. Phase 3 extracts an assistant panel contract package.",
+      "retireByPhase": "phase-3"
+    },
+    {
+      "id": "ui-storage-theme-coupling",
+      "sourcePackage": "@brainstrike/ui",
+      "importedPackage": "@brainstrike/storage",
+      "reason": "Theme provider currently persists through storage directly. Phase 4 moves persistence out of shared UI or introduces a foundation-level persistence interface.",
+      "retireByPhase": "phase-4"
+    },
+    {
+      "id": "utils-token-counting-text-splitter-coupling",
+      "sourcePackage": "@brainstrike/utils",
+      "importedPackage": "@brainstrike/text-splitter",
+      "reason": "Shared utilities currently expose token counting runtime backed by text splitter. Phase 3 decides whether token counting belongs in indexing or becomes a foundation contract.",
+      "retireByPhase": "phase-3"
+    }
+  ],
   "domains": [
     {
       "id": "applications",

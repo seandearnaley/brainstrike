@@ -23,20 +23,31 @@
       <section class="panel">
         <h2>Goal</h2>
         <p>
-          Make architecture checks deterministic before code movement starts. This PR narrows Turbo
-          cache inputs, creates an owned boundary baseline, classifies zero-inbound package claims
-          using both TypeScript and non-TypeScript consumers, and documents the `@brainstrike/agent`
-          path-mapping decision.
+          Make architecture checks deterministic before code movement starts. This PR adds a
+          source-code boundary validator over the phase 0 domain contract, creates an explicit
+          package-pair exception baseline for existing cross-domain edges, and turns that baseline
+          into a ratchet: new cross-domain imports fail unless they are intentionally added to
+          <code>architecture/domain-map.json</code> with a reason and retire phase.
         </p>
       </section>
       <section class="panel">
         <h2>Acceptance checks</h2>
         <ul>
-          <li><code>pnpm exec turbo run build --dry=json</code> has no `.claude/worktrees` inputs.</li>
-          <li><code>pnpm exec turbo boundaries</code> output is grouped into owned categories.</li>
-          <li>Package prune candidates are not based on TypeScript imports alone.</li>
+          <li><code>pnpm arch:domain-contract</code> validates package classification, stack order, and exception metadata.</li>
+          <li><code>pnpm arch:domain-boundaries</code> parses TS/JS imports and rejects unapproved cross-domain imports.</li>
+          <li>The first baseline records 13 package-pair exceptions and reports when all 13 are still in use.</li>
+          <li>Each exception has a retire phase so later PRs can remove them instead of normalizing the debt.</li>
           <li>The domain contract from phase 0 stays green.</li>
         </ul>
+      </section>
+      <section class="panel">
+        <h2>Baseline edges</h2>
+        <p>
+          The current repository checks 1,947 internal imports across 2,758 files. The allowed
+          exceptions are concentrated around assistant contracts, embedding/indexing settings,
+          text-splitter ownership, theme persistence, and worker payload types. Those are not hidden
+          warnings: they are named architecture work items for phases 3 and 4.
+        </p>
       </section>
     </main>
   </body>
