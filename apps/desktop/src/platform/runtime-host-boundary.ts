@@ -77,9 +77,11 @@ export function collectDesktopSourceFiles(directory: string): RuntimeHostSourceF
   return files;
 }
 
-function getImportSource(node: ts.ImportDeclaration): string | null {
+function getModuleSpecifierSource(
+  node: ts.ImportDeclaration | ts.ExportDeclaration
+): string | null {
   const moduleSpecifier = node.moduleSpecifier;
-  if (!ts.isStringLiteral(moduleSpecifier)) {
+  if (!(moduleSpecifier && ts.isStringLiteral(moduleSpecifier))) {
     return null;
   }
   return moduleSpecifier.text;
@@ -117,7 +119,11 @@ function isTypeOnlyImport(node: ts.ImportDeclaration): boolean {
 
 function getForbiddenImportSource(node: ts.Node): string | null {
   if (ts.isImportDeclaration(node)) {
-    return isTypeOnlyImport(node) ? null : getImportSource(node);
+    return isTypeOnlyImport(node) ? null : getModuleSpecifierSource(node);
+  }
+
+  if (ts.isExportDeclaration(node)) {
+    return node.isTypeOnly ? null : getModuleSpecifierSource(node);
   }
 
   if (ts.isCallExpression(node)) {
