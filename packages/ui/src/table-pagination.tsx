@@ -287,7 +287,13 @@ const RangeSummary = memo(function RangeSummary({
     <div className="flex min-w-0 flex-1 justify-end text-muted-foreground text-xs tabular-nums">
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="truncate">{rangeSummary}</span>
+          <span
+            className="truncate rounded-sm outline-hidden focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: Range summary is a Radix tooltip trigger; focus enables keyboard tooltip access.
+            tabIndex={0}
+          >
+            {rangeSummary}
+          </span>
         </TooltipTrigger>
         <TooltipContent side="top">{rangeSummary}</TooltipContent>
       </Tooltip>

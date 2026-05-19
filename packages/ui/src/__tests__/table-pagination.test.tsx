@@ -20,6 +20,23 @@ describe('TablePagination', () => {
     expect(screen.getByText('of 3')).toBeInTheDocument();
   });
 
+  it('makes the truncated range summary focusable for keyboard tooltip access', () => {
+    render(
+      <TablePagination
+        currentPage={1}
+        onPageChange={vi.fn()}
+        pageSize={50}
+        totalItems={300}
+        totalPages={6}
+      />
+    );
+
+    const rangeSummary = screen.getByText('51-100 of 300');
+
+    expect(rangeSummary).toHaveAttribute('tabindex', '0');
+    expect(rangeSummary).toHaveClass('focus-visible:ring-[3px]', 'focus-visible:ring-ring/50');
+  });
+
   it('calls onPageChange when navigation buttons clicked', async () => {
     const user = userEvent.setup();
     const onPageChange = vi.fn();
