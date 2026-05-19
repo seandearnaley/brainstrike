@@ -31,6 +31,10 @@ Before opening or updating a PR:
 3. Add every listed `ci:*` label to the PR.
 4. Run `pnpm ci:prove --base origin/main --head HEAD`.
 5. Commit `.ci/proof/latest.json` by itself as the final proof-only commit.
+6. Run `pnpm ci:verify-proof --base origin/main --head HEAD --labels '<ci:labels>'`.
+
+Use `origin/main` for PRs targeting `main`. If the PR targets another branch,
+replace `origin/main` with that target branch ref in all proof commands.
 
 Label meanings:
 - `ci:browser` runs browser Vitest lanes.
