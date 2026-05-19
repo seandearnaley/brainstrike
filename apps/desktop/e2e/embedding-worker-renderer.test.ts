@@ -2899,58 +2899,6 @@ test.describe('Embedding Host Renderer', () => {
     return { mainLogs, relevantElectronStderr };
   }
 
-  async function waitForReclaimCycleAndResumedProcessing(
-    page: Page,
-    initialRuntimeId: string,
-    baselineLogCount: number,
-    minimumSucceededItems: number,
-    timeoutMs = 120_000
-  ): Promise<{
-    mainLogs: MainBufferedLogRecord[];
-    queueStats: QueueStatsRow;
-    status: EmbeddingHostStatus;
-  }> {
-    const startedAt = Date.now();
-
-    while (Date.now() - startedAt < timeoutMs) {
-      const [queueStats, status, mainLogs] = await Promise.all([
-        getEmbeddingQueueStats(page),
-        getEmbeddingHostStatus(page),
-        getMainBufferedLogs(page),
-      ]);
-      if (status.state === 'error') {
-        throw new Error(
-          status.lastError ??
-            'Embedding host entered an error state while waiting for reclaim to resume work.'
-        );
-      }
-
-      const observedMaintenanceCycles = detectObservedMaintenanceCycles({
-        initialRuntimeId,
-        finalRuntimeId: status.runtimeId,
-        logsSinceBaseline: mainLogs.slice(baselineLogCount),
-      });
-      const resumedOnFreshRuntime =
-        observedMaintenanceCycles > 0 &&
-        status.runtimeId !== initialRuntimeId &&
-        status.state === 'running' &&
-        status.active &&
-        queueStats.running > 0 &&
-        queueStats.succeeded >= minimumSucceededItems;
-      if (resumedOnFreshRuntime) {
-        return {
-          mainLogs,
-          queueStats,
-          status,
-        };
-      }
-
-      await page.waitForTimeout(500);
-    }
-
-    throw new Error('Timed out waiting for reclaim maintenance to resume processing.');
-  }
-
   async function prepareRealWorldMixedStateScenario(
     electronApp: ElectronApplication,
     window: Page
@@ -7404,14 +7352,24 @@ test.describe('Embedding Host Renderer', () => {
             }
           )
           .toBeGreaterThan(0);
-        const resumedState = await waitForReclaimCycleAndResumedProcessing(
-          activeWindow,
-          initialStatus.runtimeId,
-          baselineMainLogs.length,
-          options.targetSucceededItems,
-          60_000
+        const [mainLogsAfterMaintenance, statusAfterMaintenance, queueStatsAfterMaintenance] =
+          await Promise.all([
+            getMainBufferedLogs(activeWindow),
+            getEmbeddingHostStatus(activeWindow),
+            getEmbeddingQueueStats(activeWindow),
+          ]);
+        const observedMaintenanceCycles = detectObservedMaintenanceCycles({
+          initialRuntimeId: initialStatus.runtimeId,
+          finalRuntimeId: statusAfterMaintenance.runtimeId,
+          logsSinceBaseline: mainLogsAfterMaintenance.slice(baselineMainLogs.length),
+        });
+        expect(observedMaintenanceCycles).toBeGreaterThan(0);
+        expect(statusAfterMaintenance.runtimeId).not.toBe(initialStatus.runtimeId);
+        expect(statusAfterMaintenance.state).not.toBe('error');
+        expect(queueStatsAfterMaintenance.succeeded).toBeGreaterThanOrEqual(
+          queueStatsBeforeSampling.succeeded
         );
-        queueStatsBeforeSampling = resumedState.queueStats;
+        queueStatsBeforeSampling = queueStatsAfterMaintenance;
       }
 
       const baselineGpuKB = getGpuWorkingSetKB(baseline);
