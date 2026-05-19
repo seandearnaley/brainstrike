@@ -1,20 +1,21 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-19T20:44:01.736Z",
+  "generatedAt": "2026-05-19T20:53:26.677Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/codex/domain-reset-phase-1-guardrails",
   "headRef": "HEAD",
-  "testedHeadSha": "66e25641ef43c8a57bf7a0f017a91cfd3057884c",
+  "testedHeadSha": "864746a6056f14c9eaa1eb06113bcdc89469ffe2",
   "selection": {
     "base": "origin/codex/domain-reset-phase-1-guardrails",
     "baseSha": "543b2949051cfa547aacbd58f0ef683d8e062a47",
     "head": "HEAD",
-    "headSha": "66e25641ef43c8a57bf7a0f017a91cfd3057884c",
+    "headSha": "864746a6056f14c9eaa1eb06113bcdc89469ffe2",
     "mergeBase": "543b2949051cfa547aacbd58f0ef683d8e062a47",
     "files": [
+      ".ci/proof/latest.json",
       "apps/desktop/src/__tests__/main/logging-fs.test.ts",
       "apps/desktop/src/__tests__/main/logging-ipc.test.ts",
       "apps/desktop/src/__tests__/platform/logging-api-contract.test.ts",
@@ -88,37 +89,37 @@
       "name": "lint-ci",
       "command": "pnpm lint:ci",
       "exitCode": 0,
-      "durationMs": 10992
+      "durationMs": 10826
     },
     {
       "name": "type-check",
       "command": "pnpm type-check",
       "exitCode": 0,
-      "durationMs": 39376
+      "durationMs": 671
     },
     {
       "name": "build",
       "command": "pnpm build",
       "exitCode": 0,
-      "durationMs": 956
+      "durationMs": 670
     },
     {
       "name": "unit",
       "command": "TURBO_TEST_MODE=unit pnpm exec turbo run test --summarize --log-order=grouped --concurrency=2",
       "exitCode": 0,
-      "durationMs": 55453
+      "durationMs": 55954
     },
     {
       "name": "desktop-regression",
       "command": "cd apps/desktop && pnpm exec playwright test --project=regression --workers=1 --grep-invert \"@desktop-embedding-\"",
       "exitCode": 0,
-      "durationMs": 292254
+      "durationMs": 292506
     },
     {
       "name": "affected-coverage",
       "command": "TURBO_TEST_MODE=coverage COVERAGE=true pnpm exec turbo run test:coverage --filter=\"...[543b2949051cfa547aacbd58f0ef683d8e062a47]\" --concurrency=4 --summarize --log-order=grouped",
       "exitCode": 0,
-      "durationMs": 77549
+      "durationMs": 74890
     }
   ]
 }
