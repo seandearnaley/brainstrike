@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-19T03:36:12.394Z",
+  "repository": "seandearnaley/brainstrike",
+  "packageManager": "pnpm@10.33.0",
+  "pnpmVersion": "10.33.0",
+  "nodeVersion": "v24.14.0",
+  "baseRef": "origin/main",
+  "headRef": "ff5e62faa41171fe69886cdd5c0c91e146a54474",
+  "testedHeadSha": "ff5e62faa41171fe69886cdd5c0c91e146a54474",
+  "selection": {
+    "base": "origin/main",
+    "baseSha": "bc6ecc456fecf16e5c510b3c6fd625096785640d",
+    "head": "ff5e62faa41171fe69886cdd5c0c91e146a54474",
+    "headSha": "ff5e62faa41171fe69886cdd5c0c91e146a54474",
+    "mergeBase": "191a630e9c560f47586ba5bf60ed03eff3cbf699",
+    "files": [
+      "packages/queue/src/__tests__/remote-telemetry-sink.test.ts",
+      "packages/queue/src/remote-telemetry-sink.ts",
+      "packages/queue/test/remote-telemetry-sink.spec.ts"
+    ],
+    "lanes": [
+      "ci:coverage"
+    ],
+    "expandedLanes": [
+      "ci:coverage"
+    ],
+    "labels": [
+      "ci:coverage"
+    ],
+    "commands": [
+      {
+        "name": "lint-ci",
+        "command": "pnpm lint:ci",
+        "requiredFor": [
+          "baseline"
+        ]
+      },
+      {
+        "name": "type-check",
+        "command": "pnpm type-check",
+        "requiredFor": [
+          "baseline"
+        ]
+      },
+      {
+        "name": "build",
+        "command": "pnpm build",
+        "requiredFor": [
+          "baseline"
+        ]
+      },
+      {
+        "name": "unit",
+        "command": "TURBO_TEST_MODE=unit pnpm exec turbo run test --summarize --log-order=grouped --concurrency=2",
+        "requiredFor": [
+          "baseline"
+        ]
+      },
+      {
+        "name": "affected-coverage",
+        "command": "TURBO_TEST_MODE=coverage COVERAGE=true pnpm exec turbo run test:coverage --filter=\"...[191a630e9c560f47586ba5bf60ed03eff3cbf699]\" --concurrency=4 --summarize --log-order=grouped",
+        "requiredFor": [
+          "ci:coverage"
+        ]
+      }
+    ]
+  },
+  "commandResults": [
+    {
+      "name": "lint-ci",
+      "command": "pnpm lint:ci",
+      "exitCode": 0,
+      "durationMs": 11219
+    },
+    {
+      "name": "type-check",
+      "command": "pnpm type-check",
+      "exitCode": 0,
+      "durationMs": 72346
+    },
+    {
+      "name": "build",
+      "command": "pnpm build",
+      "exitCode": 0,
+      "durationMs": 635
+    },
+    {
+      "name": "unit",
+      "command": "TURBO_TEST_MODE=unit pnpm exec turbo run test --summarize --log-order=grouped --concurrency=2",
+      "exitCode": 0,
+      "durationMs": 334057
+    },
+    {
+      "name": "affected-coverage",
+      "command": "TURBO_TEST_MODE=coverage COVERAGE=true pnpm exec turbo run test:coverage --filter=\"...[191a630e9c560f47586ba5bf60ed03eff3cbf699]\" --concurrency=4 --summarize --log-order=grouped",
+      "exitCode": 0,
+      "durationMs": 415096
+    }
+  ]
+}
