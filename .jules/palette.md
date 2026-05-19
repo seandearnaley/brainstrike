@@ -53,3 +53,7 @@
 ## 2026-05-18 - Missing aria-expanded on collapsible sections
 **Learning:** Collapsible sections built manually with a button and conditionally rendered content often forget to explicitly wire up the `aria-controls` and `aria-expanded` properties for screen reader accessibility. I found instances where `<button>` toggled the visibility of `expanded` UI details (like parameters) but missed these attributes.
 **Action:** When inspecting manual disclosure widgets or accordions, ensure the toggle button always has `aria-expanded={isExpanded}` and `aria-controls={contentId}` mapping to a unique `id` (e.g. via React `useId()`) on the expanded section container.
+
+## $(date +%Y-%m-%d) - [Accessible Expandable Legend]
+**Learning:** For components with complex internal togglable sections (like a Token Budget Summary expanding to show a legend), it's important to not just use an `onClick` to toggle visibility. We must correctly link the control button to the dynamically visible content using an explicitly generated unique ID (`useId()`), setting `aria-controls={id}` on the button and `id={id}` on the container, alongside `aria-expanded={expanded}`. This bridges the semantic gap for screen readers when sections dynamically mount/unmount.
+**Action:** Always pair `aria-expanded` with `aria-controls` linked to a unique ID for inline toggled content sections.
