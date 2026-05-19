@@ -448,6 +448,47 @@ describe('DbHostManager', () => {
     }
   });
 
+  it('allows initialization to wait longer than the generic request timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const { createDbHostManager } = await import('../../db-host-manager');
+      const managerOptions = {
+        entryPath: '/mock/db-host-entry.js',
+        initRequestTimeoutMs: 50,
+        requestTimeoutMs: 5,
+      };
+      const manager = createDbHostManager(managerOptions);
+
+      const databasePromise = manager.getDatabase();
+      const firstHost = latestProcess();
+      const initMessage = firstHost.messages.at(-1);
+      expect(initMessage?.request.kind).toBe('init');
+
+      let settled = false;
+      void databasePromise.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        }
+      );
+
+      await vi.advanceTimersByTimeAsync(5);
+      await flushMicrotasks();
+
+      expect(settled).toBe(false);
+      expect(firstHost.kill).not.toHaveBeenCalled();
+
+      firstHost.reply(initMessage as PostedMessage, { initialized: true });
+
+      await expect(databasePromise).resolves.toBeDefined();
+      expect(firstHost.kill).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('terminates the utility DB host when initialization fails', async () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
