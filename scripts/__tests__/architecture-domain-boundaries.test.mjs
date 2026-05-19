@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -69,6 +69,7 @@ const makeWorkspace = async ({ sources }) => {
         mayDependOn: [],
       },
     ],
+    boundaryExceptions: [],
   });
 
   for (const [relativePath, source] of sources) {
@@ -116,12 +117,12 @@ test('rejects imports from lower-level domains into higher-level domains', async
   ]);
 });
 
-test('recognizes subpath imports, dynamic imports, require calls, and import types', async () => {
+test('recognizes subpath imports, dynamic imports, require calls, import-equals, and import types', async () => {
   const root = await makeWorkspace({
     sources: [
       [
         'packages/ui/src/component.ts',
-        "type Shell = import('@brainstrike/app-shell/panel').Shell;\nconst data = import('@brainstrike/db/client');\nconst shell = require('@brainstrike/app-shell');\nvoid data;\nvoid shell;\n",
+        "type Shell = import('@brainstrike/app-shell/panel').Shell;\nconst data = import('@brainstrike/db/client');\nconst shell = require('@brainstrike/app-shell');\nimport legacyWeb = require('@brainstrike/web/legacy');\nvoid data;\nvoid shell;\nvoid legacyWeb;\n",
       ],
     ],
   });
@@ -132,6 +133,76 @@ test('recognizes subpath imports, dynamic imports, require calls, and import typ
     '@brainstrike/app-shell',
     '@brainstrike/db',
     '@brainstrike/app-shell',
+    '@brainstrike/web',
+  ]);
+});
+
+test('sorts violations numerically within each file', async () => {
+  const root = await makeWorkspace({
+    sources: [
+      [
+        'packages/ui/src/component.ts',
+        [
+          "import { one } from '@brainstrike/db/one';",
+          'void one;',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          "import { ten } from '@brainstrike/db/ten';",
+          'void ten;',
+          '',
+          "import { twelve } from '@brainstrike/app-shell/twelve';",
+          'void twelve;',
+        ].join('\n'),
+      ],
+    ],
+  });
+
+  const result = await validateArchitectureDomainBoundaries({ root });
+
+  assert.deepEqual(
+    result.violations.map((violation) => violation.line),
+    [1, 10, 13]
+  );
+});
+
+test('reports stale approved boundary exceptions', async () => {
+  const root = await makeWorkspace({
+    sources: [['packages/ui/src/component.ts', "export const value = 'safe';\n"]],
+  });
+  const contractPath = path.join(root, 'architecture/domain-map.json');
+  const contract = JSON.parse(await readFile(contractPath, 'utf8'));
+  await writeFile(path.join(root, 'phase-test.html'), '<!doctype html><title>Phase test</title>\n');
+  contract.stack = [
+    {
+      id: 'phase-test',
+      dependsOn: null,
+      planningArtifact: 'phase-test.html',
+    },
+  ];
+  contract.boundaryExceptions = [
+    {
+      id: 'stale-ui-db',
+      sourcePackage: '@brainstrike/ui',
+      importedPackage: '@brainstrike/db',
+      reason: 'Test fixture stale exception.',
+      retireByPhase: 'phase-test',
+    },
+  ];
+  await writeJson(contractPath, contract);
+
+  const result = await validateArchitectureDomainBoundaries({ root });
+
+  assert.deepEqual(result.staleBoundaryExceptions, [
+    {
+      sourcePackage: '@brainstrike/ui',
+      importedPackage: '@brainstrike/db',
+      message: 'approved boundary exception is stale: @brainstrike/ui -> @brainstrike/db',
+    },
   ]);
 });
 
@@ -139,6 +210,7 @@ test('keeps the committed Brainstrike workspace inside the declared domain bound
   const result = await validateArchitectureDomainBoundaries({ root: process.cwd() });
 
   assert.deepEqual(result.violations, []);
+  assert.deepEqual(result.staleBoundaryExceptions, []);
   assert.ok(result.summary.checkedFileCount > 0);
   assert.ok(result.summary.checkedImportCount > 0);
 });

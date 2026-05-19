@@ -101,7 +101,10 @@ async function dragPanelWider({
     }
   }
 
-  return panel.evaluate((el) => el.getBoundingClientRect().width);
+  const finalWidth = await panel.evaluate((el) => el.getBoundingClientRect().width);
+  throw new Error(
+    `Panel resize did not widen after ${dragDeltas.join(', ')}px drags: initial=${initialWidth}, final=${finalWidth}`
+  );
 }
 
 test.describe('IDE Layout Persistence', () => {

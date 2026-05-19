@@ -51,7 +51,9 @@ const walkSourceFiles = async ({ root, relativeDirectory }) => {
       if (SKIPPED_DIRECTORIES.has(entry.name)) {
         continue;
       }
-      files.push(...(await walkSourceFiles({ root, relativeDirectory: relativePath })));
+      for (const filePath of await walkSourceFiles({ root, relativeDirectory: relativePath })) {
+        files.push(filePath);
+      }
       continue;
     }
 
@@ -122,6 +124,18 @@ const collectImportSpecifiers = ({ sourceFile }) => {
         specifier: getStringLiteralText(node.argument?.literal),
         node,
       });
+      ts.forEachChild(node, visit);
+      return;
+    }
+
+    if (ts.isImportEqualsDeclaration(node)) {
+      const moduleReference = node.moduleReference;
+      if (ts.isExternalModuleReference(moduleReference)) {
+        addImport({
+          specifier: getStringLiteralText(moduleReference.expression),
+          node,
+        });
+      }
       ts.forEachChild(node, visit);
       return;
     }
@@ -278,13 +292,40 @@ export const validateArchitectureDomainBoundaries = async ({ root = process.cwd(
     }
   }
 
-  violations.sort((left, right) =>
-    `${left.filePath}:${left.line}:${left.column}`.localeCompare(
-      `${right.filePath}:${right.line}:${right.column}`
-    )
-  );
+  violations.sort((left, right) => {
+    const pathComparison = left.filePath.localeCompare(right.filePath);
+    if (pathComparison !== 0) {
+      return pathComparison;
+    }
+
+    const lineComparison = left.line - right.line;
+    if (lineComparison !== 0) {
+      return lineComparison;
+    }
+
+    return left.column - right.column;
+  });
+
+  const staleBoundaryExceptions = [...approvedBoundaryExceptions]
+    .filter((exceptionKey) => !usedBoundaryExceptions.has(exceptionKey))
+    .map((exceptionKey) => {
+      const [sourcePackage, importedPackage] = exceptionKey.split('\0');
+      return {
+        sourcePackage,
+        importedPackage,
+        message: `approved boundary exception is stale: ${sourcePackage} -> ${importedPackage}`,
+      };
+    })
+    .sort((left, right) => {
+      const sourceComparison = left.sourcePackage.localeCompare(right.sourcePackage);
+      if (sourceComparison !== 0) {
+        return sourceComparison;
+      }
+      return left.importedPackage.localeCompare(right.importedPackage);
+    });
 
   return {
+    staleBoundaryExceptions,
     violations,
     summary: {
       checkedFileCount,
@@ -305,6 +346,15 @@ const runCli = async () => {
       console.error(
         `- ${violation.filePath}:${violation.line}:${violation.column} ${violation.message} via ${violation.specifier}`
       );
+    }
+    process.exitCode = 1;
+    return;
+  }
+
+  if (result.staleBoundaryExceptions.length > 0) {
+    console.error('Architecture domain boundary exceptions are stale:');
+    for (const exception of result.staleBoundaryExceptions) {
+      console.error(`- ${exception.message}`);
     }
     process.exitCode = 1;
     return;
