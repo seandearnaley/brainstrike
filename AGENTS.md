@@ -21,6 +21,35 @@ Playwright:
 
 ---
 
+## PR CI PROOF FLOW
+
+Pull requests are gated by a local proof manifest plus label-routed cloud lanes.
+
+Before opening or updating a PR:
+1. Commit all source, config, workflow, test, and doc changes except the proof manifest.
+2. Run `pnpm ci:select --base origin/main --head HEAD`.
+3. Add every listed `ci:*` label to the PR.
+4. Run `pnpm ci:prove --base origin/main --head HEAD`.
+5. Commit `.ci/proof/latest.json` by itself as the final proof-only commit.
+6. Run `pnpm ci:verify-proof --base origin/main --head HEAD --labels '<ci:labels>'`.
+
+Use `origin/main` for PRs targeting `main`. If the PR targets another branch,
+replace `origin/main` with that target branch ref in all proof commands.
+
+Label meanings:
+- `ci:browser` runs browser Vitest lanes.
+- `ci:web-e2e` runs web functional, stateful, and destructive E2E lanes.
+- `ci:desktop` runs desktop regression E2E.
+- `ci:embedding` runs desktop embedding E2E groups.
+- `ci:coverage` runs cloud unit coverage.
+- `ci:full` expands to all cloud risk lanes.
+
+The PR Sentinel recomputes the selected lanes and fails when the proof is
+missing, stale, or missing required labels. Any commit after the proof commit
+invalidates the proof unless the only changed file is `.ci/proof/latest.json`.
+
+---
+
 ## 5. EMBEDDING ARCHITECTURE (CRITICAL)
 
 Renderer-only execution is mandatory.
