@@ -19,6 +19,21 @@ describe('preload runtime contract', () => {
       "const LOGGING_GET_PREFERENCES_CHANNEL = 'logging:get-preferences'"
     );
     expect(preloadSource).toContain(
+      "const LOGGING_SET_PREFERENCES_CHANNEL = 'logging:set-preferences'"
+    );
+    expect(preloadSource).toContain(
+      "const LOGGING_SELECT_DESTINATION_CHANNEL = 'logging:select-destination'"
+    );
+    expect(preloadSource).toContain(
+      "const LOGGING_OPEN_DESTINATION_CHANNEL = 'logging:open-destination'"
+    );
+    expect(preloadSource).toContain(
+      "const LOGGING_GET_BUFFERED_LOGS_CHANNEL = 'logging:get-buffered-logs'"
+    );
+    expect(preloadSource).toContain(
+      "const LOGGING_INGEST_BUFFERED_RECORD_CHANNEL = 'logging:ingest-buffered-record'"
+    );
+    expect(preloadSource).toContain(
       "const LOGGING_PREFERENCES_UPDATED_EVENT = 'logging:preferences-updated'"
     );
   });

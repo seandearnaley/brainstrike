@@ -54,6 +54,18 @@ describe('logging API contract', () => {
     expect(() =>
       assertLoggingPreferences({
         ...createDefaultLoggingPreferences(),
+        consoleEnabled: 'yes',
+      })
+    ).toThrow('Logging preferences consoleEnabled must be a boolean.');
+    expect(() =>
+      assertLoggingPreferences({
+        ...createDefaultLoggingPreferences(),
+        file: null,
+      })
+    ).toThrow('Logging file preferences must be an object.');
+    expect(() =>
+      assertLoggingPreferences({
+        ...createDefaultLoggingPreferences(),
         level: 'verbose',
       })
     ).toThrow('Logging preferences level must be a valid log level.');
@@ -66,6 +78,12 @@ describe('logging API contract', () => {
         },
       })
     ).toThrow('Logging file preferences level must be a valid log level.');
+    expect(() =>
+      assertLoggingPreferences({
+        ...createDefaultLoggingPreferences(),
+        redactPaths: 'token',
+      })
+    ).toThrow('Logging preferences redactPaths must be a string array.');
     expect(() =>
       assertLoggingPreferences({
         ...createDefaultLoggingPreferences(),
