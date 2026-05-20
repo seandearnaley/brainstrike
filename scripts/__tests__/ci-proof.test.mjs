@@ -83,6 +83,12 @@ test('buildProofManifest records successful baseline and selected commands', () 
       labels: [],
       lanes: [],
       mergeBase: '1',
+      budget: {
+        target: 'fast-local',
+        targetMs: 120_000,
+        totalMs: 60_000,
+        status: 'within-target',
+      },
       riskProfile: {
         category: 'docs-only',
         cloudLabels: [],
@@ -120,6 +126,12 @@ test('validateProofManifest rejects failed command results', () => {
     selection: {
       labels: [],
       commands: [],
+      budget: {
+        target: 'fast-local',
+        targetMs: 120_000,
+        totalMs: 60_000,
+        status: 'within-target',
+      },
       riskProfile: {
         category: 'docs-only',
         cloudLabels: [],
@@ -146,6 +158,12 @@ test('validateProofManifest rejects invalid tested head SHAs', () => {
     selection: {
       labels: [],
       commands: [],
+      budget: {
+        target: 'fast-local',
+        targetMs: 120_000,
+        totalMs: 60_000,
+        status: 'within-target',
+      },
       riskProfile: {
         category: 'docs-only',
         cloudLabels: [],
@@ -177,6 +195,32 @@ test('validateProofManifest requires a recorded risk profile', () => {
   });
 
   assert.match(failures.join('\n'), /selection\.riskProfile must be an object/);
+});
+
+test('validateProofManifest requires a recorded selection budget', () => {
+  const failures = validateProofManifest({
+    schemaVersion: 1,
+    commandResults: [],
+    generatedAt: '2026-05-18T12:00:00.000Z',
+    packageManager: 'pnpm@10.33.0',
+    pnpmVersion: '10.33.0',
+    repository: 'seandearnaley/brainstrike',
+    selection: {
+      labels: [],
+      commands: [],
+      riskProfile: {
+        category: 'docs-only',
+        cloudLabels: [],
+        domains: ['documentation'],
+        e2eLanes: [],
+        proofCommands: ['diff-check', 'docs-static'],
+        riskLevel: 'low',
+      },
+    },
+    testedHeadSha: '2222222222222222222222222222222222222222',
+  });
+
+  assert.match(failures.join('\n'), /selection\.budget must be an object/);
 });
 
 test('verifyLabels requires every selected risk label', () => {

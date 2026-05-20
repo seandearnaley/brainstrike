@@ -84,6 +84,12 @@ test('buildSelection includes deterministic risk profile and local proof command
     selection.commands.map((entry) => typeof entry.budgetMs),
     ['number', 'number', 'number']
   );
+  assert.deepEqual(selection.budget, {
+    target: 'normal-pr-risk',
+    targetMs: 15 * 60_000,
+    totalMs: 570_000,
+    status: 'within-target',
+  });
 });
 
 test('buildSelection keeps docs-only proof cheap and without labels', () => {
@@ -103,6 +109,30 @@ test('buildSelection keeps docs-only proof cheap and without labels', () => {
     selection.commands.map((entry) => entry.name),
     ['diff-check', 'docs-static']
   );
+  assert.deepEqual(selection.budget, {
+    target: 'fast-local',
+    targetMs: 2 * 60_000,
+    totalMs: 60_000,
+    status: 'within-target',
+  });
+});
+
+test('buildSelection marks full release proof as explicit release budget', () => {
+  const selection = buildSelection({
+    base: 'origin/main',
+    baseSha: '1111111111111111111111111111111111111111',
+    files: ['turbo.jsonc'],
+    head: 'HEAD',
+    headSha: '2222222222222222222222222222222222222222',
+    mergeBase: '1111111111111111111111111111111111111111',
+  });
+
+  assert.deepEqual(selection.budget, {
+    target: 'release-full-risk',
+    targetMs: 45 * 60_000,
+    totalMs: 3_030_000,
+    status: 'over-target',
+  });
 });
 
 test('E2E lane command taxonomy is explicit and avoids hidden full-suite fallback', () => {
@@ -192,6 +222,7 @@ test('renderSelectionJson emits stable JSON', () => {
     base: 'origin/main',
     baseSha: '1',
     commands: [],
+    budget: null,
     expandedLanes: [],
     files: [],
     riskProfile: null,
@@ -215,5 +246,6 @@ test('renderSelectionJson emits stable JSON', () => {
     'expandedLanes',
     'labels',
     'commands',
+    'budget',
   ]);
 });

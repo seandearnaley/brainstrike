@@ -182,6 +182,9 @@ export function validateProofManifest(manifest) {
     if (!isObject(manifest.selection.riskProfile)) {
       failures.push('selection.riskProfile must be an object');
     }
+    if (!isObject(manifest.selection.budget)) {
+      failures.push('selection.budget must be an object');
+    }
     validateArray(manifest.selection.labels, 'selection.labels', failures);
     validateArray(manifest.selection.commands, 'selection.commands', failures);
   }
@@ -369,6 +372,7 @@ function comparableSelection(selection) {
   return {
     files: selection.files,
     riskProfile: selection.riskProfile,
+    budget: selection.budget,
     lanes: selection.lanes,
     expandedLanes: selection.expandedLanes,
     labels: selection.labels,
@@ -461,6 +465,11 @@ function compareSelections(actual, expected) {
       'selection.riskProfile',
       actualSelection.riskProfile,
       expectedSelection.riskProfile
+    ),
+    ...compareJsonObject(
+      'selection.budget',
+      actualSelection.budget,
+      expectedSelection.budget
     ),
     ...compareArrays('selection.lanes', actualSelection.lanes, expectedSelection.lanes),
     ...compareArrays(

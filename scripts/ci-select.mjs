@@ -240,6 +240,30 @@ function renderCommand(command, mergeBase) {
   };
 }
 
+function resolveBudgetTarget(riskProfile) {
+  if (riskProfile.category === 'docs-only') {
+    return { target: 'fast-local', targetMs: 2 * 60_000 };
+  }
+  if (riskProfile.category === 'full-release-high-risk') {
+    return { target: 'release-full-risk', targetMs: 45 * 60_000 };
+  }
+  if (riskProfile.e2eLanes.length === 0) {
+    return { target: 'local-pr-risk', targetMs: 8 * 60_000 };
+  }
+  return { target: 'normal-pr-risk', targetMs: 15 * 60_000 };
+}
+
+function summarizeBudget(riskProfile, commands) {
+  const totalMs = commands.reduce((sum, command) => sum + command.budgetMs, 0);
+  const { target, targetMs } = resolveBudgetTarget(riskProfile);
+  return {
+    target,
+    targetMs,
+    totalMs,
+    status: totalMs <= targetMs ? 'within-target' : 'over-target',
+  };
+}
+
 export function buildSelection(input) {
   if (!/^[0-9a-f]{40}$/i.test(input.mergeBase)) {
     throw new Error(`mergeBase must be a 40-character git SHA: ${input.mergeBase}`);
@@ -255,6 +279,7 @@ export function buildSelection(input) {
     }
     return renderCommand(command, input.mergeBase);
   });
+  const budget = summarizeBudget(riskProfile, commands);
 
   return {
     base: input.base,
@@ -268,6 +293,7 @@ export function buildSelection(input) {
     expandedLanes,
     labels,
     commands,
+    budget,
   };
 }
 
@@ -285,6 +311,7 @@ export function renderSelectionJson(selection) {
       expandedLanes: selection.expandedLanes,
       labels: selection.labels,
       commands: selection.commands,
+      budget: selection.budget ?? null,
     },
     null,
     2
