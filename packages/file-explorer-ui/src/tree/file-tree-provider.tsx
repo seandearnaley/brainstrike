@@ -23,15 +23,15 @@ import {
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
-} from './file-explorer-provider';
-import { FileTreeIndex, type FileTreeIndexStats, type HandleInfo } from './file-tree-index';
+} from '../file-explorer-provider';
 import {
   type RestorationProgress,
   useExpandedPathRestoration,
-} from './use-expanded-path-restoration';
+} from '../use-expanded-path-restoration';
+import type { NormalizedFileTreeState } from '../utils/normalized-file-tree';
+import { createEmptyNormalizedFileTreeState } from '../utils/normalized-file-tree';
+import { FileTreeIndex, type FileTreeIndexStats, type HandleInfo } from './file-tree-index';
 import { type CancellableFileTreeHook, useFileTree } from './use-file-tree-context';
-import type { NormalizedFileTreeState } from './utils/normalized-file-tree';
-import { createEmptyNormalizedFileTreeState } from './utils/normalized-file-tree';
 
 type FileTreeContextType = CancellableFileTreeHook & {
   isRestorationSettled: boolean;

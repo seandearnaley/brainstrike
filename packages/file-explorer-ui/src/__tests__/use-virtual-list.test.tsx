@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import type React from 'react';
 import { useLayoutEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useVirtualList } from '../use-virtual-list';
+import { useVirtualList } from '../tree/use-virtual-list';
 
 type ResizeObserverCallbackRef = ResizeObserverCallback | null;
 let resizeObserverCallback: ResizeObserverCallbackRef = null;

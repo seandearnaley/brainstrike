@@ -19,7 +19,7 @@ vi.mock('../file-explorer-provider', () => {
 vi.mock('../use-file-system-context', () => ({
   useFileSystem: vi.fn(),
 }));
-vi.mock('../use-file-tree-context', () => ({
+vi.mock('../tree/use-file-tree-context', () => ({
   useFileTree: vi.fn(),
 }));
 vi.mock('../use-shared-file-content-loading', () => ({
@@ -53,7 +53,7 @@ import {
 import { useFileExplorerStoreContext } from '../file-explorer-provider';
 import { __resetRestorationLock, useFileExplorer } from '../use-file-explorer-context';
 import { useFileSystem } from '../use-file-system-context';
-import { useFileTree } from '../use-file-tree-context';
+import { useFileTree } from '../tree/use-file-tree-context';
 import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
 
 describe('useFileExplorer (context)', () => {

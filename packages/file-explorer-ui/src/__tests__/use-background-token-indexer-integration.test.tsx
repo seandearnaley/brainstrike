@@ -8,7 +8,7 @@ import { encodeFileSelection } from '@brainstrike/utils';
 import { addLogListener, LogLevel } from '@brainstrike/utils/logger';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FileTreeIndexContextValue } from '../file-tree-provider';
+import type { FileTreeIndexContextValue } from '../tree/file-tree-provider';
 import type { TokenCacheContextValue } from '../token-cache-context';
 import {
   useBackgroundTokenIndexerIntegration,
@@ -93,7 +93,7 @@ vi.mock('../token-cache-context', () => ({
 
 let mockFileTreeIndexContext: FileTreeIndexContextValue | null = null;
 
-vi.mock('../file-tree-provider', () => ({
+vi.mock('../tree/file-tree-provider', () => ({
   useOptionalFileTreeIndexContext: () => mockFileTreeIndexContext,
 }));
 

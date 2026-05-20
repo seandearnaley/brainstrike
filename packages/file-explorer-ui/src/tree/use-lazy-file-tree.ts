@@ -22,18 +22,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   useAbortControllers,
   useExpandAll,
-  useFileTreeWorker,
   useRecursiveFolderSelect,
   useRecursiveSelectAll,
-} from './hooks';
-import type { AddMultipleSelectedFilesChunked } from './hooks/recursive-selection-utils';
-import type { ExpandAllExecutorArgs, ExpandAllExecutorResult } from './hooks/use-expand-all';
+} from '../hooks';
+import type { AddMultipleSelectedFilesChunked } from '../hooks/recursive-selection-utils';
+import type { ExpandAllExecutorArgs, ExpandAllExecutorResult } from '../hooks/use-expand-all';
+import { useFileTreeWorker } from '../hooks/use-file-tree-worker';
 import {
   estimateTreePayloadBytes,
   measureFileTreeOperation,
   recordFileTreeTelemetry,
-} from './utils/file-tree-telemetry';
-import { getRootFolderId } from './utils/get-root-folder-id';
+} from '../utils/file-tree-telemetry';
+import { getRootFolderId } from '../utils/get-root-folder-id';
 import {
   needsLoading as checkNeedsLoading,
   findNodeByPath,
@@ -42,7 +42,7 @@ import {
   loadRootDirectory,
   loadRootDirectoryStreaming,
   supportsStreaming,
-} from './utils/lazy-tree-loader';
+} from '../utils/lazy-tree-loader';
 import {
   createEmptyNormalizedFileTreeState,
   createNormalizedFileTreeState,
@@ -55,13 +55,13 @@ import {
   type NormalizedFileTreeState,
   replaceNormalizedDirectoryChildren,
   setNormalizedNodeLoadState,
-} from './utils/normalized-file-tree';
+} from '../utils/normalized-file-tree';
 import {
   buildHandleMap,
   type FileSystemHandle,
   rehydrateTree,
   toWorkerFileNodes,
-} from './utils/worker-node-conversion';
+} from '../utils/worker-node-conversion';
 
 const logger = createLogger('LazyFileTree');
 interface InFlightRootLoad {

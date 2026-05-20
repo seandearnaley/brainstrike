@@ -35,20 +35,20 @@ import {
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
-} from './file-explorer-provider';
-import {
-  useOptionalFileTreeContext,
-  useOptionalFileTreeIndexContext,
-  useOptionalFileTreeNormalizedContext,
-} from './file-tree-provider';
-import { useWorkerFlattenedTree } from './hooks/use-worker-flattened-tree';
-import { measureFileTreeOperation, recordFileTreeTelemetry } from './utils/file-tree-telemetry';
+} from '../file-explorer-provider';
+import { useWorkerFlattenedTree } from '../hooks/use-worker-flattened-tree';
+import { measureFileTreeOperation, recordFileTreeTelemetry } from '../utils/file-tree-telemetry';
 import {
   getQuerySelectionMatchingCount,
   getSelectionCount,
   isDirectoryCoveredByQuerySelection,
   isQuerySelectionPathSelected,
-} from './utils/selection-projection';
+} from '../utils/selection-projection';
+import {
+  useOptionalFileTreeContext,
+  useOptionalFileTreeIndexContext,
+  useOptionalFileTreeNormalizedContext,
+} from './file-tree-provider';
 
 /** Pixel height of one virtualized tree row. */
 const ROW_HEIGHT = 32;

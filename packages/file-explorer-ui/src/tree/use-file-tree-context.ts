@@ -16,9 +16,9 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { FileTreeWorkerPort } from '@brainstrike/file-tree-worker';
 import type { IFileNode } from '@brainstrike/types';
 import type React from 'react';
-import type { AddMultipleSelectedFilesChunked } from './hooks/recursive-selection-utils';
+import type { AddMultipleSelectedFilesChunked } from '../hooks/recursive-selection-utils';
+import type { NormalizedFileTreeState } from '../utils/normalized-file-tree';
 import { useLazyFileTree } from './use-lazy-file-tree';
-import type { NormalizedFileTreeState } from './utils/normalized-file-tree';
 
 /**
  * Simplified loading progress state for lazy loading.

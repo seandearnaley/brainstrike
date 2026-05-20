@@ -15,7 +15,7 @@ import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
-import { useOptionalFileTreeIndexContext } from './file-tree-provider';
+import { useOptionalFileTreeIndexContext } from './tree/file-tree-provider';
 import { initFileContentWorker } from './utils/file-content-worker';
 import {
   buildFileNodeCache,

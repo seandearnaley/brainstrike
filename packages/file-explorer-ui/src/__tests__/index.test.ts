@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import FileExplorerSidebar from '../file-explorer-sidebar';
 import FileFilterBar, { FileFilterBar as NamedFileFilterBar } from '../file-filter-bar';
@@ -6,6 +8,31 @@ import * as index from '../index';
 // Ensure the barrel file re-exports modules correctly
 
 describe('file-explorer-ui index exports', () => {
+  it('keeps tree implementation files inside the tree slice', () => {
+    const sourceRoot = path.resolve(process.cwd(), 'src');
+    const treeImplementationFiles = [
+      'file-tree-index.ts',
+      'file-tree-node.tsx',
+      'file-tree-provider.tsx',
+      'file-tree.tsx',
+      'optimized-file-tree.tsx',
+      'use-file-tree-context.ts',
+      'use-file-tree-node-selection.ts',
+      'use-lazy-file-tree.ts',
+      'use-virtual-list.ts',
+    ];
+
+    const rootFiles = treeImplementationFiles.filter((fileName) =>
+      existsSync(path.join(sourceRoot, fileName))
+    );
+    const treeFiles = treeImplementationFiles.filter((fileName) =>
+      existsSync(path.join(sourceRoot, 'tree', fileName))
+    );
+
+    expect(rootFiles).toEqual([]);
+    expect(treeFiles).toEqual(treeImplementationFiles);
+  });
+
   it('should re-export FileFilterBar as named export matching default and named', () => {
     expect(index.FileFilterBar).toBe(FileFilterBar);
     expect(index.FileFilterBar).toBe(NamedFileFilterBar);

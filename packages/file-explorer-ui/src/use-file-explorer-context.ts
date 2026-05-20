@@ -19,14 +19,14 @@ import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
-import { useOptionalFileTreeContext } from './file-tree-provider';
 import type { AddMultipleSelectedFilesChunked } from './hooks/recursive-selection-utils';
+import { useOptionalFileTreeContext } from './tree/file-tree-provider';
+import { type LoadingProgressState, useFileTree } from './tree/use-file-tree-context';
 import {
   type RestorationProgress,
   useExpandedPathRestoration,
 } from './use-expanded-path-restoration';
 import { useFileSystem } from './use-file-system-context';
-import { type LoadingProgressState, useFileTree } from './use-file-tree-context';
 import { useSharedFileContentLoading } from './use-shared-file-content-loading';
 import { getRootFolderId } from './utils/get-root-folder-id';
 

@@ -3,7 +3,7 @@ import type { IFileNode } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import FileTree from '../file-tree';
+import FileTree from '../tree/file-tree';
 import { PreviewPanel } from '../preview-panel';
 import { FileExplorerTestWrapper } from './test-helpers';
 

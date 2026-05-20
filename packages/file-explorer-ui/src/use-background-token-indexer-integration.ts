@@ -30,9 +30,9 @@ import {
   TOKEN_INDEXER_BATCH_YIELD_MS,
   TOKEN_INDEXER_IO_BATCH_SIZE,
 } from './constants';
-import { useOptionalFileTreeIndexContext } from './file-tree-provider';
 import { resolveBackgroundIndexerWorkerUrlHref } from './resolve-token-cache-worker-url';
 import { useOptionalTokenCacheContext } from './token-cache-context';
+import { useOptionalFileTreeIndexContext } from './tree/file-tree-provider';
 
 const logger = createLogger('BackgroundTokenIndexerIntegration');
 

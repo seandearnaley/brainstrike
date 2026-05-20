@@ -8,10 +8,10 @@ import {
 } from 'lucide-react';
 import type React from 'react';
 import { memo, useCallback } from 'react';
-import { useFileExplorerStoreSelector } from './file-explorer-provider';
-import { FolderSelectionDialog } from './folder-selection-dialog';
-import NodeCheckbox from './node-checkbox';
-import NodeIcon from './node-icon';
+import { useFileExplorerStoreSelector } from '../file-explorer-provider';
+import { FolderSelectionDialog } from '../folder-selection-dialog';
+import NodeCheckbox from '../node-checkbox';
+import NodeIcon from '../node-icon';
 import { useFileTreeNodeSelection } from './use-file-tree-node-selection';
 
 interface IFileTreeNodeProps {

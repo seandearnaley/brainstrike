@@ -8,7 +8,7 @@ import { EXPAND_COLLAPSE_TEST_ID } from '@brainstrike/types';
 import { act, type render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import FileTreeNode from '../file-tree-node';
+import FileTreeNode from '../tree/file-tree-node';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 const Wrapper = composeWrappers(({ children }) => (

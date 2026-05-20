@@ -3,7 +3,7 @@ import type { IFileNode } from '@brainstrike/types';
 import { EmptyState } from '@brainstrike/ui';
 import { FolderOpen, Loader2 } from 'lucide-react';
 import { memo, useDeferredValue } from 'react';
-import OptimizedFileTree from './optimized-file-tree';
+import OptimizedFileTree from './tree/optimized-file-tree';
 import { getRootFolderId } from './utils/get-root-folder-id';
 
 const NoFilesSelected = () => (
