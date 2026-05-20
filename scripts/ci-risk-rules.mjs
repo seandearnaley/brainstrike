@@ -83,6 +83,39 @@ const DB_MIGRATION_PATTERNS = [
   /(^|\/)migration(s)?\//,
 ];
 
+const DB_SCHEMA_PATTERNS = [
+  /^packages\/db\/src\/architecture\//,
+  /^packages\/db\/src\/drizzle\//,
+  /^packages\/db\/src\/schema\//,
+  ...DB_MIGRATION_PATTERNS,
+];
+
+const DB_REPOSITORY_PATTERNS = [
+  /^packages\/db\/src\/models\//,
+  /^packages\/db\/src\/repositories\//,
+];
+
+const DB_QUEUE_PATTERNS = [
+  /^packages\/db\/src\/cli\/queue-cli\.ts$/,
+  /^packages\/db\/src\/queue\//,
+];
+
+const DB_SEARCH_PATTERNS = [/^packages\/db\/src\/search\//];
+
+const DB_INTEGRATION_PATTERNS = [
+  /^packages\/db\/src\/browser-pglite-storage/,
+  /^packages\/db\/src\/config\//,
+  /^packages\/db\/src\/database-pressure-controller\.ts$/,
+  /^packages\/db\/src\/database-work-scheduler\.ts$/,
+  /^packages\/db\/src\/db-provider\.tsx$/,
+  /^packages\/db\/src\/index\.ts$/,
+  /^packages\/db\/src\/managed-cache\//,
+  /^packages\/db\/src\/pglite-/,
+  /^packages\/db\/src\/services\//,
+  /^packages\/db\/src\/use-/,
+  /^packages\/db\/src\/wasm-loader\.ts$/,
+];
+
 const DESKTOP_PLATFORM_PATTERNS = [
   /^apps\/desktop\/src\/main\.ts$/,
   /^apps\/desktop\/src\/preload\.ts$/,
@@ -219,6 +252,55 @@ function dataPlatformPackageCommands(normalizedFiles) {
   return commands;
 }
 
+function dbPackageCommands(normalizedFiles) {
+  const dbFiles = normalizedFiles.filter((filePath) => filePath.startsWith('packages/db/'));
+  if (
+    dbFiles.some(
+      (filePath) => filePath === 'packages/db/src/index.ts' || filePath === 'packages/db/package.json'
+    )
+  ) {
+    return [
+      'diff-check',
+      'db-schema-migration-tests',
+      'db-repository-tests',
+      'db-queue-tests',
+      'db-search-tests',
+      'db-integration-tests',
+    ];
+  }
+
+  const laneCommands = [];
+
+  if (hasAny(dbFiles, DB_SCHEMA_PATTERNS)) {
+    laneCommands.push('db-schema-migration-tests');
+  }
+  if (hasAny(dbFiles, DB_REPOSITORY_PATTERNS)) {
+    laneCommands.push('db-repository-tests');
+  }
+  if (hasAny(dbFiles, DB_QUEUE_PATTERNS)) {
+    laneCommands.push('db-queue-tests');
+  }
+  if (hasAny(dbFiles, DB_SEARCH_PATTERNS)) {
+    laneCommands.push('db-search-tests');
+  }
+  if (hasAny(dbFiles, DB_INTEGRATION_PATTERNS)) {
+    laneCommands.push('db-integration-tests');
+  }
+
+  if (laneCommands.length === 0) {
+    return [
+      'diff-check',
+      'db-schema-migration-tests',
+      'db-repository-tests',
+      'db-queue-tests',
+      'db-search-tests',
+      'db-integration-tests',
+    ];
+  }
+
+  return ['diff-check', ...laneCommands];
+}
+
 function profile({
   category,
   domains,
@@ -311,7 +393,7 @@ export function selectRiskProfileForFiles(files) {
       category: 'db-migrations-storage',
       domains: ['data-platform'],
       e2eLanes: ['destructive-reset'],
-      proofCommands: ['diff-check', 'db-tests', 'migration-tests'],
+      proofCommands: ['diff-check', 'db-schema-migration-tests', 'db-integration-tests'],
       riskLevel: 'high',
       cloudLabels: ['ci:browser', 'ci:coverage'],
     });
@@ -364,7 +446,7 @@ export function selectRiskProfileForFiles(files) {
       category: 'db-migrations-storage',
       domains: ['data-platform'],
       e2eLanes: [],
-      proofCommands: ['diff-check', 'db-tests'],
+      proofCommands: dbPackageCommands(normalizedFiles),
       riskLevel: 'medium',
       cloudLabels: ['ci:browser', 'ci:coverage'],
     });

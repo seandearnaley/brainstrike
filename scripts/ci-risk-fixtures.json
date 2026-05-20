@@ -48,7 +48,37 @@
         "category": "db-migrations-storage",
         "cloudLabels": ["ci:browser", "ci:coverage"],
         "e2eLanes": ["destructive-reset"],
-        "proofCommands": ["diff-check", "db-tests", "migration-tests"]
+        "proofCommands": ["diff-check", "db-schema-migration-tests", "db-integration-tests"]
+      }
+    },
+    {
+      "name": "db queue",
+      "files": ["packages/db/src/queue/job-queue.ts"],
+      "expected": {
+        "category": "db-migrations-storage",
+        "cloudLabels": ["ci:browser", "ci:coverage"],
+        "e2eLanes": [],
+        "proofCommands": ["diff-check", "db-queue-tests"]
+      }
+    },
+    {
+      "name": "db repository",
+      "files": ["packages/db/src/repositories/drizzle/file-record-repository.ts"],
+      "expected": {
+        "category": "db-migrations-storage",
+        "cloudLabels": ["ci:browser", "ci:coverage"],
+        "e2eLanes": [],
+        "proofCommands": ["diff-check", "db-repository-tests"]
+      }
+    },
+    {
+      "name": "db search",
+      "files": ["packages/db/src/search/hybrid-search-service.ts"],
+      "expected": {
+        "category": "db-migrations-storage",
+        "cloudLabels": ["ci:browser", "ci:coverage"],
+        "e2eLanes": [],
+        "proofCommands": ["diff-check", "db-search-tests"]
       }
     },
     {

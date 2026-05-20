@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brainstrike DB and Indexing Proof Cost Reduction</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #101214;
+        --panel: #171b1f;
+        --panel-2: #1d2328;
+        --border: #2f373f;
+        --text: #edf1f5;
+        --muted: #a7b0ba;
+        --soft: #77818c;
+        --green: #58d68d;
+        --blue: #6aa8ff;
+        --amber: #f6c760;
+        --red: #ff7d7d;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        line-height: 1.55;
+      }
+
+      main {
+        width: min(1180px, calc(100vw - 40px));
+        margin: 0 auto;
+        padding: 40px 0 72px;
+      }
+
+      .hero {
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 28px;
+        margin-bottom: 28px;
+      }
+
+      .eyebrow {
+        color: var(--blue);
+        font: 700 12px/1 var(--mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        font-size: clamp(30px, 5vw, 56px);
+        line-height: 1.02;
+        margin: 12px 0 16px;
+        letter-spacing: 0;
+      }
+
+      h2 {
+        font-size: 24px;
+        margin: 0 0 14px;
+        letter-spacing: 0;
+      }
+
+      h3 {
+        font-size: 16px;
+        margin: 0 0 8px;
+      }
+
+      p {
+        margin: 0 0 14px;
+        color: var(--muted);
+      }
+
+      code {
+        font-family: var(--mono);
+        color: #d7e7ff;
+      }
+
+      .grid {
+        display: grid;
+        gap: 14px;
+      }
+
+      .metrics {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin: 24px 0 0;
+      }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 18px;
+      }
+
+      .metric-label {
+        color: var(--soft);
+        font: 700 11px/1 var(--mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .metric-value {
+        font: 750 32px/1.1 var(--mono);
+        margin-top: 10px;
+      }
+
+      .metric-note {
+        color: var(--muted);
+        font-size: 13px;
+        margin-top: 6px;
+      }
+
+      section {
+        margin-top: 32px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel);
+      }
+
+      th,
+      td {
+        padding: 11px 12px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: var(--panel-2);
+        color: var(--soft);
+        font: 700 11px/1.2 var(--mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .ok {
+        color: var(--green);
+      }
+
+      .warn {
+        color: var(--amber);
+      }
+
+      .danger {
+        color: var(--red);
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 10px;
+      }
+
+      .flow .step {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 14px;
+        min-height: 112px;
+      }
+
+      .step b {
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      .done-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .done-list .card {
+        border-left: 3px solid var(--green);
+      }
+
+      .small {
+        font-size: 13px;
+      }
+
+      @media (max-width: 860px) {
+        .metrics,
+        .flow,
+        .done-list {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header class="hero">
+        <div class="eyebrow">Architecture Reset · Local Evidence · 2026-05-20</div>
+        <h1>DB and indexing proof cost is now lane-owned instead of monolithic.</h1>
+        <p>
+          The previous normal DB proof bottleneck was a broad <code>@brainstrike/db test</code>
+          command with measured p95 around 4m30s. This slice replaces that default with focused
+          DB owner lanes, moves background-indexing backfill decisions into
+          <code>@brainstrike/pipeline</code>, and records fresh local lane timing evidence.
+        </p>
+        <div class="grid metrics">
+          <div class="card">
+            <div class="metric-label">Old DB p95</div>
+            <div class="metric-value danger">4m30s</div>
+            <div class="metric-note">from prior calibration summary</div>
+          </div>
+          <div class="card">
+            <div class="metric-label">Slowest New Lane</div>
+            <div class="metric-value ok">2m05s</div>
+            <div class="metric-note">repository lane, fresh local run</div>
+          </div>
+          <div class="card">
+            <div class="metric-label">Target</div>
+            <div class="metric-value ok">&lt;2m30s</div>
+            <div class="metric-note">per selected DB/indexing proof lane</div>
+          </div>
+          <div class="card">
+            <div class="metric-label">Selector Cases</div>
+            <div class="metric-value ok">18</div>
+            <div class="metric-note">risk fixtures now cover DB lane routing</div>
+          </div>
+        </div>
+      </header>
+
+      <section>
+        <h2>Measured DB Lanes</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Lane</th>
+              <th>Tests</th>
+              <th>Fresh Local Duration</th>
+              <th>Budget</th>
+              <th>Owner</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>db-schema-migration-tests</code></td>
+              <td>19 files · 125 tests</td>
+              <td class="ok">53.90s</td>
+              <td>120s</td>
+              <td>schema and migration authority</td>
+            </tr>
+            <tr>
+              <td><code>db-repository-tests</code></td>
+              <td>19 files · 280 tests</td>
+              <td class="ok">125s</td>
+              <td>150s</td>
+              <td>repository implementations and models</td>
+            </tr>
+            <tr>
+              <td><code>db-queue-tests</code></td>
+              <td>18 files · 80 tests</td>
+              <td class="ok">50s</td>
+              <td>90s</td>
+              <td>durable job queue and bulk enqueue paths</td>
+            </tr>
+            <tr>
+              <td><code>db-search-tests</code></td>
+              <td>7 files · 56 tests</td>
+              <td class="ok">8s</td>
+              <td>90s</td>
+              <td>retrieval, hybrid search, vector SQL paths</td>
+            </tr>
+            <tr>
+              <td><code>db-integration-tests</code></td>
+              <td>28 files · 213 tests</td>
+              <td class="ok">21.17s</td>
+              <td>150s</td>
+              <td>provider/runtime/browser integration surfaces</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="small">
+          Evidence command: each lane was run once locally with
+          <code>pnpm --filter @brainstrike/db run test:db:&lt;lane&gt;</code>. This proves the
+          split is executable and below target on the target machine. A real p95 should be
+          recalibrated after several normal workdays of lane output.
+        </p>
+      </section>
+
+      <section>
+        <h2>Selector Routing</h2>
+        <div class="flow">
+          <div class="step">
+            <b>Queue</b>
+            <p class="small"><code>packages/db/src/queue/*</code> selects queue only.</p>
+          </div>
+          <div class="step">
+            <b>Repository</b>
+            <p class="small"><code>packages/db/src/repositories/*</code> selects repository only.</p>
+          </div>
+          <div class="step">
+            <b>Search</b>
+            <p class="small"><code>packages/db/src/search/*</code> selects search only.</p>
+          </div>
+          <div class="step">
+            <b>Schema</b>
+            <p class="small">migration/schema changes select schema plus integration.</p>
+          </div>
+          <div class="step">
+            <b>Broad DB</b>
+            <p class="small"><code>src/index.ts</code> and package metadata select all DB lanes.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Architecture Ownership</h2>
+        <div class="done-list">
+          <div class="card">
+            <h3>Pipeline now owns backfill decisions</h3>
+            <p>
+              <code>@brainstrike/pipeline</code> now exports background-indexing orchestration
+              helpers for request-id ownership, recoverable backfill selection, superseded backfill
+              cancellation, and coverage-based backfill need.
+            </p>
+          </div>
+          <div class="card">
+            <h3>App-shell is thinner</h3>
+            <p>
+              <code>WorkspaceCollectionSyncService</code> delegates the pure decisions to the
+              pipeline package and remains responsible for UI status, dependency calls, and
+              cancellation wiring.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Sync-service spec reduced</h3>
+            <p>
+              Shared fixtures moved into a local helper. The main sync-service spec dropped from
+              1,734 to 1,660 lines, and pipeline-specific behavior has a focused pipeline-owned spec.
+            </p>
+          </div>
+          <div class="card">
+            <h3>No broad mocks introduced</h3>
+            <p>
+              DB lanes still execute the real package tests. The split changes command selection
+              and ownership, not behavior coverage through mocked-out database paths.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Verification</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Check</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs</code></td>
+              <td class="ok">41/41 passed</td>
+            </tr>
+            <tr>
+              <td><code>pnpm run ci:risk-fixtures</code></td>
+              <td class="ok">18 representative cases passed</td>
+            </tr>
+            <tr>
+              <td><code>pnpm --filter @brainstrike/db test:db:check-lanes</code></td>
+              <td class="ok">91 DB test files assigned across 5 lanes</td>
+            </tr>
+            <tr>
+              <td><code>pnpm --filter @brainstrike/pipeline exec vitest run __tests__/background-indexing-orchestrator.test.ts</code></td>
+              <td class="ok">4/4 passed</td>
+            </tr>
+            <tr>
+              <td><code>pnpm --filter @brainstrike/app-shell exec vitest run src/background-indexing/__tests__/workspace-collection-sync-service.test.ts</code></td>
+              <td class="ok">36/36 passed</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+  </body>
+</html>

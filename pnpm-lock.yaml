@@ -773,6 +773,9 @@ importers:
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract
+      '@brainstrike/pipeline':
+        specifier: workspace:*
+        version: link:../pipeline
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../preferences

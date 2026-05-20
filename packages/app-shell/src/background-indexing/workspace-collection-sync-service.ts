@@ -19,6 +19,11 @@ import {
   isLocalProviderType,
   parseEmbeddingProviderModelKey,
 } from '@brainstrike/indexing-contract';
+import {
+  getSupersededBackgroundBackfillIds,
+  needsEmbeddingBackfill,
+  selectRecoverableBackgroundBackfill,
+} from '@brainstrike/pipeline';
 import type {
   WorkspaceCollectionSyncChunkingProgress,
   WorkspaceCollectionSyncScanSummary,
@@ -197,10 +202,6 @@ export class WorkspaceCollectionSyncService {
     };
   }
 
-  private isBackgroundIndexingBackfillRequestId(requestId: string): boolean {
-    return requestId.startsWith('background-indexing-backfill:');
-  }
-
   private async resetActiveWork(options: { cancelTrackedBackfill: boolean }): Promise<void> {
     this.currentAbortController?.abort();
     this.currentAbortController = null;
@@ -285,14 +286,8 @@ export class WorkspaceCollectionSyncService {
       requestId: string;
     }>;
   }): Promise<void> {
-    for (const backfill of args.inFlightBackfills) {
-      if (!this.isBackgroundIndexingBackfillRequestId(backfill.requestId)) {
-        continue;
-      }
-      if (backfill.embeddingSetId === args.exceptEmbeddingSetId) {
-        continue;
-      }
-      await this.deps.cancelBackfill(backfill.embeddingSetId);
+    for (const embeddingSetId of getSupersededBackgroundBackfillIds(args)) {
+      await this.deps.cancelBackfill(embeddingSetId);
     }
   }
 
@@ -542,7 +537,7 @@ export class WorkspaceCollectionSyncService {
 
   private async collectionNeedsBackfill(collectionId: string): Promise<boolean> {
     const coverage = await this.deps.chunkRepository.getCoverageForSet(collectionId);
-    return coverage.totalChunks > 0 && coverage.chunksWithEmbeddingsForSet < coverage.totalChunks;
+    return needsEmbeddingBackfill(coverage);
   }
 
   private setEmbeddingPendingStatus(args: {
@@ -951,14 +946,13 @@ export class WorkspaceCollectionSyncService {
     }
 
     const inFlightBackfills = await this.deps.getBackfillsInFlight();
-    const recoveredBackfill = inFlightBackfills.find(
-      (backfill) =>
-        backfill.embeddingSetId === context.collection.id &&
-        this.isBackgroundIndexingBackfillRequestId(backfill.requestId)
-    );
+    const recoveredBackfill = selectRecoverableBackgroundBackfill({
+      embeddingSetId: context.collection.id,
+      inFlightBackfills,
+    });
     const canReusePreviousBackfill =
       previousTrackedBackfill !== null &&
-      recoveredBackfill !== undefined &&
+      recoveredBackfill !== null &&
       previousTrackedBackfill.embeddingSetId === context.collection.id &&
       previousTrackedBackfill.rootPath === context.rootPath &&
       previousTrackedBackfill.requestId === recoveredBackfill.requestId;

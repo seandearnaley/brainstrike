@@ -72,11 +72,65 @@ test('db migrations select db proof without full web functional e2e', () => {
       category: 'db-migrations-storage',
       domains: ['data-platform'],
       e2eLanes: ['destructive-reset'],
-      proofCommands: ['diff-check', 'db-tests', 'migration-tests'],
+      proofCommands: ['diff-check', 'db-schema-migration-tests', 'db-integration-tests'],
       riskLevel: 'high',
       cloudLabels: ['ci:browser', 'ci:coverage'],
     }
   );
+});
+
+test('db queue changes select only the queue owner lane', () => {
+  assert.deepEqual(selectRiskProfileForFiles(['packages/db/src/queue/job-queue.ts']), {
+    category: 'db-migrations-storage',
+    domains: ['data-platform'],
+    e2eLanes: [],
+    proofCommands: ['diff-check', 'db-queue-tests'],
+    riskLevel: 'medium',
+    cloudLabels: ['ci:browser', 'ci:coverage'],
+  });
+});
+
+test('db repository changes select only the repository owner lane', () => {
+  assert.deepEqual(
+    selectRiskProfileForFiles(['packages/db/src/repositories/drizzle/file-record-repository.ts']),
+    {
+      category: 'db-migrations-storage',
+      domains: ['data-platform'],
+      e2eLanes: [],
+      proofCommands: ['diff-check', 'db-repository-tests'],
+      riskLevel: 'medium',
+      cloudLabels: ['ci:browser', 'ci:coverage'],
+    }
+  );
+});
+
+test('db search changes select only the search owner lane', () => {
+  assert.deepEqual(selectRiskProfileForFiles(['packages/db/src/search/hybrid-search-service.ts']), {
+    category: 'db-migrations-storage',
+    domains: ['data-platform'],
+    e2eLanes: [],
+    proofCommands: ['diff-check', 'db-search-tests'],
+    riskLevel: 'medium',
+    cloudLabels: ['ci:browser', 'ci:coverage'],
+  });
+});
+
+test('db broad entrypoint changes select all focused db owner lanes without full e2e', () => {
+  assert.deepEqual(selectRiskProfileForFiles(['packages/db/src/index.ts']), {
+    category: 'db-migrations-storage',
+    domains: ['data-platform'],
+    e2eLanes: [],
+    proofCommands: [
+      'diff-check',
+      'db-schema-migration-tests',
+      'db-repository-tests',
+      'db-queue-tests',
+      'db-search-tests',
+      'db-integration-tests',
+    ],
+    riskLevel: 'medium',
+    cloudLabels: ['ci:browser', 'ci:coverage'],
+  });
 });
 
 test('web file explorer changes select web stateful proof but not desktop embedding diagnostics', () => {

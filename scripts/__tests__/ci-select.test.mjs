@@ -254,16 +254,38 @@ test('local proof command registry has owners and timing budgets for failure rou
     assert.equal(typeof command.budgetMs, 'number', command.name);
     assert.equal(command.budgetMs > 0, true, command.name);
   }
-  assert.equal(LOCAL_PROOF_COMMANDS['db-tests'].budgetMs, 300_000);
+  assert.equal(LOCAL_PROOF_COMMANDS['db-schema-migration-tests'].budgetMs, 120_000);
+  assert.equal(LOCAL_PROOF_COMMANDS['db-repository-tests'].budgetMs, 150_000);
+  assert.equal(LOCAL_PROOF_COMMANDS['db-queue-tests'].budgetMs, 90_000);
+  assert.equal(LOCAL_PROOF_COMMANDS['db-search-tests'].budgetMs, 90_000);
+  assert.equal(LOCAL_PROOF_COMMANDS['db-integration-tests'].budgetMs, 150_000);
   assert.match(
-    LOCAL_PROOF_COMMANDS['migration-tests'].command,
-    /__tests__\/migration-integration\.test\.ts/
+    LOCAL_PROOF_COMMANDS['db-schema-migration-tests'].command,
+    /test:db:schema-migration/
   );
   assert.match(
-    LOCAL_PROOF_COMMANDS['migration-tests'].command,
-    /__tests__\/drizzle-migrate\.test\.ts/
+    LOCAL_PROOF_COMMANDS['db-integration-tests'].command,
+    /test:db:integration/
   );
-  assert.doesNotMatch(LOCAL_PROOF_COMMANDS['migration-tests'].command, /\*\*/);
+  assert.doesNotMatch(LOCAL_PROOF_COMMANDS['db-repository-tests'].command, /\*\*/);
+});
+
+test('buildSelection routes db queue changes to the queue proof lane only', () => {
+  const selection = buildSelection({
+    files: ['packages/db/src/queue/job-queue.ts'],
+    mergeBase: '1111111111111111111111111111111111111111',
+  });
+
+  assert.deepEqual(
+    selection.commands.map((command) => command.name),
+    ['diff-check', 'db-queue-tests']
+  );
+  assert.deepEqual(selection.budget, {
+    target: 'local-pr-risk',
+    targetMs: 8 * 60_000,
+    totalMs: 120_000,
+    status: 'within-target',
+  });
 });
 
 test('buildSelection routes storage changes to storage tests instead of db tests', () => {

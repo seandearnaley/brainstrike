@@ -96,6 +96,9 @@
       "@brainstrike/platform-utils": [
         "packages/platform-utils/src"
       ],
+      "@brainstrike/pipeline": [
+        "packages/pipeline/src"
+      ],
       "@brainstrike/file-import": [
         "packages/file-import/src"
       ],
@@ -221,6 +224,9 @@
     },
     {
       "path": "./packages/platform-utils"
+    },
+    {
+      "path": "./packages/pipeline"
     },
     {
       "path": "./packages/file-import"

@@ -41,6 +41,15 @@
 
 // Chunking stage (BST-157)
 export {
+  type BackgroundBackfillProgress,
+  type BackgroundBackfillSnapshot,
+  type EmbeddingCoverageSnapshot,
+  getSupersededBackgroundBackfillIds,
+  isBackgroundIndexingBackfillRequestId,
+  needsEmbeddingBackfill,
+  selectRecoverableBackgroundBackfill,
+} from './background-indexing-orchestrator.js';
+export {
   type ChunkingBatchInput,
   type ChunkingBatchResult,
   type ChunkingProgressCallback,
