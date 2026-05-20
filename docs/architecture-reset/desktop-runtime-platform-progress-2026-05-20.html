@@ -211,7 +211,7 @@
       <div class="card"><div class="metric">69</div><div class="label"><code>ipc-handlers.ts</code> LOC after domain extraction</div></div>
       <div class="card"><div class="metric">4</div><div class="label">owned IPC domain modules registered by the root file</div></div>
       <div class="card"><div class="metric">2</div><div class="label">hidden AI host lifecycle surfaces modeled and observable</div></div>
-      <div class="card"><div class="metric">270</div><div class="label">pipeline package tests passing in the focused run</div></div>
+      <div class="card"><div class="metric">1</div><div class="label">central diagnostics bridge for reset, migration, crash, indexing, telemetry, DB, and hosts</div></div>
     </div>
   </section>
 
@@ -236,7 +236,7 @@
       </div>
       <div class="node">
         <strong>Diagnostics</strong>
-        <p><code>desktop-platform-diagnostics.ts</code> collects database, scheduler, logging, reset, embedding host, and LLM host state.</p>
+        <p><code>desktop-platform-diagnostics.ts</code> collects database, scheduler, logging, reset, migration, crash recovery, telemetry, indexing, embedding host, and LLM host state.</p>
       </div>
     </div>
   </section>
@@ -273,13 +273,13 @@
         </tr>
         <tr>
           <td>Central diagnostics surface exposes platform state</td>
-          <td><span class="status partial">partial</span></td>
-          <td>Snapshot covers DB, scheduler, logging, reset path, embedding host, and LLM host. Migration, telemetry, and crash recovery need richer first-class fields.</td>
+          <td><span class="status done">done</span></td>
+          <td>Snapshot now covers DB, scheduler, logging, reset outcome, migration, crash recovery, telemetry runtime metrics, indexing backfills, embedding host, and LLM host. <code>SystemDiagnosticsPanel</code> renders the new fields from the desktop bridge.</td>
         </tr>
         <tr>
-          <td>Factory reset and crash/restart behavior have targeted E2E coverage</td>
-          <td><span class="status todo">open</span></td>
-          <td>Not implemented in this slice. Needs explicit reset/host recovery E2E lanes before the goal can be called complete.</td>
+          <td>Factory reset and crash/restart behavior have targeted unit coverage</td>
+          <td><span class="status partial">partial</span></td>
+          <td>Factory reset records completed/failed diagnostics, and visible-renderer crash recovery records deferred/suppressed/reload state. Explicit reset/host recovery E2E lanes are still open.</td>
         </tr>
       </tbody>
     </table>
@@ -330,6 +330,21 @@
           <td>The extracted Electron main-process modules still build.</td>
           <td><span class="status done">passed</span></td>
         </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/create-window.test.ts src/__tests__/desktop-platform-diagnostics.test.ts src/__tests__/ipc-desktop-diagnostics.test.ts src/__tests__/main/desktop-factory-reset.test.ts src/__tests__/desktop-crash-recovery.test.ts</code></td>
+          <td>Diagnostics snapshot, IPC bridge, reset outcome tracking, and renderer crash recovery observability are green.</td>
+          <td><span class="status done">5 files / 40 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/app-shell exec vitest run src/__tests__/system-diagnostics-panel.test.tsx</code></td>
+          <td>The app-shell diagnostics panel renders desktop crash, migration, indexing, telemetry, reset, and host fields.</td>
+          <td><span class="status done">1 file / 21 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop type-check</code> and <code>pnpm --filter @brainstrike/app-shell type-check</code></td>
+          <td>The expanded diagnostics contract type-checks in both desktop and app-shell.</td>
+          <td><span class="status done">passed</span></td>
+        </tr>
       </tbody>
     </table>
   </section>
@@ -346,8 +361,8 @@
         </tr>
         <tr>
           <td>Diagnostics depth</td>
-          <td>Add explicit migration, telemetry, crash recovery, and indexing state fields to the diagnostics snapshot.</td>
-          <td>One diagnostics call answers reset, migration, DB, scheduler, indexing, embedding host, and LLM host health.</td>
+          <td>Promote any additional migration/telemetry counters discovered during E2E reset/recovery work into the same snapshot.</td>
+          <td>One diagnostics call continues to answer reset, migration, DB, scheduler, indexing, embedding host, LLM host, crash recovery, and runtime metric health.</td>
         </tr>
         <tr>
           <td>Reset and recovery</td>

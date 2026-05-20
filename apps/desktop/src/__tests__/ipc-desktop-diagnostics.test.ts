@@ -25,6 +25,17 @@ describe('desktop diagnostics IPC', () => {
   it('registers a typed diagnostics snapshot channel through the desktop IPC registry', async () => {
     const { registerDesktopDiagnosticsIpcHandlers } = await import('../ipc-desktop-diagnostics');
     const unregister = registerDesktopDiagnosticsIpcHandlers({
+      crashRecovery: {
+        getSnapshot: vi.fn(() => ({
+          lastRendererCrashAt: null,
+          lastRendererCrashReason: null,
+          lastRendererReloadAt: null,
+          pendingRendererRecovery: false,
+          rendererCrashCount: 0,
+          rendererReloadAttemptCount: 0,
+          suppressedRendererReloadCount: 0,
+        })),
+      },
       database: { getDiagnostics: vi.fn(async () => ({ hasDatabaseHandle: true })) },
       databaseScheduler: { getSnapshot: vi.fn(() => ({ activeCount: 0 })) },
       embeddingHost: {
@@ -38,6 +49,7 @@ describe('desktop diagnostics IPC', () => {
           state: 'stopped',
         })),
       },
+      indexing: { getBackfillsInFlight: vi.fn(() => []) },
       llmHost: {
         getPlatformStatus: vi.fn(() => ({
           active: false,
@@ -60,14 +72,27 @@ describe('desktop diagnostics IPC', () => {
           },
         })),
       },
-      reset: { getUserDataPath: vi.fn(() => '/tmp/user-data') },
+      reset: {
+        getSnapshot: vi.fn(() => ({
+          lastCompletedAt: null,
+          lastDeletedPathCount: 0,
+          lastError: null,
+          lastFailedAt: null,
+          lastPreservedPathCount: 0,
+          status: 'idle',
+          userDataPath: '/tmp/user-data',
+        })),
+      },
+      telemetry: { getRuntimeMetrics: vi.fn(() => []) },
     });
 
     const handler = handlers.get(DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL);
     expect(handler).toBeDefined();
     await expect(handler?.()).resolves.toMatchObject({
       database: { hasDatabaseHandle: true },
+      indexing: { activeBackfills: [] },
       reset: { userDataPath: '/tmp/user-data' },
+      telemetry: { backgroundRuntimeMetrics: [] },
     });
 
     unregister();

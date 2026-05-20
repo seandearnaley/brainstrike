@@ -38,6 +38,7 @@ describe('resetDesktopApplicationData', () => {
     const stopBackgroundRuntimes = vi.fn(async () => undefined);
     const resetDatabaseProfile = vi.fn(async () => undefined);
     const { resetDesktopApplicationData } = await import('../../desktop-factory-reset');
+    const { getDesktopResetDiagnosticsSnapshot } = await import('../../desktop-reset-diagnostics');
 
     const result = await resetDesktopApplicationData({
       resetDatabaseProfile,
@@ -80,6 +81,13 @@ describe('resetDesktopApplicationData', () => {
       ],
       preservedPaths: [path.join('/mock/userData', 'logs')],
     });
+    expect(getDesktopResetDiagnosticsSnapshot('/mock/userData')).toMatchObject({
+      lastDeletedPathCount: 4,
+      lastError: null,
+      lastPreservedPathCount: 1,
+      status: 'completed',
+      userDataPath: '/mock/userData',
+    });
   });
 
   it('does not delete app data when runtime shutdown fails', async () => {
@@ -88,6 +96,7 @@ describe('resetDesktopApplicationData', () => {
     });
     const resetDatabaseProfile = vi.fn(async () => undefined);
     const { resetDesktopApplicationData } = await import('../../desktop-factory-reset');
+    const { getDesktopResetDiagnosticsSnapshot } = await import('../../desktop-reset-diagnostics');
 
     await expect(
       resetDesktopApplicationData({
@@ -99,6 +108,11 @@ describe('resetDesktopApplicationData', () => {
 
     expect(resetDatabaseProfile).not.toHaveBeenCalled();
     expect(fsMocks.rm).not.toHaveBeenCalled();
+    expect(getDesktopResetDiagnosticsSnapshot('/mock/userData')).toMatchObject({
+      lastError: 'embedding host refused to stop',
+      status: 'failed',
+      userDataPath: '/mock/userData',
+    });
   });
 
   it('attempts every user data entry before failing when one delete fails', async () => {

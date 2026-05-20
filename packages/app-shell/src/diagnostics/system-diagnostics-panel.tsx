@@ -69,10 +69,31 @@ interface RuntimeHostPlatformStatus {
 
 interface DesktopPlatformDiagnosticsSnapshot {
   readonly collectedAt: string;
+  readonly crashRecovery?: {
+    readonly lastRendererCrashReason: string | null;
+    readonly pendingRendererRecovery: boolean;
+    readonly rendererCrashCount: number;
+    readonly rendererReloadAttemptCount: number;
+    readonly suppressedRendererReloadCount: number;
+  };
   readonly embeddingHost: RuntimeHostPlatformStatus;
+  readonly indexing?: {
+    readonly activeBackfills: readonly unknown[];
+    readonly databaseWork: unknown;
+  };
   readonly llmHost: RuntimeHostPlatformStatus;
+  readonly migration?: {
+    readonly attemptCount: number | null;
+    readonly inFlight: boolean | null;
+    readonly lastFailure: unknown;
+    readonly lastSucceededAt: string | null;
+  };
   readonly reset: {
+    readonly status?: string;
     readonly userDataPath: string;
+  };
+  readonly telemetry?: {
+    readonly backgroundRuntimeMetrics: readonly unknown[];
   };
 }
 
@@ -293,6 +314,38 @@ function getHostStatusVariant(state: RuntimeHostPlatformState): StatusVariant {
   return 'warning';
 }
 
+function formatCount(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function getMigrationLabel(snapshot: DesktopPlatformDiagnosticsSnapshot): string {
+  const migration = snapshot.migration;
+  if (!migration) {
+    return 'unavailable';
+  }
+  if (migration.inFlight) {
+    return 'running';
+  }
+  if (migration.lastFailure) {
+    return 'failed';
+  }
+  return formatCount(migration.attemptCount ?? 0, 'attempt', 'attempts');
+}
+
+function getCrashRecoveryLabel(snapshot: DesktopPlatformDiagnosticsSnapshot): string {
+  const crashRecovery = snapshot.crashRecovery;
+  if (!crashRecovery) {
+    return 'unavailable';
+  }
+  if (crashRecovery.pendingRendererRecovery) {
+    return 'pending';
+  }
+  if (crashRecovery.suppressedRendererReloadCount > 0) {
+    return 'suppressed';
+  }
+  return formatCount(crashRecovery.rendererReloadAttemptCount, 'reload', 'reloads');
+}
+
 function DesktopPlatformStatusSection({
   snapshot,
 }: {
@@ -330,6 +383,36 @@ function DesktopPlatformStatusSection({
             {snapshot.embeddingHost.pendingRequestCount + snapshot.llmHost.pendingRequestCount}
           </span>
         </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Active Backfills</span>
+          <span className="font-medium">
+            {formatCount(snapshot.indexing?.activeBackfills.length ?? 0, 'active', 'active')}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Migration</span>
+          <span className="font-medium">{getMigrationLabel(snapshot)}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Crash Recovery</span>
+          <span className="font-medium">{getCrashRecoveryLabel(snapshot)}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Runtime Metrics</span>
+          <span className="font-medium">
+            {formatCount(
+              snapshot.telemetry?.backgroundRuntimeMetrics.length ?? 0,
+              'process',
+              'processes'
+            )}
+          </span>
+        </div>
+        {snapshot.reset.status && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Reset</span>
+            <span className="font-medium">{snapshot.reset.status}</span>
+          </div>
+        )}
         <div className="truncate pt-1 text-[10px] text-muted-foreground">
           {snapshot.reset.userDataPath}
         </div>

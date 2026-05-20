@@ -26,8 +26,10 @@ import {
 } from './database-maintenance-scheduler';
 import { getDbHostManager } from './db-host-manager';
 import { closeDatabase, getDatabase, resetLocalDatabase } from './db-main';
+import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { resetDesktopApplicationData } from './desktop-factory-reset';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
+import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
@@ -833,6 +835,9 @@ unregisterParserHostIpcHandlers = registerParserHostIpcHandlers(parserHostManage
 unregisterEmbeddingHostIpcHandlers = registerEmbeddingHostIpcHandlers(embeddingHostManager);
 unregisterLlmHostIpcHandlers = registerLlmHostIpcHandlers(llmHostManager);
 unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers({
+  crashRecovery: {
+    getSnapshot: getDesktopCrashRecoverySnapshot,
+  },
   database: {
     getDiagnostics: async () => await getDbHostManager().getDiagnostics(),
   },
@@ -840,12 +845,21 @@ unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers(
     getSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
   },
   embeddingHost: embeddingHostManager,
+  indexing: {
+    getBackfillsInFlight: async () => {
+      const { getDesktopEmbeddingBackfillsInFlight } = await import('./ipc-embedding-backfill');
+      return getDesktopEmbeddingBackfillsInFlight();
+    },
+  },
   llmHost: llmHostManager,
   logging: {
     getState: getLoggingSettingsPayload,
   },
   reset: {
-    getUserDataPath: () => app.getPath('userData'),
+    getSnapshot: () => getDesktopResetDiagnosticsSnapshot(app.getPath('userData')),
+  },
+  telemetry: {
+    getRuntimeMetrics: collectBackgroundRuntimeMetrics,
   },
 });
 

@@ -83,6 +83,18 @@ describe('SystemDiagnosticsPanel', () => {
       (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = {
         getSnapshot: vi.fn(async () => ({
           collectedAt: '2026-05-20T00:00:00.000Z',
+          crashRecovery: {
+            lastRendererCrashAt: '2026-05-20T00:01:00.000Z',
+            lastRendererCrashExitCode: 5,
+            lastRendererCrashReason: 'crashed',
+            lastRendererCrashWindowRole: 'visible-ui',
+            lastRendererReloadAt: null,
+            lastRendererReloadWindowRole: null,
+            pendingRendererRecovery: true,
+            rendererCrashCount: 1,
+            rendererReloadAttemptCount: 0,
+            suppressedRendererReloadCount: 0,
+          },
           embeddingHost: {
             active: false,
             lastError: null,
@@ -101,8 +113,48 @@ describe('SystemDiagnosticsPanel', () => {
             sourceState: 'running',
             state: 'active',
           },
+          indexing: {
+            activeBackfills: [
+              {
+                embeddingSetId: 'set-1',
+                progress: { current: 2, total: 4 },
+                requestId: 'background-indexing-backfill:set-1',
+                source: 'background-indexing',
+              },
+            ],
+            databaseWork: {
+              runningLabel: 'background-indexing-backfill',
+              runningPriority: 'background',
+            },
+          },
+          migration: {
+            attemptCount: 2,
+            inFlight: false,
+            lastFailure: null,
+            lastSucceededAt: '2026-05-20T00:00:30.000Z',
+          },
           reset: {
+            lastCompletedAt: null,
+            lastDeletedPathCount: 0,
+            lastError: null,
+            lastFailedAt: null,
+            lastPreservedPathCount: 0,
+            lastStartedAt: null,
+            status: 'idle',
             userDataPath: '/tmp/brainstrike-user-data',
+          },
+          telemetry: {
+            backgroundRuntimeMetrics: [
+              {
+                cpuPercent: '1.0',
+                idleWakeupsPerSecond: '0.0',
+                osProcessId: 123,
+                privateKb: '1000',
+                runtimeKind: 'embedding-host',
+                sharedKb: '200',
+                workingSetKb: '1200',
+              },
+            ],
           },
         })),
       };
@@ -113,7 +165,14 @@ describe('SystemDiagnosticsPanel', () => {
       expect(screen.getByText('Embedding Host')).toBeInTheDocument();
       expect(screen.getByText('LLM Host')).toBeInTheDocument();
       expect(screen.getByText('/tmp/brainstrike-user-data')).toBeInTheDocument();
-      expect(screen.getByText('1')).toBeInTheDocument();
+      expect(screen.getByText('Active Backfills')).toBeInTheDocument();
+      expect(screen.getByText('1 active')).toBeInTheDocument();
+      expect(screen.getByText('Migration')).toBeInTheDocument();
+      expect(screen.getByText('2 attempts')).toBeInTheDocument();
+      expect(screen.getByText('Crash Recovery')).toBeInTheDocument();
+      expect(screen.getByText('pending')).toBeInTheDocument();
+      expect(screen.getByText('Runtime Metrics')).toBeInTheDocument();
+      expect(screen.getByText('1 process')).toBeInTheDocument();
     });
   });
 

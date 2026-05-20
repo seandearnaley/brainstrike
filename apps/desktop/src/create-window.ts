@@ -3,6 +3,11 @@ import path from 'node:path';
 import { createLogger } from '@brainstrike/utils/logger';
 import { app, BrowserWindow } from 'electron';
 import {
+  recordRendererCrashDeferred,
+  recordRendererCrashLoopSuppressed,
+  recordRendererRecoveryReloadAttempt,
+} from './desktop-crash-recovery';
+import {
   type DesktopRendererLaunchMode,
   resolveDesktopRendererLaunchMode,
 } from './desktop-launch-mode';
@@ -358,6 +363,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     pendingRendererRecovery = false;
     startupLogger.info('Executing deferred renderer reload');
     try {
+      recordRendererRecoveryReloadAttempt({ windowRole: getWindowRole(win) ?? 'visible-ui' });
       noteNextWindowReload(win, {
         reason: 'renderer-crash-recovery',
         source: 'main',
@@ -408,6 +414,12 @@ export async function createWindow(options: CreateWindowOptions = {}) {
         lastCrashAt = now;
 
         if (crashCountInWindow > MAX_RENDERER_CRASHES_IN_WINDOW) {
+          recordRendererCrashLoopSuppressed({
+            crashCountInWindow,
+            exitCode: details.exitCode,
+            reason: details.reason,
+            windowRole: getWindowRole(win) ?? 'visible-ui',
+          });
           startupLogger.error(
             {
               crashCountInWindow,
@@ -437,6 +449,12 @@ export async function createWindow(options: CreateWindowOptions = {}) {
           'Renderer crashed; deferring recovery (immediate reload causes main-thread freeze)'
         );
         pendingRendererRecovery = true;
+        recordRendererCrashDeferred({
+          crashCountInWindow,
+          exitCode: details.exitCode,
+          reason: details.reason,
+          windowRole: getWindowRole(win) ?? 'visible-ui',
+        });
 
         // Fallback: if the window already has focus (user is looking at it),
         // the focus/activate events won't re-fire. Use a delayed reload
