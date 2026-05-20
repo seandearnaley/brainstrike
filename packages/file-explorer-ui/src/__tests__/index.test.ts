@@ -90,6 +90,16 @@ describe('file-explorer-ui index exports', () => {
     }
   });
 
+  it('keeps background token indexer integration under the source-file budget', () => {
+    const sourceRoot = path.resolve(process.cwd(), 'src');
+    const indexerIntegrationSource = readFileSync(
+      path.join(sourceRoot, 'indexing', 'use-background-token-indexer-integration.ts'),
+      'utf8'
+    );
+
+    expect(indexerIntegrationSource.split('\n').length).toBeLessThanOrEqual(1500);
+  });
+
   it('keeps preview implementation files inside the preview slice', () => {
     const sourceRoot = path.resolve(process.cwd(), 'src');
     const previewImplementationMoves = [

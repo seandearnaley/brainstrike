@@ -6,8 +6,13 @@ Owns file-explorer token indexing UI and token-cache integration. This slice is 
 
 Top churn owned here:
 - `use-background-token-indexer-integration.ts`
+- `background-token-indexer-handles.ts`
+- `background-token-indexer-dispatch-helpers.ts`
+- `background-token-indexer-selection-shrink.ts`
 - `token-cache-context.tsx`
 - `use-token-counting.ts`
+
+`use-background-token-indexer-integration.ts` must stay an orchestration hook. File-handle classification, synthetic Electron handle construction, batch-yield helpers, path normalization, large-selection diagnostics, and selection-shrink reconciliation belong in the owned helper modules listed above.
 
 ## Public surface
 

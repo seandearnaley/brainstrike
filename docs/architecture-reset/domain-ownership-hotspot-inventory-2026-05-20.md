@@ -16,7 +16,6 @@ This inventory tracks size and churn hotspots that remain after the legal domain
 | 2181 | `packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx` | Split presentational assistant panel sections after wrapper is thinner. |
 | 2074 | `packages/file-explorer/src/actions/__tests__/file-selection-actions.test.ts` | Split action tests by command family. |
 | 2044 | `packages/app-shell/src/background-indexing/workspace-collection-sync-service.ts` | Move orchestration behind indexing-owned contracts. |
-| 1853 | `packages/file-explorer-ui/src/indexing/use-background-token-indexer-integration.ts` | Split into indexer lifecycle, progress aggregation, and cache sync modules. |
 | 1734 | `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts` | Split with service extraction. |
 | 1689 | `packages/db-explorer/src/use-database-demo-data.ts` | Review after db internal decomposition. |
 | 1629 | `apps/desktop/src/ipc-handlers.ts` | Move toward domain-keyed IPC registries. |
@@ -125,9 +124,23 @@ All three owned tree files are below the 1500 LOC source budget. Package-local a
 - `pnpm --filter @brainstrike/file-explorer-ui exec vitest run src/__tests__/index.test.ts src/__tests__/optimized-file-tree.test.tsx src/__tests__/optimized-file-tree-selection.test.tsx src/__tests__/optimized-file-tree-query-expansion.test.tsx src/__tests__/optimized-file-tree-selection-mutations.test.tsx`
 - `pnpm --filter @brainstrike/file-explorer-ui type-check`
 
+## File Explorer Indexing Source Slice Completed
+
+`packages/file-explorer-ui/src/indexing/use-background-token-indexer-integration.ts` is reduced from 1853 LOC to 1478 LOC by extracting:
+
+- `background-token-indexer-handles.ts` for Electron/web handle classification, synthetic Electron handles, and file-handle map construction.
+- `background-token-indexer-dispatch-helpers.ts` for token-cache path normalization, large-selection diagnostics, and cooperative batch yields.
+- `background-token-indexer-selection-shrink.ts` for in-flight selection-shrink reconciliation.
+
+The integration hook remains the orchestration owner for effects, trigger dispatch, and cache writeback. Package-local architecture coverage now verifies the hook stays below the 1500 LOC source budget. Verification for this slice:
+
+- `pnpm --filter @brainstrike/file-explorer-ui exec vitest run src/__tests__/index.test.ts src/__tests__/use-background-token-indexer-integration.test.tsx`
+- `pnpm --filter @brainstrike/file-explorer-ui type-check`
+
 ## Next Slices
 
-1. Split `packages/app-shell/src/assistant-ui-panel-wrapper.tsx` and its large test by local-runtime, preferences, thread, and context wiring responsibilities.
+1. Split `packages/file-explorer-ui/src/__tests__/use-background-token-indexer-integration.test.tsx` by handle classification, web resolver, Electron dispatch, cache writeback, and shrink reconciliation.
+2. Split `packages/app-shell/src/assistant-ui-panel-wrapper.tsx` and its large test by local-runtime, preferences, thread, and context wiring responsibilities.
 3. Tighten E2E lane selection so the split desktop embedding diagnostic files are only selected for matching high-risk diffs.
 4. Move `ipc-handlers.ts` toward a domain-keyed registry after the embedding E2E split reduces verification cost.
 5. Decompose `packages/db` internally around queue, migrations, repositories, search, and schema while preserving public barrels.
