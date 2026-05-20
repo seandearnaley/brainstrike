@@ -56,9 +56,9 @@ describe('embedding backfill IPC domain', () => {
     removeHandler.mockClear();
     vi.clearAllMocks();
     registerEmbeddingBackfillIpcHandlers({
-      databaseWorkScheduler: databaseWorkScheduler as never,
       embeddingHostManager: embeddingHostManager as never,
       flushPendingLiveUpdates,
+      getDatabaseWorkScheduler: () => databaseWorkScheduler as never,
       isBackgrounded,
     });
   });
@@ -102,9 +102,9 @@ describe('embedding backfill IPC domain', () => {
     );
 
     const unregister = registerEmbeddingBackfillIpcHandlers({
-      databaseWorkScheduler: databaseWorkScheduler as never,
       embeddingHostManager: embeddingHostManager as never,
       flushPendingLiveUpdates,
+      getDatabaseWorkScheduler: () => databaseWorkScheduler as never,
       isBackgrounded,
     });
     unregister();

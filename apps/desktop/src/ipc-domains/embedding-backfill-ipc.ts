@@ -17,9 +17,9 @@ import {
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
 
 interface RegisterEmbeddingBackfillIpcHandlersOptions {
-  readonly databaseWorkScheduler: DatabaseWorkScheduler;
   readonly embeddingHostManager: EmbeddingHostManager | undefined;
   readonly flushPendingLiveUpdates: () => void;
+  readonly getDatabaseWorkScheduler: () => DatabaseWorkScheduler;
   readonly isBackgrounded: () => boolean;
 }
 
@@ -37,9 +37,9 @@ async function withCorruptionRecovery<T>(operation: () => Promise<T>, context: s
 }
 
 export function registerEmbeddingBackfillIpcHandlers({
-  databaseWorkScheduler,
   embeddingHostManager,
   flushPendingLiveUpdates,
+  getDatabaseWorkScheduler,
   isBackgrounded,
 }: RegisterEmbeddingBackfillIpcHandlersOptions): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
@@ -66,7 +66,7 @@ export function registerEmbeddingBackfillIpcHandlers({
       withCorruptionRecovery(
         async () =>
           await runDesktopEmbeddingBackfill({
-            databaseWorkScheduler,
+            databaseWorkScheduler: getDatabaseWorkScheduler(),
             event,
             flushPendingLiveUpdates,
             isBackgrounded,
