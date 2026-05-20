@@ -21,6 +21,31 @@
 - ⚙️ **Configurable** - Flexible import strategies and preferences
 - 🎨 **Data Tables** - Rich table components with sorting and filtering
 
+## Database Demo Data Ownership
+
+The database demo data surface owns collection-browser orchestration, not low-level
+database repositories.
+
+Owned files:
+
+- `src/use-database-demo-data.ts`: React hook orchestration over live queries, cache selection, lazy chunk loading, export loading, db status sync, and toast/error handling.
+- `src/database-demo-data-mappers.ts`: row-to-view-model mapping, cache snapshot/restore helpers, collection membership predicates, count normalization, and loaded-chunk diagnostics.
+- `src/__tests__/use-database-demo-data.test.ts`: behavioral coverage for live-query shape, active-collection isolation, cache reuse, lazy chunk loading, export fan-out, and db status handling.
+- `src/__tests__/architecture-boundary.test.ts`: package-local guard that keeps the hook below the source-file budget and composed through owned helpers.
+
+Allowed dependencies:
+
+- `@brainstrike/db` repository and live-query contracts.
+- `@brainstrike/preferences` database/vector status stores.
+- `@brainstrike/text-splitter` only inside mapper helpers for resolved chunking strategy validation.
+
+Focused local verification:
+
+```bash
+pnpm --filter @brainstrike/db-explorer exec vitest run src/__tests__/architecture-boundary.test.ts src/__tests__/use-database-demo-data.test.ts
+pnpm --filter @brainstrike/db-explorer type-check
+```
+
 ## Installation
 
 `@brainstrike/db-explorer` is distributed as a workspace package within the BrainStrike monorepo.

@@ -11,7 +11,6 @@ This inventory tracks size and churn hotspots that remain after the legal domain
 | 3150 | `apps/desktop/e2e/file-explorer-selection.desktop.test.ts` | Split after embedding E2E unless this lane becomes flaky first. |
 | 2344 | `apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts` | Split by db IPC capability after handler registry exists. |
 | 1734 | `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts` | Split with service extraction. |
-| 1689 | `packages/db-explorer/src/use-database-demo-data.ts` | Review after db internal decomposition. |
 | 1523 | `packages/file-explorer-ui/src/__tests__/preview-panel.test.tsx` | Split by preview table, footer, and report-action behavior. |
 | 1504 | `packages/db-explorer/src/__tests__/use-database-demo-data.test.ts` | Review after db explorer ownership decision. |
 
@@ -216,6 +215,15 @@ The root IPC file remains the registry owner for storage, file-system, database,
 
 - `pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts src/__tests__/main/ipc-handlers.test.ts src/__tests__/main/ipc-handlers-errors.test.ts src/__tests__/main/ipc-handlers-fs.test.ts src/__tests__/main/ipc-handlers-folder-restore.test.ts src/__tests__/main/ipc-handlers-db.test.ts`
 - `pnpm --filter @brainstrike/desktop type-check`
+
+## DB Explorer Demo Data Slice Completed
+
+`packages/db-explorer/src/use-database-demo-data.ts` is reduced from 1689 LOC to 1306 LOC by extracting `database-demo-data-mappers.ts`.
+
+The hook remains the orchestration owner for live queries, active-collection cache selection, lazy chunk loading, export loading, database status sync, and toast/error handling. The helper owns row-to-view-model mapping, cache snapshot/restore helpers, collection membership predicates, count normalization, and loaded-chunk diagnostics. Package-local architecture coverage now verifies the hook stays below the 1500 LOC source budget and composes through the owned mapper module. Verification for this slice:
+
+- `pnpm --filter @brainstrike/db-explorer exec vitest run src/__tests__/architecture-boundary.test.ts src/__tests__/use-database-demo-data.test.ts`
+- `pnpm --filter @brainstrike/db-explorer type-check`
 
 ## Next Slices
 
