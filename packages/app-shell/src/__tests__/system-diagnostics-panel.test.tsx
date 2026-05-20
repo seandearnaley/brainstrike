@@ -32,10 +32,12 @@ vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
 describe('SystemDiagnosticsPanel', () => {
   beforeEach(() => {
     __resetDatabaseStatusStoreForTests();
+    (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
   });
 
   afterEach(() => {
     __resetDatabaseStatusStoreForTests();
+    (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
   });
 
   describe('rendering', () => {
@@ -75,6 +77,43 @@ describe('SystemDiagnosticsPanel', () => {
       return waitFor(() => {
         expect(screen.getByTestId('queue-diagnostics-panel')).toBeInTheDocument();
       });
+    });
+
+    it('renders desktop platform diagnostics when the desktop bridge is available', async () => {
+      (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = {
+        getSnapshot: vi.fn(async () => ({
+          collectedAt: '2026-05-20T00:00:00.000Z',
+          embeddingHost: {
+            active: false,
+            lastError: null,
+            pendingRequestCount: 0,
+            runtimeId: 'embedding-host:idle',
+            runtimeKind: 'embedding-host',
+            sourceState: 'running',
+            state: 'idle',
+          },
+          llmHost: {
+            active: true,
+            lastError: null,
+            pendingRequestCount: 1,
+            runtimeId: 'llm-host:active',
+            runtimeKind: 'llm-host',
+            sourceState: 'running',
+            state: 'active',
+          },
+          reset: {
+            userDataPath: '/tmp/brainstrike-user-data',
+          },
+        })),
+      };
+
+      render(<SystemDiagnosticsPanel />);
+
+      expect(await screen.findByText('Desktop Platform')).toBeInTheDocument();
+      expect(screen.getByText('Embedding Host')).toBeInTheDocument();
+      expect(screen.getByText('LLM Host')).toBeInTheDocument();
+      expect(screen.getByText('/tmp/brainstrike-user-data')).toBeInTheDocument();
+      expect(screen.getByText('1')).toBeInTheDocument();
     });
   });
 

@@ -45,6 +45,57 @@ const LazyQueueDiagnosticsPanel = lazy(async () => {
 
 type StatusVariant = 'success' | 'warning' | 'error' | 'loading';
 
+type RuntimeHostPlatformState =
+  | 'active'
+  | 'disposed'
+  | 'failed'
+  | 'idle'
+  | 'ready'
+  | 'resetting'
+  | 'restarting'
+  | 'starting'
+  | 'stopped'
+  | 'stopping';
+
+interface RuntimeHostPlatformStatus {
+  readonly active: boolean;
+  readonly lastError: string | null;
+  readonly pendingRequestCount: number;
+  readonly runtimeId: string;
+  readonly runtimeKind: 'embedding-host' | 'llm-host';
+  readonly sourceState: string;
+  readonly state: RuntimeHostPlatformState;
+}
+
+interface DesktopPlatformDiagnosticsSnapshot {
+  readonly collectedAt: string;
+  readonly embeddingHost: RuntimeHostPlatformStatus;
+  readonly llmHost: RuntimeHostPlatformStatus;
+  readonly reset: {
+    readonly userDataPath: string;
+  };
+}
+
+interface DesktopDiagnosticsBridge {
+  readonly getSnapshot: () => Promise<DesktopPlatformDiagnosticsSnapshot>;
+}
+
+function getDesktopDiagnosticsBridge(): DesktopDiagnosticsBridge | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const candidate = (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics;
+  if (
+    candidate &&
+    typeof candidate === 'object' &&
+    'getSnapshot' in candidate &&
+    typeof candidate.getSnapshot === 'function'
+  ) {
+    return candidate as DesktopDiagnosticsBridge;
+  }
+  return null;
+}
+
 interface DiagnosticsSettingsCategory {
   readonly content: ReactNode;
   readonly description?: string;
@@ -232,6 +283,61 @@ function WorkerStatusSection({
   );
 }
 
+function getHostStatusVariant(state: RuntimeHostPlatformState): StatusVariant {
+  if (state === 'active' || state === 'idle' || state === 'ready') {
+    return 'success';
+  }
+  if (state === 'failed' || state === 'disposed') {
+    return 'error';
+  }
+  return 'warning';
+}
+
+function DesktopPlatformStatusSection({
+  snapshot,
+}: {
+  readonly snapshot: DesktopPlatformDiagnosticsSnapshot;
+}): ReactElement {
+  const embeddingVariant = getHostStatusVariant(snapshot.embeddingHost.state);
+  const llmVariant = getHostStatusVariant(snapshot.llmHost.state);
+  const status: StatusVariant =
+    embeddingVariant === 'error' || llmVariant === 'error'
+      ? 'error'
+      : embeddingVariant === 'warning' || llmVariant === 'warning'
+        ? 'warning'
+        : 'success';
+
+  return (
+    <DiagnosticCard
+      description="Hidden desktop runtime hosts"
+      icon={<Server className="h-4 w-4 text-primary" />}
+      status={status}
+      statusLabel={status === 'success' ? 'Ready' : status === 'warning' ? 'Transition' : 'Issue'}
+      title="Desktop Platform"
+    >
+      <div className="space-y-2 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Embedding Host</span>
+          <span className="font-medium">{snapshot.embeddingHost.state}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">LLM Host</span>
+          <span className="font-medium">{snapshot.llmHost.state}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Pending Requests</span>
+          <span className="font-mono text-[10px]">
+            {snapshot.embeddingHost.pendingRequestCount + snapshot.llmHost.pendingRequestCount}
+          </span>
+        </div>
+        <div className="truncate pt-1 text-[10px] text-muted-foreground">
+          {snapshot.reset.userDataPath}
+        </div>
+      </div>
+    </DiagnosticCard>
+  );
+}
+
 export interface SystemDiagnosticsPanelProps {
   /** Token cache persistence mode (from TokenCacheContext) */
   readonly persistenceMode?: 'persistent' | 'memory' | 'disabled' | undefined;
@@ -255,6 +361,10 @@ export function SystemDiagnosticsPanel({
   persistenceMode,
   showQueueRefresh = true,
 }: SystemDiagnosticsPanelProps): ReactElement {
+  const [desktopSnapshot, setDesktopSnapshot] = useState<DesktopPlatformDiagnosticsSnapshot | null>(
+    null
+  );
+  const [desktopDiagnosticsError, setDesktopDiagnosticsError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -268,6 +378,35 @@ export function SystemDiagnosticsPanel({
       }
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const bridge = getDesktopDiagnosticsBridge();
+    if (!bridge) {
+      setDesktopSnapshot(null);
+      setDesktopDiagnosticsError(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    void bridge.getSnapshot().then(
+      (snapshot) => {
+        if (!cancelled) {
+          setDesktopSnapshot(snapshot);
+          setDesktopDiagnosticsError(null);
+        }
+      },
+      (error: unknown) => {
+        if (!cancelled) {
+          setDesktopSnapshot(null);
+          setDesktopDiagnosticsError(error instanceof Error ? error.message : String(error));
+        }
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
 
   const handleRefreshAll = useCallback(() => {
     setIsRefreshing(true);
@@ -317,6 +456,18 @@ export function SystemDiagnosticsPanel({
           tokenCacheOperational={tokenCacheOperational}
           tokenCachePersisted={tokenCachePersisted}
         />
+        {desktopSnapshot && <DesktopPlatformStatusSection snapshot={desktopSnapshot} />}
+        {desktopDiagnosticsError && (
+          <DiagnosticCard
+            description="Hidden desktop runtime hosts"
+            icon={<Server className="h-4 w-4 text-primary" />}
+            status="error"
+            statusLabel="Issue"
+            title="Desktop Platform"
+          >
+            <div className="text-destructive text-xs">{desktopDiagnosticsError}</div>
+          </DiagnosticCard>
+        )}
       </div>
 
       {/* Queue diagnostics - full width */}

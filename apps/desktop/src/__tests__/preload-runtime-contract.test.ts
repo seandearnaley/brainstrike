@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL } from '../desktop-platform-diagnostics';
 import { LOGGING_API_CHANNELS } from '../platform/logging-api-contract';
 
 function readPreloadSource(): string {
@@ -47,6 +48,9 @@ describe('preload runtime contract', () => {
     );
     expect(preloadSource).toContain(
       "const LOGGING_PREFERENCES_UPDATED_EVENT = 'logging:preferences-updated'"
+    );
+    expect(preloadSource).toContain(
+      "const DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL = 'desktop-diagnostics:get-snapshot'"
     );
   });
 
@@ -97,6 +101,15 @@ describe('preload runtime contract', () => {
     expect(preloadSource).toContain('BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES');
     expect(preloadSource).toContain('createDisabledLocalRuntimeAvailability');
     expect(preloadSource).toContain('createDisabledLocalRuntimeCatalog');
+  });
+
+  it('keeps preload desktop diagnostics literal in parity with the platform diagnostics contract', () => {
+    const preloadSource = readPreloadSource();
+
+    expect(
+      extractPreloadStringConstant(preloadSource, 'DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL')
+    ).toBe(DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL);
+    expect(preloadSource).toContain("contextBridge.exposeInMainWorld('desktopDiagnostics'");
   });
 
   it('exposes file explorer test instrumentation before renderer app mount in E2E mode', () => {

@@ -33,6 +33,7 @@ import type {
 } from '../embedding-host-shared';
 import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
 
+import type { DesktopPlatformDiagnosticsSnapshot } from '../desktop-platform-diagnostics';
 import type { LoggingSettingsPayload } from '../logging-shared';
 
 interface QueryResult {
@@ -67,6 +68,9 @@ declare global {
       onStatus: (callback: (status: ChunkingHostStatus) => void) => () => void;
       onProgress: (callback: (progress: ChunkingHostProgressEvent) => void) => () => void;
       onRequest: (callback: (request: ChunkingHostRequest) => void) => () => void;
+    };
+    desktopDiagnostics?: {
+      getSnapshot: () => Promise<DesktopPlatformDiagnosticsSnapshot>;
     };
     desktopLifecycle?: {
       isTestMode: boolean;

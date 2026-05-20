@@ -24,6 +24,7 @@ import {
   createDesktopDatabaseMaintenanceScheduler,
   type DesktopDatabaseMaintenanceScheduler,
 } from './database-maintenance-scheduler';
+import { getDbHostManager } from './db-host-manager';
 import { closeDatabase, getDatabase, resetLocalDatabase } from './db-main';
 import { resetDesktopApplicationData } from './desktop-factory-reset';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
@@ -31,6 +32,7 @@ import { EmbeddingHostManager } from './embedding-host-manager';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
+import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import {
   cleanupDesktopLiveSubscriptionsForShutdown,
@@ -592,6 +594,7 @@ let unregisterParserHostIpcHandlers: null | (() => void) = null;
 let unregisterEmbeddingHostIpcHandlers: null | (() => void) = null;
 let unregisterLlmHostIpcHandlers: null | (() => void) = null;
 let unregisterLoggingIpcHandlers: null | (() => void) = null;
+let unregisterDesktopDiagnosticsIpcHandlers: null | (() => void) = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
@@ -829,6 +832,22 @@ unregisterChunkingHostIpcHandlers = registerChunkingHostIpcHandlers(chunkingHost
 unregisterParserHostIpcHandlers = registerParserHostIpcHandlers(parserHostManager);
 unregisterEmbeddingHostIpcHandlers = registerEmbeddingHostIpcHandlers(embeddingHostManager);
 unregisterLlmHostIpcHandlers = registerLlmHostIpcHandlers(llmHostManager);
+unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers({
+  database: {
+    getDiagnostics: async () => await getDbHostManager().getDiagnostics(),
+  },
+  databaseScheduler: {
+    getSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
+  },
+  embeddingHost: embeddingHostManager,
+  llmHost: llmHostManager,
+  logging: {
+    getState: getLoggingSettingsPayload,
+  },
+  reset: {
+    getUserDataPath: () => app.getPath('userData'),
+  },
+});
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
@@ -1358,6 +1377,10 @@ app.on('will-quit', () => {
   if (unregisterMainIpcHandlers) {
     unregisterMainIpcHandlers();
     unregisterMainIpcHandlers = null;
+  }
+  if (unregisterDesktopDiagnosticsIpcHandlers) {
+    unregisterDesktopDiagnosticsIpcHandlers();
+    unregisterDesktopDiagnosticsIpcHandlers = null;
   }
   if (unregisterLoggingIpcHandlers) {
     unregisterLoggingIpcHandlers();

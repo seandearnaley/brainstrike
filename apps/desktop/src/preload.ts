@@ -15,6 +15,7 @@ const LOGGING_OPEN_DESTINATION_CHANNEL = 'logging:open-destination' as const;
 const LOGGING_GET_BUFFERED_LOGS_CHANNEL = 'logging:get-buffered-logs' as const;
 const LOGGING_INGEST_BUFFERED_RECORD_CHANNEL = 'logging:ingest-buffered-record' as const;
 const LOGGING_PREFERENCES_UPDATED_EVENT = 'logging:preferences-updated' as const;
+const DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL = 'desktop-diagnostics:get-snapshot' as const;
 
 import type { ApplyManagedCacheBatchArgs } from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
@@ -31,6 +32,7 @@ import type {
 } from '@brainstrike/ui';
 import type { LogRecord } from '@brainstrike/utils/logger';
 import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
+import type { DesktopPlatformDiagnosticsSnapshot } from './desktop-platform-diagnostics';
 import type {
   EmbeddingHostBackfillRequest,
   EmbeddingHostQueryEmbeddingRequest,
@@ -632,6 +634,13 @@ if (shouldExposeBridge('logging')) {
         ipcRenderer.removeListener(LOGGING_PREFERENCES_UPDATED_EVENT, listener);
       };
     },
+  });
+}
+
+if (shouldExposeBridge('desktopDiagnostics')) {
+  contextBridge.exposeInMainWorld('desktopDiagnostics', {
+    getSnapshot: (): Promise<DesktopPlatformDiagnosticsSnapshot> =>
+      ipcRenderer.invoke(DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL),
   });
 }
 
