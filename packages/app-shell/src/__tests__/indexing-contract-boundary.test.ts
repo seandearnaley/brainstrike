@@ -15,4 +15,13 @@ describe('app-shell indexing contract boundary', () => {
 
     expect(serviceSource).not.toMatch(/@brainstrike\/embeddings\/provider-core/);
   });
+
+  it('keeps workspace collection sync as orchestration over owned helper modules', () => {
+    const serviceSource = readSource('background-indexing/workspace-collection-sync-service.ts');
+    const serviceLineCount = serviceSource.split('\n').length;
+
+    expect(serviceLineCount).toBeLessThanOrEqual(1500);
+    expect(serviceSource).toMatch(/workspace-collection-sync-import/);
+    expect(serviceSource).toMatch(/workspace-collection-sync-progress/);
+  });
 });

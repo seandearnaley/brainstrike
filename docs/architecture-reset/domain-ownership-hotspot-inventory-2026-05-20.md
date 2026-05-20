@@ -10,7 +10,6 @@ This inventory tracks size and churn hotspots that remain after the legal domain
 |---:|---|---|
 | 3150 | `apps/desktop/e2e/file-explorer-selection.desktop.test.ts` | Split after embedding E2E unless this lane becomes flaky first. |
 | 2344 | `apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts` | Split by db IPC capability after handler registry exists. |
-| 2044 | `packages/app-shell/src/background-indexing/workspace-collection-sync-service.ts` | Move orchestration behind indexing-owned contracts. |
 | 1734 | `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts` | Split with service extraction. |
 | 1689 | `packages/db-explorer/src/use-database-demo-data.ts` | Review after db internal decomposition. |
 | 1629 | `apps/desktop/src/ipc-handlers.ts` | Move toward domain-keyed IPC registries. |
@@ -198,9 +197,22 @@ Package-local architecture coverage now verifies the root panel stays below the 
 - `pnpm --filter @brainstrike/ui exec vitest run src/__tests__/assistant-ui-panel-architecture.test.ts src/__tests__/assistant-ui-panel.test.tsx src/__tests__/assistant-ui-panel-index.test.ts`
 - `pnpm --filter @brainstrike/ui type-check`
 
+## App-Shell Background Indexing Service Slice Completed
+
+`packages/app-shell/src/background-indexing/workspace-collection-sync-service.ts` is reduced from 2044 LOC to 1011 LOC by extracting:
+
+- `workspace-collection-sync-import.ts` for file-tree flattening, cache-change preparation, managed-cache mutation batches, and root-folder-cache import execution.
+- `workspace-collection-sync-progress.ts` for abort handling, scan status throttling, backfill polling, queue-drained events, and status/progress mapping.
+
+The service remains the orchestration owner for sync context resolution, access validation, recovery, scan/import/backfill sequencing, and status transitions. Package-local architecture coverage now verifies the service stays below the 1500 LOC source budget and composes through the owned import/progress helper modules. Verification for this slice:
+
+- `pnpm --filter @brainstrike/app-shell exec vitest run src/__tests__/indexing-contract-boundary.test.ts src/background-indexing/__tests__/workspace-collection-sync-service.test.ts`
+- `pnpm --filter @brainstrike/app-shell type-check`
+
 ## Next Slices
 
 1. Tighten E2E lane selection so the split desktop embedding diagnostic files are only selected for matching high-risk diffs.
-2. Split `apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts` by db IPC capability.
-3. Move `ipc-handlers.ts` toward a domain-keyed registry after the embedding E2E split reduces verification cost.
-4. Decompose `packages/db` internally around queue, migrations, repositories, search, and schema while preserving public barrels.
+2. Split `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts` if the next background-indexing change adds more behavior coverage.
+3. Split `apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts` by db IPC capability.
+4. Move `ipc-handlers.ts` toward a domain-keyed registry after the embedding E2E split reduces verification cost.
+5. Decompose `packages/db` internally around queue, migrations, repositories, search, and schema while preserving public barrels.

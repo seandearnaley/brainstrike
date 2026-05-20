@@ -81,6 +81,41 @@ pnpm --filter @brainstrike/app-shell exec vitest run src/__tests__/assistant-con
 pnpm --filter @brainstrike/app-shell type-check
 ```
 
+## Background Indexing Ownership
+
+The app-shell background indexing surface owns orchestration between workspace scans,
+managed-cache import, chunking, and embedding backfill. It does not own provider
+runtime implementation or embedding execution.
+
+Owned files:
+
+- `src/background-indexing/workspace-collection-sync-service.ts`: orchestration over sync context resolution, access validation, recovery, scan/import/backfill sequencing, and status transitions.
+- `src/background-indexing/workspace-collection-sync-import.ts`: file-tree flattening, cache-change preparation, managed-cache mutation batches, and root-folder-cache import execution.
+- `src/background-indexing/workspace-collection-sync-progress.ts`: abort helpers, scan status throttling, backfill polling, queue-drained events, and status/progress mapping.
+- `src/background-indexing/__tests__/workspace-collection-sync-service.test.ts`: service-level behavior for scan, import, recovery, cancellation, and progress/status transitions.
+
+Public surfaces:
+
+- `WorkspaceCollectionSyncService` and its request/dependency contracts remain the app-shell integration boundary.
+- Import/cache helpers stay package-private to `background-indexing`; consumers should not deep-import them.
+- Provider model metadata and provider classification flow through `@brainstrike/indexing-contract`.
+
+Allowed dependencies:
+
+- `@brainstrike/indexing-contract` for provider/model-key contracts.
+- `@brainstrike/file-explorer-ui/tree` for the public file-tree read surface.
+- `@brainstrike/file-explorer-hooks` for file-content processing.
+- `@brainstrike/file-import` for enhanced import/chunking orchestration.
+- `@brainstrike/db` repository and managed-cache contracts.
+- `@brainstrike/preferences` status-store contracts.
+
+Focused local verification:
+
+```bash
+pnpm --filter @brainstrike/app-shell exec vitest run src/__tests__/indexing-contract-boundary.test.ts src/background-indexing/__tests__/workspace-collection-sync-service.test.ts
+pnpm --filter @brainstrike/app-shell type-check
+```
+
 ## Usage
 
 ### Basic Setup
