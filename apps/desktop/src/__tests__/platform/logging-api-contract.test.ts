@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { LogLevel } from '@brainstrike/utils/logger';
+import { LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import { createDefaultLoggingPreferences } from '@brainstrike/utils/logging-preferences';
 import { describe, expect, it } from 'vitest';
 import {
+  assertBufferedLogRecord,
   assertLoggingOpenDestinationTarget,
   assertLoggingPreferences,
   LOGGING_API_CHANNELS,
@@ -140,12 +141,41 @@ describe('logging API contract', () => {
     );
   });
 
+  it('validates buffered renderer log records in the shared logging contract', () => {
+    const record = {
+      level: LogLevel.INFO,
+      timestamp: Date.now(),
+      args: ['renderer log'],
+      bindings: { runtime: 'electron-renderer' },
+      message: 'renderer log',
+      scope: 'Renderer',
+    } satisfies LogRecord;
+
+    expect(assertBufferedLogRecord(record)).toEqual(record);
+    expect(assertBufferedLogRecord(record)).not.toBe(record);
+
+    expect(() => assertBufferedLogRecord(null)).toThrow('Buffered log record must be an object.');
+    expect(() => assertBufferedLogRecord({ ...record, level: 'verbose' })).toThrow(
+      'Buffered log record has invalid level.'
+    );
+    expect(() => assertBufferedLogRecord({ ...record, timestamp: Number.NaN })).toThrow(
+      'Buffered log record must include a finite numeric timestamp.'
+    );
+    expect(() => assertBufferedLogRecord({ ...record, args: 'renderer log' })).toThrow(
+      'Buffered log record must include args array.'
+    );
+    expect(() => assertBufferedLogRecord({ ...record, bindings: null })).toThrow(
+      'Buffered log record must include bindings object.'
+    );
+  });
+
   it('requires logging-ipc to register handlers through the contract constants', () => {
     const source = readDesktopSource('logging-ipc.ts');
 
     expect(source).toContain('LOGGING_API_CHANNELS.getPreferences');
     expect(source).toContain('LOGGING_API_CHANNELS.setPreferences');
     expect(source).toContain('LOGGING_API_CHANNELS.preferencesUpdated');
+    expect(source).not.toContain('function assertLogRecord');
     expect(source).not.toMatch(
       /(?:ipcMain\.(?:handle|on|removeHandler|removeListener)|contents\.send)\(\s*['"`]logging:/
     );

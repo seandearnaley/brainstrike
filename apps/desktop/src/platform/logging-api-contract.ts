@@ -1,4 +1,4 @@
-import { LogLevel } from '@brainstrike/utils/logger';
+import { LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
 
 export const LOGGING_API_CHANNELS = {
@@ -95,6 +95,43 @@ export function assertLoggingOpenDestinationTarget(value: unknown): string | nul
     'Logging open-destination target must be a string or null.',
     'Logging open-destination target'
   );
+}
+
+export function assertBufferedLogRecord(payload: unknown): LogRecord {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('Buffered log record must be an object.');
+  }
+
+  const candidate = payload as Record<string, unknown>;
+  const level = assertLogLevel(candidate['level'], 'Buffered log record has invalid level.');
+  if (typeof candidate['timestamp'] !== 'number' || !Number.isFinite(candidate['timestamp'])) {
+    throw new Error('Buffered log record must include a finite numeric timestamp.');
+  }
+  if (!Array.isArray(candidate['args'])) {
+    throw new Error('Buffered log record must include args array.');
+  }
+  if (
+    !candidate['bindings'] ||
+    typeof candidate['bindings'] !== 'object' ||
+    Array.isArray(candidate['bindings'])
+  ) {
+    throw new Error('Buffered log record must include bindings object.');
+  }
+  if (candidate['message'] !== undefined && typeof candidate['message'] !== 'string') {
+    throw new Error('Buffered log record message must be a string when present.');
+  }
+  if (candidate['scope'] !== undefined && typeof candidate['scope'] !== 'string') {
+    throw new Error('Buffered log record scope must be a string when present.');
+  }
+
+  return {
+    level,
+    timestamp: candidate['timestamp'],
+    args: [...candidate['args']],
+    bindings: { ...(candidate['bindings'] as Record<string, unknown>) },
+    ...(typeof candidate['message'] === 'string' ? { message: candidate['message'] } : {}),
+    ...(typeof candidate['scope'] === 'string' ? { scope: candidate['scope'] } : {}),
+  } satisfies LogRecord;
 }
 
 export function assertLoggingPreferences(value: unknown): LoggingPreferences {
