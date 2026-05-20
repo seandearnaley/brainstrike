@@ -55,19 +55,19 @@ test('parseCalibrationSummary groups calibration samples by current command budg
       calibration('one.json', [
         {
           budgetMs: 180_000,
-          command: 'pnpm --filter @brainstrike/db test',
-          durationMs: 260_000,
+          command: 'pnpm --filter @brainstrike/db test:db:repository',
+          durationMs: 140_000,
           exitCode: 0,
-          name: 'db-tests',
+          name: 'db-repository-tests',
         },
       ]),
       calibration('two.json', [
         {
-          budgetMs: 300_000,
-          command: 'pnpm --filter @brainstrike/db test',
-          durationMs: 240_000,
+          budgetMs: 150_000,
+          command: 'pnpm --filter @brainstrike/db test:db:repository',
+          durationMs: 120_000,
           exitCode: 0,
-          name: 'db-tests',
+          name: 'db-repository-tests',
         },
       ]),
     ],
@@ -77,15 +77,15 @@ test('parseCalibrationSummary groups calibration samples by current command budg
   assert.equal(summary.status, 'within-target');
   assert.equal(summary.commands.length, 1);
   assert.deepEqual(summary.commands[0], {
-    currentBudgetMs: 300_000,
+    currentBudgetMs: 150_000,
     failureCount: 0,
-    maxDurationMs: 260_000,
-    name: 'db-tests',
+    maxDurationMs: 140_000,
+    name: 'db-repository-tests',
     owner: 'data-platform',
-    p50Ms: 240_000,
-    p95Ms: 260_000,
+    p50Ms: 120_000,
+    p95Ms: 140_000,
     recordedCommandStale: false,
-    recordedBudgetMs: 300_000,
+    recordedBudgetMs: 150_000,
     recordedBudgetStale: false,
     ignoredStaleCommandSampleCount: 0,
     staleCommandSampleCount: 0,
@@ -122,14 +122,14 @@ test('renderMarkdownCalibrationSummary includes p95 and stale budget notes', () 
         command: 'pnpm stale-db-test',
         durationMs: 269_544,
         exitCode: 0,
-        name: 'db-tests',
+        name: 'db-repository-tests',
       },
     ]),
   ]);
   const markdown = renderMarkdownCalibrationSummary(summary);
 
   assert.match(markdown, /Local Calibration Timing Summary/);
-  assert.match(markdown, /db-tests/);
+  assert.match(markdown, /db-repository-tests/);
   assert.match(markdown, /4m 30s/);
   assert.match(markdown, /recorded budget 3m 0s/);
   assert.match(markdown, /stale command definition/);
