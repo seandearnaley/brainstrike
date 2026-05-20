@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-20T06:56:56.813Z",
+  "dryRun": false,
+  "commandResults": [
+    {
+      "budgetMs": 300000,
+      "command": "pnpm --filter @brainstrike/web exec playwright test --project=functional --grep \"@smoke\" --workers=2",
+      "name": "web-smoke-tests",
+      "owner": "applications",
+      "requiredFor": [
+        "web-ui-file-explorer",
+        "assistant-contract-runtime"
+      ],
+      "budgetStatus": "ok",
+      "durationMs": 32006,
+      "exitCode": 0
+    },
+    {
+      "budgetMs": 300000,
+      "command": "pnpm --filter @brainstrike/desktop exec playwright test e2e/assistant-panel.desktop.test.ts e2e/background-indexing-pause.desktop.test.ts e2e/file-system.test.ts --project=smoke",
+      "name": "desktop-smoke-tests",
+      "owner": "desktop-platform",
+      "requiredFor": [
+        "desktop-platform-ipc-preload"
+      ],
+      "budgetStatus": "ok",
+      "durationMs": 28241,
+      "exitCode": 0
+    }
+  ]
+}

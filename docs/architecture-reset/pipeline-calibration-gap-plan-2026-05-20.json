@@ -56,26 +56,6 @@
       "status": "calibrating"
     },
     {
-      "name": "desktop-smoke-tests",
-      "owner": "desktop-platform",
-      "sampleCount": 1,
-      "missingSamples": 4,
-      "estimatedRemainingMs": 1200000,
-      "releaseOnly": false,
-      "selected": false,
-      "status": "calibrating"
-    },
-    {
-      "name": "web-smoke-tests",
-      "owner": "applications",
-      "sampleCount": 1,
-      "missingSamples": 4,
-      "estimatedRemainingMs": 1200000,
-      "releaseOnly": false,
-      "selected": false,
-      "status": "calibrating"
-    },
-    {
       "name": "desktop-unit-tests",
       "owner": "desktop-platform",
       "sampleCount": 1,

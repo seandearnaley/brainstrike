@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "generatedFrom": "calibration-files",
   "minSamples": 5,
-  "sampleCount": 22,
-  "commandSampleCount": 49,
+  "sampleCount": 26,
+  "commandSampleCount": 57,
   "status": "calibrating",
   "commands": [
     {
@@ -87,8 +87,8 @@
       "requiredFor": [
         "desktop-platform-ipc-preload"
       ],
-      "sampleCount": 1,
-      "p50Ms": 28336,
+      "sampleCount": 5,
+      "p50Ms": 27740,
       "p95Ms": 28336,
       "currentBudgetMs": 300000,
       "recordedBudgetMs": 300000,
@@ -98,9 +98,13 @@
       "maxDurationMs": 28336,
       "failureCount": 0,
       "staleCommandSampleCount": 0,
-      "status": "calibrating",
+      "status": "within-target",
       "sources": [
-        "docs/architecture-reset/pipeline-calibration-desktop-smoke-2026-05-20.json"
+        "docs/architecture-reset/pipeline-calibration-desktop-smoke-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-smoke-lanes-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-smoke-lanes-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-smoke-lanes-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-smoke-lanes-5-2026-05-20.json"
       ]
     },
     {
@@ -288,8 +292,8 @@
         "web-ui-file-explorer",
         "assistant-contract-runtime"
       ],
-      "sampleCount": 1,
-      "p50Ms": 33140,
+      "sampleCount": 5,
+      "p50Ms": 31355,
       "p95Ms": 33140,
       "currentBudgetMs": 300000,
       "recordedBudgetMs": 300000,
@@ -299,8 +303,12 @@
       "maxDurationMs": 33140,
       "failureCount": 0,
       "staleCommandSampleCount": 0,
-      "status": "calibrating",
+      "status": "within-target",
       "sources": [
+        "docs/architecture-reset/pipeline-calibration-smoke-lanes-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-smoke-lanes-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-smoke-lanes-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-smoke-lanes-5-2026-05-20.json",
         "docs/architecture-reset/pipeline-calibration-web-smoke-2026-05-20.json"
       ]
     },
