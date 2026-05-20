@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 
 import {
   expandRiskLanes,
+  selectRiskProfileForFiles,
   selectRiskLanesForFiles,
   toRiskLabels,
 } from './ci-risk-rules.mjs';
@@ -12,58 +13,174 @@ const execFileAsync = promisify(execFile);
 
 export const CI_DIFF_FILTER = 'ACDMRTUXB';
 
-const BASELINE_COMMANDS = [
-  { name: 'lint-ci', command: 'pnpm lint:ci', requiredFor: ['baseline'] },
-  { name: 'type-check', command: 'pnpm type-check', requiredFor: ['baseline'] },
-  { name: 'build', command: 'pnpm build', requiredFor: ['baseline'] },
-  {
-    name: 'unit',
-    command:
-      'TURBO_TEST_MODE=unit pnpm exec turbo run test --summarize --log-order=grouped --concurrency=2',
-    requiredFor: ['baseline'],
+export const E2E_LANES = {
+  'critical-smoke': {
+    command: 'pnpm --filter @brainstrike/web exec playwright test --project=functional --grep "@smoke" --workers=2',
+    owner: 'applications',
+    tagContract: '@smoke',
   },
-];
+  'web-functional-stateful': {
+    command:
+      'cd apps/web && pnpm exec playwright test --project=functional --workers=2 --grep-invert "@destructive|@stateful" && pnpm exec playwright test --project=functional --workers=1 --grep "@stateful"',
+    owner: 'applications',
+    tagContract: 'functional plus @stateful',
+  },
+  'desktop-smoke-regression': {
+    command: 'pnpm --filter @brainstrike/desktop exec playwright test --project=smoke',
+    owner: 'desktop-platform',
+    tagContract: '@smoke',
+  },
+  'desktop-embedding-diagnostics': {
+    command:
+      'pnpm --filter @brainstrike/desktop exec playwright test e2e/embedding-worker-renderer.test.ts --project=regression --grep "@desktop-embedding-lifecycle|@desktop-embedding-backfill|@desktop-embedding-search|@desktop-embedding-recovery|@desktop-embedding-memory|@desktop-embedding-mixed"',
+    owner: 'indexing',
+    tagContract: '@desktop-embedding-* required groups only; crash diagnostics stay release-only',
+  },
+  'destructive-reset': {
+    command:
+      'cd apps/web && pnpm exec playwright test --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep "@destructive"',
+    owner: 'data-platform',
+    tagContract: '@destructive',
+  },
+  'long-soak-release-only': {
+    command: 'pnpm test:e2e',
+    owner: 'release',
+    tagContract: 'explicit release/full-risk only',
+  },
+};
 
-const LANE_COMMANDS = {
-  'ci:browser': [
-    {
-      name: 'browser-vitest',
-      command: 'pnpm run test:browser',
-      requiredFor: ['ci:browser'],
-    },
-  ],
-  'ci:web-e2e': [
-    {
-      name: 'web-functional-e2e',
-      command:
-        'cd apps/web && pnpm exec playwright test --project=functional --workers=2 --grep-invert "@destructive|@stateful"',
-      requiredFor: ['ci:web-e2e'],
-    },
-  ],
-  'ci:desktop': [
-    {
-      name: 'desktop-regression',
-      command:
-        'cd apps/desktop && pnpm exec playwright test --project=regression --workers=1 --grep-invert "@desktop-embedding-"',
-      requiredFor: ['ci:desktop'],
-    },
-  ],
-  'ci:embedding': [
-    {
-      name: 'desktop-embedding',
-      command:
-        'cd apps/desktop && pnpm exec playwright test --workers=1 --grep "@desktop-embedding-"',
-      requiredFor: ['ci:embedding'],
-    },
-  ],
-  'ci:coverage': [
-    {
-      name: 'affected-coverage',
-      command:
-        'TURBO_TEST_MODE=coverage COVERAGE=true pnpm exec turbo run test:coverage --filter="...[<mergeBase>]" --concurrency=4 --summarize --log-order=grouped',
-      requiredFor: ['ci:coverage'],
-    },
-  ],
+export const LOCAL_PROOF_COMMANDS = {
+  'diff-check': {
+    name: 'diff-check',
+    command: 'git diff --check',
+    budgetMs: 30_000,
+    owner: 'tooling',
+    requiredFor: ['all'],
+  },
+  'docs-static': {
+    name: 'docs-static',
+    command: 'git diff --check -- docs apps/docs README.md AGENTS.md CLAUDE.md',
+    budgetMs: 30_000,
+    owner: 'documentation',
+    requiredFor: ['docs-only'],
+  },
+  'ci-script-tests': {
+    name: 'ci-script-tests',
+    command:
+      'node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs',
+    budgetMs: 120_000,
+    owner: 'tooling',
+    requiredFor: ['config-tooling', 'full-release-high-risk'],
+  },
+  'workflow-contracts': {
+    name: 'workflow-contracts',
+    command:
+      'node --test scripts/__tests__/check-ci-workflow-contracts.test.mjs && pnpm run lint:ci-workflow-contracts',
+    budgetMs: 180_000,
+    owner: 'ci-platform',
+    requiredFor: ['config-tooling', 'full-release-high-risk'],
+  },
+  'assistant-contract-tests': {
+    name: 'assistant-contract-tests',
+    command:
+      'pnpm --filter @brainstrike/assistant-contract test && pnpm --filter @brainstrike/agent test',
+    budgetMs: 180_000,
+    owner: 'assistant',
+    requiredFor: ['assistant-contract-runtime'],
+  },
+  'app-shell-tests': {
+    name: 'app-shell-tests',
+    command: 'pnpm --filter @brainstrike/app-shell test',
+    budgetMs: 180_000,
+    owner: 'workspace-experience',
+    requiredFor: ['assistant-contract-runtime'],
+  },
+  'indexing-tests': {
+    name: 'indexing-tests',
+    command:
+      'pnpm --filter @brainstrike/indexing-contract test && pnpm --filter @brainstrike/pipeline test && pnpm --filter @brainstrike/file-import test',
+    budgetMs: 240_000,
+    owner: 'indexing',
+    requiredFor: ['indexing-import-embedding'],
+  },
+  'embedding-tests': {
+    name: 'embedding-tests',
+    command:
+      'pnpm --filter @brainstrike/embeddings test && pnpm --filter @brainstrike/embedding-worker test',
+    budgetMs: 300_000,
+    owner: 'indexing',
+    requiredFor: ['indexing-import-embedding'],
+  },
+  'db-tests': {
+    name: 'db-tests',
+    command: 'pnpm --filter @brainstrike/db test',
+    budgetMs: 180_000,
+    owner: 'data-platform',
+    requiredFor: ['db-migrations-storage'],
+  },
+  'migration-tests': {
+    name: 'migration-tests',
+    command:
+      'pnpm --filter @brainstrike/db exec vitest run __tests__/migrations*.test.ts __tests__/**/migration*.test.ts',
+    budgetMs: 180_000,
+    owner: 'data-platform',
+    requiredFor: ['db-migrations-storage'],
+  },
+  'desktop-unit-tests': {
+    name: 'desktop-unit-tests',
+    command: 'pnpm --filter @brainstrike/desktop test',
+    budgetMs: 240_000,
+    owner: 'desktop-platform',
+    requiredFor: ['desktop-platform-ipc-preload'],
+  },
+  'desktop-smoke-tests': {
+    name: 'desktop-smoke-tests',
+    command:
+      'pnpm --filter @brainstrike/desktop exec playwright test e2e/assistant-panel.desktop.test.ts e2e/background-indexing-pause.desktop.test.ts e2e/file-system.test.ts --project=smoke',
+    budgetMs: 300_000,
+    owner: 'desktop-platform',
+    requiredFor: ['desktop-platform-ipc-preload'],
+  },
+  'desktop-embedding-smoke': {
+    name: 'desktop-embedding-smoke',
+    command:
+      'pnpm --filter @brainstrike/desktop exec playwright test e2e/embedding-worker-renderer.test.ts --project=regression --grep "@desktop-embedding-lifecycle"',
+    budgetMs: 420_000,
+    owner: 'indexing',
+    requiredFor: ['desktop-platform-ipc-preload'],
+  },
+  'file-explorer-tests': {
+    name: 'file-explorer-tests',
+    command:
+      'pnpm --filter @brainstrike/file-explorer-ui test && pnpm --filter @brainstrike/file-explorer test',
+    budgetMs: 240_000,
+    owner: 'workspace-experience',
+    requiredFor: ['web-ui-file-explorer'],
+  },
+  'web-smoke-tests': {
+    name: 'web-smoke-tests',
+    command:
+      'pnpm --filter @brainstrike/web exec playwright test --project=functional --grep "@smoke" --workers=2',
+    budgetMs: 300_000,
+    owner: 'applications',
+    requiredFor: ['web-ui-file-explorer', 'assistant-contract-runtime'],
+  },
+  'shared-foundation-tests': {
+    name: 'shared-foundation-tests',
+    command:
+      'pnpm --filter @brainstrike/types build && pnpm --filter @brainstrike/utils test && pnpm --filter @brainstrike/worker-runtime test',
+    budgetMs: 180_000,
+    owner: 'shared-foundation',
+    requiredFor: ['shared-foundation'],
+  },
+  'full-local-suite': {
+    name: 'full-local-suite',
+    command:
+      'pnpm build && pnpm lint:ci && pnpm type-check && pnpm test && pnpm test:e2e',
+    budgetMs: 45 * 60_000,
+    owner: 'release',
+    requiredFor: ['full-release-high-risk'],
+  },
 };
 
 async function defaultRunner(command, args) {
@@ -124,15 +241,19 @@ function renderCommand(command, mergeBase) {
 }
 
 export function buildSelection(input) {
+  if (!/^[0-9a-f]{40}$/i.test(input.mergeBase)) {
+    throw new Error(`mergeBase must be a 40-character git SHA: ${input.mergeBase}`);
+  }
+  const riskProfile = selectRiskProfileForFiles(input.files);
   const lanes = selectRiskLanesForFiles(input.files);
   const expandedLanes = expandRiskLanes(lanes);
   const labels = toRiskLabels(lanes);
-  const laneCommands = expandedLanes.flatMap((lane) => {
-    const commands = LANE_COMMANDS[lane];
-    if (!commands) {
-      throw new Error(`no commands defined for lane ${lane}`);
+  const commands = riskProfile.proofCommands.map((commandName) => {
+    const command = LOCAL_PROOF_COMMANDS[commandName];
+    if (!command) {
+      throw new Error(`no local proof command defined for ${commandName}`);
     }
-    return commands.map((command) => renderCommand(command, input.mergeBase));
+    return renderCommand(command, input.mergeBase);
   });
 
   return {
@@ -142,15 +263,11 @@ export function buildSelection(input) {
     headSha: input.headSha,
     mergeBase: input.mergeBase,
     files: [...input.files],
+    riskProfile,
     lanes,
     expandedLanes,
     labels,
-    commands: [
-      ...BASELINE_COMMANDS.map((command) =>
-        renderCommand(command, input.mergeBase)
-      ),
-      ...laneCommands,
-    ],
+    commands,
   };
 }
 
@@ -163,6 +280,7 @@ export function renderSelectionJson(selection) {
       headSha: selection.headSha,
       mergeBase: selection.mergeBase,
       files: selection.files,
+      riskProfile: selection.riskProfile ?? null,
       lanes: selection.lanes,
       expandedLanes: selection.expandedLanes,
       labels: selection.labels,

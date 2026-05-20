@@ -16,10 +16,7 @@ export const EXPANDED_FULL_LANES = [
 ];
 
 const FULL_PATTERNS = [
-  // CI and repo-tooling edits intentionally take the conservative all-lanes
-  // route. Narrower carve-outs should be based on observed false positives.
   /^\.github\//,
-  /^scripts\//,
   /^package\.json$/,
   /^pnpm-lock\.yaml$/,
   /^pnpm-workspace\.yaml$/,
@@ -28,6 +25,88 @@ const FULL_PATTERNS = [
   /^\.nvmrc$/,
   /^vitest\.config\./,
   /^playwright.*\.config\./,
+];
+
+const DOCS_ONLY_PATTERNS = [
+  /^docs\//,
+  /^apps\/docs\//,
+  /^README\.md$/,
+  /^AGENTS\.md$/,
+  /^CLAUDE\.md$/,
+  /\.md$/,
+  /\.html$/,
+];
+
+const CONFIG_TOOLING_PATTERNS = [
+  /^scripts\//,
+  /^\.github\/actions\//,
+  /^\.lefthook\.yml$/,
+  /^lefthook\.yml$/,
+  /^knip\.json$/,
+  /^syncpack\.config\./,
+];
+
+const ASSISTANT_PATTERNS = [
+  /^packages\/assistant-contract\//,
+  /^packages\/agent\//,
+  /^packages\/app-shell\/src\/assistant/,
+  /^packages\/ui\/src\/assistant-ui-panel\//,
+];
+
+const INDEXING_PATTERNS = [
+  /^packages\/indexing-contract\//,
+  /^packages\/pipeline\//,
+  /^packages\/file-import\//,
+  /^packages\/text-splitter\//,
+  /^packages\/chunking-worker\//,
+  /^packages\/queue\//,
+  /^packages\/embeddings\//,
+  /^packages\/embedding-worker\//,
+  /^packages\/vector-management\//,
+  /^apps\/desktop\/src\/embedding-/,
+  /^apps\/desktop\/src\/renderer\/components\/embedding-host-/,
+];
+
+const DB_PATTERNS = [
+  /^packages\/db\//,
+  /^packages\/storage\//,
+  /^packages\/file-system\//,
+];
+
+const DB_MIGRATION_PATTERNS = [
+  /^packages\/db\/src\/migrations\//,
+  /^packages\/db\/migrations\//,
+  /(^|\/)migration(s)?\//,
+];
+
+const DESKTOP_PLATFORM_PATTERNS = [
+  /^apps\/desktop\/src\/main\.ts$/,
+  /^apps\/desktop\/src\/preload\.ts$/,
+  /^apps\/desktop\/src\/ipc-/,
+  /^apps\/desktop\/src\/.*ipc.*\.ts$/,
+  /^apps\/desktop\/src\/.*host.*\.ts$/,
+  /^apps\/desktop\/src\/logging-/,
+  /^apps\/desktop\/e2e\//,
+];
+
+const WEB_UI_PATTERNS = [
+  /^apps\/web\//,
+  /^packages\/file-explorer-ui\//,
+  /^packages\/file-explorer-hooks\//,
+  /^packages\/file-explorer\//,
+  /^packages\/ui\//,
+  /^packages\/hooks\//,
+  /^packages\/db-explorer\//,
+];
+
+const SHARED_FOUNDATION_PATTERNS = [
+  /^packages\/types\//,
+  /^packages\/utils\//,
+  /^packages\/worker-runtime\//,
+  /^packages\/platform-utils\//,
+  /^packages\/config\//,
+  /^packages\/server-config\//,
+  /^packages\/test-utils\//,
 ];
 
 const BROWSER_PATTERNS = [
@@ -94,16 +173,190 @@ export function normalizePath(filePath) {
   return String(filePath).replaceAll('\\', '/').replace(/^\.\/+/, '');
 }
 
-export function selectRiskLanesForFiles(files) {
+function allFilesMatch(normalizedFiles, patterns) {
+  return (
+    normalizedFiles.length > 0 &&
+    normalizedFiles.every((filePath) => matchesAny(filePath, patterns))
+  );
+}
+
+function hasAny(normalizedFiles, patterns) {
+  return normalizedFiles.some((filePath) => matchesAny(filePath, patterns));
+}
+
+function profile({
+  category,
+  domains,
+  e2eLanes,
+  proofCommands,
+  riskLevel,
+  cloudLabels,
+}) {
+  return {
+    category,
+    domains,
+    e2eLanes,
+    proofCommands,
+    riskLevel,
+    cloudLabels,
+  };
+}
+
+export function selectRiskProfileForFiles(files) {
   const normalizedFiles = [...files].map((filePath) => normalizePath(filePath));
 
-  if (
-    normalizedFiles.some((filePath) => matchesAny(filePath, FULL_PATTERNS))
-  ) {
+  if (normalizedFiles.length === 0 || allFilesMatch(normalizedFiles, DOCS_ONLY_PATTERNS)) {
+    return profile({
+      category: 'docs-only',
+      domains: ['documentation'],
+      e2eLanes: [],
+      proofCommands: ['diff-check', 'docs-static'],
+      riskLevel: 'low',
+      cloudLabels: [],
+    });
+  }
+
+  if (hasAny(normalizedFiles, FULL_PATTERNS)) {
+    return profile({
+      category: 'full-release-high-risk',
+      domains: ['ci-platform'],
+      e2eLanes: [
+        'critical-smoke',
+        'web-functional-stateful',
+        'desktop-smoke-regression',
+        'desktop-embedding-diagnostics',
+        'destructive-reset',
+        'long-soak-release-only',
+      ],
+      proofCommands: ['diff-check', 'ci-script-tests', 'workflow-contracts', 'full-local-suite'],
+      riskLevel: 'full',
+      cloudLabels: ['ci:full'],
+    });
+  }
+
+  if (hasAny(normalizedFiles, DESKTOP_PLATFORM_PATTERNS)) {
+    const isEmbeddingHostChange = hasAny(normalizedFiles, EMBEDDING_PATTERNS);
+    return profile({
+      category: 'desktop-platform-ipc-preload',
+      domains: ['desktop-platform'],
+      e2eLanes: isEmbeddingHostChange
+        ? ['desktop-smoke-regression', 'desktop-embedding-diagnostics']
+        : ['desktop-smoke-regression'],
+      proofCommands: isEmbeddingHostChange
+        ? ['diff-check', 'desktop-unit-tests', 'desktop-smoke-tests', 'desktop-embedding-smoke']
+        : ['diff-check', 'desktop-unit-tests', 'desktop-smoke-tests'],
+      riskLevel: 'high',
+      cloudLabels: isEmbeddingHostChange
+        ? ['ci:desktop', 'ci:embedding', 'ci:coverage']
+        : ['ci:desktop', 'ci:coverage'],
+    });
+  }
+
+  if (hasAny(normalizedFiles, DB_MIGRATION_PATTERNS)) {
+    return profile({
+      category: 'db-migrations-storage',
+      domains: ['data-platform'],
+      e2eLanes: ['destructive-reset'],
+      proofCommands: ['diff-check', 'db-tests', 'migration-tests'],
+      riskLevel: 'high',
+      cloudLabels: ['ci:browser', 'ci:coverage'],
+    });
+  }
+
+  if (hasAny(normalizedFiles, INDEXING_PATTERNS)) {
+    return profile({
+      category: 'indexing-import-embedding',
+      domains: ['indexing'],
+      e2eLanes: hasAny(normalizedFiles, EMBEDDING_PATTERNS)
+        ? ['desktop-embedding-diagnostics']
+        : ['critical-smoke'],
+      proofCommands: hasAny(normalizedFiles, EMBEDDING_PATTERNS)
+        ? ['diff-check', 'indexing-tests', 'embedding-tests']
+        : ['diff-check', 'indexing-tests'],
+      riskLevel: hasAny(normalizedFiles, EMBEDDING_PATTERNS) ? 'high' : 'medium',
+      cloudLabels: hasAny(normalizedFiles, EMBEDDING_PATTERNS)
+        ? ['ci:desktop', 'ci:embedding', 'ci:coverage']
+        : ['ci:coverage'],
+    });
+  }
+
+  if (hasAny(normalizedFiles, ASSISTANT_PATTERNS)) {
+    return profile({
+      category: 'assistant-contract-runtime',
+      domains: ['assistant'],
+      e2eLanes: ['web-smoke'],
+      proofCommands: ['diff-check', 'assistant-contract-tests', 'app-shell-tests'],
+      riskLevel: 'medium',
+      cloudLabels: ['ci:web-e2e', 'ci:coverage'],
+    });
+  }
+
+  if (hasAny(normalizedFiles, DB_PATTERNS)) {
+    return profile({
+      category: 'db-migrations-storage',
+      domains: ['data-platform'],
+      e2eLanes: [],
+      proofCommands: ['diff-check', 'db-tests'],
+      riskLevel: 'medium',
+      cloudLabels: ['ci:browser', 'ci:coverage'],
+    });
+  }
+
+  if (hasAny(normalizedFiles, WEB_UI_PATTERNS)) {
+    return profile({
+      category: 'web-ui-file-explorer',
+      domains: ['workspace-experience'],
+      e2eLanes: ['web-functional-stateful'],
+      proofCommands: ['diff-check', 'file-explorer-tests', 'web-smoke-tests'],
+      riskLevel: 'medium',
+      cloudLabels: ['ci:web-e2e', 'ci:coverage'],
+    });
+  }
+
+  if (hasAny(normalizedFiles, SHARED_FOUNDATION_PATTERNS)) {
+    return profile({
+      category: 'shared-foundation',
+      domains: ['shared-foundation'],
+      e2eLanes: ['critical-smoke'],
+      proofCommands: ['diff-check', 'shared-foundation-tests'],
+      riskLevel: 'medium',
+      cloudLabels: ['ci:browser', 'ci:coverage'],
+    });
+  }
+
+  if (hasAny(normalizedFiles, CONFIG_TOOLING_PATTERNS)) {
+    return profile({
+      category: 'config-tooling',
+      domains: ['tooling'],
+      e2eLanes: [],
+      proofCommands: ['diff-check', 'ci-script-tests', 'workflow-contracts'],
+      riskLevel: 'medium',
+      cloudLabels: ['ci:coverage'],
+    });
+  }
+
+  return profile({
+    category: 'config-tooling',
+    domains: ['tooling'],
+    e2eLanes: [],
+    proofCommands: ['diff-check', 'ci-script-tests'],
+    riskLevel: 'medium',
+    cloudLabels: ['ci:coverage'],
+  });
+}
+
+export function selectRiskLanesForFiles(files) {
+  const profileForFiles = selectRiskProfileForFiles(files);
+
+  if (profileForFiles.cloudLabels.includes('ci:full')) {
     return ['ci:full'];
   }
 
+  const normalizedFiles = [...files].map((filePath) => normalizePath(filePath));
   const selected = new Set();
+  for (const label of profileForFiles.cloudLabels) {
+    selected.add(label);
+  }
   for (const filePath of normalizedFiles) {
     for (const [lane, patterns] of LANE_PATTERNS) {
       if (matchesAny(filePath, patterns)) {

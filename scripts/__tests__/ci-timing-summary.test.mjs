@@ -10,6 +10,7 @@ import {
   parseTurboSummary,
   renderGitHubAnnotations,
   renderMarkdownSummary,
+  renderTimingBudgetJson,
   runCli,
 } from '../ci-timing-summary.mjs';
 
@@ -143,6 +144,39 @@ test('renderGitHubAnnotations reports total and task threshold breaches', () => 
   assert.match(annotations, /::error title=Slow Turbo task::@brainstrike\/db#test took 3m 0s/);
 });
 
+test('renderTimingBudgetJson emits machine-readable p50 and p95 timing data', () => {
+  const summary = parseTurboSummary(
+    {
+      execution: {
+        command: 'turbo run test',
+        startTime: 1_000,
+        endTime: 21_000,
+        success: true,
+      },
+      tasks: [
+        task('@brainstrike/a#test', 'test', 1_000, 2_000),
+        task('@brainstrike/b#test', 'test', 1_000, 6_000),
+        task('@brainstrike/c#test', 'test', 1_000, 21_000),
+      ],
+    },
+    { task: 'test', warnMs: 10_000, failMs: 30_000 }
+  );
+
+  const parsed = JSON.parse(renderTimingBudgetJson(summary, { calibration: true }));
+
+  assert.equal(parsed.schemaVersion, 1);
+  assert.equal(parsed.calibration, true);
+  assert.equal(parsed.totals.taskCount, 3);
+  assert.equal(parsed.totals.p50TaskMs, 5_000);
+  assert.equal(parsed.totals.p95TaskMs, 20_000);
+  assert.equal(parsed.totals.maxTaskMs, 20_000);
+  assert.equal(parsed.status.exitWouldFailOutsideCalibration, false);
+  assert.deepEqual(
+    parsed.slowestTasks.map((entry) => entry.taskId),
+    ['@brainstrike/c#test', '@brainstrike/b#test', '@brainstrike/a#test']
+  );
+});
+
 test('findLatestTurboSummary returns the newest JSON file', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-turbo-runs-'));
   try {
@@ -211,6 +245,49 @@ test('runCli writes markdown and returns non-zero when fail threshold is crossed
   } finally {
     console.error = originalConsoleError;
     console.log = originalConsoleLog;
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test('runCli writes timing JSON and calibration mode does not fail slow budgets', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-turbo-cli-json-'));
+  try {
+    const summaryPath = path.join(dir, 'summary.json');
+    const outputPath = path.join(dir, 'summary.md');
+    const jsonOutputPath = path.join(dir, 'summary.json.out');
+    await writeFile(
+      summaryPath,
+      JSON.stringify({
+        execution: {
+          command: 'turbo run test',
+          startTime: 1_000,
+          endTime: 181_000,
+          success: true,
+        },
+        tasks: [task('@brainstrike/db#test', 'test', 1_000, 181_000)],
+      })
+    );
+
+    const exitCode = await runCli([
+      '--summary',
+      summaryPath,
+      '--task',
+      'test',
+      '--fail-ms',
+      '120000',
+      '--output',
+      outputPath,
+      '--json-output',
+      jsonOutputPath,
+      '--calibration',
+    ]);
+
+    assert.equal(exitCode, 0);
+    const parsed = JSON.parse(await readFile(jsonOutputPath, 'utf8'));
+    assert.equal(parsed.calibration, true);
+    assert.equal(parsed.status.hasFailures, true);
+    assert.equal(parsed.status.exitWouldFailOutsideCalibration, true);
+  } finally {
     await rm(dir, { force: true, recursive: true });
   }
 });

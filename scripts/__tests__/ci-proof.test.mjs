@@ -79,6 +79,14 @@ test('buildProofManifest records successful baseline and selected commands', () 
       labels: [],
       lanes: [],
       mergeBase: '1',
+      riskProfile: {
+        category: 'docs-only',
+        cloudLabels: [],
+        domains: ['documentation'],
+        e2eLanes: [],
+        proofCommands: ['diff-check', 'docs-static'],
+        riskLevel: 'low',
+      },
     },
     testedHeadSha: '2222222222222222222222222222222222222222',
   });
@@ -105,7 +113,18 @@ test('validateProofManifest rejects failed command results', () => {
     generatedAt: '2026-05-18T12:00:00.000Z',
     packageManager: 'pnpm@10.33.0',
     pnpmVersion: '10.33.0',
-    selection: { labels: [], commands: [] },
+    selection: {
+      labels: [],
+      commands: [],
+      riskProfile: {
+        category: 'docs-only',
+        cloudLabels: [],
+        domains: ['documentation'],
+        e2eLanes: [],
+        proofCommands: ['diff-check', 'docs-static'],
+        riskLevel: 'low',
+      },
+    },
     testedHeadSha: '2222222222222222222222222222222222222222',
   });
 
@@ -120,7 +139,18 @@ test('validateProofManifest rejects invalid tested head SHAs', () => {
     packageManager: 'pnpm@10.33.0',
     pnpmVersion: '10.33.0',
     repository: 'seandearnaley/brainstrike',
-    selection: { labels: [], commands: [] },
+    selection: {
+      labels: [],
+      commands: [],
+      riskProfile: {
+        category: 'docs-only',
+        cloudLabels: [],
+        domains: ['documentation'],
+        e2eLanes: [],
+        proofCommands: ['diff-check', 'docs-static'],
+        riskLevel: 'low',
+      },
+    },
     testedHeadSha: 'abc\nextra-output=injected',
   });
 
@@ -128,6 +158,21 @@ test('validateProofManifest rejects invalid tested head SHAs', () => {
     failures.join('\n'),
     /testedHeadSha must be a 40-character hex SHA/
   );
+});
+
+test('validateProofManifest requires a recorded risk profile', () => {
+  const failures = validateProofManifest({
+    schemaVersion: 1,
+    commandResults: [],
+    generatedAt: '2026-05-18T12:00:00.000Z',
+    packageManager: 'pnpm@10.33.0',
+    pnpmVersion: '10.33.0',
+    repository: 'seandearnaley/brainstrike',
+    selection: { labels: [], commands: [] },
+    testedHeadSha: '2222222222222222222222222222222222222222',
+  });
+
+  assert.match(failures.join('\n'), /selection\.riskProfile must be an object/);
 });
 
 test('verifyLabels requires every selected risk label', () => {
@@ -379,7 +424,7 @@ test('prove reports the failing proof command name', async () => {
 
   await assert.rejects(
     () => prove({ base: 'origin/main', head: 'HEAD' }, runner),
-    /proof command "lint-ci" failed: exit 1/
+    /proof command "diff-check" failed: exit 1/
   );
 });
 

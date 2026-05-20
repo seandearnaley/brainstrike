@@ -179,6 +179,9 @@ export function validateProofManifest(manifest) {
   if (!isObject(manifest.selection)) {
     failures.push('selection must be an object');
   } else {
+    if (!isObject(manifest.selection.riskProfile)) {
+      failures.push('selection.riskProfile must be an object');
+    }
     validateArray(manifest.selection.labels, 'selection.labels', failures);
     validateArray(manifest.selection.commands, 'selection.commands', failures);
   }
@@ -352,6 +355,7 @@ export async function prove(options, runner = defaultRunner) {
 function comparableSelection(selection) {
   return {
     files: selection.files,
+    riskProfile: selection.riskProfile,
     lanes: selection.lanes,
     expandedLanes: selection.expandedLanes,
     labels: selection.labels,
@@ -360,6 +364,18 @@ function comparableSelection(selection) {
       command: command.command,
     })),
   };
+}
+
+function compareJsonObject(name, actual, expected) {
+  if (!isObject(actual) || !isObject(expected)) {
+    return [`${name} must be an object`];
+  }
+  const actualJson = JSON.stringify(actual);
+  const expectedJson = JSON.stringify(expected);
+  if (actualJson === expectedJson) {
+    return [];
+  }
+  return [`${name} differs`];
 }
 
 function compareArrays(name, actual, expected) {
@@ -412,6 +428,11 @@ function compareSelections(actual, expected) {
   const expectedSelection = comparableSelection(expected);
   return [
     ...compareArrays('selection.files', actualSelection.files, expectedSelection.files),
+    ...compareJsonObject(
+      'selection.riskProfile',
+      actualSelection.riskProfile,
+      expectedSelection.riskProfile
+    ),
     ...compareArrays('selection.lanes', actualSelection.lanes, expectedSelection.lanes),
     ...compareArrays(
       'selection.expandedLanes',

@@ -4,6 +4,8 @@ import { test } from 'node:test';
 import {
   buildSelection,
   collectGitSelection,
+  E2E_LANES,
+  LOCAL_PROOF_COMMANDS,
   parseSelectArgs,
   renderSelectionJson,
 } from '../ci-select.mjs';
@@ -49,13 +51,84 @@ test('buildSelection returns files, lanes, expanded lanes, labels, and commands'
     'ci:coverage',
   ]);
   assert.equal(
-    selection.commands.some((entry) => entry.name === 'desktop-regression'),
+    selection.commands.some((entry) => entry.name === 'desktop-smoke-tests'),
     true
   );
   assert.equal(
-    selection.commands.some((entry) => entry.name === 'desktop-embedding'),
+    selection.commands.some((entry) => entry.name === 'desktop-embedding-smoke'),
     true
   );
+});
+
+test('buildSelection includes deterministic risk profile and local proof commands', () => {
+  const selection = buildSelection({
+    base: 'origin/main',
+    baseSha: '1111111111111111111111111111111111111111',
+    files: ['packages/file-explorer-ui/src/tree/optimized-file-tree.tsx'],
+    head: 'HEAD',
+    headSha: '2222222222222222222222222222222222222222',
+    mergeBase: '1111111111111111111111111111111111111111',
+  });
+
+  assert.equal(selection.riskProfile.category, 'web-ui-file-explorer');
+  assert.deepEqual(selection.riskProfile.e2eLanes, ['web-functional-stateful']);
+  assert.deepEqual(
+    selection.commands.map((entry) => entry.name),
+    ['diff-check', 'file-explorer-tests', 'web-smoke-tests']
+  );
+  assert.deepEqual(
+    selection.commands.map((entry) => entry.owner),
+    ['tooling', 'workspace-experience', 'applications']
+  );
+  assert.deepEqual(
+    selection.commands.map((entry) => typeof entry.budgetMs),
+    ['number', 'number', 'number']
+  );
+});
+
+test('buildSelection keeps docs-only proof cheap and without labels', () => {
+  const selection = buildSelection({
+    base: 'origin/main',
+    baseSha: '1111111111111111111111111111111111111111',
+    files: ['docs/architecture-reset/report.html'],
+    head: 'HEAD',
+    headSha: '2222222222222222222222222222222222222222',
+    mergeBase: '1111111111111111111111111111111111111111',
+  });
+
+  assert.deepEqual(selection.lanes, []);
+  assert.deepEqual(selection.labels, []);
+  assert.deepEqual(selection.riskProfile.e2eLanes, []);
+  assert.deepEqual(
+    selection.commands.map((entry) => entry.name),
+    ['diff-check', 'docs-static']
+  );
+});
+
+test('E2E lane command taxonomy is explicit and avoids hidden full-suite fallback', () => {
+  assert.deepEqual(Object.keys(E2E_LANES), [
+    'critical-smoke',
+    'web-functional-stateful',
+    'desktop-smoke-regression',
+    'desktop-embedding-diagnostics',
+    'destructive-reset',
+    'long-soak-release-only',
+  ]);
+  assert.match(E2E_LANES['desktop-embedding-diagnostics'].command, /@desktop-embedding-lifecycle/);
+  assert.doesNotMatch(
+    E2E_LANES['desktop-embedding-diagnostics'].command,
+    /@desktop-embedding-crash/
+  );
+  assert.match(E2E_LANES['destructive-reset'].command, /@destructive/);
+  assert.match(E2E_LANES['long-soak-release-only'].tagContract, /release/);
+});
+
+test('local proof command registry has owners and timing budgets for failure routing', () => {
+  for (const command of Object.values(LOCAL_PROOF_COMMANDS)) {
+    assert.equal(typeof command.owner, 'string', command.name);
+    assert.equal(typeof command.budgetMs, 'number', command.name);
+    assert.equal(command.budgetMs > 0, true, command.name);
+  }
 });
 
 test('buildSelection rejects unsafe merge-base placeholders', () => {
@@ -121,6 +194,7 @@ test('renderSelectionJson emits stable JSON', () => {
     commands: [],
     expandedLanes: [],
     files: [],
+    riskProfile: null,
     head: 'HEAD',
     headSha: '2',
     labels: [],
@@ -136,6 +210,7 @@ test('renderSelectionJson emits stable JSON', () => {
     'headSha',
     'mergeBase',
     'files',
+    'riskProfile',
     'lanes',
     'expandedLanes',
     'labels',
