@@ -208,6 +208,15 @@ export function validateProofManifest(manifest) {
     if (typeof result.durationMs !== 'number') {
       failures.push(`command ${result.name ?? '<unknown>'} is missing durationMs`);
     }
+    if (typeof result.owner !== 'string') {
+      failures.push(`command ${result.name ?? '<unknown>'} is missing owner`);
+    }
+    if (typeof result.budgetMs !== 'number') {
+      failures.push(`command ${result.name ?? '<unknown>'} is missing budgetMs`);
+    }
+    if (!['ok', 'over-budget'].includes(result.budgetStatus)) {
+      failures.push(`command ${result.name ?? '<unknown>'} has invalid budgetStatus`);
+    }
   }
 
   if (isObject(manifest.selection) && Array.isArray(manifest.selection.commands)) {
@@ -303,13 +312,17 @@ async function runProofCommand(command, runner) {
     await runner(command.command, [], { shell: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`proof command "${command.name}" failed: ${message}`);
+    throw new Error(`proof command "${command.name}" (owner: ${command.owner}) failed: ${message}`);
   }
+  const durationMs = Math.max(1, Date.now() - startedAt);
   return {
     name: command.name,
     command: command.command,
+    owner: command.owner,
+    budgetMs: command.budgetMs,
+    budgetStatus: durationMs > command.budgetMs ? 'over-budget' : 'ok',
     exitCode: 0,
-    durationMs: Math.max(1, Date.now() - startedAt),
+    durationMs,
   };
 }
 
@@ -362,6 +375,8 @@ function comparableSelection(selection) {
     commands: selection.commands.map((command) => ({
       name: command.name,
       command: command.command,
+      owner: command.owner,
+      budgetMs: command.budgetMs,
     })),
   };
 }
@@ -417,6 +432,20 @@ function compareCommandEntries(actual, expected) {
         `selection.commands[${index}].command differs: expected ${
           expected[index]?.command
         }, got ${actual[index]?.command}`
+      );
+    }
+    if (actual[index]?.owner !== expected[index]?.owner) {
+      failures.push(
+        `selection.commands[${index}].owner differs: expected ${
+          expected[index]?.owner
+        }, got ${actual[index]?.owner}`
+      );
+    }
+    if (actual[index]?.budgetMs !== expected[index]?.budgetMs) {
+      failures.push(
+        `selection.commands[${index}].budgetMs differs: expected ${
+          expected[index]?.budgetMs
+        }, got ${actual[index]?.budgetMs}`
       );
     }
   }

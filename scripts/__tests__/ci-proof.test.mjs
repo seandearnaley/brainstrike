@@ -17,6 +17,18 @@ import {
   verifyProofTipDiff,
 } from '../ci-proof.mjs';
 
+function successfulResult(name, command, owner = 'tooling') {
+  return {
+    budgetMs: 30_000,
+    budgetStatus: 'ok',
+    command,
+    durationMs: 1,
+    exitCode: 0,
+    name,
+    owner,
+  };
+}
+
 test('parseProofArgs requires known mode', () => {
   assert.throws(
     () => parseProofArgs(['unknown']),
@@ -47,21 +59,13 @@ test('parseProofArgs explicit mode is independent of invoked filename', () => {
 test('buildProofManifest records successful baseline and selected commands', () => {
   const manifest = buildProofManifest({
     commandResults: [
-      { command: 'pnpm lint:ci', durationMs: 1, exitCode: 0, name: 'lint-ci' },
-      {
-        command: 'pnpm type-check',
-        durationMs: 1,
-        exitCode: 0,
-        name: 'type-check',
-      },
-      { command: 'pnpm build', durationMs: 1, exitCode: 0, name: 'build' },
-      {
-        command:
-          'TURBO_TEST_MODE=unit pnpm exec turbo run test --summarize --log-order=grouped --concurrency=2',
-        durationMs: 1,
-        exitCode: 0,
-        name: 'unit',
-      },
+      successfulResult('lint-ci', 'pnpm lint:ci'),
+      successfulResult('type-check', 'pnpm type-check'),
+      successfulResult('build', 'pnpm build'),
+      successfulResult(
+        'unit',
+        'TURBO_TEST_MODE=unit pnpm exec turbo run test --summarize --log-order=grouped --concurrency=2'
+      ),
     ],
     generatedAt: '2026-05-18T12:00:00.000Z',
     nodeVersion: 'v24.0.0',
@@ -219,10 +223,13 @@ test('verifyProof rejects stale command definitions', async () => {
   };
   const manifest = buildProofManifest({
     commandResults: staleSelection.commands.map((command) => ({
+      budgetMs: command.budgetMs,
+      budgetStatus: 'ok',
       command: command.command,
       durationMs: 1,
       exitCode: 0,
       name: command.name,
+      owner: command.owner,
     })),
     generatedAt: '2026-05-18T12:00:00.000Z',
     nodeVersion: 'v24.0.0',
@@ -319,10 +326,13 @@ test('verifyProof treats deleted files after proof as stale changes', async () =
   });
   const manifest = buildProofManifest({
     commandResults: selection.commands.map((command) => ({
+      budgetMs: command.budgetMs,
+      budgetStatus: 'ok',
       command: command.command,
       durationMs: 1,
       exitCode: 0,
       name: command.name,
+      owner: command.owner,
     })),
     generatedAt: '2026-05-18T12:00:00.000Z',
     nodeVersion: 'v24.0.0',
@@ -424,8 +434,81 @@ test('prove reports the failing proof command name', async () => {
 
   await assert.rejects(
     () => prove({ base: 'origin/main', head: 'HEAD' }, runner),
-    /proof command "diff-check" failed: exit 1/
+    /proof command "diff-check" \(owner: tooling\) failed: exit 1/
   );
+});
+
+test('prove records owner and budget status for each selected command', async () => {
+  const baseSha = '1111111111111111111111111111111111111111';
+  const headSha = '2222222222222222222222222222222222222222';
+  const tempDir = await mkdtemp(join(tmpdir(), 'brainstrike-proof-budget-test-'));
+  const originalNow = Date.now;
+  const timestamps = [1_000, 2_000, 3_000, 40_000];
+  Date.now = () => timestamps.shift() ?? 40_000;
+  const runner = async (command, args) => {
+    if (command === 'git' && args.join(' ') === 'status --porcelain') {
+      return '';
+    }
+    if (command === 'git' && args.join(' ') === 'merge-base origin/main HEAD') {
+      return `${baseSha}\n`;
+    }
+    if (command === 'git' && args.join(' ') === 'rev-parse origin/main') {
+      return `${baseSha}\n`;
+    }
+    if (command === 'git' && args.join(' ') === 'rev-parse HEAD') {
+      return `${headSha}\n`;
+    }
+    if (
+      command === 'git' &&
+      args.join(' ') ===
+        `diff --name-only --diff-filter=ACDMRTUXB ${baseSha} HEAD`
+    ) {
+      return 'docs/architecture-reset/report.html\n';
+    }
+    if (command === 'git' && args.join(' ') === 'remote get-url origin') {
+      return 'git@github.com:seandearnaley/brainstrike.git\n';
+    }
+    if (command === 'pnpm' && args.join(' ') === '--version') {
+      return '10.33.0\n';
+    }
+    return '';
+  };
+
+  try {
+    const manifest = await prove(
+      { base: 'origin/main', head: 'HEAD', proof: join(tempDir, 'latest.json') },
+      runner
+    );
+
+    assert.deepEqual(
+      manifest.commandResults.map((result) => ({
+        budgetMs: result.budgetMs,
+        budgetStatus: result.budgetStatus,
+        durationMs: result.durationMs,
+        name: result.name,
+        owner: result.owner,
+      })),
+      [
+        {
+          budgetMs: 30_000,
+          budgetStatus: 'ok',
+          durationMs: 1_000,
+          name: 'diff-check',
+          owner: 'tooling',
+        },
+        {
+          budgetMs: 30_000,
+          budgetStatus: 'over-budget',
+          durationMs: 37_000,
+          name: 'docs-static',
+          owner: 'documentation',
+        },
+      ]
+    );
+  } finally {
+    Date.now = originalNow;
+    await rm(tempDir, { force: true, recursive: true });
+  }
 });
 
 test('defaultRunner rejects shell args before dropping them', async () => {

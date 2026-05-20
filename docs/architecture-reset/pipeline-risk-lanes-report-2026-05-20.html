@@ -80,7 +80,7 @@
     <h1>Make the Brainstrike pipeline risk-based, timed, and boring</h1>
     <p>This report records the local implementation state as of 2026-05-20 01:22 EDT. No cloud CI, PR updates, proof manifest refresh, or full E2E run was triggered for this slice.</p>
     <div class="flow">
-      <span class="pill good">132 script/workflow tests passed</span>
+      <span class="pill good">133 script/workflow tests passed</span>
       <span class="pill good">0 cloud activity</span>
       <span class="pill warn">concurrency evidence is warm-cache only</span>
       <span class="pill">branch: codex/local-architecture-reset</span>
@@ -96,12 +96,12 @@
     <div class="card">
       <div class="label">Timing model</div>
       <div class="metric">p50/p95</div>
-      <p><code>ci-timing-summary</code> can now emit machine-readable JSON and calibration mode. Slow budgets are visible without becoming noisy hard failures during tuning.</p>
+      <p><code>ci-timing-summary</code> can now emit machine-readable JSON and calibration mode. <code>ci:prove</code> records command owner, budget, duration, and budget status in the proof manifest.</p>
     </div>
     <div class="card">
       <div class="label">Failure ownership</div>
       <div class="metric">owner</div>
-      <p>Every local proof command now carries an owner such as <code>tooling</code>, <code>indexing</code>, <code>desktop-platform</code>, or <code>workspace-experience</code>.</p>
+      <p>Every local proof command now carries an owner such as <code>tooling</code>, <code>indexing</code>, <code>desktop-platform</code>, or <code>workspace-experience</code>, and failing proof commands include that owner in the error.</p>
     </div>
   </section>
 
@@ -171,7 +171,7 @@
       <tbody>
         <tr><td>10 representative changes select deterministic lanes</td><td class="ok">met in script tests</td><td>Risk rule tests cover docs, config/tooling, assistant, embedding, DB migrations, web/file explorer, desktop preload, workflow/full, browser storage, desktop host, web app, runtime fallback.</td></tr>
         <tr><td>Median local PR-risk proof under 8 minutes</td><td class="warn">designed, not fully measured</td><td>Budgets are encoded per command. Needs repeated real local proof samples after this lands.</td></tr>
-        <tr><td>p95 local PR-risk proof under 15 minutes</td><td class="warn">designed, not fully measured</td><td>Timing JSON now supports p50/p95 capture; calibration mode avoids noisy failures while collecting samples.</td></tr>
+        <tr><td>p95 local PR-risk proof under 15 minutes</td><td class="warn">designed, not fully measured</td><td>Timing JSON now supports p50/p95 capture; proof manifests now record per-command budget status. Calibration mode avoids noisy failures while collecting samples.</td></tr>
         <tr><td>Critical PR/cloud gate under 12 minutes p95 for non-E2E changes</td><td class="warn">design present</td><td>Cloud path was not triggered per constraint. Local selector now avoids E2E for docs/config where appropriate.</td></tr>
         <tr><td>Normal UI/product PR gate under 20 minutes p95</td><td class="warn">design present</td><td>Web UI lanes route to file-explorer package tests plus smoke first, not full E2E by default.</td></tr>
         <tr><td>Full suite remains explicit full-risk/release proof</td><td class="ok">met</td><td><code>full-local-suite</code> is selected only for full-release-high-risk.</td></tr>
@@ -179,10 +179,10 @@
         <tr><td>No full web functional E2E for docs/config/isolated unit changes</td><td class="ok">met in tests</td><td>Docs-only and config-tooling select no E2E lane.</td></tr>
         <tr><td>Concurrency 16/24/32/40 measured and documented</td><td class="ok">met with warm-cache caveat</td><td>Recorded above; chosen value remains 40 for cached local work.</td></tr>
         <tr><td>Lane taxonomy and timing budgets documented</td><td class="ok">met</td><td>This artifact plus command registry in <code>scripts/ci-select.mjs</code>.</td></tr>
-        <tr><td>Unit tests cover selection and timing parsing</td><td class="ok">met</td><td>132 script/workflow tests passed locally.</td></tr>
+        <tr><td>Unit tests cover selection and timing parsing</td><td class="ok">met</td><td>133 script/workflow tests passed locally.</td></tr>
         <tr><td>Architecture guards still pass</td><td class="ok">met</td><td><code>pnpm run arch:domain-contract</code> passed: 39 packages across 7 domains and 5 stack phases. <code>pnpm run arch:domain-boundaries</code> passed: 1968 imports across 2809 files; 0/0 approved boundary exceptions used.</td></tr>
         <tr><td>No proof-manifest churn</td><td class="ok">met for this slice</td><td>No changes to <code>.ci/proof/latest.json</code> from this work.</td></tr>
-        <tr><td>Clean working tree after commits</td><td class="ok">met</td><td>Committed locally as <code>7c4b885e6</code>; no proof manifest was refreshed.</td></tr>
+        <tr><td>Clean working tree after commits</td><td class="ok">met</td><td>Committed locally; no proof manifest was refreshed.</td></tr>
       </tbody>
     </table>
   </section>
