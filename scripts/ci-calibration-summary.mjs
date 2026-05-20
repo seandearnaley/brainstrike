@@ -99,6 +99,9 @@ function readCalibrationCommandResult(result, sourcePath) {
   if (typeof result.budgetMs !== 'number') {
     throw new Error(`${sourcePath} command ${result.name} budgetMs must be a number`);
   }
+  if (typeof result.command !== 'string' || result.command.length === 0) {
+    throw new Error(`${sourcePath} command ${result.name} command must be a string`);
+  }
   if (typeof result.exitCode !== 'number') {
     throw new Error(`${sourcePath} command ${result.name} exitCode must be a number`);
   }
@@ -113,6 +116,7 @@ function readCalibrationCommandResult(result, sourcePath) {
     exitCode: result.exitCode,
     name: result.name,
     owner: currentCommand.owner,
+    recordedCommand: result.command,
     recordedBudgetMs: result.budgetMs,
     requiredFor: currentCommand.requiredFor,
     sourcePath,
@@ -136,14 +140,19 @@ function summarizeCommand(name, samples, minSamples) {
   const durations = samples.map((sample) => sample.durationMs);
   const p95Ms = nearestRank(durations, 95);
   const hasFailures = samples.some((sample) => sample.exitCode !== 0);
+  const staleCommandSampleCount = samples.filter(
+    (sample) => sample.recordedCommand !== sample.command
+  ).length;
   const latest = samples[samples.length - 1];
   const status = hasFailures
     ? 'failing'
-    : samples.length < minSamples
-      ? 'calibrating'
-      : p95Ms > latest.currentBudgetMs
-        ? 'over-target'
-        : 'within-target';
+    : staleCommandSampleCount > 0
+      ? 'stale-command'
+      : samples.length < minSamples
+        ? 'calibrating'
+        : p95Ms > latest.currentBudgetMs
+          ? 'over-target'
+          : 'within-target';
   return {
     name,
     owner: latest.owner,
@@ -154,8 +163,10 @@ function summarizeCommand(name, samples, minSamples) {
     currentBudgetMs: latest.currentBudgetMs,
     recordedBudgetMs: latest.recordedBudgetMs,
     recordedBudgetStale: latest.recordedBudgetMs !== latest.currentBudgetMs,
+    recordedCommandStale: staleCommandSampleCount > 0,
     maxDurationMs: Math.max(...durations),
     failureCount: samples.filter((sample) => sample.exitCode !== 0).length,
+    staleCommandSampleCount,
     status,
     sources: samples.map((sample) => sample.sourcePath),
   };
@@ -180,11 +191,13 @@ export function parseCalibrationSummary(calibrationDocuments, options = {}) {
     commandSampleCount: commands.reduce((sum, command) => sum + command.sampleCount, 0),
     status: commands.some((command) => command.status === 'failing')
       ? 'failing'
-      : commands.some((command) => command.status === 'over-target')
-        ? 'over-target'
-        : commands.some((command) => command.status === 'calibrating')
-          ? 'calibrating'
-          : 'within-target',
+      : commands.some((command) => command.status === 'stale-command')
+        ? 'stale-command'
+        : commands.some((command) => command.status === 'over-target')
+          ? 'over-target'
+          : commands.some((command) => command.status === 'calibrating')
+            ? 'calibrating'
+            : 'within-target',
     commands,
   };
 }
@@ -205,6 +218,9 @@ export function renderMarkdownCalibrationSummary(summary) {
     const notes = [
       command.recordedBudgetStale ? `recorded budget ${formatDuration(command.recordedBudgetMs)}` : '',
       command.failureCount > 0 ? `${command.failureCount} failures` : '',
+      command.recordedCommandStale
+        ? `${command.staleCommandSampleCount} stale command definition`
+        : '',
     ]
       .filter(Boolean)
       .join('; ');
@@ -277,7 +293,7 @@ export async function runCli(args = process.argv.slice(2)) {
   if (options.jsonOutput) {
     await writeFile(options.jsonOutput, json);
   }
-  return summary.status === 'failing' || summary.status === 'over-target' ? 1 : 0;
+  return ['failing', 'over-target', 'stale-command'].includes(summary.status) ? 1 : 0;
 }
 
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : null;

@@ -48,6 +48,7 @@ test('parseCalibrationSummary groups calibration samples by current command budg
       calibration('one.json', [
         {
           budgetMs: 180_000,
+          command: 'pnpm --filter @brainstrike/db test',
           durationMs: 260_000,
           exitCode: 0,
           name: 'db-tests',
@@ -56,6 +57,7 @@ test('parseCalibrationSummary groups calibration samples by current command budg
       calibration('two.json', [
         {
           budgetMs: 300_000,
+          command: 'pnpm --filter @brainstrike/db test',
           durationMs: 240_000,
           exitCode: 0,
           name: 'db-tests',
@@ -75,8 +77,10 @@ test('parseCalibrationSummary groups calibration samples by current command budg
     owner: 'data-platform',
     p50Ms: 240_000,
     p95Ms: 260_000,
+    recordedCommandStale: false,
     recordedBudgetMs: 300_000,
     recordedBudgetStale: false,
+    staleCommandSampleCount: 0,
     requiredFor: ['db-migrations-storage'],
     sampleCount: 2,
     sources: ['one.json', 'two.json'],
@@ -89,6 +93,7 @@ test('parseCalibrationSummary marks insufficient and failing samples explicitly'
     calibration('one.json', [
       {
         budgetMs: 30_000,
+        command: 'git diff --check',
         durationMs: 10,
         exitCode: 1,
         name: 'diff-check',
@@ -106,6 +111,7 @@ test('renderMarkdownCalibrationSummary includes p95 and stale budget notes', () 
     calibration('one.json', [
       {
         budgetMs: 180_000,
+        command: 'pnpm stale-db-test',
         durationMs: 269_544,
         exitCode: 0,
         name: 'db-tests',
@@ -118,6 +124,29 @@ test('renderMarkdownCalibrationSummary includes p95 and stale budget notes', () 
   assert.match(markdown, /db-tests/);
   assert.match(markdown, /4m 30s/);
   assert.match(markdown, /recorded budget 3m 0s/);
+  assert.match(markdown, /stale command definition/);
+});
+
+test('parseCalibrationSummary marks stale command samples as stale evidence', () => {
+  const summary = parseCalibrationSummary(
+    [
+      calibration('one.json', [
+        {
+          budgetMs: 120_000,
+          command: 'node --test old-ci-script-tests.test.mjs',
+          durationMs: 310,
+          exitCode: 0,
+          name: 'ci-script-tests',
+        },
+      ]),
+    ],
+    { minSamples: 1 }
+  );
+
+  assert.equal(summary.status, 'stale-command');
+  assert.equal(summary.commands[0].status, 'stale-command');
+  assert.equal(summary.commands[0].recordedCommandStale, true);
+  assert.equal(summary.commands[0].staleCommandSampleCount, 1);
 });
 
 test('runCli writes markdown and JSON from a calibration directory', async () => {
@@ -131,6 +160,7 @@ test('runCli writes markdown and JSON from a calibration directory', async () =>
       commandResults: [
         {
           budgetMs: 30_000,
+          command: 'git diff --check',
           durationMs: 10,
           exitCode: 0,
           name: 'diff-check',

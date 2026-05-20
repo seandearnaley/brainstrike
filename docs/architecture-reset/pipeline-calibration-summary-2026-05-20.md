@@ -3,12 +3,12 @@
 Calibration files: 9
 Command samples: 13
 Minimum samples for hard status: 5
-Overall status: calibrating
+Overall status: stale-command
 
 | Command | Owner | Samples | p50 | p95 | Budget | Status | Notes |
 |---|---|---:|---:|---:|---:|---|---|
 | assistant-contract-tests | assistant | 1 | 8.1s | 8.1s | 3m 0s | calibrating |  |
-| ci-script-tests | tooling | 1 | 310ms | 310ms | 2m 0s | calibrating |  |
+| ci-script-tests | tooling | 1 | 310ms | 310ms | 2m 0s | stale-command | 1 stale command definition |
 | db-tests | data-platform | 1 | 4m 30s | 4m 30s | 5m 0s | calibrating | recorded budget 3m 0s |
 | desktop-smoke-tests | desktop-platform | 1 | 28.3s | 28.3s | 5m 0s | calibrating |  |
 | desktop-unit-tests | desktop-platform | 1 | 49.8s | 49.8s | 4m 0s | calibrating |  |

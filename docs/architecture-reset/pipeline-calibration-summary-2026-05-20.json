@@ -4,7 +4,7 @@
   "minSamples": 5,
   "sampleCount": 9,
   "commandSampleCount": 13,
-  "status": "calibrating",
+  "status": "stale-command",
   "commands": [
     {
       "name": "assistant-contract-tests",
@@ -18,8 +18,10 @@
       "currentBudgetMs": 180000,
       "recordedBudgetMs": 180000,
       "recordedBudgetStale": false,
+      "recordedCommandStale": false,
       "maxDurationMs": 8086,
       "failureCount": 0,
+      "staleCommandSampleCount": 0,
       "status": "calibrating",
       "sources": [
         "docs/architecture-reset/pipeline-calibration-assistant-2026-05-20.json"
@@ -38,9 +40,11 @@
       "currentBudgetMs": 120000,
       "recordedBudgetMs": 120000,
       "recordedBudgetStale": false,
+      "recordedCommandStale": true,
       "maxDurationMs": 310,
       "failureCount": 0,
-      "status": "calibrating",
+      "staleCommandSampleCount": 1,
+      "status": "stale-command",
       "sources": [
         "docs/architecture-reset/pipeline-calibration-sample-2026-05-20.json"
       ]
@@ -57,8 +61,10 @@
       "currentBudgetMs": 300000,
       "recordedBudgetMs": 180000,
       "recordedBudgetStale": true,
+      "recordedCommandStale": false,
       "maxDurationMs": 269544,
       "failureCount": 0,
+      "staleCommandSampleCount": 0,
       "status": "calibrating",
       "sources": [
         "docs/architecture-reset/pipeline-calibration-db-indexing-2026-05-20.json"
@@ -76,8 +82,10 @@
       "currentBudgetMs": 300000,
       "recordedBudgetMs": 300000,
       "recordedBudgetStale": false,
+      "recordedCommandStale": false,
       "maxDurationMs": 28336,
       "failureCount": 0,
+      "staleCommandSampleCount": 0,
       "status": "calibrating",
       "sources": [
         "docs/architecture-reset/pipeline-calibration-desktop-smoke-2026-05-20.json"
@@ -95,8 +103,10 @@
       "currentBudgetMs": 240000,
       "recordedBudgetMs": 240000,
       "recordedBudgetStale": false,
+      "recordedCommandStale": false,
       "maxDurationMs": 49794,
       "failureCount": 0,
+      "staleCommandSampleCount": 0,
       "status": "calibrating",
       "sources": [
         "docs/architecture-reset/pipeline-calibration-desktop-unit-2026-05-20.json"
@@ -114,8 +124,10 @@
       "currentBudgetMs": 30000,
       "recordedBudgetMs": 30000,
       "recordedBudgetStale": false,
+      "recordedCommandStale": false,
       "maxDurationMs": 13,
       "failureCount": 0,
+      "staleCommandSampleCount": 0,
       "status": "calibrating",
       "sources": [
         "docs/architecture-reset/pipeline-calibration-sample-2026-05-20.json"
@@ -133,8 +145,10 @@
       "currentBudgetMs": 240000,
       "recordedBudgetMs": 240000,
       "recordedBudgetStale": false,
+      "recordedCommandStale": false,
       "maxDurationMs": 22083,
       "failureCount": 0,
+      "staleCommandSampleCount": 0,
       "status": "calibrating",
       "sources": [
         "docs/architecture-reset/pipeline-calibration-file-explorer-2026-05-20.json"
@@ -152,8 +166,10 @@
       "currentBudgetMs": 120000,
       "recordedBudgetMs": 120000,
       "recordedBudgetStale": false,
+      "recordedCommandStale": false,
       "maxDurationMs": 1209,
       "failureCount": 0,
+      "staleCommandSampleCount": 0,
       "status": "calibrating",
       "sources": [
         "docs/architecture-reset/pipeline-calibration-storage-filesystem-2026-05-20.json"
@@ -171,8 +187,10 @@
       "currentBudgetMs": 240000,
       "recordedBudgetMs": 240000,
       "recordedBudgetStale": false,
+      "recordedCommandStale": false,
       "maxDurationMs": 4823,
       "failureCount": 0,
+      "staleCommandSampleCount": 0,
       "status": "calibrating",
       "sources": [
         "docs/architecture-reset/pipeline-calibration-db-indexing-2026-05-20.json"
@@ -190,8 +208,10 @@
       "currentBudgetMs": 180000,
       "recordedBudgetMs": 180000,
       "recordedBudgetStale": false,
+      "recordedCommandStale": false,
       "maxDurationMs": 33517,
       "failureCount": 0,
+      "staleCommandSampleCount": 0,
       "status": "calibrating",
       "sources": [
         "docs/architecture-reset/pipeline-calibration-migration-2026-05-20.json"
@@ -209,8 +229,10 @@
       "currentBudgetMs": 120000,
       "recordedBudgetMs": 120000,
       "recordedBudgetStale": false,
+      "recordedCommandStale": false,
       "maxDurationMs": 918,
       "failureCount": 0,
+      "staleCommandSampleCount": 0,
       "status": "calibrating",
       "sources": [
         "docs/architecture-reset/pipeline-calibration-storage-filesystem-2026-05-20.json"
@@ -229,8 +251,10 @@
       "currentBudgetMs": 300000,
       "recordedBudgetMs": 300000,
       "recordedBudgetStale": false,
+      "recordedCommandStale": false,
       "maxDurationMs": 33140,
       "failureCount": 0,
+      "staleCommandSampleCount": 0,
       "status": "calibrating",
       "sources": [
         "docs/architecture-reset/pipeline-calibration-web-smoke-2026-05-20.json"
@@ -249,8 +273,10 @@
       "currentBudgetMs": 180000,
       "recordedBudgetMs": 180000,
       "recordedBudgetStale": false,
+      "recordedCommandStale": false,
       "maxDurationMs": 269,
       "failureCount": 0,
+      "staleCommandSampleCount": 0,
       "status": "calibrating",
       "sources": [
         "docs/architecture-reset/pipeline-calibration-sample-2026-05-20.json"

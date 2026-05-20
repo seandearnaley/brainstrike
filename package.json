@@ -85,6 +85,7 @@
     "ci:calibration-summary": "node scripts/ci-calibration-summary.mjs",
     "ci:prove": "node scripts/ci-proof.mjs prove",
     "ci:proof-timing-summary": "node scripts/ci-proof-timing-summary.mjs",
+    "ci:risk-audit": "node scripts/ci-risk-audit.mjs",
     "ci:risk-fixtures": "node scripts/check-ci-risk-fixtures.mjs",
     "ci:run-changed-unit-tests": "node scripts/run-changed-unit-tests.mjs",
     "ci:select": "node scripts/ci-select.mjs",
