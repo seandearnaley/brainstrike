@@ -432,7 +432,7 @@
         </tr>
         <tr>
           <td><code>pnpm --filter @brainstrike/desktop exec playwright test e2e/factory-reset.desktop.test.ts --project=regression --grep "@destructive" --list</code><br><code>pnpm --filter @brainstrike/desktop exec playwright test e2e/embedding-worker-renderer.smoke.desktop.test.ts e2e/embedding-worker-renderer.backfill-search.desktop.test.ts e2e/embedding-worker-renderer.memory.desktop.test.ts e2e/embedding-worker-renderer.diagnostics.desktop.test.ts --project=regression --grep "@desktop-embedding-recovery" --list</code></td>
-          <td>Local lane listing confirms destructive reset selects the two desktop factory-reset tests and hidden-host recovery selects the two restart/recovery embedding specs, without executing the heavier E2E bodies.</td>
+          <td>Local lane listing confirms destructive reset selects the two desktop factory-reset tests and hidden-host recovery selects the two restart/recovery embedding specs, without executing the heavier E2E bodies. The desktop confirm-path reset spec now seeds and verifies localStorage, sessionStorage, CacheStorage, and IndexedDB first-run cleanup.</td>
           <td><span class="status done">2 reset + 2 recovery tests selected</span></td>
         </tr>
         <tr>
