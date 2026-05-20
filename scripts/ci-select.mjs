@@ -142,7 +142,7 @@ export const LOCAL_PROOF_COMMANDS = {
   'migration-tests': {
     name: 'migration-tests',
     command:
-      'pnpm --filter @brainstrike/db exec vitest run __tests__/migrations*.test.ts __tests__/**/migration*.test.ts',
+      'pnpm --filter @brainstrike/db exec vitest run __tests__/migration-integration.test.ts __tests__/migration-runner.test.ts __tests__/drizzle-migrate.test.ts',
     budgetMs: 180_000,
     owner: 'data-platform',
     requiredFor: ['db-migrations-storage'],

@@ -178,6 +178,15 @@ test('local proof command registry has owners and timing budgets for failure rou
     assert.equal(command.budgetMs > 0, true, command.name);
   }
   assert.equal(LOCAL_PROOF_COMMANDS['db-tests'].budgetMs, 300_000);
+  assert.match(
+    LOCAL_PROOF_COMMANDS['migration-tests'].command,
+    /__tests__\/migration-integration\.test\.ts/
+  );
+  assert.match(
+    LOCAL_PROOF_COMMANDS['migration-tests'].command,
+    /__tests__\/drizzle-migrate\.test\.ts/
+  );
+  assert.doesNotMatch(LOCAL_PROOF_COMMANDS['migration-tests'].command, /\*\*/);
 });
 
 test('buildSelection routes storage changes to storage tests instead of db tests', () => {
