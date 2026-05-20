@@ -11,12 +11,11 @@ type ConfirmOverrideTarget = typeof globalThis & {
   __brainstrikeOriginalConfirm__?: () => boolean;
 };
 
-const FACTORY_RESET_BROWSER_CACHE_NAME = 'brainstrike-factory-reset-e2e-cache';
-const FACTORY_RESET_BROWSER_CACHE_ENTRY_URL =
-  'https://brainstrike.local/factory-reset-e2e-cache-entry';
-const FACTORY_RESET_BROWSER_DB_NAME = 'brainstrike-factory-reset-e2e-indexed-db';
-const FACTORY_RESET_LOCAL_STORAGE_KEY = 'brainstrike:factory-reset:e2e:local-storage';
-const FACTORY_RESET_SESSION_STORAGE_KEY = 'brainstrike:factory-reset:e2e:session-storage';
+const FACTORY_RESET_BROWSER_CACHE_NAME = 'brainstrike-reset-e2e-cache';
+const FACTORY_RESET_BROWSER_CACHE_ENTRY_URL = 'https://brainstrike.local/reset-e2e-cache-entry';
+const FACTORY_RESET_BROWSER_DB_NAME = 'brainstrike-reset-e2e-indexed-db';
+const FACTORY_RESET_LOCAL_STORAGE_KEY = 'brainstrike:reset:e2e:local-storage';
+const FACTORY_RESET_SESSION_STORAGE_KEY = 'brainstrike:reset:e2e:session-storage';
 
 async function openTokenCountingSettings(
   homePage: HomePage,
