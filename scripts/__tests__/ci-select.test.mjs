@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { test } from 'node:test';
 
 import {
@@ -165,10 +166,31 @@ test('E2E lane command taxonomy is explicit and avoids hidden full-suite fallbac
   assert.match(E2E_LANES['desktop-embedding-diagnostics'].command, /@desktop-embedding-lifecycle/);
   assert.doesNotMatch(
     E2E_LANES['desktop-embedding-diagnostics'].command,
+    /embedding-worker-renderer\.test\.ts/
+  );
+  assert.doesNotMatch(
+    E2E_LANES['desktop-embedding-diagnostics'].command,
     /@desktop-embedding-crash/
   );
   assert.match(E2E_LANES['destructive-reset'].command, /@destructive/);
+  assert.match(E2E_LANES['destructive-reset'].command, /apps\/desktop/);
+  assert.match(E2E_LANES['destructive-reset'].command, /factory-reset\.desktop\.test\.ts/);
   assert.match(E2E_LANES['long-soak-release-only'].tagContract, /release/);
+});
+
+test('E2E lane commands reference existing desktop embedding split specs', () => {
+  const desktopEmbeddingCommands = [
+    E2E_LANES['desktop-embedding-diagnostics'].command,
+    LOCAL_PROOF_COMMANDS['desktop-embedding-smoke'].command,
+  ];
+
+  for (const command of desktopEmbeddingCommands) {
+    const files = command.match(/\be2e\/embedding-worker-renderer[^\s]*\.test\.ts\b/g) ?? [];
+    assert.notEqual(files.length, 0, command);
+    for (const file of files) {
+      assert.equal(existsSync(`apps/desktop/${file}`), true, file);
+    }
+  }
 });
 
 test('buildSelection only emits E2E lanes with registered commands', () => {

@@ -19,14 +19,6 @@ async function openTokenCountingSettings(
   await settingsPage.openCategory(/Token Counting/i, 'token-counting');
 }
 
-async function openFactoryResetSettings(
-  homePage: HomePage,
-  settingsPage: SettingsPage
-): Promise<void> {
-  await homePage.openSettings();
-  await settingsPage.openCategory(/Factory Reset/i, 'factory-reset');
-}
-
 async function overrideNextConfirm(
   window: import('@playwright/test').Page,
   value: boolean
@@ -56,7 +48,15 @@ async function restoreConfirmOverride(window: import('@playwright/test').Page): 
   });
 }
 
-test.describe('Factory Reset settings (desktop)', () => {
+test.describe('Factory Reset settings (desktop) @destructive', () => {
+  async function openFactoryResetSettings(
+    homePage: HomePage,
+    settingsPage: SettingsPage
+  ): Promise<void> {
+    await homePage.openSettings();
+    await settingsPage.openCategory(/Factory Reset/i, 'factory-reset');
+  }
+
   test.afterEach(async ({ window }) => {
     await restoreConfirmOverride(window).catch(() => {
       // Some tests intentionally restart the app, which can invalidate the original page.

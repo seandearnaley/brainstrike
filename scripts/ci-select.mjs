@@ -32,15 +32,15 @@ export const E2E_LANES = {
   },
   'desktop-embedding-diagnostics': {
     command:
-      'pnpm --filter @brainstrike/desktop exec playwright test e2e/embedding-worker-renderer.test.ts --project=regression --grep "@desktop-embedding-lifecycle|@desktop-embedding-backfill|@desktop-embedding-search|@desktop-embedding-recovery|@desktop-embedding-memory|@desktop-embedding-mixed"',
+      'pnpm --filter @brainstrike/desktop exec playwright test e2e/embedding-worker-renderer.smoke.desktop.test.ts e2e/embedding-worker-renderer.backfill-search.desktop.test.ts e2e/embedding-worker-renderer.memory.desktop.test.ts e2e/embedding-worker-renderer.diagnostics.desktop.test.ts --project=regression --grep "@desktop-embedding-lifecycle|@desktop-embedding-backfill|@desktop-embedding-search|@desktop-embedding-recovery|@desktop-embedding-memory|@desktop-embedding-mixed"',
     owner: 'indexing',
     tagContract: '@desktop-embedding-* required groups only; crash diagnostics stay release-only',
   },
   'destructive-reset': {
     command:
-      'cd apps/web && pnpm exec playwright test --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep "@destructive"',
+      '(cd apps/web && pnpm exec playwright test --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep "@destructive") && (cd apps/desktop && pnpm exec playwright test e2e/factory-reset.desktop.test.ts --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep "@destructive")',
     owner: 'data-platform',
-    tagContract: '@destructive',
+    tagContract: '@destructive web reset plus desktop factory reset',
   },
   'long-soak-release-only': {
     command: 'pnpm test:e2e',
@@ -165,7 +165,7 @@ export const LOCAL_PROOF_COMMANDS = {
   'desktop-embedding-smoke': {
     name: 'desktop-embedding-smoke',
     command:
-      'pnpm --filter @brainstrike/desktop exec playwright test e2e/embedding-worker-renderer.test.ts --project=regression --grep "@desktop-embedding-lifecycle"',
+      'pnpm --filter @brainstrike/desktop exec playwright test e2e/embedding-worker-renderer.smoke.desktop.test.ts --project=regression --grep "@desktop-embedding-lifecycle"',
     budgetMs: 420_000,
     owner: 'indexing',
     requiredFor: ['desktop-platform-ipc-preload'],

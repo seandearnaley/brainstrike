@@ -277,9 +277,9 @@
           <td>Snapshot now covers DB, scheduler, logging, reset outcome, migration, crash recovery, telemetry runtime metrics, indexing backfills, embedding host, and LLM host. <code>SystemDiagnosticsPanel</code> renders the new fields from the desktop bridge.</td>
         </tr>
         <tr>
-          <td>Factory reset and crash/restart behavior have targeted unit coverage</td>
+          <td>Factory reset and crash/restart behavior have targeted unit and lane coverage</td>
           <td><span class="status partial">partial</span></td>
-          <td>Factory reset records completed/failed diagnostics, and visible-renderer crash recovery records deferred/suppressed/reload state. Explicit reset/host recovery E2E lanes are still open.</td>
+          <td>Factory reset records completed/failed diagnostics, visible-renderer crash recovery records deferred/suppressed/reload state, desktop factory reset is tagged into the destructive lane, and embedding host restart/recovery specs are selected by <code>@desktop-embedding-recovery</code>. Full destructive/reset E2E execution remains explicit, not a default loop.</td>
         </tr>
       </tbody>
     </table>
@@ -405,6 +405,16 @@
           <td>Final assistant URL and renderer reload-intent channels moved out of <code>main.ts</code> and onto owned typed registry channels.</td>
           <td><span class="status done">2 focused checks / 7 assertions</span></td>
         </tr>
+        <tr>
+          <td><code>node --test scripts/__tests__/ci-select.test.mjs --test-name-pattern "E2E lane"</code><br><code>pnpm run lint:e2e-destructive-tags</code><br><code>pnpm run lint:ci-workflow-contracts</code></td>
+          <td>Risk selection now routes destructive reset through both web destructive E2E and desktop factory reset; desktop factory reset must carry <code>@destructive</code>; desktop embedding lanes target split spec files instead of the removed monolith.</td>
+          <td><span class="status done">passed</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec playwright test e2e/factory-reset.desktop.test.ts --project=regression --grep "@destructive" --list</code><br><code>pnpm --filter @brainstrike/desktop exec playwright test e2e/embedding-worker-renderer.smoke.desktop.test.ts e2e/embedding-worker-renderer.backfill-search.desktop.test.ts e2e/embedding-worker-renderer.memory.desktop.test.ts e2e/embedding-worker-renderer.diagnostics.desktop.test.ts --project=regression --grep "@desktop-embedding-recovery" --list</code></td>
+          <td>Local lane listing confirms destructive reset selects the two desktop factory-reset tests and hidden-host recovery selects the two restart/recovery embedding specs, without executing the heavier E2E bodies.</td>
+          <td><span class="status done">2 reset + 2 recovery tests selected</span></td>
+        </tr>
       </tbody>
     </table>
   </section>
@@ -426,8 +436,8 @@
         </tr>
         <tr>
           <td>Reset and recovery</td>
-          <td>Add targeted desktop reset and host restart tests; keep them lane-tagged so they are not default feedback-loop work.</td>
-          <td>E2E proves first-run reset and hidden host recovery without unnecessary visible renderer reloads.</td>
+          <td>Execute the destructive desktop factory-reset lane and the <code>@desktop-embedding-recovery</code> lane only when release/full-risk proof is explicitly requested.</td>
+          <td>Executed E2E proves first-run reset and hidden host recovery without unnecessary visible renderer reloads; lane selection already keeps these tests out of low-risk feedback loops.</td>
         </tr>
       </tbody>
     </table>

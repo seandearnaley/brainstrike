@@ -1036,7 +1036,7 @@ jobs:
           fi
 
           unset NO_COLOR
-          pnpm exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=720000 --grep "$EMBED_GREP" e2e/embedding-worker-renderer.test.ts
+          pnpm exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=720000 --grep "$EMBED_GREP" e2e/embedding-worker-renderer.smoke.desktop.test.ts e2e/embedding-worker-renderer.backfill-search.desktop.test.ts e2e/embedding-worker-renderer.memory.desktop.test.ts e2e/embedding-worker-renderer.diagnostics.desktop.test.ts
           TEST_EXIT_CODE=$?
 
           kill $XVFB_PID 2>/dev/null || true
@@ -1237,7 +1237,7 @@ jobs:
           fi
 
           unset NO_COLOR
-          pnpm exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=720000 --grep "$EMBED_GREP" e2e/embedding-worker-renderer.test.ts
+          pnpm exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=720000 --grep "$EMBED_GREP" e2e/embedding-worker-renderer.smoke.desktop.test.ts e2e/embedding-worker-renderer.backfill-search.desktop.test.ts e2e/embedding-worker-renderer.memory.desktop.test.ts e2e/embedding-worker-renderer.diagnostics.desktop.test.ts
           TEST_EXIT_CODE=$?
 
           kill $XVFB_PID 2>/dev/null || true
