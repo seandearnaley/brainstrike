@@ -8,12 +8,12 @@
 import type { RuntimeData } from '@brainstrike/agent';
 import { isNativeTool, NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/client';
 import { createLogger } from '@brainstrike/utils/logger';
-import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { callTool } from './mcp';
 import { executeNativeTool, isExecutableNativeTool } from './native-tool-executor';
+import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
 const logger = createLogger('IpcTools');
 
@@ -506,13 +506,15 @@ async function executeMcpTool(
 /**
  * Register IPC handlers for tool execution.
  */
-export function registerToolsIpcHandlers(dependencies: ToolsIpcDependencies = {}): void {
+export function registerToolsIpcHandlers(dependencies: ToolsIpcDependencies = {}): () => void {
   logger.debug('Registering tools IPC handlers');
+  const registry = createDesktopIpcRegistry({ ipcMain });
 
-  ipcMain.handle(
+  registry.registerInvoke(
+    'tools',
     'tools:execute',
     async (
-      _event: IpcMainInvokeEvent,
+      _event,
       toolId: unknown,
       input: unknown,
       runtimeDataInput?: unknown
@@ -560,4 +562,8 @@ export function registerToolsIpcHandlers(dependencies: ToolsIpcDependencies = {}
       }
     }
   );
+
+  return () => {
+    registry.unregisterAll();
+  };
 }
