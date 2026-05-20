@@ -67,7 +67,7 @@ export const LOCAL_PROOF_COMMANDS = {
   'ci-script-tests': {
     name: 'ci-script-tests',
     command:
-      'node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs',
+      'node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs',
     budgetMs: 120_000,
     owner: 'tooling',
     requiredFor: ['config-tooling', 'full-release-high-risk'],
