@@ -11,7 +11,6 @@ This inventory tracks size and churn hotspots that remain after the legal domain
 | 3150 | `apps/desktop/e2e/file-explorer-selection.desktop.test.ts` | Split after embedding E2E unless this lane becomes flaky first. |
 | 2947 | `packages/file-explorer-ui/src/__tests__/optimized-file-tree.test.tsx` | Split by tree behavior: rows, virtualization, lazy loading, selection. |
 | 2765 | `packages/app-shell/src/__tests__/assistant-ui-panel-wrapper.test.tsx` | Split by assistant contract, local runtime, thread/context wiring. |
-| 2559 | `packages/file-explorer-ui/src/tree/optimized-file-tree.tsx` | Reduce to tree composition over row, windowing, telemetry, and keyboard modules. |
 | 2344 | `apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts` | Split by db IPC capability after handler registry exists. |
 | 2258 | `packages/file-explorer-ui/src/__tests__/use-background-token-indexer-integration.test.tsx` | Split by indexer lifecycle, token cache, refresh and cancellation behavior. |
 | 2242 | `packages/app-shell/src/assistant-ui-panel-wrapper.tsx` | Reduce to thin composition over assistant contract and app-shell adapters. |
@@ -101,9 +100,21 @@ Package-local architecture coverage now verifies the catalog service file stays 
 - `pnpm --filter @brainstrike/assistant-contract test`
 - `pnpm --filter @brainstrike/assistant-contract type-check`
 
+## File Explorer Tree Composition Slice Completed
+
+`packages/file-explorer-ui/src/tree/optimized-file-tree.tsx` is reduced from 2559 LOC to 896 LOC and is now a composition module over:
+
+- `optimized-file-tree-model.ts` for row model construction, selection state derivation, directory mutation helpers, worker rows, and normalized rows.
+- `optimized-file-tree-selection-counts.ts` for selected-directory count projections and workspace-relative selection path matching.
+
+All three owned tree files are below the 1500 LOC source budget. Package-local architecture coverage now verifies `optimized-file-tree.tsx` stays below budget. Verification for this slice:
+
+- `pnpm --filter @brainstrike/file-explorer-ui exec vitest run src/__tests__/index.test.ts src/__tests__/optimized-file-tree.test.tsx`
+- `pnpm --filter @brainstrike/file-explorer-ui type-check`
+
 ## Next Slices
 
-1. Split `optimized-file-tree.tsx` and its 2947-line test file by extracting row/windowing/telemetry modules.
+1. Split `packages/file-explorer-ui/src/__tests__/optimized-file-tree.test.tsx` by rows, normalized tree behavior, selection mutation, and query-selection behavior.
 2. Split `packages/app-shell/src/assistant-ui-panel-wrapper.tsx` and its large test by local-runtime, preferences, thread, and context wiring responsibilities.
 3. Tighten E2E lane selection so the split desktop embedding diagnostic files are only selected for matching high-risk diffs.
 4. Move `ipc-handlers.ts` toward a domain-keyed registry after the embedding E2E split reduces verification cost.

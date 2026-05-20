@@ -65,6 +65,16 @@ describe('file-explorer-ui index exports', () => {
     expect(treeFiles).toEqual(treeImplementationFiles);
   });
 
+  it('keeps optimized file tree as a composition module under the source-file budget', () => {
+    const sourceRoot = path.resolve(process.cwd(), 'src');
+    const optimizedTreeSource = readFileSync(
+      path.join(sourceRoot, 'tree', 'optimized-file-tree.tsx'),
+      'utf8'
+    );
+
+    expect(optimizedTreeSource.split('\n').length).toBeLessThanOrEqual(1500);
+  });
+
   it('keeps preview implementation files inside the preview slice', () => {
     const sourceRoot = path.resolve(process.cwd(), 'src');
     const previewImplementationMoves = [

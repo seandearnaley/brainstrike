@@ -2,12 +2,16 @@
 
 ## Ownership
 
-Owns tree rendering, virtualized rows, lazy loading, file-tree provider state, file-tree index helpers, and row-level selection behavior.
+Owns tree rendering, virtualized rows, lazy loading, file-tree provider state, file-tree index helpers, row-level selection behavior, and tree selection-count projections.
 
 Top churn owned here:
 - `optimized-file-tree.tsx`
+- `optimized-file-tree-model.ts`
+- `optimized-file-tree-selection-counts.ts`
 - `use-lazy-file-tree.ts`
 - `file-tree-provider.tsx`
+
+`optimized-file-tree.tsx` must stay a composition module. Row model construction, selection state derivation, directory mutation helpers, and selected-directory count calculations belong in the owned helper modules listed above.
 
 ## Public surface
 
