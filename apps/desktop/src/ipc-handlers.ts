@@ -1,4 +1,3 @@
-import path from 'node:path';
 import {
   createDatabaseWorkScheduler,
   type DatabaseWorkOptions,
@@ -9,10 +8,7 @@ import {
   escapePGliteLiveQueryFormatPercents,
   parseManagedCacheBatchArgs,
 } from '@brainstrike/db';
-import type { DirectoryHandle, FileHandle, SerializableFileNode } from '@brainstrike/file-system';
-import { AccessError, getTestDirectoryStructure } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
-import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { LiveQuery, LiveQueryResults } from '@electric-sql/pglite/live';
@@ -28,12 +24,7 @@ import {
   EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
   EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL,
 } from './embedding-host-shared';
-import {
-  createFileReadErrorPayload,
-  FILE_READ_ERROR_CODE_NOT_FOUND,
-  type FileReadErrorPayload,
-  isFileNotFoundError,
-} from './file-read-errors';
+import { registerFileSystemIpcHandlers } from './ipc-domains/file-system-ipc';
 import { registerStoragePreferencesIpcHandlers } from './ipc-domains/storage-preferences-ipc';
 import {
   cancelAllDesktopEmbeddingBackfills,
@@ -46,11 +37,6 @@ import {
 import type { DesktopSettingsStoreSchema } from './store-schema';
 
 // import { getDatabase } from './db-main'; // Disabled - using renderer process database
-
-// Storage keys for persistent data
-const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
-const MOCK_PATH_PREFIX = '/mock/' as const;
-const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
 
 /**
  * Register all IPC handlers used by the desktop application.
@@ -67,19 +53,6 @@ interface LiveSubscriptionRecord {
   listener: (results: LiveQueryResults<unknown>) => void;
   mode: 'query' | 'incremental';
   webContentsId: number;
-}
-
-interface ElectronE2eFileSystemFixture {
-  directoriesByPath: Record<string, SerializableFileNode[]>;
-  fileContentsByPath: Record<string, string>;
-  readDirectoryCalls: string[];
-  readFileByPathCalls: string[];
-  readFileCalls: string[];
-  requestDirectoryAccessCount: number;
-  rootHandle: DirectoryHandle & {
-    id: string;
-    type: 'directory';
-  };
 }
 
 const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
@@ -109,14 +82,6 @@ let liveFlushTimer: ReturnType<typeof setTimeout> | null = null;
 const LIVE_FLUSH_BACKGROUND_INTERVAL_MS = 2000;
 const LIVE_FLUSH_FOREGROUND_INTERVAL_MS = 200;
 const DEFAULT_DATABASE_WORK_IDLE_TIMEOUT_MS = 5000;
-function getElectronE2eFileSystemFixture(): ElectronE2eFileSystemFixture | null {
-  const fixture = (
-    globalThis as typeof globalThis & {
-      [E2E_FILE_SYSTEM_FIXTURE_KEY]?: ElectronE2eFileSystemFixture;
-    }
-  )[E2E_FILE_SYSTEM_FIXTURE_KEY];
-  return fixture ?? null;
-}
 
 async function cleanupLiveSubscriptionsForOwner(
   webContentsId: number,
@@ -237,61 +202,6 @@ export function setBackgrounded(value: boolean): void {
   if (!value && wasBackgrounded) {
     flushPendingLiveUpdates();
   }
-}
-
-function hasTooLargeCode(error: unknown): error is { code: 'TOO_LARGE'; message?: unknown } {
-  if (!error || typeof error !== 'object') {
-    return false;
-  }
-  const candidate = error as { code?: unknown };
-  return candidate.code === 'TOO_LARGE';
-}
-
-function getFileTooLargeMessage(error: unknown): string | null {
-  if (hasTooLargeCode(error)) {
-    if (error instanceof Error) {
-      return error.message;
-    }
-    const message = (error as { message?: unknown }).message;
-    return typeof message === 'string' ? message : 'File too large';
-  }
-
-  if (error instanceof AccessError && error.operation === 'read') {
-    return error.message.includes('File too large') ? error.message : null;
-  }
-  if (error instanceof Error && error.message.startsWith('File too large:')) {
-    return error.message;
-  }
-  return null;
-}
-
-/**
- * Convert a thrown error from `fileSystem.readFile*` into a typed
- * `FileReadErrorPayload` for known expected cases (too-large, not-found).
- * Returns `null` if the error is something else — caller should rethrow.
- *
- * Returning a payload (instead of throwing) lets ipcMain skip its
- * automatic "Error occurred in handler" log for these normal cases.
- * The preload-side `unwrapFileReadResult` still converts the payload
- * back into a thrown Error before it reaches the renderer, preserving
- * the caller-side contract.
- */
-function toFileReadErrorPayload(error: unknown, path: string): FileReadErrorPayload | null {
-  const tooLargeMessage = getFileTooLargeMessage(error);
-  if (tooLargeMessage) {
-    logger.debug('Skipping oversized file read', { path, message: tooLargeMessage });
-    return createFileReadErrorPayload(tooLargeMessage);
-  }
-  if (isFileNotFoundError(error)) {
-    // File deleted between directory scan and read — expected during
-    // normal file-tree refresh after deletes/renames.
-    logger.debug('File not found during read', { path });
-    return createFileReadErrorPayload(
-      error instanceof Error ? error.message : 'File not found',
-      FILE_READ_ERROR_CODE_NOT_FOUND
-    );
-  }
-  return null;
 }
 
 /**
@@ -725,218 +635,9 @@ export function registerIpcHandlers(
     getStore,
     storage,
   });
-
-  registerHandler('fs:requestDirectoryAccess', async (_e: IpcMainInvokeEvent) => {
-    // Check if we're in test mode to avoid native dialogs
-    const electronTestEnv = process.env['ELECTRON_IS_E2E_TEST'];
-
-    const nodeEnv = process.env['NODE_ENV'];
-    const isTestMode =
-      process.argv.includes('--test-mode') || electronTestEnv === 'true' || nodeEnv === 'test';
-
-    if (isTestMode) {
-      const fixture = getElectronE2eFileSystemFixture();
-      if (fixture) {
-        fixture.requestDirectoryAccessCount += 1;
-        return fixture.rootHandle;
-      }
-      // Return a mock directory handle for testing
-      return {
-        id: 'mock-directory-handle',
-        name: 'mock-test-directory',
-        path: '/mock/test/directory',
-        type: 'directory',
-        kind: 'directory',
-        platform: 'electron',
-      };
-    }
-
-    return fileSystem.requestDirectoryAccess();
-  });
-  registerHandler('fs:readDirectory', async (_e: IpcMainInvokeEvent, handle: DirectoryHandle) => {
-    const fixture = getElectronE2eFileSystemFixture();
-    if (fixture) {
-      fixture.readDirectoryCalls.push(handle.path);
-      const entries = fixture.directoriesByPath[handle.path];
-      if (!entries) {
-        throw new AccessError(
-          `Failed to read directory: no E2E fixture registered for ${handle.path}`,
-          handle.path,
-          'read'
-        );
-      }
-      return entries;
-    }
-
-    // Check if this is a mock handle for testing
-    if (
-      handle &&
-      typeof handle === 'object' &&
-      'id' in handle &&
-      handle.id === 'mock-directory-handle'
-    ) {
-      const rootPath = '/mock/test/directory';
-      // Return IFileNode-compatible structure
-      return getTestDirectoryStructure(rootPath);
-    }
-    return fileSystem.readDirectory(handle);
-  });
-
-  registerHandler('fs:readFile', async (_e: IpcMainInvokeEvent, handle: FileHandle) => {
-    const fixture = getElectronE2eFileSystemFixture();
-    if (fixture) {
-      fixture.readFileCalls.push(handle.path);
-      const content = fixture.fileContentsByPath[handle.path];
-      if (content === undefined) {
-        throw new AccessError(
-          `Failed to read file: no E2E fixture registered for ${handle.path}`,
-          handle.path,
-          'read'
-        );
-      }
-      return content;
-    }
-
-    // Check if this is a mock handle for testing
-    if (
-      handle &&
-      typeof handle === 'object' &&
-      'id' in handle &&
-      String(handle.id).includes('mock-')
-    ) {
-      return 'Mock file content for testing purposes\nThis is a test file.\n';
-    }
-    try {
-      return await fileSystem.readFile(handle);
-    } catch (error) {
-      const payload = toFileReadErrorPayload(error, handle.path);
-      if (payload) {
-        return payload;
-      }
-      throw error;
-    }
-  });
-
-  // BST-307: Direct path-based file reading for persisted tab restoration
-  registerHandler('fs:readFileByPath', async (_e: IpcMainInvokeEvent, absolutePath: string) => {
-    const fixture = getElectronE2eFileSystemFixture();
-    if (fixture) {
-      fixture.readFileByPathCalls.push(absolutePath);
-      const content = fixture.fileContentsByPath[absolutePath];
-      if (content === undefined) {
-        throw new AccessError(
-          `Failed to read file by path: no E2E fixture registered for ${absolutePath}`,
-          absolutePath,
-          'read'
-        );
-      }
-      return content;
-    }
-
-    // Check for mock paths in test mode
-    if (absolutePath.startsWith(MOCK_PATH_PREFIX)) {
-      return 'Mock file content for testing purposes\nThis is a test file.\n';
-    }
-
-    // Basic path validation
-    const resolved = await resolveValidatedPath({ requestedPath: absolutePath });
-    if (!resolved.ok) {
-      throw new Error(`Invalid path: ${resolved.error}`);
-    }
-
-    try {
-      return await fileSystem.readFileByPath(resolved.path);
-    } catch (error) {
-      const payload = toFileReadErrorPayload(error, resolved.path);
-      if (payload) {
-        return payload;
-      }
-      throw error;
-    }
-  });
-
-  registerHandler('fs:exists', async (_e: IpcMainInvokeEvent, p: string) => {
-    const fixture = getElectronE2eFileSystemFixture();
-    if (fixture) {
-      return (
-        p === fixture.rootHandle.path ||
-        p in fixture.directoriesByPath ||
-        p in fixture.fileContentsByPath
-      );
-    }
-
-    // Check for mock paths in test mode
-    if (p.startsWith(MOCK_PATH_PREFIX)) {
-      return true;
-    }
-
-    // Basic path validation - prevent obvious security issues
-    const resolved = await resolveValidatedPath({ requestedPath: p });
-    if (!resolved.ok) {
-      logger.debug('Invalid path provided during exists check', {
-        error: resolved.error,
-        path: p,
-      });
-      return false;
-    }
-
-    return fileSystem.exists(resolved.path);
-  });
-
-  // Auto-restore last folder functionality for desktop
-
-  /**
-   * Attempts to restore the last opened folder if it still exists
-   * @returns DirectoryHandle if successful, null if no folder or folder missing
-   */
-  registerHandler('fs:restoreLastFolder', async (_e: IpcMainInvokeEvent) => {
-    try {
-      const lastFolderPath = await storage.getItem(LAST_FOLDER_STORAGE_KEY);
-
-      if (!lastFolderPath) {
-        return null;
-      }
-
-      // Verify the folder still exists and is accessible
-      const exists = await fileSystem.exists(lastFolderPath);
-
-      if (!exists) {
-        // Clean up invalid path
-        await storage.removeItem(LAST_FOLDER_STORAGE_KEY);
-        return null;
-      }
-
-      // Return a DirectoryHandle for the last folder
-      const handle: DirectoryHandle = {
-        path: lastFolderPath,
-        name: path.basename(lastFolderPath),
-        kind: 'directory' as const,
-        platform: 'electron' as const,
-      };
-      return handle;
-    } catch (error) {
-      if (process.env['NODE_ENV'] === 'development') {
-        logger.debug('Auto-restore failed', { error });
-      }
-      // If there's any error, just return null and let user select manually
-      return null;
-    }
-  });
-
-  /**
-   * Saves the folder path for auto-restore on next application launch
-   * @param folderPath - The folder path to save for future restoration
-   */
-  registerHandler('fs:saveLastFolder', async (_e: IpcMainInvokeEvent, folderPath: string) => {
-    try {
-      await storage.setItem(LAST_FOLDER_STORAGE_KEY, folderPath);
-    } catch (error) {
-      if (process.env['NODE_ENV'] === 'development') {
-        logger.debug('Failed to save last folder', { error });
-      }
-      // Non-critical error, silently fail
-      // The worst case is the user needs to select folder again on next launch
-    }
+  const unregisterFileSystemIpcHandlers = registerFileSystemIpcHandlers({
+    fileSystem,
+    storage,
   });
 
   // Database IPC handlers (wrapped with corruption recovery)
@@ -1243,6 +944,7 @@ export function registerIpcHandlers(
   });
 
   return () => {
+    unregisterFileSystemIpcHandlers();
     unregisterStoragePreferencesIpcHandlers();
     for (const channel of registeredChannels) {
       ipcMain.removeHandler(channel);
