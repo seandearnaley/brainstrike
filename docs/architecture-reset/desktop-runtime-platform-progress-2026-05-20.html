@@ -475,6 +475,11 @@
           <td>Renderer-only architecture guards reject nested local LLM and embedding worker subpath imports from Electron main while preserving the hosted provider-core path.</td>
           <td><span class="status done">14 boundary tests</span></td>
         </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/embedding-host-shared.test.ts src/__tests__/platform/desktop-ipc-channel-contract.test.ts</code></td>
+          <td>Embedding host backfill-management channels now come from the typed background-runtime descriptor instead of standalone raw string constants, and the IPC contract test rejects future descriptor escape hatches.</td>
+          <td><span class="status done">2 files / 8 tests</span></td>
+        </tr>
       </tbody>
     </table>
   </section>

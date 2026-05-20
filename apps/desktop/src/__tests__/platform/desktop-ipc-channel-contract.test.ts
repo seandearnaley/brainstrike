@@ -33,6 +33,10 @@ describe('desktop IPC channel contract', () => {
       'utf8'
     );
     const dbSharedSource = readFileSync(path.join(SOURCE_ROOT, 'db-shared.ts'), 'utf8');
+    const embeddingHostSource = readFileSync(
+      path.join(SOURCE_ROOT, 'embedding-host-shared.ts'),
+      'utf8'
+    );
     const parserHostSource = readFileSync(path.join(SOURCE_ROOT, 'parser-host-shared.ts'), 'utf8');
     const runtimeSource = readFileSync(path.join(SOURCE_ROOT, 'ipc-runtime.ts'), 'utf8');
 
@@ -40,6 +44,7 @@ describe('desktop IPC channel contract', () => {
     expect(assistantToolsSource).not.toMatch(/WORKSPACE_CONTEXT_[A-Z_]+_EVENT\s*=\s*['"]/);
     expect(dbSharedSource).toContain("from './platform/desktop-ipc-channels'");
     expect(dbSharedSource).not.toMatch(/DB_[A-Z_]+_CHANNEL\s*=\s*['"]/);
+    expect(embeddingHostSource).not.toMatch(/EMBEDDING_HOST_[A-Z_]+_(?:CHANNEL|EVENT)\s*=\s*['"]/);
     expect(parserHostSource).toContain("from './platform/desktop-ipc-channels'");
     expect(parserHostSource).not.toMatch(/PARSER_HOST_PARSE_CHANNEL\s*=\s*['"]/);
     expect(runtimeSource).toContain("from './platform/desktop-ipc-channels'");
