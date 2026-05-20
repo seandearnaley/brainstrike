@@ -20,9 +20,17 @@
       "types": "./dist/local-llm.d.ts",
       "import": "./dist/local-llm.js"
     },
+    "./local-llm-artifacts": {
+      "types": "./dist/local-llm-artifacts.d.ts",
+      "import": "./dist/local-llm-artifacts.js"
+    },
     "./local-llm-device": {
       "types": "./dist/local-llm-device.d.ts",
       "import": "./dist/local-llm-device.js"
+    },
+    "./local-llm-model-specs": {
+      "types": "./dist/local-llm-model-specs.d.ts",
+      "import": "./dist/local-llm-model-specs.js"
     },
     "./context-packer": {
       "types": "./dist/context-packer.d.ts",

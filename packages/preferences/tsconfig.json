@@ -39,9 +39,6 @@
       "path": "../assistant-contract"
     },
     {
-      "path": "../agent"
-    },
-    {
       "path": "../db"
     },
     {

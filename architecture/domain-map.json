@@ -60,13 +60,6 @@
       "retireByPhase": "phase-4"
     },
     {
-      "id": "preferences-agent-settings-coupling",
-      "sourcePackage": "@brainstrike/preferences",
-      "importedPackage": "@brainstrike/agent",
-      "reason": "Preferences currently owns assistant, provider, local runtime, tools, and memory settings UI. Phase 3 extracts settings contracts from runtime implementations.",
-      "retireByPhase": "phase-3"
-    },
-    {
       "id": "preferences-embeddings-settings-coupling",
       "sourcePackage": "@brainstrike/preferences",
       "importedPackage": "@brainstrike/embeddings",

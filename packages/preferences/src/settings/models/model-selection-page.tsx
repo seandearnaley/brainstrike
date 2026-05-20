@@ -126,8 +126,9 @@ async function downloadLlmModel(
   model: DbModel,
   { modelCacheDir, setDownloadProgress, setDownloading, toast }: DownloadDeps
 ): Promise<void> {
-  // Dynamic import from client entry to avoid server-only Mastra dependencies
-  const { LocalLlmBackend } = await import('@brainstrike/agent/local-llm');
+  const { downloadBuiltInLocalLlmModel } = await import(
+    '@brainstrike/assistant-contract/local-llm-artifacts'
+  );
 
   setDownloading(model.id, true);
   setDownloadProgress(model.id, 0);
@@ -149,7 +150,7 @@ async function downloadLlmModel(
     if (modelCacheDir) {
       downloadOptions.cacheDir = modelCacheDir;
     }
-    await LocalLlmBackend.downloadModel(model.id, downloadOptions);
+    await downloadBuiltInLocalLlmModel(model.id, downloadOptions);
 
     setDownloadProgress(model.id, 100);
     toast({

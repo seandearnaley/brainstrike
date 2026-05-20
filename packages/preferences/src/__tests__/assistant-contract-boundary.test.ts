@@ -4,9 +4,14 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const PREFERENCES_SRC_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const PREFERENCES_PACKAGE_ROOT = path.resolve(PREFERENCES_SRC_ROOT, '..');
 
 function readSource(relativePath: string): string {
   return readFileSync(path.join(PREFERENCES_SRC_ROOT, relativePath), 'utf8');
+}
+
+function readPackageFile(relativePath: string): string {
+  return readFileSync(path.join(PREFERENCES_PACKAGE_ROOT, relativePath), 'utf8');
 }
 
 describe('preferences assistant contract boundary', () => {
@@ -65,5 +70,19 @@ describe('preferences assistant contract boundary', () => {
     );
 
     expect(violatingFiles).toEqual([]);
+  });
+
+  it('reads built-in local LLM artifact operations from assistant-contract instead of agent runtime packages', () => {
+    const packageJson = JSON.parse(readPackageFile('package.json')) as {
+      dependencies?: Record<string, string>;
+    };
+
+    expect(readSource('stores/model-registry-store.ts')).not.toMatch(
+      /@brainstrike\/agent\/local-llm/
+    );
+    expect(readSource('settings/models/model-selection-page.tsx')).not.toMatch(
+      /@brainstrike\/agent\/local-llm/
+    );
+    expect(packageJson.dependencies).not.toHaveProperty('@brainstrike/agent');
   });
 });
