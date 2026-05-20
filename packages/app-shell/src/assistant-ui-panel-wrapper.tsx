@@ -1,13 +1,13 @@
+import { LocalLlmBackend } from '@brainstrike/agent/local-llm';
 import type {
   AnthropicProviderOptions,
   GoogleProviderOptions,
+  LocalLlmBackendFactory,
   LocalProviderOptions,
   OpenAiProviderOptions,
   RuntimeAssistantMemorySettings,
   RuntimeData,
-} from '@brainstrike/agent';
-import { LocalLlmBackend } from '@brainstrike/agent/local-llm';
-import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
+} from '@brainstrike/assistant-contract';
 import {
   isLoadedRuntimeModelCatalogState,
   type LocalRuntimeAvailabilityState,

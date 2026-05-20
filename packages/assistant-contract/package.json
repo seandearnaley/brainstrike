@@ -44,6 +44,10 @@
       "types": "./dist/run-events.d.ts",
       "import": "./dist/run-events.js"
     },
+    "./runtime-data": {
+      "types": "./dist/runtime-data.d.ts",
+      "import": "./dist/runtime-data.js"
+    },
     "./tool-metadata": {
       "types": "./dist/tool-metadata.d.ts",
       "import": "./dist/tool-metadata.js"
