@@ -20,28 +20,14 @@ interface BackgroundRuntimeLifecycleChannels {
 interface RegisterBackgroundRuntimeLifecycleIpcOptions<TStatus> {
   readonly assertStatus: (value: unknown) => TStatus;
   readonly channels: BackgroundRuntimeLifecycleChannels;
-  readonly domain?: DesktopIpcDomain;
+  readonly domain: DesktopIpcDomain;
   readonly manager: BackgroundRuntimeLifecycleManager<TStatus>;
-}
-
-function inferLifecycleDomain(channels: BackgroundRuntimeLifecycleChannels): DesktopIpcDomain {
-  if (channels.ensureStarted.startsWith('embedding-host:')) {
-    return 'embeddings';
-  }
-  if (channels.ensureStarted.startsWith('llm-host:')) {
-    return 'llm-host';
-  }
-  if (channels.ensureStarted.startsWith('chunking-host:')) {
-    return 'chunking-host';
-  }
-  return 'runtime';
 }
 
 export function registerBackgroundRuntimeLifecycleIpcHandlers<TStatus>(
   options: RegisterBackgroundRuntimeLifecycleIpcOptions<TStatus>
 ): () => void {
-  const { assertStatus, channels, manager } = options;
-  const domain = options.domain ?? inferLifecycleDomain(channels);
+  const { assertStatus, channels, domain, manager } = options;
   const registry = createDesktopIpcRegistry({ ipcMain });
 
   registry.registerInvoke(domain, channels.ensureStarted, async () =>

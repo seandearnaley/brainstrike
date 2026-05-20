@@ -254,7 +254,7 @@
         <tr>
           <td>Adding an IPC channel has a domain owner and focused test path</td>
           <td><span class="status done">done</span></td>
-          <td>Registry, four extracted domains, diagnostics, logging, parser host, agent chat, secrets, runtime probes, MCP config/tools, tool execution, main platform lifecycle, and hidden host IPC modules are tested. Direct production <code>ipcMain</code> registration is isolated to <code>platform/desktop-ipc-registry.ts</code>. Production registry calls and production <code>webContents.send()</code> broadcasts must use named channel contracts from <code>platform/desktop-ipc-channels.ts</code>; preload bridge calls are barred from raw <code>ipcRenderer</code> channel literals and source-checked against the same catalog while preload remains runtime self-contained.</td>
+          <td>Registry, four extracted domains, diagnostics, logging, parser host, agent chat, secrets, runtime probes, MCP config/tools, tool execution, main platform lifecycle, and hidden host IPC modules are tested. Direct production <code>ipcMain</code> registration is isolated to <code>platform/desktop-ipc-registry.ts</code>. Production registry calls and production <code>webContents.send()</code> broadcasts must use named channel contracts from <code>platform/desktop-ipc-channels.ts</code>; preload bridge calls are barred from raw <code>ipcRenderer</code> channel literals and source-checked against the same catalog while preload remains runtime self-contained. Background runtime lifecycle IPC no longer infers ownership from channel prefixes; embedding, chunking, and LLM hosts pass their IPC domain explicitly.</td>
         </tr>
         <tr>
           <td>Renderer-only local LLM and embedding execution is enforceable</td>
@@ -359,6 +359,11 @@
           <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/main/ipc-embedding-host.test.ts src/__tests__/main/ipc-chunking-host.test.ts src/__tests__/ipc-llm-host.test.ts</code></td>
           <td>Typed registry migration preserved host status, response, chunking, warmup, generate, and cancel IPC behavior.</td>
           <td><span class="status done">3 files / 27 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts -t "runtime lifecycle IPC domain ownership"</code><br><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/register-background-runtime-lifecycle-ipc.test.ts</code></td>
+          <td>Background runtime lifecycle IPC registrations require explicit domain ownership and no longer silently infer <code>runtime</code>, <code>embeddings</code>, <code>chunking-host</code>, or <code>llm-host</code> from channel string prefixes.</td>
+          <td><span class="status done">9 targeted tests</span></td>
         </tr>
         <tr>
           <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/logging-api-contract.test.ts -t "typed desktop IPC registry"</code></td>

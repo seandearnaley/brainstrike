@@ -176,6 +176,21 @@ describe('runtime host boundary', () => {
     }
   });
 
+  it('keeps runtime lifecycle IPC domain ownership explicit', () => {
+    const lifecycleSource = readDesktopSource('register-background-runtime-lifecycle-ipc.ts');
+    const hostSources = [
+      readDesktopSource('ipc-embedding-host.ts'),
+      readDesktopSource('ipc-chunking-host.ts'),
+      readDesktopSource('ipc-llm-host.ts'),
+    ];
+
+    expect(lifecycleSource).not.toMatch(/inferLifecycleDomain/);
+    expect(lifecycleSource).not.toMatch(/domain\?:/);
+    for (const source of hostSources) {
+      expect(source).toMatch(/domain:\s*['"][^'"]+['"]/);
+    }
+  });
+
   it('keeps desktop IPC database tests split by owned responsibility', () => {
     const databaseIpcTest = readDesktopSource('__tests__/main/ipc-handlers-db.test.ts');
     const embeddingBackfillIpcTest = readDesktopSource(

@@ -55,6 +55,7 @@ describe('registerBackgroundRuntimeLifecycleIpcHandlers', () => {
     const manager = createMockManager();
     cleanup = registerBackgroundRuntimeLifecycleIpcHandlers({
       channels: CHANNELS,
+      domain: 'runtime',
       manager,
       assertStatus: createMockAssertStatus(),
     });
@@ -73,6 +74,7 @@ describe('registerBackgroundRuntimeLifecycleIpcHandlers', () => {
     const manager = createMockManager();
     cleanup = registerBackgroundRuntimeLifecycleIpcHandlers({
       channels: CHANNELS,
+      domain: 'runtime',
       manager,
       assertStatus: createMockAssertStatus(),
     });
@@ -91,6 +93,7 @@ describe('registerBackgroundRuntimeLifecycleIpcHandlers', () => {
     const manager = createMockManager();
     cleanup = registerBackgroundRuntimeLifecycleIpcHandlers({
       channels: CHANNELS,
+      domain: 'runtime',
       manager,
       assertStatus: createMockAssertStatus(),
     });
@@ -108,6 +111,7 @@ describe('registerBackgroundRuntimeLifecycleIpcHandlers', () => {
     const manager = createMockManager();
     cleanup = registerBackgroundRuntimeLifecycleIpcHandlers({
       channels: CHANNELS,
+      domain: 'runtime',
       manager,
       assertStatus: createMockAssertStatus(),
     });
@@ -125,6 +129,7 @@ describe('registerBackgroundRuntimeLifecycleIpcHandlers', () => {
     const manager = createMockManager();
     cleanup = registerBackgroundRuntimeLifecycleIpcHandlers({
       channels: CHANNELS,
+      domain: 'runtime',
       manager,
       assertStatus: createMockAssertStatus(),
     });
@@ -143,6 +148,7 @@ describe('registerBackgroundRuntimeLifecycleIpcHandlers', () => {
     const assertStatus = createMockAssertStatus();
     cleanup = registerBackgroundRuntimeLifecycleIpcHandlers({
       channels: CHANNELS,
+      domain: 'runtime',
       manager,
       assertStatus,
     });
@@ -167,6 +173,7 @@ describe('registerBackgroundRuntimeLifecycleIpcHandlers', () => {
     });
     cleanup = registerBackgroundRuntimeLifecycleIpcHandlers({
       channels: CHANNELS,
+      domain: 'runtime',
       manager,
       assertStatus,
     });
@@ -184,6 +191,7 @@ describe('registerBackgroundRuntimeLifecycleIpcHandlers', () => {
     const manager = createMockManager();
     cleanup = registerBackgroundRuntimeLifecycleIpcHandlers({
       channels: CHANNELS,
+      domain: 'runtime',
       manager,
       assertStatus: createMockAssertStatus(),
     });

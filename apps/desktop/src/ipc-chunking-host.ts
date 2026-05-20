@@ -28,6 +28,7 @@ export function registerChunkingHostIpcHandlers(manager: ChunkingHostManager): (
       getStatus: CHUNKING_HOST_GET_STATUS_CHANNEL,
       reportStatus: CHUNKING_HOST_REPORT_STATUS_CHANNEL,
     },
+    domain: 'chunking-host',
   });
   const registry = createDesktopIpcRegistry({ ipcMain });
 

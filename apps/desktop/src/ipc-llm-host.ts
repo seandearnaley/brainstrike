@@ -32,6 +32,7 @@ export function registerLlmHostIpcHandlers(manager: LlmHostManager): () => void 
       getStatus: LLM_HOST_GET_STATUS_CHANNEL,
       reportStatus: LLM_HOST_REPORT_STATUS_CHANNEL,
     },
+    domain: 'llm-host',
   });
   const registry = createDesktopIpcRegistry({ ipcMain });
 

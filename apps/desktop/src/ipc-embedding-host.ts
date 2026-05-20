@@ -26,6 +26,7 @@ export function registerEmbeddingHostIpcHandlers(manager: EmbeddingHostManager):
         getStatus: EMBEDDING_HOST_GET_STATUS_CHANNEL,
         reportStatus: EMBEDDING_HOST_REPORT_STATUS_CHANNEL,
       },
+      domain: 'embeddings',
     });
   const registry = createDesktopIpcRegistry({ ipcMain });
 
