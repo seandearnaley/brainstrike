@@ -44,16 +44,6 @@
       "releaseOnly": false,
       "selected": true,
       "status": "within-target"
-    },
-    {
-      "name": "db-tests",
-      "owner": "data-platform",
-      "sampleCount": 1,
-      "missingSamples": 4,
-      "estimatedRemainingMs": 1200000,
-      "releaseOnly": false,
-      "selected": false,
-      "status": "calibrating"
     }
   ]
 }

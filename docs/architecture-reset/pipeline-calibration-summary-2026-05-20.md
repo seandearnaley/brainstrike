@@ -1,15 +1,15 @@
 ## Local Calibration Timing Summary
 
-Calibration files: 30
-Command samples: 61
+Calibration files: 34
+Command samples: 65
 Minimum samples for hard status: 5
-Overall status: calibrating
+Overall status: within-target
 
 | Command | Owner | Samples | p50 | p95 | Budget | Status | Notes |
 |---|---|---:|---:|---:|---:|---|---|
 | assistant-contract-tests | assistant | 5 | 7.3s | 8.1s | 3m 0s | within-target |  |
 | ci-script-tests | tooling | 5 | 275ms | 320ms | 2m 0s | within-target | 1 stale samples ignored |
-| db-tests | data-platform | 1 | 4m 30s | 4m 30s | 5m 0s | calibrating | recorded budget 3m 0s |
+| db-tests | data-platform | 5 | 4m 23s | 4m 30s | 5m 0s | within-target | recorded budget 3m 0s |
 | desktop-smoke-tests | desktop-platform | 5 | 27.7s | 28.3s | 5m 0s | within-target |  |
 | desktop-unit-tests | desktop-platform | 5 | 50.8s | 51.1s | 4m 0s | within-target |  |
 | diff-check | tooling | 5 | 13ms | 13ms | 30.0s | within-target |  |

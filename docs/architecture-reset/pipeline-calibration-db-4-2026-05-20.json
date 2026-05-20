@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-20T07:22:22.864Z",
+  "dryRun": false,
+  "commandResults": [
+    {
+      "budgetMs": 300000,
+      "command": "pnpm --filter @brainstrike/db test",
+      "name": "db-tests",
+      "owner": "data-platform",
+      "requiredFor": [
+        "db-migrations-storage"
+      ],
+      "budgetStatus": "ok",
+      "durationMs": 262764,
+      "exitCode": 0
+    }
+  ]
+}

@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "generatedFrom": "calibration-files",
   "minSamples": 5,
-  "sampleCount": 30,
-  "commandSampleCount": 61,
-  "status": "calibrating",
+  "sampleCount": 34,
+  "commandSampleCount": 65,
+  "status": "within-target",
   "commands": [
     {
       "name": "assistant-contract-tests",
@@ -65,8 +65,8 @@
       "requiredFor": [
         "db-migrations-storage"
       ],
-      "sampleCount": 1,
-      "p50Ms": 269544,
+      "sampleCount": 5,
+      "p50Ms": 262764,
       "p95Ms": 269544,
       "currentBudgetMs": 300000,
       "recordedBudgetMs": 180000,
@@ -76,8 +76,12 @@
       "maxDurationMs": 269544,
       "failureCount": 0,
       "staleCommandSampleCount": 0,
-      "status": "calibrating",
+      "status": "within-target",
       "sources": [
+        "docs/architecture-reset/pipeline-calibration-db-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-db-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-db-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-db-5-2026-05-20.json",
         "docs/architecture-reset/pipeline-calibration-db-indexing-2026-05-20.json"
       ]
     },
