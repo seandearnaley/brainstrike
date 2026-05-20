@@ -1,7 +1,7 @@
 import { Checkbox, cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ExtensionBadge } from '../extension-badge';
-import { formatTokenCount } from '../use-preview-panel-state';
+import { formatTokenCount } from '../preview/use-preview-panel-state';
 import { getRootFolderDisplayName } from '../utils/path-display';
 import { formatPreviewFileSize } from '../utils/preview-formatters';
 import type { FileTapestry, InteractionMode, TapestryRange } from './types';

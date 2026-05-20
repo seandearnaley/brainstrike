@@ -1,10 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PreviewPanel } from '../preview-panel';
+import { PreviewPanel } from '../preview/preview-panel';
 
 // Mock the use-preview-panel-state module with realistic implementation
-vi.mock('../use-preview-panel-state', () => ({
+vi.mock('../preview/use-preview-panel-state', () => ({
   usePreviewPanelState: vi.fn(),
   formatTokenCount: (tokens: number) => {
     if (tokens < 1000) {
@@ -18,7 +18,7 @@ vi.mock('../use-preview-panel-state', () => ({
 }));
 
 const mockUsePreviewPanelState = vi.mocked(
-  await import('../use-preview-panel-state')
+  await import('../preview/use-preview-panel-state')
 ).usePreviewPanelState;
 
 interface TabsContextValue {

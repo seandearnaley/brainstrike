@@ -9,12 +9,12 @@ import {
 } from '@brainstrike/ui';
 import { Download, FileText } from 'lucide-react';
 import { memo, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
-import IncludeProjectTreeSetting from './include-project-tree-setting';
+import IncludeProjectTreeSetting from '../include-project-tree-setting';
+import { TokenBudgetControl } from '../token-budget-control';
+import { TokenMeter } from '../token-meter';
+import { TokenSummaryBar } from '../token-summary-bar';
+import type { TokenCountingState } from '../use-token-counting';
 import type { PreviewFooterMode } from './preview-footer-layout';
-import { TokenBudgetControl } from './token-budget-control';
-import { TokenMeter } from './token-meter';
-import { TokenSummaryBar } from './token-summary-bar';
-import type { TokenCountingState } from './use-token-counting';
 
 const FOOTER_INSIGHT_HISTORY_LIMIT = 24;
 const SVG_ID_INVALID_CHARACTERS = /[^a-zA-Z0-9_-]/g;

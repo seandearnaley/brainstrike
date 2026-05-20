@@ -20,40 +20,37 @@ import { getFileExtension } from '@brainstrike/utils/file-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { FileText, FileX2, LayoutGrid, RotateCcw, Table as TableIcon } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import type { ContextExportOptions } from './context-export-options';
-import FileExplorerErrorBoundary from './file-explorer-error-boundary';
-import { useGroupSelection } from './hooks/use-group-selection';
-import {
-  DEFAULT_PAGE_SIZE,
-  usePreviewPanelPreferences,
-} from './hooks/use-preview-panel-preferences';
-import { ColumnVisibilityControls } from './preview-column-visibility-controls';
-import { PreviewPanelFooter } from './preview-panel-footer';
-import { PreviewTable } from './preview-table';
-import { PreviewViewToolbar } from './preview-view-toolbar';
-import { buildTapestryFileBase } from './tapestry/tapestry-adapter';
-import { TapestryView } from './tapestry/tapestry-view';
-import type { TapestryRange } from './tapestry/types';
-import { type FileItem, usePreviewPanelState } from './use-preview-panel-state';
-import type { TokenCountingState } from './use-token-counting';
+import type { ContextExportOptions } from '../context-export-options';
+import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
+import { useGroupSelection } from '../hooks/use-group-selection';
+import { buildTapestryFileBase } from '../tapestry/tapestry-adapter';
+import { TapestryView } from '../tapestry/tapestry-view';
+import type { TapestryRange } from '../tapestry/types';
+import type { TokenCountingState } from '../use-token-counting';
 import {
   type ContextSelectedTokenSummary,
   computeContextSelectedTokenSummary,
   createSelectedFileContentSnapshot,
   createTokenCountByFile,
-} from './utils/context-selected-token-summary';
+} from '../utils/context-selected-token-summary';
 import {
   EXTENSIONLESS_FILE_TYPE,
   GROUPING_CONFIGS,
   type GroupKey,
   groupData,
   type TableRowData,
-} from './utils/grouping-configs';
-import { buildGroupedPageSections, getVisibleFilesOnPage } from './utils/preview-pagination';
-import { createDefaultTapestryRanges, syncTapestryRanges } from './utils/tapestry-range-sync';
-import { getTokenUsageMetrics } from './utils/token-usage-metrics';
-import { useWorkspaceContextCurationStore } from './workspace-context-curation-store';
-import { tapestryLineRangeToToolRange } from './workspace-context-line-ranges';
+} from '../utils/grouping-configs';
+import { buildGroupedPageSections, getVisibleFilesOnPage } from '../utils/preview-pagination';
+import { createDefaultTapestryRanges, syncTapestryRanges } from '../utils/tapestry-range-sync';
+import { getTokenUsageMetrics } from '../utils/token-usage-metrics';
+import { useWorkspaceContextCurationStore } from '../workspace-context-curation-store';
+import { tapestryLineRangeToToolRange } from '../workspace-context-line-ranges';
+import { ColumnVisibilityControls } from './preview-column-visibility-controls';
+import { PreviewPanelFooter } from './preview-panel-footer';
+import { PreviewTable } from './preview-table';
+import { PreviewViewToolbar } from './preview-view-toolbar';
+import { DEFAULT_PAGE_SIZE, usePreviewPanelPreferences } from './use-preview-panel-preferences';
+import { type FileItem, usePreviewPanelState } from './use-preview-panel-state';
 
 const logger = createLogger('PreviewPanel');
 // Cap tapestry items per page so previews keep a readable "page" density.

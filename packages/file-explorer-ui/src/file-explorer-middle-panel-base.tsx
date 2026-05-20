@@ -10,9 +10,9 @@ import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
-import { usePreviewPanelReportActions } from './hooks/use-preview-panel-report-actions';
 import { useTextTokenCount } from './hooks/use-text-token-count';
-import { PreviewPanel } from './preview-panel';
+import { PreviewPanel } from './preview/preview-panel';
+import { usePreviewPanelReportActions } from './preview/use-preview-panel-report-actions';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
 import { useTokenCounting } from './use-token-counting';

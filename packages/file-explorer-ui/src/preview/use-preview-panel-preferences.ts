@@ -1,17 +1,17 @@
 import { createLogger } from '@brainstrike/utils/logger';
 import type { Dispatch, SetStateAction } from 'react';
 import { useEffect, useMemo, useState } from 'react';
+import type { TableRowData } from '../utils/grouping-configs';
+import { GROUPING_CONFIGS } from '../utils/grouping-configs';
 import {
   createDefaultColumnVisibility,
   resolveColumnVisibility,
-} from '../preview-column-visibility';
+} from './preview-column-visibility';
 import {
   inferPreviewFooterMode,
   PREVIEW_FOOTER_MODES,
   type PreviewFooterMode,
-} from '../preview-footer-layout';
-import type { TableRowData } from '../utils/grouping-configs';
-import { GROUPING_CONFIGS } from '../utils/grouping-configs';
+} from './preview-footer-layout';
 import type { ColumnVisibility } from './use-preview-panel-persistence';
 
 const STORAGE_KEY = 'previewPanelPreferences.v1';

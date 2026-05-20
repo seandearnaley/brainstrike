@@ -12,7 +12,7 @@ import {
 } from '@brainstrike/ui';
 import { ChevronsDownUp, ChevronsUpDown, Group, ListChecks } from 'lucide-react';
 import { memo, type ReactNode } from 'react';
-import { GROUPING_CONFIGS } from './utils/grouping-configs';
+import { GROUPING_CONFIGS } from '../utils/grouping-configs';
 
 interface PreviewViewToolbarProps {
   additionalControls?: ReactNode;

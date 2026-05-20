@@ -4,7 +4,7 @@ import {
   getPreviewFooterModeHeight,
   inferPreviewFooterMode,
   PREVIEW_FOOTER_HEIGHTS,
-} from '../preview-footer-layout';
+} from '../preview/preview-footer-layout';
 
 describe('preview-footer-layout', () => {
   it('clamps and rounds footer heights', () => {

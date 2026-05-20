@@ -2,7 +2,7 @@ import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { PreviewViewToolbar } from '../preview-view-toolbar';
+import { PreviewViewToolbar } from '../preview/preview-view-toolbar';
 
 describe('PreviewViewToolbar', () => {
   it('renders consistent icon controls and drives callbacks', async () => {

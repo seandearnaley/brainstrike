@@ -19,7 +19,8 @@ export { default as IncludeProjectTreeSetting } from './include-project-tree-set
 export * from './loading-overlay';
 export { default as NodeCheckbox } from './node-checkbox';
 export { default as NodeIcon } from './node-icon';
-export * from './preview-panel';
+export * from './preview/preview-panel';
+export * from './preview/use-preview-panel-state';
 export * from './restoration-status';
 export * from './scanning-status';
 export * from './selection-counter';
@@ -38,7 +39,6 @@ export * from './use-background-token-indexer-integration';
 export { type RestorationProgress, useFileExplorer } from './use-file-explorer-context';
 export * from './use-file-system-context';
 export * from './use-persistent-token-cache';
-export * from './use-preview-panel-state';
 export { useSelectionManager } from './use-selection-manager-context';
 export * from './use-shared-file-content-loading';
 export * from './use-token-counting';

@@ -1,16 +1,16 @@
 import { Checkbox } from '@brainstrike/ui';
 import { FolderOpen } from 'lucide-react';
 import { memo, useCallback } from 'react';
-import { ExtensionBadge } from './extension-badge';
-import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
-import { formatTokenCount } from './use-preview-panel-state';
-import type { TableRowData } from './utils/grouping-configs';
+import { ExtensionBadge } from '../extension-badge';
+import type { TableRowData } from '../utils/grouping-configs';
 import {
   formatFilePathSubtitle,
   getRootFolderDisplayName,
   splitFilePath,
-} from './utils/path-display';
-import { formatPreviewFileSize } from './utils/preview-formatters';
+} from '../utils/path-display';
+import { formatPreviewFileSize } from '../utils/preview-formatters';
+import type { ColumnVisibility } from './use-preview-panel-persistence';
+import { formatTokenCount } from './use-preview-panel-state';
 
 interface PreviewTableRowProps {
   columnVisibility: ColumnVisibility;

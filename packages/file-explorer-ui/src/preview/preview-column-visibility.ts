@@ -1,5 +1,5 @@
-import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
-import type { TableRowData } from './utils/grouping-configs';
+import type { TableRowData } from '../utils/grouping-configs';
+import type { ColumnVisibility } from './use-preview-panel-persistence';
 
 export interface ColumnConfig {
   accessor: keyof TableRowData | 'checkbox';

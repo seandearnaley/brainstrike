@@ -3,7 +3,7 @@ import { renderHook } from '@testing-library/react';
 import type React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { useFileExplorerStoreContext } from '../../file-explorer-provider';
-import { usePreviewPanelReportActions } from '../../hooks/use-preview-panel-report-actions';
+import { usePreviewPanelReportActions } from '../../preview/use-preview-panel-report-actions';
 
 type Store = ReturnType<typeof useFileExplorerStoreContext>;
 

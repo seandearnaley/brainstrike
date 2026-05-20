@@ -17,17 +17,17 @@ import {
   useMemo,
   useRef,
 } from 'react';
-import { ExtensionBadge } from './extension-badge';
-import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
-import { PreviewTableRow } from './preview-table-row';
-import { formatTokenCount } from './use-preview-panel-state';
-import type { GroupedData, GroupKey, TableRowData } from './utils/grouping-configs';
+import { ExtensionBadge } from '../extension-badge';
+import type { GroupedData, GroupKey, TableRowData } from '../utils/grouping-configs';
 import {
   formatFilePathSubtitle,
   getRootFolderDisplayName,
   splitFilePath,
-} from './utils/path-display';
-import { formatPreviewFileSize } from './utils/preview-formatters';
+} from '../utils/path-display';
+import { formatPreviewFileSize } from '../utils/preview-formatters';
+import { PreviewTableRow } from './preview-table-row';
+import type { ColumnVisibility } from './use-preview-panel-persistence';
+import { formatTokenCount } from './use-preview-panel-state';
 
 interface PreviewTableProps {
   collapsedGroups: Set<string>;

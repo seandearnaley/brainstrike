@@ -33,6 +33,34 @@ describe('file-explorer-ui index exports', () => {
     expect(treeFiles).toEqual(treeImplementationFiles);
   });
 
+  it('keeps preview implementation files inside the preview slice', () => {
+    const sourceRoot = path.resolve(process.cwd(), 'src');
+    const previewImplementationMoves = [
+      ['hooks/use-preview-panel-persistence.ts', 'preview/use-preview-panel-persistence.ts'],
+      ['hooks/use-preview-panel-preferences.ts', 'preview/use-preview-panel-preferences.ts'],
+      ['hooks/use-preview-panel-report-actions.ts', 'preview/use-preview-panel-report-actions.ts'],
+      ['preview-column-visibility-controls.tsx', 'preview/preview-column-visibility-controls.tsx'],
+      ['preview-column-visibility.ts', 'preview/preview-column-visibility.ts'],
+      ['preview-footer-layout.ts', 'preview/preview-footer-layout.ts'],
+      ['preview-panel-footer.tsx', 'preview/preview-panel-footer.tsx'],
+      ['preview-panel.tsx', 'preview/preview-panel.tsx'],
+      ['preview-table-row.tsx', 'preview/preview-table-row.tsx'],
+      ['preview-table.tsx', 'preview/preview-table.tsx'],
+      ['preview-view-toolbar.tsx', 'preview/preview-view-toolbar.tsx'],
+      ['use-preview-panel-state.ts', 'preview/use-preview-panel-state.ts'],
+    ] as const;
+
+    const legacyFiles = previewImplementationMoves
+      .map(([legacyPath]) => legacyPath)
+      .filter((filePath) => existsSync(path.join(sourceRoot, filePath)));
+    const missingPreviewFiles = previewImplementationMoves
+      .map(([, previewPath]) => previewPath)
+      .filter((filePath) => !existsSync(path.join(sourceRoot, filePath)));
+
+    expect(legacyFiles).toEqual([]);
+    expect(missingPreviewFiles).toEqual([]);
+  });
+
   it('should re-export FileFilterBar as named export matching default and named', () => {
     expect(index.FileFilterBar).toBe(FileFilterBar);
     expect(index.FileFilterBar).toBe(NamedFileFilterBar);

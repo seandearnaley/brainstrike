@@ -1,6 +1,6 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
 import { memo, useMemo } from 'react';
-import { formatTokenCount } from './use-preview-panel-state';
+import { formatTokenCount } from './preview/use-preview-panel-state';
 
 interface TokenMeterProps {
   budget: number;

@@ -11,8 +11,8 @@ import {
 } from '@brainstrike/ui';
 import { Columns3 } from 'lucide-react';
 import { memo } from 'react';
-import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { COLUMN_CONFIGS } from './preview-column-visibility';
+import type { ColumnVisibility } from './use-preview-panel-persistence';
 
 interface ColumnVisibilityControlsProps {
   columnVisibility: ColumnVisibility;

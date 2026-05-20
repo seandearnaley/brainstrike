@@ -1,7 +1,7 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UsePersistentTokenCacheReturn } from '../use-persistent-token-cache';
-import { usePreviewPanelState } from '../use-preview-panel-state';
+import { usePreviewPanelState } from '../preview/use-preview-panel-state';
 import type { TokenCountingState } from '../use-token-counting';
 
 type CachedSelectionStats = Awaited<

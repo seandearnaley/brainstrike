@@ -14,7 +14,7 @@ import { WorkspaceTabHost } from '../workspace-tab-host';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 // Mock the preview-panel surface (Context Explorer body) — same pattern as existing tests
-vi.mock('../preview-panel', () => ({
+vi.mock('../preview/preview-panel', () => ({
   PreviewPanel: vi.fn(() => <div data-testid="preview-panel">PreviewPanel</div>),
 }));
 

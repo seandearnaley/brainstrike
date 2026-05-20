@@ -4,7 +4,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileTree from '../tree/file-tree';
-import { PreviewPanel } from '../preview-panel';
+import { PreviewPanel } from '../preview/preview-panel';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 type PreviewPanelMocksModule = typeof import('./__mocks__/preview-panel-mocks');
@@ -27,7 +27,7 @@ vi.mock('@brainstrike/hooks', async () => {
   return createHooksModuleMock();
 });
 
-vi.mock('../use-preview-panel-state', () => ({
+vi.mock('../preview/use-preview-panel-state', () => ({
   formatTokenCount: (tokens: number) => tokens.toString(),
   usePreviewPanelState: () => ({
     totalStats: { totalFiles: 1, totalTokens: 0 },
