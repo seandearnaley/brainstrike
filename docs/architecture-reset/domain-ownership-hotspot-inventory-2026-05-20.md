@@ -8,7 +8,6 @@ This inventory tracks size and churn hotspots that remain after the legal domain
 
 | LOC | File | Action |
 |---:|---|---|
-| 3150 | `apps/desktop/e2e/file-explorer-selection.desktop.test.ts` | Split after embedding E2E unless this lane becomes flaky first. |
 | 1734 | `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts` | Split with service extraction. |
 | 1523 | `packages/file-explorer-ui/src/__tests__/preview-panel.test.tsx` | Split by preview table, footer, and report-action behavior. |
 | 1504 | `packages/db-explorer/src/__tests__/use-database-demo-data.test.ts` | Review after db explorer ownership decision. |
@@ -238,10 +237,22 @@ Package-local architecture coverage now verifies the split database IPC executab
 - `pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/main/ipc-handlers-db.test.ts src/__tests__/main/ipc-handlers-db-embedding-backfill.test.ts`
 - `pnpm --filter @brainstrike/desktop type-check`
 
+## Desktop File Explorer Selection E2E Split Completed
+
+`apps/desktop/e2e/file-explorer-selection.desktop.test.ts` is split from 3150 LOC into two focused executable specs and one documented shared fixture:
+
+- `file-explorer-selection.desktop.test.ts` is 617 LOC and owns interactive selection, select-all, limit, expansion, explicit selection, and mixed file/folder behavior.
+- `file-explorer-selection-restore.desktop.test.ts` is 967 LOC and owns restored explicit, partial, query, snapshot-backed, and live replay selection behavior after desktop restart.
+- `file-explorer-selection.shared.ts` is a documented test fixture exception that centralizes the desktop file-system fixture, persisted selection-state seeders, checkbox helpers, and renderer-settle helpers.
+
+Package-local architecture coverage now verifies the executable desktop file-explorer selection E2E specs stay below the 2000 LOC test-file budget and that the shared fixture exception remains documented. Verification for this slice:
+
+- `pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts -t "keeps desktop file explorer selection E2E executable specs split"`
+- `pnpm --filter @brainstrike/desktop type-check:e2e`
+
 ## Next Slices
 
 1. Tighten E2E lane selection so the split desktop embedding diagnostic files are only selected for matching high-risk diffs.
 2. Split `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts` if the next background-indexing change adds more behavior coverage.
 3. Continue desktop IPC decomposition by moving live-query batching and database-work scheduling behind owned platform modules.
-4. Split `apps/desktop/e2e/file-explorer-selection.desktop.test.ts` by smoke, selection persistence, and regression behavior.
-5. Decompose `packages/db` internally around queue, migrations, repositories, search, and schema while preserving public barrels.
+4. Decompose `packages/db` internally around queue, migrations, repositories, search, and schema while preserving public barrels.

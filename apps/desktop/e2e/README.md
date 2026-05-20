@@ -86,6 +86,22 @@ keeps the shared desktop setup, DB fixtures, host diagnostics, and memory
 samplers in one import surface while all executable `*.test.ts` files stay below
 2,000 LOC.
 
+### File Explorer Selection Lanes
+
+The former monolithic `file-explorer-selection.desktop.test.ts` is split by
+purpose:
+
+- `file-explorer-selection.desktop.test.ts` - interactive selection, select-all,
+  limit, expansion, explicit selection, and mixed file/folder behavior.
+- `file-explorer-selection-restore.desktop.test.ts` - restored explicit,
+  partial, query, snapshot-backed, and live replay selection behavior after
+  desktop restart.
+
+`file-explorer-selection.shared.ts` is an explicitly documented test fixture
+exception. It owns the desktop file-system fixture, persisted selection-state
+seeders, checkbox helpers, and renderer-settle helpers while both executable
+`*.test.ts` files stay below 2,000 LOC.
+
 ### 1. App Launch Tests (`app-launch.test.ts`)
 Tests fundamental Electron app functionality:
 - App launches successfully

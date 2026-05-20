@@ -12,6 +12,10 @@ function readDesktopSource(relativePath: string): string {
   return readFileSync(path.resolve(process.cwd(), 'src', relativePath), 'utf8');
 }
 
+function readDesktopE2e(relativePath: string): string {
+  return readFileSync(path.resolve(process.cwd(), 'e2e', relativePath), 'utf8');
+}
+
 describe('runtime host boundary', () => {
   it('allows renderer host modules to import renderer-only local runtimes', () => {
     const violations = findRuntimeHostBoundaryViolations([
@@ -144,6 +148,17 @@ describe('runtime host boundary', () => {
     expect(databaseIpcTest.split('\n').length).toBeLessThanOrEqual(2000);
     expect(embeddingBackfillIpcTest).toMatch(/embedding-host:enqueue-backfill/);
     expect(embeddingBackfillIpcTest.split('\n').length).toBeLessThanOrEqual(2000);
+  });
+
+  it('keeps desktop file explorer selection E2E executable specs split by purpose', () => {
+    const interactiveSpec = readDesktopE2e('file-explorer-selection.desktop.test.ts');
+    const restoreSpec = readDesktopE2e('file-explorer-selection-restore.desktop.test.ts');
+    const sharedHarness = readDesktopE2e('README.md');
+
+    expect(interactiveSpec.split('\n').length).toBeLessThanOrEqual(2000);
+    expect(restoreSpec.split('\n').length).toBeLessThanOrEqual(2000);
+    expect(sharedHarness).toMatch(/file-explorer-selection\.shared\.ts/);
+    expect(sharedHarness).toMatch(/test fixture\s+exception/);
   });
 
   it('skips symlinked entries while collecting desktop source files', () => {
