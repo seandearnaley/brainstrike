@@ -33,4 +33,16 @@ describe('preferences assistant contract boundary', () => {
       /@brainstrike\/agent\/tool-metadata/
     );
   });
+
+  it('reads assistant memory settings from assistant-contract instead of agent runtime packages', () => {
+    expect(readSource('stores/assistant-memory-preferences-store.ts')).not.toMatch(
+      /@brainstrike\/agent\/memory-settings/
+    );
+    expect(readSource('settings/models/assistant-memory-models.ts')).not.toMatch(
+      /@brainstrike\/agent\/memory-settings/
+    );
+    expect(readSource('settings/models/assistant-memory-settings-section.tsx')).not.toMatch(
+      /@brainstrike\/agent\/memory-settings/
+    );
+  });
 });

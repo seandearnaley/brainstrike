@@ -19,6 +19,14 @@ export default defineConfig({
         find: '@brainstrike/embeddings/factory',
         replacement: resolve(import.meta.dirname, '../embeddings/src/factory-entry.ts'),
       },
+      {
+        find: /^@brainstrike\/assistant-contract\/(.*)$/,
+        replacement: resolve(import.meta.dirname, '../assistant-contract/src/$1.ts'),
+      },
+      {
+        find: '@brainstrike/assistant-contract',
+        replacement: resolve(import.meta.dirname, '../assistant-contract/src/index.ts'),
+      },
       ...createAgentBrowserSafeAliasEntries(resolve(import.meta.dirname, '../agent')),
       {
         find: '@brainstrike/ui',

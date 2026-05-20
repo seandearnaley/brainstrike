@@ -14,9 +14,6 @@
       "@brainstrike/assistant-contract/*": [
         "../assistant-contract/src/*"
       ],
-      "@brainstrike/agent/memory-settings": [
-        "../agent/src/memory-settings.ts"
-      ],
       "@brainstrike/utils/*": [
         "../utils/src/*"
       ]

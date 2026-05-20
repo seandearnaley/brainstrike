@@ -9,6 +9,14 @@
     "declaration": true,
     "declarationMap": true,
     "emitDeclarationOnly": true,
+    "paths": {
+      "@brainstrike/assistant-contract": [
+        "../../assistant-contract/src/index.ts"
+      ],
+      "@brainstrike/assistant-contract/*": [
+        "../../assistant-contract/src/*"
+      ]
+    },
     "strictNullChecks": true
   },
   "include": [
