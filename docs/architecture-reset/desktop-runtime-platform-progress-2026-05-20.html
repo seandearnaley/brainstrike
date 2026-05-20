@@ -254,7 +254,7 @@
         <tr>
           <td>Adding an IPC channel has a domain owner and focused test path</td>
           <td><span class="status partial">partial</span></td>
-          <td>Registry, four extracted domains, diagnostics, logging, parser host, and hidden host IPC modules are tested. Preload and renderer bridges are still manually maintained for some older channels, so generated drift prevention is not complete.</td>
+          <td>Registry, four extracted domains, diagnostics, logging, parser host, agent chat, and hidden host IPC modules are tested. Preload and renderer bridges are still manually maintained for some older channels, so generated drift prevention is not complete.</td>
         </tr>
         <tr>
           <td>Renderer-only local LLM and embedding execution is enforceable</td>
@@ -375,6 +375,11 @@
           <td>Typed registry migration preserved parser host parse validation, delegation, malformed-request handling, and cleanup.</td>
           <td><span class="status done">1 file / 4 tests</span></td>
         </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/ipc-agent.test.ts</code></td>
+          <td>Typed registry migration preserved agent chat registration, streaming chunk collection, provider/key resolution, MCP config injection, and error behavior.</td>
+          <td><span class="status done">1 file / 13 tests</span></td>
+        </tr>
       </tbody>
     </table>
   </section>
@@ -386,7 +391,7 @@
       <tbody>
         <tr>
           <td>IPC drift prevention</td>
-          <td>Continue moving older MCP, secrets, tools, runtime, agent, and ad hoc main-process channels onto owned domain registries.</td>
+          <td>Continue moving older MCP, secrets, tools, runtime, and ad hoc main-process channels onto owned domain registries.</td>
           <td>Every new or moved channel has a domain, a typed registration path, and a focused test; preload remains the only intentional bridge literal surface until generation is introduced.</td>
         </tr>
         <tr>
