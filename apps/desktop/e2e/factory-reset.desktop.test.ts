@@ -12,6 +12,8 @@ type ConfirmOverrideTarget = typeof globalThis & {
 };
 
 const FACTORY_RESET_BROWSER_CACHE_NAME = 'brainstrike-factory-reset-e2e-cache';
+const FACTORY_RESET_BROWSER_CACHE_ENTRY_URL =
+  'https://brainstrike.local/factory-reset-e2e-cache-entry';
 const FACTORY_RESET_BROWSER_DB_NAME = 'brainstrike-factory-reset-e2e-indexed-db';
 const FACTORY_RESET_LOCAL_STORAGE_KEY = 'brainstrike:factory-reset:e2e:local-storage';
 const FACTORY_RESET_SESSION_STORAGE_KEY = 'brainstrike:factory-reset:e2e:session-storage';
@@ -55,13 +57,13 @@ async function restoreConfirmOverride(window: import('@playwright/test').Page): 
 
 async function seedBrowserPersistentState(window: import('@playwright/test').Page): Promise<void> {
   await window.evaluate(
-    async ({ cacheName, dbName, localStorageKey, sessionStorageKey }) => {
+    async ({ cacheEntryUrl, cacheName, dbName, localStorageKey, sessionStorageKey }) => {
       localStorage.setItem(localStorageKey, 'stale');
       sessionStorage.setItem(sessionStorageKey, 'stale');
 
       if (typeof caches !== 'undefined') {
         const cache = await caches.open(cacheName);
-        await cache.put('/factory-reset-e2e-cache-entry', new Response('stale'));
+        await cache.put(cacheEntryUrl, new Response('stale'));
       }
 
       if (typeof indexedDB !== 'undefined') {
@@ -80,6 +82,7 @@ async function seedBrowserPersistentState(window: import('@playwright/test').Pag
       }
     },
     {
+      cacheEntryUrl: FACTORY_RESET_BROWSER_CACHE_ENTRY_URL,
       cacheName: FACTORY_RESET_BROWSER_CACHE_NAME,
       dbName: FACTORY_RESET_BROWSER_DB_NAME,
       localStorageKey: FACTORY_RESET_LOCAL_STORAGE_KEY,

@@ -278,8 +278,8 @@
         </tr>
         <tr>
           <td>Factory reset and crash/restart behavior have targeted unit and lane coverage</td>
-          <td><span class="status partial">partial</span></td>
-          <td>Factory reset orchestration now lives in <code>desktop-reset-platform.ts</code>. It stops embedding, chunking, and LLM host runtimes before DB reset, drains live subscriptions and scheduler work under the reset barrier, records completed/failed diagnostics, and keeps destructive reset E2E explicit. Visible-renderer crash recovery records deferred/suppressed/reload state, embedding host restart/recovery specs are selected by <code>@desktop-embedding-recovery</code>, and LLM host restart/recovery is selected by <code>@desktop-llm-host-recovery</code>.</td>
+          <td><span class="status done">done</span></td>
+          <td>Factory reset orchestration now lives in <code>desktop-reset-platform.ts</code>. It stops embedding, chunking, and LLM host runtimes before DB reset, drains live subscriptions and scheduler work under the reset barrier, records completed/failed diagnostics, and keeps destructive reset E2E explicit. Visible-renderer crash recovery records deferred/suppressed/reload state, embedding host restart/recovery specs are selected by <code>@desktop-embedding-recovery</code>, and LLM host restart/recovery is selected by <code>@desktop-llm-host-recovery</code>. Targeted E2E execution now proves the destructive reset, embedding host recovery, and LLM host recovery lanes locally.</td>
         </tr>
       </tbody>
     </table>
@@ -485,6 +485,21 @@
           <td>Embedding and LLM host managers expose explicit platform control states during reset/restart operations, so the central diagnostics snapshot can distinguish planned lifecycle work from generic starting/stopping source states.</td>
           <td><span class="status done">2 files / 35 tests</span></td>
         </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec playwright test e2e/llm-host-renderer.test.ts --project=regression --grep "@desktop-llm-host-recovery"</code></td>
+          <td>Hidden LLM host recovery executes locally and proves a destroyed hidden host can restart without reloading the visible renderer.</td>
+          <td><span class="status done">1 passed / 22.0s</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec playwright test e2e/embedding-worker-renderer.smoke.desktop.test.ts e2e/embedding-worker-renderer.backfill-search.desktop.test.ts e2e/embedding-worker-renderer.memory.desktop.test.ts e2e/embedding-worker-renderer.diagnostics.desktop.test.ts --project=regression --grep "@desktop-embedding-recovery"</code></td>
+          <td>Selected hidden embedding-host recovery specs execute locally without running unrelated embedding diagnostics or soak lanes.</td>
+          <td><span class="status done">2 passed / 33.3s</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec playwright test e2e/factory-reset.desktop.test.ts --project=regression --grep "@destructive"</code></td>
+          <td>Desktop factory reset destructive lane executes locally. The confirm path seeds localStorage, sessionStorage, CacheStorage, IndexedDB, userData cache, MCP state, and sentinel files, then verifies first-run cleanup while preserving logs. CacheStorage seeding uses an HTTPS cache key because Chromium rejects <code>file://</code> cache requests.</td>
+          <td><span class="status done">2 passed / 23.9s</span></td>
+        </tr>
       </tbody>
     </table>
   </section>
@@ -506,8 +521,8 @@
         </tr>
         <tr>
           <td>Reset and recovery</td>
-          <td>Execute the destructive desktop factory-reset lane and the hidden-host recovery lanes only when their risk is selected or release/full-risk proof is explicitly requested. Keep <code>desktop-reset-platform.ts</code> as the unit-tested reset orchestrator for host shutdown and DB reset ordering.</td>
-          <td>Executed E2E proves first-run reset plus embedding and LLM hidden host recovery without unnecessary visible renderer reloads; targeted unit coverage already proves reset ordering and lane selection keeps these tests out of low-risk feedback loops.</td>
+          <td>Keep the destructive desktop factory-reset lane and hidden-host recovery lanes explicit and selected by risk. Do not move them into low-risk/default feedback loops.</td>
+          <td>Done locally on 2026-05-20: destructive factory reset, embedding host recovery, and LLM host recovery lanes all executed green; targeted unit coverage proves reset ordering and lane selection keeps these tests out of low-risk feedback loops.</td>
         </tr>
       </tbody>
     </table>
