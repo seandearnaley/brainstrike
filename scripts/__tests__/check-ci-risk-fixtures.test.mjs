@@ -48,6 +48,28 @@ test('verifyRiskFixtures reports deterministic lane mismatches', () => {
   ]);
 });
 
+test('verifyRiskFixtures rejects unregistered expected E2E lane names', () => {
+  const fixtureDocument = {
+    schemaVersion: 1,
+    cases: [
+      {
+        ...riskFixtures.cases[2],
+        expected: {
+          ...riskFixtures.cases[2].expected,
+          e2eLanes: ['web-smoke'],
+        },
+      },
+      ...riskFixtures.cases.slice(0, 2),
+      ...riskFixtures.cases.slice(3),
+    ],
+  };
+
+  assert.deepEqual(verifyRiskFixtures(fixtureDocument), [
+    'assistant contract expected e2eLanes[0] is not registered: web-smoke',
+    'assistant contract e2eLanes[0] differs: expected web-smoke, got critical-smoke',
+  ]);
+});
+
 test('verifyRiskFixtures rejects duplicate fixture names', () => {
   const fixtureDocument = {
     schemaVersion: 1,

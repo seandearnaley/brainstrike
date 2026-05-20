@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { E2E_LANES } from './ci-select.mjs';
 import { selectRiskProfileForFiles } from './ci-risk-rules.mjs';
 
 const DEFAULT_FIXTURES_PATH = 'scripts/ci-risk-fixtures.json';
@@ -23,6 +24,20 @@ function compareArray(name, actual, expected) {
   for (let index = 0; index < expected.length; index += 1) {
     if (actual[index] !== expected[index]) {
       failures.push(`${name}[${index}] differs: expected ${expected[index]}, got ${actual[index]}`);
+    }
+  }
+  return failures;
+}
+
+function validateRegisteredE2eLanes(name, lanes) {
+  if (!Array.isArray(lanes)) {
+    return [];
+  }
+  const failures = [];
+  for (let index = 0; index < lanes.length; index += 1) {
+    const lane = lanes[index];
+    if (!E2E_LANES[lane]) {
+      failures.push(`${name}[${index}] is not registered: ${lane}`);
     }
   }
   return failures;
@@ -77,6 +92,8 @@ export function verifyRiskFixtures(fixtureDocument) {
       failures.push(`${fixture.name} category differs: expected ${expected.category}, got ${actual.category}`);
     }
     failures.push(...compareArray(`${fixture.name} cloudLabels`, actual.cloudLabels, expected.cloudLabels));
+    failures.push(...validateRegisteredE2eLanes(`${fixture.name} expected e2eLanes`, expected.e2eLanes));
+    failures.push(...validateRegisteredE2eLanes(`${fixture.name} actual e2eLanes`, actual.e2eLanes));
     failures.push(...compareArray(`${fixture.name} e2eLanes`, actual.e2eLanes, expected.e2eLanes));
     failures.push(...compareArray(`${fixture.name} proofCommands`, actual.proofCommands, expected.proofCommands));
   }
