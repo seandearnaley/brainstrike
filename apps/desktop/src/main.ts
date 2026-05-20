@@ -13,7 +13,7 @@ import {
   createDefaultLoggingPreferences,
   type LoggingPreferences,
 } from '@brainstrike/utils/logging-preferences';
-import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron';
+import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import { startAssistantServer } from './assistant-server';
@@ -58,6 +58,7 @@ import {
   registerLoggingIpcHandlers,
 } from './logging-ipc';
 import type { LoggingSettingsPayload } from './logging-shared';
+import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { ParserHostManager } from './parser-host-manager';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
@@ -596,6 +597,7 @@ let unregisterParserHostIpcHandlers: null | (() => void) = null;
 let unregisterEmbeddingHostIpcHandlers: null | (() => void) = null;
 let unregisterLlmHostIpcHandlers: null | (() => void) = null;
 let unregisterLoggingIpcHandlers: null | (() => void) = null;
+let unregisterMainPlatformIpcHandlers: null | (() => void) = null;
 let unregisterDesktopDiagnosticsIpcHandlers: null | (() => void) = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let signalShutdownInFlight = false;
@@ -1109,20 +1111,9 @@ if (singleInstanceLockAcquired) {
         logger.error('Failed to start assistant server:', err);
       }
 
-      // IPC to provide assistant URL to renderer
-      ipcMain.handle('assistant:get-url', () => assistantUrl);
-      ipcMain.handle('app:lifecycle:note-reload-intent', async (event, reason: unknown) => {
-        if (typeof reason !== 'string' || reason.trim().length === 0) {
-          throw new Error('Renderer reload intent reason must be a non-empty string.');
-        }
-        const window = BrowserWindow.fromWebContents(event.sender);
-        if (!window || window.isDestroyed()) {
-          throw new Error('Renderer reload intent must originate from a live BrowserWindow.');
-        }
-        noteNextWindowReload(window, {
-          reason: reason.trim(),
-          source: 'renderer',
-        });
+      unregisterMainPlatformIpcHandlers = registerMainPlatformIpcHandlers({
+        getAssistantUrl: () => assistantUrl,
+        noteNextWindowReload,
       });
 
       const createMainWindow = async () => {
@@ -1399,6 +1390,10 @@ app.on('will-quit', () => {
   if (unregisterLoggingIpcHandlers) {
     unregisterLoggingIpcHandlers();
     unregisterLoggingIpcHandlers = null;
+  }
+  if (unregisterMainPlatformIpcHandlers) {
+    unregisterMainPlatformIpcHandlers();
+    unregisterMainPlatformIpcHandlers = null;
   }
   removeLogBufferListener();
 });

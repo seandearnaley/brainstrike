@@ -142,6 +142,13 @@ describe('runtime host boundary', () => {
     expect(source).toMatch(/ipc-domains\/storage-preferences-ipc/);
   });
 
+  it('keeps main process startup free of ad hoc IPC registration', () => {
+    const source = readDesktopSource('main.ts');
+
+    expect(source).not.toMatch(/ipcMain\.(handle|on)\(/);
+    expect(source).not.toMatch(/ipcMain\.remove(Handler|Listener)\(/);
+  });
+
   it('keeps host IPC modules on the typed desktop IPC registry instead of direct ipcMain calls', () => {
     const hostSources = [
       readDesktopSource('ipc-embedding-host.ts'),
