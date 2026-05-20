@@ -8,7 +8,7 @@ Base ref: `origin/main`
 
 Base SHA after refresh: `0fc94414c0edb4f546faad2385762cc634df1008`
 
-Release-candidate head before this note: `86ef7872a05473de3ebce1b70d4f09f1dfd39fce`
+Initial release-candidate head before this note: `86ef7872a05473de3ebce1b70d4f09f1dfd39fce`
 
 ## Release Candidate Policy
 
@@ -25,7 +25,12 @@ Proof-manifest policy is local-only:
 
 ## Review Map
 
-The prior branch review counted 156 commits. This release-candidate note includes that report commit as well, so the current branch contains 157 commits over `origin/main` before this note. The work maps into three review sections: pipeline, ownership, and desktop platform.
+The prior branch review counted 156 commits. This release-candidate note includes that report commit as well, so the branch contained 157 commits over `origin/main` before release-candidate preparation. The release-candidate proof exposed two local hardening fixes after that count:
+
+- `4f8eb03d7` fixed the factory-reset destructive-lane guard by removing factory-reset sentinel strings outside the already tagged destructive Playwright describe block.
+- `b2c5b51a8` fixed the retrieval-tool unit test mock after the production import moved from the embeddings package root to `@brainstrike/embeddings/provider-core`.
+
+The work maps into three review sections: pipeline, ownership, and desktop platform.
 
 ### 1. Pipeline And Proof Economics
 
@@ -121,7 +126,7 @@ Commit map:
 - IPC registry foundation and domain extraction: `8dee607b0`, `dbdd73478`, `ceaed9487`, `b72b0a47b`, `c384dba36`, `77371803c`, `5167697cd`, `466ee4720`, `6e1452cfa`, `b10e29d28`, `522481c37`, `f2fbc97ba`, `4878b7215`, `771938f33`, `5957e7aa1`, `952ec4f0d`, `0f1aaff29`, `82a3c14cb`, `024e5c2e1`, `ae34050d2`, `93dc0aa85`, `936895748`
 - Hidden host lifecycle, renderer-only guards, diagnostics, and recovery: `1a8c5ddb0`, `32e84e630`, `ba80a78c9`, `681706e99`, `18bf6b47c`, `d28b451b2`, `2bb245623`, `a77feedd4`, `a8f8f8c47`, `eade196d0`, `a80abbe6a`, `312de842d`, `4b99b957d`
 - Desktop E2E and reset lane explicitness: `f1dde9b52`
-- Supporting desktop test splits and app integration: `78b64c223`, `9b73da9bd`, `43e74e2b9`
+- Supporting desktop test splits, app integration, and RC proof hardening: `78b64c223`, `9b73da9bd`, `43e74e2b9`, `4f8eb03d7`, `b2c5b51a8`
 
 Reviewer focus:
 
