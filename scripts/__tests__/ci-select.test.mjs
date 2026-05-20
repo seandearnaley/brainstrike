@@ -180,6 +180,18 @@ test('local proof command registry has owners and timing budgets for failure rou
   assert.equal(LOCAL_PROOF_COMMANDS['db-tests'].budgetMs, 300_000);
 });
 
+test('buildSelection routes storage changes to storage tests instead of db tests', () => {
+  const selection = buildSelection({
+    files: ['packages/storage/src/safe-json-state-storage.ts'],
+    mergeBase: '1111111111111111111111111111111111111111',
+  });
+
+  assert.deepEqual(
+    selection.commands.map((command) => command.name),
+    ['diff-check', 'storage-tests']
+  );
+});
+
 test('buildSelection rejects unsafe merge-base placeholders', () => {
   assert.throws(
     () =>

@@ -125,6 +125,20 @@ export const LOCAL_PROOF_COMMANDS = {
     owner: 'data-platform',
     requiredFor: ['db-migrations-storage'],
   },
+  'storage-tests': {
+    name: 'storage-tests',
+    command: 'pnpm --filter @brainstrike/storage test',
+    budgetMs: 120_000,
+    owner: 'data-platform',
+    requiredFor: ['db-migrations-storage'],
+  },
+  'file-system-tests': {
+    name: 'file-system-tests',
+    command: 'pnpm --filter @brainstrike/file-system test',
+    budgetMs: 120_000,
+    owner: 'data-platform',
+    requiredFor: ['db-migrations-storage'],
+  },
   'migration-tests': {
     name: 'migration-tests',
     command:

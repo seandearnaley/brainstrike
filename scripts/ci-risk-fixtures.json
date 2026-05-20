@@ -88,7 +88,17 @@
         "category": "db-migrations-storage",
         "cloudLabels": ["ci:browser", "ci:coverage"],
         "e2eLanes": [],
-        "proofCommands": ["diff-check", "db-tests"]
+        "proofCommands": ["diff-check", "storage-tests"]
+      }
+    },
+    {
+      "name": "file system",
+      "files": ["packages/file-system/src/utils.ts"],
+      "expected": {
+        "category": "db-migrations-storage",
+        "cloudLabels": ["ci:browser", "ci:coverage"],
+        "e2eLanes": [],
+        "proofCommands": ["diff-check", "file-system-tests"]
       }
     },
     {

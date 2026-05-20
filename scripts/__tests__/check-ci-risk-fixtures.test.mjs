@@ -71,7 +71,7 @@ test('runCli checks the committed fixture file successfully', async () => {
     const exitCode = await runCli([]);
 
     assert.equal(exitCode, 0);
-    assert.match(logs.join('\n'), /CI risk fixture check passed: 13 representative cases\./);
+    assert.match(logs.join('\n'), /CI risk fixture check passed: 14 representative cases\./);
   } finally {
     console.log = originalConsoleLog;
   }

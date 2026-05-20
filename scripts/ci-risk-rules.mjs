@@ -73,6 +73,10 @@ const DB_PATTERNS = [
   /^packages\/file-system\//,
 ];
 
+const STORAGE_PATTERNS = [/^packages\/storage\//];
+
+const FILE_SYSTEM_PATTERNS = [/^packages\/file-system\//];
+
 const DB_MIGRATION_PATTERNS = [
   /^packages\/db\/src\/migrations\//,
   /^packages\/db\/migrations\//,
@@ -198,6 +202,17 @@ function hasAny(normalizedFiles, patterns) {
   return normalizedFiles.some((filePath) => matchesAny(filePath, patterns));
 }
 
+function dataPlatformPackageCommands(normalizedFiles) {
+  const commands = ['diff-check'];
+  if (hasAny(normalizedFiles, STORAGE_PATTERNS)) {
+    commands.push('storage-tests');
+  }
+  if (hasAny(normalizedFiles, FILE_SYSTEM_PATTERNS)) {
+    commands.push('file-system-tests');
+  }
+  return commands;
+}
+
 function profile({
   category,
   domains,
@@ -284,6 +299,20 @@ export function selectRiskProfileForFiles(files) {
       e2eLanes: ['destructive-reset'],
       proofCommands: ['diff-check', 'db-tests', 'migration-tests'],
       riskLevel: 'high',
+      cloudLabels: ['ci:browser', 'ci:coverage'],
+    });
+  }
+
+  if (
+    hasAny(normalizedFiles, [...STORAGE_PATTERNS, ...FILE_SYSTEM_PATTERNS]) &&
+    !hasAny(normalizedFiles, [/^packages\/db\//])
+  ) {
+    return profile({
+      category: 'db-migrations-storage',
+      domains: ['data-platform'],
+      e2eLanes: [],
+      proofCommands: dataPlatformPackageCommands(normalizedFiles),
+      riskLevel: 'medium',
       cloudLabels: ['ci:browser', 'ci:coverage'],
     });
   }

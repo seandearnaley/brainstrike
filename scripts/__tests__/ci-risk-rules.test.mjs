@@ -167,11 +167,30 @@ test('workflow and CI script changes select the full lane', () => {
   ]);
 });
 
-test('browser storage changes select browser and coverage lanes', () => {
+test('browser storage changes select browser and coverage lanes without full db tests', () => {
+  assert.deepEqual(selectRiskProfileForFiles(['packages/storage/src/opfs.ts']), {
+    category: 'db-migrations-storage',
+    domains: ['data-platform'],
+    e2eLanes: [],
+    proofCommands: ['diff-check', 'storage-tests'],
+    riskLevel: 'medium',
+    cloudLabels: ['ci:browser', 'ci:coverage'],
+  });
   assert.deepEqual(selectRiskLanesForFiles(['packages/storage/src/opfs.ts']), [
     'ci:browser',
     'ci:coverage',
   ]);
+});
+
+test('file-system changes select file-system tests without full db tests', () => {
+  assert.deepEqual(selectRiskProfileForFiles(['packages/file-system/src/utils.ts']), {
+    category: 'db-migrations-storage',
+    domains: ['data-platform'],
+    e2eLanes: [],
+    proofCommands: ['diff-check', 'file-system-tests'],
+    riskLevel: 'medium',
+    cloudLabels: ['ci:browser', 'ci:coverage'],
+  });
 });
 
 test('desktop host changes select desktop and embedding lanes', () => {
