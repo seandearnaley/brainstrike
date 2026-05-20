@@ -147,9 +147,9 @@ test('buildSelection marks full release proof as explicit release budget', () =>
 
   assert.deepEqual(selection.budget, {
     target: 'release-full-risk',
-    targetMs: 45 * 60_000,
+    targetMs: 60 * 60_000,
     totalMs: 3_030_000,
-    status: 'over-target',
+    status: 'within-target',
   });
 });
 

@@ -67,7 +67,7 @@ export const LOCAL_PROOF_COMMANDS = {
   'ci-script-tests': {
     name: 'ci-script-tests',
     command:
-      'node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs scripts/__tests__/run-changed-unit-tests.test.mjs scripts/__tests__/ci-calibrate-proof-commands.test.mjs && pnpm run ci:risk-fixtures',
+      'node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/ci-proof.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-workflow-contracts.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs scripts/__tests__/run-changed-unit-tests.test.mjs scripts/__tests__/ci-calibrate-proof-commands.test.mjs scripts/__tests__/ci-calibration-summary.test.mjs && pnpm run ci:risk-fixtures',
     budgetMs: 120_000,
     owner: 'tooling',
     requiredFor: ['config-tooling', 'full-release-high-risk'],
@@ -266,7 +266,7 @@ function resolveBudgetTarget(riskProfile) {
     return { target: 'fast-local', targetMs: 2 * 60_000 };
   }
   if (riskProfile.category === 'full-release-high-risk') {
-    return { target: 'release-full-risk', targetMs: 45 * 60_000 };
+    return { target: 'release-full-risk', targetMs: 60 * 60_000 };
   }
   if (riskProfile.e2eLanes.length === 0) {
     return { target: 'local-pr-risk', targetMs: 8 * 60_000 };

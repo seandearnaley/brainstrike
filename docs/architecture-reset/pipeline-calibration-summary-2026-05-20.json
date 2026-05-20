@@ -1,0 +1,260 @@
+{
+  "schemaVersion": 1,
+  "generatedFrom": "calibration-files",
+  "minSamples": 5,
+  "sampleCount": 9,
+  "commandSampleCount": 13,
+  "status": "calibrating",
+  "commands": [
+    {
+      "name": "assistant-contract-tests",
+      "owner": "assistant",
+      "requiredFor": [
+        "assistant-contract-runtime"
+      ],
+      "sampleCount": 1,
+      "p50Ms": 8086,
+      "p95Ms": 8086,
+      "currentBudgetMs": 180000,
+      "recordedBudgetMs": 180000,
+      "recordedBudgetStale": false,
+      "maxDurationMs": 8086,
+      "failureCount": 0,
+      "status": "calibrating",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-assistant-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "ci-script-tests",
+      "owner": "tooling",
+      "requiredFor": [
+        "config-tooling",
+        "full-release-high-risk"
+      ],
+      "sampleCount": 1,
+      "p50Ms": 310,
+      "p95Ms": 310,
+      "currentBudgetMs": 120000,
+      "recordedBudgetMs": 120000,
+      "recordedBudgetStale": false,
+      "maxDurationMs": 310,
+      "failureCount": 0,
+      "status": "calibrating",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-sample-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "db-tests",
+      "owner": "data-platform",
+      "requiredFor": [
+        "db-migrations-storage"
+      ],
+      "sampleCount": 1,
+      "p50Ms": 269544,
+      "p95Ms": 269544,
+      "currentBudgetMs": 300000,
+      "recordedBudgetMs": 180000,
+      "recordedBudgetStale": true,
+      "maxDurationMs": 269544,
+      "failureCount": 0,
+      "status": "calibrating",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-db-indexing-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "desktop-smoke-tests",
+      "owner": "desktop-platform",
+      "requiredFor": [
+        "desktop-platform-ipc-preload"
+      ],
+      "sampleCount": 1,
+      "p50Ms": 28336,
+      "p95Ms": 28336,
+      "currentBudgetMs": 300000,
+      "recordedBudgetMs": 300000,
+      "recordedBudgetStale": false,
+      "maxDurationMs": 28336,
+      "failureCount": 0,
+      "status": "calibrating",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-desktop-smoke-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "desktop-unit-tests",
+      "owner": "desktop-platform",
+      "requiredFor": [
+        "desktop-platform-ipc-preload"
+      ],
+      "sampleCount": 1,
+      "p50Ms": 49794,
+      "p95Ms": 49794,
+      "currentBudgetMs": 240000,
+      "recordedBudgetMs": 240000,
+      "recordedBudgetStale": false,
+      "maxDurationMs": 49794,
+      "failureCount": 0,
+      "status": "calibrating",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-desktop-unit-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "diff-check",
+      "owner": "tooling",
+      "requiredFor": [
+        "all"
+      ],
+      "sampleCount": 1,
+      "p50Ms": 13,
+      "p95Ms": 13,
+      "currentBudgetMs": 30000,
+      "recordedBudgetMs": 30000,
+      "recordedBudgetStale": false,
+      "maxDurationMs": 13,
+      "failureCount": 0,
+      "status": "calibrating",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-sample-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "file-explorer-tests",
+      "owner": "workspace-experience",
+      "requiredFor": [
+        "web-ui-file-explorer"
+      ],
+      "sampleCount": 1,
+      "p50Ms": 22083,
+      "p95Ms": 22083,
+      "currentBudgetMs": 240000,
+      "recordedBudgetMs": 240000,
+      "recordedBudgetStale": false,
+      "maxDurationMs": 22083,
+      "failureCount": 0,
+      "status": "calibrating",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-file-explorer-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "file-system-tests",
+      "owner": "data-platform",
+      "requiredFor": [
+        "db-migrations-storage"
+      ],
+      "sampleCount": 1,
+      "p50Ms": 1209,
+      "p95Ms": 1209,
+      "currentBudgetMs": 120000,
+      "recordedBudgetMs": 120000,
+      "recordedBudgetStale": false,
+      "maxDurationMs": 1209,
+      "failureCount": 0,
+      "status": "calibrating",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-storage-filesystem-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "indexing-tests",
+      "owner": "indexing",
+      "requiredFor": [
+        "indexing-import-embedding"
+      ],
+      "sampleCount": 1,
+      "p50Ms": 4823,
+      "p95Ms": 4823,
+      "currentBudgetMs": 240000,
+      "recordedBudgetMs": 240000,
+      "recordedBudgetStale": false,
+      "maxDurationMs": 4823,
+      "failureCount": 0,
+      "status": "calibrating",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-db-indexing-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "migration-tests",
+      "owner": "data-platform",
+      "requiredFor": [
+        "db-migrations-storage"
+      ],
+      "sampleCount": 1,
+      "p50Ms": 33517,
+      "p95Ms": 33517,
+      "currentBudgetMs": 180000,
+      "recordedBudgetMs": 180000,
+      "recordedBudgetStale": false,
+      "maxDurationMs": 33517,
+      "failureCount": 0,
+      "status": "calibrating",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-migration-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "storage-tests",
+      "owner": "data-platform",
+      "requiredFor": [
+        "db-migrations-storage"
+      ],
+      "sampleCount": 1,
+      "p50Ms": 918,
+      "p95Ms": 918,
+      "currentBudgetMs": 120000,
+      "recordedBudgetMs": 120000,
+      "recordedBudgetStale": false,
+      "maxDurationMs": 918,
+      "failureCount": 0,
+      "status": "calibrating",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-storage-filesystem-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "web-smoke-tests",
+      "owner": "applications",
+      "requiredFor": [
+        "web-ui-file-explorer",
+        "assistant-contract-runtime"
+      ],
+      "sampleCount": 1,
+      "p50Ms": 33140,
+      "p95Ms": 33140,
+      "currentBudgetMs": 300000,
+      "recordedBudgetMs": 300000,
+      "recordedBudgetStale": false,
+      "maxDurationMs": 33140,
+      "failureCount": 0,
+      "status": "calibrating",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-web-smoke-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "workflow-contracts",
+      "owner": "ci-platform",
+      "requiredFor": [
+        "config-tooling",
+        "full-release-high-risk"
+      ],
+      "sampleCount": 1,
+      "p50Ms": 269,
+      "p95Ms": 269,
+      "currentBudgetMs": 180000,
+      "recordedBudgetMs": 180000,
+      "recordedBudgetStale": false,
+      "maxDurationMs": 269,
+      "failureCount": 0,
+      "status": "calibrating",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-sample-2026-05-20.json"
+      ]
+    }
+  ]
+}
