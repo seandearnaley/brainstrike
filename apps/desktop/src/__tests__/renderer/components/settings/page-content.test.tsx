@@ -3,10 +3,15 @@ import {
   __resetAssistantPreferencesStoreForTests,
   __resetNativeToolPreferencesStoreForTests,
 } from '@brainstrike/preferences';
-import { ThemeProvider, TooltipProvider } from '@brainstrike/ui';
+import { ThemeProvider, type ThemeStorageAdapter, TooltipProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsPageContent from '../../../../renderer/components/settings/page-content';
+
+const themeStorageAdapter: ThemeStorageAdapter = {
+  getItem: async () => null,
+  setItem: async () => {},
+};
 
 // Mock file-explorer-ui - needed for useFileExplorerStoreContext
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
@@ -150,7 +155,7 @@ afterEach(() => {
 describe('Desktop SettingsPageContent', () => {
   it('navigates to AI Tools and displays unified tools management', async () => {
     render(
-      <ThemeProvider>
+      <ThemeProvider storageAdapter={themeStorageAdapter}>
         <TooltipProvider>
           <SettingsPageContent />
         </TooltipProvider>
@@ -172,7 +177,7 @@ describe('Desktop SettingsPageContent', () => {
 
   it('filters categories using the search box', async () => {
     render(
-      <ThemeProvider>
+      <ThemeProvider storageAdapter={themeStorageAdapter}>
         <TooltipProvider>
           <SettingsPageContent />
         </TooltipProvider>
@@ -190,7 +195,7 @@ describe('Desktop SettingsPageContent', () => {
 
   it('shows Factory Reset category when searching for factory', async () => {
     render(
-      <ThemeProvider>
+      <ThemeProvider storageAdapter={themeStorageAdapter}>
         <TooltipProvider>
           <SettingsPageContent />
         </TooltipProvider>
@@ -206,7 +211,7 @@ describe('Desktop SettingsPageContent', () => {
 
   it('renders LLM credentials form fields in Models & Providers', async () => {
     render(
-      <ThemeProvider>
+      <ThemeProvider storageAdapter={themeStorageAdapter}>
         <TooltipProvider>
           <SettingsPageContent />
         </TooltipProvider>

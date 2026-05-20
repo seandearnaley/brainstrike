@@ -1,14 +1,13 @@
-import type { StorageAdapter } from '@brainstrike/storage';
 /**
  * @vitest-environment happy-dom
  */
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ThemeProvider, useTheme } from '../theme-provider';
+import { ThemeProvider, type ThemeStorageAdapter, useTheme } from '../theme-provider';
 
 // Mock storage adapter
-let mockStorageAdapter: StorageAdapter;
+let mockStorageAdapter: ThemeStorageAdapter;
 
 // Mock classList
 const mockClassList = {
@@ -40,7 +39,7 @@ describe('ThemeProvider', () => {
       removeItem: vi.fn().mockResolvedValue(undefined),
       clear: vi.fn().mockResolvedValue(undefined),
       getAllKeys: vi.fn().mockResolvedValue([]),
-    } as StorageAdapter;
+    } as ThemeStorageAdapter;
 
     // Set the classList on the document element
     Object.defineProperty(document.documentElement, 'classList', {

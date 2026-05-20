@@ -18,7 +18,11 @@ export function AppLayout({ children, config, currentPath, onNavigationClick }: 
   const { fileSystemAdapter, storageAdapter } = useAdapters();
 
   return (
-    <ThemeProvider defaultTheme="light" storageKey={config.themeStorageKey}>
+    <ThemeProvider
+      defaultTheme="light"
+      storageAdapter={storageAdapter}
+      storageKey={config.themeStorageKey}
+    >
       <TooltipProvider delayDuration={300} skipDelayDuration={100}>
         <FileExplorerProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
           <div className="flex h-screen flex-col">

@@ -51,13 +51,6 @@
       "importedPackage": "@brainstrike/workers",
       "reason": "Shared hooks currently expose report-generation worker orchestration. Phase 4 either moves that hook into indexing/workspace experience or extracts a lower-level worker contract.",
       "retireByPhase": "phase-4"
-    },
-    {
-      "id": "ui-storage-theme-coupling",
-      "sourcePackage": "@brainstrike/ui",
-      "importedPackage": "@brainstrike/storage",
-      "reason": "Theme provider currently persists through storage directly. Phase 4 moves persistence out of shared UI or introduces a foundation-level persistence interface.",
-      "retireByPhase": "phase-4"
     }
   ],
   "domains": [

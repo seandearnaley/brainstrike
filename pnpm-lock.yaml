@@ -2027,9 +2027,6 @@ importers:
       '@brainstrike/hooks':
         specifier: workspace:*
         version: link:../hooks
-      '@brainstrike/storage':
-        specifier: workspace:*
-        version: link:../storage
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types

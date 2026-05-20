@@ -13,9 +13,6 @@
     "paths": {
       "@brainstrike/utils/*": [
         "../utils/src/*"
-      ],
-      "@brainstrike/storage": [
-        "../storage/src"
       ]
     },
     "strictNullChecks": true
@@ -36,9 +33,6 @@
     },
     {
       "path": "../../packages/types"
-    },
-    {
-      "path": "../storage"
     },
     {
       "path": "../utils"
