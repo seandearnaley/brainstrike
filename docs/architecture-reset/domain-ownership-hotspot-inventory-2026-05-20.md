@@ -9,7 +9,6 @@ This inventory tracks size and churn hotspots that remain after the legal domain
 | LOC | File | Action |
 |---:|---|---|
 | 3150 | `apps/desktop/e2e/file-explorer-selection.desktop.test.ts` | Split after embedding E2E unless this lane becomes flaky first. |
-| 2765 | `packages/app-shell/src/__tests__/assistant-ui-panel-wrapper.test.tsx` | Split by assistant contract, local runtime, thread/context wiring. |
 | 2344 | `apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts` | Split by db IPC capability after handler registry exists. |
 | 2181 | `packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx` | Split presentational assistant panel sections after wrapper is thinner. |
 | 2074 | `packages/file-explorer/src/actions/__tests__/file-selection-actions.test.ts` | Split action tests by command family. |
@@ -165,9 +164,19 @@ Package-local architecture coverage now verifies `assistant-ui-panel-wrapper.tsx
 - `pnpm --filter @brainstrike/app-shell exec vitest run src/__tests__/assistant-contract-boundary.test.ts src/__tests__/assistant-ui-panel-wrapper.test.tsx`
 - `pnpm --filter @brainstrike/app-shell type-check`
 
+## App-Shell Assistant Wrapper Test Fixture Slice Completed
+
+`packages/app-shell/src/__tests__/assistant-ui-panel-wrapper.test.tsx` is reduced from 2765 LOC to 1760 LOC by extracting shared mocks, provider catalogs, DB fixtures, file-explorer stores, MCP bridge setup, and render helpers into `assistant-ui-panel-wrapper-test-support.tsx`.
+
+The executable spec remains the behavioral owner for provider/model selection, MCP/native tools, workspace context updates, per-thread draft runtimes, Mastra memory wiring, and run-record lifecycle assertions. The support module is a shared fixture owner, not an additional behavioral lane.
+
+Package-local architecture coverage now verifies the executable wrapper test stays below the 2000 LOC test-file budget. Verification for this slice:
+
+- `pnpm --filter @brainstrike/app-shell exec vitest run src/__tests__/assistant-contract-boundary.test.ts src/__tests__/assistant-ui-panel-wrapper.test.tsx`
+- `pnpm --filter @brainstrike/app-shell type-check`
+
 ## Next Slices
 
-1. Split `packages/app-shell/src/__tests__/assistant-ui-panel-wrapper.test.tsx` by local-runtime, preferences, thread, and context wiring responsibilities.
-2. Tighten E2E lane selection so the split desktop embedding diagnostic files are only selected for matching high-risk diffs.
-3. Move `ipc-handlers.ts` toward a domain-keyed registry after the embedding E2E split reduces verification cost.
-4. Decompose `packages/db` internally around queue, migrations, repositories, search, and schema while preserving public barrels.
+1. Tighten E2E lane selection so the split desktop embedding diagnostic files are only selected for matching high-risk diffs.
+2. Move `ipc-handlers.ts` toward a domain-keyed registry after the embedding E2E split reduces verification cost.
+3. Decompose `packages/db` internally around queue, migrations, repositories, search, and schema while preserving public barrels.

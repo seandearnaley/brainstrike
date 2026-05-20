@@ -59,6 +59,7 @@ Owned files:
 - `src/assistant-ui-panel-wrapper-runtime.ts`: Pure helper module for provider/model selection, request data shaping, memory options, MCP/native tool menu shaping, and assistant run-record creation.
 - `src/assistant-thread-store.ts`: Per-thread draft runtime state.
 - `src/assistant-memory-repository.ts`: PGlite-backed thread and run-record persistence.
+- `src/__tests__/assistant-ui-panel-wrapper-test-support.tsx`: Shared wrapper test fixture for provider catalogs, DB mocks, file-explorer stores, MCP bridge setup, and render helpers.
 
 Public surfaces:
 

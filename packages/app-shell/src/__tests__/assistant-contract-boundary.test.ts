@@ -51,6 +51,12 @@ describe('app-shell assistant contract boundary', () => {
     expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1500);
   });
 
+  it('keeps the assistant panel wrapper executable test under the test-file budget', () => {
+    const wrapperTestSource = readSource('__tests__/assistant-ui-panel-wrapper.test.tsx');
+
+    expect(wrapperTestSource.split('\n').length).toBeLessThanOrEqual(2000);
+  });
+
   it('reads built-in local LLM availability from assistant-contract instead of agent runtime packages', () => {
     expect(readSource('hooks/use-assistant-availability-with-local.ts')).not.toMatch(
       /@brainstrike\/agent\/local-llm/
