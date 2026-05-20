@@ -259,7 +259,7 @@
         <tr>
           <td>Renderer-only local LLM and embedding execution is enforceable</td>
           <td><span class="status done">done</span></td>
-          <td><code>runtime-host-boundary.test.ts</code> rejects Electron main imports, dynamic imports, require calls, and re-exports of renderer-only runtime modules. It also rejects Electron main value imports from the <code>@brainstrike/embeddings</code> root entrypoint because that root exports worker execution; main-process hosted retrieval now imports from <code>@brainstrike/embeddings/provider-core</code>.</td>
+          <td><code>runtime-host-boundary.test.ts</code> rejects Electron main imports, dynamic imports, require calls, and re-exports of renderer-only runtime modules. It now treats <code>@brainstrike/agent/local-llm/*</code> and <code>@brainstrike/embeddings/worker/*</code> as renderer-only too, while allowing hosted provider contracts such as <code>@brainstrike/embeddings/provider-core</code>. It also rejects Electron main value imports from the <code>@brainstrike/embeddings</code> root entrypoint because that root exports worker execution; main-process hosted retrieval now imports from <code>@brainstrike/embeddings/provider-core</code>.</td>
         </tr>
         <tr>
           <td><code>@brainstrike/pipeline</code> has a real production consumer or is removed</td>
@@ -469,6 +469,11 @@
           <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/preload-power.test.ts</code><br><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts</code><br><code>pnpm --filter @brainstrike/desktop build</code></td>
           <td>LLM-host preload parity is covered alongside embedding/chunking host parity; Electron main can no longer value-import the embeddings root entrypoint; the provider-core subpath resolves in the desktop main build.</td>
           <td><span class="status done">14 preload tests, 12 boundary tests, build passed</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts</code></td>
+          <td>Renderer-only architecture guards reject nested local LLM and embedding worker subpath imports from Electron main while preserving the hosted provider-core path.</td>
+          <td><span class="status done">14 boundary tests</span></td>
         </tr>
       </tbody>
     </table>

@@ -81,6 +81,39 @@ describe('runtime host boundary', () => {
     ]);
   });
 
+  it('rejects Electron main imports below renderer-only runtime entrypoints', () => {
+    const violations = findRuntimeHostBoundaryViolations([
+      {
+        path: 'apps/desktop/src/main.ts',
+        source: "import { LocalLlmBackend } from '@brainstrike/agent/local-llm/internal';",
+      },
+      {
+        path: 'apps/desktop/src/ipc-handlers.ts',
+        source: "import { startEmbeddingWorker } from '@brainstrike/embeddings/worker/runtime';",
+      },
+      {
+        path: 'apps/desktop/src/assistant-server/retrieval-tool.ts',
+        source:
+          "import { resolveHostedProviderApiKey } from '@brainstrike/embeddings/provider-core';",
+      },
+    ]);
+
+    expect(violations).toEqual([
+      {
+        importSource: '@brainstrike/agent/local-llm/internal',
+        message:
+          'Built-in local LLM execution is renderer-only; Electron main must talk to llm-host.',
+        path: 'apps/desktop/src/main.ts',
+      },
+      {
+        importSource: '@brainstrike/embeddings/worker/runtime',
+        message:
+          'Local embedding worker execution is renderer-only; Electron main must talk to embedding-host.',
+        path: 'apps/desktop/src/ipc-handlers.ts',
+      },
+    ]);
+  });
+
   it('rejects dynamic imports and require calls that can execute renderer-only local runtimes', () => {
     const violations = findRuntimeHostBoundaryViolations([
       {

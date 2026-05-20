@@ -13,20 +13,31 @@ export interface RuntimeHostBoundaryViolation {
   path: string;
 }
 
-const FORBIDDEN_EXECUTION_IMPORTS = new Map<string, string>([
-  [
-    '@brainstrike/agent/local-llm',
-    'Built-in local LLM execution is renderer-only; Electron main must talk to llm-host.',
-  ],
-  [
-    '@brainstrike/embeddings/worker',
-    'Local embedding worker execution is renderer-only; Electron main must talk to embedding-host.',
-  ],
-  [
-    '@brainstrike/embeddings',
-    'The embeddings root entrypoint exports renderer-only worker execution; Electron main must import hosted provider contracts from @brainstrike/embeddings/provider-core.',
-  ],
-]);
+interface ForbiddenExecutionImportRule {
+  readonly matchSubpaths: boolean;
+  readonly message: string;
+  readonly source: string;
+}
+
+const FORBIDDEN_EXECUTION_IMPORTS: readonly ForbiddenExecutionImportRule[] = [
+  {
+    matchSubpaths: true,
+    message: 'Built-in local LLM execution is renderer-only; Electron main must talk to llm-host.',
+    source: '@brainstrike/agent/local-llm',
+  },
+  {
+    matchSubpaths: true,
+    message:
+      'Local embedding worker execution is renderer-only; Electron main must talk to embedding-host.',
+    source: '@brainstrike/embeddings/worker',
+  },
+  {
+    matchSubpaths: false,
+    message:
+      'The embeddings root entrypoint exports renderer-only worker execution; Electron main must import hosted provider contracts from @brainstrike/embeddings/provider-core.',
+    source: '@brainstrike/embeddings',
+  },
+];
 
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx']);
 
@@ -143,13 +154,19 @@ function appendForbiddenImportViolation(
   node: ts.Node
 ): void {
   const importSource = getForbiddenImportSource(node);
-  const message = importSource ? FORBIDDEN_EXECUTION_IMPORTS.get(importSource) : null;
+  const rule = importSource
+    ? FORBIDDEN_EXECUTION_IMPORTS.find(
+        (candidate) =>
+          importSource === candidate.source ||
+          (candidate.matchSubpaths && importSource.startsWith(`${candidate.source}/`))
+      )
+    : null;
 
-  if (!(importSource && message)) {
+  if (!(importSource && rule)) {
     return;
   }
 
-  violations.push({ importSource, message, path: filePath });
+  violations.push({ importSource, message: rule.message, path: filePath });
 }
 
 export function findRuntimeHostBoundaryViolations(
