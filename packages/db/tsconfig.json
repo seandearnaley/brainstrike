@@ -35,7 +35,7 @@
       "path": "../queue"
     },
     {
-      "path": "../text-splitter"
+      "path": "../indexing-contract"
     },
     {
       "path": "../utils"

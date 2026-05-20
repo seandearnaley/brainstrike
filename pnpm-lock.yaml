@@ -926,12 +926,12 @@ importers:
       '@babel/parser':
         specifier: ^7.29.2
         version: 7.29.2
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../queue
-      '@brainstrike/text-splitter':
-        specifier: workspace:*
-        version: link:../text-splitter
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types

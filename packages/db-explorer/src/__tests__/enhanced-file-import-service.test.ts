@@ -73,9 +73,6 @@ vi.mock('@brainstrike/db', () => ({
     embeddingProcessingDelay: 10,
     chunkPreviewLength: 50,
   },
-  ChunkingService: vi.fn().mockImplementation(() => ({
-    chunkContent: vi.fn(),
-  })),
   useDbProviderError: () => null,
   useFactoryReset: () => null,
   usePGliteLiveQuery: () => ({ rows: [], loading: false, error: null, refresh: vi.fn() }),

@@ -5,7 +5,7 @@
  * Provides type-safe database operations for file records.
  */
 
-import type { ResolvedChunkingStrategy } from '@brainstrike/text-splitter';
+import type { ResolvedChunkingStrategy } from '@brainstrike/indexing-contract';
 import { createLogger, generateContentHash, generateUUID } from '@brainstrike/utils';
 import { count, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';

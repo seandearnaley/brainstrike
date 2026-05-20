@@ -46,13 +46,6 @@
       "retireByPhase": "phase-4"
     },
     {
-      "id": "db-text-splitter-schema-coupling",
-      "sourcePackage": "@brainstrike/db",
-      "importedPackage": "@brainstrike/text-splitter",
-      "reason": "Database models and chunking services currently reference text splitter types and chunking helpers. Phase 3 moves chunk orchestration behind indexing-owned contracts.",
-      "retireByPhase": "phase-3"
-    },
-    {
       "id": "hooks-report-worker-coupling",
       "sourcePackage": "@brainstrike/hooks",
       "importedPackage": "@brainstrike/workers",

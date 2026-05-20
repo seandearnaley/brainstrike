@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "dependencies": {
     "@babel/parser": "^7.29.2",
+    "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/queue": "workspace:*",
-    "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@electric-sql/pglite": "^0.4.4",

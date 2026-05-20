@@ -9,7 +9,7 @@ export {
   getChunkingPresetDefinitions,
   type ResolvedChunkingStrategy,
   resolveChunkingStrategyForFile,
-} from '@brainstrike/text-splitter';
+} from '@brainstrike/indexing-contract';
 export * from './architecture/brainstrike-db-client-contract.js';
 export * from './architecture/db-migration-authority.js';
 export * from './architecture/db-runtime-baseline.js';
@@ -95,8 +95,6 @@ export type {
 export { viewFilterPresets } from './schema/index.js';
 // Search utilities (RRF fusion for hybrid search)
 export * from './search/index.js';
-export type { ChunkingOptions, ChunkingResult } from './services/chunking-service.js';
-export { ChunkingService } from './services/chunking-service.js';
 export {
   type CollectionIndexingStats,
   getCollectionIndexingStats,
