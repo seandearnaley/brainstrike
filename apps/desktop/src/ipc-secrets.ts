@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron';
 import { listAgentProviders } from './agent-client-loader';
+import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import { resolveProviderEnvKey } from './provider-api-key';
 import type { SecretsService } from './secrets';
@@ -80,7 +81,7 @@ export function registerSecretsIpcHandlers(secrets: SecretsService): () => void 
 
   registry.registerInvoke(
     'preferences',
-    'secrets:save',
+    DESKTOP_IPC_CHANNELS.secrets.save,
     async (_event, provider: string, value: string) => {
       // In test mode, use in-memory storage
       if (isTestMode()) {
@@ -99,27 +100,35 @@ export function registerSecretsIpcHandlers(secrets: SecretsService): () => void 
     }
   );
 
-  registry.registerInvoke('preferences', 'secrets:get', async (_event, provider: string) => {
-    // In test mode, check in-memory storage
-    if (isTestMode()) {
-      return testModeSecrets.get(provider) ?? null;
+  registry.registerInvoke(
+    'preferences',
+    DESKTOP_IPC_CHANNELS.secrets.get,
+    async (_event, provider: string) => {
+      // In test mode, check in-memory storage
+      if (isTestMode()) {
+        return testModeSecrets.get(provider) ?? null;
+      }
+
+      const v = await secrets.getKey(provider);
+      return v;
     }
+  );
 
-    const v = await secrets.getKey(provider);
-    return v;
-  });
+  registry.registerInvoke(
+    'preferences',
+    DESKTOP_IPC_CHANNELS.secrets.delete,
+    async (_event, provider: string) => {
+      // In test mode, remove from in-memory storage
+      if (isTestMode()) {
+        testModeSecrets.delete(provider);
+        return;
+      }
 
-  registry.registerInvoke('preferences', 'secrets:delete', async (_event, provider: string) => {
-    // In test mode, remove from in-memory storage
-    if (isTestMode()) {
-      testModeSecrets.delete(provider);
-      return;
+      return await secrets.deleteKey(provider);
     }
+  );
 
-    return await secrets.deleteKey(provider);
-  });
-
-  registry.registerInvoke('preferences', 'secrets:list', async () => {
+  registry.registerInvoke('preferences', DESKTOP_IPC_CHANNELS.secrets.list, async () => {
     // In test mode, only use in-memory storage (ignore env vars)
     if (isTestMode()) {
       const providers = new Set<string>();
@@ -136,7 +145,7 @@ export function registerSecretsIpcHandlers(secrets: SecretsService): () => void 
     return Array.from(providers);
   });
 
-  registry.registerInvoke('preferences', 'secrets:listStored', async () => {
+  registry.registerInvoke('preferences', DESKTOP_IPC_CHANNELS.secrets.listStored, async () => {
     if (isTestMode()) {
       const providers = new Set<string>();
       appendTestModeProviders(providers);
@@ -150,7 +159,7 @@ export function registerSecretsIpcHandlers(secrets: SecretsService): () => void 
 
   registry.registerInvoke(
     'preferences',
-    'secrets:clearAll',
+    DESKTOP_IPC_CHANNELS.secrets.clearAll,
     async (_event, confirmationToken?: string) => {
       if (confirmationToken !== SECRETS_CLEAR_CONFIRMATION_TOKEN) {
         return {

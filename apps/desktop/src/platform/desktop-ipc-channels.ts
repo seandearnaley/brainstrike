@@ -1,10 +1,32 @@
-export const DESKTOP_PRELOAD_IPC_CHANNELS = {
+export const DESKTOP_IPC_CHANNELS = {
   agent: {
     assistantGetUrl: 'assistant:get-url',
     chat: 'agent:chat',
   },
+  db: {
+    applyManagedCacheBatch: 'db:managed-cache:apply-batch',
+    clearAll: 'db:clearAll',
+    diagnostics: 'db:diagnostics',
+    exec: 'db:exec',
+    getUserDataPath: 'db:getUserDataPath',
+    liveQueryRefresh: 'db:live-query:refresh',
+    liveQueryStart: 'db:live-query:start',
+    liveQueryStop: 'db:live-query:stop',
+    ping: 'db:ping',
+    query: 'db:query',
+    resetLocal: 'db:resetLocal',
+    schedulerSnapshot: 'db:scheduler:snapshot',
+    test: 'db:test',
+  },
   files: {
+    exists: 'fs:exists',
     parserHostParse: 'parser-host:parse',
+    readDirectory: 'fs:readDirectory',
+    readFile: 'fs:readFile',
+    readFileByPath: 'fs:readFileByPath',
+    requestDirectoryAccess: 'fs:requestDirectoryAccess',
+    restoreLastFolder: 'fs:restoreLastFolder',
+    saveLastFolder: 'fs:saveLastFolder',
   },
   mcp: {
     configCreateSample: 'mcp:config:createSample',
@@ -28,7 +50,29 @@ export const DESKTOP_PRELOAD_IPC_CHANNELS = {
   runtime: {
     noteReloadIntent: 'app:lifecycle:note-reload-intent',
   },
+  secrets: {
+    clearAll: 'secrets:clearAll',
+    delete: 'secrets:delete',
+    get: 'secrets:get',
+    list: 'secrets:list',
+    listStored: 'secrets:listStored',
+    save: 'secrets:save',
+  },
+  storage: {
+    clear: 'storage:clear',
+    getAllKeys: 'storage:getAllKeys',
+    getItem: 'storage:getItem',
+    removeItem: 'storage:removeItem',
+    setItem: 'storage:setItem',
+  },
+  preferences: {
+    layoutLoad: 'layout:load',
+    layoutSave: 'layout:save',
+    settingsClearAll: 'settings:clearAll',
+  },
   tools: {
     execute: 'tools:execute',
   },
 } as const;
+
+export const DESKTOP_PRELOAD_IPC_CHANNELS = DESKTOP_IPC_CHANNELS;

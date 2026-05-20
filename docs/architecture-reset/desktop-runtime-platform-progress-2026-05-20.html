@@ -254,7 +254,7 @@
         <tr>
           <td>Adding an IPC channel has a domain owner and focused test path</td>
           <td><span class="status partial">partial</span></td>
-          <td>Registry, four extracted domains, diagnostics, logging, parser host, agent chat, secrets, runtime probes, MCP config/tools, tool execution, main platform lifecycle, and hidden host IPC modules are tested. Direct main-process registration is now isolated to the typed registry implementation. Preload bridge channels for agent, MCP, parser host, tools, and lifecycle are pinned to <code>platform/desktop-ipc-channels.ts</code> by source contract tests while preload remains runtime self-contained.</td>
+          <td>Registry, four extracted domains, diagnostics, logging, parser host, agent chat, secrets, runtime probes, MCP config/tools, tool execution, main platform lifecycle, and hidden host IPC modules are tested. Direct main-process registration is now isolated to the typed registry implementation. Production registry calls must use named channel contracts from <code>platform/desktop-ipc-channels.ts</code>; preload bridge channels for agent, MCP, parser host, tools, and lifecycle are source-checked against the same catalog while preload remains runtime self-contained.</td>
         </tr>
         <tr>
           <td>Renderer-only local LLM and embedding execution is enforceable</td>
@@ -409,6 +409,11 @@
           <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/preload-runtime-contract.test.ts src/__tests__/main/main-platform-ipc.test.ts src/__tests__/main/ipc-mcp.test.ts src/__tests__/main/ipc-tools.test.ts src/__tests__/ipc-agent.test.ts src/__tests__/main/ipc-parser-host.test.ts</code></td>
           <td>Shared channel catalog stays in parity with the self-contained preload bridge and the migrated main-process registry handlers for agent, MCP, parser host, tools, and lifecycle channels.</td>
           <td><span class="status done">6 files / 79 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/desktop-ipc-channel-contract.test.ts src/__tests__/ipc-domains/db-ipc.test.ts src/__tests__/main/ipc-handlers-db.test.ts src/__tests__/ipc-domains/file-system-ipc.test.ts src/__tests__/main/ipc-handlers-fs.test.ts src/__tests__/ipc-domains/storage-preferences-ipc.test.ts src/__tests__/main/ipc-secrets.test.ts src/__tests__/main/ipc-handlers.test.ts</code></td>
+          <td>Production registry calls no longer register raw channel literals; DB, file-system, storage/preferences, and secrets channel catalog migration preserved existing behavior.</td>
+          <td><span class="status done">8 files / 85 tests</span></td>
         </tr>
         <tr>
           <td><code>node --test scripts/__tests__/ci-select.test.mjs --test-name-pattern "E2E lane"</code><br><code>pnpm run lint:e2e-destructive-tags</code><br><code>pnpm run lint:ci-workflow-contracts</code></td>

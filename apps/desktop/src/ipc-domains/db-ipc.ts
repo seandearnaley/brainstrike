@@ -14,6 +14,7 @@ import {
   resolveSqlParamsAndWorkOptions,
   runScheduledDatabaseWork,
 } from '../platform/desktop-database-work';
+import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
 
 interface DatabaseHostWindowMatcher {
@@ -321,7 +322,7 @@ export function registerDatabaseIpcHandlers(
 
   registry.registerInvoke(
     'db',
-    'db:query',
+    DESKTOP_IPC_CHANNELS.db.query,
     async (
       event: IpcMainInvokeEvent,
       sql: string,
@@ -345,7 +346,7 @@ export function registerDatabaseIpcHandlers(
 
   registry.registerInvoke(
     'db',
-    'db:exec',
+    DESKTOP_IPC_CHANNELS.db.exec,
     async (
       event: IpcMainInvokeEvent,
       sql: string,
@@ -369,7 +370,7 @@ export function registerDatabaseIpcHandlers(
 
   registry.registerInvoke(
     'db',
-    'db:live-query:start',
+    DESKTOP_IPC_CHANNELS.db.liveQueryStart,
     async (
       event: IpcMainInvokeEvent,
       payload: LiveQueryPayload,
@@ -401,14 +402,18 @@ export function registerDatabaseIpcHandlers(
       )
   );
 
-  registry.registerInvoke('db', 'db:live-query:stop', async (_event, id: number) => {
-    await cleanupLiveSubscription(Number(id));
-    return { success: true };
-  });
+  registry.registerInvoke(
+    'db',
+    DESKTOP_IPC_CHANNELS.db.liveQueryStop,
+    async (_event, id: number) => {
+      await cleanupLiveSubscription(Number(id));
+      return { success: true };
+    }
+  );
 
   registry.registerInvoke(
     'db',
-    'db:live-query:refresh',
+    DESKTOP_IPC_CHANNELS.db.liveQueryRefresh,
     async (
       event: IpcMainInvokeEvent,
       payload: { id: number; offset?: number; limit?: number },
@@ -436,14 +441,17 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerInvoke('db', 'db:ping', async () => ({ message: 'ping', success: true }));
+  registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.ping, async () => ({
+    message: 'ping',
+    success: true,
+  }));
 
-  registry.registerInvoke('db', 'db:diagnostics', async () => {
+  registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.diagnostics, async () => {
     const { getDbHostManager } = await import('../db-host-manager');
     return await getDbHostManager().getDiagnostics();
   });
 
-  registry.registerInvoke('db', 'db:scheduler:snapshot', async () =>
+  registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.schedulerSnapshot, async () =>
     getDesktopDatabaseWorkSchedulerSnapshot()
   );
 
@@ -466,7 +474,7 @@ export function registerDatabaseIpcHandlers(
     }
   );
 
-  registry.registerInvoke('db', 'db:test', async () => {
+  registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.test, async () => {
     try {
       return await withCorruptionRecovery(async () => {
         const { getDatabase } = await import('../db-main');
@@ -487,77 +495,81 @@ export function registerDatabaseIpcHandlers(
     }
   });
 
-  registry.registerInvoke('db', 'db:clearAll', async (_event, confirmationToken?: string) => {
-    try {
-      if (!confirmationToken || confirmationToken !== 'CONFIRM_CLEAR_DATABASE') {
-        return {
-          deletedChunks: 0,
-          deletedFiles: 0,
-          message: 'Unauthorized: Invalid or missing confirmation token',
-          success: false,
-        };
-      }
-
-      const { getDatabase } = await import('../db-main');
-      const db = await getDatabase();
-
-      return await db.transaction(
-        async (tx: { query: (sql: string) => Promise<{ rows: unknown[] }> }) => {
-          const chunksResult = await tx.query('SELECT COUNT(*) as count FROM file_chunks');
-          const deletedChunks = Number(
-            (chunksResult.rows[0] as { count: string | number })?.count || 0
-          );
-
-          const filesResult = await tx.query('SELECT COUNT(*) as count FROM file_records');
-          const deletedFiles = Number(
-            (filesResult.rows[0] as { count: string | number })?.count || 0
-          );
-
-          await tx.query('DELETE FROM file_chunks');
-          try {
-            await tx.query('DELETE FROM selection_snapshot_files');
-            await tx.query('DELETE FROM selection_snapshots');
-          } catch (error) {
-            if (!isMissingRelationError(error)) {
-              logger.warn('Failed to clear selection snapshots', { error });
-            }
-          }
-          await tx.query('DELETE FROM file_records');
-          await clearOptionalRelation(tx, 'collection_indexing_stats');
-          await clearOptionalRelation(tx, 'embedding_sets');
-          await clearOptionalRelation(tx, 'job_queue');
-
+  registry.registerInvoke(
+    'db',
+    DESKTOP_IPC_CHANNELS.db.clearAll,
+    async (_event, confirmationToken?: string) => {
+      try {
+        if (!confirmationToken || confirmationToken !== 'CONFIRM_CLEAR_DATABASE') {
           return {
-            deletedChunks,
-            deletedFiles,
-            message: 'Database cleared successfully',
+            deletedChunks: 0,
+            deletedFiles: 0,
+            message: 'Unauthorized: Invalid or missing confirmation token',
+            success: false,
+          };
+        }
+
+        const { getDatabase } = await import('../db-main');
+        const db = await getDatabase();
+
+        return await db.transaction(
+          async (tx: { query: (sql: string) => Promise<{ rows: unknown[] }> }) => {
+            const chunksResult = await tx.query('SELECT COUNT(*) as count FROM file_chunks');
+            const deletedChunks = Number(
+              (chunksResult.rows[0] as { count: string | number })?.count || 0
+            );
+
+            const filesResult = await tx.query('SELECT COUNT(*) as count FROM file_records');
+            const deletedFiles = Number(
+              (filesResult.rows[0] as { count: string | number })?.count || 0
+            );
+
+            await tx.query('DELETE FROM file_chunks');
+            try {
+              await tx.query('DELETE FROM selection_snapshot_files');
+              await tx.query('DELETE FROM selection_snapshots');
+            } catch (error) {
+              if (!isMissingRelationError(error)) {
+                logger.warn('Failed to clear selection snapshots', { error });
+              }
+            }
+            await tx.query('DELETE FROM file_records');
+            await clearOptionalRelation(tx, 'collection_indexing_stats');
+            await clearOptionalRelation(tx, 'embedding_sets');
+            await clearOptionalRelation(tx, 'job_queue');
+
+            return {
+              deletedChunks,
+              deletedFiles,
+              message: 'Database cleared successfully',
+              success: true,
+            };
+          }
+        );
+      } catch (error) {
+        const { isCorruptionError, handleRuntimeCorruption } = await import('../db-main');
+        if (isCorruptionError(error)) {
+          logger.warn('Corruption detected in db:clearAll, resetting database...');
+          await handleRuntimeCorruption('db:clearAll');
+          return {
+            corrupted: true,
+            deletedChunks: 0,
+            deletedFiles: 0,
+            message: 'Database was corrupted and has been fully reset.',
             success: true,
           };
         }
-      );
-    } catch (error) {
-      const { isCorruptionError, handleRuntimeCorruption } = await import('../db-main');
-      if (isCorruptionError(error)) {
-        logger.warn('Corruption detected in db:clearAll, resetting database...');
-        await handleRuntimeCorruption('db:clearAll');
         return {
-          corrupted: true,
           deletedChunks: 0,
           deletedFiles: 0,
-          message: 'Database was corrupted and has been fully reset.',
-          success: true,
+          message: `Database clear failed: ${error instanceof Error ? error.message : String(error)}`,
+          success: false,
         };
       }
-      return {
-        deletedChunks: 0,
-        deletedFiles: 0,
-        message: `Database clear failed: ${error instanceof Error ? error.message : String(error)}`,
-        success: false,
-      };
     }
-  });
+  );
 
-  registry.registerInvoke('db', 'db:resetLocal', async () => {
+  registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.resetLocal, async () => {
     if (options?.onResetLocal) {
       return options.onResetLocal();
     }
@@ -571,7 +583,7 @@ export function registerDatabaseIpcHandlers(
     }
   });
 
-  registry.registerInvoke('db', 'db:getUserDataPath', async () => {
+  registry.registerInvoke('db', DESKTOP_IPC_CHANNELS.db.getUserDataPath, async () => {
     const { getDatabaseDiagnostics } = await import('../db-main');
     return getDatabaseDiagnostics().dataDir;
   });

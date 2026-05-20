@@ -4,6 +4,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
 import { z } from 'zod';
+import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
 import type { DesktopSettingsStoreSchema } from '../store-schema';
 
@@ -54,23 +55,31 @@ export function registerStoragePreferencesIpcHandlers({
 }: RegisterStoragePreferencesIpcHandlersOptions): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke('storage', 'storage:getItem', async (_event, key: string) =>
-    storage.getItem(key)
+  registry.registerInvoke(
+    'storage',
+    DESKTOP_IPC_CHANNELS.storage.getItem,
+    async (_event, key: string) => storage.getItem(key)
   );
   registry.registerInvoke(
     'storage',
-    'storage:setItem',
+    DESKTOP_IPC_CHANNELS.storage.setItem,
     async (_event, key: string, value: string) => storage.setItem(key, value)
   );
-  registry.registerInvoke('storage', 'storage:removeItem', async (_event, key: string) =>
-    storage.removeItem(key)
+  registry.registerInvoke(
+    'storage',
+    DESKTOP_IPC_CHANNELS.storage.removeItem,
+    async (_event, key: string) => storage.removeItem(key)
   );
-  registry.registerInvoke('storage', 'storage:clear', async () => storage.clear());
-  registry.registerInvoke('storage', 'storage:getAllKeys', async () => storage.getAllKeys());
+  registry.registerInvoke('storage', DESKTOP_IPC_CHANNELS.storage.clear, async () =>
+    storage.clear()
+  );
+  registry.registerInvoke('storage', DESKTOP_IPC_CHANNELS.storage.getAllKeys, async () =>
+    storage.getAllKeys()
+  );
 
   registry.registerInvoke(
     'preferences',
-    'layout:save',
+    DESKTOP_IPC_CHANNELS.preferences.layoutSave,
     async (_event, state: unknown): Promise<LayoutPersistenceResult> => {
       const store = getSettingsStoreAccess(getStore);
       if (!store) {
@@ -95,49 +104,57 @@ export function registerStoragePreferencesIpcHandlers({
     }
   );
 
-  registry.registerInvoke('preferences', 'layout:load', async (): Promise<LayoutLoadResult> => {
-    const store = getSettingsStoreAccess(getStore);
-    if (!store) {
-      logger.warn('Cannot load layout: store not initialized');
-      return { success: false, message: 'Store not initialized' };
-    }
-
-    try {
-      const layout = store.get('panelLayout') as { v1?: unknown } | undefined;
-      const candidate = layout?.v1;
-      if (!candidate) {
-        return { success: true, data: null };
-      }
-
-      const parsed = panelPersistenceStateSchema.safeParse(candidate);
-      if (!parsed.success) {
-        logger.warn('Invalid panel layout data in store', { issues: parsed.error.issues });
-        return { success: false, message: 'Invalid panel layout data' };
-      }
-
-      return { success: true, data: parsed.data };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.warn('Failed to load panel layout', { error: message });
-      return { success: false, message };
-    }
-  });
-
-  registry.registerInvoke('preferences', 'settings:clearAll', async () => {
-    try {
+  registry.registerInvoke(
+    'preferences',
+    DESKTOP_IPC_CHANNELS.preferences.layoutLoad,
+    async (): Promise<LayoutLoadResult> => {
       const store = getSettingsStoreAccess(getStore);
       if (!store) {
+        logger.warn('Cannot load layout: store not initialized');
         return { success: false, message: 'Store not initialized' };
       }
-      store.clear();
-      return { success: true };
-    } catch (error) {
-      return {
-        success: false,
-        message: error instanceof Error ? error.message : String(error),
-      };
+
+      try {
+        const layout = store.get('panelLayout') as { v1?: unknown } | undefined;
+        const candidate = layout?.v1;
+        if (!candidate) {
+          return { success: true, data: null };
+        }
+
+        const parsed = panelPersistenceStateSchema.safeParse(candidate);
+        if (!parsed.success) {
+          logger.warn('Invalid panel layout data in store', { issues: parsed.error.issues });
+          return { success: false, message: 'Invalid panel layout data' };
+        }
+
+        return { success: true, data: parsed.data };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn('Failed to load panel layout', { error: message });
+        return { success: false, message };
+      }
     }
-  });
+  );
+
+  registry.registerInvoke(
+    'preferences',
+    DESKTOP_IPC_CHANNELS.preferences.settingsClearAll,
+    async () => {
+      try {
+        const store = getSettingsStoreAccess(getStore);
+        if (!store) {
+          return { success: false, message: 'Store not initialized' };
+        }
+        store.clear();
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+  );
 
   return () => registry.unregisterAll();
 }

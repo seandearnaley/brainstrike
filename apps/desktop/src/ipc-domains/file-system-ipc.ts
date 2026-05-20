@@ -12,6 +12,7 @@ import {
   type FileReadErrorPayload,
   isFileNotFoundError,
 } from '../file-read-errors';
+import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
 
 interface RegisterFileSystemIpcHandlersOptions {
@@ -94,7 +95,7 @@ export function registerFileSystemIpcHandlers({
 }: RegisterFileSystemIpcHandlersOptions): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke('files', 'fs:requestDirectoryAccess', async () => {
+  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.requestDirectoryAccess, async () => {
     const electronTestEnv = process.env['ELECTRON_IS_E2E_TEST'];
     const nodeEnv = process.env['NODE_ENV'];
     const isTestMode =
@@ -119,129 +120,145 @@ export function registerFileSystemIpcHandlers({
     return fileSystem.requestDirectoryAccess();
   });
 
-  registry.registerInvoke('files', 'fs:readDirectory', async (_event, handle: DirectoryHandle) => {
-    const fixture = getElectronE2eFileSystemFixture();
-    if (fixture) {
-      fixture.readDirectoryCalls.push(handle.path);
-      const entries = fixture.directoriesByPath[handle.path];
-      if (!entries) {
-        throw new AccessError(
-          `Failed to read directory: no E2E fixture registered for ${handle.path}`,
-          handle.path,
-          'read'
+  registry.registerInvoke(
+    'files',
+    DESKTOP_IPC_CHANNELS.files.readDirectory,
+    async (_event, handle: DirectoryHandle) => {
+      const fixture = getElectronE2eFileSystemFixture();
+      if (fixture) {
+        fixture.readDirectoryCalls.push(handle.path);
+        const entries = fixture.directoriesByPath[handle.path];
+        if (!entries) {
+          throw new AccessError(
+            `Failed to read directory: no E2E fixture registered for ${handle.path}`,
+            handle.path,
+            'read'
+          );
+        }
+        return entries;
+      }
+
+      if (
+        handle &&
+        typeof handle === 'object' &&
+        'id' in handle &&
+        handle.id === 'mock-directory-handle'
+      ) {
+        const rootPath = '/mock/test/directory';
+        return getTestDirectoryStructure(rootPath);
+      }
+      return fileSystem.readDirectory(handle);
+    }
+  );
+
+  registry.registerInvoke(
+    'files',
+    DESKTOP_IPC_CHANNELS.files.readFile,
+    async (_event, handle: FileHandle) => {
+      const fixture = getElectronE2eFileSystemFixture();
+      if (fixture) {
+        fixture.readFileCalls.push(handle.path);
+        const content = fixture.fileContentsByPath[handle.path];
+        if (content === undefined) {
+          throw new AccessError(
+            `Failed to read file: no E2E fixture registered for ${handle.path}`,
+            handle.path,
+            'read'
+          );
+        }
+        return content;
+      }
+
+      if (
+        handle &&
+        typeof handle === 'object' &&
+        'id' in handle &&
+        String(handle.id).includes('mock-')
+      ) {
+        return 'Mock file content for testing purposes\nThis is a test file.\n';
+      }
+      try {
+        return await fileSystem.readFile(handle);
+      } catch (error) {
+        const payload = toFileReadErrorPayload(error, handle.path);
+        if (payload) {
+          return payload;
+        }
+        throw error;
+      }
+    }
+  );
+
+  registry.registerInvoke(
+    'files',
+    DESKTOP_IPC_CHANNELS.files.readFileByPath,
+    async (_event, absolutePath: string) => {
+      const fixture = getElectronE2eFileSystemFixture();
+      if (fixture) {
+        fixture.readFileByPathCalls.push(absolutePath);
+        const content = fixture.fileContentsByPath[absolutePath];
+        if (content === undefined) {
+          throw new AccessError(
+            `Failed to read file by path: no E2E fixture registered for ${absolutePath}`,
+            absolutePath,
+            'read'
+          );
+        }
+        return content;
+      }
+
+      if (absolutePath.startsWith(MOCK_PATH_PREFIX)) {
+        return 'Mock file content for testing purposes\nThis is a test file.\n';
+      }
+
+      const resolved = await resolveValidatedPath({ requestedPath: absolutePath });
+      if (!resolved.ok) {
+        throw new Error(`Invalid path: ${resolved.error}`);
+      }
+
+      try {
+        return await fileSystem.readFileByPath(resolved.path);
+      } catch (error) {
+        const payload = toFileReadErrorPayload(error, resolved.path);
+        if (payload) {
+          return payload;
+        }
+        throw error;
+      }
+    }
+  );
+
+  registry.registerInvoke(
+    'files',
+    DESKTOP_IPC_CHANNELS.files.exists,
+    async (_event, requestedPath: string) => {
+      const fixture = getElectronE2eFileSystemFixture();
+      if (fixture) {
+        return (
+          requestedPath === fixture.rootHandle.path ||
+          requestedPath in fixture.directoriesByPath ||
+          requestedPath in fixture.fileContentsByPath
         );
       }
-      return entries;
-    }
 
-    if (
-      handle &&
-      typeof handle === 'object' &&
-      'id' in handle &&
-      handle.id === 'mock-directory-handle'
-    ) {
-      const rootPath = '/mock/test/directory';
-      return getTestDirectoryStructure(rootPath);
-    }
-    return fileSystem.readDirectory(handle);
-  });
-
-  registry.registerInvoke('files', 'fs:readFile', async (_event, handle: FileHandle) => {
-    const fixture = getElectronE2eFileSystemFixture();
-    if (fixture) {
-      fixture.readFileCalls.push(handle.path);
-      const content = fixture.fileContentsByPath[handle.path];
-      if (content === undefined) {
-        throw new AccessError(
-          `Failed to read file: no E2E fixture registered for ${handle.path}`,
-          handle.path,
-          'read'
-        );
+      if (requestedPath.startsWith(MOCK_PATH_PREFIX)) {
+        return true;
       }
-      return content;
-    }
 
-    if (
-      handle &&
-      typeof handle === 'object' &&
-      'id' in handle &&
-      String(handle.id).includes('mock-')
-    ) {
-      return 'Mock file content for testing purposes\nThis is a test file.\n';
-    }
-    try {
-      return await fileSystem.readFile(handle);
-    } catch (error) {
-      const payload = toFileReadErrorPayload(error, handle.path);
-      if (payload) {
-        return payload;
+      const resolved = await resolveValidatedPath({ requestedPath });
+      if (!resolved.ok) {
+        logger.debug('Invalid path provided during exists check', {
+          error: resolved.error,
+          path: requestedPath,
+        });
+        return false;
       }
-      throw error;
+
+      return fileSystem.exists(resolved.path);
     }
-  });
+  );
 
-  registry.registerInvoke('files', 'fs:readFileByPath', async (_event, absolutePath: string) => {
-    const fixture = getElectronE2eFileSystemFixture();
-    if (fixture) {
-      fixture.readFileByPathCalls.push(absolutePath);
-      const content = fixture.fileContentsByPath[absolutePath];
-      if (content === undefined) {
-        throw new AccessError(
-          `Failed to read file by path: no E2E fixture registered for ${absolutePath}`,
-          absolutePath,
-          'read'
-        );
-      }
-      return content;
-    }
-
-    if (absolutePath.startsWith(MOCK_PATH_PREFIX)) {
-      return 'Mock file content for testing purposes\nThis is a test file.\n';
-    }
-
-    const resolved = await resolveValidatedPath({ requestedPath: absolutePath });
-    if (!resolved.ok) {
-      throw new Error(`Invalid path: ${resolved.error}`);
-    }
-
-    try {
-      return await fileSystem.readFileByPath(resolved.path);
-    } catch (error) {
-      const payload = toFileReadErrorPayload(error, resolved.path);
-      if (payload) {
-        return payload;
-      }
-      throw error;
-    }
-  });
-
-  registry.registerInvoke('files', 'fs:exists', async (_event, requestedPath: string) => {
-    const fixture = getElectronE2eFileSystemFixture();
-    if (fixture) {
-      return (
-        requestedPath === fixture.rootHandle.path ||
-        requestedPath in fixture.directoriesByPath ||
-        requestedPath in fixture.fileContentsByPath
-      );
-    }
-
-    if (requestedPath.startsWith(MOCK_PATH_PREFIX)) {
-      return true;
-    }
-
-    const resolved = await resolveValidatedPath({ requestedPath });
-    if (!resolved.ok) {
-      logger.debug('Invalid path provided during exists check', {
-        error: resolved.error,
-        path: requestedPath,
-      });
-      return false;
-    }
-
-    return fileSystem.exists(resolved.path);
-  });
-
-  registry.registerInvoke('files', 'fs:restoreLastFolder', async () => {
+  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreLastFolder, async () => {
     try {
       const lastFolderPath = await storage.getItem(LAST_FOLDER_STORAGE_KEY);
       if (!lastFolderPath) {
@@ -269,15 +286,19 @@ export function registerFileSystemIpcHandlers({
     }
   });
 
-  registry.registerInvoke('files', 'fs:saveLastFolder', async (_event, folderPath: string) => {
-    try {
-      await storage.setItem(LAST_FOLDER_STORAGE_KEY, folderPath);
-    } catch (error) {
-      if (process.env['NODE_ENV'] === 'development') {
-        logger.debug('Failed to save last folder', { error });
+  registry.registerInvoke(
+    'files',
+    DESKTOP_IPC_CHANNELS.files.saveLastFolder,
+    async (_event, folderPath: string) => {
+      try {
+        await storage.setItem(LAST_FOLDER_STORAGE_KEY, folderPath);
+      } catch (error) {
+        if (process.env['NODE_ENV'] === 'development') {
+          logger.debug('Failed to save last folder', { error });
+        }
       }
     }
-  });
+  );
 
   return () => registry.unregisterAll();
 }
