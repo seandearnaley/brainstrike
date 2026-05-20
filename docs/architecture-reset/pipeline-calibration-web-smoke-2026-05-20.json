@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-20T06:04:34.858Z",
+  "dryRun": false,
+  "commandResults": [
+    {
+      "budgetMs": 300000,
+      "command": "pnpm --filter @brainstrike/web exec playwright test --project=functional --grep \"@smoke\" --workers=2",
+      "name": "web-smoke-tests",
+      "owner": "applications",
+      "requiredFor": [
+        "web-ui-file-explorer",
+        "assistant-contract-runtime"
+      ],
+      "budgetStatus": "ok",
+      "durationMs": 33140,
+      "exitCode": 0
+    }
+  ]
+}
