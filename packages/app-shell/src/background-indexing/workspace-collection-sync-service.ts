@@ -10,7 +10,6 @@ import type {
   ManagedCacheBatchMutation,
   ManagedCacheEntryMetadata,
 } from '@brainstrike/db';
-import { isLocalProviderType, parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
 import {
   createFileContentProcessor,
   type FileContentProcessor,
@@ -26,6 +25,11 @@ import {
   runEnhancedImport,
 } from '@brainstrike/file-import';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
+import {
+  type EmbeddingProviderType,
+  isLocalProviderType,
+  parseEmbeddingProviderModelKey,
+} from '@brainstrike/indexing-contract';
 import type {
   WorkspaceCollectionSyncChunkingProgress,
   WorkspaceCollectionSyncEmbeddingProgress,
@@ -171,7 +175,7 @@ interface PreparedCacheChange {
 interface ResolvedSyncContext {
   activeRootPath: string;
   collection: EmbeddingSet;
-  provider: NonNullable<ReturnType<typeof parseProviderModelKey>>['provider'];
+  provider: EmbeddingProviderType;
   rootPath: string;
 }
 
@@ -1413,7 +1417,7 @@ export class WorkspaceCollectionSyncService {
       return null;
     }
 
-    const provider = parseProviderModelKey(collection.modelKey)?.provider ?? null;
+    const provider = parseEmbeddingProviderModelKey(collection.modelKey)?.provider ?? null;
     if (!provider) {
       this.setErrorStatus({
         activeRootPath: rootPath,

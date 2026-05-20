@@ -90,6 +90,12 @@
       "@brainstrike/file-explorer-ui/*": [
         "../file-explorer-ui/src/*"
       ],
+      "@brainstrike/indexing-contract": [
+        "../indexing-contract/src/index.ts"
+      ],
+      "@brainstrike/indexing-contract/*": [
+        "../indexing-contract/src/*"
+      ],
       "@brainstrike/ui": [
         "../ui/src/index.ts"
       ],
@@ -165,6 +171,9 @@
     },
     {
       "path": "../file-import"
+    },
+    {
+      "path": "../indexing-contract"
     },
     {
       "path": "../preferences"
