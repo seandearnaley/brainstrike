@@ -66,6 +66,10 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../db/src/index.ts'),
       },
       {
+        find: /^@brainstrike\/file-explorer-ui\/(.*)$/,
+        replacement: path.resolve(import.meta.dirname, '../file-explorer-ui/src/$1'),
+      },
+      {
         find: /^@brainstrike\/queue$/,
         replacement: path.resolve(import.meta.dirname, '../queue/src/index.ts'),
       },

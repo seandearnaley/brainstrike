@@ -202,11 +202,14 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   }),
 }));
 
-vi.mock('@brainstrike/file-explorer-ui', () => ({
+vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileSystem: () => ({
     isAccessLoading: fileSystemState.isAccessLoading,
     rootDirectoryHandle: fileSystemState.rootDirectoryHandle,
   }),
+}));
+
+vi.mock('@brainstrike/file-explorer-ui/tree', () => ({
   useOptionalFileTreeContext: () => fileTreeContextState.current,
   readFullTreeWithOptions: readFullTreeWithOptionsMock,
 }));

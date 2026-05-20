@@ -16,7 +16,7 @@ import {
   type FileContentProcessor,
   type FileContentRequest,
 } from '@brainstrike/file-explorer-hooks';
-import { readFullTreeWithOptions } from '@brainstrike/file-explorer-ui';
+import { readFullTreeWithOptions } from '@brainstrike/file-explorer-ui/tree';
 import {
   backfillEmbeddingSetAssignments,
   type ChunkingWorkerPort,

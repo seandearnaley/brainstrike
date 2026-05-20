@@ -87,6 +87,9 @@
       "@brainstrike/file-explorer-ui": [
         "../file-explorer-ui/src/index.ts"
       ],
+      "@brainstrike/file-explorer-ui/*": [
+        "../file-explorer-ui/src/*"
+      ],
       "@brainstrike/ui": [
         "../ui/src/index.ts"
       ],

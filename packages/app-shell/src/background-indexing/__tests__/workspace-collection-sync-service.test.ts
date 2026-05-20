@@ -12,7 +12,7 @@ const { readFullTreeWithOptionsMock, runEnhancedImportMock } = vi.hoisted(() => 
   runEnhancedImportMock: vi.fn(),
 }));
 
-vi.mock('@brainstrike/file-explorer-ui', () => ({
+vi.mock('@brainstrike/file-explorer-ui/tree', () => ({
   readFullTreeWithOptions: readFullTreeWithOptionsMock,
 }));
 
