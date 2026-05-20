@@ -3,7 +3,7 @@ import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { TooltipProvider } from '@brainstrike/ui';
 import type { ReactNode } from 'react';
-import { FileExplorerProvider } from '../file-explorer-provider';
+import { FileExplorerProvider } from '../shell/file-explorer-provider';
 
 // Create default mock adapters for tests
 const defaultTestFileSystemAdapter = new MockFileSystemAdapter();

@@ -25,13 +25,13 @@ import {
 } from 'lucide-react';
 import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
-import { FileExplorerMiddlePanelBase } from './file-explorer-middle-panel-base';
-import { type FileTab, useTabManager } from './hooks/use-tab-manager';
-import { useEditorViewStateStore } from './stores/editor-view-state-store';
+import { type FileTab, useTabManager } from '../hooks/use-tab-manager';
+import { useEditorViewStateStore } from '../stores/editor-view-state-store';
 import {
   useWorkspaceTabSelectionStore,
   type WorkspaceTabSelection,
-} from './stores/workspace-tab-selection-store';
+} from '../stores/workspace-tab-selection-store';
+import { FileExplorerMiddlePanelBase } from './file-explorer-middle-panel-base';
 import { useFileExplorer } from './use-file-explorer-context';
 import { CONTEXT_EXPLORER_APP_ID, type WorkspaceApp } from './workspace-app';
 

@@ -4,13 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { LayoutGrid } from 'lucide-react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UseTabManagerReturn } from '../hooks/use-tab-manager';
+import type { WorkspaceApp } from '../shell/workspace-app';
+import { WorkspaceTabHost } from '../shell/workspace-tab-host';
 import { __resetTabManagerStoreForTests, useTabManagerStore } from '../stores/tab-manager-store';
 import {
   __resetWorkspaceTabSelectionStoreForTests,
   useWorkspaceTabSelectionStore,
 } from '../stores/workspace-tab-selection-store';
-import type { WorkspaceApp } from '../workspace-app';
-import { WorkspaceTabHost } from '../workspace-tab-host';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 // Mock the preview-panel surface (Context Explorer body) — same pattern as existing tests
@@ -19,7 +19,7 @@ vi.mock('../preview/preview-panel', () => ({
 }));
 
 // Mock useFileExplorer — minimal shape used by the host
-vi.mock('../use-file-explorer-context', () => ({
+vi.mock('../shell/use-file-explorer-context', () => ({
   useFileExplorer: vi.fn(() => ({
     fileTree: [],
     fileContents: {},
@@ -31,7 +31,7 @@ vi.mock('../use-file-explorer-context', () => ({
   })),
 }));
 
-vi.mock('../use-selection-manager-context', () => ({
+vi.mock('../shell/use-selection-manager-context', () => ({
   useSelectionManager: vi.fn(() => ({
     selectedFilePaths: new Set<string>(),
     selectedFilesList: [],
@@ -328,7 +328,7 @@ describe('WorkspaceTabHost', () => {
       clearTabs: vi.fn(),
     });
 
-    const fileExplorerModule = await import('../use-file-explorer-context');
+    const fileExplorerModule = await import('../shell/use-file-explorer-context');
     vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
       fileTree: [],
       fileContents: { 'folderA|@|src/index.ts': 'export const file = "content";' },

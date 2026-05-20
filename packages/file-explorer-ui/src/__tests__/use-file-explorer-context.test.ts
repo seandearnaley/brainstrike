@@ -6,7 +6,7 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mocks for internal context hooks
-vi.mock('../file-explorer-provider', () => {
+vi.mock('../shell/file-explorer-provider', () => {
   const useFileExplorerStoreContext = vi.fn();
   return {
     useFileExplorerStoreContext,
@@ -16,7 +16,7 @@ vi.mock('../file-explorer-provider', () => {
     }),
   };
 });
-vi.mock('../use-file-system-context', () => ({
+vi.mock('../shell/use-file-system-context', () => ({
   useFileSystem: vi.fn(),
 }));
 vi.mock('../tree/use-file-tree-context', () => ({
@@ -50,9 +50,9 @@ import {
   useFileExplorer as useCoreFileExplorer,
   useFileContentLoading,
 } from '@brainstrike/file-explorer-hooks';
-import { useFileExplorerStoreContext } from '../file-explorer-provider';
-import { __resetRestorationLock, useFileExplorer } from '../use-file-explorer-context';
-import { useFileSystem } from '../use-file-system-context';
+import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
+import { __resetRestorationLock, useFileExplorer } from '../shell/use-file-explorer-context';
+import { useFileSystem } from '../shell/use-file-system-context';
 import { useFileTree } from '../tree/use-file-tree-context';
 import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
 

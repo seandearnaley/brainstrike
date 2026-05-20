@@ -3,10 +3,10 @@ import type { FileExplorerState } from '@brainstrike/types';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { FileExplorerLeftPanel } from '../file-explorer-left-panel';
-import { useFileExplorerStoreContext } from '../file-explorer-provider';
-import { useFileExplorer } from '../use-file-explorer-context';
-import { useSelectionManager } from '../use-selection-manager-context';
+import { FileExplorerLeftPanel } from '../shell/file-explorer-left-panel';
+import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
+import { useFileExplorer } from '../shell/use-file-explorer-context';
+import { useSelectionManager } from '../shell/use-selection-manager-context';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 // biome-ignore lint/suspicious/noVar: var required for vi.mock hoisting - let creates temporal dead zone
@@ -15,7 +15,7 @@ var FileExplorerSidebarMock: ReturnType<typeof vi.fn> | undefined;
 var ActionButtonsMock: ReturnType<typeof vi.fn> | undefined;
 
 // Mock UI components that are imported relatively within the panel
-vi.mock('../file-explorer-toolbar', () => ({
+vi.mock('../shell/file-explorer-toolbar', () => ({
   FileExplorerToolbar: ({
     onDirectorySelect,
     isLoading,
@@ -32,7 +32,7 @@ vi.mock('../file-explorer-toolbar', () => ({
   ),
 }));
 
-vi.mock('../file-explorer-sidebar', () => {
+vi.mock('../shell/file-explorer-sidebar', () => {
   FileExplorerSidebarMock = vi.fn(() => <div data-testid="sidebar">Sidebar</div>);
   return { default: FileExplorerSidebarMock };
 });
@@ -50,8 +50,8 @@ vi.mock('../action-buttons', () => {
 // The scanning indicator is now inline in TreeActionButtons component
 
 // Mock hooks used by the component
-vi.mock('../file-explorer-provider', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../file-explorer-provider')>();
+vi.mock('../shell/file-explorer-provider', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../shell/file-explorer-provider')>();
   const useFileExplorerStoreContext = vi.fn();
   return {
     ...actual,
@@ -62,10 +62,10 @@ vi.mock('../file-explorer-provider', async (importOriginal) => {
     }),
   };
 });
-vi.mock('../use-file-explorer-context', () => ({
+vi.mock('../shell/use-file-explorer-context', () => ({
   useFileExplorer: vi.fn(),
 }));
-vi.mock('../use-selection-manager-context', () => ({
+vi.mock('../shell/use-selection-manager-context', () => ({
   useSelectionManager: vi.fn(),
 }));
 vi.mock('../hooks/use-view-filter-presets', () => ({

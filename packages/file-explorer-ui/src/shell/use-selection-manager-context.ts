@@ -12,8 +12,8 @@
 import { useSelectionManager as useCoreSelectionManager } from '@brainstrike/file-explorer-hooks';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useMemo } from 'react';
+import { useSelectionResolver } from '../use-selection-resolver';
 import { useFileExplorerStoreSelector } from './file-explorer-provider';
-import { useSelectionResolver } from './use-selection-resolver';
 
 interface UseSelectionManagerProps {
   onSelectionLimitExceeded: () => void;

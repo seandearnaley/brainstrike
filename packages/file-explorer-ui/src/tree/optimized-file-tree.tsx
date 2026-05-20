@@ -32,11 +32,11 @@ import {
   useMemo,
   useRef,
 } from 'react';
+import { useWorkerFlattenedTree } from '../hooks/use-worker-flattened-tree';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
-} from '../file-explorer-provider';
-import { useWorkerFlattenedTree } from '../hooks/use-worker-flattened-tree';
+} from '../shell/file-explorer-provider';
 import { measureFileTreeOperation, recordFileTreeTelemetry } from '../utils/file-tree-telemetry';
 import {
   getQuerySelectionMatchingCount,

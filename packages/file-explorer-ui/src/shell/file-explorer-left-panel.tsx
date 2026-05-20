@@ -35,30 +35,30 @@ import {
   useRef,
   useState,
 } from 'react';
-import ActionButtons from './action-buttons-array-facade';
-import { RestoreAccessModal } from './components/restore-access-modal';
-import { TreeActionButtons } from './components/tree-action-buttons';
-import FileExplorerErrorBoundary from './file-explorer-error-boundary';
+import ActionButtons from '../action-buttons-array-facade';
+import { RestoreAccessModal } from '../components/restore-access-modal';
+import { TreeActionButtons } from '../components/tree-action-buttons';
+import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
+import { FilterStatus } from '../file-explorer-status-components';
+import { useRuleMaterialization } from '../hooks/use-rule-materialization';
+import { useBackgroundTokenIndexerIntegration } from '../indexing/use-background-token-indexer-integration';
+import { RestorationStatus } from '../restoration-status';
+import { SelectionCounter } from '../selection-counter';
+import { SelectionModeBadge } from '../selection-mode-badge';
+import { SelectionRulesEditor } from '../selection-rules-editor';
+import { ToolbarPresetSelector } from '../toolbar-preset-selector';
+import { getRootFolderId } from '../utils/get-root-folder-id';
+import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
+import { computeScanningStatusProps } from '../utils/scanning-status-props';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
 import FileExplorerSidebar from './file-explorer-sidebar';
-import { FilterStatus } from './file-explorer-status-components';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { FileFilterBar } from './file-filter-bar';
-import { useRuleMaterialization } from './hooks/use-rule-materialization';
-import { useBackgroundTokenIndexerIntegration } from './indexing/use-background-token-indexer-integration';
-import { RestorationStatus } from './restoration-status';
-import { SelectionCounter } from './selection-counter';
-import { SelectionModeBadge } from './selection-mode-badge';
-import { SelectionRulesEditor } from './selection-rules-editor';
-import { ToolbarPresetSelector } from './toolbar-preset-selector';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
-import { getRootFolderId } from './utils/get-root-folder-id';
-import { persistFileExplorerStateImmediately } from './utils/persist-file-explorer-state';
-import { computeScanningStatusProps } from './utils/scanning-status-props';
 
 // Quick filter helpers (factored to keep component complexity low)
 

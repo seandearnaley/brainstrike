@@ -3,7 +3,7 @@ import { encodeFileSelection, memoizedFileExplorer } from '@brainstrike/utils';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { StrictMode, useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { useFileExplorerStoreContext } from '../file-explorer-provider';
+import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import * as fileTreeProviderModule from '../tree/file-tree-provider';
 import OptimizedFileTree, {
   fileTreeTelemetry,

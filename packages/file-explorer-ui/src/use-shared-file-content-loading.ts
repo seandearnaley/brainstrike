@@ -14,7 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
-} from './file-explorer-provider';
+} from './shell/file-explorer-provider';
 import { useOptionalFileTreeIndexContext } from './tree/file-tree-provider';
 import { initFileContentWorker } from './utils/file-content-worker';
 import {

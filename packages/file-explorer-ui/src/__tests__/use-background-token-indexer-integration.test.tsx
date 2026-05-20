@@ -8,12 +8,12 @@ import { encodeFileSelection } from '@brainstrike/utils';
 import { addLogListener, LogLevel } from '@brainstrike/utils/logger';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FileTreeIndexContextValue } from '../tree/file-tree-provider';
 import type { TokenCacheContextValue } from '../indexing/token-cache-context';
 import {
   useBackgroundTokenIndexerIntegration,
   type WebFileForIndexingResolution,
 } from '../indexing/use-background-token-indexer-integration';
+import type { FileTreeIndexContextValue } from '../tree/file-tree-provider';
 
 // Capture the onFileIndexed callback from useBackgroundTokenIndexer
 let capturedOnFileIndexed:

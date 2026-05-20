@@ -112,7 +112,7 @@ const mockStorage = {
   }),
 };
 
-vi.mock('../file-explorer-provider', () => ({
+vi.mock('../shell/file-explorer-provider', () => ({
   useFileExplorerStoreContext: vi.fn(() => {
     // Create a store-like function that returns values based on selector
     const storeFn = (selector: (state: Record<string, unknown>) => unknown) =>

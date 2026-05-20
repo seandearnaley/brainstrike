@@ -25,8 +25,8 @@ import {
 } from '@brainstrike/ui';
 import { BookOpen, Check, CheckSquare, Settings2, Sparkles, X } from 'lucide-react';
 import { memo, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useFileExplorerStoreSelector } from './file-explorer-provider';
 import { parseCountInput, SELECTION_PRESETS } from './selection-counter';
+import { useFileExplorerStoreSelector } from './shell/file-explorer-provider';
 
 export interface SelectionModeBadgeProps {
   maxSelectionCount?: number;

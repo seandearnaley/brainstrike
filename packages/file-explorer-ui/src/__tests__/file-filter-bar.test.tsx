@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { FileFilterBar } from '../file-filter-bar';
+import { FileFilterBar } from '../shell/file-filter-bar';
 
 describe('FileFilterBar', () => {
   const defaultProps = {

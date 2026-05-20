@@ -1,9 +1,9 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import FileExplorerSidebar from '../file-explorer-sidebar';
-import FileFilterBar, { FileFilterBar as NamedFileFilterBar } from '../file-filter-bar';
 import * as index from '../index';
+import FileExplorerSidebar from '../shell/file-explorer-sidebar';
+import FileFilterBar, { FileFilterBar as NamedFileFilterBar } from '../shell/file-filter-bar';
 
 // Ensure the barrel file re-exports modules correctly
 
@@ -87,6 +87,34 @@ describe('file-explorer-ui index exports', () => {
 
     expect(legacyFiles).toEqual([]);
     expect(missingIndexingFiles).toEqual([]);
+  });
+
+  it('keeps shell composition files inside the shell slice', () => {
+    const sourceRoot = path.resolve(process.cwd(), 'src');
+    const shellImplementationMoves = [
+      ['file-content-context.tsx', 'shell/file-content-context.tsx'],
+      ['file-explorer-left-panel.tsx', 'shell/file-explorer-left-panel.tsx'],
+      ['file-explorer-middle-panel-base.tsx', 'shell/file-explorer-middle-panel-base.tsx'],
+      ['file-explorer-provider.tsx', 'shell/file-explorer-provider.tsx'],
+      ['file-explorer-sidebar.tsx', 'shell/file-explorer-sidebar.tsx'],
+      ['file-explorer-toolbar.tsx', 'shell/file-explorer-toolbar.tsx'],
+      ['file-filter-bar.tsx', 'shell/file-filter-bar.tsx'],
+      ['use-file-explorer-context.ts', 'shell/use-file-explorer-context.ts'],
+      ['use-file-system-context.ts', 'shell/use-file-system-context.ts'],
+      ['use-selection-manager-context.ts', 'shell/use-selection-manager-context.ts'],
+      ['workspace-app.ts', 'shell/workspace-app.ts'],
+      ['workspace-tab-host.tsx', 'shell/workspace-tab-host.tsx'],
+    ] as const;
+
+    const legacyFiles = shellImplementationMoves
+      .map(([legacyPath]) => legacyPath)
+      .filter((filePath) => existsSync(path.join(sourceRoot, filePath)));
+    const missingShellFiles = shellImplementationMoves
+      .map(([, shellPath]) => shellPath)
+      .filter((filePath) => !existsSync(path.join(sourceRoot, filePath)));
+
+    expect(legacyFiles).toEqual([]);
+    expect(missingShellFiles).toEqual([]);
   });
 
   it('should re-export FileFilterBar as named export matching default and named', () => {

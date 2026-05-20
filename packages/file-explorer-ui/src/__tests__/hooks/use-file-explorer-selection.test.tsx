@@ -8,7 +8,7 @@ import { useFileExplorerSelection } from '../../hooks/use-file-explorer-selectio
 const mockSelectedFilePaths = new Set<string>();
 const mockHandleSelectionChange = vi.fn();
 
-vi.mock('../../use-selection-manager-context', () => ({
+vi.mock('../../shell/use-selection-manager-context', () => ({
   useSelectionManager: ({
     onSelectionLimitExceeded: _onSelectionLimitExceeded,
   }: {

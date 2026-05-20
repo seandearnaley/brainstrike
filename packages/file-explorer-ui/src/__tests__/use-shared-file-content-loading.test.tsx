@@ -12,7 +12,7 @@ import { encodeFileSelection, fileContent, fileExplorer } from '@brainstrike/uti
 import type { FileReadRequest } from '@brainstrike/workers/file-content-worker';
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { FileExplorerProvider, useFileExplorerStoreContext } from '../file-explorer-provider';
+import { FileExplorerProvider, useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
 
 // Mock the worker

@@ -4,7 +4,7 @@ import type { ContextGenerationOverrides } from '@brainstrike/hooks';
 import { useReportGeneration, useReportManager } from '@brainstrike/hooks';
 import { useCallback } from 'react';
 import type { ContextExportOptions } from '../context-export-options';
-import type { useFileExplorerStoreContext } from '../file-explorer-provider';
+import type { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 
 interface UsePreviewPanelReportActionsInput {
   excludeFilters: string[];

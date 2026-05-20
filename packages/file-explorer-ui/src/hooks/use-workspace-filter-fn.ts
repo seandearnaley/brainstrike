@@ -11,7 +11,7 @@
 import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
 import { useCallback } from 'react';
-import { useFileExplorerStoreSelector } from '../file-explorer-provider';
+import { useFileExplorerStoreSelector } from '../shell/file-explorer-provider';
 import {
   selectExcludeFilters,
   selectIncludeFilters,

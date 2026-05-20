@@ -4,20 +4,20 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { generateProjectTreeText } from '@brainstrike/utils/tree-generator';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import type { ContextExportOptions } from './context-export-options';
-import FileExplorerErrorBoundary from './file-explorer-error-boundary';
+import type { ContextExportOptions } from '../context-export-options';
+import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
+import { useTextTokenCount } from '../indexing/use-text-token-count';
+import { useTokenCounting } from '../indexing/use-token-counting';
+import { PreviewPanel } from '../preview/preview-panel';
+import { usePreviewPanelReportActions } from '../preview/use-preview-panel-report-actions';
+import { buildFileNodeCache } from '../utils/file-node-cache';
+import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
-import { useTextTokenCount } from './indexing/use-text-token-count';
-import { useTokenCounting } from './indexing/use-token-counting';
-import { PreviewPanel } from './preview/preview-panel';
-import { usePreviewPanelReportActions } from './preview/use-preview-panel-report-actions';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
-import { buildFileNodeCache } from './utils/file-node-cache';
-import { persistFileExplorerStateImmediately } from './utils/persist-file-explorer-state';
 
 const logger = createLogger('FileExplorerMiddlePanelBase');
 

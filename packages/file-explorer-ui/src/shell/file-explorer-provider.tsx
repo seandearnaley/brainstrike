@@ -5,8 +5,8 @@ import type { FileExplorerState } from '@brainstrike/types';
 import { createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import type { StoreApi } from 'zustand';
 import { type UseBoundStoreWithEqualityFn, useStoreWithEqualityFn } from 'zustand/traditional';
-import { setupInlineFixtureSubscription } from './setup-inline-fixture-subscription';
-import { shouldExposeAutomatedTestApis } from './utils/fixture-test-exposure';
+import { setupInlineFixtureSubscription } from '../setup-inline-fixture-subscription';
+import { shouldExposeAutomatedTestApis } from '../utils/fixture-test-exposure';
 
 type FileExplorerStore = UseBoundStoreWithEqualityFn<StoreApi<FileExplorerState>>;
 type FileExplorerStoreSelector<T> = (state: FileExplorerState) => T;

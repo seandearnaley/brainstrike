@@ -23,7 +23,7 @@ import {
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
-} from '../file-explorer-provider';
+} from '../shell/file-explorer-provider';
 import {
   type RestorationProgress,
   useExpandedPathRestoration,

@@ -6,15 +6,19 @@ import {
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TokenCacheContextValue } from '../indexing/token-cache-context';
-import { __resetTokenCountingRuntimeCacheForTests, useTokenCounting } from '../indexing/use-token-counting';
+import {
+  __resetTokenCountingRuntimeCacheForTests,
+  useTokenCounting,
+} from '../indexing/use-token-counting';
 
 const tokenCacheMocks = vi.hoisted(() => ({
   useOptionalTokenCacheContext: vi.fn<() => TokenCacheContextValue | null>(),
 }));
 
 vi.mock('../indexing/token-cache-context', async () => {
-  const actual =
-    await vi.importActual<typeof import('../indexing/token-cache-context')>('../indexing/token-cache-context');
+  const actual = await vi.importActual<typeof import('../indexing/token-cache-context')>(
+    '../indexing/token-cache-context'
+  );
 
   return {
     ...actual,

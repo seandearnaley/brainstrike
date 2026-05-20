@@ -10,7 +10,7 @@ import { FolderOpen, Loader2 } from 'lucide-react';
 import * as React from 'react';
 import { useMemo } from 'react';
 
-import type { RestorationProgress } from './use-file-explorer-context';
+import type { RestorationProgress } from './shell/use-file-explorer-context';
 import { formatTrailingPathSegments } from './utils/path-display';
 
 export interface RestorationStatusProps {

@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { ColumnVisibility } from '../preview/use-preview-panel-persistence';
 import { PreviewTableRow } from '../preview/preview-table-row';
+import type { ColumnVisibility } from '../preview/use-preview-panel-persistence';
 import type { TableRowData } from '../utils/grouping-configs';
 
 describe('PreviewTableRow', () => {

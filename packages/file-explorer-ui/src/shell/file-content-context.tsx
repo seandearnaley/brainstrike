@@ -1,6 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { createContext, useContext, useMemo } from 'react';
-import { useSharedFileContentLoading } from './use-shared-file-content-loading';
+import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
 
 interface FileContentContextType {
   error: Error | null;

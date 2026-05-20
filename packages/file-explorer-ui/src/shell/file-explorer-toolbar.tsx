@@ -3,7 +3,7 @@ import { FileExplorerStrings } from '@brainstrike/types';
 import { Button } from '@brainstrike/ui';
 import { Folder } from 'lucide-react';
 import * as React from 'react';
-import { FolderBadge } from './folder-badge';
+import { FolderBadge } from '../folder-badge';
 
 interface FileExplorerToolbarProps {
   isLoading: boolean;

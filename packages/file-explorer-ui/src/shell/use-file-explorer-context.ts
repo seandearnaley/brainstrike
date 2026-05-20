@@ -14,21 +14,20 @@ import { useFileFilters } from '@brainstrike/hooks';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-
+import type { AddMultipleSelectedFilesChunked } from '../hooks/recursive-selection-utils';
+import { useOptionalFileTreeContext } from '../tree/file-tree-provider';
+import { type LoadingProgressState, useFileTree } from '../tree/use-file-tree-context';
+import {
+  type RestorationProgress,
+  useExpandedPathRestoration,
+} from '../use-expanded-path-restoration';
+import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
+import { getRootFolderId } from '../utils/get-root-folder-id';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
-import type { AddMultipleSelectedFilesChunked } from './hooks/recursive-selection-utils';
-import { useOptionalFileTreeContext } from './tree/file-tree-provider';
-import { type LoadingProgressState, useFileTree } from './tree/use-file-tree-context';
-import {
-  type RestorationProgress,
-  useExpandedPathRestoration,
-} from './use-expanded-path-restoration';
 import { useFileSystem } from './use-file-system-context';
-import { useSharedFileContentLoading } from './use-shared-file-content-loading';
-import { getRootFolderId } from './utils/get-root-folder-id';
 
 const logger = createLogger('FileExplorerContext');
 
@@ -159,8 +158,8 @@ interface UseFileExplorerReturn {
   unfilteredFileTree?: IFileNode[];
 }
 
-export type { RestorationProgress } from './use-expanded-path-restoration';
-export { __resetRestorationLock } from './use-expanded-path-restoration';
+export type { RestorationProgress } from '../use-expanded-path-restoration';
+export { __resetRestorationLock } from '../use-expanded-path-restoration';
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
   const store = useFileExplorerStoreContext();

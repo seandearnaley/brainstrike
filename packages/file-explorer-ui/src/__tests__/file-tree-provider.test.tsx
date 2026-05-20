@@ -32,7 +32,7 @@ const {
   useFileTreeMock: vi.fn(),
 }));
 
-vi.mock('../file-explorer-provider', () => ({
+vi.mock('../shell/file-explorer-provider', () => ({
   useFileExplorerStoreContext: () => storeMock,
   useFileExplorerStoreSelector: (
     selector: (state: {

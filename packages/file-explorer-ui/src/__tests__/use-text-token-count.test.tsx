@@ -7,8 +7,9 @@ const tokenCacheMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../indexing/token-cache-context', async () => {
-  const actual =
-    await vi.importActual<typeof import('../indexing/token-cache-context')>('../indexing/token-cache-context');
+  const actual = await vi.importActual<typeof import('../indexing/token-cache-context')>(
+    '../indexing/token-cache-context'
+  );
 
   return {
     ...actual,

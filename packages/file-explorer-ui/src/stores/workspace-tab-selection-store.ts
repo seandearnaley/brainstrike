@@ -1,7 +1,7 @@
 import { createSafeJsonStateStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import { CONTEXT_EXPLORER_APP_ID } from '../workspace-app';
+import { CONTEXT_EXPLORER_APP_ID } from '../shell/workspace-app';
 
 export type WorkspaceTabSelection =
   | { kind: 'app'; appId: string }
