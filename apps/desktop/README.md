@@ -144,6 +144,19 @@ window.electronAPI = {
 }
 ```
 
+Desktop main-process IPC is split by platform responsibility:
+
+- `src/ipc-handlers.ts`: root IPC registration, storage/file-system/database handler wiring, live-query batching, and shutdown cleanup.
+- `src/ipc-embedding-backfill.ts`: embedding-host backfill request validation, GPU reclaim configuration, in-flight/cancel state, progress events, and scheduled DB backfill execution.
+- `src/ipc-llm-host.ts`, `src/ipc-runtime.ts`, and `src/ipc-chunking-host.ts`: dedicated host/runtime IPC bridges.
+
+Focused local verification for the root IPC surface:
+
+```bash
+pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts src/__tests__/main/ipc-handlers.test.ts src/__tests__/main/ipc-handlers-errors.test.ts src/__tests__/main/ipc-handlers-fs.test.ts src/__tests__/main/ipc-handlers-folder-restore.test.ts src/__tests__/main/ipc-handlers-db.test.ts
+pnpm --filter @brainstrike/desktop type-check
+```
+
 ## Shared Packages
 
 The desktop app leverages these shared packages from the monorepo:

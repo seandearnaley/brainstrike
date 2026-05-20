@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -7,6 +7,10 @@ import {
   findRuntimeHostBoundaryViolations,
   findRuntimeHostBoundaryViolationsInDesktopSource,
 } from '../../platform/runtime-host-boundary';
+
+function readDesktopSource(relativePath: string): string {
+  return readFileSync(path.resolve(process.cwd(), 'src', relativePath), 'utf8');
+}
 
 describe('runtime host boundary', () => {
   it('allows renderer host modules to import renderer-only local runtimes', () => {
@@ -122,6 +126,13 @@ describe('runtime host boundary', () => {
 
   it('keeps current desktop source free of runtime-host boundary violations', () => {
     expect(findRuntimeHostBoundaryViolationsInDesktopSource()).toEqual([]);
+  });
+
+  it('keeps the root IPC handler as a registry over owned platform modules', () => {
+    const source = readDesktopSource('ipc-handlers.ts');
+
+    expect(source.split('\n').length).toBeLessThanOrEqual(1500);
+    expect(source).toMatch(/ipc-embedding-backfill/);
   });
 
   it('skips symlinked entries while collecting desktop source files', () => {

@@ -12,7 +12,6 @@ This inventory tracks size and churn hotspots that remain after the legal domain
 | 2344 | `apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts` | Split by db IPC capability after handler registry exists. |
 | 1734 | `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts` | Split with service extraction. |
 | 1689 | `packages/db-explorer/src/use-database-demo-data.ts` | Review after db internal decomposition. |
-| 1629 | `apps/desktop/src/ipc-handlers.ts` | Move toward domain-keyed IPC registries. |
 | 1523 | `packages/file-explorer-ui/src/__tests__/preview-panel.test.tsx` | Split by preview table, footer, and report-action behavior. |
 | 1504 | `packages/db-explorer/src/__tests__/use-database-demo-data.test.ts` | Review after db explorer ownership decision. |
 
@@ -199,7 +198,7 @@ Package-local architecture coverage now verifies the root panel stays below the 
 
 ## App-Shell Background Indexing Service Slice Completed
 
-`packages/app-shell/src/background-indexing/workspace-collection-sync-service.ts` is reduced from 2044 LOC to 1011 LOC by extracting:
+`packages/app-shell/src/background-indexing/workspace-collection-sync-service.ts` is reduced from 2044 LOC to 1015 LOC by extracting:
 
 - `workspace-collection-sync-import.ts` for file-tree flattening, cache-change preparation, managed-cache mutation batches, and root-folder-cache import execution.
 - `workspace-collection-sync-progress.ts` for abort handling, scan status throttling, backfill polling, queue-drained events, and status/progress mapping.
@@ -209,10 +208,19 @@ The service remains the orchestration owner for sync context resolution, access 
 - `pnpm --filter @brainstrike/app-shell exec vitest run src/__tests__/indexing-contract-boundary.test.ts src/background-indexing/__tests__/workspace-collection-sync-service.test.ts`
 - `pnpm --filter @brainstrike/app-shell type-check`
 
+## Desktop IPC Embedding Backfill Slice Completed
+
+`apps/desktop/src/ipc-handlers.ts` is reduced from 1629 LOC to 1355 LOC by extracting `ipc-embedding-backfill.ts`.
+
+The root IPC file remains the registry owner for storage, file-system, database, live-query batching, and shutdown cleanup. The new helper owns embedding-host backfill request validation, GPU reclaim configuration, in-flight/cancel state, progress events, and scheduled DB backfill execution. Package-local architecture coverage now verifies the root IPC file stays below the 1500 LOC source budget and composes through the owned embedding-backfill module. Verification for this slice:
+
+- `pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts src/__tests__/main/ipc-handlers.test.ts src/__tests__/main/ipc-handlers-errors.test.ts src/__tests__/main/ipc-handlers-fs.test.ts src/__tests__/main/ipc-handlers-folder-restore.test.ts src/__tests__/main/ipc-handlers-db.test.ts`
+- `pnpm --filter @brainstrike/desktop type-check`
+
 ## Next Slices
 
 1. Tighten E2E lane selection so the split desktop embedding diagnostic files are only selected for matching high-risk diffs.
 2. Split `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts` if the next background-indexing change adds more behavior coverage.
 3. Split `apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts` by db IPC capability.
-4. Move `ipc-handlers.ts` toward a domain-keyed registry after the embedding E2E split reduces verification cost.
+4. Continue desktop IPC decomposition by moving live-query batching and database-work scheduling behind owned platform modules.
 5. Decompose `packages/db` internally around queue, migrations, repositories, search, and schema while preserving public barrels.
