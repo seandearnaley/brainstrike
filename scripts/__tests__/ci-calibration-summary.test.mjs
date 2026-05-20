@@ -5,6 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 
 import {
+  buildCalibrationGapPlan,
   parseCalibrationSummary,
   parseCalibrationSummaryArgs,
   renderMarkdownCalibrationSummary,
@@ -27,18 +28,24 @@ test('parseCalibrationSummaryArgs requires explicit flag values', () => {
   assert.throws(() => parseCalibrationSummaryArgs(['--input']), /--input requires a value/);
   assert.throws(() => parseCalibrationSummaryArgs(['--bad']), /unknown flag --bad/);
   assert.deepEqual(parseCalibrationSummaryArgs(['--input-dir', 'docs', '--min-samples', '2']), {
+    gapJsonOutput: undefined,
+    gapOutput: undefined,
     inputDirs: ['docs'],
     inputPaths: [],
     jsonOutput: undefined,
     minSamples: 2,
     output: undefined,
+    selection: undefined,
   });
   assert.deepEqual(parseCalibrationSummaryArgs(['--', '--input', 'one.json']), {
+    gapJsonOutput: undefined,
+    gapOutput: undefined,
     inputDirs: [],
     inputPaths: ['one.json'],
     jsonOutput: undefined,
     minSamples: 5,
     output: undefined,
+    selection: undefined,
   });
 });
 
@@ -183,6 +190,117 @@ test('parseCalibrationSummary ignores stale command samples when current samples
   assert.equal(summary.commands[0].p95Ms, 320);
 });
 
+test('buildCalibrationGapPlan ranks missing samples by selected PR-risk relevance', () => {
+  const summary = parseCalibrationSummary(
+    [
+      calibration('one.json', [
+        {
+          budgetMs: 30_000,
+          command: 'git diff --check',
+          durationMs: 12,
+          exitCode: 0,
+          name: 'diff-check',
+        },
+        {
+          budgetMs: 300_000,
+          command: 'pnpm --filter @brainstrike/web exec playwright test --project=functional --grep "@smoke" --workers=2',
+          durationMs: 33_000,
+          exitCode: 0,
+          name: 'web-smoke-tests',
+        },
+      ]),
+    ],
+    { minSamples: 5 }
+  );
+  const selection = {
+    commands: [
+      { name: 'diff-check' },
+      { name: 'web-smoke-tests' },
+      { name: 'full-local-suite' },
+    ],
+  };
+  const plan = buildCalibrationGapPlan(summary, selection);
+
+  assert.deepEqual(
+    plan.commands.map((command) => ({
+      name: command.name,
+      selected: command.selected,
+      missingSamples: command.missingSamples,
+      releaseOnly: command.releaseOnly,
+    })),
+    [
+      {
+        missingSamples: 5,
+        name: 'full-local-suite',
+        releaseOnly: true,
+        selected: true,
+      },
+      {
+        missingSamples: 4,
+        name: 'web-smoke-tests',
+        releaseOnly: false,
+        selected: true,
+      },
+      {
+        missingSamples: 4,
+        name: 'diff-check',
+        releaseOnly: false,
+        selected: true,
+      },
+    ]
+  );
+  assert.equal(plan.selectedMissingSamples, 13);
+  assert.equal(plan.normalRiskMissingSamples, 8);
+  assert.equal(plan.releaseOnlyMissingSamples, 5);
+  assert.equal(plan.status, 'needs-samples');
+});
+
+test('buildCalibrationGapPlan reports complete when selected commands have enough samples', () => {
+  const summary = parseCalibrationSummary(
+    [
+      calibration('one.json', [
+        {
+          budgetMs: 30_000,
+          command: 'git diff --check',
+          durationMs: 12,
+          exitCode: 0,
+          name: 'diff-check',
+        },
+      ]),
+      calibration('two.json', [
+        {
+          budgetMs: 30_000,
+          command: 'git diff --check',
+          durationMs: 13,
+          exitCode: 0,
+          name: 'diff-check',
+        },
+      ]),
+    ],
+    { minSamples: 2 }
+  );
+
+  assert.deepEqual(buildCalibrationGapPlan(summary, { commands: [{ name: 'diff-check' }] }), {
+    minSamples: 2,
+    normalRiskMissingSamples: 0,
+    releaseOnlyMissingSamples: 0,
+    selectedMissingSamples: 0,
+    status: 'complete',
+    commands: [
+      {
+        estimatedRemainingMs: 0,
+        missingSamples: 0,
+        name: 'diff-check',
+        owner: 'tooling',
+        releaseOnly: false,
+        sampleCount: 2,
+        selected: true,
+        status: 'within-target',
+      },
+    ],
+  });
+});
+
 test('runCli writes markdown and JSON from a calibration directory', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-ci-calibration-summary-'));
   const jsonOutput = path.join(dir, 'summary.json');
@@ -223,6 +341,60 @@ test('runCli writes markdown and JSON from a calibration directory', async () =>
     assert.match(await readFile(markdownOutput, 'utf8'), /diff-check/);
     assert.equal(JSON.parse(await readFile(jsonOutput, 'utf8')).status, 'within-target');
   } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test('runCli writes a calibration gap plan when a selection is provided', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-ci-calibration-gaps-'));
+  const jsonOutput = path.join(dir, 'summary.json');
+  const gapJsonOutput = path.join(dir, 'gaps.json');
+  const gapMarkdownOutput = path.join(dir, 'gaps.md');
+  const selectionPath = path.join(dir, 'selection.json');
+  await writeFile(
+    path.join(dir, 'pipeline-calibration-test.json'),
+    `${JSON.stringify({
+      schemaVersion: 1,
+      commandResults: [
+        {
+          budgetMs: 30_000,
+          command: 'git diff --check',
+          durationMs: 10,
+          exitCode: 0,
+          name: 'diff-check',
+        },
+      ],
+    })}\n`
+  );
+  await writeFile(
+    selectionPath,
+    `${JSON.stringify({
+      commands: [{ name: 'diff-check' }, { name: 'full-local-suite' }],
+    })}\n`
+  );
+  const originalConsoleLog = console.log;
+  console.log = () => {};
+  try {
+    const exitCode = await runCli([
+      '--input-dir',
+      dir,
+      '--selection',
+      selectionPath,
+      '--json-output',
+      jsonOutput,
+      '--gap-output',
+      gapMarkdownOutput,
+      '--gap-json-output',
+      gapJsonOutput,
+    ]);
+
+    assert.equal(exitCode, 0);
+    assert.match(await readFile(gapMarkdownOutput, 'utf8'), /full-local-suite/);
+    const gapPlan = JSON.parse(await readFile(gapJsonOutput, 'utf8'));
+    assert.equal(gapPlan.status, 'needs-samples');
+    assert.equal(gapPlan.releaseOnlyMissingSamples, 5);
+  } finally {
+    console.log = originalConsoleLog;
     await rm(dir, { force: true, recursive: true });
   }
 });

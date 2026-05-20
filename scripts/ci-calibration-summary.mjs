@@ -27,6 +27,10 @@ function formatDuration(ms) {
   return `${minutes}m ${seconds}s`;
 }
 
+function formatOptionalDuration(ms) {
+  return typeof ms === 'number' ? formatDuration(ms) : '-';
+}
+
 function nearestRank(values, percentile) {
   if (values.length === 0) {
     return null;
@@ -66,7 +70,16 @@ function readFlagValue(args, name) {
 
 export function parseCalibrationSummaryArgs(args = process.argv.slice(2)) {
   const normalizedArgs = args.filter((arg) => arg !== '--');
-  const knownFlags = new Set(['--input', '--input-dir', '--min-samples', '--output', '--json-output']);
+  const knownFlags = new Set([
+    '--gap-json-output',
+    '--gap-output',
+    '--input',
+    '--input-dir',
+    '--json-output',
+    '--min-samples',
+    '--output',
+    '--selection',
+  ]);
   for (let index = 0; index < normalizedArgs.length; index += 1) {
     const arg = normalizedArgs[index];
     if (!arg.startsWith('--')) {
@@ -78,11 +91,14 @@ export function parseCalibrationSummaryArgs(args = process.argv.slice(2)) {
     index += 1;
   }
   return {
+    gapJsonOutput: readFlagValue(normalizedArgs, '--gap-json-output'),
+    gapOutput: readFlagValue(normalizedArgs, '--gap-output'),
     inputDirs: readFlagValues(normalizedArgs, '--input-dir'),
     inputPaths: readFlagValues(normalizedArgs, '--input'),
     jsonOutput: readFlagValue(normalizedArgs, '--json-output'),
     minSamples: asPositiveInteger(readFlagValue(normalizedArgs, '--min-samples'), 5),
     output: readFlagValue(normalizedArgs, '--output'),
+    selection: readFlagValue(normalizedArgs, '--selection'),
   };
 }
 
@@ -176,6 +192,106 @@ function summarizeCommand(name, samples, minSamples) {
   };
 }
 
+const RELEASE_ONLY_COMMANDS = new Set(['full-local-suite']);
+
+function commandPriority(command) {
+  if (command.selected && command.releaseOnly) {
+    return 0;
+  }
+  if (command.selected) {
+    return 1;
+  }
+  return 2;
+}
+
+function readSelectionCommandNames(selection) {
+  if (!isObject(selection) || !Array.isArray(selection.commands)) {
+    return new Set();
+  }
+  return new Set(
+    selection.commands
+      .filter((command) => isObject(command) && typeof command.name === 'string')
+      .map((command) => command.name)
+  );
+}
+
+export function buildCalibrationGapPlan(summary, selection = {}) {
+  if (!isObject(summary)) {
+    throw new Error('calibration summary must be an object');
+  }
+  if (!Array.isArray(summary.commands)) {
+    throw new Error('calibration summary commands must be an array');
+  }
+  const minSamples = asPositiveInteger(summary.minSamples, 5);
+  const selectedCommandNames = readSelectionCommandNames(selection);
+  const commandsByName = new Map(
+    summary.commands.map((command) => [command.name, command])
+  );
+  for (const commandName of selectedCommandNames) {
+    if (!commandsByName.has(commandName)) {
+      const registryCommand = LOCAL_PROOF_COMMANDS[commandName];
+      if (!registryCommand) {
+        throw new Error(`selected command ${commandName} is not in the local proof registry`);
+      }
+      commandsByName.set(commandName, {
+        name: registryCommand.name,
+        owner: registryCommand.owner,
+        sampleCount: 0,
+        currentBudgetMs: registryCommand.budgetMs,
+        status: 'missing',
+      });
+    }
+  }
+  const commands = [...commandsByName.values()]
+    .map((command) => {
+      const sampleCount =
+        typeof command.sampleCount === 'number' ? command.sampleCount : 0;
+      const missingSamples = Math.max(0, minSamples - sampleCount);
+      const releaseOnly = RELEASE_ONLY_COMMANDS.has(command.name);
+      return {
+        name: command.name,
+        owner: command.owner,
+        sampleCount,
+        missingSamples,
+        estimatedRemainingMs: missingSamples * command.currentBudgetMs,
+        releaseOnly,
+        selected: selectedCommandNames.has(command.name),
+        status: command.status,
+      };
+    })
+    .filter((command) => command.selected || command.missingSamples > 0)
+    .sort((left, right) => {
+      const priority = commandPriority(left) - commandPriority(right);
+      if (priority !== 0) {
+        return priority;
+      }
+      if (right.missingSamples !== left.missingSamples) {
+        return right.missingSamples - left.missingSamples;
+      }
+      if (right.estimatedRemainingMs !== left.estimatedRemainingMs) {
+        return right.estimatedRemainingMs - left.estimatedRemainingMs;
+      }
+      return left.name.localeCompare(right.name);
+    });
+  const selectedCommands = commands.filter((command) => command.selected);
+  const selectedMissingSamples = selectedCommands.reduce(
+    (sum, command) => sum + command.missingSamples,
+    0
+  );
+  return {
+    minSamples,
+    normalRiskMissingSamples: selectedCommands
+      .filter((command) => !command.releaseOnly)
+      .reduce((sum, command) => sum + command.missingSamples, 0),
+    releaseOnlyMissingSamples: selectedCommands
+      .filter((command) => command.releaseOnly)
+      .reduce((sum, command) => sum + command.missingSamples, 0),
+    selectedMissingSamples,
+    status: selectedMissingSamples === 0 ? 'complete' : 'needs-samples',
+    commands,
+  };
+}
+
 export function parseCalibrationSummary(calibrationDocuments, options = {}) {
   const minSamples = asPositiveInteger(options.minSamples, 5);
   const commandGroups = new Map();
@@ -238,6 +354,35 @@ export function renderMarkdownCalibrationSummary(summary) {
   return lines.join('\n');
 }
 
+export function renderMarkdownCalibrationGapPlan(plan) {
+  const lines = [
+    '## Calibration Gap Plan',
+    '',
+    `Minimum samples per command: ${plan.minSamples}`,
+    `Selected missing samples: ${plan.selectedMissingSamples}`,
+    `Normal PR-risk missing samples: ${plan.normalRiskMissingSamples}`,
+    `Release-only missing samples: ${plan.releaseOnlyMissingSamples}`,
+    `Status: ${plan.status}`,
+    '',
+    '| Command | Owner | Selected | Samples | Missing | Estimated Remaining | Scope | Status |',
+    '|---|---|---|---:|---:|---:|---|---|',
+  ];
+  for (const command of plan.commands) {
+    lines.push(
+      `| ${command.name} | ${command.owner} | ${command.selected ? 'yes' : 'no'} | ${
+        command.sampleCount
+      } | ${command.missingSamples} | ${formatOptionalDuration(
+        command.estimatedRemainingMs
+      )} | ${command.releaseOnly ? 'release-only' : 'normal'} | ${command.status} |`
+    );
+  }
+  return lines.join('\n');
+}
+
+async function readSelectionPath(selectionPath) {
+  return JSON.parse(await readFile(selectionPath, 'utf8'));
+}
+
 async function listCalibrationPaths(inputDirs) {
   const paths = [];
   for (const dir of inputDirs) {
@@ -292,6 +437,15 @@ export async function runCli(args = process.argv.slice(2)) {
   }
   const markdown = `${renderMarkdownCalibrationSummary(summary)}\n`;
   const json = `${JSON.stringify(summary, null, 2)}\n`;
+  let gapPlan;
+  if (options.selection) {
+    try {
+      gapPlan = buildCalibrationGapPlan(summary, await readSelectionPath(options.selection));
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      return 1;
+    }
+  }
   if (options.output) {
     await writeFile(options.output, markdown);
   } else {
@@ -299,6 +453,12 @@ export async function runCli(args = process.argv.slice(2)) {
   }
   if (options.jsonOutput) {
     await writeFile(options.jsonOutput, json);
+  }
+  if (gapPlan && options.gapOutput) {
+    await writeFile(options.gapOutput, `${renderMarkdownCalibrationGapPlan(gapPlan)}\n`);
+  }
+  if (gapPlan && options.gapJsonOutput) {
+    await writeFile(options.gapJsonOutput, `${JSON.stringify(gapPlan, null, 2)}\n`);
   }
   return ['failing', 'over-target', 'stale-command'].includes(summary.status) ? 1 : 0;
 }

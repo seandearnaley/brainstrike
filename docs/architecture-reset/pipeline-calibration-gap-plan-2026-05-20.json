@@ -1,0 +1,149 @@
+{
+  "minSamples": 5,
+  "normalRiskMissingSamples": 12,
+  "releaseOnlyMissingSamples": 5,
+  "selectedMissingSamples": 17,
+  "status": "needs-samples",
+  "commands": [
+    {
+      "name": "full-local-suite",
+      "owner": "release",
+      "sampleCount": 0,
+      "missingSamples": 5,
+      "estimatedRemainingMs": 13500000,
+      "releaseOnly": true,
+      "selected": true,
+      "status": "missing"
+    },
+    {
+      "name": "workflow-contracts",
+      "owner": "ci-platform",
+      "sampleCount": 1,
+      "missingSamples": 4,
+      "estimatedRemainingMs": 720000,
+      "releaseOnly": false,
+      "selected": true,
+      "status": "calibrating"
+    },
+    {
+      "name": "ci-script-tests",
+      "owner": "tooling",
+      "sampleCount": 1,
+      "missingSamples": 4,
+      "estimatedRemainingMs": 480000,
+      "releaseOnly": false,
+      "selected": true,
+      "status": "calibrating"
+    },
+    {
+      "name": "diff-check",
+      "owner": "tooling",
+      "sampleCount": 1,
+      "missingSamples": 4,
+      "estimatedRemainingMs": 120000,
+      "releaseOnly": false,
+      "selected": true,
+      "status": "calibrating"
+    },
+    {
+      "name": "db-tests",
+      "owner": "data-platform",
+      "sampleCount": 1,
+      "missingSamples": 4,
+      "estimatedRemainingMs": 1200000,
+      "releaseOnly": false,
+      "selected": false,
+      "status": "calibrating"
+    },
+    {
+      "name": "desktop-smoke-tests",
+      "owner": "desktop-platform",
+      "sampleCount": 1,
+      "missingSamples": 4,
+      "estimatedRemainingMs": 1200000,
+      "releaseOnly": false,
+      "selected": false,
+      "status": "calibrating"
+    },
+    {
+      "name": "web-smoke-tests",
+      "owner": "applications",
+      "sampleCount": 1,
+      "missingSamples": 4,
+      "estimatedRemainingMs": 1200000,
+      "releaseOnly": false,
+      "selected": false,
+      "status": "calibrating"
+    },
+    {
+      "name": "desktop-unit-tests",
+      "owner": "desktop-platform",
+      "sampleCount": 1,
+      "missingSamples": 4,
+      "estimatedRemainingMs": 960000,
+      "releaseOnly": false,
+      "selected": false,
+      "status": "calibrating"
+    },
+    {
+      "name": "file-explorer-tests",
+      "owner": "workspace-experience",
+      "sampleCount": 1,
+      "missingSamples": 4,
+      "estimatedRemainingMs": 960000,
+      "releaseOnly": false,
+      "selected": false,
+      "status": "calibrating"
+    },
+    {
+      "name": "indexing-tests",
+      "owner": "indexing",
+      "sampleCount": 1,
+      "missingSamples": 4,
+      "estimatedRemainingMs": 960000,
+      "releaseOnly": false,
+      "selected": false,
+      "status": "calibrating"
+    },
+    {
+      "name": "assistant-contract-tests",
+      "owner": "assistant",
+      "sampleCount": 1,
+      "missingSamples": 4,
+      "estimatedRemainingMs": 720000,
+      "releaseOnly": false,
+      "selected": false,
+      "status": "calibrating"
+    },
+    {
+      "name": "migration-tests",
+      "owner": "data-platform",
+      "sampleCount": 1,
+      "missingSamples": 4,
+      "estimatedRemainingMs": 720000,
+      "releaseOnly": false,
+      "selected": false,
+      "status": "calibrating"
+    },
+    {
+      "name": "file-system-tests",
+      "owner": "data-platform",
+      "sampleCount": 1,
+      "missingSamples": 4,
+      "estimatedRemainingMs": 480000,
+      "releaseOnly": false,
+      "selected": false,
+      "status": "calibrating"
+    },
+    {
+      "name": "storage-tests",
+      "owner": "data-platform",
+      "sampleCount": 1,
+      "missingSamples": 4,
+      "estimatedRemainingMs": 480000,
+      "releaseOnly": false,
+      "selected": false,
+      "status": "calibrating"
+    }
+  ]
+}

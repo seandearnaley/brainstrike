@@ -80,7 +80,7 @@
     <h1>Make the Brainstrike pipeline risk-based, timed, and boring</h1>
     <p>This report records the local implementation state as of 2026-05-20 02:05 EDT. No cloud CI, PR updates, proof manifest refresh, or full E2E run was triggered for this slice.</p>
     <div class="flow">
-      <span class="pill good">174 script/workflow tests passed</span>
+      <span class="pill good">178 script/workflow tests passed</span>
       <span class="pill good">0 cloud activity</span>
       <span class="pill warn">concurrency evidence is warm-cache only</span>
       <span class="pill">branch: codex/local-architecture-reset</span>
@@ -189,6 +189,7 @@
         <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command desktop-unit-tests</code></td><td>desktop unit lane</td><td class="num">49.79s</td><td>Desktop Vitest passed 945 tests across 107 files. JSON written to <code>pipeline-calibration-desktop-unit-2026-05-20.json</code>.</td></tr>
         <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command desktop-smoke-tests</code></td><td>desktop smoke E2E lane</td><td class="num">28.34s</td><td>Electron smoke passed 6 tests across assistant panel, background indexing pause, and file-system access. JSON written to <code>pipeline-calibration-desktop-smoke-2026-05-20.json</code>.</td></tr>
         <tr><td><code>pnpm run ci:calibration-summary -- --input-dir docs/architecture-reset</code></td><td>calibration aggregation</td><td class="num">0.03s</td><td>Aggregated 10 calibration files / 13 current command samples into <code>pipeline-calibration-summary-2026-05-20.json</code> and <code>pipeline-calibration-summary-2026-05-20.md</code>. It detects stale command definitions, ignores stale samples when refreshed evidence exists, and exits non-zero when all evidence for a command is stale.</td></tr>
+        <tr><td><code>pnpm run ci:calibration-summary -- --selection ... --gap-output ...</code></td><td>calibration gap planning</td><td class="num">0.02s</td><td>Generated <code>pipeline-calibration-gap-plan-2026-05-20.md</code> and JSON. Current full-risk branch needs 17 selected samples before hard p95 status: 12 normal PR-risk samples plus 5 release-only <code>full-local-suite</code> samples.</td></tr>
         <tr><td><code>pnpm run ci:risk-audit -- --selection ... --calibration ...</code></td><td>selected-lane measurement audit</td><td class="num">0.02s</td><td>Compared current <code>ci:select</code> output with calibration evidence. Current full-risk branch reports <code>missing-calibration</code> for <code>full-local-suite</code>; normal PR-risk commands now show current calibrating evidence instead of stale timing.</td></tr>
       </tbody>
     </table>
@@ -210,12 +211,26 @@
         <tr><td>No full web functional E2E for docs/config/isolated unit changes</td><td class="ok">met in tests</td><td>Docs-only, config-tooling, and isolated-unit-test-only select no E2E lane. The changed-test runner plans package-owned Vitest commands and excludes <code>e2e/</code> specs.</td></tr>
         <tr><td>Concurrency 16/24/32/40 measured and documented</td><td class="ok">met with warm-cache caveat</td><td>Recorded above; chosen value remains 40 for cached local work.</td></tr>
         <tr><td>Lane taxonomy and timing budgets documented</td><td class="ok">met</td><td>This artifact plus command registry, aggregate budget output in <code>scripts/ci-select.mjs</code>, and calibration summary artifacts in <code>docs/architecture-reset/</code>.</td></tr>
-        <tr><td>Unit tests cover selection and timing parsing</td><td class="ok">met</td><td>174 script/workflow tests passed locally. Coverage includes selector, timing summary, proof summary, calibration summary stale-command detection, risk audit, workflow contract, fixture, changed-unit-test, and calibration command behavior.</td></tr>
+        <tr><td>Unit tests cover selection and timing parsing</td><td class="ok">met</td><td>178 script/workflow tests passed locally. Coverage includes selector, timing summary, proof summary, calibration gap planning, calibration summary stale-command detection, risk audit, workflow contract, fixture, changed-unit-test, and calibration command behavior.</td></tr>
         <tr><td>Architecture guards still pass</td><td class="ok">met</td><td><code>pnpm run arch:domain-contract</code> passed: 39 packages across 7 domains and 5 stack phases. <code>pnpm run arch:domain-boundaries</code> passed: 1968 imports across 2809 files; 0/0 approved boundary exceptions used.</td></tr>
         <tr><td>No proof-manifest churn</td><td class="ok">met for this slice</td><td>No changes to <code>.ci/proof/latest.json</code> from this work.</td></tr>
         <tr><td>Clean working tree after commits</td><td class="ok">met</td><td>Committed locally; no proof manifest was refreshed.</td></tr>
       </tbody>
     </table>
+  </section>
+
+  <section class="card">
+    <h2>Calibration Gap Plan</h2>
+    <p>The current branch is full-risk because it includes pipeline/config/tooling changes. The gap plan makes the remaining measurement work explicit instead of implying that one sample proves p95.</p>
+    <table>
+      <thead><tr><th>Scope</th><th class="num">Missing samples</th><th>Interpretation</th></tr></thead>
+      <tbody>
+        <tr><td>Selected commands on current branch</td><td class="num">17</td><td>Needed before hard selected-lane p95 status can move out of calibration.</td></tr>
+        <tr><td>Normal PR-risk selected commands</td><td class="num">12</td><td><code>diff-check</code>, <code>ci-script-tests</code>, and <code>workflow-contracts</code> each need 4 more current samples.</td></tr>
+        <tr><td>Release-only selected commands</td><td class="num">5</td><td><code>full-local-suite</code> has no calibration sample and should only be measured by explicit release-proof decision.</td></tr>
+      </tbody>
+    </table>
+    <p class="note">The gap plan also lists non-selected product lanes with one current sample each. Those are not required to explain the current full-risk branch selection, but they remain open before claiming broad normal-lane p95.</p>
   </section>
 
   <section class="card">
