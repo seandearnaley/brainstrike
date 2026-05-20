@@ -122,6 +122,34 @@ test('release workflow changes select full release proof explicitly', () => {
   });
 });
 
+test('isolated unit-test-only changes avoid product e2e lanes', () => {
+  assert.deepEqual(
+    selectRiskProfileForFiles([
+      'packages/utils/src/__tests__/token-counting-boundary.test.ts',
+      'apps/web/src/app/root-layout-content.test.tsx',
+    ]),
+    {
+      category: 'isolated-unit-test-only',
+      domains: ['test-only'],
+      e2eLanes: [],
+      proofCommands: ['diff-check', 'changed-unit-tests'],
+      riskLevel: 'low',
+      cloudLabels: ['ci:coverage'],
+    }
+  );
+});
+
+test('e2e test-only changes stay in their product lane', () => {
+  assert.deepEqual(selectRiskProfileForFiles(['apps/web/e2e/layout-persistence.test.ts']), {
+    category: 'web-ui-file-explorer',
+    domains: ['workspace-experience'],
+    e2eLanes: ['web-functional-stateful'],
+    proofCommands: ['diff-check', 'file-explorer-tests', 'web-smoke-tests'],
+    riskLevel: 'medium',
+    cloudLabels: ['ci:web-e2e', 'ci:coverage'],
+  });
+});
+
 test('workflow and CI script changes select the full lane', () => {
   assert.deepEqual(
     selectRiskLanesForFiles([

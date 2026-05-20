@@ -67,10 +67,17 @@ export const LOCAL_PROOF_COMMANDS = {
   'ci-script-tests': {
     name: 'ci-script-tests',
     command:
-      'node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs && pnpm run ci:risk-fixtures',
+      'node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs scripts/__tests__/run-changed-unit-tests.test.mjs && pnpm run ci:risk-fixtures',
     budgetMs: 120_000,
     owner: 'tooling',
     requiredFor: ['config-tooling', 'full-release-high-risk'],
+  },
+  'changed-unit-tests': {
+    name: 'changed-unit-tests',
+    command: 'node scripts/run-changed-unit-tests.mjs --base <mergeBase> --head HEAD',
+    budgetMs: 180_000,
+    owner: 'test-only',
+    requiredFor: ['isolated-unit-test-only'],
   },
   'workflow-contracts': {
     name: 'workflow-contracts',

@@ -117,6 +117,24 @@ test('buildSelection keeps docs-only proof cheap and without labels', () => {
   });
 });
 
+test('buildSelection keeps isolated unit tests out of product e2e lanes', () => {
+  const selection = buildSelection({
+    files: ['packages/utils/src/__tests__/token-counting-boundary.test.ts'],
+    mergeBase: '1111111111111111111111111111111111111111',
+  });
+
+  assert.equal(selection.riskProfile.category, 'isolated-unit-test-only');
+  assert.deepEqual(selection.riskProfile.e2eLanes, []);
+  assert.deepEqual(
+    selection.commands.map((command) => command.name),
+    ['diff-check', 'changed-unit-tests']
+  );
+  assert.equal(
+    selection.commands[1].command,
+    'node scripts/run-changed-unit-tests.mjs --base 1111111111111111111111111111111111111111 --head HEAD'
+  );
+});
+
 test('buildSelection marks full release proof as explicit release budget', () => {
   const selection = buildSelection({
     base: 'origin/main',

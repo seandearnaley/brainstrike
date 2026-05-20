@@ -102,6 +102,16 @@
       }
     },
     {
+      "name": "isolated unit test",
+      "files": ["packages/utils/src/__tests__/token-counting-boundary.test.ts"],
+      "expected": {
+        "category": "isolated-unit-test-only",
+        "cloudLabels": ["ci:coverage"],
+        "e2eLanes": [],
+        "proofCommands": ["diff-check", "changed-unit-tests"]
+      }
+    },
+    {
       "name": "web app route",
       "files": ["apps/web/src/app/root-layout-content.tsx"],
       "expected": {

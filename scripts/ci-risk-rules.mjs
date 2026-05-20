@@ -151,6 +151,10 @@ const COVERAGE_PATTERNS = [
 
 const RUNTIME_FALLBACK_COVERAGE_PATTERNS = [/^apps\/(?!docs\/)/, /^packages\//];
 
+const UNIT_TEST_ONLY_PATTERNS = [
+  /^(apps|packages)\/.+\.(test|integration\.test)\.(ts|tsx|mts|mjs)$/,
+];
+
 const LANE_PATTERNS = new Map([
   ['ci:browser', BROWSER_PATTERNS],
   ['ci:web-e2e', WEB_E2E_PATTERNS],
@@ -177,6 +181,16 @@ function allFilesMatch(normalizedFiles, patterns) {
   return (
     normalizedFiles.length > 0 &&
     normalizedFiles.every((filePath) => matchesAny(filePath, patterns))
+  );
+}
+
+function allFilesAreUnitTests(normalizedFiles) {
+  return (
+    normalizedFiles.length > 0 &&
+    normalizedFiles.every(
+      (filePath) =>
+        !filePath.includes('/e2e/') && matchesAny(filePath, UNIT_TEST_ONLY_PATTERNS)
+    )
   );
 }
 
@@ -231,6 +245,17 @@ export function selectRiskProfileForFiles(files) {
       proofCommands: ['diff-check', 'ci-script-tests', 'workflow-contracts', 'full-local-suite'],
       riskLevel: 'full',
       cloudLabels: ['ci:full'],
+    });
+  }
+
+  if (allFilesAreUnitTests(normalizedFiles)) {
+    return profile({
+      category: 'isolated-unit-test-only',
+      domains: ['test-only'],
+      e2eLanes: [],
+      proofCommands: ['diff-check', 'changed-unit-tests'],
+      riskLevel: 'low',
+      cloudLabels: ['ci:coverage'],
     });
   }
 
