@@ -1,5 +1,8 @@
 import type { FileChunk } from '@brainstrike/db';
-import type { EmbeddingProviderType } from '@brainstrike/indexing-contract';
+import type {
+  EmbeddingProviderType,
+  IndexingEmbeddingJobChunk,
+} from '@brainstrike/indexing-contract';
 import type {
   EmbeddingDeviceHint,
   ProviderDimensionParameter,
@@ -18,6 +21,12 @@ interface ChunkRepository {
     embeddingHash?: string;
     updatedAt: string;
   }) => Promise<FileChunk | null>;
+}
+
+interface BrowserEmbeddingJobChunk extends IndexingEmbeddingJobChunk {
+  readonly content: string;
+  readonly embedding?: number[] | null;
+  readonly fileRecordId?: string | null;
 }
 
 interface BrowserQueuePortOptions {
@@ -210,7 +219,7 @@ export function createBrowserEmbeddingQueuePort({
 }
 
 interface ScheduleChunkArgs {
-  chunk: FileChunk;
+  chunk: BrowserEmbeddingJobChunk;
   dimensionParameter?: ProviderDimensionParameter;
   model: string;
   provider?: EmbeddingProviderType;
@@ -280,7 +289,7 @@ function createChunkScheduler({
 }
 
 interface ChunkTaskContext {
-  chunk: FileChunk;
+  chunk: BrowserEmbeddingJobChunk;
   deviceHint: EmbeddingDeviceHint;
   dimensionParameter: ProviderDimensionParameter | null;
   emitDrain: (embeddingSetId: string | null) => void;
@@ -374,15 +383,16 @@ interface ScheduleBatchContext {
 
 function scheduleChunksBatch(
   schedule: (args: ScheduleChunkArgs) => Promise<void>,
-  chunks: readonly FileChunk[],
+  chunks: readonly IndexingEmbeddingJobChunk[],
   context: ScheduleBatchContext
 ): void {
   for (const chunk of chunks) {
     if (context.signal?.aborted) {
       throw createAbortError();
     }
+    const sourceChunk = requireBrowserEmbeddingJobChunk(chunk);
     const args: ScheduleChunkArgs = {
-      chunk,
+      chunk: sourceChunk,
       model: context.model,
       targetEmbeddingSetId: context.targetEmbeddingSetId,
       repository: context.repository,
@@ -394,7 +404,20 @@ function scheduleChunksBatch(
   }
 }
 
-function validateChunk(chunk: FileChunk, repository: ChunkRepository | null, _model: string) {
+function requireBrowserEmbeddingJobChunk(
+  chunk: IndexingEmbeddingJobChunk
+): BrowserEmbeddingJobChunk {
+  if (typeof chunk.content !== 'string') {
+    throw new Error('Browser embedding queue requires chunk content.');
+  }
+  return chunk as BrowserEmbeddingJobChunk;
+}
+
+function validateChunk(
+  chunk: BrowserEmbeddingJobChunk,
+  repository: ChunkRepository | null,
+  _model: string
+) {
   if (!repository) {
     logger.warn('Skipping embedding enqueue: chunk repository unavailable', {
       chunkId: chunk.id,
@@ -415,7 +438,7 @@ function validateChunk(chunk: FileChunk, repository: ChunkRepository | null, _mo
 
 async function produceEmbedding(
   queue: QueueAdapter,
-  chunk: FileChunk,
+  chunk: BrowserEmbeddingJobChunk,
   model: string,
   options: {
     targetDimension: number;
@@ -449,7 +472,7 @@ async function produceEmbedding(
 }
 
 interface PersistArgs {
-  chunk: FileChunk;
+  chunk: BrowserEmbeddingJobChunk;
   embedding: number[];
   model: string;
   repository: ChunkRepository;
@@ -464,11 +487,11 @@ async function persistEmbedding({
   targetEmbeddingSetId,
 }: PersistArgs) {
   const now = new Date().toISOString();
+  const contentHash = chunk.contentHash ?? null;
   const embeddingHash =
-    chunk.contentHash === undefined ? null : await computeEmbeddingHash(chunk.contentHash, model);
+    contentHash === null ? null : await computeEmbeddingHash(contentHash, model);
 
-  const nextEmbeddingSetId =
-    targetEmbeddingSetId ?? (chunk.embeddingSetId === undefined ? undefined : chunk.embeddingSetId);
+  const nextEmbeddingSetId = targetEmbeddingSetId ?? chunk.embeddingSetId ?? undefined;
 
   await repository.update({
     id: chunk.id,
@@ -481,13 +504,13 @@ async function persistEmbedding({
 }
 
 interface LogSuccessArgs {
-  chunk: FileChunk;
+  chunk: BrowserEmbeddingJobChunk;
   model: string;
   startedAt: number;
 }
 
 interface LogFailureArgs {
-  chunk: FileChunk;
+  chunk: BrowserEmbeddingJobChunk;
   error: unknown;
   model: string;
 }

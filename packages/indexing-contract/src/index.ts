@@ -337,6 +337,32 @@ export type DistanceMetric = 'cosine' | 'l2' | 'ip';
 
 export type ProviderDimensionParameter = EmbeddingDimensionParameter;
 
+export interface IndexingEmbeddingJobChunk {
+  readonly content?: string | null;
+  readonly contentHash?: string | null;
+  readonly embeddingSetId?: string | null;
+  readonly id: string;
+}
+
+export interface IndexingEmbeddingJobQueueBatchOptions<TTransaction = unknown> {
+  readonly dimensionParameter?: ProviderDimensionParameter | null;
+  readonly model?: string | null;
+  readonly provider?: EmbeddingProviderType | null;
+  readonly signal?: AbortSignal | null;
+  readonly targetDimension?: number | null;
+  readonly targetEmbeddingSetId?: string | null;
+  readonly transaction?: TTransaction | null;
+}
+
+export interface IndexingEmbeddingJobQueuePort<TTransaction = unknown> {
+  enqueueBatch(
+    chunks: readonly IndexingEmbeddingJobChunk[],
+    fileRecordId: string,
+    options?: IndexingEmbeddingJobQueueBatchOptions<TTransaction>
+  ): Promise<void>;
+  resetProgress?: () => void;
+}
+
 export interface EmbeddingModelConfig {
   contextWindow?: number;
   description: string;

@@ -24,6 +24,7 @@ import {
 } from '@brainstrike/file-import/browser-queue-port';
 import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
 import { runEnhancedImport } from '@brainstrike/file-import/enhanced-import';
+import { createEmbeddingJobQueuePort } from '@brainstrike/pipeline';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
@@ -457,45 +458,11 @@ export function useEnhancedFileImportService(
       return null;
     }
 
-    return {
-      async enqueueBatch(chunks, fileRecordId, options) {
-        const executor = (options?.transaction ?? db) as IDatabase;
-        const queue = new JobQueue(executor);
-        const expectedDimension = options?.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
-        const provider = options?.provider ?? null;
-        const modelKey = options?.model ?? null;
-        const dimensionParameter = options?.dimensionParameter ?? null;
-
-        for (const chunk of chunks) {
-          if (!(chunk.id && chunk.contentHash)) {
-            logger.error('Invalid chunk data: missing required fields', {
-              chunkId: chunk.id,
-              hasContentHash: !!chunk.contentHash,
-              fileRecordId,
-            });
-            continue;
-          }
-
-          const resolvedEmbeddingSetId =
-            options?.targetEmbeddingSetId ?? chunk.embeddingSetId ?? null;
-          const dedupeKey = `${chunk.id}:${resolvedEmbeddingSetId ?? 'none'}:${chunk.contentHash}`;
-          await queue.enqueue({
-            queue: 'embeddings',
-            jobType: 'embed_chunk',
-            payload: {
-              chunkId: chunk.id,
-              fileRecordId,
-              embeddingSetId: resolvedEmbeddingSetId,
-              expectedDimension,
-              modelKey,
-              provider,
-              dimensionParameter,
-            },
-            dedupeKey,
-          });
-        }
-      },
-    } satisfies EmbeddingJobQueuePort;
+    return createEmbeddingJobQueuePort({
+      db,
+      createQueue: (executor) => new JobQueue(executor),
+      defaultExpectedDimension: DEFAULT_EMBEDDING_DIMENSION,
+    });
   }, [browserQueuePort, db, embedQueueEnabled]);
 
   const queuePort = browserQueuePort ?? jobQueuePort;

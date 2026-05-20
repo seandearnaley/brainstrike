@@ -1,6 +1,5 @@
 import type {
   ChunkingStrategy,
-  FileChunk,
   FileImportResult,
   IDatabase,
   ImportProgress,
@@ -13,6 +12,7 @@ import {
   type EmbeddingModelDefinition,
   type EmbeddingProviderType,
   getEmbeddingProviderDefinition as getProviderDefinition,
+  type IndexingEmbeddingJobQueuePort,
   isLocalProviderType,
   type EmbeddingModelConfig as ModelConfig,
   type ProviderDimensionParameter,
@@ -146,26 +146,7 @@ function dispatchEmbeddingSetUpdateEvent(id: string): void {
   }
 }
 
-export interface EmbeddingJobQueuePort {
-  enqueueBatch(
-    chunks: FileChunk[],
-    fileRecordId: string,
-    options?: {
-      signal?: AbortSignal | null;
-      transaction?: IDatabase | null;
-      model?: string | null;
-      targetEmbeddingSetId?: string | null;
-      provider?: EmbeddingProviderType | null;
-      targetDimension?: number | null;
-      dimensionParameter?: ProviderDimensionParameter | null;
-    }
-  ): Promise<void>;
-  /**
-   * Reset queue progress counters before starting a new import session.
-   * Implementations that don't track progress can omit this.
-   */
-  resetProgress?: () => void;
-}
+export type EmbeddingJobQueuePort = IndexingEmbeddingJobQueuePort<IDatabase>;
 
 export interface SqlExecutorPort {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;

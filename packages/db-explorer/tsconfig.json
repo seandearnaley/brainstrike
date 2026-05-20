@@ -14,6 +14,9 @@
       "@brainstrike/file-explorer-ui/*": [
         "../file-explorer-ui/src/*"
       ],
+      "@brainstrike/pipeline": [
+        "../pipeline/src"
+      ],
       "@brainstrike/utils/*": [
         "../utils/src/*"
       ],
@@ -61,6 +64,9 @@
     },
     {
       "path": "../preferences"
+    },
+    {
+      "path": "../pipeline"
     },
     {
       "path": "../text-splitter"

@@ -51,6 +51,14 @@ export default defineConfig({
         find: '@brainstrike/file-explorer-ui/shell',
         replacement: resolve(import.meta.dirname, '../file-explorer-ui/src/shell'),
       },
+      {
+        find: '@brainstrike/pipeline',
+        replacement: resolve(import.meta.dirname, '../pipeline/src'),
+      },
+      {
+        find: '@brainstrike/indexing-contract',
+        replacement: resolve(import.meta.dirname, '../indexing-contract/src'),
+      },
     ],
   },
   test: {

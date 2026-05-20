@@ -1025,6 +1025,9 @@ importers:
       '@brainstrike/hooks':
         specifier: workspace:*
         version: link:../hooks
+      '@brainstrike/pipeline':
+        specifier: workspace:*
+        version: link:../pipeline
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../platform-utils
@@ -1628,6 +1631,9 @@ importers:
 
   packages/pipeline:
     dependencies:
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
       '@brainstrike/text-splitter':
         specifier: workspace:*
         version: link:../text-splitter

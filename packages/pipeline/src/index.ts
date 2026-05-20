@@ -54,6 +54,11 @@ export {
   type PortableChunk,
   type WorkerChunkResult,
 } from './chunking-stage.js';
+export {
+  createEmbeddingJobQueuePort,
+  type DurableEmbeddingJobQueue,
+  type EmbeddingJobQueuePortConfig,
+} from './embedding-job-queue-port.js';
 // Embedding stage (BST-158)
 export {
   createEmbeddingStage,

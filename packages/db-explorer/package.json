@@ -12,6 +12,7 @@
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
+    "@brainstrike/pipeline": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/types": "workspace:*",
