@@ -136,7 +136,10 @@ describe('runtime host boundary', () => {
     const source = readDesktopSource('ipc-handlers.ts');
 
     expect(source.split('\n').length).toBeLessThanOrEqual(1500);
-    expect(source).toMatch(/ipc-embedding-backfill/);
+    expect(source).toMatch(/ipc-domains\/db-ipc/);
+    expect(source).toMatch(/ipc-domains\/embedding-backfill-ipc/);
+    expect(source).toMatch(/ipc-domains\/file-system-ipc/);
+    expect(source).toMatch(/ipc-domains\/storage-preferences-ipc/);
   });
 
   it('keeps desktop IPC database tests split by owned responsibility', () => {

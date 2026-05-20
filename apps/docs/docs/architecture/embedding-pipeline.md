@@ -9,7 +9,12 @@ sidebar_position: 4
 
 ## 3.1 High-Level Flow
 
-**Status**: The durable queue + embedding worker path below is live. The `@brainstrike/pipeline` package (streaming orchestrator + stages) exists but is not yet wired into the apps.
+**Status**: The durable queue + embedding worker path below is live.
+`@brainstrike/pipeline` now owns the durable embedding job queue port used by
+`packages/db-explorer/src/enhanced-file-import-service.ts` when
+`EMBED_QUEUE_ENABLED=true`. Streaming orchestrator stages still exist for
+higher-level workflow ownership, but the package is no longer dormant or
+ambiguous.
 
 ```mermaid
 flowchart LR

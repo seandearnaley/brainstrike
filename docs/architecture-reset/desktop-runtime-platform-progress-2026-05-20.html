@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Brainstrike Desktop Runtime Platform Progress</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #171a21;
+      --panel-2: #1f2430;
+      --line: #303746;
+      --text: #edf1f7;
+      --muted: #aab2c2;
+      --dim: #778296;
+      --green: #53d69d;
+      --blue: #82a8ff;
+      --amber: #f4c35d;
+      --red: #ff7b86;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      line-height: 1.55;
+    }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 46px 28px 80px;
+    }
+    .hero {
+      border: 1px solid var(--line);
+      background: linear-gradient(135deg, #171a21 0%, #111722 100%);
+      border-radius: 12px;
+      padding: 34px;
+    }
+    .eyebrow {
+      color: var(--green);
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 8px 0 12px;
+      font-size: 38px;
+      line-height: 1.08;
+      letter-spacing: -.02em;
+    }
+    .lead {
+      max-width: 860px;
+      color: var(--muted);
+      font-size: 16px;
+      margin: 0;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 22px;
+    }
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 10px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, .03);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+    section { margin-top: 34px; }
+    h2 {
+      margin: 0 0 14px;
+      font-size: 22px;
+      letter-spacing: -.01em;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+      padding: 16px;
+    }
+    .metric {
+      color: var(--blue);
+      font-family: var(--mono);
+      font-size: 30px;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .label {
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .done { color: #062515; background: var(--green); }
+    .partial { color: #2b1d02; background: var(--amber); }
+    .todo { color: #2b080c; background: var(--red); }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      align-items: stretch;
+    }
+    .node {
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      border-radius: 8px;
+      padding: 14px;
+      min-height: 110px;
+    }
+    .node strong { display: block; margin-bottom: 6px; }
+    .node p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+    }
+    th, td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      font-size: 13px;
+    }
+    tr:last-child td { border-bottom: 0; }
+    th {
+      background: var(--panel-2);
+      color: var(--dim);
+      font-family: var(--mono);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    code {
+      font-family: var(--mono);
+      color: var(--green);
+      font-size: 12px;
+    }
+    .two {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .note {
+      color: var(--muted);
+      font-size: 13px;
+      margin: 8px 0 0;
+    }
+    footer {
+      margin-top: 50px;
+      color: var(--dim);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+    @media (max-width: 860px) {
+      main { padding: 24px 16px 56px; }
+      .grid, .flow, .two { grid-template-columns: 1fr; }
+      h1 { font-size: 30px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <div class="hero">
+    <div class="eyebrow">Local architecture reset · platform slice</div>
+    <h1>Desktop runtime, indexing, and local AI hosts are becoming a platform</h1>
+    <p class="lead">
+      This report records the current local implementation state after the IPC domain extraction,
+      hidden-host state modeling, diagnostics snapshot, and pipeline ownership decision. It is
+      intentionally evidence-first: what is done, what is still partial, and which targeted tests
+      proved the slice.
+    </p>
+    <div class="meta">
+      <span class="pill">branch: codex/local-architecture-reset</span>
+      <span class="pill">generated: 2026-05-20</span>
+      <span class="pill">local only</span>
+      <span class="pill">no proof manifest refresh</span>
+    </div>
+  </div>
+
+  <section>
+    <h2>At A Glance</h2>
+    <div class="grid">
+      <div class="card"><div class="metric">69</div><div class="label"><code>ipc-handlers.ts</code> LOC after domain extraction</div></div>
+      <div class="card"><div class="metric">4</div><div class="label">owned IPC domain modules registered by the root file</div></div>
+      <div class="card"><div class="metric">2</div><div class="label">hidden AI host lifecycle surfaces modeled and observable</div></div>
+      <div class="card"><div class="metric">270</div><div class="label">pipeline package tests passing in the focused run</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Current Platform Shape</h2>
+    <div class="flow">
+      <div class="node">
+        <strong>Composition Root</strong>
+        <p><code>apps/desktop/src/ipc-handlers.ts</code> delegates registration and shutdown to owned domain modules.</p>
+      </div>
+      <div class="node">
+        <strong>Typed Registry</strong>
+        <p><code>platform/desktop-ipc-registry.ts</code> rejects duplicate channels and records stable domain metadata.</p>
+      </div>
+      <div class="node">
+        <strong>Domain IPC</strong>
+        <p><code>db</code>, <code>files</code>, <code>storage/preferences</code>, and <code>embedding backfill</code> now have focused modules and tests.</p>
+      </div>
+      <div class="node">
+        <strong>AI Host State</strong>
+        <p><code>runtime-host-state.ts</code> normalizes embedding and LLM host status into platform states.</p>
+      </div>
+      <div class="node">
+        <strong>Diagnostics</strong>
+        <p><code>desktop-platform-diagnostics.ts</code> collects database, scheduler, logging, reset, embedding host, and LLM host state.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Done Conditions</h2>
+    <table>
+      <thead><tr><th>Condition</th><th>Status</th><th>Evidence</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>ipc-handlers.ts</code> under 500 LOC and delegates to registries/domains</td>
+          <td><span class="status done">done</span></td>
+          <td>Current file is 69 LOC and composes <code>db-ipc</code>, <code>embedding-backfill-ipc</code>, <code>file-system-ipc</code>, and <code>storage-preferences-ipc</code>.</td>
+        </tr>
+        <tr>
+          <td>Adding an IPC channel has a domain owner and focused test path</td>
+          <td><span class="status partial">partial</span></td>
+          <td>Registry and four extracted domains are tested. Preload and renderer bridges are still manually maintained for some older channels, so generated drift prevention is not complete.</td>
+        </tr>
+        <tr>
+          <td>Renderer-only local LLM and embedding execution is enforceable</td>
+          <td><span class="status done">done</span></td>
+          <td><code>runtime-host-boundary.test.ts</code> rejects Electron main imports, dynamic imports, require calls, and re-exports of renderer-only runtime modules.</td>
+        </tr>
+        <tr>
+          <td><code>@brainstrike/pipeline</code> has a real production consumer or is removed</td>
+          <td><span class="status done">done</span></td>
+          <td><code>packages/db-explorer/src/enhanced-file-import-service.ts</code> imports <code>createEmbeddingJobQueuePort()</code> for durable embedding queue jobs when enabled.</td>
+        </tr>
+        <tr>
+          <td>Hidden embedding and LLM host lifecycle is modeled, tested, and observable</td>
+          <td><span class="status done">done</span></td>
+          <td><code>embedding-host-manager</code> and <code>llm-host-manager</code> expose <code>getPlatformStatus()</code>; state derivation tests cover active, ready, reset, restart, disposed, and failed state mapping.</td>
+        </tr>
+        <tr>
+          <td>Central diagnostics surface exposes platform state</td>
+          <td><span class="status partial">partial</span></td>
+          <td>Snapshot covers DB, scheduler, logging, reset path, embedding host, and LLM host. Migration, telemetry, and crash recovery need richer first-class fields.</td>
+        </tr>
+        <tr>
+          <td>Factory reset and crash/restart behavior have targeted E2E coverage</td>
+          <td><span class="status todo">open</span></td>
+          <td>Not implemented in this slice. Needs explicit reset/host recovery E2E lanes before the goal can be called complete.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Pipeline Ownership Decision</h2>
+    <div class="two">
+      <div class="card">
+        <h3>Decision</h3>
+        <p class="note">
+          Keep <code>@brainstrike/pipeline</code> and treat it as the indexing orchestration owner
+          for durable embedding queue payload contracts. It is not dormant anymore.
+        </p>
+      </div>
+      <div class="card">
+        <h3>Current Boundary</h3>
+        <p class="note">
+          Pipeline owns queue payload translation and orchestration primitives. It must not own
+          Electron main execution, renderer worker runtime, provider execution, or React UI.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Verification Evidence</h2>
+    <table>
+      <thead><tr><th>Command</th><th>What It Proved</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts -t "keeps the root IPC handler as a registry"</code></td>
+          <td>The root IPC architecture assertion points at the current owned domain modules.</td>
+          <td><span class="status done">passed</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/pipeline test</code></td>
+          <td>Pipeline orchestration and durable embedding job queue port tests remain green.</td>
+          <td><span class="status done">8 files / 270 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm vitest run ... ipc domain and desktop database work tests</code></td>
+          <td>DB, file-system, storage/preferences, embedding backfill, and scheduler extractions preserve IPC behavior.</td>
+          <td><span class="status done">11 files / 121 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm build:main</code> from <code>apps/desktop</code></td>
+          <td>The extracted Electron main-process modules still build.</td>
+          <td><span class="status done">passed</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Remaining Platform Work</h2>
+    <table>
+      <thead><tr><th>Slice</th><th>Next Measurable Step</th><th>Acceptance Condition</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>IPC drift prevention</td>
+          <td>Move LLM host, embedding host lifecycle, diagnostics, and preferences channels onto the typed registry pattern.</td>
+          <td>New channel additions require one contract definition, one domain handler, and one focused test with no hand-edited triple drift.</td>
+        </tr>
+        <tr>
+          <td>Diagnostics depth</td>
+          <td>Add explicit migration, telemetry, crash recovery, and indexing state fields to the diagnostics snapshot.</td>
+          <td>One diagnostics call answers reset, migration, DB, scheduler, indexing, embedding host, and LLM host health.</td>
+        </tr>
+        <tr>
+          <td>Reset and recovery</td>
+          <td>Add targeted desktop reset and host restart tests; keep them lane-tagged so they are not default feedback-loop work.</td>
+          <td>E2E proves first-run reset and hidden host recovery without unnecessary visible renderer reloads.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer>
+    brainstrike · desktop-runtime-platform-progress-2026-05-20.html
+  </footer>
+</main>
+</body>
+</html>
