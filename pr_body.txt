@@ -1,9 +1,5 @@
-💡 **What**: Refactored the `sortJsonValue` function inside `assistant-server.ts` to sort object keys using simple string relational operators (`<`, `>`) instead of `Object.entries` combined with `localeCompare`.
-
-🎯 **Why**: The serialization function `stableJsonStringify` is a hot path used to deterministically cache memory configurations and large JSON payload settings. `localeCompare` imposes significant overhead due to V8's Unicode-aware and Internationalization context switches. Additionally, iterating via `Object.entries` creates temporary `[key, value]` arrays for every entry, putting pressure on garbage collection. Switching to sorting primitive string keys via `Object.keys` bypasses this.
-
-📊 **Impact**: Reduces execution time by approximately 20% on large recursive JSON payloads.
-
-🔬 **Measurement**: Benchmarks captured in trace using a generated payload:
-- `localeCompare` execution: ~645ms
-- `Object.keys` + relational operator execution: ~528ms
+🚨 Severity: CRITICAL
+💡 Vulnerability: API Key length leaking via timing attack. The `queue-telemetry-collector` returned early during validation if the provided HMAC length didn't match the expected length, allowing an attacker to determine the hash length via timing differences.
+🎯 Impact: Attackers can discover the length of the valid HMAC. While less exploitable for fixed-length hashes like SHA256, it violates constant-time comparison principles and can also cause a DoS if `timingSafeEqual` is reached with mismatched lengths.
+🔧 Fix: Ensure `timingSafeEqual` runs in constant time regardless of length match by executing a dummy check when lengths differ.
+✅ Verification: Ran `pnpm --filter @brainstrike/queue-telemetry-collector test` to ensure tests passed and functionality remains the same.

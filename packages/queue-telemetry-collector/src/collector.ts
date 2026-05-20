@@ -192,7 +192,16 @@ export function createQueueTelemetryCollector(
       .update(Buffer.from(providedKey, 'utf8'))
       .digest();
 
-    if (providedHmac.length !== apiKeyHmac.length || !timingSafeEqual(providedHmac, apiKeyHmac)) {
+    const lengthsMatch = providedHmac.length === apiKeyHmac.length;
+    let timingSafeMatch = false;
+    if (lengthsMatch) {
+      timingSafeMatch = timingSafeEqual(providedHmac, apiKeyHmac);
+    } else {
+      // Dummy check to prevent timing attack leaking expected HMAC length
+      timingSafeEqual(apiKeyHmac, apiKeyHmac);
+    }
+
+    if (!(lengthsMatch && timingSafeMatch)) {
       return { status: 401, message: 'Unauthorized' };
     }
 

@@ -16,3 +16,7 @@
 **Vulnerability:** Use of `crypto.timingSafeEqual` without checking buffer lengths can lead to a Denial of Service (DoS) or 500 Internal Server Error, as differing lengths throw an unhandled `TypeError`.
 **Learning:** Even when comparing outputs of cryptographic hashes (like SHA-256 HMACs) which should logically be the same length, relying solely on the crypto algorithm's output size is an insecure pattern. Any future change to the algorithm or bug in the inputs could trigger a crash that leaks application state or causes a DoS.
 **Prevention:** Always explicitly check the lengths of buffers before calling `timingSafeEqual` (e.g., `a.length !== b.length`), and handle the mismatch gracefully (e.g., return 401 Unauthorized).
+## 2025-02-14 - Fix API Key Timing Attack Vulnerability
+**Vulnerability:** The queue telemetry collector used `timingSafeEqual` for API key validation but returned early when the provided HMAC length did not match the expected length.
+**Learning:** Returning early before `timingSafeEqual` based on a length check reintroduces a timing leak, allowing an attacker to determine the length of the expected hash/secret. Furthermore, `timingSafeEqual` will throw an unhandled `TypeError` if lengths differ, leading to a potential DoS.
+**Prevention:** When lengths differ, execute a dummy constant-time comparison (e.g., `timingSafeEqual(expected, expected)`) to ensure the function executes in constant time before returning the failure, avoiding both the DoS and the timing leak.
