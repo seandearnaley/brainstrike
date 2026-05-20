@@ -279,7 +279,7 @@
         <tr>
           <td>Factory reset and crash/restart behavior have targeted unit and lane coverage</td>
           <td><span class="status partial">partial</span></td>
-          <td>Factory reset records completed/failed diagnostics, visible-renderer crash recovery records deferred/suppressed/reload state, desktop factory reset is tagged into the destructive lane, embedding host restart/recovery specs are selected by <code>@desktop-embedding-recovery</code>, and LLM host restart/recovery is now selected by <code>@desktop-llm-host-recovery</code>. Full destructive/reset E2E execution remains explicit, not a default loop.</td>
+          <td>Factory reset orchestration now lives in <code>desktop-reset-platform.ts</code>. It stops embedding, chunking, and LLM host runtimes before DB reset, drains live subscriptions and scheduler work under the reset barrier, records completed/failed diagnostics, and keeps destructive reset E2E explicit. Visible-renderer crash recovery records deferred/suppressed/reload state, embedding host restart/recovery specs are selected by <code>@desktop-embedding-recovery</code>, and LLM host restart/recovery is selected by <code>@desktop-llm-host-recovery</code>.</td>
         </tr>
       </tbody>
     </table>
@@ -334,6 +334,11 @@
           <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/create-window.test.ts src/__tests__/desktop-platform-diagnostics.test.ts src/__tests__/ipc-desktop-diagnostics.test.ts src/__tests__/main/desktop-factory-reset.test.ts src/__tests__/desktop-crash-recovery.test.ts</code></td>
           <td>Diagnostics snapshot, IPC bridge, reset outcome tracking, and renderer crash recovery observability are green.</td>
           <td><span class="status done">5 files / 40 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/main/desktop-factory-reset.test.ts src/__tests__/desktop-reset-platform.test.ts</code></td>
+          <td>Desktop reset orchestration stops embedding, chunking, and LLM runtimes before DB reset and drains live DB work through the reset barrier.</td>
+          <td><span class="status done">2 files / 5 tests</span></td>
         </tr>
         <tr>
           <td><code>pnpm --filter @brainstrike/app-shell exec vitest run src/__tests__/system-diagnostics-panel.test.tsx</code></td>
@@ -471,8 +476,8 @@
         </tr>
         <tr>
           <td>Reset and recovery</td>
-          <td>Execute the destructive desktop factory-reset lane and the hidden-host recovery lanes only when their risk is selected or release/full-risk proof is explicitly requested.</td>
-          <td>Executed E2E proves first-run reset plus embedding and LLM hidden host recovery without unnecessary visible renderer reloads; lane selection already keeps these tests out of low-risk feedback loops.</td>
+          <td>Execute the destructive desktop factory-reset lane and the hidden-host recovery lanes only when their risk is selected or release/full-risk proof is explicitly requested. Keep <code>desktop-reset-platform.ts</code> as the unit-tested reset orchestrator for host shutdown and DB reset ordering.</td>
+          <td>Executed E2E proves first-run reset plus embedding and LLM hidden host recovery without unnecessary visible renderer reloads; targeted unit coverage already proves reset ordering and lane selection keeps these tests out of low-risk feedback loops.</td>
         </tr>
       </tbody>
     </table>
