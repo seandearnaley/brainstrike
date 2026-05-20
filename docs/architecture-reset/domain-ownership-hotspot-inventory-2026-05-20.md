@@ -64,10 +64,19 @@ Package-local architecture coverage now verifies:
 - implementation files remain inside their slice directories;
 - public slice barrels still expose the same root symbols for current consumers.
 
+## Embedding Worker Slice Started
+
+`packages/embeddings/src/worker/embedding-worker.ts` is reduced from 2777 LOC to 2588 LOC by extracting two responsibilities:
+
+- `embedding-cache-types.ts` owns cache contract types.
+- `embedding-stats-refresh-controller.ts` owns collection indexing stats refresh scheduling.
+
+Compatibility re-exports remain in `embedding-worker.ts` while current consumers migrate. Package-local architecture coverage now verifies these responsibilities stay outside the lifecycle module and that `src/worker/README.md` documents ownership and focused verification.
+
 ## Next Slices
 
 1. Split `optimized-file-tree.tsx` and its 2947-line test file by extracting row/windowing/telemetry modules.
-2. Split `embedding-worker.ts` by lifecycle, scheduling, provider execution, telemetry, and host messaging.
+2. Continue splitting `embedding-worker.ts` by extracting provider execution, model resolution, queue scheduling/backpressure, telemetry, and host messaging.
 3. Split `apps/desktop/e2e/embedding-worker-renderer.test.ts` into lane-tagged smoke, regression, diagnostics, and release-only soak specs.
 4. Move `ipc-handlers.ts` toward a domain-keyed registry after the embedding E2E split reduces verification cost.
 5. Decompose `packages/db` internally around queue, migrations, repositories, search, and schema while preserving public barrels.

@@ -1,9 +1,5 @@
 import type { IDatabase, Job } from '@brainstrike/db';
-import {
-  JobQueue,
-  markCollectionIndexingStatsDirty,
-  refreshCollectionIndexingStats,
-} from '@brainstrike/db';
+import { JobQueue } from '@brainstrike/db';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { createLogger, generateUUID } from '@brainstrike/utils';
@@ -26,83 +22,16 @@ import type {
 } from '../types';
 import { FALLBACK_MODEL_CONFIG } from '../types';
 import { EmbeddingCacheMaintenanceController } from './embedding-cache-maintenance';
+import type { CachedEmbedding, EmbeddingCacheInterface } from './embedding-cache-types';
+import { createEmbeddingStatsRefreshController } from './embedding-stats-refresh-controller';
 
-/**
- * Interface for embedding cache operations.
- * Allows dependency injection without coupling to the Drizzle implementation.
- * BST-170: Content-level embedding deduplication.
- */
-export interface EmbeddingCacheInterface {
-  /**
-   * Evict stale entries when cache size exceeds its configured cap.
-   * Called cooperatively after the embedding queue drains.
-   */
-  evictIfNeeded?: () => Promise<{ needed: boolean; evicted: number; totalEntries: number }>;
-
-  /**
-   * Flush pending LRU access-time updates before worker shutdown.
-   */
-  flushPendingAccessTimeUpdates?: () => Promise<void>;
-
-  /**
-   * Get a cached embedding by content hash and model key.
-   * Returns hit: true with the entry if found, or hit: false if not cached.
-   */
-  get(
-    contentHash: string,
-    modelKey: string
-  ): Promise<{ hit: true; entry: CachedEmbedding } | { hit: false; entry: null }>;
-
-  /**
-   * Get multiple cached embeddings in a single query.
-   * Returns a Map keyed by "contentHash:modelKey".
-   */
-  getBatch(
-    requests: ReadonlyArray<{ contentHash: string; modelKey: string }>
-  ): Promise<Map<string, CachedEmbedding>>;
-
-  /**
-   * Return cache diagnostics for worker metrics/log output.
-   */
-  getStats?: () => Promise<{
-    newestAccessedAt: Date | null;
-    oldestAccessedAt: Date | null;
-    totalEntries: number;
-    totalHits: number;
-  }>;
-
-  /**
-   * Store an embedding in the cache.
-   */
-  set(
-    contentHash: string,
-    modelKey: string,
-    embedding: number[],
-    dimensions: number
-  ): Promise<unknown>;
-
-  /**
-   * Store multiple embeddings in the cache atomically.
-   */
-  setBatch(
-    entries: ReadonlyArray<{
-      contentHash: string;
-      modelKey: string;
-      embedding: number[];
-      dimensions: number;
-    }>
-  ): Promise<number>;
-}
-
-/**
- * Minimal cached embedding entry returned from cache lookups.
- */
-export interface CachedEmbedding {
-  contentHash: string;
-  dimensions: number;
-  embedding: number[];
-  modelKey: string;
-}
+export type { CachedEmbedding, EmbeddingCacheInterface } from './embedding-cache-types';
+export type {
+  EmbeddingStatsRefreshController,
+  EmbeddingStatsRefreshControllerOptions,
+  StatsRefreshReason,
+} from './embedding-stats-refresh-controller';
+export { createEmbeddingStatsRefreshController } from './embedding-stats-refresh-controller';
 
 const workerLogger = createLogger('EmbeddingWorker');
 
@@ -368,8 +297,6 @@ const DEFAULT_IDLE_POLL_MAX_MS = 1000;
 const DEFAULT_STATS_REFRESH_MIN_INTERVAL_MS = 5000;
 const DEFAULT_STATS_REFRESH_COMPLETED_CHUNK_THRESHOLD = 512;
 
-export type StatsRefreshReason = 'interval' | 'queue-idle' | 'threshold' | 'worker-stop';
-
 function resolvePositiveIntegerOption(
   value: number | undefined,
   defaultValue: number,
@@ -413,122 +340,6 @@ function shouldLogIdleBackoff(
     return true;
   }
   return (idlePollCount & (idlePollCount - 1)) === 0;
-}
-
-export interface EmbeddingStatsRefreshControllerOptions {
-  completedChunkThreshold: number;
-  db: IDatabase;
-  log: (msg: string, meta?: unknown) => void;
-  minIntervalMs: number;
-  now: () => number;
-}
-
-export interface EmbeddingStatsRefreshController {
-  flush: (reason: StatsRefreshReason) => Promise<void>;
-  flushIfDue: () => Promise<void>;
-  recordCompletions: (
-    embeddingSetIds: readonly string[],
-    completedChunkCount: number
-  ) => Promise<void>;
-}
-
-export function createEmbeddingStatsRefreshController({
-  completedChunkThreshold,
-  db,
-  log,
-  minIntervalMs,
-  now,
-}: EmbeddingStatsRefreshControllerOptions): EmbeddingStatsRefreshController {
-  const pendingEmbeddingSetIds = new Set<string>();
-  let completedSinceRefresh = 0;
-  let lastRefreshAt = now();
-  let flushInFlight: Promise<void> | null = null;
-
-  const flushPending = async (reason: StatsRefreshReason): Promise<void> => {
-    if (pendingEmbeddingSetIds.size === 0) {
-      return;
-    }
-
-    const embeddingSetIds = [...pendingEmbeddingSetIds];
-    const completedChunkCount = completedSinceRefresh;
-    const startedAt = now();
-    pendingEmbeddingSetIds.clear();
-    completedSinceRefresh = 0;
-
-    try {
-      await refreshCollectionIndexingStats(db, embeddingSetIds, {
-        label: 'embedding stats refresh',
-        priority: 'background',
-      });
-      lastRefreshAt = now();
-      log('embedding_stats_refresh', {
-        completedChunkCount,
-        durationMs: Math.round(now() - startedAt),
-        embeddingSetCount: embeddingSetIds.length,
-        reason,
-      });
-    } catch (error) {
-      for (const embeddingSetId of embeddingSetIds) {
-        pendingEmbeddingSetIds.add(embeddingSetId);
-      }
-      completedSinceRefresh += completedChunkCount;
-      throw error;
-    }
-  };
-
-  const flush = async (reason: StatsRefreshReason): Promise<void> => {
-    while (flushInFlight) {
-      try {
-        await flushInFlight;
-      } catch {
-        // The in-flight flush restored pending state before rejecting; this caller can retry it.
-      }
-    }
-    const nextFlush = flushPending(reason);
-    flushInFlight = nextFlush;
-    try {
-      await nextFlush;
-    } finally {
-      if (flushInFlight === nextFlush) {
-        flushInFlight = null;
-      }
-    }
-  };
-
-  return {
-    flush,
-    flushIfDue: async () => {
-      if (pendingEmbeddingSetIds.size === 0) {
-        return;
-      }
-      if (completedSinceRefresh >= completedChunkThreshold) {
-        await flush('threshold');
-        return;
-      }
-      if (now() - lastRefreshAt >= minIntervalMs) {
-        await flush('interval');
-      }
-    },
-    recordCompletions: async (embeddingSetIds, completedChunkCount) => {
-      if (embeddingSetIds.length === 0 || completedChunkCount <= 0) {
-        return;
-      }
-      const uniqueIds = [...new Set(embeddingSetIds)];
-      const newlyPendingIds = uniqueIds.filter(
-        (embeddingSetId) => !pendingEmbeddingSetIds.has(embeddingSetId)
-      );
-      for (const embeddingSetId of newlyPendingIds) {
-        pendingEmbeddingSetIds.add(embeddingSetId);
-      }
-      completedSinceRefresh += completedChunkCount;
-      if (newlyPendingIds.length > 0) {
-        await markCollectionIndexingStatsDirty(db, newlyPendingIds, {
-          label: 'embedding completion stats dirty',
-          priority: 'background',
-        });
-      }
-    },
-  };
 }
 
 interface EmbedChunkPayload {
