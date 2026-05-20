@@ -30,6 +30,9 @@
   ],
   "references": [
     {
+      "path": "../indexing-contract"
+    },
+    {
       "path": "../worker-runtime"
     }
   ]

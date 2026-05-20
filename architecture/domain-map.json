@@ -102,13 +102,6 @@
       "retireByPhase": "phase-3"
     },
     {
-      "id": "queue-embedding-worker-type-coupling",
-      "sourcePackage": "@brainstrike/queue",
-      "importedPackage": "@brainstrike/embedding-worker",
-      "reason": "Queue types currently reference embedding worker job payloads. Phase 3 moves job payload contracts into indexing or queue-owned shared types.",
-      "retireByPhase": "phase-3"
-    },
-    {
       "id": "ui-storage-theme-coupling",
       "sourcePackage": "@brainstrike/ui",
       "importedPackage": "@brainstrike/storage",
@@ -222,6 +215,7 @@
         "@brainstrike/assistant-contract",
         "@brainstrike/file-system",
         "@brainstrike/hooks",
+        "@brainstrike/indexing-contract",
         "@brainstrike/test-utils",
         "@brainstrike/types",
         "@brainstrike/ui",

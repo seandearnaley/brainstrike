@@ -25,7 +25,7 @@
   ],
   "references": [
     {
-      "path": "../embedding-worker"
+      "path": "../indexing-contract"
     },
     {
       "path": "../utils"

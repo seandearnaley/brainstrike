@@ -3,7 +3,7 @@
   "description": "Browser/Electron renderer job queue with workerpool for embedding tasks.",
   "version": "0.1.0",
   "dependencies": {
-    "@brainstrike/embedding-worker": "workspace:*",
+    "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "workerpool": "^10.0.2"
   },

@@ -3,6 +3,7 @@
   "description": "Transformers.js embedding worker for browser and Electron renderer pools.",
   "version": "0.1.0",
   "dependencies": {
+    "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/worker-runtime": "workspace:*",
     "@huggingface/transformers": "^4.1.0",

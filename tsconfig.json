@@ -12,6 +12,12 @@
       "@brainstrike/assistant-contract/*": [
         "packages/assistant-contract/src/*"
       ],
+      "@brainstrike/indexing-contract": [
+        "packages/indexing-contract/src"
+      ],
+      "@brainstrike/indexing-contract/*": [
+        "packages/indexing-contract/src/*"
+      ],
       "@brainstrike/hooks": [
         "packages/hooks/src"
       ],
@@ -146,6 +152,9 @@
   "references": [
     {
       "path": "./packages/assistant-contract"
+    },
+    {
+      "path": "./packages/indexing-contract"
     },
     {
       "path": "./packages/types"

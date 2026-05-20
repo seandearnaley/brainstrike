@@ -4,79 +4,18 @@
  */
 export const POWER_BROADCAST_CHANNEL = 'brainstrike-power';
 
-export type EmbeddingDevice = 'webgpu' | 'wasm';
-
-export type EmbeddingDeviceHint = EmbeddingDevice;
-
-export type EmbeddingDType = 'fp16' | 'q4' | 'fp32';
-
-export interface EmbedWorkerRequest {
-  readonly deviceHint: EmbeddingDeviceHint;
-  readonly dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension';
-  readonly dtype?: EmbeddingDType;
-  readonly id: string;
-  /**
-   * Optional upper bound for batch sizing. Disclosed so the queue can tweak for stress tests.
-   */
-  readonly maxBatchSize?: number;
-  readonly model: string;
-  readonly provider?: string;
-  readonly targetDimension?: number;
-  readonly texts: readonly string[];
-  readonly truncateDim?: number;
-  readonly type: 'embed';
-}
-
-export interface EmbedWorkerProgress {
-  readonly id: string;
-  readonly phase: 'initializing' | 'embedding' | 'complete';
-  readonly progress: number;
-  readonly type: 'progress';
-}
-
-export interface EmbedWorkerBatch {
-  readonly batchIndex: number;
-  readonly endIndex: number;
-  readonly id: string;
-  readonly startIndex: number;
-  readonly type: 'batch';
-  readonly vectors: readonly Float32Array[];
-}
-
-export interface EmbedWorkerSuccess {
-  readonly id: string;
-  readonly metadata: {
-    readonly model: string;
-    readonly device: EmbeddingDevice;
-    readonly dtype: EmbeddingDType;
-    readonly batchSize: number;
-    readonly elapsedMs: number;
-    readonly fallbackApplied: boolean;
-    readonly dimensions: number;
-  };
-  readonly type: 'result';
-  readonly vectors: readonly Float32Array[];
-}
-
-export interface EmbedWorkerError {
-  /** Serialized error cause for debugging (string instead of unknown for safe workerpool serialization) */
-  readonly cause?: string | undefined;
-  readonly id: string;
-  readonly message: string;
-  readonly type: 'error';
-}
-
-export interface EmbedWorkerComplete {
-  readonly id: string;
-  readonly metadata: EmbedWorkerSuccess['metadata'];
-  readonly type: 'complete';
-}
-
-export type EmbedWorkerStreamEvent =
-  | EmbedWorkerBatch
-  | EmbedWorkerComplete
-  | EmbedWorkerError
-  | EmbedWorkerProgress;
+export type {
+  EmbeddingDevice,
+  EmbeddingDeviceHint,
+  EmbeddingDType,
+  EmbedWorkerBatch,
+  EmbedWorkerComplete,
+  EmbedWorkerError,
+  EmbedWorkerProgress,
+  EmbedWorkerRequest,
+  EmbedWorkerStreamEvent,
+  EmbedWorkerSuccess,
+} from '@brainstrike/indexing-contract';
 
 /**
  * Normalizes a vector to unit length (L2 norm).

@@ -1,18 +1,16 @@
 import type {
   EmbeddingDeviceHint,
+  EmbeddingDimensionParameter,
   EmbeddingDType,
   EmbedWorkerError,
   EmbedWorkerProgress,
   EmbedWorkerRequest,
   EmbedWorkerSuccess,
-} from '@brainstrike/embedding-worker';
+} from '@brainstrike/indexing-contract';
 
-export type { EmbeddingDeviceHint } from '@brainstrike/embedding-worker';
+export type { EmbeddingDeviceHint } from '@brainstrike/indexing-contract';
 
-export type ProviderDimensionParameter =
-  | 'dimensions'
-  | 'output_dimensionality'
-  | 'output_dimension';
+export type ProviderDimensionParameter = EmbeddingDimensionParameter;
 
 export interface EmbedTaskPayload {
   readonly deviceHint: EmbeddingDeviceHint;
