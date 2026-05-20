@@ -1,9 +1,9 @@
-import { FolderBadge } from '@brainstrike/file-explorer-ui';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import { Check, Code, Search, X } from 'lucide-react';
 import * as React from 'react';
+import { FolderBadge } from './folder-badge';
 
 // Stable module-level icon elements to avoid creating new JSX on each render
 // (avoids breaking memo() on FilterChip)
