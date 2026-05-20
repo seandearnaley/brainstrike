@@ -11,7 +11,6 @@ This inventory tracks size and churn hotspots that remain after the legal domain
 | 8124 | `apps/desktop/e2e/embedding-worker-renderer.test.ts` | Split into smoke, regression, diagnostic, and release-only soak specs. |
 | 3150 | `apps/desktop/e2e/file-explorer-selection.desktop.test.ts` | Split after embedding E2E unless this lane becomes flaky first. |
 | 2947 | `packages/file-explorer-ui/src/__tests__/optimized-file-tree.test.tsx` | Split by tree behavior: rows, virtualization, lazy loading, selection. |
-| 2777 | `packages/embeddings/src/worker/embedding-worker.ts` | Split lifecycle, scheduler, provider execution, telemetry, and host messaging. |
 | 2765 | `packages/app-shell/src/__tests__/assistant-ui-panel-wrapper.test.tsx` | Split by assistant contract, local runtime, thread/context wiring. |
 | 2559 | `packages/file-explorer-ui/src/tree/optimized-file-tree.tsx` | Reduce to tree composition over row, windowing, telemetry, and keyboard modules. |
 | 2344 | `apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts` | Split by db IPC capability after handler registry exists. |
@@ -21,6 +20,7 @@ This inventory tracks size and churn hotspots that remain after the legal domain
 | 2074 | `packages/file-explorer/src/actions/__tests__/file-selection-actions.test.ts` | Split action tests by command family. |
 | 2044 | `packages/app-shell/src/background-indexing/workspace-collection-sync-service.ts` | Move orchestration behind indexing-owned contracts. |
 | 1853 | `packages/file-explorer-ui/src/indexing/use-background-token-indexer-integration.ts` | Split into indexer lifecycle, progress aggregation, and cache sync modules. |
+| 1806 | `packages/embeddings/src/worker/embedding-worker.ts` | Continue splitting scheduler/backpressure, telemetry, and host messaging. |
 | 1734 | `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts` | Split with service extraction. |
 | 1689 | `packages/db-explorer/src/use-database-demo-data.ts` | Review after db internal decomposition. |
 | 1629 | `apps/desktop/src/ipc-handlers.ts` | Move toward domain-keyed IPC registries. |
@@ -66,10 +66,11 @@ Package-local architecture coverage now verifies:
 
 ## Embedding Worker Slice Started
 
-`packages/embeddings/src/worker/embedding-worker.ts` is reduced from 2777 LOC to 2189 LOC by extracting four responsibilities:
+`packages/embeddings/src/worker/embedding-worker.ts` is reduced from 2777 LOC to 1806 LOC by extracting five responsibilities:
 
 - `embedding-cache-types.ts` owns cache contract types.
 - `embedding-model-config.ts` owns database-backed model metadata lookup and cache.
+- `embedding-provider-runtime.ts` owns model resolution, runtime gating, hosted-provider setup, dimension validation, and rate-limit errors.
 - `embedding-worker-db-io.ts` owns file chunk loading, vector-column assertions, embedding writes, and embedding-set dimension lookup.
 - `embedding-stats-refresh-controller.ts` owns collection indexing stats refresh scheduling.
 

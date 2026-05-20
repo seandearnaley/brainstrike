@@ -39,6 +39,16 @@ describe('embedding worker architecture', () => {
     expect(workerSource()).not.toContain('async function resolveEmbeddingSetDimension');
   });
 
+  it('keeps provider runtime initialization outside the worker lifecycle module', () => {
+    expect(existsSync(path.join(workerRoot, 'embedding-provider-runtime.ts'))).toBe(true);
+    expect(workerSource()).not.toContain('function resolveWorkerModel');
+    expect(workerSource()).not.toContain('function ensureLocalRuntime');
+    expect(workerSource()).not.toContain('function shouldStartWorker');
+    expect(workerSource()).not.toContain('async function initializeEmbeddingService');
+    expect(workerSource()).not.toContain('function ensureModelDimension');
+    expect(workerSource()).not.toContain('class WorkerRateLimitError');
+  });
+
   it('documents worker ownership and focused verification', () => {
     const readmePath = path.join(workerRoot, 'README.md');
     expect(existsSync(readmePath), 'worker must have an ownership README').toBe(true);

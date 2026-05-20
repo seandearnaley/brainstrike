@@ -1,12 +1,9 @@
 import type { IDatabase, Job } from '@brainstrike/db';
 import { JobQueue } from '@brainstrike/db';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
-import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import { SimpleEmbeddingService } from '../bge-m3-service';
-import { EmbeddingProviderFactory } from '../factory';
 import type {
-  EmbeddingProviderConfig,
   EmbeddingProviderError,
   EmbeddingProviderType,
   LocalProviderType,
@@ -20,10 +17,25 @@ import type {
   EmbeddingStreamBatch,
   ModelConfig,
 } from '../types';
-import { FALLBACK_MODEL_CONFIG } from '../types';
 import { EmbeddingCacheMaintenanceController } from './embedding-cache-maintenance';
 import type { CachedEmbedding, EmbeddingCacheInterface } from './embedding-cache-types';
 import { getModelConfigFromDb } from './embedding-model-config';
+import {
+  buildHostedProviderConfig,
+  createHostedProviderInstance,
+  ensureLocalRuntime,
+  ensureModelDimension,
+  formatHostedEmbedError,
+  initializeEmbeddingService,
+  isElectronMainProcess,
+  readBooleanEnv,
+  resolveWorkerModel,
+  type SupportedHostedProvider,
+  shouldStartWorker,
+  toSupportedHostedProvider,
+  validateHostedEmbeddingDimensions,
+  WorkerRateLimitError,
+} from './embedding-provider-runtime';
 import { createEmbeddingStatsRefreshController } from './embedding-stats-refresh-controller';
 import {
   assertVectorEmbeddingColumn,
@@ -45,27 +57,7 @@ export { createEmbeddingStatsRefreshController } from './embedding-stats-refresh
 
 const workerLogger = createLogger('EmbeddingWorker');
 
-class WorkerRateLimitError extends Error {
-  retryAfterMs?: number;
-  constructor(message: string, retryAfterMs?: number) {
-    super(message);
-    this.name = 'WorkerRateLimitError';
-    if (retryAfterMs !== undefined) {
-      this.retryAfterMs = retryAfterMs;
-    }
-  }
-}
-
 type Distance = 'cosine' | 'l2' | 'ip';
-
-type SupportedHostedProvider = Extract<
-  EmbeddingProviderType,
-  'openai' | 'google' | 'ollama' | 'lmstudio'
->;
-type HostedProviderConfig = Extract<
-  EmbeddingProviderConfig,
-  { runtime: 'hosted'; provider: SupportedHostedProvider }
->;
 
 export interface EmbeddingWorkerOptions {
   cacheDir?: string; // directory to cache/load models from
@@ -225,383 +217,8 @@ async function sha256Hex(input: string): Promise<string> {
   }
 }
 
-function resolveWorkerModel(fromOptions?: string): {
-  provider: EmbeddingProviderType;
-  modelId: string;
-  compositeKey: string;
-} {
-  const envValue = (() => {
-    try {
-      if (process?.env?.['EMBED_MODEL_KEY']) {
-        return String(process.env['EMBED_MODEL_KEY']);
-      }
-      return '';
-    } catch (error) {
-      workerLogger.debug('Unable to read EMBED_MODEL_KEY from environment', { error });
-      return '';
-    }
-  })();
-
-  const candidate = fromOptions || envValue || FALLBACK_MODEL_CONFIG.id;
-  const parsed = parseProviderModelKey(candidate);
-
-  if (parsed) {
-    return {
-      provider: parsed.provider,
-      modelId: parsed.modelId,
-      compositeKey: formatProviderModelKey(parsed.provider, parsed.modelId),
-    };
-  }
-
-  return {
-    provider: 'local',
-    modelId: candidate,
-    compositeKey: formatProviderModelKey('local', candidate),
-  };
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((res) => setTimeout(res, ms));
-}
-
-function isNodejsMainProcess(): boolean {
-  try {
-    return (
-      typeof process !== 'undefined' &&
-      typeof process.versions?.node !== 'undefined' &&
-      typeof window === 'undefined'
-    );
-  } catch (error) {
-    workerLogger.debug('Failed to detect Node.js runtime while checking embedding worker context', {
-      error,
-    });
-    return false;
-  }
-}
-
-function isElectronMainProcess(): boolean {
-  try {
-    return (
-      typeof process !== 'undefined' &&
-      Boolean((process as { type?: string } | undefined)?.type === 'browser')
-    );
-  } catch (error) {
-    workerLogger.debug('Failed to detect Electron main process while checking embedding context', {
-      error,
-    });
-    return false;
-  }
-}
-
-function readBooleanEnv(key: string): boolean | undefined {
-  try {
-    const raw = (process as { env?: Record<string, string | undefined> } | undefined)?.env?.[key];
-    if (raw === undefined) {
-      return;
-    }
-    const normalized = raw.trim().toLowerCase();
-    if (['1', 'true', 'yes', 'on'].includes(normalized)) {
-      return true;
-    }
-    if (['0', 'false', 'no', 'off'].includes(normalized)) {
-      return false;
-    }
-    return;
-  } catch (error) {
-    workerLogger.debug('Failed to read boolean env flag', { key, error });
-    return;
-  }
-}
-
-function ensureLocalRuntime(modelResolution: { provider: EmbeddingProviderType }): void {
-  if (!isLocalProviderType(modelResolution.provider)) {
-    return;
-  }
-
-  const allowMainRuntime = readBooleanEnv('EMBED_ALLOW_LOCAL_IN_MAIN') === true;
-
-  // Local transformers require Web Workers. In Electron main process, that would block the UI,
-  // so we still forbid it unless explicitly overridden.
-  if (isElectronMainProcess() && process.env['NODE_ENV'] !== 'test' && !allowMainRuntime) {
-    throw new Error(
-      'Cannot use local embedding models in Electron main process. ' +
-        'TransformersBackend requires Web Workers which are only available in browser contexts. ' +
-        'Use a hosted provider (openai, google) or process embeddings in the renderer.'
-    );
-  }
-
-  // Pure Node.js workers are allowed but warned because they can still block when Web Workers
-  // are unavailable. Operators can silence by setting EMBED_ALLOW_LOCAL_IN_MAIN=true.
-  if (isNodejsMainProcess() && !allowMainRuntime) {
-    workerLogger.warn(
-      'Running local embeddings in a Node.js main process. This may block event loop if Web Workers are unavailable. ' +
-        'Set EMBED_ALLOW_LOCAL_IN_MAIN=true to acknowledge this risk.'
-    );
-  }
-}
-
-function shouldStartWorker(
-  options: EmbeddingWorkerOptions,
-  log: (msg: string, meta?: unknown) => void
-): boolean {
-  // Allow explicit disable via options (for tests)
-  if (options.enable === false) {
-    log('Embedding worker disabled via options.enable=false');
-    return false;
-  }
-
-  const envEnabled = readBooleanEnv('EMBED_WORKER_ENABLED');
-  if (envEnabled === false) {
-    log('Embedding worker disabled via EMBED_WORKER_ENABLED=false');
-    return false;
-  }
-  if (envEnabled === true) {
-    return true;
-  }
-
-  return true;
-}
-
-function toSupportedHostedProvider(
-  provider: Exclude<EmbeddingProviderType, LocalProviderType>
-): SupportedHostedProvider {
-  if (
-    provider === 'openai' ||
-    provider === 'google' ||
-    provider === 'ollama' ||
-    provider === 'lmstudio'
-  ) {
-    return provider;
-  }
-  throw new Error(`Hosted provider "${provider}" is not supported yet.`);
-}
-
-function buildHostedProviderConfig(
-  provider: SupportedHostedProvider,
-  modelId: string,
-  expectedDimension: number
-): HostedProviderConfig {
-  switch (provider) {
-    case 'openai':
-      return {
-        runtime: 'hosted',
-        provider: 'openai',
-        modelId,
-        dimensions: expectedDimension,
-      };
-    case 'google':
-      return {
-        runtime: 'hosted',
-        provider: 'google',
-        modelId,
-        outputDimensionality: expectedDimension,
-      };
-    case 'ollama':
-      return {
-        runtime: 'hosted',
-        provider: 'ollama',
-        modelId,
-        dimensions: expectedDimension,
-      };
-    case 'lmstudio':
-      return {
-        runtime: 'hosted',
-        provider: 'lmstudio',
-        modelId,
-        dimensions: expectedDimension,
-      };
-    default:
-      throw new Error(`Hosted provider "${provider}" is not supported yet.`);
-  }
-}
-
-function formatHostedInitializationError(
-  provider: SupportedHostedProvider,
-  error: EmbeddingProviderError
-): string {
-  let reason = 'unavailable';
-  if (error.type === 'missing_api_key') {
-    reason = 'missing API key';
-  } else if (error.type === 'validation_error') {
-    reason = error.message;
-  }
-  return `Failed to initialize provider "${provider}" (${reason}).`;
-}
-
-async function createHostedProviderInstance(
-  provider: SupportedHostedProvider,
-  config: HostedProviderConfig
-) {
-  const providerResult = await EmbeddingProviderFactory.createProvider(config);
-  if (!providerResult.ok) {
-    throw new Error(formatHostedInitializationError(provider, providerResult.error));
-  }
-  return providerResult.value;
-}
-
-function formatHostedEmbedError(
-  provider: SupportedHostedProvider,
-  error: EmbeddingProviderError
-): string {
-  switch (error.type) {
-    case 'api_error':
-      return `Hosted provider "${provider}" API error (${error.statusCode}): ${error.message}`;
-    case 'rate_limit_exceeded':
-      return `Hosted provider "${provider}" rate limit exceeded.`;
-    case 'missing_api_key':
-      return `Hosted provider "${provider}" missing API key.`;
-    case 'network_error':
-      return `Hosted provider "${provider}" network error: ${error.originalError.message}`;
-    default:
-      return `Hosted provider "${provider}" error: ${error.type}.`;
-  }
-}
-
-function validateHostedEmbeddingDimensions(
-  provider: SupportedHostedProvider,
-  modelId: string,
-  embedding: number[],
-  expectedDimension: number
-): void {
-  if (!Array.isArray(embedding) || embedding.length !== expectedDimension) {
-    throw new Error(
-      `Embedding dimension mismatch for hosted provider '${provider}' model '${modelId}': received ${embedding.length}, expected ${expectedDimension}.`
-    );
-  }
-}
-
-async function initializeEmbeddingService(
-  options: EmbeddingWorkerOptions,
-  modelKey: string,
-  mode?: { initializeLocalService?: boolean }
-): Promise<{ service: EmbeddingService; modelConfig: ModelConfig }> {
-  workerLogger.info('initializeEmbeddingService: START', { modelKey });
-
-  const service =
-    options.service ??
-    new SimpleEmbeddingService(
-      options.streamingWorkerUrl
-        ? {
-            streamingWorkerUrl: options.streamingWorkerUrl,
-          }
-        : undefined
-    );
-  const initializeLocalService = mode?.initializeLocalService ?? true;
-
-  const parsedForRegistry = parseProviderModelKey(modelKey);
-  const registryModelKey =
-    parsedForRegistry && isLocalProviderType(parsedForRegistry.provider)
-      ? parsedForRegistry.modelId
-      : modelKey;
-
-  workerLogger.info('initializeEmbeddingService: querying DB for model', {
-    modelKey,
-    registryModelKey,
-    parsedProvider: parsedForRegistry?.provider,
-  });
-
-  // Get model config from database FIRST (single source of truth)
-  let modelConfig = await getModelConfigFromDb(options.db, registryModelKey);
-
-  workerLogger.info('initializeEmbeddingService: DB query complete', {
-    registryModelKey,
-    foundConfig: !!modelConfig,
-    configName: modelConfig?.name,
-    configDimensions: modelConfig?.dimensions,
-  });
-
-  // For custom services, generate a test embedding to get dimensions
-  if (!modelConfig && options.service) {
-    const serviceConfig = service.getConfig();
-    const testEmbedding = await service.generateEmbedding('test');
-    modelConfig = {
-      id: serviceConfig.modelId || 'custom-model',
-      name: 'Custom Service Model',
-      dimensions: testEmbedding.embedding.length,
-      quantized: false,
-      description: 'Custom embedding service model',
-      tags: ['custom'],
-      origin: 'custom',
-      size: 'unknown',
-    };
-  }
-
-  if (!modelConfig) {
-    throw new Error(
-      `Model '${registryModelKey}' not found in database. Add it via Settings > Models.`
-    );
-  }
-
-  // Only initialize if we created the default service
-  if (!options.service) {
-    // Check if it's a hosted model - if so, we don't need to initialize the local service
-    const parsed = parseProviderModelKey(modelKey);
-    const isHosted = parsed && isHostedProvider(parsed.provider);
-
-    if (!isHosted && initializeLocalService) {
-      // Initialize with the MODEL CONFIG from DB (not just the key)
-      // This bypasses the static registry lookup in SimpleEmbeddingService
-      const simpleService = service as SimpleEmbeddingService;
-      if (typeof simpleService.initializeWithModel === 'function') {
-        await simpleService.initializeWithModel(
-          modelConfig, // Pass the full config, not just the key
-          (p) => {
-            if (options.onDownloadProgress && p.progress !== undefined) {
-              options.onDownloadProgress(registryModelKey, p.progress);
-            }
-          },
-          options.device,
-          options.cacheDir
-        );
-      } else {
-        await service.initialize?.({}, undefined);
-      }
-    }
-  }
-
-  return { service, modelConfig };
-}
-
-/**
- * Validates the dimension metadata returned by the embedding service.
- * Ensures the size is finite, within pgvector's limits, and emits telemetry when we diverge
- * from the historical 768D default so downstream consumers can react.
- */
-function ensureModelDimension(
-  modelConfig: ModelConfig,
-  modelKey: string,
-  log: (msg: string, meta?: unknown) => void
-): number {
-  const dimensions = Number(modelConfig.dimensions);
-  if (!Number.isFinite(dimensions) || dimensions <= 0) {
-    const errorMsg = `Model '${modelKey}' reported an invalid embedding dimension (${modelConfig.dimensions}).`;
-    log('worker_model_dimension_invalid', {
-      modelKey,
-      dimensions: modelConfig.dimensions,
-    });
-    throw new Error(errorMsg);
-  }
-
-  if (dimensions > MAX_EMBEDDING_DIMENSION) {
-    log('worker_model_dimension_warning', {
-      modelKey,
-      dimensions,
-      message: `pgvector supports up to ${MAX_EMBEDDING_DIMENSION} dimensions; verify provider settings.`,
-    });
-    throw new Error(
-      `Model '${modelKey}' exceeds the supported embedding dimension limit (${MAX_EMBEDDING_DIMENSION}). Received ${dimensions}.`
-    );
-  }
-
-  if (dimensions !== DEFAULT_EMBEDDING_DIMENSION) {
-    log('worker_model_dimension_notice', {
-      modelKey,
-      dimensions,
-      default: DEFAULT_EMBEDDING_DIMENSION,
-    });
-  }
-
-  return dimensions;
 }
 
 export async function startEmbeddingWorker(
