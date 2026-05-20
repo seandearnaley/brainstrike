@@ -1,4 +1,8 @@
-import { NATIVE_TOOL_DEFAULTS, type SupportedProvider } from '@brainstrike/assistant-contract';
+import {
+  type LocalLlmBackendFactory,
+  NATIVE_TOOL_DEFAULTS,
+  type SupportedProvider,
+} from '@brainstrike/assistant-contract';
 import type { LocalRuntimeModelCatalogState } from '@brainstrike/assistant-contract/local-runtime';
 import {
   __resetAssistantPreferencesStoreForTests,
@@ -615,12 +619,6 @@ vi.mock('@brainstrike/assistant-contract/local-runtime', () => {
   };
 });
 
-vi.mock('@brainstrike/agent/local-llm', () => ({
-  LocalLlmBackend: {
-    getBestDevice: vi.fn(() => 'webgpu'),
-  },
-}));
-
 // Mock the AssistantUiPanel component
 vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
   AssistantUiPanel: ({
@@ -943,9 +941,27 @@ afterEach(() => {
   Reflect.deleteProperty(window, '__brainstrikeAssistantRuntimeTestHooks__');
 });
 
+const loadTestLocalLlmBackend: LocalLlmBackendFactory = async () => ({
+  dispose: async () => undefined,
+  generate: async () => ({
+    finishReason: 'stop',
+    text: '',
+    usage: {
+      completionTokens: 0,
+      promptTokens: 0,
+      totalTokens: 0,
+    },
+  }),
+  initialize: async () => undefined,
+  isReady: () => true,
+});
+
 const renderAssistantPanel = async (providers: string[], afterRender?: () => Promise<void>) => {
   const renderResult = render(
-    <AssistantUiPanelWrapper initialProviders={providers as SupportedProvider[]} />
+    <AssistantUiPanelWrapper
+      initialProviders={providers as SupportedProvider[]}
+      loadLocalLlmBackend={loadTestLocalLlmBackend}
+    />
   );
 
   if (afterRender) {
@@ -963,6 +979,7 @@ const renderAssistantThreadPanel = async (
   const renderResult = render(
     <AssistantUiPanelWrapper
       initialProviders={providers as SupportedProvider[]}
+      loadLocalLlmBackend={loadTestLocalLlmBackend}
       memoryResourceId="/tmp/test-workspace"
       memoryThreadId={threadId}
     />
@@ -1375,7 +1392,12 @@ describe('AssistantUiPanelWrapper', () => {
 
     // Re-render component
     await act(async () => {
-      rerender(<AssistantUiPanelWrapper initialProviders={['openai', 'anthropic', 'google']} />);
+      rerender(
+        <AssistantUiPanelWrapper
+          initialProviders={['openai', 'anthropic', 'google']}
+          loadLocalLlmBackend={loadTestLocalLlmBackend}
+        />
+      );
     });
 
     // Selection should persist - wait for re-render to complete
@@ -2717,7 +2739,10 @@ describe('AssistantUiPanelWrapper', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const { unmount } = render(
-      <AssistantUiPanelWrapper initialProviders={['openai'] as SupportedProvider[]} />
+      <AssistantUiPanelWrapper
+        initialProviders={['openai'] as SupportedProvider[]}
+        loadLocalLlmBackend={loadTestLocalLlmBackend}
+      />
     );
 
     unmount();

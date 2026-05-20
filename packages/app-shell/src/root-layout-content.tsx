@@ -1,3 +1,4 @@
+import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import { FileExplorerLeftPanel, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
@@ -60,6 +61,7 @@ export interface RootLayoutContentProps {
    * RootLayoutContent → AgentSidebarPanel → DatabasePanel → DatabaseTab → DatabaseDemoPanel.
    */
   readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
+  readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly navigationItems: NavigationItem[];
   readonly preloadDatabaseTabOnMount?: boolean;
   readonly promptsPageContent?: ReactNode;
@@ -188,18 +190,22 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   contextExplorerPageContent,
   databaseTabChunkingMode,
   loadEmbeddingQueue,
+  loadLocalLlmBackend,
   preloadDatabaseTabOnMount,
 }: {
   readonly contextExplorerLeftPanelContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
   readonly databaseTabChunkingMode: 'host-proxy' | 'local';
   readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
+  readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly preloadDatabaseTabOnMount: boolean;
 }): ReactElement {
   return (
     <div className="h-full min-h-0" data-testid="explorer-section">
       <AgentWorkspaceLayout
-        assistantContent={<AssistantChatPanel />}
+        assistantContent={
+          <AssistantChatPanel {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})} />
+        }
         sidebarContent={
           <AgentSidebarPanel
             databaseContent={
@@ -230,6 +236,7 @@ export function RootLayoutContent({
   promptsPageContent,
   navigationItems,
   loadEmbeddingQueue = null,
+  loadLocalLlmBackend,
   databaseTabChunkingMode = 'local',
   preloadDatabaseTabOnMount = false,
 }: RootLayoutContentProps): ReactElement {
@@ -292,6 +299,7 @@ export function RootLayoutContent({
                 contextExplorerPageContent={contextExplorerPageContent}
                 databaseTabChunkingMode={databaseTabChunkingMode}
                 loadEmbeddingQueue={loadEmbeddingQueue}
+                {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
                 preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
               />
             </PanelLayoutProvider>

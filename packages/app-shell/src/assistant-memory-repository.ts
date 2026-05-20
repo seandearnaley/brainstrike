@@ -1,7 +1,7 @@
 import {
   MASTRA_MEMORY_SCHEMA_SQL,
   MASTRA_MEMORY_TABLES,
-} from '@brainstrike/agent/pglite-mastra-memory/schema';
+} from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   ASSISTANT_RUN_EVENT_KINDS,

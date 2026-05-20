@@ -4,9 +4,14 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const APP_SHELL_SRC_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const APP_SHELL_PACKAGE_ROOT = path.resolve(APP_SHELL_SRC_ROOT, '..');
 
 function readSource(relativePath: string): string {
   return readFileSync(path.join(APP_SHELL_SRC_ROOT, relativePath), 'utf8');
+}
+
+function readPackageFile(relativePath: string): string {
+  return readFileSync(path.join(APP_SHELL_PACKAGE_ROOT, relativePath), 'utf8');
 }
 
 describe('app-shell assistant contract boundary', () => {
@@ -47,5 +52,18 @@ describe('app-shell assistant contract boundary', () => {
     expect(readSource('__tests__/use-assistant-availability-with-local.test.ts')).not.toMatch(
       /@brainstrike\/agent\/local-llm/
     );
+  });
+
+  it('has no direct app-shell dependency on the agent runtime package', () => {
+    const packageJson = JSON.parse(readPackageFile('package.json')) as {
+      dependencies?: Record<string, string>;
+    };
+
+    expect(readSource('assistant-memory-repository.ts')).not.toMatch(/@brainstrike\/agent/);
+    expect(readSource('assistant-ui-panel-wrapper.tsx')).not.toMatch(/@brainstrike\/agent/);
+    expect(readSource('__tests__/assistant-ui-panel-wrapper.test.tsx')).not.toMatch(
+      /@brainstrike\/agent/
+    );
+    expect(packageJson.dependencies).not.toHaveProperty('@brainstrike/agent');
   });
 });

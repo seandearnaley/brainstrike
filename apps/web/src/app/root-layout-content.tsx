@@ -61,6 +61,10 @@ export default function RootLayoutContent() {
     () => import('../create-embedding-queue').then((module) => module.getEmbeddingQueue()),
     []
   );
+  const loadLocalLlmBackend = useCallback(async () => {
+    const { LocalLlmBackend } = await import('@brainstrike/agent/local-llm');
+    return new LocalLlmBackend();
+  }, []);
 
   // CRITICAL: loadEmbeddingQueue from create-embedding-queue.ts must be passed through
   // so the queue stays singleton while avoiding startup-time workerpool construction.
@@ -71,6 +75,7 @@ export default function RootLayoutContent() {
     settingsPageContent: <SettingsPageContent />,
     promptsPageContent: <ConnectedPromptManager />,
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring
+    loadLocalLlmBackend,
   };
   const RootLayout = SharedRootLayoutContent as (props: RootLayoutContentProps) => ReactElement;
 

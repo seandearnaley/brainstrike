@@ -32,6 +32,10 @@
       "types": "./dist/local-runtime.d.ts",
       "import": "./dist/local-runtime.js"
     },
+    "./mastra-memory-schema": {
+      "types": "./dist/mastra-memory-schema.d.ts",
+      "import": "./dist/mastra-memory-schema.js"
+    },
     "./memory-settings": {
       "types": "./dist/memory-settings.d.ts",
       "import": "./dist/memory-settings.js"

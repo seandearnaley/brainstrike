@@ -749,9 +749,6 @@ importers:
 
   packages/app-shell:
     dependencies:
-      '@brainstrike/agent':
-        specifier: workspace:*
-        version: link:../agent
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract

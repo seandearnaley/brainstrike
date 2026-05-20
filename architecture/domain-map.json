@@ -39,13 +39,6 @@
   ],
   "boundaryExceptions": [
     {
-      "id": "app-shell-agent-contract-extraction",
-      "sourcePackage": "@brainstrike/app-shell",
-      "importedPackage": "@brainstrike/agent",
-      "reason": "App shell currently wires assistant runtime, local LLM availability, memory, and tool metadata. Phase 3 extracts a dedicated assistant contract so the shell composes interfaces instead of importing runtime internals.",
-      "retireByPhase": "phase-3"
-    },
-    {
       "id": "build-utils-logger-coupling",
       "sourcePackage": "@brainstrike/build-utils",
       "importedPackage": "@brainstrike/utils",

@@ -21,10 +21,12 @@ const EMPTY_TAB_SCROLL_STATE: TabScrollState = {
 
 export interface AssistantThreadTabsWorkspaceProps {
   readonly initialProviders?: AssistantUiPanelWrapperProps['initialProviders'];
+  readonly loadLocalLlmBackend?: AssistantUiPanelWrapperProps['loadLocalLlmBackend'];
 }
 
 export function AssistantThreadTabsWorkspace({
   initialProviders,
+  loadLocalLlmBackend,
 }: AssistantThreadTabsWorkspaceProps): ReactElement {
   const database = usePGliteDatabase();
   const rootDirectoryHandle = useFileExplorerStoreSelector((state) => state.rootDirectoryHandle);
@@ -303,6 +305,7 @@ export function AssistantThreadTabsWorkspace({
               >
                 <AssistantUiPanelWrapper
                   {...(initialProviders ? { initialProviders } : {})}
+                  {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
                   memoryResourceId={resourceId}
                   memoryThreadId={threadId}
                 />

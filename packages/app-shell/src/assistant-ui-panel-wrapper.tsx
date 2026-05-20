@@ -1,4 +1,3 @@
-import { LocalLlmBackend } from '@brainstrike/agent/local-llm';
 import type {
   AnthropicProviderOptions,
   GoogleProviderOptions,
@@ -8,6 +7,7 @@ import type {
   RuntimeAssistantMemorySettings,
   RuntimeData,
 } from '@brainstrike/assistant-contract';
+import { getBestBuiltInLocalLlmDevice } from '@brainstrike/assistant-contract/local-llm-device';
 import {
   isLoadedRuntimeModelCatalogState,
   type LocalRuntimeAvailabilityState,
@@ -77,6 +77,7 @@ import { useAssistantThreadStore } from './assistant-thread-store';
 export interface AssistantUiPanelWrapperProps {
   className?: string;
   initialProviders?: SupportedProvider[];
+  loadLocalLlmBackend?: LocalLlmBackendFactory;
   memoryResourceId?: string;
   memoryThreadId?: string;
 }
@@ -98,8 +99,6 @@ const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
   local: 'Local',
   browser: 'Browser',
 };
-
-const loadBuiltInLocalLlmBackend: LocalLlmBackendFactory = async () => new LocalLlmBackend();
 
 function resolveModelNameFromComposite(composite: string | null | undefined): string | undefined {
   if (!composite) {
@@ -618,7 +617,7 @@ function resolveBuiltInLocalProviderDisabledReason(
   if (selectedProvider !== 'local') {
     return;
   }
-  if (LocalLlmBackend.getBestDevice() !== 'webgpu') {
+  if (getBestBuiltInLocalLlmDevice() !== 'webgpu') {
     return 'Local Gemma requires WebGPU. This device cannot run the built-in local model.';
   }
   return;
@@ -986,6 +985,7 @@ function mcpReducer(_state: McpState, action: McpAction): McpState {
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This integration wrapper coordinates multiple stores, runtime probes, and transport paths in one place.
 export function AssistantUiPanelWrapper({
   initialProviders,
+  loadLocalLlmBackend,
   memoryResourceId: memoryResourceIdOverride,
   memoryThreadId,
 }: AssistantUiPanelWrapperProps) {
@@ -2218,7 +2218,6 @@ export function AssistantUiPanelWrapper({
   return (
     <AssistantUiPanel
       completePreparedRequest={completePreparedRequest}
-      loadLocalLlmBackend={loadBuiltInLocalLlmBackend}
       onProviderSettingsChange={handleProviderSettingsChange}
       pickerModels={pickerModels}
       pickerProviders={pickerProviders}
@@ -2228,6 +2227,7 @@ export function AssistantUiPanelWrapper({
       requestData={requestData}
       toolMenu={toolMenu}
       {...(historyAdapter ? { historyAdapter } : {})}
+      {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
       {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
       {...(selectedProvider ? { selectedProvider } : {})}
       {...(currentModel ? { selectedModel: currentModel } : {})}
