@@ -18,4 +18,13 @@ describe('db-explorer assistant contract boundary', () => {
       /@brainstrike\/agent\/(?:client|local-runtime)/
     );
   });
+
+  it('reads context packing contracts from assistant-contract instead of agent runtime packages', () => {
+    expect(readSource('hooks/use-context-packer.ts')).not.toMatch(
+      /@brainstrike\/agent\/context-packer/
+    );
+    expect(readSource('utils/context-packer-utils.ts')).not.toMatch(
+      /@brainstrike\/agent\/context-packer/
+    );
+  });
 });

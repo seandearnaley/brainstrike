@@ -836,6 +836,10 @@ importers:
         version: 5.0.12(@types/react@19.2.14)(immer@10.2.0)(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5))
 
   packages/assistant-contract:
+    dependencies:
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
     devDependencies:
       typescript:
         specifier: ^5.9.3
@@ -1004,9 +1008,6 @@ importers:
 
   packages/db-explorer:
     dependencies:
-      '@brainstrike/agent':
-        specifier: workspace:*
-        version: link:../agent
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract

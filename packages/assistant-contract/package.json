@@ -1,6 +1,9 @@
 {
   "name": "@brainstrike/assistant-contract",
   "version": "0.1.0",
+  "dependencies": {
+    "@brainstrike/utils": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.9.3",
     "vitest": "^4.1.4"
@@ -16,6 +19,10 @@
     "./local-llm": {
       "types": "./dist/local-llm.d.ts",
       "import": "./dist/local-llm.js"
+    },
+    "./context-packer": {
+      "types": "./dist/context-packer.d.ts",
+      "import": "./dist/context-packer.js"
     },
     "./local-runtime": {
       "types": "./dist/local-runtime.d.ts",

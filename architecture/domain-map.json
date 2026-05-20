@@ -60,13 +60,6 @@
       "retireByPhase": "phase-3"
     },
     {
-      "id": "db-explorer-agent-model-coupling",
-      "sourcePackage": "@brainstrike/db-explorer",
-      "importedPackage": "@brainstrike/agent",
-      "reason": "DB explorer currently reads agent model and context-packer helpers for assistant-facing preview flows. Phase 3 extracts assistant contracts consumed by workspace features.",
-      "retireByPhase": "phase-3"
-    },
-    {
       "id": "hooks-report-worker-coupling",
       "sourcePackage": "@brainstrike/hooks",
       "importedPackage": "@brainstrike/workers",

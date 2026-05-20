@@ -2,7 +2,6 @@
   "name": "@brainstrike/db-explorer",
   "version": "0.1.0",
   "dependencies": {
-    "@brainstrike/agent": "workspace:*",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",

@@ -2,12 +2,15 @@
  * useContextPacker Hook (BST-173)
  *
  * Provides token-budget-aware packing of semantic search results.
- * Uses the ContextPacker from @brainstrike/agent with optional
+ * Uses the ContextPacker from @brainstrike/assistant-contract with optional
  * integration to the token cache for accurate token counts.
  */
 
-import type { ContextPackerOptions, ContextPackerResult } from '@brainstrike/agent/context-packer';
-import { ContextPacker } from '@brainstrike/agent/context-packer';
+import type {
+  ContextPackerOptions,
+  ContextPackerResult,
+} from '@brainstrike/assistant-contract/context-packer';
+import { ContextPacker } from '@brainstrike/assistant-contract/context-packer';
 import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import type { SemanticSearchResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
