@@ -10,12 +10,12 @@ import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
-import { useTextTokenCount } from './hooks/use-text-token-count';
+import { useTextTokenCount } from './indexing/use-text-token-count';
+import { useTokenCounting } from './indexing/use-token-counting';
 import { PreviewPanel } from './preview/preview-panel';
 import { usePreviewPanelReportActions } from './preview/use-preview-panel-report-actions';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
-import { useTokenCounting } from './use-token-counting';
 import { buildFileNodeCache } from './utils/file-node-cache';
 import { persistFileExplorerStateImmediately } from './utils/persist-file-explorer-state';
 

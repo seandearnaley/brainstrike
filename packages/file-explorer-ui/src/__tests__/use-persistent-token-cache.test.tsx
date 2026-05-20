@@ -2,13 +2,13 @@ import { addLogListener, type LogRecord } from '@brainstrike/utils/logger';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { TokenCacheContextValue } from '../token-cache-context';
-import { usePersistentTokenCache } from '../use-persistent-token-cache';
-import type { TokenCountingState } from '../use-token-counting';
+import type { TokenCacheContextValue } from '../indexing/token-cache-context';
+import { usePersistentTokenCache } from '../indexing/use-persistent-token-cache';
+import type { TokenCountingState } from '../indexing/use-token-counting';
 
 let mockContext: TokenCacheContextValue | null = null;
 
-vi.mock('../token-cache-context', () => ({
+vi.mock('../indexing/token-cache-context', () => ({
   useOptionalTokenCacheContext: () => mockContext,
 }));
 

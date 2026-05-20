@@ -10,10 +10,10 @@ import {
 import { Download, FileText } from 'lucide-react';
 import { memo, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
 import IncludeProjectTreeSetting from '../include-project-tree-setting';
-import { TokenBudgetControl } from '../token-budget-control';
-import { TokenMeter } from '../token-meter';
-import { TokenSummaryBar } from '../token-summary-bar';
-import type { TokenCountingState } from '../use-token-counting';
+import { TokenBudgetControl } from '../indexing/token-budget-control';
+import { TokenMeter } from '../indexing/token-meter';
+import { TokenSummaryBar } from '../indexing/token-summary-bar';
+import type { TokenCountingState } from '../indexing/use-token-counting';
 import type { PreviewFooterMode } from './preview-footer-layout';
 
 const FOOTER_INSIGHT_HISTORY_LIMIT = 24;

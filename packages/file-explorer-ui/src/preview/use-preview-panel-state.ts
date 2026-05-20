@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { usePersistentTokenCache } from '../use-persistent-token-cache';
-import type { TokenCountingState } from '../use-token-counting';
+import { usePersistentTokenCache } from '../indexing/use-persistent-token-cache';
+import type { TokenCountingState } from '../indexing/use-token-counting';
 import { defaultCollator } from '../utils/file-node-collator';
 
 /** Debounce delay for token version updates (ms) */

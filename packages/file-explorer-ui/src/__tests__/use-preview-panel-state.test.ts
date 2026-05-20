@@ -1,8 +1,8 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { UsePersistentTokenCacheReturn } from '../use-persistent-token-cache';
+import type { UsePersistentTokenCacheReturn } from '../indexing/use-persistent-token-cache';
 import { usePreviewPanelState } from '../preview/use-preview-panel-state';
-import type { TokenCountingState } from '../use-token-counting';
+import type { TokenCountingState } from '../indexing/use-token-counting';
 
 type CachedSelectionStats = Awaited<
   ReturnType<UsePersistentTokenCacheReturn['getCachedSelectionStats']>
@@ -33,7 +33,7 @@ const { mockUsePersistentTokenCache } = vi.hoisted(() => ({
   mockUsePersistentTokenCache: vi.fn(),
 }));
 
-vi.mock('../use-persistent-token-cache', () => ({
+vi.mock('../indexing/use-persistent-token-cache', () => ({
   usePersistentTokenCache: mockUsePersistentTokenCache,
 }));
 

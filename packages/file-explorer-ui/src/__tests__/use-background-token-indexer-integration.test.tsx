@@ -9,11 +9,11 @@ import { addLogListener, LogLevel } from '@brainstrike/utils/logger';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileTreeIndexContextValue } from '../tree/file-tree-provider';
-import type { TokenCacheContextValue } from '../token-cache-context';
+import type { TokenCacheContextValue } from '../indexing/token-cache-context';
 import {
   useBackgroundTokenIndexerIntegration,
   type WebFileForIndexingResolution,
-} from '../use-background-token-indexer-integration';
+} from '../indexing/use-background-token-indexer-integration';
 
 // Capture the onFileIndexed callback from useBackgroundTokenIndexer
 let capturedOnFileIndexed:
@@ -87,7 +87,7 @@ const createTokenCacheContext = (): TokenCacheContextValue => ({
 
 const tokenCacheContext: TokenCacheContextValue | null = createTokenCacheContext();
 
-vi.mock('../token-cache-context', () => ({
+vi.mock('../indexing/token-cache-context', () => ({
   useOptionalTokenCacheContext: () => tokenCacheContext,
 }));
 

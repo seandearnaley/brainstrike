@@ -61,6 +61,34 @@ describe('file-explorer-ui index exports', () => {
     expect(missingPreviewFiles).toEqual([]);
   });
 
+  it('keeps indexing implementation files inside the indexing slice', () => {
+    const sourceRoot = path.resolve(process.cwd(), 'src');
+    const indexingImplementationMoves = [
+      ['hooks/use-text-token-count.ts', 'indexing/use-text-token-count.ts'],
+      ['resolve-token-cache-worker-url.ts', 'indexing/resolve-token-cache-worker-url.ts'],
+      ['token-budget-control.tsx', 'indexing/token-budget-control.tsx'],
+      ['token-cache-context.tsx', 'indexing/token-cache-context.tsx'],
+      ['token-meter.tsx', 'indexing/token-meter.tsx'],
+      ['token-summary-bar.tsx', 'indexing/token-summary-bar.tsx'],
+      [
+        'use-background-token-indexer-integration.ts',
+        'indexing/use-background-token-indexer-integration.ts',
+      ],
+      ['use-persistent-token-cache.ts', 'indexing/use-persistent-token-cache.ts'],
+      ['use-token-counting.ts', 'indexing/use-token-counting.ts'],
+    ] as const;
+
+    const legacyFiles = indexingImplementationMoves
+      .map(([legacyPath]) => legacyPath)
+      .filter((filePath) => existsSync(path.join(sourceRoot, filePath)));
+    const missingIndexingFiles = indexingImplementationMoves
+      .map(([, indexingPath]) => indexingPath)
+      .filter((filePath) => !existsSync(path.join(sourceRoot, filePath)));
+
+    expect(legacyFiles).toEqual([]);
+    expect(missingIndexingFiles).toEqual([]);
+  });
+
   it('should re-export FileFilterBar as named export matching default and named', () => {
     expect(index.FileFilterBar).toBe(FileFilterBar);
     expect(index.FileFilterBar).toBe(NamedFileFilterBar);

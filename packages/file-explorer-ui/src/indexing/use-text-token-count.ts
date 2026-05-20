@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useOptionalTokenCacheContext } from '../token-cache-context';
+import { useOptionalTokenCacheContext } from './token-cache-context';
 
 export interface UseTextTokenCountOptions {
   enabled?: boolean;

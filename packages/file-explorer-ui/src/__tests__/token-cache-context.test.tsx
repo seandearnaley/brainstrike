@@ -5,7 +5,7 @@ import {
   TokenCacheProvider,
   useOptionalTokenCacheContext,
   useTokenCacheContext,
-} from '../token-cache-context';
+} from '../indexing/token-cache-context';
 
 // Mock dependencies
 vi.mock('@brainstrike/preferences/stores/token-preferences-store', () => ({
@@ -44,7 +44,7 @@ vi.mock('@brainstrike/token-cache/cache-runtime', () => ({
   })),
 }));
 
-vi.mock('../resolve-token-cache-worker-url', () => ({
+vi.mock('../indexing/resolve-token-cache-worker-url', () => ({
   resolveTokenCacheWorkerUrlHref: vi.fn(() => 'file:///mock-worker.js'),
 }));
 

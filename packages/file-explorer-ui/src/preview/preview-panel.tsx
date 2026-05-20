@@ -23,10 +23,10 @@ import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useSta
 import type { ContextExportOptions } from '../context-export-options';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
 import { useGroupSelection } from '../hooks/use-group-selection';
+import type { TokenCountingState } from '../indexing/use-token-counting';
 import { buildTapestryFileBase } from '../tapestry/tapestry-adapter';
 import { TapestryView } from '../tapestry/tapestry-view';
 import type { TapestryRange } from '../tapestry/types';
-import type { TokenCountingState } from '../use-token-counting';
 import {
   type ContextSelectedTokenSummary,
   computeContextSelectedTokenSummary,

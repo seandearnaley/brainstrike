@@ -80,7 +80,7 @@ vi.mock('../hooks/use-view-filter-presets', () => ({
     getPreset: vi.fn(),
   })),
 }));
-vi.mock('../use-background-token-indexer-integration', () => ({
+vi.mock('../indexing/use-background-token-indexer-integration', () => ({
   useBackgroundTokenIndexerIntegration: vi.fn(() => ({
     isIndexing: false,
     triggerIndexing: vi.fn(),
