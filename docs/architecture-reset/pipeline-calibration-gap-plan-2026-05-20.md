@@ -13,4 +13,3 @@ Status: needs-samples
 | diff-check | tooling | yes | 5 | 0 | 0ms | normal | within-target |
 | workflow-contracts | ci-platform | yes | 5 | 0 | 0ms | normal | within-target |
 | db-tests | data-platform | no | 1 | 4 | 20m 0s | normal | calibrating |
-| desktop-unit-tests | desktop-platform | no | 1 | 4 | 16m 0s | normal | calibrating |

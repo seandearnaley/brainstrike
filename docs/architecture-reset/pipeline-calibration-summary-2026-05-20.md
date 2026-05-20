@@ -1,7 +1,7 @@
 ## Local Calibration Timing Summary
 
-Calibration files: 26
-Command samples: 57
+Calibration files: 30
+Command samples: 61
 Minimum samples for hard status: 5
 Overall status: calibrating
 
@@ -11,7 +11,7 @@ Overall status: calibrating
 | ci-script-tests | tooling | 5 | 275ms | 320ms | 2m 0s | within-target | 1 stale samples ignored |
 | db-tests | data-platform | 1 | 4m 30s | 4m 30s | 5m 0s | calibrating | recorded budget 3m 0s |
 | desktop-smoke-tests | desktop-platform | 5 | 27.7s | 28.3s | 5m 0s | within-target |  |
-| desktop-unit-tests | desktop-platform | 1 | 49.8s | 49.8s | 4m 0s | calibrating |  |
+| desktop-unit-tests | desktop-platform | 5 | 50.8s | 51.1s | 4m 0s | within-target |  |
 | diff-check | tooling | 5 | 13ms | 13ms | 30.0s | within-target |  |
 | file-explorer-tests | workspace-experience | 5 | 21.0s | 22.1s | 4m 0s | within-target |  |
 | file-system-tests | data-platform | 5 | 1.1s | 1.2s | 2m 0s | within-target |  |

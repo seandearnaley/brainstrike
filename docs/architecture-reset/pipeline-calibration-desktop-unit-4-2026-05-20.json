@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-20T07:05:01.602Z",
+  "dryRun": false,
+  "commandResults": [
+    {
+      "budgetMs": 240000,
+      "command": "pnpm --filter @brainstrike/desktop test",
+      "name": "desktop-unit-tests",
+      "owner": "desktop-platform",
+      "requiredFor": [
+        "desktop-platform-ipc-preload"
+      ],
+      "budgetStatus": "ok",
+      "durationMs": 51026,
+      "exitCode": 0
+    }
+  ]
+}

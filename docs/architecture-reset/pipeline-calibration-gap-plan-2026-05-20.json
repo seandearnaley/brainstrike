@@ -54,16 +54,6 @@
       "releaseOnly": false,
       "selected": false,
       "status": "calibrating"
-    },
-    {
-      "name": "desktop-unit-tests",
-      "owner": "desktop-platform",
-      "sampleCount": 1,
-      "missingSamples": 4,
-      "estimatedRemainingMs": 960000,
-      "releaseOnly": false,
-      "selected": false,
-      "status": "calibrating"
     }
   ]
 }
