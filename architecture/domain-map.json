@@ -44,13 +44,6 @@
       "importedPackage": "@brainstrike/utils",
       "reason": "Build utilities reuse shared logging. Phase 4 decides whether logging remains shared-foundation or moves a build-safe logger into tooling.",
       "retireByPhase": "phase-4"
-    },
-    {
-      "id": "hooks-report-worker-coupling",
-      "sourcePackage": "@brainstrike/hooks",
-      "importedPackage": "@brainstrike/workers",
-      "reason": "Shared hooks currently expose report-generation worker orchestration. Phase 4 either moves that hook into indexing/workspace experience or extracts a lower-level worker contract.",
-      "retireByPhase": "phase-4"
     }
   ],
   "domains": [

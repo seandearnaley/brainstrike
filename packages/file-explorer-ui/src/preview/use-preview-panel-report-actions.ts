@@ -2,6 +2,7 @@ import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { ContextGenerationOverrides } from '@brainstrike/hooks';
 import { useReportGeneration, useReportManager } from '@brainstrike/hooks';
+import { createReportGenerationWorker } from '@brainstrike/workers/report-generation-worker';
 import { useCallback } from 'react';
 import type { ContextExportOptions } from '../context-export-options';
 import type { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
@@ -60,6 +61,7 @@ export function usePreviewPanelReportActions(input: UsePreviewPanelReportActions
     input.rootDirectoryHandle === null ? undefined : input.rootDirectoryHandle;
 
   const generation = useReportGeneration({
+    createReportGenerator: createReportGenerationWorker,
     selectedFiles: input.selectedFiles,
     fileContents: input.fileContents,
     rootDirectoryHandle: rootDirectoryHandleForGeneration,

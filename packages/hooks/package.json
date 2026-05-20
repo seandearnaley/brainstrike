@@ -5,7 +5,6 @@
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@brainstrike/workers": "workspace:*",
     "file-saver": "2.0.5",
     "minimatch": "^10.2.5",
     "react": "^19.2.5",

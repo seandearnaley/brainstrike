@@ -1558,9 +1558,6 @@ importers:
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
-      '@brainstrike/workers':
-        specifier: workspace:*
-        version: link:../workers
       file-saver:
         specifier: 2.0.5
         version: 2.0.5
