@@ -1,8 +1,6 @@
 import type { FileChunkRepository, JobQueue } from '@brainstrike/db';
-import {
-  canonicalizeProviderModelKey,
-  checkApiKeyAvailability,
-} from '@brainstrike/embeddings/provider-core';
+import { checkApiKeyAvailability } from '@brainstrike/embeddings';
+import { canonicalizeEmbeddingProviderModelKey } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 
 /**
@@ -726,7 +724,7 @@ async function resolveEmbeddingSetJobMetadata(
     throw new Error(`Embedding set ${embeddingSetId} is missing model_key metadata`);
   }
 
-  const canonical = canonicalizeProviderModelKey(rawKey);
+  const canonical = canonicalizeEmbeddingProviderModelKey(rawKey);
   if (!canonical) {
     logger.error('Failed to resolve embedding set metadata (invalid model_key)', {
       embeddingSetId,

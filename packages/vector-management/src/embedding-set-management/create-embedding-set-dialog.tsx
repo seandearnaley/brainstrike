@@ -1,5 +1,5 @@
 import type { EmbeddingSet, IEmbeddingSetsRepository } from '@brainstrike/db';
-import { parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
+import { parseEmbeddingProviderModelKey } from '@brainstrike/indexing-contract';
 import {
   Button,
   Dialog,
@@ -58,7 +58,7 @@ function resolveSelectedEmbeddingModel(
   if (!selectedModelInfo) {
     return null;
   }
-  const parsedModelKey = parseProviderModelKey(selectedModelInfo.id);
+  const parsedModelKey = parseEmbeddingProviderModelKey(selectedModelInfo.id);
   const modelId = selectedModelInfo.modelId ?? parsedModelKey?.modelId;
   if (!modelId) {
     return null;
