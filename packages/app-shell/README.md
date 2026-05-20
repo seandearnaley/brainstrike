@@ -49,6 +49,37 @@ Add required peers to the consuming workspace with `pnpm add react zustand
 - `@brainstrike/db` is intentionally a devDependency in app-shell because it is only used in tests.
   Runtime access flows through `@brainstrike/db-explorer`.
 
+## Assistant Ownership
+
+The app-shell assistant surface owns integration, not model/runtime implementation.
+
+Owned files:
+
+- `src/assistant-ui-panel-wrapper.tsx`: React composition over preferences, DB-backed memory, workspace context, native tools, MCP tools, and the shared UI panel.
+- `src/assistant-ui-panel-wrapper-runtime.ts`: Pure helper module for provider/model selection, request data shaping, memory options, MCP/native tool menu shaping, and assistant run-record creation.
+- `src/assistant-thread-store.ts`: Per-thread draft runtime state.
+- `src/assistant-memory-repository.ts`: PGlite-backed thread and run-record persistence.
+
+Public surfaces:
+
+- Consumers import `AssistantUiPanelWrapper` through the package root.
+- Runtime/provider contracts come from `@brainstrike/assistant-contract`.
+- The wrapper must not deep-import `@brainstrike/agent` runtime internals.
+
+Allowed dependencies:
+
+- `@brainstrike/assistant-contract` for provider metadata, local-runtime state, model settings, and memory contracts.
+- `@brainstrike/ui/assistant-ui-panel` for presentational assistant UI types/components.
+- `@brainstrike/preferences` for persisted user settings.
+- `@brainstrike/file-explorer-ui/preview` and `/shell` for workspace context and selection state.
+
+Focused local verification:
+
+```bash
+pnpm --filter @brainstrike/app-shell exec vitest run src/__tests__/assistant-contract-boundary.test.ts src/__tests__/assistant-ui-panel-wrapper.test.tsx
+pnpm --filter @brainstrike/app-shell type-check
+```
+
 ## Usage
 
 ### Basic Setup
