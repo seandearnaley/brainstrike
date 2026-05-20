@@ -1,4 +1,4 @@
-import { LocalRuntimeDiscoveryService } from '@brainstrike/agent/local-runtime';
+import { LocalRuntimeDiscoveryService } from '@brainstrike/assistant-contract/local-runtime';
 import {
   PROVIDER_DEFAULT_MODELS,
   PROVIDER_MODELS,

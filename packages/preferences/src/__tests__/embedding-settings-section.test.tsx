@@ -1,4 +1,4 @@
-import type { LocalRuntimeModelCatalogState } from '@brainstrike/agent/client';
+import type { LocalRuntimeModelCatalogState } from '@brainstrike/assistant-contract/local-runtime';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';

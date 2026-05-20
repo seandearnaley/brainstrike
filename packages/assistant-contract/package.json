@@ -17,6 +17,10 @@
       "types": "./dist/local-llm.d.ts",
       "import": "./dist/local-llm.js"
     },
+    "./local-runtime": {
+      "types": "./dist/local-runtime.d.ts",
+      "import": "./dist/local-runtime.js"
+    },
     "./memory-settings": {
       "types": "./dist/memory-settings.d.ts",
       "import": "./dist/memory-settings.js"

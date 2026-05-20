@@ -45,4 +45,25 @@ describe('preferences assistant contract boundary', () => {
       /@brainstrike\/agent\/memory-settings/
     );
   });
+
+  it('reads local-runtime contracts from assistant-contract instead of agent runtime packages', () => {
+    const localRuntimeConsumers = [
+      '__tests__/assistant-preferences-store.test.ts',
+      '__tests__/embedding-settings-section.test.tsx',
+      '__tests__/local-runtime-settings-section.test.tsx',
+      'embedding/embedding-settings-section.tsx',
+      'hooks/use-local-runtime-embedding-model-catalog.ts',
+      'settings-test-runtime-access.ts',
+      'settings/runtimes/local-runtime-settings-section.tsx',
+      'settings/tools/__tests__/tool-row.test.tsx',
+      'stores/assistant-preferences-store.ts',
+      'testing/e2e-settings-test-overrides.ts',
+    ];
+
+    const violatingFiles = localRuntimeConsumers.filter((relativePath) =>
+      /@brainstrike\/agent\/(?:client|local-runtime)/.test(readSource(relativePath))
+    );
+
+    expect(violatingFiles).toEqual([]);
+  });
 });

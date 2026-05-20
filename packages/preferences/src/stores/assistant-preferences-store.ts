@@ -4,7 +4,7 @@ import {
   type LocalRuntimeId,
   LocalRuntimeModelCatalogService,
   type LocalRuntimeModelCatalogState,
-} from '@brainstrike/agent/local-runtime';
+} from '@brainstrike/assistant-contract/local-runtime';
 import {
   getProviderDefaultModel,
   listProviders,
