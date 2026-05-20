@@ -254,7 +254,7 @@
         <tr>
           <td>Adding an IPC channel has a domain owner and focused test path</td>
           <td><span class="status partial">partial</span></td>
-          <td>Registry, four extracted domains, diagnostics, logging, parser host, agent chat, secrets, runtime probes, MCP config/tools, tool execution, main platform lifecycle, and hidden host IPC modules are tested. Direct main-process registration is now isolated to the typed registry implementation; preload and renderer bridges are still manually maintained until generation is introduced.</td>
+          <td>Registry, four extracted domains, diagnostics, logging, parser host, agent chat, secrets, runtime probes, MCP config/tools, tool execution, main platform lifecycle, and hidden host IPC modules are tested. Direct main-process registration is now isolated to the typed registry implementation. Preload bridge channels for agent, MCP, parser host, tools, and lifecycle are pinned to <code>platform/desktop-ipc-channels.ts</code> by source contract tests while preload remains runtime self-contained.</td>
         </tr>
         <tr>
           <td>Renderer-only local LLM and embedding execution is enforceable</td>
@@ -406,6 +406,11 @@
           <td><span class="status done">2 focused checks / 7 assertions</span></td>
         </tr>
         <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/preload-runtime-contract.test.ts src/__tests__/main/main-platform-ipc.test.ts src/__tests__/main/ipc-mcp.test.ts src/__tests__/main/ipc-tools.test.ts src/__tests__/ipc-agent.test.ts src/__tests__/main/ipc-parser-host.test.ts</code></td>
+          <td>Shared channel catalog stays in parity with the self-contained preload bridge and the migrated main-process registry handlers for agent, MCP, parser host, tools, and lifecycle channels.</td>
+          <td><span class="status done">6 files / 79 tests</span></td>
+        </tr>
+        <tr>
           <td><code>node --test scripts/__tests__/ci-select.test.mjs --test-name-pattern "E2E lane"</code><br><code>pnpm run lint:e2e-destructive-tags</code><br><code>pnpm run lint:ci-workflow-contracts</code></td>
           <td>Risk selection now routes destructive reset through both web destructive E2E and desktop factory reset; desktop factory reset must carry <code>@destructive</code>; desktop embedding lanes target split spec files instead of the removed monolith.</td>
           <td><span class="status done">passed</span></td>
@@ -426,8 +431,8 @@
       <tbody>
         <tr>
           <td>IPC drift prevention</td>
-          <td>Introduce generated preload/renderer bridge metadata only if it demonstrably removes drift without adding hidden fallback behavior.</td>
-          <td>Every moved main-process channel has a domain, a typed registration path, and a focused test; preload remains the only intentional bridge literal surface until generation is justified.</td>
+          <td>Extend the source-checked channel catalog to additional bridge surfaces before adding new IPC channels; introduce generated preload/renderer bridge metadata only if it demonstrably removes drift without adding hidden fallback behavior.</td>
+          <td>Every moved main-process channel has a domain, a typed registration path, a focused test, and a preload/catalog parity assertion when exposed through <code>contextBridge</code>.</td>
         </tr>
         <tr>
           <td>Diagnostics depth</td>

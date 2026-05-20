@@ -13,6 +13,7 @@ import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { callTool } from './mcp';
 import { executeNativeTool, isExecutableNativeTool } from './native-tool-executor';
+import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
 const logger = createLogger('IpcTools');
@@ -512,7 +513,7 @@ export function registerToolsIpcHandlers(dependencies: ToolsIpcDependencies = {}
 
   registry.registerInvoke(
     'tools',
-    'tools:execute',
+    DESKTOP_PRELOAD_IPC_CHANNELS.tools.execute,
     async (
       _event,
       toolId: unknown,

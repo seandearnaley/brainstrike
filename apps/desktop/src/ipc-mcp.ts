@@ -20,6 +20,7 @@ import {
   watchMcpConfig,
   writeMcpConfigText,
 } from './mcp-loader';
+import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
 let unwatch: null | (() => void) = null;
@@ -28,7 +29,7 @@ const logger = createLogger('DesktopMcpIpc');
 const LEGACY_PLACEHOLDER_STDIO_ARG = 'path/to/your/mcp-server.js';
 const LEGACY_PLACEHOLDER_SSE_URL = 'https://example.com/mcp/sse';
 const MAX_MCP_CONFIG_TEXT_BYTES = 1_000_000;
-export const MCP_TOOLS_UPDATED_EVENT = 'mcp:tools:updated';
+export const MCP_TOOLS_UPDATED_EVENT = DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsUpdated;
 
 function normalizeUrl(url: string | undefined): string {
   return (url ?? '').trim().replace(/\/+$/u, '');
@@ -102,26 +103,30 @@ export function registerMcpIpcHandlers(): () => void {
   logger.debug('Registering MCP IPC handlers');
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke('mcp', 'mcp:config:get', async (): Promise<LoadedMcpConfig> => {
-    last = await loadMcpConfig();
-    // Initialize MCP clients if config is valid
-    if (last.config) {
-      initClients(last.config);
-    } else {
-      await disposeClients();
+  registry.registerInvoke(
+    'mcp',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configGet,
+    async (): Promise<LoadedMcpConfig> => {
+      last = await loadMcpConfig();
+      // Initialize MCP clients if config is valid
+      if (last.config) {
+        initClients(last.config);
+      } else {
+        await disposeClients();
+      }
+      return last;
     }
-    return last;
-  });
+  );
 
   registry.registerInvoke(
     'mcp',
-    'mcp:config:getPath',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configGetPath,
     async (): Promise<string> => await getMcpConfigPath()
   );
 
   registry.registerInvoke(
     'mcp',
-    'mcp:config:setPath',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configSetPath,
     async (_e, configPath: string | null): Promise<{ success: boolean; path: string }> => {
       await setCustomMcpConfigPath(configPath);
       const newPath = await getMcpConfigPath();
@@ -138,7 +143,7 @@ export function registerMcpIpcHandlers(): () => void {
 
   registry.registerInvoke(
     'mcp',
-    'mcp:config:readText',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configReadText,
     async (): Promise<{
       path: string;
       exists: boolean;
@@ -149,7 +154,7 @@ export function registerMcpIpcHandlers(): () => void {
 
   registry.registerInvoke(
     'mcp',
-    'mcp:config:writeText',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configWriteText,
     async (
       _e,
       content: unknown
@@ -193,50 +198,62 @@ export function registerMcpIpcHandlers(): () => void {
     }
   );
 
-  registry.registerInvoke('mcp', 'mcp:config:selectPath', async (): Promise<string | null> => {
-    const result = await dialog.showOpenDialog({
-      properties: ['openFile'],
-      filters: [
-        { name: 'JSON Config', extensions: ['json'] },
-        { name: 'All Files', extensions: ['*'] },
-      ],
-      title: 'Select MCP Configuration File',
-    });
+  registry.registerInvoke(
+    'mcp',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configSelectPath,
+    async (): Promise<string | null> => {
+      const result = await dialog.showOpenDialog({
+        properties: ['openFile'],
+        filters: [
+          { name: 'JSON Config', extensions: ['json'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+        title: 'Select MCP Configuration File',
+      });
 
-    if (result.canceled || result.filePaths.length === 0) {
-      return null;
+      if (result.canceled || result.filePaths.length === 0) {
+        return null;
+      }
+
+      return result.filePaths[0] ?? null;
     }
+  );
 
-    return result.filePaths[0] ?? null;
-  });
-
-  registry.registerInvoke('mcp', 'mcp:config:watch', async (_e): Promise<{ watching: boolean }> => {
-    if (unwatch) {
+  registry.registerInvoke(
+    'mcp',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configWatch,
+    async (_e): Promise<{ watching: boolean }> => {
+      if (unwatch) {
+        return { watching: true };
+      }
+      const w = await watchMcpConfig(handleConfigChange);
+      unwatch = () => w.close();
       return { watching: true };
     }
-    const w = await watchMcpConfig(handleConfigChange);
-    unwatch = () => w.close();
-    return { watching: true };
-  });
+  );
 
-  registry.registerInvoke('mcp', 'mcp:config:unwatch', async (): Promise<{ watching: false }> => {
-    if (unwatch) {
-      unwatch();
-      unwatch = null;
+  registry.registerInvoke(
+    'mcp',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configUnwatch,
+    async (): Promise<{ watching: false }> => {
+      if (unwatch) {
+        unwatch();
+        unwatch = null;
+      }
+      return { watching: false };
     }
-    return { watching: false };
-  });
+  );
 
   // Tool management IPC handlers
   registry.registerInvoke(
     'mcp',
-    'mcp:tools:list',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsList,
     async (): Promise<ReturnType<typeof mcpToolRegistry.getAllTools>> => getSerializableTools()
   );
 
   registry.registerInvoke(
     'mcp',
-    'mcp:tools:enable',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsEnable,
     async (_e, toolIds: string[]): Promise<void> => {
       mcpToolRegistry.enableTools(toolIds);
       notifyMcpToolsUpdated();
@@ -246,7 +263,7 @@ export function registerMcpIpcHandlers(): () => void {
 
   registry.registerInvoke(
     'mcp',
-    'mcp:tools:disable',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsDisable,
     async (_e, toolIds: string[]): Promise<void> => {
       mcpToolRegistry.disableTools(toolIds);
       notifyMcpToolsUpdated();
@@ -256,7 +273,7 @@ export function registerMcpIpcHandlers(): () => void {
 
   registry.registerInvoke(
     'mcp',
-    'mcp:tools:enableServer',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsEnableServer,
     async (_e, serverName: string): Promise<void> => {
       mcpToolRegistry.enableServerTools(serverName);
       notifyMcpToolsUpdated();
@@ -266,7 +283,7 @@ export function registerMcpIpcHandlers(): () => void {
 
   registry.registerInvoke(
     'mcp',
-    'mcp:tools:disableServer',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsDisableServer,
     async (_e, serverName: string): Promise<void> => {
       mcpToolRegistry.disableServerTools(serverName);
       notifyMcpToolsUpdated();
@@ -274,17 +291,23 @@ export function registerMcpIpcHandlers(): () => void {
     }
   );
 
-  registry.registerInvoke('mcp', 'mcp:tools:reset', async (): Promise<void> => {
-    mcpToolRegistry.reset();
-    notifyMcpToolsUpdated();
-    await saveToolPreferencesIfNeeded();
-  });
+  registry.registerInvoke(
+    'mcp',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsReset,
+    async (): Promise<void> => {
+      mcpToolRegistry.reset();
+      notifyMcpToolsUpdated();
+      await saveToolPreferencesIfNeeded();
+    }
+  );
 
-  registry.registerInvoke('mcp', 'mcp:tools:getStats', async () => mcpToolRegistry.getStats());
+  registry.registerInvoke('mcp', DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsGetStats, async () =>
+    mcpToolRegistry.getStats()
+  );
 
   registry.registerInvoke(
     'mcp',
-    'mcp:config:createSample',
+    DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configCreateSample,
     async (): Promise<{ success: boolean; path: string; error?: string }> => {
       let configPath = '';
       try {

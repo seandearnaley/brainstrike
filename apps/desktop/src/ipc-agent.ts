@@ -5,6 +5,7 @@ import { ipcMain } from 'electron';
 import type { McpConfig } from './mcp-loader';
 import { loadMcpConfig } from './mcp-loader';
 import { readOpenAIApiKey } from './openai-api-key';
+import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import { readProviderSecretKey, resolveProviderEnvKey } from './provider-api-key';
 
@@ -54,7 +55,7 @@ export function registerAgentIpcHandlers(): () => void {
 
   registry.registerInvoke(
     'agent',
-    'agent:chat',
+    DESKTOP_PRELOAD_IPC_CHANNELS.agent.chat,
     async (_event, messages: AgentMessage[], runtime?: RuntimeData): Promise<StreamChunk[]> =>
       runAgentChat(messages, runtime)
   );

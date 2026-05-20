@@ -1,4 +1,5 @@
 import { BrowserWindow, ipcMain, type WebContents } from 'electron';
+import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
 interface ReloadIntent {
@@ -36,11 +37,13 @@ export function registerMainPlatformIpcHandlers({
 }: MainPlatformIpcDependencies): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke('agent', 'assistant:get-url', () => getAssistantUrl());
+  registry.registerInvoke('agent', DESKTOP_PRELOAD_IPC_CHANNELS.agent.assistantGetUrl, () =>
+    getAssistantUrl()
+  );
 
   registry.registerInvoke(
     'runtime',
-    'app:lifecycle:note-reload-intent',
+    DESKTOP_PRELOAD_IPC_CHANNELS.runtime.noteReloadIntent,
     async (event, reason: unknown): Promise<void> => {
       const normalizedReason = normalizeReloadIntentReason(reason);
       const window = getLiveSenderWindow(event.sender);
