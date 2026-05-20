@@ -8,7 +8,7 @@
     "@assistant-ui/react-data-stream": "^0.12.11",
     "@assistant-ui/react-markdown": "^0.12.9",
     "@assistant-ui/styles": "^0.3.7",
-    "@brainstrike/agent": "workspace:*",
+    "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/types": "workspace:*",

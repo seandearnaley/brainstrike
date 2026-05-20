@@ -1,28 +1,28 @@
 /**
  * Local runtime adapter for browser-based LLM inference.
- * Uses LocalLlmBackend from @brainstrike/agent/local-llm for in-browser inference
- * with transformers.js (ONNX models via WebGPU/WASM).
+ * The app shell injects the concrete backend so shared UI does not depend on
+ * the assistant runtime implementation package.
  */
 import type {
   ChatModelAdapter,
   ChatModelRunOptions,
   ChatModelRunResult,
 } from '@assistant-ui/react';
-import type {
-  LocalLlmGenerationOptions,
-  LocalLlmGenerationResult,
-  LocalLlmJsonSchema,
-  LocalLlmMessage,
-  LocalLlmToolCall,
-  LocalLlmToolDefinition,
-} from '@brainstrike/agent/local-llm';
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   type AssistantRunEvent,
   type AssistantRunEventKind,
   type AssistantRunEventMetadata,
   type AssistantRunEventStatus,
-} from '@brainstrike/agent/run-events';
+  type LocalLlmBackend,
+  type LocalLlmBackendFactory,
+  type LocalLlmGenerationOptions,
+  type LocalLlmGenerationResult,
+  type LocalLlmJsonSchema,
+  type LocalLlmMessage,
+  type LocalLlmToolCall,
+  type LocalLlmToolDefinition,
+} from '@brainstrike/assistant-contract';
 import { acquireBackgroundWorkPauseReason } from '@brainstrike/utils';
 
 /**
@@ -230,21 +230,11 @@ function buildLocalToolUnavailableReason(
   return `${schemaBackedTools.length} runnable tools were configured but local tool definitions were not built`;
 }
 
-type LocalLlmBackendProgress = NonNullable<LocalRuntimeAdapterOptions['onLoadingProgress']>;
 type LocalLlmStreamHandlers = NonNullable<LocalLlmGenerationOptions['stream']>;
 
-interface LocalLlmBackendInstance {
-  dispose(): Promise<void>;
-  generate(
-    messages: LocalLlmMessage[],
-    options?: LocalLlmGenerationOptions
-  ): Promise<LocalLlmGenerationResult>;
-  initialize(config: { modelId: string; onProgress?: LocalLlmBackendProgress }): Promise<void>;
-  isReady(): boolean;
-}
-
-let backendInstance: LocalLlmBackendInstance | null = null;
-let backendInstancePromise: Promise<LocalLlmBackendInstance> | null = null;
+let backendInstance: LocalLlmBackend | null = null;
+let backendInstancePromise: Promise<LocalLlmBackend> | null = null;
+let backendFactory: LocalLlmBackendFactory | null = null;
 let currentModelId: string | null = null;
 const warmedDesktopModelIds = new Set<string>();
 const desktopWarmupPromises = new Map<string, Promise<void>>();
@@ -263,13 +253,16 @@ const disposalState: {
 /**
  * Get or create the LocalLlmBackend singleton.
  * Uses promise-based caching to prevent race conditions when called concurrently.
- * Dynamically imports to avoid loading transformers.js until needed.
+ * The concrete backend is injected by app-shell. UI code must not import the
+ * agent runtime package directly because this package is shared foundation.
  *
  * Handles edge cases:
  * - disposeLocalBackend() called during initialization: checks flag and disposes new instance
  * - getBackend() called during disposal: waits for disposal to complete first
  */
-async function getBackend(): Promise<LocalLlmBackendInstance> {
+async function getBackend(
+  loadBackend: LocalLlmBackendFactory | undefined
+): Promise<LocalLlmBackend> {
   // If disposal is in progress, wait for it to complete before creating new instance
   // This prevents returning an instance that's about to be disposed
   if (disposalState.inProgress && disposalState.promise) {
@@ -285,14 +278,20 @@ async function getBackend(): Promise<LocalLlmBackendInstance> {
     return backendInstance;
   }
 
+  if (loadBackend) {
+    backendFactory = loadBackend;
+  }
+  if (!backendFactory) {
+    throw new Error('Local LLM backend factory was not provided by the application shell.');
+  }
+  const resolvedBackendFactory = backendFactory;
+
   // Race condition protection: use promise-based cache
   // If initialization is in progress, wait for it instead of creating another instance
   if (!backendInstancePromise) {
     backendInstancePromise = (async () => {
       try {
-        // Dynamic import to avoid bundling transformers.js in non-local builds
-        const { LocalLlmBackend } = await import('@brainstrike/agent/local-llm');
-        const instance = new LocalLlmBackend() as LocalLlmBackendInstance;
+        const instance = await resolvedBackendFactory();
 
         // Check if disposal was requested while we were initializing
         if (disposalState.requested) {
@@ -351,6 +350,7 @@ export interface LocalRuntimeAdapterOptions {
     status: 'cancelled' | 'completed' | 'failed',
     error?: string
   ) => Promise<void> | void;
+  loadBackend?: LocalLlmBackendFactory;
   modelId: string;
   onError?: (error: Error) => void;
   onLoadingProgress?: (progress: {
@@ -842,6 +842,7 @@ function handleDesktopProgressEvent(
 export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): ChatModelAdapter {
   const {
     completeRuntimeData,
+    loadBackend,
     modelId,
     thinkingEnabled,
     onLoadingProgress,
@@ -934,7 +935,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             content: buildAssistantContentParts(undefined, '', [], runEventParts),
           };
           await withBackendStateLock(async () => {
-            const backend = await getBackend();
+            const backend = await getBackend(loadBackend);
             if (!backend.isReady() || currentModelId !== modelId) {
               await backend.initialize({
                 modelId,
@@ -1055,7 +1056,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
               unsubscribeProgress?.();
             }
           } else {
-            const backend = await getBackend();
+            const backend = await getBackend(loadBackend);
             const generatePromise = backend.generate(conversationMessages, {
               ...generationOptions,
               stream: {

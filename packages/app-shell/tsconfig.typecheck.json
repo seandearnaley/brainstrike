@@ -6,6 +6,12 @@
       "@brainstrike/db-explorer/database-demo-panel": [
         "../db-explorer/src/database-demo-panel.tsx"
       ],
+      "@brainstrike/assistant-contract": [
+        "../assistant-contract/src/index.ts"
+      ],
+      "@brainstrike/assistant-contract/*": [
+        "../assistant-contract/src/*"
+      ],
       "@brainstrike/types": [
         "../types/src/index.ts"
       ],

@@ -32,6 +32,9 @@
   ],
   "references": [
     {
+      "path": "../assistant-contract"
+    },
+    {
       "path": "../../packages/types"
     },
     {

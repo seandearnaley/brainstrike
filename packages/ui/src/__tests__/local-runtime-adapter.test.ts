@@ -1,5 +1,5 @@
 import type { ChatModelRunOptions, ChatModelRunResult } from '@assistant-ui/react';
-import type { LocalLlmGenerationResult } from '@brainstrike/agent/local-llm';
+import type { LocalLlmGenerationResult } from '@brainstrike/assistant-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createLocalModelAdapter,

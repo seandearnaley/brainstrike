@@ -13,7 +13,10 @@ import {
   useMessagePartReasoning,
 } from '@assistant-ui/react';
 import { useDataStreamRuntime } from '@assistant-ui/react-data-stream';
-import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/agent/run-events';
+import {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
+  type LocalLlmBackendFactory,
+} from '@brainstrike/assistant-contract';
 import {
   ArrowUpIcon,
   CheckIcon,
@@ -183,6 +186,7 @@ export interface AssistantUiPanelProps {
   disabled?: boolean;
   disabledReason?: string;
   historyAdapter?: ThreadHistoryAdapter;
+  loadLocalLlmBackend?: LocalLlmBackendFactory;
   onModelChange?: (compositeKey: string) => void;
   onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
   onProviderSettingsChange?:
@@ -455,6 +459,7 @@ interface ChatThreadProps {
     | undefined;
   disabled: boolean;
   disabledReason: string | undefined;
+  loadLocalLlmBackend?: LocalLlmBackendFactory | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
   onProviderSettingsChange?:
@@ -494,6 +499,7 @@ const LocalRuntimeChat: FC<
   disabled,
   disabledReason,
   localLoadingState,
+  loadLocalLlmBackend,
   modelId,
   onLoadingStateChange,
   toolMenu,
@@ -510,6 +516,7 @@ const LocalRuntimeChat: FC<
   const adapter = useMemo(
     () =>
       createLocalModelAdapter({
+        ...(loadLocalLlmBackend ? { loadBackend: loadLocalLlmBackend } : {}),
         modelId,
         thinkingEnabled,
         ...(requestData ? { runtimeData: requestData } : {}),
@@ -532,6 +539,7 @@ const LocalRuntimeChat: FC<
       }),
     [
       completePreparedRequest,
+      loadLocalLlmBackend,
       modelId,
       onLoadingStateChange,
       prepareRequestData,
@@ -878,6 +886,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   disabled = false,
   disabledReason,
   historyAdapter,
+  loadLocalLlmBackend,
   threadKey,
 }) => {
   // API URL for data stream runtime (hosted providers)
@@ -958,6 +967,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           disabled={disabled}
           disabledReason={disabledReason}
           key={threadKey ? `local:${threadKey}` : 'local'}
+          loadLocalLlmBackend={loadLocalLlmBackend}
           localLoadingState={localLoadingState}
           modelId={modelName}
           onLoadingStateChange={handleLocalLoadingStateChange}

@@ -28,6 +28,7 @@ import {
   NATIVE_TOOL_DEFAULTS,
   TOOL_DESCRIPTIONS,
 } from '@brainstrike/agent/tool-metadata';
+import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
 import {
   type TapestryRange,
@@ -95,6 +96,8 @@ const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
   local: 'Local',
   browser: 'Browser',
 };
+
+const loadBuiltInLocalLlmBackend: LocalLlmBackendFactory = async () => new LocalLlmBackend();
 
 function resolveModelNameFromComposite(composite: string | null | undefined): string | undefined {
   if (!composite) {
@@ -2213,6 +2216,7 @@ export function AssistantUiPanelWrapper({
   return (
     <AssistantUiPanel
       completePreparedRequest={completePreparedRequest}
+      loadLocalLlmBackend={loadBuiltInLocalLlmBackend}
       onProviderSettingsChange={handleProviderSettingsChange}
       pickerModels={pickerModels}
       pickerProviders={pickerProviders}

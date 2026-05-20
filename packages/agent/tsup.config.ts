@@ -43,6 +43,7 @@ export default defineConfig((_options) => ({
   sourcemap: false,
   splitting: false,
   external: [
+    '@brainstrike/assistant-contract',
     '@brainstrike/types',
     '@electric-sql/pglite',
     '@mastra/core',

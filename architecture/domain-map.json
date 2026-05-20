@@ -109,13 +109,6 @@
       "retireByPhase": "phase-3"
     },
     {
-      "id": "ui-agent-panel-contract-coupling",
-      "sourcePackage": "@brainstrike/ui",
-      "importedPackage": "@brainstrike/agent",
-      "reason": "Shared UI currently renders assistant timeline and local runtime adapters with agent runtime types. Phase 3 extracts an assistant panel contract package.",
-      "retireByPhase": "phase-3"
-    },
-    {
       "id": "ui-storage-theme-coupling",
       "sourcePackage": "@brainstrike/ui",
       "importedPackage": "@brainstrike/storage",
@@ -226,6 +219,7 @@
       "title": "Shared UI, types, filesystem, hooks, and utilities",
       "owner": "foundation",
       "packages": [
+        "@brainstrike/assistant-contract",
         "@brainstrike/file-system",
         "@brainstrike/hooks",
         "@brainstrike/test-utils",

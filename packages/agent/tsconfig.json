@@ -22,6 +22,9 @@
   ],
   "references": [
     {
+      "path": "../assistant-contract"
+    },
+    {
       "path": "../text-splitter"
     },
     {
