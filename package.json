@@ -83,6 +83,7 @@
     "ci:local": "./scripts/local-ci.sh",
     "ci:prove": "node scripts/ci-proof.mjs prove",
     "ci:proof-timing-summary": "node scripts/ci-proof-timing-summary.mjs",
+    "ci:risk-fixtures": "node scripts/check-ci-risk-fixtures.mjs",
     "ci:select": "node scripts/ci-select.mjs",
     "ci:timing-summary": "node scripts/ci-timing-summary.mjs",
     "ci:turbo-diagnostics": "node scripts/turbo-run-diagnostics.mjs",
