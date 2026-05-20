@@ -1,6 +1,7 @@
 import { LocalRuntimeDiscoveryService, LocalRuntimeModelCatalogService } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
-import { type IpcMainInvokeEvent, ipcMain } from 'electron';
+import { ipcMain } from 'electron';
+import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
 const logger = createLogger('DesktopIpcRuntime');
 
@@ -206,37 +207,47 @@ function validateModelId(value: unknown): string {
   return value;
 }
 
-export function registerRuntimeIpcHandlers(): void {
-  ipcMain.handle(
+export function registerRuntimeIpcHandlers(): () => void {
+  const registry = createDesktopIpcRegistry({ ipcMain });
+
+  registry.registerInvoke(
+    'runtime',
     RUNTIME_PROBE_CHANNEL,
-    async (_event: IpcMainInvokeEvent, runtimeId: unknown, rawOptions: unknown) =>
+    async (_event, runtimeId: unknown, rawOptions: unknown) =>
       await getBridge().probe(validateRuntimeId(runtimeId), normaliseProbeOptions(rawOptions))
   );
 
-  ipcMain.handle(
+  registry.registerInvoke(
+    'runtime',
     RUNTIME_LIST_MODELS_CHANNEL,
-    async (_event: IpcMainInvokeEvent, runtimeId: unknown, rawOptions: unknown) =>
+    async (_event, runtimeId: unknown, rawOptions: unknown) =>
       await getBridge().listModels(validateRuntimeId(runtimeId), normaliseListOptions(rawOptions))
   );
 
-  ipcMain.handle(
+  registry.registerInvoke(
+    'runtime',
     RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL,
-    async (_event: IpcMainInvokeEvent, modelId: unknown, rawOptions: unknown) =>
+    async (_event, modelId: unknown, rawOptions: unknown) =>
       await getBridge().resolveOllamaCapabilities(
         validateModelId(modelId),
         normaliseProbeOptions(rawOptions)
       )
   );
 
-  ipcMain.handle(
+  registry.registerInvoke(
+    'runtime',
     RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL,
-    async (_event: IpcMainInvokeEvent, runtimeId: unknown, modelId: unknown, rawOptions: unknown) =>
+    async (_event, runtimeId: unknown, modelId: unknown, rawOptions: unknown) =>
       await getBridge().verifyEmbeddingDimensions(
         validateRuntimeId(runtimeId),
         validateModelId(modelId),
         normaliseVerifyOptions(rawOptions)
       )
   );
+
+  return () => {
+    registry.unregisterAll();
+  };
 }
 
 /**
