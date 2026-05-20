@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import * as index from '../index';
@@ -8,6 +8,38 @@ import FileFilterBar, { FileFilterBar as NamedFileFilterBar } from '../shell/fil
 // Ensure the barrel file re-exports modules correctly
 
 describe('file-explorer-ui index exports', () => {
+  it('delegates owned domain exports through public slice barrels', () => {
+    const indexSource = readFileSync(path.resolve(process.cwd(), 'src/index.ts'), 'utf8');
+    const forbiddenDeepExports = ['./indexing/', './preview/', './shell/', './tree/'].flatMap(
+      (slicePath) =>
+        indexSource
+          .split('\n')
+          .filter((line) => line.startsWith('export ') && line.includes(`from '${slicePath}`))
+    );
+
+    expect(forbiddenDeepExports).toEqual([]);
+    expect(indexSource).toContain("export * from './indexing';");
+    expect(indexSource).toContain("export * from './preview';");
+    expect(indexSource).toContain("export * from './shell';");
+    expect(indexSource).toContain("export * from './tree';");
+  });
+
+  it('documents ownership for each public slice barrel', () => {
+    const sourceRoot = path.resolve(process.cwd(), 'src');
+    const publicSlices = ['indexing', 'preview', 'shell', 'tree'] as const;
+
+    for (const slice of publicSlices) {
+      const readmePath = path.join(sourceRoot, slice, 'README.md');
+      expect(existsSync(readmePath), `${slice} must have an ownership README`).toBe(true);
+
+      const readme = readFileSync(readmePath, 'utf8');
+      expect(readme).toContain('## Ownership');
+      expect(readme).toContain('## Public surface');
+      expect(readme).toContain('## Allowed dependencies');
+      expect(readme).toContain('## Focused local test');
+    }
+  });
+
   it('keeps tree implementation files inside the tree slice', () => {
     const sourceRoot = path.resolve(process.cwd(), 'src');
     const treeImplementationFiles = [

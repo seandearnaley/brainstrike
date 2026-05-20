@@ -1,0 +1,73 @@
+# Domain Ownership Hotspot Inventory
+
+Generated from current `codex/local-architecture-reset` HEAD on 2026-05-20.
+
+This inventory tracks size and churn hotspots that remain after the legal domain-boundary checks reached `0/0` approved exceptions. The purpose is to keep the next architecture reset work focused on files where humans and agents still collide.
+
+## Largest Source And Test Files
+
+| LOC | File | Action |
+|---:|---|---|
+| 8124 | `apps/desktop/e2e/embedding-worker-renderer.test.ts` | Split into smoke, regression, diagnostic, and release-only soak specs. |
+| 3150 | `apps/desktop/e2e/file-explorer-selection.desktop.test.ts` | Split after embedding E2E unless this lane becomes flaky first. |
+| 2947 | `packages/file-explorer-ui/src/__tests__/optimized-file-tree.test.tsx` | Split by tree behavior: rows, virtualization, lazy loading, selection. |
+| 2777 | `packages/embeddings/src/worker/embedding-worker.ts` | Split lifecycle, scheduler, provider execution, telemetry, and host messaging. |
+| 2765 | `packages/app-shell/src/__tests__/assistant-ui-panel-wrapper.test.tsx` | Split by assistant contract, local runtime, thread/context wiring. |
+| 2559 | `packages/file-explorer-ui/src/tree/optimized-file-tree.tsx` | Reduce to tree composition over row, windowing, telemetry, and keyboard modules. |
+| 2344 | `apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts` | Split by db IPC capability after handler registry exists. |
+| 2258 | `packages/file-explorer-ui/src/__tests__/use-background-token-indexer-integration.test.tsx` | Split by indexer lifecycle, token cache, refresh and cancellation behavior. |
+| 2242 | `packages/app-shell/src/assistant-ui-panel-wrapper.tsx` | Reduce to thin composition over assistant contract and app-shell adapters. |
+| 2181 | `packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx` | Split presentational assistant panel sections after wrapper is thinner. |
+| 2074 | `packages/file-explorer/src/actions/__tests__/file-selection-actions.test.ts` | Split action tests by command family. |
+| 2044 | `packages/app-shell/src/background-indexing/workspace-collection-sync-service.ts` | Move orchestration behind indexing-owned contracts. |
+| 1853 | `packages/file-explorer-ui/src/indexing/use-background-token-indexer-integration.ts` | Split into indexer lifecycle, progress aggregation, and cache sync modules. |
+| 1734 | `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts` | Split with service extraction. |
+| 1689 | `packages/db-explorer/src/use-database-demo-data.ts` | Review after db internal decomposition. |
+| 1629 | `apps/desktop/src/ipc-handlers.ts` | Move toward domain-keyed IPC registries. |
+| 1614 | `packages/assistant-contract/src/local-runtime-model-catalog.ts` | Document or split catalog data if it keeps growing. |
+| 1523 | `packages/file-explorer-ui/src/__tests__/preview-panel.test.tsx` | Split by preview table, footer, and report-action behavior. |
+| 1504 | `packages/db-explorer/src/__tests__/use-database-demo-data.test.ts` | Review after db explorer ownership decision. |
+
+## Six-Month Churn Hotspots
+
+| Changes | File | Owning domain |
+|---:|---|---|
+| 38 | `packages/file-explorer-ui/src/file-explorer-left-panel.tsx` | File explorer shell. Historical path; current owner is `src/shell/file-explorer-left-panel.tsx`. |
+| 32 | `packages/app-shell/src/assistant-ui-panel-wrapper.tsx` | App-shell assistant adapter. |
+| 31 | `packages/embeddings/src/worker/embedding-worker.ts` | Embeddings worker runtime. |
+| 29 | `packages/file-explorer-ui/src/use-file-explorer-context.ts` | File explorer shell. Historical path; current owner is `src/shell/use-file-explorer-context.ts`. |
+| 29 | `apps/desktop/src/main.ts` | Desktop platform bootstrap. |
+| 29 | `apps/desktop/src/ipc-handlers.ts` | Desktop IPC platform. |
+| 28 | `packages/file-explorer-ui/src/preview-panel.tsx` | File explorer preview. Historical path; current owner is `src/preview/preview-panel.tsx`. |
+| 26 | `packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx` | UI assistant panel. |
+| 25 | `packages/file-explorer-ui/src/use-background-token-indexer-integration.ts` | File explorer indexing. Historical path; current owner is `src/indexing/use-background-token-indexer-integration.ts`. |
+| 25 | `packages/app-shell/src/__tests__/assistant-ui-panel-wrapper.test.tsx` | App-shell assistant adapter tests. |
+| 25 | `apps/web/e2e/file-explorer.test.ts` | Web file explorer E2E. |
+| 25 | `apps/desktop/src/preload.ts` | Desktop preload platform. |
+| 24 | `packages/file-explorer-ui/src/optimized-file-tree.tsx` | File explorer tree. Historical path; current owner is `src/tree/optimized-file-tree.tsx`. |
+| 24 | `packages/file-explorer-ui/src/__tests__/file-explorer-left-panel.test.tsx` | File explorer shell tests. |
+| 24 | `packages/db-explorer/src/database-demo-panel.tsx` | DB explorer. |
+
+## First Slice Completed
+
+The file-explorer root package barrel now delegates to public slice barrels:
+
+- `@brainstrike/file-explorer-ui/tree`
+- `@brainstrike/file-explorer-ui/preview`
+- `@brainstrike/file-explorer-ui/indexing`
+- `@brainstrike/file-explorer-ui/shell`
+
+Package-local architecture coverage now verifies:
+
+- root exports do not bypass the owned slice barrels;
+- each public slice barrel has an ownership README;
+- implementation files remain inside their slice directories;
+- public slice barrels still expose the same root symbols for current consumers.
+
+## Next Slices
+
+1. Split `optimized-file-tree.tsx` and its 2947-line test file by extracting row/windowing/telemetry modules.
+2. Split `embedding-worker.ts` by lifecycle, scheduling, provider execution, telemetry, and host messaging.
+3. Split `apps/desktop/e2e/embedding-worker-renderer.test.ts` into lane-tagged smoke, regression, diagnostics, and release-only soak specs.
+4. Move `ipc-handlers.ts` toward a domain-keyed registry after the embedding E2E split reduces verification cost.
+5. Decompose `packages/db` internally around queue, migrations, repositories, search, and schema while preserving public barrels.
