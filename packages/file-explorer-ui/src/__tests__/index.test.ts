@@ -75,6 +75,21 @@ describe('file-explorer-ui index exports', () => {
     expect(optimizedTreeSource.split('\n').length).toBeLessThanOrEqual(1500);
   });
 
+  it('keeps optimized file tree tests split under the test-file budget', () => {
+    const testsRoot = path.resolve(process.cwd(), 'src', '__tests__');
+    const optimizedTreeTestFiles = [
+      'optimized-file-tree.test.tsx',
+      'optimized-file-tree-selection.test.tsx',
+      'optimized-file-tree-query-expansion.test.tsx',
+      'optimized-file-tree-selection-mutations.test.tsx',
+    ];
+
+    for (const fileName of optimizedTreeTestFiles) {
+      const testSource = readFileSync(path.join(testsRoot, fileName), 'utf8');
+      expect(testSource.split('\n').length, fileName).toBeLessThanOrEqual(2000);
+    }
+  });
+
   it('keeps preview implementation files inside the preview slice', () => {
     const sourceRoot = path.resolve(process.cwd(), 'src');
     const previewImplementationMoves = [
