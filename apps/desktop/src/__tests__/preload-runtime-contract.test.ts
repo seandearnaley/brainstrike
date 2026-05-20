@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL } from '../desktop-platform-diagnostics';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { LOGGING_API_CHANNELS } from '../platform/logging-api-contract';
 
@@ -124,7 +123,7 @@ describe('preload runtime contract', () => {
 
     expect(
       extractPreloadStringConstant(preloadSource, 'DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL')
-    ).toBe(DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL);
+    ).toBe(DESKTOP_PRELOAD_IPC_CHANNELS.diagnostics.getSnapshot);
     expect(preloadSource).toContain("contextBridge.exposeInMainWorld('desktopDiagnostics'");
   });
 
@@ -150,6 +149,8 @@ describe('preload runtime contract', () => {
       DB_RESET_LOCAL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.resetLocal,
       DB_SCHEDULER_SNAPSHOT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.schedulerSnapshot,
       DB_TEST_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.test,
+      DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL:
+        DESKTOP_PRELOAD_IPC_CHANNELS.diagnostics.getSnapshot,
       FILE_SYSTEM_EXISTS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.exists,
       FILE_SYSTEM_READ_DIRECTORY_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.readDirectory,
       FILE_SYSTEM_READ_FILE_BY_PATH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.readFileByPath,

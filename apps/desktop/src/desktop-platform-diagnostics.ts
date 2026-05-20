@@ -3,9 +3,11 @@ import type { DesktopRendererCrashRecoverySnapshot } from './desktop-crash-recov
 import type { DesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import type { EmbeddingHostBackfillInfo } from './embedding-host-shared';
 import type { LoggingSettingsPayload } from './logging-shared';
+import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import type { RuntimeHostPlatformStatus } from './platform/runtime-host-state';
 
-export const DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL = 'desktop-diagnostics:get-snapshot' as const;
+export const DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL =
+  DESKTOP_IPC_CHANNELS.diagnostics.getSnapshot;
 
 export interface DesktopPlatformDiagnosticsSnapshot {
   readonly collectedAt: string;

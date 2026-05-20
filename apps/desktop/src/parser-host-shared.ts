@@ -12,6 +12,7 @@
  *
  * See: docs/prd-chunking-wasm-parser-2026-05.md §4
  */
+import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 
 /**
  * Generic AST node shape returned by the parser. Permissive on purpose —
@@ -60,7 +61,7 @@ export type ParserHostParseResponse = ParserHostParseFailure | ParserHostParseSu
  * Main process forwards to the parser-host utility process via
  * `ParserHostManager.parse()`.
  */
-export const PARSER_HOST_PARSE_CHANNEL = 'parser-host:parse';
+export const PARSER_HOST_PARSE_CHANNEL = DESKTOP_IPC_CHANNELS.files.parserHostParse;
 
 /**
  * Conservative type guard for `ParserHostParseRequest`. Shared between the

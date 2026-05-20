@@ -1,6 +1,7 @@
 import { LocalRuntimeDiscoveryService, LocalRuntimeModelCatalogService } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
 import { ipcMain } from 'electron';
+import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
 const logger = createLogger('DesktopIpcRuntime');
@@ -19,10 +20,12 @@ const logger = createLogger('DesktopIpcRuntime');
  * cached state) matches the renderer-side services.
  */
 
-export const RUNTIME_PROBE_CHANNEL = 'runtime:probe';
-export const RUNTIME_LIST_MODELS_CHANNEL = 'runtime:listModels';
-export const RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL = 'runtime:resolveOllamaCapabilities';
-export const RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL = 'runtime:verifyEmbeddingDimensions';
+export const RUNTIME_PROBE_CHANNEL = DESKTOP_IPC_CHANNELS.runtime.probe;
+export const RUNTIME_LIST_MODELS_CHANNEL = DESKTOP_IPC_CHANNELS.runtime.listModels;
+export const RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL =
+  DESKTOP_IPC_CHANNELS.runtime.resolveOllamaCapabilities;
+export const RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL =
+  DESKTOP_IPC_CHANNELS.runtime.verifyEmbeddingDimensions;
 
 interface LocalRuntimeIpcBridge {
   readonly listModels: LocalRuntimeModelCatalogService['listRuntimeModels'];

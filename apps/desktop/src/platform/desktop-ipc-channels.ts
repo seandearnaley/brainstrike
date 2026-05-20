@@ -19,6 +19,9 @@ export const DESKTOP_IPC_CHANNELS = {
     schedulerSnapshot: 'db:scheduler:snapshot',
     test: 'db:test',
   },
+  diagnostics: {
+    getSnapshot: 'desktop-diagnostics:get-snapshot',
+  },
   files: {
     exists: 'fs:exists',
     parserHostParse: 'parser-host:parse',
