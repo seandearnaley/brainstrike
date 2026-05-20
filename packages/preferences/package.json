@@ -4,7 +4,6 @@
   "dependencies": {
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/db": "workspace:*",
-    "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/types": "workspace:*",

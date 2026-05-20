@@ -1681,9 +1681,6 @@ importers:
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
-      '@brainstrike/embeddings':
-        specifier: workspace:*
-        version: link:../embeddings
       '@brainstrike/indexing-contract':
         specifier: workspace:*
         version: link:../indexing-contract

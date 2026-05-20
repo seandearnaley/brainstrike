@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, Download, Folder, RefreshCw } from 'lucide-r
 import { useState } from 'react';
 import { useEnsureModelRegistry } from '../../hooks/use-model-registry';
 import { useModelRegistryStore } from '../../stores/model-registry-store';
+import { getModelRuntimeServices } from './model-runtime-services';
 
 const logger = createLogger('ModelRegistrySettingsSection');
 
@@ -47,12 +48,11 @@ export function ModelRegistrySettingsSection() {
 
     const cacheDir = modelCacheDir ?? undefined;
     const cacheDirOption = cacheDir ? { cacheDir } : {};
-    const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
-    const service = new SimpleEmbeddingService();
+    const { downloadEmbeddingModel } = getModelRuntimeServices();
     setDownloading(modelId, true);
     setDownloadProgress(modelId, 0);
     try {
-      await service.downloadModel(modelId, {
+      await downloadEmbeddingModel(modelId, {
         ...cacheDirOption,
         onProgress: (p) => {
           if (p.progress !== undefined) {

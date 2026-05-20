@@ -10,6 +10,7 @@ import type { DbModel } from '../../stores/model-registry-store';
 import { useModelRegistryStore } from '../../stores/model-registry-store';
 import { AssistantMemorySettingsSection } from './assistant-memory-settings-section';
 import { ModelList } from './model-list';
+import { getModelRuntimeServices } from './model-runtime-services';
 
 const logger = createLogger('ModelSelectionPage');
 
@@ -173,8 +174,7 @@ async function downloadEmbeddingModel(
   model: DbModel,
   { modelCacheDir, setDownloadProgress, setDownloading, toast }: DownloadDeps
 ): Promise<void> {
-  const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
-  const service = new SimpleEmbeddingService();
+  const { downloadEmbeddingModel: runEmbeddingModelDownload } = getModelRuntimeServices();
   const modelConfig = buildModelConfig(model);
 
   setDownloading(model.id, true);
@@ -200,7 +200,7 @@ async function downloadEmbeddingModel(
     }
 
     // Pass full config to bypass registry lookup
-    await service.downloadModel(model.id, options);
+    await runEmbeddingModelDownload(model.id, options);
 
     setDownloadProgress(model.id, 100);
     toast({

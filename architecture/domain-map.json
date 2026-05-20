@@ -60,13 +60,6 @@
       "retireByPhase": "phase-4"
     },
     {
-      "id": "preferences-embeddings-settings-coupling",
-      "sourcePackage": "@brainstrike/preferences",
-      "importedPackage": "@brainstrike/embeddings",
-      "reason": "Preferences currently imports embedding provider and service metadata. Phase 3 extracts a model/provider registry contract consumed by settings UI.",
-      "retireByPhase": "phase-3"
-    },
-    {
       "id": "ui-storage-theme-coupling",
       "sourcePackage": "@brainstrike/ui",
       "importedPackage": "@brainstrike/storage",

@@ -76,6 +76,7 @@ describe('preferences assistant contract boundary', () => {
     const packageJson = JSON.parse(readPackageFile('package.json')) as {
       dependencies?: Record<string, string>;
     };
+    const packageConfigFiles = ['package.json', 'tsconfig.json', 'vitest.config.mts'];
 
     expect(readSource('stores/model-registry-store.ts')).not.toMatch(
       /@brainstrike\/agent\/local-llm/
@@ -83,6 +84,31 @@ describe('preferences assistant contract boundary', () => {
     expect(readSource('settings/models/model-selection-page.tsx')).not.toMatch(
       /@brainstrike\/agent\/local-llm/
     );
+    expect(
+      packageConfigFiles.filter((relativePath) =>
+        /@brainstrike\/agent/.test(readPackageFile(relativePath))
+      )
+    ).toEqual([]);
     expect(packageJson.dependencies).not.toHaveProperty('@brainstrike/agent');
+  });
+
+  it('receives embedding model runtime operations from the app layer instead of importing embeddings', () => {
+    const packageJson = JSON.parse(readPackageFile('package.json')) as {
+      dependencies?: Record<string, string>;
+    };
+    const packageConfigFiles = ['package.json', 'tsconfig.json', 'vitest.config.mts'];
+
+    expect(readSource('settings/models/model-selection-page.tsx')).not.toMatch(
+      /@brainstrike\/embeddings/
+    );
+    expect(readSource('settings/models/model-registry-settings-section.tsx')).not.toMatch(
+      /@brainstrike\/embeddings/
+    );
+    expect(
+      packageConfigFiles.filter((relativePath) =>
+        /@brainstrike\/embeddings/.test(readPackageFile(relativePath))
+      )
+    ).toEqual([]);
+    expect(packageJson.dependencies).not.toHaveProperty('@brainstrike/embeddings');
   });
 });

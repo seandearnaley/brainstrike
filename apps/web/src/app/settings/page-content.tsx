@@ -8,6 +8,7 @@ import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
+import { configureModelRuntimeServices } from '@brainstrike/preferences/settings/models/model-runtime-services';
 import { ModelSelectionPage } from '@brainstrike/preferences/settings/models/model-selection-page';
 import {
   LoggingSettingsSection,
@@ -33,6 +34,14 @@ import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { getWebLogBuffer } from '../../log-buffer';
+
+configureModelRuntimeServices({
+  downloadEmbeddingModel: async (modelId, options) => {
+    const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
+    const service = new SimpleEmbeddingService();
+    await service.downloadModel(modelId, options);
+  },
+});
 
 /**
  * Transform NATIVE_TOOL_DEFAULTS into ToolDisplayMetadata format.
