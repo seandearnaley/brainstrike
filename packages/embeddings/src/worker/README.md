@@ -8,6 +8,7 @@ Current owned modules:
 - `embedding-worker.ts` - lifecycle and queue processing composition.
 - `embedding-cache-types.ts` - cache contract types for embedding dedupe.
 - `embedding-model-config.ts` - database-backed model metadata lookup and cache.
+- `embedding-worker-db-io.ts` - file chunk loading, vector-column assertions, embedding writes, and embedding-set dimension lookup.
 - `embedding-stats-refresh-controller.ts` - collection indexing stats refresh scheduling.
 - `embedding-cache-maintenance.ts` - cooperative cache eviction/maintenance after queue drains.
 

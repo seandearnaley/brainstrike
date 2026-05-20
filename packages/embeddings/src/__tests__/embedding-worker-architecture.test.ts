@@ -29,6 +29,16 @@ describe('embedding worker architecture', () => {
     expect(workerSource()).not.toContain('export function clearModelConfigCache');
   });
 
+  it('keeps database IO helpers outside the worker lifecycle module', () => {
+    expect(existsSync(path.join(workerRoot, 'embedding-worker-db-io.ts'))).toBe(true);
+    expect(workerSource()).not.toContain('async function loadChunk');
+    expect(workerSource()).not.toContain('async function loadChunksBatch');
+    expect(workerSource()).not.toContain('async function resolveIdType');
+    expect(workerSource()).not.toContain('async function assertVectorEmbeddingColumn');
+    expect(workerSource()).not.toContain('async function updateChunkEmbeddingBatch');
+    expect(workerSource()).not.toContain('async function resolveEmbeddingSetDimension');
+  });
+
   it('documents worker ownership and focused verification', () => {
     const readmePath = path.join(workerRoot, 'README.md');
     expect(existsSync(readmePath), 'worker must have an ownership README').toBe(true);

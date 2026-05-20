@@ -66,10 +66,11 @@ Package-local architecture coverage now verifies:
 
 ## Embedding Worker Slice Started
 
-`packages/embeddings/src/worker/embedding-worker.ts` is reduced from 2777 LOC to 2425 LOC by extracting three responsibilities:
+`packages/embeddings/src/worker/embedding-worker.ts` is reduced from 2777 LOC to 2189 LOC by extracting four responsibilities:
 
 - `embedding-cache-types.ts` owns cache contract types.
 - `embedding-model-config.ts` owns database-backed model metadata lookup and cache.
+- `embedding-worker-db-io.ts` owns file chunk loading, vector-column assertions, embedding writes, and embedding-set dimension lookup.
 - `embedding-stats-refresh-controller.ts` owns collection indexing stats refresh scheduling.
 
 Compatibility re-exports remain in `embedding-worker.ts` while current consumers migrate. Package-local architecture coverage now verifies these responsibilities stay outside the lifecycle module and that `src/worker/README.md` documents ownership and focused verification.
