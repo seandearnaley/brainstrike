@@ -78,7 +78,7 @@
   <header>
     <div class="eyebrow">Local-only pipeline reset evidence</div>
     <h1>Make the Brainstrike pipeline risk-based, timed, and boring</h1>
-    <p>This report records the local implementation state as of 2026-05-20 02:40 EDT. No cloud CI, PR updates, proof manifest refresh, or full E2E run was triggered for this slice.</p>
+    <p>This report records the local implementation state as of 2026-05-20 02:48 EDT. No cloud CI, PR updates, proof manifest refresh, or full E2E run was triggered for this slice.</p>
     <div class="flow">
       <span class="pill good">147 script/workflow tests passed</span>
       <span class="pill good">0 cloud activity</span>
@@ -165,12 +165,29 @@
   </section>
 
   <section class="card">
+    <h2>Fresh Local Timing Samples</h2>
+    <p>Measured locally on 2026-05-20 after the fixture contract landed. These samples cover the docs-only and config/tooling proof path only; they deliberately do not claim anything about product E2E, desktop embedding diagnostics, or release-full-risk.</p>
+    <table>
+      <thead><tr><th>Command</th><th>Lane use</th><th class="num">Wall time</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td><code>git diff --check</code></td><td>all local proofs</td><td class="num">0.00s</td><td>passed</td></tr>
+        <tr><td><code>git diff --check -- docs apps/docs README.md AGENTS.md CLAUDE.md</code></td><td>docs-only</td><td class="num">0.00s</td><td>passed</td></tr>
+        <tr><td><code>node --test ...ci-script-tests...</code></td><td>config/tooling</td><td class="num">0.08s</td><td>64 tests passed</td></tr>
+        <tr><td><code>pnpm run ci:risk-fixtures</code></td><td>config/tooling</td><td class="num">0.16s</td><td>12 representative cases passed</td></tr>
+        <tr><td><code>node --test scripts/__tests__/check-ci-workflow-contracts.test.mjs</code></td><td>workflow-contracts</td><td class="num">0.12s</td><td>65 tests passed</td></tr>
+        <tr><td><code>pnpm run lint:ci-workflow-contracts</code></td><td>workflow-contracts</td><td class="num">0.16s</td><td>passed</td></tr>
+      </tbody>
+    </table>
+    <p class="note">The measured config/tooling proof subtotal is about 0.52s plus process variance. That supports the fast local feedback path for tooling-only changes, while product lanes still need calibrated samples from real development work.</p>
+  </section>
+
+  <section class="card">
     <h2>Done Conditions</h2>
     <table>
       <thead><tr><th>Condition</th><th>Status</th><th>Evidence / remaining work</th></tr></thead>
       <tbody>
         <tr><td>10 representative changes select deterministic lanes</td><td class="ok">met with fixture contract</td><td><code>scripts/ci-risk-fixtures.json</code> records 12 representative diffs. <code>scripts/check-ci-risk-fixtures.mjs</code> verifies category, cloud labels, E2E lanes, and local proof commands, and is now part of <code>ci-script-tests</code>.</td></tr>
-        <tr><td>Median local PR-risk proof under 8 minutes</td><td class="warn">designed, not fully measured</td><td>Budgets are encoded per command. Needs repeated real local proof samples after this lands.</td></tr>
+        <tr><td>Median local PR-risk proof under 8 minutes</td><td class="warn">partially measured</td><td>Docs/config-tooling samples are sub-second locally. Product lanes still need repeated real samples before claiming the overall median.</td></tr>
         <tr><td>p95 local PR-risk proof under 15 minutes</td><td class="warn">designed, not fully measured</td><td>Timing JSON now supports p50/p95 capture; proof manifests now record per-command budget status; <code>ci:proof-timing-summary</code> summarizes p50/p95 across manifest samples. Calibration mode avoids noisy failures while collecting samples.</td></tr>
         <tr><td>Critical PR/cloud gate under 12 minutes p95 for non-E2E changes</td><td class="warn">design present</td><td>Cloud path was not triggered per constraint. Local selector now avoids E2E for docs/config where appropriate.</td></tr>
         <tr><td>Normal UI/product PR gate under 20 minutes p95</td><td class="warn">design present</td><td>Web UI lanes route to file-explorer package tests plus smoke first, not full E2E by default.</td></tr>
