@@ -1,19 +1,19 @@
 {
   "minSamples": 5,
   "normalRiskMissingSamples": 0,
-  "releaseOnlyMissingSamples": 5,
-  "selectedMissingSamples": 5,
+  "releaseOnlyMissingSamples": 4,
+  "selectedMissingSamples": 4,
   "status": "needs-samples",
   "commands": [
     {
       "name": "full-local-suite",
       "owner": "release",
-      "sampleCount": 0,
-      "missingSamples": 5,
-      "estimatedRemainingMs": 13500000,
+      "sampleCount": 1,
+      "missingSamples": 4,
+      "estimatedRemainingMs": 10800000,
       "releaseOnly": true,
       "selected": true,
-      "status": "missing"
+      "status": "calibrating"
     },
     {
       "name": "ci-script-tests",

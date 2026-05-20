@@ -1,9 +1,9 @@
 ## Local Calibration Timing Summary
 
-Calibration files: 34
-Command samples: 65
+Calibration files: 35
+Command samples: 66
 Minimum samples for hard status: 5
-Overall status: within-target
+Overall status: calibrating
 
 | Command | Owner | Samples | p50 | p95 | Budget | Status | Notes |
 |---|---|---:|---:|---:|---:|---|---|
@@ -15,6 +15,7 @@ Overall status: within-target
 | diff-check | tooling | 5 | 13ms | 13ms | 30.0s | within-target |  |
 | file-explorer-tests | workspace-experience | 5 | 21.0s | 22.1s | 4m 0s | within-target |  |
 | file-system-tests | data-platform | 5 | 1.1s | 1.2s | 2m 0s | within-target |  |
+| full-local-suite | release | 1 | 30m 5s | 30m 5s | 45m 0s | calibrating |  |
 | indexing-tests | indexing | 5 | 4.6s | 4.8s | 4m 0s | within-target |  |
 | migration-tests | data-platform | 5 | 33.5s | 33.9s | 3m 0s | within-target |  |
 | storage-tests | data-platform | 5 | 851ms | 918ms | 2m 0s | within-target |  |

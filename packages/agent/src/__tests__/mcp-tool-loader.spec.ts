@@ -7,6 +7,7 @@ import { toolRegistry as mcpToolRegistry } from '../mcp/tool-registry';
 describe('mcp-tool-loader', () => {
   afterEach(() => {
     mcpToolRegistry.clear();
+    vi.useRealTimers();
   });
 
   describe('collectCombinedTools', () => {
@@ -295,6 +296,8 @@ describe('mcp-tool-loader', () => {
     });
 
     it('uses custom timeout value when provided', async () => {
+      vi.useFakeTimers();
+      let settled = false;
       const mockMcpClient = {
         listTools: vi.fn().mockImplementation(
           () =>
@@ -304,8 +307,7 @@ describe('mcp-tool-loader', () => {
         ),
       };
 
-      const start = Date.now();
-      await collectCombinedTools({
+      const resultPromise = collectCombinedTools({
         sanitizedLocalTools: undefined,
         mcpClient: mockMcpClient as unknown as MCPClient,
         mcpConfig: {
@@ -319,11 +321,16 @@ describe('mcp-tool-loader', () => {
         },
         toolNameMap: new Map(),
         timeoutOverrideMs: 10, // Very short timeout
+      }).finally(() => {
+        settled = true;
       });
-      const duration = Date.now() - start;
 
-      // Should timeout quickly (within reasonable margin)
-      expect(duration).toBeLessThan(100);
+      await vi.advanceTimersByTimeAsync(9);
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(resultPromise).resolves.toEqual({});
+      expect(settled).toBe(true);
     });
 
     it('handles invalid timeout values by using default', async () => {

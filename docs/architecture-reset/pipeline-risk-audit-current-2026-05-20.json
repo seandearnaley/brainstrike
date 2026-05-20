@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "selection-and-calibration-summary",
-  "status": "missing-calibration",
+  "status": "calibrating",
   "riskProfile": {
     "category": "full-release-high-risk",
     "domains": [
@@ -61,11 +61,11 @@
       "command": "pnpm build && pnpm lint:ci && pnpm type-check && pnpm test && pnpm test:e2e",
       "selectedBudgetMs": 2700000,
       "currentBudgetMs": 2700000,
-      "p50Ms": null,
-      "p95Ms": null,
-      "sampleCount": 0,
-      "calibrationStatus": "missing",
-      "evidence": "missing-calibration",
+      "p50Ms": 1804838,
+      "p95Ms": 1804838,
+      "sampleCount": 1,
+      "calibrationStatus": "calibrating",
+      "evidence": "calibrating",
       "failureCount": 0
     }
   ]
