@@ -81,6 +81,7 @@
     "check:full": "node scripts/check.mjs --full",
     "check:headless": "pnpm -s run setup:headless && pnpm -s run check",
     "ci:local": "./scripts/local-ci.sh",
+    "ci:calibrate-proof-commands": "node scripts/ci-calibrate-proof-commands.mjs",
     "ci:prove": "node scripts/ci-proof.mjs prove",
     "ci:proof-timing-summary": "node scripts/ci-proof-timing-summary.mjs",
     "ci:risk-fixtures": "node scripts/check-ci-risk-fixtures.mjs",
