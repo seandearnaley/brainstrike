@@ -167,6 +167,45 @@ describe('LlmHostManager', () => {
     });
   });
 
+  it('exposes resetting platform status while a hidden host reset is in flight', async () => {
+    let resolveEnsureStarted!: () => void;
+    const runningStatus: {
+      active: boolean;
+      lastError: null;
+      runtimeId: string;
+      runtimeKind: 'llm-host';
+      state: 'running';
+    } = {
+      active: false,
+      lastError: null,
+      runtimeId: 'llm-host:next-runtime',
+      runtimeKind: 'llm-host',
+      state: 'running',
+    };
+    lifecycleState.ensureStarted.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveEnsureStarted = () => {
+          lifecycleState.setStatus(runningStatus);
+          resolve(runningStatus);
+        };
+      })
+    );
+    const manager = new LlmHostManager();
+
+    const resetPromise = manager.reset();
+
+    expect(manager.getPlatformStatus()).toMatchObject({
+      runtimeKind: 'llm-host',
+      state: 'resetting',
+    });
+
+    resolveEnsureStarted();
+    await expect(resetPromise).resolves.toMatchObject({
+      runtimeId: 'llm-host:next-runtime',
+      state: 'running',
+    });
+  });
+
   it('enforces a hard timeout ceiling even when progress keeps arriving', async () => {
     const manager = new LlmHostManager() as TestableLlmHostManager;
     const requester = createRequester(111);

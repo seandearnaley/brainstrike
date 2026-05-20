@@ -269,7 +269,7 @@
         <tr>
           <td>Hidden embedding and LLM host lifecycle is modeled, tested, and observable</td>
           <td><span class="status done">done</span></td>
-          <td><code>embedding-host-manager</code> and <code>llm-host-manager</code> expose <code>getPlatformStatus()</code>; state derivation tests cover active, ready, reset, restart, disposed, and failed state mapping.</td>
+          <td><code>embedding-host-manager</code> and <code>llm-host-manager</code> expose <code>getPlatformStatus()</code>; state derivation tests cover active, ready, reset, restart, disposed, and failed state mapping. Managers now hold explicit in-flight control state so diagnostics report <code>resetting</code> and <code>restarting</code> while those operations are actually underway, not only after source lifecycle state changes.</td>
         </tr>
         <tr>
           <td>Central diagnostics surface exposes platform state</td>
@@ -479,6 +479,11 @@
           <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/embedding-host-shared.test.ts src/__tests__/platform/desktop-ipc-channel-contract.test.ts</code></td>
           <td>Embedding host backfill-management channels now come from the typed background-runtime descriptor instead of standalone raw string constants, and the IPC contract test rejects future descriptor escape hatches.</td>
           <td><span class="status done">2 files / 8 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/embedding-host-manager.test.ts src/__tests__/llm-host-manager.test.ts</code></td>
+          <td>Embedding and LLM host managers expose explicit platform control states during reset/restart operations, so the central diagnostics snapshot can distinguish planned lifecycle work from generic starting/stopping source states.</td>
+          <td><span class="status done">2 files / 35 tests</span></td>
         </tr>
       </tbody>
     </table>

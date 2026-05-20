@@ -17,6 +17,7 @@ import {
 } from './embedding-host-shared';
 import {
   createRuntimeHostPlatformStatus,
+  type RuntimeHostControlState,
   type RuntimeHostPlatformStatus,
 } from './platform/runtime-host-state';
 import { RendererHostLifecycle } from './renderer-host-lifecycle';
@@ -42,6 +43,7 @@ export class EmbeddingHostManager {
   private pendingInactiveStatusReport: EmbeddingHostStatusReport | null = null;
   private powerSaveBlockerId: number | null = null;
   private pendingIdleStopTimer: ReturnType<typeof setTimeout> | null = null;
+  private controlState: RuntimeHostControlState | null = null;
   private readonly pendingQueryEmbeddingRequests = new Map<string, PendingQueryEmbeddingRequest>();
 
   constructor() {
@@ -101,7 +103,11 @@ export class EmbeddingHostManager {
 
   getPlatformStatus(): RuntimeHostPlatformStatus<'embedding-host'> {
     return createRuntimeHostPlatformStatus(this.getStatus(), {
-      ...(this.disposed ? { controlState: 'disposed' as const } : {}),
+      ...(this.disposed
+        ? { controlState: 'disposed' as const }
+        : this.controlState
+          ? { controlState: this.controlState }
+          : {}),
       pendingRequestCount: this.pendingQueryEmbeddingRequests.size,
     });
   }
@@ -174,6 +180,7 @@ export class EmbeddingHostManager {
     }
     const currentRuntimeId = this.getStatus().runtimeId;
     const nextRuntimeId = createRuntimeId('embedding-host');
+    this.controlState = 'resetting';
 
     this.lifecycle.setStatus(
       EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
@@ -207,6 +214,8 @@ export class EmbeddingHostManager {
         })
       );
       return this.getStatus();
+    } finally {
+      this.controlState = null;
     }
   }
 
@@ -222,11 +231,16 @@ export class EmbeddingHostManager {
     this.rejectPendingQueryEmbeddingRequests(
       'Embedding host restarted while query embedding requests were in flight.'
     );
+    this.controlState = 'restarting';
     this.clearPendingInactiveStatus();
     this.lifecycle.destroyHostWindow();
     this.lifecycle.clearHostWindow();
     this.lifecycle.setStatus(createStoppedEmbeddingHostStatus());
-    return this.ensureStarted({ waitForRunning: true });
+    try {
+      return await this.ensureStarted({ waitForRunning: true });
+    } finally {
+      this.controlState = null;
+    }
   }
 
   async queryEmbedding(payload: EmbeddingHostQueryEmbeddingPayload): Promise<number[]> {

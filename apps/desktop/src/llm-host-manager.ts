@@ -15,6 +15,7 @@ import {
 } from './llm-host-shared';
 import {
   createRuntimeHostPlatformStatus,
+  type RuntimeHostControlState,
   type RuntimeHostPlatformStatus,
 } from './platform/runtime-host-state';
 import { RendererHostLifecycle } from './renderer-host-lifecycle';
@@ -58,6 +59,7 @@ export class LlmHostManager {
   private readonly preCancelledRequestCleanups = new Map<string, PreCancelledRequestCleanup>();
   private readonly preCancelledRequestIds = new Set<string>();
   private readonly pendingRequests = new Map<string, PendingLlmRequest>();
+  private controlState: RuntimeHostControlState | null = null;
 
   constructor() {
     this.lifecycle = new RendererHostLifecycle<LlmHostStatus>({
@@ -104,7 +106,11 @@ export class LlmHostManager {
 
   getPlatformStatus(): RuntimeHostPlatformStatus<'llm-host'> {
     return createRuntimeHostPlatformStatus(this.getStatus(), {
-      ...(this.disposed ? { controlState: 'disposed' as const } : {}),
+      ...(this.disposed
+        ? { controlState: 'disposed' as const }
+        : this.controlState
+          ? { controlState: this.controlState }
+          : {}),
       pendingRequestCount: this.pendingRequests.size,
     });
   }
@@ -141,8 +147,13 @@ export class LlmHostManager {
   }
 
   async reset(): Promise<LlmHostStatus> {
-    await this.stop();
-    return this.ensureStarted({ waitForRunning: true });
+    this.controlState = 'resetting';
+    try {
+      await this.stop();
+      return await this.ensureStarted({ waitForRunning: true });
+    } finally {
+      this.controlState = null;
+    }
   }
 
   async dispose(): Promise<void> {
