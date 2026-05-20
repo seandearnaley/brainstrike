@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-20T06:47:06.136Z",
+  "dryRun": false,
+  "commandResults": [
+    {
+      "budgetMs": 180000,
+      "command": "pnpm --filter @brainstrike/assistant-contract test && pnpm --filter @brainstrike/agent test",
+      "name": "assistant-contract-tests",
+      "owner": "assistant",
+      "requiredFor": [
+        "assistant-contract-runtime"
+      ],
+      "budgetStatus": "ok",
+      "durationMs": 7329,
+      "exitCode": 0
+    },
+    {
+      "budgetMs": 240000,
+      "command": "pnpm --filter @brainstrike/indexing-contract test && pnpm --filter @brainstrike/pipeline test && pnpm --filter @brainstrike/file-import test",
+      "name": "indexing-tests",
+      "owner": "indexing",
+      "requiredFor": [
+        "indexing-import-embedding"
+      ],
+      "budgetStatus": "ok",
+      "durationMs": 4497,
+      "exitCode": 0
+    },
+    {
+      "budgetMs": 120000,
+      "command": "pnpm --filter @brainstrike/storage test",
+      "name": "storage-tests",
+      "owner": "data-platform",
+      "requiredFor": [
+        "db-migrations-storage"
+      ],
+      "budgetStatus": "ok",
+      "durationMs": 840,
+      "exitCode": 0
+    },
+    {
+      "budgetMs": 120000,
+      "command": "pnpm --filter @brainstrike/file-system test",
+      "name": "file-system-tests",
+      "owner": "data-platform",
+      "requiredFor": [
+        "db-migrations-storage"
+      ],
+      "budgetStatus": "ok",
+      "durationMs": 1083,
+      "exitCode": 0
+    }
+  ]
+}

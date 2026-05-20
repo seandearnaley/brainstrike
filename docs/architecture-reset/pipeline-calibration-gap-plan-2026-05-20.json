@@ -96,51 +96,11 @@
       "status": "calibrating"
     },
     {
-      "name": "indexing-tests",
-      "owner": "indexing",
-      "sampleCount": 1,
-      "missingSamples": 4,
-      "estimatedRemainingMs": 960000,
-      "releaseOnly": false,
-      "selected": false,
-      "status": "calibrating"
-    },
-    {
-      "name": "assistant-contract-tests",
-      "owner": "assistant",
-      "sampleCount": 1,
-      "missingSamples": 4,
-      "estimatedRemainingMs": 720000,
-      "releaseOnly": false,
-      "selected": false,
-      "status": "calibrating"
-    },
-    {
       "name": "migration-tests",
       "owner": "data-platform",
       "sampleCount": 1,
       "missingSamples": 4,
       "estimatedRemainingMs": 720000,
-      "releaseOnly": false,
-      "selected": false,
-      "status": "calibrating"
-    },
-    {
-      "name": "file-system-tests",
-      "owner": "data-platform",
-      "sampleCount": 1,
-      "missingSamples": 4,
-      "estimatedRemainingMs": 480000,
-      "releaseOnly": false,
-      "selected": false,
-      "status": "calibrating"
-    },
-    {
-      "name": "storage-tests",
-      "owner": "data-platform",
-      "sampleCount": 1,
-      "missingSamples": 4,
-      "estimatedRemainingMs": 480000,
       "releaseOnly": false,
       "selected": false,
       "status": "calibrating"

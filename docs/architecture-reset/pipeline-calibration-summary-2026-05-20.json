@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "generatedFrom": "calibration-files",
   "minSamples": 5,
-  "sampleCount": 14,
-  "commandSampleCount": 25,
+  "sampleCount": 18,
+  "commandSampleCount": 41,
   "status": "calibrating",
   "commands": [
     {
@@ -12,8 +12,8 @@
       "requiredFor": [
         "assistant-contract-runtime"
       ],
-      "sampleCount": 1,
-      "p50Ms": 8086,
+      "sampleCount": 5,
+      "p50Ms": 7322,
       "p95Ms": 8086,
       "currentBudgetMs": 180000,
       "recordedBudgetMs": 180000,
@@ -23,9 +23,13 @@
       "maxDurationMs": 8086,
       "failureCount": 0,
       "staleCommandSampleCount": 0,
-      "status": "calibrating",
+      "status": "within-target",
       "sources": [
-        "docs/architecture-reset/pipeline-calibration-assistant-2026-05-20.json"
+        "docs/architecture-reset/pipeline-calibration-assistant-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-5-2026-05-20.json"
       ]
     },
     {
@@ -175,8 +179,8 @@
       "requiredFor": [
         "db-migrations-storage"
       ],
-      "sampleCount": 1,
-      "p50Ms": 1209,
+      "sampleCount": 5,
+      "p50Ms": 1121,
       "p95Ms": 1209,
       "currentBudgetMs": 120000,
       "recordedBudgetMs": 120000,
@@ -186,8 +190,12 @@
       "maxDurationMs": 1209,
       "failureCount": 0,
       "staleCommandSampleCount": 0,
-      "status": "calibrating",
+      "status": "within-target",
       "sources": [
+        "docs/architecture-reset/pipeline-calibration-cheap-product-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-5-2026-05-20.json",
         "docs/architecture-reset/pipeline-calibration-storage-filesystem-2026-05-20.json"
       ]
     },
@@ -197,8 +205,8 @@
       "requiredFor": [
         "indexing-import-embedding"
       ],
-      "sampleCount": 1,
-      "p50Ms": 4823,
+      "sampleCount": 5,
+      "p50Ms": 4576,
       "p95Ms": 4823,
       "currentBudgetMs": 240000,
       "recordedBudgetMs": 240000,
@@ -208,8 +216,12 @@
       "maxDurationMs": 4823,
       "failureCount": 0,
       "staleCommandSampleCount": 0,
-      "status": "calibrating",
+      "status": "within-target",
       "sources": [
+        "docs/architecture-reset/pipeline-calibration-cheap-product-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-5-2026-05-20.json",
         "docs/architecture-reset/pipeline-calibration-db-indexing-2026-05-20.json"
       ]
     },
@@ -241,8 +253,8 @@
       "requiredFor": [
         "db-migrations-storage"
       ],
-      "sampleCount": 1,
-      "p50Ms": 918,
+      "sampleCount": 5,
+      "p50Ms": 851,
       "p95Ms": 918,
       "currentBudgetMs": 120000,
       "recordedBudgetMs": 120000,
@@ -252,8 +264,12 @@
       "maxDurationMs": 918,
       "failureCount": 0,
       "staleCommandSampleCount": 0,
-      "status": "calibrating",
+      "status": "within-target",
       "sources": [
+        "docs/architecture-reset/pipeline-calibration-cheap-product-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-5-2026-05-20.json",
         "docs/architecture-reset/pipeline-calibration-storage-filesystem-2026-05-20.json"
       ]
     },
