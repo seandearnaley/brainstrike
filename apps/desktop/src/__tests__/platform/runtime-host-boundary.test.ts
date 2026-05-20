@@ -142,6 +142,22 @@ describe('runtime host boundary', () => {
     expect(source).toMatch(/ipc-domains\/storage-preferences-ipc/);
   });
 
+  it('keeps host IPC modules on the typed desktop IPC registry instead of direct ipcMain calls', () => {
+    const hostSources = [
+      readDesktopSource('ipc-embedding-host.ts'),
+      readDesktopSource('ipc-chunking-host.ts'),
+      readDesktopSource('ipc-llm-host.ts'),
+    ];
+
+    for (const source of hostSources) {
+      expect(source).toMatch(
+        /createDesktopIpcRegistry|registerBackgroundRuntimeLifecycleIpcHandlers/
+      );
+      expect(source).not.toMatch(/ipcMain\.(handle|on)\(/);
+      expect(source).not.toMatch(/ipcMain\.remove(Handler|Listener)\(/);
+    }
+  });
+
   it('keeps desktop IPC database tests split by owned responsibility', () => {
     const databaseIpcTest = readDesktopSource('__tests__/main/ipc-handlers-db.test.ts');
     const embeddingBackfillIpcTest = readDesktopSource(

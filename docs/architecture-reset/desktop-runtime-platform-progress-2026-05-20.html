@@ -254,7 +254,7 @@
         <tr>
           <td>Adding an IPC channel has a domain owner and focused test path</td>
           <td><span class="status partial">partial</span></td>
-          <td>Registry and four extracted domains are tested. Preload and renderer bridges are still manually maintained for some older channels, so generated drift prevention is not complete.</td>
+          <td>Registry, four extracted domains, diagnostics, and hidden host IPC modules are tested. Preload and renderer bridges are still manually maintained for some older channels, so generated drift prevention is not complete.</td>
         </tr>
         <tr>
           <td>Renderer-only local LLM and embedding execution is enforceable</td>
@@ -345,6 +345,16 @@
           <td>The expanded diagnostics contract type-checks in both desktop and app-shell.</td>
           <td><span class="status done">passed</span></td>
         </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts -t "keeps host IPC modules"</code></td>
+          <td>Embedding, chunking, and LLM host IPC modules no longer register non-lifecycle channels through direct <code>ipcMain</code> calls.</td>
+          <td><span class="status done">passed</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/main/ipc-embedding-host.test.ts src/__tests__/main/ipc-chunking-host.test.ts src/__tests__/ipc-llm-host.test.ts</code></td>
+          <td>Typed registry migration preserved host status, response, chunking, warmup, generate, and cancel IPC behavior.</td>
+          <td><span class="status done">3 files / 27 tests</span></td>
+        </tr>
       </tbody>
     </table>
   </section>
@@ -356,8 +366,8 @@
       <tbody>
         <tr>
           <td>IPC drift prevention</td>
-          <td>Move LLM host, embedding host lifecycle, diagnostics, and preferences channels onto the typed registry pattern.</td>
-          <td>New channel additions require one contract definition, one domain handler, and one focused test with no hand-edited triple drift.</td>
+          <td>Continue moving older MCP, secrets, tools, parser-host, runtime, and ad hoc main-process channels onto owned domain registries.</td>
+          <td>Every new or moved channel has a domain, a typed registration path, and a focused test; preload remains the only intentional bridge literal surface until generation is introduced.</td>
         </tr>
         <tr>
           <td>Diagnostics depth</td>
