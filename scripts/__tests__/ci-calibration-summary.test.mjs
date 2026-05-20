@@ -80,6 +80,7 @@ test('parseCalibrationSummary groups calibration samples by current command budg
     recordedCommandStale: false,
     recordedBudgetMs: 300_000,
     recordedBudgetStale: false,
+    ignoredStaleCommandSampleCount: 0,
     staleCommandSampleCount: 0,
     requiredFor: ['db-migrations-storage'],
     sampleCount: 2,
@@ -147,6 +148,39 @@ test('parseCalibrationSummary marks stale command samples as stale evidence', ()
   assert.equal(summary.commands[0].status, 'stale-command');
   assert.equal(summary.commands[0].recordedCommandStale, true);
   assert.equal(summary.commands[0].staleCommandSampleCount, 1);
+});
+
+test('parseCalibrationSummary ignores stale command samples when current samples exist', () => {
+  const summary = parseCalibrationSummary(
+    [
+      calibration('one.json', [
+        {
+          budgetMs: 120_000,
+          command: 'node --test old-ci-script-tests.test.mjs',
+          durationMs: 310,
+          exitCode: 0,
+          name: 'ci-script-tests',
+        },
+      ]),
+      calibration('two.json', [
+        {
+          budgetMs: 120_000,
+          command:
+            'node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/ci-proof.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-workflow-contracts.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs scripts/__tests__/run-changed-unit-tests.test.mjs scripts/__tests__/ci-calibrate-proof-commands.test.mjs scripts/__tests__/ci-calibration-summary.test.mjs scripts/__tests__/ci-risk-audit.test.mjs && pnpm run ci:risk-fixtures',
+          durationMs: 320,
+          exitCode: 0,
+          name: 'ci-script-tests',
+        },
+      ]),
+    ],
+    { minSamples: 1 }
+  );
+
+  assert.equal(summary.status, 'within-target');
+  assert.equal(summary.commands[0].sampleCount, 1);
+  assert.equal(summary.commands[0].ignoredStaleCommandSampleCount, 1);
+  assert.equal(summary.commands[0].recordedCommandStale, false);
+  assert.equal(summary.commands[0].p95Ms, 320);
 });
 
 test('runCli writes markdown and JSON from a calibration directory', async () => {

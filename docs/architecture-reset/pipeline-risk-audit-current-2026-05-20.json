@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "selection-and-calibration-summary",
-  "status": "stale-command",
+  "status": "missing-calibration",
   "riskProfile": {
     "category": "full-release-high-risk",
     "domains": [
@@ -35,11 +35,11 @@
       "command": "node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/ci-proof.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-workflow-contracts.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs scripts/__tests__/run-changed-unit-tests.test.mjs scripts/__tests__/ci-calibrate-proof-commands.test.mjs scripts/__tests__/ci-calibration-summary.test.mjs scripts/__tests__/ci-risk-audit.test.mjs && pnpm run ci:risk-fixtures",
       "selectedBudgetMs": 120000,
       "currentBudgetMs": 120000,
-      "p50Ms": 310,
-      "p95Ms": 310,
+      "p50Ms": 320,
+      "p95Ms": 320,
       "sampleCount": 1,
-      "calibrationStatus": "stale-command",
-      "evidence": "stale-command",
+      "calibrationStatus": "calibrating",
+      "evidence": "calibrating",
       "failureCount": 0
     },
     {

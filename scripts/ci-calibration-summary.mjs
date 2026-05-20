@@ -137,18 +137,21 @@ function readCalibrationDocument(document, sourcePath) {
 }
 
 function summarizeCommand(name, samples, minSamples) {
-  const durations = samples.map((sample) => sample.durationMs);
+  const currentSamples = samples.filter(
+    (sample) => sample.recordedCommand === sample.command
+  );
+  const staleCommandSampleCount = samples.length - currentSamples.length;
+  const effectiveSamples = currentSamples.length > 0 ? currentSamples : samples;
+  const durations = effectiveSamples.map((sample) => sample.durationMs);
   const p95Ms = nearestRank(durations, 95);
-  const hasFailures = samples.some((sample) => sample.exitCode !== 0);
-  const staleCommandSampleCount = samples.filter(
-    (sample) => sample.recordedCommand !== sample.command
-  ).length;
-  const latest = samples[samples.length - 1];
+  const hasFailures = effectiveSamples.some((sample) => sample.exitCode !== 0);
+  const latest = effectiveSamples[effectiveSamples.length - 1];
+  const onlyStaleEvidence = currentSamples.length === 0 && staleCommandSampleCount > 0;
   const status = hasFailures
     ? 'failing'
-    : staleCommandSampleCount > 0
+    : onlyStaleEvidence
       ? 'stale-command'
-      : samples.length < minSamples
+      : effectiveSamples.length < minSamples
         ? 'calibrating'
         : p95Ms > latest.currentBudgetMs
           ? 'over-target'
@@ -157,18 +160,19 @@ function summarizeCommand(name, samples, minSamples) {
     name,
     owner: latest.owner,
     requiredFor: latest.requiredFor,
-    sampleCount: samples.length,
+    sampleCount: effectiveSamples.length,
     p50Ms: nearestRank(durations, 50),
     p95Ms,
     currentBudgetMs: latest.currentBudgetMs,
     recordedBudgetMs: latest.recordedBudgetMs,
     recordedBudgetStale: latest.recordedBudgetMs !== latest.currentBudgetMs,
-    recordedCommandStale: staleCommandSampleCount > 0,
+    recordedCommandStale: onlyStaleEvidence,
+    ignoredStaleCommandSampleCount: currentSamples.length > 0 ? staleCommandSampleCount : 0,
     maxDurationMs: Math.max(...durations),
-    failureCount: samples.filter((sample) => sample.exitCode !== 0).length,
-    staleCommandSampleCount,
+    failureCount: effectiveSamples.filter((sample) => sample.exitCode !== 0).length,
+    staleCommandSampleCount: onlyStaleEvidence ? staleCommandSampleCount : 0,
     status,
-    sources: samples.map((sample) => sample.sourcePath),
+    sources: effectiveSamples.map((sample) => sample.sourcePath),
   };
 }
 
@@ -220,6 +224,9 @@ export function renderMarkdownCalibrationSummary(summary) {
       command.failureCount > 0 ? `${command.failureCount} failures` : '',
       command.recordedCommandStale
         ? `${command.staleCommandSampleCount} stale command definition`
+        : '',
+      command.ignoredStaleCommandSampleCount > 0
+        ? `${command.ignoredStaleCommandSampleCount} stale samples ignored`
         : '',
     ]
       .filter(Boolean)
