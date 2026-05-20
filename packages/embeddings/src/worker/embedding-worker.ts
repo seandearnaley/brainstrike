@@ -1,6 +1,5 @@
 import type { IDatabase, Job } from '@brainstrike/db';
 import { JobQueue } from '@brainstrike/db';
-import type { ProviderDimensionParameter } from '@brainstrike/queue';
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import { SimpleEmbeddingService } from '../bge-m3-service';
 import type {
@@ -9,7 +8,6 @@ import type {
   LocalProviderType,
 } from '../provider-types';
 import { isLocalProviderType } from '../provider-types';
-import { formatProviderModelKey, isHostedProvider, parseProviderModelKey } from '../provider-utils';
 import type {
   EmbeddingConfig,
   EmbeddingResult,
@@ -18,7 +16,7 @@ import type {
   ModelConfig,
 } from '../types';
 import { EmbeddingCacheMaintenanceController } from './embedding-cache-maintenance';
-import type { CachedEmbedding, EmbeddingCacheInterface } from './embedding-cache-types';
+import type { EmbeddingCacheInterface } from './embedding-cache-types';
 import { getModelConfigFromDb } from './embedding-model-config';
 import {
   buildHostedProviderConfig,
@@ -38,13 +36,33 @@ import {
 } from './embedding-provider-runtime';
 import { createEmbeddingStatsRefreshController } from './embedding-stats-refresh-controller';
 import {
+  filterCacheMisses,
+  lookupCacheHits,
+  reconstructResults,
+  storeToCacheAsync,
+} from './embedding-worker-cache-io';
+import { type LoadedChunkItem, loadAndFilterChunks } from './embedding-worker-chunk-filter';
+import {
   assertVectorEmbeddingColumn,
-  type loadChunk,
-  loadChunksBatch,
   resolveEmbeddingSetDimension,
   resolveIdType,
   updateChunkEmbeddingBatch,
 } from './embedding-worker-db-io';
+import { classifyFailure, JobProcessingError } from './embedding-worker-failures';
+import {
+  assertEmbedChunkJob,
+  type EmbedChunkPayload,
+  type EmbeddingJobModel,
+  resolveJobModel,
+  resolveTargetSetId,
+} from './embedding-worker-job-payload';
+import {
+  CLAIM_SIZE_RESOLVER_FAILURE_BACKOFF_MS,
+  DEFAULT_CLAIM_BATCH_SIZE,
+  resolveIdlePollBackoffOptions,
+  resolvePositiveIntegerOption,
+  shouldLogIdleBackoff,
+} from './embedding-worker-scheduler';
 
 export type { CachedEmbedding, EmbeddingCacheInterface } from './embedding-cache-types';
 export { clearModelConfigCache, invalidateModelConfigCache } from './embedding-model-config';
@@ -60,55 +78,31 @@ const workerLogger = createLogger('EmbeddingWorker');
 type Distance = 'cosine' | 'l2' | 'ip';
 
 export interface EmbeddingWorkerOptions {
-  cacheDir?: string; // directory to cache/load models from
-  /**
-   * Maximum number of queue jobs claimed in a single poll iteration.
-   * Keep this modest in desktop flows to reduce bursty CPU/memory pressure.
-   */
+  cacheDir?: string;
   claimBatchSize?: number;
-  concurrency?: number; // default: 1..4
+  concurrency?: number;
   db: IDatabase;
-  device?: 'webgpu' | 'wasm'; // preferred device for transformers backend
-  distance?: Distance; // default: 'cosine'
-  /** Optional embedding cache for content-level deduplication (BST-170) */
+  device?: 'webgpu' | 'wasm';
+  distance?: Distance;
   embeddingCache?: EmbeddingCacheInterface;
-  enable?: boolean; // explicit runtime toggle; overrides env flag
-  heartbeatIntervalMs?: number; // default: 10000
-  /**
-   * Initial delay after an idle queue poll. The delay doubles on repeated idle
-   * polls until idlePollMaxMs is reached.
-   */
+  enable?: boolean;
+  heartbeatIntervalMs?: number;
   idlePollInitialMs?: number;
-  /** Maximum delay after repeated idle queue polls. */
   idlePollMaxMs?: number;
-  /**
-   * If false, the worker starts its queue/lease loop without initializing the
-   * local embedding model. The first claimed local job must perform the model
-   * initialization explicitly.
-   */
   initializeLocalModelOnStart?: boolean;
-  /**
-   * Delay between claimed batches.
-   * Use this to deliberately trade throughput for smoother foreground responsiveness.
-   */
   interBatchDelayMs?: number;
-  leaseMs?: number; // default: 60000
+  leaseMs?: number;
   log?: (msg: string, meta?: unknown) => void;
-  metricsIntervalMs?: number; // optional metrics log interval; default env or 30000
-  modelKey?: string | undefined; // default: registry default
+  metricsIntervalMs?: number;
+  modelKey?: string | undefined;
   now?: () => number;
   onDownloadProgress?: (modelId: string, progress: number) => void;
   onFatalError?: (error: Error) => void;
   onWorkerActivityChange?: (active: boolean) => void;
-  queue?: string; // default: 'embeddings'
-  reinitEveryN?: number; // reinitialize service every N successes (default disabled unless env/option set)
-  /**
-   * Optional per-poll effective claim size. The returned value is capped by
-   * claimBatchSize so callers can adapt to foreground pressure without
-   * bypassing the configured maximum burst size.
-   */
+  queue?: string;
+  reinitEveryN?: number;
   resolveClaimBatchSize?: () => number | Promise<number>;
-  service?: EmbeddingService; // optional DI for tests or custom backends
+  service?: EmbeddingService;
   statsRefreshCompletedChunkThreshold?: number;
   statsRefreshMinIntervalMs?: number;
   /**
@@ -117,77 +111,17 @@ export interface EmbeddingWorkerOptions {
    * This is intended for desktop hidden-host mode to avoid renderer churn.
    */
   stopOnFatalLocalError?: boolean;
-  /** Explicit worker URL for streamed local embedding execution in the renderer host. */
   streamingWorkerUrl?: string;
   waitForBackgroundPermit?: (options: { readonly label: string }) => Promise<void>;
-  workerId?: string; // optional
+  workerId?: string;
 }
 
 export interface EmbeddingWorkerController {
   stop: () => Promise<void>;
 }
 
-const DEFAULT_CLAIM_BATCH_SIZE = 50;
-const CLAIM_SIZE_RESOLVER_FAILURE_BACKOFF_MS = 1000;
-const DEFAULT_IDLE_POLL_INITIAL_MS = 400;
-const DEFAULT_IDLE_POLL_MAX_MS = 1000;
 const DEFAULT_STATS_REFRESH_MIN_INTERVAL_MS = 5000;
 const DEFAULT_STATS_REFRESH_COMPLETED_CHUNK_THRESHOLD = 512;
-
-function resolvePositiveIntegerOption(
-  value: number | undefined,
-  defaultValue: number,
-  name: string
-): number {
-  const resolved = value ?? defaultValue;
-  if (!Number.isInteger(resolved) || resolved <= 0) {
-    throw new Error(`${name} must be a positive integer when configured.`);
-  }
-  return resolved;
-}
-
-function resolveIdlePollBackoffOptions(options: EmbeddingWorkerOptions): {
-  readonly initialMs: number;
-  readonly maxMs: number;
-} {
-  const initialMs = resolvePositiveIntegerOption(
-    options.idlePollInitialMs,
-    DEFAULT_IDLE_POLL_INITIAL_MS,
-    'idlePollInitialMs'
-  );
-  const maxMs = resolvePositiveIntegerOption(
-    options.idlePollMaxMs,
-    DEFAULT_IDLE_POLL_MAX_MS,
-    'idlePollMaxMs'
-  );
-  if (maxMs < initialMs) {
-    throw new Error(
-      `idlePollMaxMs must be greater than or equal to idlePollInitialMs; received ${maxMs} < ${initialMs}.`
-    );
-  }
-  return { initialMs, maxMs };
-}
-
-function shouldLogIdleBackoff(
-  idlePollCount: number,
-  hasReachedMaxBackoff: boolean,
-  hasLoggedMaxBackoff: boolean
-): boolean {
-  if (hasReachedMaxBackoff && !hasLoggedMaxBackoff) {
-    return true;
-  }
-  return (idlePollCount & (idlePollCount - 1)) === 0;
-}
-
-interface EmbedChunkPayload {
-  chunkId: string;
-  dimensionParameter?: ProviderDimensionParameter | null;
-  embeddingSetId?: string | null;
-  expectedDimension?: number;
-  fileRecordId?: string;
-  modelKey?: string | null;
-  provider?: EmbeddingProviderType | null;
-}
 
 type StreamingEmbeddingService = EmbeddingService & {
   generateEmbeddingsStream: (
@@ -670,20 +604,8 @@ export async function startEmbeddingWorker(
   // biome-ignore lint/style/useNamingConvention: DB field name
   type ClaimedJob = Job & { lease_token: string };
 
-  class JobProcessingError extends Error {
-    remainingJobs: ClaimedJob[];
-    readonly originalError?: unknown;
-
-    constructor(message: string, remainingJobs: ClaimedJob[], cause?: unknown) {
-      super(message);
-      this.name = 'JobProcessingError';
-      this.remainingJobs = remainingJobs;
-      this.originalError = cause;
-    }
-  }
-
   async function generateLocalEmbeddings(
-    chunks: NonNullable<Awaited<ReturnType<typeof loadChunk>>>[],
+    chunks: LoadedChunkItem['chunk'][],
     expectedDimension: number
   ): Promise<EmbeddingResult[]> {
     if (!Number.isFinite(expectedDimension) || expectedDimension <= 0) {
@@ -771,30 +693,6 @@ export async function startEmbeddingWorker(
 
     return embeddings;
   }
-  function assertEmbedChunkJob(claimed: ClaimedJob): EmbedChunkPayload {
-    if (claimed.jobType !== 'embed_chunk') {
-      throw new Error(`Unsupported job type: ${claimed.jobType}`);
-    }
-    const payload = (claimed.payload || {}) as EmbedChunkPayload;
-    if (typeof payload.chunkId !== 'string' || payload.chunkId.length === 0) {
-      throw new Error('Missing chunkId in payload');
-    }
-    if (typeof payload.embeddingSetId !== 'string' || payload.embeddingSetId.length === 0) {
-      throw new Error('Missing embeddingSetId in payload');
-    }
-    if (typeof payload.modelKey !== 'string' || payload.modelKey.length === 0) {
-      throw new Error('Missing modelKey in payload');
-    }
-    if (!Number.isFinite(payload.expectedDimension) || (payload.expectedDimension ?? 0) <= 0) {
-      throw new Error('Missing expectedDimension in payload');
-    }
-    return payload;
-  }
-
-  function resolveTargetSetId(payload: EmbedChunkPayload): string {
-    return payload.embeddingSetId ?? '';
-  }
-
   async function determineExpectedDimension(
     targetSetId: string,
     payload: EmbedChunkPayload
@@ -817,69 +715,6 @@ export async function startEmbeddingWorker(
     }
 
     return setDimension;
-  }
-
-  function isEmbeddingUpToDate(
-    chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>,
-    expectedHash: string
-  ): boolean {
-    return Boolean(chunk.embeddingHash && chunk.embeddingHash === expectedHash);
-  }
-
-  function parseStatusCode(message: string): number | undefined {
-    const statusMatch = /status (\d{3})/i.exec(message);
-    return statusMatch ? Number(statusMatch[1]) : undefined;
-  }
-
-  function parseHostedStatusCode(message: string): number | undefined {
-    const hostedStatusMatch = /API error \((\d{3})\)/i.exec(message);
-    return hostedStatusMatch ? Number(hostedStatusMatch[1]) : undefined;
-  }
-
-  function classifyFailure(error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    const truncated = summarizeErrorMessage(message);
-
-    const backoffMs =
-      error instanceof WorkerRateLimitError && error.retryAfterMs ? error.retryAfterMs : undefined;
-
-    const hostedStatusCode = parseHostedStatusCode(message);
-    const isHostedTerminal =
-      hostedStatusCode !== undefined &&
-      hostedStatusCode >= 400 &&
-      hostedStatusCode < 500 &&
-      hostedStatusCode !== 429;
-
-    const statusCode = parseStatusCode(message);
-    const isExplicitTerminalStatus =
-      statusCode !== undefined && [400, 401, 403, 422].includes(statusCode);
-
-    const isTerminal =
-      isExplicitTerminalStatus ||
-      isHostedTerminal ||
-      /context length exceeded/i.test(message) ||
-      /invalid input/i.test(message);
-
-    return {
-      backoffMs,
-      isTerminal,
-      truncated,
-    };
-  }
-
-  function summarizeErrorMessage(message: string, limit = 4000): string {
-    if (message.length <= limit) {
-      return message;
-    }
-    const separator = ' ...[truncated]... ';
-    const available = limit - separator.length;
-    if (available <= 0) {
-      return message.slice(0, limit);
-    }
-
-    const head = Math.floor(available / 2);
-    const tail = available - head;
-    return `${message.slice(0, head)}${separator}${message.slice(message.length - tail)}`;
   }
 
   async function handleBatchFailure(jobs: ClaimedJob[], error: unknown) {
@@ -917,77 +752,6 @@ export async function startEmbeddingWorker(
     }
   }
 
-  async function loadAndFilterChunks(
-    jobs: ClaimedJob[],
-    jobModel: ReturnType<typeof resolveJobModel>
-  ) {
-    // 1. Load all chunks
-    const chunkIds = jobs.map((job) => assertEmbedChunkJob(job).chunkId);
-    const loadedChunks = await loadChunksBatch(options.db, chunkIds, fileChunkIdType);
-    const chunkMap = new Map(loadedChunks.map((c) => [c.id, c]));
-
-    // 2. Partition jobs into "chunk exists" vs "orphaned" (referenced chunk
-    // was deleted between queue claim and load). Re-chunking the same file
-    // is the most common cause: old chunks are deleted, new chunks have
-    // new IDs, but in-flight jobs still point at the deleted IDs. Failing
-    // the whole batch on one orphan poisoned the other ~15 jobs in the
-    // same batch (real-world capture 2026-05-17: 15 batches × ~16 jobs
-    // each lost to a single orphan per batch). Fix: terminally fail JUST
-    // the orphan jobs and let the rest of the batch proceed.
-    const found: {
-      job: ClaimedJob;
-      chunk: NonNullable<ReturnType<typeof chunkMap.get>>;
-      payload: ReturnType<typeof assertEmbedChunkJob>;
-    }[] = [];
-    const orphans: { job: ClaimedJob; chunkId: string }[] = [];
-    for (const job of jobs) {
-      const p = assertEmbedChunkJob(job);
-      const chunk = chunkMap.get(p.chunkId);
-      if (chunk) {
-        found.push({ job, chunk, payload: p });
-      } else {
-        orphans.push({ job, chunkId: p.chunkId });
-      }
-    }
-
-    if (orphans.length > 0) {
-      // Log once per batch at warn level — not error, because this is an
-      // expected outcome of re-chunking. If it sustains at high volume,
-      // it's worth investigating the chunking↔embedding queue cleanup.
-      workerLogger.warn('Embedding jobs reference deleted chunks; failing as terminal', {
-        orphanCount: orphans.length,
-        sampleChunkIds: orphans.slice(0, 3).map((o) => o.chunkId),
-      });
-      await jq.failBatch({
-        jobs: orphans.map((o) => ({ id: o.job.id, leaseToken: o.job.lease_token })),
-        error: 'Chunk no longer exists (likely re-chunked or deleted)',
-        terminal: true,
-      });
-      metrics.jobsFailed += orphans.length;
-    }
-
-    // 3. Filter remaining jobs into "up to date" vs "needs processing"
-    const toProcess: LoadedChunkItem[] = [];
-    const completed: LoadedChunkItem[] = [];
-    for (const item of found) {
-      const expectedHash = await sha256Hex(`${item.chunk.contentHash}:${jobModel.compositeKey}`);
-      const tagged = { ...item, expectedHash };
-      if (isEmbeddingUpToDate(item.chunk, expectedHash)) {
-        completed.push(tagged);
-      } else {
-        toProcess.push(tagged);
-      }
-    }
-    return { toProcess, completed };
-  }
-
-  interface LoadedChunkItem {
-    chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>;
-    expectedHash: string; // BST-358: computed once in loadAndFilterChunks
-    job: ClaimedJob;
-    payload: EmbedChunkPayload;
-  }
-
   const embeddingCacheMaintenance = options.embeddingCache
     ? new EmbeddingCacheMaintenanceController(options.embeddingCache, {
         log,
@@ -1008,99 +772,20 @@ export async function startEmbeddingWorker(
     await options.embeddingCache?.flushPendingAccessTimeUpdates?.();
   }
 
-  // BST-170: Helper to lookup cache hits
-  async function lookupCacheHits(
-    items: LoadedChunkItem[],
-    modelKey: string
-  ): Promise<Map<string, CachedEmbedding>> {
-    const cache = options.embeddingCache;
-    if (!cache) {
-      return new Map();
-    }
-
-    const requests = items.map((item) => ({
-      contentHash: item.chunk.contentHash,
-      modelKey,
-    }));
-    const hits = await cache.getBatch(requests);
-    workerLogger.debug('Cache lookup complete', {
-      requested: items.length,
-      hits: hits.size,
-      modelKey,
-    });
-    return hits;
-  }
-
-  // BST-170: Helper to filter cache misses
-  function filterCacheMisses(
-    items: LoadedChunkItem[],
-    cacheHits: Map<string, CachedEmbedding>,
-    modelKey: string
-  ): LoadedChunkItem[] {
-    return items.filter((item) => {
-      const cacheKey = `${item.chunk.contentHash}:${modelKey}`;
-      return !cacheHits.has(cacheKey);
-    });
-  }
-
-  // BST-170: Helper to store embeddings to cache without failing embedding completion.
-  function storeToCacheAsync(
-    items: LoadedChunkItem[],
-    embeddings: number[][],
-    modelKey: string,
-    dimensions: number
-  ): void {
-    const cache = options.embeddingCache;
-    if (!cache || embeddings.length === 0) {
-      return;
-    }
-
-    const entries = items
-      .map((item, idx) => {
-        const embedding = embeddings[idx];
-        return embedding
-          ? { contentHash: item.chunk.contentHash, modelKey, embedding, dimensions }
-          : null;
-      })
-      .filter((e): e is NonNullable<typeof e> => e !== null);
-
-    trackCacheWrite(cache.setBatch(entries));
-  }
-
-  // BST-170: Helper to reconstruct results combining cache hits and generated
-  function reconstructResults(
-    items: LoadedChunkItem[],
-    cacheHits: Map<string, CachedEmbedding>,
-    generated: number[][],
-    modelKey: string
-  ): number[][] {
-    const results: number[][] = [];
-    let genIdx = 0;
-    for (const item of items) {
-      const cacheKey = `${item.chunk.contentHash}:${modelKey}`;
-      const cached = cacheHits.get(cacheKey);
-      if (cached) {
-        results.push(cached.embedding);
-      } else {
-        const embedding = generated[genIdx++];
-        if (!embedding) {
-          throw new Error(`Missing generated embedding at index ${genIdx - 1}`);
-        }
-        results.push(embedding);
-      }
-    }
-    return results;
-  }
-
   async function generateEmbeddingsForGroup(
-    jobModel: ReturnType<typeof resolveJobModel>,
+    jobModel: EmbeddingJobModel,
     toProcess: LoadedChunkItem[],
     expectedDimension: number
   ): Promise<number[][]> {
     const modelKey = jobModel.compositeKey;
 
     // BST-170: Check cache for existing embeddings
-    const cacheHits = await lookupCacheHits(toProcess, modelKey);
+    const cacheHits = await lookupCacheHits(
+      options.embeddingCache,
+      toProcess,
+      modelKey,
+      workerLogger
+    );
     const cacheMisses = filterCacheMisses(toProcess, cacheHits, modelKey);
 
     // All items were cache hits
@@ -1136,7 +821,14 @@ export async function startEmbeddingWorker(
     }
 
     // BST-170: Store generated embeddings in cache (fire-and-forget)
-    storeToCacheAsync(cacheMisses, generatedEmbeddings, modelKey, expectedDimension);
+    storeToCacheAsync(
+      options.embeddingCache,
+      cacheMisses,
+      generatedEmbeddings,
+      modelKey,
+      expectedDimension,
+      trackCacheWrite
+    );
 
     return reconstructResults(toProcess, cacheHits, generatedEmbeddings, modelKey);
   }
@@ -1244,7 +936,7 @@ export async function startEmbeddingWorker(
   }
 
   async function processLocalGroupIncrementally(
-    jobModel: ReturnType<typeof resolveJobModel>,
+    jobModel: EmbeddingJobModel,
     toProcess: LoadedChunkItem[],
     expectedDimension: number,
     completedJobIds: Set<string>,
@@ -1252,7 +944,12 @@ export async function startEmbeddingWorker(
     onJobsCompleted?: (jobIds: Set<string>) => void
   ): Promise<void> {
     const modelKey = jobModel.compositeKey;
-    const cacheHits = await lookupCacheHits(toProcess, modelKey);
+    const cacheHits = await lookupCacheHits(
+      options.embeddingCache,
+      toProcess,
+      modelKey,
+      workerLogger
+    );
     const cacheMisses = filterCacheMisses(toProcess, cacheHits, modelKey);
     const cacheHitItems = toProcess.filter((item) =>
       cacheHits.has(`${item.chunk.contentHash}:${modelKey}`)
@@ -1305,7 +1002,14 @@ export async function startEmbeddingWorker(
           });
 
           await completeBatchAndTrack(batchItems, embeddings, completedJobIds, onJobsCompleted);
-          storeToCacheAsync(batchItems, embeddings, modelKey, expectedDimension);
+          storeToCacheAsync(
+            options.embeddingCache,
+            batchItems,
+            embeddings,
+            modelKey,
+            expectedDimension,
+            trackCacheWrite
+          );
         }
       );
     } catch (error) {
@@ -1315,43 +1019,6 @@ export async function startEmbeddingWorker(
     localModelExecutionFailure = null;
 
     await maybeReinitialize();
-  }
-
-  function resolveJobModel(payload: EmbedChunkPayload): {
-    compositeKey: string;
-    provider: EmbeddingProviderType;
-    modelId: string;
-  } {
-    const rawModelKey = payload.modelKey ?? '';
-    const providerHint = payload.provider ?? undefined;
-
-    const candidateComposite = (() => {
-      const parsed = parseProviderModelKey(rawModelKey);
-      if (parsed) {
-        return rawModelKey;
-      }
-      if (providerHint && isHostedProvider(providerHint)) {
-        return formatProviderModelKey(providerHint, rawModelKey);
-      }
-      throw new Error(`Invalid modelKey in payload: ${rawModelKey}`);
-    })();
-
-    const compositeKey = candidateComposite;
-    const parsed = parseProviderModelKey(compositeKey);
-
-    if (parsed) {
-      return {
-        compositeKey,
-        provider: parsed.provider,
-        modelId: parsed.modelId,
-      };
-    }
-
-    return {
-      compositeKey,
-      provider: 'local',
-      modelId: compositeKey,
-    };
   }
 
   function startHeartbeat(jobs: ClaimedJob[], onLeaseLost: (job: ClaimedJob) => void) {
@@ -1416,11 +1083,20 @@ export async function startEmbeddingWorker(
 
   async function processJobGroup(
     jobs: ClaimedJob[],
-    jobModel: ReturnType<typeof resolveJobModel>,
+    jobModel: EmbeddingJobModel,
     checkLease: () => boolean,
     onJobsCompleted?: (jobIds: Set<string>) => void
   ) {
-    const { toProcess, completed } = await loadAndFilterChunks(jobs, jobModel);
+    const { toProcess, completed, orphanCount } = await loadAndFilterChunks(jobs, jobModel, {
+      db: options.db,
+      failOrphanJobs: async (orphanJobs, error) => {
+        await jq.failBatch({ jobs: orphanJobs, error, terminal: true });
+      },
+      fileChunkIdType,
+      hashExpectedEmbedding: sha256Hex,
+      logWarn: (message, meta) => workerLogger.warn(message, meta),
+    });
+    metrics.jobsFailed += orphanCount;
     const completedJobIds = new Set<string>(completed.map((item) => item.job.id));
 
     try {
@@ -1511,9 +1187,7 @@ export async function startEmbeddingWorker(
     }
   }
 
-  async function resolveJobModelOrFail(
-    jobs: ClaimedJob[]
-  ): Promise<ReturnType<typeof resolveJobModel> | null> {
+  async function resolveGroupJobModelOrFail(jobs: ClaimedJob[]): Promise<EmbeddingJobModel | null> {
     const firstJob = jobs[0];
     if (!firstJob) {
       return null;
@@ -1581,7 +1255,7 @@ export async function startEmbeddingWorker(
       return;
     }
 
-    const jobModel = await resolveJobModelOrFail(jobs);
+    const jobModel = await resolveGroupJobModelOrFail(jobs);
     if (!jobModel) {
       return;
     }

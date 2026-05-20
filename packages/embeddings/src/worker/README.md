@@ -9,7 +9,12 @@ Current owned modules:
 - `embedding-cache-types.ts` - cache contract types for embedding dedupe.
 - `embedding-model-config.ts` - database-backed model metadata lookup and cache.
 - `embedding-provider-runtime.ts` - model resolution, runtime gating, hosted-provider setup, dimension validation, and rate-limit errors.
+- `embedding-worker-cache-io.ts` - embedding cache lookup, miss filtering, write scheduling, and result reconstruction.
+- `embedding-worker-chunk-filter.ts` - chunk loading, orphan handling, and up-to-date filtering for claimed jobs.
 - `embedding-worker-db-io.ts` - file chunk loading, vector-column assertions, embedding writes, and embedding-set dimension lookup.
+- `embedding-worker-failures.ts` - worker failure classification and job-processing error ownership.
+- `embedding-worker-job-payload.ts` - embed job payload validation and model-key resolution.
+- `embedding-worker-scheduler.ts` - claim-size and idle-backoff scheduling helpers.
 - `embedding-stats-refresh-controller.ts` - collection indexing stats refresh scheduling.
 - `embedding-cache-maintenance.ts` - cooperative cache eviction/maintenance after queue drains.
 

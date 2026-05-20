@@ -20,7 +20,6 @@ This inventory tracks size and churn hotspots that remain after the legal domain
 | 2074 | `packages/file-explorer/src/actions/__tests__/file-selection-actions.test.ts` | Split action tests by command family. |
 | 2044 | `packages/app-shell/src/background-indexing/workspace-collection-sync-service.ts` | Move orchestration behind indexing-owned contracts. |
 | 1853 | `packages/file-explorer-ui/src/indexing/use-background-token-indexer-integration.ts` | Split into indexer lifecycle, progress aggregation, and cache sync modules. |
-| 1806 | `packages/embeddings/src/worker/embedding-worker.ts` | Continue splitting scheduler/backpressure, telemetry, and host messaging. |
 | 1734 | `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts` | Split with service extraction. |
 | 1689 | `packages/db-explorer/src/use-database-demo-data.ts` | Review after db internal decomposition. |
 | 1629 | `apps/desktop/src/ipc-handlers.ts` | Move toward domain-keyed IPC registries. |
@@ -66,12 +65,17 @@ Package-local architecture coverage now verifies:
 
 ## Embedding Worker Slice Started
 
-`packages/embeddings/src/worker/embedding-worker.ts` is reduced from 2777 LOC to 1806 LOC by extracting five responsibilities:
+`packages/embeddings/src/worker/embedding-worker.ts` is reduced from 2777 LOC to 1485 LOC by extracting ten responsibilities:
 
 - `embedding-cache-types.ts` owns cache contract types.
 - `embedding-model-config.ts` owns database-backed model metadata lookup and cache.
 - `embedding-provider-runtime.ts` owns model resolution, runtime gating, hosted-provider setup, dimension validation, and rate-limit errors.
+- `embedding-worker-cache-io.ts` owns embedding cache lookup, miss filtering, write scheduling, and result reconstruction.
+- `embedding-worker-chunk-filter.ts` owns chunk loading, orphan handling, and up-to-date filtering for claimed jobs.
 - `embedding-worker-db-io.ts` owns file chunk loading, vector-column assertions, embedding writes, and embedding-set dimension lookup.
+- `embedding-worker-failures.ts` owns worker failure classification and job-processing error ownership.
+- `embedding-worker-job-payload.ts` owns embed job payload validation and model-key resolution.
+- `embedding-worker-scheduler.ts` owns claim-size and idle-backoff scheduling helpers.
 - `embedding-stats-refresh-controller.ts` owns collection indexing stats refresh scheduling.
 
 Compatibility re-exports remain in `embedding-worker.ts` while current consumers migrate. Package-local architecture coverage now verifies these responsibilities stay outside the lifecycle module and that `src/worker/README.md` documents ownership and focused verification.

@@ -49,6 +49,27 @@ describe('embedding worker architecture', () => {
     expect(workerSource()).not.toContain('class WorkerRateLimitError');
   });
 
+  it('keeps scheduler, failure, cache, and job payload helpers outside the lifecycle module', () => {
+    expect(existsSync(path.join(workerRoot, 'embedding-worker-scheduler.ts'))).toBe(true);
+    expect(existsSync(path.join(workerRoot, 'embedding-worker-failures.ts'))).toBe(true);
+    expect(existsSync(path.join(workerRoot, 'embedding-worker-cache-io.ts'))).toBe(true);
+    expect(existsSync(path.join(workerRoot, 'embedding-worker-job-payload.ts'))).toBe(true);
+    expect(existsSync(path.join(workerRoot, 'embedding-worker-chunk-filter.ts'))).toBe(true);
+
+    expect(workerSource()).not.toContain('function resolveIdlePollBackoffOptions');
+    expect(workerSource()).not.toContain('function shouldLogIdleBackoff');
+    expect(workerSource()).not.toContain('function classifyFailure');
+    expect(workerSource()).not.toContain('function summarizeErrorMessage');
+    expect(workerSource()).not.toContain('function lookupCacheHits');
+    expect(workerSource()).not.toContain('function filterCacheMisses');
+    expect(workerSource()).not.toContain('function storeToCacheAsync');
+    expect(workerSource()).not.toContain('function reconstructResults');
+    expect(workerSource()).not.toContain('function assertEmbedChunkJob');
+    expect(workerSource()).not.toContain('function resolveJobModel');
+    expect(workerSource()).not.toContain('function loadAndFilterChunks');
+    expect(workerSource()).not.toContain('function isEmbeddingUpToDate');
+  });
+
   it('documents worker ownership and focused verification', () => {
     const readmePath = path.join(workerRoot, 'README.md');
     expect(existsSync(readmePath), 'worker must have an ownership README').toBe(true);
