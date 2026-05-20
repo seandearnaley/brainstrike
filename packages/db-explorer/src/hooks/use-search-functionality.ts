@@ -7,12 +7,12 @@ import type {
   FileRecordRepository,
 } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db';
+import type { EmbeddingProviderConfig } from '@brainstrike/embeddings';
 import {
-  type EmbeddingProviderConfig,
   isHostedProvider,
-  type ModelConfig,
-  parseProviderModelKey,
-} from '@brainstrike/embeddings/provider-core';
+  type EmbeddingModelConfig as ModelConfig,
+  parseEmbeddingProviderModelKey,
+} from '@brainstrike/indexing-contract';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
@@ -141,7 +141,7 @@ export function useSearchFunctionality(
   }
 
   async function createEmbedder(modelInfo: EffectiveModelInfo): Promise<SearchEmbedder> {
-    const parsed = parseProviderModelKey(modelInfo.modelKey);
+    const parsed = parseEmbeddingProviderModelKey(modelInfo.modelKey);
     if (parsed && isHostedProvider(parsed.provider)) {
       return createHostedEmbedder(parsed.provider, parsed.modelId, modelInfo.dimensions);
     }

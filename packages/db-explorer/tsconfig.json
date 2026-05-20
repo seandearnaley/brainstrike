@@ -60,6 +60,9 @@
       "path": "../file-system"
     },
     {
+      "path": "../indexing-contract"
+    },
+    {
       "path": "../platform-utils"
     },
     {

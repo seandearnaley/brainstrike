@@ -10,6 +10,7 @@
     "@brainstrike/file-import": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
+    "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
     "@brainstrike/pipeline": "workspace:*",

@@ -1,5 +1,8 @@
-import type { ModelConfig } from '@brainstrike/embeddings/provider-core';
-import { isHostedProvider, parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
+import {
+  isHostedProvider,
+  type EmbeddingModelConfig as ModelConfig,
+  parseEmbeddingProviderModelKey,
+} from '@brainstrike/indexing-contract';
 import type { DbModel } from '@brainstrike/preferences/stores/model-registry-store';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 
@@ -151,7 +154,7 @@ export function resolveEmbeddingSetModelInfo(
   if (!Number.isFinite(dimensions) || dimensions <= 0) {
     throw new Error('Embedding set dimensions are missing or invalid.');
   }
-  const parsed = parseProviderModelKey(modelKey);
+  const parsed = parseEmbeddingProviderModelKey(modelKey);
   if (parsed && isHostedProvider(parsed.provider)) {
     return { modelKey, dimensions };
   }

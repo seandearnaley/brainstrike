@@ -37,19 +37,6 @@ vi.mock('@brainstrike/db', async () => {
   };
 });
 
-vi.mock('@brainstrike/embeddings/provider-core', () => ({
-  isHostedProvider: vi.fn((provider: string) =>
-    ['openai', 'google', 'cohere', 'voyage'].includes(provider)
-  ),
-  parseProviderModelKey: vi.fn((key: string) => {
-    if (key.includes(':')) {
-      const [provider, modelId] = key.split(':');
-      return { provider, modelId };
-    }
-    return null;
-  }),
-}));
-
 vi.mock('@brainstrike/embeddings/factory', () => ({
   EmbeddingProviderFactory: {
     createProvider: vi.fn().mockResolvedValue({

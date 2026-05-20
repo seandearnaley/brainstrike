@@ -15,12 +15,12 @@ import type {
   HybridSearchResult,
 } from '@brainstrike/db';
 import { createHybridSearchService, normalizeRRFScores, usePGliteDatabase } from '@brainstrike/db';
+import type { EmbeddingProviderConfig } from '@brainstrike/embeddings';
 import {
-  type EmbeddingProviderConfig,
   isHostedProvider,
-  type ModelConfig,
-  parseProviderModelKey,
-} from '@brainstrike/embeddings/provider-core';
+  type EmbeddingModelConfig as ModelConfig,
+  parseEmbeddingProviderModelKey,
+} from '@brainstrike/indexing-contract';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
@@ -547,7 +547,7 @@ export function useSemanticSearchExecutor({
           }
 
           // Detect provider type
-          const parsed = parseProviderModelKey(modelKey);
+          const parsed = parseEmbeddingProviderModelKey(modelKey);
           const isHosted = parsed ? isHostedProvider(parsed.provider) : false;
           logger.info('Provider detection', { isHosted });
 
