@@ -1,5 +1,5 @@
 import type { FileChunk } from '@brainstrike/db';
-import type { EmbeddingProviderType } from '@brainstrike/embeddings/provider-core';
+import type { EmbeddingProviderType } from '@brainstrike/indexing-contract';
 import type {
   EmbeddingDeviceHint,
   ProviderDimensionParameter,

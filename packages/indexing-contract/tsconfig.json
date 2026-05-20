@@ -19,5 +19,9 @@
     "src/**/*.test.ts",
     "src/**/__tests__/**"
   ],
-  "references": []
+  "references": [
+    {
+      "path": "../types"
+    }
+  ]
 }

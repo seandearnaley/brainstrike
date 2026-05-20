@@ -67,13 +67,6 @@
       "retireByPhase": "phase-3"
     },
     {
-      "id": "file-import-agent-provider-metadata",
-      "sourcePackage": "@brainstrike/file-import",
-      "importedPackage": "@brainstrike/agent",
-      "reason": "File import currently reads provider metadata while constructing enhanced import behavior. Phase 3 moves provider metadata behind an indexing-safe contract.",
-      "retireByPhase": "phase-3"
-    },
-    {
       "id": "hooks-report-worker-coupling",
       "sourcePackage": "@brainstrike/hooks",
       "importedPackage": "@brainstrike/workers",
