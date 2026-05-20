@@ -20,6 +20,10 @@
       "types": "./dist/local-llm.d.ts",
       "import": "./dist/local-llm.js"
     },
+    "./local-llm-device": {
+      "types": "./dist/local-llm-device.d.ts",
+      "import": "./dist/local-llm-device.js"
+    },
     "./context-packer": {
       "types": "./dist/context-packer.d.ts",
       "import": "./dist/context-packer.js"

@@ -39,4 +39,13 @@ describe('app-shell assistant contract boundary', () => {
   it('reads runtime request metadata from assistant-contract instead of the agent root package', () => {
     expect(readSource('assistant-ui-panel-wrapper.tsx')).not.toMatch(/from '@brainstrike\/agent'/);
   });
+
+  it('reads built-in local LLM availability from assistant-contract instead of agent runtime packages', () => {
+    expect(readSource('hooks/use-assistant-availability-with-local.ts')).not.toMatch(
+      /@brainstrike\/agent\/local-llm/
+    );
+    expect(readSource('__tests__/use-assistant-availability-with-local.test.ts')).not.toMatch(
+      /@brainstrike\/agent\/local-llm/
+    );
+  });
 });
