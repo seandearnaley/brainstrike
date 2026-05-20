@@ -31,4 +31,14 @@ describe('preferences indexing boundary', () => {
 
     expect(violatingFiles).toEqual([]);
   });
+
+  it('uses indexing contracts for embedding provider metadata instead of embeddings internals', () => {
+    const forbiddenImportPattern =
+      /(?:from\s+['"]|import\s*\(\s*['"])@brainstrike\/embeddings\/provider-core(?:\/|['"])/;
+    const violatingFiles = collectSourceFiles(PREFERENCES_SRC_ROOT)
+      .filter((filePath) => forbiddenImportPattern.test(readFileSync(filePath, 'utf8')))
+      .map((filePath) => path.relative(PREFERENCES_SRC_ROOT, filePath));
+
+    expect(violatingFiles).toEqual([]);
+  });
 });
