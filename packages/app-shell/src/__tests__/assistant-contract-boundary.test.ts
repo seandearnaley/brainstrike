@@ -19,4 +19,11 @@ describe('app-shell assistant contract boundary', () => {
   it('keeps thread draft runtime data structurally typed inside app-shell', () => {
     expect(readSource('assistant-thread-store.ts')).not.toMatch(/@brainstrike\/agent['"]/);
   });
+
+  it('reads provider and tool metadata from assistant-contract instead of agent runtime packages', () => {
+    const wrapperSource = readSource('assistant-ui-panel-wrapper.tsx');
+
+    expect(wrapperSource).not.toMatch(/@brainstrike\/agent\/provider-metadata/);
+    expect(wrapperSource).not.toMatch(/@brainstrike\/agent\/tool-metadata/);
+  });
 });

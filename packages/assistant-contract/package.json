@@ -17,9 +17,21 @@
       "types": "./dist/local-llm.d.ts",
       "import": "./dist/local-llm.js"
     },
+    "./provider-metadata": {
+      "types": "./dist/provider-metadata.d.ts",
+      "import": "./dist/provider-metadata.js"
+    },
+    "./provider-registry": {
+      "types": "./dist/provider-registry.d.ts",
+      "import": "./dist/provider-registry.js"
+    },
     "./run-events": {
       "types": "./dist/run-events.d.ts",
       "import": "./dist/run-events.js"
+    },
+    "./tool-metadata": {
+      "types": "./dist/tool-metadata.d.ts",
+      "import": "./dist/tool-metadata.js"
     }
   },
   "files": [

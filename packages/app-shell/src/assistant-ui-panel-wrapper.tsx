@@ -13,6 +13,7 @@ import {
   type LocalRuntimeId,
   type LocalRuntimeModelCatalogState,
 } from '@brainstrike/agent/local-runtime';
+import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import {
   getProviderDefaultModel,
   getProviderDefinition,
@@ -22,13 +23,12 @@ import {
   type ProviderRuntime,
   type SupportedProvider,
   supportsStandardEmbeddingDimension,
-} from '@brainstrike/agent/provider-metadata';
+} from '@brainstrike/assistant-contract/provider-metadata';
 import {
   getToolSchemaDisplay,
   NATIVE_TOOL_DEFAULTS,
   TOOL_DESCRIPTIONS,
-} from '@brainstrike/agent/tool-metadata';
-import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
+} from '@brainstrike/assistant-contract/tool-metadata';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
 import {
   type TapestryRange,

@@ -1,5 +1,5 @@
-import type { LocalRuntimeModelCatalogState, SupportedProvider } from '@brainstrike/agent/client';
-import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/tool-metadata';
+import type { LocalRuntimeModelCatalogState } from '@brainstrike/agent/client';
+import { NATIVE_TOOL_DEFAULTS, type SupportedProvider } from '@brainstrike/assistant-contract';
 import {
   __resetAssistantPreferencesStoreForTests,
   useAssistantMemoryPreferencesStore,
