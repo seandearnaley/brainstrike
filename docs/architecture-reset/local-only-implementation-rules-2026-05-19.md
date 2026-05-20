@@ -21,6 +21,12 @@ Deliver real architecture change, not more process scaffolding. The branch shoul
 reduce cross-domain imports, clarify package ownership, and make future agent
 work more deterministic.
 
+## Local Artifacts
+
+- `docs/architecture-reset/peripheral-package-classification-2026-05-19.html`
+  records the keep/revive/absent decisions for the packages originally flagged
+  as zero-import or dormant.
+
 ## Local Verification Policy
 
 Use red-green TDD for behavior changes. Start with the smallest local test that
