@@ -31,7 +31,7 @@ vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: () => mockDb,
 }));
 
-vi.mock('@brainstrike/file-explorer-ui', () => ({
+vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileExplorerStoreSelector: <T,>(selector: (state: typeof fileExplorerMocks) => T): T =>
     selector(fileExplorerMocks),
 }));

@@ -47,6 +47,10 @@ export default defineConfig({
         find: '@brainstrike/file-import/enhanced-import',
         replacement: resolve(import.meta.dirname, '../file-import/src/enhanced-import.ts'),
       },
+      {
+        find: '@brainstrike/file-explorer-ui/shell',
+        replacement: resolve(import.meta.dirname, '../file-explorer-ui/src/shell'),
+      },
     ],
   },
   test: {

@@ -1,8 +1,5 @@
-import {
-  FileExplorerLeftPanel,
-  FileTreeProvider,
-  useFileSystem,
-} from '@brainstrike/file-explorer-ui';
+import { FileExplorerLeftPanel, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
+import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
 import { useContextExplorerLayoutStore } from '@brainstrike/preferences/stores/context-explorer-layout-store';
 import {

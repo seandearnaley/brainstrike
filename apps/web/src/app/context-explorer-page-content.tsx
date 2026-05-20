@@ -1,4 +1,4 @@
-import { WorkspaceTabHost } from '@brainstrike/file-explorer-ui';
+import { WorkspaceTabHost } from '@brainstrike/file-explorer-ui/shell';
 import { Suspense } from 'react';
 import { Helmet } from 'react-helmet-async';
 

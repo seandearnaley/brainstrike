@@ -8,4 +8,7 @@ export * from '../preview-panel-footer';
 export * from '../preview-table';
 export * from '../preview-table-row';
 export * from '../preview-view-toolbar';
+export * from '../tapestry/types';
 export * from '../use-preview-panel-state';
+export * from '../workspace-context-curation-store';
+export * from '../workspace-context-line-ranges';

@@ -11,6 +11,9 @@
       "@brainstrike/file-explorer-ui": [
         "../file-explorer-ui/src"
       ],
+      "@brainstrike/file-explorer-ui/*": [
+        "../file-explorer-ui/src/*"
+      ],
       "@brainstrike/utils/*": [
         "../utils/src/*"
       ],

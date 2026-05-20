@@ -1,4 +1,4 @@
-import { FileExplorerLeftPanel, WorkspaceTabHost } from '@brainstrike/file-explorer-ui';
+import { FileExplorerLeftPanel, WorkspaceTabHost } from '@brainstrike/file-explorer-ui/shell';
 import { Suspense } from 'react';
 
 function DesktopContextExplorerPage() {

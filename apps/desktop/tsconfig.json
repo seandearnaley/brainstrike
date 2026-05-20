@@ -71,6 +71,9 @@
       "@brainstrike/file-explorer-ui": [
         "../../packages/file-explorer-ui/src"
       ],
+      "@brainstrike/file-explorer-ui/*": [
+        "../../packages/file-explorer-ui/src/*"
+      ],
       "@brainstrike/file-explorer-hooks": [
         "../../packages/file-explorer-hooks/src"
       ],

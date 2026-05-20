@@ -17,17 +17,20 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   }),
 }));
 
-vi.mock('@brainstrike/file-explorer-ui', () => ({
+vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   FileExplorerLeftPanel: () => <div data-testid="file-explorer-left-panel" />,
   WorkspaceTabHost: ({ className }: { className?: string }) => (
     <div className={className} data-testid="workspace-tab-host" />
   ),
-  FileTreeProvider: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="file-tree-provider">{children}</div>
-  ),
   useFileSystem: () => ({
     rootDirectoryHandle: null,
   }),
+}));
+
+vi.mock('@brainstrike/file-explorer-ui/tree', () => ({
+  FileTreeProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="file-tree-provider">{children}</div>
+  ),
 }));
 
 const mockHandlers = {

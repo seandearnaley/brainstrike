@@ -168,6 +168,11 @@
       "import": "./dist/path-filter.mjs",
       "require": "./dist/path-filter.js"
     },
+    "./path-ancestors": {
+      "types": "./dist/path-ancestors.d.ts",
+      "import": "./dist/path-ancestors.mjs",
+      "require": "./dist/path-ancestors.js"
+    },
     "./path-utils": {
       "types": "./dist/path-utils.d.ts",
       "import": "./dist/path-utils.mjs",

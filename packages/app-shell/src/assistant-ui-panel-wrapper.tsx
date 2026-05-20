@@ -33,10 +33,12 @@ import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brain
 import {
   type TapestryRange,
   toolLineRangeToTapestryRange,
+  useWorkspaceContextCurationStore,
+} from '@brainstrike/file-explorer-ui/preview';
+import {
   useFileExplorerStoreSelector,
   useSelectionManager,
-  useWorkspaceContextCurationStore,
-} from '@brainstrike/file-explorer-ui';
+} from '@brainstrike/file-explorer-ui/shell';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/preferences/stores/assistant-memory-preferences-store';
 import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';

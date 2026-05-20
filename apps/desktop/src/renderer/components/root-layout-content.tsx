@@ -6,7 +6,7 @@ import {
 } from '@brainstrike/app-shell/root-layout-content';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { usePGliteDatabase } from '@brainstrike/db';
-import { TokenCacheProvider } from '@brainstrike/file-explorer-ui';
+import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 import { createLogger } from '@brainstrike/utils/logger';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useRef } from 'react';
 import ContextExplorerPageContent from './context-explorer-page-content';

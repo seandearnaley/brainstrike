@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import SettingsPageContent from '../../../../renderer/components/settings/page-content';
 
 // Mock file-explorer-ui - needed for useFileExplorerStoreContext
-vi.mock('@brainstrike/file-explorer-ui', () => ({
+vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileExplorerStoreSelector: (selector: (state: Record<string, unknown>) => unknown) => {
     const mockState = {
       devInlineFixtureEnabled: false,
@@ -28,8 +28,11 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
     };
     return mockStore;
   },
-  useOptionalTokenCacheContext: () => null,
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
+  useOptionalTokenCacheContext: () => null,
 }));
 
 interface SecretsApi {

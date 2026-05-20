@@ -440,7 +440,7 @@ vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: vi.fn(() => mockDb),
 }));
 
-vi.mock('@brainstrike/file-explorer-ui', () => {
+vi.mock('@brainstrike/file-explorer-ui/shell', () => {
   const getState = () => ({
     tokenBudget: fileExplorerMocks.tokenBudget,
     currentFolderId: fileExplorerMocks.currentFolderId,
@@ -458,6 +458,16 @@ vi.mock('@brainstrike/file-explorer-ui', () => {
     const state = getState();
     return selector ? selector(state) : state;
   };
+
+  return {
+    useSelectionManager: () => ({ effectiveSelection: fileExplorerMocks.effectiveSelection }),
+    useFileExplorerStoreContext: () => store,
+    useFileExplorerStoreSelector: (selector: (state: ReturnType<typeof getState>) => unknown) =>
+      selector(getState()),
+  };
+});
+
+vi.mock('@brainstrike/file-explorer-ui/preview', () => {
   const getWorkspaceContextCurationState = () => ({
     contextSnapshot: fileExplorerMocks.workspaceContextSnapshot,
     setTapestryRangesForKey: fileExplorerMocks.setTapestryRangesForKey,
@@ -476,11 +486,6 @@ vi.mock('@brainstrike/file-explorer-ui', () => {
       startLine: range.startLine - 1,
       endLine: range.endLine,
     }),
-    useSelectionManager: () => ({ effectiveSelection: fileExplorerMocks.effectiveSelection }),
-    useFileExplorerStoreContext: () => store,
-    useFileExplorerStoreSelector: (selector: (state: ReturnType<typeof getState>) => unknown) =>
-      selector(getState()),
-    useOptionalTokenCacheContext: () => fileExplorerMocks.tokenCache,
     useWorkspaceContextCurationStore,
   };
 });

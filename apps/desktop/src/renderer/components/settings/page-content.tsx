@@ -4,10 +4,8 @@ import {
   TOOL_DESCRIPTIONS,
 } from '@brainstrike/agent/tool-metadata';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
-import {
-  useFileExplorerStoreSelector,
-  useOptionalTokenCacheContext,
-} from '@brainstrike/file-explorer-ui';
+import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
+import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { ModelSelectionPage } from '@brainstrike/preferences/settings/models/model-selection-page';
 import {
   createToolsSettingsCategory,

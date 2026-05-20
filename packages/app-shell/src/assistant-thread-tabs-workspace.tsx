@@ -1,5 +1,5 @@
 import { usePGliteDatabase } from '@brainstrike/db';
-import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui';
+import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { Button } from '@brainstrike/ui';
 import { ChevronLeft, ChevronRight, MessageSquare, Plus, X } from 'lucide-react';
 import type { ReactElement, WheelEvent } from 'react';

@@ -378,7 +378,7 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   }),
 }));
 
-vi.mock('@brainstrike/file-explorer-ui', () => ({
+vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileExplorer: () => ({
     fileContents: new Map(),
     fileTree: null,

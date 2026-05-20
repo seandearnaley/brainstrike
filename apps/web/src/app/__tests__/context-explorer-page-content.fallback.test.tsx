@@ -3,7 +3,7 @@ import { HelmetProvider } from 'react-helmet-async';
 import { describe, expect, it, vi } from 'vitest';
 
 // Force the explorer component to suspend so Suspense fallback renders
-vi.mock('@brainstrike/file-explorer-ui', () => ({
+vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   __esModule: true,
   WorkspaceTabHost: () => {
     // Throw a never-resolving promise to simulate a suspended component

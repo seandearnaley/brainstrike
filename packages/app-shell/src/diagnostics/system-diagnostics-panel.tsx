@@ -10,7 +10,7 @@
  * without navigating to multiple places.
  */
 
-import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui';
+import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import {
   databaseStatusSelectors,
   useDatabaseStatusStore,

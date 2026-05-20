@@ -25,7 +25,7 @@ vi.mock('@brainstrike/vector-management', () => ({
 
 // Mock the optional token cache context hook
 const mockUseOptionalTokenCacheContext = vi.fn();
-vi.mock('@brainstrike/file-explorer-ui', () => ({
+vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
   useOptionalTokenCacheContext: () => mockUseOptionalTokenCacheContext(),
 }));
 

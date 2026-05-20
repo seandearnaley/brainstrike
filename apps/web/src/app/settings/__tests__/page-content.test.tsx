@@ -41,7 +41,7 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
   };
 });
 
-vi.mock('@brainstrike/file-explorer-ui', () => ({
+vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileExplorerStoreSelector: (selector: (state: Record<string, unknown>) => unknown) => {
     const mockState = {
       devInlineFixtureEnabled: false,
@@ -59,8 +59,11 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
     };
     return mockStore;
   },
-  useOptionalTokenCacheContext: () => null,
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
+  useOptionalTokenCacheContext: () => null,
 }));
 
 describe('Web SettingsPageContent', () => {
