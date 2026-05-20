@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearCachedAgentClient } from '../../agent-client-loader';
@@ -20,19 +22,33 @@ const ORIGINAL_NODE_ENV = process.env['NODE_ENV'];
 const ORIGINAL_ELECTRON_E2E = process.env['ELECTRON_IS_E2E_TEST'];
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 
+function restoreEnvVar(key: string, value: string | undefined): void {
+  if (typeof value === 'string') {
+    process.env[key] = value;
+    return;
+  }
+  Reflect.deleteProperty(process.env, key);
+}
+
+function clearEnvVar(key: string): void {
+  Reflect.deleteProperty(process.env, key);
+}
+
 describe('registerSecretsIpcHandlers', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
     clearCachedAgentClient();
 
-    process.env['NODE_ENV'] = ORIGINAL_NODE_ENV;
-    process.env['ELECTRON_IS_E2E_TEST'] = ORIGINAL_ELECTRON_E2E;
+    restoreEnvVar('NODE_ENV', ORIGINAL_NODE_ENV);
+    restoreEnvVar('ELECTRON_IS_E2E_TEST', ORIGINAL_ELECTRON_E2E);
+    clearEnvVar('BRAINSTRIKE_OPENAI_API_KEY');
+    clearEnvVar('GOOGLE_GENERATIVE_AI_API_KEY');
   });
 
   afterEach(async () => {
-    process.env['BRAINSTRIKE_OPENAI_API_KEY'] = undefined;
-    process.env['GOOGLE_GENERATIVE_AI_API_KEY'] = undefined;
+    clearEnvVar('BRAINSTRIKE_OPENAI_API_KEY');
+    clearEnvVar('GOOGLE_GENERATIVE_AI_API_KEY');
     clearCachedAgentClient();
 
     // Clear test mode secrets to prevent state leakage between tests
@@ -54,6 +70,14 @@ describe('registerSecretsIpcHandlers', () => {
 
     return { getHandler };
   }
+
+  it('registers channels through the typed desktop IPC registry', () => {
+    const source = readFileSync(path.resolve(process.cwd(), 'src/ipc-secrets.ts'), 'utf8');
+
+    expect(source).toContain('createDesktopIpcRegistry');
+    expect(source).not.toMatch(/ipcMain\.(handle|on)\(/);
+    expect(source).not.toMatch(/ipcMain\.remove(Handler|Listener)\(/);
+  });
 
   it('merges env-configured providers with stored entries when listing', async () => {
     process.env['NODE_ENV'] = 'production';

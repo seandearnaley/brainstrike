@@ -1,6 +1,6 @@
-import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
 import { listAgentProviders } from './agent-client-loader';
+import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import { resolveProviderEnvKey } from './provider-api-key';
 import type { SecretsService } from './secrets';
 
@@ -75,10 +75,13 @@ function appendEnvConfiguredProviders(target: Set<string>) {
  *
  * @param secrets - The platform-specific secrets storage service
  */
-export function registerSecretsIpcHandlers(secrets: SecretsService) {
-  ipcMain.handle(
+export function registerSecretsIpcHandlers(secrets: SecretsService): () => void {
+  const registry = createDesktopIpcRegistry({ ipcMain });
+
+  registry.registerInvoke(
+    'preferences',
     'secrets:save',
-    async (_e: IpcMainInvokeEvent, provider: string, value: string) => {
+    async (_event, provider: string, value: string) => {
       // In test mode, use in-memory storage
       if (isTestMode()) {
         testModeSecrets.set(provider, value);
@@ -96,7 +99,7 @@ export function registerSecretsIpcHandlers(secrets: SecretsService) {
     }
   );
 
-  ipcMain.handle('secrets:get', async (_e: IpcMainInvokeEvent, provider: string) => {
+  registry.registerInvoke('preferences', 'secrets:get', async (_event, provider: string) => {
     // In test mode, check in-memory storage
     if (isTestMode()) {
       return testModeSecrets.get(provider) ?? null;
@@ -106,7 +109,7 @@ export function registerSecretsIpcHandlers(secrets: SecretsService) {
     return v;
   });
 
-  ipcMain.handle('secrets:delete', async (_e: IpcMainInvokeEvent, provider: string) => {
+  registry.registerInvoke('preferences', 'secrets:delete', async (_event, provider: string) => {
     // In test mode, remove from in-memory storage
     if (isTestMode()) {
       testModeSecrets.delete(provider);
@@ -116,7 +119,7 @@ export function registerSecretsIpcHandlers(secrets: SecretsService) {
     return await secrets.deleteKey(provider);
   });
 
-  ipcMain.handle('secrets:list', async () => {
+  registry.registerInvoke('preferences', 'secrets:list', async () => {
     // In test mode, only use in-memory storage (ignore env vars)
     if (isTestMode()) {
       const providers = new Set<string>();
@@ -133,7 +136,7 @@ export function registerSecretsIpcHandlers(secrets: SecretsService) {
     return Array.from(providers);
   });
 
-  ipcMain.handle('secrets:listStored', async () => {
+  registry.registerInvoke('preferences', 'secrets:listStored', async () => {
     if (isTestMode()) {
       const providers = new Set<string>();
       appendTestModeProviders(providers);
@@ -145,27 +148,35 @@ export function registerSecretsIpcHandlers(secrets: SecretsService) {
     return Array.from(providers);
   });
 
-  ipcMain.handle('secrets:clearAll', async (_e: IpcMainInvokeEvent, confirmationToken?: string) => {
-    if (confirmationToken !== SECRETS_CLEAR_CONFIRMATION_TOKEN) {
-      return {
-        success: false,
-        message: 'Unauthorized: Invalid confirmation token',
-      };
-    }
+  registry.registerInvoke(
+    'preferences',
+    'secrets:clearAll',
+    async (_event, confirmationToken?: string) => {
+      if (confirmationToken !== SECRETS_CLEAR_CONFIRMATION_TOKEN) {
+        return {
+          success: false,
+          message: 'Unauthorized: Invalid confirmation token',
+        };
+      }
 
-    if (isTestMode()) {
-      testModeSecrets.clear();
-      return { success: true };
-    }
+      if (isTestMode()) {
+        testModeSecrets.clear();
+        return { success: true };
+      }
 
-    try {
-      const result = await secrets.clearAll();
-      return { success: result };
-    } catch (error) {
-      return {
-        success: false,
-        message: error instanceof Error ? error.message : String(error),
-      };
+      try {
+        const result = await secrets.clearAll();
+        return { success: result };
+      } catch (error) {
+        return {
+          success: false,
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
     }
-  });
+  );
+
+  return () => {
+    registry.unregisterAll();
+  };
 }
