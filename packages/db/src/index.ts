@@ -34,7 +34,7 @@ export {
   applyManagedCacheBatch,
   type ManagedCacheBatchMutation,
   parseManagedCacheBatchArgs,
-} from './managed-cache/apply-managed-cache-batch.js';
+} from './managed-cache/index.js';
 // Legacy migration export
 export * from './migrations/bootstrap.js';
 export type { Migration } from './migrations/index.js';
@@ -72,9 +72,9 @@ export type {
   Job,
   JobState,
   JobType,
-} from './queue/job-queue.js';
+} from './queue/index.js';
 // Queue
-export { JobQueue } from './queue/job-queue.js';
+export { JobQueue } from './queue/index.js';
 export { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from './repositories/_shared.js';
 export { FileChunkRepository } from './repositories/file-chunk-repository.js';
 // Repository exports

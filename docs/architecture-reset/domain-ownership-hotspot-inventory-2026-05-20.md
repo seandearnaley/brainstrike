@@ -250,9 +250,25 @@ Package-local architecture coverage now verifies the executable desktop file-exp
 - `pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts -t "keeps desktop file explorer selection E2E executable specs split"`
 - `pnpm --filter @brainstrike/desktop type-check:e2e`
 
+## DB Public Surface Ownership Slice Completed
+
+`packages/db` was already physically decomposed under the 1500 LOC source-file budget. The remaining ownership issue was root API drift: `src/index.ts` still re-exported queue and managed-cache implementation files directly instead of routing through owned public barrels.
+
+This slice adds:
+
+- `src/queue/index.ts` as the durable job-queue public barrel.
+- `src/managed-cache/index.ts` as the managed embedding-cache mutation public barrel.
+- `__tests__/architecture-ownership.test.ts` to keep the root API routed through owned barrels for queue, managed-cache, migrations, repositories, schema, and search.
+- README ownership docs with the focused local verification command.
+
+Verification for this slice:
+
+- `pnpm --filter @brainstrike/db exec vitest run __tests__/architecture-ownership.test.ts`
+- `pnpm --filter @brainstrike/db type-check`
+
 ## Next Slices
 
 1. Tighten E2E lane selection so the split desktop embedding diagnostic files are only selected for matching high-risk diffs.
 2. Split `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts` if the next background-indexing change adds more behavior coverage.
 3. Continue desktop IPC decomposition by moving live-query batching and database-work scheduling behind owned platform modules.
-4. Decompose `packages/db` internally around queue, migrations, repositories, search, and schema while preserving public barrels.
+4. Review remaining shared fixture exceptions and keep all executable tests below the 2000 LOC budget as behavior changes land.

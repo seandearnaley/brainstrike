@@ -112,6 +112,31 @@ const db = new PGlite('my.db'); // use 'memory://' for ephemeral or 'idb://db' f
 await migrate(db);
 ```
 
+## Domain Ownership
+
+`@brainstrike/db` is an infrastructure package. The root public API should stay
+as a compatibility facade over owned internal surfaces:
+
+- `src/queue/index.ts` owns durable job queue exports.
+- `src/managed-cache/index.ts` owns managed embedding-cache mutation exports.
+- `src/migrations/index.ts` and `src/migrations/bootstrap.ts` own migration
+  ordering, bootstrap behavior, and migration runner contracts.
+- `src/repositories/index.ts` owns repository constructors, interfaces, and
+  raw-SQL/Drizzle implementation exports.
+- `src/search/index.ts` owns hybrid-search and RRF exports.
+- `src/schema/index.ts` owns Drizzle schema table/type exports.
+
+Do not add new root exports by reaching directly into implementation files when
+an owned barrel exists. Add or update the owning barrel first, then re-export
+from `src/index.ts` if compatibility requires it.
+
+Focused local verification:
+
+```bash
+pnpm --filter @brainstrike/db exec vitest run __tests__/architecture-ownership.test.ts
+pnpm --filter @brainstrike/db type-check
+```
+
 ## Development
 
 ```bash
