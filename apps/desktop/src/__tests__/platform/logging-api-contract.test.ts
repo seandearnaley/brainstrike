@@ -180,4 +180,12 @@ describe('logging API contract', () => {
       /(?:ipcMain\.(?:handle|on|removeHandler|removeListener)|contents\.send)\(\s*['"`]logging:/
     );
   });
+
+  it('requires logging-ipc to register channels through the typed desktop IPC registry', () => {
+    const source = readDesktopSource('logging-ipc.ts');
+
+    expect(source).toContain('createDesktopIpcRegistry');
+    expect(source).not.toMatch(/ipcMain\.(handle|on)\(/);
+    expect(source).not.toMatch(/ipcMain\.remove(Handler|Listener)\(/);
+  });
 });

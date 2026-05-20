@@ -254,7 +254,7 @@
         <tr>
           <td>Adding an IPC channel has a domain owner and focused test path</td>
           <td><span class="status partial">partial</span></td>
-          <td>Registry, four extracted domains, diagnostics, and hidden host IPC modules are tested. Preload and renderer bridges are still manually maintained for some older channels, so generated drift prevention is not complete.</td>
+          <td>Registry, four extracted domains, diagnostics, logging, and hidden host IPC modules are tested. Preload and renderer bridges are still manually maintained for some older channels, so generated drift prevention is not complete.</td>
         </tr>
         <tr>
           <td>Renderer-only local LLM and embedding execution is enforceable</td>
@@ -355,6 +355,16 @@
           <td>Typed registry migration preserved host status, response, chunking, warmup, generate, and cancel IPC behavior.</td>
           <td><span class="status done">3 files / 27 tests</span></td>
         </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/logging-api-contract.test.ts -t "typed desktop IPC registry"</code></td>
+          <td>Logging IPC is now required to use the typed desktop IPC registry instead of direct <code>ipcMain</code> registration.</td>
+          <td><span class="status done">passed</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/logging-ipc.test.ts src/__tests__/main/logging-ipc.test.ts</code></td>
+          <td>Typed registry migration preserved logging preferences, destination, broadcast, buffering, validation, and cleanup behavior.</td>
+          <td><span class="status done">2 files / 43 tests</span></td>
+        </tr>
       </tbody>
     </table>
   </section>
@@ -366,7 +376,7 @@
       <tbody>
         <tr>
           <td>IPC drift prevention</td>
-          <td>Continue moving older MCP, secrets, tools, parser-host, runtime, and ad hoc main-process channels onto owned domain registries.</td>
+          <td>Continue moving older MCP, secrets, tools, parser-host, runtime, agent, and ad hoc main-process channels onto owned domain registries.</td>
           <td>Every new or moved channel has a domain, a typed registration path, and a focused test; preload remains the only intentional bridge literal surface until generation is introduced.</td>
         </tr>
         <tr>

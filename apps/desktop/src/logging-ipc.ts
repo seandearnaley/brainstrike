@@ -1,8 +1,8 @@
 import { createLogger, type LogRecord } from '@brainstrike/utils/logger';
 import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
-import type { IpcMainEvent } from 'electron';
 import { ipcMain, webContents } from 'electron';
 import type { LoggingSettingsPayload } from './logging-shared';
+import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import {
   assertBufferedLogRecord,
   assertLoggingOpenDestinationTarget,
@@ -24,11 +24,16 @@ export interface LoggingIpcHandlers {
 }
 
 export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): () => void {
-  ipcMain.handle(LOGGING_API_CHANNELS.getPreferences, () => handlers.getState());
+  const registry = createDesktopIpcRegistry({ ipcMain });
+
+  registry.registerInvoke('logging', LOGGING_API_CHANNELS.getPreferences, () =>
+    handlers.getState()
+  );
 
   let preferencesUpdateQueue: Promise<void> = Promise.resolve();
 
-  ipcMain.handle(
+  registry.registerInvoke(
+    'logging',
     LOGGING_API_CHANNELS.setPreferences,
     async (_event, preferences: unknown): Promise<LoggingSettingsPayload> => {
       const parsedPreferences = assertLoggingPreferences(preferences);
@@ -48,27 +53,26 @@ export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): () => 
     }
   );
 
-  ipcMain.handle(LOGGING_API_CHANNELS.selectDestination, async () => handlers.selectDestination());
+  registry.registerInvoke('logging', LOGGING_API_CHANNELS.selectDestination, async () =>
+    handlers.selectDestination()
+  );
 
-  ipcMain.handle(
+  registry.registerInvoke(
+    'logging',
     LOGGING_API_CHANNELS.openDestination,
     async (_event, target: unknown): Promise<boolean> =>
       handlers.openDestination(assertLoggingOpenDestinationTarget(target))
   );
 
-  ipcMain.handle(LOGGING_API_CHANNELS.getBufferedLogs, async () => handlers.getBufferedLogs());
-  const ingestBufferedRecord = (event: IpcMainEvent, payload: unknown) => {
+  registry.registerInvoke('logging', LOGGING_API_CHANNELS.getBufferedLogs, async () =>
+    handlers.getBufferedLogs()
+  );
+  registry.registerEvent('logging', LOGGING_API_CHANNELS.ingestBufferedRecord, (event, payload) => {
     handlers.ingestBufferedLog(event.sender.id, assertBufferedLogRecord(payload));
-  };
-  ipcMain.on(LOGGING_API_CHANNELS.ingestBufferedRecord, ingestBufferedRecord);
+  });
 
   return () => {
-    ipcMain.removeHandler(LOGGING_API_CHANNELS.getPreferences);
-    ipcMain.removeHandler(LOGGING_API_CHANNELS.setPreferences);
-    ipcMain.removeHandler(LOGGING_API_CHANNELS.selectDestination);
-    ipcMain.removeHandler(LOGGING_API_CHANNELS.openDestination);
-    ipcMain.removeHandler(LOGGING_API_CHANNELS.getBufferedLogs);
-    ipcMain.removeListener(LOGGING_API_CHANNELS.ingestBufferedRecord, ingestBufferedRecord);
+    registry.unregisterAll();
   };
 }
 
