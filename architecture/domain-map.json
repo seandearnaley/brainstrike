@@ -100,13 +100,6 @@
       "importedPackage": "@brainstrike/storage",
       "reason": "Theme provider currently persists through storage directly. Phase 4 moves persistence out of shared UI or introduces a foundation-level persistence interface.",
       "retireByPhase": "phase-4"
-    },
-    {
-      "id": "utils-token-counting-text-splitter-coupling",
-      "sourcePackage": "@brainstrike/utils",
-      "importedPackage": "@brainstrike/text-splitter",
-      "reason": "Shared utilities currently expose token counting runtime backed by text splitter. Phase 3 decides whether token counting belongs in indexing or becomes a foundation contract.",
-      "retireByPhase": "phase-3"
     }
   ],
   "domains": [

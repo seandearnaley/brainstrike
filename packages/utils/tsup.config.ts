@@ -3,6 +3,7 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   entry: {
     index: 'src/index.ts',
+    'token-counting-heuristics': 'src/token-counting-heuristics.ts',
     'token-counting-runtime': 'src/token-counting-runtime.ts',
     logger: 'src/logger.ts',
     'logging-initializer': 'src/logging-initializer.ts',
