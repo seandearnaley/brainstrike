@@ -8,5 +8,4 @@ export default defineConfig({
   sourcemap: true,
   target: 'es2020',
   outDir: 'dist',
-  external: ['@brainstrike/utils'],
 });

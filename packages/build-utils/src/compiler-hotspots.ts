@@ -1,6 +1,6 @@
 /**
  * Determine if a file path corresponds to a React Compiler/HMR hotspot.
- * Cross‑platform: supports Unix and Windows separators.
+ * Cross-platform: supports Unix and Windows separators.
  */
 
 const hotspotPatterns = [
@@ -9,7 +9,5 @@ const hotspotPatterns = [
 ];
 
 export function isCompilerHotspot(filePath: string): boolean {
-  return hotspotPatterns.some((re) => re.test(filePath));
+  return hotspotPatterns.some((pattern) => pattern.test(filePath));
 }
-
-export default isCompilerHotspot;

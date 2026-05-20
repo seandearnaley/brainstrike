@@ -37,15 +37,7 @@
       "planningArtifact": "docs/architecture-reset/phase-4-domain-moves-plan-2026-05-19.html"
     }
   ],
-  "boundaryExceptions": [
-    {
-      "id": "build-utils-logger-coupling",
-      "sourcePackage": "@brainstrike/build-utils",
-      "importedPackage": "@brainstrike/utils",
-      "reason": "Build utilities reuse shared logging. Phase 4 decides whether logging remains shared-foundation or moves a build-safe logger into tooling.",
-      "retireByPhase": "phase-4"
-    }
-  ],
+  "boundaryExceptions": [],
   "domains": [
     {
       "id": "applications",

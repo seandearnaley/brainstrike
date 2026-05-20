@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { isCompilerHotspot } from '../dev/is-compiler-hotspot';
+import { isCompilerHotspot } from '../compiler-hotspots';
 
-describe('utils/dev/is-compiler-hotspot', () => {
+describe('build-utils/compiler-hotspots', () => {
   it('matches unix paths', () => {
     expect(isCompilerHotspot('/repo/packages/hooks/src/x.ts')).toBe(true);
     expect(isCompilerHotspot('/repo/packages/file-explorer-ui/src/workspace-settings.tsx')).toBe(

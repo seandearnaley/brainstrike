@@ -1,12 +1,13 @@
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createLogger, isCompilerHotspot } from '@brainstrike/utils';
 import type { HmrContext, Plugin } from 'vite';
+import { createBuildLogger } from './build-logger';
+import { isCompilerHotspot } from './compiler-hotspots';
 
 // @ts-expect-error: process.env has index signature
 const isDev = process.env.NODE_ENV === 'development';
-const logger = createLogger('PGliteLocator');
+const logger = createBuildLogger('PGliteLocator');
 
 const ASSISTANT_MARKDOWN_VENDOR_MATCHERS = [
   '/@assistant-ui/react-markdown/',
