@@ -88,13 +88,6 @@
       "retireByPhase": "phase-3"
     },
     {
-      "id": "preferences-text-splitter-settings-coupling",
-      "sourcePackage": "@brainstrike/preferences",
-      "importedPackage": "@brainstrike/text-splitter",
-      "reason": "Preferences currently stores import and chunking settings with text splitter constants. Phase 3 moves indexing settings behind an indexing-owned contract.",
-      "retireByPhase": "phase-3"
-    },
-    {
       "id": "ui-storage-theme-coupling",
       "sourcePackage": "@brainstrike/ui",
       "importedPackage": "@brainstrike/storage",

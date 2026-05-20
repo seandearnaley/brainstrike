@@ -1671,12 +1671,12 @@ importers:
       '@brainstrike/embeddings':
         specifier: workspace:*
         version: link:../embeddings
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
-      '@brainstrike/text-splitter':
-        specifier: workspace:*
-        version: link:../text-splitter
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types

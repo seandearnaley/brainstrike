@@ -42,10 +42,10 @@
       "path": "../embeddings"
     },
     {
-      "path": "../storage"
+      "path": "../indexing-contract"
     },
     {
-      "path": "../text-splitter"
+      "path": "../storage"
     },
     {
       "path": "../ui"

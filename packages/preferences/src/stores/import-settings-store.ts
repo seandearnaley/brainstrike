@@ -1,5 +1,9 @@
-import type { ChunkingPresetSelection, ChunkingStrategy } from '@brainstrike/text-splitter';
-import { getChunkingPreset, isChunkingStrategy } from '@brainstrike/text-splitter';
+import {
+  type ChunkingPresetSelection,
+  type ChunkingStrategy,
+  getChunkingPreset,
+  isChunkingStrategy,
+} from '@brainstrike/indexing-contract';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createBrowserJsonStorage } from './browser-json-storage';

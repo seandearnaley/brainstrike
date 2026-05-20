@@ -2,6 +2,310 @@ import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 
 export const STANDARD_EMBEDDING_DIMENSION = DEFAULT_EMBEDDING_DIMENSION;
 
+export type ResolvedChunkingStrategy =
+  | 'character'
+  | 'recursive'
+  | 'token'
+  | 'markdown'
+  | 'semantic-markdown'
+  | 'html'
+  | 'json'
+  | 'latex'
+  | 'sentence';
+
+export type ChunkingStrategy = 'auto' | ResolvedChunkingStrategy;
+
+export type ChunkingPresetId =
+  | 'balanced'
+  | 'codebase'
+  | 'strict-code'
+  | 'docs'
+  | 'api-reference'
+  | 'structured-data'
+  | 'large-context';
+
+export type ChunkingPresetSelection = ChunkingPresetId | 'custom';
+
+export interface ChunkingPresetDefinition {
+  readonly adaptiveRouting: boolean;
+  readonly bestFor: readonly string[];
+  readonly chunkOverlap: number;
+  readonly chunkSize: number;
+  readonly description: string;
+  readonly id: ChunkingPresetId;
+  readonly isDefault?: boolean;
+  readonly label: string;
+  readonly strategy: ChunkingStrategy;
+  readonly tokenLimit: number;
+  readonly tradeoff: string;
+}
+
+export interface ChunkingRoutePreview {
+  readonly fileName: string;
+  readonly label: string;
+  readonly reason: string;
+  readonly resolvedStrategy: ResolvedChunkingStrategy;
+}
+
+const CODE_EXTENSIONS = new Set([
+  'js',
+  'ts',
+  'jsx',
+  'tsx',
+  'mjs',
+  'cjs',
+  'mts',
+  'cts',
+  'py',
+  'java',
+  'cpp',
+  'c',
+  'h',
+  'hpp',
+  'cs',
+  'php',
+  'rb',
+  'go',
+  'rs',
+  'swift',
+  'kt',
+  'kts',
+  'scala',
+  'vue',
+  'svelte',
+]);
+
+const RESOLVED_CHUNKING_STRATEGIES = new Set<ResolvedChunkingStrategy>([
+  'character',
+  'recursive',
+  'token',
+  'markdown',
+  'semantic-markdown',
+  'html',
+  'json',
+  'latex',
+  'sentence',
+]);
+
+const CHUNKING_PRESETS: readonly ChunkingPresetDefinition[] = [
+  {
+    id: 'balanced',
+    label: 'Balanced',
+    description: 'General-purpose defaults that auto-detect the best splitter for most files.',
+    adaptiveRouting: true,
+    bestFor: ['mixed repos', 'teams starting out', 'general retrieval'],
+    strategy: 'auto',
+    chunkSize: 256,
+    chunkOverlap: 50,
+    tokenLimit: 4096,
+    isDefault: true,
+    tradeoff: 'Not as aggressive as specialist presets for code-only or schema-heavy corpora.',
+  },
+  {
+    id: 'codebase',
+    label: 'Codebase',
+    description:
+      'Adaptive mixed-repo preset: code stays tight while docs and data keep their own structure.',
+    adaptiveRouting: true,
+    bestFor: ['monorepos', 'product docs + code', 'engineering assistants'],
+    strategy: 'auto',
+    chunkSize: 224,
+    chunkOverlap: 40,
+    tokenLimit: 3072,
+    tradeoff: 'More conservative chunk sizing can increase chunk count on very large repos.',
+  },
+  {
+    id: 'strict-code',
+    label: 'Strict Code',
+    description:
+      'Forces recursive code-centric chunking for source-only corpora where locality matters most.',
+    adaptiveRouting: false,
+    bestFor: ['source-only repos', 'symbol retrieval', 'diff-aware assistants'],
+    strategy: 'recursive',
+    chunkSize: 192,
+    chunkOverlap: 40,
+    tokenLimit: 3072,
+    tradeoff: 'Will over-treat docs and schemas as code if you point it at a mixed corpus.',
+  },
+  {
+    id: 'docs',
+    label: 'Docs',
+    description: 'Prefers semantic markdown grouping for guides, notes, and README-heavy content.',
+    adaptiveRouting: false,
+    bestFor: ['handbooks', 'runbooks', 'README sets'],
+    strategy: 'semantic-markdown',
+    chunkSize: 320,
+    chunkOverlap: 56,
+    tokenLimit: 4096,
+    tradeoff: "Non-markdown files won't benefit from the heading-family bias.",
+  },
+  {
+    id: 'api-reference',
+    label: 'API Reference',
+    description: 'Smaller, denser chunks for reference docs where precision matters.',
+    adaptiveRouting: false,
+    bestFor: ['API docs', 'SDK references', 'parameter lookups'],
+    strategy: 'markdown',
+    chunkSize: 192,
+    chunkOverlap: 32,
+    tokenLimit: 3072,
+    tradeoff: 'Can fragment long-form guides more than general-purpose presets.',
+  },
+  {
+    id: 'structured-data',
+    label: 'Structured Data',
+    description: 'Structure-aware splitting for JSON-like payloads and schema-heavy content.',
+    adaptiveRouting: false,
+    bestFor: ['JSON payloads', 'schemas', 'machine-readable docs'],
+    strategy: 'json',
+    chunkSize: 384,
+    chunkOverlap: 64,
+    tokenLimit: 6144,
+    tradeoff: 'Less effective for prose-heavy files that only happen to live near structured data.',
+  },
+  {
+    id: 'large-context',
+    label: 'Large Context',
+    description: 'Fewer, larger chunks when downstream models can tolerate bigger payloads.',
+    adaptiveRouting: false,
+    bestFor: ['large-context models', 'broad semantic recall', 'fewer chunk boundaries'],
+    strategy: 'token',
+    chunkSize: 512,
+    chunkOverlap: 64,
+    tokenLimit: 8192,
+    tradeoff: 'Bigger chunks can reduce precision for exact retrieval and reranking.',
+  },
+] as const;
+
+const ROUTE_PREVIEW_CANDIDATES: readonly Omit<ChunkingRoutePreview, 'resolvedStrategy'>[] = [
+  {
+    label: 'Code module',
+    fileName: 'src/assistant/retrieval.ts',
+    reason: 'Keeps symbols and local control flow together for code retrieval.',
+  },
+  {
+    label: 'Guide / handbook',
+    fileName: 'docs/getting-started.md',
+    reason: 'Preserves heading families so sections stay coherent in retrieval.',
+  },
+  {
+    label: 'Structured payload',
+    fileName: 'schemas/search-response.json',
+    reason: 'Favors object and array boundaries instead of sentence splits.',
+  },
+  {
+    label: 'Markup page',
+    fileName: 'public/reference/index.html',
+    reason: 'Uses block and tag boundaries so markup stays readable in context.',
+  },
+  {
+    label: 'Research paper',
+    fileName: 'notes/retrieval-paper.tex',
+    reason: 'Prefers section and environment boundaries for long technical writing.',
+  },
+  {
+    label: 'Plain notes',
+    fileName: 'notes/retro.txt',
+    reason: 'Falls back to natural sentence boundaries for general prose.',
+  },
+] as const;
+
+const EXTENSION_STRATEGY_MAP = new Map<string, ResolvedChunkingStrategy>([
+  ['md', 'semantic-markdown'],
+  ['mdx', 'semantic-markdown'],
+  ['markdown', 'semantic-markdown'],
+  ['rst', 'semantic-markdown'],
+  ['adoc', 'semantic-markdown'],
+  ['asciidoc', 'semantic-markdown'],
+  ['html', 'html'],
+  ['htm', 'html'],
+  ['xhtml', 'html'],
+  ['xml', 'html'],
+  ['svg', 'html'],
+  ['json', 'json'],
+  ['jsonl', 'json'],
+  ['ndjson', 'json'],
+  ['geojson', 'json'],
+  ['ipynb', 'json'],
+  ['tex', 'latex'],
+  ['latex', 'latex'],
+  ['bib', 'latex'],
+]);
+
+function getChunkingFileExtension(filePath: string): string {
+  const normalized = filePath.toLowerCase();
+  const lastSlash = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'));
+  const lastDot = normalized.lastIndexOf('.');
+  if (lastDot === -1 || lastDot < lastSlash) {
+    return '';
+  }
+  return normalized.slice(lastDot + 1);
+}
+
+export function isResolvedChunkingStrategy(value: unknown): value is ResolvedChunkingStrategy {
+  return (
+    typeof value === 'string' && RESOLVED_CHUNKING_STRATEGIES.has(value as ResolvedChunkingStrategy)
+  );
+}
+
+export function isChunkingStrategy(value: unknown): value is ChunkingStrategy {
+  return value === 'auto' || isResolvedChunkingStrategy(value);
+}
+
+export function getChunkingPresetDefinitions(): readonly ChunkingPresetDefinition[] {
+  return CHUNKING_PRESETS;
+}
+
+export function getChunkingPreset(id: ChunkingPresetId): ChunkingPresetDefinition {
+  const preset = CHUNKING_PRESETS.find((candidate) => candidate.id === id);
+  if (!preset) {
+    throw new Error(`Unknown chunking preset: ${id}`);
+  }
+  return preset;
+}
+
+export function resolveChunkingStrategyForFile(
+  filePath: string,
+  requested: ChunkingStrategy = 'auto'
+): ResolvedChunkingStrategy {
+  if (requested !== 'auto') {
+    return requested;
+  }
+
+  const extension = getChunkingFileExtension(filePath);
+  if (CODE_EXTENSIONS.has(extension)) {
+    return 'recursive';
+  }
+  return EXTENSION_STRATEGY_MAP.get(extension) ?? 'sentence';
+}
+
+export function resolveEffectiveChunkingStrategy({
+  requested,
+  resolvedAutoStrategy,
+  isCode,
+}: {
+  requested: ChunkingStrategy;
+  resolvedAutoStrategy: ResolvedChunkingStrategy;
+  isCode: boolean;
+}): ResolvedChunkingStrategy {
+  if (requested !== 'auto') {
+    return requested;
+  }
+  if (resolvedAutoStrategy === 'recursive' && !isCode) {
+    return 'sentence';
+  }
+  return resolvedAutoStrategy;
+}
+
+export function getChunkingRoutePreview(
+  requested: ChunkingStrategy = 'auto'
+): readonly ChunkingRoutePreview[] {
+  return ROUTE_PREVIEW_CANDIDATES.map((candidate) => ({
+    ...candidate,
+    resolvedStrategy: resolveChunkingStrategyForFile(candidate.fileName, requested),
+  }));
+}
+
 export type EmbeddingDevice = 'webgpu' | 'wasm';
 
 export type EmbeddingDeviceHint = EmbeddingDevice;
