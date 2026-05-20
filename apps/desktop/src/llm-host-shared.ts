@@ -374,6 +374,38 @@ export function assertLlmHostCancelPayload(value: unknown): LlmHostCancelRequest
   };
 }
 
+export function normalizeLlmHostWarmupIpcPayload(
+  value: unknown,
+  createClientRequestId: () => string
+): LlmHostWarmupRequestPayload {
+  if (typeof value === 'string') {
+    return assertLlmHostWarmupPayload({
+      kind: 'warmup',
+      modelId: value,
+      clientRequestId: createClientRequestId(),
+    });
+  }
+
+  if (!(typeof value === 'object' && value !== null)) {
+    return assertLlmHostWarmupPayload(value);
+  }
+
+  return assertLlmHostWarmupPayload({
+    ...value,
+    kind: 'warmup',
+  });
+}
+
+export function assertLlmHostCancelIpcRequestId(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new Error('Llm host cancel requestId must be a string.');
+  }
+  return assertLlmHostCancelPayload({
+    kind: 'cancel',
+    requestId: value,
+  }).requestId;
+}
+
 function assertResponseReportBase(value: unknown): {
   payload: Record<string, unknown>;
   requestId: string;

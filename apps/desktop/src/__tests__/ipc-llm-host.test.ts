@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import type { IpcMainInvokeEvent } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -16,6 +18,10 @@ vi.mock('electron', () => ({
 vi.mock('../register-background-runtime-lifecycle-ipc', () => ({
   registerBackgroundRuntimeLifecycleIpcHandlers: vi.fn(() => vi.fn()),
 }));
+
+function readDesktopSource(relativePath: string): string {
+  return readFileSync(path.resolve(process.cwd(), 'src', relativePath), 'utf8');
+}
 
 describe('ipc-llm-host', () => {
   beforeEach(() => {
@@ -543,5 +549,14 @@ describe('ipc-llm-host', () => {
       cancelHandler({ sender: {} } as IpcMainInvokeEvent, { bad: true })
     ).rejects.toThrow('Llm host cancel requestId must be a string.');
     expect(manager.cancel).not.toHaveBeenCalled();
+  });
+
+  it('routes llm host IPC payload normalization through the shared host contract', () => {
+    const ipcSource = readDesktopSource('ipc-llm-host.ts');
+
+    expect(ipcSource).toContain('normalizeLlmHostWarmupIpcPayload');
+    expect(ipcSource).toContain('assertLlmHostCancelIpcRequestId');
+    expect(ipcSource).not.toContain("typeof payload === 'string'");
+    expect(ipcSource).not.toContain('Llm host cancel requestId must be a string.');
   });
 });
