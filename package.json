@@ -130,7 +130,7 @@
     "secrets:scan": "node scripts/secret-scan.mjs --all",
     "secrets:scan:staged": "node scripts/secret-scan.mjs --staged",
     "setup:headless": "bash scripts/setup-headless-display.sh",
-    "test": "TURBO_TEST_MODE=unit turbo run test --summarize --log-order=grouped",
+    "test": "TURBO_TEST_MODE=unit turbo run test --concurrency=4 --summarize --log-order=grouped",
     "test:browser": "turbo run test:browser --summarize --log-order=grouped",
     "test:coverage": "TURBO_TEST_MODE=coverage COVERAGE=true turbo run test:coverage --concurrency=4 --summarize --log-order=grouped",
     "test:coverage:base": "TURBO_TEST_MODE=coverage COVERAGE=true pnpm -r --filter '!@brainstrike/embeddings' run test:coverage",

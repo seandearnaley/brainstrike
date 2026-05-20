@@ -158,6 +158,15 @@ function runLane(laneName) {
   if (!laneMap) {
     return 1;
   }
+  if (laneName === 'all') {
+    for (const name of laneMap.keys()) {
+      const exitCode = runLane(name);
+      if (exitCode !== 0) {
+        return exitCode;
+      }
+    }
+    return 0;
+  }
   const files = laneMap.get(laneName);
   if (!files) {
     console.error(`Unknown DB test lane: ${laneName}`);
@@ -194,7 +203,7 @@ function main(args) {
   if (command === 'run' && laneName) {
     return runLane(laneName);
   }
-  console.error('Usage: node scripts/test-lanes.mjs check|run <lane>');
+  console.error('Usage: node scripts/test-lanes.mjs check|run <lane|all>');
   return 1;
 }
 

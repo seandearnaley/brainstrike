@@ -57,7 +57,7 @@
     "db:migrate": "pnpm db:generate && pnpm db:export",
     "dev": "tsc --build --watch",
     "mutation": "npx @stryker-mutator/core run",
-    "test": "vitest run --project unit",
+    "test": "node scripts/test-lanes.mjs run all",
     "test:all": "vitest run",
     "test:browser": "vitest run --project browser",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
