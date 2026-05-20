@@ -1,7 +1,7 @@
 import type { WebContents } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { lifecycleState, mockHostWindow } = vi.hoisted(() => {
+const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(() => {
   const hostWindow = {
     isDestroyed: vi.fn(() => false),
     webContents: {
@@ -9,8 +9,16 @@ const { lifecycleState, mockHostWindow } = vi.hoisted(() => {
       send: vi.fn(),
     },
   };
+  const currentStatus = {
+    active: false,
+    lastError: null,
+    runtimeId: 'llm-host-runtime',
+    runtimeKind: 'llm-host' as const,
+    state: 'running' as const,
+  };
 
   return {
+    currentLifecycleStatus: currentStatus,
     lifecycleState: {
       clearHostWindow: vi.fn(),
       destroyHostWindow: vi.fn(),
@@ -19,17 +27,19 @@ const { lifecycleState, mockHostWindow } = vi.hoisted(() => {
         active: false,
         lastError: null,
         runtimeId: 'llm-host-runtime',
+        runtimeKind: 'llm-host' as const,
         state: 'running' as const,
       })),
       getHostWindow: vi.fn(() => hostWindow),
-      getStatus: vi.fn(() => ({
-        active: false,
-        lastError: null,
-        runtimeId: 'llm-host-runtime',
-        state: 'running' as const,
-      })),
+      getStatus: vi.fn(() => ({ ...currentStatus })),
       isHostWindow: vi.fn(() => false),
-      setStatus: vi.fn(),
+      setStatus: vi.fn((status) => {
+        currentStatus.active = status.active;
+        currentStatus.lastError = status.lastError;
+        currentStatus.runtimeId = status.runtimeId;
+        currentStatus.runtimeKind = status.runtimeKind ?? 'llm-host';
+        currentStatus.state = status.state;
+      }),
     },
     mockHostWindow: hostWindow,
   };
@@ -75,15 +85,16 @@ describe('LlmHostManager', () => {
       active: false,
       lastError: null,
       runtimeId: 'llm-host-runtime',
+      runtimeKind: 'llm-host',
       state: 'running',
     });
     lifecycleState.getHostWindow.mockReturnValue(mockHostWindow);
-    lifecycleState.getStatus.mockReturnValue({
-      active: false,
-      lastError: null,
-      runtimeId: 'llm-host-runtime',
-      state: 'running',
-    });
+    lifecycleState.getStatus.mockImplementation(() => ({ ...currentLifecycleStatus }));
+    currentLifecycleStatus.active = false;
+    currentLifecycleStatus.lastError = null;
+    currentLifecycleStatus.runtimeId = 'llm-host-runtime';
+    currentLifecycleStatus.runtimeKind = 'llm-host';
+    currentLifecycleStatus.state = 'running';
     mockHostWindow.isDestroyed.mockReturnValue(false);
     mockHostWindow.webContents.send.mockReset();
   });
@@ -134,6 +145,26 @@ describe('LlmHostManager', () => {
     });
 
     await expect(requestPromise).resolves.toEqual({ text: 'done' });
+  });
+
+  it('exposes platform status with pending request count and disposed state', async () => {
+    const manager = new LlmHostManager();
+
+    expect(manager.getPlatformStatus()).toMatchObject({
+      pendingRequestCount: 0,
+      runtimeId: 'llm-host-runtime',
+      runtimeKind: 'llm-host',
+      sourceState: 'running',
+      state: 'idle',
+    });
+
+    await manager.dispose();
+
+    expect(manager.getPlatformStatus()).toMatchObject({
+      runtimeKind: 'llm-host',
+      sourceState: 'stopped',
+      state: 'disposed',
+    });
   });
 
   it('enforces a hard timeout ceiling even when progress keeps arriving', async () => {

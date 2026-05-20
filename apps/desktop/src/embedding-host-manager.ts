@@ -15,6 +15,10 @@ import {
   type EmbeddingHostStatus,
   type EmbeddingHostStatusReport,
 } from './embedding-host-shared';
+import {
+  createRuntimeHostPlatformStatus,
+  type RuntimeHostPlatformStatus,
+} from './platform/runtime-host-state';
 import { RendererHostLifecycle } from './renderer-host-lifecycle';
 
 const logger = createLogger('EmbeddingHostManager');
@@ -93,6 +97,13 @@ export class EmbeddingHostManager {
 
   getStatus(): EmbeddingHostStatus {
     return this.lifecycle.getStatus();
+  }
+
+  getPlatformStatus(): RuntimeHostPlatformStatus<'embedding-host'> {
+    return createRuntimeHostPlatformStatus(this.getStatus(), {
+      ...(this.disposed ? { controlState: 'disposed' as const } : {}),
+      pendingRequestCount: this.pendingQueryEmbeddingRequests.size,
+    });
   }
 
   isHostWindow(window: BrowserWindow): boolean {

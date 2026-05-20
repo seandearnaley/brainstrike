@@ -12,6 +12,7 @@ const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(()
     active: false,
     lastError: null,
     runtimeId: 'embedding-host-runtime',
+    runtimeKind: 'embedding-host' as const,
     state: 'running' as const,
   };
 
@@ -34,6 +35,7 @@ const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(()
         currentStatus.active = status.active;
         currentStatus.lastError = status.lastError;
         currentStatus.runtimeId = status.runtimeId;
+        currentStatus.runtimeKind = status.runtimeKind ?? 'embedding-host';
         currentStatus.state = status.state;
       }),
       waitForStatus: vi.fn(async () => ({
@@ -91,6 +93,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     currentLifecycleStatus.active = false;
     currentLifecycleStatus.lastError = null;
     currentLifecycleStatus.runtimeId = 'embedding-host-runtime';
+    currentLifecycleStatus.runtimeKind = 'embedding-host';
     currentLifecycleStatus.state = 'running';
     lifecycleState.waitForStatus.mockResolvedValue({
       active: false,
@@ -162,6 +165,26 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     await expect(manager.ensureStarted()).rejects.toThrow(
       'EmbeddingHostManager.ensureStarted cannot be called after dispose().'
     );
+  });
+
+  it('exposes platform status with pending query count and disposed state', async () => {
+    const manager = new EmbeddingHostManager();
+
+    expect(manager.getPlatformStatus()).toMatchObject({
+      pendingRequestCount: 0,
+      runtimeId: 'embedding-host-runtime',
+      runtimeKind: 'embedding-host',
+      sourceState: 'running',
+      state: 'idle',
+    });
+
+    await manager.dispose();
+
+    expect(manager.getPlatformStatus()).toMatchObject({
+      runtimeKind: 'embedding-host',
+      sourceState: 'stopped',
+      state: 'disposed',
+    });
   });
 
   it('captures the runtime id once and tears down on error status during stop', async () => {
