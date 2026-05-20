@@ -16,5 +16,3 @@ Status: needs-samples
 | desktop-smoke-tests | desktop-platform | no | 1 | 4 | 20m 0s | normal | calibrating |
 | web-smoke-tests | applications | no | 1 | 4 | 20m 0s | normal | calibrating |
 | desktop-unit-tests | desktop-platform | no | 1 | 4 | 16m 0s | normal | calibrating |
-| file-explorer-tests | workspace-experience | no | 1 | 4 | 16m 0s | normal | calibrating |
-| migration-tests | data-platform | no | 1 | 4 | 12m 0s | normal | calibrating |

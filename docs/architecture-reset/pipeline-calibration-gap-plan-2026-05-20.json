@@ -84,26 +84,6 @@
       "releaseOnly": false,
       "selected": false,
       "status": "calibrating"
-    },
-    {
-      "name": "file-explorer-tests",
-      "owner": "workspace-experience",
-      "sampleCount": 1,
-      "missingSamples": 4,
-      "estimatedRemainingMs": 960000,
-      "releaseOnly": false,
-      "selected": false,
-      "status": "calibrating"
-    },
-    {
-      "name": "migration-tests",
-      "owner": "data-platform",
-      "sampleCount": 1,
-      "missingSamples": 4,
-      "estimatedRemainingMs": 720000,
-      "releaseOnly": false,
-      "selected": false,
-      "status": "calibrating"
     }
   ]
 }
