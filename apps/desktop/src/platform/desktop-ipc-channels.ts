@@ -12,6 +12,7 @@ export const DESKTOP_IPC_CHANNELS = {
     liveQueryRefresh: 'db:live-query:refresh',
     liveQueryStart: 'db:live-query:start',
     liveQueryStop: 'db:live-query:stop',
+    liveQueryUpdate: 'db:live-query:update',
     ping: 'db:ping',
     query: 'db:query',
     resetLocal: 'db:resetLocal',
@@ -48,7 +49,12 @@ export const DESKTOP_IPC_CHANNELS = {
     toolsUpdated: 'mcp:tools:updated',
   },
   runtime: {
+    listModels: 'runtime:listModels',
     noteReloadIntent: 'app:lifecycle:note-reload-intent',
+    powerState: 'app:power-state',
+    probe: 'runtime:probe',
+    resolveOllamaCapabilities: 'runtime:resolveOllamaCapabilities',
+    verifyEmbeddingDimensions: 'runtime:verifyEmbeddingDimensions',
   },
   secrets: {
     clearAll: 'secrets:clearAll',

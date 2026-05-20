@@ -27,6 +27,14 @@ function removePreloadStringConstantDefinitions(source: string): string {
   );
 }
 
+function findRawIpcRendererChannels(source: string): string[] {
+  const pattern = /ipcRenderer\.(?:invoke|send|on|removeListener)\(\s*['"][^'"]+['"]/g;
+  return [...source.matchAll(pattern)].map((match) => {
+    const lineNumber = source.slice(0, match.index).split('\n').length;
+    return `${lineNumber}: ${match[0]}`;
+  });
+}
+
 describe('preload runtime contract', () => {
   it('keeps preload IPC contracts self-contained', () => {
     const preloadSource = readPreloadSource();
@@ -124,9 +132,34 @@ describe('preload runtime contract', () => {
     const preloadSource = readPreloadSource();
     const expectedConstants = {
       AGENT_CHAT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.agent.chat,
+      APP_POWER_STATE_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerState,
       ASSISTANT_GET_URL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.agent.assistantGetUrl,
       APP_LIFECYCLE_NOTE_RELOAD_INTENT_CHANNEL:
         DESKTOP_PRELOAD_IPC_CHANNELS.runtime.noteReloadIntent,
+      DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.applyManagedCacheBatch,
+      DB_CLEAR_ALL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.clearAll,
+      DB_DIAGNOSTICS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.diagnostics,
+      DB_EXEC_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.exec,
+      DB_GET_USER_DATA_PATH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.getUserDataPath,
+      DB_LIVE_QUERY_REFRESH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.liveQueryRefresh,
+      DB_LIVE_QUERY_START_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.liveQueryStart,
+      DB_LIVE_QUERY_STOP_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.liveQueryStop,
+      DB_LIVE_QUERY_UPDATE_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.db.liveQueryUpdate,
+      DB_PING_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.ping,
+      DB_QUERY_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.query,
+      DB_RESET_LOCAL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.resetLocal,
+      DB_SCHEDULER_SNAPSHOT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.schedulerSnapshot,
+      DB_TEST_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.test,
+      FILE_SYSTEM_EXISTS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.exists,
+      FILE_SYSTEM_READ_DIRECTORY_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.readDirectory,
+      FILE_SYSTEM_READ_FILE_BY_PATH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.readFileByPath,
+      FILE_SYSTEM_READ_FILE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.readFile,
+      FILE_SYSTEM_REQUEST_DIRECTORY_ACCESS_CHANNEL:
+        DESKTOP_PRELOAD_IPC_CHANNELS.files.requestDirectoryAccess,
+      FILE_SYSTEM_RESTORE_LAST_FOLDER_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.restoreLastFolder,
+      FILE_SYSTEM_SAVE_LAST_FOLDER_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.saveLastFolder,
+      LAYOUT_LOAD_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.preferences.layoutLoad,
+      LAYOUT_SAVE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.preferences.layoutSave,
       MCP_CONFIG_CREATE_SAMPLE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configCreateSample,
       MCP_CONFIG_GET_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configGet,
       MCP_CONFIG_GET_PATH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configGetPath,
@@ -145,6 +178,24 @@ describe('preload runtime contract', () => {
       MCP_TOOLS_RESET_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsReset,
       MCP_TOOLS_UPDATED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsUpdated,
       PARSER_HOST_PARSE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.parserHostParse,
+      RUNTIME_LIST_MODELS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.runtime.listModels,
+      RUNTIME_PROBE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.runtime.probe,
+      RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL:
+        DESKTOP_PRELOAD_IPC_CHANNELS.runtime.resolveOllamaCapabilities,
+      RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL:
+        DESKTOP_PRELOAD_IPC_CHANNELS.runtime.verifyEmbeddingDimensions,
+      SECRETS_CLEAR_ALL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.clearAll,
+      SECRETS_DELETE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.delete,
+      SECRETS_GET_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.get,
+      SECRETS_LIST_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.list,
+      SECRETS_LIST_STORED_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.listStored,
+      SECRETS_SAVE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.save,
+      SETTINGS_CLEAR_ALL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.preferences.settingsClearAll,
+      STORAGE_CLEAR_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.clear,
+      STORAGE_GET_ALL_KEYS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.getAllKeys,
+      STORAGE_GET_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.getItem,
+      STORAGE_REMOVE_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.removeItem,
+      STORAGE_SET_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.setItem,
       TOOLS_EXECUTE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.tools.execute,
     } as const;
 
@@ -157,6 +208,10 @@ describe('preload runtime contract', () => {
       expect(preloadWithoutContractDefinitions).not.toContain(`'${channel}'`);
       expect(preloadWithoutContractDefinitions).not.toContain(`"${channel}"`);
     }
+  });
+
+  it('does not call ipcRenderer with raw channel string literals', () => {
+    expect(findRawIpcRendererChannels(readPreloadSource())).toEqual([]);
   });
 
   it('exposes file explorer test instrumentation before renderer app mount in E2E mode', () => {

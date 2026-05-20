@@ -8,6 +8,44 @@ const ASSISTANT_WORKSPACE_CONTEXT_TAPESTRY_EVENT = 'assistant:workspace-context-
 const MCP_TOOLS_UPDATED_EVENT = 'mcp:tools:updated' as const;
 const DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL = 'db:managed-cache:apply-batch' as const;
 const DB_SCHEDULER_SNAPSHOT_CHANNEL = 'db:scheduler:snapshot' as const;
+const DB_CLEAR_ALL_CHANNEL = 'db:clearAll' as const;
+const DB_DIAGNOSTICS_CHANNEL = 'db:diagnostics' as const;
+const DB_EXEC_CHANNEL = 'db:exec' as const;
+const DB_GET_USER_DATA_PATH_CHANNEL = 'db:getUserDataPath' as const;
+const DB_LIVE_QUERY_REFRESH_CHANNEL = 'db:live-query:refresh' as const;
+const DB_LIVE_QUERY_START_CHANNEL = 'db:live-query:start' as const;
+const DB_LIVE_QUERY_STOP_CHANNEL = 'db:live-query:stop' as const;
+const DB_LIVE_QUERY_UPDATE_EVENT = 'db:live-query:update' as const;
+const DB_PING_CHANNEL = 'db:ping' as const;
+const DB_QUERY_CHANNEL = 'db:query' as const;
+const DB_RESET_LOCAL_CHANNEL = 'db:resetLocal' as const;
+const DB_TEST_CHANNEL = 'db:test' as const;
+const FILE_SYSTEM_EXISTS_CHANNEL = 'fs:exists' as const;
+const FILE_SYSTEM_READ_DIRECTORY_CHANNEL = 'fs:readDirectory' as const;
+const FILE_SYSTEM_READ_FILE_BY_PATH_CHANNEL = 'fs:readFileByPath' as const;
+const FILE_SYSTEM_READ_FILE_CHANNEL = 'fs:readFile' as const;
+const FILE_SYSTEM_REQUEST_DIRECTORY_ACCESS_CHANNEL = 'fs:requestDirectoryAccess' as const;
+const FILE_SYSTEM_RESTORE_LAST_FOLDER_CHANNEL = 'fs:restoreLastFolder' as const;
+const FILE_SYSTEM_SAVE_LAST_FOLDER_CHANNEL = 'fs:saveLastFolder' as const;
+const LAYOUT_LOAD_CHANNEL = 'layout:load' as const;
+const LAYOUT_SAVE_CHANNEL = 'layout:save' as const;
+const RUNTIME_LIST_MODELS_CHANNEL = 'runtime:listModels' as const;
+const RUNTIME_PROBE_CHANNEL = 'runtime:probe' as const;
+const RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL = 'runtime:resolveOllamaCapabilities' as const;
+const RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL = 'runtime:verifyEmbeddingDimensions' as const;
+const SECRETS_CLEAR_ALL_CHANNEL = 'secrets:clearAll' as const;
+const SECRETS_DELETE_CHANNEL = 'secrets:delete' as const;
+const SECRETS_GET_CHANNEL = 'secrets:get' as const;
+const SECRETS_LIST_CHANNEL = 'secrets:list' as const;
+const SECRETS_LIST_STORED_CHANNEL = 'secrets:listStored' as const;
+const SECRETS_SAVE_CHANNEL = 'secrets:save' as const;
+const SETTINGS_CLEAR_ALL_CHANNEL = 'settings:clearAll' as const;
+const STORAGE_CLEAR_CHANNEL = 'storage:clear' as const;
+const STORAGE_GET_ALL_KEYS_CHANNEL = 'storage:getAllKeys' as const;
+const STORAGE_GET_ITEM_CHANNEL = 'storage:getItem' as const;
+const STORAGE_REMOVE_ITEM_CHANNEL = 'storage:removeItem' as const;
+const STORAGE_SET_ITEM_CHANNEL = 'storage:setItem' as const;
+const APP_POWER_STATE_EVENT = 'app:power-state' as const;
 const LOGGING_GET_PREFERENCES_CHANNEL = 'logging:get-preferences' as const;
 const LOGGING_SET_PREFERENCES_CHANNEL = 'logging:set-preferences' as const;
 const LOGGING_SELECT_DESTINATION_CHANNEL = 'logging:select-destination' as const;
@@ -147,13 +185,13 @@ function subscribeToDbLiveUpdates(callback: DbLiveUpdateCallback): () => void {
         }
       }
     };
-    ipcRenderer.on('db:live-query:update', dbLiveUpdateIpcListener);
+    ipcRenderer.on(DB_LIVE_QUERY_UPDATE_EVENT, dbLiveUpdateIpcListener);
   }
 
   return () => {
     dbLiveUpdateCallbacks.delete(callback);
     if (dbLiveUpdateCallbacks.size === 0 && dbLiveUpdateIpcListener) {
-      ipcRenderer.removeListener('db:live-query:update', dbLiveUpdateIpcListener);
+      ipcRenderer.removeListener(DB_LIVE_QUERY_UPDATE_EVENT, dbLiveUpdateIpcListener);
       dbLiveUpdateIpcListener = null;
     }
   };
@@ -377,48 +415,55 @@ function unwrapFileReadResult(result: unknown): string {
 if (shouldExposeBridge('electronAPI')) {
   contextBridge.exposeInMainWorld('electronAPI', {
     storage: {
-      getItem: (key: string) => ipcRenderer.invoke('storage:getItem', key),
-      setItem: (key: string, value: string) => ipcRenderer.invoke('storage:setItem', key, value),
-      removeItem: (key: string) => ipcRenderer.invoke('storage:removeItem', key),
-      clear: () => ipcRenderer.invoke('storage:clear'),
-      getAllKeys: () => ipcRenderer.invoke('storage:getAllKeys'),
+      getItem: (key: string) => ipcRenderer.invoke(STORAGE_GET_ITEM_CHANNEL, key),
+      setItem: (key: string, value: string) =>
+        ipcRenderer.invoke(STORAGE_SET_ITEM_CHANNEL, key, value),
+      removeItem: (key: string) => ipcRenderer.invoke(STORAGE_REMOVE_ITEM_CHANNEL, key),
+      clear: () => ipcRenderer.invoke(STORAGE_CLEAR_CHANNEL),
+      getAllKeys: () => ipcRenderer.invoke(STORAGE_GET_ALL_KEYS_CHANNEL),
     },
     fileSystem: {
-      requestDirectoryAccess: () => ipcRenderer.invoke('fs:requestDirectoryAccess'),
-      readDirectory: (handle: DirectoryHandle) => ipcRenderer.invoke('fs:readDirectory', handle),
+      requestDirectoryAccess: () =>
+        ipcRenderer.invoke(FILE_SYSTEM_REQUEST_DIRECTORY_ACCESS_CHANNEL),
+      readDirectory: (handle: DirectoryHandle) =>
+        ipcRenderer.invoke(FILE_SYSTEM_READ_DIRECTORY_CHANNEL, handle),
       readFile: async (handle: FileHandle) => {
-        const result = await ipcRenderer.invoke('fs:readFile', handle);
+        const result = await ipcRenderer.invoke(FILE_SYSTEM_READ_FILE_CHANNEL, handle);
         return unwrapFileReadResult(result);
       },
       readFileByPath: async (absolutePath: string) => {
-        const result = await ipcRenderer.invoke('fs:readFileByPath', absolutePath);
+        const result = await ipcRenderer.invoke(
+          FILE_SYSTEM_READ_FILE_BY_PATH_CHANNEL,
+          absolutePath
+        );
         return unwrapFileReadResult(result);
       },
-      exists: (path: string) => ipcRenderer.invoke('fs:exists', path),
-      restoreLastFolder: () => ipcRenderer.invoke('fs:restoreLastFolder'),
-      saveLastFolder: (folderPath: string) => ipcRenderer.invoke('fs:saveLastFolder', folderPath),
+      exists: (path: string) => ipcRenderer.invoke(FILE_SYSTEM_EXISTS_CHANNEL, path),
+      restoreLastFolder: () => ipcRenderer.invoke(FILE_SYSTEM_RESTORE_LAST_FOLDER_CHANNEL),
+      saveLastFolder: (folderPath: string) =>
+        ipcRenderer.invoke(FILE_SYSTEM_SAVE_LAST_FOLDER_CHANNEL, folderPath),
     },
     // Panel layout persistence
     saveLayout: (state: PanelPersistenceState): Promise<LayoutPersistenceResult> =>
-      ipcRenderer.invoke('layout:save', state),
-    loadLayout: (): Promise<LayoutLoadResult> => ipcRenderer.invoke('layout:load'),
+      ipcRenderer.invoke(LAYOUT_SAVE_CHANNEL, state),
+    loadLayout: (): Promise<LayoutLoadResult> => ipcRenderer.invoke(LAYOUT_LOAD_CHANNEL),
     // Database operations
     db: {
       applyManagedCacheBatch: (
         payload: ApplyManagedCacheBatchArgs,
         options?: DatabaseWorkOptions
       ) => ipcRenderer.invoke(DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL, payload, options),
-      ping: () => ipcRenderer.invoke('db:ping'),
-      diagnostics: () => ipcRenderer.invoke('db:diagnostics'),
+      ping: () => ipcRenderer.invoke(DB_PING_CHANNEL),
+      diagnostics: () => ipcRenderer.invoke(DB_DIAGNOSTICS_CHANNEL),
       schedulerSnapshot: () => ipcRenderer.invoke(DB_SCHEDULER_SNAPSHOT_CHANNEL),
       query: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
-        ipcRenderer.invoke('db:query', sql, params, options),
+        ipcRenderer.invoke(DB_QUERY_CHANNEL, sql, params, options),
       exec: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
-        ipcRenderer.invoke('db:exec', sql, params, options),
-      test: () => ipcRenderer.invoke('db:test'),
+        ipcRenderer.invoke(DB_EXEC_CHANNEL, sql, params, options),
+      test: () => ipcRenderer.invoke(DB_TEST_CHANNEL),
       clearAll: (confirmationToken?: string) =>
-        ipcRenderer.invoke('db:clearAll', confirmationToken),
-      resetLocal: () => ipcRenderer.invoke('db:resetLocal'),
+        ipcRenderer.invoke(DB_CLEAR_ALL_CHANNEL, confirmationToken),
+      resetLocal: () => ipcRenderer.invoke(DB_RESET_LOCAL_CHANNEL),
     },
     dbLive: {
       start: (
@@ -431,33 +476,34 @@ if (shouldExposeBridge('electronAPI')) {
           limit?: number;
         },
         workOptions?: DatabaseWorkOptions
-      ) => ipcRenderer.invoke('db:live-query:start', options, workOptions),
-      stop: (id: number) => ipcRenderer.invoke('db:live-query:stop', id),
+      ) => ipcRenderer.invoke(DB_LIVE_QUERY_START_CHANNEL, options, workOptions),
+      stop: (id: number) => ipcRenderer.invoke(DB_LIVE_QUERY_STOP_CHANNEL, id),
       refresh: (
         payload: { id: number; offset?: number; limit?: number },
         options?: DatabaseWorkOptions
-      ) => ipcRenderer.invoke('db:live-query:refresh', payload, options),
+      ) => ipcRenderer.invoke(DB_LIVE_QUERY_REFRESH_CHANNEL, payload, options),
       onUpdate: (callback: (payload: { id: number; results: unknown }) => void) =>
         subscribeToDbLiveUpdates(callback),
     },
     // Database path (legacy - kept for compatibility)
-    getUserDataPath: () => ipcRenderer.invoke('db:getUserDataPath'),
+    getUserDataPath: () => ipcRenderer.invoke(DB_GET_USER_DATA_PATH_CHANNEL),
   });
 }
 
 // Secure Secrets API
 contextBridge.exposeInMainWorld('secrets', {
-  saveKey: (provider: string, value: string) => ipcRenderer.invoke('secrets:save', provider, value),
-  getKey: (provider: string) => ipcRenderer.invoke('secrets:get', provider),
-  deleteKey: (provider: string) => ipcRenderer.invoke('secrets:delete', provider),
-  list: () => ipcRenderer.invoke('secrets:list'),
-  listStored: () => ipcRenderer.invoke('secrets:listStored'),
-  clearAll: () => ipcRenderer.invoke('secrets:clearAll', SECRETS_CLEAR_CONFIRMATION_TOKEN),
+  saveKey: (provider: string, value: string) =>
+    ipcRenderer.invoke(SECRETS_SAVE_CHANNEL, provider, value),
+  getKey: (provider: string) => ipcRenderer.invoke(SECRETS_GET_CHANNEL, provider),
+  deleteKey: (provider: string) => ipcRenderer.invoke(SECRETS_DELETE_CHANNEL, provider),
+  list: () => ipcRenderer.invoke(SECRETS_LIST_CHANNEL),
+  listStored: () => ipcRenderer.invoke(SECRETS_LIST_STORED_CHANNEL),
+  clearAll: () => ipcRenderer.invoke(SECRETS_CLEAR_ALL_CHANNEL, SECRETS_CLEAR_CONFIRMATION_TOKEN),
 });
 
 // Settings Store API (factory reset support)
 contextBridge.exposeInMainWorld('settings', {
-  clearAll: () => ipcRenderer.invoke('settings:clearAll'),
+  clearAll: () => ipcRenderer.invoke(SETTINGS_CLEAR_ALL_CHANNEL),
 });
 
 contextBridge.exposeInMainWorld('desktopLifecycle', {
@@ -622,13 +668,18 @@ if (shouldExposeBridge('runtime')) {
         }
       : {
           probe: (runtimeId: string, options: unknown) =>
-            ipcRenderer.invoke('runtime:probe', runtimeId, options),
+            ipcRenderer.invoke(RUNTIME_PROBE_CHANNEL, runtimeId, options),
           listModels: (runtimeId: string, options: unknown) =>
-            ipcRenderer.invoke('runtime:listModels', runtimeId, options),
+            ipcRenderer.invoke(RUNTIME_LIST_MODELS_CHANNEL, runtimeId, options),
           resolveOllamaCapabilities: (modelId: string, options: unknown) =>
-            ipcRenderer.invoke('runtime:resolveOllamaCapabilities', modelId, options),
+            ipcRenderer.invoke(RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL, modelId, options),
           verifyEmbeddingDimensions: (runtimeId: string, modelId: string, options: unknown) =>
-            ipcRenderer.invoke('runtime:verifyEmbeddingDimensions', runtimeId, modelId, options),
+            ipcRenderer.invoke(
+              RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL,
+              runtimeId,
+              modelId,
+              options
+            ),
         }
   );
 }
@@ -669,9 +720,9 @@ if (shouldExposeBridge('desktopDiagnostics')) {
 contextBridge.exposeInMainWorld('power', {
   onPowerState: (callback: (state: 'suspend' | 'resume') => void) => {
     const listener = (_event: unknown, state: 'suspend' | 'resume') => callback(state);
-    ipcRenderer.on('app:power-state', listener);
+    ipcRenderer.on(APP_POWER_STATE_EVENT, listener);
     return () => {
-      ipcRenderer.removeListener('app:power-state', listener);
+      ipcRenderer.removeListener(APP_POWER_STATE_EVENT, listener);
     };
   },
 });
