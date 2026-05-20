@@ -22,7 +22,6 @@ This inventory tracks size and churn hotspots that remain after the legal domain
 | 1734 | `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts` | Split with service extraction. |
 | 1689 | `packages/db-explorer/src/use-database-demo-data.ts` | Review after db internal decomposition. |
 | 1629 | `apps/desktop/src/ipc-handlers.ts` | Move toward domain-keyed IPC registries. |
-| 1614 | `packages/assistant-contract/src/local-runtime-model-catalog.ts` | Document or split catalog data if it keeps growing. |
 | 1523 | `packages/file-explorer-ui/src/__tests__/preview-panel.test.tsx` | Split by preview table, footer, and report-action behavior. |
 | 1504 | `packages/db-explorer/src/__tests__/use-database-demo-data.test.ts` | Review after db explorer ownership decision. |
 
@@ -92,10 +91,20 @@ Compatibility re-exports remain in `embedding-worker.ts` while current consumers
 
 `embedding-worker-renderer.shared.ts` is documented in `apps/desktop/e2e/README.md` as an explicit test fixture exception because it centralizes the former monolith's setup, DB fixtures, host diagnostics, and memory samplers without making the executable lane files large again. Verification so far is static and discovery-only: desktop E2E type-check passes and Playwright lists 36 split tests across the six files without running the expensive lane.
 
+## Assistant Contract Catalog Slice Completed
+
+`packages/assistant-contract/src/local-runtime-model-catalog.ts` is reduced from 1614 LOC to 1439 LOC by extracting public catalog state/result contracts into `local-runtime-model-catalog-types.ts`. The existing `@brainstrike/assistant-contract/local-runtime` public surface remains stable through re-exports, while the service file now owns runtime catalog behavior instead of also carrying the public type catalog.
+
+Package-local architecture coverage now verifies the catalog service file stays under the 1500 LOC source budget. Verification for this slice:
+
+- `pnpm --filter @brainstrike/assistant-contract exec vitest run src/__tests__/local-runtime-model-catalog-architecture.test.ts`
+- `pnpm --filter @brainstrike/assistant-contract test`
+- `pnpm --filter @brainstrike/assistant-contract type-check`
+
 ## Next Slices
 
 1. Split `optimized-file-tree.tsx` and its 2947-line test file by extracting row/windowing/telemetry modules.
-2. Continue splitting `embedding-worker.ts` by extracting provider execution, model resolution, queue scheduling/backpressure, telemetry, and host messaging.
+2. Split `packages/app-shell/src/assistant-ui-panel-wrapper.tsx` and its large test by local-runtime, preferences, thread, and context wiring responsibilities.
 3. Tighten E2E lane selection so the split desktop embedding diagnostic files are only selected for matching high-risk diffs.
 4. Move `ipc-handlers.ts` toward a domain-keyed registry after the embedding E2E split reduces verification cost.
 5. Decompose `packages/db` internally around queue, migrations, repositories, search, and schema while preserving public barrels.
