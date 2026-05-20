@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 const SOURCE_ROOT = path.resolve(process.cwd(), 'src');
 const DIRECT_REGISTRY_CHANNEL_PATTERN =
   /registry\.register(?:Invoke|Event)\(\s*['"][^'"]+['"]\s*,\s*['"][^'"]+['"]/g;
+const DIRECT_WEB_CONTENTS_SEND_CHANNEL_PATTERN = /webContents\.send\(\s*['"][^'"]+['"]/g;
 
 function listProductionTypeScriptFiles(directory: string): string[] {
   const files: string[] = [];
@@ -35,6 +36,23 @@ describe('desktop IPC channel contract', () => {
         continue;
       }
       for (const match of source.matchAll(DIRECT_REGISTRY_CHANNEL_PATTERN)) {
+        const lineNumber = source.slice(0, match.index).split('\n').length;
+        violations.push(`${path.relative(SOURCE_ROOT, filePath)}:${lineNumber}: ${match[0]}`);
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  it('keeps production webContents send channel names behind named contracts', () => {
+    const violations: string[] = [];
+
+    for (const filePath of listProductionTypeScriptFiles(SOURCE_ROOT)) {
+      const source = readFileSync(filePath, 'utf8');
+      if (!source.includes('webContents.send')) {
+        continue;
+      }
+      for (const match of source.matchAll(DIRECT_WEB_CONTENTS_SEND_CHANNEL_PATTERN)) {
         const lineNumber = source.slice(0, match.index).split('\n').length;
         violations.push(`${path.relative(SOURCE_ROOT, filePath)}:${lineNumber}: ${match[0]}`);
       }

@@ -60,6 +60,7 @@ import {
 import type { LoggingSettingsPayload } from './logging-shared';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { ParserHostManager } from './parser-host-manager';
+import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
@@ -1133,7 +1134,7 @@ if (singleInstanceLockAcquired) {
           if (window.isDestroyed()) {
             continue;
           }
-          window.webContents.send('app:power-state', state);
+          window.webContents.send(DESKTOP_IPC_CHANNELS.runtime.powerState, state);
         }
       };
       let pendingPowerResumeTimer: ReturnType<typeof setTimeout> | null = null;

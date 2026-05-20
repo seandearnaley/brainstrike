@@ -138,7 +138,7 @@ export function flushPendingLiveUpdates(): void {
         continue;
       }
       try {
-        owner.webContents.send('db:live-query:update', payload);
+        owner.webContents.send(DESKTOP_IPC_CHANNELS.db.liveQueryUpdate, payload);
       } catch (error) {
         if (isDisposedRenderFrameSendError(error)) {
           scheduleDisposedLiveSubscriptionOwnerCleanup(record.webContentsId, 'disposed-frame-send');
