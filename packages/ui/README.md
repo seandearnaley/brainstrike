@@ -118,3 +118,29 @@ function MyIde() {
 ```
 
 See [`ide-layout.md`](../../apps/docs/docs/reference/platform/ide-layout.md) for a deeper overview.
+
+## Assistant UI Ownership
+
+The assistant UI package owns presentational chat and control surfaces. Runtime contracts, provider catalogs, memory state, and transport behavior belong outside this package.
+
+Owned surfaces:
+
+- `src/assistant-ui-panel/assistant-ui-panel.tsx`: root assistant panel composition, thread runtime selection, composer shell, message rendering, and provider/model header wiring.
+- `src/assistant-ui-panel/assistant-controls-menu.tsx`: reasoning, tool, and provider-settings menu composition.
+- `src/assistant-ui-panel/provider-settings-panel.tsx`: per-provider reasoning, output, agent-loop, and memory-control form sections.
+- `src/assistant-ui-panel/assistant-message-text.tsx`: markdown/message text rendering.
+- `src/assistant-ui-panel/local-runtime-adapter.ts`: browser-safe local runtime adapter surface used by the UI.
+
+Allowed dependencies:
+
+- `@assistant-ui/*` for chat primitives and runtime adapters.
+- `@brainstrike/assistant-contract` for UI-facing assistant runtime contracts.
+- `@brainstrike/types` for provider settings types shared with preferences/app-shell.
+- local shadcn-style primitives from `packages/ui/src`.
+
+Focused local verification:
+
+```bash
+pnpm --filter @brainstrike/ui exec vitest run src/__tests__/assistant-ui-panel-architecture.test.ts src/__tests__/assistant-ui-panel.test.tsx src/__tests__/assistant-ui-panel-index.test.ts
+pnpm --filter @brainstrike/ui type-check
+```

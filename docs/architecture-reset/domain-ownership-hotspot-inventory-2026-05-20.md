@@ -10,7 +10,6 @@ This inventory tracks size and churn hotspots that remain after the legal domain
 |---:|---|---|
 | 3150 | `apps/desktop/e2e/file-explorer-selection.desktop.test.ts` | Split after embedding E2E unless this lane becomes flaky first. |
 | 2344 | `apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts` | Split by db IPC capability after handler registry exists. |
-| 2181 | `packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx` | Split presentational assistant panel sections after wrapper is thinner. |
 | 2044 | `packages/app-shell/src/background-indexing/workspace-collection-sync-service.ts` | Move orchestration behind indexing-owned contracts. |
 | 1734 | `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts` | Split with service extraction. |
 | 1689 | `packages/db-explorer/src/use-database-demo-data.ts` | Review after db internal decomposition. |
@@ -184,6 +183,20 @@ Package-local architecture coverage now verifies the executable file-selection a
 
 - `pnpm --filter @brainstrike/file-explorer exec vitest run src/__tests__/actions-architecture.test.ts src/actions/__tests__/file-selection-actions.test.ts src/actions/__tests__/file-selection-actions-null-folder.test.ts`
 - `pnpm --filter @brainstrike/file-explorer build`
+
+## UI Assistant Panel Source Slice Completed
+
+`packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx` is reduced from 2181 LOC to 1272 LOC by extracting:
+
+- `assistant-controls-menu.tsx` for reasoning controls, tool controls, and provider-settings menu composition.
+- `provider-settings-panel.tsx` for provider-specific reasoning, output, agent-loop, and memory-control form sections.
+
+The root panel remains the composition owner for assistant-ui runtime selection, thread rendering, composer shell, message rendering, and provider/model header wiring. Existing imports of `ProviderSettingsPanel` from `@brainstrike/ui/assistant-ui-panel` remain stable through re-export.
+
+Package-local architecture coverage now verifies the root panel stays below the 1500 LOC source-file budget and that the extracted controls/settings modules remain owned assistant-panel modules. Verification for this slice:
+
+- `pnpm --filter @brainstrike/ui exec vitest run src/__tests__/assistant-ui-panel-architecture.test.ts src/__tests__/assistant-ui-panel.test.tsx src/__tests__/assistant-ui-panel-index.test.ts`
+- `pnpm --filter @brainstrike/ui type-check`
 
 ## Next Slices
 
