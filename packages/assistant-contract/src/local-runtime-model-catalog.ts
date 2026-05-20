@@ -6,7 +6,7 @@ import {
   type LocalRuntimeSurface,
   type ProbeLocalRuntimeOptions,
   resolveRuntimeBaseUrl,
-} from './local-runtime-discovery';
+} from './local-runtime-discovery.js';
 
 import {
   buildRuntimeAuthHeaders,
@@ -17,7 +17,7 @@ import {
   type LocalRuntimeEndpointConfig,
   noopLocalRuntimeLogger,
   sanitizeDuration,
-} from './local-runtime-utils';
+} from './local-runtime-utils.js';
 
 const defaultCollator = new Intl.Collator(undefined);
 

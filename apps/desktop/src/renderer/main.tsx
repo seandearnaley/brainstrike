@@ -37,11 +37,8 @@ import { LlmHostApp } from './components/llm-host-app';
 // convention; if they ever diverge the chunking worker's selectAdapter
 // silently falls back to its 'browser' default.
 declare global {
-  // biome-ignore lint: global declarations require var
   var __BRAINSTRIKE_PARSER_ENV__: 'browser' | 'electron-chunking-host' | undefined;
-  // biome-ignore lint: global declarations require var
   var __BRAINSTRIKE_PARSER_FLAG__: 'auto' | 'babel' | 'oxc' | undefined;
-  // biome-ignore lint: global declarations require var
   var __BRAINSTRIKE_TREE_SITTER_LANGUAGES__: readonly string[] | undefined;
 }
 

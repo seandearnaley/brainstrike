@@ -10,9 +10,9 @@ import {
   noopLocalRuntimeLogger,
   normalizeRuntimeBaseUrl,
   sanitizeDuration,
-} from './local-runtime-utils';
+} from './local-runtime-utils.js';
 
-export type { LocalRuntimeLogger } from './local-runtime-utils';
+export type { LocalRuntimeLogger } from './local-runtime-utils.js';
 
 export const LOCAL_RUNTIME_IDS = ['ollama', 'lmstudio'] as const;
 

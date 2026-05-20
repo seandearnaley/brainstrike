@@ -1,4 +1,4 @@
-import type { RuntimeAssistantMemorySettings } from './memory-settings';
+import type { RuntimeAssistantMemorySettings } from './memory-settings.js';
 
 export type RuntimeJsonObject = Record<string, unknown>;
 

@@ -14,7 +14,7 @@ export {
   type LocalRuntimeUnavailableState,
   type ProbeLocalRuntimeOptions,
   resolveRuntimeBaseUrl,
-} from './local-runtime-discovery';
+} from './local-runtime-discovery.js';
 export {
   isLoadedRuntimeModelCatalogState,
   type ListLocalRuntimeModelsOptions,
@@ -44,7 +44,7 @@ export {
   type LocalRuntimeOllamaCapabilitiesResult,
   type LocalRuntimeOllamaCapabilitiesUnavailable,
   type OllamaModelCapability,
-} from './local-runtime-model-catalog';
+} from './local-runtime-model-catalog.js';
 export {
   assertSafeBearerToken,
   buildRuntimeAuthHeaders,
@@ -55,4 +55,4 @@ export {
   type LocalRuntimeEndpointConfig,
   normalizeRuntimeBaseUrl,
   sanitizeDuration,
-} from './local-runtime-utils';
+} from './local-runtime-utils.js';

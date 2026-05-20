@@ -14,59 +14,73 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
     },
     "./local-llm": {
       "types": "./dist/local-llm.d.ts",
-      "import": "./dist/local-llm.js"
+      "import": "./dist/local-llm.js",
+      "require": "./dist/local-llm.js"
     },
     "./local-llm-artifacts": {
       "types": "./dist/local-llm-artifacts.d.ts",
-      "import": "./dist/local-llm-artifacts.js"
+      "import": "./dist/local-llm-artifacts.js",
+      "require": "./dist/local-llm-artifacts.js"
     },
     "./local-llm-device": {
       "types": "./dist/local-llm-device.d.ts",
-      "import": "./dist/local-llm-device.js"
+      "import": "./dist/local-llm-device.js",
+      "require": "./dist/local-llm-device.js"
     },
     "./local-llm-model-specs": {
       "types": "./dist/local-llm-model-specs.d.ts",
-      "import": "./dist/local-llm-model-specs.js"
+      "import": "./dist/local-llm-model-specs.js",
+      "require": "./dist/local-llm-model-specs.js"
     },
     "./context-packer": {
       "types": "./dist/context-packer.d.ts",
-      "import": "./dist/context-packer.js"
+      "import": "./dist/context-packer.js",
+      "require": "./dist/context-packer.js"
     },
     "./local-runtime": {
       "types": "./dist/local-runtime.d.ts",
-      "import": "./dist/local-runtime.js"
+      "import": "./dist/local-runtime.js",
+      "require": "./dist/local-runtime.js"
     },
     "./mastra-memory-schema": {
       "types": "./dist/mastra-memory-schema.d.ts",
-      "import": "./dist/mastra-memory-schema.js"
+      "import": "./dist/mastra-memory-schema.js",
+      "require": "./dist/mastra-memory-schema.js"
     },
     "./memory-settings": {
       "types": "./dist/memory-settings.d.ts",
-      "import": "./dist/memory-settings.js"
+      "import": "./dist/memory-settings.js",
+      "require": "./dist/memory-settings.js"
     },
     "./provider-metadata": {
       "types": "./dist/provider-metadata.d.ts",
-      "import": "./dist/provider-metadata.js"
+      "import": "./dist/provider-metadata.js",
+      "require": "./dist/provider-metadata.js"
     },
     "./provider-registry": {
       "types": "./dist/provider-registry.d.ts",
-      "import": "./dist/provider-registry.js"
+      "import": "./dist/provider-registry.js",
+      "require": "./dist/provider-registry.js"
     },
     "./run-events": {
       "types": "./dist/run-events.d.ts",
-      "import": "./dist/run-events.js"
+      "import": "./dist/run-events.js",
+      "require": "./dist/run-events.js"
     },
     "./runtime-data": {
       "types": "./dist/runtime-data.d.ts",
-      "import": "./dist/runtime-data.js"
+      "import": "./dist/runtime-data.js",
+      "require": "./dist/runtime-data.js"
     },
     "./tool-metadata": {
       "types": "./dist/tool-metadata.d.ts",
-      "import": "./dist/tool-metadata.js"
+      "import": "./dist/tool-metadata.js",
+      "require": "./dist/tool-metadata.js"
     }
   },
   "files": [
