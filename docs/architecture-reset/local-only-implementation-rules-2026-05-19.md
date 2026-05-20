@@ -23,6 +23,9 @@ work more deterministic.
 
 ## Local Artifacts
 
+- `docs/architecture-reset/local-architecture-reset-status-2026-05-19.html`
+  records the completed local architecture slices, verification commands, and
+  remaining boundary exceptions.
 - `docs/architecture-reset/peripheral-package-classification-2026-05-19.html`
   records the keep/revive/absent decisions for the packages originally flagged
   as zero-import or dormant.
