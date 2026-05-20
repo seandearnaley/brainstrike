@@ -2,7 +2,7 @@ import type {
   LocalRuntimeAvailabilityState,
   LocalRuntimeId,
 } from '@brainstrike/agent/local-runtime';
-import type { SupportedProvider } from '@brainstrike/agent/provider-metadata';
+import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { Badge, Button, Card, Input, Label } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { Loader2, RefreshCw } from 'lucide-react';

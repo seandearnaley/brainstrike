@@ -6,7 +6,7 @@
  * dense tool rows, and integrated MCP status display.
  */
 
-import type { ToolCategory, ToolLoadingTier } from '@brainstrike/agent/tool-metadata';
+import type { ToolCategory, ToolLoadingTier } from '@brainstrike/assistant-contract/tool-metadata';
 import { type UsePGliteLiveQueryOptions, usePGliteLiveQuery } from '@brainstrike/db';
 import {
   Accordion,

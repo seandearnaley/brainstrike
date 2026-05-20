@@ -5,7 +5,7 @@
  * Replaces the card-based ToolCard with a more compact design.
  */
 
-import { TOOL_CATEGORIES, TOOL_LOADING_TIERS } from '@brainstrike/agent/tool-metadata';
+import { TOOL_CATEGORIES, TOOL_LOADING_TIERS } from '@brainstrike/assistant-contract/tool-metadata';
 import { Badge, cn, Switch, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 import type { ReactNode } from 'react';

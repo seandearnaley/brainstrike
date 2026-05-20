@@ -13,7 +13,7 @@ import {
   type ProviderDefinition,
   providerEnvKeys,
   type SupportedProvider,
-} from '@brainstrike/agent/provider-metadata';
+} from '@brainstrike/assistant-contract/provider-metadata';
 import type {
   AnthropicEffort,
   AssistantProviderSettings,

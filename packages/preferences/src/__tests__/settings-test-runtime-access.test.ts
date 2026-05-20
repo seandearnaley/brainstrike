@@ -1,4 +1,4 @@
-import type { SupportedProvider } from '@brainstrike/agent/provider-metadata';
+import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getAssistantConfiguredProvidersTestOverride,

@@ -3,7 +3,7 @@ import {
   PROVIDER_DEFAULT_MODELS,
   PROVIDER_MODELS,
   type SupportedProvider,
-} from '@brainstrike/agent/provider-metadata';
+} from '@brainstrike/assistant-contract/provider-metadata';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StorageValue } from 'zustand/middleware';
 import {

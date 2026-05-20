@@ -8,7 +8,7 @@ import {
   listProviders,
   type ProviderDefinition,
   type ProviderModelDefinition,
-} from '@brainstrike/agent/provider-metadata';
+} from '@brainstrike/assistant-contract/provider-metadata';
 import { CHUNKING_CONFIG } from '@brainstrike/db';
 import {
   type EmbeddingProviderType,

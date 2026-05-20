@@ -7,8 +7,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToolsFilterBar } from '../tools-filter-bar';
 
-// Mock @brainstrike/agent/tool-metadata
-vi.mock('@brainstrike/agent/tool-metadata', () => ({
+// Mock @brainstrike/assistant-contract/tool-metadata
+vi.mock('@brainstrike/assistant-contract/tool-metadata', () => ({
   TOOL_CATEGORIES: {
     retrieval: { id: 'retrieval', label: 'Retrieval' },
     action: { id: 'action', label: 'Actions' },

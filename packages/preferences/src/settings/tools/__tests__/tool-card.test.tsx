@@ -8,8 +8,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToolCard } from '../tool-card';
 import type { ToolDisplayMetadata, ToolExecutionResult } from '../types';
 
-// Mock @brainstrike/agent/tool-metadata
-vi.mock('@brainstrike/agent/tool-metadata', () => ({
+// Mock @brainstrike/assistant-contract/tool-metadata
+vi.mock('@brainstrike/assistant-contract/tool-metadata', () => ({
   TOOL_CATEGORIES: {
     retrieval: { label: 'Retrieval' },
     action: { label: 'Actions' },
