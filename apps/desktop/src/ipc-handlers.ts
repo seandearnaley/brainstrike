@@ -18,22 +18,10 @@ import type ElectronStore from 'electron-store';
 import type { ChunkingHostManager } from './chunking-host-manager';
 import { DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL } from './db-shared';
 import type { EmbeddingHostManager } from './embedding-host-manager';
-import {
-  EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL,
-  EMBEDDING_HOST_CANCEL_BACKFILL_CHANNEL,
-  EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
-  EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL,
-} from './embedding-host-shared';
+import { registerEmbeddingBackfillIpcHandlers } from './ipc-domains/embedding-backfill-ipc';
 import { registerFileSystemIpcHandlers } from './ipc-domains/file-system-ipc';
 import { registerStoragePreferencesIpcHandlers } from './ipc-domains/storage-preferences-ipc';
-import {
-  cancelAllDesktopEmbeddingBackfills,
-  cancelDesktopEmbeddingBackfill,
-  getDesktopEmbeddingBackfillsInFlight,
-  isDisposedRenderFrameSendError,
-  resolveEmbeddingBackfillRequest,
-  runDesktopEmbeddingBackfill,
-} from './ipc-embedding-backfill';
+import { isDisposedRenderFrameSendError } from './ipc-embedding-backfill';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 
 // import { getDatabase } from './db-main'; // Disabled - using renderer process database
@@ -639,6 +627,12 @@ export function registerIpcHandlers(
     fileSystem,
     storage,
   });
+  const unregisterEmbeddingBackfillIpcHandlers = registerEmbeddingBackfillIpcHandlers({
+    databaseWorkScheduler: desktopDatabaseWorkScheduler,
+    embeddingHostManager,
+    flushPendingLiveUpdates,
+    isBackgrounded: () => isBackgrounded,
+  });
 
   // Database IPC handlers (wrapped with corruption recovery)
   registerHandler(
@@ -685,42 +679,6 @@ export function registerIpcHandlers(
         }, 'db:exec')
       );
     }
-  );
-
-  registerHandler(EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL, async () => {
-    cancelAllDesktopEmbeddingBackfills();
-  });
-
-  registerHandler(
-    EMBEDDING_HOST_CANCEL_BACKFILL_CHANNEL,
-    async (_event: IpcMainInvokeEvent, embeddingSetId: unknown) => {
-      if (typeof embeddingSetId !== 'string' || embeddingSetId.trim().length === 0) {
-        throw new Error('Embedding backfill cancellation requires a non-empty embeddingSetId.');
-      }
-      cancelDesktopEmbeddingBackfill(embeddingSetId.trim());
-    }
-  );
-
-  registerHandler(
-    EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
-    async (event: IpcMainInvokeEvent, embeddingSetId: unknown) =>
-      withCorruptionRecovery(
-        async () =>
-          await runDesktopEmbeddingBackfill({
-            databaseWorkScheduler: desktopDatabaseWorkScheduler,
-            event,
-            flushPendingLiveUpdates,
-            isBackgrounded: () => isBackgrounded,
-            ...resolveEmbeddingBackfillRequest(embeddingSetId, embeddingHostManager),
-          }),
-        EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL
-      )
-  );
-
-  // Expose in-flight backfill state so the renderer can re-attach to progress
-  // after a crash recovery reload.
-  registerHandler(EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL, async () =>
-    getDesktopEmbeddingBackfillsInFlight()
   );
 
   registerHandler(
@@ -944,6 +902,7 @@ export function registerIpcHandlers(
   });
 
   return () => {
+    unregisterEmbeddingBackfillIpcHandlers();
     unregisterFileSystemIpcHandlers();
     unregisterStoragePreferencesIpcHandlers();
     for (const channel of registeredChannels) {
