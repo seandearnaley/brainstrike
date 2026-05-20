@@ -135,6 +135,17 @@ describe('runtime host boundary', () => {
     expect(source).toMatch(/ipc-embedding-backfill/);
   });
 
+  it('keeps desktop IPC database tests split by owned responsibility', () => {
+    const databaseIpcTest = readDesktopSource('__tests__/main/ipc-handlers-db.test.ts');
+    const embeddingBackfillIpcTest = readDesktopSource(
+      '__tests__/main/ipc-handlers-db-embedding-backfill.test.ts'
+    );
+
+    expect(databaseIpcTest.split('\n').length).toBeLessThanOrEqual(2000);
+    expect(embeddingBackfillIpcTest).toMatch(/embedding-host:enqueue-backfill/);
+    expect(embeddingBackfillIpcTest.split('\n').length).toBeLessThanOrEqual(2000);
+  });
+
   it('skips symlinked entries while collecting desktop source files', () => {
     const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'brainstrike-runtime-boundary-'));
     const externalRoot = mkdtempSync(path.join(tmpdir(), 'brainstrike-runtime-boundary-external-'));

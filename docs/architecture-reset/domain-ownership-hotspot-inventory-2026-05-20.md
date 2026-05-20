@@ -9,7 +9,6 @@ This inventory tracks size and churn hotspots that remain after the legal domain
 | LOC | File | Action |
 |---:|---|---|
 | 3150 | `apps/desktop/e2e/file-explorer-selection.desktop.test.ts` | Split after embedding E2E unless this lane becomes flaky first. |
-| 2344 | `apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts` | Split by db IPC capability after handler registry exists. |
 | 1734 | `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts` | Split with service extraction. |
 | 1523 | `packages/file-explorer-ui/src/__tests__/preview-panel.test.tsx` | Split by preview table, footer, and report-action behavior. |
 | 1504 | `packages/db-explorer/src/__tests__/use-database-demo-data.test.ts` | Review after db explorer ownership decision. |
@@ -225,10 +224,24 @@ The hook remains the orchestration owner for live queries, active-collection cac
 - `pnpm --filter @brainstrike/db-explorer exec vitest run src/__tests__/architecture-boundary.test.ts src/__tests__/use-database-demo-data.test.ts`
 - `pnpm --filter @brainstrike/db-explorer type-check`
 
+## Desktop DB IPC Test Split Completed
+
+`apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts` is split from 2344 LOC into two focused executable specs and one shared fixture:
+
+- `ipc-handlers-db.test.ts` is now 1247 LOC and owns database query/exec, managed cache, live query, reset, diagnostics, and clear-all behavior.
+- `ipc-handlers-db-embedding-backfill.test.ts` is 783 LOC and owns embedding-host backfill request, progress, cancel, GPU reclaim, and in-flight behavior.
+- `ipc-handlers-db-test-fixture.ts` centralizes Electron/DB IPC mocks so the executable specs stay focused without duplicating the platform harness.
+
+Package-local architecture coverage now verifies the split database IPC executable specs stay below the 2000 LOC test-file budget. Verification for this slice:
+
+- `pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts -t "keeps desktop IPC database tests split"`
+- `pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/main/ipc-handlers-db.test.ts src/__tests__/main/ipc-handlers-db-embedding-backfill.test.ts`
+- `pnpm --filter @brainstrike/desktop type-check`
+
 ## Next Slices
 
 1. Tighten E2E lane selection so the split desktop embedding diagnostic files are only selected for matching high-risk diffs.
 2. Split `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts` if the next background-indexing change adds more behavior coverage.
-3. Split `apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts` by db IPC capability.
-4. Continue desktop IPC decomposition by moving live-query batching and database-work scheduling behind owned platform modules.
+3. Continue desktop IPC decomposition by moving live-query batching and database-work scheduling behind owned platform modules.
+4. Split `apps/desktop/e2e/file-explorer-selection.desktop.test.ts` by smoke, selection persistence, and regression behavior.
 5. Decompose `packages/db` internally around queue, migrations, repositories, search, and schema while preserving public barrels.

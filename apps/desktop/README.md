@@ -150,10 +150,16 @@ Desktop main-process IPC is split by platform responsibility:
 - `src/ipc-embedding-backfill.ts`: embedding-host backfill request validation, GPU reclaim configuration, in-flight/cancel state, progress events, and scheduled DB backfill execution.
 - `src/ipc-llm-host.ts`, `src/ipc-runtime.ts`, and `src/ipc-chunking-host.ts`: dedicated host/runtime IPC bridges.
 
+Desktop database IPC tests are split by responsibility:
+
+- `src/__tests__/main/ipc-handlers-db.test.ts`: database query/exec, managed cache, live query, reset, diagnostics, and clear-all behavior.
+- `src/__tests__/main/ipc-handlers-db-embedding-backfill.test.ts`: embedding-host backfill request, progress, cancel, GPU reclaim, and in-flight behavior.
+- `src/__tests__/main/ipc-handlers-db-test-fixture.ts`: shared Electron/DB IPC mock fixture.
+
 Focused local verification for the root IPC surface:
 
 ```bash
-pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts src/__tests__/main/ipc-handlers.test.ts src/__tests__/main/ipc-handlers-errors.test.ts src/__tests__/main/ipc-handlers-fs.test.ts src/__tests__/main/ipc-handlers-folder-restore.test.ts src/__tests__/main/ipc-handlers-db.test.ts
+pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts src/__tests__/main/ipc-handlers.test.ts src/__tests__/main/ipc-handlers-errors.test.ts src/__tests__/main/ipc-handlers-fs.test.ts src/__tests__/main/ipc-handlers-folder-restore.test.ts src/__tests__/main/ipc-handlers-db.test.ts src/__tests__/main/ipc-handlers-db-embedding-backfill.test.ts
 pnpm --filter @brainstrike/desktop type-check
 ```
 
