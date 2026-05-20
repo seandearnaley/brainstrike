@@ -114,7 +114,7 @@ function subscribeToDbLiveUpdates(callback: DbLiveUpdateCallback): () => void {
         try {
           subscriber(payload);
         } catch (error) {
-          ipcRenderer.send('logging:ingest-buffered-record', {
+          ipcRenderer.send(LOGGING_INGEST_BUFFERED_RECORD_CHANNEL, {
             level: 'error' as LogRecord['level'],
             timestamp: Date.now(),
             args: ['[preload] db live-query subscriber threw:', error],

@@ -1,9 +1,21 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { LOGGING_API_CHANNELS } from '../platform/logging-api-contract';
 
 function readPreloadSource(): string {
   return readFileSync(path.resolve(process.cwd(), 'src', 'preload.ts'), 'utf8');
+}
+
+function extractPreloadStringConstant(source: string, constantName: string): string {
+  const escapedConstantName = constantName.replaceAll('$', String.raw`\$`);
+  const match = source.match(
+    new RegExp(String.raw`const\s+${escapedConstantName}\s*=\s*['"]([^'"]+)['"]\s+as\s+const`)
+  );
+  if (!match?.[1]) {
+    throw new Error(`Missing preload constant ${constantName}.`);
+  }
+  return match[1];
 }
 
 describe('preload runtime contract', () => {
@@ -36,6 +48,47 @@ describe('preload runtime contract', () => {
     expect(preloadSource).toContain(
       "const LOGGING_PREFERENCES_UPDATED_EVENT = 'logging:preferences-updated'"
     );
+  });
+
+  it('keeps preload logging literals in parity with the platform logging contract', () => {
+    const preloadSource = readPreloadSource();
+
+    expect({
+      getBufferedLogs: extractPreloadStringConstant(
+        preloadSource,
+        'LOGGING_GET_BUFFERED_LOGS_CHANNEL'
+      ),
+      getPreferences: extractPreloadStringConstant(
+        preloadSource,
+        'LOGGING_GET_PREFERENCES_CHANNEL'
+      ),
+      ingestBufferedRecord: extractPreloadStringConstant(
+        preloadSource,
+        'LOGGING_INGEST_BUFFERED_RECORD_CHANNEL'
+      ),
+      openDestination: extractPreloadStringConstant(
+        preloadSource,
+        'LOGGING_OPEN_DESTINATION_CHANNEL'
+      ),
+      preferencesUpdated: extractPreloadStringConstant(
+        preloadSource,
+        'LOGGING_PREFERENCES_UPDATED_EVENT'
+      ),
+      selectDestination: extractPreloadStringConstant(
+        preloadSource,
+        'LOGGING_SELECT_DESTINATION_CHANNEL'
+      ),
+      setPreferences: extractPreloadStringConstant(
+        preloadSource,
+        'LOGGING_SET_PREFERENCES_CHANNEL'
+      ),
+    }).toEqual(LOGGING_API_CHANNELS);
+
+    const preloadWithoutConstantDefinitions = preloadSource.replaceAll(
+      /const\s+LOGGING_[A-Z_]+_(?:CHANNEL|EVENT)\s*=\s*['"]logging:[^'"]+['"]\s+as\s+const;/g,
+      ''
+    );
+    expect(preloadWithoutConstantDefinitions).not.toMatch(/['"]logging:[^'"]+['"]/);
   });
 
   it('keeps deterministic E2E local-runtime bridge responses in preload', () => {
