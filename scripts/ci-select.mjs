@@ -36,6 +36,12 @@ export const E2E_LANES = {
     owner: 'indexing',
     tagContract: '@desktop-embedding-* required groups only; crash diagnostics stay release-only',
   },
+  'desktop-llm-host-recovery': {
+    command:
+      'pnpm --filter @brainstrike/desktop exec playwright test e2e/llm-host-renderer.test.ts --project=regression --grep "@desktop-llm-host-recovery"',
+    owner: 'desktop-platform',
+    tagContract: '@desktop-llm-host-recovery focused hidden LLM host restart path only',
+  },
   'destructive-reset': {
     command:
       '(cd apps/web && pnpm exec playwright test --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep "@destructive") && (cd apps/desktop && pnpm exec playwright test e2e/factory-reset.desktop.test.ts --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep "@destructive")',
@@ -168,6 +174,14 @@ export const LOCAL_PROOF_COMMANDS = {
       'pnpm --filter @brainstrike/desktop exec playwright test e2e/embedding-worker-renderer.smoke.desktop.test.ts --project=regression --grep "@desktop-embedding-lifecycle"',
     budgetMs: 420_000,
     owner: 'indexing',
+    requiredFor: ['desktop-platform-ipc-preload'],
+  },
+  'desktop-llm-host-smoke': {
+    name: 'desktop-llm-host-smoke',
+    command:
+      'pnpm --filter @brainstrike/desktop exec playwright test e2e/llm-host-renderer.test.ts --project=regression --grep "@desktop-llm-host-recovery"',
+    budgetMs: 300_000,
+    owner: 'desktop-platform',
     requiredFor: ['desktop-platform-ipc-preload'],
   },
   'file-explorer-tests': {

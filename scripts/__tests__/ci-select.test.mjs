@@ -160,6 +160,7 @@ test('E2E lane command taxonomy is explicit and avoids hidden full-suite fallbac
     'web-functional-stateful',
     'desktop-smoke-regression',
     'desktop-embedding-diagnostics',
+    'desktop-llm-host-recovery',
     'destructive-reset',
     'long-soak-release-only',
   ]);
@@ -175,6 +176,8 @@ test('E2E lane command taxonomy is explicit and avoids hidden full-suite fallbac
   assert.match(E2E_LANES['destructive-reset'].command, /@destructive/);
   assert.match(E2E_LANES['destructive-reset'].command, /apps\/desktop/);
   assert.match(E2E_LANES['destructive-reset'].command, /factory-reset\.desktop\.test\.ts/);
+  assert.match(E2E_LANES['desktop-llm-host-recovery'].command, /@desktop-llm-host-recovery/);
+  assert.match(E2E_LANES['desktop-llm-host-recovery'].command, /llm-host-renderer\.test\.ts/);
   assert.match(E2E_LANES['long-soak-release-only'].tagContract, /release/);
 });
 
@@ -191,6 +194,38 @@ test('E2E lane commands reference existing desktop embedding split specs', () =>
       assert.equal(existsSync(`apps/desktop/${file}`), true, file);
     }
   }
+});
+
+test('E2E lane commands reference an existing desktop llm host recovery spec', () => {
+  const files =
+    E2E_LANES['desktop-llm-host-recovery'].command.match(
+      /\be2e\/llm-host-renderer\.test\.ts\b/g
+    ) ?? [];
+
+  assert.deepEqual(files, ['e2e/llm-host-renderer.test.ts']);
+  assert.equal(existsSync('apps/desktop/e2e/llm-host-renderer.test.ts'), true);
+});
+
+test('buildSelection routes llm host changes to llm recovery without embedding diagnostics', () => {
+  const selection = buildSelection({
+    files: ['apps/desktop/src/llm-host-manager.ts'],
+    mergeBase: '1111111111111111111111111111111111111111',
+  });
+
+  assert.equal(selection.riskProfile.category, 'desktop-platform-ipc-preload');
+  assert.deepEqual(selection.riskProfile.e2eLanes, [
+    'desktop-smoke-regression',
+    'desktop-llm-host-recovery',
+  ]);
+  assert.deepEqual(
+    selection.commands.map((command) => command.name),
+    ['diff-check', 'desktop-unit-tests', 'desktop-smoke-tests', 'desktop-llm-host-smoke']
+  );
+  assert.equal(
+    selection.commands.some((command) => command.name === 'desktop-embedding-smoke'),
+    false
+  );
+  assert.equal(selection.labels.includes('ci:embedding'), false);
 });
 
 test('buildSelection only emits E2E lanes with registered commands', () => {

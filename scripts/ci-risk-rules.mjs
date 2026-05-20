@@ -145,6 +145,12 @@ const EMBEDDING_PATTERNS = [
   /^packages\/vector-management\//,
 ];
 
+const LLM_HOST_PATTERNS = [
+  /^apps\/desktop\/src\/llm-host-/,
+  /^apps\/desktop\/src\/ipc-llm-host\.ts$/,
+  /^apps\/desktop\/src\/renderer\/components\/llm-host-/,
+];
+
 const COVERAGE_PATTERNS = [
   /^apps\/(web|desktop)\//,
   /^packages\//,
@@ -254,6 +260,7 @@ export function selectRiskProfileForFiles(files) {
         'web-functional-stateful',
         'desktop-smoke-regression',
         'desktop-embedding-diagnostics',
+        'desktop-llm-host-recovery',
         'destructive-reset',
         'long-soak-release-only',
       ],
@@ -276,19 +283,26 @@ export function selectRiskProfileForFiles(files) {
 
   if (hasAny(normalizedFiles, DESKTOP_PLATFORM_PATTERNS)) {
     const isEmbeddingHostChange = hasAny(normalizedFiles, EMBEDDING_PATTERNS);
+    const isLlmHostChange = hasAny(normalizedFiles, LLM_HOST_PATTERNS);
+    const e2eLanes = ['desktop-smoke-regression'];
+    const proofCommands = ['diff-check', 'desktop-unit-tests', 'desktop-smoke-tests'];
+    const cloudLabels = ['ci:desktop', 'ci:coverage'];
+    if (isEmbeddingHostChange) {
+      e2eLanes.push('desktop-embedding-diagnostics');
+      proofCommands.push('desktop-embedding-smoke');
+      cloudLabels.splice(1, 0, 'ci:embedding');
+    }
+    if (isLlmHostChange) {
+      e2eLanes.push('desktop-llm-host-recovery');
+      proofCommands.push('desktop-llm-host-smoke');
+    }
     return profile({
       category: 'desktop-platform-ipc-preload',
       domains: ['desktop-platform'],
-      e2eLanes: isEmbeddingHostChange
-        ? ['desktop-smoke-regression', 'desktop-embedding-diagnostics']
-        : ['desktop-smoke-regression'],
-      proofCommands: isEmbeddingHostChange
-        ? ['diff-check', 'desktop-unit-tests', 'desktop-smoke-tests', 'desktop-embedding-smoke']
-        : ['diff-check', 'desktop-unit-tests', 'desktop-smoke-tests'],
+      e2eLanes,
+      proofCommands,
       riskLevel: 'high',
-      cloudLabels: isEmbeddingHostChange
-        ? ['ci:desktop', 'ci:embedding', 'ci:coverage']
-        : ['ci:desktop', 'ci:coverage'],
+      cloudLabels,
     });
   }
 

@@ -113,6 +113,7 @@ test('release workflow changes select full release proof explicitly', () => {
       'web-functional-stateful',
       'desktop-smoke-regression',
       'desktop-embedding-diagnostics',
+      'desktop-llm-host-recovery',
       'destructive-reset',
       'long-soak-release-only',
     ],
@@ -198,6 +199,26 @@ test('desktop host changes select desktop and embedding lanes', () => {
     selectRiskLanesForFiles(['apps/desktop/src/embedding-host-manager.ts']),
     ['ci:desktop', 'ci:embedding', 'ci:coverage']
   );
+});
+
+test('desktop llm host changes select llm recovery without embedding lanes', () => {
+  assert.deepEqual(selectRiskProfileForFiles(['apps/desktop/src/llm-host-manager.ts']), {
+    category: 'desktop-platform-ipc-preload',
+    domains: ['desktop-platform'],
+    e2eLanes: ['desktop-smoke-regression', 'desktop-llm-host-recovery'],
+    proofCommands: [
+      'diff-check',
+      'desktop-unit-tests',
+      'desktop-smoke-tests',
+      'desktop-llm-host-smoke',
+    ],
+    riskLevel: 'high',
+    cloudLabels: ['ci:desktop', 'ci:coverage'],
+  });
+  assert.deepEqual(selectRiskLanesForFiles(['apps/desktop/src/llm-host-manager.ts']), [
+    'ci:desktop',
+    'ci:coverage',
+  ]);
 });
 
 test('web app changes select web e2e and coverage lanes', () => {

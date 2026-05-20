@@ -279,7 +279,7 @@
         <tr>
           <td>Factory reset and crash/restart behavior have targeted unit and lane coverage</td>
           <td><span class="status partial">partial</span></td>
-          <td>Factory reset records completed/failed diagnostics, visible-renderer crash recovery records deferred/suppressed/reload state, desktop factory reset is tagged into the destructive lane, and embedding host restart/recovery specs are selected by <code>@desktop-embedding-recovery</code>. Full destructive/reset E2E execution remains explicit, not a default loop.</td>
+          <td>Factory reset records completed/failed diagnostics, visible-renderer crash recovery records deferred/suppressed/reload state, desktop factory reset is tagged into the destructive lane, embedding host restart/recovery specs are selected by <code>@desktop-embedding-recovery</code>, and LLM host restart/recovery is now selected by <code>@desktop-llm-host-recovery</code>. Full destructive/reset E2E execution remains explicit, not a default loop.</td>
         </tr>
       </tbody>
     </table>
@@ -435,6 +435,16 @@
           <td>Local lane listing confirms destructive reset selects the two desktop factory-reset tests and hidden-host recovery selects the two restart/recovery embedding specs, without executing the heavier E2E bodies.</td>
           <td><span class="status done">2 reset + 2 recovery tests selected</span></td>
         </tr>
+        <tr>
+          <td><code>node --test scripts/__tests__/ci-select.test.mjs</code><br><code>node --test scripts/__tests__/ci-risk-rules.test.mjs</code><br><code>node --test scripts/__tests__/check-ci-risk-fixtures.test.mjs</code><br><code>pnpm run ci:risk-fixtures</code><br><code>pnpm --filter @brainstrike/desktop exec playwright test e2e/llm-host-renderer.test.ts --project=regression --grep "@desktop-llm-host-recovery" --list</code></td>
+          <td>LLM host changes now select an explicit hidden-host recovery lane without selecting embedding diagnostics; the lane resolves to one focused desktop spec that restarts the hidden LLM host and asserts the visible renderer does not reload. Golden risk fixtures now cover 15 representative change cases.</td>
+          <td><span class="status done">17 + 19 + 8 script tests, 15 fixtures, 1 E2E selected</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop type-check</code><br><code>pnpm --filter @brainstrike/desktop lint</code></td>
+          <td>The new desktop LLM-host E2E source and the risk-lane script changes are type-safe and lint clean.</td>
+          <td><span class="status done">passed</span></td>
+        </tr>
       </tbody>
     </table>
   </section>
@@ -456,8 +466,8 @@
         </tr>
         <tr>
           <td>Reset and recovery</td>
-          <td>Execute the destructive desktop factory-reset lane and the <code>@desktop-embedding-recovery</code> lane only when release/full-risk proof is explicitly requested.</td>
-          <td>Executed E2E proves first-run reset and hidden host recovery without unnecessary visible renderer reloads; lane selection already keeps these tests out of low-risk feedback loops.</td>
+          <td>Execute the destructive desktop factory-reset lane and the hidden-host recovery lanes only when their risk is selected or release/full-risk proof is explicitly requested.</td>
+          <td>Executed E2E proves first-run reset plus embedding and LLM hidden host recovery without unnecessary visible renderer reloads; lane selection already keeps these tests out of low-risk feedback loops.</td>
         </tr>
       </tbody>
     </table>
