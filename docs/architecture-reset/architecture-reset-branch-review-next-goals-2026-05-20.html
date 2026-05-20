@@ -1,0 +1,722 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Brainstrike Architecture Reset - Branch Review and Next Goals</title>
+  <style>
+    :root {
+      --ink: #17211c;
+      --muted: #60706a;
+      --paper: #fbfaf4;
+      --wash: #f1efe4;
+      --line: #d9d4c3;
+      --panel: #ffffff;
+      --green: #2f8f5f;
+      --green-soft: #dff1e6;
+      --blue: #315f91;
+      --blue-soft: #ddeaf5;
+      --amber: #ad7425;
+      --amber-soft: #faedd8;
+      --red: #a9473f;
+      --red-soft: #f6dfdc;
+      --violet: #6a5aa8;
+      --violet-soft: #e9e4f6;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: var(--sans);
+      background:
+        linear-gradient(90deg, rgba(23, 33, 28, .035) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(23, 33, 28, .025) 1px, transparent 1px),
+        var(--paper);
+      background-size: 36px 36px;
+      line-height: 1.52;
+    }
+    a { color: inherit; }
+    code {
+      font-family: var(--mono);
+      font-size: .92em;
+      background: rgba(23, 33, 28, .06);
+      border: 1px solid rgba(23, 33, 28, .09);
+      border-radius: 5px;
+      padding: 1px 5px;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 290px minmax(0, 1fr);
+      max-width: 1500px;
+      margin: 0 auto;
+      min-height: 100vh;
+    }
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 28px 22px;
+      border-right: 1px solid var(--line);
+      background: rgba(251, 250, 244, .86);
+      backdrop-filter: blur(10px);
+      overflow: auto;
+    }
+    .brand {
+      border: 1px solid var(--ink);
+      padding: 14px;
+      background: var(--panel);
+      box-shadow: 5px 5px 0 rgba(23, 33, 28, .14);
+      margin-bottom: 28px;
+    }
+    .brand h1 {
+      font-size: 18px;
+      line-height: 1.1;
+      margin: 0 0 10px;
+      letter-spacing: -.02em;
+    }
+    .brand p {
+      color: var(--muted);
+      font-size: 12px;
+      margin: 0;
+    }
+    nav a {
+      display: block;
+      padding: 8px 10px;
+      margin: 2px 0;
+      border-radius: 8px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 13px;
+    }
+    nav a:hover {
+      background: var(--wash);
+      color: var(--ink);
+    }
+    .toc-label {
+      margin: 20px 0 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .11em;
+      text-transform: uppercase;
+    }
+    main {
+      padding: 44px 54px 80px;
+      min-width: 0;
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr);
+      gap: 26px;
+      align-items: stretch;
+      margin-bottom: 34px;
+    }
+    .hero-card {
+      position: relative;
+      border: 1px solid var(--ink);
+      background: var(--panel);
+      padding: 34px;
+      overflow: hidden;
+      box-shadow: 8px 8px 0 rgba(47, 143, 95, .18);
+    }
+    .hero-card::after {
+      content: "";
+      position: absolute;
+      inset: auto -80px -90px auto;
+      width: 250px;
+      height: 250px;
+      border: 1px solid rgba(23, 33, 28, .12);
+      transform: rotate(18deg);
+      background:
+        linear-gradient(135deg, rgba(47, 143, 95, .16), rgba(49, 95, 145, .12));
+    }
+    .eyebrow {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--green);
+      text-transform: uppercase;
+      letter-spacing: .12em;
+      margin-bottom: 12px;
+      font-weight: 800;
+    }
+    h2, h3, p { margin-top: 0; }
+    .hero h2 {
+      position: relative;
+      font-size: clamp(34px, 5vw, 62px);
+      line-height: .95;
+      letter-spacing: -.055em;
+      margin: 0 0 20px;
+      max-width: 850px;
+      z-index: 1;
+    }
+    .lead {
+      position: relative;
+      z-index: 1;
+      max-width: 850px;
+      color: #3e4b46;
+      font-size: 17px;
+    }
+    .callout {
+      border: 1px solid var(--ink);
+      background: #17211c;
+      color: #f8f5e8;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .callout .big {
+      font-size: 46px;
+      line-height: .92;
+      letter-spacing: -.04em;
+      font-weight: 850;
+      margin: 0 0 18px;
+    }
+    .callout p { color: #d7dacd; margin-bottom: 0; }
+    section {
+      margin: 48px 0;
+      scroll-margin-top: 24px;
+    }
+    .section-title {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 10px;
+      margin-bottom: 18px;
+    }
+    .section-title .num {
+      font-family: var(--mono);
+      color: var(--green);
+      font-size: 12px;
+      font-weight: 900;
+    }
+    .section-title h2 {
+      margin: 0;
+      font-size: 27px;
+      letter-spacing: -.035em;
+    }
+    .grid {
+      display: grid;
+      gap: 14px;
+    }
+    .metrics {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+    .metric {
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, .76);
+      padding: 18px;
+    }
+    .metric .value {
+      font-family: var(--mono);
+      font-size: 30px;
+      font-weight: 900;
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+    .metric .label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    .metric.good .value { color: var(--green); }
+    .metric.warn .value { color: var(--amber); }
+    .metric.blue .value { color: var(--blue); }
+    .metric.violet .value { color: var(--violet); }
+    .done-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .done-card, .goal-card, .risk-card {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      padding: 22px;
+    }
+    .done-card {
+      border-top: 5px solid var(--green);
+    }
+    .done-card h3, .goal-card h3, .risk-card h3 {
+      margin-bottom: 8px;
+      font-size: 18px;
+      letter-spacing: -.02em;
+    }
+    .done-card p, .goal-card p, .risk-card p {
+      color: #45524d;
+      font-size: 14px;
+      margin-bottom: 0;
+    }
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 14px 0 0;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--wash);
+      color: #40514b;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    .pill.good { background: var(--green-soft); color: #145c39; border-color: #a9dabb; }
+    .pill.warn { background: var(--amber-soft); color: #754712; border-color: #e3c18d; }
+    .pill.blue { background: var(--blue-soft); color: #254d79; border-color: #b8cde1; }
+    .pill.violet { background: var(--violet-soft); color: #4d4085; border-color: #cac0ec; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      font-size: 13px;
+    }
+    th, td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: var(--wash);
+      color: #46524d;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    tr:last-child td { border-bottom: 0; }
+    td.num {
+      font-family: var(--mono);
+      text-align: right;
+      white-space: nowrap;
+    }
+    .status {
+      display: inline-block;
+      border-radius: 6px;
+      padding: 3px 7px;
+      font-size: 11px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+    .status.done { background: var(--green-soft); color: #145c39; }
+    .status.watch { background: var(--amber-soft); color: #754712; }
+    .status.next { background: var(--blue-soft); color: #254d79; }
+    .compare {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 14px;
+    }
+    .before, .after {
+      padding: 18px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+    }
+    .before { border-left: 5px solid var(--red); }
+    .after { border-left: 5px solid var(--green); }
+    .before h3, .after h3 {
+      font-size: 14px;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--muted);
+    }
+    .goals {
+      counter-reset: goals;
+    }
+    .goal-card {
+      counter-increment: goals;
+      position: relative;
+      margin-bottom: 18px;
+      border-left: 8px solid var(--blue);
+    }
+    .goal-card::before {
+      content: counter(goals, decimal-leading-zero);
+      position: absolute;
+      top: 18px;
+      right: 20px;
+      font-family: var(--mono);
+      font-size: 38px;
+      line-height: 1;
+      color: rgba(49, 95, 145, .18);
+      font-weight: 900;
+    }
+    .goal-card .meta {
+      margin: 12px 0 14px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .goal-card ul {
+      margin: 0;
+      padding-left: 18px;
+      color: #40514b;
+      font-size: 14px;
+    }
+    .goal-card li { margin: 6px 0; }
+    .risk-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .risk-card:nth-child(1) { border-top: 5px solid var(--red); }
+    .risk-card:nth-child(2) { border-top: 5px solid var(--amber); }
+    .risk-card:nth-child(3) { border-top: 5px solid var(--violet); }
+    footer {
+      margin-top: 56px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+    @media (max-width: 1120px) {
+      .layout { grid-template-columns: 1fr; }
+      aside { position: relative; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      main { padding: 28px 18px 60px; }
+      .hero, .compare { grid-template-columns: 1fr; }
+      .metrics, .done-grid, .risk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 720px) {
+      .metrics, .done-grid, .risk-grid { grid-template-columns: 1fr; }
+      .hero-card { padding: 24px; }
+      table { font-size: 12px; }
+      th, td { padding: 9px; }
+    }
+    @media print {
+      body { background: white; }
+      aside { display: none; }
+      .layout { display: block; max-width: none; }
+      main { padding: 20px; }
+      .hero-card, .callout, .done-card, .goal-card, .risk-card, .metric { box-shadow: none; break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <aside>
+    <div class="brand">
+      <h1>Brainstrike Reset Review</h1>
+      <p>Branch review and next goals<br>Generated 2026-05-20</p>
+    </div>
+    <div class="toc-label">Sections</div>
+    <nav>
+      <a href="#verdict">Verdict</a>
+      <a href="#branch">Branch Shape</a>
+      <a href="#done">What Is Done</a>
+      <a href="#evidence">Evidence</a>
+      <a href="#hotspots">Hotspots</a>
+      <a href="#risks">Review Notes</a>
+      <a href="#goals">Next 3 Goals</a>
+      <a href="#conditions">Done Conditions</a>
+    </nav>
+    <div class="toc-label">Current Refs</div>
+    <p style="font-size:12px;color:var(--muted);">
+      Branch: <code>codex/local-architecture-reset</code><br>
+      Head: <code>4b99b957d</code><br>
+      Base: <code>origin/main</code>
+    </p>
+  </aside>
+
+  <main>
+    <section class="hero" id="verdict">
+      <div class="hero-card">
+        <div class="eyebrow">Architecture Reset Review</div>
+        <h2>The reset is functionally complete. The next risk is integration economics.</h2>
+        <p class="lead">
+          The three intended goals have landed: risk-based pipeline selection, domain ownership and hotspot reduction,
+          and typed desktop/runtime/local-AI platform work. The branch now carries real architecture, not only guardrails.
+          Because it changes <b>612 files</b> across <b>156 commits</b>, the branch correctly classifies as
+          <code>full-release-high-risk</code> versus <code>origin/main</code>. The next work should avoid adding new
+          architecture scope until the branch is made release-candidate boring.
+        </p>
+        <div class="pill-row">
+          <span class="pill good">0/0 boundary exceptions</span>
+          <span class="pill good">desktop recovery E2E green</span>
+          <span class="pill blue">typed IPC platform</span>
+          <span class="pill warn">full-risk branch</span>
+        </div>
+      </div>
+      <div class="callout">
+        <div>
+          <p class="big">Do not start Goal 4 as more refactor.</p>
+          <p>
+            The highest-leverage next move is to turn this branch into a clean, reviewable, release-candidate unit,
+            then attack the remaining measured bottleneck: DB/indexing proof cost.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section id="branch">
+      <div class="section-title"><span class="num">01</span><h2>Branch Shape</h2></div>
+      <div class="grid metrics">
+        <div class="metric blue"><div class="value">156</div><div class="label">commits vs origin/main</div></div>
+        <div class="metric violet"><div class="value">612</div><div class="label">files changed</div></div>
+        <div class="metric good"><div class="value">53,252</div><div class="label">insertions</div></div>
+        <div class="metric warn"><div class="value">33,470</div><div class="label">deletions</div></div>
+      </div>
+      <table style="margin-top:16px;">
+        <thead><tr><th>Selector Result</th><th>Current Output</th><th>Interpretation</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Risk category</td>
+            <td><code>full-release-high-risk</code></td>
+            <td>This is correct for the current branch because it includes workspace/config/pipeline/test architecture changes.</td>
+          </tr>
+          <tr>
+            <td>Cloud label</td>
+            <td><code>ci:full</code></td>
+            <td>Expected for this branch only. Smaller future changes now route through narrower risk lanes.</td>
+          </tr>
+          <tr>
+            <td>Selected local commands</td>
+            <td><code>diff-check</code>, <code>ci-script-tests</code>, <code>workflow-contracts</code>, <code>full-local-suite</code></td>
+            <td>The default selector no longer pretends a broad architecture branch is a normal product PR.</td>
+          </tr>
+          <tr>
+            <td>Budget</td>
+            <td><code>release-full-risk</code>, 60m target, 50.5m selected budget</td>
+            <td>The branch is explicitly release-risk; normal PR-risk commands have separate measured budgets.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="done">
+      <div class="section-title"><span class="num">02</span><h2>What Is Done</h2></div>
+      <div class="grid done-grid">
+        <div class="done-card">
+          <h3>1. Pipeline Is Risk-Based</h3>
+          <p>
+            <code>ci:select</code> emits a deterministic risk profile, owners, proof commands, E2E lanes, labels,
+            and budget. Fixture tests cover representative diffs including docs-only, tooling, assistant, indexing,
+            DB, desktop host, browser storage, isolated unit tests, web app routes, and release workflow changes.
+          </p>
+          <div class="pill-row">
+            <span class="pill good">15 fixtures</span>
+            <span class="pill good">normal p95 measured</span>
+          </div>
+        </div>
+        <div class="done-card">
+          <h3>2. Domain Ownership Is Real</h3>
+          <p>
+            Assistant contracts, indexing contracts, file-explorer barrels, DB ownership tests, embedding worker splits,
+            and top-hotspot READMEs are in place. The current architecture checks pass with no approved exceptions.
+          </p>
+          <div class="pill-row">
+            <span class="pill good">39 packages</span>
+            <span class="pill good">7 domains</span>
+            <span class="pill good">0 exceptions</span>
+          </div>
+        </div>
+        <div class="done-card">
+          <h3>3. Desktop Runtime Is a Platform</h3>
+          <p>
+            Desktop IPC now routes through a typed registry and domain modules. Hidden embedding and LLM hosts expose
+            platform states, diagnostics, reset/recovery behavior, and renderer-only architecture guards.
+          </p>
+          <div class="pill-row">
+            <span class="pill good">69 LOC ipc-handlers</span>
+            <span class="pill good">reset E2E green</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="evidence">
+      <div class="section-title"><span class="num">03</span><h2>Evidence Ledger</h2></div>
+      <table>
+        <thead><tr><th>Area</th><th>Evidence</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Architecture domain contract</td>
+            <td><code>pnpm run arch:domain-contract</code> passed: 39 packages across 7 domains and 5 stack phases.</td>
+            <td><span class="status done">fresh pass</span></td>
+          </tr>
+          <tr>
+            <td>Architecture boundaries</td>
+            <td><code>pnpm run arch:domain-boundaries</code> passed: 2034 imports across 2886 files; 0/0 approved boundary exceptions used.</td>
+            <td><span class="status done">fresh pass</span></td>
+          </tr>
+          <tr>
+            <td>Full local release proof</td>
+            <td>Explicit full-risk sample passed in 30m 05s: build, lint, type-check, unit, and E2E. Desktop E2E passed 118 tests with 5 skipped.</td>
+            <td><span class="status done">recorded</span></td>
+          </tr>
+          <tr>
+            <td>Normal proof calibration</td>
+            <td>All normal proof commands have five local samples and are within target; DB remains slowest at p95 4m 30s.</td>
+            <td><span class="status done">measured</span></td>
+          </tr>
+          <tr>
+            <td>Desktop LLM recovery</td>
+            <td><code>e2e/llm-host-renderer.test.ts --grep "@desktop-llm-host-recovery"</code>: 1 passed / 22.0s.</td>
+            <td><span class="status done">executed</span></td>
+          </tr>
+          <tr>
+            <td>Desktop embedding recovery</td>
+            <td>Selected embedding host recovery lane: 2 passed / 33.3s.</td>
+            <td><span class="status done">executed</span></td>
+          </tr>
+          <tr>
+            <td>Desktop factory reset</td>
+            <td><code>e2e/factory-reset.desktop.test.ts --grep "@destructive"</code>: 2 passed / 23.9s; verifies localStorage, sessionStorage, CacheStorage, IndexedDB, userData cache, MCP state, sentinel cleanup, and log preservation.</td>
+            <td><span class="status done">executed</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="hotspots">
+      <div class="section-title"><span class="num">04</span><h2>Hotspot Before / After</h2></div>
+      <div class="compare">
+        <div class="before">
+          <h3>Before Reset</h3>
+          <table>
+            <thead><tr><th>Hotspot</th><th class="num">LOC</th></tr></thead>
+            <tbody>
+              <tr><td><code>apps/desktop/src/ipc-handlers.ts</code></td><td class="num">1629</td></tr>
+              <tr><td><code>packages/embeddings/src/worker/embedding-worker.ts</code></td><td class="num">2777</td></tr>
+              <tr><td><code>packages/ui/.../assistant-ui-panel.tsx</code></td><td class="num">2171</td></tr>
+              <tr><td><code>packages/app-shell/.../assistant-ui-panel-wrapper.tsx</code></td><td class="num">2236</td></tr>
+              <tr><td><code>apps/desktop/e2e/embedding-worker-renderer.test.ts</code></td><td class="num">8124</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="after">
+          <h3>Current Branch</h3>
+          <table>
+            <thead><tr><th>Hotspot</th><th class="num">LOC</th></tr></thead>
+            <tbody>
+              <tr><td><code>apps/desktop/src/ipc-handlers.ts</code></td><td class="num">69</td></tr>
+              <tr><td><code>packages/embeddings/src/worker/embedding-worker.ts</code></td><td class="num">1481</td></tr>
+              <tr><td><code>packages/ui/.../assistant-ui-panel.tsx</code></td><td class="num">1272</td></tr>
+              <tr><td><code>packages/app-shell/.../assistant-ui-panel-wrapper.tsx</code></td><td class="num">1389</td></tr>
+              <tr><td>Embedding E2E split into smoke, backfill/search, memory, diagnostics, crash lanes, plus shared helpers</td><td class="num">split</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <table style="margin-top:16px;">
+        <thead><tr><th>Remaining Large Files</th><th class="num">LOC</th><th>Assessment</th></tr></thead>
+        <tbody>
+          <tr><td><code>apps/desktop/e2e/embedding-worker-renderer.shared.ts</code></td><td class="num">3272</td><td>Shared E2E helper fixture. Acceptable as documented support code, but still worth splitting if embedding E2E changes often.</td></tr>
+          <tr><td><code>packages/file-explorer/src/actions/__tests__/file-selection-actions.test.ts</code></td><td class="num">1983</td><td>Under 2000 test-file threshold but close enough to watch.</td></tr>
+          <tr><td><code>packages/app-shell/src/__tests__/assistant-ui-panel-wrapper.test.tsx</code></td><td class="num">1764</td><td>Improved by test support extraction, still a candidate for focused behavior specs.</td></tr>
+          <tr><td><code>packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts</code></td><td class="num">1735</td><td>Signals the next ownership target: pipeline/indexing orchestration behavior is still dense.</td></tr>
+          <tr><td><code>packages/file-explorer-ui/src/__tests__/use-background-token-indexer-integration.test.tsx</code></td><td class="num">1725</td><td>Under threshold, but high coupling with indexing UI behavior remains worth tracking.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="risks">
+      <div class="section-title"><span class="num">05</span><h2>Review Notes</h2></div>
+      <div class="grid risk-grid">
+        <div class="risk-card">
+          <h3>Branch Blast Radius</h3>
+          <p>
+            This is not a normal PR. It touches workflows, package graph, test lanes, desktop runtime, assistant contracts,
+            indexing contracts, DB, file explorer, and E2E. The right next move is release-candidate hardening, not more architecture.
+          </p>
+        </div>
+        <div class="risk-card">
+          <h3>DB Lane Is the Remaining Cost Center</h3>
+          <p>
+            Normal lanes are measured and under target, but DB tests are p95 4m 30s. That is acceptable today, but it is the next pipeline economics lever.
+          </p>
+        </div>
+        <div class="risk-card">
+          <h3>Proof Manifest Needs a Policy Decision</h3>
+          <p>
+            The branch includes proof-manifest history relative to <code>origin/main</code> from earlier phases. Recent local-only work did not refresh it.
+            Before any PR/cloud path, decide whether to regenerate a final proof commit or remove stale proof mechanics from the local branch flow.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section id="goals" class="goals">
+      <div class="section-title"><span class="num">06</span><h2>Next 3 Top Goals</h2></div>
+
+      <article class="goal-card">
+        <h3>Turn the Architecture Reset Into a Release Candidate</h3>
+        <p class="meta">Why first: the branch is already full-release-risk. More refactor before integration increases merge cost and review risk.</p>
+        <ul>
+          <li>Rebase or merge-update against current <code>origin/main</code> once, then stop moving the base until the release-candidate proof finishes.</li>
+          <li>Produce a branch-level release note that maps the 156 commits into three review sections: pipeline, ownership, desktop platform.</li>
+          <li>Run exactly one explicit release proof after the base update: selected full-risk commands plus full local suite if still required by <code>ci:select</code>.</li>
+          <li>Resolve the proof-manifest policy: either final proof-only commit for PR path, or no proof artifact for a local-only integration path. Do not leave ambiguous stale proof state.</li>
+        </ul>
+      </article>
+
+      <article class="goal-card">
+        <h3>Cut DB and Indexing Proof Cost in Half</h3>
+        <p class="meta">Why second: the pipeline is now measured, and the measured bottleneck is DB/indexing. The slowest normal command is DB at p95 4m 30s.</p>
+        <ul>
+          <li>Split DB tests into schema/migration, repository, queue, search, and integration lanes with separate budgets.</li>
+          <li>Move more orchestration behavior from app-shell background indexing toward <code>@brainstrike/pipeline</code> where ownership is already established.</li>
+          <li>Reduce <code>workspace-collection-sync-service.test.ts</code> and related indexing tests into focused owner-owned specs.</li>
+          <li>Target p95 DB/indexing local proof under 2m 30s without hiding failures behind broad mocks.</li>
+        </ul>
+      </article>
+
+      <article class="goal-card">
+        <h3>Make Local AI Operations Product-Grade</h3>
+        <p class="meta">Why third: the platform exists; now it needs operating guarantees for the next one to two years of local models, indexing load, and crash recovery.</p>
+        <ul>
+          <li>Add a resource scheduler across embedding, chunking, and LLM hosts so GPU/CPU/memory pressure is explicit and observable.</li>
+          <li>Add model artifact lifecycle rules: manifest validation, disk quota, corruption detection, retry policy, and reset integration.</li>
+          <li>Expose host health, queue health, model cache health, and recent recovery events in one product diagnostics surface.</li>
+          <li>Keep recovery E2E lanes under 60s each and never include embedding diagnostics or long soak tests in normal low-risk proof.</li>
+        </ul>
+      </article>
+    </section>
+
+    <section id="conditions">
+      <div class="section-title"><span class="num">07</span><h2>Conditions for the Next Goals</h2></div>
+      <table>
+        <thead><tr><th>Goal</th><th>Conditions for Done</th><th>Proof</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Release Candidate</td>
+            <td>
+              Clean working tree; branch updated onto current main; no ambiguous proof-manifest state; branch review note exists;
+              selected full-risk proof green once on the final integration SHA.
+            </td>
+            <td><code>git status</code>, <code>pnpm ci:select</code>, full-risk proof log, release-candidate report artifact.</td>
+          </tr>
+          <tr>
+            <td>DB / Indexing Cost</td>
+            <td>
+              DB/indexing proof p95 under 2m 30s; DB sub-lanes have owners and budgets; pipeline owns real orchestration path;
+              no single DB/indexing executable test over 1500 LOC.
+            </td>
+            <td>Calibration JSON with 5 samples per lane, package-local tests, architecture boundary checks.</td>
+          </tr>
+          <tr>
+            <td>Local AI Operations</td>
+            <td>
+              Resource scheduler exists and is visible in diagnostics; model artifact cache has quota/integrity/reset tests;
+              embedding and LLM recovery lanes stay under 60s each; no renderer-only guard regressions.
+            </td>
+            <td>Host manager unit tests, diagnostics tests, targeted desktop recovery E2E, renderer-only architecture guard.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer>
+      Source: local git/code inspection on 2026-05-20. No cloud CI, PR updates, proof refresh, or full-suite rerun was triggered while producing this report.
+    </footer>
+  </main>
+</div>
+</body>
+</html>
