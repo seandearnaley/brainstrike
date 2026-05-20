@@ -14,13 +14,11 @@ import { AccessError, getTestDirectoryStructure } from '@brainstrike/file-system
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import type { LayoutLoadResult, LayoutPersistenceResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { LiveQuery, LiveQueryResults } from '@electric-sql/pglite/live';
 import type { IpcMainInvokeEvent } from 'electron';
 import { BrowserWindow, ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
-import { z } from 'zod';
 import type { ChunkingHostManager } from './chunking-host-manager';
 import { DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL } from './db-shared';
 import type { EmbeddingHostManager } from './embedding-host-manager';
@@ -36,6 +34,7 @@ import {
   type FileReadErrorPayload,
   isFileNotFoundError,
 } from './file-read-errors';
+import { registerStoragePreferencesIpcHandlers } from './ipc-domains/storage-preferences-ipc';
 import {
   cancelAllDesktopEmbeddingBackfills,
   cancelDesktopEmbeddingBackfill,
@@ -294,22 +293,6 @@ function toFileReadErrorPayload(error: unknown, path: string): FileReadErrorPayl
   }
   return null;
 }
-
-const panelPersistenceStateSchema = z.object({
-  sizes: z.array(
-    z.number().superRefine((value, ctx) => {
-      if (!Number.isFinite(value)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'Panel size must be a finite number',
-        });
-      }
-    })
-  ),
-  showConsole: z.boolean(),
-  showLeftPanel: z.boolean(),
-  showRightPanel: z.boolean(),
-});
 
 /**
  * Wrap a database operation with corruption detection and auto-recovery.
@@ -738,17 +721,10 @@ export function registerIpcHandlers(
     registeredChannels.add(channel);
   };
 
-  registerHandler('storage:getItem', async (_e: IpcMainInvokeEvent, key: string) =>
-    storage.getItem(key)
-  );
-  registerHandler('storage:setItem', async (_e: IpcMainInvokeEvent, key: string, value: string) =>
-    storage.setItem(key, value)
-  );
-  registerHandler('storage:removeItem', async (_e: IpcMainInvokeEvent, key: string) =>
-    storage.removeItem(key)
-  );
-  registerHandler('storage:clear', async (_e: IpcMainInvokeEvent) => storage.clear());
-  registerHandler('storage:getAllKeys', async (_e: IpcMainInvokeEvent) => storage.getAllKeys());
+  const unregisterStoragePreferencesIpcHandlers = registerStoragePreferencesIpcHandlers({
+    getStore,
+    storage,
+  });
 
   registerHandler('fs:requestDirectoryAccess', async (_e: IpcMainInvokeEvent) => {
     // Check if we're in test mode to avoid native dialogs
@@ -960,85 +936,6 @@ export function registerIpcHandlers(
       }
       // Non-critical error, silently fail
       // The worst case is the user needs to select folder again on next launch
-    }
-  });
-
-  // Layout persistence IPC handlers
-  registerHandler(
-    'layout:save',
-    async (_e: IpcMainInvokeEvent, state: unknown): Promise<LayoutPersistenceResult> => {
-      const store = getStore();
-      if (!store) {
-        logger.warn('Cannot save layout: store not initialized');
-        return { success: false, message: 'Store not initialized' };
-      }
-
-      const parsed = panelPersistenceStateSchema.safeParse(state);
-      if (!parsed.success) {
-        logger.warn('Invalid panel layout payload', { issues: parsed.error.issues });
-        return { success: false, message: 'Invalid panel layout payload' };
-      }
-
-      try {
-        // Using proper type access for electron-store
-        // biome-ignore lint/suspicious/noTsIgnore: Electron store types are incomplete
-        // @ts-ignore
-        store.set('panelLayout', { v1: parsed.data });
-        return { success: true };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.warn('Failed to save panel layout', { error: message });
-        return { success: false, message };
-      }
-    }
-  );
-
-  registerHandler('layout:load', async (_e: IpcMainInvokeEvent): Promise<LayoutLoadResult> => {
-    const store = getStore();
-    if (!store) {
-      logger.warn('Cannot load layout: store not initialized');
-      return { success: false, message: 'Store not initialized' };
-    }
-
-    try {
-      // Using proper type access for electron-store
-      // biome-ignore lint/suspicious/noTsIgnore: Electron store types are incomplete
-      // @ts-ignore
-      const layout = store.get('panelLayout') as { v1?: unknown } | undefined;
-      const candidate = layout?.v1;
-      if (!candidate) {
-        return { success: true, data: null };
-      }
-
-      const parsed = panelPersistenceStateSchema.safeParse(candidate);
-      if (!parsed.success) {
-        logger.warn('Invalid panel layout data in store', { issues: parsed.error.issues });
-        return { success: false, message: 'Invalid panel layout data' };
-      }
-
-      return { success: true, data: parsed.data };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.warn('Failed to load panel layout', { error: message });
-      return { success: false, message };
-    }
-  });
-
-  // Settings store clear handler for factory reset
-  registerHandler('settings:clearAll', async (_e: IpcMainInvokeEvent) => {
-    try {
-      const store = getStore();
-      if (!store) {
-        return { success: false, message: 'Store not initialized' };
-      }
-      // Clear all settings from the store
-      (store as ElectronStore<DesktopSettingsStoreSchema> & { clear: () => void }).clear();
-      return { success: true };
-    } catch (error) {
-      return {
-        success: false,
-        message: error instanceof Error ? error.message : String(error),
-      };
     }
   });
 
@@ -1346,6 +1243,7 @@ export function registerIpcHandlers(
   });
 
   return () => {
+    unregisterStoragePreferencesIpcHandlers();
     for (const channel of registeredChannels) {
       ipcMain.removeHandler(channel);
     }
