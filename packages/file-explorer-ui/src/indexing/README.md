@@ -25,5 +25,5 @@ Allowed inward dependencies are file-explorer tree context, token-cache, prefere
 ## Focused local test
 
 ```bash
-pnpm --filter @brainstrike/file-explorer-ui exec vitest run src/__tests__/use-background-token-indexer-integration.test.tsx src/__tests__/token-cache-context.test.tsx src/__tests__/use-token-counting.test.ts
+pnpm --filter @brainstrike/file-explorer-ui exec vitest run src/__tests__/use-background-token-indexer-integration.test.tsx src/__tests__/use-background-token-indexer-integration-web-resolver.test.tsx src/__tests__/token-cache-context.test.tsx src/__tests__/use-token-counting.test.ts
 ```

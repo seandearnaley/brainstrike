@@ -11,7 +11,6 @@ This inventory tracks size and churn hotspots that remain after the legal domain
 | 3150 | `apps/desktop/e2e/file-explorer-selection.desktop.test.ts` | Split after embedding E2E unless this lane becomes flaky first. |
 | 2765 | `packages/app-shell/src/__tests__/assistant-ui-panel-wrapper.test.tsx` | Split by assistant contract, local runtime, thread/context wiring. |
 | 2344 | `apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts` | Split by db IPC capability after handler registry exists. |
-| 2258 | `packages/file-explorer-ui/src/__tests__/use-background-token-indexer-integration.test.tsx` | Split by indexer lifecycle, token cache, refresh and cancellation behavior. |
 | 2242 | `packages/app-shell/src/assistant-ui-panel-wrapper.tsx` | Reduce to thin composition over assistant contract and app-shell adapters. |
 | 2181 | `packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx` | Split presentational assistant panel sections after wrapper is thinner. |
 | 2074 | `packages/file-explorer/src/actions/__tests__/file-selection-actions.test.ts` | Split action tests by command family. |
@@ -137,10 +136,21 @@ The integration hook remains the orchestration owner for effects, trigger dispat
 - `pnpm --filter @brainstrike/file-explorer-ui exec vitest run src/__tests__/index.test.ts src/__tests__/use-background-token-indexer-integration.test.tsx`
 - `pnpm --filter @brainstrike/file-explorer-ui type-check`
 
+## File Explorer Indexing Test Split Completed
+
+`packages/file-explorer-ui/src/__tests__/use-background-token-indexer-integration.test.tsx` is split from 2258 LOC into two focused executable specs, both below the 2000 LOC test-file budget:
+
+- `use-background-token-indexer-integration.test.tsx` for shrink reconciliation, hot-cache writeback, cache hydration, error handling, handle-map rebuilds, desktop synthetic handles, and Electron dispatch.
+- `use-background-token-indexer-integration-web-resolver.test.tsx` for web resolver fallback parity, resolver retry behavior, resolver batching, oversize resolver guards, and mixed-separator synthetic desktop path coverage.
+
+Package-local architecture coverage now verifies the split background token indexer tests stay below budget. Verification for this slice:
+
+- `pnpm --filter @brainstrike/file-explorer-ui exec vitest run src/__tests__/index.test.ts src/__tests__/use-background-token-indexer-integration.test.tsx src/__tests__/use-background-token-indexer-integration-web-resolver.test.tsx`
+- `pnpm --filter @brainstrike/file-explorer-ui type-check`
+
 ## Next Slices
 
-1. Split `packages/file-explorer-ui/src/__tests__/use-background-token-indexer-integration.test.tsx` by handle classification, web resolver, Electron dispatch, cache writeback, and shrink reconciliation.
-2. Split `packages/app-shell/src/assistant-ui-panel-wrapper.tsx` and its large test by local-runtime, preferences, thread, and context wiring responsibilities.
+1. Split `packages/app-shell/src/assistant-ui-panel-wrapper.tsx` and its large test by local-runtime, preferences, thread, and context wiring responsibilities.
 3. Tighten E2E lane selection so the split desktop embedding diagnostic files are only selected for matching high-risk diffs.
 4. Move `ipc-handlers.ts` toward a domain-keyed registry after the embedding E2E split reduces verification cost.
 5. Decompose `packages/db` internally around queue, migrations, repositories, search, and schema while preserving public barrels.
