@@ -22,6 +22,10 @@ const FORBIDDEN_EXECUTION_IMPORTS = new Map<string, string>([
     '@brainstrike/embeddings/worker',
     'Local embedding worker execution is renderer-only; Electron main must talk to embedding-host.',
   ],
+  [
+    '@brainstrike/embeddings',
+    'The embeddings root entrypoint exports renderer-only worker execution; Electron main must import hosted provider contracts from @brainstrike/embeddings/provider-core.',
+  ],
 ]);
 
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx']);

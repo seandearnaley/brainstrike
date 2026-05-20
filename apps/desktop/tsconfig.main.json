@@ -39,6 +39,9 @@
       "@brainstrike/agent/pglite-mastra-memory": [
         "../../packages/agent/dist/pglite-mastra-memory/index.d.ts"
       ],
+      "@brainstrike/embeddings/provider-core": [
+        "../../packages/embeddings/dist/provider-core.d.ts"
+      ],
       "@brainstrike/storage/electron": [
         "../../packages/storage/dist/electron.d.ts"
       ],

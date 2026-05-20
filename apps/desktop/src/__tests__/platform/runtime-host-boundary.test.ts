@@ -53,6 +53,10 @@ describe('runtime host boundary', () => {
         path: 'apps/desktop/src/ipc-handlers.ts',
         source: "import { startEmbeddingWorker } from '@brainstrike/embeddings/worker';",
       },
+      {
+        path: 'apps/desktop/src/assistant-server/retrieval-tool.ts',
+        source: "import { OpenAIEmbeddingProvider } from '@brainstrike/embeddings';",
+      },
     ]);
 
     expect(violations).toEqual([
@@ -67,6 +71,12 @@ describe('runtime host boundary', () => {
         message:
           'Local embedding worker execution is renderer-only; Electron main must talk to embedding-host.',
         path: 'apps/desktop/src/ipc-handlers.ts',
+      },
+      {
+        importSource: '@brainstrike/embeddings',
+        message:
+          'The embeddings root entrypoint exports renderer-only worker execution; Electron main must import hosted provider contracts from @brainstrike/embeddings/provider-core.',
+        path: 'apps/desktop/src/assistant-server/retrieval-tool.ts',
       },
     ]);
   });
