@@ -159,6 +159,21 @@ test('--all skips tracked binary files before scanning contents', () => {
   }
 });
 
+test('--staged scans large lockfile-sized text files without overflowing git output buffers', () => {
+  const cwd = createGitFixture();
+  try {
+    writeFileSync(join(cwd, 'large-lock.yaml'), `${'package:\n'.repeat(160_000)}\n`);
+    spawnSync('git', ['add', 'large-lock.yaml'], { cwd, encoding: 'utf8' });
+
+    const result = runSecretScan(['--staged'], cwd);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Secret scan passed/);
+  } finally {
+    rmSync(cwd, { force: true, recursive: true });
+  }
+});
+
 test('scanFileList skips expected missing-file read failures', () => {
   const readError = Object.assign(new Error('file disappeared'), {
     code: 'ENOENT',
