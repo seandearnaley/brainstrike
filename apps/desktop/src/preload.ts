@@ -832,6 +832,7 @@ contextBridge.exposeInMainWorld('llmHost', {
       typeof payload === 'string'
         ? payload
         : {
+            kind: 'warmup',
             modelId: payload.modelId,
             ...(payload.requestId === undefined ? {} : { clientRequestId: payload.requestId }),
           }
