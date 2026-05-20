@@ -28,10 +28,16 @@ function listProductionTypeScriptFiles(directory: string): string[] {
 
 describe('desktop IPC channel contract', () => {
   it('keeps shared platform channel constants owned by the central catalog', () => {
+    const assistantToolsSource = readFileSync(
+      path.join(SOURCE_ROOT, 'assistant-server', 'assistant-tools.ts'),
+      'utf8'
+    );
     const dbSharedSource = readFileSync(path.join(SOURCE_ROOT, 'db-shared.ts'), 'utf8');
     const parserHostSource = readFileSync(path.join(SOURCE_ROOT, 'parser-host-shared.ts'), 'utf8');
     const runtimeSource = readFileSync(path.join(SOURCE_ROOT, 'ipc-runtime.ts'), 'utf8');
 
+    expect(assistantToolsSource).toContain("from '../platform/desktop-ipc-channels'");
+    expect(assistantToolsSource).not.toMatch(/WORKSPACE_CONTEXT_[A-Z_]+_EVENT\s*=\s*['"]/);
     expect(dbSharedSource).toContain("from './platform/desktop-ipc-channels'");
     expect(dbSharedSource).not.toMatch(/DB_[A-Z_]+_CHANNEL\s*=\s*['"]/);
     expect(parserHostSource).toContain("from './platform/desktop-ipc-channels'");

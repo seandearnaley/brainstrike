@@ -254,7 +254,7 @@
         <tr>
           <td>Adding an IPC channel has a domain owner and focused test path</td>
           <td><span class="status done">done</span></td>
-          <td>Registry, four extracted domains, diagnostics, logging, parser host, agent chat, secrets, runtime probes, MCP config/tools, tool execution, main platform lifecycle, and hidden host IPC modules are tested. Direct production <code>ipcMain</code> registration is isolated to <code>platform/desktop-ipc-registry.ts</code>. Production registry calls and production <code>webContents.send()</code> broadcasts must use named channel contracts from <code>platform/desktop-ipc-channels.ts</code>; preload bridge calls are barred from raw <code>ipcRenderer</code> channel literals and source-checked against the same catalog while preload remains runtime self-contained. Diagnostics, DB managed-cache, parser-host, and runtime probe/model constants are now also owned by the central channel catalog. Background runtime lifecycle IPC no longer infers ownership from channel prefixes; embedding, chunking, and LLM hosts pass their IPC domain explicitly.</td>
+          <td>Registry, four extracted domains, diagnostics, logging, parser host, agent chat, secrets, runtime probes, MCP config/tools, tool execution, main platform lifecycle, and hidden host IPC modules are tested. Direct production <code>ipcMain</code> registration is isolated to <code>platform/desktop-ipc-registry.ts</code>. Production registry calls and production <code>webContents.send()</code> broadcasts must use named channel contracts from <code>platform/desktop-ipc-channels.ts</code>; preload bridge calls are barred from raw <code>ipcRenderer</code> channel literals and source-checked against the same catalog while preload remains runtime self-contained. Diagnostics, DB managed-cache, parser-host, runtime probe/model, and assistant selection/tapestry event constants are now also owned by the central channel catalog. Background runtime lifecycle IPC no longer infers ownership from channel prefixes; embedding, chunking, and LLM hosts pass their IPC domain explicitly.</td>
         </tr>
         <tr>
           <td>Renderer-only local LLM and embedding execution is enforceable</td>
@@ -422,8 +422,13 @@
         </tr>
         <tr>
           <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/desktop-ipc-channel-contract.test.ts src/__tests__/preload-runtime-contract.test.ts</code></td>
-          <td>Desktop diagnostics, DB managed-cache, parser-host parse, and runtime probe/model channels are owned by <code>platform/desktop-ipc-channels.ts</code> instead of duplicated raw string exports.</td>
+          <td>Desktop diagnostics, DB managed-cache, parser-host parse, runtime probe/model, and assistant selection/tapestry channels are owned by <code>platform/desktop-ipc-channels.ts</code> instead of duplicated raw string exports.</td>
           <td><span class="status done">2 files / 10 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/preload-runtime-contract.test.ts src/__tests__/platform/desktop-ipc-channel-contract.test.ts src/__tests__/assistant-server/assistant-tools.test.ts</code></td>
+          <td>Assistant root-tree, preview-context, workspace-context, and tapestry update events stay in preload/catalog parity and the assistant tool broadcaster still notifies visible renderer windows.</td>
+          <td><span class="status done">3 files / 32 tests</span></td>
         </tr>
         <tr>
           <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/preload-runtime-contract.test.ts src/__tests__/preload-power.test.ts</code></td>

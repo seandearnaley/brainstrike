@@ -131,8 +131,16 @@ describe('preload runtime contract', () => {
     const preloadSource = readPreloadSource();
     const expectedConstants = {
       AGENT_CHAT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.agent.chat,
+      ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT:
+        DESKTOP_PRELOAD_IPC_CHANNELS.agent.previewContextSelectionUpdate,
       APP_POWER_STATE_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerState,
       ASSISTANT_GET_URL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.agent.assistantGetUrl,
+      ASSISTANT_ROOT_TREE_SELECTION_EVENT:
+        DESKTOP_PRELOAD_IPC_CHANNELS.agent.rootTreeSelectionUpdate,
+      ASSISTANT_WORKSPACE_CONTEXT_SELECTION_EVENT:
+        DESKTOP_PRELOAD_IPC_CHANNELS.agent.workspaceContextSelectionUpdate,
+      ASSISTANT_WORKSPACE_CONTEXT_TAPESTRY_EVENT:
+        DESKTOP_PRELOAD_IPC_CHANNELS.agent.workspaceContextTapestryUpdate,
       APP_LIFECYCLE_NOTE_RELOAD_INTENT_CHANNEL:
         DESKTOP_PRELOAD_IPC_CHANNELS.runtime.noteReloadIntent,
       DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.applyManagedCacheBatch,

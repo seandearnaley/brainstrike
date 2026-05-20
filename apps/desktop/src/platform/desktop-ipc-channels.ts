@@ -2,6 +2,10 @@ export const DESKTOP_IPC_CHANNELS = {
   agent: {
     assistantGetUrl: 'assistant:get-url',
     chat: 'agent:chat',
+    previewContextSelectionUpdate: 'assistant:preview-context-selection-update',
+    rootTreeSelectionUpdate: 'assistant:root-tree-selection-update',
+    workspaceContextSelectionUpdate: 'assistant:workspace-context-selection-update',
+    workspaceContextTapestryUpdate: 'assistant:workspace-context-tapestry-update',
   },
   db: {
     applyManagedCacheBatch: 'db:managed-cache:apply-batch',
