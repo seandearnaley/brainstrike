@@ -27,9 +27,9 @@ import {
 import { getDbHostManager } from './db-host-manager';
 import { closeDatabase, getDatabase, resetLocalDatabase } from './db-main';
 import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
-import { resetDesktopApplicationData } from './desktop-factory-reset';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
+import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
@@ -636,35 +636,6 @@ async function runShutdownStep(
   }
 }
 
-async function handleResetLocal(): Promise<{ success: boolean; message?: string }> {
-  try {
-    await resetDesktopApplicationData({
-      resetDatabaseProfile: async () => {
-        await runWithDesktopDatabaseResetBarrier(async () => {
-          await cleanupDesktopLiveSubscriptionsForShutdown();
-          await waitForDesktopDatabaseWorkSchedulerIdle();
-          await cleanupDesktopLiveSubscriptionsForShutdown();
-          await resetLocalDatabase();
-        });
-      },
-      stopBackgroundRuntimes: async () => {
-        await Promise.all([
-          embeddingHostManager.stop(),
-          chunkingHostManager.stop(),
-          llmHostManager.stop(),
-        ]);
-      },
-      userDataPath: app.getPath('userData'),
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger.error('Failed to reset desktop application data:', error);
-    return { success: false, message };
-  }
-
-  return { success: true };
-}
-
 function scheduleForcedProcessExit(trigger: NodeJS.Signals | 'before-quit'): void {
   if (forcedProcessExitTimeout) {
     return;
@@ -800,6 +771,19 @@ const chunkingHostManager = new ChunkingHostManager();
 const parserHostManager = new ParserHostManager();
 const embeddingHostManager = new EmbeddingHostManager();
 const llmHostManager = new LlmHostManager();
+const handleResetLocal = createDesktopFactoryResetHandler({
+  cleanupLiveSubscriptionsForShutdown: cleanupDesktopLiveSubscriptionsForShutdown,
+  logger,
+  resetLocalDatabase,
+  runtimes: [
+    { name: 'embedding-host', stop: () => embeddingHostManager.stop() },
+    { name: 'chunking-host', stop: () => chunkingHostManager.stop() },
+    { name: 'llm-host', stop: () => llmHostManager.stop() },
+  ],
+  runWithDatabaseResetBarrier: runWithDesktopDatabaseResetBarrier,
+  userDataPath: app.getPath('userData'),
+  waitForDatabaseWorkSchedulerIdle: waitForDesktopDatabaseWorkSchedulerIdle,
+});
 
 desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler({
   getDatabase,
