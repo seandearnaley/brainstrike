@@ -1,8 +1,8 @@
 {
   "minSamples": 5,
-  "normalRiskMissingSamples": 12,
+  "normalRiskMissingSamples": 0,
   "releaseOnlyMissingSamples": 5,
-  "selectedMissingSamples": 17,
+  "selectedMissingSamples": 5,
   "status": "needs-samples",
   "commands": [
     {
@@ -16,34 +16,34 @@
       "status": "missing"
     },
     {
-      "name": "workflow-contracts",
-      "owner": "ci-platform",
-      "sampleCount": 1,
-      "missingSamples": 4,
-      "estimatedRemainingMs": 720000,
-      "releaseOnly": false,
-      "selected": true,
-      "status": "calibrating"
-    },
-    {
       "name": "ci-script-tests",
       "owner": "tooling",
-      "sampleCount": 1,
-      "missingSamples": 4,
-      "estimatedRemainingMs": 480000,
+      "sampleCount": 5,
+      "missingSamples": 0,
+      "estimatedRemainingMs": 0,
       "releaseOnly": false,
       "selected": true,
-      "status": "calibrating"
+      "status": "within-target"
     },
     {
       "name": "diff-check",
       "owner": "tooling",
-      "sampleCount": 1,
-      "missingSamples": 4,
-      "estimatedRemainingMs": 120000,
+      "sampleCount": 5,
+      "missingSamples": 0,
+      "estimatedRemainingMs": 0,
       "releaseOnly": false,
       "selected": true,
-      "status": "calibrating"
+      "status": "within-target"
+    },
+    {
+      "name": "workflow-contracts",
+      "owner": "ci-platform",
+      "sampleCount": 5,
+      "missingSamples": 0,
+      "estimatedRemainingMs": 0,
+      "releaseOnly": false,
+      "selected": true,
+      "status": "within-target"
     },
     {
       "name": "db-tests",

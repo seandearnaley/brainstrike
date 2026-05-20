@@ -325,6 +325,10 @@ test('runCli writes markdown and JSON from a calibration directory', async () =>
     path.join(dir, 'pipeline-calibration-summary-2026-05-20.json'),
     `${JSON.stringify({ schemaVersion: 1, generatedFrom: 'calibration-files' })}\n`
   );
+  await writeFile(
+    path.join(dir, 'pipeline-calibration-gap-plan-2026-05-20.json'),
+    `${JSON.stringify({ status: 'needs-samples' })}\n`
+  );
   try {
     const exitCode = await runCli([
       '--input-dir',

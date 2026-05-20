@@ -392,6 +392,7 @@ async function listCalibrationPaths(inputDirs) {
         entry.isFile() &&
         entry.name.startsWith('pipeline-calibration-') &&
         !entry.name.startsWith('pipeline-calibration-summary-') &&
+        !entry.name.startsWith('pipeline-calibration-gap-plan-') &&
         entry.name.endsWith('.json')
       ) {
         paths.push(path.join(dir, entry.name));
