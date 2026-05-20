@@ -1,4 +1,4 @@
-import type { LocalRuntimeModelCatalogState } from '@brainstrike/agent/client';
+import type { LocalRuntimeModelCatalogState } from '@brainstrike/assistant-contract/local-runtime';
 import type { DbModel, DbProvider } from '@brainstrike/preferences';
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';

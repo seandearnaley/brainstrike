@@ -26,4 +26,13 @@ describe('app-shell assistant contract boundary', () => {
     expect(wrapperSource).not.toMatch(/@brainstrike\/agent\/provider-metadata/);
     expect(wrapperSource).not.toMatch(/@brainstrike\/agent\/tool-metadata/);
   });
+
+  it('reads local-runtime metadata from assistant-contract instead of agent runtime packages', () => {
+    expect(readSource('assistant-ui-panel-wrapper.tsx')).not.toMatch(
+      /@brainstrike\/agent\/(?:client|local-runtime)/
+    );
+    expect(readSource('__tests__/assistant-ui-panel-wrapper.test.tsx')).not.toMatch(
+      /@brainstrike\/agent\/(?:client|local-runtime)/
+    );
+  });
 });

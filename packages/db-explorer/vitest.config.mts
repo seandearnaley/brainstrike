@@ -10,6 +10,14 @@ const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] 
 export default defineConfig({
   resolve: {
     alias: [
+      {
+        find: /^@brainstrike\/assistant-contract\/(.*)$/,
+        replacement: resolve(import.meta.dirname, '../assistant-contract/src/$1.ts'),
+      },
+      {
+        find: '@brainstrike/assistant-contract',
+        replacement: resolve(import.meta.dirname, '../assistant-contract/src/index.ts'),
+      },
       ...createAgentBrowserSafeAliasEntries(resolve(import.meta.dirname, '../agent')),
       {
         find: '@brainstrike/embeddings/provider-core',

@@ -1,5 +1,5 @@
-import type { LocalRuntimeModelCatalogState } from '@brainstrike/agent/client';
 import { NATIVE_TOOL_DEFAULTS, type SupportedProvider } from '@brainstrike/assistant-contract';
+import type { LocalRuntimeModelCatalogState } from '@brainstrike/assistant-contract/local-runtime';
 import {
   __resetAssistantPreferencesStoreForTests,
   useAssistantMemoryPreferencesStore,
@@ -490,8 +490,8 @@ vi.mock('@brainstrike/file-explorer-ui/preview', () => {
   };
 });
 
-// Mock the agent/client exports
-vi.mock('@brainstrike/agent/client', () => {
+// Mock the assistant local-runtime contract exports used by the wrapper.
+vi.mock('@brainstrike/assistant-contract/local-runtime', () => {
   const PROVIDER_DEFINITIONS = {
     openai: {
       id: 'openai',
@@ -586,8 +586,6 @@ vi.mock('@brainstrike/agent/client', () => {
     {} as Record<keyof typeof PROVIDER_DEFINITIONS, string[]>
   );
 
-  const NATIVE_TOOL_DEFAULTS = {};
-
   return {
     getProviderDefaultModel: (provider: string) =>
       PROVIDER_DEFAULT_MODELS[provider as keyof typeof PROVIDER_DEFINITIONS],
@@ -614,7 +612,6 @@ vi.mock('@brainstrike/agent/client', () => {
     PROVIDER_DEFAULT_ENABLED_MODELS,
     PROVIDER_DEFAULT_MODELS,
     PROVIDER_MODELS,
-    NATIVE_TOOL_DEFAULTS,
   };
 });
 

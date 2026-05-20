@@ -42,6 +42,9 @@
   ],
   "references": [
     {
+      "path": "../assistant-contract"
+    },
+    {
       "path": "../db"
     },
     {

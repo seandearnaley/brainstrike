@@ -1007,6 +1007,9 @@ importers:
       '@brainstrike/agent':
         specifier: workspace:*
         version: link:../agent
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
