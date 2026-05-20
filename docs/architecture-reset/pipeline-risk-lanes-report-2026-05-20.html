@@ -179,9 +179,10 @@
         <tr><td><code>pnpm run lint:ci-workflow-contracts</code></td><td>workflow-contracts</td><td class="num">0.16s</td><td>passed</td></tr>
         <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command diff-check --command ci-script-tests --command workflow-contracts</code></td><td>tooling calibration</td><td class="num">0.61s</td><td>all commands under budget; JSON written to <code>pipeline-calibration-sample-2026-05-20.json</code></td></tr>
         <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command assistant-contract-tests</code></td><td>assistant product lane</td><td class="num">8.09s</td><td>assistant-contract and agent package tests passed; JSON written to <code>pipeline-calibration-assistant-2026-05-20.json</code></td></tr>
+        <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command db-tests --command indexing-tests</code></td><td>data/indexing product lanes</td><td class="num">274.37s</td><td>DB passed in 269.54s and exposed an undersized 180s budget; indexing passed in 4.82s. JSON written to <code>pipeline-calibration-db-indexing-2026-05-20.json</code>.</td></tr>
       </tbody>
     </table>
-    <p class="note">These are first samples, not statistically meaningful p95 evidence. They prove the mechanism and show current budgets are not obviously too tight for the measured lanes. Product lanes still need repeated real samples before claiming the overall median/p95 objective.</p>
+    <p class="note">These are first samples, not statistically meaningful p95 evidence. They prove the mechanism and surfaced the DB lane as a real bottleneck: the DB command budget was recalibrated from 180s to 300s based on the 269.54s sample. Product lanes still need repeated real samples before claiming the overall median/p95 objective.</p>
   </section>
 
   <section class="card">
@@ -190,7 +191,7 @@
       <thead><tr><th>Condition</th><th>Status</th><th>Evidence / remaining work</th></tr></thead>
       <tbody>
         <tr><td>10 representative changes select deterministic lanes</td><td class="ok">met with fixture contract</td><td><code>scripts/ci-risk-fixtures.json</code> records 13 representative diffs, including isolated unit-test-only edits. <code>scripts/check-ci-risk-fixtures.mjs</code> verifies category, cloud labels, E2E lanes, and local proof commands, and is now part of <code>ci-script-tests</code>.</td></tr>
-        <tr><td>Median local PR-risk proof under 8 minutes</td><td class="warn">partially measured</td><td>Docs/config-tooling samples are sub-second locally; assistant contract product sample completed in 8.09s. Broader product lanes still need repeated real samples before claiming the overall median.</td></tr>
+        <tr><td>Median local PR-risk proof under 8 minutes</td><td class="warn">partially measured</td><td>Docs/config-tooling samples are sub-second locally; assistant contract product sample completed in 8.09s; indexing completed in 4.82s; DB completed in 269.54s and now has a 300s budget. Broader product lanes still need repeated real samples before claiming the overall median.</td></tr>
         <tr><td>p95 local PR-risk proof under 15 minutes</td><td class="warn">designed, not fully measured</td><td>Timing JSON now supports p50/p95 capture; proof manifests now record per-command budget status; <code>ci:proof-timing-summary</code> summarizes p50/p95 across manifest samples. <code>ci:calibrate-proof-commands</code> now writes local calibration JSON without proof-manifest churn.</td></tr>
         <tr><td>Critical PR/cloud gate under 12 minutes p95 for non-E2E changes</td><td class="warn">design present</td><td>Cloud path was not triggered per constraint. Local selector now avoids E2E for docs/config where appropriate.</td></tr>
         <tr><td>Normal UI/product PR gate under 20 minutes p95</td><td class="warn">design present</td><td>Web UI lanes route to file-explorer package tests plus smoke first, not full E2E by default.</td></tr>
@@ -209,7 +210,7 @@
 
   <section class="card">
     <h2>Recommendation</h2>
-    <p>Keep <code>turbo.jsonc</code> concurrency at <code>40</code> for now, because warm-cache evidence shows no overhead regression. Do not claim cold-build speedup yet. The next measurable improvement should be collecting repeated calibration JSON for file-explorer, indexing, desktop, and DB lanes over normal work, then tightening p50/p95 budgets once the sample set is not synthetic.</p>
+    <p>Keep <code>turbo.jsonc</code> concurrency at <code>40</code> for now, because warm-cache evidence shows no overhead regression. Do not claim cold-build speedup yet. The next measurable improvement should be splitting the DB lane into faster subcommands or suppressing expected test logs, then collecting repeated calibration JSON for file-explorer, desktop, and migration lanes over normal work before tightening p50/p95 budgets.</p>
   </section>
 </main>
 </body>

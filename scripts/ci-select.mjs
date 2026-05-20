@@ -121,7 +121,7 @@ export const LOCAL_PROOF_COMMANDS = {
   'db-tests': {
     name: 'db-tests',
     command: 'pnpm --filter @brainstrike/db test',
-    budgetMs: 180_000,
+    budgetMs: 300_000,
     owner: 'data-platform',
     requiredFor: ['db-migrations-storage'],
   },

@@ -177,6 +177,7 @@ test('local proof command registry has owners and timing budgets for failure rou
     assert.equal(typeof command.budgetMs, 'number', command.name);
     assert.equal(command.budgetMs > 0, true, command.name);
   }
+  assert.equal(LOCAL_PROOF_COMMANDS['db-tests'].budgetMs, 300_000);
 });
 
 test('buildSelection rejects unsafe merge-base placeholders', () => {
