@@ -7,7 +7,6 @@ import {
   type ToolPreferences,
 } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
-import type { IpcMainInvokeEvent } from 'electron';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { disposeClients, getClient, initClients } from './mcp';
 import {
@@ -21,6 +20,7 @@ import {
   watchMcpConfig,
   writeMcpConfigText,
 } from './mcp-loader';
+import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
 let unwatch: null | (() => void) = null;
 let last: LoadedMcpConfig | null = null;
@@ -98,10 +98,11 @@ async function restartConfigWatcher(): Promise<void> {
   unwatch = () => watcher.close();
 }
 
-export function registerMcpIpcHandlers(): void {
+export function registerMcpIpcHandlers(): () => void {
   logger.debug('Registering MCP IPC handlers');
+  const registry = createDesktopIpcRegistry({ ipcMain });
 
-  ipcMain.handle('mcp:config:get', async (): Promise<LoadedMcpConfig> => {
+  registry.registerInvoke('mcp', 'mcp:config:get', async (): Promise<LoadedMcpConfig> => {
     last = await loadMcpConfig();
     // Initialize MCP clients if config is valid
     if (last.config) {
@@ -112,14 +113,16 @@ export function registerMcpIpcHandlers(): void {
     return last;
   });
 
-  ipcMain.handle('mcp:config:getPath', async (): Promise<string> => await getMcpConfigPath());
+  registry.registerInvoke(
+    'mcp',
+    'mcp:config:getPath',
+    async (): Promise<string> => await getMcpConfigPath()
+  );
 
-  ipcMain.handle(
+  registry.registerInvoke(
+    'mcp',
     'mcp:config:setPath',
-    async (
-      _e: IpcMainInvokeEvent,
-      configPath: string | null
-    ): Promise<{ success: boolean; path: string }> => {
+    async (_e, configPath: string | null): Promise<{ success: boolean; path: string }> => {
       await setCustomMcpConfigPath(configPath);
       const newPath = await getMcpConfigPath();
 
@@ -133,7 +136,8 @@ export function registerMcpIpcHandlers(): void {
     }
   );
 
-  ipcMain.handle(
+  registry.registerInvoke(
+    'mcp',
     'mcp:config:readText',
     async (): Promise<{
       path: string;
@@ -143,10 +147,11 @@ export function registerMcpIpcHandlers(): void {
     }> => await readMcpConfigText(true)
   );
 
-  ipcMain.handle(
+  registry.registerInvoke(
+    'mcp',
     'mcp:config:writeText',
     async (
-      _e: IpcMainInvokeEvent,
+      _e,
       content: unknown
     ): Promise<
       { success: true; path: string } | { success: false; path: string; error: string }
@@ -188,7 +193,7 @@ export function registerMcpIpcHandlers(): void {
     }
   );
 
-  ipcMain.handle('mcp:config:selectPath', async (): Promise<string | null> => {
+  registry.registerInvoke('mcp', 'mcp:config:selectPath', async (): Promise<string | null> => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],
       filters: [
@@ -205,19 +210,16 @@ export function registerMcpIpcHandlers(): void {
     return result.filePaths[0] ?? null;
   });
 
-  ipcMain.handle(
-    'mcp:config:watch',
-    async (_e: IpcMainInvokeEvent): Promise<{ watching: boolean }> => {
-      if (unwatch) {
-        return { watching: true };
-      }
-      const w = await watchMcpConfig(handleConfigChange);
-      unwatch = () => w.close();
+  registry.registerInvoke('mcp', 'mcp:config:watch', async (_e): Promise<{ watching: boolean }> => {
+    if (unwatch) {
       return { watching: true };
     }
-  );
+    const w = await watchMcpConfig(handleConfigChange);
+    unwatch = () => w.close();
+    return { watching: true };
+  });
 
-  ipcMain.handle('mcp:config:unwatch', async (): Promise<{ watching: false }> => {
+  registry.registerInvoke('mcp', 'mcp:config:unwatch', async (): Promise<{ watching: false }> => {
     if (unwatch) {
       unwatch();
       unwatch = null;
@@ -226,56 +228,62 @@ export function registerMcpIpcHandlers(): void {
   });
 
   // Tool management IPC handlers
-  ipcMain.handle(
+  registry.registerInvoke(
+    'mcp',
     'mcp:tools:list',
     async (): Promise<ReturnType<typeof mcpToolRegistry.getAllTools>> => getSerializableTools()
   );
 
-  ipcMain.handle(
+  registry.registerInvoke(
+    'mcp',
     'mcp:tools:enable',
-    async (_e: IpcMainInvokeEvent, toolIds: string[]): Promise<void> => {
+    async (_e, toolIds: string[]): Promise<void> => {
       mcpToolRegistry.enableTools(toolIds);
       notifyMcpToolsUpdated();
       await saveToolPreferencesIfNeeded();
     }
   );
 
-  ipcMain.handle(
+  registry.registerInvoke(
+    'mcp',
     'mcp:tools:disable',
-    async (_e: IpcMainInvokeEvent, toolIds: string[]): Promise<void> => {
+    async (_e, toolIds: string[]): Promise<void> => {
       mcpToolRegistry.disableTools(toolIds);
       notifyMcpToolsUpdated();
       await saveToolPreferencesIfNeeded();
     }
   );
 
-  ipcMain.handle(
+  registry.registerInvoke(
+    'mcp',
     'mcp:tools:enableServer',
-    async (_e: IpcMainInvokeEvent, serverName: string): Promise<void> => {
+    async (_e, serverName: string): Promise<void> => {
       mcpToolRegistry.enableServerTools(serverName);
       notifyMcpToolsUpdated();
       await saveToolPreferencesIfNeeded();
     }
   );
 
-  ipcMain.handle(
+  registry.registerInvoke(
+    'mcp',
     'mcp:tools:disableServer',
-    async (_e: IpcMainInvokeEvent, serverName: string): Promise<void> => {
+    async (_e, serverName: string): Promise<void> => {
       mcpToolRegistry.disableServerTools(serverName);
       notifyMcpToolsUpdated();
       await saveToolPreferencesIfNeeded();
     }
   );
 
-  ipcMain.handle('mcp:tools:reset', async (): Promise<void> => {
+  registry.registerInvoke('mcp', 'mcp:tools:reset', async (): Promise<void> => {
     mcpToolRegistry.reset();
     notifyMcpToolsUpdated();
     await saveToolPreferencesIfNeeded();
   });
 
-  ipcMain.handle('mcp:tools:getStats', async () => mcpToolRegistry.getStats());
+  registry.registerInvoke('mcp', 'mcp:tools:getStats', async () => mcpToolRegistry.getStats());
 
-  ipcMain.handle(
+  registry.registerInvoke(
+    'mcp',
     'mcp:config:createSample',
     async (): Promise<{ success: boolean; path: string; error?: string }> => {
       let configPath = '';
@@ -316,6 +324,10 @@ export function registerMcpIpcHandlers(): void {
 
   // Discover tools when config changes; saved preferences are applied after discovery completes
   void discoverMcpToolsOnStartup();
+
+  return () => {
+    registry.unregisterAll();
+  };
 }
 
 async function discoverMcpToolsOnStartup(): Promise<void> {

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { dialog, ipcMain } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerMcpIpcHandlers } from '../../ipc-mcp';
@@ -108,6 +110,14 @@ describe('ipc-mcp handlers', () => {
   });
 
   describe('handler registration', () => {
+    it('registers channels through the typed desktop IPC registry', () => {
+      const source = readFileSync(path.resolve(process.cwd(), 'src/ipc-mcp.ts'), 'utf8');
+
+      expect(source).toContain('createDesktopIpcRegistry');
+      expect(source).not.toMatch(/ipcMain\.(handle|on)\(/);
+      expect(source).not.toMatch(/ipcMain\.remove(Handler|Listener)\(/);
+    });
+
     it('should register all MCP handlers', () => {
       // Config handlers
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:get', expect.any(Function));
