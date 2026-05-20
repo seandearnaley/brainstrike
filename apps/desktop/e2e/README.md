@@ -62,6 +62,30 @@ Key configuration features:
 
 ## 🧪 Test Categories
 
+### Embedding Host Renderer Lanes
+
+The former monolithic `embedding-worker-renderer.test.ts` is split by lane so
+normal feedback loops can select a focused file instead of the full diagnostic
+surface:
+
+- `embedding-worker-renderer.smoke.desktop.test.ts` - lifecycle and bounded
+  queue smoke coverage.
+- `embedding-worker-renderer.backfill-search.desktop.test.ts` - import,
+  backfill, and search regressions.
+- `embedding-worker-renderer.memory.desktop.test.ts` - visible renderer and
+  collection memory regressions.
+- `embedding-worker-renderer.diagnostics.desktop.test.ts` - mixed-state and
+  desktop-dev diagnostics.
+- `embedding-worker-renderer.crash-a.desktop.test.ts` and
+  `embedding-worker-renderer.crash-b.desktop.test.ts` - crash-reproduction and
+  reclaim diagnostics.
+
+`embedding-worker-renderer.shared.ts` is an explicitly documented test fixture
+file. It is intentionally larger than the normal source-file budget because it
+keeps the shared desktop setup, DB fixtures, host diagnostics, and memory
+samplers in one import surface while all executable `*.test.ts` files stay below
+2,000 LOC.
+
 ### 1. App Launch Tests (`app-launch.test.ts`)
 Tests fundamental Electron app functionality:
 - App launches successfully

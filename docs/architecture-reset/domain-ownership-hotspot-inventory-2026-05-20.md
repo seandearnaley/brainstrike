@@ -8,7 +8,6 @@ This inventory tracks size and churn hotspots that remain after the legal domain
 
 | LOC | File | Action |
 |---:|---|---|
-| 8124 | `apps/desktop/e2e/embedding-worker-renderer.test.ts` | Split into smoke, regression, diagnostic, and release-only soak specs. |
 | 3150 | `apps/desktop/e2e/file-explorer-selection.desktop.test.ts` | Split after embedding E2E unless this lane becomes flaky first. |
 | 2947 | `packages/file-explorer-ui/src/__tests__/optimized-file-tree.test.tsx` | Split by tree behavior: rows, virtualization, lazy loading, selection. |
 | 2765 | `packages/app-shell/src/__tests__/assistant-ui-panel-wrapper.test.tsx` | Split by assistant contract, local runtime, thread/context wiring. |
@@ -80,10 +79,23 @@ Package-local architecture coverage now verifies:
 
 Compatibility re-exports remain in `embedding-worker.ts` while current consumers migrate. Package-local architecture coverage now verifies these responsibilities stay outside the lifecycle module and that `src/worker/README.md` documents ownership and focused verification.
 
+## Desktop Embedding E2E Slice Started
+
+`apps/desktop/e2e/embedding-worker-renderer.test.ts` is split into six executable specs, all below the 2,000 LOC test-file budget:
+
+- `embedding-worker-renderer.smoke.desktop.test.ts`
+- `embedding-worker-renderer.backfill-search.desktop.test.ts`
+- `embedding-worker-renderer.memory.desktop.test.ts`
+- `embedding-worker-renderer.diagnostics.desktop.test.ts`
+- `embedding-worker-renderer.crash-a.desktop.test.ts`
+- `embedding-worker-renderer.crash-b.desktop.test.ts`
+
+`embedding-worker-renderer.shared.ts` is documented in `apps/desktop/e2e/README.md` as an explicit test fixture exception because it centralizes the former monolith's setup, DB fixtures, host diagnostics, and memory samplers without making the executable lane files large again. Verification so far is static and discovery-only: desktop E2E type-check passes and Playwright lists 36 split tests across the six files without running the expensive lane.
+
 ## Next Slices
 
 1. Split `optimized-file-tree.tsx` and its 2947-line test file by extracting row/windowing/telemetry modules.
 2. Continue splitting `embedding-worker.ts` by extracting provider execution, model resolution, queue scheduling/backpressure, telemetry, and host messaging.
-3. Split `apps/desktop/e2e/embedding-worker-renderer.test.ts` into lane-tagged smoke, regression, diagnostics, and release-only soak specs.
+3. Tighten E2E lane selection so the split desktop embedding diagnostic files are only selected for matching high-risk diffs.
 4. Move `ipc-handlers.ts` toward a domain-keyed registry after the embedding E2E split reduces verification cost.
 5. Decompose `packages/db` internally around queue, migrations, repositories, search, and schema while preserving public barrels.
