@@ -1,78 +1,12 @@
 import type { FileExplorerState } from '@brainstrike/types';
-import { createEmptySelectionModel } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFileSelectionActions } from '../file-selection-actions';
-
-// Mock the file-selection-utils module
-vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
-  return {
-    ...actual,
-    createLogger: () => ({
-      debug: () => {},
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-    }),
-  };
-});
-
-vi.mock('@brainstrike/utils/selection-utils', () => ({
-  encodeFileSelection: (folderId: string, path: string) => `${folderId}|@|${path}`,
-}));
+import { consoleSpy, createMockState, mockSet } from './file-selection-actions-test-support';
 
 describe('file-selection-actions', () => {
-  // Setup common mocks
-  const mockSet = vi.fn();
-  const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
   beforeEach(() => {
     mockSet.mockClear();
     consoleSpy.mockClear();
-  });
-
-  // Helper to create a full mock state
-  const createMockState = (overrides: Partial<FileExplorerState> = {}): FileExplorerState => ({
-    currentFolderId: 'folder1',
-    folderStates: {},
-    selectedFilePaths: new Set<string>(),
-    selectionVersion: 0,
-    selectionModel: createEmptySelectionModel(),
-    querySelectionManifest: null,
-    expandedDirectoryPaths: new Set<string>(),
-    includeFilters: [],
-    excludeFilters: [],
-    useRegex: false,
-    includeProjectTree: true,
-    folderSummaryThreshold: 100,
-    maxSelectionCount: 100,
-    lastActiveTab: 'files',
-    fileContents: {},
-    folderAccessOrder: [],
-    setCurrentFolderId: vi.fn(),
-    hydrateFolderState: vi.fn(),
-    setSelectedFiles: vi.fn(),
-    addSelectedFile: vi.fn(),
-    removeSelectedFile: vi.fn(),
-    toggleSelectedFile: vi.fn(),
-    clearSelectedFiles: vi.fn(),
-    addMultipleSelectedFiles: vi.fn(),
-    removeMultipleSelectedFiles: vi.fn(),
-    addMultipleSelectedFilesChunked: vi.fn(),
-    setExpandedPaths: vi.fn(),
-    toggleDirectoryExpansion: vi.fn(),
-    setFilters: vi.fn(),
-    setUseRegex: vi.fn(),
-    setIncludeProjectTree: vi.fn(),
-    setFolderSummaryThreshold: vi.fn(),
-    setMaxSelectionCount: vi.fn(),
-    setLastActiveTab: vi.fn(),
-    expandAllDirectories: vi.fn(),
-    collapseAllDirectories: vi.fn(),
-    setFileContent: vi.fn(),
-    clearFileContents: vi.fn(),
-    clearAllFileContents: vi.fn(),
-    ...overrides,
   });
 
   describe('setSelectedFiles', () => {
@@ -2043,32 +1977,6 @@ describe('file-selection-actions', () => {
       // Only 150 new files should be added (200 total - 50 already selected)
       expect(result.addedCount).toBe(150);
       expect(currentState.selectedFilePaths.size).toBe(200);
-    });
-  });
-
-  describe('null folderId early returns', () => {
-    it('addSelectedFile should return early when folderId is null', () => {
-      const fileSelectionActions = createFileSelectionActions(mockSet, vi.fn());
-
-      fileSelectionActions.addSelectedFile(null, 'file.ts');
-
-      expect(mockSet).not.toHaveBeenCalled();
-    });
-
-    it('removeSelectedFile should return early when folderId is null', () => {
-      const fileSelectionActions = createFileSelectionActions(mockSet, vi.fn());
-
-      fileSelectionActions.removeSelectedFile(null, 'file.ts');
-
-      expect(mockSet).not.toHaveBeenCalled();
-    });
-
-    it('toggleSelectedFile should return early when folderId is null', () => {
-      const fileSelectionActions = createFileSelectionActions(mockSet, vi.fn());
-
-      fileSelectionActions.toggleSelectedFile(null, 'file.ts');
-
-      expect(mockSet).not.toHaveBeenCalled();
     });
   });
 });

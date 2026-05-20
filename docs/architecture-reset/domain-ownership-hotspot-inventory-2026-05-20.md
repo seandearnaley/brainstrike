@@ -11,7 +11,6 @@ This inventory tracks size and churn hotspots that remain after the legal domain
 | 3150 | `apps/desktop/e2e/file-explorer-selection.desktop.test.ts` | Split after embedding E2E unless this lane becomes flaky first. |
 | 2344 | `apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts` | Split by db IPC capability after handler registry exists. |
 | 2181 | `packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx` | Split presentational assistant panel sections after wrapper is thinner. |
-| 2074 | `packages/file-explorer/src/actions/__tests__/file-selection-actions.test.ts` | Split action tests by command family. |
 | 2044 | `packages/app-shell/src/background-indexing/workspace-collection-sync-service.ts` | Move orchestration behind indexing-owned contracts. |
 | 1734 | `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts` | Split with service extraction. |
 | 1689 | `packages/db-explorer/src/use-database-demo-data.ts` | Review after db internal decomposition. |
@@ -175,8 +174,20 @@ Package-local architecture coverage now verifies the executable wrapper test sta
 - `pnpm --filter @brainstrike/app-shell exec vitest run src/__tests__/assistant-contract-boundary.test.ts src/__tests__/assistant-ui-panel-wrapper.test.tsx`
 - `pnpm --filter @brainstrike/app-shell type-check`
 
+## File Explorer Selection Action Test Slice Completed
+
+`packages/file-explorer/src/actions/__tests__/file-selection-actions.test.ts` is reduced from 2074 LOC to 1982 LOC by extracting shared action-test fixtures into `file-selection-actions-test-support.ts` and moving null-folder early-return coverage into `file-selection-actions-null-folder.test.ts`.
+
+The main executable spec remains the owner for selection mutation behavior, query-selection deltas, chunked large-selection behavior, cancellation, duplicate handling, and max-selection enforcement. The new focused spec owns only null-folder early returns.
+
+Package-local architecture coverage now verifies the executable file-selection action test stays below the 2000 LOC test-file budget. Verification for this slice:
+
+- `pnpm --filter @brainstrike/file-explorer exec vitest run src/__tests__/actions-architecture.test.ts src/actions/__tests__/file-selection-actions.test.ts src/actions/__tests__/file-selection-actions-null-folder.test.ts`
+- `pnpm --filter @brainstrike/file-explorer build`
+
 ## Next Slices
 
 1. Tighten E2E lane selection so the split desktop embedding diagnostic files are only selected for matching high-risk diffs.
-2. Move `ipc-handlers.ts` toward a domain-keyed registry after the embedding E2E split reduces verification cost.
-3. Decompose `packages/db` internally around queue, migrations, repositories, search, and schema while preserving public barrels.
+2. Split `apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts` by db IPC capability.
+3. Move `ipc-handlers.ts` toward a domain-keyed registry after the embedding E2E split reduces verification cost.
+4. Decompose `packages/db` internally around queue, migrations, repositories, search, and schema while preserving public barrels.
