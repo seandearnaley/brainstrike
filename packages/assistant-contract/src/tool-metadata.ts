@@ -13,8 +13,8 @@ export {
   type ToolLoadingTier,
   type ToolLoadingTierInfo,
   type ToolSource,
-} from './tool-categories';
-export { TOOL_DESCRIPTIONS } from './tool-descriptions';
+} from './tool-categories.js';
+export { TOOL_DESCRIPTIONS } from './tool-descriptions.js';
 export {
   generateExampleInput,
   getToolSchemaDisplay,
@@ -22,4 +22,4 @@ export {
   type ParameterType,
   type ToolParameterDisplay,
   type ToolSchemaDisplay,
-} from './tool-schemas-display';
+} from './tool-schemas-display.js';

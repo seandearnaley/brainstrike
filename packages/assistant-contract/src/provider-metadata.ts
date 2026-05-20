@@ -15,7 +15,7 @@ import {
   providerSupportsStandardEmbeddingDimension,
   resolveDefaultModel,
   STANDARD_EMBEDDING_DIMENSION,
-} from './provider-registry';
+} from './provider-registry.js';
 
 export type SupportedProvider = ProviderId;
 export type {
@@ -120,4 +120,4 @@ export function getProviderModelDefinitions(
   return listProviderModels(provider);
 }
 
-export { getProviderDefinition, listProviders } from './provider-registry';
+export { getProviderDefinition, listProviders } from './provider-registry.js';

@@ -1,4 +1,4 @@
-import { GEMMA4_E2B_MODEL_ID } from './local-llm';
+import { GEMMA4_E2B_MODEL_ID } from './local-llm.js';
 
 export const STANDARD_EMBEDDING_DIMENSION = 768;
 
