@@ -23,9 +23,11 @@ import type {
 import { FALLBACK_MODEL_CONFIG } from '../types';
 import { EmbeddingCacheMaintenanceController } from './embedding-cache-maintenance';
 import type { CachedEmbedding, EmbeddingCacheInterface } from './embedding-cache-types';
+import { getModelConfigFromDb } from './embedding-model-config';
 import { createEmbeddingStatsRefreshController } from './embedding-stats-refresh-controller';
 
 export type { CachedEmbedding, EmbeddingCacheInterface } from './embedding-cache-types';
+export { clearModelConfigCache, invalidateModelConfigCache } from './embedding-model-config';
 export type {
   EmbeddingStatsRefreshController,
   EmbeddingStatsRefreshControllerOptions,
@@ -34,171 +36,6 @@ export type {
 export { createEmbeddingStatsRefreshController } from './embedding-stats-refresh-controller';
 
 const workerLogger = createLogger('EmbeddingWorker');
-
-/**
- * Raw model row from the database
- */
-interface DbModelRow {
-  capabilities: string | { type: string; defaultDimension?: number } | null;
-  description: string | null;
-  id: string;
-  name: string;
-  parameters: string | { size?: string; contextWindow?: number } | null;
-  // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
-  provider_id: string;
-}
-
-/**
- * Cache for database model configs to avoid repeated queries
- */
-const dbModelConfigCache = new Map<string, ModelConfig | null>();
-
-/**
- * Invalidate cached model configs.
- * Passing a modelId clears just that entry; omitting clears everything.
- */
-export function invalidateModelConfigCache(modelId?: string): void {
-  if (modelId) {
-    dbModelConfigCache.delete(modelId);
-    return;
-  }
-  dbModelConfigCache.clear();
-}
-
-/**
- * Runtime-safe parse helpers for JSONB fields.
- * Avoids throwing on malformed JSON and guards expected shapes.
- */
-function parseCapabilities(raw: DbModelRow['capabilities']): {
-  type?: string;
-  defaultDimension?: number;
-} {
-  if (!raw) {
-    return {};
-  }
-  try {
-    const value = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    const type = typeof value?.['type'] === 'string' ? value['type'] : undefined;
-    const defaultDimension =
-      typeof value?.['defaultDimension'] === 'number' ? value['defaultDimension'] : undefined;
-    const result: { type?: string; defaultDimension?: number } = {};
-    if (type !== undefined) {
-      result.type = type;
-    }
-    if (defaultDimension !== undefined) {
-      result.defaultDimension = defaultDimension;
-    }
-    return result;
-  } catch (error) {
-    workerLogger.warn('parseCapabilities: failed to parse capabilities JSON', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return {};
-  }
-}
-
-function parseParameters(raw: DbModelRow['parameters']): {
-  size?: string;
-  contextWindow?: number;
-} {
-  if (!raw) {
-    return {};
-  }
-  try {
-    const value = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    const size = typeof value?.['size'] === 'string' ? value['size'] : undefined;
-    const contextWindow =
-      typeof value?.['contextWindow'] === 'number' ? value['contextWindow'] : undefined;
-    const result: { size?: string; contextWindow?: number } = {};
-    if (size !== undefined) {
-      result.size = size;
-    }
-    if (contextWindow !== undefined) {
-      result.contextWindow = contextWindow;
-    }
-    return result;
-  } catch (error) {
-    workerLogger.warn('parseParameters: failed to parse parameters JSON', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return {};
-  }
-}
-
-/**
- * Query the database for model configuration.
- * This is the primary source of truth for model metadata.
- *
- * @param db - Database connection
- * @param modelId - Model ID to look up (e.g., "Xenova/all-MiniLM-L6-v2")
- * @returns ModelConfig or null if not found
- */
-async function getModelConfigFromDb(db: IDatabase, modelId: string): Promise<ModelConfig | null> {
-  workerLogger.debug('getModelConfigFromDb: looking up model', { modelId });
-
-  // Check cache first
-  const cached = dbModelConfigCache.get(modelId);
-  if (cached !== undefined) {
-    workerLogger.debug('getModelConfigFromDb: cache hit', { modelId, found: !!cached });
-    return cached;
-  }
-
-  try {
-    const result = await db.query<DbModelRow>(
-      'SELECT id, provider_id, name, description, capabilities, parameters FROM models WHERE id = $1',
-      [modelId]
-    );
-
-    if (result.rows.length === 0) {
-      workerLogger.warn('getModelConfigFromDb: model not found in database', { modelId });
-      dbModelConfigCache.set(modelId, null);
-      return null;
-    }
-
-    const row = result.rows[0];
-    if (!row) {
-      dbModelConfigCache.set(modelId, null);
-      return null;
-    }
-
-    // Parse JSONB fields with runtime guards
-    const capabilities = parseCapabilities(row.capabilities);
-    const parameters = parseParameters(row.parameters);
-
-    // Convert DB row to ModelConfig
-    const modelConfig: ModelConfig = {
-      id: row.id,
-      name: row.name,
-      dimensions: capabilities?.defaultDimension ?? DEFAULT_EMBEDDING_DIMENSION,
-      quantized: false,
-      description: row.description ?? '',
-      tags: [row.provider_id, capabilities?.type ?? 'embedding'].filter(Boolean),
-      origin: row.provider_id,
-      ...(parameters?.size === undefined ? {} : { size: parameters.size }),
-      ...(parameters?.contextWindow === undefined
-        ? {}
-        : { contextWindow: parameters.contextWindow }),
-    };
-
-    dbModelConfigCache.set(modelId, modelConfig);
-    return modelConfig;
-  } catch (error) {
-    workerLogger.error('getModelConfigFromDb: QUERY FAILED', {
-      modelId,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-    // Do not cache transient DB failures; allow retry on next call
-    return null;
-  }
-}
-
-/**
- * Clear the model config cache (useful for tests)
- */
-export function clearModelConfigCache(): void {
-  dbModelConfigCache.clear();
-}
 
 class WorkerRateLimitError extends Error {
   retryAfterMs?: number;

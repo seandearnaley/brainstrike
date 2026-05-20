@@ -7,6 +7,7 @@ Owns renderer-only embedding queue processing. The worker lifecycle module start
 Current owned modules:
 - `embedding-worker.ts` - lifecycle and queue processing composition.
 - `embedding-cache-types.ts` - cache contract types for embedding dedupe.
+- `embedding-model-config.ts` - database-backed model metadata lookup and cache.
 - `embedding-stats-refresh-controller.ts` - collection indexing stats refresh scheduling.
 - `embedding-cache-maintenance.ts` - cooperative cache eviction/maintenance after queue drains.
 

@@ -19,6 +19,16 @@ describe('embedding worker architecture', () => {
     expect(workerSource()).not.toContain('export function createEmbeddingStatsRefreshController');
   });
 
+  it('keeps model config lookup and cache outside the worker lifecycle module', () => {
+    expect(existsSync(path.join(workerRoot, 'embedding-model-config.ts'))).toBe(true);
+    expect(workerSource()).not.toContain('interface DbModelRow');
+    expect(workerSource()).not.toContain('const dbModelConfigCache');
+    expect(workerSource()).not.toContain('function parseCapabilities');
+    expect(workerSource()).not.toContain('function parseParameters');
+    expect(workerSource()).not.toContain('async function getModelConfigFromDb');
+    expect(workerSource()).not.toContain('export function clearModelConfigCache');
+  });
+
   it('documents worker ownership and focused verification', () => {
     const readmePath = path.join(workerRoot, 'README.md');
     expect(existsSync(readmePath), 'worker must have an ownership README').toBe(true);
