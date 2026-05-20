@@ -147,6 +147,7 @@ describe('runtime host boundary', () => {
       readDesktopSource('ipc-embedding-host.ts'),
       readDesktopSource('ipc-chunking-host.ts'),
       readDesktopSource('ipc-llm-host.ts'),
+      readDesktopSource('ipc-parser-host.ts'),
     ];
 
     for (const source of hostSources) {
