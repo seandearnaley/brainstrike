@@ -43,7 +43,7 @@ test('assistant contract changes select assistant proof and avoid embedding diag
     {
       category: 'assistant-contract-runtime',
       domains: ['assistant'],
-      e2eLanes: ['web-smoke'],
+      e2eLanes: ['critical-smoke'],
       proofCommands: ['diff-check', 'assistant-contract-tests', 'app-shell-tests'],
       riskLevel: 'medium',
       cloudLabels: ['ci:web-e2e', 'ci:coverage'],

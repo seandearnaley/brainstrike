@@ -171,6 +171,26 @@ test('E2E lane command taxonomy is explicit and avoids hidden full-suite fallbac
   assert.match(E2E_LANES['long-soak-release-only'].tagContract, /release/);
 });
 
+test('buildSelection only emits E2E lanes with registered commands', () => {
+  const representativeFiles = [
+    'packages/agent/src/runtime.ts',
+    'packages/embeddings/src/worker/embedding-worker.ts',
+    'apps/desktop/src/preload.ts',
+    'apps/web/src/app.tsx',
+  ];
+
+  for (const filePath of representativeFiles) {
+    const selection = buildSelection({
+      files: [filePath],
+      mergeBase: '1111111111111111111111111111111111111111',
+    });
+
+    for (const lane of selection.riskProfile.e2eLanes) {
+      assert.ok(E2E_LANES[lane], `${filePath} selected unregistered E2E lane ${lane}`);
+    }
+  }
+});
+
 test('local proof command registry has owners and timing budgets for failure routing', () => {
   for (const command of Object.values(LOCAL_PROOF_COMMANDS)) {
     assert.equal(typeof command.owner, 'string', command.name);
