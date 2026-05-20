@@ -10,7 +10,7 @@ import {
   type AssistantRunEventKind,
   type AssistantRunEventStatus,
   sanitizeAssistantRunEventMetadata,
-} from '@brainstrike/agent/run-events';
+} from '@brainstrike/assistant-contract/run-events';
 import type { DbHandle } from '@brainstrike/db';
 import type { AssistantUiThreadHistoryAdapter } from '@brainstrike/ui/assistant-ui-panel';
 

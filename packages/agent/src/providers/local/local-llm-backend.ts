@@ -193,7 +193,7 @@ export class LocalLlmBackend {
     }
 
     const gpu = (
-      navigator as Navigator & {
+      navigator as unknown as {
         gpu?: {
           requestAdapter: () => Promise<{
             info: {
