@@ -166,6 +166,42 @@ describe('resetDesktopApplicationData', () => {
     expect(fsMocks.mkdirSync).toHaveBeenCalledWith('/mock/userData', { recursive: true });
   });
 
+  it('treats entries that disappear during staging as already deleted', async () => {
+    const stopBackgroundRuntimes = vi.fn(async () => undefined);
+    const resetDatabaseProfile = vi.fn(async () => undefined);
+    const missingError = Object.assign(new Error('IndexedDB disappeared'), { code: 'ENOENT' });
+    fsMocks.rename.mockImplementation(async (targetPath: string) => {
+      if (targetPath === path.join('/mock/userData', 'IndexedDB')) {
+        throw missingError;
+      }
+    });
+    const { resetDesktopApplicationData } = await import('../../desktop-factory-reset');
+
+    const result = await resetDesktopApplicationData({
+      resetDatabaseProfile,
+      stopBackgroundRuntimes,
+      userDataPath: '/mock/userData',
+    });
+
+    expect(result).toEqual({
+      deletedPaths: [
+        path.join('/mock/userData', 'Cache'),
+        path.join('/mock/userData', 'IndexedDB'),
+        path.join('/mock/userData', 'Local Storage'),
+        path.join('/mock/userData', 'mcp'),
+      ],
+      pendingDeletionPaths: [],
+      preservedPaths: [path.join('/mock/userData', 'logs')],
+    });
+    expect(fsMocks.rm).toHaveBeenCalledWith(
+      path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000'),
+      {
+        force: true,
+        recursive: true,
+      }
+    );
+  });
+
   it('completes once active profile data is staged even when trash cleanup fails', async () => {
     const stopBackgroundRuntimes = vi.fn(async () => undefined);
     const resetDatabaseProfile = vi.fn(async () => undefined);

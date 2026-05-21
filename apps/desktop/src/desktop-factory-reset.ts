@@ -57,6 +57,10 @@ function createResetTrashPath(userDataPath: string): string {
   return path.join(userDataPath, `.brainstrike-reset-trash-${Date.now()}`);
 }
 
+function isMissingFileSystemEntry(error: unknown): boolean {
+  return error instanceof Error && (error as Error & { code?: unknown }).code === 'ENOENT';
+}
+
 async function stageUserDataEntryForDeletion({
   entryName,
   trashPath,
@@ -106,6 +110,7 @@ export async function resetDesktopApplicationData({
       if (path.join(userDataPath, entryName) === trashPath) {
         continue;
       }
+      const targetPath = path.join(userDataPath, entryName);
       try {
         const stagedEntry = await stageUserDataEntryForDeletion({
           entryName,
@@ -115,7 +120,11 @@ export async function resetDesktopApplicationData({
         deletedPaths.push(stagedEntry.deletedPath);
         stagedPaths.push(stagedEntry.stagedPath);
       } catch (error: unknown) {
-        deletionFailures.push({ error, targetPath: path.join(userDataPath, entryName) });
+        if (isMissingFileSystemEntry(error)) {
+          deletedPaths.push(targetPath);
+          continue;
+        }
+        deletionFailures.push({ error, targetPath });
       }
     }
 
