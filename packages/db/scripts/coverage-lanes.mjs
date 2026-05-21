@@ -14,6 +14,7 @@ const lanes = {
     'browser-pglite-storage-benchmark.test.ts',
     'browser-pglite-storage.test.ts',
     'architecture-boundary.test.ts',
+    'architecture-ownership.test.ts',
     'chunking-config.test.ts',
     'database-pressure-controller.test.ts',
     'database-work-scheduler.test.ts',
