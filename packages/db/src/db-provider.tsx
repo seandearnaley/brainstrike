@@ -404,6 +404,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const connectionRef = useRef<DbConnection | null>(null);
   const initializingRef = useRef<boolean>(false);
   const initializingPromiseRef = useRef<Promise<void> | null>(null);
+  const resetPendingReloadRef = useRef<boolean>(false);
   const databaseWorkSchedulerRef = useRef(createDatabaseWorkScheduler());
 
   const testElectronConnection = useCallback(async (electronDB: ElectronDatabaseAPI) => {
@@ -547,6 +548,10 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   );
 
   const initializeDatabase = useCallback(async () => {
+    if (resetPendingReloadRef.current) {
+      return;
+    }
+
     // Fast exits when already ready
     if (lazyInitialized || (connectionRef.current && !useElectronIPC)) {
       return;
@@ -803,38 +808,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     }
   }, [resolvedPath]);
 
-  const retryInitialization = useCallback(async () => {
-    const maxRetries = 3;
-    let lastError: unknown;
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        logger.info(`[DbProvider] Reinitializing database (attempt ${attempt}/${maxRetries})`);
-        await initializeDirectPGlite({ value: false });
-        logger.info('[DbProvider] Database reinitialized successfully after factory reset');
-        return;
-      } catch (err) {
-        lastError = err;
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        logger.warn(`[DbProvider] Reinitialization attempt ${attempt} failed:`, errorMsg);
-
-        if (attempt === maxRetries) {
-          break;
-        }
-
-        const delay = attempt * 200;
-        logger.info(`[DbProvider] Waiting ${delay}ms before retry...`);
-        await new Promise((resolve) => {
-          setTimeout(resolve, delay);
-        });
-      }
-    }
-
-    logger.error('[DbProvider] All reinitialization attempts failed after factory reset');
-    throw lastError;
-  }, [initializeDirectPGlite]);
-
   const resetPGliteState = useCallback(async () => {
+    resetPendingReloadRef.current = true;
+
     if (connectionRef.current) {
       await purgeAndClosePGlite();
     } else {
@@ -857,8 +833,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     clearActiveEmbeddingSetIdFromStorage();
 
     await cleanupAndWaitForReset();
-    await retryInitialization();
-  }, [purgeAndClosePGlite, cleanupAndWaitForReset, retryInitialization]);
+  }, [purgeAndClosePGlite, cleanupAndWaitForReset]);
 
   const purgeQueuesAndSetsElectron = useCallback(async () => {
     // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
