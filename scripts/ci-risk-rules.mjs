@@ -244,15 +244,40 @@ const WEB_SETTINGS_STATE_PATTERNS = [
 ];
 
 const WEB_DB_STARTUP_PATTERNS = [
+  ...DB_MIGRATION_PATTERNS,
   /^apps\/web\/e2e\/(?:tools-panel-persistence|web-db-worker-startup|embedding-worker-telemetry)\.test\.ts$/,
 ];
 
 const WEB_DESTRUCTIVE_RESET_PATTERNS = [
+  ...DB_MIGRATION_PATTERNS,
   /^apps\/web\/e2e\/factory-reset-recovery\.test\.ts$/,
 ];
 
+const WEB_SRC_FULL_REGRESSION_EXCLUSIONS = [
+  /^__tests\//,
+  /^app\/settings\//,
+  /^create-embedding-queue\.ts$/,
+  /^workers\/embedding-worker-web\.ts$/,
+];
+
+const WEB_SRC_FULL_REGRESSION_PATTERN = {
+  test(filePath) {
+    const prefix = 'apps/web/src/';
+    if (!filePath.startsWith(prefix)) {
+      return false;
+    }
+
+    const relativePath = filePath.slice(prefix.length);
+    if (!/\.(ts|tsx|css)$/.test(relativePath)) {
+      return false;
+    }
+
+    return !WEB_SRC_FULL_REGRESSION_EXCLUSIONS.some((pattern) => pattern.test(relativePath));
+  },
+};
+
 const WEB_FULL_REGRESSION_PATTERNS = [
-  /^apps\/web\/src\/(?!__tests\/)(?!app\/settings\/)(?!create-embedding-queue\.ts$)(?!workers\/embedding-worker-web\.ts$).*\.(ts|tsx|css)$/,
+  WEB_SRC_FULL_REGRESSION_PATTERN,
   /^apps\/web\/playwright\.config\.ts$/,
   /^apps\/web\/e2e\/(?:layout-persistence|navigation-panel-state-preservation|panel-state-preservation|theme-css-consistency)\.test\.ts$/,
   /^packages\/app-shell\/(?!src\/assistant)/,
@@ -581,10 +606,16 @@ export function selectRiskProfileForFiles(files) {
     return profile({
       category: 'db-migrations-storage',
       domains: ['data-platform'],
-      e2eLanes: [],
-      proofCommands: ['diff-check', 'db-schema-migration-tests', 'db-integration-tests'],
+      e2eLanes: ['web-db-startup', 'web-destructive-reset'],
+      proofCommands: [
+        'diff-check',
+        'db-schema-migration-tests',
+        'db-integration-tests',
+        'web-db-startup-tests',
+        'web-destructive-reset-tests',
+      ],
       riskLevel: 'high',
-      cloudLabels: ['ci:browser', 'ci:coverage'],
+      cloudLabels: ['ci:web-db-startup', 'ci:web-destructive-reset', 'ci:browser', 'ci:coverage'],
     });
   }
 

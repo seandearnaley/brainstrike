@@ -46,9 +46,15 @@
       "files": ["packages/db/src/migrations/012-add-index.sql.ts"],
       "expected": {
         "category": "db-migrations-storage",
-        "cloudLabels": ["ci:browser", "ci:coverage"],
-        "e2eLanes": [],
-        "proofCommands": ["diff-check", "db-schema-migration-tests", "db-integration-tests"]
+        "cloudLabels": ["ci:web-db-startup", "ci:web-destructive-reset", "ci:browser", "ci:coverage"],
+        "e2eLanes": ["web-db-startup", "web-destructive-reset"],
+        "proofCommands": [
+          "diff-check",
+          "db-schema-migration-tests",
+          "db-integration-tests",
+          "web-db-startup-tests",
+          "web-destructive-reset-tests"
+        ]
       }
     },
     {

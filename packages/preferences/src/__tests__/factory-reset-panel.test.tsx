@@ -238,7 +238,7 @@ describe('FactoryResetPanel', () => {
       expect(clearOrder).toBeLessThan(resetOrder);
     });
 
-    it('does not reload when the desktop reset bridge fails after renderer storage clears', async () => {
+    it('reloads after a desktop reset bridge failure once renderer storage has already cleared', async () => {
       const resetLocal = vi.fn().mockResolvedValue({
         success: false,
         message: 'desktop reset failed',
@@ -265,7 +265,7 @@ describe('FactoryResetPanel', () => {
       });
 
       expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: false });
-      expect(mockReload).not.toHaveBeenCalled();
+      expect(mockReload).toHaveBeenCalled();
     });
 
     it('reloads the page after successful reset', async () => {

@@ -72,10 +72,16 @@ test('db migrations select db proof without full web functional e2e', () => {
     {
       category: 'db-migrations-storage',
       domains: ['data-platform'],
-      e2eLanes: [],
-      proofCommands: ['diff-check', 'db-schema-migration-tests', 'db-integration-tests'],
+      e2eLanes: ['web-db-startup', 'web-destructive-reset'],
+      proofCommands: [
+        'diff-check',
+        'db-schema-migration-tests',
+        'db-integration-tests',
+        'web-db-startup-tests',
+        'web-destructive-reset-tests',
+      ],
       riskLevel: 'high',
-      cloudLabels: ['ci:browser', 'ci:coverage'],
+      cloudLabels: ['ci:web-db-startup', 'ci:web-destructive-reset', 'ci:browser', 'ci:coverage'],
     }
   );
 });

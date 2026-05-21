@@ -7,6 +7,18 @@ export interface FactoryResetPanelProps {
   doFactoryReset?: (() => Promise<void>) | null;
 }
 
+async function requestFactoryResetReload(reason: string): Promise<void> {
+  try {
+    const currentWindow = window as Window & {
+      desktopLifecycle?: { noteReloadIntent: (reason: string) => Promise<void> };
+    };
+    await currentWindow.desktopLifecycle?.noteReloadIntent(reason);
+    window.location.reload();
+  } catch {
+    /* swallow reload errors; UI may still be in a reset state */
+  }
+}
+
 function getDesktopResetBridge(): (() => Promise<{ message?: string; success: boolean }>) | null {
   if (typeof window === 'undefined') {
     return null;
@@ -48,12 +60,14 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
       return;
     }
 
+    let rendererStorageClearedBeforeDesktopReset = false;
     try {
       setRunning(true);
       if (desktopResetBridge) {
         // Desktop CacheStorage must be cleared while the live renderer still owns
         // a valid backing store. Main then purges DB/userData and the renderer reloads.
         await clearPersistentUiState({ skipIndexedDb: false });
+        rendererStorageClearedBeforeDesktopReset = true;
         const result = await desktopResetBridge();
         if (!result.success) {
           throw new Error(result.message ?? 'Desktop factory reset failed.');
@@ -67,21 +81,17 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
         await clearPersistentUiState({ skipIndexedDb: true });
       }
       // Ensure a full reload so the renderer boots cleanly.
-      try {
-        const currentWindow = window as Window & {
-          desktopLifecycle?: { noteReloadIntent: (reason: string) => Promise<void> };
-        };
-        await currentWindow.desktopLifecycle?.noteReloadIntent('factory-reset');
-        window.location.reload();
-      } catch {
-        /* swallow reload errors; UI may still be in a reset state */
-      }
+      await requestFactoryResetReload('factory-reset');
     } catch (err) {
       toast({
         title: 'Factory Reset Failed',
         description: String(err),
         variant: 'destructive',
       });
+      if (desktopResetBridge && rendererStorageClearedBeforeDesktopReset) {
+        await requestFactoryResetReload('factory-reset-failed-after-renderer-clear');
+        return;
+      }
       setRunning(false);
     }
   }, [resetFn, toast]);
