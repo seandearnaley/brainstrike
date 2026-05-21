@@ -1,20 +1,21 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-21T15:28:41.029Z",
+  "generatedAt": "2026-05-21T15:54:31.047Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "e9b4c3753d1d213c362431e0ef93bcb0a7a64353",
+  "testedHeadSha": "1261538f725d3951f5a511374692fdace8b7903e",
   "selection": {
     "base": "origin/main",
     "baseSha": "20c54886732768572a190e5a3b3de6d807f9bafb",
     "head": "HEAD",
-    "headSha": "e9b4c3753d1d213c362431e0ef93bcb0a7a64353",
+    "headSha": "1261538f725d3951f5a511374692fdace8b7903e",
     "mergeBase": "20c54886732768572a190e5a3b3de6d807f9bafb",
     "files": [
+      ".ci/proof/latest.json",
       "apps/desktop/src/__tests__/desktop-reset-platform.test.ts",
       "apps/desktop/src/__tests__/ipc-domains/db-ipc.test.ts",
       "apps/desktop/src/__tests__/main/desktop-factory-reset.test.ts",
@@ -110,7 +111,7 @@
       "budgetMs": 240000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 62869
+      "durationMs": 63726
     },
     {
       "name": "desktop-smoke-tests",
@@ -119,7 +120,7 @@
       "budgetMs": 300000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 29306
+      "durationMs": 31089
     }
   ]
 }
