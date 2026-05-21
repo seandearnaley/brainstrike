@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-21T05:00:38.994Z",
+  "generatedAt": "2026-05-21T05:44:05.848Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "4de61c934839b1fac1c794783745348146674af2",
+  "testedHeadSha": "ded5a1732033f85a4d0b4d9f6eec4c0454d5eae2",
   "selection": {
     "base": "origin/main",
     "baseSha": "0fc94414c0edb4f546faad2385762cc634df1008",
     "head": "HEAD",
-    "headSha": "4de61c934839b1fac1c794783745348146674af2",
+    "headSha": "ded5a1732033f85a4d0b4d9f6eec4c0454d5eae2",
     "mergeBase": "0fc94414c0edb4f546faad2385762cc634df1008",
     "files": [
       ".ci/proof/latest.json",
@@ -332,10 +332,12 @@
       "packages/db/__tests__/chunking-service.streaming.test.ts",
       "packages/db/__tests__/chunking-service.test.ts",
       "packages/db/__tests__/chunking-service.token-bands.test.ts",
+      "packages/db/__tests__/factory-reset.test.tsx",
       "packages/db/__tests__/retrieval-harness.test.ts",
       "packages/db/package.json",
       "packages/db/scripts/coverage-lanes.mjs",
       "packages/db/scripts/test-lanes.mjs",
+      "packages/db/src/db-provider.tsx",
       "packages/db/src/index.ts",
       "packages/db/src/managed-cache/index.ts",
       "packages/db/src/models/file-record.ts",
@@ -736,7 +738,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 66
+      "durationMs": 12
     },
     {
       "name": "ci-script-tests",
@@ -745,7 +747,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 3104
+      "durationMs": 344
     },
     {
       "name": "workflow-contracts",
@@ -754,7 +756,7 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 4182
+      "durationMs": 303
     },
     {
       "name": "full-local-suite",
@@ -763,7 +765,7 @@
       "budgetMs": 2700000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 1693115
+      "durationMs": 1432674
     }
   ]
 }
