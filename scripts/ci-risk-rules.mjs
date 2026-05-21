@@ -290,7 +290,6 @@ const BROWSER_PATTERNS = [
 
 const WEB_E2E_PATTERNS = [
   ...WEB_FULL_REGRESSION_PATTERNS,
-  /^packages\/app-shell\//,
 ];
 
 const DESKTOP_PATTERNS = [

@@ -189,6 +189,13 @@ test('web assistant UI changes select assistant-state only plus coverage', () =>
   ]);
 });
 
+test('web assistant app-shell changes do not fall through to full web e2e', () => {
+  assert.deepEqual(
+    selectRiskLanesForFiles(['packages/app-shell/src/assistant-ui-panel-wrapper.tsx']),
+    ['ci:web-assistant-state', 'ci:coverage']
+  );
+});
+
 test('web settings persistence changes select settings-state only', () => {
   assert.deepEqual(selectRiskProfileForFiles(['apps/web/e2e/settings-models-and-providers.test.ts']), {
     category: 'web-settings-state',
