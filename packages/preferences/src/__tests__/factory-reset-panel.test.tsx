@@ -257,15 +257,11 @@ describe('FactoryResetPanel', () => {
       fireEvent.click(screen.getByTestId('factory-reset-button'));
 
       await waitFor(() => {
-        expect(mockToast).toHaveBeenCalledWith({
-          title: 'Factory Reset Failed',
-          description: 'Error: desktop reset failed',
-          variant: 'destructive',
-        });
+        expect(mockReload).toHaveBeenCalled();
       });
 
       expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: false });
-      expect(mockReload).toHaveBeenCalled();
+      expect(mockToast).not.toHaveBeenCalled();
     });
 
     it('reloads the page after successful reset', async () => {

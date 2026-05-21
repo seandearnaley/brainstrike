@@ -83,15 +83,15 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
       // Ensure a full reload so the renderer boots cleanly.
       await requestFactoryResetReload('factory-reset');
     } catch (err) {
+      if (desktopResetBridge && rendererStorageClearedBeforeDesktopReset) {
+        await requestFactoryResetReload('factory-reset-failed-after-renderer-clear');
+        return;
+      }
       toast({
         title: 'Factory Reset Failed',
         description: String(err),
         variant: 'destructive',
       });
-      if (desktopResetBridge && rendererStorageClearedBeforeDesktopReset) {
-        await requestFactoryResetReload('factory-reset-failed-after-renderer-clear');
-        return;
-      }
       setRunning(false);
     }
   }, [resetFn, toast]);

@@ -177,6 +177,9 @@ async function clearCacheStorage(): Promise<void> {
  *
  * No hardcoded lists. No manual maintenance. Just blanket .clear() methods.
  * If any storage survives, the user gets phantom data. This is a true nuke.
+ *
+ * Throws when CacheStorage cannot be fully cleared or verified. Factory reset callers must
+ * treat an unverifiable cache state as a failed reset, not as a best-effort warning.
  */
 export async function clearPersistentUiState(
   options: ClearPersistentUiStateOptions = {}
