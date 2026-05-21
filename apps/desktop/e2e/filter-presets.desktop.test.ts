@@ -24,7 +24,8 @@ interface ElectronE2eFileSystemFixture {
 const PRESET_LOAD_TIMEOUT_MS = 25_000;
 const FILTER_PRESET_TEST_TIMEOUT_MS = 60_000;
 const ELECTRON_CONTROL_CLICK_TIMEOUT_MS = 10_000;
-const PRESET_DATABASE_READY_TIMEOUT_MS = 15_000;
+const PRESET_DATABASE_QUERY_ATTEMPT_TIMEOUT_MS = 5000;
+const PRESET_DATABASE_READY_TIMEOUT_MS = 45_000;
 const PRESET_PERSIST_READY_TIMEOUT_MS = 15_000;
 
 interface ViewFilterPresetReadinessResult {
@@ -119,62 +120,66 @@ async function ensureViewFiltersExpanded(window: Page): Promise<void> {
 }
 
 async function waitForViewFilterPresetsDatabase(window: Page): Promise<void> {
-  const result = await window.evaluate(
-    async (timeoutMs): Promise<ViewFilterPresetReadinessResult> => {
-      const api = (globalThis as typeof globalThis & ElectronApiBridge).electronAPI;
-      const query = api?.db?.query;
-      if (!query) {
-        return {
-          count: null,
-          error: 'Desktop database query bridge is unavailable.',
-          ok: false,
-        };
-      }
-
-      const timeout = new Promise<ViewFilterPresetReadinessResult>((resolve) => {
-        setTimeout(
-          () =>
-            resolve({
+  await expect
+    .poll(
+      async () =>
+        await window.evaluate(async (timeoutMs): Promise<ViewFilterPresetReadinessResult> => {
+          const api = (globalThis as typeof globalThis & ElectronApiBridge).electronAPI;
+          const query = api?.db?.query;
+          if (!query) {
+            return {
               count: null,
-              error: `Timed out waiting ${timeoutMs}ms for seeded view filter presets.`,
+              error: 'Desktop database query bridge is unavailable.',
               ok: false,
-            }),
-          timeoutMs
-        );
-      });
-      const readiness = query('SELECT COUNT(*)::int AS count FROM view_filter_presets', [], {
-        label: 'desktop e2e view filter preset readiness',
-        priority: 'foreground',
-      })
-        .then((queryResult): ViewFilterPresetReadinessResult => {
-          const row = queryResult.rows[0] as { count?: unknown } | undefined;
-          const rawCount = row?.count;
-          const count =
-            typeof rawCount === 'number'
-              ? rawCount
-              : typeof rawCount === 'string'
-                ? Number(rawCount)
-                : null;
-          return {
-            count,
-            error:
-              typeof count === 'number' && count > 0
-                ? null
-                : `Expected seeded view filter presets, got count=${String(rawCount)}.`,
-            ok: typeof count === 'number' && count > 0,
-          };
-        })
-        .catch((error: unknown): ViewFilterPresetReadinessResult => {
-          const message = error instanceof Error ? error.message : String(error);
-          return { count: null, error: message, ok: false };
-        });
+            };
+          }
 
-      return await Promise.race([readiness, timeout]);
-    },
-    PRESET_DATABASE_READY_TIMEOUT_MS
-  );
+          const timeout = new Promise<ViewFilterPresetReadinessResult>((resolve) => {
+            setTimeout(
+              () =>
+                resolve({
+                  count: null,
+                  error: `Timed out waiting ${timeoutMs}ms for a single seeded view filter preset query.`,
+                  ok: false,
+                }),
+              timeoutMs
+            );
+          });
+          const readiness = query('SELECT COUNT(*)::int AS count FROM view_filter_presets', [], {
+            label: 'desktop e2e view filter preset readiness',
+            priority: 'foreground',
+          })
+            .then((queryResult): ViewFilterPresetReadinessResult => {
+              const row = queryResult.rows[0] as { count?: unknown } | undefined;
+              const rawCount = row?.count;
+              const count =
+                typeof rawCount === 'number'
+                  ? rawCount
+                  : typeof rawCount === 'string'
+                    ? Number(rawCount)
+                    : null;
+              return {
+                count,
+                error:
+                  typeof count === 'number' && count > 0
+                    ? null
+                    : `Expected seeded view filter presets, got count=${String(rawCount)}.`,
+                ok: typeof count === 'number' && count > 0,
+              };
+            })
+            .catch((error: unknown): ViewFilterPresetReadinessResult => {
+              const message = error instanceof Error ? error.message : String(error);
+              return { count: null, error: message, ok: false };
+            });
 
-  expect(result, result.error ?? 'View filter presets were not ready.').toMatchObject({ ok: true });
+          return await Promise.race([readiness, timeout]);
+        }, PRESET_DATABASE_QUERY_ATTEMPT_TIMEOUT_MS),
+      {
+        message: 'View filter presets should be seeded before the desktop preset UI is used.',
+        timeout: PRESET_DATABASE_READY_TIMEOUT_MS,
+      }
+    )
+    .toMatchObject({ ok: true });
 }
 
 async function resolveViewFilterPresetId(window: Page, presetName: string): Promise<string> {

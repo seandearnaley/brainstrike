@@ -39,10 +39,37 @@ const MODEL_REGISTRY_SNAPSHOT = {
   modelCacheDir: null,
 };
 
+const MODEL_REGISTRY_ERROR_TIMEOUT_MS = 30_000;
+
+interface SettingsOverrideProbeWindow {
+  __brainstrikePendingSettingsTestOverrides__?: {
+    modelRegistry?: {
+      fetchErrorMessage?: string | null;
+    };
+  };
+}
+
 async function reloadDesktopSettings(window: Page, reason: string) {
   const { reloadRenderer, waitForAppReady } = await loadElectronHelpers();
   await reloadRenderer(window, reason);
   await waitForAppReady(window);
+}
+
+async function waitForModelRegistryErrorOverride(window: Page, expectedMessage: string) {
+  await expect
+    .poll(
+      async () =>
+        await window.evaluate((message) => {
+          const overrides = (window as unknown as SettingsOverrideProbeWindow)
+            .__brainstrikePendingSettingsTestOverrides__;
+          return overrides?.modelRegistry?.fetchErrorMessage === message;
+        }, expectedMessage),
+      {
+        message: 'Model registry error override should survive the desktop renderer reload.',
+        timeout: MODEL_REGISTRY_ERROR_TIMEOUT_MS,
+      }
+    )
+    .toBe(true);
 }
 
 async function openModelsSettings(
@@ -62,10 +89,14 @@ test.describe('Models & Providers settings (desktop)', () => {
       },
     });
     await reloadDesktopSettings(window, 'desktop-model-registry-override');
+    await waitForModelRegistryErrorOverride(window, 'Desktop registry unavailable for test');
 
     const settingsPage = new SettingsPage(window);
     await openModelsSettings(homePage, settingsPage);
 
+    await expect(window.getByTestId('model-registry-error')).toBeVisible({
+      timeout: MODEL_REGISTRY_ERROR_TIMEOUT_MS,
+    });
     await expect(window.getByText('Error loading models')).toBeVisible();
     await expect(window.getByText('Desktop registry unavailable for test')).toBeVisible();
 
