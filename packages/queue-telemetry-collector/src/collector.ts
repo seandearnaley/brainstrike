@@ -192,7 +192,12 @@ export function createQueueTelemetryCollector(
       .update(Buffer.from(providedKey, 'utf8'))
       .digest();
 
-    if (providedHmac.length !== apiKeyHmac.length || !timingSafeEqual(providedHmac, apiKeyHmac)) {
+    if (providedHmac.length !== apiKeyHmac.length) {
+      timingSafeEqual(apiKeyHmac, apiKeyHmac);
+      return { status: 401, message: 'Unauthorized' };
+    }
+
+    if (!timingSafeEqual(providedHmac, apiKeyHmac)) {
       return { status: 401, message: 'Unauthorized' };
     }
 
