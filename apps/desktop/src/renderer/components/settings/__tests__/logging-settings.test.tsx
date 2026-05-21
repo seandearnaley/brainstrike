@@ -61,6 +61,8 @@ declare global {
 describe('DesktopLoggingSettings', () => {
   beforeEach(() => {
     __resetLoggingPreferencesStoreForTests();
+    getRendererLogBuffer().resume();
+    getRendererLogBuffer().clear();
     toastSpy.mockReset();
     const preferences = createDefaultLoggingPreferences({
       level: LogLevel.INFO,
@@ -99,6 +101,7 @@ describe('DesktopLoggingSettings', () => {
   });
 
   afterEach(() => {
+    getRendererLogBuffer().resume();
     getRendererLogBuffer().clear();
     window.logging = undefined;
   });
