@@ -448,6 +448,36 @@ describe('DbHostManager', () => {
     }
   });
 
+  it('uses the initialization timeout for the first DB host startup request', async () => {
+    vi.useFakeTimers();
+    try {
+      const { createDbHostManager } = await import('../../db-host-manager');
+      const manager = createDbHostManager({
+        entryPath: '/mock/db-host-entry.js',
+        initializationTimeoutMs: 15,
+        requestTimeoutMs: 5,
+      });
+
+      const databasePromise = manager.getDatabase();
+      const databaseErrorPromise = databasePromise.then(
+        () => null,
+        (error: unknown) => error
+      );
+      const firstHost = latestProcess();
+
+      await vi.advanceTimersByTimeAsync(5);
+      expect(firstHost.kill).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(10);
+      const databaseError = await databaseErrorPromise;
+      expect(databaseError).toBeInstanceOf(Error);
+      expect((databaseError as Error).message).toBe('DB host request timed out: init');
+      expect(firstHost.kill).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('terminates the utility DB host when initialization fails', async () => {
     const { createDbHostManager } = await import('../../db-host-manager');
     const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
