@@ -9,8 +9,8 @@ import { encodeFileSelection } from '@brainstrike/utils';
 import { act, render, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { FileExplorerProvider, useFileExplorerStoreContext } from '../file-explorer-provider';
-import { useFileSystem } from '../use-file-system-context';
+import { FileExplorerProvider, useFileExplorerStoreContext } from '../shell/file-explorer-provider';
+import { useFileSystem } from '../shell/use-file-system-context';
 
 interface ExposedHooks {
   fs: ReturnType<typeof useFileSystem>;

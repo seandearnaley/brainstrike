@@ -13,6 +13,8 @@ const lanes = {
     'brainstrike-db-client-contract.test.ts',
     'browser-pglite-storage-benchmark.test.ts',
     'browser-pglite-storage.test.ts',
+    'architecture-boundary.test.ts',
+    'architecture-ownership.test.ts',
     'chunking-config.test.ts',
     'database-pressure-controller.test.ts',
     'database-work-scheduler.test.ts',
@@ -36,9 +38,6 @@ const lanes = {
     'use-live-query.test.tsx',
   ],
   chunking: [
-    'chunking-service.streaming.test.ts',
-    'chunking-service.test.ts',
-    'chunking-service.token-bands.test.ts',
     'collection-indexing-stats.test.ts',
     'file-import-embedding-set.test.ts',
     'managed-cache-batch.test.ts',

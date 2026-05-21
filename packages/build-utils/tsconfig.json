@@ -22,9 +22,5 @@
     "node_modules",
     "**/*.test.ts"
   ],
-  "references": [
-    {
-      "path": "../utils"
-    }
-  ]
+  "references": []
 }

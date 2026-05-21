@@ -1,8 +1,8 @@
 import type { EmbeddingSet, IEmbeddingSetsRepository } from '@brainstrike/db';
 import {
   type EmbeddingProviderType,
-  parseProviderModelKey,
-} from '@brainstrike/embeddings/provider-core';
+  parseEmbeddingProviderModelKey,
+} from '@brainstrike/indexing-contract';
 import type { DbModel } from '@brainstrike/preferences/stores/model-registry-store';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import {
@@ -81,7 +81,7 @@ function mapRowToSet(row: {
 
 // Helper function to format provider label
 function formatProviderLabel(modelKey: string): string {
-  const parsed = parseProviderModelKey(modelKey);
+  const parsed = parseEmbeddingProviderModelKey(modelKey);
   if (!parsed || parsed.provider === 'local') {
     return 'Local';
   }

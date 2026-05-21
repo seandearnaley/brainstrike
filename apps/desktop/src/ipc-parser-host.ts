@@ -1,7 +1,7 @@
 /**
  * Main-process IPC bridge for the parser host.
  *
- * Registers an `ipcMain.handle` for the parser host's parse channel. The
+ * Registers the parser host's parse channel through the typed desktop IPC registry. The
  * chunking-host renderer (or any other renderer that needs JS/TS AST data)
  * calls `ipcRenderer.invoke(PARSER_HOST_PARSE_CHANNEL, request)` and gets a
  * `ParserHostParseResponse` back. The handler delegates to a
@@ -10,7 +10,7 @@
  * See: docs/prd-chunking-wasm-parser-2026-05.md §4
  */
 
-import { type IpcMainInvokeEvent, ipcMain } from 'electron';
+import { ipcMain } from 'electron';
 import type { ParserHostManager } from './parser-host-manager';
 import {
   extractParserHostRequestId,
@@ -18,6 +18,7 @@ import {
   PARSER_HOST_PARSE_CHANNEL,
   type ParserHostParseResponse,
 } from './parser-host-shared';
+import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
 /**
  * Register the parser host IPC handler. Returns an unregister callback so
@@ -28,9 +29,12 @@ import {
  * on the other side of the IPC boundary, so the two sides can't drift.
  */
 export function registerParserHostIpcHandlers(manager: ParserHostManager): () => void {
-  ipcMain.handle(
+  const registry = createDesktopIpcRegistry({ ipcMain });
+
+  registry.registerInvoke(
+    'runtime',
     PARSER_HOST_PARSE_CHANNEL,
-    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<ParserHostParseResponse> => {
+    async (_event, payload: unknown): Promise<ParserHostParseResponse> => {
       if (!isParserHostParseRequest(payload)) {
         return {
           error: 'Malformed parser host parse request.',
@@ -43,6 +47,6 @@ export function registerParserHostIpcHandlers(manager: ParserHostManager): () =>
   );
 
   return () => {
-    ipcMain.removeHandler(PARSER_HOST_PARSE_CHANNEL);
+    registry.unregisterAll();
   };
 }

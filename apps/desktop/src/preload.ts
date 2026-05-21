@@ -1,13 +1,62 @@
 // Electron preload script - must use CommonJS syntax
 const { contextBridge, ipcRenderer, clipboard } = require('electron');
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
-const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update';
-const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT = 'assistant:preview-context-selection-update';
-const ASSISTANT_WORKSPACE_CONTEXT_SELECTION_EVENT = 'assistant:workspace-context-selection-update';
-const ASSISTANT_WORKSPACE_CONTEXT_TAPESTRY_EVENT = 'assistant:workspace-context-tapestry-update';
-const MCP_TOOLS_UPDATED_EVENT = 'mcp:tools:updated';
+const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update' as const;
+const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT =
+  'assistant:preview-context-selection-update' as const;
+const ASSISTANT_WORKSPACE_CONTEXT_SELECTION_EVENT =
+  'assistant:workspace-context-selection-update' as const;
+const ASSISTANT_WORKSPACE_CONTEXT_TAPESTRY_EVENT =
+  'assistant:workspace-context-tapestry-update' as const;
+const MCP_TOOLS_UPDATED_EVENT = 'mcp:tools:updated' as const;
 const DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL = 'db:managed-cache:apply-batch' as const;
 const DB_SCHEDULER_SNAPSHOT_CHANNEL = 'db:scheduler:snapshot' as const;
+const DB_CLEAR_ALL_CHANNEL = 'db:clearAll' as const;
+const DB_DIAGNOSTICS_CHANNEL = 'db:diagnostics' as const;
+const DB_EXEC_CHANNEL = 'db:exec' as const;
+const DB_GET_USER_DATA_PATH_CHANNEL = 'db:getUserDataPath' as const;
+const DB_LIVE_QUERY_REFRESH_CHANNEL = 'db:live-query:refresh' as const;
+const DB_LIVE_QUERY_START_CHANNEL = 'db:live-query:start' as const;
+const DB_LIVE_QUERY_STOP_CHANNEL = 'db:live-query:stop' as const;
+const DB_LIVE_QUERY_UPDATE_EVENT = 'db:live-query:update' as const;
+const DB_PING_CHANNEL = 'db:ping' as const;
+const DB_QUERY_CHANNEL = 'db:query' as const;
+const DB_RESET_LOCAL_CHANNEL = 'db:resetLocal' as const;
+const DB_TEST_CHANNEL = 'db:test' as const;
+const FILE_SYSTEM_EXISTS_CHANNEL = 'fs:exists' as const;
+const FILE_SYSTEM_READ_DIRECTORY_CHANNEL = 'fs:readDirectory' as const;
+const FILE_SYSTEM_READ_FILE_BY_PATH_CHANNEL = 'fs:readFileByPath' as const;
+const FILE_SYSTEM_READ_FILE_CHANNEL = 'fs:readFile' as const;
+const FILE_SYSTEM_REQUEST_DIRECTORY_ACCESS_CHANNEL = 'fs:requestDirectoryAccess' as const;
+const FILE_SYSTEM_RESTORE_LAST_FOLDER_CHANNEL = 'fs:restoreLastFolder' as const;
+const FILE_SYSTEM_SAVE_LAST_FOLDER_CHANNEL = 'fs:saveLastFolder' as const;
+const LAYOUT_LOAD_CHANNEL = 'layout:load' as const;
+const LAYOUT_SAVE_CHANNEL = 'layout:save' as const;
+const RUNTIME_LIST_MODELS_CHANNEL = 'runtime:listModels' as const;
+const RUNTIME_PROBE_CHANNEL = 'runtime:probe' as const;
+const RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL = 'runtime:resolveOllamaCapabilities' as const;
+const RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL = 'runtime:verifyEmbeddingDimensions' as const;
+const SECRETS_CLEAR_ALL_CHANNEL = 'secrets:clearAll' as const;
+const SECRETS_DELETE_CHANNEL = 'secrets:delete' as const;
+const SECRETS_GET_CHANNEL = 'secrets:get' as const;
+const SECRETS_LIST_CHANNEL = 'secrets:list' as const;
+const SECRETS_LIST_STORED_CHANNEL = 'secrets:listStored' as const;
+const SECRETS_SAVE_CHANNEL = 'secrets:save' as const;
+const SETTINGS_CLEAR_ALL_CHANNEL = 'settings:clearAll' as const;
+const STORAGE_CLEAR_CHANNEL = 'storage:clear' as const;
+const STORAGE_GET_ALL_KEYS_CHANNEL = 'storage:getAllKeys' as const;
+const STORAGE_GET_ITEM_CHANNEL = 'storage:getItem' as const;
+const STORAGE_REMOVE_ITEM_CHANNEL = 'storage:removeItem' as const;
+const STORAGE_SET_ITEM_CHANNEL = 'storage:setItem' as const;
+const APP_POWER_STATE_EVENT = 'app:power-state' as const;
+const LOGGING_GET_PREFERENCES_CHANNEL = 'logging:get-preferences' as const;
+const LOGGING_SET_PREFERENCES_CHANNEL = 'logging:set-preferences' as const;
+const LOGGING_SELECT_DESTINATION_CHANNEL = 'logging:select-destination' as const;
+const LOGGING_OPEN_DESTINATION_CHANNEL = 'logging:open-destination' as const;
+const LOGGING_GET_BUFFERED_LOGS_CHANNEL = 'logging:get-buffered-logs' as const;
+const LOGGING_INGEST_BUFFERED_RECORD_CHANNEL = 'logging:ingest-buffered-record' as const;
+const LOGGING_PREFERENCES_UPDATED_EVENT = 'logging:preferences-updated' as const;
+const DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL = 'desktop-diagnostics:get-snapshot' as const;
 
 import type { ApplyManagedCacheBatchArgs } from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
@@ -24,6 +73,7 @@ import type {
 } from '@brainstrike/ui';
 import type { LogRecord } from '@brainstrike/utils/logger';
 import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
+import type { DesktopPlatformDiagnosticsSnapshot } from './desktop-platform-diagnostics';
 import type {
   EmbeddingHostBackfillRequest,
   EmbeddingHostQueryEmbeddingRequest,
@@ -62,6 +112,26 @@ const CHUNKING_HOST_RESET_CHANNEL = 'chunking-host:reset' as const;
 const CHUNKING_HOST_GET_STATUS_CHANNEL = 'chunking-host:get-status' as const;
 const CHUNKING_HOST_CHUNK_FILE_CHANNEL = 'chunking-host:chunk-file' as const;
 const CHUNKING_HOST_CHUNK_BATCH_CHANNEL = 'chunking-host:chunk-batch' as const;
+const PARSER_HOST_PARSE_CHANNEL = 'parser-host:parse' as const;
+const AGENT_CHAT_CHANNEL = 'agent:chat' as const;
+const ASSISTANT_GET_URL_CHANNEL = 'assistant:get-url' as const;
+const MCP_CONFIG_GET_CHANNEL = 'mcp:config:get' as const;
+const MCP_CONFIG_WATCH_CHANNEL = 'mcp:config:watch' as const;
+const MCP_CONFIG_UNWATCH_CHANNEL = 'mcp:config:unwatch' as const;
+const MCP_CONFIG_GET_PATH_CHANNEL = 'mcp:config:getPath' as const;
+const MCP_CONFIG_SET_PATH_CHANNEL = 'mcp:config:setPath' as const;
+const MCP_CONFIG_READ_TEXT_CHANNEL = 'mcp:config:readText' as const;
+const MCP_CONFIG_WRITE_TEXT_CHANNEL = 'mcp:config:writeText' as const;
+const MCP_CONFIG_SELECT_PATH_CHANNEL = 'mcp:config:selectPath' as const;
+const MCP_CONFIG_CREATE_SAMPLE_CHANNEL = 'mcp:config:createSample' as const;
+const MCP_TOOLS_LIST_CHANNEL = 'mcp:tools:list' as const;
+const MCP_TOOLS_ENABLE_CHANNEL = 'mcp:tools:enable' as const;
+const MCP_TOOLS_DISABLE_CHANNEL = 'mcp:tools:disable' as const;
+const MCP_TOOLS_ENABLE_SERVER_CHANNEL = 'mcp:tools:enableServer' as const;
+const MCP_TOOLS_DISABLE_SERVER_CHANNEL = 'mcp:tools:disableServer' as const;
+const MCP_TOOLS_RESET_CHANNEL = 'mcp:tools:reset' as const;
+const MCP_TOOLS_GET_STATS_CHANNEL = 'mcp:tools:getStats' as const;
+const TOOLS_EXECUTE_CHANNEL = 'tools:execute' as const;
 const LLM_HOST_STATUS_EVENT = 'llm-host:status' as const;
 const LLM_HOST_REQUEST_EVENT = 'llm-host:request' as const;
 const LLM_HOST_PROGRESS_EVENT = 'llm-host:progress' as const;
@@ -107,7 +177,7 @@ function subscribeToDbLiveUpdates(callback: DbLiveUpdateCallback): () => void {
         try {
           subscriber(payload);
         } catch (error) {
-          ipcRenderer.send('logging:ingest-buffered-record', {
+          ipcRenderer.send(LOGGING_INGEST_BUFFERED_RECORD_CHANNEL, {
             level: 'error' as LogRecord['level'],
             timestamp: Date.now(),
             args: ['[preload] db live-query subscriber threw:', error],
@@ -118,13 +188,13 @@ function subscribeToDbLiveUpdates(callback: DbLiveUpdateCallback): () => void {
         }
       }
     };
-    ipcRenderer.on('db:live-query:update', dbLiveUpdateIpcListener);
+    ipcRenderer.on(DB_LIVE_QUERY_UPDATE_EVENT, dbLiveUpdateIpcListener);
   }
 
   return () => {
     dbLiveUpdateCallbacks.delete(callback);
     if (dbLiveUpdateCallbacks.size === 0 && dbLiveUpdateIpcListener) {
-      ipcRenderer.removeListener('db:live-query:update', dbLiveUpdateIpcListener);
+      ipcRenderer.removeListener(DB_LIVE_QUERY_UPDATE_EVENT, dbLiveUpdateIpcListener);
       dbLiveUpdateIpcListener = null;
     }
   };
@@ -348,48 +418,55 @@ function unwrapFileReadResult(result: unknown): string {
 if (shouldExposeBridge('electronAPI')) {
   contextBridge.exposeInMainWorld('electronAPI', {
     storage: {
-      getItem: (key: string) => ipcRenderer.invoke('storage:getItem', key),
-      setItem: (key: string, value: string) => ipcRenderer.invoke('storage:setItem', key, value),
-      removeItem: (key: string) => ipcRenderer.invoke('storage:removeItem', key),
-      clear: () => ipcRenderer.invoke('storage:clear'),
-      getAllKeys: () => ipcRenderer.invoke('storage:getAllKeys'),
+      getItem: (key: string) => ipcRenderer.invoke(STORAGE_GET_ITEM_CHANNEL, key),
+      setItem: (key: string, value: string) =>
+        ipcRenderer.invoke(STORAGE_SET_ITEM_CHANNEL, key, value),
+      removeItem: (key: string) => ipcRenderer.invoke(STORAGE_REMOVE_ITEM_CHANNEL, key),
+      clear: () => ipcRenderer.invoke(STORAGE_CLEAR_CHANNEL),
+      getAllKeys: () => ipcRenderer.invoke(STORAGE_GET_ALL_KEYS_CHANNEL),
     },
     fileSystem: {
-      requestDirectoryAccess: () => ipcRenderer.invoke('fs:requestDirectoryAccess'),
-      readDirectory: (handle: DirectoryHandle) => ipcRenderer.invoke('fs:readDirectory', handle),
+      requestDirectoryAccess: () =>
+        ipcRenderer.invoke(FILE_SYSTEM_REQUEST_DIRECTORY_ACCESS_CHANNEL),
+      readDirectory: (handle: DirectoryHandle) =>
+        ipcRenderer.invoke(FILE_SYSTEM_READ_DIRECTORY_CHANNEL, handle),
       readFile: async (handle: FileHandle) => {
-        const result = await ipcRenderer.invoke('fs:readFile', handle);
+        const result = await ipcRenderer.invoke(FILE_SYSTEM_READ_FILE_CHANNEL, handle);
         return unwrapFileReadResult(result);
       },
       readFileByPath: async (absolutePath: string) => {
-        const result = await ipcRenderer.invoke('fs:readFileByPath', absolutePath);
+        const result = await ipcRenderer.invoke(
+          FILE_SYSTEM_READ_FILE_BY_PATH_CHANNEL,
+          absolutePath
+        );
         return unwrapFileReadResult(result);
       },
-      exists: (path: string) => ipcRenderer.invoke('fs:exists', path),
-      restoreLastFolder: () => ipcRenderer.invoke('fs:restoreLastFolder'),
-      saveLastFolder: (folderPath: string) => ipcRenderer.invoke('fs:saveLastFolder', folderPath),
+      exists: (path: string) => ipcRenderer.invoke(FILE_SYSTEM_EXISTS_CHANNEL, path),
+      restoreLastFolder: () => ipcRenderer.invoke(FILE_SYSTEM_RESTORE_LAST_FOLDER_CHANNEL),
+      saveLastFolder: (folderPath: string) =>
+        ipcRenderer.invoke(FILE_SYSTEM_SAVE_LAST_FOLDER_CHANNEL, folderPath),
     },
     // Panel layout persistence
     saveLayout: (state: PanelPersistenceState): Promise<LayoutPersistenceResult> =>
-      ipcRenderer.invoke('layout:save', state),
-    loadLayout: (): Promise<LayoutLoadResult> => ipcRenderer.invoke('layout:load'),
+      ipcRenderer.invoke(LAYOUT_SAVE_CHANNEL, state),
+    loadLayout: (): Promise<LayoutLoadResult> => ipcRenderer.invoke(LAYOUT_LOAD_CHANNEL),
     // Database operations
     db: {
       applyManagedCacheBatch: (
         payload: ApplyManagedCacheBatchArgs,
         options?: DatabaseWorkOptions
       ) => ipcRenderer.invoke(DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL, payload, options),
-      ping: () => ipcRenderer.invoke('db:ping'),
-      diagnostics: () => ipcRenderer.invoke('db:diagnostics'),
+      ping: () => ipcRenderer.invoke(DB_PING_CHANNEL),
+      diagnostics: () => ipcRenderer.invoke(DB_DIAGNOSTICS_CHANNEL),
       schedulerSnapshot: () => ipcRenderer.invoke(DB_SCHEDULER_SNAPSHOT_CHANNEL),
       query: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
-        ipcRenderer.invoke('db:query', sql, params, options),
+        ipcRenderer.invoke(DB_QUERY_CHANNEL, sql, params, options),
       exec: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) =>
-        ipcRenderer.invoke('db:exec', sql, params, options),
-      test: () => ipcRenderer.invoke('db:test'),
+        ipcRenderer.invoke(DB_EXEC_CHANNEL, sql, params, options),
+      test: () => ipcRenderer.invoke(DB_TEST_CHANNEL),
       clearAll: (confirmationToken?: string) =>
-        ipcRenderer.invoke('db:clearAll', confirmationToken),
-      resetLocal: () => ipcRenderer.invoke('db:resetLocal'),
+        ipcRenderer.invoke(DB_CLEAR_ALL_CHANNEL, confirmationToken),
+      resetLocal: () => ipcRenderer.invoke(DB_RESET_LOCAL_CHANNEL),
     },
     dbLive: {
       start: (
@@ -402,33 +479,34 @@ if (shouldExposeBridge('electronAPI')) {
           limit?: number;
         },
         workOptions?: DatabaseWorkOptions
-      ) => ipcRenderer.invoke('db:live-query:start', options, workOptions),
-      stop: (id: number) => ipcRenderer.invoke('db:live-query:stop', id),
+      ) => ipcRenderer.invoke(DB_LIVE_QUERY_START_CHANNEL, options, workOptions),
+      stop: (id: number) => ipcRenderer.invoke(DB_LIVE_QUERY_STOP_CHANNEL, id),
       refresh: (
         payload: { id: number; offset?: number; limit?: number },
         options?: DatabaseWorkOptions
-      ) => ipcRenderer.invoke('db:live-query:refresh', payload, options),
+      ) => ipcRenderer.invoke(DB_LIVE_QUERY_REFRESH_CHANNEL, payload, options),
       onUpdate: (callback: (payload: { id: number; results: unknown }) => void) =>
         subscribeToDbLiveUpdates(callback),
     },
     // Database path (legacy - kept for compatibility)
-    getUserDataPath: () => ipcRenderer.invoke('db:getUserDataPath'),
+    getUserDataPath: () => ipcRenderer.invoke(DB_GET_USER_DATA_PATH_CHANNEL),
   });
 }
 
 // Secure Secrets API
 contextBridge.exposeInMainWorld('secrets', {
-  saveKey: (provider: string, value: string) => ipcRenderer.invoke('secrets:save', provider, value),
-  getKey: (provider: string) => ipcRenderer.invoke('secrets:get', provider),
-  deleteKey: (provider: string) => ipcRenderer.invoke('secrets:delete', provider),
-  list: () => ipcRenderer.invoke('secrets:list'),
-  listStored: () => ipcRenderer.invoke('secrets:listStored'),
-  clearAll: () => ipcRenderer.invoke('secrets:clearAll', SECRETS_CLEAR_CONFIRMATION_TOKEN),
+  saveKey: (provider: string, value: string) =>
+    ipcRenderer.invoke(SECRETS_SAVE_CHANNEL, provider, value),
+  getKey: (provider: string) => ipcRenderer.invoke(SECRETS_GET_CHANNEL, provider),
+  deleteKey: (provider: string) => ipcRenderer.invoke(SECRETS_DELETE_CHANNEL, provider),
+  list: () => ipcRenderer.invoke(SECRETS_LIST_CHANNEL),
+  listStored: () => ipcRenderer.invoke(SECRETS_LIST_STORED_CHANNEL),
+  clearAll: () => ipcRenderer.invoke(SECRETS_CLEAR_ALL_CHANNEL, SECRETS_CLEAR_CONFIRMATION_TOKEN),
 });
 
 // Settings Store API (factory reset support)
 contextBridge.exposeInMainWorld('settings', {
-  clearAll: () => ipcRenderer.invoke('settings:clearAll'),
+  clearAll: () => ipcRenderer.invoke(SETTINGS_CLEAR_ALL_CHANNEL),
 });
 
 contextBridge.exposeInMainWorld('desktopLifecycle', {
@@ -446,36 +524,37 @@ contextBridge.exposeInMainWorld('desktopLifecycle', {
 // to the worker. See packages/chunking-worker/src/parsers/oxc-ipc-adapter.ts
 // and the bridge handler in packages/file-import/src/chunking-worker-context.tsx.
 contextBridge.exposeInMainWorld('parserHost', {
-  parse: (request: unknown) => ipcRenderer.invoke('parser-host:parse', request),
+  parse: (request: unknown) => ipcRenderer.invoke(PARSER_HOST_PARSE_CHANNEL, request),
 });
 
 // Local Agent API (non-streaming aggregate; renderer can pseudo-stream chunks)
 contextBridge.exposeInMainWorld('agent', {
   chat: (messages: unknown[], runtime?: unknown) =>
-    ipcRenderer.invoke('agent:chat', messages, runtime),
+    ipcRenderer.invoke(AGENT_CHAT_CHANNEL, messages, runtime),
 });
 
 // MCP Config API (desktop-only)
 contextBridge.exposeInMainWorld('mcp', {
-  getConfig: () => ipcRenderer.invoke('mcp:config:get'),
-  watch: () => ipcRenderer.invoke('mcp:config:watch'),
-  unwatch: () => ipcRenderer.invoke('mcp:config:unwatch'),
-  getPath: () => ipcRenderer.invoke('mcp:config:getPath'),
-  setPath: (configPath: string | null) => ipcRenderer.invoke('mcp:config:setPath', configPath),
-  readConfigText: () => ipcRenderer.invoke('mcp:config:readText'),
-  writeConfigText: (content: string) => ipcRenderer.invoke('mcp:config:writeText', content),
-  selectPath: () => ipcRenderer.invoke('mcp:config:selectPath'),
-  createSampleConfig: () => ipcRenderer.invoke('mcp:config:createSample'),
+  getConfig: () => ipcRenderer.invoke(MCP_CONFIG_GET_CHANNEL),
+  watch: () => ipcRenderer.invoke(MCP_CONFIG_WATCH_CHANNEL),
+  unwatch: () => ipcRenderer.invoke(MCP_CONFIG_UNWATCH_CHANNEL),
+  getPath: () => ipcRenderer.invoke(MCP_CONFIG_GET_PATH_CHANNEL),
+  setPath: (configPath: string | null) =>
+    ipcRenderer.invoke(MCP_CONFIG_SET_PATH_CHANNEL, configPath),
+  readConfigText: () => ipcRenderer.invoke(MCP_CONFIG_READ_TEXT_CHANNEL),
+  writeConfigText: (content: string) => ipcRenderer.invoke(MCP_CONFIG_WRITE_TEXT_CHANNEL, content),
+  selectPath: () => ipcRenderer.invoke(MCP_CONFIG_SELECT_PATH_CHANNEL),
+  createSampleConfig: () => ipcRenderer.invoke(MCP_CONFIG_CREATE_SAMPLE_CHANNEL),
   // Tool management
-  listTools: () => ipcRenderer.invoke('mcp:tools:list'),
-  enableTools: (toolIds: string[]) => ipcRenderer.invoke('mcp:tools:enable', toolIds),
-  disableTools: (toolIds: string[]) => ipcRenderer.invoke('mcp:tools:disable', toolIds),
+  listTools: () => ipcRenderer.invoke(MCP_TOOLS_LIST_CHANNEL),
+  enableTools: (toolIds: string[]) => ipcRenderer.invoke(MCP_TOOLS_ENABLE_CHANNEL, toolIds),
+  disableTools: (toolIds: string[]) => ipcRenderer.invoke(MCP_TOOLS_DISABLE_CHANNEL, toolIds),
   enableServerTools: (serverName: string) =>
-    ipcRenderer.invoke('mcp:tools:enableServer', serverName),
+    ipcRenderer.invoke(MCP_TOOLS_ENABLE_SERVER_CHANNEL, serverName),
   disableServerTools: (serverName: string) =>
-    ipcRenderer.invoke('mcp:tools:disableServer', serverName),
-  resetTools: () => ipcRenderer.invoke('mcp:tools:reset'),
-  getToolStats: () => ipcRenderer.invoke('mcp:tools:getStats'),
+    ipcRenderer.invoke(MCP_TOOLS_DISABLE_SERVER_CHANNEL, serverName),
+  resetTools: () => ipcRenderer.invoke(MCP_TOOLS_RESET_CHANNEL),
+  getToolStats: () => ipcRenderer.invoke(MCP_TOOLS_GET_STATS_CHANNEL),
   onToolsUpdated: (
     callback: (
       tools: Record<
@@ -515,7 +594,7 @@ contextBridge.exposeInMainWorld('mcp', {
 // Tool execution API (for playground testing)
 contextBridge.exposeInMainWorld('tools', {
   execute: (toolId: string, input: unknown, runtimeData?: Record<string, unknown>) =>
-    ipcRenderer.invoke('tools:execute', toolId, input, runtimeData),
+    ipcRenderer.invoke(TOOLS_EXECUTE_CHANNEL, toolId, input, runtimeData),
   onRootTreeSelectionUpdate: (callback: (payload: AssistantSelectionUpdatePayload) => void) => {
     const listener = (_event: unknown, payload: AssistantSelectionUpdatePayload) =>
       callback(payload);
@@ -558,7 +637,7 @@ contextBridge.exposeInMainWorld('tools', {
 
 // Assistant UI (data stream) endpoint helper
 contextBridge.exposeInMainWorld('assistant', {
-  getUrl: () => ipcRenderer.invoke('assistant:get-url'),
+  getUrl: () => ipcRenderer.invoke(ASSISTANT_GET_URL_CHANNEL),
 });
 
 // Main-process bridge for local-runtime probes. See ipc-runtime.ts for the
@@ -592,13 +671,18 @@ if (shouldExposeBridge('runtime')) {
         }
       : {
           probe: (runtimeId: string, options: unknown) =>
-            ipcRenderer.invoke('runtime:probe', runtimeId, options),
+            ipcRenderer.invoke(RUNTIME_PROBE_CHANNEL, runtimeId, options),
           listModels: (runtimeId: string, options: unknown) =>
-            ipcRenderer.invoke('runtime:listModels', runtimeId, options),
+            ipcRenderer.invoke(RUNTIME_LIST_MODELS_CHANNEL, runtimeId, options),
           resolveOllamaCapabilities: (modelId: string, options: unknown) =>
-            ipcRenderer.invoke('runtime:resolveOllamaCapabilities', modelId, options),
+            ipcRenderer.invoke(RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL, modelId, options),
           verifyEmbeddingDimensions: (runtimeId: string, modelId: string, options: unknown) =>
-            ipcRenderer.invoke('runtime:verifyEmbeddingDimensions', runtimeId, modelId, options),
+            ipcRenderer.invoke(
+              RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL,
+              runtimeId,
+              modelId,
+              options
+            ),
         }
   );
 }
@@ -606,24 +690,32 @@ if (shouldExposeBridge('runtime')) {
 if (shouldExposeBridge('logging')) {
   contextBridge.exposeInMainWorld('logging', {
     getPreferences: (): Promise<LoggingSettingsPayload> =>
-      ipcRenderer.invoke('logging:get-preferences'),
+      ipcRenderer.invoke(LOGGING_GET_PREFERENCES_CHANNEL),
     setPreferences: (preferences: LoggingPreferences): Promise<LoggingSettingsPayload> =>
-      ipcRenderer.invoke('logging:set-preferences', preferences),
+      ipcRenderer.invoke(LOGGING_SET_PREFERENCES_CHANNEL, preferences),
     selectDestination: (): Promise<string | null> =>
-      ipcRenderer.invoke('logging:select-destination'),
+      ipcRenderer.invoke(LOGGING_SELECT_DESTINATION_CHANNEL),
     openDestination: (target: string | null): Promise<boolean> =>
-      ipcRenderer.invoke('logging:open-destination', target ?? null),
-    getBufferedLogs: (): Promise<LogRecord[]> => ipcRenderer.invoke('logging:get-buffered-logs'),
+      ipcRenderer.invoke(LOGGING_OPEN_DESTINATION_CHANNEL, target ?? null),
+    getBufferedLogs: (): Promise<LogRecord[]> =>
+      ipcRenderer.invoke(LOGGING_GET_BUFFERED_LOGS_CHANNEL),
     ingestBufferedRecord: (record: LogRecord): void => {
-      ipcRenderer.send('logging:ingest-buffered-record', record);
+      ipcRenderer.send(LOGGING_INGEST_BUFFERED_RECORD_CHANNEL, record);
     },
     onPreferencesUpdated: (callback: (preferences: LoggingPreferences) => void) => {
       const listener = (_event: unknown, prefs: LoggingPreferences) => callback(prefs);
-      ipcRenderer.on('logging:preferences-updated', listener);
+      ipcRenderer.on(LOGGING_PREFERENCES_UPDATED_EVENT, listener);
       return () => {
-        ipcRenderer.removeListener('logging:preferences-updated', listener);
+        ipcRenderer.removeListener(LOGGING_PREFERENCES_UPDATED_EVENT, listener);
       };
     },
+  });
+}
+
+if (shouldExposeBridge('desktopDiagnostics')) {
+  contextBridge.exposeInMainWorld('desktopDiagnostics', {
+    getSnapshot: (): Promise<DesktopPlatformDiagnosticsSnapshot> =>
+      ipcRenderer.invoke(DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL),
   });
 }
 
@@ -631,9 +723,9 @@ if (shouldExposeBridge('logging')) {
 contextBridge.exposeInMainWorld('power', {
   onPowerState: (callback: (state: 'suspend' | 'resume') => void) => {
     const listener = (_event: unknown, state: 'suspend' | 'resume') => callback(state);
-    ipcRenderer.on('app:power-state', listener);
+    ipcRenderer.on(APP_POWER_STATE_EVENT, listener);
     return () => {
-      ipcRenderer.removeListener('app:power-state', listener);
+      ipcRenderer.removeListener(APP_POWER_STATE_EVENT, listener);
     };
   },
 });
@@ -743,6 +835,7 @@ contextBridge.exposeInMainWorld('llmHost', {
       typeof payload === 'string'
         ? payload
         : {
+            kind: 'warmup',
             modelId: payload.modelId,
             ...(payload.requestId === undefined ? {} : { clientRequestId: payload.requestId }),
           }

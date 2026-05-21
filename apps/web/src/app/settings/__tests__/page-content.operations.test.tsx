@@ -111,7 +111,7 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   }),
 }));
 
-vi.mock('@brainstrike/file-explorer-ui', () => ({
+vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileExplorerStoreSelector: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({
       devInlineFixtureEnabled: mockState.devInlineFixtureEnabled,
@@ -122,6 +122,9 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
       devInlineFixtureEnabled: mockState.devInlineFixtureEnabled,
       setDevInlineFixtureEnabled: mockState.setDevInlineFixtureEnabledMock,
     }),
+}));
+
+vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
   useOptionalTokenCacheContext: () => null,
 }));
 

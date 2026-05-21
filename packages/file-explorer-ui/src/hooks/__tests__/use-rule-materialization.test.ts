@@ -2,7 +2,7 @@ import { createEmptyRuleSet, serializeRuleSet } from '@brainstrike/selection-rul
 import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useFileExplorerStoreContext } from '../../file-explorer-provider';
+import { useFileExplorerStoreContext } from '../../shell/file-explorer-provider';
 import { useRuleMaterialization } from '../use-rule-materialization';
 
 function createValidRuleSet(folderId: string, patterns: string[]) {
@@ -20,7 +20,7 @@ function createValidRuleSet(folderId: string, patterns: string[]) {
   };
 }
 
-vi.mock('../../file-explorer-provider', () => {
+vi.mock('../../shell/file-explorer-provider', () => {
   const useFileExplorerStoreContext = vi.fn();
   return {
     useFileExplorerStoreContext,

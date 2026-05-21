@@ -34,11 +34,6 @@ const initializeWithModel =
 const dispose = vi.fn<() => void>();
 const generateQueryEmbedding = vi.fn<(text: string) => Promise<{ embedding: Float32Array }>>();
 
-vi.mock('@brainstrike/embeddings/provider-core', () => ({
-  parseProviderModelKey: () => null,
-  isHostedProvider: () => false,
-}));
-
 vi.mock('@brainstrike/embeddings/factory', () => ({
   EmbeddingProviderFactory: {
     createProvider: vi.fn(),

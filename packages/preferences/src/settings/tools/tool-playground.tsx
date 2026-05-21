@@ -10,7 +10,7 @@ import {
   getToolSchemaDisplay,
   type ToolParameterDisplay,
   type ToolSchemaDisplay,
-} from '@brainstrike/agent/tool-metadata';
+} from '@brainstrike/assistant-contract/tool-metadata';
 import { Badge, Button } from '@brainstrike/ui';
 import { ChevronDown, ChevronRight, Play, Sparkles } from 'lucide-react';
 import { useCallback, useId, useMemo, useState } from 'react';

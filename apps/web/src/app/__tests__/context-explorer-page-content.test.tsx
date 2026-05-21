@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import ContextExplorerPageContent from '../context-explorer-page-content';
 
 // Mock the file explorer components
-vi.mock('@brainstrike/file-explorer-ui', () => ({
+vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   __esModule: true,
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
   WorkspaceTabHost: () => <div data-testid="workspace-tab-host">Workspace Tab Host</div>,

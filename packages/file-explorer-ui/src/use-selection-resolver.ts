@@ -11,7 +11,7 @@ import { shallow } from 'zustand/shallow';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
-} from './file-explorer-provider';
+} from './shell/file-explorer-provider';
 import { defaultCollator } from './utils/file-node-collator';
 import { loadQuerySelectionSnapshot } from './utils/query-selection-snapshot';
 

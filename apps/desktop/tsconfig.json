@@ -71,6 +71,9 @@
       "@brainstrike/file-explorer-ui": [
         "../../packages/file-explorer-ui/src"
       ],
+      "@brainstrike/file-explorer-ui/*": [
+        "../../packages/file-explorer-ui/src/*"
+      ],
       "@brainstrike/file-explorer-hooks": [
         "../../packages/file-explorer-hooks/src"
       ],
@@ -97,6 +100,9 @@
       ],
       "@brainstrike/embeddings": [
         "../../packages/embeddings/src"
+      ],
+      "@brainstrike/embeddings/provider-core": [
+        "../../packages/embeddings/src/provider-core.ts"
       ],
       "@brainstrike/vector-management": [
         "../../packages/vector-management/src"

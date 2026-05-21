@@ -1,0 +1,373 @@
+{
+  "schemaVersion": 1,
+  "generatedFrom": "calibration-files",
+  "minSamples": 5,
+  "sampleCount": 35,
+  "commandSampleCount": 66,
+  "status": "calibrating",
+  "commands": [
+    {
+      "name": "assistant-contract-tests",
+      "owner": "assistant",
+      "requiredFor": [
+        "assistant-contract-runtime"
+      ],
+      "sampleCount": 5,
+      "p50Ms": 7322,
+      "p95Ms": 8086,
+      "currentBudgetMs": 180000,
+      "recordedBudgetMs": 180000,
+      "recordedBudgetStale": false,
+      "recordedCommandStale": false,
+      "ignoredStaleCommandSampleCount": 0,
+      "maxDurationMs": 8086,
+      "failureCount": 0,
+      "staleCommandSampleCount": 0,
+      "status": "within-target",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-assistant-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-5-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "ci-script-tests",
+      "owner": "tooling",
+      "requiredFor": [
+        "config-tooling",
+        "full-release-high-risk"
+      ],
+      "sampleCount": 5,
+      "p50Ms": 275,
+      "p95Ms": 320,
+      "currentBudgetMs": 120000,
+      "recordedBudgetMs": 120000,
+      "recordedBudgetStale": false,
+      "recordedCommandStale": false,
+      "ignoredStaleCommandSampleCount": 1,
+      "maxDurationMs": 320,
+      "failureCount": 0,
+      "staleCommandSampleCount": 0,
+      "status": "within-target",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-ci-script-tests-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-selected-normal-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-selected-normal-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-selected-normal-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-selected-normal-5-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "db-tests",
+      "owner": "data-platform",
+      "requiredFor": [
+        "db-migrations-storage"
+      ],
+      "sampleCount": 5,
+      "p50Ms": 262764,
+      "p95Ms": 269544,
+      "currentBudgetMs": 300000,
+      "recordedBudgetMs": 180000,
+      "recordedBudgetStale": true,
+      "recordedCommandStale": false,
+      "ignoredStaleCommandSampleCount": 0,
+      "maxDurationMs": 269544,
+      "failureCount": 0,
+      "staleCommandSampleCount": 0,
+      "status": "within-target",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-db-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-db-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-db-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-db-5-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-db-indexing-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "desktop-smoke-tests",
+      "owner": "desktop-platform",
+      "requiredFor": [
+        "desktop-platform-ipc-preload"
+      ],
+      "sampleCount": 5,
+      "p50Ms": 27740,
+      "p95Ms": 28336,
+      "currentBudgetMs": 300000,
+      "recordedBudgetMs": 300000,
+      "recordedBudgetStale": false,
+      "recordedCommandStale": false,
+      "ignoredStaleCommandSampleCount": 0,
+      "maxDurationMs": 28336,
+      "failureCount": 0,
+      "staleCommandSampleCount": 0,
+      "status": "within-target",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-desktop-smoke-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-smoke-lanes-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-smoke-lanes-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-smoke-lanes-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-smoke-lanes-5-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "desktop-unit-tests",
+      "owner": "desktop-platform",
+      "requiredFor": [
+        "desktop-platform-ipc-preload"
+      ],
+      "sampleCount": 5,
+      "p50Ms": 50845,
+      "p95Ms": 51086,
+      "currentBudgetMs": 240000,
+      "recordedBudgetMs": 240000,
+      "recordedBudgetStale": false,
+      "recordedCommandStale": false,
+      "ignoredStaleCommandSampleCount": 0,
+      "maxDurationMs": 51086,
+      "failureCount": 0,
+      "staleCommandSampleCount": 0,
+      "status": "within-target",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-desktop-unit-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-desktop-unit-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-desktop-unit-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-desktop-unit-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-desktop-unit-5-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "diff-check",
+      "owner": "tooling",
+      "requiredFor": [
+        "all"
+      ],
+      "sampleCount": 5,
+      "p50Ms": 13,
+      "p95Ms": 13,
+      "currentBudgetMs": 30000,
+      "recordedBudgetMs": 30000,
+      "recordedBudgetStale": false,
+      "recordedCommandStale": false,
+      "ignoredStaleCommandSampleCount": 0,
+      "maxDurationMs": 13,
+      "failureCount": 0,
+      "staleCommandSampleCount": 0,
+      "status": "within-target",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-sample-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-selected-normal-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-selected-normal-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-selected-normal-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-selected-normal-5-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "file-explorer-tests",
+      "owner": "workspace-experience",
+      "requiredFor": [
+        "web-ui-file-explorer"
+      ],
+      "sampleCount": 5,
+      "p50Ms": 20981,
+      "p95Ms": 22083,
+      "currentBudgetMs": 240000,
+      "recordedBudgetMs": 240000,
+      "recordedBudgetStale": false,
+      "recordedCommandStale": false,
+      "ignoredStaleCommandSampleCount": 0,
+      "maxDurationMs": 22083,
+      "failureCount": 0,
+      "staleCommandSampleCount": 0,
+      "status": "within-target",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-file-explorer-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-webui-migration-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-webui-migration-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-webui-migration-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-webui-migration-5-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "file-system-tests",
+      "owner": "data-platform",
+      "requiredFor": [
+        "db-migrations-storage"
+      ],
+      "sampleCount": 5,
+      "p50Ms": 1121,
+      "p95Ms": 1209,
+      "currentBudgetMs": 120000,
+      "recordedBudgetMs": 120000,
+      "recordedBudgetStale": false,
+      "recordedCommandStale": false,
+      "ignoredStaleCommandSampleCount": 0,
+      "maxDurationMs": 1209,
+      "failureCount": 0,
+      "staleCommandSampleCount": 0,
+      "status": "within-target",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-cheap-product-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-5-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-storage-filesystem-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "full-local-suite",
+      "owner": "release",
+      "requiredFor": [
+        "full-release-high-risk"
+      ],
+      "sampleCount": 1,
+      "p50Ms": 1804838,
+      "p95Ms": 1804838,
+      "currentBudgetMs": 2700000,
+      "recordedBudgetMs": 2700000,
+      "recordedBudgetStale": false,
+      "recordedCommandStale": false,
+      "ignoredStaleCommandSampleCount": 0,
+      "maxDurationMs": 1804838,
+      "failureCount": 0,
+      "staleCommandSampleCount": 0,
+      "status": "calibrating",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-full-local-suite-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "indexing-tests",
+      "owner": "indexing",
+      "requiredFor": [
+        "indexing-import-embedding"
+      ],
+      "sampleCount": 5,
+      "p50Ms": 4576,
+      "p95Ms": 4823,
+      "currentBudgetMs": 240000,
+      "recordedBudgetMs": 240000,
+      "recordedBudgetStale": false,
+      "recordedCommandStale": false,
+      "ignoredStaleCommandSampleCount": 0,
+      "maxDurationMs": 4823,
+      "failureCount": 0,
+      "staleCommandSampleCount": 0,
+      "status": "within-target",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-cheap-product-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-5-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-db-indexing-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "migration-tests",
+      "owner": "data-platform",
+      "requiredFor": [
+        "db-migrations-storage"
+      ],
+      "sampleCount": 5,
+      "p50Ms": 33517,
+      "p95Ms": 33871,
+      "currentBudgetMs": 180000,
+      "recordedBudgetMs": 180000,
+      "recordedBudgetStale": false,
+      "recordedCommandStale": false,
+      "ignoredStaleCommandSampleCount": 0,
+      "maxDurationMs": 33871,
+      "failureCount": 0,
+      "staleCommandSampleCount": 0,
+      "status": "within-target",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-migration-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-webui-migration-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-webui-migration-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-webui-migration-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-webui-migration-5-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "storage-tests",
+      "owner": "data-platform",
+      "requiredFor": [
+        "db-migrations-storage"
+      ],
+      "sampleCount": 5,
+      "p50Ms": 851,
+      "p95Ms": 918,
+      "currentBudgetMs": 120000,
+      "recordedBudgetMs": 120000,
+      "recordedBudgetStale": false,
+      "recordedCommandStale": false,
+      "ignoredStaleCommandSampleCount": 0,
+      "maxDurationMs": 918,
+      "failureCount": 0,
+      "staleCommandSampleCount": 0,
+      "status": "within-target",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-cheap-product-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-cheap-product-5-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-storage-filesystem-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "web-smoke-tests",
+      "owner": "applications",
+      "requiredFor": [
+        "web-ui-file-explorer",
+        "assistant-contract-runtime"
+      ],
+      "sampleCount": 5,
+      "p50Ms": 31355,
+      "p95Ms": 33140,
+      "currentBudgetMs": 300000,
+      "recordedBudgetMs": 300000,
+      "recordedBudgetStale": false,
+      "recordedCommandStale": false,
+      "ignoredStaleCommandSampleCount": 0,
+      "maxDurationMs": 33140,
+      "failureCount": 0,
+      "staleCommandSampleCount": 0,
+      "status": "within-target",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-smoke-lanes-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-smoke-lanes-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-smoke-lanes-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-smoke-lanes-5-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-web-smoke-2026-05-20.json"
+      ]
+    },
+    {
+      "name": "workflow-contracts",
+      "owner": "ci-platform",
+      "requiredFor": [
+        "config-tooling",
+        "full-release-high-risk"
+      ],
+      "sampleCount": 5,
+      "p50Ms": 266,
+      "p95Ms": 279,
+      "currentBudgetMs": 180000,
+      "recordedBudgetMs": 180000,
+      "recordedBudgetStale": false,
+      "recordedCommandStale": false,
+      "ignoredStaleCommandSampleCount": 0,
+      "maxDurationMs": 279,
+      "failureCount": 0,
+      "staleCommandSampleCount": 0,
+      "status": "within-target",
+      "sources": [
+        "docs/architecture-reset/pipeline-calibration-sample-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-selected-normal-2-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-selected-normal-3-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-selected-normal-4-2026-05-20.json",
+        "docs/architecture-reset/pipeline-calibration-selected-normal-5-2026-05-20.json"
+      ]
+    }
+  ]
+}

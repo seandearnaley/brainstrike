@@ -7,20 +7,16 @@ import {
   useModelRegistryStore,
 } from '../../../stores/model-registry-store';
 import { ModelRegistrySettingsSection } from '../model-registry-settings-section';
+import {
+  configureModelRuntimeServices,
+  type ModelRuntimeServices,
+} from '../model-runtime-services';
 
 // Mock imports
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   usePGliteDatabase: vi.fn(() => ({})),
 }));
-
-vi.mock('@brainstrike/embeddings/service', () => {
-  const MockService = vi.fn();
-  MockService.prototype.downloadModel = vi.fn().mockRejectedValue(new Error('Network error'));
-  return {
-    SimpleEmbeddingService: MockService,
-  };
-});
 
 vi.mock('../../hooks/use-model-registry', () => ({
   useEnsureModelRegistry: vi.fn(),
@@ -60,10 +56,19 @@ vi.mock('@brainstrike/ui', () => {
 
 describe('ModelRegistrySettingsSection', () => {
   const mockToast = vi.fn();
+  let downloadEmbeddingModelMock: ReturnType<
+    typeof vi.fn<ModelRuntimeServices['downloadEmbeddingModel']>
+  >;
 
   beforeEach(() => {
     vi.clearAllMocks();
     __resetModelRegistryStoreForTests();
+    downloadEmbeddingModelMock = vi
+      .fn<ModelRuntimeServices['downloadEmbeddingModel']>()
+      .mockRejectedValue(new Error('Network error'));
+    configureModelRuntimeServices({
+      downloadEmbeddingModel: downloadEmbeddingModelMock,
+    });
     (useToast as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ toast: mockToast });
   });
 
@@ -121,10 +126,10 @@ describe('ModelRegistrySettingsSection', () => {
   });
 
   it('successfully downloads a model', async () => {
-    const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
     const mockDownload = vi.fn().mockResolvedValue(undefined);
-    (SimpleEmbeddingService as unknown as ReturnType<typeof vi.fn>).prototype.downloadModel =
-      mockDownload;
+    configureModelRuntimeServices({
+      downloadEmbeddingModel: mockDownload,
+    });
 
     setupStore();
     render(<ModelRegistrySettingsSection />);

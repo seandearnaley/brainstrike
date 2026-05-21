@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brainstrike Phase 1 - Guardrails Plan</title>
+    <style>
+      body { margin: 0; background: #f8f4e8; color: #171717; font-family: Aptos, "Segoe UI", sans-serif; line-height: 1.45; }
+      main { width: min(980px, calc(100% - 32px)); margin: 0 auto; padding: 48px 0; }
+      h1, h2 { font-family: Georgia, "Times New Roman", serif; line-height: .98; margin: 0; }
+      h1 { font-size: clamp(3rem, 7vw, 6.5rem); }
+      h2 { font-size: 2rem; }
+      p, li { color: #5f625c; }
+      code { background: #f0eadb; border: 1px solid #d8cfba; border-radius: 5px; padding: .08rem .28rem; }
+      .panel { background: #fffdf6; border: 1px solid #d8cfba; border-radius: 8px; padding: 20px; margin: 14px 0; }
+      .eyebrow { color: #a33d31; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; font-size: .76rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Phase 1 stacked PR artifact</p>
+      <h1>Guardrails before movement.</h1>
+      <section class="panel">
+        <h2>Goal</h2>
+        <p>
+          Make architecture checks deterministic before code movement starts. This PR adds a
+          source-code boundary validator over the phase 0 domain contract, creates an explicit
+          package-pair exception baseline for existing cross-domain edges, and turns that baseline
+          into a ratchet: new cross-domain imports fail unless they are intentionally added to
+          <code>architecture/domain-map.json</code> with a reason and retire phase.
+        </p>
+      </section>
+      <section class="panel">
+        <h2>Acceptance checks</h2>
+        <ul>
+          <li><code>pnpm arch:domain-contract</code> validates package classification, stack order, and exception metadata.</li>
+          <li><code>pnpm arch:domain-boundaries</code> parses TS/JS imports and rejects unapproved cross-domain imports.</li>
+          <li>The first baseline records 13 package-pair exceptions and reports when all 13 are still in use.</li>
+          <li>Each exception has a retire phase so later PRs can remove them instead of normalizing the debt.</li>
+          <li>The domain contract from phase 0 stays green.</li>
+        </ul>
+      </section>
+      <section class="panel">
+        <h2>Baseline edges</h2>
+        <p>
+          The current repository checks 1,947 internal imports across 2,758 files. The allowed
+          exceptions are concentrated around assistant contracts, embedding/indexing settings,
+          text-splitter ownership, theme persistence, and worker payload types. Those are not hidden
+          warnings: they are named architecture work items for phases 3 and 4.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

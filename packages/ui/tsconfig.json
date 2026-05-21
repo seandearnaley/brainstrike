@@ -13,9 +13,6 @@
     "paths": {
       "@brainstrike/utils/*": [
         "../utils/src/*"
-      ],
-      "@brainstrike/storage": [
-        "../storage/src"
       ]
     },
     "strictNullChecks": true
@@ -32,10 +29,10 @@
   ],
   "references": [
     {
-      "path": "../../packages/types"
+      "path": "../assistant-contract"
     },
     {
-      "path": "../storage"
+      "path": "../../packages/types"
     },
     {
       "path": "../utils"

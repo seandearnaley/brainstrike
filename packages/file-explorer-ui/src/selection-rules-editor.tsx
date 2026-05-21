@@ -29,7 +29,7 @@ import {
 import { generateUUID } from '@brainstrike/utils';
 import { Info, Minus, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
-import { useFileExplorerStoreSelector } from './file-explorer-provider';
+import { useFileExplorerStoreSelector } from './shell/file-explorer-provider';
 
 /** Props for the selection rules editor */
 export interface SelectionRulesEditorProps {

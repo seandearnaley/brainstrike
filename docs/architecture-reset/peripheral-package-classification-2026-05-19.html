@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brainstrike Peripheral Package Classification - 2026-05-19</title>
+    <style>
+      :root {
+        --ink: #151515;
+        --muted: #5f625c;
+        --paper: #f8f4e8;
+        --panel: #fffdf6;
+        --line: #d8cfba;
+        --red: #a33d31;
+        --green: #24735b;
+        --amber: #9a6a16;
+        --blue: #315f8a;
+        --code: #f0eadb;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: Aptos, "Segoe UI", system-ui, sans-serif;
+        line-height: 1.45;
+      }
+      main {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 48px 0 72px;
+      }
+      h1, h2, h3 {
+        font-family: Georgia, "Times New Roman", serif;
+        line-height: .98;
+        margin: 0;
+      }
+      h1 { font-size: clamp(3rem, 7vw, 6.5rem); letter-spacing: -.04em; max-width: 900px; }
+      h2 { font-size: 2rem; margin-bottom: 12px; }
+      h3 { font-size: 1.2rem; margin-bottom: 8px; }
+      p, li { color: var(--muted); }
+      code {
+        background: var(--code);
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: .08rem .28rem;
+        font-size: .92em;
+      }
+      .eyebrow {
+        color: var(--red);
+        font-size: .76rem;
+        font-weight: 900;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }
+      .deck {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin: 28px 0 34px;
+      }
+      .metric, .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 20px;
+      }
+      .metric strong {
+        display: block;
+        color: var(--ink);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 2rem;
+        line-height: 1;
+      }
+      .metric span {
+        color: var(--muted);
+        display: block;
+        margin-top: 8px;
+      }
+      section { margin-top: 36px; }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      th, td {
+        border-bottom: 1px solid var(--line);
+        padding: 12px 14px;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: #f0eadb;
+        color: var(--muted);
+        font-size: .74rem;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }
+      tr:last-child td { border-bottom: 0; }
+      .tag {
+        border: 1px solid currentColor;
+        border-radius: 999px;
+        display: inline-block;
+        font-size: .72rem;
+        font-weight: 800;
+        letter-spacing: .06em;
+        padding: 3px 9px;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+      .keep { color: var(--green); }
+      .revive { color: var(--blue); }
+      .move { color: var(--amber); }
+      .absent { color: var(--muted); }
+      .grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .note {
+        border-left: 4px solid var(--red);
+        padding-left: 14px;
+      }
+      @media (max-width: 860px) {
+        .deck, .grid { grid-template-columns: 1fr; }
+        table { display: block; overflow-x: auto; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Local architecture reset artifact</p>
+      <h1>Peripheral package decision record.</h1>
+      <p>
+        Evidence pass for the packages called out as zero-import or dormant in the reset report.
+        This artifact separates real live references from stale report entries before any package is
+        deleted, moved, or promoted.
+      </p>
+
+      <div class="deck" aria-label="classification summary">
+        <div class="metric"><strong>7</strong><span>packages or package names reviewed</span></div>
+        <div class="metric"><strong>4</strong><span>current workspace packages with live evidence</span></div>
+        <div class="metric"><strong>3</strong><span>names absent from the current workspace</span></div>
+        <div class="metric"><strong>0</strong><span>packages deleted in this slice</span></div>
+      </div>
+
+      <section>
+        <h2>Decisions</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Package</th>
+              <th>Decision</th>
+              <th>Evidence</th>
+              <th>Required follow-up</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>@brainstrike/pipeline</code></td>
+              <td><span class="tag revive">revive</span></td>
+              <td>
+                Package has source and tests, but no app imports. Docs explicitly say it is
+                "not yet wired into the apps". Phase 3 already names it as the intended workflow
+                owner for file -> chunk -> embed orchestration.
+              </td>
+              <td>
+                Keep it in the indexing domain. Promote it only after the current
+                <code>@brainstrike/indexing-contract</code> payload contracts are stable enough for
+                <code>file-import</code> and background indexing to submit commands instead of
+                coordinating workflow steps directly.
+              </td>
+            </tr>
+            <tr>
+              <td><code>@brainstrike/queue-telemetry-collector</code></td>
+              <td><span class="tag keep">keep</span></td>
+              <td>
+                Package has CLI/server source, tests, README usage, a root
+                <code>tsconfig.json</code> reference, coverage thresholds, and a
+                <code>turbo.jsonc</code> dev watcher entry. It is intentionally standalone rather
+                than app-imported.
+              </td>
+              <td>
+                Keep as indexing/ops telemetry for now. If it stays standalone after pipeline
+                revival, move it to a future <code>tools/</code> or ops workspace with explicit
+                ownership instead of treating zero app imports as dead code.
+              </td>
+            </tr>
+            <tr>
+              <td><code>@brainstrike/build-utils</code></td>
+              <td><span class="tag keep">keep</span></td>
+              <td>
+                Live dependency of both web and desktop package manifests. Imported by
+                <code>apps/web/vite.config.mts</code> and
+                <code>apps/desktop/vite.config.mts</code>. Also built in app prebuild/predev
+                scripts.
+              </td>
+              <td>
+                Keep in the tooling domain. The remaining approved boundary exception is about
+                logger coupling, not package liveness.
+              </td>
+            </tr>
+            <tr>
+              <td><code>@brainstrike/tailwind-config</code></td>
+              <td><span class="tag keep">keep</span></td>
+              <td>
+                Live non-TypeScript consumer path:
+                <code>apps/web/tailwind.config.js</code> and
+                <code>apps/desktop/tailwind.config.js</code> both require it. It is also declared
+                in both app package manifests.
+              </td>
+              <td>
+                Keep in tooling. Do not judge this package by TypeScript import count because its
+                load-bearing references are CommonJS Tailwind config files.
+              </td>
+            </tr>
+            <tr>
+              <td><code>@brainstrike/fonts</code></td>
+              <td><span class="tag absent">absent</span></td>
+              <td>
+                No current <code>packages/fonts/package.json</code> and no current workspace
+                directory. The web app uses <code>@fontsource-variable/geist</code> directly from
+                app CSS.
+              </td>
+              <td>
+                No package deletion required. Treat old report mentions as stale.
+              </td>
+            </tr>
+            <tr>
+              <td><code>@brainstrike/tree-core</code></td>
+              <td><span class="tag absent">absent</span></td>
+              <td>
+                No current <code>packages/tree-core/package.json</code>, no workspace directory,
+                and no live repo references in app/package source.
+              </td>
+              <td>
+                No package action. Future tree work should continue through the
+                <code>file-explorer-ui/tree</code> barrel and shared TreeTable primitives.
+              </td>
+            </tr>
+            <tr>
+              <td><code>@brainstrike/security</code></td>
+              <td><span class="tag absent">absent</span></td>
+              <td>
+                No current <code>packages/security/package.json</code>, no workspace directory,
+                and no live app/package import evidence.
+              </td>
+              <td>
+                No package action. Security-sensitive behavior remains distributed across current
+                host, preload, settings, and storage contracts.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="grid">
+        <article class="panel">
+          <h2>Deletion Rule</h2>
+          <p class="note">
+            A package may be deleted only after three checks agree: no workspace package manifest
+            dependency, no TypeScript or JavaScript import, and no non-TS config/script reference.
+            This pass found live non-TS consumers for <code>tailwind-config</code> and live config
+            imports for <code>build-utils</code>, so neither is deletion-safe.
+          </p>
+        </article>
+        <article class="panel">
+          <h2>Architecture Rule</h2>
+          <p>
+            Zero app imports do not automatically mean dead code. Standalone tooling and telemetry
+            packages need explicit ownership labels. The fix is ownership clarity, not deletion by
+            import count.
+          </p>
+        </article>
+      </section>
+
+      <section class="panel">
+        <h2>Local Commands Used</h2>
+        <ul>
+          <li><code>find packages -maxdepth 2 -name package.json</code> to prove current workspace presence.</li>
+          <li><code>rg "@brainstrike/&lt;name&gt;|packages/&lt;name&gt;"</code> across live manifests, configs, apps, packages, scripts, and architecture docs.</li>
+          <li><code>node --test scripts/__tests__/architecture-domain-contract.test.mjs</code> and boundary tests remain green after the file-explorer barrel work.</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

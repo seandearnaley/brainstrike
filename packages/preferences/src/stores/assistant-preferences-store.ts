@@ -4,7 +4,7 @@ import {
   type LocalRuntimeId,
   LocalRuntimeModelCatalogService,
   type LocalRuntimeModelCatalogState,
-} from '@brainstrike/agent/local-runtime';
+} from '@brainstrike/assistant-contract/local-runtime';
 import {
   getProviderDefaultModel,
   listProviders,
@@ -13,7 +13,7 @@ import {
   type ProviderDefinition,
   providerEnvKeys,
   type SupportedProvider,
-} from '@brainstrike/agent/provider-metadata';
+} from '@brainstrike/assistant-contract/provider-metadata';
 import type {
   AnthropicEffort,
   AssistantProviderSettings,

@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { TokenSummaryBar } from '../token-summary-bar';
-import type { TokenCountingState } from '../use-token-counting';
+import { TokenSummaryBar } from '../indexing/token-summary-bar';
+import type { TokenCountingState } from '../indexing/use-token-counting';
 
 const defaultTokenCounting: TokenCountingState = {
   mode: 'accurate',

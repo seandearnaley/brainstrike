@@ -1,3 +1,7 @@
+import type { EmbeddingModelConfig } from '@brainstrike/indexing-contract';
+
+export type ModelConfig = EmbeddingModelConfig;
+
 /**
  * Configuration for the embedding service
  */
@@ -14,34 +18,6 @@ export interface EmbeddingConfig {
   revision?: string;
   /** Explicit worker URL for streamed local embedding execution. */
   streamingWorkerUrl?: string;
-}
-
-/**
- * Model registry entry
- */
-export interface ModelConfig {
-  /** Context window size in tokens */
-  contextWindow?: number;
-  /** Description for UI */
-  description: string;
-  /** Embedding dimensions */
-  dimensions: number;
-  /** Hugging Face model ID or API model identifier */
-  id: string;
-  /** Display name for UI */
-  name: string;
-  /** Model origin/type */
-  origin?: string;
-  /** Price per 1M tokens (for hosted models) */
-  pricePer1MTokens?: number;
-  /** Whether to use quantization */
-  quantized?: boolean;
-  /** Approximate download size (for local models) */
-  size?: string;
-  /** Supported dimension ranges for flexible models */
-  supportedDimensions?: number[] | string;
-  /** Model tags for categorization */
-  tags: string[];
 }
 
 /**

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -560,6 +562,14 @@ describe('ipc-tools', () => {
   });
 
   describe('handler registration', () => {
+    it('registers channels through the typed desktop IPC registry', () => {
+      const source = readFileSync(path.resolve(process.cwd(), 'src/ipc-tools.ts'), 'utf8');
+
+      expect(source).toContain('createDesktopIpcRegistry');
+      expect(source).not.toMatch(/ipcMain\.(handle|on)\(/);
+      expect(source).not.toMatch(/ipcMain\.remove(Handler|Listener)\(/);
+    });
+
     it('should register tools:execute handler', () => {
       expect(ipcMain.handle).toHaveBeenCalledWith('tools:execute', expect.any(Function));
     });

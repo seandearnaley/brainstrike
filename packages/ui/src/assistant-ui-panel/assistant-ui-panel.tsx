@@ -13,7 +13,10 @@ import {
   useMessagePartReasoning,
 } from '@assistant-ui/react';
 import { useDataStreamRuntime } from '@assistant-ui/react-data-stream';
-import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/agent/run-events';
+import {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
+  type LocalLlmBackendFactory,
+} from '@brainstrike/assistant-contract';
 import {
   ArrowUpIcon,
   CheckIcon,
@@ -24,7 +27,6 @@ import {
   CopyIcon,
   PencilIcon,
   RefreshCwIcon,
-  SlidersHorizontal,
   SquareIcon,
 } from 'lucide-react';
 import * as m from 'motion/react-m';
@@ -41,36 +43,16 @@ import {
 // @assistant-ui/styles v0.3.x consolidated all styles into index.css
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
-import { defaultCollator } from '@brainstrike/utils/collator';
 import { Badge } from '../badge';
 import { Button } from '../button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from '../dropdown-menu';
-import { Input } from '../input';
-import { Label } from '../label';
 import { cn } from '../lib/utils';
 import { ModelPicker } from '../model-picker';
 import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
 import { Progress } from '../progress';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select';
-import { Switch } from '../switch';
+import { ControlsMenu } from './assistant-controls-menu';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { AssistantRunTimeline } from './assistant-run-timeline';
-import {
-  clampNumber,
-  clampProgress,
-  getLocalModelStatusLabel,
-  parseNumber,
-} from './assistant-ui-panel-utils';
+import { clampProgress, getLocalModelStatusLabel } from './assistant-ui-panel-utils';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import { ToolFallback } from './tool-fallback';
 import { TooltipIconButton } from './tooltip-icon-button';
@@ -164,13 +146,8 @@ export type {
 } from '@brainstrike/types';
 
 import type {
-  AnthropicEffort,
-  AssistantProviderSettings,
   AssistantProviderSettingsMap,
   AssistantProviderSettingsUpdate,
-  GoogleThinkingLevel,
-  OpenAiReasoningEffort,
-  OpenAiReasoningSummary,
 } from '@brainstrike/types';
 
 export interface AssistantUiPanelProps {
@@ -183,6 +160,7 @@ export interface AssistantUiPanelProps {
   disabled?: boolean;
   disabledReason?: string;
   historyAdapter?: ThreadHistoryAdapter;
+  loadLocalLlmBackend?: LocalLlmBackendFactory;
   onModelChange?: (compositeKey: string) => void;
   onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
   onProviderSettingsChange?:
@@ -455,6 +433,7 @@ interface ChatThreadProps {
     | undefined;
   disabled: boolean;
   disabledReason: string | undefined;
+  loadLocalLlmBackend?: LocalLlmBackendFactory | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
   onModelChange: ((compositeKey: string) => void) | undefined;
   onProviderSettingsChange?:
@@ -494,6 +473,7 @@ const LocalRuntimeChat: FC<
   disabled,
   disabledReason,
   localLoadingState,
+  loadLocalLlmBackend,
   modelId,
   onLoadingStateChange,
   toolMenu,
@@ -510,6 +490,7 @@ const LocalRuntimeChat: FC<
   const adapter = useMemo(
     () =>
       createLocalModelAdapter({
+        ...(loadLocalLlmBackend ? { loadBackend: loadLocalLlmBackend } : {}),
         modelId,
         thinkingEnabled,
         ...(requestData ? { runtimeData: requestData } : {}),
@@ -532,6 +513,7 @@ const LocalRuntimeChat: FC<
       }),
     [
       completePreparedRequest,
+      loadLocalLlmBackend,
       modelId,
       onLoadingStateChange,
       prepareRequestData,
@@ -878,6 +860,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   disabled = false,
   disabledReason,
   historyAdapter,
+  loadLocalLlmBackend,
   threadKey,
 }) => {
   // API URL for data stream runtime (hosted providers)
@@ -958,6 +941,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           disabled={disabled}
           disabledReason={disabledReason}
           key={threadKey ? `local:${threadKey}` : 'local'}
+          loadLocalLlmBackend={loadLocalLlmBackend}
           localLoadingState={localLoadingState}
           modelId={modelName}
           onLoadingStateChange={handleLocalLoadingStateChange}
@@ -1283,889 +1267,6 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
   );
 };
 
-interface ControlsMenuProps {
-  modelName?: string | undefined;
-  onProviderSettingsChange?:
-    | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
-    | undefined;
-  providerSettings?: AssistantProviderSettingsMap | undefined;
-  selectedProvider?: string | undefined;
-  toolMenu?: AssistantToolMenuConfig | undefined;
-}
-
-interface ToolMenuGroup {
-  id: string;
-  items: AssistantToolMenuItem[];
-  label: string;
-  source: AssistantToolSource;
-}
-
-const TOOL_SOURCE_ORDER: AssistantToolSource[] = ['native', 'mcp'];
-
-const ReasoningControlsSection: FC<{
-  hasReasoning: boolean;
-  modelName: string | undefined;
-  onProviderSettingsChange:
-    | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
-    | undefined;
-  providerId: string | undefined;
-  settings: AssistantProviderSettings | undefined;
-}> = ({ hasReasoning, modelName, onProviderSettingsChange, providerId, settings }) => {
-  if (!hasReasoning) {
-    return null;
-  }
-
-  return (
-    <>
-      <DropdownMenuSeparator className="my-2" />
-      <DropdownMenuSub>
-        <DropdownMenuSubTrigger className="text-sm">Reasoning & Output</DropdownMenuSubTrigger>
-        <DropdownMenuSubContent className="w-[420px] p-2">
-          <ProviderSettingsPanel
-            modelName={modelName}
-            onSettingsChange={onProviderSettingsChange}
-            providerId={providerId}
-            settings={settings}
-          />
-        </DropdownMenuSubContent>
-      </DropdownMenuSub>
-    </>
-  );
-};
-
-const ToolsControlsSection: FC<{
-  groupedTools: ToolMenuGroup[];
-  hasTools: boolean;
-  onToggleTool: (toolId: string, enabled: boolean) => void;
-  toolMenu: AssistantToolMenuConfig;
-  toolSummary: string;
-}> = ({ groupedTools, hasTools, onToggleTool, toolMenu, toolSummary }) => {
-  if (!hasTools) {
-    return null;
-  }
-
-  return (
-    <>
-      <DropdownMenuSeparator className="my-2" />
-      <DropdownMenuLabel className="px-1 text-[10px] text-muted-foreground uppercase tracking-wide">
-        AI Tools
-      </DropdownMenuLabel>
-      {toolMenu.isLoading && (
-        <div className="px-2 py-2 text-muted-foreground text-xs">Loading tools…</div>
-      )}
-      {!toolMenu.isLoading && groupedTools.length === 0 && (
-        <div className="px-2 py-2 text-muted-foreground text-xs">No tools detected.</div>
-      )}
-      {!toolMenu.isLoading &&
-        groupedTools.map((group) => {
-          const enabledCount = group.items.filter((tool) => tool.enabled).length;
-          return (
-            <DropdownMenuSub key={group.id}>
-              <DropdownMenuSubTrigger className="text-sm">
-                <span className="flex-1 truncate">{group.label}</span>
-                <span className="text-[10px] text-muted-foreground">
-                  {enabledCount}/{group.items.length}
-                </span>
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-[320px] p-1">
-                {group.items.map((tool) => (
-                  <DropdownMenuItem
-                    className="flex items-start justify-between gap-3"
-                    key={tool.id}
-                    onSelect={(event) => event.preventDefault()}
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-sm">{tool.label}</p>
-                      {tool.description && (
-                        <p className="text-muted-foreground text-xs">{tool.description}</p>
-                      )}
-                    </div>
-                    <Switch
-                      checked={tool.enabled}
-                      className="mt-0.5"
-                      disabled={tool.disabled}
-                      onCheckedChange={(checked) => onToggleTool(tool.id, checked)}
-                    />
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-          );
-        })}
-      {toolSummary && (
-        <div className="px-2 pt-2 text-[10px] text-muted-foreground">{toolSummary}</div>
-      )}
-      {toolMenu.onRefresh && (
-        <DropdownMenuItem
-          className="mt-1"
-          onSelect={(event) => {
-            event.preventDefault();
-            void toolMenu.onRefresh?.();
-          }}
-        >
-          Refresh tools
-        </DropdownMenuItem>
-      )}
-      {toolMenu.onOpenSettings && (
-        <DropdownMenuItem onSelect={() => toolMenu.onOpenSettings?.()}>
-          Manage tools…
-        </DropdownMenuItem>
-      )}
-    </>
-  );
-};
-
-const ControlsMenu: FC<ControlsMenuProps> = ({
-  toolMenu,
-  providerSettings,
-  onProviderSettingsChange,
-  selectedProvider,
-  modelName,
-}) => {
-  const supportsReasoningSettings = useMemo(() => {
-    if (!selectedProvider) {
-      return false;
-    }
-    const normalized = selectedProvider.toLowerCase();
-    return (
-      normalized === 'openai' ||
-      normalized === 'openrouter' ||
-      normalized === 'anthropic' ||
-      normalized === 'google'
-    );
-  }, [selectedProvider]);
-
-  const hasReasoning = Boolean(supportsReasoningSettings && onProviderSettingsChange);
-
-  const toolMenuItems = toolMenu?.items;
-  const toolMenuSummary = toolMenu?.summary;
-
-  const hasTools = Boolean(toolMenuItems && toolMenuItems.length > 0);
-
-  const groupedTools = useMemo<ToolMenuGroup[]>(() => {
-    if (!toolMenuItems) {
-      return [];
-    }
-
-    const groups = new Map<string, ToolMenuGroup>();
-    for (const item of toolMenuItems) {
-      const key = `${item.source}::${item.group}`;
-      const existing = groups.get(key);
-      if (existing) {
-        existing.items.push(item);
-        continue;
-      }
-      groups.set(key, {
-        id: key,
-        label: item.group,
-        source: item.source,
-        items: [item],
-      });
-    }
-
-    return Array.from(groups.values()).sort((a, b) => {
-      const sourceOrder = TOOL_SOURCE_ORDER.indexOf(a.source) - TOOL_SOURCE_ORDER.indexOf(b.source);
-      if (sourceOrder !== 0) {
-        return sourceOrder;
-      }
-      return defaultCollator.compare(a.label, b.label);
-    });
-  }, [toolMenuItems]);
-
-  const toolSummary = useMemo(() => {
-    if (!toolMenuItems) {
-      return '';
-    }
-    const enabled = toolMenuItems.filter((tool) => tool.enabled).length;
-    return toolMenuSummary ?? `${enabled} of ${toolMenuItems.length} enabled`;
-  }, [toolMenuItems, toolMenuSummary]);
-
-  const toolMenuOnToggleTool = toolMenu?.onToggleTool;
-
-  const handleToggleTool = useCallback(
-    (toolId: string, enabled: boolean) => {
-      if (!toolMenuOnToggleTool) {
-        return;
-      }
-      void toolMenuOnToggleTool(toolId, enabled);
-    },
-    [toolMenuOnToggleTool]
-  );
-
-  if (!(hasTools || hasReasoning)) {
-    return null;
-  }
-
-  const activeSettings = selectedProvider ? providerSettings?.[selectedProvider] : undefined;
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          aria-label="Open assistant controls"
-          className="h-9 gap-2 rounded-full border-border/70 px-3 text-xs"
-          size="sm"
-          variant="outline"
-        >
-          <SlidersHorizontal className="h-4 w-4" />
-          <span>Controls</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[340px] p-2">
-        <ReasoningControlsSection
-          hasReasoning={hasReasoning}
-          modelName={modelName}
-          onProviderSettingsChange={onProviderSettingsChange}
-          providerId={selectedProvider}
-          settings={activeSettings}
-        />
-        {toolMenu && (
-          <ToolsControlsSection
-            groupedTools={groupedTools}
-            hasTools={hasTools}
-            onToggleTool={handleToggleTool}
-            toolMenu={toolMenu}
-            toolSummary={toolSummary}
-          />
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-};
-
-const settingsNumberFormatter = new Intl.NumberFormat();
-
-const MAX_OUTPUT_DEFAULT = 2048;
-const MAX_OUTPUT_MIN = 128;
-const MAX_OUTPUT_MAX = 8192;
-const MAX_OUTPUT_STEP = 64;
-
-const AGENT_MAX_STEPS_DEFAULT = 20;
-const AGENT_MAX_STEPS_MIN = 1;
-const AGENT_MAX_STEPS_MAX = 100;
-const INPUT_TOKEN_LIMIT_DEFAULT = 64_000;
-const INPUT_TOKEN_LIMIT_MIN = 4096;
-const INPUT_TOKEN_LIMIT_MAX = 256_000;
-const MEMORY_LAST_MESSAGES_DEFAULT = 40;
-const MEMORY_LAST_MESSAGES_MIN = 0;
-const MEMORY_LAST_MESSAGES_MAX = 200;
-
-const ANTHROPIC_THINKING_DEFAULT = 12_000;
-const ANTHROPIC_THINKING_MIN = 1024;
-const ANTHROPIC_THINKING_MAX = 20_000;
-const ANTHROPIC_THINKING_STEP = 256;
-
-const OPENAI_EFFORT_OPTIONS: Array<{ value: OpenAiReasoningEffort | 'auto'; label: string }> = [
-  { value: 'auto', label: 'Auto (medium)' },
-  { value: 'none', label: 'None' },
-  { value: 'minimal', label: 'Minimal' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'X-High' },
-];
-
-const OPENAI_SUMMARY_OPTIONS: Array<{
-  value: OpenAiReasoningSummary | 'off';
-  label: string;
-}> = [
-  { value: 'off', label: 'Off' },
-  { value: 'auto', label: 'Auto' },
-  { value: 'detailed', label: 'Detailed' },
-];
-
-const ANTHROPIC_EFFORT_OPTIONS: Array<{ value: AnthropicEffort | 'auto'; label: string }> = [
-  { value: 'auto', label: 'Auto (high)' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-];
-
-const GOOGLE_FLASH_THINKING_LEVELS: GoogleThinkingLevel[] = ['minimal', 'low', 'medium', 'high'];
-const GOOGLE_PRO_THINKING_LEVELS: GoogleThinkingLevel[] = ['low', 'high'];
-
-interface ProviderSettingsPanelProps {
-  modelName?: string | undefined;
-  onSettingsChange?:
-    | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
-    | undefined;
-  providerId?: string | undefined;
-  settings?: AssistantProviderSettings | undefined;
-}
-
-type ProviderSettingsUpdate = (updates: AssistantProviderSettingsUpdate) => void;
-
-interface ProviderSettingsSectionProps {
-  disabled: boolean;
-  onUpdate: ProviderSettingsUpdate;
-  settings: AssistantProviderSettings;
-}
-
-const AgentRuntimeSection: FC<ProviderSettingsSectionProps> = ({
-  settings,
-  onUpdate,
-  disabled,
-}) => {
-  const maxStepsEnabled = typeof settings.agentMaxSteps === 'number';
-  const maxStepsValue = clampNumber(
-    settings.agentMaxSteps ?? AGENT_MAX_STEPS_DEFAULT,
-    AGENT_MAX_STEPS_MIN,
-    AGENT_MAX_STEPS_MAX
-  );
-  const inputTokenLimitEnabled = typeof settings.agentInputTokenLimit === 'number';
-  const inputTokenLimitValue = clampNumber(
-    settings.agentInputTokenLimit ?? INPUT_TOKEN_LIMIT_DEFAULT,
-    INPUT_TOKEN_LIMIT_MIN,
-    INPUT_TOKEN_LIMIT_MAX
-  );
-  const memoryLastMessagesValue = clampNumber(
-    settings.memoryLastMessages ?? MEMORY_LAST_MESSAGES_DEFAULT,
-    MEMORY_LAST_MESSAGES_MIN,
-    MEMORY_LAST_MESSAGES_MAX
-  );
-  const workingMemoryEnabled = settings.workingMemoryEnabled ?? true;
-
-  return (
-    <div className="space-y-2 rounded-md bg-muted/30 p-2">
-      <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
-        Agent context
-      </Label>
-      <div className="grid gap-2">
-        <div className="grid grid-cols-[1fr_72px_auto] items-center gap-2">
-          <span className="text-[10px] text-muted-foreground">Max steps</span>
-          <Input
-            aria-label="Max agent steps"
-            className="h-7 text-xs"
-            disabled={disabled || !maxStepsEnabled}
-            inputMode="numeric"
-            max={AGENT_MAX_STEPS_MAX}
-            min={AGENT_MAX_STEPS_MIN}
-            onChange={(event) => {
-              const parsed = parseNumber(event.target.value);
-              if (parsed === undefined) {
-                onUpdate({ agentMaxSteps: undefined });
-                return;
-              }
-              onUpdate({
-                agentMaxSteps: clampNumber(parsed, AGENT_MAX_STEPS_MIN, AGENT_MAX_STEPS_MAX),
-              });
-            }}
-            placeholder="Open"
-            type="number"
-            value={maxStepsEnabled ? maxStepsValue : ''}
-          />
-          <Switch
-            aria-label="Limit agent steps"
-            checked={maxStepsEnabled}
-            disabled={disabled}
-            onCheckedChange={(checked) =>
-              onUpdate({
-                agentMaxSteps: checked ? maxStepsValue : undefined,
-              })
-            }
-          />
-        </div>
-        <div className="grid grid-cols-[1fr_96px_auto] items-center gap-2">
-          <span className="text-[10px] text-muted-foreground">Input tokens</span>
-          <Input
-            aria-label="Input token limit"
-            className="h-7 text-xs"
-            disabled={disabled || !inputTokenLimitEnabled}
-            inputMode="numeric"
-            max={INPUT_TOKEN_LIMIT_MAX}
-            min={INPUT_TOKEN_LIMIT_MIN}
-            onChange={(event) => {
-              const parsed = parseNumber(event.target.value);
-              if (parsed === undefined) {
-                onUpdate({ agentInputTokenLimit: undefined });
-                return;
-              }
-              onUpdate({
-                agentInputTokenLimit: clampNumber(
-                  parsed,
-                  INPUT_TOKEN_LIMIT_MIN,
-                  INPUT_TOKEN_LIMIT_MAX
-                ),
-              });
-            }}
-            placeholder="Off"
-            type="number"
-            value={inputTokenLimitEnabled ? inputTokenLimitValue : ''}
-          />
-          <Switch
-            aria-label="Limit input tokens"
-            checked={inputTokenLimitEnabled}
-            disabled={disabled}
-            onCheckedChange={(checked) =>
-              onUpdate({
-                agentInputTokenLimit: checked ? inputTokenLimitValue : undefined,
-              })
-            }
-          />
-        </div>
-        <div className="grid grid-cols-[1fr_72px_auto] items-center gap-2">
-          <span className="text-[10px] text-muted-foreground">Memory messages</span>
-          <Input
-            aria-label="Memory messages"
-            className="h-7 text-xs"
-            disabled={disabled}
-            inputMode="numeric"
-            max={MEMORY_LAST_MESSAGES_MAX}
-            min={MEMORY_LAST_MESSAGES_MIN}
-            onChange={(event) => {
-              const parsed = parseNumber(event.target.value);
-              if (parsed === undefined) {
-                onUpdate({ memoryLastMessages: undefined });
-                return;
-              }
-              onUpdate({
-                memoryLastMessages: clampNumber(
-                  parsed,
-                  MEMORY_LAST_MESSAGES_MIN,
-                  MEMORY_LAST_MESSAGES_MAX
-                ),
-              });
-            }}
-            type="number"
-            value={memoryLastMessagesValue}
-          />
-          <span className="text-right text-[10px] text-muted-foreground">
-            {memoryLastMessagesValue === 0
-              ? 'Off'
-              : settingsNumberFormatter.format(memoryLastMessagesValue)}
-          </span>
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] text-muted-foreground">Working memory</span>
-          <Switch
-            aria-label="Enable working memory"
-            checked={workingMemoryEnabled}
-            disabled={disabled}
-            onCheckedChange={(checked) => onUpdate({ workingMemoryEnabled: checked })}
-          />
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const MaxOutputSection: FC<ProviderSettingsSectionProps> = ({ settings, onUpdate, disabled }) => {
-  const maxOutputEnabled = typeof settings.maxOutputTokens === 'number';
-  const maxOutputValue = clampNumber(
-    settings.maxOutputTokens ?? MAX_OUTPUT_DEFAULT,
-    MAX_OUTPUT_MIN,
-    MAX_OUTPUT_MAX
-  );
-
-  return (
-    <div className="space-y-2 rounded-md bg-muted/30 p-2">
-      <div className="flex items-center justify-between">
-        <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
-          Output tokens / step
-        </Label>
-        <Switch
-          aria-label="Limit output tokens per step"
-          checked={maxOutputEnabled}
-          disabled={disabled}
-          onCheckedChange={(checked) =>
-            onUpdate({
-              maxOutputTokens: checked ? maxOutputValue : undefined,
-            })
-          }
-        />
-      </div>
-      <div className="flex items-center gap-2">
-        <Input
-          className="h-8 text-xs"
-          disabled={disabled || !maxOutputEnabled}
-          inputMode="numeric"
-          max={MAX_OUTPUT_MAX}
-          min={MAX_OUTPUT_MIN}
-          onChange={(event) => {
-            const parsed = parseNumber(event.target.value);
-            if (parsed === undefined) {
-              onUpdate({ maxOutputTokens: undefined });
-              return;
-            }
-            onUpdate({
-              maxOutputTokens: clampNumber(parsed, MAX_OUTPUT_MIN, MAX_OUTPUT_MAX),
-            });
-          }}
-          placeholder="Auto"
-          type="number"
-          value={maxOutputEnabled ? maxOutputValue : ''}
-        />
-        <span className="text-[10px] text-muted-foreground">
-          {maxOutputEnabled ? settingsNumberFormatter.format(maxOutputValue) : 'Auto'}
-        </span>
-      </div>
-      <input
-        aria-label="Max output tokens"
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-all hover:bg-muted/80"
-        disabled={disabled || !maxOutputEnabled}
-        max={MAX_OUTPUT_MAX}
-        min={MAX_OUTPUT_MIN}
-        onChange={(event) =>
-          onUpdate({
-            maxOutputTokens: clampNumber(
-              Number(event.target.value),
-              MAX_OUTPUT_MIN,
-              MAX_OUTPUT_MAX
-            ),
-          })
-        }
-        step={MAX_OUTPUT_STEP}
-        type="range"
-        value={maxOutputEnabled ? maxOutputValue : MAX_OUTPUT_DEFAULT}
-      />
-    </div>
-  );
-};
-
-const OpenAiReasoningSection: FC<ProviderSettingsSectionProps> = ({
-  settings,
-  onUpdate,
-  disabled,
-}) => (
-  <div className="space-y-2 rounded-md bg-muted/30 p-2">
-    <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
-      OpenAI reasoning
-    </Label>
-    <div className="grid gap-2">
-      <div className="space-y-1">
-        <span className="text-[10px] text-muted-foreground">Effort</span>
-        <Select
-          disabled={disabled}
-          onValueChange={(value) =>
-            onUpdate({
-              reasoningEffort: value === 'auto' ? undefined : (value as OpenAiReasoningEffort),
-            })
-          }
-          value={settings.reasoningEffort ?? 'auto'}
-        >
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue placeholder="Auto" />
-          </SelectTrigger>
-          <SelectContent>
-            {OPENAI_EFFORT_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="space-y-1">
-        <span className="text-[10px] text-muted-foreground">Reasoning summary</span>
-        <Select
-          disabled={disabled}
-          onValueChange={(value) =>
-            onUpdate({
-              reasoningSummary: value === 'off' ? undefined : (value as OpenAiReasoningSummary),
-            })
-          }
-          value={settings.reasoningSummary ?? 'off'}
-        >
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue placeholder="Auto" />
-          </SelectTrigger>
-          <SelectContent>
-            {OPENAI_SUMMARY_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-    </div>
-  </div>
-);
-
-const AnthropicReasoningSection: FC<ProviderSettingsSectionProps> = ({
-  settings,
-  onUpdate,
-  disabled,
-}) => {
-  const thinkingEnabled = typeof settings.anthropicThinkingBudgetTokens === 'number';
-  const thinkingValue = clampNumber(
-    settings.anthropicThinkingBudgetTokens ?? ANTHROPIC_THINKING_DEFAULT,
-    ANTHROPIC_THINKING_MIN,
-    ANTHROPIC_THINKING_MAX
-  );
-
-  return (
-    <div className="space-y-2 rounded-md bg-muted/30 p-2">
-      <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
-        Claude reasoning
-      </Label>
-      <div className="space-y-2">
-        <div className="space-y-1">
-          <span className="text-[10px] text-muted-foreground">Effort</span>
-          <Select
-            disabled={disabled}
-            onValueChange={(value) =>
-              onUpdate({
-                anthropicEffort: value === 'auto' ? undefined : (value as AnthropicEffort),
-              })
-            }
-            value={settings.anthropicEffort ?? 'auto'}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Auto" />
-            </SelectTrigger>
-            <SelectContent>
-              {ANTHROPIC_EFFORT_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2 rounded-md border border-border bg-background p-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
-              Thinking budget
-            </span>
-            <Switch
-              checked={thinkingEnabled}
-              disabled={disabled}
-              onCheckedChange={(checked) =>
-                onUpdate({
-                  anthropicThinkingBudgetTokens: checked ? thinkingValue : undefined,
-                })
-              }
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <Input
-              aria-label="Anthropic thinking budget input"
-              className="h-8 text-xs"
-              disabled={disabled || !thinkingEnabled}
-              inputMode="numeric"
-              max={ANTHROPIC_THINKING_MAX}
-              min={ANTHROPIC_THINKING_MIN}
-              onChange={(event) => {
-                const parsed = parseNumber(event.target.value);
-                if (parsed === undefined) {
-                  onUpdate({ anthropicThinkingBudgetTokens: undefined });
-                  return;
-                }
-                onUpdate({
-                  anthropicThinkingBudgetTokens: clampNumber(
-                    parsed,
-                    ANTHROPIC_THINKING_MIN,
-                    ANTHROPIC_THINKING_MAX
-                  ),
-                });
-              }}
-              placeholder="Auto"
-              type="number"
-              value={thinkingEnabled ? thinkingValue : ''}
-            />
-            <span className="text-[10px] text-muted-foreground">
-              {thinkingEnabled ? settingsNumberFormatter.format(thinkingValue) : 'Auto'}
-            </span>
-          </div>
-          <input
-            aria-label="Anthropic thinking budget"
-            className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-all hover:bg-muted/80"
-            disabled={disabled || !thinkingEnabled}
-            max={ANTHROPIC_THINKING_MAX}
-            min={ANTHROPIC_THINKING_MIN}
-            onChange={(event) =>
-              onUpdate({
-                anthropicThinkingBudgetTokens: clampNumber(
-                  Number(event.target.value),
-                  ANTHROPIC_THINKING_MIN,
-                  ANTHROPIC_THINKING_MAX
-                ),
-              })
-            }
-            step={ANTHROPIC_THINKING_STEP}
-            type="range"
-            value={thinkingEnabled ? thinkingValue : ANTHROPIC_THINKING_DEFAULT}
-          />
-        </div>
-      </div>
-    </div>
-  );
-};
-
-interface GoogleThinkingSectionProps extends ProviderSettingsSectionProps {
-  modelName?: string | undefined;
-}
-
-const GoogleThinkingSection: FC<GoogleThinkingSectionProps> = ({
-  settings,
-  onUpdate,
-  disabled,
-  modelName,
-}) => {
-  const isGeminiPro = Boolean(modelName?.includes('gemini-3-pro-preview'));
-  const googleThinkingLevels = isGeminiPro
-    ? GOOGLE_PRO_THINKING_LEVELS
-    : GOOGLE_FLASH_THINKING_LEVELS;
-
-  return (
-    <div className="space-y-2 rounded-md bg-muted/30 p-2">
-      <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
-        Gemini thinking
-      </Label>
-      <div className="space-y-2">
-        <div className="space-y-1">
-          <span className="text-[10px] text-muted-foreground">Thinking level</span>
-          <Select
-            disabled={disabled}
-            onValueChange={(value) =>
-              onUpdate({
-                googleThinkingLevel: value === 'auto' ? undefined : (value as GoogleThinkingLevel),
-              })
-            }
-            value={settings.googleThinkingLevel ?? 'auto'}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Auto" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">Auto</SelectItem>
-              {googleThinkingLevels.map((level) => (
-                <SelectItem key={level} value={level}>
-                  {level}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex items-center justify-between rounded-md border border-border bg-background p-2">
-          <div>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
-              Include thoughts
-            </p>
-            <p className="text-[10px] text-muted-foreground">Stream internal reasoning (debug).</p>
-          </div>
-          <Switch
-            checked={Boolean(settings.googleIncludeThoughts)}
-            disabled={disabled}
-            onCheckedChange={(checked) => onUpdate({ googleIncludeThoughts: checked })}
-          />
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const LocalThinkingSection: FC<ProviderSettingsSectionProps> = ({
-  settings,
-  onUpdate,
-  disabled,
-}) => (
-  <div className="space-y-2 rounded-md bg-muted/30 p-2">
-    <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
-      Gemma thinking
-    </Label>
-    <div className="flex items-center justify-between rounded-md border border-border bg-background p-2">
-      <div>
-        <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Enable thinking</p>
-        <p className="text-[10px] text-muted-foreground">
-          Include Gemma&apos;s internal reasoning phase before the final answer.
-        </p>
-      </div>
-      <Switch
-        checked={settings.localThinkingEnabled ?? true}
-        disabled={disabled}
-        onCheckedChange={(checked) => onUpdate({ localThinkingEnabled: checked })}
-      />
-    </div>
-  </div>
-);
-
-export const ProviderSettingsPanel: FC<ProviderSettingsPanelProps> = ({
-  providerId,
-  modelName,
-  settings,
-  onSettingsChange,
-}) => {
-  if (!providerId) {
-    return null;
-  }
-
-  const normalizedProvider = providerId.toLowerCase();
-  const isOpenAiFamily = normalizedProvider === 'openai' || normalizedProvider === 'openrouter';
-  const isAnthropic = normalizedProvider === 'anthropic';
-  const isGoogle = normalizedProvider === 'google';
-  const isLocal = normalizedProvider === 'local';
-
-  if (!(isOpenAiFamily || isAnthropic || isGoogle || isLocal)) {
-    return null;
-  }
-
-  const currentSettings = settings ?? {};
-  const canUpdate = Boolean(onSettingsChange);
-  const updateSettings: ProviderSettingsUpdate = (updates) => {
-    if (!onSettingsChange) {
-      return;
-    }
-    onSettingsChange(providerId, updates);
-  };
-
-  return (
-    <div className="space-y-3 rounded-md border border-border bg-background px-3 py-3">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
-            Reasoning & Output
-          </p>
-          <p className="text-muted-foreground text-xs">
-            Per-provider controls for reasoning depth and token limits.
-          </p>
-        </div>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-2">
-        <AgentRuntimeSection
-          disabled={!canUpdate}
-          onUpdate={updateSettings}
-          settings={currentSettings}
-        />
-        <MaxOutputSection
-          disabled={!canUpdate}
-          onUpdate={updateSettings}
-          settings={currentSettings}
-        />
-        {isOpenAiFamily ? (
-          <OpenAiReasoningSection
-            disabled={!canUpdate}
-            onUpdate={updateSettings}
-            settings={currentSettings}
-          />
-        ) : null}
-        {isAnthropic ? (
-          <AnthropicReasoningSection
-            disabled={!canUpdate}
-            onUpdate={updateSettings}
-            settings={currentSettings}
-          />
-        ) : null}
-        {isGoogle ? (
-          <GoogleThinkingSection
-            disabled={!canUpdate}
-            modelName={modelName}
-            onUpdate={updateSettings}
-            settings={currentSettings}
-          />
-        ) : null}
-        {isLocal ? (
-          <LocalThinkingSection
-            disabled={!canUpdate}
-            onUpdate={updateSettings}
-            settings={currentSettings}
-          />
-        ) : null}
-      </div>
-    </div>
-  );
-};
+export { ProviderSettingsPanel } from './provider-settings-panel';
 
 AssistantUiPanel.displayName = 'AssistantUiPanel';

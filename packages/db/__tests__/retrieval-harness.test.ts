@@ -1,4 +1,4 @@
-import { countTokensHeuristic } from '@brainstrike/text-splitter';
+import { countTokensHeuristic } from '@brainstrike/utils/token-counting-heuristics';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { migrate } from '../src/migrations/bootstrap.js';

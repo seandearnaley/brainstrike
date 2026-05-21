@@ -1,4 +1,7 @@
-import type { LocalRuntimeId, LocalRuntimeModelCatalogState } from '@brainstrike/agent/client';
+import type {
+  LocalRuntimeId,
+  LocalRuntimeModelCatalogState,
+} from '@brainstrike/assistant-contract/local-runtime';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAssistantPreferencesStore } from '../stores/assistant-preferences-store';
 

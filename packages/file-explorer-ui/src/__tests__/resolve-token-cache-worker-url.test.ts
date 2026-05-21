@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   resolveBackgroundIndexerWorkerUrlHref,
   resolveTokenCacheWorkerUrlHref,
-} from '../resolve-token-cache-worker-url';
+} from '../indexing/resolve-token-cache-worker-url';
 
 describe('resolve-token-cache-worker-url', () => {
   it('returns an app-owned token cache worker href', () => {

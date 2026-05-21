@@ -38,6 +38,7 @@ import { BrowserWindow } from 'electron';
 import type { z } from 'zod';
 import { getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
+import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { getWindowRole } from '../window-role';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 
@@ -59,8 +60,9 @@ const UPDATE_WORKSPACE_TAPESTRY_SELECTIONS_TOOL_ID =
   'brainstrike.updateWorkspaceTapestrySelections' as const;
 const LIST_EMBEDDING_SPACES_TOOL_ID = 'brainstrike.listEmbeddingSpaces' as const;
 const QUERY_EMBEDDING_SPACE_TOOL_ID = 'brainstrike.queryEmbeddingSpace' as const;
-const WORKSPACE_CONTEXT_SELECTION_EVENT = 'assistant:workspace-context-selection-update' as const;
-const WORKSPACE_CONTEXT_TAPESTRY_EVENT = 'assistant:workspace-context-tapestry-update' as const;
+const WORKSPACE_CONTEXT_SELECTION_EVENT =
+  DESKTOP_IPC_CHANNELS.agent.workspaceContextSelectionUpdate;
+const WORKSPACE_CONTEXT_TAPESTRY_EVENT = DESKTOP_IPC_CHANNELS.agent.workspaceContextTapestryUpdate;
 
 const DEFAULT_FILE_MAX_CHARS = 12_000;
 const MAX_READ_WORKSPACE_FILE_BYTES = 2_000_000;

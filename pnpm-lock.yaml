@@ -691,6 +691,9 @@ importers:
       '@ai-sdk/provider':
         specifier: 3.0.8
         version: 3.0.8
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
       '@brainstrike/text-splitter':
         specifier: workspace:*
         version: link:../text-splitter
@@ -746,9 +749,9 @@ importers:
 
   packages/app-shell:
     dependencies:
-      '@brainstrike/agent':
+      '@brainstrike/assistant-contract':
         specifier: workspace:*
-        version: link:../agent
+        version: link:../assistant-contract
       '@brainstrike/db-explorer':
         specifier: workspace:*
         version: link:../db-explorer
@@ -767,6 +770,12 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../file-system
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
+      '@brainstrike/pipeline':
+        specifier: workspace:*
+        version: link:../pipeline
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../preferences
@@ -826,11 +835,20 @@ importers:
         specifier: ^5.0.12
         version: 5.0.12(@types/react@19.2.14)(immer@10.2.0)(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5))
 
-  packages/build-utils:
+  packages/assistant-contract:
     dependencies:
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@edge-runtime/vm@3.2.0)(@types/node@25.6.0)(@vitest/browser-playwright@4.1.4)(@vitest/coverage-v8@4.1.4)(@vitest/ui@4.1.4)(happy-dom@20.9.0)(jsdom@29.0.2)(vite@8.0.8(@types/node@25.6.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/build-utils:
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*
@@ -907,12 +925,12 @@ importers:
       '@babel/parser':
         specifier: ^7.29.2
         version: 7.29.2
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../queue
-      '@brainstrike/text-splitter':
-        specifier: workspace:*
-        version: link:../text-splitter
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -986,9 +1004,9 @@ importers:
 
   packages/db-explorer:
     dependencies:
-      '@brainstrike/agent':
+      '@brainstrike/assistant-contract':
         specifier: workspace:*
-        version: link:../agent
+        version: link:../assistant-contract
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
@@ -1010,6 +1028,12 @@ importers:
       '@brainstrike/hooks':
         specifier: workspace:*
         version: link:../hooks
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
+      '@brainstrike/pipeline':
+        specifier: workspace:*
+        version: link:../pipeline
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../platform-utils
@@ -1080,6 +1104,9 @@ importers:
 
   packages/embedding-worker:
     dependencies:
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -1123,6 +1150,9 @@ importers:
       '@brainstrike/embedding-worker':
         specifier: workspace:*
         version: link:../embedding-worker
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../queue
@@ -1379,9 +1409,6 @@ importers:
 
   packages/file-import:
     dependencies:
-      '@brainstrike/agent':
-        specifier: workspace:*
-        version: link:../agent
       '@brainstrike/chunking-worker':
         specifier: workspace:*
         version: link:../chunking-worker
@@ -1391,6 +1418,9 @@ importers:
       '@brainstrike/embeddings':
         specifier: workspace:*
         version: link:../embeddings
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../queue
@@ -1527,9 +1557,6 @@ importers:
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
-      '@brainstrike/workers':
-        specifier: workspace:*
-        version: link:../workers
       file-saver:
         specifier: 2.0.5
         version: 2.0.5
@@ -1592,8 +1619,24 @@ importers:
         specifier: ^4.1.4
         version: 4.1.4(@edge-runtime/vm@3.2.0)(@types/node@25.6.0)(@vitest/browser-playwright@4.1.4)(@vitest/coverage-v8@4.1.4)(@vitest/ui@4.1.4)(happy-dom@20.9.0)(jsdom@29.0.2)(vite@8.0.8(@types/node@25.6.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
 
+  packages/indexing-contract:
+    dependencies:
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@edge-runtime/vm@3.2.0)(@types/node@25.6.0)(@vitest/browser-playwright@4.1.4)(@vitest/coverage-v8@4.1.4)(@vitest/ui@4.1.4)(happy-dom@20.9.0)(jsdom@29.0.2)(vite@8.0.8(@types/node@25.6.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
+
   packages/pipeline:
     dependencies:
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
       '@brainstrike/text-splitter':
         specifier: workspace:*
         version: link:../text-splitter
@@ -1628,21 +1671,18 @@ importers:
 
   packages/preferences:
     dependencies:
-      '@brainstrike/agent':
+      '@brainstrike/assistant-contract':
         specifier: workspace:*
-        version: link:../agent
+        version: link:../assistant-contract
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
-      '@brainstrike/embeddings':
+      '@brainstrike/indexing-contract':
         specifier: workspace:*
-        version: link:../embeddings
+        version: link:../indexing-contract
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
-      '@brainstrike/text-splitter':
-        specifier: workspace:*
-        version: link:../text-splitter
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -1692,9 +1732,9 @@ importers:
 
   packages/queue:
     dependencies:
-      '@brainstrike/embedding-worker':
+      '@brainstrike/indexing-contract':
         specifier: workspace:*
-        version: link:../embedding-worker
+        version: link:../indexing-contract
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
@@ -1878,6 +1918,10 @@ importers:
         version: 4.1.4(@edge-runtime/vm@3.2.0)(@types/node@25.6.0)(@vitest/browser-playwright@4.1.4)(@vitest/coverage-v8@4.1.4)(@vitest/ui@4.1.4)(happy-dom@20.9.0)(jsdom@29.0.2)(vite@8.0.8(@types/node@25.6.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/text-splitter:
+    dependencies:
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
     devDependencies:
       '@types/node':
         specifier: ^25.6.0
@@ -1973,15 +2017,12 @@ importers:
       '@assistant-ui/styles':
         specifier: ^0.3.7
         version: 0.3.7
-      '@brainstrike/agent':
+      '@brainstrike/assistant-contract':
         specifier: workspace:*
-        version: link:../agent
+        version: link:../assistant-contract
       '@brainstrike/hooks':
         specifier: workspace:*
         version: link:../hooks
-      '@brainstrike/storage':
-        specifier: workspace:*
-        version: link:../storage
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -2118,9 +2159,6 @@ importers:
 
   packages/utils:
     dependencies:
-      '@brainstrike/text-splitter':
-        specifier: workspace:*
-        version: link:../text-splitter
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -2176,6 +2214,9 @@ importers:
       '@brainstrike/hooks':
         specifier: workspace:*
         version: link:../hooks
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../preferences
@@ -22546,9 +22587,9 @@ snapshots:
       obug: 2.1.1
       std-env: 4.1.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.4(@edge-runtime/vm@3.2.0)(@types/node@25.6.0)(@vitest/browser-playwright@4.1.4)(@vitest/coverage-v8@4.1.4)(@vitest/ui@4.1.4)(happy-dom@20.9.0)(jsdom@29.0.2)(vite@8.0.8(@types/node@25.6.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
+      vitest: 4.1.4(@edge-runtime/vm@3.2.0)(@types/node@25.6.0)(@vitest/browser-playwright@4.1.4)(@vitest/coverage-v8@4.1.4)(@vitest/ui@4.1.4)(happy-dom@20.9.0)(jsdom@29.0.2)(vite@8.0.8(@types/node@25.6.0)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
     optionalDependencies:
-      '@vitest/browser': 4.1.4(vite@8.0.8(@types/node@25.6.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))(vitest@4.1.4)
+      '@vitest/browser': 4.1.4(vite@8.0.8(@types/node@25.6.0)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))(vitest@4.1.4)
 
   '@vitest/expect@4.1.4':
     dependencies:
@@ -22602,7 +22643,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.16
       tinyrainbow: 3.1.0
-      vitest: 4.1.4(@edge-runtime/vm@3.2.0)(@types/node@25.6.0)(@vitest/browser-playwright@4.1.4)(@vitest/coverage-v8@4.1.4)(@vitest/ui@4.1.4)(happy-dom@20.9.0)(jsdom@29.0.2)(vite@8.0.8(@types/node@25.6.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
+      vitest: 4.1.4(@edge-runtime/vm@3.2.0)(@types/node@25.6.0)(@vitest/browser-playwright@4.1.4)(@vitest/coverage-v8@4.1.4)(@vitest/ui@4.1.4)(happy-dom@20.9.0)(jsdom@29.0.2)(vite@8.0.8(@types/node@25.6.0)(esbuild@0.27.7)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
 
   '@vitest/utils@4.1.4':
     dependencies:

@@ -1,13 +1,16 @@
-import type { StorageAdapter } from '@brainstrike/storage';
-import { WebStorageAdapter } from '@brainstrike/storage';
 import * as React from 'react';
 
-type Theme = 'dark' | 'light' | 'system';
+export type Theme = 'dark' | 'light' | 'system';
+
+export interface ThemeStorageAdapter {
+  getItem(key: string): Promise<string | null>;
+  setItem(key: string, value: string): Promise<void>;
+}
 
 interface ThemeProviderProps {
   children: React.ReactNode;
   defaultTheme?: Theme;
-  storageAdapter?: StorageAdapter;
+  storageAdapter: ThemeStorageAdapter;
   storageKey?: string;
 }
 
@@ -28,12 +31,10 @@ export function ThemeProvider({
   const [theme, setTheme] = React.useState<Theme>(defaultTheme);
   const [mounted, setMounted] = React.useState(false);
 
-  const adapter = React.useMemo(() => storageAdapter ?? new WebStorageAdapter(), [storageAdapter]);
-
   // Only access storage after component is mounted (client-side)
   React.useEffect(() => {
     async function loadTheme() {
-      const savedTheme = (await adapter.getItem(storageKey)) as Theme | null;
+      const savedTheme = (await storageAdapter.getItem(storageKey)) as Theme | null;
       if (savedTheme) {
         setTheme(savedTheme);
       }
@@ -41,7 +42,7 @@ export function ThemeProvider({
     }
 
     void loadTheme();
-  }, [adapter, storageKey]);
+  }, [storageAdapter, storageKey]);
 
   React.useEffect(() => {
     const root = window.document.documentElement;
@@ -62,10 +63,10 @@ export function ThemeProvider({
 
   const setAndStoreTheme = React.useCallback(
     (newTheme: Theme) => {
-      void adapter.setItem(storageKey, newTheme);
+      void storageAdapter.setItem(storageKey, newTheme);
       setTheme(newTheme);
     },
-    [adapter, storageKey]
+    [storageAdapter, storageKey]
   );
 
   const value = React.useMemo(

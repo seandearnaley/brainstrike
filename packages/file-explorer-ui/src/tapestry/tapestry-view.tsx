@@ -1,7 +1,7 @@
 import { Checkbox, EmptyState, TablePagination, TooltipProvider } from '@brainstrike/ui';
 import { ChevronDown, ChevronRight, FileX2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { formatTokenCount } from '../use-preview-panel-state';
+import { formatTokenCount } from '../preview/use-preview-panel-state';
 import type { GroupedData, GroupKey, TableRowData } from '../utils/grouping-configs';
 import { formatPreviewFileSize } from '../utils/preview-formatters';
 import { Minimap } from './minimap';

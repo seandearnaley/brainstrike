@@ -5,7 +5,7 @@
  * table contracts from this module for both browser and Electron contexts.
  */
 
-import type { ResolvedChunkingStrategy } from '@brainstrike/text-splitter';
+import type { ResolvedChunkingStrategy } from '@brainstrike/indexing-contract';
 import { sql } from 'drizzle-orm';
 import {
   bigint,

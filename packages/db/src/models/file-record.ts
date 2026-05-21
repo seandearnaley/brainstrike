@@ -1,4 +1,4 @@
-import type { ResolvedChunkingStrategy } from '@brainstrike/text-splitter';
+import type { ResolvedChunkingStrategy } from '@brainstrike/indexing-contract';
 
 export interface FileRecord {
   chunkingStrategy?: ResolvedChunkingStrategy; // Canonical strategy actually used for chunking

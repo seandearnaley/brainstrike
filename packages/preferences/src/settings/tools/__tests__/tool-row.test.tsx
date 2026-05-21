@@ -62,8 +62,8 @@ vi.mock('@brainstrike/ui', () => ({
   cn: (...args: (string | boolean | undefined)[]) => args.filter(Boolean).join(' '),
 }));
 
-// Mock @brainstrike/agent/client
-vi.mock('@brainstrike/agent/client', () => ({
+// Mock @brainstrike/assistant-contract/local-runtime
+vi.mock('@brainstrike/assistant-contract/local-runtime', () => ({
   TOOL_CATEGORIES: {
     retrieval: {
       id: 'retrieval',

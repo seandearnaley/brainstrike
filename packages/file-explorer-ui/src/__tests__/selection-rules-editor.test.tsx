@@ -17,8 +17,8 @@ const mockSetSelectionMode = vi.fn();
 const mockSetSelectionRules = vi.fn();
 const mockClearSelectionRules = vi.fn();
 
-vi.mock('../file-explorer-provider', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../file-explorer-provider')>();
+vi.mock('../shell/file-explorer-provider', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../shell/file-explorer-provider')>();
   const useFileExplorerStoreContext = vi.fn(() => {
     const mockStore = vi.fn((selector: (state: unknown) => unknown) =>
       selector({

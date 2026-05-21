@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brainstrike Pipeline Risk Lanes - 2026-05-20</title>
+<style>
+  :root {
+    --bg: #0c0f14;
+    --panel: #151922;
+    --panel-2: #1b2230;
+    --text: #eef2f8;
+    --muted: #a8b2c2;
+    --soft: #748094;
+    --line: #2a3343;
+    --good: #45d69b;
+    --warn: #ffd166;
+    --bad: #ff6b7a;
+    --blue: #7aa2ff;
+    --cyan: #68e1fd;
+    --ink: #0b1220;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.55 var(--sans);
+  }
+  main { max-width: 1180px; margin: 0 auto; padding: 40px 24px 80px; }
+  header {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: linear-gradient(135deg, #182032, #10141c);
+    padding: 30px;
+    margin-bottom: 22px;
+  }
+  .eyebrow { color: var(--cyan); font: 700 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+  h1 { margin: 10px 0 12px; font-size: 36px; line-height: 1.08; letter-spacing: -.03em; }
+  h2 { margin: 0 0 8px; font-size: 22px; letter-spacing: -.02em; }
+  h3 { margin: 20px 0 8px; font-size: 15px; color: var(--text); }
+  p { margin: 0 0 12px; color: var(--muted); }
+  code { font-family: var(--mono); color: #b7f7df; background: #0d1219; border: 1px solid #202838; border-radius: 5px; padding: 1px 5px; }
+  section { margin: 26px 0; }
+  .grid { display: grid; gap: 14px; }
+  .cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px;
+  }
+  .metric { font: 700 28px/1 var(--mono); color: var(--blue); margin: 8px 0; }
+  .label { color: var(--soft); font: 700 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+  .ok { color: var(--good); }
+  .warn { color: var(--warn); }
+  .bad { color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; overflow: hidden; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); }
+  th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { background: var(--panel-2); color: var(--soft); font: 700 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+  tr:last-child td { border-bottom: 0; }
+  td.num { text-align: right; font-family: var(--mono); color: var(--blue); white-space: nowrap; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 4px 9px; margin: 2px; color: var(--muted); background: #111722; font: 700 11px/1 var(--mono); }
+  .pill.good { border-color: rgba(69,214,155,.35); color: var(--good); }
+  .pill.warn { border-color: rgba(255,209,102,.35); color: var(--warn); }
+  .pill.bad { border-color: rgba(255,107,122,.35); color: var(--bad); }
+  .flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+  .arrow { color: var(--soft); font-family: var(--mono); }
+  .note { color: var(--soft); font-size: 12px; }
+  @media (max-width: 900px) { .cols-3, .cols-2 { grid-template-columns: 1fr; } main { padding: 22px 14px; } h1 { font-size: 28px; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">Local-only pipeline reset evidence</div>
+    <h1>Make the Brainstrike pipeline risk-based, timed, and boring</h1>
+    <p>This report records the local implementation state as of 2026-05-20 02:05 EDT. No cloud CI, PR updates, proof manifest refresh, or full E2E run was triggered for this slice.</p>
+    <div class="flow">
+      <span class="pill good">178 script/workflow tests passed</span>
+      <span class="pill good">0 cloud activity</span>
+      <span class="pill warn">concurrency evidence is warm-cache only</span>
+      <span class="pill">branch: codex/local-architecture-reset</span>
+    </div>
+  </header>
+
+  <section class="grid cols-3">
+    <div class="card">
+      <div class="label">Default proof model</div>
+      <div class="metric">risk lane</div>
+      <p><code>ci:select</code> now emits a deterministic <code>riskProfile</code> and aggregate <code>budget</code> with category, owners, local proof commands, E2E lanes, target wall time, and cloud labels.</p>
+    </div>
+    <div class="card">
+      <div class="label">Timing model</div>
+      <div class="metric">p50/p95</div>
+      <p><code>ci-timing-summary</code> can now emit machine-readable JSON and calibration mode. <code>ci:proof-timing-summary</code> aggregates proof manifests into per-lane median/p95 status without running proof commands. <code>ci:calibrate-proof-commands</code> times explicit local proof commands without proof-manifest churn, and <code>ci:risk-audit</code> compares selected commands with measured calibration evidence before expensive proof runs.</p>
+    </div>
+    <div class="card">
+      <div class="label">Failure ownership</div>
+      <div class="metric">owner</div>
+      <p>Every local proof command now carries an owner such as <code>tooling</code>, <code>indexing</code>, <code>desktop-platform</code>, or <code>workspace-experience</code>. Failing proof commands include that owner in the error, and the risk audit reports missing or calibrating measurement evidence by owner.</p>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Implemented Lane Taxonomy</h2>
+    <table>
+      <thead><tr><th>Risk category</th><th>Representative paths</th><th>Local proof commands</th><th>Cloud labels</th><th>E2E lanes</th></tr></thead>
+      <tbody>
+        <tr><td>docs-only</td><td><code>docs/</code>, <code>apps/docs/</code>, markdown/html</td><td><code>diff-check</code>, <code>docs-static</code></td><td>none</td><td>none</td></tr>
+        <tr><td>config-tooling</td><td><code>scripts/</code>, tool contracts, local config</td><td><code>diff-check</code>, <code>ci-script-tests</code>, <code>workflow-contracts</code></td><td><code>ci:coverage</code></td><td>none</td></tr>
+        <tr><td>isolated-unit-test-only</td><td>app/package unit and integration test files, excluding <code>e2e/</code></td><td><code>diff-check</code>, <code>changed-unit-tests</code></td><td><code>ci:coverage</code></td><td>none</td></tr>
+        <tr><td>assistant-contract-runtime</td><td><code>packages/assistant-contract/</code>, assistant UI/runtime seams</td><td><code>assistant-contract-tests</code>, <code>app-shell-tests</code></td><td><code>ci:web-e2e</code>, <code>ci:coverage</code></td><td>critical web smoke</td></tr>
+        <tr><td>indexing-import-embedding</td><td><code>indexing-contract</code>, <code>pipeline</code>, <code>embeddings</code>, vector management</td><td><code>indexing-tests</code>, optional <code>embedding-tests</code></td><td><code>ci:desktop</code>, <code>ci:embedding</code>, <code>ci:coverage</code> only for embedding risk</td><td>embedding diagnostics only when touched</td></tr>
+        <tr><td>db-migrations-storage</td><td><code>packages/db/</code>, migrations, storage</td><td><code>db-tests</code>, optional <code>migration-tests</code></td><td><code>ci:browser</code>, <code>ci:coverage</code></td><td>destructive/reset only for migrations</td></tr>
+        <tr><td>desktop-platform-ipc-preload</td><td><code>apps/desktop/src/preload.ts</code>, IPC, host/runtime boundaries</td><td><code>desktop-unit-tests</code>, <code>desktop-smoke-tests</code></td><td><code>ci:desktop</code>, <code>ci:coverage</code></td><td>desktop smoke/regression</td></tr>
+        <tr><td>web-ui-file-explorer</td><td><code>apps/web/</code>, <code>file-explorer-ui</code>, shared UI</td><td><code>file-explorer-tests</code>, <code>web-smoke-tests</code></td><td><code>ci:web-e2e</code>, <code>ci:coverage</code></td><td>web functional/stateful</td></tr>
+        <tr><td>full-release-high-risk</td><td><code>.github/</code>, lockfile, workspace/turbo/vitest/playwright config</td><td><code>full-local-suite</code> explicit only</td><td><code>ci:full</code></td><td>all lanes including long soak</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="grid cols-2">
+    <div class="card">
+      <h2>E2E Lane Contract</h2>
+      <div class="flow">
+        <span class="pill good">critical-smoke</span><span class="arrow">uses</span><span class="pill">@smoke</span>
+        <span class="pill good">web-functional-stateful</span><span class="arrow">uses</span><span class="pill">@stateful split</span>
+        <span class="pill good">desktop-smoke-regression</span><span class="arrow">uses</span><span class="pill">@smoke</span>
+        <span class="pill warn">desktop-embedding-diagnostics</span><span class="arrow">uses</span><span class="pill">@desktop-embedding lifecycle/backfill/search/recovery/memory/mixed</span>
+        <span class="pill warn">destructive-reset</span><span class="arrow">uses</span><span class="pill">@destructive</span>
+        <span class="pill bad">long-soak-release-only</span><span class="arrow">uses</span><span class="pill">explicit full suite</span>
+      </div>
+      <p class="note">Crash repro embedding groups remain out of default PR-risk proof. They are release/diagnostic lanes, not normal feedback loops.</p>
+    </div>
+    <div class="card">
+      <h2>Current Branch Selection</h2>
+      <p>The current local branch still selects <code>full-release-high-risk</code> versus <code>origin/main</code> because the branch contains broad architecture-reset changes including package/config/workspace files. That is expected for this branch and does not change the default behavior for smaller future diffs.</p>
+      <div class="flow">
+        <span class="pill bad">selected: ci:full</span>
+        <span class="pill">expanded: browser</span>
+        <span class="pill">web-e2e</span>
+        <span class="pill">desktop</span>
+        <span class="pill">embedding</span>
+        <span class="pill">coverage</span>
+      </div>
+      <p class="note">The generated current-branch audit is <code>calibrating</code>, not missing: normal selected commands have five measured samples each, and release-only <code>full-local-suite</code> has one explicit green sample at 30m 05s. The refreshed <code>ci-script-tests</code> calibration is current, and one stale pre-refresh sample is ignored rather than trusted. See <code>pipeline-risk-audit-current-2026-05-20.md</code> and <code>pipeline-risk-audit-current-2026-05-20.json</code>.</p>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Concurrency Benchmark</h2>
+    <p>Benchmark command: <code>pnpm exec turbo run build --filter=@brainstrike/assistant-contract --filter=@brainstrike/indexing-contract --filter=@brainstrike/file-explorer-ui --filter=@brainstrike/app-shell --summarize --log-order=grouped</code>.</p>
+    <table>
+      <thead><tr><th>Concurrency</th><th class="num">Exit</th><th class="num">Wall time</th><th class="num">Cache hits</th><th>Interpretation</th></tr></thead>
+      <tbody>
+        <tr><td>16</td><td class="num">0</td><td class="num">0.58s</td><td class="num">30</td><td>Fully warm-cache replay; no regression.</td></tr>
+        <tr><td>24</td><td class="num">0</td><td class="num">0.59s</td><td class="num">30</td><td>Equivalent warm-cache overhead.</td></tr>
+        <tr><td>32</td><td class="num">0</td><td class="num">0.58s</td><td class="num">30</td><td>Equivalent warm-cache overhead.</td></tr>
+        <tr><td>40</td><td class="num">0</td><td class="num">0.57s</td><td class="num">30</td><td>Best warm-cache time by 0.01s; current <code>turbo.jsonc</code> default is defensible for cached local work.</td></tr>
+      </tbody>
+    </table>
+    <p class="note">Limitation: this does not prove cold-build CPU saturation behavior. It proves that the current default <code>concurrency: 40</code> is not adding observable warm-cache overhead on the target machine for the representative build slice. Cold-cache benchmarking should be a separate explicit run because it is intentionally more expensive.</p>
+  </section>
+
+  <section class="card">
+    <h2>Fresh Local Timing Samples</h2>
+    <p>Measured locally on 2026-05-20 after the fixture contract landed. These samples cover docs-only, config/tooling, workflow contracts, assistant, indexing, DB, storage, file-system, web UI, web smoke, migration, desktop unit, desktop smoke, and one explicit release-full-risk proof. They deliberately do not claim repeated-sample release p95 evidence or default desktop embedding diagnostics.</p>
+    <table>
+      <thead><tr><th>Command</th><th>Lane use</th><th class="num">Wall time</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td><code>git diff --check</code></td><td>all local proofs</td><td class="num">0.00s</td><td>passed</td></tr>
+        <tr><td><code>git diff --check -- docs apps/docs README.md AGENTS.md CLAUDE.md</code></td><td>docs-only</td><td class="num">0.00s</td><td>passed</td></tr>
+        <tr><td><code>node --test ...ci-script-tests...</code></td><td>config/tooling</td><td class="num">0.08s</td><td>64 tests passed</td></tr>
+        <tr><td><code>pnpm run ci:risk-fixtures</code></td><td>config/tooling</td><td class="num">0.16s</td><td>14 representative cases passed</td></tr>
+        <tr><td><code>node --test scripts/__tests__/check-ci-workflow-contracts.test.mjs</code></td><td>workflow-contracts</td><td class="num">0.12s</td><td>65 tests passed</td></tr>
+        <tr><td><code>pnpm run lint:ci-workflow-contracts</code></td><td>workflow-contracts</td><td class="num">0.16s</td><td>passed</td></tr>
+        <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command diff-check --command ci-script-tests --command workflow-contracts</code></td><td>tooling calibration</td><td class="num">0.61s</td><td>all commands under budget; JSON written to <code>pipeline-calibration-sample-2026-05-20.json</code></td></tr>
+        <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command ci-script-tests</code></td><td>refreshed script-test calibration</td><td class="num">0.32s</td><td>Refreshed after adding <code>ci-risk-audit</code> to the script-test bundle. JSON written to <code>pipeline-calibration-ci-script-tests-2026-05-20.json</code>; the older stale sample is ignored by the summary.</td></tr>
+        <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command diff-check --command ci-script-tests --command workflow-contracts</code> × 4</td><td>selected normal-risk calibration</td><td class="num">0.27–0.32s each</td><td>Raised <code>diff-check</code>, <code>ci-script-tests</code>, and <code>workflow-contracts</code> to 5 current samples each. Artifacts written as <code>pipeline-calibration-selected-normal-2/3/4/5-2026-05-20.json</code>.</td></tr>
+        <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command assistant-contract-tests --command indexing-tests --command storage-tests --command file-system-tests</code> × 4</td><td>low-cost product calibration</td><td class="num">14.5–14.7s each</td><td>Raised assistant, indexing, storage, and file-system commands to 5 samples each. Current p95s are 8.1s, 4.8s, 0.918s, and 1.2s respectively; artifacts written as <code>pipeline-calibration-cheap-product-2/3/4/5-2026-05-20.json</code>.</td></tr>
+        <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command file-explorer-tests --command migration-tests</code> × 4</td><td>web UI package + migration calibration</td><td class="num">54.4–54.9s each</td><td>Raised file-explorer and migration commands to 5 samples each. Current p95s are 22.1s and 33.9s respectively; artifacts written as <code>pipeline-calibration-webui-migration-2/3/4/5-2026-05-20.json</code>.</td></tr>
+        <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command web-smoke-tests --command desktop-smoke-tests</code> × 4</td><td>web + desktop smoke calibration</td><td class="num">56.9–60.2s each</td><td>Raised web smoke and desktop smoke commands to 5 samples each. Current p95s are 33.1s and 28.3s respectively; artifacts written as <code>pipeline-calibration-smoke-lanes-2/3/4/5-2026-05-20.json</code>.</td></tr>
+        <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command desktop-unit-tests</code> × 4</td><td>desktop unit calibration</td><td class="num">50.8–51.1s each</td><td>Raised desktop unit tests to 5 samples. Current p95 is 51.1s; artifacts written as <code>pipeline-calibration-desktop-unit-2/3/4/5-2026-05-20.json</code>.</td></tr>
+        <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command db-tests</code> × 4</td><td>DB calibration</td><td class="num">257.2–264.1s each</td><td>Raised DB tests to 5 samples. Current p95 is 4m 30s against a 5m budget; artifacts written as <code>pipeline-calibration-db-2/3/4/5-2026-05-20.json</code>.</td></tr>
+        <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command assistant-contract-tests</code></td><td>assistant product lane</td><td class="num">8.09s</td><td>assistant-contract and agent package tests passed; JSON written to <code>pipeline-calibration-assistant-2026-05-20.json</code></td></tr>
+        <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command db-tests --command indexing-tests</code></td><td>data/indexing product lanes</td><td class="num">274.37s</td><td>DB passed in 269.54s and exposed an undersized 180s budget; indexing passed in 4.82s. JSON written to <code>pipeline-calibration-db-indexing-2026-05-20.json</code>.</td></tr>
+        <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command storage-tests --command file-system-tests</code></td><td>storage/file-system product lanes</td><td class="num">2.13s</td><td>Storage passed in 0.918s and file-system passed in 1.209s. These now route to package-owned tests instead of the 269.54s DB suite. JSON written to <code>pipeline-calibration-storage-filesystem-2026-05-20.json</code>.</td></tr>
+        <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command file-explorer-tests</code></td><td>web UI/file explorer package lane</td><td class="num">22.08s</td><td>File explorer UI passed 1,364 tests across 123 files; file-explorer core passed 422 tests across 29 files. JSON written to <code>pipeline-calibration-file-explorer-2026-05-20.json</code>.</td></tr>
+        <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command web-smoke-tests</code></td><td>web smoke E2E lane</td><td class="num">33.14s</td><td>Playwright functional smoke ran 45 tests with 44 passed and 1 skipped using 2 workers. JSON written to <code>pipeline-calibration-web-smoke-2026-05-20.json</code>.</td></tr>
+        <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command migration-tests</code></td><td>DB migration lane</td><td class="num">33.52s</td><td>The first run exposed a stale glob that matched no files. The command now targets three existing migration tests, which passed 64 tests. JSON written to <code>pipeline-calibration-migration-2026-05-20.json</code>.</td></tr>
+        <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command desktop-unit-tests</code></td><td>desktop unit lane</td><td class="num">49.79s</td><td>Desktop Vitest passed 945 tests across 107 files. JSON written to <code>pipeline-calibration-desktop-unit-2026-05-20.json</code>.</td></tr>
+        <tr><td><code>pnpm run ci:calibrate-proof-commands -- --command desktop-smoke-tests</code></td><td>desktop smoke E2E lane</td><td class="num">28.34s</td><td>Electron smoke passed 6 tests across assistant panel, background indexing pause, and file-system access. JSON written to <code>pipeline-calibration-desktop-smoke-2026-05-20.json</code>.</td></tr>
+        <tr><td><code>pnpm run ci:calibrate-proof-commands -- --allow-full --command full-local-suite</code></td><td>release-only first attempt</td><td class="num">1m 13s</td><td>Failed in <code>@brainstrike/agent</code> before E2E because <code>mcp-tool-loader.spec.ts</code> asserted a real wall-clock timeout under 100ms; under suite contention it took 114ms. The failed evidence is preserved outside the calibration ingest glob as <code>pipeline-failed-calibration-full-local-suite-2026-05-20.json</code>.</td></tr>
+        <tr><td><code>pnpm run ci:calibrate-proof-commands -- --allow-full --command full-local-suite</code></td><td>release-only full proof</td><td class="num">30m 05s</td><td>Build, lint, type-check, unit, and E2E passed as an explicit full-risk proof. Turbo reported 38/38 tasks successful, 36 cached; desktop E2E passed 118 tests with 5 skipped. JSON written to <code>pipeline-calibration-full-local-suite-2026-05-20.json</code>.</td></tr>
+        <tr><td><code>pnpm run ci:calibration-summary -- --input-dir docs/architecture-reset</code></td><td>calibration aggregation</td><td class="num">0.03s</td><td>Aggregated 35 calibration files / 66 current command samples into <code>pipeline-calibration-summary-2026-05-20.json</code> and <code>pipeline-calibration-summary-2026-05-20.md</code>. It detects stale command definitions, ignores stale samples when refreshed evidence exists, and exits non-zero when all evidence for a command is stale.</td></tr>
+        <tr><td><code>pnpm run ci:calibration-summary -- --selection ... --gap-output ...</code></td><td>calibration gap planning</td><td class="num">0.02s</td><td>Generated <code>pipeline-calibration-gap-plan-2026-05-20.md</code> and JSON. Current full-risk branch now needs 4 selected samples before hard selected-lane p95 status, all release-only <code>full-local-suite</code> repeats.</td></tr>
+        <tr><td><code>pnpm run ci:risk-audit -- --selection ... --calibration ...</code></td><td>selected-lane measurement audit</td><td class="num">0.02s</td><td>Compared current <code>ci:select</code> output with calibration evidence. Current full-risk branch reports <code>calibrating</code> for <code>full-local-suite</code>; selected normal PR-risk commands are measured and within target.</td></tr>
+      </tbody>
+    </table>
+    <p class="note">All normal proof commands now have five-sample local p95 evidence and are within their budgets. DB remains the slowest normal command at p95 4m 30s, but the recalibrated 5m budget is evidence-backed rather than guessed.</p>
+  </section>
+
+  <section class="card">
+    <h2>Done Conditions</h2>
+    <table>
+      <thead><tr><th>Condition</th><th>Status</th><th>Evidence / remaining work</th></tr></thead>
+      <tbody>
+        <tr><td>10 representative changes select deterministic lanes</td><td class="ok">met with fixture contract</td><td><code>scripts/ci-risk-fixtures.json</code> records 14 representative diffs, including isolated unit-test-only, storage, and file-system edits. <code>scripts/check-ci-risk-fixtures.mjs</code> verifies category, cloud labels, E2E lanes, and local proof commands; it now also fails closed if an expected or actual E2E lane is not registered in the executable lane taxonomy.</td></tr>
+        <tr><td>Median local PR-risk proof under 8 minutes</td><td class="ok">measured locally</td><td>All normal local proof commands now have 5 samples and are within budget. The slowest normal command is DB at p95 4m 30s; all other normal commands are below 1 minute p95 except desktop unit at 51.1s.</td></tr>
+        <tr><td>p95 local PR-risk proof under 15 minutes</td><td class="ok">measured locally</td><td><code>ci:calibration-summary</code> aggregates 35 calibration files / 66 command samples. Every normal command has 5 samples and <code>within-target</code> status; release-only <code>full-local-suite</code> has one explicit green sample and remains outside default PR-risk p95 accounting.</td></tr>
+        <tr><td>Critical PR/cloud gate under 12 minutes p95 for non-E2E changes</td><td class="warn">design present</td><td>Cloud path was not triggered per constraint. Local selector now avoids E2E for docs/config where appropriate.</td></tr>
+        <tr><td>Normal UI/product PR gate under 20 minutes p95</td><td class="ok">measured locally</td><td>Web UI lanes route to file-explorer package tests plus smoke first, not full E2E by default. File explorer package tests are p95 22.1s and web smoke is p95 33.1s.</td></tr>
+        <tr><td>Full suite remains explicit full-risk/release proof</td><td class="ok">met</td><td><code>full-local-suite</code> is selected only for full-release-high-risk. Direct <code>ci:select</code> from this branch to <code>origin/main</code> selects <code>ci:full</code> with a 60-minute release target and a 50.5-minute selected-command budget; the explicit release proof passed in 30m 05s under its 45-minute command budget.</td></tr>
+        <tr><td>No unrelated desktop embedding diagnostics</td><td class="ok">met in tests and sample</td><td>Docs, config, assistant, DB migration, web/file explorer, and desktop preload negatives avoid embedding diagnostics unless embedding host/risk is present. The measured desktop platform sample ran unit plus smoke only, not embedding diagnostics.</td></tr>
+        <tr><td>No full web functional E2E for docs/config/isolated unit changes</td><td class="ok">met in tests</td><td>Docs-only, config-tooling, and isolated-unit-test-only select no E2E lane. The changed-test runner plans package-owned Vitest commands and excludes <code>e2e/</code> specs.</td></tr>
+        <tr><td>Concurrency 16/24/32/40 measured and documented</td><td class="ok">met with warm-cache caveat</td><td>Recorded above; chosen value remains 40 for cached local work.</td></tr>
+        <tr><td>Lane taxonomy and timing budgets documented</td><td class="ok">met</td><td>This artifact plus command registry, aggregate budget output in <code>scripts/ci-select.mjs</code>, and calibration summary artifacts in <code>docs/architecture-reset/</code>.</td></tr>
+        <tr><td>Unit tests cover selection and timing parsing</td><td class="ok">met</td><td>180 script/workflow tests passed locally. Coverage includes selector, E2E lane registry validation, timing summary, proof summary, calibration gap planning, calibration summary stale-command detection, risk audit, workflow contract, fixture, changed-unit-test, and calibration command behavior.</td></tr>
+        <tr><td>Architecture guards still pass</td><td class="ok">met</td><td><code>pnpm run arch:domain-contract</code> passed: 39 packages across 7 domains and 5 stack phases. <code>pnpm run arch:domain-boundaries</code> passed: 1968 imports across 2809 files; 0/0 approved boundary exceptions used.</td></tr>
+        <tr><td>No proof-manifest churn</td><td class="ok">met for this slice</td><td>No changes to <code>.ci/proof/latest.json</code> from this work.</td></tr>
+        <tr><td>Clean working tree after commits</td><td class="ok">met after local commit</td><td>This final evidence update is committed locally; no proof manifest was refreshed.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>Calibration Gap Plan</h2>
+    <p>The current branch is full-risk because it includes pipeline/config/tooling changes. The gap plan makes the remaining measurement work explicit instead of implying that one sample proves p95.</p>
+    <table>
+      <thead><tr><th>Scope</th><th class="num">Missing samples</th><th>Interpretation</th></tr></thead>
+      <tbody>
+        <tr><td>Selected commands on current branch</td><td class="num">4</td><td>Remaining selected samples are release-only repeats, not normal PR-risk feedback-loop work.</td></tr>
+        <tr><td>Normal PR-risk selected commands</td><td class="num">0</td><td><code>diff-check</code>, <code>ci-script-tests</code>, and <code>workflow-contracts</code> each have 5 current samples and are within target.</td></tr>
+        <tr><td>Release-only selected commands</td><td class="num">4</td><td><code>full-local-suite</code> has one explicit green calibration sample and would need four more explicit release-only samples before hard p95 status.</td></tr>
+      </tbody>
+    </table>
+    <p class="note">The gap plan has no normal PR-risk missing samples. The only selected missing samples are release-only <code>full-local-suite</code> samples, which remain outside the default feedback loop by design.</p>
+  </section>
+
+  <section class="card">
+    <h2>Recommendation</h2>
+    <p>Keep <code>turbo.jsonc</code> concurrency at <code>40</code> for now, because warm-cache evidence shows no overhead regression. Do not claim cold-build speedup yet. The next measurable improvement should be reducing or splitting the DB suite, because it is the only normal command whose p95 approaches the local PR-risk target budget.</p>
+  </section>
+</main>
+</body>
+</html>

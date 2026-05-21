@@ -26,11 +26,8 @@ export type ParserFlag = 'auto' | 'babel' | 'oxc';
 export type TreeSitterLanguage = 'python';
 
 declare global {
-  // biome-ignore lint/style/useNamingConvention: shared global keyed by intentionally-unique screaming-snake name
   var __BRAINSTRIKE_PARSER_ENV__: ParserEnvironment | undefined;
-  // biome-ignore lint/style/useNamingConvention: shared global keyed by intentionally-unique screaming-snake name
   var __BRAINSTRIKE_PARSER_FLAG__: ParserFlag | undefined;
-  // biome-ignore lint/style/useNamingConvention: shared global keyed by intentionally-unique screaming-snake name
   var __BRAINSTRIKE_TREE_SITTER_LANGUAGES__: readonly string[] | undefined;
 }
 

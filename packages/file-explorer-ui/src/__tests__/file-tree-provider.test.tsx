@@ -10,7 +10,7 @@ import {
   useOptionalFileTreeContext,
   useOptionalFileTreeIndexContext,
   useOptionalFileTreeNormalizedContext,
-} from '../file-tree-provider';
+} from '../tree/file-tree-provider';
 
 const {
   addNodesMock,
@@ -32,7 +32,7 @@ const {
   useFileTreeMock: vi.fn(),
 }));
 
-vi.mock('../file-explorer-provider', () => ({
+vi.mock('../shell/file-explorer-provider', () => ({
   useFileExplorerStoreContext: () => storeMock,
   useFileExplorerStoreSelector: (
     selector: (state: {
@@ -50,11 +50,11 @@ vi.mock('../use-expanded-path-restoration', () => ({
   useExpandedPathRestoration: useExpandedPathRestorationMock,
 }));
 
-vi.mock('../use-file-tree-context', () => ({
+vi.mock('../tree/use-file-tree-context', () => ({
   useFileTree: useFileTreeMock,
 }));
 
-vi.mock('../file-tree-index', () => ({
+vi.mock('../tree/file-tree-index', () => ({
   FileTreeIndex: class {
     public stats = {
       totalDirectories: 1,

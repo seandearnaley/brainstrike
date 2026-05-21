@@ -1,3 +1,11 @@
+import {
+  countTokensHeuristic,
+  estimateTokenCost,
+  formatTokenCount,
+} from '@brainstrike/utils/token-counting-heuristics';
+
+export { countTokensHeuristic, estimateTokenCost, formatTokenCount };
+
 export type ResolvedChunkingStrategy =
   | 'character'
   | 'recursive'
@@ -60,39 +68,10 @@ export interface StrategyTextSplitterOptions extends RecursiveTextSplitterOption
   strategy: ResolvedChunkingStrategy;
 }
 
-export function countTokensHeuristic(text: string): number {
-  if (!text) {
-    return 0;
-  }
-  return Math.max(1, Math.ceil(text.length / 4));
-}
-
 export const MARKDOWN_CODE_FENCE_PATTERN = /^\s*(`{3,}|~{3,})/;
 
 export function isMarkdownBlockBoundaryLine(line: string): boolean {
   return MARKDOWN_CODE_FENCE_PATTERN.test(line) || /^(#{1,6})\s+/.test(line) || line.trim() === '';
-}
-
-export function formatTokenCount(count: number): string {
-  if (count < 1000) {
-    return `${count} tokens`;
-  }
-
-  if (count < 1_000_000) {
-    return `${(count / 1000).toFixed(1)}K tokens`;
-  }
-
-  return `${(count / 1_000_000).toFixed(1)}M tokens`;
-}
-
-export function estimateTokenCost(inputTokens: number, outputTokens = 0): number {
-  // These rates are only a UI heuristic for quick cost previews and are not used
-  // for billing or enforcement. They are loosely aligned with GPT-4-class pricing
-  // as of early 2026 (last verified 2026-03) and must be updated intentionally
-  // alongside model pricing.
-  const inputCost = inputTokens * 0.000_01;
-  const outputCost = outputTokens * 0.000_03;
-  return inputCost + outputCost;
 }
 
 const CODE_EXTENSIONS = new Set([

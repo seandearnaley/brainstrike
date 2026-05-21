@@ -5,7 +5,6 @@
     "incremental": true,
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": true,
-    "emitDeclarationOnly": true,
     "outDir": "./dist",
     "rootDir": "src",
     "declarationMap": true,
@@ -23,6 +22,9 @@
     "**/*.test.ts"
   ],
   "references": [
+    {
+      "path": "../indexing-contract"
+    },
     {
       "path": "../text-splitter"
     },

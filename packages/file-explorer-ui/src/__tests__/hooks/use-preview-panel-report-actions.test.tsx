@@ -2,8 +2,8 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import { renderHook } from '@testing-library/react';
 import type React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { useFileExplorerStoreContext } from '../../file-explorer-provider';
-import { usePreviewPanelReportActions } from '../../hooks/use-preview-panel-report-actions';
+import { usePreviewPanelReportActions } from '../../preview/use-preview-panel-report-actions';
+import type { useFileExplorerStoreContext } from '../../shell/file-explorer-provider';
 
 type Store = ReturnType<typeof useFileExplorerStoreContext>;
 

@@ -127,6 +127,14 @@ export default defineConfig({
         import.meta.dirname,
         '../../packages/file-explorer-ui/src'
       ),
+      '@brainstrike/file-explorer-ui/indexing': resolve(
+        import.meta.dirname,
+        '../../packages/file-explorer-ui/src/indexing'
+      ),
+      '@brainstrike/file-explorer-ui/shell': resolve(
+        import.meta.dirname,
+        '../../packages/file-explorer-ui/src/shell'
+      ),
       '@brainstrike/workers': resolve(import.meta.dirname, '../../packages/workers'),
       '@brainstrike/workers/file-content-worker': resolve(
         import.meta.dirname,

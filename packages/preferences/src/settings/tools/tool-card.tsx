@@ -7,7 +7,7 @@
  * This component will be removed in a future version.
  */
 
-import { TOOL_CATEGORIES, TOOL_LOADING_TIERS } from '@brainstrike/agent/tool-metadata';
+import { TOOL_CATEGORIES, TOOL_LOADING_TIERS } from '@brainstrike/assistant-contract/tool-metadata';
 import { Badge, Switch } from '@brainstrike/ui';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { ToolPlayground } from './tool-playground';

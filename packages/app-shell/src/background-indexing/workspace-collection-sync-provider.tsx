@@ -10,7 +10,8 @@ import {
   usePGliteDatabase,
 } from '@brainstrike/db';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
-import { useFileSystem, useOptionalFileTreeContext } from '@brainstrike/file-explorer-ui';
+import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
+import { useOptionalFileTreeContext } from '@brainstrike/file-explorer-ui/tree';
 import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';

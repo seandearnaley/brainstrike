@@ -36,7 +36,6 @@ declare global {
     // biome-ignore lint/style/useNamingConvention: Shared global sentinel uses double underscores for clarity
     __BRAINSTRIKE_WEB_REACT_ROOT__?: ReactRoot;
   }
-  // biome-ignore lint: global declarations require var
   var __BRAINSTRIKE_TREE_SITTER_LANGUAGES__: readonly string[] | undefined;
 }
 

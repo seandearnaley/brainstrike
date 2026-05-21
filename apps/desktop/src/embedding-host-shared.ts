@@ -15,9 +15,12 @@ import {
 export const EMBEDDING_HOST_RUNTIME = createBackgroundRuntimeDescriptor('embedding-host');
 export const EMBEDDING_HOST_LIFECYCLE_CHANNELS = EMBEDDING_HOST_RUNTIME.lifecycleChannels;
 const EMBEDDING_HOST_CHANNELS = EMBEDDING_HOST_RUNTIME.createScopedChannels({
+  backfillProgress: 'backfill-progress',
+  cancelAllBackfills: 'cancel-all-backfills',
+  cancelBackfill: 'cancel-backfill',
   command: 'command',
   enqueueBackfill: 'enqueue-backfill',
-  backfillProgress: 'backfill-progress',
+  getBackfillsInFlight: 'get-backfills-in-flight',
   queryEmbeddingRequest: 'query-embedding-request',
   reportQueryEmbeddingResponse: 'report-query-embedding-response',
 });
@@ -36,10 +39,10 @@ export const EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT =
 export const EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL =
   EMBEDDING_HOST_CHANNELS.reportQueryEmbeddingResponse;
 export const EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL =
-  'embedding-host:get-backfills-in-flight' as const;
+  EMBEDDING_HOST_CHANNELS.getBackfillsInFlight;
 export const EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL =
-  'embedding-host:cancel-all-backfills' as const;
-export const EMBEDDING_HOST_CANCEL_BACKFILL_CHANNEL = 'embedding-host:cancel-backfill' as const;
+  EMBEDDING_HOST_CHANNELS.cancelAllBackfills;
+export const EMBEDDING_HOST_CANCEL_BACKFILL_CHANNEL = EMBEDDING_HOST_CHANNELS.cancelBackfill;
 export const EMBEDDING_BACKFILL_CANCELED_MESSAGE = 'Embedding backfill was canceled.' as const;
 
 export type EmbeddingBackfillSource = 'background-indexing' | 'manual';

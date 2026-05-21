@@ -1,4 +1,7 @@
-import { listProviders, type ProviderDefinition } from '@brainstrike/agent/provider-metadata';
+import {
+  listProviders,
+  type ProviderDefinition,
+} from '@brainstrike/assistant-contract/provider-metadata';
 import {
   Button,
   Card,

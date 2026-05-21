@@ -1,8 +1,8 @@
-import type { EmbeddingProviderType } from '@brainstrike/embeddings/provider-core';
 import {
-  canonicalizeProviderModelKey,
-  formatProviderModelKey,
-} from '@brainstrike/embeddings/provider-core';
+  canonicalizeEmbeddingProviderModelKey,
+  type EmbeddingProviderType,
+  formatEmbeddingProviderModelKey,
+} from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/utils/logger';
 
 interface SqlClient {
@@ -106,10 +106,10 @@ function groupEmbeddingSets(
 }
 
 function toNormalizedRow(row: EmbeddingSetRow, counts: Map<string, number>): NormalizedRow {
-  const canonical = canonicalizeProviderModelKey(row.modelKey) ?? {
+  const canonical = canonicalizeEmbeddingProviderModelKey(row.modelKey) ?? {
     provider: 'local' as EmbeddingProviderType,
     modelId: row.modelId || row.modelKey,
-    composite: formatProviderModelKey('local', row.modelId || row.modelKey),
+    composite: formatEmbeddingProviderModelKey('local', row.modelId || row.modelKey),
   };
   return {
     ...row,

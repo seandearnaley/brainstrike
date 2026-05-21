@@ -1,4 +1,4 @@
-import type { RuntimeAssistantMemoryScope } from '@brainstrike/agent/memory-settings';
+import type { RuntimeAssistantMemoryScope } from '@brainstrike/assistant-contract/memory-settings';
 import type { DbModel, DbProvider } from '../../stores/model-registry-store';
 
 export interface AssistantMemoryModelOption {

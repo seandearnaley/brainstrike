@@ -1,8 +1,8 @@
 import type {
   LocalRuntimeAvailabilityState,
   LocalRuntimeId,
-} from '@brainstrike/agent/local-runtime';
-import type { SupportedProvider } from '@brainstrike/agent/provider-metadata';
+} from '@brainstrike/assistant-contract/local-runtime';
+import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { ASSISTANT_PREFERENCES_STORE_NAME } from './stores/assistant-preferences-store';
 import type { DbModel, DbProvider } from './stores/model-registry-store';
 

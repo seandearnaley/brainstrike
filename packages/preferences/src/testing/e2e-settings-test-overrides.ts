@@ -1,4 +1,4 @@
-import type { LocalRuntimeId } from '@brainstrike/agent/local-runtime';
+import type { LocalRuntimeId } from '@brainstrike/assistant-contract/local-runtime';
 import {
   hasExplicitAutomatedSettingsTestOptIn,
   readLocalRuntimeProbeCountsForTests,

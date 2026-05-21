@@ -120,8 +120,8 @@ export default defineConfig({
         replacement: resolve(__dirname, '../embeddings/src/runtime-config.ts'),
       },
       {
-        find: '@brainstrike/embeddings/provider-core',
-        replacement: resolve(__dirname, '../embeddings/src/provider-core.ts'),
+        find: '@brainstrike/indexing-contract',
+        replacement: resolve(__dirname, '../indexing-contract/src'),
       },
       {
         find: '@brainstrike/embeddings/backend',

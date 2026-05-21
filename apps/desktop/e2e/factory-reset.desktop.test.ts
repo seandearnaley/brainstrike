@@ -11,20 +11,18 @@ type ConfirmOverrideTarget = typeof globalThis & {
   __brainstrikeOriginalConfirm__?: () => boolean;
 };
 
+const FACTORY_RESET_BROWSER_CACHE_NAME = 'brainstrike-reset-e2e-cache';
+const FACTORY_RESET_BROWSER_CACHE_ENTRY_URL = 'https://brainstrike.local/reset-e2e-cache-entry';
+const FACTORY_RESET_BROWSER_DB_NAME = 'brainstrike-reset-e2e-indexed-db';
+const FACTORY_RESET_LOCAL_STORAGE_KEY = 'brainstrike:reset:e2e:local-storage';
+const FACTORY_RESET_SESSION_STORAGE_KEY = 'brainstrike:reset:e2e:session-storage';
+
 async function openTokenCountingSettings(
   homePage: HomePage,
   settingsPage: SettingsPage
 ): Promise<void> {
   await homePage.openSettings();
   await settingsPage.openCategory(/Token Counting/i, 'token-counting');
-}
-
-async function openFactoryResetSettings(
-  homePage: HomePage,
-  settingsPage: SettingsPage
-): Promise<void> {
-  await homePage.openSettings();
-  await settingsPage.openCategory(/Factory Reset/i, 'factory-reset');
 }
 
 async function overrideNextConfirm(
@@ -56,7 +54,82 @@ async function restoreConfirmOverride(window: import('@playwright/test').Page): 
   });
 }
 
-test.describe('Factory Reset settings (desktop)', () => {
+async function seedBrowserPersistentState(window: import('@playwright/test').Page): Promise<void> {
+  await window.evaluate(
+    async ({ cacheEntryUrl, cacheName, dbName, localStorageKey, sessionStorageKey }) => {
+      localStorage.setItem(localStorageKey, 'stale');
+      sessionStorage.setItem(sessionStorageKey, 'stale');
+
+      if (typeof caches !== 'undefined') {
+        const cache = await caches.open(cacheName);
+        await cache.put(cacheEntryUrl, new Response('stale'));
+      }
+
+      if (typeof indexedDB !== 'undefined') {
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.open(dbName, 1);
+          request.onupgradeneeded = () => {
+            request.result.createObjectStore('stale-store');
+          };
+          request.onsuccess = () => {
+            request.result.close();
+            resolve();
+          };
+          request.onerror = () => reject(request.error ?? new Error('IndexedDB seed failed'));
+          request.onblocked = () => reject(new Error('IndexedDB seed was blocked'));
+        });
+      }
+    },
+    {
+      cacheEntryUrl: FACTORY_RESET_BROWSER_CACHE_ENTRY_URL,
+      cacheName: FACTORY_RESET_BROWSER_CACHE_NAME,
+      dbName: FACTORY_RESET_BROWSER_DB_NAME,
+      localStorageKey: FACTORY_RESET_LOCAL_STORAGE_KEY,
+      sessionStorageKey: FACTORY_RESET_SESSION_STORAGE_KEY,
+    }
+  );
+}
+
+async function readBrowserPersistentState(window: import('@playwright/test').Page): Promise<{
+  cacheExists: boolean;
+  dbExists: boolean | null;
+  localStorageValue: string | null;
+  sessionStorageValue: string | null;
+}> {
+  return await window.evaluate(
+    async ({ cacheName, dbName, localStorageKey, sessionStorageKey }) => {
+      const cacheExists =
+        typeof caches === 'undefined' ? false : (await caches.keys()).includes(cacheName);
+      const dbExists =
+        typeof indexedDB !== 'undefined' && typeof indexedDB.databases === 'function'
+          ? (await indexedDB.databases()).some((entry) => entry.name === dbName)
+          : null;
+
+      return {
+        cacheExists,
+        dbExists,
+        localStorageValue: localStorage.getItem(localStorageKey),
+        sessionStorageValue: sessionStorage.getItem(sessionStorageKey),
+      };
+    },
+    {
+      cacheName: FACTORY_RESET_BROWSER_CACHE_NAME,
+      dbName: FACTORY_RESET_BROWSER_DB_NAME,
+      localStorageKey: FACTORY_RESET_LOCAL_STORAGE_KEY,
+      sessionStorageKey: FACTORY_RESET_SESSION_STORAGE_KEY,
+    }
+  );
+}
+
+test.describe('Factory Reset settings (desktop) @destructive', () => {
+  async function openFactoryResetSettings(
+    homePage: HomePage,
+    settingsPage: SettingsPage
+  ): Promise<void> {
+    await homePage.openSettings();
+    await settingsPage.openCategory(/Factory Reset/i, 'factory-reset');
+  }
+
   test.afterEach(async ({ window }) => {
     await restoreConfirmOverride(window).catch(() => {
       // Some tests intentionally restart the app, which can invalidate the original page.
@@ -116,6 +189,7 @@ test.describe('Factory Reset settings (desktop)', () => {
     fs.writeFileSync(staleCacheFile, 'stale', 'utf8');
     fs.writeFileSync(sentinelFile, 'stale', 'utf8');
     fs.writeFileSync(diagnosticFile, 'keep', 'utf8');
+    await seedBrowserPersistentState(window);
 
     const settingsPage = new SettingsPage(window);
     await openTokenCountingSettings(homePage, settingsPage);
@@ -146,6 +220,14 @@ test.describe('Factory Reset settings (desktop)', () => {
       'aria-checked',
       'true'
     );
+    await expect
+      .poll(() => readBrowserPersistentState(restartedWindow))
+      .toEqual({
+        cacheExists: false,
+        dbExists: false,
+        localStorageValue: null,
+        sessionStorageValue: null,
+      });
     expect(fs.existsSync(sentinelFile)).toBe(false);
     expect(fs.existsSync(diagnosticFile)).toBe(true);
   });

@@ -317,9 +317,9 @@ import type {
 
 ## Dependencies
 
-- `@brainstrike/agent` - AI provider definitions
+- `@brainstrike/assistant-contract` - Assistant-facing settings contracts
 - `@brainstrike/db` - Database operations
-- `@brainstrike/embeddings` - Embedding services
+- `@brainstrike/indexing-contract` - Embedding model metadata contracts
 - `@brainstrike/storage` - Storage adapters
 - `@brainstrike/ui` - UI components
 - `@brainstrike/utils` - Common utilities

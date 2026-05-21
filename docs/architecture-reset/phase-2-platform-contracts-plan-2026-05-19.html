@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brainstrike Phase 2 - Platform Contracts</title>
+    <style>
+      :root {
+        --bg: #f7f3ea;
+        --ink: #181712;
+        --muted: #656257;
+        --line: #d8d0bf;
+        --panel: #fffdf7;
+        --accent: #1f6f68;
+        --accent-2: #a7462f;
+        --soft: #eaf4f1;
+        --warn: #f4e7c3;
+        --code: #f0eadc;
+        --shadow: 0 18px 50px rgba(38, 31, 19, 0.08);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background:
+          linear-gradient(180deg, rgba(31, 111, 104, 0.08), transparent 420px),
+          var(--bg);
+        color: var(--ink);
+        line-height: 1.48;
+      }
+
+      main {
+        width: min(1180px, calc(100% - 36px));
+        margin: 0 auto;
+        padding: 44px 0 72px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        max-width: 860px;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(3rem, 7vw, 6.8rem);
+        letter-spacing: -0.055em;
+        line-height: 0.92;
+      }
+
+      h2 {
+        font-size: 1rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h3 {
+        font-size: 1.05rem;
+      }
+
+      code {
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: var(--code);
+        padding: 0.07rem 0.3rem;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.92em;
+      }
+
+      .eyebrow {
+        color: var(--accent-2);
+        font-weight: 900;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        font-size: 0.76rem;
+        margin-bottom: 18px;
+      }
+
+      .lead {
+        max-width: 780px;
+        color: var(--muted);
+        font-size: 1.05rem;
+        margin-top: 22px;
+      }
+
+      .meta {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 28px;
+      }
+
+      .pill {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 253, 247, 0.76);
+        padding: 7px 11px;
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 700;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 16px;
+        margin-top: 32px;
+      }
+
+      .card {
+        grid-column: span 4;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+        padding: 20px;
+      }
+
+      .card.wide {
+        grid-column: span 8;
+      }
+
+      .card.full {
+        grid-column: 1 / -1;
+      }
+
+      .card p,
+      .card li {
+        color: var(--muted);
+      }
+
+      .card p {
+        margin-top: 10px;
+      }
+
+      ul {
+        margin: 14px 0 0;
+        padding-left: 19px;
+      }
+
+      li + li {
+        margin-top: 8px;
+      }
+
+      .lane {
+        display: grid;
+        grid-template-columns: 1fr 54px 1fr;
+        gap: 12px;
+        align-items: stretch;
+        margin-top: 16px;
+      }
+
+      .box {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fffaf0;
+        padding: 16px;
+      }
+
+      .box.good {
+        background: var(--soft);
+        border-color: rgba(31, 111, 104, 0.35);
+      }
+
+      .arrow {
+        display: grid;
+        place-items: center;
+        color: var(--accent);
+        font-size: 1.7rem;
+        font-weight: 900;
+      }
+
+      .stack {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .step {
+        border-left: 4px solid var(--accent);
+        background: #fffaf0;
+        border-radius: 8px;
+        padding: 14px;
+      }
+
+      .step strong {
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      .note {
+        border: 1px solid #e2c36c;
+        background: var(--warn);
+      }
+
+      @media (max-width: 900px) {
+        .card,
+        .card.wide {
+          grid-column: 1 / -1;
+        }
+
+        .lane,
+        .stack {
+          grid-template-columns: 1fr;
+        }
+
+        .arrow {
+          transform: rotate(90deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Phase 2 stacked PR artifact - 2026-05-19</p>
+      <h1>Platform contracts before workflow moves.</h1>
+      <p class="lead">
+        This phase starts the desktop platform reset without touching the high-risk DB, file,
+        embedding, or assistant bridges. The first production migration is the logging bridge:
+        typed channel constants and runtime validators in Electron main, mirrored constants in the
+        sandboxed preload, and guardrails that keep local model execution in renderer hosts.
+      </p>
+      <div class="meta">
+        <span class="pill">Branch: codex/domain-reset-phase-2-platform-contracts</span>
+        <span class="pill">Base: codex/domain-reset-phase-1-guardrails</span>
+        <span class="pill">Risk: Low/medium</span>
+        <span class="pill">First bridge: logging</span>
+      </div>
+
+      <section class="grid" aria-label="Phase 2 scope">
+        <article class="card">
+          <h2>Why Now</h2>
+          <p>
+            The reset needs deterministic platform seams before feature domains move. Without typed
+            bridge contracts, every later package split risks duplicating channel strings, request
+            validation, and host lifecycle assumptions.
+          </p>
+        </article>
+        <article class="card">
+          <h2>Scope</h2>
+          <p>
+            Keep the slice intentionally small: logging IPC only, runtime-host import guardrails,
+            and documentation. No DB, file, embedding, LLM, assistant, or MCP bridge migration in
+            this PR.
+          </p>
+        </article>
+        <article class="card">
+          <h2>Non-negotiable</h2>
+          <p>
+            Sandboxed preload remains self-contained. It cannot import local helper modules at
+            runtime, so the main contract and preload constants are kept in parity through tests
+            rather than a runtime import.
+          </p>
+        </article>
+
+        <article class="card wide">
+          <h2>Logging Bridge Migration</h2>
+          <div class="lane">
+            <div class="box">
+              <h3>Before</h3>
+              <ul>
+                <li>Raw channel strings repeated in <code>logging-ipc.ts</code> and preload.</li>
+                <li><code>set-preferences</code> trusted TypeScript types across an IPC boundary.</li>
+                <li>Invalid renderer payloads could reach mutable logging state.</li>
+              </ul>
+            </div>
+            <div class="arrow">-&gt;</div>
+            <div class="box good">
+              <h3>After</h3>
+              <ul>
+                <li><code>platform/logging-api-contract.ts</code> owns canonical main channels.</li>
+                <li>Runtime validators reject malformed preferences and destination targets.</li>
+                <li>Preload uses named mirrored constants and stays sandbox-compatible.</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>Runtime Hosts</h2>
+          <p>
+            <code>platform/runtime-host-boundary.ts</code> scans desktop source with the TypeScript
+            parser. It allows renderer host imports and type-only shared contracts, but rejects
+            executable Electron-main imports from <code>@brainstrike/agent/local-llm</code> and
+            <code>@brainstrike/embeddings/worker</code>.
+          </p>
+        </article>
+
+        <article class="card full">
+          <h2>Verification Plan</h2>
+          <div class="stack">
+            <div class="step">
+              <strong>1. Red</strong>
+              Add failing tests for logging contract constants, IPC payload validation, preload
+              parity, and runtime-host boundary scanning.
+            </div>
+            <div class="step">
+              <strong>2. Green</strong>
+              Implement the contract modules, migrate logging IPC, and keep preload self-contained.
+            </div>
+            <div class="step">
+              <strong>3. Local gates</strong>
+              Run targeted Vitest, domain contracts, lint, type-check, build, and full test before
+              publishing.
+            </div>
+            <div class="step">
+              <strong>4. PR proof</strong>
+              Use the stacked base branch for <code>ci:select</code>, <code>ci:prove</code>, and
+              proof verification.
+            </div>
+          </div>
+        </article>
+
+        <article class="card full note">
+          <h2>Forward Path</h2>
+          <p>
+            Later Phase 2 or Phase 3 PRs can move higher-risk bridges only after this contract shape
+            proves stable. The next candidates are lifecycle/channel contracts for parser,
+            embedding-host, chunking-host, and LLM-host because they already share request,
+            progress, status, and cancellation patterns.
+          </p>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

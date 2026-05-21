@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brainstrike Local Architecture Reset - Completion Summary</title>
+    <style>
+      :root {
+        --bg: #101216;
+        --panel: #171a21;
+        --panel-2: #1d222b;
+        --line: #303744;
+        --text: #eceff4;
+        --muted: #aab2c0;
+        --soft: #768094;
+        --green: #55d6a5;
+        --blue: #7aa7ff;
+        --amber: #f3c969;
+        --red: #ff7b8a;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.55 var(--sans);
+      }
+
+      main {
+        width: min(1180px, calc(100vw - 40px));
+        margin: 0 auto;
+        padding: 40px 0 64px;
+      }
+
+      header {
+        border: 1px solid var(--line);
+        background: linear-gradient(135deg, rgba(122, 167, 255, 0.14), rgba(85, 214, 165, 0.08)),
+          var(--panel);
+        border-radius: 10px;
+        padding: 28px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        letter-spacing: -0.02em;
+      }
+
+      h1 {
+        font-size: clamp(30px, 4vw, 48px);
+        line-height: 1.05;
+      }
+
+      h2 {
+        font-size: 22px;
+        margin-bottom: 14px;
+      }
+
+      h3 {
+        font-size: 15px;
+        margin-bottom: 8px;
+      }
+
+      .lead {
+        max-width: 840px;
+        margin: 14px 0 0;
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 22px;
+      }
+
+      .pill {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: var(--muted);
+        display: inline-flex;
+        gap: 7px;
+        padding: 6px 10px;
+        font: 12px/1 var(--mono);
+      }
+
+      .pill strong {
+        color: var(--text);
+      }
+
+      section {
+        margin-top: 26px;
+      }
+
+      .grid {
+        display: grid;
+        gap: 14px;
+      }
+
+      .metrics {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        border-radius: 8px;
+        padding: 18px;
+      }
+
+      .metric-value {
+        color: var(--green);
+        font: 700 34px/1 var(--mono);
+      }
+
+      .metric-label {
+        color: var(--muted);
+        margin-top: 8px;
+      }
+
+      .timeline {
+        display: grid;
+        gap: 10px;
+      }
+
+      .item {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        border-radius: 8px;
+        display: grid;
+        grid-template-columns: 170px 1fr;
+        gap: 18px;
+        padding: 16px;
+      }
+
+      .hash {
+        color: var(--blue);
+        font: 12px/1.4 var(--mono);
+      }
+
+      .item p,
+      .card p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .status {
+        color: var(--green);
+        font: 12px/1 var(--mono);
+        text-transform: uppercase;
+      }
+
+      .checks {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .check {
+        border-left: 3px solid var(--green);
+        background: var(--panel-2);
+        border-radius: 6px;
+        padding: 12px 14px;
+      }
+
+      code {
+        color: var(--amber);
+        font-family: var(--mono);
+      }
+
+      footer {
+        color: var(--soft);
+        font: 12px/1.4 var(--mono);
+        margin-top: 28px;
+      }
+
+      @media (max-width: 850px) {
+        .metrics,
+        .checks {
+          grid-template-columns: 1fr;
+        }
+
+        .item {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="status">Local-only architecture reset</div>
+        <h1>Boundary exceptions retired, real ownership moved</h1>
+        <p class="lead">
+          This branch converts the earlier guardrail stack into concrete architecture changes:
+          assistant contracts, indexing contracts, file-explorer internal slices, injected runtime
+          services, and zero remaining approved domain-boundary exceptions. No PRs, no pushes, no
+          GitHub CI, and no proof-manifest refreshes were used.
+        </p>
+        <div class="meta">
+          <span class="pill"><strong>Branch</strong> codex/local-architecture-reset</span>
+          <span class="pill"><strong>Mode</strong> local commits only</span>
+          <span class="pill"><strong>Boundary exceptions</strong> 0 / 0</span>
+          <span class="pill"><strong>Generated</strong> 2026-05-19</span>
+        </div>
+      </header>
+
+      <section class="grid metrics">
+        <div class="card">
+          <div class="metric-value">18</div>
+          <div class="metric-label">local architecture commits in the current stack</div>
+        </div>
+        <div class="card">
+          <div class="metric-value">5</div>
+          <div class="metric-label">approved domain exceptions retired in this pass</div>
+        </div>
+        <div class="card">
+          <div class="metric-value">0</div>
+          <div class="metric-label">remaining approved boundary exceptions</div>
+        </div>
+        <div class="card">
+          <div class="metric-value">1968</div>
+          <div class="metric-label">imports checked by the domain-boundary verifier</div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Completed Architecture Moves</h2>
+        <div class="timeline">
+          <div class="item">
+            <div class="hash">0b2276983<br />5c6f3e372</div>
+            <div>
+              <h3>Assistant runtime boundaries</h3>
+              <p>
+                Retired app-shell and preferences direct coupling to <code>@brainstrike/agent</code>
+                by moving stable assistant, local LLM, memory, and artifact contracts into
+                <code>@brainstrike/assistant-contract</code>.
+              </p>
+            </div>
+          </div>
+          <div class="item">
+            <div class="hash">3f26adab6</div>
+            <div>
+              <h3>Preferences embedding runtime injection</h3>
+              <p>
+                Removed <code>@brainstrike/preferences -> @brainstrike/embeddings</code>.
+                Preferences now receives embedding model download behavior from app-layer runtime
+                services instead of importing implementation packages.
+              </p>
+            </div>
+          </div>
+          <div class="item">
+            <div class="hash">a709a38f9</div>
+            <div>
+              <h3>DB no longer owns chunking implementation</h3>
+              <p>
+                Removed the obsolete DB chunking service and retired
+                <code>@brainstrike/db -> @brainstrike/text-splitter</code>. Database schema/models
+                now use indexing contracts, while chunking remains in indexing-owned workers.
+              </p>
+            </div>
+          </div>
+          <div class="item">
+            <div class="hash">a3e1978d2</div>
+            <div>
+              <h3>UI theme persistence injection</h3>
+              <p>
+                Removed <code>@brainstrike/ui -> @brainstrike/storage</code>. The UI theme provider
+                now accepts a minimal storage adapter interface, and app-shell supplies the real
+                adapter from its application context.
+              </p>
+            </div>
+          </div>
+          <div class="item">
+            <div class="hash">7212bd409</div>
+            <div>
+              <h3>Hooks no longer import worker implementations</h3>
+              <p>
+                Removed <code>@brainstrike/hooks -> @brainstrike/workers</code> by injecting a
+                report generator factory. File-explorer UI supplies the worker implementation where
+                it is actually used.
+              </p>
+            </div>
+          </div>
+          <div class="item">
+            <div class="hash">b0a97bd0f</div>
+            <div>
+              <h3>Build tooling owns build-time helpers</h3>
+              <p>
+                Removed <code>@brainstrike/build-utils -> @brainstrike/utils</code>. Compiler
+                hotspot detection and build logging now live in build-utils instead of pulling
+                runtime utility infrastructure into tooling.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Verification Evidence</h2>
+        <div class="checks">
+          <div class="check">
+            <h3>Architecture</h3>
+            <p>
+              <code>node scripts/architecture-domain-contract.mjs</code> passed for 39 packages
+              across 7 domains and 5 stack phases.
+            </p>
+          </div>
+          <div class="check">
+            <h3>Boundaries</h3>
+            <p>
+              <code>node scripts/architecture-domain-boundaries.mjs</code> passed with 1968 imports
+              across 2807 files and <code>0/0</code> approved exceptions.
+            </p>
+          </div>
+          <div class="check">
+            <h3>Targeted Tests</h3>
+            <p>
+              Focused Vitest suites passed for preferences, DB, UI, hooks, build-utils, app-shell,
+              file-import, file-explorer-ui, db-explorer, and desktop settings surfaces touched by
+              the refactors.
+            </p>
+          </div>
+          <div class="check">
+            <h3>Type Checks</h3>
+            <p>
+              Focused package type-checks passed for changed packages including preferences, DB, UI,
+              app-shell, desktop, hooks, file-explorer-ui, build-utils, and utils.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Remaining Work</h2>
+        <p>
+          The domain guardrails now have no approved exceptions left. Remaining architecture work is
+          no longer about boundary cleanup; it should move to product-facing decomposition and
+          runtime simplification: deeper file-explorer package extraction if the internal slices keep
+          holding, desktop IPC consolidation, and deleting or reviving dormant peripheral packages
+          after reference checks.
+        </p>
+      </section>
+
+      <footer>
+        Local artifact only. No PR metadata, proof manifest, GitHub label, push, or CI action was
+        updated by this branch.
+      </footer>
+    </main>
+  </body>
+</html>

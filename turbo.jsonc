@@ -2,7 +2,7 @@
   // Turborepo monorepo configuration for brainstrike
   "$schema": "https://turbo.build/schema.json",
   // Global configuration
-  "concurrency": "32",
+  "concurrency": "40",
   // Files that, when changed, should invalidate caches globally
   // These files affect all tasks and will cause cache misses when modified
   "globalDependencies": [
@@ -81,6 +81,8 @@
       // Specifies other tasks that should be run *alongside* this one.
       // Ideal for starting library watchers when the main app's dev server starts.
       "with": [
+        "@brainstrike/assistant-contract#dev",
+        "@brainstrike/indexing-contract#dev",
         "@brainstrike/types#dev", // Run the 'dev' script from the @brainstrike/types package
         "@brainstrike/utils#dev", // Run the 'dev' script from the @brainstrike/utils package
         "@brainstrike/hooks#dev", // Run the 'dev' script from the @brainstrike/hooks package

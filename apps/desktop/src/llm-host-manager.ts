@@ -13,6 +13,11 @@ import {
   type LlmHostStatusReport,
   type LlmHostWarmupRequestPayload,
 } from './llm-host-shared';
+import {
+  createRuntimeHostPlatformStatus,
+  type RuntimeHostControlState,
+  type RuntimeHostPlatformStatus,
+} from './platform/runtime-host-state';
 import { RendererHostLifecycle } from './renderer-host-lifecycle';
 import { waitForWindowClosed } from './window-lifecycle-utils';
 
@@ -49,10 +54,12 @@ function createRequestFailure(message: string): Error {
 }
 
 export class LlmHostManager {
+  private disposed = false;
   private readonly lifecycle: RendererHostLifecycle<LlmHostStatus>;
   private readonly preCancelledRequestCleanups = new Map<string, PreCancelledRequestCleanup>();
   private readonly preCancelledRequestIds = new Set<string>();
   private readonly pendingRequests = new Map<string, PendingLlmRequest>();
+  private controlState: RuntimeHostControlState | null = null;
 
   constructor() {
     this.lifecycle = new RendererHostLifecycle<LlmHostStatus>({
@@ -97,6 +104,17 @@ export class LlmHostManager {
     return this.lifecycle.getStatus();
   }
 
+  getPlatformStatus(): RuntimeHostPlatformStatus<'llm-host'> {
+    return createRuntimeHostPlatformStatus(this.getStatus(), {
+      ...(this.disposed
+        ? { controlState: 'disposed' as const }
+        : this.controlState
+          ? { controlState: this.controlState }
+          : {}),
+      pendingRequestCount: this.pendingRequests.size,
+    });
+  }
+
   isHostWindow(window: BrowserWindow): boolean {
     return this.lifecycle.isHostWindow(window);
   }
@@ -129,13 +147,22 @@ export class LlmHostManager {
   }
 
   async reset(): Promise<LlmHostStatus> {
-    await this.stop();
-    return this.ensureStarted({ waitForRunning: true });
+    this.controlState = 'resetting';
+    try {
+      await this.stop();
+      return await this.ensureStarted({ waitForRunning: true });
+    } finally {
+      this.controlState = null;
+    }
   }
 
   async dispose(): Promise<void> {
-    await this.stop();
-    this.lifecycle.dispose();
+    try {
+      await this.stop();
+    } finally {
+      this.disposed = true;
+      this.lifecycle.dispose();
+    }
   }
 
   acceptStatusReport(senderId: number, report: LlmHostStatusReport): void {

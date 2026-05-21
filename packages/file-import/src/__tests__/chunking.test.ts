@@ -1,6 +1,5 @@
 import type { PortableChunk } from '@brainstrike/chunking-worker';
 import type { FileChunk, FileImportResult, FileRecord, IDatabase } from '@brainstrike/db';
-import { ChunkingService } from '@brainstrike/db';
 import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getChunkingStrategy, processChunking, processFileChunking } from '../chunking';
@@ -60,11 +59,6 @@ interface MockChunkRepository {
   insertManyWithTx?: Mock<(tx: unknown, chunks: unknown[]) => Promise<unknown[]>>;
 }
 
-interface MockChunkingService {
-  chunkContent: Mock;
-  chunkContentStream: Mock;
-}
-
 // Type for progress update callback
 type ProgressUpdater = (prev: EnhancedImportProgress | null) => EnhancedImportProgress | null;
 type UpdateProgressFn = (updater: ProgressUpdater) => void;
@@ -76,7 +70,6 @@ vi.mock('@brainstrike/db', async () => {
   const actual = await vi.importActual('@brainstrike/db');
   return {
     ...actual,
-    ChunkingService: vi.fn(),
     makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     CHUNKING_CONFIG: {
       defaultMaxTokens: 1000,
@@ -130,7 +123,6 @@ describe('processFileChunking', () => {
   let mockRepository: MockRepository;
   let mockChunkRepository: MockChunkRepository;
   let mockUpdateProgress: Mock<UpdateProgressFn>;
-  let mockChunkingService: MockChunkingService;
   let mockWorkerPort: ChunkingWorkerPort;
 
   beforeEach(() => {
@@ -148,63 +140,6 @@ describe('processFileChunking', () => {
 
     // Create mock worker port for tests (worker is preferred)
     mockWorkerPort = createMockChunkingWorkerPort();
-
-    mockChunkingService = {
-      chunkContent: vi.fn().mockResolvedValue({
-        chunks: [
-          {
-            id: 'chunk-1',
-            fileRecordId: 'file-1',
-            chunkIndex: 0,
-            content: 'Chunk content',
-            contentHash: 'hash-1',
-            tokenCount: 10,
-            chunkType: 'sentence',
-            chunkSize: 100,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-        ],
-        skipped: false,
-        totalTokens: 10,
-        avgTokensPerChunk: 10,
-        strategyUsed: 'sentence',
-      }),
-      chunkContentStream: vi.fn().mockImplementation(async function* () {
-        yield {
-          id: 'chunk-stream-1',
-          fileRecordId: 'file-1',
-          chunkIndex: 0,
-          content: 'Streamed chunk 1',
-          contentHash: 'hash-s1',
-          tokenCount: 10,
-          chunkType: 'sentence',
-          chunkSize: 100,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          embeddingSetId: undefined,
-        };
-        yield {
-          id: 'chunk-stream-2',
-          fileRecordId: 'file-1',
-          chunkIndex: 1,
-          content: 'Streamed chunk 2',
-          contentHash: 'hash-s2',
-          tokenCount: 10,
-          chunkType: 'sentence',
-          chunkSize: 100,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          embeddingSetId: undefined,
-        };
-      }),
-    };
-
-    (ChunkingService as unknown as ReturnType<typeof vi.fn>).mockImplementation(function (
-      this: Record<string, unknown>
-    ) {
-      Object.assign(this, mockChunkingService);
-    });
   });
 
   it('throws error when repository is not available', async () => {
@@ -547,7 +482,6 @@ describe('processChunking', () => {
   let mockRepository: MockRepository;
   let mockChunkRepository: MockChunkRepository;
   let mockUpdateProgress: Mock<UpdateProgressFn>;
-  let mockChunkingService: MockChunkingService;
   let mockProcessEmbeddings: Mock<ProcessEmbeddingsFn>;
   let mockWorkerPort: ChunkingWorkerPort;
 
@@ -579,32 +513,6 @@ describe('processChunking', () => {
 
     // Create mock worker port for tests (worker is now required)
     mockWorkerPort = createMockChunkingWorkerPort();
-
-    mockChunkingService = {
-      chunkContent: vi.fn().mockResolvedValue({
-        chunks: [
-          {
-            id: 'chunk-1',
-            fileRecordId: 'file-1',
-            content: 'Chunk content',
-            sequence: 0,
-            startChar: 0,
-            endChar: 12,
-            metadata: {},
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-        ],
-        skipped: false,
-      }),
-      chunkContentStream: vi.fn(), // Should not be called here by default
-    };
-
-    (ChunkingService as unknown as ReturnType<typeof vi.fn>).mockImplementation(function (
-      this: Record<string, unknown>
-    ) {
-      Object.assign(this, mockChunkingService);
-    });
   });
 
   it('throws error when repository is not available', async () => {

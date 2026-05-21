@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Brainstrike Desktop Runtime Platform Progress</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #171a21;
+      --panel-2: #1f2430;
+      --line: #303746;
+      --text: #edf1f7;
+      --muted: #aab2c2;
+      --dim: #778296;
+      --green: #53d69d;
+      --blue: #82a8ff;
+      --amber: #f4c35d;
+      --red: #ff7b86;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      line-height: 1.55;
+    }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 46px 28px 80px;
+    }
+    .hero {
+      border: 1px solid var(--line);
+      background: linear-gradient(135deg, #171a21 0%, #111722 100%);
+      border-radius: 12px;
+      padding: 34px;
+    }
+    .eyebrow {
+      color: var(--green);
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 8px 0 12px;
+      font-size: 38px;
+      line-height: 1.08;
+      letter-spacing: -.02em;
+    }
+    .lead {
+      max-width: 860px;
+      color: var(--muted);
+      font-size: 16px;
+      margin: 0;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 22px;
+    }
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 10px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, .03);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+    section { margin-top: 34px; }
+    h2 {
+      margin: 0 0 14px;
+      font-size: 22px;
+      letter-spacing: -.01em;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+      padding: 16px;
+    }
+    .metric {
+      color: var(--blue);
+      font-family: var(--mono);
+      font-size: 30px;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .label {
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .done { color: #062515; background: var(--green); }
+    .partial { color: #2b1d02; background: var(--amber); }
+    .todo { color: #2b080c; background: var(--red); }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      align-items: stretch;
+    }
+    .node {
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      border-radius: 8px;
+      padding: 14px;
+      min-height: 110px;
+    }
+    .node strong { display: block; margin-bottom: 6px; }
+    .node p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+    }
+    th, td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      font-size: 13px;
+    }
+    tr:last-child td { border-bottom: 0; }
+    th {
+      background: var(--panel-2);
+      color: var(--dim);
+      font-family: var(--mono);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    code {
+      font-family: var(--mono);
+      color: var(--green);
+      font-size: 12px;
+    }
+    .two {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .note {
+      color: var(--muted);
+      font-size: 13px;
+      margin: 8px 0 0;
+    }
+    footer {
+      margin-top: 50px;
+      color: var(--dim);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+    @media (max-width: 860px) {
+      main { padding: 24px 16px 56px; }
+      .grid, .flow, .two { grid-template-columns: 1fr; }
+      h1 { font-size: 30px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <div class="hero">
+    <div class="eyebrow">Local architecture reset · platform slice</div>
+    <h1>Desktop runtime, indexing, and local AI hosts are becoming a platform</h1>
+    <p class="lead">
+      This report records the current local implementation state after the IPC domain extraction,
+      hidden-host state modeling, diagnostics snapshot, and pipeline ownership decision. It is
+      intentionally evidence-first: what is done, what is still partial, and which targeted tests
+      proved the slice.
+    </p>
+    <div class="meta">
+      <span class="pill">branch: codex/local-architecture-reset</span>
+      <span class="pill">generated: 2026-05-20</span>
+      <span class="pill">local only</span>
+      <span class="pill">no proof manifest refresh</span>
+    </div>
+  </div>
+
+  <section>
+    <h2>At A Glance</h2>
+    <div class="grid">
+      <div class="card"><div class="metric">69</div><div class="label"><code>ipc-handlers.ts</code> LOC after domain extraction</div></div>
+      <div class="card"><div class="metric">4</div><div class="label">owned IPC domain modules registered by the root file</div></div>
+      <div class="card"><div class="metric">2</div><div class="label">hidden AI host lifecycle surfaces modeled and observable</div></div>
+      <div class="card"><div class="metric">1</div><div class="label">central diagnostics bridge for reset, migration, crash, indexing, telemetry, DB, and hosts</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Current Platform Shape</h2>
+    <div class="flow">
+      <div class="node">
+        <strong>Composition Root</strong>
+        <p><code>apps/desktop/src/ipc-handlers.ts</code> delegates registration and shutdown to owned domain modules.</p>
+      </div>
+      <div class="node">
+        <strong>Typed Registry</strong>
+        <p><code>platform/desktop-ipc-registry.ts</code> rejects duplicate channels and records stable domain metadata.</p>
+      </div>
+      <div class="node">
+        <strong>Domain IPC</strong>
+        <p><code>db</code>, <code>files</code>, <code>storage/preferences</code>, and <code>embedding backfill</code> now have focused modules and tests.</p>
+      </div>
+      <div class="node">
+        <strong>AI Host State</strong>
+        <p><code>runtime-host-state.ts</code> normalizes embedding and LLM host status into platform states.</p>
+      </div>
+      <div class="node">
+        <strong>Diagnostics</strong>
+        <p><code>desktop-platform-diagnostics.ts</code> collects database, scheduler, logging, reset, migration, crash recovery, telemetry, indexing, embedding host, and LLM host state.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Done Conditions</h2>
+    <table>
+      <thead><tr><th>Condition</th><th>Status</th><th>Evidence</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>ipc-handlers.ts</code> under 500 LOC and delegates to registries/domains</td>
+          <td><span class="status done">done</span></td>
+          <td>Current file is 69 LOC and composes <code>db-ipc</code>, <code>embedding-backfill-ipc</code>, <code>file-system-ipc</code>, and <code>storage-preferences-ipc</code>.</td>
+        </tr>
+        <tr>
+          <td>Adding an IPC channel has a domain owner and focused test path</td>
+          <td><span class="status done">done</span></td>
+          <td>Registry, four extracted domains, diagnostics, logging, parser host, agent chat, secrets, runtime probes, MCP config/tools, tool execution, main platform lifecycle, and hidden host IPC modules are tested. Direct production <code>ipcMain</code> registration is isolated to <code>platform/desktop-ipc-registry.ts</code>. Production registry calls and production <code>webContents.send()</code> broadcasts must use named channel contracts from <code>platform/desktop-ipc-channels.ts</code>; preload bridge calls are barred from raw <code>ipcRenderer</code> channel literals and source-checked against the same catalog while preload remains runtime self-contained. Diagnostics, DB managed-cache, parser-host, runtime probe/model, and assistant selection/tapestry event constants are now also owned by the central channel catalog. Background runtime lifecycle IPC no longer infers ownership from channel prefixes; embedding, chunking, and LLM hosts pass their IPC domain explicitly.</td>
+        </tr>
+        <tr>
+          <td>Renderer-only local LLM and embedding execution is enforceable</td>
+          <td><span class="status done">done</span></td>
+          <td><code>runtime-host-boundary.test.ts</code> rejects Electron main imports, dynamic imports, require calls, and re-exports of renderer-only runtime modules. It now treats <code>@brainstrike/agent/local-llm/*</code> and <code>@brainstrike/embeddings/worker/*</code> as renderer-only too, while allowing hosted provider contracts such as <code>@brainstrike/embeddings/provider-core</code>. It also rejects Electron main value imports from the <code>@brainstrike/embeddings</code> root entrypoint because that root exports worker execution; main-process hosted retrieval now imports from <code>@brainstrike/embeddings/provider-core</code>.</td>
+        </tr>
+        <tr>
+          <td><code>@brainstrike/pipeline</code> has a real production consumer or is removed</td>
+          <td><span class="status done">done</span></td>
+          <td><code>packages/db-explorer/src/enhanced-file-import-service.ts</code> imports <code>createEmbeddingJobQueuePort()</code> for durable embedding queue jobs when enabled.</td>
+        </tr>
+        <tr>
+          <td>Hidden embedding and LLM host lifecycle is modeled, tested, and observable</td>
+          <td><span class="status done">done</span></td>
+          <td><code>embedding-host-manager</code> and <code>llm-host-manager</code> expose <code>getPlatformStatus()</code>; state derivation tests cover active, ready, reset, restart, disposed, and failed state mapping. Managers now hold explicit in-flight control state so diagnostics report <code>resetting</code> and <code>restarting</code> while those operations are actually underway, not only after source lifecycle state changes.</td>
+        </tr>
+        <tr>
+          <td>Central diagnostics surface exposes platform state</td>
+          <td><span class="status done">done</span></td>
+          <td>Snapshot now covers DB, scheduler, logging, reset outcome, migration, crash recovery, telemetry runtime metrics, indexing backfills, embedding host, and LLM host. <code>SystemDiagnosticsPanel</code> renders the new fields from the desktop bridge.</td>
+        </tr>
+        <tr>
+          <td>Factory reset and crash/restart behavior have targeted unit and lane coverage</td>
+          <td><span class="status done">done</span></td>
+          <td>Factory reset orchestration now lives in <code>desktop-reset-platform.ts</code>. It stops embedding, chunking, and LLM host runtimes before DB reset, drains live subscriptions and scheduler work under the reset barrier, records completed/failed diagnostics, and keeps destructive reset E2E explicit. Visible-renderer crash recovery records deferred/suppressed/reload state, embedding host restart/recovery specs are selected by <code>@desktop-embedding-recovery</code>, and LLM host restart/recovery is selected by <code>@desktop-llm-host-recovery</code>. Targeted E2E execution now proves the destructive reset, embedding host recovery, and LLM host recovery lanes locally.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Pipeline Ownership Decision</h2>
+    <div class="two">
+      <div class="card">
+        <h3>Decision</h3>
+        <p class="note">
+          Keep <code>@brainstrike/pipeline</code> and treat it as the indexing orchestration owner
+          for durable embedding queue payload contracts. It is not dormant anymore.
+        </p>
+      </div>
+      <div class="card">
+        <h3>Current Boundary</h3>
+        <p class="note">
+          Pipeline owns queue payload translation and orchestration primitives. It must not own
+          Electron main execution, renderer worker runtime, provider execution, or React UI.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Verification Evidence</h2>
+    <table>
+      <thead><tr><th>Command</th><th>What It Proved</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts -t "keeps the root IPC handler as a registry"</code></td>
+          <td>The root IPC architecture assertion points at the current owned domain modules.</td>
+          <td><span class="status done">passed</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/pipeline test</code></td>
+          <td>Pipeline orchestration and durable embedding job queue port tests remain green.</td>
+          <td><span class="status done">8 files / 270 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm vitest run ... ipc domain and desktop database work tests</code></td>
+          <td>DB, file-system, storage/preferences, embedding backfill, and scheduler extractions preserve IPC behavior.</td>
+          <td><span class="status done">11 files / 121 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm build:main</code> from <code>apps/desktop</code></td>
+          <td>The extracted Electron main-process modules still build.</td>
+          <td><span class="status done">passed</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/create-window.test.ts src/__tests__/desktop-platform-diagnostics.test.ts src/__tests__/ipc-desktop-diagnostics.test.ts src/__tests__/main/desktop-factory-reset.test.ts src/__tests__/desktop-crash-recovery.test.ts</code></td>
+          <td>Diagnostics snapshot, IPC bridge, reset outcome tracking, and renderer crash recovery observability are green.</td>
+          <td><span class="status done">5 files / 40 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/main/desktop-factory-reset.test.ts src/__tests__/desktop-reset-platform.test.ts</code></td>
+          <td>Desktop reset orchestration stops embedding, chunking, and LLM runtimes before DB reset and drains live DB work through the reset barrier.</td>
+          <td><span class="status done">2 files / 5 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/app-shell exec vitest run src/__tests__/system-diagnostics-panel.test.tsx</code></td>
+          <td>The app-shell diagnostics panel renders desktop crash, migration, indexing, telemetry, reset, and host fields.</td>
+          <td><span class="status done">1 file / 21 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop type-check</code> and <code>pnpm --filter @brainstrike/app-shell type-check</code></td>
+          <td>The expanded diagnostics contract type-checks in both desktop and app-shell.</td>
+          <td><span class="status done">passed</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts -t "keeps host IPC modules"</code></td>
+          <td>Embedding, chunking, and LLM host IPC modules no longer register non-lifecycle channels through direct <code>ipcMain</code> calls.</td>
+          <td><span class="status done">passed</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/main/ipc-embedding-host.test.ts src/__tests__/main/ipc-chunking-host.test.ts src/__tests__/ipc-llm-host.test.ts</code></td>
+          <td>Typed registry migration preserved host status, response, chunking, warmup, generate, and cancel IPC behavior.</td>
+          <td><span class="status done">3 files / 27 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts -t "runtime lifecycle IPC domain ownership"</code><br><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/register-background-runtime-lifecycle-ipc.test.ts</code></td>
+          <td>Background runtime lifecycle IPC registrations require explicit domain ownership and no longer silently infer <code>runtime</code>, <code>embeddings</code>, <code>chunking-host</code>, or <code>llm-host</code> from channel string prefixes.</td>
+          <td><span class="status done">9 targeted tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/logging-api-contract.test.ts -t "typed desktop IPC registry"</code></td>
+          <td>Logging IPC is now required to use the typed desktop IPC registry instead of direct <code>ipcMain</code> registration.</td>
+          <td><span class="status done">passed</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/logging-ipc.test.ts src/__tests__/main/logging-ipc.test.ts</code></td>
+          <td>Typed registry migration preserved logging preferences, destination, broadcast, buffering, validation, and cleanup behavior.</td>
+          <td><span class="status done">2 files / 43 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts -t "keeps host IPC modules"</code></td>
+          <td>Parser host joined the hidden/runtime host IPC guard and no longer uses direct <code>ipcMain</code> registration.</td>
+          <td><span class="status done">passed</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/main/ipc-parser-host.test.ts</code></td>
+          <td>Typed registry migration preserved parser host parse validation, delegation, malformed-request handling, and cleanup.</td>
+          <td><span class="status done">1 file / 4 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/ipc-agent.test.ts</code></td>
+          <td>Typed registry migration preserved agent chat registration, streaming chunk collection, provider/key resolution, MCP config injection, and error behavior.</td>
+          <td><span class="status done">1 file / 13 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/main/ipc-secrets.test.ts</code></td>
+          <td>Typed registry migration preserved secret save/get/delete/list/listStored/clearAll behavior and tightened environment isolation for provider-list tests.</td>
+          <td><span class="status done">1 file / 5 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/main/ipc-runtime.test.ts</code></td>
+          <td>Typed registry migration preserved runtime probe, model listing, Ollama capability resolution, embedding dimension verification, and IPC payload hardening.</td>
+          <td><span class="status done">1 file / 9 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/main/ipc-tools.test.ts</code></td>
+          <td>Typed registry migration preserved native, assistant-runtime, and MCP tool execution plus runtime metadata sanitization.</td>
+          <td><span class="status done">1 file / 22 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/main/ipc-mcp.test.ts src/__tests__/main/ipc-mcp-preferences.test.ts</code></td>
+          <td>Typed registry migration preserved MCP config editing, watching, sample creation, tool discovery, and tool preference cleanup.</td>
+          <td><span class="status done">2 files / 32 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/main/main-platform-ipc.test.ts</code><br><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts -t "main process startup"</code></td>
+          <td>Final assistant URL and renderer reload-intent channels moved out of <code>main.ts</code> and onto owned typed registry channels.</td>
+          <td><span class="status done">2 focused checks / 7 assertions</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/preload-runtime-contract.test.ts src/__tests__/main/main-platform-ipc.test.ts src/__tests__/main/ipc-mcp.test.ts src/__tests__/main/ipc-tools.test.ts src/__tests__/ipc-agent.test.ts src/__tests__/main/ipc-parser-host.test.ts</code></td>
+          <td>Shared channel catalog stays in parity with the self-contained preload bridge and the migrated main-process registry handlers for agent, MCP, parser host, tools, and lifecycle channels.</td>
+          <td><span class="status done">6 files / 79 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/desktop-ipc-channel-contract.test.ts src/__tests__/preload-runtime-contract.test.ts</code></td>
+          <td>Desktop diagnostics, DB managed-cache, parser-host parse, runtime probe/model, and assistant selection/tapestry channels are owned by <code>platform/desktop-ipc-channels.ts</code> instead of duplicated raw string exports.</td>
+          <td><span class="status done">2 files / 10 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/preload-runtime-contract.test.ts src/__tests__/platform/desktop-ipc-channel-contract.test.ts src/__tests__/assistant-server/assistant-tools.test.ts</code></td>
+          <td>Assistant root-tree, preview-context, workspace-context, and tapestry update events stay in preload/catalog parity and the assistant tool broadcaster still notifies visible renderer windows.</td>
+          <td><span class="status done">3 files / 32 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/preload-runtime-contract.test.ts src/__tests__/preload-power.test.ts</code></td>
+          <td>Preload bridge calls no longer use raw <code>ipcRenderer</code> channel literals; DB, file-system, storage, layout, secrets, settings, runtime probes, live-query updates, power-state events, embedding host, chunking host, and LLM host route through named constants. LLM host warmup now crosses preload as a canonical <code>{ kind: "warmup", ... }</code> payload.</td>
+          <td><span class="status done">2 files / 21 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/desktop-ipc-channel-contract.test.ts src/__tests__/ipc-domains/db-ipc.test.ts src/__tests__/main/ipc-handlers-db.test.ts src/__tests__/ipc-domains/file-system-ipc.test.ts src/__tests__/main/ipc-handlers-fs.test.ts src/__tests__/ipc-domains/storage-preferences-ipc.test.ts src/__tests__/main/ipc-secrets.test.ts src/__tests__/main/ipc-handlers.test.ts</code></td>
+          <td>Production registry calls no longer register raw channel literals; DB, file-system, storage/preferences, and secrets channel catalog migration preserved existing behavior.</td>
+          <td><span class="status done">8 files / 85 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/desktop-ipc-channel-contract.test.ts src/__tests__/ipc-domains/db-ipc.test.ts src/__tests__/main/ipc-handlers-db.test.ts src/__tests__/preload-power.test.ts</code></td>
+          <td>Production <code>webContents.send()</code> broadcasts for DB live-query updates and power-state events no longer use raw channel literals.</td>
+          <td><span class="status done">4 files / 62 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>node --test scripts/__tests__/ci-select.test.mjs --test-name-pattern "E2E lane"</code><br><code>pnpm run lint:e2e-destructive-tags</code><br><code>pnpm run lint:ci-workflow-contracts</code></td>
+          <td>Risk selection now routes destructive reset through both web destructive E2E and desktop factory reset; desktop factory reset must carry <code>@destructive</code>; desktop embedding lanes target split spec files instead of the removed monolith.</td>
+          <td><span class="status done">passed</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec playwright test e2e/factory-reset.desktop.test.ts --project=regression --grep "@destructive" --list</code><br><code>pnpm --filter @brainstrike/desktop exec playwright test e2e/embedding-worker-renderer.smoke.desktop.test.ts e2e/embedding-worker-renderer.backfill-search.desktop.test.ts e2e/embedding-worker-renderer.memory.desktop.test.ts e2e/embedding-worker-renderer.diagnostics.desktop.test.ts --project=regression --grep "@desktop-embedding-recovery" --list</code></td>
+          <td>Local lane listing confirms destructive reset selects the two desktop factory-reset tests and hidden-host recovery selects the two restart/recovery embedding specs, without executing the heavier E2E bodies. The desktop confirm-path reset spec now seeds and verifies localStorage, sessionStorage, CacheStorage, and IndexedDB first-run cleanup.</td>
+          <td><span class="status done">2 reset + 2 recovery tests selected</span></td>
+        </tr>
+        <tr>
+          <td><code>node --test scripts/__tests__/ci-select.test.mjs</code><br><code>node --test scripts/__tests__/ci-risk-rules.test.mjs</code><br><code>node --test scripts/__tests__/check-ci-risk-fixtures.test.mjs</code><br><code>pnpm run ci:risk-fixtures</code><br><code>pnpm --filter @brainstrike/desktop exec playwright test e2e/llm-host-renderer.test.ts --project=regression --grep "@desktop-llm-host-recovery" --list</code></td>
+          <td>LLM host changes now select an explicit hidden-host recovery lane without selecting embedding diagnostics; the lane resolves to one focused desktop spec that restarts the hidden LLM host and asserts the visible renderer does not reload. Golden risk fixtures now cover 15 representative change cases.</td>
+          <td><span class="status done">17 + 19 + 8 script tests, 15 fixtures, 1 E2E selected</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop type-check</code><br><code>pnpm --filter @brainstrike/desktop lint</code></td>
+          <td>The new desktop LLM-host E2E source and the risk-lane script changes are type-safe and lint clean.</td>
+          <td><span class="status done">passed</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/preload-power.test.ts</code><br><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts</code><br><code>pnpm --filter @brainstrike/desktop build</code></td>
+          <td>LLM-host preload parity is covered alongside embedding/chunking host parity; Electron main can no longer value-import the embeddings root entrypoint; the provider-core subpath resolves in the desktop main build.</td>
+          <td><span class="status done">14 preload tests, 12 boundary tests, build passed</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/platform/runtime-host-boundary.test.ts</code></td>
+          <td>Renderer-only architecture guards reject nested local LLM and embedding worker subpath imports from Electron main while preserving the hosted provider-core path.</td>
+          <td><span class="status done">14 boundary tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/embedding-host-shared.test.ts src/__tests__/platform/desktop-ipc-channel-contract.test.ts</code></td>
+          <td>Embedding host backfill-management channels now come from the typed background-runtime descriptor instead of standalone raw string constants, and the IPC contract test rejects future descriptor escape hatches.</td>
+          <td><span class="status done">2 files / 8 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/embedding-host-manager.test.ts src/__tests__/llm-host-manager.test.ts</code></td>
+          <td>Embedding and LLM host managers expose explicit platform control states during reset/restart operations, so the central diagnostics snapshot can distinguish planned lifecycle work from generic starting/stopping source states.</td>
+          <td><span class="status done">2 files / 35 tests</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec playwright test e2e/llm-host-renderer.test.ts --project=regression --grep "@desktop-llm-host-recovery"</code></td>
+          <td>Hidden LLM host recovery executes locally and proves a destroyed hidden host can restart without reloading the visible renderer.</td>
+          <td><span class="status done">1 passed / 22.0s</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec playwright test e2e/embedding-worker-renderer.smoke.desktop.test.ts e2e/embedding-worker-renderer.backfill-search.desktop.test.ts e2e/embedding-worker-renderer.memory.desktop.test.ts e2e/embedding-worker-renderer.diagnostics.desktop.test.ts --project=regression --grep "@desktop-embedding-recovery"</code></td>
+          <td>Selected hidden embedding-host recovery specs execute locally without running unrelated embedding diagnostics or soak lanes.</td>
+          <td><span class="status done">2 passed / 33.3s</span></td>
+        </tr>
+        <tr>
+          <td><code>pnpm --filter @brainstrike/desktop exec playwright test e2e/factory-reset.desktop.test.ts --project=regression --grep "@destructive"</code></td>
+          <td>Desktop factory reset destructive lane executes locally. The confirm path seeds localStorage, sessionStorage, CacheStorage, IndexedDB, userData cache, MCP state, and sentinel files, then verifies first-run cleanup while preserving logs. CacheStorage seeding uses an HTTPS cache key because Chromium rejects <code>file://</code> cache requests.</td>
+          <td><span class="status done">2 passed / 23.9s</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Remaining Platform Work</h2>
+    <table>
+      <thead><tr><th>Slice</th><th>Next Measurable Step</th><th>Acceptance Condition</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>IPC drift prevention</td>
+          <td>Extend the source-checked channel catalog to additional bridge surfaces before adding new IPC channels; introduce generated preload/renderer bridge metadata only if it demonstrably removes drift without adding hidden fallback behavior.</td>
+          <td>Every moved main-process channel has a domain, a typed registration path, a focused test, and a preload/catalog parity assertion when exposed through <code>contextBridge</code>.</td>
+        </tr>
+        <tr>
+          <td>Diagnostics depth</td>
+          <td>Promote any additional migration/telemetry counters discovered during E2E reset/recovery work into the same snapshot.</td>
+          <td>One diagnostics call continues to answer reset, migration, DB, scheduler, indexing, embedding host, LLM host, crash recovery, and runtime metric health.</td>
+        </tr>
+        <tr>
+          <td>Reset and recovery</td>
+          <td>Keep the destructive desktop factory-reset lane and hidden-host recovery lanes explicit and selected by risk. Do not move them into low-risk/default feedback loops.</td>
+          <td>Done locally on 2026-05-20: destructive factory reset, embedding host recovery, and LLM host recovery lanes all executed green; targeted unit coverage proves reset ordering and lane selection keeps these tests out of low-risk feedback loops.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer>
+    brainstrike · desktop-runtime-platform-progress-2026-05-20.html
+  </footer>
+</main>
+</body>
+</html>

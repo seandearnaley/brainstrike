@@ -1,0 +1,49 @@
+{
+  "minSamples": 5,
+  "normalRiskMissingSamples": 0,
+  "releaseOnlyMissingSamples": 4,
+  "selectedMissingSamples": 4,
+  "status": "needs-samples",
+  "commands": [
+    {
+      "name": "full-local-suite",
+      "owner": "release",
+      "sampleCount": 1,
+      "missingSamples": 4,
+      "estimatedRemainingMs": 10800000,
+      "releaseOnly": true,
+      "selected": true,
+      "status": "calibrating"
+    },
+    {
+      "name": "ci-script-tests",
+      "owner": "tooling",
+      "sampleCount": 5,
+      "missingSamples": 0,
+      "estimatedRemainingMs": 0,
+      "releaseOnly": false,
+      "selected": true,
+      "status": "within-target"
+    },
+    {
+      "name": "diff-check",
+      "owner": "tooling",
+      "sampleCount": 5,
+      "missingSamples": 0,
+      "estimatedRemainingMs": 0,
+      "releaseOnly": false,
+      "selected": true,
+      "status": "within-target"
+    },
+    {
+      "name": "workflow-contracts",
+      "owner": "ci-platform",
+      "sampleCount": 5,
+      "missingSamples": 0,
+      "estimatedRemainingMs": 0,
+      "releaseOnly": false,
+      "selected": true,
+      "status": "within-target"
+    }
+  ]
+}

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { type IpcMainInvokeEvent, ipcMain } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerAgentIpcHandlers } from '../ipc-agent';
@@ -44,6 +46,14 @@ describe('registerAgentIpcHandlers', () => {
   });
 
   describe('handler registration', () => {
+    it('registers through the typed desktop IPC registry', () => {
+      const source = readFileSync(path.resolve(process.cwd(), 'src/ipc-agent.ts'), 'utf8');
+
+      expect(source).toContain('createDesktopIpcRegistry');
+      expect(source).not.toMatch(/ipcMain\.(handle|on)\(/);
+      expect(source).not.toMatch(/ipcMain\.remove(Handler|Listener)\(/);
+    });
+
     it('should register the agent:chat handler', () => {
       registerAgentIpcHandlers();
       expect(ipcMain.handle).toHaveBeenCalledWith('agent:chat', expect.any(Function));

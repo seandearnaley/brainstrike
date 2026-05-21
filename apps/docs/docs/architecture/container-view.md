@@ -52,6 +52,7 @@ flowchart TB
 
     subgraph Pipeline[packages/pipeline]
       PStages[("chunking-stage.ts + embedding-stage.ts")]
+      PQueue[("embedding-job-queue-port.ts")]
       PProgress[("progress-aggregator.ts")]
       PController[("pipeline-controller.ts")]
     end
@@ -88,8 +89,8 @@ flowchart TB
   DQueue --> QueuePkg
   VectorMgmt --> Embeddings
   VectorMgmt --> DB
-  Pipeline -.-> DB
-  Pipeline -.-> Embeddings
+  Pipeline --> DB
+  Pipeline --> Embeddings
 
   Agent --> Providers
   WAPI --> API

@@ -92,7 +92,6 @@ Vite plugin that forces full page reload for files that may cause HMR issues.
 
 ## Dependencies
 
-- **@brainstrike/utils**: Shared utilities (for `isCompilerHotspot` detection)
 - **vite**: Vite plugin API types
 
 ## Development
@@ -137,10 +136,9 @@ Some files cannot be hot-reloaded safely due to:
 - Module-level side effects
 - Type-only changes that affect runtime
 
-The HMR plugin detects these patterns (via `isCompilerHotspot` from `@brainstrike/utils`) and forces full reloads to prevent development errors.
+The HMR plugin detects these patterns with the build-local `isCompilerHotspot` helper and forces full reloads to prevent development errors.
 
 ## See Also
 
-- [@brainstrike/utils](../utils/README.md) - Shared utility functions
 - [Vite Plugin API](https://vitejs.dev/guide/api-plugin.html)
 - [PGlite Documentation](https://pglite.dev/)

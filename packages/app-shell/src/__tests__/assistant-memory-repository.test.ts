@@ -1,4 +1,4 @@
-import type { AssistantRunEvent } from '@brainstrike/agent';
+import type { AssistantRunEvent } from '@brainstrike/assistant-contract';
 import type { DbHandle } from '@brainstrike/db';
 import { describe, expect, it, vi } from 'vitest';
 import {

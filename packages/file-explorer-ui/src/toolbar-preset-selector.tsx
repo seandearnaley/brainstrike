@@ -13,11 +13,11 @@ import { isDevEnv } from '@brainstrike/utils/env-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import * as React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useViewFilterPresets } from './hooks/use-view-filter-presets';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
-} from './file-explorer-provider';
-import { useViewFilterPresets } from './hooks/use-view-filter-presets';
+} from './shell/file-explorer-provider';
 import { ViewFilterPresetDropdown } from './view-filter-preset-dropdown';
 
 const logger = createLogger('ToolbarPresetSelector');

@@ -3,19 +3,19 @@ import {
   type LoadedRuntimeModelCatalogState,
   type LocalRuntimeId,
   type LocalRuntimeModelCatalogState,
-} from '@brainstrike/agent/local-runtime';
+} from '@brainstrike/assistant-contract/local-runtime';
 import {
   listProviders,
   type ProviderDefinition,
   type ProviderModelDefinition,
-} from '@brainstrike/agent/provider-metadata';
+} from '@brainstrike/assistant-contract/provider-metadata';
 import { CHUNKING_CONFIG } from '@brainstrike/db';
 import {
   type EmbeddingProviderType,
   type HostedProviderType,
   isLocalProviderType,
   STANDARD_EMBEDDING_DIMENSION,
-} from '@brainstrike/embeddings/provider-core';
+} from '@brainstrike/indexing-contract';
 import {
   Badge,
   Button,

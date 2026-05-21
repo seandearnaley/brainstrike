@@ -1,3 +1,7 @@
+import {
+  getBestBuiltInLocalLlmDevice,
+  isBuiltInLocalLlmDeviceAvailable,
+} from '@brainstrike/assistant-contract/local-llm-device';
 import { createLogger } from '@brainstrike/utils/logger';
 import { Gemma4Engine } from './gemma4-engine';
 import { createLocalArtifactStore } from './local-artifact-store';
@@ -173,11 +177,11 @@ export class LocalLlmBackend {
     if (device === 'wasm') {
       return typeof WebAssembly !== 'undefined';
     }
-    return typeof navigator !== 'undefined' && 'gpu' in navigator;
+    return isBuiltInLocalLlmDeviceAvailable(device);
   }
 
   static getBestDevice(): 'webgpu' | null {
-    return LocalLlmBackend.isDeviceAvailable('webgpu') ? 'webgpu' : null;
+    return getBestBuiltInLocalLlmDevice();
   }
 
   static async getWebGpuInfo(): Promise<{
@@ -193,7 +197,7 @@ export class LocalLlmBackend {
     }
 
     const gpu = (
-      navigator as Navigator & {
+      navigator as unknown as {
         gpu?: {
           requestAdapter: () => Promise<{
             info: {

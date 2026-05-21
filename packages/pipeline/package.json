@@ -3,6 +3,7 @@
   "description": "Indexing pipeline orchestrator for File → Chunk → Embed → Vector flows",
   "version": "0.0.1",
   "dependencies": {
+    "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/utils": "workspace:*"
   },

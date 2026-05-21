@@ -1,6 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { useMemo } from 'react';
-import { useSelectionManager } from '../use-selection-manager-context';
+import { useSelectionManager } from '../shell/use-selection-manager-context';
 
 interface UseFileExplorerSelectionParams {
   onSelectionLimitExceeded: () => void;

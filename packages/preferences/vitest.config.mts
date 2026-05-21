@@ -1,6 +1,5 @@
 import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
-import { createAgentBrowserSafeAliasEntries } from '../agent/config/browser-safe-subpath-aliases.mjs';
 
 const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
 
@@ -8,18 +7,13 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: '@brainstrike/embeddings/provider-core',
-        replacement: resolve(import.meta.dirname, '../embeddings/src/provider-core.ts'),
+        find: /^@brainstrike\/assistant-contract\/(.*)$/,
+        replacement: resolve(import.meta.dirname, '../assistant-contract/src/$1.ts'),
       },
       {
-        find: '@brainstrike/embeddings/service',
-        replacement: resolve(import.meta.dirname, '../embeddings/src/service-entry.ts'),
+        find: '@brainstrike/assistant-contract',
+        replacement: resolve(import.meta.dirname, '../assistant-contract/src/index.ts'),
       },
-      {
-        find: '@brainstrike/embeddings/factory',
-        replacement: resolve(import.meta.dirname, '../embeddings/src/factory-entry.ts'),
-      },
-      ...createAgentBrowserSafeAliasEntries(resolve(import.meta.dirname, '../agent')),
       {
         find: '@brainstrike/ui',
         replacement: resolve(import.meta.dirname, '../ui/src/index.ts'),
@@ -27,6 +21,10 @@ export default defineConfig({
       {
         find: '@brainstrike/hooks',
         replacement: resolve(import.meta.dirname, '../hooks/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/indexing-contract',
+        replacement: resolve(import.meta.dirname, '../indexing-contract/src/index.ts'),
       },
       {
         find: '@brainstrike/utils/token-counting-runtime',
@@ -83,10 +81,6 @@ export default defineConfig({
       {
         find: '@brainstrike/db',
         replacement: resolve(import.meta.dirname, '../db/src/index.ts'),
-      },
-      {
-        find: '@brainstrike/embeddings',
-        replacement: resolve(import.meta.dirname, '../embeddings/src/index.ts'),
       },
       {
         find: '@brainstrike/storage',

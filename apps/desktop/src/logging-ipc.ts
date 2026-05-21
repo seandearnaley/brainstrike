@@ -1,8 +1,14 @@
 import { createLogger, type LogRecord } from '@brainstrike/utils/logger';
 import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
-import type { IpcMainEvent } from 'electron';
 import { ipcMain, webContents } from 'electron';
 import type { LoggingSettingsPayload } from './logging-shared';
+import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
+import {
+  assertBufferedLogRecord,
+  assertLoggingOpenDestinationTarget,
+  assertLoggingPreferences,
+  LOGGING_API_CHANNELS,
+} from './platform/logging-api-contract';
 
 const logger = createLogger('LoggingIPC');
 
@@ -18,15 +24,21 @@ export interface LoggingIpcHandlers {
 }
 
 export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): () => void {
-  ipcMain.handle('logging:get-preferences', () => handlers.getState());
+  const registry = createDesktopIpcRegistry({ ipcMain });
+
+  registry.registerInvoke('logging', LOGGING_API_CHANNELS.getPreferences, () =>
+    handlers.getState()
+  );
 
   let preferencesUpdateQueue: Promise<void> = Promise.resolve();
 
-  ipcMain.handle(
-    'logging:set-preferences',
-    async (_event, preferences: LoggingPreferences): Promise<LoggingSettingsPayload> => {
+  registry.registerInvoke(
+    'logging',
+    LOGGING_API_CHANNELS.setPreferences,
+    async (_event, preferences: unknown): Promise<LoggingSettingsPayload> => {
+      const parsedPreferences = assertLoggingPreferences(preferences);
       const runUpdate = async (): Promise<LoggingSettingsPayload> => {
-        const payload = await handlers.setPreferences(preferences);
+        const payload = await handlers.setPreferences(parsedPreferences);
         broadcastLoggingPreferences(payload.preferences);
         return payload;
       };
@@ -41,74 +53,27 @@ export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): () => 
     }
   );
 
-  ipcMain.handle('logging:select-destination', async () => handlers.selectDestination());
-
-  ipcMain.handle(
-    'logging:open-destination',
-    async (_event, target: string | null): Promise<boolean> => handlers.openDestination(target)
+  registry.registerInvoke('logging', LOGGING_API_CHANNELS.selectDestination, async () =>
+    handlers.selectDestination()
   );
 
-  ipcMain.handle('logging:get-buffered-logs', async () => handlers.getBufferedLogs());
-  const ingestBufferedRecord = (event: IpcMainEvent, payload: unknown) => {
-    handlers.ingestBufferedLog(event.sender.id, assertLogRecord(payload));
-  };
-  ipcMain.on('logging:ingest-buffered-record', ingestBufferedRecord);
+  registry.registerInvoke(
+    'logging',
+    LOGGING_API_CHANNELS.openDestination,
+    async (_event, target: unknown): Promise<boolean> =>
+      handlers.openDestination(assertLoggingOpenDestinationTarget(target))
+  );
+
+  registry.registerInvoke('logging', LOGGING_API_CHANNELS.getBufferedLogs, async () =>
+    handlers.getBufferedLogs()
+  );
+  registry.registerEvent('logging', LOGGING_API_CHANNELS.ingestBufferedRecord, (event, payload) => {
+    handlers.ingestBufferedLog(event.sender.id, assertBufferedLogRecord(payload));
+  });
 
   return () => {
-    ipcMain.removeHandler('logging:get-preferences');
-    ipcMain.removeHandler('logging:set-preferences');
-    ipcMain.removeHandler('logging:select-destination');
-    ipcMain.removeHandler('logging:open-destination');
-    ipcMain.removeHandler('logging:get-buffered-logs');
-    ipcMain.removeListener('logging:ingest-buffered-record', ingestBufferedRecord);
+    registry.unregisterAll();
   };
-}
-
-function assertLogRecord(payload: unknown): LogRecord {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw new Error('Buffered log record must be an object.');
-  }
-
-  const candidate = payload as Record<string, unknown>;
-  if (
-    candidate['level'] !== 'trace' &&
-    candidate['level'] !== 'debug' &&
-    candidate['level'] !== 'info' &&
-    candidate['level'] !== 'warn' &&
-    candidate['level'] !== 'error' &&
-    candidate['level'] !== 'fatal' &&
-    candidate['level'] !== 'silent'
-  ) {
-    throw new Error('Buffered log record has invalid level.');
-  }
-  if (typeof candidate['timestamp'] !== 'number' || !Number.isFinite(candidate['timestamp'])) {
-    throw new Error('Buffered log record must include a finite numeric timestamp.');
-  }
-  if (!Array.isArray(candidate['args'])) {
-    throw new Error('Buffered log record must include args array.');
-  }
-  if (
-    !candidate['bindings'] ||
-    typeof candidate['bindings'] !== 'object' ||
-    Array.isArray(candidate['bindings'])
-  ) {
-    throw new Error('Buffered log record must include bindings object.');
-  }
-  if (candidate['message'] !== undefined && typeof candidate['message'] !== 'string') {
-    throw new Error('Buffered log record message must be a string when present.');
-  }
-  if (candidate['scope'] !== undefined && typeof candidate['scope'] !== 'string') {
-    throw new Error('Buffered log record scope must be a string when present.');
-  }
-
-  return {
-    level: candidate['level'] as LogRecord['level'],
-    timestamp: candidate['timestamp'],
-    args: candidate['args'],
-    bindings: candidate['bindings'] as Record<string, unknown>,
-    ...(typeof candidate['message'] === 'string' ? { message: candidate['message'] } : {}),
-    ...(typeof candidate['scope'] === 'string' ? { scope: candidate['scope'] } : {}),
-  } satisfies LogRecord;
 }
 
 function broadcastLoggingPreferences(preferences: LoggingPreferences): void {
@@ -120,7 +85,7 @@ function broadcastLoggingPreferences(preferences: LoggingPreferences): void {
     }
     if (targetType === 'window' || targetType === 'webview') {
       try {
-        contents.send('logging:preferences-updated', cloned);
+        contents.send(LOGGING_API_CHANNELS.preferencesUpdated, cloned);
       } catch {
         // A WebContents can disappear between enumeration and send during shutdown churn.
       }

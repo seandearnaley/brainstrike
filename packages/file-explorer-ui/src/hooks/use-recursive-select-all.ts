@@ -14,7 +14,7 @@ import { startTransition, useCallback, useEffect, useMemo, useRef, useState } fr
 import {
   useOptionalFileExplorerStoreContext,
   useOptionalFileExplorerStoreSelector,
-} from '../file-explorer-provider';
+} from '../shell/file-explorer-provider';
 import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 import { createQuerySelectionSnapshot } from '../utils/query-selection-snapshot';
 import { querySelectableFiles } from '../utils/recursive-selection-query';

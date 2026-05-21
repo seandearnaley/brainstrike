@@ -7,7 +7,7 @@ import {
 import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import FileTree from '../file-tree';
+import FileTree from '../tree/file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 const Wrapper = composeWrappers(({ children }) => (

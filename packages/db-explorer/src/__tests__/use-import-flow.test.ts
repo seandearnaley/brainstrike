@@ -37,7 +37,7 @@ const mockExplorer: {
   unfilteredFileTree: null,
 };
 
-vi.mock('@brainstrike/file-explorer-ui', () => ({
+vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileExplorer: () => mockExplorer,
   useSelectionManager: (options: { onSelectionLimitExceeded?: () => void }) => {
     selectionOptions = options;

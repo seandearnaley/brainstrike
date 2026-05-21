@@ -1,58 +1,23 @@
-import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
+export type {
+  DistanceMetric,
+  EmbeddingProviderType,
+  EmbeddingRuntime,
+  HostedProviderType,
+  LocalProviderType,
+  ProviderMetadata,
+} from '@brainstrike/indexing-contract';
+export {
+  hostedProviderRequiresApiKey,
+  isLocalProviderType,
+  STANDARD_EMBEDDING_DIMENSION,
+} from '@brainstrike/indexing-contract';
 
-/**
- * Default embedding dimension (768D)
- * Note: This is no longer a hard constraint. Dimensions from 256-1536 are supported.
- */
-export const STANDARD_EMBEDDING_DIMENSION = DEFAULT_EMBEDDING_DIMENSION;
-
-/**
- * Supported embedding provider types
- * Note: 'transformers' is an alias for 'local' (both use transformers.js in the browser)
- * The database uses 'transformers' as the provider_id for local models
- */
-export type EmbeddingProviderType =
-  | 'local'
-  | 'transformers'
-  | 'openai'
-  | 'google'
-  | 'cohere'
-  | 'voyage'
-  | 'ollama'
-  | 'lmstudio';
-
-/**
- * Local provider types that run in the browser via transformers.js
- */
-export type LocalProviderType = 'local' | 'transformers';
-
-/**
- * Hosted provider types (remote APIs and local OpenAI-compatible runtimes)
- */
-export type HostedProviderType = Exclude<EmbeddingProviderType, LocalProviderType>;
-
-const NO_API_KEY_HOSTED_PROVIDERS = new Set<HostedProviderType>(['ollama', 'lmstudio']);
-
-/**
- * Hosted providers that require an API key to operate.
- */
-export function hostedProviderRequiresApiKey(provider: HostedProviderType): boolean {
-  return !NO_API_KEY_HOSTED_PROVIDERS.has(provider);
-}
-
-/**
- * Check if a provider type is a local (browser-based) provider
- */
-export function isLocalProviderType(
-  provider: EmbeddingProviderType
-): provider is LocalProviderType {
-  return provider === 'local' || provider === 'transformers';
-}
-
-/**
- * Provider runtime classification
- */
-export type EmbeddingRuntime = 'browser' | 'hosted';
+import type {
+  DistanceMetric,
+  EmbeddingProviderType,
+  HostedProviderType,
+  LocalProviderType,
+} from '@brainstrike/indexing-contract';
 
 /**
  * Discriminated union for embedding provider configurations
@@ -161,30 +126,6 @@ export type Result<T, E = EmbeddingProviderError> =
 export interface EmbeddingInput {
   modelId: string;
   text: string | string[];
-}
-
-/**
- * Distance/similarity metric used for vector comparison
- */
-export type DistanceMetric = 'cosine' | 'l2' | 'ip';
-
-/**
- * Unified provider metadata for both local and hosted providers
- * Used for embedding-set creation and validation (BST-167)
- */
-export interface ProviderMetadata {
-  /** Optional context window size */
-  contextWindow?: number;
-  /** Expected embedding dimensions */
-  dimensions: number;
-  /** Optional display name for the model */
-  displayName?: string;
-  /** Distance metric for similarity calculations (defaults to 'cosine') */
-  distance: DistanceMetric;
-  /** Model key/identifier used for embedding generation */
-  modelKey: string;
-  /** Provider identifier (e.g., 'local', 'openai', 'google', 'cohere', 'voyage') */
-  providerId: EmbeddingProviderType;
 }
 
 /**

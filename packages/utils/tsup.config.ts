@@ -3,6 +3,7 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   entry: {
     index: 'src/index.ts',
+    'token-counting-heuristics': 'src/token-counting-heuristics.ts',
     'token-counting-runtime': 'src/token-counting-runtime.ts',
     logger: 'src/logger.ts',
     'logging-initializer': 'src/logging-initializer.ts',
@@ -30,6 +31,7 @@ export default defineConfig({
     'tree-operations': 'src/tree-operations.ts',
     'perf-timing': 'src/perf-timing.ts',
     'path-filter': 'src/path-filter.ts',
+    'path-ancestors': 'src/path-ancestors.ts',
     'path-utils': 'src/path-utils.ts',
     'relative-file-path': 'src/relative-file-path.ts',
     crypto: 'src/crypto.ts',

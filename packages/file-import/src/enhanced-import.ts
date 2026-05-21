@@ -1,24 +1,23 @@
-import {
-  getProviderDefinition,
-  type ProviderDefinition,
-} from '@brainstrike/agent/provider-metadata';
 import type {
   ChunkingStrategy,
-  FileChunk,
   FileImportResult,
   IDatabase,
   ImportProgress,
 } from '@brainstrike/db';
 import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/db';
-import type { EmbeddingProviderType, ModelConfig } from '@brainstrike/embeddings/provider-core';
-import {
-  canonicalizeProviderModelKey,
-  isLocalProviderType,
-  parseProviderModelKey,
-  resolveHostedProviderApiKey,
-} from '@brainstrike/embeddings/provider-core';
+import { resolveHostedProviderApiKey } from '@brainstrike/embeddings';
 import type { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
-import type { ProviderDimensionParameter } from '@brainstrike/queue';
+import {
+  canonicalizeEmbeddingProviderModelKey as canonicalizeProviderModelKey,
+  type EmbeddingModelDefinition,
+  type EmbeddingProviderType,
+  getEmbeddingProviderDefinition as getProviderDefinition,
+  type IndexingEmbeddingJobQueuePort,
+  isLocalProviderType,
+  type EmbeddingModelConfig as ModelConfig,
+  type ProviderDimensionParameter,
+  parseEmbeddingProviderModelKey as parseProviderModelKey,
+} from '@brainstrike/indexing-contract';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import {
   createBulkOperationContext,
@@ -51,11 +50,6 @@ interface ModelCapabilities {
   defaultDimension?: number;
   type?: string;
 }
-
-type EmbeddingModelDefinition = Extract<
-  ReturnType<typeof getProviderDefinition>['models'][number],
-  { type: 'embedding' }
->;
 
 function isEmbeddingModelDefinition(model: unknown): model is EmbeddingModelDefinition {
   return Boolean(model) && (model as EmbeddingModelDefinition).type === 'embedding';
@@ -152,26 +146,7 @@ function dispatchEmbeddingSetUpdateEvent(id: string): void {
   }
 }
 
-export interface EmbeddingJobQueuePort {
-  enqueueBatch(
-    chunks: FileChunk[],
-    fileRecordId: string,
-    options?: {
-      signal?: AbortSignal | null;
-      transaction?: IDatabase | null;
-      model?: string | null;
-      targetEmbeddingSetId?: string | null;
-      provider?: EmbeddingProviderType | null;
-      targetDimension?: number | null;
-      dimensionParameter?: ProviderDimensionParameter | null;
-    }
-  ): Promise<void>;
-  /**
-   * Reset queue progress counters before starting a new import session.
-   * Implementations that don't track progress can omit this.
-   */
-  resetProgress?: () => void;
-}
+export type EmbeddingJobQueuePort = IndexingEmbeddingJobQueuePort<IDatabase>;
 
 export interface SqlExecutorPort {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
@@ -601,7 +576,7 @@ async function attachHostedModelMetadata(
 
   const definition = getProviderDefinition(supported);
   const modelDefinition = definition.models.find(
-    (candidate: ProviderDefinition['models'][number]) => candidate.id === modelId
+    (candidate: EmbeddingModelDefinition) => candidate.id === modelId
   );
 
   if (modelDefinition && isEmbeddingModelDefinition(modelDefinition)) {

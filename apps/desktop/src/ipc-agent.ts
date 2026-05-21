@@ -1,11 +1,12 @@
 import { isSupportedProvider } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import { createLogger } from '@brainstrike/utils/logger';
-import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
 import type { McpConfig } from './mcp-loader';
 import { loadMcpConfig } from './mcp-loader';
 import { readOpenAIApiKey } from './openai-api-key';
+import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
+import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import { readProviderSecretKey, resolveProviderEnvKey } from './provider-api-key';
 
 // Minimal local types to avoid cross-project TS coupling during type-check
@@ -49,15 +50,19 @@ const logger = createLogger('DesktopIpcAgent');
 type AgentModule = typeof import('@brainstrike/agent');
 type MaybeAsyncIterable<T> = AsyncIterable<T> | Promise<AsyncIterable<T>>;
 
-export function registerAgentIpcHandlers() {
-  ipcMain.handle(
-    'agent:chat',
-    async (
-      _e: IpcMainInvokeEvent,
-      messages: AgentMessage[],
-      runtime?: RuntimeData
-    ): Promise<StreamChunk[]> => runAgentChat(messages, runtime)
+export function registerAgentIpcHandlers(): () => void {
+  const registry = createDesktopIpcRegistry({ ipcMain });
+
+  registry.registerInvoke(
+    'agent',
+    DESKTOP_PRELOAD_IPC_CHANNELS.agent.chat,
+    async (_event, messages: AgentMessage[], runtime?: RuntimeData): Promise<StreamChunk[]> =>
+      runAgentChat(messages, runtime)
   );
+
+  return () => {
+    registry.unregisterAll();
+  };
 }
 
 async function runAgentChat(

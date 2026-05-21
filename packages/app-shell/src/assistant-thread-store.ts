@@ -1,4 +1,3 @@
-import type { RuntimeData } from '@brainstrike/agent';
 import type { AssistantProviderSettings } from '@brainstrike/types';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -7,6 +6,12 @@ import type {
   AssistantThreadMetadata,
   AssistantThreadRepository,
 } from './assistant-memory-repository';
+
+interface AssistantThreadModelSettings {
+  readonly maxOutputTokens?: number;
+}
+
+type AssistantThreadProviderOptions = Record<string, unknown>;
 
 type AssistantThreadLoadState =
   | { readonly status: 'idle' }
@@ -55,9 +60,9 @@ interface AssistantThreadState {
 
 export interface AssistantThreadDraftRuntime {
   readonly model?: string;
-  readonly modelSettings?: RuntimeData['modelSettings'];
+  readonly modelSettings?: AssistantThreadModelSettings;
   readonly provider?: string;
-  readonly providerOptions?: RuntimeData['providerOptions'];
+  readonly providerOptions?: AssistantThreadProviderOptions;
   readonly providerSettings?: Record<string, AssistantProviderSettings>;
   readonly runtimeKind?: 'browser' | 'gateway' | 'hosted' | 'local';
 }

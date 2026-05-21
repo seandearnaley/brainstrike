@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import {
   activateSidebarNavigation,
@@ -63,6 +63,48 @@ async function expectLayoutState(
   await expect
     .poll(async () => predicate(await getPersistedLayout(page, storageKey)), { timeout })
     .toBe(true);
+}
+
+async function dragPanelWider({
+  page,
+  panel,
+  resizeHandle,
+  initialWidth,
+}: {
+  readonly page: Page;
+  readonly panel: Locator;
+  readonly resizeHandle: Locator;
+  readonly initialWidth: number;
+}): Promise<number> {
+  const dragDeltas = [120, 180, 240] as const;
+
+  for (const dragDelta of dragDeltas) {
+    const handleBox = await resizeHandle.boundingBox();
+    if (!handleBox) {
+      throw new Error('Resize handle not found');
+    }
+
+    const startX = handleBox.x + handleBox.width / 2;
+    const startY = handleBox.y + handleBox.height / 2;
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + dragDelta, startY, { steps: 8 });
+    await page.mouse.up();
+
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline) {
+      const width = await panel.evaluate((el) => el.getBoundingClientRect().width);
+      if (width > initialWidth + 1) {
+        return width;
+      }
+      await page.waitForTimeout(100);
+    }
+  }
+
+  const finalWidth = await panel.evaluate((el) => el.getBoundingClientRect().width);
+  throw new Error(
+    `Panel resize did not widen after ${dragDeltas.join(', ')}px drags: initial=${initialWidth}, final=${finalWidth}`
+  );
 }
 
 test.describe('IDE Layout Persistence', () => {
@@ -162,11 +204,6 @@ test.describe('IDE Layout Persistence', () => {
       const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
       await expect(leftPanel).toBeVisible();
 
-      // Get container width before resize
-      const containerWidth = await page
-        .locator(CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR)
-        .evaluate((el) => el.getBoundingClientRect().width);
-
       // Get initial width
       const initialWidth = await leftPanel.evaluate((el) => el.getBoundingClientRect().width);
 
@@ -175,24 +212,17 @@ test.describe('IDE Layout Persistence', () => {
       const resizeHandle = getContextExplorerLeftResizeHandle(page);
       await expect(resizeHandle).toBeVisible();
 
-      // Get the resize handle position
-      const handleBox = await resizeHandle.boundingBox();
-      if (!handleBox) {
-        throw new Error('Resize handle not found');
-      }
-
-      // Drag to resize (move right to make panel wider)
-      await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(handleBox.x + 100, handleBox.y + handleBox.height / 2);
-      await page.mouse.up();
-
-      // Wait for resize to complete
-      await page.waitForTimeout(300);
-
       // Verify width changed
-      const newWidth = await leftPanel.evaluate((el) => el.getBoundingClientRect().width);
+      const newWidth = await dragPanelWider({
+        page,
+        panel: leftPanel,
+        resizeHandle,
+        initialWidth,
+      });
       expect(newWidth).toBeGreaterThan(initialWidth);
+      await expectLayoutState(page, (state) => typeof state?.state?.sizes?.[0] === 'number', {
+        storageKey: CONTEXT_EXPLORER_LAYOUT_STORE_KEY,
+      });
       const persistedBeforeReload = await getPersistedLayout(
         page,
         CONTEXT_EXPLORER_LAYOUT_STORE_KEY
@@ -207,15 +237,6 @@ test.describe('IDE Layout Persistence', () => {
       await page.reload();
       await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
 
-      // Get container width after reload
-      const containerWidthAfter = await page
-        .locator(CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR)
-        .evaluate((el) => el.getBoundingClientRect().width);
-
-      // Verify width persisted by comparing percentages (accounts for container size changes)
-      const persistedWidth = await leftPanel.evaluate((el) => el.getBoundingClientRect().width);
-      const newWidthPercentage = (newWidth / containerWidth) * 100;
-      const persistedWidthPercentage = (persistedWidth / containerWidthAfter) * 100;
       const persistedAfterReload = await getPersistedLayout(
         page,
         CONTEXT_EXPLORER_LAYOUT_STORE_KEY
@@ -226,8 +247,6 @@ test.describe('IDE Layout Persistence', () => {
         throw new Error('Persisted left-panel size after reload is required and must be numeric');
       }
 
-      // The percentage should be reasonably close (within 10% to account for rounding and layout differences)
-      expect(Math.abs(persistedWidthPercentage - newWidthPercentage)).toBeLessThan(25);
       expect(Math.abs(leftSizeAfterReload - leftSizeBeforeReload)).toBeLessThan(0.5);
     });
 

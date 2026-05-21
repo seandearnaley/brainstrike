@@ -19,7 +19,7 @@ import type { IFileNode } from '@brainstrike/types';
 import { calculatePathDepth } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useMemo, useRef } from 'react';
-import { useFileExplorerStoreSelector } from '../file-explorer-provider';
+import { useFileExplorerStoreSelector } from '../shell/file-explorer-provider';
 
 const logger = createLogger('useRuleMaterialization');
 

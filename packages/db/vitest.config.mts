@@ -21,11 +21,10 @@ export default defineConfig({
       src: path.resolve(__dirname, 'src'),
       '@brainstrike/types': path.resolve(__dirname, '../types/src'),
       '@brainstrike/queue': path.resolve(__dirname, '../queue/src'),
-      '@brainstrike/text-splitter/chunking-core': path.resolve(
+      '@brainstrike/indexing-contract': path.resolve(
         __dirname,
-        '../text-splitter/src/chunking-core.ts'
+        '../indexing-contract/src/index.ts'
       ),
-      '@brainstrike/text-splitter': path.resolve(__dirname, '../text-splitter/src/index.ts'),
       '@brainstrike/embedding-worker': path.resolve(__dirname, '../embedding-worker/src'),
       '@brainstrike/utils': path.resolve(__dirname, '../utils/src'),
       '@brainstrike/platform-utils': path.resolve(__dirname, '../platform-utils/src'),

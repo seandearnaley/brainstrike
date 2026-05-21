@@ -11,7 +11,7 @@ import {
 import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import { useCallback } from 'react';
 import { shallow } from 'zustand/shallow';
-import { useFileExplorerStoreSelector } from './file-explorer-provider';
+import { useFileExplorerStoreSelector } from './shell/file-explorer-provider';
 
 interface FolderSelectionDialogProps {
   fileCount: number;

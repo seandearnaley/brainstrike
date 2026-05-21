@@ -1,3 +1,5 @@
+@AGENTS.md
+
 # Claude Code Instructions
 
 ## GitHub PR Auto Review Workflow

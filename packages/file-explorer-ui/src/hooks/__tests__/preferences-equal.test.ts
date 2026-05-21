@@ -3,7 +3,7 @@ import {
   type ColumnVisibility,
   type PreviewPanelPreferences,
   preferencesEqual,
-} from '../use-preview-panel-persistence';
+} from '../../preview/use-preview-panel-persistence';
 
 describe('preferencesEqual', () => {
   const columns: ColumnVisibility = {

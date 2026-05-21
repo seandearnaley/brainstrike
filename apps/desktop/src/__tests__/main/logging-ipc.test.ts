@@ -1,4 +1,4 @@
-import type { LoggingPreferences } from '@brainstrike/utils';
+import { createDefaultLoggingPreferences, type LoggingPreferences } from '@brainstrike/utils';
 import type { IpcMainInvokeEvent } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -38,14 +38,16 @@ describe('logging-ipc', () => {
     vi.clearAllMocks();
   });
 
-  const basePreferences: LoggingPreferences = {
-    level: 'info',
+  const basePreferences: LoggingPreferences = createDefaultLoggingPreferences({
     redactPaths: ['token'],
     file: {
+      append: true,
+      destination: '/tmp/logs',
       enabled: true,
-      directory: '/tmp/logs',
+      level: 'info',
+      mkdir: true,
     },
-  };
+  });
 
   it('registers all logging IPC handlers', () => {
     const handlers = {

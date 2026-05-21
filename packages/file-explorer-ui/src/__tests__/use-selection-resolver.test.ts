@@ -10,7 +10,7 @@ vi.mock('@brainstrike/db', () => ({
   useOptionalPGliteDatabase: () => useOptionalPGliteDatabaseMock(),
 }));
 
-vi.mock('../file-explorer-provider', () => ({
+vi.mock('../shell/file-explorer-provider', () => ({
   useFileExplorerStoreContext: () => useFileExplorerStoreContextMock(),
   useFileExplorerStoreSelector: vi.fn((selector: (state: unknown) => unknown) => {
     const store = useFileExplorerStoreContextMock();

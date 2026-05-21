@@ -3,7 +3,7 @@ import type {
   DrizzleFileChunkRepository,
   ElectronFileChunkRepository,
 } from '@brainstrike/db';
-import { useFileExplorer, useSelectionManager } from '@brainstrike/file-explorer-ui';
+import { useFileExplorer, useSelectionManager } from '@brainstrike/file-explorer-ui/shell';
 import type { QueueAdapter } from '@brainstrike/queue';
 import type { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';

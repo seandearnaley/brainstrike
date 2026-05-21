@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import type { ColumnVisibility } from '../hooks/use-preview-panel-persistence';
-import { PreviewTable } from '../preview-table';
+import { PreviewTable } from '../preview/preview-table';
+import type { ColumnVisibility } from '../preview/use-preview-panel-persistence';
 import type { GroupedData, TableRowData } from '../utils/grouping-configs';
 
 const DEFAULT_COLUMN_VISIBILITY: ColumnVisibility = {

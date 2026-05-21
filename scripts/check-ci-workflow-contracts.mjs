@@ -311,6 +311,26 @@ function requireDesktopEmbeddingJobContracts(source, prefix, failures) {
     `${prefix} desktop embedding E2E must cap Playwright runtime at 12 minutes.`,
     failures
   );
+  requireNotIncludes(
+    source,
+    'e2e/embedding-worker-renderer.test.ts',
+    `${prefix} desktop embedding E2E must target the split embedding specs, not the removed monolithic spec.`,
+    failures
+  );
+  for (const splitSpec of [
+    'e2e/embedding-worker-renderer.smoke.desktop.test.ts',
+    'e2e/embedding-worker-renderer.backfill-search.desktop.test.ts',
+    'e2e/embedding-worker-renderer.memory.desktop.test.ts',
+    'e2e/embedding-worker-renderer.diagnostics.desktop.test.ts',
+    'e2e/embedding-worker-renderer.crash-a.desktop.test.ts',
+  ]) {
+    requireIncludes(
+      source,
+      splitSpec,
+      `${prefix} desktop embedding E2E must include split spec ${splitSpec}.`,
+      failures
+    );
+  }
   if (source.includes('@desktop-embedding-core')) {
     failures.push(
       `${prefix} desktop embedding E2E must not reintroduce the broad @desktop-embedding-core lane.`

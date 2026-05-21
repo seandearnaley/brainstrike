@@ -49,6 +49,73 @@ Add required peers to the consuming workspace with `pnpm add react zustand
 - `@brainstrike/db` is intentionally a devDependency in app-shell because it is only used in tests.
   Runtime access flows through `@brainstrike/db-explorer`.
 
+## Assistant Ownership
+
+The app-shell assistant surface owns integration, not model/runtime implementation.
+
+Owned files:
+
+- `src/assistant-ui-panel-wrapper.tsx`: React composition over preferences, DB-backed memory, workspace context, native tools, MCP tools, and the shared UI panel.
+- `src/assistant-ui-panel-wrapper-runtime.ts`: Pure helper module for provider/model selection, request data shaping, memory options, MCP/native tool menu shaping, and assistant run-record creation.
+- `src/assistant-thread-store.ts`: Per-thread draft runtime state.
+- `src/assistant-memory-repository.ts`: PGlite-backed thread and run-record persistence.
+- `src/__tests__/assistant-ui-panel-wrapper-test-support.tsx`: Shared wrapper test fixture for provider catalogs, DB mocks, file-explorer stores, MCP bridge setup, and render helpers.
+
+Public surfaces:
+
+- Consumers import `AssistantUiPanelWrapper` through the package root.
+- Runtime/provider contracts come from `@brainstrike/assistant-contract`.
+- The wrapper must not deep-import `@brainstrike/agent` runtime internals.
+
+Allowed dependencies:
+
+- `@brainstrike/assistant-contract` for provider metadata, local-runtime state, model settings, and memory contracts.
+- `@brainstrike/ui/assistant-ui-panel` for presentational assistant UI types/components.
+- `@brainstrike/preferences` for persisted user settings.
+- `@brainstrike/file-explorer-ui/preview` and `/shell` for workspace context and selection state.
+
+Focused local verification:
+
+```bash
+pnpm --filter @brainstrike/app-shell exec vitest run src/__tests__/assistant-contract-boundary.test.ts src/__tests__/assistant-ui-panel-wrapper.test.tsx
+pnpm --filter @brainstrike/app-shell type-check
+```
+
+## Background Indexing Ownership
+
+The app-shell background indexing surface owns orchestration between workspace scans,
+managed-cache import, chunking, and embedding backfill. It does not own provider
+runtime implementation or embedding execution.
+
+Owned files:
+
+- `src/background-indexing/workspace-collection-sync-service.ts`: orchestration over sync context resolution, access validation, recovery, scan/import/backfill sequencing, and status transitions.
+- `src/background-indexing/workspace-collection-sync-import.ts`: file-tree flattening, cache-change preparation, managed-cache mutation batches, and root-folder-cache import execution.
+- `src/background-indexing/workspace-collection-sync-progress.ts`: abort helpers, scan status throttling, backfill polling, queue-drained events, and status/progress mapping.
+- `src/background-indexing/__tests__/workspace-collection-sync-service.test.ts`: service-level behavior for scan, import, recovery, cancellation, and progress/status transitions.
+
+Public surfaces:
+
+- `WorkspaceCollectionSyncService` and its request/dependency contracts remain the app-shell integration boundary.
+- Import/cache helpers stay package-private to `background-indexing`; consumers should not deep-import them.
+- Provider model metadata and provider classification flow through `@brainstrike/indexing-contract`.
+
+Allowed dependencies:
+
+- `@brainstrike/indexing-contract` for provider/model-key contracts.
+- `@brainstrike/file-explorer-ui/tree` for the public file-tree read surface.
+- `@brainstrike/file-explorer-hooks` for file-content processing.
+- `@brainstrike/file-import` for enhanced import/chunking orchestration.
+- `@brainstrike/db` repository and managed-cache contracts.
+- `@brainstrike/preferences` status-store contracts.
+
+Focused local verification:
+
+```bash
+pnpm --filter @brainstrike/app-shell exec vitest run src/__tests__/indexing-contract-boundary.test.ts src/background-indexing/__tests__/workspace-collection-sync-service.test.ts
+pnpm --filter @brainstrike/app-shell type-check
+```
+
 ## Usage
 
 ### Basic Setup

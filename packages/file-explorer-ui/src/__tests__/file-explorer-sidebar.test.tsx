@@ -7,7 +7,7 @@ import {
 import type { IFileNode } from '@brainstrike/types';
 import { act, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import FileExplorerSidebar from '../file-explorer-sidebar';
+import FileExplorerSidebar from '../shell/file-explorer-sidebar';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 const Wrapper = composeWrappers(({ children }) => (

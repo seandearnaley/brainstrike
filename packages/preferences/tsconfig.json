@@ -8,8 +8,11 @@
     "outDir": "dist",
     "declarationDir": "dist",
     "paths": {
-      "@brainstrike/agent/memory-settings": [
-        "../agent/src/memory-settings.ts"
+      "@brainstrike/assistant-contract": [
+        "../assistant-contract/src/index.ts"
+      ],
+      "@brainstrike/assistant-contract/*": [
+        "../assistant-contract/src/*"
       ],
       "@brainstrike/utils/*": [
         "../utils/src/*"
@@ -33,19 +36,16 @@
   ],
   "references": [
     {
-      "path": "../agent"
+      "path": "../assistant-contract"
     },
     {
       "path": "../db"
     },
     {
-      "path": "../embeddings"
+      "path": "../indexing-contract"
     },
     {
       "path": "../storage"
-    },
-    {
-      "path": "../text-splitter"
     },
     {
       "path": "../ui"

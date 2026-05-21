@@ -120,7 +120,7 @@ describe('DbProvider factoryReset', () => {
     expect(typeof result.current.reset).toBe('function');
   });
 
-  it('closes the active DB and provisions a fresh instance on reset', async () => {
+  it('closes the active DB without provisioning a fresh instance before reload', async () => {
     const { result } = renderHook(
       () => ({
         repo: useFileRecordRepository(),
@@ -151,13 +151,14 @@ describe('DbProvider factoryReset', () => {
       await reset();
     });
 
-    // The first DB must have been closed exactly once during the reset, and
-    // exactly one new PGlite must have been provisioned by the retry-init path
-    // (initial + reset = 2). A higher count would indicate the retry loop
-    // re-entered, which our mock should never trigger -- regression signal.
+    // The reset panel clears renderer state and then reloads the app. Reopening
+    // PGlite before that reload can leave the reset UI waiting on database
+    // readiness instead of reaching the reload path.
     expect(initialDb.close).toHaveBeenCalledTimes(1);
-    expect(createPGliteSpy).toHaveBeenCalledTimes(2);
-    expect(createdDbs).toHaveLength(2);
+    expect(createPGliteSpy).toHaveBeenCalledTimes(1);
+    expect(createdDbs).toHaveLength(1);
+    expect(result.current.repo).toBeNull();
+    expect(result.current.reset).toBeNull();
   });
 
   it('surfaces desktop hard reset failure instead of falling back to direct PGlite', async () => {

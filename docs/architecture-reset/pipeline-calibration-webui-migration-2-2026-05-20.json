@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-20T06:50:45.649Z",
+  "dryRun": false,
+  "commandResults": [
+    {
+      "budgetMs": 240000,
+      "command": "pnpm --filter @brainstrike/file-explorer-ui test && pnpm --filter @brainstrike/file-explorer test",
+      "name": "file-explorer-tests",
+      "owner": "workspace-experience",
+      "requiredFor": [
+        "web-ui-file-explorer"
+      ],
+      "budgetStatus": "ok",
+      "durationMs": 20980,
+      "exitCode": 0
+    },
+    {
+      "budgetMs": 180000,
+      "command": "pnpm --filter @brainstrike/db exec vitest run __tests__/migration-integration.test.ts __tests__/migration-runner.test.ts __tests__/drizzle-migrate.test.ts",
+      "name": "migration-tests",
+      "owner": "data-platform",
+      "requiredFor": [
+        "db-migrations-storage"
+      ],
+      "budgetStatus": "ok",
+      "durationMs": 33429,
+      "exitCode": 0
+    }
+  ]
+}

@@ -24,7 +24,7 @@ flowchart LR
       Q["packages/queue<br/>workerpool adapters, telemetry"]
       VM["packages/vector-management<br/>status UI, controls"]
       FS["packages/file-system & storage<br/>adapters: electron/mock"]
-      PL["packages/pipeline<br/>indexing stages<br/>(not wired yet)"]
+      PL["packages/pipeline<br/>indexing orchestration contracts<br/>durable embedding queue port"]
       SR["packages/selection-rules<br/>file selection engine"]
       AG["packages/agent<br/>MAStra runtime, MCP tooling"]
       UI[packages/ui, hooks, preferences]
@@ -62,8 +62,8 @@ flowchart LR
   ADesk <--> API
   EMB -->|create vectors| DB
   EW -->|batch/queue| EMB
-  PL -.-> DB
-  PL -.-> EMB
+  PL --> DB
+  PL --> EMB
   AG <--> LLM
   API <--> LLM
 ```

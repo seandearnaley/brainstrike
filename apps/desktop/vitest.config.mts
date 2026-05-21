@@ -84,6 +84,14 @@ export default defineConfig({
         import.meta.dirname,
         '../../packages/file-import/src/enhanced-import.ts'
       ),
+      '@brainstrike/file-explorer-ui/indexing': path.resolve(
+        import.meta.dirname,
+        '../../packages/file-explorer-ui/src/indexing'
+      ),
+      '@brainstrike/file-explorer-ui/shell': path.resolve(
+        import.meta.dirname,
+        '../../packages/file-explorer-ui/src/shell'
+      ),
       '@brainstrike/text-splitter/chunking-core': path.resolve(
         import.meta.dirname,
         '../../packages/text-splitter/src/chunking-core.ts'

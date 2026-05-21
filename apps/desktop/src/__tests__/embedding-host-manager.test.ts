@@ -12,6 +12,7 @@ const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(()
     active: false,
     lastError: null,
     runtimeId: 'embedding-host-runtime',
+    runtimeKind: 'embedding-host' as const,
     state: 'running' as const,
   };
 
@@ -34,6 +35,7 @@ const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(()
         currentStatus.active = status.active;
         currentStatus.lastError = status.lastError;
         currentStatus.runtimeId = status.runtimeId;
+        currentStatus.runtimeKind = status.runtimeKind ?? 'embedding-host';
         currentStatus.state = status.state;
       }),
       waitForStatus: vi.fn(async () => ({
@@ -91,6 +93,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     currentLifecycleStatus.active = false;
     currentLifecycleStatus.lastError = null;
     currentLifecycleStatus.runtimeId = 'embedding-host-runtime';
+    currentLifecycleStatus.runtimeKind = 'embedding-host';
     currentLifecycleStatus.state = 'running';
     lifecycleState.waitForStatus.mockResolvedValue({
       active: false,
@@ -164,6 +167,26 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     );
   });
 
+  it('exposes platform status with pending query count and disposed state', async () => {
+    const manager = new EmbeddingHostManager();
+
+    expect(manager.getPlatformStatus()).toMatchObject({
+      pendingRequestCount: 0,
+      runtimeId: 'embedding-host-runtime',
+      runtimeKind: 'embedding-host',
+      sourceState: 'running',
+      state: 'idle',
+    });
+
+    await manager.dispose();
+
+    expect(manager.getPlatformStatus()).toMatchObject({
+      runtimeKind: 'embedding-host',
+      sourceState: 'stopped',
+      state: 'disposed',
+    });
+  });
+
   it('captures the runtime id once and tears down on error status during stop', async () => {
     const manager = new EmbeddingHostManager();
 
@@ -204,6 +227,89 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
       })
     );
     expect(lifecycleState.destroyHostWindow).not.toHaveBeenCalled();
+  });
+
+  it('exposes resetting platform status while a renderer reset is in flight', async () => {
+    let resolveReset!: () => void;
+    const resetStatus: {
+      active: boolean;
+      lastError: null;
+      runtimeId: string;
+      state: 'running';
+    } = {
+      active: false,
+      lastError: null,
+      runtimeId: 'embedding-host:next-runtime',
+      state: 'running',
+    };
+    lifecycleState.waitForStatus.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveReset = () => {
+          lifecycleState.setStatus(resetStatus);
+          resolve(resetStatus);
+        };
+      })
+    );
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('next-runtime');
+    const manager = new EmbeddingHostManager();
+
+    const resetPromise = manager.reset();
+
+    expect(manager.getPlatformStatus()).toMatchObject({
+      runtimeKind: 'embedding-host',
+      sourceState: 'starting',
+      state: 'resetting',
+    });
+
+    resolveReset();
+    await expect(resetPromise).resolves.toMatchObject({
+      runtimeId: 'embedding-host:next-runtime',
+      state: 'running',
+    });
+    expect(manager.getPlatformStatus()).toMatchObject({
+      state: 'idle',
+    });
+  });
+
+  it('exposes restarting platform status while a host process restart is in flight', async () => {
+    let resolveRestart!: () => void;
+    const restartStatus: {
+      active: boolean;
+      lastError: null;
+      runtimeId: string;
+      state: 'running';
+    } = {
+      active: false,
+      lastError: null,
+      runtimeId: 'embedding-host:restarted-runtime',
+      state: 'running',
+    };
+    lifecycleState.ensureStarted.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveRestart = () => {
+          lifecycleState.setStatus(restartStatus);
+          resolve(restartStatus);
+        };
+      })
+    );
+    const manager = new EmbeddingHostManager();
+
+    const restartPromise = manager.destroyAndRestart();
+
+    expect(manager.getPlatformStatus()).toMatchObject({
+      runtimeKind: 'embedding-host',
+      sourceState: 'stopped',
+      state: 'restarting',
+    });
+
+    resolveRestart();
+    await expect(restartPromise).resolves.toMatchObject({
+      runtimeId: 'embedding-host:restarted-runtime',
+      state: 'running',
+    });
+    expect(manager.getPlatformStatus()).toMatchObject({
+      state: 'idle',
+    });
   });
 
   it('reset waits for the freshly assigned runtime id before resolving', async () => {

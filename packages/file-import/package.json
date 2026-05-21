@@ -2,10 +2,10 @@
   "name": "@brainstrike/file-import",
   "version": "0.1.0",
   "dependencies": {
-    "@brainstrike/agent": "workspace:*",
     "@brainstrike/chunking-worker": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
+    "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/types": "workspace:*",

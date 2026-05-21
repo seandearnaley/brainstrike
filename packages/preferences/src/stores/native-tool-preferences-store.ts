@@ -1,4 +1,4 @@
-import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/tool-metadata';
+import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 

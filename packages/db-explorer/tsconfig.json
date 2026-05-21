@@ -11,6 +11,12 @@
       "@brainstrike/file-explorer-ui": [
         "../file-explorer-ui/src"
       ],
+      "@brainstrike/file-explorer-ui/*": [
+        "../file-explorer-ui/src/*"
+      ],
+      "@brainstrike/pipeline": [
+        "../pipeline/src"
+      ],
       "@brainstrike/utils/*": [
         "../utils/src/*"
       ],
@@ -36,6 +42,9 @@
   ],
   "references": [
     {
+      "path": "../assistant-contract"
+    },
+    {
       "path": "../db"
     },
     {
@@ -54,10 +63,16 @@
       "path": "../file-system"
     },
     {
+      "path": "../indexing-contract"
+    },
+    {
       "path": "../platform-utils"
     },
     {
       "path": "../preferences"
+    },
+    {
+      "path": "../pipeline"
     },
     {
       "path": "../text-splitter"

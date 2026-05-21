@@ -2,6 +2,11 @@ import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/utils/logger';
+import {
+  recordDesktopResetCompleted,
+  recordDesktopResetFailed,
+  recordDesktopResetStarted,
+} from './desktop-reset-diagnostics';
 
 const logger = createLogger('DesktopFactoryReset');
 
@@ -53,52 +58,71 @@ export async function resetDesktopApplicationData({
   userDataPath,
 }: ResetDesktopApplicationDataOptions): Promise<ResetDesktopApplicationDataResult> {
   if (!path.isAbsolute(userDataPath)) {
-    throw new Error(`Desktop factory reset requires an absolute userData path: ${userDataPath}`);
+    const error = new Error(
+      `Desktop factory reset requires an absolute userData path: ${userDataPath}`
+    );
+    recordDesktopResetFailed({ error, userDataPath });
+    throw error;
   }
 
-  await stopBackgroundRuntimes();
-  await resetDatabaseProfile();
+  recordDesktopResetStarted();
 
-  const deletedPaths: string[] = [];
-  const preservedPaths: string[] = [];
-  const deletionFailures: UserDataDeletionFailure[] = [];
+  try {
+    await stopBackgroundRuntimes();
+    await resetDatabaseProfile();
 
-  for (const entryName of listUserDataEntries(userDataPath)) {
-    const targetPath = path.join(userDataPath, entryName);
-    if (isPreservedUserDataEntry(entryName)) {
-      preservedPaths.push(targetPath);
-      continue;
+    const deletedPaths: string[] = [];
+    const preservedPaths: string[] = [];
+    const deletionFailures: UserDataDeletionFailure[] = [];
+
+    for (const entryName of listUserDataEntries(userDataPath)) {
+      const targetPath = path.join(userDataPath, entryName);
+      if (isPreservedUserDataEntry(entryName)) {
+        preservedPaths.push(targetPath);
+        continue;
+      }
+      try {
+        await rm(targetPath, { recursive: true, force: true });
+        deletedPaths.push(targetPath);
+      } catch (error: unknown) {
+        deletionFailures.push({ error, targetPath });
+      }
     }
-    try {
-      await rm(targetPath, { recursive: true, force: true });
-      deletedPaths.push(targetPath);
-    } catch (error: unknown) {
-      deletionFailures.push({ error, targetPath });
-    }
-  }
 
-  if (deletionFailures.length > 0) {
-    logger.error('Desktop application data reset failed to delete entries', {
+    if (deletionFailures.length > 0) {
+      logger.error('Desktop application data reset failed to delete entries', {
+        deletedPaths,
+        deletionFailures: deletionFailures.map((failure) => ({
+          error: failure.error instanceof Error ? failure.error.message : String(failure.error),
+          targetPath: failure.targetPath,
+        })),
+        preservedPaths,
+        userDataPath,
+      });
+      // The reset is partial at this point, but Electron still needs a valid userData
+      // directory for the next boot and for a retry attempt.
+      mkdirSync(userDataPath, { recursive: true });
+      throw new DesktopApplicationDataDeletionError(deletionFailures);
+    }
+
+    // Ensure Electron has a userData directory to write into on the next boot.
+    mkdirSync(userDataPath, { recursive: true });
+
+    logger.warn('Desktop application data reset completed', {
       deletedPaths,
-      deletionFailures: deletionFailures.map((failure) => ({
-        error: failure.error instanceof Error ? failure.error.message : String(failure.error),
-        targetPath: failure.targetPath,
-      })),
       preservedPaths,
+      preservedUserDataEntries: [...PRESERVED_USER_DATA_ENTRY_NAMES],
       userDataPath,
     });
-    throw new DesktopApplicationDataDeletionError(deletionFailures);
+
+    recordDesktopResetCompleted({
+      deletedPathCount: deletedPaths.length,
+      preservedPathCount: preservedPaths.length,
+      userDataPath,
+    });
+    return { deletedPaths, preservedPaths };
+  } catch (error) {
+    recordDesktopResetFailed({ error, userDataPath });
+    throw error;
   }
-
-  // Ensure Electron has a userData directory to write into on the next boot.
-  mkdirSync(userDataPath, { recursive: true });
-
-  logger.warn('Desktop application data reset completed', {
-    deletedPaths,
-    preservedPaths,
-    preservedUserDataEntries: [...PRESERVED_USER_DATA_ENTRY_NAMES],
-    userDataPath,
-  });
-
-  return { deletedPaths, preservedPaths };
 }

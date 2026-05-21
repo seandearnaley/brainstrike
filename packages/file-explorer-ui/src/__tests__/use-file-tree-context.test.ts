@@ -4,8 +4,8 @@ import { addLogListener, LogLevel, resetLogger, setLogLevel } from '@brainstrike
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode, StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useFileTree } from '../use-file-tree-context';
-import { __resetInFlightRootLoads } from '../use-lazy-file-tree';
+import { useFileTree } from '../tree/use-file-tree-context';
+import { __resetInFlightRootLoads } from '../tree/use-lazy-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 let requestLoadHandler:

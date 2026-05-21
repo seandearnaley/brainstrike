@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { dialog, ipcMain } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerMcpIpcHandlers } from '../../ipc-mcp';
@@ -108,6 +110,14 @@ describe('ipc-mcp handlers', () => {
   });
 
   describe('handler registration', () => {
+    it('registers channels through the typed desktop IPC registry', () => {
+      const source = readFileSync(path.resolve(process.cwd(), 'src/ipc-mcp.ts'), 'utf8');
+
+      expect(source).toContain('createDesktopIpcRegistry');
+      expect(source).not.toMatch(/ipcMain\.(handle|on)\(/);
+      expect(source).not.toMatch(/ipcMain\.remove(Handler|Listener)\(/);
+    });
+
     it('should register all MCP handlers', () => {
       // Config handlers
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:get', expect.any(Function));
@@ -555,6 +565,10 @@ describe('ipc-mcp handlers', () => {
   describe('mcp:config:setPath', () => {
     it('updates config path and restarts watcher', async () => {
       const mockWatcher = { close: vi.fn() };
+      vi.mocked(dialog.showOpenDialog).mockResolvedValueOnce({
+        canceled: false,
+        filePaths: ['/tmp/new.json'],
+      } as never);
       vi.mocked(watchMcpConfig).mockResolvedValue(mockWatcher as never);
       vi.mocked(loadMcpConfig).mockResolvedValue({
         path: '/tmp/new.json',
@@ -564,15 +578,32 @@ describe('ipc-mcp handlers', () => {
       vi.mocked(getMcpConfigPath).mockResolvedValue('/tmp/new.json' as never);
 
       const handler = handlers.get('mcp:config:setPath');
+      const selectHandler = handlers.get('mcp:config:selectPath');
+      if (!selectHandler) {
+        throw new Error('select handler not registered');
+      }
       if (!handler) {
         throw new Error('handler not registered');
       }
+      await expect(selectHandler()).resolves.toBe('/tmp/new.json');
       const result = await handler({} as never, '/tmp/new.json');
 
       expect(setCustomMcpConfigPath).toHaveBeenCalledWith('/tmp/new.json');
       expect(loadMcpConfig).toHaveBeenCalled();
       expect(watchMcpConfig).toHaveBeenCalled();
       expect(result).toEqual({ success: true, path: '/tmp/new.json' });
+    });
+
+    it('rejects arbitrary renderer-supplied paths that were not selected natively', async () => {
+      const handler = handlers.get('mcp:config:setPath');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
+
+      await expect(handler({} as never, '/Users/test/.ssh/config')).rejects.toThrow(
+        'MCP config path must be selected with the native file picker.'
+      );
+      expect(setCustomMcpConfigPath).not.toHaveBeenCalled();
     });
   });
 

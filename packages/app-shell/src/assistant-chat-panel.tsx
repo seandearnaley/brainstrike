@@ -1,9 +1,14 @@
+import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
 import type { ReactElement } from 'react';
 import { AssistantUiPanelWrapperLazy } from './assistant-ui-panel-wrapper-lazy';
 import { useAssistantAvailabilityWithLocal } from './hooks/use-assistant-availability-with-local';
 import { McpBanner } from './mcp-banner';
 
-export function AssistantChatPanel(): ReactElement {
+export interface AssistantChatPanelProps {
+  readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
+}
+
+export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelProps): ReactElement {
   const status = useAssistantAvailabilityWithLocal();
 
   return (
@@ -43,7 +48,9 @@ export function AssistantChatPanel(): ReactElement {
             <div className="px-4 pb-2">
               <McpBanner />
             </div>
-            <AssistantUiPanelWrapperLazy />
+            <AssistantUiPanelWrapperLazy
+              {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+            />
           </>
         )}
       </div>

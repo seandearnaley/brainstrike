@@ -1,4 +1,4 @@
-import { LocalLlmBackend } from '@brainstrike/agent/local-llm';
+import { getBestBuiltInLocalLlmDevice } from '@brainstrike/assistant-contract/local-llm-device';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { hasEnabledLocalLlmModels } from '@brainstrike/preferences/models/local-model-utils';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
@@ -27,7 +27,7 @@ export function useAssistantAvailabilityWithLocal(
   const { models, hasLoaded, error } = useModelRegistryStore();
 
   const hasLocalModels = useMemo(() => hasEnabledLocalLlmModels(models), [models]);
-  const canRunLocalGemma = useMemo(() => LocalLlmBackend.getBestDevice() === 'webgpu', []);
+  const canRunLocalGemma = useMemo(() => getBestBuiltInLocalLlmDevice() === 'webgpu', []);
   const shouldCheckLocalAvailability = serverStatus.state !== 'enabled' && canRunLocalGemma;
   useEnsureModelRegistry({ enabled: shouldCheckLocalAvailability });
 

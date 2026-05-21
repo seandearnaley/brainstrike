@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PreviewPanel } from '../preview-panel';
+import { PreviewPanel } from '../preview/preview-panel';
 
 type PreviewPanelMocksModule = typeof import('./__mocks__/preview-panel-mocks');
 
@@ -9,7 +9,7 @@ const previewPanelMocksPromise = vi.hoisted(
   async () => (await import('./__mocks__/preview-panel-mocks')) as PreviewPanelMocksModule
 );
 
-vi.mock('../use-preview-panel-state', async () => {
+vi.mock('../preview/use-preview-panel-state', async () => {
   const { createUsePreviewPanelStateMock } = await previewPanelMocksPromise;
   return createUsePreviewPanelStateMock();
 });
@@ -30,7 +30,7 @@ vi.mock('lucide-react', async () => {
 });
 
 const mockUsePreviewPanelState = vi.mocked(
-  await import('../use-preview-panel-state')
+  await import('../preview/use-preview-panel-state')
 ).usePreviewPanelState;
 
 const { resetPreviewPanelPaginationMockState } = await previewPanelMocksPromise;

@@ -1,5 +1,7 @@
 import { defineConfig } from 'tsup';
 
+const assistantContractExternal = /^@brainstrike\/assistant-contract(?:\/.*)?$/;
+
 export default defineConfig((_options) => ({
   entry: [
     'src/index.ts',
@@ -33,6 +35,10 @@ export default defineConfig((_options) => ({
     ],
     compilerOptions: {
       composite: false,
+      paths: {
+        '@brainstrike/assistant-contract': ['../../assistant-contract/dist/index.d.ts'],
+        '@brainstrike/assistant-contract/*': ['../../assistant-contract/dist/*'],
+      },
     },
   },
   outDir: 'dist',
@@ -43,6 +49,8 @@ export default defineConfig((_options) => ({
   sourcemap: false,
   splitting: false,
   external: [
+    assistantContractExternal,
+    '@brainstrike/assistant-contract',
     '@brainstrike/types',
     '@electric-sql/pglite',
     '@mastra/core',

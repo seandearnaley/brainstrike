@@ -8,7 +8,7 @@ import {
 } from './e2e-playwright-title-tags.mjs';
 
 const rootDir = process.cwd();
-const e2eDir = path.join(rootDir, 'apps/web/e2e');
+const e2eDirs = [path.join(rootDir, 'apps/web/e2e'), path.join(rootDir, 'apps/desktop/e2e')];
 
 const destructiveFlowPatterns = [
   {
@@ -27,29 +27,31 @@ function getLineNumber(source, index) {
 
 const failures = [];
 
-for (const file of await listTestFiles(e2eDir)) {
-  const source = await readFile(file, 'utf8');
-  const destructiveTitleRanges = findTaggedPlaywrightTitleRanges(
-    source,
-    file,
-    '@destructive'
-  );
+for (const e2eDir of e2eDirs) {
+  for (const file of await listTestFiles(e2eDir)) {
+    const source = await readFile(file, 'utf8');
+    const destructiveTitleRanges = findTaggedPlaywrightTitleRanges(
+      source,
+      file,
+      '@destructive'
+    );
 
-  for (const { label, pattern } of destructiveFlowPatterns) {
-    const globalPattern = new RegExp(pattern.source, `${pattern.flags}g`);
-    for (const match of source.matchAll(globalPattern)) {
-      if (typeof match.index !== 'number') {
-        continue;
-      }
-      if (isInsideRange(match.index, destructiveTitleRanges)) {
-        continue;
-      }
+    for (const { label, pattern } of destructiveFlowPatterns) {
+      const globalPattern = new RegExp(pattern.source, `${pattern.flags}g`);
+      for (const match of source.matchAll(globalPattern)) {
+        if (typeof match.index !== 'number') {
+          continue;
+        }
+        if (isInsideRange(match.index, destructiveTitleRanges)) {
+          continue;
+        }
 
-      failures.push({
-        file: path.relative(rootDir, file),
-        label,
-        line: getLineNumber(source, match.index),
-      });
+        failures.push({
+          file: path.relative(rootDir, file),
+          label,
+          line: getLineNumber(source, match.index),
+        });
+      }
     }
   }
 }

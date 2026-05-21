@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-20T05:55:28.324Z",
+  "dryRun": false,
+  "commandResults": [
+    {
+      "budgetMs": 180000,
+      "command": "pnpm --filter @brainstrike/db test",
+      "name": "db-tests",
+      "owner": "data-platform",
+      "requiredFor": [
+        "db-migrations-storage"
+      ],
+      "budgetStatus": "over-budget",
+      "durationMs": 269544,
+      "exitCode": 0
+    },
+    {
+      "budgetMs": 240000,
+      "command": "pnpm --filter @brainstrike/indexing-contract test && pnpm --filter @brainstrike/pipeline test && pnpm --filter @brainstrike/file-import test",
+      "name": "indexing-tests",
+      "owner": "indexing",
+      "requiredFor": [
+        "indexing-import-embedding"
+      ],
+      "budgetStatus": "ok",
+      "durationMs": 4823,
+      "exitCode": 0
+    }
+  ]
+}

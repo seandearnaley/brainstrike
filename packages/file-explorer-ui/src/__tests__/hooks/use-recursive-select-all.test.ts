@@ -26,7 +26,7 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   }),
 }));
 
-vi.mock('../../file-explorer-provider', () => ({
+vi.mock('../../shell/file-explorer-provider', () => ({
   useOptionalFileExplorerStoreContext: () => (mockStoreState ? {} : null),
   useOptionalFileExplorerStoreSelector: (
     selector: ((state: Record<string, unknown>) => unknown) | unknown,

@@ -1,0 +1,1166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brainstrike Architecture Reset Assessment and 12-24 Month Goals</title>
+    <style>
+      :root {
+        --paper: #f7f4ee;
+        --paper-2: #ebe6dc;
+        --ink: #171b1f;
+        --ink-soft: #41484f;
+        --muted: #6f766f;
+        --line: #d8d0c2;
+        --panel: #fffdf8;
+        --panel-strong: #f1ece2;
+        --green: #147a5c;
+        --green-soft: #dcefe6;
+        --blue: #275d8f;
+        --blue-soft: #dce9f5;
+        --amber: #9b6415;
+        --amber-soft: #f3e4c9;
+        --red: #b33d31;
+        --red-soft: #f2d9d5;
+        --black: #111315;
+        --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        --sans: Avenir Next, Segoe UI, Helvetica Neue, Arial, sans-serif;
+        --serif: Georgia, Cambria, Times New Roman, serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--sans);
+        line-height: 1.55;
+        font-size: 15px;
+      }
+
+      a {
+        color: var(--blue);
+      }
+
+      code {
+        font-family: var(--mono);
+        font-size: 0.92em;
+        background: #ebe6dc;
+        border: 1px solid #ded5c6;
+        border-radius: 4px;
+        padding: 0.08rem 0.32rem;
+      }
+
+      .page {
+        max-width: 1440px;
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: 290px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+
+      .rail {
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        border-right: 1px solid var(--line);
+        padding: 28px 22px;
+        background: #eee7db;
+        overflow: auto;
+      }
+
+      .brand {
+        border-bottom: 2px solid var(--black);
+        padding-bottom: 18px;
+        margin-bottom: 22px;
+      }
+
+      .brand-mark {
+        width: 42px;
+        height: 42px;
+        border: 2px solid var(--black);
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: 1fr 1fr;
+        margin-bottom: 14px;
+      }
+
+      .brand-mark span:nth-child(1) {
+        background: var(--green);
+      }
+
+      .brand-mark span:nth-child(2) {
+        background: var(--amber);
+      }
+
+      .brand-mark span:nth-child(3) {
+        background: var(--blue);
+      }
+
+      .brand-mark span:nth-child(4) {
+        background: var(--red);
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 800;
+        line-height: 1.1;
+      }
+
+      .brand p {
+        margin: 9px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .rail h2 {
+        font-size: 11px;
+        text-transform: uppercase;
+        margin: 20px 0 8px;
+        color: var(--ink-soft);
+      }
+
+      .rail a {
+        display: block;
+        color: var(--ink);
+        text-decoration: none;
+        padding: 6px 0;
+        border-bottom: 1px solid rgba(17, 19, 21, 0.08);
+        font-size: 13px;
+      }
+
+      .rail a:hover {
+        color: var(--blue);
+      }
+
+      .rail .fact {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        border-bottom: 1px solid rgba(17, 19, 21, 0.1);
+        padding: 8px 0;
+        font-size: 12px;
+      }
+
+      .rail .fact b {
+        font-family: var(--mono);
+      }
+
+      main {
+        padding: 36px 48px 80px;
+      }
+
+      .hero {
+        min-height: 520px;
+        border-bottom: 3px solid var(--black);
+        display: grid;
+        align-content: center;
+        gap: 26px;
+      }
+
+      .eyebrow {
+        font-family: var(--mono);
+        font-size: 12px;
+        text-transform: uppercase;
+        color: var(--green);
+        font-weight: 700;
+      }
+
+      .hero h1 {
+        font-family: var(--serif);
+        font-size: 62px;
+        line-height: 1;
+        font-weight: 700;
+        margin: 0;
+        max-width: 980px;
+      }
+
+      .hero .lead {
+        font-size: 19px;
+        max-width: 880px;
+        color: var(--ink-soft);
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .hero-stat {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 16px;
+      }
+
+      .hero-stat strong {
+        display: block;
+        font-family: var(--mono);
+        font-size: 28px;
+        line-height: 1;
+      }
+
+      .hero-stat span {
+        display: block;
+        color: var(--muted);
+        margin-top: 7px;
+        font-size: 12px;
+      }
+
+      section {
+        padding: 42px 0;
+        border-bottom: 1px solid var(--line);
+        scroll-margin-top: 18px;
+      }
+
+      .section-head {
+        display: grid;
+        grid-template-columns: 150px minmax(0, 1fr);
+        gap: 28px;
+        align-items: start;
+        margin-bottom: 24px;
+      }
+
+      .section-num {
+        font-family: var(--mono);
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      h2 {
+        margin: 0;
+        font-family: var(--serif);
+        font-size: 36px;
+        line-height: 1.12;
+      }
+
+      h3 {
+        margin: 0 0 10px;
+        font-size: 18px;
+      }
+
+      p {
+        margin: 0 0 14px;
+      }
+
+      .copy {
+        max-width: 880px;
+        color: var(--ink-soft);
+        font-size: 16px;
+      }
+
+      .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .metric {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 18px;
+        min-height: 132px;
+      }
+
+      .metric .label {
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+      }
+
+      .metric .value {
+        display: block;
+        font-family: var(--mono);
+        font-size: 34px;
+        margin: 12px 0 7px;
+      }
+
+      .metric.good .value {
+        color: var(--green);
+      }
+
+      .metric.warn .value {
+        color: var(--amber);
+      }
+
+      .metric.risk .value {
+        color: var(--red);
+      }
+
+      .metric .note {
+        color: var(--ink-soft);
+        font-size: 13px;
+      }
+
+      .assessment {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 20px;
+      }
+
+      .panel.green {
+        border-left: 5px solid var(--green);
+      }
+
+      .panel.amber {
+        border-left: 5px solid var(--amber);
+      }
+
+      .panel.red {
+        border-left: 5px solid var(--red);
+      }
+
+      .panel.blue {
+        border-left: 5px solid var(--blue);
+      }
+
+      .panel p,
+      .panel li {
+        color: var(--ink-soft);
+      }
+
+      ul {
+        margin: 0;
+        padding-left: 20px;
+      }
+
+      li {
+        margin: 7px 0;
+      }
+
+      .map {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 20px;
+      }
+
+      .domain-row {
+        display: grid;
+        grid-template-columns: 190px minmax(0, 1fr);
+        gap: 14px;
+        align-items: center;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .domain-row:last-child {
+        border-bottom: 0;
+      }
+
+      .domain-name {
+        font-family: var(--mono);
+        font-weight: 700;
+        color: var(--ink);
+      }
+
+      .bar {
+        display: grid;
+        grid-template-columns: var(--w) 1fr;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .bar-fill {
+        height: 24px;
+        border: 1px solid rgba(17, 19, 21, 0.18);
+        background: repeating-linear-gradient(
+          45deg,
+          var(--bar-color),
+          var(--bar-color) 8px,
+          color-mix(in srgb, var(--bar-color) 84%, white) 8px,
+          color-mix(in srgb, var(--bar-color) 84%, white) 16px
+        );
+        border-radius: 4px;
+      }
+
+      .bar-label {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .goal {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        margin: 18px 0;
+        overflow: hidden;
+      }
+
+      .goal-head {
+        display: grid;
+        grid-template-columns: 96px minmax(0, 1fr) 170px;
+        gap: 20px;
+        background: var(--black);
+        color: #fffdf8;
+        padding: 18px 20px;
+        align-items: center;
+      }
+
+      .rank {
+        font-family: var(--mono);
+        font-size: 34px;
+        line-height: 1;
+      }
+
+      .goal-head h3 {
+        margin: 0;
+        font-size: 22px;
+      }
+
+      .score {
+        font-family: var(--mono);
+        font-size: 12px;
+        text-align: right;
+        color: #d9d3c9;
+      }
+
+      .goal-body {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 1px;
+        background: var(--line);
+      }
+
+      .goal-cell {
+        background: var(--panel);
+        padding: 18px;
+      }
+
+      .goal-cell h4 {
+        margin: 0 0 10px;
+        font-size: 12px;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .condition-list {
+        counter-reset: condition;
+        list-style: none;
+        padding: 0;
+      }
+
+      .condition-list li {
+        counter-increment: condition;
+        position: relative;
+        padding-left: 34px;
+      }
+
+      .condition-list li::before {
+        content: counter(condition);
+        position: absolute;
+        left: 0;
+        top: 1px;
+        width: 22px;
+        height: 22px;
+        display: inline-grid;
+        place-items: center;
+        background: var(--green-soft);
+        color: var(--green);
+        border: 1px solid #b6d8cb;
+        border-radius: 50%;
+        font-family: var(--mono);
+        font-size: 12px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      th,
+      td {
+        padding: 11px 13px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: var(--panel-strong);
+        font-size: 12px;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      td.num {
+        font-family: var(--mono);
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      .tag {
+        display: inline-block;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--panel-strong);
+        padding: 3px 8px;
+        font-family: var(--mono);
+        font-size: 11px;
+        margin: 2px 4px 2px 0;
+      }
+
+      .tag.good {
+        background: var(--green-soft);
+        color: var(--green);
+        border-color: #b6d8cb;
+      }
+
+      .tag.warn {
+        background: var(--amber-soft);
+        color: var(--amber);
+        border-color: #dec698;
+      }
+
+      .tag.risk {
+        background: var(--red-soft);
+        color: var(--red);
+        border-color: #e2bab4;
+      }
+
+      .timeline {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+      }
+
+      .timebox {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 16px;
+      }
+
+      .timebox strong {
+        display: block;
+        font-family: var(--mono);
+        color: var(--blue);
+        margin-bottom: 8px;
+      }
+
+      .callout {
+        border: 2px solid var(--black);
+        background: #fbf1d7;
+        border-radius: 8px;
+        padding: 18px;
+        margin: 18px 0;
+      }
+
+      footer {
+        padding: 28px 0 0;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 12px;
+      }
+
+      @media (max-width: 1020px) {
+        .page {
+          grid-template-columns: 1fr;
+        }
+
+        .rail {
+          position: relative;
+          height: auto;
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        main {
+          padding: 26px 18px 60px;
+        }
+
+        .hero {
+          min-height: auto;
+          padding: 36px 0;
+        }
+
+        .hero h1 {
+          font-size: 40px;
+        }
+
+        .hero-grid,
+        .metric-grid,
+        .assessment,
+        .timeline,
+        .goal-body {
+          grid-template-columns: 1fr;
+        }
+
+        .section-head,
+        .domain-row,
+        .goal-head {
+          grid-template-columns: 1fr;
+        }
+
+        .score {
+          text-align: left;
+        }
+      }
+
+      @media print {
+        body {
+          background: white;
+        }
+
+        .page {
+          display: block;
+        }
+
+        .rail {
+          display: none;
+        }
+
+        main {
+          padding: 20px;
+        }
+
+        section,
+        .goal,
+        .panel,
+        .metric {
+          break-inside: avoid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <aside class="rail">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+          <h1>Brainstrike Architecture Reset</h1>
+          <p>Assessment and measurable 12-24 month goals</p>
+        </div>
+
+        <h2>Contents</h2>
+        <a href="#assessment">Assessment</a>
+        <a href="#proof">Current Proof</a>
+        <a href="#topology">Architecture Topology</a>
+        <a href="#hotspots">Hotspots</a>
+        <a href="#goals">Top 3 Goals</a>
+        <a href="#roadmap">Execution Plan</a>
+        <a href="#definition">Definition of Done</a>
+
+        <h2>Snapshot</h2>
+        <div class="fact"><span>Branch</span><b>codex/local-architecture-reset</b></div>
+        <div class="fact"><span>Current HEAD</span><b>badd03ecb</b></div>
+        <div class="fact"><span>Last full green</span><b>f723a86c6</b></div>
+        <div class="fact"><span>Workspaces</span><b>39</b></div>
+        <div class="fact"><span>TS/TSX files</span><b>2,109</b></div>
+        <div class="fact"><span>Domains</span><b>7</b></div>
+        <div class="fact"><span>Boundary exceptions</span><b>0</b></div>
+      </aside>
+
+      <main>
+        <header class="hero">
+          <div>
+            <div class="eyebrow">Generated 2026-05-20 00:56 EDT</div>
+            <h1>The reset is real now. The next win is making it economically durable.</h1>
+          </div>
+          <p class="lead">
+            Brainstrike has moved past "guardrails as the product." The branch now has concrete ownership changes:
+            assistant contracts, indexing contracts, file-explorer internal slices, desktop platform validation,
+            and zero approved domain-boundary exceptions. The remaining problem is not whether architecture work is
+            possible. It is whether the architecture and the pipeline can keep a one-to-two year AI-native,
+            local-first desktop/web product moving without wasting time or money.
+          </p>
+          <div class="hero-grid">
+            <div class="hero-stat"><strong>0/0</strong><span>approved domain exceptions in current boundary check</span></div>
+            <div class="hero-stat"><strong>24m22s</strong><span>last full local E2E task time</span></div>
+            <div class="hero-stat"><strong>4m39s</strong><span>last full unit test task time</span></div>
+            <div class="hero-stat"><strong>64</strong><span>local commits since 2026-05-19 in this reset stream</span></div>
+          </div>
+        </header>
+
+        <section id="assessment">
+          <div class="section-head">
+            <div class="section-num">01 / Current Assessment</div>
+            <div>
+              <h2>Where We Are</h2>
+              <p class="copy">
+                Overall status: <strong>architecture reset foundation is credible, but not yet complete product
+                architecture</strong>. The branch has reduced cross-domain ambiguity and proved the app can still
+                pass a full local suite. The next phase should be smaller, measurable, and ruthless about separating
+                product architecture from pipeline economics.
+              </p>
+            </div>
+          </div>
+
+          <div class="assessment">
+            <div class="panel green">
+              <h3>What is now materially better</h3>
+              <ul>
+                <li>Domain boundaries are not theoretical anymore. Current guard checks pass with <code>0/0</code> approved exceptions.</li>
+                <li>Assistant contracts moved out of app-shell/UI/runtime coupling and into <code>@brainstrike/assistant-contract</code>.</li>
+                <li>Indexing contracts exist as a first-class package instead of being spread across queue, preferences, embeddings, and import code.</li>
+                <li>File explorer has internal domain slices: <code>tree</code>, <code>preview</code>, <code>indexing</code>, and <code>shell</code>.</li>
+                <li>Desktop platform validation was centralized for logging, preload, and runtime host surfaces.</li>
+              </ul>
+            </div>
+
+            <div class="panel amber">
+              <h3>What is still not good enough</h3>
+              <ul>
+                <li>The pipeline is still too expensive to use casually. The full local E2E run took <code>24m21.731s</code>.</li>
+                <li>Top hotspot files remain large: <code>embedding-worker-renderer.test.ts</code> is 8,125 lines and <code>embedding-worker.ts</code> is 2,778 lines.</li>
+                <li>The file explorer split is internal, not a true workspace/package split yet. That is correct sequencing, but not the finish line.</li>
+                <li>The latest full green suite was on <code>f723a86c6</code>. Current <code>HEAD</code> is <code>badd03ecb</code>, a turbo config-only commit that has current architecture guards but not a repeated full E2E proof.</li>
+                <li><code>turbo.jsonc</code> now uses concurrency <code>40</code>. That may be faster or it may oversubscribe local/CI runners. It needs timing evidence, not belief.</li>
+              </ul>
+            </div>
+
+            <div class="panel blue">
+              <h3>Correct strategic direction</h3>
+              <p>
+                Keep the local-only flow for this reset until the branch is coherent. Do not reopen the stacked PR
+                process for architecture experimentation. The right order is local proof, report, targeted commits,
+                then one deliberately scoped integration path.
+              </p>
+            </div>
+
+            <div class="panel red">
+              <h3>Main risk</h3>
+              <p>
+                The project can regress into spending cycles on proof mechanics instead of product architecture. The
+                way out is to set measurable goals, attach a command/evidence set to each, and refuse to call work
+                complete unless the exit conditions are met.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="proof">
+          <div class="section-head">
+            <div class="section-num">02 / Evidence</div>
+            <div>
+              <h2>What Is Proven</h2>
+              <p class="copy">
+                This table separates current-head proof from proof that belongs to the last full verified commit.
+                That distinction matters because pipeline tuning can change runtime behavior even when source code
+                does not.
+              </p>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Check</th>
+                <th>Evidence</th>
+                <th>Status</th>
+                <th>Commit Scope</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Architecture contract</td>
+                <td><code>node scripts/architecture-domain-contract.mjs</code>: 39 packages, 7 domains, 5 phases</td>
+                <td><span class="tag good">passed</span></td>
+                <td>Current <code>HEAD</code> <code>badd03ecb</code></td>
+              </tr>
+              <tr>
+                <td>Domain boundaries</td>
+                <td><code>node scripts/architecture-domain-boundaries.mjs</code>: 1,968 imports, 2,809 files, 0/0 exceptions</td>
+                <td><span class="tag good">passed</span></td>
+                <td>Current <code>HEAD</code> <code>badd03ecb</code></td>
+              </tr>
+              <tr>
+                <td>Build</td>
+                <td><code>pnpm build</code>: 37 successful / 37 total</td>
+                <td><span class="tag good">passed</span></td>
+                <td>Last full green <code>f723a86c6</code></td>
+              </tr>
+              <tr>
+                <td>Lint</td>
+                <td><code>pnpm lint:ci</code>: domain guards, ESLint, Biome all clean</td>
+                <td><span class="tag good">passed</span></td>
+                <td>Last full green <code>f723a86c6</code></td>
+              </tr>
+              <tr>
+                <td>Type-check</td>
+                <td><code>pnpm type-check</code>: 74 successful / 74 total</td>
+                <td><span class="tag good">passed</span></td>
+                <td>Last full green <code>f723a86c6</code></td>
+              </tr>
+              <tr>
+                <td>Unit tests</td>
+                <td><code>pnpm test</code>: 71 successful / 71 total, 4m39.092s</td>
+                <td><span class="tag good">passed</span></td>
+                <td>Last full green <code>f723a86c6</code></td>
+              </tr>
+              <tr>
+                <td>E2E tests</td>
+                <td><code>pnpm test:e2e</code>: desktop 118 passed / 5 skipped, web 121 passed / 3 skipped, 24m21.731s</td>
+                <td><span class="tag good">passed</span></td>
+                <td>Last full green <code>f723a86c6</code></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="callout">
+            <strong>Assessment:</strong> the branch is in a credible state, but the current <code>turbo.jsonc</code>
+            concurrency change should get a targeted timing pass before anyone claims the pipeline is faster.
+          </div>
+        </section>
+
+        <section id="topology">
+          <div class="section-head">
+            <div class="section-num">03 / Architecture</div>
+            <div>
+              <h2>Current Domain Topology</h2>
+              <p class="copy">
+                The domain map now gives the repo a real dependency direction: applications consume experience
+                packages; experience packages consume indexing/data/shared foundation; tooling sits at the bottom.
+                This is the right architecture shape for an AI-native local-first product because it keeps runtime
+                surfaces explicit and makes agent work easier to parallelize.
+              </p>
+            </div>
+          </div>
+
+          <div class="map">
+            <div class="domain-row">
+              <div class="domain-name">applications</div>
+              <div class="bar" style="--w: 8%; --bar-color: var(--blue-soft)"><div class="bar-fill"></div><div class="bar-label">3 packages</div></div>
+            </div>
+            <div class="domain-row">
+              <div class="domain-name">workspace-experience</div>
+              <div class="bar" style="--w: 22%; --bar-color: var(--green-soft)"><div class="bar-fill"></div><div class="bar-label">8 packages</div></div>
+            </div>
+            <div class="domain-row">
+              <div class="domain-name">assistant-experience</div>
+              <div class="bar" style="--w: 3%; --bar-color: var(--amber-soft)"><div class="bar-fill"></div><div class="bar-label">1 package</div></div>
+            </div>
+            <div class="domain-row">
+              <div class="domain-name">indexing</div>
+              <div class="bar" style="--w: 28%; --bar-color: var(--green-soft)"><div class="bar-fill"></div><div class="bar-label">10 packages</div></div>
+            </div>
+            <div class="domain-row">
+              <div class="domain-name">data-platform</div>
+              <div class="bar" style="--w: 11%; --bar-color: var(--blue-soft)"><div class="bar-fill"></div><div class="bar-label">4 packages</div></div>
+            </div>
+            <div class="domain-row">
+              <div class="domain-name">shared-foundation</div>
+              <div class="bar" style="--w: 22%; --bar-color: var(--panel-strong)"><div class="bar-fill"></div><div class="bar-label">8 packages</div></div>
+            </div>
+            <div class="domain-row">
+              <div class="domain-name">tooling</div>
+              <div class="bar" style="--w: 14%; --bar-color: var(--amber-soft)"><div class="bar-fill"></div><div class="bar-label">5 packages</div></div>
+            </div>
+          </div>
+
+          <div class="metric-grid" style="margin-top: 14px">
+            <div class="metric good"><div class="label">Boundary exceptions</div><span class="value">0</span><div class="note">This is now a real governance baseline.</div></div>
+            <div class="metric"><div class="label">Workspace packages</div><span class="value">39</span><div class="note">36 packages plus 3 apps.</div></div>
+            <div class="metric warn"><div class="label">Largest package</div><span class="value">109k</span><div class="note"><code>packages/db</code>, including tests.</div></div>
+            <div class="metric warn"><div class="label">Largest product UI package</div><span class="value">74k</span><div class="note"><code>file-explorer-ui</code>, including tests.</div></div>
+          </div>
+        </section>
+
+        <section id="hotspots">
+          <div class="section-head">
+            <div class="section-num">04 / Hotspots</div>
+            <div>
+              <h2>The Real Remaining Pressure Points</h2>
+              <p class="copy">
+                The architecture reset reduced forbidden coupling. It did not eliminate complexity. These are the
+                areas that will keep costing time unless they become explicit goals.
+              </p>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Signal</th>
+                <th>Current Data</th>
+                <th>Interpretation</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Highest churn file</td>
+                <td><code>packages/file-explorer-ui/src/file-explorer-left-panel.tsx</code> changed 38 times in 6 months</td>
+                <td>The internal split was right, but the shell still needs to become a thin composition surface.</td>
+              </tr>
+              <tr>
+                <td>Desktop platform coupling</td>
+                <td><code>main.ts</code> and <code>ipc-handlers.ts</code> each changed 29 times; <code>preload.ts</code> changed 25 times</td>
+                <td>IPC contracts should become generated or registry-driven. Manual channel drift is still a likely cost center.</td>
+              </tr>
+              <tr>
+                <td>Embedding test mass</td>
+                <td><code>apps/desktop/e2e/embedding-worker-renderer.test.ts</code> is 8,125 lines</td>
+                <td>Too much diagnostic and regression scope lives in one file. It slows review and makes failure triage expensive.</td>
+              </tr>
+              <tr>
+                <td>Worker monolith</td>
+                <td><code>packages/embeddings/src/worker/embedding-worker.ts</code> is 2,778 lines and changed 31 times</td>
+                <td>The worker should split into bootstrap, scheduler, runner, telemetry, and provider surfaces.</td>
+              </tr>
+              <tr>
+                <td>Package size</td>
+                <td><code>packages/db</code> has 109,359 TS/TSX LOC, including 69,669 production LOC</td>
+                <td>The data platform needs internal modules or package splits by storage, migrations, queue, repositories, search, and chunking ownership.</td>
+              </tr>
+              <tr>
+                <td>Pipeline wall time</td>
+                <td>Full local E2E took 24m21.731s even after many tasks were cached</td>
+                <td>Pipeline design has to become risk-based and measured. The answer is not "always run everything."</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="goals">
+          <div class="section-head">
+            <div class="section-num">05 / Top 3 Goals</div>
+            <div>
+              <h2>Three Achievable, Measurable Goals</h2>
+              <p class="copy">
+                These are the three goals I would use to get Brainstrike where it needs to be: efficient pipelines,
+                deterministic architecture, and a runtime platform that can carry the next one to two years of
+                local-first AI features.
+              </p>
+            </div>
+          </div>
+
+          <article class="goal">
+            <div class="goal-head">
+              <div class="rank">01</div>
+              <h3>Make the pipeline risk-based, timed, and boring</h3>
+              <div class="score">highest ROI<br />4-6 focused days</div>
+            </div>
+            <div class="goal-body">
+              <div class="goal-cell">
+                <h4>Why this matters</h4>
+                <p>
+                  The app is now large enough that "run everything" is not a workflow. The full E2E suite works, but
+                  it is too expensive as the default loop. The pipeline should prove exactly the risk introduced by a
+                  change, then reserve full expensive lanes for nightly, release, or explicit high-risk work.
+                </p>
+              </div>
+              <div class="goal-cell">
+                <h4>Implementation shape</h4>
+                <ul>
+                  <li>Turn <code>ci:select</code> into the source of truth for local and cloud lane selection.</li>
+                  <li>Split E2E into critical smoke, stateful product, desktop embedding diagnostics, and long soak lanes.</li>
+                  <li>Add machine-readable timing budgets from <code>ci:timing-summary</code>.</li>
+                  <li>Benchmark <code>turbo.jsonc</code> concurrency values instead of guessing.</li>
+                  <li>Make "full suite" a scheduled/release proof, not the normal feedback path.</li>
+                </ul>
+              </div>
+              <div class="goal-cell">
+                <h4>Conditions for done</h4>
+                <ol class="condition-list">
+                  <li>For 10 representative changes, <code>pnpm ci:select --base origin/main --head HEAD</code> chooses the same lanes locally and in CI.</li>
+                  <li>Median local PR-risk proof is under 8 minutes; p95 is under 15 minutes on the target Mac runner.</li>
+                  <li>Critical PR cloud gate is under 12 minutes p95 for non-E2E changes and under 20 minutes p95 for normal UI/product changes.</li>
+                  <li>Full local suite remains green and documented, but runs only on explicit full-risk, nightly, or release paths.</li>
+                  <li>No PR/check failure for missing proof label, stale proof manifest, or wrong lane selection for 30 consecutive PRs.</li>
+                  <li><code>turbo.jsonc</code> concurrency has measured results for at least 16, 24, 32, and 40, with the chosen value documented.</li>
+                </ol>
+              </div>
+            </div>
+          </article>
+
+          <article class="goal">
+            <div class="goal-head">
+              <div class="rank">02</div>
+              <h3>Finish domain ownership by reducing hotspot size and cross-domain churn</h3>
+              <div class="score">architecture core<br />2-3 weeks</div>
+            </div>
+            <div class="goal-body">
+              <div class="goal-cell">
+                <h4>Why this matters</h4>
+                <p>
+                  The boundary checker says imports are legal, but size and churn still show where humans and agents
+                  will collide. To make agent work parallel and deterministic, the hot files need to become thin
+                  composition points over well-owned modules.
+                </p>
+              </div>
+              <div class="goal-cell">
+                <h4>Implementation shape</h4>
+                <ul>
+                  <li>Promote file-explorer internal slices into enforced public barrels first, new packages only after import pressure justifies it.</li>
+                  <li>Split <code>embedding-worker.ts</code> by lifecycle, scheduling, provider execution, telemetry, and host messaging.</li>
+                  <li>Split the 8,125-line desktop embedding E2E file into focused smoke, regression, memory diagnostic, and long-soak specs.</li>
+                  <li>Decompose <code>packages/db</code> internally around queue, migrations, repositories, search, and schema surfaces.</li>
+                  <li>Add package-local architecture tests for each domain that owns public barrels.</li>
+                </ul>
+              </div>
+              <div class="goal-cell">
+                <h4>Conditions for done</h4>
+                <ol class="condition-list">
+                  <li>No source file over 1,500 LOC except generated or explicitly documented fixture files.</li>
+                  <li>No test file over 2,000 LOC; long desktop embedding diagnostics are split by purpose and lane tag.</li>
+                  <li><code>file-explorer-left-panel.tsx</code>, <code>assistant-ui-panel-wrapper.tsx</code>, <code>ipc-handlers.ts</code>, and <code>embedding-worker.ts</code> each lose at least 40 percent LOC or become pure composition/registry modules.</li>
+                  <li>Top 10 six-month churn files have an owning domain README and a focused test command.</li>
+                  <li>Domain boundary checks still pass with <code>0/0</code> exceptions after the splits.</li>
+                  <li>New feature work can be assigned to non-overlapping write sets for file explorer, assistant, indexing, desktop platform, and db surfaces.</li>
+                </ol>
+              </div>
+            </div>
+          </article>
+
+          <article class="goal">
+            <div class="goal-head">
+              <div class="rank">03</div>
+              <h3>Turn desktop runtime, indexing, and local AI hosts into a platform</h3>
+              <div class="score">next-year readiness<br />3-5 weeks</div>
+            </div>
+            <div class="goal-body">
+              <div class="goal-cell">
+                <h4>Why this matters</h4>
+                <p>
+                  Brainstrike is local-first, AI-native, and web-second. The next one to two years will add more
+                  local models, more indexing paths, more background work, and more desktop reliability pressure.
+                  That cannot sit in ad hoc Electron IPC and monolithic workers.
+                </p>
+              </div>
+              <div class="goal-cell">
+                <h4>Implementation shape</h4>
+                <ul>
+                  <li>Create a typed desktop IPC registry with domain modules for db, files, embeddings, LLM host, preferences, and diagnostics.</li>
+                  <li>Keep renderer-only contracts enforceable for local LLM and embedding execution.</li>
+                  <li>Move indexing orchestration toward <code>@brainstrike/pipeline</code> or delete that package if it is not the owner.</li>
+                  <li>Add host lifecycle state machines for hidden embedding and LLM renderers.</li>
+                  <li>Make reset, migration, telemetry, and crash recovery observable from one diagnostics surface.</li>
+                </ul>
+              </div>
+              <div class="goal-cell">
+                <h4>Conditions for done</h4>
+                <ol class="condition-list">
+                  <li><code>apps/desktop/src/ipc-handlers.ts</code> is under 500 LOC and delegates to typed domain registries.</li>
+                  <li>Adding an IPC channel requires one contract definition, one handler, and one test. No manual preload/main/renderer triple drift.</li>
+                  <li>Architecture guards fail if local LLM or embedding workers are imported into Electron main process execution paths.</li>
+                  <li><code>@brainstrike/pipeline</code> has a real inbound production consumer or is removed from the workspace graph.</li>
+                  <li>Factory reset E2E proves DB, UI persistence, IndexedDB, CacheStorage, and host runtime state all return to first-run behavior.</li>
+                  <li>Desktop crash/restart tests prove hidden host recovery without visible renderer reload for indexing and local LLM paths.</li>
+                </ol>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section id="roadmap">
+          <div class="section-head">
+            <div class="section-num">06 / Execution</div>
+            <div>
+              <h2>Recommended Sequence</h2>
+              <p class="copy">
+                This order keeps costs controlled. First make the feedback loop cheaper, then finish decomposition,
+                then harden the runtime platform.
+              </p>
+            </div>
+          </div>
+
+          <div class="timeline">
+            <div class="timebox">
+              <strong>Week 1</strong>
+              <p>Measure pipeline lanes and concurrency. Produce timing table for 16/24/32/40 concurrency. Lock lane taxonomy and budgets.</p>
+            </div>
+            <div class="timebox">
+              <strong>Weeks 2-3</strong>
+              <p>Reduce hotspots: split embedding E2E file, split worker internals, enforce file-explorer public barrels, shrink shell files.</p>
+            </div>
+            <div class="timebox">
+              <strong>Weeks 4-6</strong>
+              <p>Desktop IPC registry and host lifecycle contracts. Move pipeline ownership decision from report to code.</p>
+            </div>
+            <div class="timebox">
+              <strong>Weeks 7-8</strong>
+              <p>Full local proof, targeted manual QA, update architecture docs, then decide integration path with one coherent branch.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="definition">
+          <div class="section-head">
+            <div class="section-num">07 / Done Means Done</div>
+            <div>
+              <h2>Global Completion Bar</h2>
+              <p class="copy">
+                These are the conditions I would require before saying this architecture reset has achieved the
+                intended outcome.
+              </p>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Area</th>
+                <th>Condition</th>
+                <th>Proof</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Architecture</td>
+                <td>0 domain exceptions, no deep imports around assistant/indexing/file-explorer/desktop platform internals</td>
+                <td><code>pnpm run arch:domain-contract && pnpm run arch:domain-boundaries</code> plus package-local import guards</td>
+              </tr>
+              <tr>
+                <td>Pipeline</td>
+                <td>Measured p95 budgets exist for PR gate, local risk proof, and full suite</td>
+                <td><code>pnpm ci:timing-summary</code> artifact committed with budget thresholds</td>
+              </tr>
+              <tr>
+                <td>Product readiness</td>
+                <td>Local embeddings, local LLM, indexing, DB, reset, and IPC all have explicit runtime contracts</td>
+                <td>Targeted Vitest plus desktop/web E2E smoke and runtime recovery specs</td>
+              </tr>
+              <tr>
+                <td>Agent parallelism</td>
+                <td>Major domains can be edited independently without overlapping write sets</td>
+                <td>Domain README for each package group with owned files, public barrels, and test commands</td>
+              </tr>
+              <tr>
+                <td>Economics</td>
+                <td>Expensive tests run because risk requires them, not because the system cannot decide</td>
+                <td>Lane selection examples covering docs, UI, indexing, desktop IPC, embeddings, db migrations, and release changes</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="callout">
+            <strong>Final recommendation:</strong> do not start by making another report or another guardrail.
+            Start with Goal 1, because every later architecture slice becomes cheaper once the pipeline can select
+            the right proof quickly and deterministically.
+          </div>
+        </section>
+
+        <footer>
+          Brainstrike architecture reset assessment. Local artifact only. Generated from current branch data on
+          2026-05-20. No CI, no PR, no push triggered by this report.
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>

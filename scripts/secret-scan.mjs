@@ -13,6 +13,7 @@ const DEFAULT_CONFIG = {
 };
 
 const BINARY_SNIFF_BYTES = 8192;
+const GIT_OUTPUT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 const EXPECTED_READ_ERROR_CODES = new Set([
   'EACCES',
   'EISDIR',
@@ -155,7 +156,10 @@ export function filterAllowedFindings(findings, config) {
 }
 
 function git(args) {
-  return execFileSync('git', args, { encoding: 'utf8' });
+  return execFileSync('git', args, {
+    encoding: 'utf8',
+    maxBuffer: GIT_OUTPUT_MAX_BUFFER_BYTES,
+  });
 }
 
 function splitNullDelimited(value) {

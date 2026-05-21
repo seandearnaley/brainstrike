@@ -4,10 +4,9 @@ import {
   TOOL_DESCRIPTIONS,
 } from '@brainstrike/agent/tool-metadata';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
-import {
-  useFileExplorerStoreSelector,
-  useOptionalTokenCacheContext,
-} from '@brainstrike/file-explorer-ui';
+import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
+import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
+import { configureModelRuntimeServices } from '@brainstrike/preferences/settings/models/model-runtime-services';
 import { ModelSelectionPage } from '@brainstrike/preferences/settings/models/model-selection-page';
 import {
   createToolsSettingsCategory,
@@ -29,6 +28,14 @@ import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/n
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { DesktopLoggingSettings } from './logging-settings';
+
+configureModelRuntimeServices({
+  downloadEmbeddingModel: async (modelId, options) => {
+    const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
+    const service = new SimpleEmbeddingService();
+    await service.downloadModel(modelId, options);
+  },
+});
 
 /**
  * Transform NATIVE_TOOL_DEFAULTS into ToolDisplayMetadata format.

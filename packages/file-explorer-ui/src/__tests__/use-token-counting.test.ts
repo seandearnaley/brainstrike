@@ -5,16 +5,20 @@ import {
 } from '@brainstrike/preferences/stores/token-preferences-store';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TokenCacheContextValue } from '../token-cache-context';
-import { __resetTokenCountingRuntimeCacheForTests, useTokenCounting } from '../use-token-counting';
+import type { TokenCacheContextValue } from '../indexing/token-cache-context';
+import {
+  __resetTokenCountingRuntimeCacheForTests,
+  useTokenCounting,
+} from '../indexing/use-token-counting';
 
 const tokenCacheMocks = vi.hoisted(() => ({
   useOptionalTokenCacheContext: vi.fn<() => TokenCacheContextValue | null>(),
 }));
 
-vi.mock('../token-cache-context', async () => {
-  const actual =
-    await vi.importActual<typeof import('../token-cache-context')>('../token-cache-context');
+vi.mock('../indexing/token-cache-context', async () => {
+  const actual = await vi.importActual<typeof import('../indexing/token-cache-context')>(
+    '../indexing/token-cache-context'
+  );
 
   return {
     ...actual,

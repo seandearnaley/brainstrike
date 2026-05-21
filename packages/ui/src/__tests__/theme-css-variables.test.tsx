@@ -10,14 +10,23 @@
 
 import { act, render, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { ThemeProvider } from '../theme-provider';
+import { ThemeProvider, type ThemeStorageAdapter } from '../theme-provider';
+
+const themeStorageAdapter: ThemeStorageAdapter = {
+  getItem: async () => null,
+  setItem: async () => {},
+};
 
 describe('Theme Provider CSS Class Management', () => {
   describe('Light Mode', () => {
     it('should apply light class to documentElement', async () => {
       await act(async () => {
         render(
-          <ThemeProvider defaultTheme="light" storageKey="test-theme-light">
+          <ThemeProvider
+            defaultTheme="light"
+            storageAdapter={themeStorageAdapter}
+            storageKey="test-theme-light"
+          >
             <div data-testid="content">Content</div>
           </ThemeProvider>
         );
@@ -36,7 +45,11 @@ describe('Theme Provider CSS Class Management', () => {
     it('should apply dark class to documentElement', async () => {
       await act(async () => {
         render(
-          <ThemeProvider defaultTheme="dark" storageKey="test-theme-dark">
+          <ThemeProvider
+            defaultTheme="dark"
+            storageAdapter={themeStorageAdapter}
+            storageKey="test-theme-dark"
+          >
             <div data-testid="content">Content</div>
           </ThemeProvider>
         );
@@ -53,7 +66,11 @@ describe('Theme Provider CSS Class Management', () => {
     it('should apply theme based on system preference', async () => {
       await act(async () => {
         render(
-          <ThemeProvider defaultTheme="system" storageKey="test-theme-system">
+          <ThemeProvider
+            defaultTheme="system"
+            storageAdapter={themeStorageAdapter}
+            storageKey="test-theme-system"
+          >
             <div data-testid="content">Content</div>
           </ThemeProvider>
         );
@@ -76,7 +93,11 @@ describe('Theme Provider CSS Class Management', () => {
       let unmount1: () => void;
       await act(async () => {
         const result = render(
-          <ThemeProvider defaultTheme="light" storageKey="test-theme-light-1">
+          <ThemeProvider
+            defaultTheme="light"
+            storageAdapter={themeStorageAdapter}
+            storageKey="test-theme-light-1"
+          >
             <div data-testid="content">Light Content</div>
           </ThemeProvider>
         );
@@ -98,7 +119,11 @@ describe('Theme Provider CSS Class Management', () => {
       // Now render with dark theme
       await act(async () => {
         render(
-          <ThemeProvider defaultTheme="dark" storageKey="test-theme-dark-2">
+          <ThemeProvider
+            defaultTheme="dark"
+            storageAdapter={themeStorageAdapter}
+            storageKey="test-theme-dark-2"
+          >
             <div data-testid="content">Dark Content</div>
           </ThemeProvider>
         );

@@ -1,18 +1,38 @@
-import { generateReport } from '@brainstrike/utils';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useReportGeneration } from '../use-report-generation';
+import {
+  type ReportGenerationRequest,
+  type ReportProgressEvent,
+  useReportGeneration,
+} from '../use-report-generation';
 
-// Mock the report generator
-vi.mock('@brainstrike/utils', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils')>();
-  const generateContext = vi.fn();
-  return {
-    ...actual,
-    generateContext,
-    generateReport: generateContext,
-  };
-});
+const generateReport = vi.fn();
+const createReportGenerator = vi.fn(
+  () =>
+    async (
+      request: ReportGenerationRequest,
+      onProgress?: (event: ReportProgressEvent) => void
+    ): Promise<string> => {
+      onProgress?.({ loaded: 1, total: 1 });
+      return await generateReport(
+        request.selectedFiles,
+        request.fileContents,
+        request.rootDirectoryHandle,
+        request.includeFilters,
+        request.excludeFilters,
+        request.useRegex,
+        request.includeProjectTree,
+        request.folderSummaryThreshold,
+        {
+          projectTreeUsesViewFilters: request.projectTreeUsesViewFilters ?? false,
+          ...(request.selectedLineRangesByFile
+            ? { selectedLineRangesByFile: request.selectedLineRangesByFile }
+            : {}),
+          useTapestryRanges: request.useTapestryRanges ?? false,
+        }
+      );
+    }
+);
 
 describe('useReportGeneration', () => {
   const mockSelectedFiles = new Set<string>(['file1.ts', 'file2.ts']);
@@ -26,6 +46,7 @@ describe('useReportGeneration', () => {
 
   // Helper to create a basic hook props object
   const createBaseProps = (overrides = {}) => ({
+    createReportGenerator,
     selectedFiles: mockSelectedFiles,
     fileContents: mockFileContents,
     rootDirectoryHandle: mockRootDirectoryHandle,
@@ -42,18 +63,7 @@ describe('useReportGeneration', () => {
   });
 
   it('should initialize with isGenerating set to false', () => {
-    const { result } = renderHook(() =>
-      useReportGeneration({
-        selectedFiles: mockSelectedFiles,
-        fileContents: mockFileContents,
-        rootDirectoryHandle: mockRootDirectoryHandle,
-        includeFilters: mockIncludeFilters,
-        excludeFilters: mockExcludeFilters,
-        useRegex: mockUseRegex,
-        includeProjectTree: mockIncludeProjectTree,
-        folderSummaryThreshold: mockFolderSummaryThreshold,
-      })
-    );
+    const { result } = renderHook(() => useReportGeneration(createBaseProps()));
 
     expect(result.current.isGenerating).toBe(false);
   });
@@ -62,18 +72,7 @@ describe('useReportGeneration', () => {
     const mockReport = '<report>Test Report</report>';
     (generateReport as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(mockReport);
 
-    const { result } = renderHook(() =>
-      useReportGeneration({
-        selectedFiles: mockSelectedFiles,
-        fileContents: mockFileContents,
-        rootDirectoryHandle: mockRootDirectoryHandle,
-        includeFilters: mockIncludeFilters,
-        excludeFilters: mockExcludeFilters,
-        useRegex: mockUseRegex,
-        includeProjectTree: mockIncludeProjectTree,
-        folderSummaryThreshold: mockFolderSummaryThreshold,
-      })
-    );
+    const { result } = renderHook(() => useReportGeneration(createBaseProps()));
 
     let reportResult: string | undefined;
     await act(async () => {
@@ -115,18 +114,7 @@ describe('useReportGeneration', () => {
       return delayedPromise;
     });
 
-    const { result } = renderHook(() =>
-      useReportGeneration({
-        selectedFiles: mockSelectedFiles,
-        fileContents: mockFileContents,
-        rootDirectoryHandle: mockRootDirectoryHandle,
-        includeFilters: mockIncludeFilters,
-        excludeFilters: mockExcludeFilters,
-        useRegex: mockUseRegex,
-        includeProjectTree: mockIncludeProjectTree,
-        folderSummaryThreshold: mockFolderSummaryThreshold,
-      })
-    );
+    const { result } = renderHook(() => useReportGeneration(createBaseProps()));
 
     // Start the report generation process but don't await its completion
     let generatePromise: Promise<string | undefined>;
@@ -154,16 +142,7 @@ describe('useReportGeneration', () => {
 
   it('should throw an error if no root directory handle is provided', async () => {
     const { result } = renderHook(() =>
-      useReportGeneration({
-        selectedFiles: mockSelectedFiles,
-        fileContents: mockFileContents,
-        rootDirectoryHandle: undefined,
-        includeFilters: mockIncludeFilters,
-        excludeFilters: mockExcludeFilters,
-        useRegex: mockUseRegex,
-        includeProjectTree: mockIncludeProjectTree,
-        folderSummaryThreshold: mockFolderSummaryThreshold,
-      })
+      useReportGeneration(createBaseProps({ rootDirectoryHandle: undefined }))
     );
 
     await expect(result.current.generateContextWithContent()).rejects.toThrow(
@@ -176,18 +155,7 @@ describe('useReportGeneration', () => {
       new Error('Test error')
     );
 
-    const { result } = renderHook(() =>
-      useReportGeneration({
-        selectedFiles: mockSelectedFiles,
-        fileContents: mockFileContents,
-        rootDirectoryHandle: mockRootDirectoryHandle,
-        includeFilters: mockIncludeFilters,
-        excludeFilters: mockExcludeFilters,
-        useRegex: mockUseRegex,
-        includeProjectTree: mockIncludeProjectTree,
-        folderSummaryThreshold: mockFolderSummaryThreshold,
-      })
-    );
+    const { result } = renderHook(() => useReportGeneration(createBaseProps()));
 
     await act(async () => {
       try {

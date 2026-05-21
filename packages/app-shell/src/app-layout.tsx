@@ -1,5 +1,5 @@
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
-import { FileExplorerProvider } from '@brainstrike/file-explorer-ui';
+import { FileExplorerProvider } from '@brainstrike/file-explorer-ui/shell';
 import { GlobalDownloadIndicator } from '@brainstrike/preferences/components/global-download-indicator';
 import { useDatabaseStatusSync } from '@brainstrike/preferences/hooks/use-database-status-sync';
 import {
@@ -18,7 +18,11 @@ export function AppLayout({ children, config, currentPath, onNavigationClick }: 
   const { fileSystemAdapter, storageAdapter } = useAdapters();
 
   return (
-    <ThemeProvider defaultTheme="light" storageKey={config.themeStorageKey}>
+    <ThemeProvider
+      defaultTheme="light"
+      storageAdapter={storageAdapter}
+      storageKey={config.themeStorageKey}
+    >
       <TooltipProvider delayDuration={300} skipDelayDuration={100}>
         <FileExplorerProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
           <div className="flex h-screen flex-col">

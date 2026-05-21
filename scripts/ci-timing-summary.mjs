@@ -63,6 +63,15 @@ function classifyDuration(durationMs, warnMs, failMs) {
   return 'ok';
 }
 
+function nearestRank(values, percentile) {
+  if (values.length === 0) {
+    return null;
+  }
+  const sorted = [...values].sort((left, right) => left - right);
+  const rank = Math.ceil((percentile / 100) * sorted.length);
+  return sorted[Math.max(0, Math.min(sorted.length - 1, rank - 1))];
+}
+
 export function formatDuration(ms) {
   if (ms < 1000) {
     return `${ms}ms`;
@@ -74,6 +83,48 @@ export function formatDuration(ms) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}m ${seconds}s`;
+}
+
+export function renderTimingBudgetJson(summary, options = {}) {
+  const durations = summary.tasks.map((task) => task.durationMs);
+  const slowestTasks = summary.tasks.slice(0, options.slowestLimit ?? 10).map((task) => ({
+    taskId: task.taskId,
+    packageName: task.packageName,
+    task: task.task,
+    durationMs: task.durationMs,
+    cacheStatus: task.cacheStatus,
+    status: task.status,
+  }));
+  return `${JSON.stringify(
+    {
+      schemaVersion: 1,
+      calibration: options.calibration === true,
+      command: summary.command,
+      task: summary.task,
+      budget: {
+        taskWarnMs: summary.warnMs,
+        taskFailMs: summary.failMs,
+        totalWarnMs: summary.totalWarnMs,
+        totalFailMs: summary.totalFailMs,
+      },
+      totals: {
+        durationMs: summary.executionDurationMs,
+        status: summary.totalStatus,
+        taskCount: summary.tasks.length,
+        p50TaskMs: nearestRank(durations, 50),
+        p95TaskMs: nearestRank(durations, 95),
+        maxTaskMs: durations[0] ?? null,
+      },
+      status: {
+        hasFailures: summary.hasFailures,
+        hasWarnings: summary.hasWarnings,
+        exitWouldFailOutsideCalibration: summary.hasFailures,
+      },
+      slowestTasks,
+    },
+    null,
+    2
+  )}\n`;
 }
 
 export function parseTurboSummary(summaryJson, options = {}) {
@@ -275,7 +326,9 @@ export async function runCli(args = process.argv.slice(2)) {
   let totalWarnMs;
   let totalFailMs;
   let output;
+  let jsonOutput;
   let allSummaries;
+  let calibration;
   try {
     runsDir = readFlagValue(args, '--runs-dir') ?? DEFAULT_RUNS_DIR;
     explicitSummary = readFlagValue(args, '--summary');
@@ -286,7 +339,9 @@ export async function runCli(args = process.argv.slice(2)) {
     totalWarnMs = asNumber(readFlagValue(args, '--total-warn-ms'), warnMs);
     totalFailMs = asNumber(readFlagValue(args, '--total-fail-ms'), failMs);
     output = readFlagValue(args, '--output');
+    jsonOutput = readFlagValue(args, '--json-output');
     allSummaries = args.includes('--all');
+    calibration = args.includes('--calibration');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(message);
@@ -322,6 +377,7 @@ export async function runCli(args = process.argv.slice(2)) {
     totalFailMs,
   });
   const markdown = renderMarkdownSummary(summary);
+  const timingJson = renderTimingBudgetJson(summary, { calibration });
   const annotations = renderGitHubAnnotations(summary);
 
   if (output) {
@@ -338,11 +394,23 @@ export async function runCli(args = process.argv.slice(2)) {
   if (annotations) {
     console.log(annotations);
   }
+  if (jsonOutput) {
+    try {
+      await writeFile(jsonOutput, timingJson);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to write Turbo timing JSON to ${jsonOutput}: ${message}`);
+      return 1;
+    }
+  }
 
   const noMatchingTasksFromDifferentCommand =
     summary.tasks.length === 0 &&
     !(taskPrefix ? commandIncludesTaskPrefix(summary.command, taskPrefix) : commandIncludesTask(summary.command, summary.task));
-  return summary.hasFailures || noMatchingTasksFromDifferentCommand ? 1 : 0;
+  if (noMatchingTasksFromDifferentCommand) {
+    return 1;
+  }
+  return summary.hasFailures && !calibration ? 1 : 0;
 }
 
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : null;

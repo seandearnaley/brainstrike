@@ -13,7 +13,7 @@ import {
   createDefaultLoggingPreferences,
   type LoggingPreferences,
 } from '@brainstrike/utils/logging-preferences';
-import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron';
+import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import { startAssistantServer } from './assistant-server';
@@ -24,13 +24,17 @@ import {
   createDesktopDatabaseMaintenanceScheduler,
   type DesktopDatabaseMaintenanceScheduler,
 } from './database-maintenance-scheduler';
+import { getDbHostManager } from './db-host-manager';
 import { closeDatabase, getDatabase, resetLocalDatabase } from './db-main';
-import { resetDesktopApplicationData } from './desktop-factory-reset';
+import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
+import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
+import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
+import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import {
   cleanupDesktopLiveSubscriptionsForShutdown,
@@ -54,7 +58,9 @@ import {
   registerLoggingIpcHandlers,
 } from './logging-ipc';
 import type { LoggingSettingsPayload } from './logging-shared';
+import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { ParserHostManager } from './parser-host-manager';
+import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
@@ -592,6 +598,8 @@ let unregisterParserHostIpcHandlers: null | (() => void) = null;
 let unregisterEmbeddingHostIpcHandlers: null | (() => void) = null;
 let unregisterLlmHostIpcHandlers: null | (() => void) = null;
 let unregisterLoggingIpcHandlers: null | (() => void) = null;
+let unregisterMainPlatformIpcHandlers: null | (() => void) = null;
+let unregisterDesktopDiagnosticsIpcHandlers: null | (() => void) = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
@@ -626,35 +634,6 @@ async function runShutdownStep(
       ...serializeDesktopError(error),
     };
   }
-}
-
-async function handleResetLocal(): Promise<{ success: boolean; message?: string }> {
-  try {
-    await resetDesktopApplicationData({
-      resetDatabaseProfile: async () => {
-        await runWithDesktopDatabaseResetBarrier(async () => {
-          await cleanupDesktopLiveSubscriptionsForShutdown();
-          await waitForDesktopDatabaseWorkSchedulerIdle();
-          await cleanupDesktopLiveSubscriptionsForShutdown();
-          await resetLocalDatabase();
-        });
-      },
-      stopBackgroundRuntimes: async () => {
-        await Promise.all([
-          embeddingHostManager.stop(),
-          chunkingHostManager.stop(),
-          llmHostManager.stop(),
-        ]);
-      },
-      userDataPath: app.getPath('userData'),
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger.error('Failed to reset desktop application data:', error);
-    return { success: false, message };
-  }
-
-  return { success: true };
 }
 
 function scheduleForcedProcessExit(trigger: NodeJS.Signals | 'before-quit'): void {
@@ -792,6 +771,19 @@ const chunkingHostManager = new ChunkingHostManager();
 const parserHostManager = new ParserHostManager();
 const embeddingHostManager = new EmbeddingHostManager();
 const llmHostManager = new LlmHostManager();
+const handleResetLocal = createDesktopFactoryResetHandler({
+  cleanupLiveSubscriptionsForShutdown: cleanupDesktopLiveSubscriptionsForShutdown,
+  logger,
+  resetLocalDatabase,
+  runtimes: [
+    { name: 'embedding-host', stop: () => embeddingHostManager.stop() },
+    { name: 'chunking-host', stop: () => chunkingHostManager.stop() },
+    { name: 'llm-host', stop: () => llmHostManager.stop() },
+  ],
+  runWithDatabaseResetBarrier: runWithDesktopDatabaseResetBarrier,
+  userDataPath: app.getPath('userData'),
+  waitForDatabaseWorkSchedulerIdle: waitForDesktopDatabaseWorkSchedulerIdle,
+});
 
 desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler({
   getDatabase,
@@ -829,6 +821,34 @@ unregisterChunkingHostIpcHandlers = registerChunkingHostIpcHandlers(chunkingHost
 unregisterParserHostIpcHandlers = registerParserHostIpcHandlers(parserHostManager);
 unregisterEmbeddingHostIpcHandlers = registerEmbeddingHostIpcHandlers(embeddingHostManager);
 unregisterLlmHostIpcHandlers = registerLlmHostIpcHandlers(llmHostManager);
+unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers({
+  crashRecovery: {
+    getSnapshot: getDesktopCrashRecoverySnapshot,
+  },
+  database: {
+    getDiagnostics: async () => await getDbHostManager().getDiagnostics(),
+  },
+  databaseScheduler: {
+    getSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
+  },
+  embeddingHost: embeddingHostManager,
+  indexing: {
+    getBackfillsInFlight: async () => {
+      const { getDesktopEmbeddingBackfillsInFlight } = await import('./ipc-embedding-backfill');
+      return getDesktopEmbeddingBackfillsInFlight();
+    },
+  },
+  llmHost: llmHostManager,
+  logging: {
+    getState: getLoggingSettingsPayload,
+  },
+  reset: {
+    getSnapshot: () => getDesktopResetDiagnosticsSnapshot(app.getPath('userData')),
+  },
+  telemetry: {
+    getRuntimeMetrics: collectBackgroundRuntimeMetrics,
+  },
+});
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
@@ -1076,20 +1096,9 @@ if (singleInstanceLockAcquired) {
         logger.error('Failed to start assistant server:', err);
       }
 
-      // IPC to provide assistant URL to renderer
-      ipcMain.handle('assistant:get-url', () => assistantUrl);
-      ipcMain.handle('app:lifecycle:note-reload-intent', async (event, reason: unknown) => {
-        if (typeof reason !== 'string' || reason.trim().length === 0) {
-          throw new Error('Renderer reload intent reason must be a non-empty string.');
-        }
-        const window = BrowserWindow.fromWebContents(event.sender);
-        if (!window || window.isDestroyed()) {
-          throw new Error('Renderer reload intent must originate from a live BrowserWindow.');
-        }
-        noteNextWindowReload(window, {
-          reason: reason.trim(),
-          source: 'renderer',
-        });
+      unregisterMainPlatformIpcHandlers = registerMainPlatformIpcHandlers({
+        getAssistantUrl: () => assistantUrl,
+        noteNextWindowReload,
       });
 
       const createMainWindow = async () => {
@@ -1109,7 +1118,7 @@ if (singleInstanceLockAcquired) {
           if (window.isDestroyed()) {
             continue;
           }
-          window.webContents.send('app:power-state', state);
+          window.webContents.send(DESKTOP_IPC_CHANNELS.runtime.powerState, state);
         }
       };
       let pendingPowerResumeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1359,9 +1368,17 @@ app.on('will-quit', () => {
     unregisterMainIpcHandlers();
     unregisterMainIpcHandlers = null;
   }
+  if (unregisterDesktopDiagnosticsIpcHandlers) {
+    unregisterDesktopDiagnosticsIpcHandlers();
+    unregisterDesktopDiagnosticsIpcHandlers = null;
+  }
   if (unregisterLoggingIpcHandlers) {
     unregisterLoggingIpcHandlers();
     unregisterLoggingIpcHandlers = null;
+  }
+  if (unregisterMainPlatformIpcHandlers) {
+    unregisterMainPlatformIpcHandlers();
+    unregisterMainPlatformIpcHandlers = null;
   }
   removeLogBufferListener();
 });

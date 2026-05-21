@@ -23,6 +23,21 @@ import {
   EMBEDDING_HOST_STATUS_EVENT,
   EMBEDDING_HOST_STOP_CHANNEL,
 } from '../embedding-host-shared';
+import {
+  LLM_HOST_CANCEL_CHANNEL,
+  LLM_HOST_ENSURE_STARTED_CHANNEL,
+  LLM_HOST_GENERATE_CHANNEL,
+  LLM_HOST_GET_STATUS_CHANNEL,
+  LLM_HOST_PROGRESS_EVENT,
+  LLM_HOST_REPORT_PROGRESS_CHANNEL,
+  LLM_HOST_REPORT_RESPONSE_CHANNEL,
+  LLM_HOST_REPORT_STATUS_CHANNEL,
+  LLM_HOST_REQUEST_EVENT,
+  LLM_HOST_RESET_CHANNEL,
+  LLM_HOST_STATUS_EVENT,
+  LLM_HOST_STOP_CHANNEL,
+  LLM_HOST_WARMUP_CHANNEL,
+} from '../llm-host-shared';
 
 // CJS require('electron') in preload.ts resolves via Node's native module loader,
 // which returns the Electron binary path (a string), not the API object.
@@ -112,6 +127,32 @@ describe('preload power bridge', () => {
           chunkFile: (request: unknown) => Promise<unknown>;
           chunkBatch: (request: unknown) => Promise<unknown>;
           reportStatus: (status: unknown) => void;
+          reportResponse: (response: unknown) => void;
+          onStatus: (cb: (status: unknown) => void) => () => void;
+          onProgress: (cb: (progress: unknown) => void) => () => void;
+          onRequest: (cb: (request: unknown) => void) => () => void;
+        }
+      | undefined;
+  }
+
+  function getLlmHostApi() {
+    const call = mockExposeInMainWorld.mock.calls.find(([key]: [string]) => key === 'llmHost');
+    return call?.[1] as
+      | {
+          ensureStarted: () => Promise<unknown>;
+          stop: () => Promise<unknown>;
+          reset: () => Promise<unknown>;
+          getStatus: () => Promise<unknown>;
+          cancel: (requestId: string) => Promise<unknown>;
+          warmup: (payload: { modelId: string; requestId?: string } | string) => Promise<unknown>;
+          generate: (payload: {
+            requestId?: string;
+            modelId: string;
+            messages: unknown[];
+            options?: unknown;
+          }) => Promise<unknown>;
+          reportStatus: (status: unknown) => void;
+          reportProgress: (progress: unknown) => void;
           reportResponse: (response: unknown) => void;
           onStatus: (cb: (status: unknown) => void) => () => void;
           onProgress: (cb: (progress: unknown) => void) => () => void;
@@ -427,6 +468,118 @@ describe('preload power bridge', () => {
       CHUNKING_HOST_REQUEST_EVENT,
       expect.any(Function)
     );
+  });
+
+  it('exposes the llmHost lifecycle and request bridge', async () => {
+    mockInvoke.mockClear();
+    mockInvoke.mockResolvedValue({ state: 'running', active: false, lastError: null });
+    const llmHostApi = getLlmHostApi();
+    expect(llmHostApi).toBeDefined();
+
+    await llmHostApi?.ensureStarted();
+    await llmHostApi?.stop();
+    await llmHostApi?.reset();
+    await llmHostApi?.getStatus();
+    await llmHostApi?.cancel('cancel-1');
+    await llmHostApi?.warmup({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      requestId: 'warmup-1',
+    });
+    await llmHostApi?.generate({
+      requestId: 'generate-1',
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      messages: [{ role: 'user', content: 'hello' }],
+      options: { temperature: 0 },
+    });
+
+    expect(mockInvoke).toHaveBeenCalledWith(LLM_HOST_ENSURE_STARTED_CHANNEL);
+    expect(mockInvoke).toHaveBeenCalledWith(LLM_HOST_STOP_CHANNEL);
+    expect(mockInvoke).toHaveBeenCalledWith(LLM_HOST_RESET_CHANNEL);
+    expect(mockInvoke).toHaveBeenCalledWith(LLM_HOST_GET_STATUS_CHANNEL);
+    expect(mockInvoke).toHaveBeenCalledWith(LLM_HOST_CANCEL_CHANNEL, 'cancel-1');
+    expect(mockInvoke).toHaveBeenCalledWith(LLM_HOST_WARMUP_CHANNEL, {
+      kind: 'warmup',
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      clientRequestId: 'warmup-1',
+    });
+    expect(mockInvoke).toHaveBeenCalledWith(LLM_HOST_GENERATE_CHANNEL, {
+      kind: 'generate',
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      clientRequestId: 'generate-1',
+      messages: [{ role: 'user', content: 'hello' }],
+      options: { temperature: 0 },
+    });
+  });
+
+  it('forwards llm host status, progress, requests, and responses', () => {
+    mockOn.mockClear();
+    mockSend.mockClear();
+    mockRemoveListener.mockClear();
+
+    const llmHostApi = getLlmHostApi();
+    const statusCallback = vi.fn();
+    const progressCallback = vi.fn();
+    const requestCallback = vi.fn();
+
+    const status = { state: 'running', active: true, lastError: null };
+    const progress = {
+      type: 'progress',
+      channel: 'llm-progress',
+      requestId: 'generate-1',
+      runtimeId: 'runtime-1',
+      payload: { kind: 'text', text: 'hi' },
+    };
+    const response = {
+      type: 'result',
+      channel: 'llm-result',
+      requestId: 'generate-1',
+      runtimeId: 'runtime-1',
+      payload: { result: null },
+    };
+
+    llmHostApi?.reportStatus(status);
+    llmHostApi?.reportProgress(progress);
+    llmHostApi?.reportResponse(response);
+    const cleanupStatus = llmHostApi?.onStatus(statusCallback);
+    const cleanupProgress = llmHostApi?.onProgress(progressCallback);
+    const cleanupRequest = llmHostApi?.onRequest(requestCallback);
+
+    expect(mockSend).toHaveBeenCalledWith(LLM_HOST_REPORT_STATUS_CHANNEL, status);
+    expect(mockSend).toHaveBeenCalledWith(LLM_HOST_REPORT_PROGRESS_CHANNEL, progress);
+    expect(mockSend).toHaveBeenCalledWith(LLM_HOST_REPORT_RESPONSE_CHANNEL, response);
+    expect(mockOn).toHaveBeenCalledWith(LLM_HOST_STATUS_EVENT, expect.any(Function));
+    expect(mockOn).toHaveBeenCalledWith(LLM_HOST_PROGRESS_EVENT, expect.any(Function));
+    expect(mockOn).toHaveBeenCalledWith(LLM_HOST_REQUEST_EVENT, expect.any(Function));
+
+    const statusListener = mockOn.mock.calls.find(
+      ([channel]: [string]) => channel === LLM_HOST_STATUS_EVENT
+    )?.[1] as (event: unknown, payload: unknown) => void;
+    const progressListener = mockOn.mock.calls.find(
+      ([channel]: [string]) => channel === LLM_HOST_PROGRESS_EVENT
+    )?.[1] as (event: unknown, payload: unknown) => void;
+    const requestListener = mockOn.mock.calls.find(
+      ([channel]: [string]) => channel === LLM_HOST_REQUEST_EVENT
+    )?.[1] as (event: unknown, payload: unknown) => void;
+
+    statusListener(null, { state: 'idle', active: false, lastError: null });
+    progressListener(null, progress);
+    requestListener(null, { type: 'request', channel: 'llm', payload: { kind: 'warmup' } });
+
+    expect(statusCallback).toHaveBeenCalledWith({ state: 'idle', active: false, lastError: null });
+    expect(progressCallback).toHaveBeenCalledWith(progress);
+    expect(requestCallback).toHaveBeenCalledWith({
+      type: 'request',
+      channel: 'llm',
+      payload: { kind: 'warmup' },
+    });
+
+    cleanupStatus?.();
+    cleanupProgress?.();
+    cleanupRequest?.();
+
+    expect(mockRemoveListener).toHaveBeenCalledWith(LLM_HOST_STATUS_EVENT, expect.any(Function));
+    expect(mockRemoveListener).toHaveBeenCalledWith(LLM_HOST_PROGRESS_EVENT, expect.any(Function));
+    expect(mockRemoveListener).toHaveBeenCalledWith(LLM_HOST_REQUEST_EVENT, expect.any(Function));
   });
 
   it('exposes logging buffered-record ingestion bridge', () => {

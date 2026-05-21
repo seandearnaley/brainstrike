@@ -1,8 +1,9 @@
 import { type ComponentType, memo, useEffect, useState } from 'react';
+import type { AssistantThreadTabsWorkspaceProps } from './assistant-thread-tabs-workspace';
 import { createRetryableLazyModuleLoader } from './retryable-lazy-module-loader';
 
 type AssistantThreadTabsWorkspaceModule = typeof import('./assistant-thread-tabs-workspace');
-type AssistantUiPanelWrapperComponent = ComponentType;
+type AssistantUiPanelWrapperComponent = ComponentType<AssistantThreadTabsWorkspaceProps>;
 
 let assistantUiPanelWrapperComponent: AssistantUiPanelWrapperComponent | null = null;
 const assistantUiPanelWrapperModuleLoader =
@@ -24,7 +25,9 @@ export function preloadAssistantUiPanelWrapper(): Promise<void> {
   });
 }
 
-export const AssistantUiPanelWrapperLazy = memo(function AssistantUiPanelWrapperLazy() {
+export const AssistantUiPanelWrapperLazy = memo(function AssistantUiPanelWrapperLazy(
+  props: AssistantThreadTabsWorkspaceProps
+) {
   const [LoadedComponent, setLoadedComponent] = useState<AssistantUiPanelWrapperComponent | null>(
     () => getLoadedAssistantUiPanelWrapper()
   );
@@ -68,5 +71,5 @@ export const AssistantUiPanelWrapperLazy = memo(function AssistantUiPanelWrapper
     return <div className="p-4 text-xs opacity-70">Loading assistant…</div>;
   }
 
-  return <LoadedComponent />;
+  return <LoadedComponent {...props} />;
 });

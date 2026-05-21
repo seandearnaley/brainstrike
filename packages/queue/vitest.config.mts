@@ -17,9 +17,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@brainstrike/embedding-worker': resolve(
+      '@brainstrike/indexing-contract': resolve(
         __dirname,
-        '../../packages/embedding-worker/src/index.ts'
+        '../../packages/indexing-contract/src/index.ts'
       ),
       '@brainstrike/utils/token-counting-runtime': resolve(
         __dirname,

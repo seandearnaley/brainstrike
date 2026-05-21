@@ -1,9 +1,9 @@
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { useFileExplorerStoreContext } from '../file-explorer-provider';
-import { useSelectionManager } from '../use-selection-manager-context';
+import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
+import { useSelectionManager } from '../shell/use-selection-manager-context';
 
-vi.mock('../file-explorer-provider', () => {
+vi.mock('../shell/file-explorer-provider', () => {
   const useFileExplorerStoreContext = vi.fn();
   return {
     useFileExplorerStoreContext,

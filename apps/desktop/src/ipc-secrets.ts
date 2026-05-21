@@ -1,6 +1,7 @@
-import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
 import { listAgentProviders } from './agent-client-loader';
+import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
+import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import { resolveProviderEnvKey } from './provider-api-key';
 import type { SecretsService } from './secrets';
 
@@ -75,10 +76,13 @@ function appendEnvConfiguredProviders(target: Set<string>) {
  *
  * @param secrets - The platform-specific secrets storage service
  */
-export function registerSecretsIpcHandlers(secrets: SecretsService) {
-  ipcMain.handle(
-    'secrets:save',
-    async (_e: IpcMainInvokeEvent, provider: string, value: string) => {
+export function registerSecretsIpcHandlers(secrets: SecretsService): () => void {
+  const registry = createDesktopIpcRegistry({ ipcMain });
+
+  registry.registerInvoke(
+    'preferences',
+    DESKTOP_IPC_CHANNELS.secrets.save,
+    async (_event, provider: string, value: string) => {
       // In test mode, use in-memory storage
       if (isTestMode()) {
         testModeSecrets.set(provider, value);
@@ -96,27 +100,35 @@ export function registerSecretsIpcHandlers(secrets: SecretsService) {
     }
   );
 
-  ipcMain.handle('secrets:get', async (_e: IpcMainInvokeEvent, provider: string) => {
-    // In test mode, check in-memory storage
-    if (isTestMode()) {
-      return testModeSecrets.get(provider) ?? null;
+  registry.registerInvoke(
+    'preferences',
+    DESKTOP_IPC_CHANNELS.secrets.get,
+    async (_event, provider: string) => {
+      // In test mode, check in-memory storage
+      if (isTestMode()) {
+        return testModeSecrets.get(provider) ?? null;
+      }
+
+      const v = await secrets.getKey(provider);
+      return v;
     }
+  );
 
-    const v = await secrets.getKey(provider);
-    return v;
-  });
+  registry.registerInvoke(
+    'preferences',
+    DESKTOP_IPC_CHANNELS.secrets.delete,
+    async (_event, provider: string) => {
+      // In test mode, remove from in-memory storage
+      if (isTestMode()) {
+        testModeSecrets.delete(provider);
+        return;
+      }
 
-  ipcMain.handle('secrets:delete', async (_e: IpcMainInvokeEvent, provider: string) => {
-    // In test mode, remove from in-memory storage
-    if (isTestMode()) {
-      testModeSecrets.delete(provider);
-      return;
+      return await secrets.deleteKey(provider);
     }
+  );
 
-    return await secrets.deleteKey(provider);
-  });
-
-  ipcMain.handle('secrets:list', async () => {
+  registry.registerInvoke('preferences', DESKTOP_IPC_CHANNELS.secrets.list, async () => {
     // In test mode, only use in-memory storage (ignore env vars)
     if (isTestMode()) {
       const providers = new Set<string>();
@@ -133,7 +145,7 @@ export function registerSecretsIpcHandlers(secrets: SecretsService) {
     return Array.from(providers);
   });
 
-  ipcMain.handle('secrets:listStored', async () => {
+  registry.registerInvoke('preferences', DESKTOP_IPC_CHANNELS.secrets.listStored, async () => {
     if (isTestMode()) {
       const providers = new Set<string>();
       appendTestModeProviders(providers);
@@ -145,27 +157,35 @@ export function registerSecretsIpcHandlers(secrets: SecretsService) {
     return Array.from(providers);
   });
 
-  ipcMain.handle('secrets:clearAll', async (_e: IpcMainInvokeEvent, confirmationToken?: string) => {
-    if (confirmationToken !== SECRETS_CLEAR_CONFIRMATION_TOKEN) {
-      return {
-        success: false,
-        message: 'Unauthorized: Invalid confirmation token',
-      };
-    }
+  registry.registerInvoke(
+    'preferences',
+    DESKTOP_IPC_CHANNELS.secrets.clearAll,
+    async (_event, confirmationToken?: string) => {
+      if (confirmationToken !== SECRETS_CLEAR_CONFIRMATION_TOKEN) {
+        return {
+          success: false,
+          message: 'Unauthorized: Invalid confirmation token',
+        };
+      }
 
-    if (isTestMode()) {
-      testModeSecrets.clear();
-      return { success: true };
-    }
+      if (isTestMode()) {
+        testModeSecrets.clear();
+        return { success: true };
+      }
 
-    try {
-      const result = await secrets.clearAll();
-      return { success: result };
-    } catch (error) {
-      return {
-        success: false,
-        message: error instanceof Error ? error.message : String(error),
-      };
+      try {
+        const result = await secrets.clearAll();
+        return { success: result };
+      } catch (error) {
+        return {
+          success: false,
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
     }
-  });
+  );
+
+  return () => {
+    registry.unregisterAll();
+  };
 }

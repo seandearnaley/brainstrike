@@ -1,5 +1,5 @@
 import { DEFAULT_EMBEDDING_DIMENSION, usePGliteDatabase } from '@brainstrike/db';
-import type { ModelConfig } from '@brainstrike/embeddings/provider-core';
+import type { EmbeddingModelConfig as ModelConfig } from '@brainstrike/indexing-contract';
 import { Button, Input, Label, useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { Folder, RefreshCw } from 'lucide-react';
@@ -10,6 +10,7 @@ import type { DbModel } from '../../stores/model-registry-store';
 import { useModelRegistryStore } from '../../stores/model-registry-store';
 import { AssistantMemorySettingsSection } from './assistant-memory-settings-section';
 import { ModelList } from './model-list';
+import { getModelRuntimeServices } from './model-runtime-services';
 
 const logger = createLogger('ModelSelectionPage');
 
@@ -126,8 +127,9 @@ async function downloadLlmModel(
   model: DbModel,
   { modelCacheDir, setDownloadProgress, setDownloading, toast }: DownloadDeps
 ): Promise<void> {
-  // Dynamic import from client entry to avoid server-only Mastra dependencies
-  const { LocalLlmBackend } = await import('@brainstrike/agent/local-llm');
+  const { downloadBuiltInLocalLlmModel } = await import(
+    '@brainstrike/assistant-contract/local-llm-artifacts'
+  );
 
   setDownloading(model.id, true);
   setDownloadProgress(model.id, 0);
@@ -149,7 +151,7 @@ async function downloadLlmModel(
     if (modelCacheDir) {
       downloadOptions.cacheDir = modelCacheDir;
     }
-    await LocalLlmBackend.downloadModel(model.id, downloadOptions);
+    await downloadBuiltInLocalLlmModel(model.id, downloadOptions);
 
     setDownloadProgress(model.id, 100);
     toast({
@@ -172,8 +174,7 @@ async function downloadEmbeddingModel(
   model: DbModel,
   { modelCacheDir, setDownloadProgress, setDownloading, toast }: DownloadDeps
 ): Promise<void> {
-  const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
-  const service = new SimpleEmbeddingService();
+  const { downloadEmbeddingModel: runEmbeddingModelDownload } = getModelRuntimeServices();
   const modelConfig = buildModelConfig(model);
 
   setDownloading(model.id, true);
@@ -199,7 +200,7 @@ async function downloadEmbeddingModel(
     }
 
     // Pass full config to bypass registry lookup
-    await service.downloadModel(model.id, options);
+    await runEmbeddingModelDownload(model.id, options);
 
     setDownloadProgress(model.id, 100);
     toast({

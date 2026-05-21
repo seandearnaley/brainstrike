@@ -9,8 +9,8 @@ vi.mock('@brainstrike/preferences', () => ({
   GlobalDownloadIndicator: () => <div data-testid="global-download-indicator" />,
 }));
 
-// Mock the file-explorer-ui package to avoid worker issues
-vi.mock('@brainstrike/file-explorer-ui', () => ({
+// Mock the shell barrel to avoid worker/provider setup in layout tests.
+vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="file-explorer-provider">{children}</div>
   ),

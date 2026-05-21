@@ -1,0 +1,193 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "docs-only report",
+      "files": ["docs/architecture-reset/report.html"],
+      "expected": {
+        "category": "docs-only",
+        "cloudLabels": [],
+        "e2eLanes": [],
+        "proofCommands": ["diff-check", "docs-static"]
+      }
+    },
+    {
+      "name": "tooling script",
+      "files": ["scripts/ci-select.mjs"],
+      "expected": {
+        "category": "config-tooling",
+        "cloudLabels": ["ci:coverage"],
+        "e2eLanes": [],
+        "proofCommands": ["diff-check", "ci-script-tests", "workflow-contracts"]
+      }
+    },
+    {
+      "name": "assistant contract",
+      "files": ["packages/assistant-contract/src/runtime-data.ts"],
+      "expected": {
+        "category": "assistant-contract-runtime",
+        "cloudLabels": ["ci:web-e2e", "ci:coverage"],
+        "e2eLanes": ["critical-smoke"],
+        "proofCommands": ["diff-check", "assistant-contract-tests", "app-shell-tests"]
+      }
+    },
+    {
+      "name": "embedding worker",
+      "files": ["packages/embeddings/src/worker/embedding-worker.ts"],
+      "expected": {
+        "category": "indexing-import-embedding",
+        "cloudLabels": ["ci:desktop", "ci:embedding", "ci:coverage"],
+        "e2eLanes": ["desktop-embedding-diagnostics"],
+        "proofCommands": ["diff-check", "indexing-tests", "embedding-tests"]
+      }
+    },
+    {
+      "name": "db migration",
+      "files": ["packages/db/src/migrations/012-add-index.sql.ts"],
+      "expected": {
+        "category": "db-migrations-storage",
+        "cloudLabels": ["ci:browser", "ci:coverage"],
+        "e2eLanes": ["destructive-reset"],
+        "proofCommands": ["diff-check", "db-schema-migration-tests", "db-integration-tests"]
+      }
+    },
+    {
+      "name": "db queue",
+      "files": ["packages/db/src/queue/job-queue.ts"],
+      "expected": {
+        "category": "db-migrations-storage",
+        "cloudLabels": ["ci:browser", "ci:coverage"],
+        "e2eLanes": [],
+        "proofCommands": ["diff-check", "db-queue-tests"]
+      }
+    },
+    {
+      "name": "db repository",
+      "files": ["packages/db/src/repositories/drizzle/file-record-repository.ts"],
+      "expected": {
+        "category": "db-migrations-storage",
+        "cloudLabels": ["ci:browser", "ci:coverage"],
+        "e2eLanes": [],
+        "proofCommands": ["diff-check", "db-repository-tests"]
+      }
+    },
+    {
+      "name": "db search",
+      "files": ["packages/db/src/search/hybrid-search-service.ts"],
+      "expected": {
+        "category": "db-migrations-storage",
+        "cloudLabels": ["ci:browser", "ci:coverage"],
+        "e2eLanes": [],
+        "proofCommands": ["diff-check", "db-search-tests"]
+      }
+    },
+    {
+      "name": "file explorer tree",
+      "files": ["packages/file-explorer-ui/src/tree/optimized-file-tree.tsx"],
+      "expected": {
+        "category": "web-ui-file-explorer",
+        "cloudLabels": ["ci:web-e2e", "ci:coverage"],
+        "e2eLanes": ["web-functional-stateful"],
+        "proofCommands": ["diff-check", "file-explorer-tests", "web-smoke-tests"]
+      }
+    },
+    {
+      "name": "desktop preload",
+      "files": ["apps/desktop/src/preload.ts"],
+      "expected": {
+        "category": "desktop-platform-ipc-preload",
+        "cloudLabels": ["ci:desktop", "ci:coverage"],
+        "e2eLanes": ["desktop-smoke-regression"],
+        "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-smoke-tests"]
+      }
+    },
+    {
+      "name": "desktop embedding host",
+      "files": ["apps/desktop/src/embedding-host-manager.ts"],
+      "expected": {
+        "category": "desktop-platform-ipc-preload",
+        "cloudLabels": ["ci:desktop", "ci:embedding", "ci:coverage"],
+        "e2eLanes": ["desktop-smoke-regression", "desktop-embedding-diagnostics"],
+        "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-smoke-tests", "desktop-embedding-smoke"]
+      }
+    },
+    {
+      "name": "desktop llm host",
+      "files": ["apps/desktop/src/llm-host-manager.ts"],
+      "expected": {
+        "category": "desktop-platform-ipc-preload",
+        "cloudLabels": ["ci:desktop", "ci:coverage"],
+        "e2eLanes": ["desktop-smoke-regression", "desktop-llm-host-recovery"],
+        "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-smoke-tests", "desktop-llm-host-smoke"]
+      }
+    },
+    {
+      "name": "browser storage",
+      "files": ["packages/storage/src/opfs.ts"],
+      "expected": {
+        "category": "db-migrations-storage",
+        "cloudLabels": ["ci:browser", "ci:coverage"],
+        "e2eLanes": [],
+        "proofCommands": ["diff-check", "storage-tests"]
+      }
+    },
+    {
+      "name": "file system",
+      "files": ["packages/file-system/src/utils.ts"],
+      "expected": {
+        "category": "db-migrations-storage",
+        "cloudLabels": ["ci:browser", "ci:coverage"],
+        "e2eLanes": [],
+        "proofCommands": ["diff-check", "file-system-tests"]
+      }
+    },
+    {
+      "name": "shared foundation",
+      "files": ["packages/utils/src/token-counting-runtime.ts"],
+      "expected": {
+        "category": "shared-foundation",
+        "cloudLabels": ["ci:browser", "ci:coverage"],
+        "e2eLanes": ["critical-smoke"],
+        "proofCommands": ["diff-check", "shared-foundation-tests"]
+      }
+    },
+    {
+      "name": "isolated unit test",
+      "files": ["packages/utils/src/__tests__/token-counting-boundary.test.ts"],
+      "expected": {
+        "category": "isolated-unit-test-only",
+        "cloudLabels": ["ci:coverage"],
+        "e2eLanes": [],
+        "proofCommands": ["diff-check", "changed-unit-tests"]
+      }
+    },
+    {
+      "name": "web app route",
+      "files": ["apps/web/src/app/root-layout-content.tsx"],
+      "expected": {
+        "category": "web-ui-file-explorer",
+        "cloudLabels": ["ci:web-e2e", "ci:coverage"],
+        "e2eLanes": ["web-functional-stateful"],
+        "proofCommands": ["diff-check", "file-explorer-tests", "web-smoke-tests"]
+      }
+    },
+    {
+      "name": "release workflow",
+      "files": [".github/workflows/test.yml"],
+      "expected": {
+        "category": "full-release-high-risk",
+        "cloudLabels": ["ci:full"],
+        "e2eLanes": [
+          "critical-smoke",
+          "web-functional-stateful",
+          "desktop-smoke-regression",
+          "desktop-embedding-diagnostics",
+          "desktop-llm-host-recovery",
+          "destructive-reset",
+          "long-soak-release-only"
+        ],
+        "proofCommands": ["diff-check", "ci-script-tests", "workflow-contracts", "full-local-suite"]
+      }
+    }
+  ]
+}

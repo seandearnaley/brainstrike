@@ -8,7 +8,7 @@ import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
   useOptionalFileExplorerStoreSelector,
-} from '../file-explorer-provider';
+} from '../shell/file-explorer-provider';
 
 // Utility wrapper for provider
 function wrapper(storage: MemoryStorageAdapter) {

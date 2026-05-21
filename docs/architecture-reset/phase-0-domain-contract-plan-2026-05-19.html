@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brainstrike Phase 0 - Domain Contract Plan</title>
+    <style>
+      :root {
+        --ink: #161616;
+        --muted: #5f625c;
+        --paper: #f8f4e8;
+        --panel: #fffdf6;
+        --line: #d8cfba;
+        --red: #a33d31;
+        --teal: #0d766f;
+        --green: #397342;
+        --gold: #886608;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: Aptos, "Segoe UI", sans-serif;
+        line-height: 1.45;
+      }
+      main {
+        width: min(1120px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 48px 0;
+      }
+      h1, h2, h3 {
+        font-family: Georgia, "Times New Roman", serif;
+        line-height: .98;
+        margin: 0;
+      }
+      h1 { font-size: clamp(3rem, 7vw, 7rem); max-width: 900px; }
+      h2 { font-size: clamp(2rem, 4vw, 4rem); }
+      h3 { font-size: 1.3rem; }
+      p { color: var(--muted); }
+      code {
+        background: #f0eadb;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 0.08rem 0.28rem;
+      }
+      .eyebrow {
+        color: var(--red);
+        font-weight: 900;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        font-size: .76rem;
+      }
+      .grid { display: grid; gap: 14px; }
+      .two { grid-template-columns: 1fr 1fr; }
+      .three { grid-template-columns: repeat(3, 1fr); }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 20px;
+      }
+      .callout { border-left: 5px solid var(--red); }
+      .ok { border-left: 5px solid var(--green); }
+      .warn { border-left: 5px solid var(--gold); }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      th, td { border-bottom: 1px solid var(--line); padding: 10px; text-align: left; vertical-align: top; }
+      th { background: #e9e1cf; font-size: .75rem; text-transform: uppercase; letter-spacing: .07em; }
+      tr:last-child td { border-bottom: 0; }
+      .tag {
+        display: inline-block;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 4px 8px;
+        margin: 3px;
+        background: #fbf8ef;
+        color: var(--muted);
+        font-size: .78rem;
+        font-weight: 800;
+      }
+      @media (max-width: 800px) {
+        .two, .three { grid-template-columns: 1fr; }
+        table, thead, tbody, tr, td { display: block; width: 100%; }
+        thead { display: none; }
+        tr { border: 1px solid var(--line); margin-bottom: 10px; border-radius: 8px; overflow: hidden; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Phase 0 stacked PR artifact - May 19, 2026</p>
+      <h1>Domain contract before movement.</h1>
+      <p>
+        This PR creates the deterministic starting point for the pre-release architecture reset.
+        It does not move feature code. It defines the stack, classifies every workspace package into
+        one domain, and adds a validator that future PRs must keep green.
+      </p>
+
+      <section class="grid two">
+        <article class="panel callout">
+          <h2>Goal</h2>
+          <p>
+            Make parallel agent work safe by giving every future PR an explicit owner, branch phase,
+            package domain, and planning artifact. The contract prevents accidental unowned packages
+            and makes the reset auditable from `main`.
+          </p>
+        </article>
+        <article class="panel ok">
+          <h2>Non-negotiables</h2>
+          <p>
+            No silent fallback paths. Local embeddings and built-in local LLM remain renderer-only.
+            Local-first PGlite remains the data foundation. Movement happens only after boundaries
+            and release gates are explicit.
+          </p>
+        </article>
+      </section>
+
+      <section>
+        <h2>Stack</h2>
+        <table>
+          <thead>
+            <tr><th>Phase</th><th>Branch</th><th>PR responsibility</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>0</td><td><code>codex/domain-reset-phase-0-contract</code></td><td>Domain map, stack definition, validator, and this artifact.</td></tr>
+            <tr><td>1</td><td><code>codex/domain-reset-phase-1-guardrails</code></td><td>Build cache inputs, boundary baseline, and package-prune classification.</td></tr>
+            <tr><td>2</td><td><code>codex/domain-reset-phase-2-platform-contracts</code></td><td>Runtime-host platform and typed desktop API contract plan.</td></tr>
+            <tr><td>3</td><td><code>codex/domain-reset-phase-3-workflow-owners</code></td><td>Pipeline and assistant ownership moves.</td></tr>
+            <tr><td>4</td><td><code>codex/domain-reset-phase-4-domain-moves</code></td><td>Workspace domain moves, release gate, and final architecture audit.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Domain owners</h2>
+        <div class="grid three">
+          <article class="panel"><h3>Applications</h3><p>Desktop, web, and docs remain thin composition shells.</p></article>
+          <article class="panel"><h3>Workspace</h3><p>App shell, explorer, tree worker, DB explorer, and vector UI become one owned domain.</p></article>
+          <article class="panel"><h3>Assistant</h3><p>Agent runtime, provider selection, local runtime, context, and tools get one owner.</p></article>
+          <article class="panel"><h3>Indexing</h3><p>File import, chunking, embeddings, pipeline, token cache, and worker runtime align.</p></article>
+          <article class="panel"><h3>Data Platform</h3><p>DB, queue, storage, and preferences own local-first state contracts.</p></article>
+          <article class="panel"><h3>Foundation and Tooling</h3><p>Shared UI, types, utilities, config, server config, and build utilities stay foundational.</p></article>
+        </div>
+      </section>
+
+      <section class="grid two">
+        <article class="panel warn">
+          <h2>Tests in this PR</h2>
+          <p>
+            `node --test scripts/__tests__/architecture-domain-contract.test.mjs` proves the validator
+            rejects unclassified packages, duplicate package owners, unknown domain dependencies,
+            non-linear stacked phases, and missing HTML planning artifacts.
+          </p>
+        </article>
+        <article class="panel">
+          <h2>Manual review</h2>
+          <p>
+            Open this file in a browser and verify the stack sequence, domain owner names, and
+            non-negotiable contracts match the intended reset before later branches move code.
+          </p>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

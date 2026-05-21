@@ -179,6 +179,12 @@ export function validateProofManifest(manifest) {
   if (!isObject(manifest.selection)) {
     failures.push('selection must be an object');
   } else {
+    if (!isObject(manifest.selection.riskProfile)) {
+      failures.push('selection.riskProfile must be an object');
+    }
+    if (!isObject(manifest.selection.budget)) {
+      failures.push('selection.budget must be an object');
+    }
     validateArray(manifest.selection.labels, 'selection.labels', failures);
     validateArray(manifest.selection.commands, 'selection.commands', failures);
   }
@@ -204,6 +210,15 @@ export function validateProofManifest(manifest) {
     }
     if (typeof result.durationMs !== 'number') {
       failures.push(`command ${result.name ?? '<unknown>'} is missing durationMs`);
+    }
+    if (typeof result.owner !== 'string') {
+      failures.push(`command ${result.name ?? '<unknown>'} is missing owner`);
+    }
+    if (typeof result.budgetMs !== 'number') {
+      failures.push(`command ${result.name ?? '<unknown>'} is missing budgetMs`);
+    }
+    if (!['ok', 'over-budget'].includes(result.budgetStatus)) {
+      failures.push(`command ${result.name ?? '<unknown>'} has invalid budgetStatus`);
     }
   }
 
@@ -300,13 +315,17 @@ async function runProofCommand(command, runner) {
     await runner(command.command, [], { shell: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`proof command "${command.name}" failed: ${message}`);
+    throw new Error(`proof command "${command.name}" (owner: ${command.owner}) failed: ${message}`);
   }
+  const durationMs = Math.max(1, Date.now() - startedAt);
   return {
     name: command.name,
     command: command.command,
+    owner: command.owner,
+    budgetMs: command.budgetMs,
+    budgetStatus: durationMs > command.budgetMs ? 'over-budget' : 'ok',
     exitCode: 0,
-    durationMs: Math.max(1, Date.now() - startedAt),
+    durationMs,
   };
 }
 
@@ -352,14 +371,30 @@ export async function prove(options, runner = defaultRunner) {
 function comparableSelection(selection) {
   return {
     files: selection.files,
+    riskProfile: selection.riskProfile,
+    budget: selection.budget,
     lanes: selection.lanes,
     expandedLanes: selection.expandedLanes,
     labels: selection.labels,
     commands: selection.commands.map((command) => ({
       name: command.name,
       command: command.command,
+      owner: command.owner,
+      budgetMs: command.budgetMs,
     })),
   };
+}
+
+function compareJsonObject(name, actual, expected) {
+  if (!isObject(actual) || !isObject(expected)) {
+    return [`${name} must be an object`];
+  }
+  const actualJson = JSON.stringify(actual);
+  const expectedJson = JSON.stringify(expected);
+  if (actualJson === expectedJson) {
+    return [];
+  }
+  return [`${name} differs`];
 }
 
 function compareArrays(name, actual, expected) {
@@ -403,6 +438,20 @@ function compareCommandEntries(actual, expected) {
         }, got ${actual[index]?.command}`
       );
     }
+    if (actual[index]?.owner !== expected[index]?.owner) {
+      failures.push(
+        `selection.commands[${index}].owner differs: expected ${
+          expected[index]?.owner
+        }, got ${actual[index]?.owner}`
+      );
+    }
+    if (actual[index]?.budgetMs !== expected[index]?.budgetMs) {
+      failures.push(
+        `selection.commands[${index}].budgetMs differs: expected ${
+          expected[index]?.budgetMs
+        }, got ${actual[index]?.budgetMs}`
+      );
+    }
   }
   return failures;
 }
@@ -412,6 +461,16 @@ function compareSelections(actual, expected) {
   const expectedSelection = comparableSelection(expected);
   return [
     ...compareArrays('selection.files', actualSelection.files, expectedSelection.files),
+    ...compareJsonObject(
+      'selection.riskProfile',
+      actualSelection.riskProfile,
+      expectedSelection.riskProfile
+    ),
+    ...compareJsonObject(
+      'selection.budget',
+      actualSelection.budget,
+      expectedSelection.budget
+    ),
     ...compareArrays('selection.lanes', actualSelection.lanes, expectedSelection.lanes),
     ...compareArrays(
       'selection.expandedLanes',

@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brainstrike Local Architecture Reset Status - 2026-05-19</title>
+    <style>
+      :root {
+        --bg: #101215;
+        --panel: #171a1f;
+        --panel-2: #1f232a;
+        --line: #303640;
+        --text: #f2f2ee;
+        --muted: #a8aea9;
+        --green: #65d6a3;
+        --amber: #f0bd5e;
+        --red: #f07b73;
+        --blue: #86aefb;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        --sans: Aptos, "Segoe UI", system-ui, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        line-height: 1.5;
+      }
+      main {
+        width: min(1220px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 48px 0 84px;
+      }
+      header {
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 28px;
+      }
+      h1, h2, h3 { margin: 0; line-height: 1.04; }
+      h1 {
+        font-size: clamp(3.2rem, 8vw, 7.5rem);
+        letter-spacing: -.045em;
+        max-width: 980px;
+      }
+      h2 { font-size: 1.7rem; margin-bottom: 12px; }
+      h3 { font-size: 1rem; margin-bottom: 8px; }
+      p, li { color: var(--muted); }
+      code {
+        background: #101215;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        color: var(--text);
+        font-family: var(--mono);
+        font-size: .9em;
+        padding: .08rem .3rem;
+      }
+      .eyebrow {
+        color: var(--green);
+        font-family: var(--mono);
+        font-size: .78rem;
+        font-weight: 800;
+        letter-spacing: .08em;
+        margin-bottom: 10px;
+        text-transform: uppercase;
+      }
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 20px;
+      }
+      .pill {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: .78rem;
+        padding: 6px 10px;
+      }
+      .deck {
+        display: grid;
+        gap: 14px;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin: 28px 0;
+      }
+      .metric, .panel, .slice {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+      .metric { padding: 18px; }
+      .metric strong {
+        display: block;
+        font-family: var(--mono);
+        font-size: 2rem;
+        line-height: 1;
+      }
+      .metric span {
+        color: var(--muted);
+        display: block;
+        margin-top: 7px;
+      }
+      section { margin-top: 34px; }
+      .grid {
+        display: grid;
+        gap: 14px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .slice { padding: 18px; }
+      .slice h3 {
+        align-items: center;
+        display: flex;
+        gap: 8px;
+      }
+      .status {
+        border-radius: 999px;
+        display: inline-block;
+        font-family: var(--mono);
+        font-size: .7rem;
+        font-weight: 900;
+        letter-spacing: .06em;
+        padding: 3px 8px;
+        text-transform: uppercase;
+      }
+      .done { background: rgba(101, 214, 163, .12); color: var(--green); }
+      .partial { background: rgba(240, 189, 94, .14); color: var(--amber); }
+      .blocked { background: rgba(240, 123, 115, .14); color: var(--red); }
+      .panel { padding: 20px; }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      th, td {
+        border-bottom: 1px solid var(--line);
+        padding: 11px 13px;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: var(--panel-2);
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: .72rem;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }
+      tr:last-child td { border-bottom: 0; }
+      .green { color: var(--green); }
+      .amber { color: var(--amber); }
+      .blue { color: var(--blue); }
+      .red { color: var(--red); }
+      .commands {
+        display: grid;
+        gap: 8px;
+        grid-template-columns: 1fr;
+      }
+      .commands code {
+        display: block;
+        overflow-x: auto;
+        padding: 10px 12px;
+      }
+      @media (max-width: 900px) {
+        .deck, .grid { grid-template-columns: 1fr; }
+        table { display: block; overflow-x: auto; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">Local-only architecture reset</p>
+        <h1>Status after the first real architecture pass.</h1>
+        <p>
+          This report records what landed locally on <code>codex/local-architecture-reset</code>.
+          It intentionally excludes PR status, GitHub Actions, proof manifests, and label routing.
+        </p>
+        <div class="meta">
+          <span class="pill">base: codex/domain-reset-phase-2-platform-contracts</span>
+          <span class="pill">head: dbe9a2b8c after classification</span>
+          <span class="pill">no pushes</span>
+          <span class="pill">no ci:prove</span>
+          <span class="pill">no GitHub CI</span>
+        </div>
+      </header>
+
+      <div class="deck" aria-label="status metrics">
+        <div class="metric"><strong>18</strong><span>local commits after phase-2 base</span></div>
+        <div class="metric"><strong>5</strong><span>major architecture slices touched</span></div>
+        <div class="metric"><strong>5</strong><span>boundary exceptions retired earlier in the branch</span></div>
+        <div class="metric"><strong>8</strong><span>approved boundary exceptions still used</span></div>
+      </div>
+
+      <section>
+        <h2>Architecture Slices</h2>
+        <div class="grid">
+          <article class="slice">
+            <h3><span class="status done">done</span> Assistant contract extraction</h3>
+            <p>
+              Added <code>@brainstrike/assistant-contract</code> and moved UI/provider metadata
+              consumers away from direct agent internals where the contract is ready. Preferences
+              now consumes assistant metadata through the contract for the covered settings paths.
+            </p>
+          </article>
+          <article class="slice">
+            <h3><span class="status done">done</span> Indexing contract cleanup</h3>
+            <p>
+              Added indexing-owned queue/provider/chunking contracts and moved queue payload,
+              file-import provider metadata, token heuristics, and chunking settings coupling behind
+              narrower public surfaces.
+            </p>
+          </article>
+          <article class="slice">
+            <h3><span class="status done">done</span> Desktop platform consolidation</h3>
+            <p>
+              Centralized logging IPC validation, pinned preload logging parity, and routed LLM host
+              IPC validation through explicit contract modules instead of repeated ad hoc checks.
+            </p>
+          </article>
+          <article class="slice">
+            <h3><span class="status done">done</span> File explorer domain barrels</h3>
+            <p>
+              Introduced <code>file-explorer-ui/tree</code>, <code>/preview</code>,
+              <code>/indexing</code>, and <code>/shell</code>. Internal self-imports and app-shell,
+              desktop, web, and db-explorer consumers now use those domain barrels instead of the
+              root package.
+            </p>
+          </article>
+          <article class="slice">
+            <h3><span class="status done">done</span> Peripheral package classification</h3>
+            <p>
+              Classified <code>pipeline</code>, <code>queue-telemetry-collector</code>,
+              <code>build-utils</code>, <code>tailwind-config</code>, and stale absent package names
+              in a separate evidence-backed HTML artifact.
+            </p>
+          </article>
+          <article class="slice">
+            <h3><span class="status partial">not done</span> Physical package moves</h3>
+            <p>
+              The file explorer split is internal by design. No new workspace packages were created
+              because the barrel split is the safer proof point. Physical package moves should wait
+              until the domain barrels are stable and worth the workspace churn.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>Verification</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Area</th>
+              <th>Status</th>
+              <th>Command</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Architecture contract</td>
+              <td class="green">passed</td>
+              <td><code>node --test scripts/__tests__/architecture-domain-contract.test.mjs</code></td>
+            </tr>
+            <tr>
+              <td>Architecture boundaries</td>
+              <td class="green">passed</td>
+              <td><code>node --test scripts/__tests__/architecture-domain-boundaries.test.mjs</code></td>
+            </tr>
+            <tr>
+              <td>File explorer domain import guard</td>
+              <td class="green">passed</td>
+              <td><code>pnpm --filter @brainstrike/file-explorer-ui exec vitest run src/__tests__/domain-imports.test.ts src/__tests__/file-explorer-status-components.test.tsx</code></td>
+            </tr>
+            <tr>
+              <td>App shell consumer migration</td>
+              <td class="green">passed</td>
+              <td><code>pnpm --filter @brainstrike/app-shell exec vitest run src/__tests__/app-layout.test.tsx src/__tests__/system-diagnostics-panel.test.tsx src/__tests__/assistant-thread-tabs-workspace.test.tsx src/__tests__/threads-panel.test.tsx src/__tests__/root-layout-content.test.tsx src/__tests__/assistant-ui-panel-wrapper.test.tsx</code></td>
+            </tr>
+            <tr>
+              <td>Db explorer consumer migration</td>
+              <td class="green">passed</td>
+              <td><code>pnpm --filter @brainstrike/db-explorer exec vitest run src/__tests__/use-import-flow.test.ts src/__tests__/database-demo-panel.test.tsx</code></td>
+            </tr>
+            <tr>
+              <td>Desktop renderer consumer migration</td>
+              <td class="green">passed</td>
+              <td><code>pnpm --dir apps/desktop exec vitest run src/__tests__/renderer/components/context-explorer-page-content.test.tsx src/__tests__/renderer/components/root-layout-content.test.tsx src/__tests__/renderer/components/settings/page-content.test.tsx src/__tests__/renderer/main.test.tsx src/__tests__/renderer/app-db-path.test.tsx</code></td>
+            </tr>
+            <tr>
+              <td>Web consumer migration</td>
+              <td class="green">passed</td>
+              <td><code>pnpm --filter @brainstrike/web exec vitest run src/app/__tests__/context-explorer-page-content.test.tsx src/app/__tests__/context-explorer-page-content.fallback.test.tsx src/app/__tests__/root-layout-content.test.tsx src/app/settings/__tests__/page-content.test.tsx src/app/settings/__tests__/page-content.operations.test.tsx</code></td>
+            </tr>
+            <tr>
+              <td>Package type checks</td>
+              <td class="green">passed</td>
+              <td><code>@brainstrike/app-shell</code>, <code>file-explorer-ui</code>, <code>db-explorer</code>, <code>utils</code>, <code>desktop</code>, and <code>web</code></td>
+            </tr>
+            <tr>
+              <td>Commit hook affected type-check</td>
+              <td class="green">passed</td>
+              <td><code>40 successful, 40 total</code> during commit <code>59d7473f6</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Remaining Boundary Exceptions</h2>
+        <div class="panel">
+          <p>
+            The boundary checker reports <code>8/8</code> approved exceptions still used. That means
+            there is no honest final exception-retirement commit yet. Retiring these requires more
+            real code movement, not editing the domain map.
+          </p>
+          <ul>
+            <li><code>app-shell -> agent</code>: assistant runtime composition still crosses the domain.</li>
+            <li><code>db -> text-splitter</code>: DB/chunk schema coupling remains.</li>
+            <li><code>db-explorer -> agent</code>: model/context helper coupling remains.</li>
+            <li><code>preferences -> agent</code>: runtime/settings coupling remains beyond metadata.</li>
+            <li><code>preferences -> embeddings</code>: embedding settings metadata still needs a contract.</li>
+            <li><code>build-utils -> utils</code>: build logger coupling remains.</li>
+            <li><code>hooks -> workers</code>: report worker orchestration remains in shared hooks.</li>
+            <li><code>ui -> storage</code>: theme persistence still couples UI to storage.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section>
+        <h2>Next Real Work</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Move</th>
+              <th>Why it matters</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1</td>
+              <td>Promote <code>@brainstrike/pipeline</code> behind indexing contracts</td>
+              <td>Turns the indexing contract work into an actual workflow owner and reduces file-import/background-indexing orchestration scatter.</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td>Finish assistant settings/runtime contract extraction</td>
+              <td>Retires the largest remaining app-shell/preferences/db-explorer dependencies on agent internals.</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td>Decouple DB schema helpers from <code>text-splitter</code></td>
+              <td>Moves chunking behavior out of the data-platform boundary and toward indexing ownership.</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td>Decide whether file-explorer barrels become packages</td>
+              <td>Only worth doing if the internal split continues to reduce imports without creating workspace churn.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+  </body>
+</html>

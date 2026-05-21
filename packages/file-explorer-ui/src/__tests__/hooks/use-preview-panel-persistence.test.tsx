@@ -6,7 +6,7 @@ import {
   type PreviewPanelPreferences,
   preferencesEqual,
   usePreviewPanelPersistence,
-} from '../../hooks/use-preview-panel-persistence';
+} from '../../preview/use-preview-panel-persistence';
 
 // Mock the file-explorer-hooks module
 const mockStorageAdapter = {

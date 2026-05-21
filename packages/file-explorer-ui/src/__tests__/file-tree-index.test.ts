@@ -1,6 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
-import { FileTreeIndex } from '../file-tree-index';
+import { FileTreeIndex } from '../tree/file-tree-index';
 
 const createMockFileNode = (overrides: Partial<IFileNode> = {}): IFileNode =>
   ({

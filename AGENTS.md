@@ -3,13 +3,70 @@
 You are expected to be precise, tool-driven, and skeptical of your own assumptions.
 
 Key principles:
-- Do not claim something is fixed/working without verifying in code/tests/logic.
+- Do not claim something is fixed/working without verifying it in code, tests, or logic.
 - Do not assume behavior without reading the relevant files.
 - The user and the agent can both be wrong; correctness > agreement.
-- Prefer saying “I don’t know yet; let me check X” over guessing.
+- Prefer saying "I don't know yet; let me check X" over guessing.
+- Start with the actual answer, analysis, or current position. Avoid filler openings.
+- Match response length to task complexity. Simple answers should stay short.
 
 > **Project Context:** Local-First (Edge-State/CRDT) • AI-Native (MCP/RAG-Optimized) • Web-Second
 > *Warning: Latency-critical operations should avoid round-trip API dependencies. Assume state resides on the client.*
+
+---
+
+## ENTRY PROTOCOL
+
+Before starting any task, classify ambiguity and choose the thinnest safe response loop:
+
+- **High ambiguity:** Stop and ask clarifying questions before planning or editing.
+- **Medium ambiguity:** State the most likely interpretation, identify the gaps, and wait for confirmation before committing to an approach.
+- **Low ambiguity:** Verify mentally, trust the user's intent, and proceed when the change is clear, specific, and low impact.
+
+If requirements, intent, architectural fit, or target state are unclear, ask before writing code. Do not fill gaps with plausible assumptions.
+
+For complex architectural, data, or database tradeoffs, slow down and reason through ownership, scale, failure modes, and alternatives before recommending a direction.
+
+---
+
+## SYSTEMIC CHECKLIST
+
+Trace these dimensions before writing or shipping non-trivial code:
+
+1. **State Ownership:** Where does state live? Preserve a single source of truth, keep the blast radius low, and maintain consistency.
+2. **Feedback & Observability:** Where does feedback live? Add or preserve logging, metrics, UI visibility, or test hooks needed for debugging.
+3. **Fragility & Coupling:** What breaks if this is deleted? Map dependencies before refactoring or removing code.
+4. **Timing & Ordering:** When does timing matter? Account for async work, races, retries, leases, initialization order, and cleanup order.
+
+Verification gate for non-trivial changes:
+- State ownership and consistency are clear.
+- Feedback and observability paths are adequate for safe debugging.
+- Blast radius is mapped and the change is isolated.
+- Timing, async patterns, and execution order are safe.
+- The solution fits existing codebase patterns.
+
+---
+
+## EXECUTION DISCIPLINE
+
+- Implement the simplest thing that satisfies the request. Avoid premature abstractions, speculative flexibility, and unrequested features.
+- Modify only files, functions, and lines directly related to the current task.
+- Do not refactor, optimize, or tidy unrelated code during execution. Flag unrelated structural debt after the task instead.
+- If uncertain about a fact, convention, statistic, or behavior, say so and verify before relying on it.
+- Prefer invariants and existing patterns over defensive layers that hide unclear ownership.
+
+Stop and wait for explicit confirmation before:
+- Deleting files or overwriting large swathes of existing code.
+- Dropping records, running data migrations, or modifying active schemas.
+- Running terminal commands with systemic or irreversible side effects.
+- Deploying, pushing, or modifying remote environments.
+- Sending external API calls that create, mutate, publish, notify, bill, or otherwise have side effects.
+
+Post-task coding summaries must include:
+- **Files Changed:** every touched file.
+- **What Was Modified:** one-line description per file.
+- **Files Intentionally Not Touched:** boundary validation for nearby code or tempting follow-ups.
+- **Follow-Up Needed:** next actions, deferred debt, or "None."
 
 ---
 
@@ -218,6 +275,14 @@ When modifying TreeTable strategy or pagination behavior:
 
 ## CODING STYLE AND NAMING
 
+Stack lock:
+- Language: TypeScript.
+- Apps: React 19+ with Vite for `apps/web`; Electron renderers use React.
+- Package manager: pnpm workspaces.
+- Styling: Tailwind CSS v4 and shared `@brainstrike/ui` components.
+- Testing: Vitest for unit/integration and Playwright for E2E.
+- Persistence: local-first state and PGlite-backed storage where applicable. Do not introduce round-trip API dependencies into latency-critical paths without an explicit requirement.
+
 - TypeScript strict; noImplicitAny: true.
 - Never use any. Prefer unknown + narrowing.
 - Annotate function parameters, return types, and object literals.
@@ -334,24 +399,7 @@ This file must be kept accurate:
 
 # Ultracite Code Standards
 
-This project uses **Ultracite**, a zero-config Biome preset that enforces strict code quality standards through automated formatting and linting.
-
-## Quick Reference
-
-- **Format code**: `npx ultracite fix`
-- **Check for issues**: `npx ultracite check`
-- **Diagnose setup**: `npx ultracite doctor`
-
-Biome (the underlying engine) provides extremely fast Rust-based linting and formatting. Most issues are automatically fixable.
-
----
-
-Most formatting and common issues are automatically fixed by Biome. Run `npx ultracite fix` before committing to ensure compliance.
-
-
-# Ultracite Code Standards
-
-This project uses **Ultracite**, a zero-config preset that enforces strict code quality standards through automated formatting and linting.
+This project uses **Ultracite**, a zero-config Biome preset that enforces strict code quality standards through automated formatting and linting. Most formatting and common issues are automatically fixable.
 
 ## Quick Reference
 
@@ -359,4 +407,4 @@ This project uses **Ultracite**, a zero-config preset that enforces strict code 
 - **Check for issues**: `pnpm dlx ultracite check`
 - **Diagnose setup**: `pnpm dlx ultracite doctor`
 
-Biome (the underlying engine) provides robust linting and formatting. Most issues are automatically fixable.
+Run `pnpm dlx ultracite fix` before committing to ensure compliance.

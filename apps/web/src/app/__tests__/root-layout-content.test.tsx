@@ -100,14 +100,8 @@ vi.mock('../../create-embedding-queue', () => ({
   createBrowserEmbeddingQueue: vi.fn(() => mockEmbeddingQueue),
 }));
 
-// Mock the file-explorer-ui
-vi.mock('@brainstrike/file-explorer-ui', () => ({
-  FileExplorerProvider: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="file-explorer-provider">{children}</div>
-  ),
-  UnifiedFileExplorerProvider: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="unified-file-explorer-provider">{children}</div>
-  ),
+// Mock the indexing barrel to prevent token worker startup in unit tests.
+vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
   TokenCacheProvider: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="token-cache-provider">{children}</div>
   ),

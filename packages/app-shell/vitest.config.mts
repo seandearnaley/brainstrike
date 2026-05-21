@@ -31,6 +31,18 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../embeddings/src/provider-core.ts'),
       },
       {
+        find: '@brainstrike/indexing-contract',
+        replacement: path.resolve(import.meta.dirname, '../indexing-contract/src/index.ts'),
+      },
+      {
+        find: /^@brainstrike\/assistant-contract\/(.*)$/,
+        replacement: path.resolve(import.meta.dirname, '../assistant-contract/src/$1.ts'),
+      },
+      {
+        find: '@brainstrike/assistant-contract',
+        replacement: path.resolve(import.meta.dirname, '../assistant-contract/src/index.ts'),
+      },
+      {
         find: '@brainstrike/embeddings/backend',
         replacement: path.resolve(import.meta.dirname, '../embeddings/src/backend-entry.ts'),
       },
@@ -64,6 +76,10 @@ export default defineConfig({
       {
         find: /^@brainstrike\/db$/,
         replacement: path.resolve(import.meta.dirname, '../db/src/index.ts'),
+      },
+      {
+        find: /^@brainstrike\/file-explorer-ui\/(.*)$/,
+        replacement: path.resolve(import.meta.dirname, '../file-explorer-ui/src/$1'),
       },
       {
         find: /^@brainstrike\/queue$/,

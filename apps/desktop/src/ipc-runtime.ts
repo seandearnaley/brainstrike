@@ -1,6 +1,8 @@
 import { LocalRuntimeDiscoveryService, LocalRuntimeModelCatalogService } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
-import { type IpcMainInvokeEvent, ipcMain } from 'electron';
+import { ipcMain } from 'electron';
+import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
+import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
 const logger = createLogger('DesktopIpcRuntime');
 
@@ -18,10 +20,12 @@ const logger = createLogger('DesktopIpcRuntime');
  * cached state) matches the renderer-side services.
  */
 
-export const RUNTIME_PROBE_CHANNEL = 'runtime:probe';
-export const RUNTIME_LIST_MODELS_CHANNEL = 'runtime:listModels';
-export const RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL = 'runtime:resolveOllamaCapabilities';
-export const RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL = 'runtime:verifyEmbeddingDimensions';
+export const RUNTIME_PROBE_CHANNEL = DESKTOP_IPC_CHANNELS.runtime.probe;
+export const RUNTIME_LIST_MODELS_CHANNEL = DESKTOP_IPC_CHANNELS.runtime.listModels;
+export const RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL =
+  DESKTOP_IPC_CHANNELS.runtime.resolveOllamaCapabilities;
+export const RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL =
+  DESKTOP_IPC_CHANNELS.runtime.verifyEmbeddingDimensions;
 
 interface LocalRuntimeIpcBridge {
   readonly listModels: LocalRuntimeModelCatalogService['listRuntimeModels'];
@@ -206,37 +210,47 @@ function validateModelId(value: unknown): string {
   return value;
 }
 
-export function registerRuntimeIpcHandlers(): void {
-  ipcMain.handle(
+export function registerRuntimeIpcHandlers(): () => void {
+  const registry = createDesktopIpcRegistry({ ipcMain });
+
+  registry.registerInvoke(
+    'runtime',
     RUNTIME_PROBE_CHANNEL,
-    async (_event: IpcMainInvokeEvent, runtimeId: unknown, rawOptions: unknown) =>
+    async (_event, runtimeId: unknown, rawOptions: unknown) =>
       await getBridge().probe(validateRuntimeId(runtimeId), normaliseProbeOptions(rawOptions))
   );
 
-  ipcMain.handle(
+  registry.registerInvoke(
+    'runtime',
     RUNTIME_LIST_MODELS_CHANNEL,
-    async (_event: IpcMainInvokeEvent, runtimeId: unknown, rawOptions: unknown) =>
+    async (_event, runtimeId: unknown, rawOptions: unknown) =>
       await getBridge().listModels(validateRuntimeId(runtimeId), normaliseListOptions(rawOptions))
   );
 
-  ipcMain.handle(
+  registry.registerInvoke(
+    'runtime',
     RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL,
-    async (_event: IpcMainInvokeEvent, modelId: unknown, rawOptions: unknown) =>
+    async (_event, modelId: unknown, rawOptions: unknown) =>
       await getBridge().resolveOllamaCapabilities(
         validateModelId(modelId),
         normaliseProbeOptions(rawOptions)
       )
   );
 
-  ipcMain.handle(
+  registry.registerInvoke(
+    'runtime',
     RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL,
-    async (_event: IpcMainInvokeEvent, runtimeId: unknown, modelId: unknown, rawOptions: unknown) =>
+    async (_event, runtimeId: unknown, modelId: unknown, rawOptions: unknown) =>
       await getBridge().verifyEmbeddingDimensions(
         validateRuntimeId(runtimeId),
         validateModelId(modelId),
         normaliseVerifyOptions(rawOptions)
       )
   );
+
+  return () => {
+    registry.unregisterAll();
+  };
 }
 
 /**

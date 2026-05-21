@@ -1,4 +1,4 @@
-import { LocalLlmBackend } from '@brainstrike/agent/local-llm';
+import { hasDownloadedBuiltInLocalLlmModel } from '@brainstrike/assistant-contract/local-llm-artifacts';
 import type { DbHandle, IDatabase } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { create } from 'zustand';
@@ -96,7 +96,7 @@ interface FileSystemAccess {
 
 async function checkLlmModelInCache(modelId: string): Promise<boolean> {
   try {
-    return await LocalLlmBackend.hasDownloadedModel(modelId);
+    return await hasDownloadedBuiltInLocalLlmModel(modelId);
   } catch (err) {
     logger.debug('Failed to check Cache API for model', { modelId, err });
     return false;

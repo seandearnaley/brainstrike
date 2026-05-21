@@ -1,12 +1,38 @@
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import type { ContextLineRange } from '@brainstrike/utils/report-generator';
-import {
-  createReportGenerationWorker,
-  type ProgressEvent as ReportProgressEvent,
-} from '@brainstrike/workers/report-generation-worker';
 import { useCallback, useRef, useState } from 'react';
 
 export type { ContextLineRange } from '@brainstrike/utils/report-generator';
+
+export interface ReportGenerationRequest {
+  excludeFilters: string[];
+  fileContents: Record<string, string>;
+  folderSummaryThreshold: number;
+  includeFilters: string[];
+  includeProjectTree: boolean;
+  projectTreeUsesViewFilters?: boolean;
+  rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle;
+  selectedFiles: Set<string>;
+  selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
+  useRegex: boolean;
+  useTapestryRanges?: boolean;
+}
+
+export interface ReportProgressEvent {
+  loaded: number;
+  total: number;
+}
+
+export interface ReportGenerationWorkerOptions {
+  fileSystemAdapter?: FileSystemAdapter;
+}
+
+export type ReportGenerator = (
+  request: ReportGenerationRequest,
+  onProgress?: (event: ReportProgressEvent) => void
+) => Promise<string>;
+
+export type CreateReportGenerator = (options?: ReportGenerationWorkerOptions) => ReportGenerator;
 
 export interface ContextGenerationOverrides {
   projectTreeUsesViewFilters?: boolean;
@@ -15,6 +41,7 @@ export interface ContextGenerationOverrides {
 }
 
 interface UseReportGenerationProps {
+  createReportGenerator: CreateReportGenerator;
   excludeFilters: string[];
   fileContents: { [path: string]: string };
   fileSystemAdapter?: FileSystemAdapter;
@@ -44,6 +71,7 @@ export function useReportGeneration({
   fileContents,
   rootDirectoryHandle,
   fileSystemAdapter,
+  createReportGenerator,
   includeFilters,
   excludeFilters,
   useRegex,
@@ -69,6 +97,7 @@ export function useReportGeneration({
     folderSummaryThreshold,
     loadMissingContent,
     getFileContents,
+    createReportGenerator,
   };
   const payloadRef = useRef(payload);
   payloadRef.current = payload;
@@ -95,6 +124,7 @@ export function useReportGeneration({
         folderSummaryThreshold: thr,
         loadMissingContent: loadContent,
         getFileContents: getContents,
+        createReportGenerator: createGenerator,
       } = payloadRef.current;
 
       // Load missing file contents if the loader is provided
@@ -109,7 +139,7 @@ export function useReportGeneration({
         }
       }
 
-      const worker = createReportGenerationWorker(adapter ? { fileSystemAdapter: adapter } : {});
+      const worker = createGenerator(adapter ? { fileSystemAdapter: adapter } : {});
       return await worker(
         {
           selectedFiles: s,

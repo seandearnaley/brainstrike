@@ -1,6 +1,6 @@
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { usePreviewPanelPreferences } from '../../hooks/use-preview-panel-preferences';
+import { usePreviewPanelPreferences } from '../../preview/use-preview-panel-preferences';
 
 describe('usePreviewPanelPreferences', () => {
   const defaults = {

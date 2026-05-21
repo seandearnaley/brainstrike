@@ -4,7 +4,7 @@ import { FileExplorerStrings } from '@brainstrike/types';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { FileExplorerToolbar } from '../file-explorer-toolbar';
+import { FileExplorerToolbar } from '../shell/file-explorer-toolbar';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 const Wrapper = composeWrappers(({ children }) => (

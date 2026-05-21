@@ -1,7 +1,7 @@
 import type {
   RuntimeAssistantMemoryRetrievalMode,
   RuntimeAssistantMemoryScope,
-} from '@brainstrike/agent/memory-settings';
+} from '@brainstrike/assistant-contract/memory-settings';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { Badge, Card, Input, Label, Switch } from '@brainstrike/ui';
 import { BrainCircuit } from 'lucide-react';

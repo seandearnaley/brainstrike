@@ -1,6 +1,6 @@
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { FileContentProvider, useFileContentContext } from '../file-content-context';
+import { FileContentProvider, useFileContentContext } from '../shell/file-content-context';
 import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
 
 vi.mock('../use-shared-file-content-loading', () => ({

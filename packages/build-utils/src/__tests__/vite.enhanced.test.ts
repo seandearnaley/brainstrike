@@ -32,7 +32,7 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
 
   afterEach(() => {
     process.env = originalEnv;
-    vi.resetAllMocks();
+    vi.restoreAllMocks();
   });
 
   describe('pnpm directory scanning', () => {
@@ -124,12 +124,11 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
   });
 
   describe('development mode logging', () => {
-    it('should log debug message when wasm is found in development mode', () => {
-      // Set NODE_ENV to development
+    it('should log debug message when wasm is found in development mode', async () => {
       process.env['NODE_ENV'] = 'development';
-
-      // Need to re-import the module to pick up the new env
       vi.resetModules();
+      const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+      const { findPGliteWasm: findPGliteWasmInDevelopment } = await import('../vite');
 
       const { appDir } = createWorkspacePaths('pglite-dev-');
       const wasmDir = path.join(appDir, 'node_modules/@electric-sql/pglite/dist');
@@ -137,9 +136,11 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
       const wasmFile = path.join(wasmDir, 'pglite.wasm');
       writeFileSync(wasmFile, '');
 
-      // The function should find the wasm file
-      const result = findPGliteWasm(appDir);
+      const result = findPGliteWasmInDevelopment(appDir);
       expect(result).toBe(wasmFile);
+      expect(stdoutWrite).toHaveBeenCalledWith(
+        `[PGliteLocator] DEBUG Found PGLite WASM {"wasmPath":"${wasmFile}"}\n`
+      );
     });
 
     it('should check both standard paths before pnpm', () => {

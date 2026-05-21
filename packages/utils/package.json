@@ -2,7 +2,6 @@
   "name": "@brainstrike/utils",
   "version": "0.1.0",
   "dependencies": {
-    "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "minimatch": "^10.2.5",
     "pino": "^10.3.1",
@@ -33,6 +32,11 @@
       "types": "./dist/token-counting-runtime.d.ts",
       "import": "./dist/token-counting-runtime.mjs",
       "require": "./dist/token-counting-runtime.js"
+    },
+    "./token-counting-heuristics": {
+      "types": "./dist/token-counting-heuristics.d.ts",
+      "import": "./dist/token-counting-heuristics.mjs",
+      "require": "./dist/token-counting-heuristics.js"
     },
     "./logger": {
       "types": "./dist/logger.d.ts",
@@ -163,6 +167,11 @@
       "types": "./dist/path-filter.d.ts",
       "import": "./dist/path-filter.mjs",
       "require": "./dist/path-filter.js"
+    },
+    "./path-ancestors": {
+      "types": "./dist/path-ancestors.d.ts",
+      "import": "./dist/path-ancestors.mjs",
+      "require": "./dist/path-ancestors.js"
     },
     "./path-utils": {
       "types": "./dist/path-utils.d.ts",

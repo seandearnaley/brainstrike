@@ -2,8 +2,8 @@ import type {
   RuntimeAssistantMemoryRetrievalMode,
   RuntimeAssistantMemoryScope,
   RuntimeAssistantMemorySettings,
-} from '@brainstrike/agent/memory-settings';
-import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/agent/memory-settings';
+} from '@brainstrike/assistant-contract/memory-settings';
+import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createBrowserJsonStorage } from './browser-json-storage';

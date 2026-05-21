@@ -9,6 +9,8 @@ type PlaywrightExpect = typeof import('@playwright/test').expect;
 let cachedExpect: PlaywrightExpect | null = null;
 const DEFAULT_LOCAL_APP_LOAD_TIMEOUT_MS = 20_000;
 const DEFAULT_CI_APP_LOAD_TIMEOUT_MS = 55_000;
+const DEFAULT_LOCAL_DATABASE_READY_TIMEOUT_MS = 45_000;
+const DEFAULT_CI_DATABASE_READY_TIMEOUT_MS = 55_000;
 const DEFAULT_LOCAL_NETWORK_IDLE_TIMEOUT_MS = 2000;
 const DEFAULT_CI_NETWORK_IDLE_TIMEOUT_MS = 5000;
 
@@ -91,6 +93,12 @@ export function resolveWaitForAppLoadTimeout(timeout: number, isCI: boolean): nu
   return isCI
     ? Math.max(timeout, DEFAULT_CI_APP_LOAD_TIMEOUT_MS)
     : Math.max(timeout, DEFAULT_LOCAL_APP_LOAD_TIMEOUT_MS);
+}
+
+export function resolveWaitForDatabaseReadyTimeout(timeout: number, isCI: boolean): number {
+  return isCI
+    ? Math.max(timeout, DEFAULT_CI_DATABASE_READY_TIMEOUT_MS)
+    : Math.max(timeout, DEFAULT_LOCAL_DATABASE_READY_TIMEOUT_MS);
 }
 
 export function resolveNetworkIdleTimeout(isCI: boolean): number {
@@ -179,7 +187,7 @@ function formatDatabaseReadinessSnapshot(snapshot: DatabaseReadinessSnapshot): s
 
 export async function waitForDatabaseReady(page: Page, timeout = 10_000): Promise<void> {
   const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
-  const effectiveTimeout = resolveWaitForAppLoadTimeout(timeout, isCI);
+  const effectiveTimeout = resolveWaitForDatabaseReadyTimeout(timeout, isCI);
   try {
     const connectedHandle = await page.waitForFunction(
       (): boolean => Boolean(document.querySelector('[data-testid="status-bar-db-connected"]')),

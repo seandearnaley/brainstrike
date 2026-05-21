@@ -2,10 +2,8 @@ import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantAvailabilityWithLocal } from '../hooks/use-assistant-availability-with-local';
 
-vi.mock('@brainstrike/agent/local-llm', () => ({
-  LocalLlmBackend: {
-    getBestDevice: vi.fn(() => 'webgpu'),
-  },
+vi.mock('@brainstrike/assistant-contract/local-llm-device', () => ({
+  getBestBuiltInLocalLlmDevice: vi.fn(() => 'webgpu'),
 }));
 
 // Mock the base hook
@@ -27,7 +25,7 @@ vi.mock('@brainstrike/preferences/stores/model-registry-store', async (importOri
   };
 });
 
-import { LocalLlmBackend } from '@brainstrike/agent/local-llm';
+import { getBestBuiltInLocalLlmDevice } from '@brainstrike/assistant-contract/local-llm-device';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useAssistantAvailability } from '../hooks/use-assistant-availability';
@@ -35,12 +33,12 @@ import { useAssistantAvailability } from '../hooks/use-assistant-availability';
 const useAssistantAvailabilityMock = vi.mocked(useAssistantAvailability);
 const useEnsureModelRegistryMock = vi.mocked(useEnsureModelRegistry);
 const useModelRegistryStoreMock = vi.mocked(useModelRegistryStore);
-const getBestDeviceMock = vi.mocked(LocalLlmBackend.getBestDevice);
+const getBestBuiltInLocalLlmDeviceMock = vi.mocked(getBestBuiltInLocalLlmDevice);
 
 describe('useAssistantAvailabilityWithLocal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getBestDeviceMock.mockReturnValue('webgpu');
+    getBestBuiltInLocalLlmDeviceMock.mockReturnValue('webgpu');
     useEnsureModelRegistryMock.mockReturnValue(null);
   });
 
@@ -120,7 +118,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
   });
 
   it('returns disabled when local Gemma cannot run on this device', () => {
-    getBestDeviceMock.mockReturnValue(null);
+    getBestBuiltInLocalLlmDeviceMock.mockReturnValue(null);
     useAssistantAvailabilityMock.mockReturnValue({
       state: 'disabled',
       reason: 'missing_api_key',
@@ -267,7 +265,7 @@ describe('useAssistantAvailabilityWithLocal', () => {
   });
 
   it('returns disabled immediately when built-in local inference cannot run', () => {
-    getBestDeviceMock.mockReturnValue(null);
+    getBestBuiltInLocalLlmDeviceMock.mockReturnValue(null);
     useAssistantAvailabilityMock.mockReturnValue({
       state: 'disabled',
       reason: 'missing_api_key',
