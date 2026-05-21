@@ -565,6 +565,10 @@ describe('ipc-mcp handlers', () => {
   describe('mcp:config:setPath', () => {
     it('updates config path and restarts watcher', async () => {
       const mockWatcher = { close: vi.fn() };
+      vi.mocked(dialog.showOpenDialog).mockResolvedValueOnce({
+        canceled: false,
+        filePaths: ['/tmp/new.json'],
+      } as never);
       vi.mocked(watchMcpConfig).mockResolvedValue(mockWatcher as never);
       vi.mocked(loadMcpConfig).mockResolvedValue({
         path: '/tmp/new.json',
@@ -574,15 +578,32 @@ describe('ipc-mcp handlers', () => {
       vi.mocked(getMcpConfigPath).mockResolvedValue('/tmp/new.json' as never);
 
       const handler = handlers.get('mcp:config:setPath');
+      const selectHandler = handlers.get('mcp:config:selectPath');
+      if (!selectHandler) {
+        throw new Error('select handler not registered');
+      }
       if (!handler) {
         throw new Error('handler not registered');
       }
+      await expect(selectHandler()).resolves.toBe('/tmp/new.json');
       const result = await handler({} as never, '/tmp/new.json');
 
       expect(setCustomMcpConfigPath).toHaveBeenCalledWith('/tmp/new.json');
       expect(loadMcpConfig).toHaveBeenCalled();
       expect(watchMcpConfig).toHaveBeenCalled();
       expect(result).toEqual({ success: true, path: '/tmp/new.json' });
+    });
+
+    it('rejects arbitrary renderer-supplied paths that were not selected natively', async () => {
+      const handler = handlers.get('mcp:config:setPath');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
+
+      await expect(handler({} as never, '/Users/test/.ssh/config')).rejects.toThrow(
+        'MCP config path must be selected with the native file picker.'
+      );
+      expect(setCustomMcpConfigPath).not.toHaveBeenCalled();
     });
   });
 

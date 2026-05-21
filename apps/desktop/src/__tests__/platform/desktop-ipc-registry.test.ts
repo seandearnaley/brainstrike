@@ -43,6 +43,19 @@ describe('desktop IPC registry', () => {
     expect(ipcMain.handle).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects invalid channel names before registration', () => {
+    const ipcMain = createMockIpcMain();
+    const registry = createDesktopIpcRegistry({ ipcMain });
+
+    expect(() => registry.registerInvoke('db', '  ', vi.fn())).toThrow(
+      'Desktop IPC channel must be a non-empty string.'
+    );
+    expect(() => registry.registerInvoke('db', 'db:\0query', vi.fn())).toThrow(
+      'Desktop IPC channel must not contain null bytes.'
+    );
+    expect(ipcMain.handle).not.toHaveBeenCalled();
+  });
+
   it('unregisters owned invoke and event channels', () => {
     const ipcMain = createMockIpcMain();
     const registry = createDesktopIpcRegistry({ ipcMain });

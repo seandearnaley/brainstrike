@@ -344,8 +344,10 @@ export async function resetDatabaseIpcHandlerMocks(): Promise<void> {
   const { resetDesktopDatabaseWorkSchedulerForTests, setBackgrounded } = await import(
     '../../ipc-handlers'
   );
+  const { resetEmbeddingBackfillStateForTests } = await import('../../ipc-embedding-backfill');
   setBackgrounded(false);
   resetDesktopDatabaseWorkSchedulerForTests();
+  resetEmbeddingBackfillStateForTests();
   browserWindowMock.getAllWindows.mockReturnValue([]);
   Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_CHECK_INTERVAL_MS');
   Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED');

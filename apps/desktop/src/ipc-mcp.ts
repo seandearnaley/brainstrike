@@ -25,6 +25,7 @@ import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
 let unwatch: null | (() => void) = null;
 let last: LoadedMcpConfig | null = null;
+let lastUserSelectedConfigPath: string | null = null;
 const logger = createLogger('DesktopMcpIpc');
 const LEGACY_PLACEHOLDER_STDIO_ARG = 'path/to/your/mcp-server.js';
 const LEGACY_PLACEHOLDER_SSE_URL = 'https://example.com/mcp/sse';
@@ -90,6 +91,32 @@ function notifyMcpToolsUpdated(): void {
   }
 }
 
+function isPathInside(parent: string, candidate: string): boolean {
+  const relative = path.relative(parent, candidate);
+  return relative === '' || !(relative.startsWith('..') || path.isAbsolute(relative));
+}
+
+function resolveAllowedMcpConfigPath(configPath: string | null): string | null {
+  if (configPath === null) {
+    return null;
+  }
+  const trimmedPath = configPath.trim();
+  if (!(trimmedPath.length > 0 && path.isAbsolute(trimmedPath))) {
+    throw new Error('MCP config path must be an absolute path selected by the user.');
+  }
+
+  const userData = app.getPath('userData');
+  const mcpUserDataRoot = path.join(userData, 'mcp');
+  const resolvedPath = path.resolve(trimmedPath);
+  if (isPathInside(mcpUserDataRoot, resolvedPath)) {
+    return resolvedPath;
+  }
+  if (lastUserSelectedConfigPath && resolvedPath === lastUserSelectedConfigPath) {
+    return resolvedPath;
+  }
+  throw new Error('MCP config path must be selected with the native file picker.');
+}
+
 async function restartConfigWatcher(): Promise<void> {
   if (unwatch) {
     unwatch();
@@ -128,7 +155,7 @@ export function registerMcpIpcHandlers(): () => void {
     'mcp',
     DESKTOP_PRELOAD_IPC_CHANNELS.mcp.configSetPath,
     async (_e, configPath: string | null): Promise<{ success: boolean; path: string }> => {
-      await setCustomMcpConfigPath(configPath);
+      await setCustomMcpConfigPath(resolveAllowedMcpConfigPath(configPath));
       const newPath = await getMcpConfigPath();
 
       logger.info('Loading config from new path', { path: newPath });
@@ -215,7 +242,9 @@ export function registerMcpIpcHandlers(): () => void {
         return null;
       }
 
-      return result.filePaths[0] ?? null;
+      const selectedPath = result.filePaths[0] ?? null;
+      lastUserSelectedConfigPath = selectedPath ? path.resolve(selectedPath) : null;
+      return lastUserSelectedConfigPath;
     }
   );
 

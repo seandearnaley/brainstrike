@@ -263,7 +263,7 @@ describe('runtime host boundary', () => {
 
       expect(collectDesktopSourceFiles(sourceRoot)).toEqual([
         {
-          path: path.relative(process.cwd(), path.join(sourceRoot, 'main.ts')),
+          path: 'src/main.ts',
           source: "import './safe';",
         },
       ]);

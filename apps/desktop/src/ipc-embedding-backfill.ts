@@ -12,6 +12,7 @@ import {
   type GpuMemoryReclaimConfig,
   type GpuMemoryReclaimMode,
 } from './backfill-maintenance-coordinator';
+import { getDatabase } from './db-main';
 import { enqueueEmbeddingBackfill } from './embedding-backfill';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import {
@@ -38,6 +39,8 @@ const GPU_MEMORY_RECLAIM_DEFAULT_MINIMUM_INTERVAL_MS = 15_000;
 // Full BrowserWindow recreation introduced host lifecycle churn and renderer
 // instability under real backfill load.
 const GPU_MEMORY_RECLAIM_DEFAULT_MODE: GpuMemoryReclaimMode = 'reset';
+const MAX_EMBEDDING_BACKFILL_SET_ID_LENGTH = 256;
+const EMBEDDING_BACKFILL_SET_ID_PATTERN = /^[A-Za-z0-9._:-]+$/u;
 
 interface EmbeddingBackfillInFlightState {
   progress: { current: number; total: number } | null;
@@ -54,6 +57,11 @@ export interface EmbeddingBackfillRequest {
 
 const embeddingBackfillsInFlight = new Map<string, EmbeddingBackfillInFlightState>();
 const embeddingBackfillsCanceled = new Set<string>();
+
+export function resetEmbeddingBackfillStateForTests(): void {
+  embeddingBackfillsInFlight.clear();
+  embeddingBackfillsCanceled.clear();
+}
 
 function parseStrictBooleanEnv(name: string): boolean | undefined {
   const raw = process.env[name];
@@ -127,6 +135,17 @@ export function resolveEmbeddingBackfillRequest(
   if (typeof embeddingSetId !== 'string' || embeddingSetId.trim().length === 0) {
     throw new Error('Embedding backfill requires a non-empty embeddingSetId.');
   }
+  const normalizedEmbeddingSetId = embeddingSetId.trim();
+  if (normalizedEmbeddingSetId.length > MAX_EMBEDDING_BACKFILL_SET_ID_LENGTH) {
+    throw new Error(
+      `Embedding backfill embeddingSetId must be at most ${MAX_EMBEDDING_BACKFILL_SET_ID_LENGTH} characters.`
+    );
+  }
+  if (!EMBEDDING_BACKFILL_SET_ID_PATTERN.test(normalizedEmbeddingSetId)) {
+    throw new Error(
+      'Embedding backfill embeddingSetId may only include letters, numbers, dots, underscores, hyphens, and colons.'
+    );
+  }
   if (!embeddingHostManager) {
     throw new Error('Embedding host manager is required for desktop backfill.');
   }
@@ -138,7 +157,7 @@ export function resolveEmbeddingBackfillRequest(
     sourceCandidate === 'background-indexing' ? 'background-indexing' : 'manual';
   return {
     hostManager: embeddingHostManager,
-    normalizedEmbeddingSetId: embeddingSetId.trim(),
+    normalizedEmbeddingSetId,
     gpuMemoryReclaimConfig: resolveGpuMemoryReclaimConfig(),
     source,
   };
@@ -149,7 +168,8 @@ export function isDisposedRenderFrameSendError(error: unknown): boolean {
     return false;
   }
   // Electron does not currently expose a stable error code for this path, so
-  // we have to match the message text and update this check if Electron changes it.
+  // we have to match the message text. Verified against Electron 38.x; re-check
+  // this contract during Electron upgrades or if Electron exposes a stable code.
   return error.message.toLowerCase().includes('frame was disposed');
 }
 
@@ -245,7 +265,6 @@ export async function runDesktopEmbeddingBackfill(params: {
       throw new Error(hostStatus.lastError ?? 'Embedding host failed to reach the running state.');
     }
 
-    const { getDatabase } = await import('./db-main');
     const db = await getDatabase();
     logger.info('Desktop embedding backfill scheduling resolved', {
       embeddingSetId: normalizedEmbeddingSetId,

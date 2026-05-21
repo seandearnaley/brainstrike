@@ -88,6 +88,10 @@ describe('desktop database work platform', () => {
     expect(() => resolveSqlParamsAndWorkOptions('db:query', {}, undefined)).toThrow(
       'db:query parameters must be an array when provided.'
     );
+    expect(resolveSqlParamsAndWorkOptions('db:query', [1], {})).toEqual({
+      params: [1],
+      workOptions: {},
+    });
   });
 
   it('rejects overlapping reset barriers', async () => {

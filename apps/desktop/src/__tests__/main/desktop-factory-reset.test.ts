@@ -151,6 +151,6 @@ describe('resetDesktopApplicationData', () => {
       recursive: true,
     });
     expect(fsMocks.rm).toHaveBeenCalledTimes(4);
-    expect(fsMocks.mkdirSync).not.toHaveBeenCalled();
+    expect(fsMocks.mkdirSync).toHaveBeenCalledWith('/mock/userData', { recursive: true });
   });
 });

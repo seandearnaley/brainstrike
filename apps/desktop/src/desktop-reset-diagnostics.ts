@@ -41,35 +41,32 @@ function getErrorMessage(error: unknown): string {
 }
 
 export function recordDesktopResetStarted(): void {
-  snapshot = {
-    ...snapshot,
+  Object.assign(snapshot, {
     lastError: null,
     lastStartedAt: nowIsoString(),
     status: 'running',
-  };
+  });
 }
 
 export function recordDesktopResetCompleted({
   deletedPathCount,
   preservedPathCount,
 }: ResetCompletedEvent): void {
-  snapshot = {
-    ...snapshot,
+  Object.assign(snapshot, {
     lastCompletedAt: nowIsoString(),
     lastDeletedPathCount: deletedPathCount,
     lastError: null,
     lastPreservedPathCount: preservedPathCount,
     status: 'completed',
-  };
+  });
 }
 
 export function recordDesktopResetFailed({ error }: ResetFailedEvent): void {
-  snapshot = {
-    ...snapshot,
+  Object.assign(snapshot, {
     lastError: getErrorMessage(error),
     lastFailedAt: nowIsoString(),
     status: 'failed',
-  };
+  });
 }
 
 export function getDesktopResetDiagnosticsSnapshot(

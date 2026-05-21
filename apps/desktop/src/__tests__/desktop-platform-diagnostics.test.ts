@@ -1,3 +1,4 @@
+import { LogLevel } from '@brainstrike/utils/logger';
 import { describe, expect, it, vi } from 'vitest';
 import { collectDesktopPlatformDiagnostics } from '../desktop-platform-diagnostics';
 
@@ -13,7 +14,41 @@ describe('desktop platform diagnostics', () => {
       lastRuntimeCorruptionAt: '2026-05-20T18:01:00.000Z',
       lastRuntimeCorruptionContext: 'db:query',
     };
-    const schedulerSnapshot = { activeCount: 0 };
+    const priorityStats = {
+      completed: 0,
+      lastCompletedLabel: null,
+      lastStartedLabel: null,
+      longestWaitMs: 0,
+      queued: 0,
+      serviceP50Ms: 0,
+      serviceP95Ms: 0,
+      started: 0,
+      totalServiceMs: 0,
+      totalWaitMs: 0,
+      waitP50Ms: 0,
+      waitP95Ms: 0,
+    };
+    const schedulerSnapshot = {
+      backgroundWaiting: false,
+      backgroundWaitingSince: null,
+      backgroundYieldCount: 0,
+      currentBackgroundWaitMs: 0,
+      foregroundQuietMs: 250,
+      lastBackgroundYieldAt: null,
+      lastCompletedAt: null,
+      lastForegroundAt: null,
+      lastNormalAt: null,
+      lastStartedAt: null,
+      priorityStats: {
+        background: priorityStats,
+        foreground: priorityStats,
+        normal: priorityStats,
+      },
+      queued: { background: 0, foreground: 0, normal: 0 },
+      runningLabel: null,
+      runningPriority: null,
+      snapshotAt: 1,
+    };
     const activeBackfills = [
       {
         embeddingSetId: 'set-1',
@@ -61,11 +96,24 @@ describe('desktop platform diagnostics', () => {
       state: 'active' as const,
     };
     const loggingState = {
-      capabilities: { fileDestination: true },
+      capabilities: {
+        canSelectDestination: true,
+        defaultDestination: '/tmp/brainstrike.log',
+        fileLoggingSupported: true,
+        runtime: 'electron' as const,
+      },
       preferences: {
-        console: true,
-        file: { enabled: false, path: null },
-        level: 'info',
+        consoleEnabled: true,
+        consoleLevel: LogLevel.INFO,
+        file: {
+          append: true,
+          destination: null,
+          enabled: false,
+          level: LogLevel.INFO,
+          mkdir: true,
+        },
+        includeTimestamp: false,
+        level: LogLevel.INFO,
         redactPaths: [],
       },
     };
@@ -96,10 +144,13 @@ describe('desktop platform diagnostics', () => {
       crashRecovery,
       database: databaseDiagnostics,
       databaseScheduler: schedulerSnapshot,
+      errors: {},
       embeddingHost: embeddingHostStatus,
       indexing: {
         activeBackfills,
-        databaseWork: schedulerSnapshot,
+        databaseWork: {
+          scheduler: schedulerSnapshot,
+        },
       },
       llmHost: llmHostStatus,
       logging: loggingState,
@@ -110,7 +161,7 @@ describe('desktop platform diagnostics', () => {
         lastSucceededAt: '2026-05-20T18:00:00.000Z',
       },
       reset: {
-        userDataPath: '/tmp/brainstrike-user-data',
+        userDataPath: '<redacted>',
         status: 'idle',
       },
       telemetry: {
@@ -118,5 +169,65 @@ describe('desktop platform diagnostics', () => {
       },
     });
     expect(Date.parse(snapshot.collectedAt)).not.toBeNaN();
+  });
+
+  it('returns partial diagnostics with provider errors when one source fails', async () => {
+    const snapshot = await collectDesktopPlatformDiagnostics({
+      crashRecovery: {
+        getSnapshot: vi.fn(() => {
+          throw new Error('crash unavailable');
+        }),
+      },
+      database: { getDiagnostics: vi.fn(async () => ({ initializationAttemptCount: 1 })) },
+      databaseScheduler: {
+        getSnapshot: vi.fn(() => {
+          throw new Error('scheduler unavailable');
+        }),
+      },
+      embeddingHost: {
+        getPlatformStatus: vi.fn(() => {
+          throw new Error('embedding unavailable');
+        }),
+      },
+      indexing: {
+        getBackfillsInFlight: vi.fn(() => {
+          throw new Error('backfills unavailable');
+        }),
+      },
+      llmHost: {
+        getPlatformStatus: vi.fn(() => {
+          throw new Error('llm unavailable');
+        }),
+      },
+      logging: {
+        getState: vi.fn(() => {
+          throw new Error('logging unavailable');
+        }),
+      },
+      reset: {
+        getSnapshot: vi.fn(() => {
+          throw new Error('reset unavailable');
+        }),
+      },
+      telemetry: {
+        getRuntimeMetrics: vi.fn(() => {
+          throw new Error('telemetry unavailable');
+        }),
+      },
+    });
+
+    expect(snapshot.errors).toMatchObject({
+      activeBackfills: 'backfills unavailable',
+      crashRecovery: 'crash unavailable',
+      databaseScheduler: 'scheduler unavailable',
+      embeddingHost: 'embedding unavailable',
+      llmHost: 'llm unavailable',
+      logging: 'logging unavailable',
+      reset: 'reset unavailable',
+      telemetry: 'telemetry unavailable',
+    });
+    expect(snapshot.databaseScheduler).toBeNull();
+    expect(snapshot.indexing.activeBackfills).toEqual([]);
+    expect(snapshot.reset.userDataPath).toBe('<redacted>');
   });
 });

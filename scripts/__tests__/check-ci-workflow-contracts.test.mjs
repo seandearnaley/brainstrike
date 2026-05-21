@@ -816,6 +816,18 @@ test('workflow contract fails when diagnostic desktop embedding crash lanes are 
   );
 });
 
+test('workflow contract fails when mixed embedding spec coverage drops crash-a file', () => {
+  const source = workflowSource.replaceAll(
+    ' e2e/embedding-worker-renderer.crash-a.desktop.test.ts',
+    ''
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /desktop embedding E2E must include split spec e2e\/embedding-worker-renderer\.crash-a\.desktop\.test\.ts/
+  );
+});
+
 test('workflow contract fails when desktop embedding timeout is widened', () => {
   const desktopEmbeddingPr = extractJob(workflowSource, 'desktop-e2e-embedding-pr');
   assert.ok(desktopEmbeddingPr);

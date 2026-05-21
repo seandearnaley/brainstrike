@@ -483,6 +483,10 @@ test.describe('Embedding Host Renderer - crash b', () => {
     electronHarness,
   }) => {
     test.skip(!!process.env['CI'], 'Requires a real GPU-backed desktop session.');
+    test.skip(
+      process.env['BRAINSTRIKE_E2E_GPU_RECLAIM_CONTROL'] !== '1',
+      'Opt-in GPU control comparison for tuning reclaim behavior.'
+    );
     test.setTimeout(420_000);
 
     const withoutReclaim = await runGpuReclaimMeasurementScenario({

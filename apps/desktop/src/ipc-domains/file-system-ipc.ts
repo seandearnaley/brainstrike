@@ -38,6 +38,38 @@ const MOCK_PATH_PREFIX = '/mock/' as const;
 const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
 const logger = createLogger('FileSystemIpc');
 
+function isWindowsAbsolutePath(value: string): boolean {
+  return /^[a-zA-Z]:[\\/]/.test(value) || /^\\\\[^\\]+\\[^\\]+/.test(value);
+}
+
+async function resolveFileSystemIpcPath(
+  requestedPath: unknown,
+  operation: string
+): Promise<string> {
+  if (typeof requestedPath === 'string' && isWindowsAbsolutePath(requestedPath)) {
+    if (requestedPath.includes('\0')) {
+      throw new Error(`Invalid ${operation} path: Requested path contains null bytes.`);
+    }
+    return requestedPath;
+  }
+
+  const resolved = await resolveValidatedPath({ requestedPath });
+  if (resolved.ok) {
+    return resolved.path;
+  }
+  throw new Error(`Invalid ${operation} path: ${resolved.error.message}`);
+}
+
+async function resolveDirectoryHandle(handle: DirectoryHandle): Promise<DirectoryHandle> {
+  const resolvedPath = await resolveFileSystemIpcPath(handle?.path, 'directory handle');
+  return { ...handle, path: resolvedPath };
+}
+
+async function resolveFileHandle(handle: FileHandle): Promise<FileHandle> {
+  const resolvedPath = await resolveFileSystemIpcPath(handle?.path, 'file handle');
+  return { ...handle, path: resolvedPath };
+}
+
 function getElectronE2eFileSystemFixture(): ElectronE2eFileSystemFixture | null {
   const fixture = (
     globalThis as typeof globalThis & {
@@ -147,7 +179,7 @@ export function registerFileSystemIpcHandlers({
         const rootPath = '/mock/test/directory';
         return getTestDirectoryStructure(rootPath);
       }
-      return fileSystem.readDirectory(handle);
+      return fileSystem.readDirectory(await resolveDirectoryHandle(handle));
     }
   );
 
@@ -178,9 +210,10 @@ export function registerFileSystemIpcHandlers({
         return 'Mock file content for testing purposes\nThis is a test file.\n';
       }
       try {
-        return await fileSystem.readFile(handle);
+        const resolvedHandle = await resolveFileHandle(handle);
+        return await fileSystem.readFile(resolvedHandle);
       } catch (error) {
-        const payload = toFileReadErrorPayload(error, handle.path);
+        const payload = toFileReadErrorPayload(error, handle?.path ?? '');
         if (payload) {
           return payload;
         }
@@ -265,7 +298,8 @@ export function registerFileSystemIpcHandlers({
         return null;
       }
 
-      const exists = await fileSystem.exists(lastFolderPath);
+      const resolvedPath = await resolveFileSystemIpcPath(lastFolderPath, 'stored folder');
+      const exists = await fileSystem.exists(resolvedPath);
       if (!exists) {
         await storage.removeItem(LAST_FOLDER_STORAGE_KEY);
         return null;
@@ -273,8 +307,8 @@ export function registerFileSystemIpcHandlers({
 
       const handle: DirectoryHandle = {
         kind: 'directory',
-        name: path.basename(lastFolderPath),
-        path: lastFolderPath,
+        name: path.basename(resolvedPath),
+        path: resolvedPath,
         platform: 'electron',
       };
       return handle;
@@ -291,7 +325,8 @@ export function registerFileSystemIpcHandlers({
     DESKTOP_IPC_CHANNELS.files.saveLastFolder,
     async (_event, folderPath: string) => {
       try {
-        await storage.setItem(LAST_FOLDER_STORAGE_KEY, folderPath);
+        const resolvedPath = await resolveFileSystemIpcPath(folderPath, 'last folder');
+        await storage.setItem(LAST_FOLDER_STORAGE_KEY, resolvedPath);
       } catch (error) {
         if (process.env['NODE_ENV'] === 'development') {
           logger.debug('Failed to save last folder', { error });

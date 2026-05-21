@@ -106,4 +106,41 @@ describe('createDesktopFactoryResetHandler', () => {
     });
     expect(logger.error).toHaveBeenCalledWith('Failed to reset desktop application data:', error);
   });
+
+  it('attempts every runtime stop before reporting shutdown failures', async () => {
+    resetDesktopApplicationDataMock.mockImplementationOnce(
+      async ({ stopBackgroundRuntimes }: { stopBackgroundRuntimes: () => Promise<void> }) => {
+        await stopBackgroundRuntimes();
+        return { deletedPaths: [], preservedPaths: [] };
+      }
+    );
+    const stopFailure = new Error('stop failed');
+    const embeddingHostStop = vi.fn(async () => {
+      throw stopFailure;
+    });
+    const chunkingHostStop = vi.fn(async () => undefined);
+
+    const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
+    const handleReset = createDesktopFactoryResetHandler({
+      cleanupLiveSubscriptionsForShutdown: vi.fn(async () => undefined),
+      logger: { error: vi.fn() },
+      resetLocalDatabase: vi.fn(async () => undefined),
+      runtimes: [
+        { name: 'embedding-host', stop: embeddingHostStop },
+        { name: 'chunking-host', stop: chunkingHostStop },
+      ],
+      runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => {
+        await work();
+      }),
+      userDataPath: '/mock/userData',
+      waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
+    });
+
+    await expect(handleReset()).resolves.toEqual({
+      success: false,
+      message: 'Failed to stop desktop reset runtimes: embedding-host',
+    });
+    expect(embeddingHostStop).toHaveBeenCalledTimes(1);
+    expect(chunkingHostStop).toHaveBeenCalledTimes(1);
+  });
 });

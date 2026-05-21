@@ -204,6 +204,28 @@ describe('database IPC embedding backfill handlers', () => {
     expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
   });
 
+  it('embedding-host:enqueue-backfill rejects malformed embedding set ids', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    await expect(handler({ sender } as unknown, '../secret')).rejects.toThrow(
+      'Embedding backfill embeddingSetId may only include letters, numbers, dots, underscores, hyphens, and colons.'
+    );
+    await expect(handler({ sender } as unknown, 'a'.repeat(257))).rejects.toThrow(
+      'Embedding backfill embeddingSetId must be at most 256 characters.'
+    );
+    expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
+  });
+
   it('embedding-host:enqueue-backfill stops progress sends after the renderer is destroyed', async () => {
     const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
     if (!handler) {

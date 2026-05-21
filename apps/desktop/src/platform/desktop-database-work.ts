@@ -35,7 +35,7 @@ function parseDatabaseWorkOptions(value: unknown): DatabaseWorkOptions {
     throw new Error('Database work options must be an object when provided.');
   }
   const keys = Object.keys(value);
-  if (keys.length === 0 || keys.some((key) => key !== 'priority' && key !== 'label')) {
+  if (keys.some((key) => key !== 'priority' && key !== 'label')) {
     throw new Error('Database work options may only include priority and label.');
   }
   const candidate = value as { label?: unknown; priority?: unknown };

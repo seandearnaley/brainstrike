@@ -91,7 +91,7 @@ describe('desktop diagnostics IPC', () => {
     await expect(handler?.()).resolves.toMatchObject({
       database: { hasDatabaseHandle: true },
       indexing: { activeBackfills: [] },
-      reset: { userDataPath: '/tmp/user-data' },
+      reset: { userDataPath: '<redacted>' },
       telemetry: { backgroundRuntimeMetrics: [] },
     });
 

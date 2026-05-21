@@ -150,7 +150,11 @@ describe('ipc-handlers filesystem endpoints', () => {
 
   it('fs:readDirectory proxies to adapter for real handle', async () => {
     const handler = handlers.get('fs:readDirectory');
-    const realHandle = { id: 'real', kind: 'directory' } as unknown as DirectoryHandle;
+    const realHandle = {
+      id: 'real',
+      kind: 'directory',
+      path: '/users/test/docs',
+    } as unknown as DirectoryHandle;
     await handler?.({} as unknown as IpcMainInvokeEvent, realHandle);
     expect(fsAdapter.readDirectory).toHaveBeenCalledWith(realHandle);
   });
@@ -164,7 +168,10 @@ describe('ipc-handlers filesystem endpoints', () => {
 
   it('fs:readFile proxies to adapter for real file handle', async () => {
     const handler = handlers.get('fs:readFile');
-    const realFile = { id: 'real-file' } as unknown as FileHandle;
+    const realFile = {
+      id: 'real-file',
+      path: '/users/test/docs/file.txt',
+    } as unknown as FileHandle;
     await handler?.({} as unknown as IpcMainInvokeEvent, realFile);
     expect(fsAdapter.readFile).toHaveBeenCalledWith(realFile);
   });

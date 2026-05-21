@@ -40,6 +40,7 @@ const FORBIDDEN_EXECUTION_IMPORTS: readonly ForbiddenExecutionImportRule[] = [
 ];
 
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx']);
+const MAX_SOURCE_WALK_DEPTH = 20;
 
 function isRendererSource(filePath: string): boolean {
   return (
@@ -60,12 +61,35 @@ function isTestSource(filePath: string): boolean {
   );
 }
 
-export function collectDesktopSourceFiles(directory: string): RuntimeHostSourceFile[] {
+function collectDesktopSourceFilesFrom(
+  directory: string,
+  rootDirectory: string,
+  depth: number
+): RuntimeHostSourceFile[] {
+  if (depth > MAX_SOURCE_WALK_DEPTH) {
+    return [];
+  }
   const files: RuntimeHostSourceFile[] = [];
 
-  for (const entry of readdirSync(directory)) {
+  let entries: string[];
+  try {
+    entries = readdirSync(directory);
+  } catch {
+    return files;
+  }
+
+  for (const entry of entries) {
     const absolutePath = path.join(directory, entry);
-    const stats = lstatSync(absolutePath);
+    const stats = (() => {
+      try {
+        return lstatSync(absolutePath);
+      } catch {
+        return null;
+      }
+    })();
+    if (!stats) {
+      continue;
+    }
 
     if (stats.isSymbolicLink()) {
       continue;
@@ -75,7 +99,7 @@ export function collectDesktopSourceFiles(directory: string): RuntimeHostSourceF
       if (entry === '__tests__' || entry === 'dist' || entry === 'node_modules') {
         continue;
       }
-      files.push(...collectDesktopSourceFiles(absolutePath));
+      files.push(...collectDesktopSourceFilesFrom(absolutePath, rootDirectory, depth + 1));
       continue;
     }
 
@@ -84,12 +108,22 @@ export function collectDesktopSourceFiles(directory: string): RuntimeHostSourceF
     }
 
     files.push({
-      path: path.relative(process.cwd(), absolutePath),
-      source: readFileSync(absolutePath, 'utf8'),
+      path: path.relative(rootDirectory, absolutePath),
+      source: (() => {
+        try {
+          return readFileSync(absolutePath, 'utf8');
+        } catch {
+          return '';
+        }
+      })(),
     });
   }
 
   return files;
+}
+
+export function collectDesktopSourceFiles(directory: string): RuntimeHostSourceFile[] {
+  return collectDesktopSourceFilesFrom(directory, path.dirname(directory), 0);
 }
 
 function getModuleSpecifierSource(

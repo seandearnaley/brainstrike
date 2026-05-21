@@ -47,6 +47,9 @@ export function registerMainPlatformIpcHandlers({
     async (event, reason: unknown): Promise<void> => {
       const normalizedReason = normalizeReloadIntentReason(reason);
       const window = getLiveSenderWindow(event.sender);
+      if (window.isDestroyed()) {
+        throw new Error('Renderer reload intent must originate from a live BrowserWindow.');
+      }
       noteNextWindowReload(window, {
         reason: normalizedReason,
         source: 'renderer',

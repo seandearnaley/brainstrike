@@ -115,6 +115,47 @@ describe('file system IPC domain', () => {
     expect(fileSystem.readFileByPath).toHaveBeenCalledWith('/users/test/file.txt');
   });
 
+  it('validates handle paths before reading directories and files', async () => {
+    await expect(
+      handlers.get('fs:readDirectory')?.(
+        {} as IpcMainInvokeEvent,
+        {
+          kind: 'directory',
+          name: 'bad',
+          path: '/etc/passwd',
+          platform: 'electron',
+        } as DirectoryHandle
+      )
+    ).rejects.toThrow('Invalid directory handle path:');
+    expect(fileSystem.readDirectory).not.toHaveBeenCalled();
+
+    await expect(
+      handlers.get('fs:readFile')?.(
+        {} as IpcMainInvokeEvent,
+        {
+          kind: 'file',
+          name: 'bad',
+          path: '/tmp/\0bad',
+          platform: 'electron',
+        } as FileHandle
+      )
+    ).rejects.toThrow('Invalid file handle path:');
+    expect(fileSystem.readFile).not.toHaveBeenCalled();
+  });
+
+  it('validates persisted last-folder paths before storing or restoring them', async () => {
+    await expect(
+      handlers.get('fs:saveLastFolder')?.({} as IpcMainInvokeEvent, '/etc/passwd')
+    ).resolves.toBeUndefined();
+    expect(storage.setItem).not.toHaveBeenCalled();
+
+    vi.mocked(storage.getItem).mockResolvedValue('/tmp/\0bad');
+    await expect(handlers.get('fs:restoreLastFolder')?.({} as IpcMainInvokeEvent)).resolves.toBe(
+      null
+    );
+    expect(fileSystem.exists).not.toHaveBeenCalled();
+  });
+
   it('returns structured file-read payloads for expected read failures', async () => {
     const readFile = handlers.get('fs:readFile');
     const handle = { id: 'real-file', path: '/users/test/large.txt' } as FileHandle;

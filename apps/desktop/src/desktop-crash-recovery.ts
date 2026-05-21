@@ -35,48 +35,44 @@ const INITIAL_SNAPSHOT: DesktopRendererCrashRecoverySnapshot = {
   suppressedRendererReloadCount: 0,
 };
 
-let snapshot: DesktopRendererCrashRecoverySnapshot = INITIAL_SNAPSHOT;
+let snapshot: DesktopRendererCrashRecoverySnapshot = { ...INITIAL_SNAPSHOT };
 
 function nowIsoString(): string {
   return new Date().toISOString();
 }
 
 function recordRendererCrash(event: RendererCrashRecoveryEvent): void {
-  snapshot = {
-    ...snapshot,
+  Object.assign(snapshot, {
     lastRendererCrashAt: nowIsoString(),
     lastRendererCrashExitCode: event.exitCode,
     lastRendererCrashReason: event.reason,
     lastRendererCrashWindowRole: event.windowRole,
     rendererCrashCount: snapshot.rendererCrashCount + 1,
-  };
+  });
 }
 
 export function recordRendererCrashDeferred(event: RendererCrashRecoveryEvent): void {
   recordRendererCrash(event);
-  snapshot = {
-    ...snapshot,
+  Object.assign(snapshot, {
     pendingRendererRecovery: true,
-  };
+  });
 }
 
 export function recordRendererCrashLoopSuppressed(event: RendererCrashRecoveryEvent): void {
   recordRendererCrash(event);
-  snapshot = {
-    ...snapshot,
+  Object.assign(snapshot, {
     pendingRendererRecovery: false,
     suppressedRendererReloadCount: snapshot.suppressedRendererReloadCount + 1,
-  };
+  });
 }
 
 export function recordRendererRecoveryReloadAttempt(event: RendererReloadRecoveryEvent): void {
-  snapshot = {
-    ...snapshot,
+  Object.assign(snapshot, {
     lastRendererReloadAt: nowIsoString(),
     lastRendererReloadWindowRole: event.windowRole,
     pendingRendererRecovery: false,
     rendererReloadAttemptCount: snapshot.rendererReloadAttemptCount + 1,
-  };
+  });
 }
 
 export function getDesktopCrashRecoverySnapshot(): DesktopRendererCrashRecoverySnapshot {
@@ -84,5 +80,5 @@ export function getDesktopCrashRecoverySnapshot(): DesktopRendererCrashRecoveryS
 }
 
 export function resetDesktopCrashRecoveryDiagnosticsForTests(): void {
-  snapshot = INITIAL_SNAPSHOT;
+  snapshot = { ...INITIAL_SNAPSHOT };
 }

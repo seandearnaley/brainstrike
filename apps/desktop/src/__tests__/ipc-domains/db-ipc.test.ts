@@ -54,4 +54,14 @@ describe('database IPC domain', () => {
     expect(removeHandler).toHaveBeenCalledWith('db:scheduler:snapshot');
     expect(removeHandler).toHaveBeenCalledWith('db:live-query:start');
   });
+
+  it('rejects malformed renderer SQL before scheduling database work', async () => {
+    await expect(
+      handlers.get('db:query')?.({} as IpcMainInvokeEvent, 'SELECT\0 1')
+    ).rejects.toThrow('db:query SQL must not contain null bytes.');
+
+    await expect(handlers.get('db:exec')?.({} as IpcMainInvokeEvent, '')).rejects.toThrow(
+      'db:exec SQL must be a non-empty string.'
+    );
+  });
 });

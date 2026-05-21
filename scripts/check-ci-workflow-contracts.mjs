@@ -322,6 +322,7 @@ function requireDesktopEmbeddingJobContracts(source, prefix, failures) {
     'e2e/embedding-worker-renderer.backfill-search.desktop.test.ts',
     'e2e/embedding-worker-renderer.memory.desktop.test.ts',
     'e2e/embedding-worker-renderer.diagnostics.desktop.test.ts',
+    'e2e/embedding-worker-renderer.crash-a.desktop.test.ts',
   ]) {
     requireIncludes(
       source,

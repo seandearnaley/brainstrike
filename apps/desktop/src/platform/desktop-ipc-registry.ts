@@ -71,10 +71,12 @@ export interface DesktopIpcRegistry {
 }
 
 function assertNonEmptyChannel(channel: string): void {
-  if (channel.trim().length > 0) {
-    return;
+  if (channel.trim().length === 0) {
+    throw new Error('Desktop IPC channel must be a non-empty string.');
   }
-  throw new Error('Desktop IPC channel must be a non-empty string.');
+  if (channel.includes('\0')) {
+    throw new Error('Desktop IPC channel must not contain null bytes.');
+  }
 }
 
 function sortSnapshot(

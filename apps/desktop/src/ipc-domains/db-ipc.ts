@@ -44,11 +44,32 @@ interface LiveQueryPayload {
   readonly query: string;
 }
 
+interface PGliteLiveQuerySurface {
+  readonly live: {
+    readonly incrementalQuery: (options: {
+      key: string;
+      limit?: number;
+      offset?: number;
+      params: readonly unknown[] | null;
+      query: string;
+    }) => Promise<LiveQuery<unknown>>;
+    readonly query: (options: {
+      limit?: number;
+      offset?: number;
+      params: readonly unknown[] | null;
+      query: string;
+    }) => Promise<LiveQuery<unknown>>;
+  };
+}
+
+type OptionalRelationTable = 'collection_indexing_stats' | 'embedding_sets' | 'job_queue';
+
 const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
 const liveSubscriptionOwnerListeners = new Set<number>();
 const pendingLiveUpdates = new Map<number, { id: number; results: unknown }>();
 const LIVE_FLUSH_BACKGROUND_INTERVAL_MS = 2000;
 const LIVE_FLUSH_FOREGROUND_INTERVAL_MS = 200;
+const MAX_RENDERER_SQL_BYTES = 1_000_000;
 const logger = createLogger('DatabaseIpc');
 
 let nextLiveSubscriptionId = 1;
@@ -233,7 +254,7 @@ function isMissingRelationError(error: unknown): boolean {
 
 async function clearOptionalRelation(
   tx: { query: (sql: string) => Promise<{ rows: unknown[] }> },
-  tableName: string
+  tableName: OptionalRelationTable
 ): Promise<void> {
   try {
     await tx.query(`DELETE FROM ${tableName}`);
@@ -246,30 +267,64 @@ async function clearOptionalRelation(
   }
 }
 
+function getLiveQuerySurface(db: unknown): PGliteLiveQuerySurface {
+  if (!db || typeof db !== 'object') {
+    throw new Error('Live query extension is not available');
+  }
+  const live = (db as { live?: unknown }).live;
+  if (!live || typeof live !== 'object') {
+    throw new Error('Live query extension is not available');
+  }
+  const surface = live as { incrementalQuery?: unknown; query?: unknown };
+  if (typeof surface.query !== 'function' || typeof surface.incrementalQuery !== 'function') {
+    throw new Error('Live query extension is not available');
+  }
+  return db as PGliteLiveQuerySurface;
+}
+
+function assertRendererSql(channel: 'db:exec' | 'db:query', sql: string): void {
+  if (typeof sql !== 'string' || sql.trim().length === 0) {
+    throw new Error(`${channel} SQL must be a non-empty string.`);
+  }
+  if (sql.includes('\0')) {
+    throw new Error(`${channel} SQL must not contain null bytes.`);
+  }
+  if (Buffer.byteLength(sql, 'utf8') > MAX_RENDERER_SQL_BYTES) {
+    throw new Error(`${channel} SQL exceeds ${MAX_RENDERER_SQL_BYTES} bytes.`);
+  }
+}
+
 async function createLiveQueryHandle(
-  // biome-ignore lint/suspicious/noExplicitAny: PGlite db type not available at compile time
-  db: any,
+  db: PGliteLiveQuerySurface,
   payload: LiveQueryPayload
 ): Promise<LiveQuery<unknown>> {
+  const liveQueryOptions: {
+    limit?: number;
+    offset?: number;
+    params: readonly unknown[] | null;
+    query: string;
+  } = {
+    params: payload.params ?? null,
+    query: escapePGliteLiveQueryFormatPercents(payload.query, payload.params),
+  };
+  if (payload.limit !== undefined) {
+    liveQueryOptions.limit = payload.limit;
+  }
+  if (payload.offset !== undefined) {
+    liveQueryOptions.offset = payload.offset;
+  }
+
   const isIncremental = payload.mode === 'incremental';
   if (isIncremental) {
     if (!payload.key) {
       throw new Error('Live incremental queries require a key column');
     }
     return await db.live.incrementalQuery({
+      ...liveQueryOptions,
       key: payload.key,
-      limit: payload.limit,
-      offset: payload.offset,
-      params: payload.params ?? null,
-      query: escapePGliteLiveQueryFormatPercents(payload.query, payload.params),
     });
   }
-  return await db.live.query({
-    limit: payload.limit,
-    offset: payload.offset,
-    params: payload.params ?? null,
-    query: escapePGliteLiveQueryFormatPercents(payload.query, payload.params),
-  });
+  return await db.live.query(liveQueryOptions);
 }
 
 async function cleanupLiveSubscription(id: number): Promise<void> {
@@ -334,6 +389,7 @@ export function registerDatabaseIpcHandlers(
         paramsOrOptions,
         maybeOptions
       );
+      assertRendererSql('db:query', sql);
       return runScheduledDatabaseWork(event, options, workOptions, 'db:query', async () =>
         withCorruptionRecovery(async () => {
           const { getDatabase } = await import('../db-main');
@@ -358,6 +414,7 @@ export function registerDatabaseIpcHandlers(
         paramsOrOptions,
         maybeOptions
       );
+      assertRendererSql('db:exec', sql);
       return runScheduledDatabaseWork(event, options, workOptions, 'db:exec', async () =>
         withCorruptionRecovery(async () => {
           const { getDatabase } = await import('../db-main');
@@ -380,11 +437,8 @@ export function registerDatabaseIpcHandlers(
         withCorruptionRecovery(async () => {
           const { getDatabase } = await import('../db-main');
           const db = await getDatabase();
-          if (!db.live) {
-            throw new Error('Live query extension is not available');
-          }
 
-          const handle = await createLiveQueryHandle(db, payload);
+          const handle = await createLiveQueryHandle(getLiveQuerySurface(db), payload);
           const mode: 'query' | 'incremental' =
             payload?.mode === 'incremental' ? 'incremental' : 'query';
 

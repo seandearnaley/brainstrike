@@ -99,6 +99,9 @@ export async function resetDesktopApplicationData({
         preservedPaths,
         userDataPath,
       });
+      // The reset is partial at this point, but Electron still needs a valid userData
+      // directory for the next boot and for a retry attempt.
+      mkdirSync(userDataPath, { recursive: true });
       throw new DesktopApplicationDataDeletionError(deletionFailures);
     }
 

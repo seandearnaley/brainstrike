@@ -25,7 +25,18 @@ export interface DesktopFactoryResetResult {
 }
 
 async function stopDesktopResetRuntimes(runtimes: readonly DesktopResetRuntime[]): Promise<void> {
-  await Promise.all(runtimes.map((runtime) => runtime.stop()));
+  const results = await Promise.allSettled(runtimes.map((runtime) => runtime.stop()));
+  const failures = results
+    .map((result, index) => ({ result, runtime: runtimes[index] }))
+    .filter(
+      (entry): entry is { result: PromiseRejectedResult; runtime: DesktopResetRuntime } =>
+        entry.result.status === 'rejected'
+    );
+  if (failures.length === 0) {
+    return;
+  }
+  const failedNames = failures.map(({ runtime }) => runtime.name).join(', ');
+  throw new Error(`Failed to stop desktop reset runtimes: ${failedNames}`);
 }
 
 async function resetDesktopDatabaseProfile({
@@ -43,6 +54,8 @@ async function resetDesktopDatabaseProfile({
   await runWithDatabaseResetBarrier(async () => {
     await cleanupLiveSubscriptionsForShutdown();
     await waitForDatabaseWorkSchedulerIdle();
+    // New live subscriptions may be created while waiting for scheduled DB work to drain.
+    // Run cleanup again before deleting database state so reset cannot race a live query.
     await cleanupLiveSubscriptionsForShutdown();
     await resetLocalDatabase();
   });
