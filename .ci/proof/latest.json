@@ -1,34 +1,41 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-21T18:39:43.943Z",
+  "generatedAt": "2026-05-21T21:51:30.503Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "b2b7da6f933935b4045e9efb5cd00fe75ebb5547",
+  "testedHeadSha": "000f09ed96cc9112019d64bdc59bfc4902caa6b2",
   "selection": {
     "base": "origin/main",
-    "baseSha": "499eff02d7f7160d091b19eca6d5cfc61a25b9f4",
+    "baseSha": "86132a2786f93779fa9e17248a90043ea1cf5b28",
     "head": "HEAD",
-    "headSha": "b2b7da6f933935b4045e9efb5cd00fe75ebb5547",
-    "mergeBase": "499eff02d7f7160d091b19eca6d5cfc61a25b9f4",
+    "headSha": "000f09ed96cc9112019d64bdc59bfc4902caa6b2",
+    "mergeBase": "86132a2786f93779fa9e17248a90043ea1cf5b28",
     "files": [
-      ".ci/proof/latest.json",
       ".github/workflows/test.yml",
-      "apps/desktop/e2e/app-launch.test.ts",
-      "apps/desktop/e2e/chunking-host-renderer.test.ts",
-      "apps/desktop/e2e/database-persistence.test.ts",
-      "apps/desktop/e2e/embedding-worker-renderer.smoke.desktop.test.ts",
-      "apps/desktop/e2e/factory-reset.desktop.test.ts",
-      "apps/desktop/e2e/ipc-communication.test.ts",
-      "apps/desktop/e2e/llm-host-renderer.test.ts",
-      "apps/desktop/e2e/startup-bridge-contract.test.ts",
-      "apps/desktop/package.json",
-      "docs/architecture-reset/desktop-proof-lanes-2026-05-21.html",
+      "apps/desktop/e2e/utils/assistant-mock.ts",
+      "apps/desktop/src/__tests__/main/db-host-manager.test.ts",
+      "apps/desktop/src/db-host-manager.ts",
+      "apps/web/e2e/assistant-local-availability.test.ts",
+      "apps/web/e2e/assistant-panel-interactions.test.ts",
+      "apps/web/e2e/assistant-panel.test.ts",
+      "apps/web/e2e/assistant-ui-panel.test.ts",
+      "apps/web/e2e/background-indexing-settings.test.ts",
+      "apps/web/e2e/database-import-backfill.test.ts",
+      "apps/web/e2e/embedding-worker-telemetry.test.ts",
+      "apps/web/e2e/factory-reset-recovery.test.ts",
+      "apps/web/e2e/file-explorer-persistence.test.ts",
+      "apps/web/e2e/settings-models-and-providers.test.ts",
+      "apps/web/e2e/tools-panel-persistence.test.ts",
+      "apps/web/e2e/web-db-worker-startup.test.ts",
+      "apps/web/package.json",
+      "docs/architecture-reset/web-product-proof-lanes-2026-05-21.html",
+      "packages/app-shell/src/__tests__/use-assistant-availability.test.ts",
+      "packages/app-shell/src/hooks/use-assistant-availability.ts",
       "scripts/__tests__/check-ci-risk-fixtures.test.mjs",
-      "scripts/__tests__/check-ci-workflow-contracts.test.mjs",
       "scripts/__tests__/ci-risk-rules.test.mjs",
       "scripts/__tests__/ci-select.test.mjs",
       "scripts/check-ci-workflow-contracts.mjs",
@@ -43,7 +50,14 @@
       ],
       "e2eLanes": [
         "critical-smoke",
-        "web-functional-stateful",
+        "web-smoke",
+        "web-file-explorer-persistence",
+        "web-import-indexing",
+        "web-assistant-state",
+        "web-settings-state",
+        "web-db-startup",
+        "web-destructive-reset",
+        "web-full-regression",
         "desktop-smoke",
         "desktop-ipc-reset",
         "desktop-runtime-hosts",
@@ -51,7 +65,6 @@
         "desktop-full-regression",
         "desktop-embedding-diagnostics",
         "desktop-llm-host-recovery",
-        "destructive-reset",
         "long-soak-release-only"
       ],
       "proofCommands": [
@@ -76,6 +89,13 @@
     ],
     "expandedLanes": [
       "ci:browser",
+      "ci:web-smoke",
+      "ci:web-file-explorer-persistence",
+      "ci:web-import-indexing",
+      "ci:web-assistant-state",
+      "ci:web-settings-state",
+      "ci:web-db-startup",
+      "ci:web-destructive-reset",
       "ci:web-e2e",
       "ci:desktop-smoke",
       "ci:desktop-ipc-reset",
@@ -143,7 +163,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 12
+      "durationMs": 10
     },
     {
       "name": "ci-script-tests",
@@ -152,7 +172,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 412
+      "durationMs": 421
     },
     {
       "name": "workflow-contracts",
@@ -161,7 +181,7 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 406
+      "durationMs": 410
     },
     {
       "name": "full-local-suite",
@@ -170,7 +190,7 @@
       "budgetMs": 2700000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 1090944
+      "durationMs": 1120082
     }
   ]
 }
