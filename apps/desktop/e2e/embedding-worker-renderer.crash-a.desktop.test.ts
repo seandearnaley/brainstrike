@@ -64,6 +64,8 @@ const {
 } = shared;
 
 test.describe('Embedding Host Renderer - crash a', () => {
+  test.describe.configure({ mode: 'serial' });
+
   test('@desktop-embedding-mixed fails invalid job payloads without taking down the embedding host or visible UI', async ({
     window,
   }) => {
