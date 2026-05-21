@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 
 import {
   expandRiskLanes,
+  selectProofCommandsForFiles,
   selectRiskProfileForFiles,
   selectRiskLanesForFiles,
   toRiskLabels,
@@ -378,7 +379,8 @@ export function buildSelection(input) {
   const lanes = selectRiskLanesForFiles(input.files);
   const expandedLanes = expandRiskLanes(lanes);
   const labels = toRiskLabels(lanes);
-  const commands = riskProfile.proofCommands.map((commandName) => {
+  const proofCommands = selectProofCommandsForFiles(input.files);
+  const commands = proofCommands.map((commandName) => {
     const command = LOCAL_PROOF_COMMANDS[commandName];
     if (!command) {
       throw new Error(`no local proof command defined for ${commandName}`);
@@ -395,6 +397,7 @@ export function buildSelection(input) {
     mergeBase: input.mergeBase,
     files: [...input.files],
     riskProfile,
+    proofCommands,
     lanes,
     expandedLanes,
     labels,

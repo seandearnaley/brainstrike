@@ -246,6 +246,31 @@ test('buildSelection routes factory reset changes to the narrow desktop reset la
   assert.equal(selection.labels.includes('ci:desktop'), false);
 });
 
+test('buildSelection proves every selected narrow desktop lane locally', () => {
+  const selection = buildSelection({
+    files: [
+      'apps/desktop/src/desktop-factory-reset.ts',
+      'apps/desktop/src/embedding-host-manager.ts',
+    ],
+    mergeBase: '1111111111111111111111111111111111111111',
+  });
+
+  assert.deepEqual(selection.lanes, [
+    'ci:desktop-ipc-reset',
+    'ci:desktop-runtime-hosts',
+    'ci:coverage',
+  ]);
+  assert.deepEqual(
+    selection.commands.map((command) => command.name),
+    [
+      'diff-check',
+      'desktop-unit-tests',
+      'desktop-ipc-reset-tests',
+      'desktop-runtime-host-tests',
+    ]
+  );
+});
+
 test('buildSelection routes db IPC changes to db storage without desktop full regression', () => {
   const selection = buildSelection({
     files: ['apps/desktop/src/ipc-domains/db-ipc.ts'],

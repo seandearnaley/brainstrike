@@ -127,7 +127,6 @@ const DESKTOP_PLATFORM_PATTERNS = [
   /^apps\/desktop\/src\/preload\.ts$/,
   /^apps\/desktop\/src\/ipc-/,
   /^apps\/desktop\/src\/.*ipc.*\.ts$/,
-  /^apps\/desktop\/src\/.*host.*\.ts$/,
   /^apps\/desktop\/src\/logging-/,
   /^apps\/desktop\/e2e\//,
 ];
@@ -150,7 +149,9 @@ const DESKTOP_IPC_RESET_PATTERNS = [
 ];
 
 const DESKTOP_RUNTIME_HOST_PATTERNS = [
-  /^apps\/desktop\/src\/.*host.*\.ts$/,
+  /^apps\/desktop\/src\/(?:embedding|llm|chunking|parser)-host(?:-|\.|$).*\.ts$/,
+  /^apps\/desktop\/src\/ipc-(?:embedding|llm|chunking|parser)-host\.ts$/,
+  /^apps\/desktop\/src\/renderer-host-lifecycle\.ts$/,
   /^apps\/desktop\/src\/platform\/runtime-host-/,
   /^apps\/desktop\/src\/renderer\/components\/(?:embedding|llm|chunking|parser)-host-/,
   /^apps\/desktop\/e2e\/app-launch\.test\.ts$/,
@@ -269,6 +270,14 @@ const LANE_PATTERNS = new Map([
   ['ci:desktop', DESKTOP_FULL_REGRESSION_PATTERNS],
   ['ci:embedding', EMBEDDING_PATTERNS],
   ['ci:coverage', COVERAGE_PATTERNS],
+]);
+
+const LOCAL_PROOF_COMMANDS_BY_LANE = new Map([
+  ['ci:desktop-smoke', ['desktop-unit-tests', 'desktop-smoke-tests']],
+  ['ci:desktop-ipc-reset', ['desktop-unit-tests', 'desktop-ipc-reset-tests']],
+  ['ci:desktop-runtime-hosts', ['desktop-unit-tests', 'desktop-runtime-host-tests']],
+  ['ci:desktop-db-storage', ['desktop-unit-tests', 'desktop-db-storage-tests']],
+  ['ci:desktop', ['desktop-unit-tests', 'desktop-full-regression-tests']],
 ]);
 
 function matchesAny(filePath, patterns) {
@@ -612,6 +621,23 @@ export function selectRiskLanesForFiles(files) {
   }
 
   return RISK_LANES.filter((lane) => selected.has(lane));
+}
+
+export function selectProofCommandsForFiles(files) {
+  const profileForFiles = selectRiskProfileForFiles(files);
+
+  if (profileForFiles.cloudLabels.includes('ci:full')) {
+    return [...profileForFiles.proofCommands];
+  }
+
+  const commands = new Set(profileForFiles.proofCommands);
+  for (const lane of selectRiskLanesForFiles(files)) {
+    for (const commandName of LOCAL_PROOF_COMMANDS_BY_LANE.get(lane) ?? []) {
+      commands.add(commandName);
+    }
+  }
+
+  return [...commands];
 }
 
 export function expandRiskLanes(lanes) {

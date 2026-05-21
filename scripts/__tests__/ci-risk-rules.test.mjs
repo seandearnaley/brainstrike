@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   expandRiskLanes,
+  selectProofCommandsForFiles,
   selectRiskProfileForFiles,
   selectRiskLanesForFiles,
   toRiskLabels,
@@ -320,6 +321,27 @@ test('legacy desktop host selector does not route host lifecycle through embeddi
   assert.deepEqual(
     selectRiskLanesForFiles(['apps/desktop/src/embedding-host-manager.ts']),
     ['ci:desktop-runtime-hosts', 'ci:coverage']
+  );
+});
+
+test('desktop runtime host selector avoids broad incidental host filenames', () => {
+  assert.deepEqual(selectRiskLanesForFiles(['apps/desktop/src/toast-host.ts']), [
+    'ci:coverage',
+  ]);
+});
+
+test('multi-lane desktop changes union local proof commands', () => {
+  assert.deepEqual(
+    selectProofCommandsForFiles([
+      'apps/desktop/src/desktop-factory-reset.ts',
+      'apps/desktop/src/embedding-host-manager.ts',
+    ]),
+    [
+      'diff-check',
+      'desktop-unit-tests',
+      'desktop-ipc-reset-tests',
+      'desktop-runtime-host-tests',
+    ]
   );
 });
 
