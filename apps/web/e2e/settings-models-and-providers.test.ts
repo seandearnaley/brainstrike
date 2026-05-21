@@ -45,7 +45,7 @@ async function waitForPersistedModelState(
   );
 }
 
-test.describe('Models & Providers settings (web)', () => {
+test.describe('Models & Providers settings (web) @web-settings-state', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await resetAppState(page);

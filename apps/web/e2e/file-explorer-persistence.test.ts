@@ -262,7 +262,7 @@ async function seedPersistedSelectionState(
   );
 }
 
-test.describe('File Explorer persistence (web) @stateful', () => {
+test.describe('File Explorer persistence (web) @stateful @web-file-explorer-persistence', () => {
   test('restores last folder via stored handle after reload', async ({ page, browserName }) => {
     if (browserName !== 'chromium') {
       test.skip(true, 'File System Access API is only available in Chromium');

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { waitForAppLoad } from './utils/layout-helpers';
 
-test.describe('Web DB worker startup @stateful', { tag: '@smoke' }, () => {
+test.describe('Web DB worker startup @stateful @web-db-startup', { tag: '@smoke' }, () => {
   test('starts with PGlite owned by a browser worker', async ({ page }) => {
     const errors: string[] = [];
     const workerUrls: string[] = [];

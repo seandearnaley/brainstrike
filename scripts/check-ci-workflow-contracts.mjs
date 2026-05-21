@@ -479,6 +479,52 @@ function requireDesktopNarrowJobContracts(
   );
 }
 
+function requireWebNarrowJobContracts(source, { label, name, prefix, script, stepName }, failures) {
+  requirePrRiskLabelGate(source, prefix, [label], failures);
+  requireIncludes(source, `name: ${name}`, `${prefix} status name must stay stable.`, failures);
+  requireIncludes(
+    source,
+    'needs: [checks, prepare-web]',
+    `${prefix} must depend on checks and the prepared web artifact.`,
+    failures
+  );
+  requireIncludes(
+    source,
+    'image: mcr.microsoft.com/playwright:v1.59.1-noble',
+    `${prefix} must run in the preprovisioned Playwright Noble image.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'test:e2e:lane:full-regression',
+    `${prefix} must not silently expand to full web regression.`,
+    failures
+  );
+  requireNumericMatchAtMost(
+    extractJobHeader(source),
+    /^    timeout-minutes:\s*(\d+)\s*$/m,
+    15,
+    `${prefix} job timeout must stay at 15 minutes or less.`,
+    failures
+  );
+  const laneStep = requireSingleNamedStep(
+    source,
+    new RegExp(escapeRegExp(stepName), 'i'),
+    `${prefix} test step`,
+    failures
+  );
+  if (laneStep) {
+    requireNumericMatchAtMost(
+      laneStep,
+      /^\s+timeout-minutes:\s*(\d+)\s*$/m,
+      12,
+      `${prefix} test step timeout must stay at 12 minutes or less.`,
+      failures
+    );
+  }
+  requireIncludes(source, script, `${prefix} must run ${script}.`, failures);
+}
+
 function requirePreprovisionedPlaywrightJobContracts(source, prefix, failures) {
   requireIncludes(
     source,
@@ -749,6 +795,13 @@ export function validateWorkflowContracts(source) {
       mergeReports,
       'Merge Test Reports',
       [
+        'ci:web-smoke',
+        'ci:web-file-explorer-persistence',
+        'ci:web-import-indexing',
+        'ci:web-assistant-state',
+        'ci:web-settings-state',
+        'ci:web-db-startup',
+        'ci:web-destructive-reset',
         'ci:web-e2e',
         'ci:desktop-smoke',
         'ci:desktop-ipc-reset',
@@ -783,6 +836,72 @@ export function validateWorkflowContracts(source) {
       'Merge Test Reports must not assume download-artifact creates per-artifact subdirectories.',
       failures
     );
+  }
+
+  for (const narrowLane of [
+    {
+      jobName: 'web-e2e-smoke-pr',
+      label: 'ci:web-smoke',
+      name: 'Web E2E Smoke',
+      prefix: 'PR web smoke',
+      script: 'pnpm --filter @brainstrike/web run test:e2e:lane:smoke',
+      stepName: 'Run web smoke lane',
+    },
+    {
+      jobName: 'web-e2e-file-explorer-persistence-pr',
+      label: 'ci:web-file-explorer-persistence',
+      name: 'Web E2E File Explorer Persistence',
+      prefix: 'PR web file explorer persistence',
+      script: 'pnpm --filter @brainstrike/web run test:e2e:lane:file-explorer-persistence',
+      stepName: 'Run file explorer persistence lane',
+    },
+    {
+      jobName: 'web-e2e-import-indexing-pr',
+      label: 'ci:web-import-indexing',
+      name: 'Web E2E Import Indexing',
+      prefix: 'PR web import indexing',
+      script: 'pnpm --filter @brainstrike/web run test:e2e:lane:import-indexing',
+      stepName: 'Run import indexing lane',
+    },
+    {
+      jobName: 'web-e2e-assistant-state-pr',
+      label: 'ci:web-assistant-state',
+      name: 'Web E2E Assistant State',
+      prefix: 'PR web assistant state',
+      script: 'pnpm --filter @brainstrike/web run test:e2e:lane:assistant-state',
+      stepName: 'Run assistant state lane',
+    },
+    {
+      jobName: 'web-e2e-settings-state-pr',
+      label: 'ci:web-settings-state',
+      name: 'Web E2E Settings State',
+      prefix: 'PR web settings state',
+      script: 'pnpm --filter @brainstrike/web run test:e2e:lane:settings-state',
+      stepName: 'Run settings state lane',
+    },
+    {
+      jobName: 'web-e2e-db-startup-pr',
+      label: 'ci:web-db-startup',
+      name: 'Web E2E DB Startup',
+      prefix: 'PR web DB startup',
+      script: 'pnpm --filter @brainstrike/web run test:e2e:lane:db-startup',
+      stepName: 'Run DB startup lane',
+    },
+    {
+      jobName: 'web-e2e-destructive-reset-pr',
+      label: 'ci:web-destructive-reset',
+      name: 'Web E2E Destructive Reset',
+      prefix: 'PR web destructive reset',
+      script: 'pnpm --filter @brainstrike/web run test:e2e:lane:destructive-reset',
+      stepName: 'Run destructive reset lane',
+    },
+  ]) {
+    const job = extractJob(source, narrowLane.jobName);
+    if (!job) {
+      failures.push(`Missing ${narrowLane.jobName} job.`);
+      continue;
+    }
+    requireWebNarrowJobContracts(job, narrowLane, failures);
   }
 
   const desktopPr = extractJob(source, 'desktop-e2e-pr');
@@ -967,7 +1086,21 @@ export function validateWorkflowContracts(source) {
   if (!prepareWeb) {
     failures.push('Missing prepare-web job.');
   } else {
-    requireRiskLabelGate(prepareWeb, 'Build Web App', ['ci:web-e2e'], failures);
+    requireRiskLabelGate(
+      prepareWeb,
+      'Build Web App',
+      [
+        'ci:web-smoke',
+        'ci:web-file-explorer-persistence',
+        'ci:web-import-indexing',
+        'ci:web-assistant-state',
+        'ci:web-settings-state',
+        'ci:web-db-startup',
+        'ci:web-destructive-reset',
+        'ci:web-e2e',
+      ],
+      failures
+    );
   }
 
   const prepareDesktop = extractJob(source, 'prepare-desktop');
@@ -1314,6 +1447,13 @@ export function validateWorkflowContracts(source) {
     for (const [label, jobs] of [
       ['ci:coverage', ['unit_coverage']],
       ['ci:browser', ['browser-tests']],
+      ['ci:web-smoke', ['prepare-web', 'web-e2e-smoke-pr']],
+      ['ci:web-file-explorer-persistence', ['prepare-web', 'web-e2e-file-explorer-persistence-pr']],
+      ['ci:web-import-indexing', ['prepare-web', 'web-e2e-import-indexing-pr']],
+      ['ci:web-assistant-state', ['prepare-web', 'web-e2e-assistant-state-pr']],
+      ['ci:web-settings-state', ['prepare-web', 'web-e2e-settings-state-pr']],
+      ['ci:web-db-startup', ['prepare-web', 'web-e2e-db-startup-pr']],
+      ['ci:web-destructive-reset', ['prepare-web', 'web-e2e-destructive-reset-pr']],
       ['ci:web-e2e', ['prepare-web', 'e2e', 'e2e-stateful', 'e2e-destructive']],
       ['ci:desktop-smoke', ['prepare-desktop', 'desktop-e2e-smoke-pr']],
       ['ci:desktop-ipc-reset', ['prepare-desktop', 'desktop-e2e-ipc-reset-pr']],

@@ -38,16 +38,16 @@ test('config and tooling changes select script contract proof without full e2e b
   });
 });
 
-test('assistant contract changes select assistant proof and avoid embedding diagnostics', () => {
+test('assistant contract changes select assistant proof and assistant-state lane', () => {
   assert.deepEqual(
     selectRiskProfileForFiles(['packages/assistant-contract/src/runtime-data.ts']),
     {
       category: 'assistant-contract-runtime',
       domains: ['assistant'],
-      e2eLanes: ['critical-smoke'],
+      e2eLanes: ['web-assistant-state'],
       proofCommands: ['diff-check', 'assistant-contract-tests', 'app-shell-tests'],
       riskLevel: 'medium',
-      cloudLabels: ['ci:web-e2e', 'ci:coverage'],
+      cloudLabels: ['ci:web-assistant-state', 'ci:coverage'],
     }
   );
 });
@@ -72,7 +72,7 @@ test('db migrations select db proof without full web functional e2e', () => {
     {
       category: 'db-migrations-storage',
       domains: ['data-platform'],
-      e2eLanes: ['destructive-reset'],
+      e2eLanes: [],
       proofCommands: ['diff-check', 'db-schema-migration-tests', 'db-integration-tests'],
       riskLevel: 'high',
       cloudLabels: ['ci:browser', 'ci:coverage'],
@@ -140,12 +140,105 @@ test('web file explorer changes select web stateful proof but not desktop embedd
     {
       category: 'web-ui-file-explorer',
       domains: ['workspace-experience'],
-      e2eLanes: ['web-functional-stateful'],
-      proofCommands: ['diff-check', 'file-explorer-tests', 'web-smoke-tests'],
+      e2eLanes: ['web-file-explorer-persistence'],
+      proofCommands: [
+        'diff-check',
+        'file-explorer-tests',
+        'web-file-explorer-persistence-tests',
+      ],
       riskLevel: 'medium',
-      cloudLabels: ['ci:web-e2e', 'ci:coverage'],
+      cloudLabels: ['ci:web-file-explorer-persistence', 'ci:coverage'],
     }
   );
+});
+
+test('web file explorer changes do not select unrelated product lanes', () => {
+  assert.deepEqual(
+    selectRiskLanesForFiles(['packages/file-explorer-ui/src/tree/optimized-file-tree.tsx']),
+    ['ci:web-file-explorer-persistence', 'ci:coverage']
+  );
+});
+
+test('web import UI changes select import/indexing without full web regression', () => {
+  assert.deepEqual(selectRiskProfileForFiles(['apps/web/e2e/database-import-backfill.test.ts']), {
+    category: 'web-import-indexing',
+    domains: ['workspace-experience', 'indexing'],
+    e2eLanes: ['web-import-indexing'],
+    proofCommands: ['diff-check', 'indexing-tests', 'web-import-indexing-tests'],
+    riskLevel: 'medium',
+    cloudLabels: ['ci:web-import-indexing', 'ci:coverage'],
+  });
+  assert.deepEqual(selectRiskLanesForFiles(['apps/web/e2e/database-import-backfill.test.ts']), [
+    'ci:web-import-indexing',
+    'ci:coverage',
+  ]);
+});
+
+test('web assistant UI changes select assistant-state only plus coverage', () => {
+  assert.deepEqual(selectRiskProfileForFiles(['packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx']), {
+    category: 'assistant-contract-runtime',
+    domains: ['assistant'],
+    e2eLanes: ['web-assistant-state'],
+    proofCommands: ['diff-check', 'assistant-contract-tests', 'app-shell-tests'],
+    riskLevel: 'medium',
+    cloudLabels: ['ci:web-assistant-state', 'ci:coverage'],
+  });
+  assert.deepEqual(selectRiskLanesForFiles(['packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx']), [
+    'ci:web-assistant-state',
+    'ci:coverage',
+  ]);
+});
+
+test('web settings persistence changes select settings-state only', () => {
+  assert.deepEqual(selectRiskProfileForFiles(['apps/web/e2e/settings-models-and-providers.test.ts']), {
+    category: 'web-settings-state',
+    domains: ['applications'],
+    e2eLanes: ['web-settings-state'],
+    proofCommands: ['diff-check', 'web-settings-state-tests'],
+    riskLevel: 'medium',
+    cloudLabels: ['ci:web-settings-state', 'ci:coverage'],
+  });
+  assert.deepEqual(selectRiskLanesForFiles(['apps/web/e2e/settings-models-and-providers.test.ts']), [
+    'ci:web-settings-state',
+    'ci:coverage',
+  ]);
+});
+
+test('web db startup changes select db-startup without full web regression', () => {
+  assert.deepEqual(selectRiskProfileForFiles(['apps/web/e2e/web-db-worker-startup.test.ts']), {
+    category: 'web-db-startup',
+    domains: ['applications', 'data-platform'],
+    e2eLanes: ['web-db-startup'],
+    proofCommands: ['diff-check', 'web-db-startup-tests'],
+    riskLevel: 'medium',
+    cloudLabels: ['ci:web-db-startup', 'ci:coverage'],
+  });
+  assert.deepEqual(selectRiskLanesForFiles(['apps/web/e2e/web-db-worker-startup.test.ts']), [
+    'ci:web-db-startup',
+    'ci:coverage',
+  ]);
+});
+
+test('web destructive reset changes select destructive reset only', () => {
+  assert.deepEqual(selectRiskProfileForFiles(['apps/web/e2e/factory-reset-recovery.test.ts']), {
+    category: 'web-destructive-reset',
+    domains: ['applications', 'data-platform'],
+    e2eLanes: ['web-destructive-reset'],
+    proofCommands: ['diff-check', 'web-destructive-reset-tests'],
+    riskLevel: 'high',
+    cloudLabels: ['ci:web-destructive-reset', 'ci:coverage'],
+  });
+});
+
+test('broad web app shell changes still select full web regression', () => {
+  assert.deepEqual(selectRiskProfileForFiles(['apps/web/src/App.tsx']), {
+    category: 'web-full-regression',
+    domains: ['applications'],
+    e2eLanes: ['web-full-regression'],
+    proofCommands: ['diff-check', 'web-full-regression-tests'],
+    riskLevel: 'high',
+    cloudLabels: ['ci:web-e2e', 'ci:coverage'],
+  });
 });
 
 test('desktop preload changes select desktop smoke and regression without embedding diagnostics', () => {
@@ -223,19 +316,25 @@ test('release workflow changes select full release proof explicitly', () => {
   assert.deepEqual(selectRiskProfileForFiles(['.github/workflows/test.yml']), {
     category: 'full-release-high-risk',
     domains: ['ci-platform'],
-    e2eLanes: [
-      'critical-smoke',
-      'web-functional-stateful',
-      'desktop-smoke',
-      'desktop-ipc-reset',
-      'desktop-runtime-hosts',
-      'desktop-db-storage',
-      'desktop-full-regression',
-      'desktop-embedding-diagnostics',
-      'desktop-llm-host-recovery',
-      'destructive-reset',
-      'long-soak-release-only',
-    ],
+      e2eLanes: [
+        'critical-smoke',
+        'web-smoke',
+        'web-file-explorer-persistence',
+        'web-import-indexing',
+        'web-assistant-state',
+        'web-settings-state',
+        'web-db-startup',
+        'web-destructive-reset',
+        'web-full-regression',
+        'desktop-smoke',
+        'desktop-ipc-reset',
+        'desktop-runtime-hosts',
+        'desktop-db-storage',
+        'desktop-full-regression',
+        'desktop-embedding-diagnostics',
+        'desktop-llm-host-recovery',
+        'long-soak-release-only',
+      ],
     proofCommands: ['diff-check', 'ci-script-tests', 'workflow-contracts', 'full-local-suite'],
     riskLevel: 'full',
     cloudLabels: ['ci:full'],
@@ -261,11 +360,11 @@ test('isolated unit-test-only changes avoid product e2e lanes', () => {
 
 test('e2e test-only changes stay in their product lane', () => {
   assert.deepEqual(selectRiskProfileForFiles(['apps/web/e2e/layout-persistence.test.ts']), {
-    category: 'web-ui-file-explorer',
-    domains: ['workspace-experience'],
-    e2eLanes: ['web-functional-stateful'],
-    proofCommands: ['diff-check', 'file-explorer-tests', 'web-smoke-tests'],
-    riskLevel: 'medium',
+    category: 'web-full-regression',
+    domains: ['applications'],
+    e2eLanes: ['web-full-regression'],
+    proofCommands: ['diff-check', 'web-full-regression-tests'],
+    riskLevel: 'high',
     cloudLabels: ['ci:web-e2e', 'ci:coverage'],
   });
 });
@@ -280,6 +379,13 @@ test('workflow and CI script changes select the full lane', () => {
   );
   assert.deepEqual(expandRiskLanes(['ci:full']), [
     'ci:browser',
+    'ci:web-smoke',
+    'ci:web-file-explorer-persistence',
+    'ci:web-import-indexing',
+    'ci:web-assistant-state',
+    'ci:web-settings-state',
+    'ci:web-db-startup',
+    'ci:web-destructive-reset',
     'ci:web-e2e',
     'ci:desktop-smoke',
     'ci:desktop-ipc-reset',
@@ -360,7 +466,7 @@ test('desktop llm host changes select llm recovery without embedding lanes', () 
   ]);
 });
 
-test('web app changes select web e2e and coverage lanes', () => {
+test('web app changes select full web e2e and coverage lanes', () => {
   assert.deepEqual(selectRiskLanesForFiles(['apps/web/src/App.tsx']), [
     'ci:web-e2e',
     'ci:coverage',

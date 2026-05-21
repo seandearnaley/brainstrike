@@ -20,11 +20,53 @@ export const E2E_LANES = {
     owner: 'applications',
     tagContract: '@smoke',
   },
-  'web-functional-stateful': {
+  'web-smoke': {
+    command:
+      'pnpm --filter @brainstrike/web exec playwright test --project=functional --grep "@smoke" --workers=2',
+    owner: 'applications',
+    tagContract: '@smoke',
+  },
+  'web-file-explorer-persistence': {
+    command:
+      'pnpm --filter @brainstrike/web exec playwright test e2e/file-explorer-persistence.test.ts --project=functional --workers=1 --grep "@web-file-explorer-persistence"',
+    owner: 'workspace-experience',
+    tagContract: '@web-file-explorer-persistence',
+  },
+  'web-import-indexing': {
+    command:
+      'pnpm --filter @brainstrike/web exec playwright test e2e/database-import-backfill.test.ts --project=functional --workers=1 --grep "@web-import-indexing"',
+    owner: 'indexing',
+    tagContract: '@web-import-indexing',
+  },
+  'web-assistant-state': {
+    command:
+      'pnpm --filter @brainstrike/web exec playwright test e2e/assistant-ui-panel.test.ts e2e/assistant-local-availability.test.ts e2e/assistant-panel.test.ts e2e/assistant-panel-interactions.test.ts --project=functional --workers=1 --grep "@web-assistant-state"',
+    owner: 'assistant',
+    tagContract: '@web-assistant-state',
+  },
+  'web-settings-state': {
+    command:
+      'pnpm --filter @brainstrike/web exec playwright test e2e/background-indexing-settings.test.ts e2e/settings-models-and-providers.test.ts --project=functional --workers=1 --grep "@web-settings-state"',
+    owner: 'applications',
+    tagContract: '@web-settings-state',
+  },
+  'web-db-startup': {
+    command:
+      'pnpm --filter @brainstrike/web exec playwright test e2e/tools-panel-persistence.test.ts e2e/web-db-worker-startup.test.ts e2e/embedding-worker-telemetry.test.ts --project=functional --workers=1 --grep "@web-db-startup"',
+    owner: 'data-platform',
+    tagContract: '@web-db-startup',
+  },
+  'web-destructive-reset': {
+    command:
+      'pnpm --filter @brainstrike/web exec playwright test e2e/factory-reset-recovery.test.ts --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep "@web-destructive-reset"',
+    owner: 'data-platform',
+    tagContract: '@web-destructive-reset',
+  },
+  'web-full-regression': {
     command:
       'cd apps/web && pnpm exec playwright test --project=functional --workers=2 --grep-invert "@destructive|@stateful" && pnpm exec playwright test --project=functional --workers=1 --grep "@stateful"',
     owner: 'applications',
-    tagContract: 'functional plus @stateful',
+    tagContract: 'functional plus stateful/destructive web lanes',
   },
   'desktop-smoke': {
     command: 'pnpm --filter @brainstrike/desktop exec playwright test --project=smoke',
@@ -66,12 +108,6 @@ export const E2E_LANES = {
       'pnpm --filter @brainstrike/desktop exec playwright test e2e/llm-host-renderer.test.ts --project=regression --grep "@desktop-llm-host-recovery"',
     owner: 'desktop-platform',
     tagContract: '@desktop-llm-host-recovery focused hidden LLM host restart path only',
-  },
-  'destructive-reset': {
-    command:
-      '(cd apps/web && pnpm exec playwright test --project=functional --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep "@destructive") && (cd apps/desktop && pnpm exec playwright test e2e/factory-reset.desktop.test.ts --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=600000 --grep "@destructive")',
-    owner: 'data-platform',
-    tagContract: '@destructive web reset plus desktop factory reset',
   },
   'long-soak-release-only': {
     command: 'pnpm test:e2e',
@@ -266,11 +302,59 @@ export const LOCAL_PROOF_COMMANDS = {
   },
   'web-smoke-tests': {
     name: 'web-smoke-tests',
-    command:
-      'pnpm --filter @brainstrike/web exec playwright test --project=functional --grep "@smoke" --workers=2',
+    command: 'pnpm --filter @brainstrike/web run test:e2e:lane:smoke',
     budgetMs: 300_000,
     owner: 'applications',
-    requiredFor: ['web-ui-file-explorer', 'assistant-contract-runtime'],
+    requiredFor: ['web-smoke'],
+  },
+  'web-file-explorer-persistence-tests': {
+    name: 'web-file-explorer-persistence-tests',
+    command: 'pnpm --filter @brainstrike/web run test:e2e:lane:file-explorer-persistence',
+    budgetMs: 360_000,
+    owner: 'workspace-experience',
+    requiredFor: ['web-ui-file-explorer'],
+  },
+  'web-import-indexing-tests': {
+    name: 'web-import-indexing-tests',
+    command: 'pnpm --filter @brainstrike/web run test:e2e:lane:import-indexing',
+    budgetMs: 420_000,
+    owner: 'indexing',
+    requiredFor: ['web-import-indexing'],
+  },
+  'web-assistant-state-tests': {
+    name: 'web-assistant-state-tests',
+    command: 'pnpm --filter @brainstrike/web run test:e2e:lane:assistant-state',
+    budgetMs: 360_000,
+    owner: 'assistant',
+    requiredFor: ['assistant-contract-runtime'],
+  },
+  'web-settings-state-tests': {
+    name: 'web-settings-state-tests',
+    command: 'pnpm --filter @brainstrike/web run test:e2e:lane:settings-state',
+    budgetMs: 360_000,
+    owner: 'applications',
+    requiredFor: ['web-settings-state'],
+  },
+  'web-db-startup-tests': {
+    name: 'web-db-startup-tests',
+    command: 'pnpm --filter @brainstrike/web run test:e2e:lane:db-startup',
+    budgetMs: 360_000,
+    owner: 'data-platform',
+    requiredFor: ['web-db-startup'],
+  },
+  'web-destructive-reset-tests': {
+    name: 'web-destructive-reset-tests',
+    command: 'pnpm --filter @brainstrike/web run test:e2e:lane:destructive-reset',
+    budgetMs: 360_000,
+    owner: 'data-platform',
+    requiredFor: ['web-destructive-reset'],
+  },
+  'web-full-regression-tests': {
+    name: 'web-full-regression-tests',
+    command: 'pnpm --filter @brainstrike/web run test:e2e:lane:full-regression',
+    budgetMs: 900_000,
+    owner: 'applications',
+    requiredFor: ['web-full-regression'],
   },
   'shared-foundation-tests': {
     name: 'shared-foundation-tests',
