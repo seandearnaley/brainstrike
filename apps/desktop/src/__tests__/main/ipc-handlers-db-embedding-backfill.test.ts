@@ -109,7 +109,7 @@ describe('database IPC embedding backfill handlers', () => {
     mockDb.query.mockResolvedValue({ rows: [] });
     enqueueEmbeddingBackfillMock.mockImplementationOnce(
       async (db: { query: (sql: string, params?: unknown[]) => Promise<unknown> }) => {
-        await db.query('manual backfill queue refill', []);
+        await db.query('SELECT manual_backfill_queue_refill', []);
         return {
           queued: 0,
           running: 0,
@@ -151,7 +151,7 @@ describe('database IPC embedding backfill handlers', () => {
     mockDb.query.mockResolvedValue({ rows: [] });
     enqueueEmbeddingBackfillMock.mockImplementationOnce(
       async (db: { query: (sql: string, params?: unknown[]) => Promise<unknown> }) => {
-        await db.query('background backfill query', []);
+        await db.query('SELECT background_backfill_query', []);
         return {
           queued: 0,
           running: 0,

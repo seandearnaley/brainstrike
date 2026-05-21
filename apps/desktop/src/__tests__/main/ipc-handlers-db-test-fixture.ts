@@ -83,6 +83,7 @@ const {
   const closeDatabaseMock = vi.fn();
   const resetDesktopApplicationDataMock = vi.fn(async () => ({
     deletedPaths: [],
+    pendingDeletionPaths: [],
     preservedPaths: [],
   }));
   const enqueueEmbeddingBackfillMock = vi.fn();

@@ -64,4 +64,14 @@ describe('database IPC domain', () => {
       'db:exec SQL must be a non-empty string.'
     );
   });
+
+  it('keeps raw renderer SQL inside the documented app-internal policy', async () => {
+    await expect(
+      handlers.get('db:query')?.({} as IpcMainInvokeEvent, 'DROP TABLE file_records')
+    ).rejects.toThrow('db:query does not permit destructive schema SQL from the renderer.');
+
+    await expect(
+      handlers.get('db:exec')?.({} as IpcMainInvokeEvent, 'DROP TABLE file_records')
+    ).rejects.toThrow('db:exec does not permit destructive schema SQL from the renderer.');
+  });
 });
