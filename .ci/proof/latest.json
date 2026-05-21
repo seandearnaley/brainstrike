@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-21T03:29:58.712Z",
+  "generatedAt": "2026-05-21T05:00:38.994Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "33db38fbee6b06671b8a9f42dd292eb2328644ed",
+  "testedHeadSha": "4de61c934839b1fac1c794783745348146674af2",
   "selection": {
     "base": "origin/main",
     "baseSha": "0fc94414c0edb4f546faad2385762cc634df1008",
     "head": "HEAD",
-    "headSha": "33db38fbee6b06671b8a9f42dd292eb2328644ed",
+    "headSha": "4de61c934839b1fac1c794783745348146674af2",
     "mergeBase": "0fc94414c0edb4f546faad2385762cc634df1008",
     "files": [
       ".ci/proof/latest.json",
@@ -117,6 +117,7 @@
       "apps/desktop/src/register-background-runtime-lifecycle-ipc.ts",
       "apps/desktop/src/renderer/components/context-explorer-page-content.tsx",
       "apps/desktop/src/renderer/components/root-layout-content.tsx",
+      "apps/desktop/src/renderer/components/settings/__tests__/logging-settings.test.tsx",
       "apps/desktop/src/renderer/components/settings/page-content.tsx",
       "apps/desktop/src/renderer/main.tsx",
       "apps/desktop/src/types/electron.d.ts",
@@ -292,7 +293,9 @@
       "packages/build-utils/README.md",
       "packages/build-utils/package.json",
       "packages/build-utils/src/__tests__/architecture-boundary.test.ts",
+      "packages/build-utils/src/__tests__/build-logger.test.ts",
       "packages/build-utils/src/__tests__/compiler-hotspots.test.ts",
+      "packages/build-utils/src/__tests__/vite.enhanced.test.ts",
       "packages/build-utils/src/build-logger.ts",
       "packages/build-utils/src/compiler-hotspots.ts",
       "packages/build-utils/src/vite.ts",
@@ -733,7 +736,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 10
+      "durationMs": 66
     },
     {
       "name": "ci-script-tests",
@@ -742,7 +745,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 312
+      "durationMs": 3104
     },
     {
       "name": "workflow-contracts",
@@ -751,7 +754,7 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 279
+      "durationMs": 4182
     },
     {
       "name": "full-local-suite",
@@ -760,7 +763,7 @@
       "budgetMs": 2700000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 1378965
+      "durationMs": 1693115
     }
   ]
 }
