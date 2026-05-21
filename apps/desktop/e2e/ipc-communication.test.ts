@@ -1,7 +1,7 @@
 import { expect, test } from './fixtures/electron-fixture';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
-test.describe('IPC Communication', { tag: '@smoke' }, () => {
+test.describe('IPC Communication', { tag: '@desktop-ipc-reset' }, () => {
   test.beforeEach(async ({ window }) => {
     const { mockFileSystemOperations } = await loadElectronHelpers();
     await mockFileSystemOperations(window);

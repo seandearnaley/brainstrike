@@ -2,7 +2,7 @@ import { expect, test } from './fixtures/electron-fixture';
 
 test.describe.configure({ mode: 'serial' });
 
-test.describe('Desktop startup bridge contract', () => {
+test.describe('Desktop startup bridge contract @desktop-ipc-reset', () => {
   test('fails fast with a startup contract error when critical preload bridges are missing', async ({
     electronHarness,
   }) => {

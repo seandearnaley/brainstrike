@@ -64,7 +64,7 @@ async function assertVisibleWindowResponsive(page: Page): Promise<void> {
 test.describe('LLM Host Renderer', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test('@desktop-llm-host-recovery hidden llm host can restart without reloading the visible window', async ({
+  test('@desktop-runtime-hosts @desktop-llm-host-recovery hidden llm host can restart without reloading the visible window', async ({
     electronApp,
     window,
   }) => {

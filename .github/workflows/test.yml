@@ -49,10 +49,20 @@ jobs:
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
 
+      - name: Read live pull request labels
+        id: pr-labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          labels="$(gh pr view "$PR_NUMBER" --json labels --jq '[.labels[].name] | join(",")')"
+          echo "labels=$labels" >> "$GITHUB_OUTPUT"
+
       - name: Verify local proof and risk routing
         id: verify-proof
         env:
-          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR_LABELS: ${{ steps.pr-labels.outputs.labels }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
@@ -540,6 +550,10 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
+      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-smoke') ||
+      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-ipc-reset') ||
+      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-runtime-hosts') ||
+      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-db-storage') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:embedding')
     needs: checks
@@ -969,6 +983,230 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
+  desktop-e2e-smoke-pr:
+    name: Desktop E2E Smoke
+    if: >-
+      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
+      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-smoke')
+    needs: [prepare-desktop]
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
+    timeout-minutes: 10
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      TURBO_CACHE_DIR: .turbo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+        with:
+          skip-electron: 'false'
+
+      - name: Setup desktop E2E
+        uses: ./.github/actions/setup-desktop-e2e
+
+      - name: Run Desktop E2E smoke lane
+        timeout-minutes: 8
+        working-directory: apps/desktop
+        run: |
+          export DISPLAY=":107"
+          LOCK_FILE="/tmp/.X107-lock"
+          [ -f "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
+
+          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
+          XVFB_PID=$!
+          sleep 3
+
+          if ! kill -0 $XVFB_PID 2>/dev/null; then
+            echo "ERROR: Xvfb process died unexpectedly"
+            exit 1
+          fi
+
+          unset NO_COLOR
+          pnpm run test:e2e:lane:smoke
+          TEST_EXIT_CODE=$?
+
+          kill $XVFB_PID 2>/dev/null || true
+          exit $TEST_EXIT_CODE
+        env:
+          NODE_ENV: "test"
+          CI: "true"
+          RUN_SALT: ${{ github.run_id }}
+          ELECTRON_ENABLE_STACK_DUMPING: "false"
+          ELECTRON_DISABLE_GPU: "1"
+
+  desktop-e2e-ipc-reset-pr:
+    name: Desktop E2E IPC Reset
+    if: >-
+      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
+      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-ipc-reset')
+    needs: [prepare-desktop]
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
+    timeout-minutes: 10
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      TURBO_CACHE_DIR: .turbo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+        with:
+          skip-electron: 'false'
+
+      - name: Setup desktop E2E
+        uses: ./.github/actions/setup-desktop-e2e
+
+      - name: Run Desktop E2E IPC reset lane
+        timeout-minutes: 8
+        working-directory: apps/desktop
+        run: |
+          export DISPLAY=":108"
+          LOCK_FILE="/tmp/.X108-lock"
+          [ -f "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
+
+          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
+          XVFB_PID=$!
+          sleep 3
+
+          if ! kill -0 $XVFB_PID 2>/dev/null; then
+            echo "ERROR: Xvfb process died unexpectedly"
+            exit 1
+          fi
+
+          unset NO_COLOR
+          pnpm run test:e2e:lane:ipc-reset
+          TEST_EXIT_CODE=$?
+
+          kill $XVFB_PID 2>/dev/null || true
+          exit $TEST_EXIT_CODE
+        env:
+          NODE_ENV: "test"
+          CI: "true"
+          RUN_SALT: ${{ github.run_id }}
+          ELECTRON_ENABLE_STACK_DUMPING: "false"
+          ELECTRON_DISABLE_GPU: "1"
+
+  desktop-e2e-runtime-hosts-pr:
+    name: Desktop E2E Runtime Hosts
+    if: >-
+      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
+      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-runtime-hosts')
+    needs: [prepare-desktop]
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
+    timeout-minutes: 10
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      TURBO_CACHE_DIR: .turbo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+        with:
+          skip-electron: 'false'
+
+      - name: Setup desktop E2E
+        uses: ./.github/actions/setup-desktop-e2e
+
+      - name: Run Desktop E2E runtime hosts lane
+        timeout-minutes: 8
+        working-directory: apps/desktop
+        run: |
+          export DISPLAY=":109"
+          LOCK_FILE="/tmp/.X109-lock"
+          [ -f "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
+
+          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
+          XVFB_PID=$!
+          sleep 3
+
+          if ! kill -0 $XVFB_PID 2>/dev/null; then
+            echo "ERROR: Xvfb process died unexpectedly"
+            exit 1
+          fi
+
+          unset NO_COLOR
+          pnpm run test:e2e:lane:runtime-hosts
+          TEST_EXIT_CODE=$?
+
+          kill $XVFB_PID 2>/dev/null || true
+          exit $TEST_EXIT_CODE
+        env:
+          NODE_ENV: "test"
+          CI: "true"
+          RUN_SALT: ${{ github.run_id }}
+          ELECTRON_ENABLE_STACK_DUMPING: "false"
+          ELECTRON_DISABLE_GPU: "1"
+
+  desktop-e2e-db-storage-pr:
+    name: Desktop E2E DB Storage
+    if: >-
+      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
+      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-db-storage')
+    needs: [prepare-desktop]
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
+    timeout-minutes: 10
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      TURBO_CACHE_DIR: .turbo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+        with:
+          skip-electron: 'false'
+
+      - name: Setup desktop E2E
+        uses: ./.github/actions/setup-desktop-e2e
+
+      - name: Run Desktop E2E DB storage lane
+        timeout-minutes: 8
+        working-directory: apps/desktop
+        run: |
+          export DISPLAY=":110"
+          LOCK_FILE="/tmp/.X110-lock"
+          [ -f "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
+
+          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
+          XVFB_PID=$!
+          sleep 3
+
+          if ! kill -0 $XVFB_PID 2>/dev/null; then
+            echo "ERROR: Xvfb process died unexpectedly"
+            exit 1
+          fi
+
+          unset NO_COLOR
+          pnpm run test:e2e:lane:db-storage
+          TEST_EXIT_CODE=$?
+
+          kill $XVFB_PID 2>/dev/null || true
+          exit $TEST_EXIT_CODE
+        env:
+          NODE_ENV: "test"
+          CI: "true"
+          RUN_SALT: ${{ github.run_id }}
+          ELECTRON_ENABLE_STACK_DUMPING: "false"
+          ELECTRON_DISABLE_GPU: "1"
+
   desktop-e2e-embedding-pr:
     name: Desktop E2E Embedding Regression (${{ matrix.group }})
     if: >-
@@ -1379,11 +1617,15 @@ jobs:
         github.event_name == 'workflow_dispatch' ||
         contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
         contains(join(github.event.pull_request.labels.*.name, ','), 'ci:web-e2e') ||
+        contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-smoke') ||
+        contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-ipc-reset') ||
+        contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-runtime-hosts') ||
+        contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-db-storage') ||
         contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop') ||
         contains(join(github.event.pull_request.labels.*.name, ','), 'ci:embedding')
       ) &&
-      (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.e2e-stateful.result == 'success' || needs.e2e-destructive.result == 'success' || needs.desktop-e2e-pr.result == 'success' || needs.desktop-e2e-embedding-pr.result == 'success' || needs.desktop-e2e-main.result == 'success' || needs.desktop-e2e-embedding-main.result == 'success')
-    needs: [checks, e2e, e2e-stateful, e2e-destructive, desktop-e2e-pr, desktop-e2e-embedding-pr, desktop-e2e-main, desktop-e2e-embedding-main]
+      (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.e2e-stateful.result == 'success' || needs.e2e-destructive.result == 'success' || needs.desktop-e2e-pr.result == 'success' || needs.desktop-e2e-smoke-pr.result == 'success' || needs.desktop-e2e-ipc-reset-pr.result == 'success' || needs.desktop-e2e-runtime-hosts-pr.result == 'success' || needs.desktop-e2e-db-storage-pr.result == 'success' || needs.desktop-e2e-embedding-pr.result == 'success' || needs.desktop-e2e-main.result == 'success' || needs.desktop-e2e-embedding-main.result == 'success')
+    needs: [checks, e2e, e2e-stateful, e2e-destructive, desktop-e2e-pr, desktop-e2e-smoke-pr, desktop-e2e-ipc-reset-pr, desktop-e2e-runtime-hosts-pr, desktop-e2e-db-storage-pr, desktop-e2e-embedding-pr, desktop-e2e-main, desktop-e2e-embedding-main]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -1484,6 +1726,10 @@ jobs:
       - e2e-stateful
       - e2e-destructive
       - desktop-e2e-pr
+      - desktop-e2e-smoke-pr
+      - desktop-e2e-ipc-reset-pr
+      - desktop-e2e-runtime-hosts-pr
+      - desktop-e2e-db-storage-pr
       - desktop-e2e-embedding-pr
       - merge-reports
     runs-on: ubuntu-latest
@@ -1503,6 +1749,10 @@ jobs:
             ['ci:coverage', ['unit_coverage']],
             ['ci:browser', ['browser-tests']],
             ['ci:web-e2e', ['prepare-web', 'e2e', 'e2e-stateful', 'e2e-destructive']],
+            ['ci:desktop-smoke', ['prepare-desktop', 'desktop-e2e-smoke-pr']],
+            ['ci:desktop-ipc-reset', ['prepare-desktop', 'desktop-e2e-ipc-reset-pr']],
+            ['ci:desktop-runtime-hosts', ['prepare-desktop', 'desktop-e2e-runtime-hosts-pr']],
+            ['ci:desktop-db-storage', ['prepare-desktop', 'desktop-e2e-db-storage-pr']],
             ['ci:desktop', ['prepare-desktop', 'desktop-e2e-pr']],
             ['ci:embedding', ['prepare-desktop', 'desktop-e2e-embedding-pr']],
           ]);

@@ -118,7 +118,7 @@ test.describe('Electron App Launch', () => {
     await homePage.shouldBeVisible();
   });
 
-  test('keeps background throttling scoped to hidden embedding hosts', async ({
+  test('@desktop-runtime-hosts keeps background throttling scoped to hidden embedding hosts', async ({
     electronApp,
     window,
   }) => {

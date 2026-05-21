@@ -582,6 +582,42 @@ test('workflow contract fails when the PR gate label job map drifts', () => {
   );
 });
 
+test('workflow contract fails when a narrow desktop lane job drops its label gate', () => {
+  const ipcReset = extractJob(workflowSource, 'desktop-e2e-ipc-reset-pr');
+  assert.ok(ipcReset);
+
+  const source = workflowSource.replace(
+    ipcReset,
+    ipcReset.replace(
+      "contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop-ipc-reset')",
+      "contains(join(github.event.pull_request.labels.*.name, ','), 'ci:desktop')"
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /PR desktop IPC reset must run on PRs labeled ci:desktop-ipc-reset/
+  );
+});
+
+test('workflow contract fails when the PR gate forgets a narrow desktop lane', () => {
+  const prGate = extractJob(workflowSource, 'required-pr-gate');
+  assert.ok(prGate);
+
+  const source = workflowSource.replace(
+    prGate,
+    prGate.replace(
+      "['ci:desktop-ipc-reset', ['prepare-desktop', 'desktop-e2e-ipc-reset-pr']],",
+      ''
+    )
+  );
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /Required PR Gate must map ci:desktop-ipc-reset to prepare-desktop, desktop-e2e-ipc-reset-pr/
+  );
+});
+
 test('workflow contract fails when PR desktop E2E is smoke-only', () => {
   const desktopPr = extractJob(workflowSource, 'desktop-e2e-pr');
   assert.ok(desktopPr);

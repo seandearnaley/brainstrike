@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   expandRiskLanes,
+  selectProofCommandsForFiles,
   selectRiskProfileForFiles,
   selectRiskLanesForFiles,
   toRiskLabels,
@@ -151,11 +152,71 @@ test('desktop preload changes select desktop smoke and regression without embedd
   assert.deepEqual(selectRiskProfileForFiles(['apps/desktop/src/preload.ts']), {
     category: 'desktop-platform-ipc-preload',
     domains: ['desktop-platform'],
-    e2eLanes: ['desktop-smoke-regression'],
-    proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-smoke-tests'],
+    e2eLanes: ['desktop-full-regression'],
+    proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-full-regression-tests'],
     riskLevel: 'high',
     cloudLabels: ['ci:desktop', 'ci:coverage'],
   });
+});
+
+test('desktop factory reset changes select reset lane without full desktop regression', () => {
+  assert.deepEqual(selectRiskProfileForFiles(['apps/desktop/src/desktop-factory-reset.ts']), {
+    category: 'desktop-ipc-reset',
+    domains: ['desktop-platform'],
+    e2eLanes: ['desktop-ipc-reset'],
+    proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-ipc-reset-tests'],
+    riskLevel: 'medium',
+    cloudLabels: ['ci:desktop-ipc-reset', 'ci:coverage'],
+  });
+  assert.deepEqual(selectRiskLanesForFiles(['apps/desktop/src/desktop-factory-reset.ts']), [
+    'ci:desktop-ipc-reset',
+    'ci:coverage',
+  ]);
+});
+
+test('desktop db IPC changes select db storage lane without embedding diagnostics', () => {
+  assert.deepEqual(selectRiskProfileForFiles(['apps/desktop/src/ipc-domains/db-ipc.ts']), {
+    category: 'desktop-db-storage',
+    domains: ['desktop-platform', 'data-platform'],
+    e2eLanes: ['desktop-db-storage'],
+    proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-db-storage-tests'],
+    riskLevel: 'medium',
+    cloudLabels: ['ci:desktop-db-storage', 'ci:coverage'],
+  });
+  assert.deepEqual(selectRiskLanesForFiles(['apps/desktop/src/ipc-domains/db-ipc.ts']), [
+    'ci:desktop-db-storage',
+    'ci:coverage',
+  ]);
+});
+
+test('desktop hidden host lifecycle changes select runtime host lane only', () => {
+  assert.deepEqual(selectRiskProfileForFiles(['apps/desktop/src/embedding-host-manager.ts']), {
+    category: 'desktop-runtime-hosts',
+    domains: ['desktop-platform', 'indexing'],
+    e2eLanes: ['desktop-runtime-hosts'],
+    proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-runtime-host-tests'],
+    riskLevel: 'high',
+    cloudLabels: ['ci:desktop-runtime-hosts', 'ci:coverage'],
+  });
+  assert.deepEqual(selectRiskLanesForFiles(['apps/desktop/src/embedding-host-manager.ts']), [
+    'ci:desktop-runtime-hosts',
+    'ci:coverage',
+  ]);
+});
+
+test('desktop main process changes still select full desktop regression', () => {
+  assert.deepEqual(selectRiskProfileForFiles(['apps/desktop/src/main.ts']), {
+    category: 'desktop-platform-ipc-preload',
+    domains: ['desktop-platform'],
+    e2eLanes: ['desktop-full-regression'],
+    proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-full-regression-tests'],
+    riskLevel: 'high',
+    cloudLabels: ['ci:desktop', 'ci:coverage'],
+  });
+  assert.deepEqual(selectRiskLanesForFiles(['apps/desktop/src/main.ts']), [
+    'ci:desktop',
+    'ci:coverage',
+  ]);
 });
 
 test('release workflow changes select full release proof explicitly', () => {
@@ -165,7 +226,11 @@ test('release workflow changes select full release proof explicitly', () => {
     e2eLanes: [
       'critical-smoke',
       'web-functional-stateful',
-      'desktop-smoke-regression',
+      'desktop-smoke',
+      'desktop-ipc-reset',
+      'desktop-runtime-hosts',
+      'desktop-db-storage',
+      'desktop-full-regression',
       'desktop-embedding-diagnostics',
       'desktop-llm-host-recovery',
       'destructive-reset',
@@ -216,6 +281,10 @@ test('workflow and CI script changes select the full lane', () => {
   assert.deepEqual(expandRiskLanes(['ci:full']), [
     'ci:browser',
     'ci:web-e2e',
+    'ci:desktop-smoke',
+    'ci:desktop-ipc-reset',
+    'ci:desktop-runtime-hosts',
+    'ci:desktop-db-storage',
     'ci:desktop',
     'ci:embedding',
     'ci:coverage',
@@ -248,29 +317,45 @@ test('file-system changes select file-system tests without full db tests', () =>
   });
 });
 
-test('desktop host changes select desktop and embedding lanes', () => {
+test('legacy desktop host selector does not route host lifecycle through embedding diagnostics', () => {
   assert.deepEqual(
     selectRiskLanesForFiles(['apps/desktop/src/embedding-host-manager.ts']),
-    ['ci:desktop', 'ci:embedding', 'ci:coverage']
+    ['ci:desktop-runtime-hosts', 'ci:coverage']
+  );
+});
+
+test('desktop runtime host selector avoids broad incidental host filenames', () => {
+  assert.deepEqual(selectRiskLanesForFiles(['apps/desktop/src/toast-host.ts']), [
+    'ci:coverage',
+  ]);
+});
+
+test('multi-lane desktop changes union local proof commands', () => {
+  assert.deepEqual(
+    selectProofCommandsForFiles([
+      'apps/desktop/src/desktop-factory-reset.ts',
+      'apps/desktop/src/embedding-host-manager.ts',
+    ]),
+    [
+      'diff-check',
+      'desktop-unit-tests',
+      'desktop-ipc-reset-tests',
+      'desktop-runtime-host-tests',
+    ]
   );
 });
 
 test('desktop llm host changes select llm recovery without embedding lanes', () => {
   assert.deepEqual(selectRiskProfileForFiles(['apps/desktop/src/llm-host-manager.ts']), {
-    category: 'desktop-platform-ipc-preload',
+    category: 'desktop-runtime-hosts',
     domains: ['desktop-platform'],
-    e2eLanes: ['desktop-smoke-regression', 'desktop-llm-host-recovery'],
-    proofCommands: [
-      'diff-check',
-      'desktop-unit-tests',
-      'desktop-smoke-tests',
-      'desktop-llm-host-smoke',
-    ],
+    e2eLanes: ['desktop-runtime-hosts'],
+    proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-runtime-host-tests'],
     riskLevel: 'high',
-    cloudLabels: ['ci:desktop', 'ci:coverage'],
+    cloudLabels: ['ci:desktop-runtime-hosts', 'ci:coverage'],
   });
   assert.deepEqual(selectRiskLanesForFiles(['apps/desktop/src/llm-host-manager.ts']), [
-    'ci:desktop',
+    'ci:desktop-runtime-hosts',
     'ci:coverage',
   ]);
 });

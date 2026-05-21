@@ -120,7 +120,7 @@ async function getMainBufferedLogs(page: Page): Promise<
 test.describe('Chunking Host Renderer', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test('hidden chunking host can die without reloading the visible window', async ({
+  test('@desktop-runtime-hosts hidden chunking host can die without reloading the visible window', async ({
     electronApp,
     window,
   }) => {
