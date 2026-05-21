@@ -72,7 +72,7 @@ const LIVE_FLUSH_FOREGROUND_INTERVAL_MS = 200;
 const MAX_RENDERER_SQL_BYTES = 1_000_000;
 const logger = createLogger('DatabaseIpc');
 const DESTRUCTIVE_SCHEMA_SQL_PATTERN =
-  /\b(?:drop\s+(?:database|schema|table|extension|index|view|materialized\s+view|trigger|function)|truncate(?:\s+table)?|alter\s+table\b[\s\S]*\bdrop\b)\b/iu;
+  /(?:^|;)\s*(?:drop\s+\w+|truncate(?:\s+table)?\b|alter\s+table\b[^;]*\bdrop\s+(?:column|constraint|index|primary\s+key|foreign\s+key|unique|check|not\s+null|default|identity|expression)\b)/iu;
 
 let nextLiveSubscriptionId = 1;
 let isBackgrounded = false;
@@ -294,12 +294,12 @@ function assertRendererSql(channel: 'db:exec' | 'db:query', sql: string): void {
   if (Buffer.byteLength(sql, 'utf8') > MAX_RENDERER_SQL_BYTES) {
     throw new Error(`${channel} SQL exceeds ${MAX_RENDERER_SQL_BYTES} bytes.`);
   }
-  const normalizedSql = sql.trimStart();
   // The desktop renderer is trusted app code, not user-authored SQL. Some
   // local-first features still bootstrap app-owned tables through the exposed
   // database handle, but destructive schema/data-loss operations must stay on
-  // named reset or migration paths.
-  if (DESTRUCTIVE_SCHEMA_SQL_PATTERN.test(normalizedSql)) {
+  // named reset or migration paths. The matcher is statement-oriented so a
+  // harmless literal like DEFAULT 'drop' is not treated as destructive DDL.
+  if (DESTRUCTIVE_SCHEMA_SQL_PATTERN.test(sql)) {
     throw new Error(`${channel} does not permit destructive schema SQL from the renderer.`);
   }
 }

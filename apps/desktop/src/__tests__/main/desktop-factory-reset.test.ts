@@ -56,7 +56,7 @@ describe('resetDesktopApplicationData', () => {
     expect(stopOrder).toBeLessThan(resetOrder);
     expect(resetDatabaseProfile).toHaveBeenCalledTimes(1);
     expect(fsMocks.readdirSync).toHaveBeenCalledWith('/mock/userData');
-    const trashPath = path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000');
+    const trashPath = path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000-1');
     expect(fsMocks.mkdirSync).toHaveBeenCalledWith(trashPath, { recursive: true });
     expect(fsMocks.rename).toHaveBeenCalledWith(
       path.join('/mock/userData', 'Cache'),
@@ -148,19 +148,19 @@ describe('resetDesktopApplicationData', () => {
 
     expect(fsMocks.rename).toHaveBeenCalledWith(
       path.join('/mock/userData', 'Cache'),
-      path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000', 'Cache')
+      path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000-1', 'Cache')
     );
     expect(fsMocks.rename).toHaveBeenCalledWith(
       path.join('/mock/userData', 'IndexedDB'),
-      path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000', 'IndexedDB')
+      path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000-1', 'IndexedDB')
     );
     expect(fsMocks.rename).toHaveBeenCalledWith(
       path.join('/mock/userData', 'Local Storage'),
-      path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000', 'Local Storage')
+      path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000-1', 'Local Storage')
     );
     expect(fsMocks.rename).toHaveBeenCalledWith(
       path.join('/mock/userData', 'mcp'),
-      path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000', 'mcp')
+      path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000-1', 'mcp')
     );
     expect(fsMocks.rename).toHaveBeenCalledTimes(4);
     expect(fsMocks.mkdirSync).toHaveBeenCalledWith('/mock/userData', { recursive: true });
@@ -194,7 +194,7 @@ describe('resetDesktopApplicationData', () => {
       preservedPaths: [path.join('/mock/userData', 'logs')],
     });
     expect(fsMocks.rm).toHaveBeenCalledWith(
-      path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000'),
+      path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000-1'),
       {
         force: true,
         recursive: true,
@@ -221,8 +221,37 @@ describe('resetDesktopApplicationData', () => {
         path.join('/mock/userData', 'Local Storage'),
         path.join('/mock/userData', 'mcp'),
       ],
-      pendingDeletionPaths: [path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000')],
+      pendingDeletionPaths: [
+        path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000-1'),
+      ],
       preservedPaths: [path.join('/mock/userData', 'logs')],
     });
+  });
+
+  it('uses unique trash paths for same-millisecond reset calls', async () => {
+    const stopBackgroundRuntimes = vi.fn(async () => undefined);
+    const resetDatabaseProfile = vi.fn(async () => undefined);
+    fsMocks.readdirSync.mockReturnValue(['logs']);
+    const { resetDesktopApplicationData } = await import('../../desktop-factory-reset');
+
+    await resetDesktopApplicationData({
+      resetDatabaseProfile,
+      stopBackgroundRuntimes,
+      userDataPath: '/mock/userData',
+    });
+    await resetDesktopApplicationData({
+      resetDatabaseProfile,
+      stopBackgroundRuntimes,
+      userDataPath: '/mock/userData',
+    });
+
+    expect(fsMocks.mkdirSync).toHaveBeenCalledWith(
+      path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000-1'),
+      { recursive: true }
+    );
+    expect(fsMocks.mkdirSync).toHaveBeenCalledWith(
+      path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000-2'),
+      { recursive: true }
+    );
   });
 });

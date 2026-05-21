@@ -158,6 +158,16 @@ describe('database IPC handlers', () => {
     expect(mockDb.query).not.toHaveBeenCalled();
   });
 
+  it('db:query rejects broad destructive DROP statements before they reach PGlite', async () => {
+    const handler = handlers.get('db:query');
+
+    await expect(handler?.({} as unknown, 'DROP SEQUENCE file_record_seq')).rejects.toThrow(
+      'db:query does not permit destructive schema SQL from the renderer.'
+    );
+
+    expect(mockDb.query).not.toHaveBeenCalled();
+  });
+
   it('db:query permits renderer-owned DML and delegates to PGlite', async () => {
     const handler = handlers.get('db:query');
     const rows = { rows: [{ id: 1 }] };
@@ -167,6 +177,20 @@ describe('database IPC handlers', () => {
 
     expect(mockDb.query).toHaveBeenCalledWith('DELETE FROM job_queue WHERE id = $1', ['job-1']);
     expect(result).toBe(rows);
+  });
+
+  it('db:exec permits non-destructive ALTER TABLE literals and delegates to PGlite', async () => {
+    const handler = handlers.get('db:exec');
+
+    const result = await handler?.(
+      {} as unknown,
+      "ALTER TABLE file_records ADD COLUMN label TEXT DEFAULT 'drop'"
+    );
+
+    expect(mockDb.exec).toHaveBeenCalledWith(
+      "ALTER TABLE file_records ADD COLUMN label TEXT DEFAULT 'drop'"
+    );
+    expect(result).toBeUndefined();
   });
 
   it('db:exec rejects destructive renderer schema SQL before it reaches PGlite', async () => {

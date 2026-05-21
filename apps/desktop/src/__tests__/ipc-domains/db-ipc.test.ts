@@ -73,5 +73,16 @@ describe('database IPC domain', () => {
     await expect(
       handlers.get('db:exec')?.({} as IpcMainInvokeEvent, 'DROP TABLE file_records')
     ).rejects.toThrow('db:exec does not permit destructive schema SQL from the renderer.');
+
+    await expect(
+      handlers.get('db:exec')?.({} as IpcMainInvokeEvent, 'DROP TYPE file_record_kind')
+    ).rejects.toThrow('db:exec does not permit destructive schema SQL from the renderer.');
+
+    await expect(
+      handlers.get('db:exec')?.(
+        {} as IpcMainInvokeEvent,
+        'ALTER TABLE file_records DROP COLUMN path'
+      )
+    ).rejects.toThrow('db:exec does not permit destructive schema SQL from the renderer.');
   });
 });

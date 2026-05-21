@@ -11,6 +11,7 @@ import {
 const logger = createLogger('DesktopFactoryReset');
 
 const PRESERVED_USER_DATA_ENTRY_NAMES = ['logs'] as const;
+let resetTrashPathNonce = 0;
 
 export interface ResetDesktopApplicationDataOptions {
   resetDatabaseProfile: () => Promise<void>;
@@ -54,7 +55,8 @@ function listUserDataEntries(userDataPath: string): string[] {
 }
 
 function createResetTrashPath(userDataPath: string): string {
-  return path.join(userDataPath, `.brainstrike-reset-trash-${Date.now()}`);
+  resetTrashPathNonce += 1;
+  return path.join(userDataPath, `.brainstrike-reset-trash-${Date.now()}-${resetTrashPathNonce}`);
 }
 
 function isMissingFileSystemEntry(error: unknown): boolean {
