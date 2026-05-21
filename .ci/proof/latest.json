@@ -1,20 +1,21 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-21T21:51:30.503Z",
+  "generatedAt": "2026-05-21T22:13:19.903Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "000f09ed96cc9112019d64bdc59bfc4902caa6b2",
+  "testedHeadSha": "56f20a3b011947ea090791ff77333568b087de7e",
   "selection": {
     "base": "origin/main",
     "baseSha": "86132a2786f93779fa9e17248a90043ea1cf5b28",
     "head": "HEAD",
-    "headSha": "000f09ed96cc9112019d64bdc59bfc4902caa6b2",
+    "headSha": "56f20a3b011947ea090791ff77333568b087de7e",
     "mergeBase": "86132a2786f93779fa9e17248a90043ea1cf5b28",
     "files": [
+      ".ci/proof/latest.json",
       ".github/workflows/test.yml",
       "apps/desktop/e2e/utils/assistant-mock.ts",
       "apps/desktop/src/__tests__/main/db-host-manager.test.ts",
@@ -172,7 +173,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 421
+      "durationMs": 426
     },
     {
       "name": "workflow-contracts",
@@ -181,7 +182,7 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 410
+      "durationMs": 418
     },
     {
       "name": "full-local-suite",
@@ -190,7 +191,7 @@
       "budgetMs": 2700000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 1120082
+      "durationMs": 1018513
     }
   ]
 }
