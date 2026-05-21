@@ -135,14 +135,31 @@ async function clearIndexedDbDatabases(): Promise<void> {
  * Clears the CacheStorage entries so cached bundles and responses do not survive resets.
  */
 async function clearCacheStorage(): Promise<void> {
-  if (typeof caches === 'undefined') {
+  const cacheStorage =
+    typeof window !== 'undefined' && 'caches' in window ? window.caches : globalThis.caches;
+  if (!cacheStorage) {
     return;
   }
   try {
-    const cacheKeys = await caches.keys();
-    await Promise.all(cacheKeys.map((key) => caches.delete(key).catch(() => false)));
+    const cacheKeys = await cacheStorage.keys();
+    const deletionResults = await Promise.all(
+      cacheKeys.map(async (key) => ({
+        deleted: await cacheStorage.delete(key),
+        key,
+      }))
+    );
+    const failedKeys = deletionResults
+      .filter((result) => !result.deleted)
+      .map((result) => result.key);
+    const remainingKeys = await cacheStorage.keys();
+    if (failedKeys.length > 0 || remainingKeys.length > 0) {
+      throw new Error(
+        `CacheStorage reset incomplete; failed=${failedKeys.join(',')}; remaining=${remainingKeys.join(',')}`
+      );
+    }
   } catch (error) {
     logger.warn('Failed to clear CacheStorage', { error });
+    throw error;
   }
 }
 

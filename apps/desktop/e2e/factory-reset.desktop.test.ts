@@ -121,6 +121,18 @@ async function readBrowserPersistentState(window: import('@playwright/test').Pag
   );
 }
 
+async function readBrowserPersistentStateOrNull(
+  window: import('@playwright/test').Page
+): Promise<Awaited<ReturnType<typeof readBrowserPersistentState>> | null> {
+  try {
+    return await readBrowserPersistentState(window);
+  } catch {
+    // The factory reset flow reloads the renderer after clearing browser storage.
+    // During that navigation Playwright can briefly lose the execution context.
+    return null;
+  }
+}
+
 test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset', () => {
   async function openFactoryResetSettings(
     homePage: HomePage,
@@ -206,6 +218,16 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
         timeout: 10_000,
       })
       .toBe(false);
+    await expect
+      .poll(() => readBrowserPersistentStateOrNull(window), {
+        timeout: 10_000,
+      })
+      .toEqual({
+        cacheExists: false,
+        dbExists: false,
+        localStorageValue: null,
+        sessionStorageValue: null,
+      });
 
     const restarted = await electronHarness.restart();
     const restartedWindow = restarted.window;

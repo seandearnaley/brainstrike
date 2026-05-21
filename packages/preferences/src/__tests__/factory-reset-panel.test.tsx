@@ -211,7 +211,7 @@ describe('FactoryResetPanel', () => {
       expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: true });
     });
 
-    it('clears renderer storage after the desktop reset bridge succeeds', async () => {
+    it('clears renderer storage before the desktop reset bridge purges userData', async () => {
       const resetLocal = vi.fn().mockResolvedValue({ success: true });
       Object.defineProperty(window, 'electronAPI', {
         configurable: true,
@@ -235,10 +235,10 @@ describe('FactoryResetPanel', () => {
       if (clearOrder === undefined || resetOrder === undefined) {
         throw new Error('Expected clear and reset invocation order to be recorded');
       }
-      expect(resetOrder).toBeLessThan(clearOrder);
+      expect(clearOrder).toBeLessThan(resetOrder);
     });
 
-    it('does not clear renderer storage when the desktop reset bridge fails', async () => {
+    it('does not reload when the desktop reset bridge fails after renderer storage clears', async () => {
       const resetLocal = vi.fn().mockResolvedValue({
         success: false,
         message: 'desktop reset failed',
@@ -264,7 +264,7 @@ describe('FactoryResetPanel', () => {
         });
       });
 
-      expect(mockClearPersistentUiState).not.toHaveBeenCalled();
+      expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: false });
       expect(mockReload).not.toHaveBeenCalled();
     });
 

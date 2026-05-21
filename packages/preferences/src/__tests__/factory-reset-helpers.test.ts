@@ -131,4 +131,39 @@ describe('clearPersistentUiState IndexedDB handling', () => {
 
     expect(deleteDatabaseMock).not.toHaveBeenCalled();
   });
+
+  it('deletes every CacheStorage entry and verifies the reset', async () => {
+    const keysMock = vi
+      .fn<() => Promise<string[]>>()
+      .mockResolvedValueOnce(['runtime-cache', 'model-cache'])
+      .mockResolvedValueOnce([]);
+    const deleteMock = vi.fn(async () => true);
+    Object.defineProperty(globalWindow, 'caches', {
+      configurable: true,
+      value: {
+        delete: deleteMock,
+        keys: keysMock,
+      } as unknown as CacheStorage,
+    });
+
+    await clearPersistentUiState({ skipIndexedDb: true });
+
+    expect(deleteMock).toHaveBeenCalledWith('runtime-cache');
+    expect(deleteMock).toHaveBeenCalledWith('model-cache');
+    expect(keysMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails when CacheStorage entries survive deletion', async () => {
+    Object.defineProperty(globalWindow, 'caches', {
+      configurable: true,
+      value: {
+        delete: vi.fn(async () => false),
+        keys: vi.fn(async () => ['runtime-cache']),
+      } as unknown as CacheStorage,
+    });
+
+    await expect(clearPersistentUiState({ skipIndexedDb: true })).rejects.toThrow(
+      /CacheStorage reset incomplete/
+    );
+  });
 });
