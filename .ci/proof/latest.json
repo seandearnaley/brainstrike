@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-21T15:54:31.047Z",
+  "generatedAt": "2026-05-21T16:16:12.422Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "1261538f725d3951f5a511374692fdace8b7903e",
+  "testedHeadSha": "d6a1da23a0aa45e80dfe86d3d83bbb3f530941a1",
   "selection": {
     "base": "origin/main",
     "baseSha": "20c54886732768572a190e5a3b3de6d807f9bafb",
     "head": "HEAD",
-    "headSha": "1261538f725d3951f5a511374692fdace8b7903e",
+    "headSha": "d6a1da23a0aa45e80dfe86d3d83bbb3f530941a1",
     "mergeBase": "20c54886732768572a190e5a3b3de6d807f9bafb",
     "files": [
       ".ci/proof/latest.json",
@@ -111,7 +111,7 @@
       "budgetMs": 240000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 63726
+      "durationMs": 62682
     },
     {
       "name": "desktop-smoke-tests",
@@ -120,7 +120,7 @@
       "budgetMs": 300000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 31089
+      "durationMs": 29760
     }
   ]
 }
