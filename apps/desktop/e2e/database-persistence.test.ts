@@ -263,7 +263,7 @@ test.describe('Database Persistence', () => {
     ).toBeVisible({ timeout: 15_000 });
   });
 
-  test('should show correct database location info', async ({ window }) => {
+  test('@desktop-db-storage should show correct database location info', async ({ window }) => {
     const activeWindow = await ensureDatabasePanel(window);
 
     const hasErrorPanel = await isDatabaseError(activeWindow);
@@ -769,7 +769,7 @@ test.describe('Database Persistence', () => {
     await expect(page.locator('.border.rounded.p-3').first()).toBeVisible();
   }
 
-  test('should perform CRUD operations through UI', async ({ window }) => {
+  test('@desktop-db-storage should perform CRUD operations through UI', async ({ window }) => {
     let activeWindow = await ensureDatabasePanelVisibleQuick(window);
     if (!activeWindow) {
       return;
@@ -785,7 +785,10 @@ test.describe('Database Persistence', () => {
     await verifyUIFunctionalityAndState(activeWindow);
   });
 
-  test('should persist data between app restarts', async ({ electron, window }) => {
+  test('@desktop-db-storage should persist data between app restarts', async ({
+    electron,
+    window,
+  }) => {
     test.setTimeout(120_000);
 
     let activeWindow = await ensureDatabasePanelVisibleQuick(window);

@@ -37,27 +37,24 @@ test('buildSelection returns files, lanes, expanded lanes, labels, and commands'
   });
 
   assert.deepEqual(selection.lanes, [
-    'ci:desktop',
-    'ci:embedding',
+    'ci:desktop-runtime-hosts',
     'ci:coverage',
   ]);
   assert.deepEqual(selection.labels, [
-    'ci:desktop',
-    'ci:embedding',
+    'ci:desktop-runtime-hosts',
     'ci:coverage',
   ]);
   assert.deepEqual(selection.expandedLanes, [
-    'ci:desktop',
-    'ci:embedding',
+    'ci:desktop-runtime-hosts',
     'ci:coverage',
   ]);
   assert.equal(
-    selection.commands.some((entry) => entry.name === 'desktop-smoke-tests'),
+    selection.commands.some((entry) => entry.name === 'desktop-runtime-host-tests'),
     true
   );
   assert.equal(
     selection.commands.some((entry) => entry.name === 'desktop-embedding-smoke'),
-    true
+    false
   );
 });
 
@@ -158,12 +155,20 @@ test('E2E lane command taxonomy is explicit and avoids hidden full-suite fallbac
   assert.deepEqual(Object.keys(E2E_LANES), [
     'critical-smoke',
     'web-functional-stateful',
-    'desktop-smoke-regression',
+    'desktop-smoke',
+    'desktop-ipc-reset',
+    'desktop-runtime-hosts',
+    'desktop-db-storage',
+    'desktop-full-regression',
     'desktop-embedding-diagnostics',
     'desktop-llm-host-recovery',
     'destructive-reset',
     'long-soak-release-only',
   ]);
+  assert.match(E2E_LANES['desktop-ipc-reset'].command, /@desktop-ipc-reset/);
+  assert.match(E2E_LANES['desktop-runtime-hosts'].command, /@desktop-runtime-hosts/);
+  assert.match(E2E_LANES['desktop-db-storage'].command, /@desktop-db-storage/);
+  assert.match(E2E_LANES['desktop-full-regression'].command, /--grep-invert "@desktop-embedding-/);
   assert.match(E2E_LANES['desktop-embedding-diagnostics'].command, /@desktop-embedding-lifecycle/);
   assert.doesNotMatch(
     E2E_LANES['desktop-embedding-diagnostics'].command,
@@ -212,20 +217,63 @@ test('buildSelection routes llm host changes to llm recovery without embedding d
     mergeBase: '1111111111111111111111111111111111111111',
   });
 
-  assert.equal(selection.riskProfile.category, 'desktop-platform-ipc-preload');
-  assert.deepEqual(selection.riskProfile.e2eLanes, [
-    'desktop-smoke-regression',
-    'desktop-llm-host-recovery',
-  ]);
+  assert.equal(selection.riskProfile.category, 'desktop-runtime-hosts');
+  assert.deepEqual(selection.riskProfile.e2eLanes, ['desktop-runtime-hosts']);
   assert.deepEqual(
     selection.commands.map((command) => command.name),
-    ['diff-check', 'desktop-unit-tests', 'desktop-smoke-tests', 'desktop-llm-host-smoke']
+    ['diff-check', 'desktop-unit-tests', 'desktop-runtime-host-tests']
   );
   assert.equal(
     selection.commands.some((command) => command.name === 'desktop-embedding-smoke'),
     false
   );
   assert.equal(selection.labels.includes('ci:embedding'), false);
+  assert.equal(selection.labels.includes('ci:desktop'), false);
+});
+
+test('buildSelection routes factory reset changes to the narrow desktop reset lane', () => {
+  const selection = buildSelection({
+    files: ['apps/desktop/src/desktop-factory-reset.ts'],
+    mergeBase: '1111111111111111111111111111111111111111',
+  });
+
+  assert.deepEqual(selection.lanes, ['ci:desktop-ipc-reset', 'ci:coverage']);
+  assert.deepEqual(selection.riskProfile.e2eLanes, ['desktop-ipc-reset']);
+  assert.deepEqual(
+    selection.commands.map((command) => command.name),
+    ['diff-check', 'desktop-unit-tests', 'desktop-ipc-reset-tests']
+  );
+  assert.equal(selection.labels.includes('ci:desktop'), false);
+});
+
+test('buildSelection routes db IPC changes to db storage without desktop full regression', () => {
+  const selection = buildSelection({
+    files: ['apps/desktop/src/ipc-domains/db-ipc.ts'],
+    mergeBase: '1111111111111111111111111111111111111111',
+  });
+
+  assert.deepEqual(selection.lanes, ['ci:desktop-db-storage', 'ci:coverage']);
+  assert.deepEqual(selection.riskProfile.e2eLanes, ['desktop-db-storage']);
+  assert.deepEqual(
+    selection.commands.map((command) => command.name),
+    ['diff-check', 'desktop-unit-tests', 'desktop-db-storage-tests']
+  );
+  assert.equal(selection.labels.includes('ci:embedding'), false);
+  assert.equal(selection.labels.includes('ci:desktop'), false);
+});
+
+test('buildSelection keeps broad preload bridge changes on full desktop regression', () => {
+  const selection = buildSelection({
+    files: ['apps/desktop/src/preload.ts'],
+    mergeBase: '1111111111111111111111111111111111111111',
+  });
+
+  assert.deepEqual(selection.lanes, ['ci:desktop', 'ci:coverage']);
+  assert.deepEqual(selection.riskProfile.e2eLanes, ['desktop-full-regression']);
+  assert.deepEqual(
+    selection.commands.map((command) => command.name),
+    ['diff-check', 'desktop-unit-tests', 'desktop-full-regression-tests']
+  );
 });
 
 test('buildSelection only emits E2E lanes with registered commands', () => {

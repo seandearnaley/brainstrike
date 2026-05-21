@@ -25,7 +25,7 @@ const {
 } = shared;
 
 test.describe('Embedding Host Renderer - smoke', () => {
-  test('@desktop-embedding-lifecycle defers hidden embedding host startup until first use', async ({
+  test('@desktop-runtime-hosts @desktop-embedding-lifecycle defers hidden embedding host startup until first use', async ({
     electron,
   }) => {
     const context = await electron.restart();

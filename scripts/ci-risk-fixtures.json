@@ -97,28 +97,48 @@
       "expected": {
         "category": "desktop-platform-ipc-preload",
         "cloudLabels": ["ci:desktop", "ci:coverage"],
-        "e2eLanes": ["desktop-smoke-regression"],
-        "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-smoke-tests"]
+        "e2eLanes": ["desktop-full-regression"],
+        "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-full-regression-tests"]
+      }
+    },
+    {
+      "name": "desktop factory reset",
+      "files": ["apps/desktop/src/desktop-factory-reset.ts"],
+      "expected": {
+        "category": "desktop-ipc-reset",
+        "cloudLabels": ["ci:desktop-ipc-reset", "ci:coverage"],
+        "e2eLanes": ["desktop-ipc-reset"],
+        "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-ipc-reset-tests"]
+      }
+    },
+    {
+      "name": "desktop db ipc",
+      "files": ["apps/desktop/src/ipc-domains/db-ipc.ts"],
+      "expected": {
+        "category": "desktop-db-storage",
+        "cloudLabels": ["ci:desktop-db-storage", "ci:coverage"],
+        "e2eLanes": ["desktop-db-storage"],
+        "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-db-storage-tests"]
       }
     },
     {
       "name": "desktop embedding host",
       "files": ["apps/desktop/src/embedding-host-manager.ts"],
       "expected": {
-        "category": "desktop-platform-ipc-preload",
-        "cloudLabels": ["ci:desktop", "ci:embedding", "ci:coverage"],
-        "e2eLanes": ["desktop-smoke-regression", "desktop-embedding-diagnostics"],
-        "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-smoke-tests", "desktop-embedding-smoke"]
+        "category": "desktop-runtime-hosts",
+        "cloudLabels": ["ci:desktop-runtime-hosts", "ci:coverage"],
+        "e2eLanes": ["desktop-runtime-hosts"],
+        "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-runtime-host-tests"]
       }
     },
     {
       "name": "desktop llm host",
       "files": ["apps/desktop/src/llm-host-manager.ts"],
       "expected": {
-        "category": "desktop-platform-ipc-preload",
-        "cloudLabels": ["ci:desktop", "ci:coverage"],
-        "e2eLanes": ["desktop-smoke-regression", "desktop-llm-host-recovery"],
-        "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-smoke-tests", "desktop-llm-host-smoke"]
+        "category": "desktop-runtime-hosts",
+        "cloudLabels": ["ci:desktop-runtime-hosts", "ci:coverage"],
+        "e2eLanes": ["desktop-runtime-hosts"],
+        "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-runtime-host-tests"]
       }
     },
     {
@@ -180,7 +200,11 @@
         "e2eLanes": [
           "critical-smoke",
           "web-functional-stateful",
-          "desktop-smoke-regression",
+          "desktop-smoke",
+          "desktop-ipc-reset",
+          "desktop-runtime-hosts",
+          "desktop-db-storage",
+          "desktop-full-regression",
           "desktop-embedding-diagnostics",
           "desktop-llm-host-recovery",
           "destructive-reset",

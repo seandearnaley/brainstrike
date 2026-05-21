@@ -25,10 +25,34 @@ export const E2E_LANES = {
     owner: 'applications',
     tagContract: 'functional plus @stateful',
   },
-  'desktop-smoke-regression': {
+  'desktop-smoke': {
     command: 'pnpm --filter @brainstrike/desktop exec playwright test --project=smoke',
     owner: 'desktop-platform',
     tagContract: '@smoke',
+  },
+  'desktop-ipc-reset': {
+    command:
+      'pnpm --filter @brainstrike/desktop exec playwright test e2e/factory-reset.desktop.test.ts e2e/ipc-communication.test.ts e2e/startup-bridge-contract.test.ts --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=300000 --grep "@desktop-ipc-reset"',
+    owner: 'desktop-platform',
+    tagContract: '@desktop-ipc-reset',
+  },
+  'desktop-runtime-hosts': {
+    command:
+      'pnpm --filter @brainstrike/desktop exec playwright test e2e/app-launch.test.ts e2e/chunking-host-renderer.test.ts e2e/embedding-worker-renderer.smoke.desktop.test.ts e2e/llm-host-renderer.test.ts --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=300000 --grep "@desktop-runtime-hosts"',
+    owner: 'desktop-platform',
+    tagContract: '@desktop-runtime-hosts',
+  },
+  'desktop-db-storage': {
+    command:
+      'pnpm --filter @brainstrike/desktop exec playwright test e2e/database-persistence.test.ts --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=300000 --grep "@desktop-db-storage"',
+    owner: 'data-platform',
+    tagContract: '@desktop-db-storage',
+  },
+  'desktop-full-regression': {
+    command:
+      'pnpm --filter @brainstrike/desktop exec playwright test --project=regression --workers=1 --retries=0 --max-failures=1 --global-timeout=720000 --grep-invert "@desktop-embedding-"',
+    owner: 'desktop-platform',
+    tagContract: 'regression project with @desktop-embedding-* inverted',
   },
   'desktop-embedding-diagnostics': {
     command:
@@ -182,9 +206,36 @@ export const LOCAL_PROOF_COMMANDS = {
   },
   'desktop-smoke-tests': {
     name: 'desktop-smoke-tests',
-    command:
-      'pnpm --filter @brainstrike/desktop exec playwright test e2e/assistant-panel.desktop.test.ts e2e/background-indexing-pause.desktop.test.ts e2e/file-system.test.ts --project=smoke',
+    command: 'pnpm --filter @brainstrike/desktop run test:e2e:lane:smoke',
     budgetMs: 300_000,
+    owner: 'desktop-platform',
+    requiredFor: ['desktop-platform-ipc-preload'],
+  },
+  'desktop-ipc-reset-tests': {
+    name: 'desktop-ipc-reset-tests',
+    command: 'pnpm --filter @brainstrike/desktop run test:e2e:lane:ipc-reset',
+    budgetMs: 300_000,
+    owner: 'desktop-platform',
+    requiredFor: ['desktop-ipc-reset'],
+  },
+  'desktop-runtime-host-tests': {
+    name: 'desktop-runtime-host-tests',
+    command: 'pnpm --filter @brainstrike/desktop run test:e2e:lane:runtime-hosts',
+    budgetMs: 300_000,
+    owner: 'desktop-platform',
+    requiredFor: ['desktop-runtime-hosts'],
+  },
+  'desktop-db-storage-tests': {
+    name: 'desktop-db-storage-tests',
+    command: 'pnpm --filter @brainstrike/desktop run test:e2e:lane:db-storage',
+    budgetMs: 300_000,
+    owner: 'data-platform',
+    requiredFor: ['desktop-db-storage'],
+  },
+  'desktop-full-regression-tests': {
+    name: 'desktop-full-regression-tests',
+    command: 'pnpm --filter @brainstrike/desktop run test:e2e:lane:full-regression',
+    budgetMs: 900_000,
     owner: 'desktop-platform',
     requiredFor: ['desktop-platform-ipc-preload'],
   },

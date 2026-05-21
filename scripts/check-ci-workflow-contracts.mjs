@@ -407,6 +407,78 @@ function requireDesktopRegressionJobContracts(source, prefix, failures) {
   );
 }
 
+function requireDesktopNarrowJobContracts(
+  source,
+  { label, name, prefix, script },
+  failures
+) {
+  requirePrRiskLabelGate(source, prefix, [label], failures);
+  requireIncludes(
+    source,
+    `name: ${name}`,
+    `${prefix} status name must stay stable.`,
+    failures
+  );
+  requireIncludes(
+    source,
+    'needs: [prepare-desktop]',
+    `${prefix} must depend on the prepared desktop artifact.`,
+    failures
+  );
+  requireIncludes(
+    source,
+    'image: mcr.microsoft.com/playwright:v1.59.1-noble',
+    `${prefix} must run in the preprovisioned Playwright Noble image.`,
+    failures
+  );
+  requireIncludes(
+    source,
+    'uses: ./.github/actions/setup-desktop-e2e',
+    `${prefix} must use the shared desktop E2E setup action.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'apt-get',
+    `${prefix} must not run apt-get in the required lane path.`,
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'sudo ',
+    `${prefix} must not require sudo in the required lane path.`,
+    failures
+  );
+  requireNumericMatchAtMost(
+    extractJobHeader(source),
+    /^    timeout-minutes:\s*(\d+)\s*$/m,
+    10,
+    `${prefix} job timeout must stay at 10 minutes or less.`,
+    failures
+  );
+  const laneStep = requireSingleNamedStep(
+    source,
+    new RegExp(`Run ${escapeRegExp(name).replaceAll(' ', '\\s+')}`, 'i'),
+    `${prefix} test step`,
+    failures
+  );
+  if (laneStep) {
+    requireNumericMatchAtMost(
+      laneStep,
+      /^\s+timeout-minutes:\s*(\d+)\s*$/m,
+      8,
+      `${prefix} test step timeout must stay at 8 minutes or less.`,
+      failures
+    );
+  }
+  requireIncludes(
+    source,
+    script,
+    `${prefix} must run ${script}.`,
+    failures
+  );
+}
+
 function requirePreprovisionedPlaywrightJobContracts(source, prefix, failures) {
   requireIncludes(
     source,
@@ -676,7 +748,15 @@ export function validateWorkflowContracts(source) {
     requireRiskLabelGate(
       mergeReports,
       'Merge Test Reports',
-      ['ci:web-e2e', 'ci:desktop', 'ci:embedding'],
+      [
+        'ci:web-e2e',
+        'ci:desktop-smoke',
+        'ci:desktop-ipc-reset',
+        'ci:desktop-runtime-hosts',
+        'ci:desktop-db-storage',
+        'ci:desktop',
+        'ci:embedding',
+      ],
       failures
     );
     requireIncludes(
@@ -738,6 +818,44 @@ export function validateWorkflowContracts(source) {
     if (desktopPr.includes('--project=smoke')) {
       failures.push('PR desktop E2E must not use smoke as the required desktop proof.');
     }
+  }
+
+  for (const narrowLane of [
+    {
+      jobName: 'desktop-e2e-smoke-pr',
+      label: 'ci:desktop-smoke',
+      name: 'Desktop E2E Smoke',
+      prefix: 'PR desktop smoke',
+      script: 'pnpm run test:e2e:lane:smoke',
+    },
+    {
+      jobName: 'desktop-e2e-ipc-reset-pr',
+      label: 'ci:desktop-ipc-reset',
+      name: 'Desktop E2E IPC Reset',
+      prefix: 'PR desktop IPC reset',
+      script: 'pnpm run test:e2e:lane:ipc-reset',
+    },
+    {
+      jobName: 'desktop-e2e-runtime-hosts-pr',
+      label: 'ci:desktop-runtime-hosts',
+      name: 'Desktop E2E Runtime Hosts',
+      prefix: 'PR desktop runtime hosts',
+      script: 'pnpm run test:e2e:lane:runtime-hosts',
+    },
+    {
+      jobName: 'desktop-e2e-db-storage-pr',
+      label: 'ci:desktop-db-storage',
+      name: 'Desktop E2E DB Storage',
+      prefix: 'PR desktop DB storage',
+      script: 'pnpm run test:e2e:lane:db-storage',
+    },
+  ]) {
+    const job = extractJob(source, narrowLane.jobName);
+    if (!job) {
+      failures.push(`Missing ${narrowLane.jobName} job.`);
+      continue;
+    }
+    requireDesktopNarrowJobContracts(job, narrowLane, failures);
   }
 
   const desktopEmbeddingPr = extractJob(source, 'desktop-e2e-embedding-pr');
@@ -859,7 +977,14 @@ export function validateWorkflowContracts(source) {
     requireRiskLabelGate(
       prepareDesktop,
       'Build Desktop App',
-      ['ci:desktop', 'ci:embedding'],
+      [
+        'ci:desktop-smoke',
+        'ci:desktop-ipc-reset',
+        'ci:desktop-runtime-hosts',
+        'ci:desktop-db-storage',
+        'ci:desktop',
+        'ci:embedding',
+      ],
       failures
     );
   }
@@ -1136,6 +1261,10 @@ export function validateWorkflowContracts(source) {
       'e2e-stateful',
       'e2e-destructive',
       'desktop-e2e-pr',
+      'desktop-e2e-smoke-pr',
+      'desktop-e2e-ipc-reset-pr',
+      'desktop-e2e-runtime-hosts-pr',
+      'desktop-e2e-db-storage-pr',
       'desktop-e2e-embedding-pr',
       'merge-reports',
     ]) {
@@ -1180,6 +1309,10 @@ export function validateWorkflowContracts(source) {
       ['ci:coverage', ['unit_coverage']],
       ['ci:browser', ['browser-tests']],
       ['ci:web-e2e', ['prepare-web', 'e2e', 'e2e-stateful', 'e2e-destructive']],
+      ['ci:desktop-smoke', ['prepare-desktop', 'desktop-e2e-smoke-pr']],
+      ['ci:desktop-ipc-reset', ['prepare-desktop', 'desktop-e2e-ipc-reset-pr']],
+      ['ci:desktop-runtime-hosts', ['prepare-desktop', 'desktop-e2e-runtime-hosts-pr']],
+      ['ci:desktop-db-storage', ['prepare-desktop', 'desktop-e2e-db-storage-pr']],
       ['ci:desktop', ['prepare-desktop', 'desktop-e2e-pr']],
       ['ci:embedding', ['prepare-desktop', 'desktop-e2e-embedding-pr']],
     ]) {

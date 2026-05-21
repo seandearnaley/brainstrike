@@ -121,7 +121,7 @@ async function readBrowserPersistentState(window: import('@playwright/test').Pag
   );
 }
 
-test.describe('Factory Reset settings (desktop) @destructive', () => {
+test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset', () => {
   async function openFactoryResetSettings(
     homePage: HomePage,
     settingsPage: SettingsPage
