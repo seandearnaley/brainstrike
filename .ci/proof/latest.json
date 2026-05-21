@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-21T18:15:16.264Z",
+  "generatedAt": "2026-05-21T18:39:43.943Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "8a0fe38a82c2e9aa6398e8240051c054de6374eb",
+  "testedHeadSha": "b2b7da6f933935b4045e9efb5cd00fe75ebb5547",
   "selection": {
     "base": "origin/main",
     "baseSha": "499eff02d7f7160d091b19eca6d5cfc61a25b9f4",
     "head": "HEAD",
-    "headSha": "8a0fe38a82c2e9aa6398e8240051c054de6374eb",
+    "headSha": "b2b7da6f933935b4045e9efb5cd00fe75ebb5547",
     "mergeBase": "499eff02d7f7160d091b19eca6d5cfc61a25b9f4",
     "files": [
       ".ci/proof/latest.json",
@@ -65,6 +65,12 @@
         "ci:full"
       ]
     },
+    "proofCommands": [
+      "diff-check",
+      "ci-script-tests",
+      "workflow-contracts",
+      "full-local-suite"
+    ],
     "lanes": [
       "ci:full"
     ],
@@ -137,7 +143,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 13
+      "durationMs": 12
     },
     {
       "name": "ci-script-tests",
@@ -146,7 +152,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 410
+      "durationMs": 412
     },
     {
       "name": "workflow-contracts",
@@ -155,7 +161,7 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 395
+      "durationMs": 406
     },
     {
       "name": "full-local-suite",
@@ -164,7 +170,7 @@
       "budgetMs": 2700000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 1029370
+      "durationMs": 1090944
     }
   ]
 }
