@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   createDatabaseWorkScheduler,
   type DatabaseWorkOptions,
@@ -22,6 +23,7 @@ const DEFAULT_DATABASE_WORK_IDLE_TIMEOUT_MS = 5000;
 
 let desktopDatabaseWorkScheduler: DatabaseWorkScheduler = createDatabaseWorkScheduler();
 let desktopDatabaseResetBarrier: Promise<void> | null = null;
+const resetBarrierOperationScope = new AsyncLocalStorage<boolean>();
 
 function isDatabaseWorkPriority(value: unknown): value is DatabaseWorkPriority {
   return value === 'foreground' || value === 'normal' || value === 'background';
@@ -176,6 +178,11 @@ async function waitForDesktopDatabaseResetBarrier(): Promise<void> {
   if (!barrier) {
     return;
   }
+  if (resetBarrierOperationScope.getStore() === true) {
+    throw new Error(
+      'Desktop database work cannot be scheduled from inside the active reset barrier.'
+    );
+  }
   await barrier;
 }
 
@@ -192,7 +199,7 @@ export async function runWithDesktopDatabaseResetBarrier<T>(
   });
 
   try {
-    return await operation();
+    return await resetBarrierOperationScope.run(true, operation);
   } finally {
     releaseBarrier();
     desktopDatabaseResetBarrier = null;

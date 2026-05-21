@@ -11,6 +11,7 @@ describe('createDesktopFactoryResetHandler', () => {
     vi.clearAllMocks();
     resetDesktopApplicationDataMock.mockResolvedValue({
       deletedPaths: [],
+      pendingDeletionPaths: [],
       preservedPaths: [],
     });
   });
@@ -111,7 +112,7 @@ describe('createDesktopFactoryResetHandler', () => {
     resetDesktopApplicationDataMock.mockImplementationOnce(
       async ({ stopBackgroundRuntimes }: { stopBackgroundRuntimes: () => Promise<void> }) => {
         await stopBackgroundRuntimes();
-        return { deletedPaths: [], preservedPaths: [] };
+        return { deletedPaths: [], pendingDeletionPaths: [], preservedPaths: [] };
       }
     );
     const stopFailure = new Error('stop failed');

@@ -148,12 +148,67 @@ describe('database IPC handlers', () => {
     expect(mockDb.query).not.toHaveBeenCalled();
   });
 
+  it('db:query rejects destructive renderer schema SQL before it reaches PGlite', async () => {
+    const handler = handlers.get('db:query');
+
+    await expect(handler?.({} as unknown, 'DROP TABLE file_records')).rejects.toThrow(
+      'db:query does not permit destructive schema SQL from the renderer.'
+    );
+
+    expect(mockDb.query).not.toHaveBeenCalled();
+  });
+
+  it('db:query rejects broad destructive DROP statements before they reach PGlite', async () => {
+    const handler = handlers.get('db:query');
+
+    await expect(handler?.({} as unknown, 'DROP SEQUENCE file_record_seq')).rejects.toThrow(
+      'db:query does not permit destructive schema SQL from the renderer.'
+    );
+
+    expect(mockDb.query).not.toHaveBeenCalled();
+  });
+
+  it('db:query permits renderer-owned DML and delegates to PGlite', async () => {
+    const handler = handlers.get('db:query');
+    const rows = { rows: [{ id: 1 }] };
+    mockDb.query.mockResolvedValue(rows);
+
+    const result = await handler?.({} as unknown, 'DELETE FROM job_queue WHERE id = $1', ['job-1']);
+
+    expect(mockDb.query).toHaveBeenCalledWith('DELETE FROM job_queue WHERE id = $1', ['job-1']);
+    expect(result).toBe(rows);
+  });
+
+  it('db:exec permits non-destructive ALTER TABLE literals and delegates to PGlite', async () => {
+    const handler = handlers.get('db:exec');
+
+    const result = await handler?.(
+      {} as unknown,
+      "ALTER TABLE file_records ADD COLUMN label TEXT DEFAULT 'drop'"
+    );
+
+    expect(mockDb.exec).toHaveBeenCalledWith(
+      "ALTER TABLE file_records ADD COLUMN label TEXT DEFAULT 'drop'"
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it('db:exec rejects destructive renderer schema SQL before it reaches PGlite', async () => {
+    const handler = handlers.get('db:exec');
+
+    await expect(handler?.({} as unknown, 'DROP TABLE file_records')).rejects.toThrow(
+      'db:exec does not permit destructive schema SQL from the renderer.'
+    );
+
+    expect(mockDb.exec).not.toHaveBeenCalled();
+  });
+
   it('db:query throws on error', async () => {
     const handler = handlers.get('db:query');
     const err = new Error('fail');
     mockDb.query.mockRejectedValue(err);
 
-    await expect(handler?.({} as unknown, 'BAD')).rejects.toThrow(err);
+    await expect(handler?.({} as unknown, 'SELECT bad')).rejects.toThrow(err);
   });
 
   it('schedules foreground db:query before queued background work during the quiet window', async () => {
@@ -169,10 +224,10 @@ describe('database IPC handlers', () => {
         return { rows: [] };
       });
 
-      await handler?.({} as unknown, 'warmup', []);
+      await handler?.({} as unknown, 'SELECT warmup', []);
       order.length = 0;
 
-      const background = handler?.({} as unknown, 'background', [], {
+      const background = handler?.({} as unknown, 'SELECT background', [], {
         priority: 'background',
         label: 'background claim',
       });
@@ -180,15 +235,17 @@ describe('database IPC handlers', () => {
       expect(order).toEqual([]);
 
       now += 1;
-      const foreground = handler?.({} as unknown, 'foreground', [], { label: 'collection page' });
+      const foreground = handler?.({} as unknown, 'SELECT foreground', [], {
+        label: 'collection page',
+      });
       await foreground;
-      expect(order).toEqual(['foreground']);
+      expect(order).toEqual(['SELECT foreground']);
 
       now += 50;
       await vi.advanceTimersByTimeAsync(50);
       await background;
 
-      expect(order).toEqual(['foreground', 'background']);
+      expect(order).toEqual(['SELECT foreground', 'SELECT background']);
     } finally {
       vi.useRealTimers();
     }
@@ -210,24 +267,24 @@ describe('database IPC handlers', () => {
         getOwnerBrowserWindow: vi.fn(() => createWindowWithWebContents({ send: vi.fn() })),
       };
 
-      await handler?.({} as unknown, 'warmup', []);
+      await handler?.({} as unknown, 'SELECT warmup', []);
       order.length = 0;
       embeddingHostIsHostWindowMock.mockReturnValueOnce(true);
 
-      const background = handler?.({ sender: hiddenSender } as unknown, 'hidden-host', []);
+      const background = handler?.({ sender: hiddenSender } as unknown, 'SELECT hidden_host', []);
       await Promise.resolve();
       expect(order).toEqual([]);
 
       now += 1;
-      const foreground = handler?.({} as unknown, 'visible-renderer', []);
+      const foreground = handler?.({} as unknown, 'SELECT visible_renderer', []);
       await foreground;
-      expect(order).toEqual(['visible-renderer']);
+      expect(order).toEqual(['SELECT visible_renderer']);
 
       now += 50;
       await vi.advanceTimersByTimeAsync(50);
       await background;
 
-      expect(order).toEqual(['visible-renderer', 'hidden-host']);
+      expect(order).toEqual(['SELECT visible_renderer', 'SELECT hidden_host']);
     } finally {
       vi.useRealTimers();
     }
@@ -250,7 +307,7 @@ describe('database IPC handlers', () => {
     const err = new Error('exec fail');
     mockDb.exec.mockRejectedValue(err);
 
-    await expect(handler?.({} as unknown, 'BAD')).rejects.toThrow(err);
+    await expect(handler?.({} as unknown, 'SELECT bad')).rejects.toThrow(err);
   });
 
   it('db:managed-cache:apply-batch validates payload and delegates to the DB host', async () => {
@@ -301,7 +358,7 @@ describe('database IPC handlers', () => {
       });
       const payload = { embeddingSetId: 'set-1', changes: [] };
 
-      await queryHandler?.({} as unknown, 'warmup', []);
+      await queryHandler?.({} as unknown, 'SELECT warmup', []);
       order.length = 0;
 
       const background = batchHandler?.({} as unknown, payload, {
@@ -312,7 +369,7 @@ describe('database IPC handlers', () => {
       expect(order).toEqual([]);
 
       now += 1;
-      await queryHandler?.({} as unknown, 'foreground query', []);
+      await queryHandler?.({} as unknown, 'SELECT foreground_query', []);
       expect(order).toEqual(['query']);
 
       now += 50;
@@ -610,6 +667,7 @@ describe('database IPC handlers', () => {
 
     resetDesktopApplicationDataMock.mockResolvedValueOnce({
       deletedPaths: [],
+      pendingDeletionPaths: [],
       preservedPaths: [],
     });
     await expect(handler({} as unknown)).resolves.toEqual({ success: true });
@@ -1242,6 +1300,33 @@ describe('database IPC handlers', () => {
       expect(secondResult.id).not.toBe(firstResult.id);
       expect(secondLiveHandle.subscribe).toHaveBeenCalledTimes(1);
       expect(sender.once).toHaveBeenCalledTimes(1);
+    });
+
+    it('resets live-query module state during shutdown cleanup', async () => {
+      const { cleanupDesktopLiveSubscriptionsForShutdown, setBackgrounded } = await import(
+        '../../ipc-handlers'
+      );
+      const first = await setupLiveQuery(createLiveQuerySender(70));
+
+      setBackgrounded(true);
+      first.listener({ rows: [{ id: 1 }] });
+      await cleanupDesktopLiveSubscriptionsForShutdown();
+
+      expect(first.liveHandle.unsubscribe).toHaveBeenCalledTimes(1);
+
+      const second = await setupLiveQuery(createLiveQuerySender(71));
+      expect(second.result.id).toBe(1);
+      second.listener({ rows: [{ id: 2 }] });
+
+      const getAllWindowsMock = vi.mocked(browserWindowMock.getAllWindows);
+      getAllWindowsMock.mockReturnValue([createWindowWithWebContents(second.sender)]);
+      const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
+      flushPendingLiveUpdates();
+
+      expect(second.sender.send).toHaveBeenCalledWith('db:live-query:update', {
+        id: 1,
+        results: { rows: [{ id: 2 }] },
+      });
     });
   });
 });

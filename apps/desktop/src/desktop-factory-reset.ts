@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
@@ -11,6 +11,7 @@ import {
 const logger = createLogger('DesktopFactoryReset');
 
 const PRESERVED_USER_DATA_ENTRY_NAMES = ['logs'] as const;
+let resetTrashPathNonce = 0;
 
 export interface ResetDesktopApplicationDataOptions {
   resetDatabaseProfile: () => Promise<void>;
@@ -20,6 +21,7 @@ export interface ResetDesktopApplicationDataOptions {
 
 export interface ResetDesktopApplicationDataResult {
   deletedPaths: string[];
+  pendingDeletionPaths: string[];
   preservedPaths: string[];
 }
 
@@ -52,6 +54,30 @@ function listUserDataEntries(userDataPath: string): string[] {
   return readdirSync(userDataPath);
 }
 
+function createResetTrashPath(userDataPath: string): string {
+  resetTrashPathNonce += 1;
+  return path.join(userDataPath, `.brainstrike-reset-trash-${Date.now()}-${resetTrashPathNonce}`);
+}
+
+function isMissingFileSystemEntry(error: unknown): boolean {
+  return error instanceof Error && (error as Error & { code?: unknown }).code === 'ENOENT';
+}
+
+async function stageUserDataEntryForDeletion({
+  entryName,
+  trashPath,
+  userDataPath,
+}: {
+  entryName: string;
+  trashPath: string;
+  userDataPath: string;
+}): Promise<{ deletedPath: string; stagedPath: string }> {
+  const targetPath = path.join(userDataPath, entryName);
+  const stagedPath = path.join(trashPath, entryName);
+  await rename(targetPath, stagedPath);
+  return { deletedPath: targetPath, stagedPath };
+}
+
 export async function resetDesktopApplicationData({
   resetDatabaseProfile,
   stopBackgroundRuntimes,
@@ -72,25 +98,40 @@ export async function resetDesktopApplicationData({
     await resetDatabaseProfile();
 
     const deletedPaths: string[] = [];
+    const stagedPaths: string[] = [];
     const preservedPaths: string[] = [];
     const deletionFailures: UserDataDeletionFailure[] = [];
+    const trashPath = createResetTrashPath(userDataPath);
+    mkdirSync(trashPath, { recursive: true });
 
     for (const entryName of listUserDataEntries(userDataPath)) {
-      const targetPath = path.join(userDataPath, entryName);
       if (isPreservedUserDataEntry(entryName)) {
-        preservedPaths.push(targetPath);
+        preservedPaths.push(path.join(userDataPath, entryName));
         continue;
       }
+      if (path.join(userDataPath, entryName) === trashPath) {
+        continue;
+      }
+      const targetPath = path.join(userDataPath, entryName);
       try {
-        await rm(targetPath, { recursive: true, force: true });
-        deletedPaths.push(targetPath);
+        const stagedEntry = await stageUserDataEntryForDeletion({
+          entryName,
+          trashPath,
+          userDataPath,
+        });
+        deletedPaths.push(stagedEntry.deletedPath);
+        stagedPaths.push(stagedEntry.stagedPath);
       } catch (error: unknown) {
+        if (isMissingFileSystemEntry(error)) {
+          deletedPaths.push(targetPath);
+          continue;
+        }
         deletionFailures.push({ error, targetPath });
       }
     }
 
     if (deletionFailures.length > 0) {
-      logger.error('Desktop application data reset failed to delete entries', {
+      logger.error('Desktop application data reset failed to stage entries for deletion', {
         deletedPaths,
         deletionFailures: deletionFailures.map((failure) => ({
           error: failure.error instanceof Error ? failure.error.message : String(failure.error),
@@ -105,11 +146,25 @@ export async function resetDesktopApplicationData({
       throw new DesktopApplicationDataDeletionError(deletionFailures);
     }
 
+    const pendingDeletionPaths: string[] = [];
+    try {
+      await rm(trashPath, { recursive: true, force: true });
+    } catch (error) {
+      pendingDeletionPaths.push(trashPath);
+      logger.warn('Desktop application data reset left staged data for later cleanup', {
+        error,
+        stagedPaths,
+        trashPath,
+        userDataPath,
+      });
+    }
+
     // Ensure Electron has a userData directory to write into on the next boot.
     mkdirSync(userDataPath, { recursive: true });
 
     logger.warn('Desktop application data reset completed', {
       deletedPaths,
+      pendingDeletionPaths,
       preservedPaths,
       preservedUserDataEntries: [...PRESERVED_USER_DATA_ENTRY_NAMES],
       userDataPath,
@@ -120,7 +175,7 @@ export async function resetDesktopApplicationData({
       preservedPathCount: preservedPaths.length,
       userDataPath,
     });
-    return { deletedPaths, preservedPaths };
+    return { deletedPaths, pendingDeletionPaths, preservedPaths };
   } catch (error) {
     recordDesktopResetFailed({ error, userDataPath });
     throw error;

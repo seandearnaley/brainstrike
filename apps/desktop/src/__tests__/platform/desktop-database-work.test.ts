@@ -114,4 +114,14 @@ describe('desktop database work platform', () => {
     }
     releaseReset();
   });
+
+  it('rejects scheduled database work submitted from inside the active reset barrier', async () => {
+    await expect(
+      runWithDesktopDatabaseResetBarrier(async () => {
+        await runDesktopScheduledDatabaseWork({ label: 'nested-reset-work' }, async () => 'ran');
+      })
+    ).rejects.toThrow(
+      'Desktop database work cannot be scheduled from inside the active reset barrier.'
+    );
+  });
 });
