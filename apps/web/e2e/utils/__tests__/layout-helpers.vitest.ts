@@ -5,6 +5,7 @@ import {
   resetLayoutState,
   resolveNetworkIdleTimeout,
   resolveWaitForAppLoadTimeout,
+  resolveWaitForDatabaseReadyTimeout,
   waitForAppLoad,
   waitForDatabaseReady,
 } from '../layout-helpers';
@@ -137,6 +138,13 @@ describe('layout-helpers (unit)', () => {
     expect(resolveNetworkIdleTimeout(true)).toBe(5000);
   });
 
+  it('uses a larger local database readiness floor without widening shell readiness', () => {
+    expect(resolveWaitForAppLoadTimeout(500, false)).toBe(20_000);
+    expect(resolveWaitForDatabaseReadyTimeout(500, false)).toBe(45_000);
+    expect(resolveWaitForDatabaseReadyTimeout(500, true)).toBe(55_000);
+    expect(resolveWaitForDatabaseReadyTimeout(120_000, false)).toBe(120_000);
+  });
+
   it('logs CI diagnostics when panel-id selector fallback is missing', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     let waitForSelectorCallCount = 0;
@@ -200,7 +208,7 @@ describe('layout-helpers (unit)', () => {
     await withCiEnv(false, () => waitForDatabaseReady(page, 10_000));
 
     expect(page.waitForFunction).toHaveBeenCalledWith(expect.any(Function), null, {
-      timeout: 20_000,
+      timeout: 45_000,
     });
     expect(handle.dispose).toHaveBeenCalled();
   });
