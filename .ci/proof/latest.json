@@ -1,20 +1,21 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-21T02:42:00.968Z",
+  "generatedAt": "2026-05-21T03:29:58.712Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "42d581ee2db5a6ffa2908a194e0f632f72134e39",
+  "testedHeadSha": "33db38fbee6b06671b8a9f42dd292eb2328644ed",
   "selection": {
     "base": "origin/main",
     "baseSha": "0fc94414c0edb4f546faad2385762cc634df1008",
     "head": "HEAD",
-    "headSha": "42d581ee2db5a6ffa2908a194e0f632f72134e39",
+    "headSha": "33db38fbee6b06671b8a9f42dd292eb2328644ed",
     "mergeBase": "0fc94414c0edb4f546faad2385762cc634df1008",
     "files": [
+      ".ci/proof/latest.json",
       ".github/workflows/test.yml",
       "AGENTS.md",
       "CLAUDE.md",
@@ -732,7 +733,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 11
+      "durationMs": 10
     },
     {
       "name": "ci-script-tests",
@@ -741,7 +742,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 314
+      "durationMs": 312
     },
     {
       "name": "workflow-contracts",
@@ -750,7 +751,7 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 302
+      "durationMs": 279
     },
     {
       "name": "full-local-suite",
@@ -759,7 +760,7 @@
       "budgetMs": 2700000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 1051420
+      "durationMs": 1378965
     }
   ]
 }
