@@ -49,10 +49,20 @@ jobs:
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
 
+      - name: Read live pull request labels
+        id: pr-labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          labels="$(gh pr view "$PR_NUMBER" --json labels --jq '[.labels[].name] | join(",")')"
+          echo "labels=$labels" >> "$GITHUB_OUTPUT"
+
       - name: Verify local proof and risk routing
         id: verify-proof
         env:
-          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR_LABELS: ${{ steps.pr-labels.outputs.labels }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail

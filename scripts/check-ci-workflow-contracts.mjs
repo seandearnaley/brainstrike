@@ -1226,8 +1226,14 @@ export function validateWorkflowContracts(source) {
     );
     requireIncludes(
       prSentinel,
-      'github.event.pull_request.labels.*.name',
-      'PR Sentinel must pass pull request labels to the proof verifier.',
+      'gh pr view "$PR_NUMBER" --json labels',
+      'PR Sentinel must fetch live pull request labels before proof verification.',
+      failures
+    );
+    requireIncludes(
+      prSentinel,
+      'PR_LABELS: ${{ steps.pr-labels.outputs.labels }}',
+      'PR Sentinel must pass live pull request labels to the proof verifier.',
       failures
     );
     for (const outputName of ['required-labels', 'expanded-lanes', 'tested-head-sha']) {
