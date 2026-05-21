@@ -253,10 +253,6 @@ const WEB_DESTRUCTIVE_RESET_PATTERNS = [
 
 const WEB_FULL_REGRESSION_PATTERNS = [
   /^apps\/web\/src\/(?!__tests\/)(?!app\/settings\/)(?!create-embedding-queue\.ts$)(?!workers\/embedding-worker-web\.ts$).*\.(ts|tsx|css)$/,
-  /^apps\/web\/src\/main\.tsx$/,
-  /^apps\/web\/src\/App\.tsx$/,
-  /^apps\/web\/src\/app\/(?:layout|root-layout-content)\.tsx$/,
-  /^apps\/web\/src\/app\/globals\.css$/,
   /^apps\/web\/playwright\.config\.ts$/,
   /^apps\/web\/e2e\/(?:layout-persistence|navigation-panel-state-preservation|panel-state-preservation|theme-css-consistency)\.test\.ts$/,
   /^packages\/app-shell\/(?!src\/assistant)/,
