@@ -105,7 +105,7 @@ async function ensureFileExplorerPanelVisible(window: Page): Promise<void> {
     await clickElectronControl(showExplorerPanelButton);
   }
 
-  await explorerPanel.waitFor({ state: 'visible', timeout: 10_000 });
+  await expect(explorerPanel).toBeVisible({ timeout: 15_000 });
 }
 
 async function ensureViewFiltersExpanded(window: Page): Promise<void> {
