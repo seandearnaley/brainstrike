@@ -148,11 +148,12 @@ async function clearCacheStorage(): Promise<void> {
         key,
       }))
     );
-    const failedKeys = deletionResults
+    const reportedFailedKeys = deletionResults
       .filter((result) => !result.deleted)
       .map((result) => result.key);
     const remainingKeys = await cacheStorage.keys();
-    if (failedKeys.length > 0 || remainingKeys.length > 0) {
+    const failedKeys = reportedFailedKeys.filter((key) => remainingKeys.includes(key));
+    if (remainingKeys.length > 0) {
       throw new Error(
         `CacheStorage reset incomplete; failed=${failedKeys.join(',')}; remaining=${remainingKeys.join(',')}`
       );

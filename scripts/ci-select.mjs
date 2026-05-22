@@ -64,7 +64,7 @@ export const E2E_LANES = {
   },
   'web-full-regression': {
     command:
-      'cd apps/web && pnpm exec playwright test --project=functional --workers=2 --grep-invert "@destructive|@stateful" && pnpm exec playwright test --project=functional --workers=1 --grep "@stateful"',
+      'pnpm --filter @brainstrike/web exec playwright test --project=functional --workers=2 --grep-invert "@destructive|@stateful" && pnpm --filter @brainstrike/web exec playwright test --project=functional --workers=1 --grep "@stateful"',
     owner: 'applications',
     tagContract: 'functional plus stateful/destructive web lanes',
   },

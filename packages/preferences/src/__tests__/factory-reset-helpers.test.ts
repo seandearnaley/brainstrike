@@ -166,4 +166,16 @@ describe('clearPersistentUiState IndexedDB handling', () => {
       /CacheStorage reset incomplete/
     );
   });
+
+  it('does not fail when CacheStorage delete reports false but verification shows no entries remain', async () => {
+    Object.defineProperty(globalWindow, 'caches', {
+      configurable: true,
+      value: {
+        delete: vi.fn(async () => false),
+        keys: vi.fn().mockResolvedValueOnce(['runtime-cache']).mockResolvedValueOnce([]),
+      } as unknown as CacheStorage,
+    });
+
+    await expect(clearPersistentUiState({ skipIndexedDb: true })).resolves.toBeUndefined();
+  });
 });

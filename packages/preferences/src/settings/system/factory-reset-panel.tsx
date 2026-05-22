@@ -60,14 +60,14 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
       return;
     }
 
-    let rendererStorageClearedBeforeDesktopReset = false;
+    let rendererStorageResetStarted = false;
     try {
       setRunning(true);
       if (desktopResetBridge) {
         // Desktop CacheStorage must be cleared while the live renderer still owns
         // a valid backing store. Main then purges DB/userData and the renderer reloads.
+        rendererStorageResetStarted = true;
         await clearPersistentUiState({ skipIndexedDb: false });
-        rendererStorageClearedBeforeDesktopReset = true;
         const result = await desktopResetBridge();
         if (!result.success) {
           throw new Error(result.message ?? 'Desktop factory reset failed.');
@@ -78,12 +78,13 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
           throw new Error('Factory reset is unavailable.');
         }
         await resetFn();
+        rendererStorageResetStarted = true;
         await clearPersistentUiState({ skipIndexedDb: true });
       }
       // Ensure a full reload so the renderer boots cleanly.
       await requestFactoryResetReload('factory-reset');
     } catch (err) {
-      if (desktopResetBridge && rendererStorageClearedBeforeDesktopReset) {
+      if (rendererStorageResetStarted) {
         await requestFactoryResetReload('factory-reset-failed-after-renderer-clear');
         return;
       }

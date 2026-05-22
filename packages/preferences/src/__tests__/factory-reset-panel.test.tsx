@@ -385,7 +385,7 @@ describe('FactoryResetPanel', () => {
       });
     });
 
-    it('shows error toast when clearPersistentUiState fails', async () => {
+    it('reloads without toast when clearPersistentUiState fails after reset work starts', async () => {
       const mockDoFactoryReset = vi.fn().mockResolvedValue(undefined);
       const mockError = new Error('Failed to clear UI state');
       mockClearPersistentUiState.mockRejectedValue(mockError);
@@ -396,12 +396,9 @@ describe('FactoryResetPanel', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(mockToast).toHaveBeenCalledWith({
-          title: 'Factory Reset Failed',
-          description: 'Error: Failed to clear UI state',
-          variant: 'destructive',
-        });
+        expect(mockReload).toHaveBeenCalled();
       });
+      expect(mockToast).not.toHaveBeenCalled();
     });
 
     it('does not reload page when reset fails', async () => {
