@@ -1,20 +1,21 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-22T14:49:07.154Z",
+  "generatedAt": "2026-05-22T15:01:12.245Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "9d3f6b3023bc7fa5bbf8a04de76f0e474ba5bafb",
+  "testedHeadSha": "8f65cb496de4435fa1ba03e75282d6aa6b226fff",
   "selection": {
     "base": "origin/main",
     "baseSha": "00395de691e8080fa07aa53ff6d0d3548573a013",
     "head": "HEAD",
-    "headSha": "9d3f6b3023bc7fa5bbf8a04de76f0e474ba5bafb",
+    "headSha": "8f65cb496de4435fa1ba03e75282d6aa6b226fff",
     "mergeBase": "00395de691e8080fa07aa53ff6d0d3548573a013",
     "files": [
+      ".ci/proof/latest.json",
       "apps/desktop/e2e/embedding-worker-renderer.diagnostics.desktop.test.ts",
       "apps/desktop/e2e/embedding-worker-renderer.shared.ts",
       "apps/desktop/e2e/file-explorer-selection-restore.desktop.test.ts",
@@ -128,7 +129,7 @@
       "budgetMs": 240000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 60618
+      "durationMs": 60217
     },
     {
       "name": "desktop-full-regression-tests",
@@ -137,7 +138,7 @@
       "budgetMs": 900000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 314323
+      "durationMs": 306965
     },
     {
       "name": "desktop-smoke-tests",
@@ -146,7 +147,7 @@
       "budgetMs": 300000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 48368
+      "durationMs": 48304
     }
   ]
 }
