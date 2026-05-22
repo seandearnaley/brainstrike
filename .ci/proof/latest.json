@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-22T07:39:45.771Z",
+  "generatedAt": "2026-05-22T10:59:52.800Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "f31d3fea08549eab09fbc8b7a711fb261dd08310",
+  "testedHeadSha": "48de64effd84715b0e711b96fe7a0a2711993611",
   "selection": {
     "base": "origin/main",
     "baseSha": "7c23da6f2a2137888e0ae5954f09fea7848f463d",
     "head": "HEAD",
-    "headSha": "f31d3fea08549eab09fbc8b7a711fb261dd08310",
+    "headSha": "48de64effd84715b0e711b96fe7a0a2711993611",
     "mergeBase": "7c23da6f2a2137888e0ae5954f09fea7848f463d",
     "files": [
       ".ci/proof/latest.json",
@@ -145,7 +145,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 10
+      "durationMs": 11
     },
     {
       "name": "file-explorer-tests",
@@ -154,7 +154,7 @@
       "budgetMs": 240000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 22953
+      "durationMs": 22927
     },
     {
       "name": "web-file-explorer-persistence-tests",
@@ -163,7 +163,7 @@
       "budgetMs": 360000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 43883
+      "durationMs": 46378
     },
     {
       "name": "web-smoke-tests",
@@ -172,7 +172,7 @@
       "budgetMs": 300000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 3635
+      "durationMs": 3647
     },
     {
       "name": "web-full-regression-tests",
@@ -181,7 +181,7 @@
       "budgetMs": 900000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 175276
+      "durationMs": 175693
     }
   ]
 }
