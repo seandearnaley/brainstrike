@@ -29,8 +29,13 @@ const resolveDistRoot = (): string => {
 function configureSecurity(win: BrowserWindow) {
   // Security: Prevent new window creation
   win.webContents.setWindowOpenHandler(({ url }: { url: string }) => {
-    if (url.startsWith('http://localhost:') || url.startsWith('file://')) {
-      return { action: 'allow' };
+    try {
+      const parsedUrl = new URL(url);
+      if (parsedUrl.hostname === 'localhost' || parsedUrl.protocol === 'file:') {
+        return { action: 'allow' };
+      }
+    } catch {
+      // Invalid URLs are denied
     }
     return { action: 'deny' };
   });
