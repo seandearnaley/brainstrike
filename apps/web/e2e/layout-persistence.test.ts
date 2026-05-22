@@ -513,7 +513,7 @@ test.describe('IDE Layout Persistence', () => {
 
       await page.waitForTimeout(300);
 
-      // Verify panel respects maximum size (70% according to IdeLayout)
+      // Verify panel respects maximum size (80% of middle panel used as guard)
       const maxWidth = await rightPanel.evaluate((el) => el.getBoundingClientRect().width);
       const maxExpectedWidth = middlePanelWidth * 0.8;
       expect(maxWidth).toBeLessThan(maxExpectedWidth);
