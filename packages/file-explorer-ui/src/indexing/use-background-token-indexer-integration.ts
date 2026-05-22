@@ -31,6 +31,7 @@ import {
   buildFileHandleMap,
   buildSyntheticElectronHandle,
   type ElectronFileHandle,
+  getSlashPathFileName,
   type HandleInfo,
   isMissingFileError,
 } from './background-token-indexer-handles';
@@ -681,7 +682,7 @@ export function useBackgroundTokenIndexerIntegration({
           // so we never spend a resolver round-trip on files the worker would skip
           // anyway. Anything that survives gets queued for batched concurrent
           // resolution after the main classification loop.
-          const resolverFileName = normalizedFilePath.split('/').at(-1) ?? '';
+          const resolverFileName = getSlashPathFileName(normalizedFilePath);
           if (isBinaryFile(resolverFileName)) {
             skippedBinary++;
             indexedFilesRef.current.add(compositeKey);

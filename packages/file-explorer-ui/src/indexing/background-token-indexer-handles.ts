@@ -106,6 +106,11 @@ function joinElectronAbsolutePath(rootPath: string, relativePath: string): strin
   return `${trimmedRootPath}${separator}${normalizedRelativePath}`;
 }
 
+export function getSlashPathFileName(filePath: string): string {
+  const lastSlashIdx = filePath.lastIndexOf('/');
+  return lastSlashIdx === -1 ? filePath : filePath.slice(lastSlashIdx + 1);
+}
+
 export function buildSyntheticElectronHandle(args: {
   filePath: string;
   fileSize: number | undefined;
@@ -115,7 +120,7 @@ export function buildSyntheticElectronHandle(args: {
     return null;
   }
 
-  const fileName = args.filePath.split('/').at(-1);
+  const fileName = getSlashPathFileName(args.filePath);
   if (!fileName) {
     return null;
   }
