@@ -20,7 +20,7 @@ import {
 } from './utils/layout-helpers';
 
 test.describe('Application Layout', { tag: '@smoke' }, () => {
-  test('should render the main layout correctly', async ({ page }) => {
+  test('should render the main layout correctly', { tag: '@web-smoke' }, async ({ page }) => {
     const home = new HomePage(page);
     await home.goto({ waitForDatabase: false });
 

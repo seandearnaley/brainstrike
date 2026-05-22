@@ -116,7 +116,7 @@
     "test:e2e:lane:full-regression": "unset NO_COLOR; pnpm exec playwright test --project=functional --workers=2 --grep-invert \"@destructive|@stateful\" && pnpm exec playwright test --project=functional --workers=1 --grep \"@stateful\"",
     "test:e2e:lane:import-indexing": "unset NO_COLOR; pnpm exec playwright test e2e/database-import-backfill.test.ts --project=functional --workers=1 --grep \"@web-import-indexing\"",
     "test:e2e:lane:settings-state": "unset NO_COLOR; pnpm exec playwright test e2e/background-indexing-settings.test.ts e2e/settings-models-and-providers.test.ts --project=functional --workers=1 --grep \"@web-settings-state\"",
-    "test:e2e:lane:smoke": "unset NO_COLOR; pnpm exec playwright test --project=functional --grep \"@smoke\" --workers=2",
+    "test:e2e:lane:smoke": "unset NO_COLOR; pnpm exec playwright test --project=functional --grep \"@web-smoke\" --workers=2",
     "test:e2e:perf": "unset NO_COLOR; pnpm exec playwright test --project=performance",
     "test:e2e:ui": "unset NO_COLOR; pnpm exec playwright test --ui",
     "test:ui": "vitest --ui",

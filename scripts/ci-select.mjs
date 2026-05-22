@@ -16,15 +16,16 @@ export const CI_DIFF_FILTER = 'ACDMRTUXB';
 
 export const E2E_LANES = {
   'critical-smoke': {
-    command: 'pnpm --filter @brainstrike/web exec playwright test --project=functional --grep "@smoke" --workers=2',
+    command:
+      'pnpm --filter @brainstrike/web exec playwright test --project=functional --grep "@web-smoke" --workers=2',
     owner: 'applications',
-    tagContract: '@smoke',
+    tagContract: '@web-smoke',
   },
   'web-smoke': {
     command:
-      'pnpm --filter @brainstrike/web exec playwright test --project=functional --grep "@smoke" --workers=2',
+      'pnpm --filter @brainstrike/web exec playwright test --project=functional --grep "@web-smoke" --workers=2',
     owner: 'applications',
-    tagContract: '@smoke',
+    tagContract: '@web-smoke',
   },
   'web-file-explorer-persistence': {
     command:

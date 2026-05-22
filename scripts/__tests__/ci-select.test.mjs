@@ -171,7 +171,8 @@ test('E2E lane command taxonomy is explicit and avoids hidden full-suite fallbac
     'desktop-llm-host-recovery',
     'long-soak-release-only',
   ]);
-  assert.match(E2E_LANES['web-smoke'].command, /@smoke/);
+  assert.match(E2E_LANES['critical-smoke'].command, /@web-smoke/);
+  assert.match(E2E_LANES['web-smoke'].command, /@web-smoke/);
   assert.match(E2E_LANES['web-file-explorer-persistence'].command, /@web-file-explorer-persistence/);
   assert.match(E2E_LANES['web-import-indexing'].command, /@web-import-indexing/);
   assert.match(E2E_LANES['web-assistant-state'].command, /@web-assistant-state/);

@@ -75,7 +75,7 @@ test.describe('File Explorer', () => {
       explorer = await bootstrapFileExplorer(page, { tree: defaultTree });
     });
 
-    test('should show initial empty state', async ({ page }) => {
+    test('should show initial empty state', { tag: '@web-smoke' }, async ({ page }) => {
       await expect(explorer.noDirectoryText).toBeVisible();
       await expect(explorer.selectRootButton).toBeVisible();
       await expect(explorer.noFilesText).toBeVisible();

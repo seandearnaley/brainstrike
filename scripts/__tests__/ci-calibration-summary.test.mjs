@@ -203,7 +203,8 @@ test('buildCalibrationGapPlan ranks missing samples by selected PR-risk relevanc
         },
         {
           budgetMs: 300_000,
-          command: 'pnpm --filter @brainstrike/web exec playwright test --project=functional --grep "@smoke" --workers=2',
+          command:
+            'pnpm --filter @brainstrike/web exec playwright test --project=functional --grep "@web-smoke" --workers=2',
           durationMs: 33_000,
           exitCode: 0,
           name: 'web-smoke-tests',
