@@ -348,11 +348,11 @@ test.describe('IDE Layout Persistence', () => {
       await expect(rightPanel).toBeVisible();
 
       // Hide the panel
-      await page.getByTestId('hide-tools-panel').click();
+      await page.getByTestId('hide-explorer-panel').click();
       await expect(rightPanel).not.toBeVisible();
 
       // Show explorer before navigation to avoid UI overlap
-      await page.getByTestId('show-tools-panel').click();
+      await page.getByTestId('show-explorer-panel').click();
       await expect(rightPanel).toBeVisible();
 
       // Navigate to Settings
@@ -371,7 +371,7 @@ test.describe('IDE Layout Persistence', () => {
       const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
       await expect(rightPanel).toBeVisible();
 
-      await page.getByTestId('hide-tools-panel').click();
+      await page.getByTestId('hide-explorer-panel').click();
       await expect(rightPanel).not.toBeVisible();
 
       await activateSidebarNavigation(page, 'Settings');
@@ -381,7 +381,7 @@ test.describe('IDE Layout Persistence', () => {
       await waitForContextExplorerPage(page);
 
       await expect(rightPanel).not.toBeVisible();
-      await expect(page.getByTestId('show-tools-panel')).toBeVisible();
+      await expect(page.getByTestId('show-explorer-panel')).toBeVisible();
     });
   });
 
