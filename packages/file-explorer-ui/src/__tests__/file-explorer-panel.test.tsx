@@ -1099,8 +1099,8 @@ describe('FileExplorerPanel', () => {
 
   it('renders correctly when inline fixture is enabled', async () => {
     // Inline fixture loading is now handled by setupInlineFixtureSubscription
-    // in FileExplorerProvider, not in the left panel. This test verifies
-    // the left panel renders without errors when devInlineFixtureEnabled is true.
+    // in FileExplorerProvider, not in the panel component. This test verifies
+    // the panel renders without errors when devInlineFixtureEnabled is true.
     renderWithProviders(<FileExplorerPanel />);
 
     // Should render the toolbar area without errors

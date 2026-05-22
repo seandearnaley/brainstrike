@@ -136,8 +136,8 @@ const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
 const LARGE_SELECTION_RENDER_DIAGNOSTIC_THRESHOLD = 250;
 
 /**
- * FileExplorerLeftPanel - Contains the file tree and toolbar
- * This component can be used independently in the left panel of an IDE layout
+ * FileExplorerPanel - Contains the file tree and toolbar
+ * This component can be used independently in a panel of an IDE layout
  */
 export const FileExplorerPanel: React.FC = React.memo(() => {
   const { fileSystemAdapter, storageAdapter } = useAdapters();

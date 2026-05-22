@@ -26,9 +26,33 @@ describe('context-explorer-layout-store', () => {
   it('initializes with default state', () => {
     const state = store.getState();
     expect(state.sizes).toEqual(DEFAULT_SIZES);
-    expect(state.showLeftPanel).toBe(true);
-    expect(state.showRightPanel).toBe(false);
+    expect(state.showLeftPanel).toBe(false);
+    expect(state.showRightPanel).toBe(true);
     expect(state.showConsole).toBe(false);
+  });
+
+  it('migrates from v1 to v2 by swapping panel visibility and sizes', async () => {
+    const storage = createMemoryStorageAdapter();
+    await storage.setItem(
+      STORE_NAME,
+      JSON.stringify({
+        state: {
+          sizes: [30, 15, 10],
+          showLeftPanel: true,
+          showRightPanel: false,
+          showConsole: true,
+        },
+        version: 1,
+      })
+    );
+
+    const persistedStore = createContextExplorerLayoutStore(storage);
+    await getPersistApi(persistedStore).rehydrate();
+
+    expect(persistedStore.getState().sizes).toEqual([15, 30, 10]);
+    expect(persistedStore.getState().showLeftPanel).toBe(false);
+    expect(persistedStore.getState().showRightPanel).toBe(true);
+    expect(persistedStore.getState().showConsole).toBe(true);
   });
 
   it('preserves the persisted version during rehydration', async () => {
@@ -66,7 +90,7 @@ describe('context-explorer-layout-store', () => {
           showRightPanel: true,
           showConsole: true,
         },
-        version: 1,
+        version: 2,
       })
     );
 
@@ -94,7 +118,7 @@ describe('context-explorer-layout-store', () => {
           showRightPanel: true,
           showConsole: true,
         },
-        version: 1,
+        version: 2,
       })
     );
 

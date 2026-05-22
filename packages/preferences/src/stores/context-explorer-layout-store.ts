@@ -28,7 +28,7 @@ const DEFAULT_STATE: Omit<
 };
 
 const STORE_NAME = 'context-explorer-layout-store.v1' as const;
-const STORE_VERSION = 1 as const;
+const STORE_VERSION = 2 as const;
 const MIN_PANEL_SIZE = 10;
 const logger = createLogger('ContextExplorerLayoutStore');
 
@@ -191,7 +191,19 @@ function persistOptions(
       showRightPanel: state.showRightPanel,
       showConsole: state.showConsole,
     }),
-    migrate: (persistedState) => persistedState as PersistedContextExplorerLayoutState,
+    migrate: (persistedState, version) => {
+      const state = persistedState as PersistedContextExplorerLayoutState;
+      if (version < 2) {
+        const sizes = state.sizes || [25, 20, 20];
+        return {
+          ...state,
+          sizes: [sizes[1] ?? 20, sizes[0] ?? 25, sizes[2] ?? 20] as [number, number, number],
+          showLeftPanel: state.showRightPanel ?? false,
+          showRightPanel: state.showLeftPanel ?? true,
+        };
+      }
+      return state;
+    },
   };
 }
 

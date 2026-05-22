@@ -2,7 +2,7 @@
 
 ## Ownership
 
-Owns file-explorer composition, providers, app/tab host wiring, toolbar/filter UI, file-system context, selection-manager context, and the left-panel composition point.
+Owns file-explorer composition, providers, app/tab host wiring, toolbar/filter UI, file-system context, selection-manager context, and the panel composition point.
 
 Top churn owned here:
 - `file-explorer-panel.tsx`
