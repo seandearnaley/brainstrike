@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Brainstrike Web/Product Proof Lanes - 2026-05-21</title>
+  <style>
+    :root {
+      --bg: #0e1116;
+      --panel: #151a21;
+      --panel-2: #1b222c;
+      --line: #2a3442;
+      --text: #edf2f7;
+      --muted: #9aa7b5;
+      --blue: #72a7ff;
+      --green: #55d6a7;
+      --yellow: #f3c969;
+      --red: #ff7676;
+      --purple: #b08cff;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      line-height: 1.55;
+    }
+    .shell {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      max-width: 1440px;
+      margin: 0 auto;
+      min-height: 100vh;
+    }
+    nav {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 28px 22px;
+      border-right: 1px solid var(--line);
+      background: #10141a;
+    }
+    nav h1 {
+      margin: 0 0 6px;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+    nav .meta {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+      margin-bottom: 28px;
+    }
+    nav a {
+      display: block;
+      color: var(--muted);
+      text-decoration: none;
+      padding: 7px 0;
+      font-size: 14px;
+    }
+    nav a:hover { color: var(--text); }
+    main {
+      padding: 44px 56px 72px;
+    }
+    .hero {
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(135deg, rgba(114, 167, 255, 0.14), rgba(85, 214, 167, 0.06)),
+        var(--panel);
+      border-radius: 10px;
+      padding: 34px;
+      margin-bottom: 30px;
+    }
+    .eyebrow {
+      color: var(--green);
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-size: 12px;
+      margin-bottom: 10px;
+    }
+    h2, h3 { letter-spacing: 0; }
+    h2 { margin: 0 0 10px; font-size: 30px; }
+    h3 { margin: 0 0 12px; font-size: 21px; }
+    p { color: var(--muted); margin: 0 0 14px; max-width: 900px; }
+    code {
+      font-family: var(--mono);
+      font-size: 0.92em;
+      color: #c8f5e4;
+      background: #101820;
+      border: 1px solid #243242;
+      border-radius: 5px;
+      padding: 1px 5px;
+    }
+    section {
+      margin: 36px 0;
+      scroll-margin-top: 20px;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      font-weight: 700;
+    }
+    .value {
+      margin-top: 7px;
+      font-family: var(--mono);
+      font-size: 28px;
+      color: var(--text);
+    }
+    .note { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      overflow: hidden;
+      font-size: 13px;
+    }
+    th, td {
+      text-align: left;
+      vertical-align: top;
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+    th {
+      background: var(--panel-2);
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+    tr:last-child td { border-bottom: 0; }
+    td.mono { font-family: var(--mono); color: #cbd5e1; }
+    .status {
+      display: inline-block;
+      border: 1px solid rgba(85, 214, 167, 0.4);
+      color: var(--green);
+      background: rgba(85, 214, 167, 0.08);
+      border-radius: 999px;
+      padding: 3px 9px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+    .warn {
+      border-color: rgba(243, 201, 105, 0.45);
+      color: var(--yellow);
+      background: rgba(243, 201, 105, 0.08);
+    }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .flow div {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 13px;
+      min-height: 90px;
+    }
+    .flow b { display: block; color: var(--text); margin-bottom: 6px; }
+    .flow span { color: var(--muted); font-size: 13px; }
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+    }
+    li { margin: 6px 0; }
+    footer {
+      border-top: 1px solid var(--line);
+      margin-top: 54px;
+      padding-top: 18px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+    @media (max-width: 980px) {
+      .shell { grid-template-columns: 1fr; }
+      nav { position: relative; height: auto; }
+      main { padding: 28px 18px 48px; }
+      .cards, .flow, .split { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <nav>
+      <h1>Web/Product Proof Lanes</h1>
+      <div class="meta">brainstrike<br>2026-05-21</div>
+      <a href="#verdict">Verdict</a>
+      <a href="#taxonomy">Lane Taxonomy</a>
+      <a href="#selection">Selection Rules</a>
+      <a href="#workflow">Workflow Wiring</a>
+      <a href="#evidence">Evidence</a>
+      <a href="#done">Done Conditions</a>
+      <a href="#next">Next Steps</a>
+    </nav>
+    <main>
+      <div class="hero" id="verdict">
+        <div class="eyebrow">Architecture Reset Follow-up</div>
+        <h2>Web/product proof is now risk-owned instead of broad by default.</h2>
+        <p>
+          This branch applies the desktop lane model to web/product validation. Normal file explorer,
+          import/indexing, assistant, settings, DB startup, and destructive reset changes now select
+          explicit lanes with owners, commands, tags, cloud jobs, and budgets. Broad web bootstrap,
+          router, layout, and release-risk changes still select full web regression.
+        </p>
+        <div class="cards">
+          <div class="card">
+            <div class="label">Narrow Web Lanes</div>
+            <div class="value">7</div>
+            <div class="note">plus smoke and full regression</div>
+          </div>
+          <div class="card">
+            <div class="label">Representative Fixtures</div>
+            <div class="value">25</div>
+            <div class="note">selector drift guard</div>
+          </div>
+          <div class="card">
+            <div class="label">Measured Narrow Suite</div>
+            <div class="value">2m 38s</div>
+            <div class="note">all new local lane scripts sequentially</div>
+          </div>
+          <div class="card">
+            <div class="label">Slowest Local Lane</div>
+            <div class="value">44s</div>
+            <div class="note">file explorer persistence</div>
+          </div>
+        </div>
+      </div>
+
+      <section id="taxonomy">
+        <h3>Lane Taxonomy</h3>
+        <p>
+          Each lane has one product owner, one package script, one tag contract, and one PR job.
+          The broad <code>ci:web-e2e</code> label remains the full web regression path and is not used as
+          a hidden fallback for narrow changes.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Lane</th>
+              <th>Owner</th>
+              <th>Tag Contract</th>
+              <th>Local Command</th>
+              <th>Measured Local</th>
+              <th>Cloud Job</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>web-smoke</code></td>
+              <td>applications</td>
+              <td><code>@web-smoke</code></td>
+              <td class="mono">pnpm --filter @brainstrike/web run test:e2e:lane:smoke</td>
+              <td>5s</td>
+              <td><code>web-e2e-smoke-pr</code></td>
+            </tr>
+            <tr>
+              <td><code>web-file-explorer-persistence</code></td>
+              <td>workspace-experience</td>
+              <td><code>@web-file-explorer-persistence</code></td>
+              <td class="mono">pnpm --filter @brainstrike/web run test:e2e:lane:file-explorer-persistence</td>
+              <td>44s</td>
+              <td><code>web-e2e-file-explorer-persistence-pr</code></td>
+            </tr>
+            <tr>
+              <td><code>web-import-indexing</code></td>
+              <td>indexing</td>
+              <td><code>@web-import-indexing</code></td>
+              <td class="mono">pnpm --filter @brainstrike/web run test:e2e:lane:import-indexing</td>
+              <td>26s</td>
+              <td><code>web-e2e-import-indexing-pr</code></td>
+            </tr>
+            <tr>
+              <td><code>web-assistant-state</code></td>
+              <td>assistant</td>
+              <td><code>@web-assistant-state</code></td>
+              <td class="mono">pnpm --filter @brainstrike/web run test:e2e:lane:assistant-state</td>
+              <td>24s</td>
+              <td><code>web-e2e-assistant-state-pr</code></td>
+            </tr>
+            <tr>
+              <td><code>web-settings-state</code></td>
+              <td>applications</td>
+              <td><code>@web-settings-state</code></td>
+              <td class="mono">pnpm --filter @brainstrike/web run test:e2e:lane:settings-state</td>
+              <td>14s</td>
+              <td><code>web-e2e-settings-state-pr</code></td>
+            </tr>
+            <tr>
+              <td><code>web-db-startup</code></td>
+              <td>data-platform</td>
+              <td><code>@web-db-startup</code></td>
+              <td class="mono">pnpm --filter @brainstrike/web run test:e2e:lane:db-startup</td>
+              <td>9s</td>
+              <td><code>web-e2e-db-startup-pr</code></td>
+            </tr>
+            <tr>
+              <td><code>web-destructive-reset</code></td>
+              <td>data-platform</td>
+              <td><code>@web-destructive-reset</code></td>
+              <td class="mono">pnpm --filter @brainstrike/web run test:e2e:lane:destructive-reset</td>
+              <td>8s</td>
+              <td><code>web-e2e-destructive-reset-pr</code></td>
+            </tr>
+            <tr>
+              <td><code>web-full-regression</code></td>
+              <td>applications</td>
+              <td>functional plus stateful/destructive web lanes</td>
+              <td class="mono">pnpm --filter @brainstrike/web run test:e2e:lane:full-regression</td>
+              <td>release/high-risk only</td>
+              <td><code>e2e</code>, <code>e2e-stateful</code>, <code>e2e-destructive</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="selection">
+        <h3>Selection Rules</h3>
+        <div class="flow">
+          <div><b>File Explorer</b><span>Tree and persistence changes select <code>ci:web-file-explorer-persistence</code> plus coverage, not import, assistant, settings, destructive, or full web E2E.</span></div>
+          <div><b>Import/Indexing</b><span>Database import and web indexing changes select <code>ci:web-import-indexing</code> and indexing proof commands.</span></div>
+          <div><b>Assistant</b><span>Assistant contract and UI changes select <code>ci:web-assistant-state</code> plus assistant/app-shell tests.</span></div>
+          <div><b>Settings</b><span>Settings persistence changes select <code>ci:web-settings-state</code> only plus coverage.</span></div>
+          <div><b>DB Migrations</b><span>Migration changes select data-platform unit/integration proof plus <code>ci:web-db-startup</code> and <code>ci:web-destructive-reset</code>, without expanding to full web regression.</span></div>
+          <div><b>Broad App</b><span>App bootstrap, router, layout, CSS, and broad package surfaces select <code>ci:web-e2e</code>.</span></div>
+        </div>
+      </section>
+
+      <section id="workflow">
+        <h3>Workflow Wiring</h3>
+        <div class="split">
+          <div class="card">
+            <div class="label">What Changed</div>
+            <ul>
+              <li><code>prepare-web</code> now runs for all narrow web labels.</li>
+              <li>Each narrow label maps to one explicit PR job in <code>Required PR Gate</code>.</li>
+              <li><code>merge-reports</code> includes narrow web jobs without requiring full web regression.</li>
+              <li>Workflow contracts fail if a narrow job falls back to <code>test:e2e:lane:full-regression</code>.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="label">What Did Not Change</div>
+            <ul>
+              <li><code>ci:web-e2e</code> still runs the existing sharded functional, stateful, and destructive jobs.</li>
+              <li><code>ci:full</code> still expands to the explicit full-risk suite.</li>
+              <li>Desktop proof lanes and renderer-only architecture guards are untouched.</li>
+              <li>Proof manifest policy remains unchanged.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="evidence">
+        <h3>Evidence</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Check</th>
+              <th>Result</th>
+              <th>What It Proves</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="mono">node --test ci-risk-rules + ci-select + workflow contracts + risk fixtures</td>
+              <td><span class="status">Passed</span></td>
+              <td>Selector behavior, workflow label routing, required gate mapping, and fixture coverage are deterministic.</td>
+            </tr>
+            <tr>
+              <td class="mono">pnpm run ci:risk-fixtures</td>
+              <td><span class="status">Passed</span></td>
+              <td>25 representative file-change cases match committed expectations.</td>
+            </tr>
+            <tr>
+              <td class="mono">pnpm run lint:ci-workflow-contracts</td>
+              <td><span class="status">Passed</span></td>
+              <td>GitHub workflow still satisfies CI cost, report merge, proof, and lane-gate contracts.</td>
+            </tr>
+            <tr>
+              <td class="mono">pnpm run lint:e2e-stateful-matrix</td>
+              <td><span class="status">Passed</span></td>
+              <td>Stateful web groups remain explicitly represented.</td>
+            </tr>
+            <tr>
+              <td class="mono">pnpm run lint:e2e-destructive-tags</td>
+              <td><span class="status">Passed</span></td>
+              <td>Destructive reset specs remain isolated by tag.</td>
+            </tr>
+            <tr>
+              <td class="mono">pnpm run lint:e2e-readiness-contracts</td>
+              <td><span class="status">Passed</span></td>
+              <td>Readiness contracts still match the E2E harness expectations.</td>
+            </tr>
+            <tr>
+              <td class="mono">all seven new web lane package scripts</td>
+              <td><span class="status">Passed</span></td>
+              <td>The new lanes are executable locally and collectively complete in 2m 38s on this machine.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="done">
+        <h3>Done Conditions</h3>
+        <table>
+          <thead>
+            <tr><th>Condition</th><th>Status</th><th>Evidence</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>File-explorer-only changes avoid import, assistant, settings, destructive, and full web lanes.</td><td><span class="status">Met</span></td><td>Selector tests and fixtures.</td></tr>
+            <tr><td>Import/indexing UI changes select import/indexing plus indexing proof.</td><td><span class="status">Met</span></td><td><code>web-import-indexing</code> tests and fixture.</td></tr>
+            <tr><td>Assistant UI changes select assistant-state only plus unit/coverage.</td><td><span class="status">Met</span></td><td><code>web-assistant-state</code> selector tests.</td></tr>
+            <tr><td>Settings persistence changes select settings-state only.</td><td><span class="status">Met</span></td><td><code>web-settings-state</code> selector tests.</td></tr>
+            <tr><td>Broad app shell/router/bootstrap changes still select full web regression.</td><td><span class="status">Met</span></td><td><code>web-full-regression</code> tests and fixture.</td></tr>
+            <tr><td>Each lane has command, tag, CI job, owner, and budget.</td><td><span class="status">Met</span></td><td>Package scripts, workflow jobs, <code>E2E_LANES</code>, and <code>LOCAL_PROOF_COMMANDS</code>.</td></tr>
+            <tr><td>No hidden fallback from narrow lane to full web regression.</td><td><span class="status">Met</span></td><td>Workflow contract helper rejects narrow jobs containing <code>test:e2e:lane:full-regression</code>.</td></tr>
+            <tr><td>Normal web/product PR cloud gate target under 10 minutes p95.</td><td><span class="status warn">Designed</span></td><td>Local lanes are below 1 minute each; cloud jobs are capped at 15 minutes total, 12 minutes test step. Cloud p95 requires PR evidence after merge.</td></tr>
+            <tr><td>Full web regression remains available for release/high-risk changes.</td><td><span class="status">Met</span></td><td><code>ci:web-e2e</code> and <code>ci:full</code> retain broad jobs.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="next">
+        <h3>Next Steps</h3>
+        <p>
+          The local implementation is ready for broader proof. Because this branch changes selectors,
+          workflow contracts, package scripts, and documentation, <code>ci:select</code> should classify it as
+          full release/high risk before PR. The next step is a single explicit PR proof run after the cheap
+          checks remain green, followed by a proof-only commit if the PR path is used.
+        </p>
+      </section>
+
+      <footer>
+        Generated 2026-05-21. Local narrow lane evidence captured on branch codex/web-product-proof-lanes.
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

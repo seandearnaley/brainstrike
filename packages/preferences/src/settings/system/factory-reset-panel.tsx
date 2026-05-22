@@ -1,10 +1,25 @@
 import { useFactoryReset } from '@brainstrike/db';
 import { Button, Label, useToast } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useMemo, useState } from 'react';
 import { clearPersistentUiState } from './factory-reset-helpers';
 
+const logger = createLogger('FactoryResetPanel');
+
 export interface FactoryResetPanelProps {
   doFactoryReset?: (() => Promise<void>) | null;
+}
+
+async function requestFactoryResetReload(reason: string): Promise<void> {
+  try {
+    const currentWindow = window as Window & {
+      desktopLifecycle?: { noteReloadIntent: (reason: string) => Promise<void> };
+    };
+    await currentWindow.desktopLifecycle?.noteReloadIntent(reason);
+    window.location.reload();
+  } catch {
+    /* swallow reload errors; UI may still be in a reset state */
+  }
 }
 
 function getDesktopResetBridge(): (() => Promise<{ message?: string; success: boolean }>) | null {
@@ -48,34 +63,39 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
       return;
     }
 
+    let rendererStorageResetStarted = false;
     try {
       setRunning(true);
       if (desktopResetBridge) {
+        // Desktop CacheStorage must be cleared while the live renderer still owns
+        // a valid backing store. Mark the renderer as partially reset before
+        // clearing storage because localStorage/sessionStorage are cleared first,
+        // which makes same-session toast recovery unreliable.
+        rendererStorageResetStarted = true;
+        await clearPersistentUiState({ skipIndexedDb: false });
         const result = await desktopResetBridge();
         if (!result.success) {
           throw new Error(result.message ?? 'Desktop factory reset failed.');
         }
-        // Clear live renderer stores after main confirms the destructive reset completed.
-        await clearPersistentUiState({ skipIndexedDb: false });
       } else {
         // Direct web/PGlite reset must close/delete the active DB before IndexedDB cleanup.
         if (typeof resetFn !== 'function') {
           throw new Error('Factory reset is unavailable.');
         }
         await resetFn();
+        rendererStorageResetStarted = true;
         await clearPersistentUiState({ skipIndexedDb: true });
       }
       // Ensure a full reload so the renderer boots cleanly.
-      try {
-        const currentWindow = window as Window & {
-          desktopLifecycle?: { noteReloadIntent: (reason: string) => Promise<void> };
-        };
-        await currentWindow.desktopLifecycle?.noteReloadIntent('factory-reset');
-        window.location.reload();
-      } catch {
-        /* swallow reload errors; UI may still be in a reset state */
-      }
+      await requestFactoryResetReload('factory-reset');
     } catch (err) {
+      if (rendererStorageResetStarted) {
+        logger.error('Factory reset failed after renderer storage was already cleared', {
+          error: err,
+        });
+        await requestFactoryResetReload('factory-reset-failed-after-renderer-clear');
+        return;
+      }
       toast({
         title: 'Factory Reset Failed',
         description: String(err),

@@ -1,6 +1,7 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  ASSISTANT_AVAILABILITY_OVERRIDE_EVENT,
   type AssistantAvailabilityStatus,
   type AssistantStatusFetcher,
   fetchAssistantStatusState,
@@ -9,6 +10,10 @@ import {
 } from '../hooks/use-assistant-availability';
 
 describe('useAssistantAvailability', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(window, '__assistantAvailabilityOverride');
+  });
+
   it('returns fetcher result', async () => {
     const fetcher = vi.fn<AssistantStatusFetcher>().mockResolvedValue({ state: 'enabled' });
 
@@ -26,6 +31,26 @@ describe('useAssistantAvailability', () => {
     const { result } = renderHook(() => useAssistantAvailability(fetcher));
 
     await waitFor(() => expect(result.current).toEqual({ state: 'error', message: 'boom' }));
+  });
+
+  it('reacts when the availability override is installed after mount', async () => {
+    const controller = new AbortController();
+    const fetcher = vi.fn<AssistantStatusFetcher>().mockImplementation((signal) => {
+      signal.addEventListener('abort', () => controller.abort());
+      return new Promise(() => undefined);
+    });
+
+    const { result } = renderHook(() => useAssistantAvailability(fetcher));
+
+    expect(result.current.state).toBe('loading');
+
+    act(() => {
+      window.__assistantAvailabilityOverride = { state: 'enabled' };
+      window.dispatchEvent(new Event(ASSISTANT_AVAILABILITY_OVERRIDE_EVENT));
+    });
+
+    await waitFor(() => expect(result.current).toEqual({ state: 'enabled' }));
+    expect(controller.signal.aborted).toBe(true);
   });
 });
 

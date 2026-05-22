@@ -1,5 +1,12 @@
 export const RISK_LANES = [
   'ci:browser',
+  'ci:web-smoke',
+  'ci:web-file-explorer-persistence',
+  'ci:web-import-indexing',
+  'ci:web-assistant-state',
+  'ci:web-settings-state',
+  'ci:web-db-startup',
+  'ci:web-destructive-reset',
   'ci:web-e2e',
   'ci:desktop-smoke',
   'ci:desktop-ipc-reset',
@@ -13,6 +20,13 @@ export const RISK_LANES = [
 
 export const EXPANDED_FULL_LANES = [
   'ci:browser',
+  'ci:web-smoke',
+  'ci:web-file-explorer-persistence',
+  'ci:web-import-indexing',
+  'ci:web-assistant-state',
+  'ci:web-settings-state',
+  'ci:web-db-startup',
+  'ci:web-destructive-reset',
   'ci:web-e2e',
   'ci:desktop-smoke',
   'ci:desktop-ipc-reset',
@@ -59,6 +73,7 @@ const ASSISTANT_PATTERNS = [
   /^packages\/agent\//,
   /^packages\/app-shell\/src\/assistant/,
   /^packages\/ui\/src\/assistant-ui-panel\//,
+  /^apps\/web\/e2e\/assistant-/,
 ];
 
 const INDEXING_PATTERNS = [
@@ -191,13 +206,97 @@ const DESKTOP_RISK_PATTERNS = [
 ];
 
 const WEB_UI_PATTERNS = [
-  /^apps\/web\//,
   /^packages\/file-explorer-ui\//,
   /^packages\/file-explorer-hooks\//,
   /^packages\/file-explorer\//,
-  /^packages\/ui\//,
   /^packages\/hooks\//,
   /^packages\/db-explorer\//,
+];
+
+const WEB_SMOKE_PATTERNS = [
+  /^apps\/web\/e2e\/(?:complete-workflow|file-explorer|file-preview|json-parse-diagnostic|layout|quick-filter|refresh|theme-switching)\.test\.ts$/,
+];
+
+const WEB_FILE_EXPLORER_PERSISTENCE_PATTERNS = [
+  /^apps\/web\/e2e\/file-explorer-persistence\.test\.ts$/,
+  /^packages\/file-explorer-ui\//,
+  /^packages\/file-explorer-hooks\//,
+  /^packages\/file-explorer\//,
+];
+
+const WEB_IMPORT_INDEXING_PATTERNS = [
+  /^apps\/web\/src\/create-embedding-queue\.ts$/,
+  /^apps\/web\/src\/workers\/embedding-worker-web\.ts$/,
+  /^apps\/web\/e2e\/database-import-backfill\.test\.ts$/,
+];
+
+const WEB_ASSISTANT_STATE_PATTERNS = [
+  /^apps\/web\/e2e\/assistant-/,
+  /^packages\/assistant-contract\//,
+  /^packages\/agent\//,
+  /^packages\/app-shell\/src\/assistant/,
+  /^packages\/ui\/src\/assistant-ui-panel\//,
+];
+
+const WEB_SETTINGS_STATE_PATTERNS = [
+  /^apps\/web\/src\/app\/settings\//,
+  /^apps\/web\/e2e\/(?:background-indexing-settings|local-runtime-settings|settings-models-and-providers|settings-token-counting|settings-tools-and-diagnostics)\.test\.ts$/,
+];
+
+// Migration files intentionally overlap startup/reset lane patterns, but the
+// DB migration profile below must stay first so schema changes always get both
+// startup and destructive reset coverage instead of one narrow web lane.
+const WEB_DB_STARTUP_PATTERNS = [
+  ...DB_MIGRATION_PATTERNS,
+  /^apps\/web\/e2e\/(?:tools-panel-persistence|web-db-worker-startup|embedding-worker-telemetry)\.test\.ts$/,
+];
+
+const WEB_DESTRUCTIVE_RESET_PATTERNS = [
+  ...DB_MIGRATION_PATTERNS,
+  /^apps\/web\/e2e\/factory-reset-recovery\.test\.ts$/,
+];
+
+const WEB_SRC_FULL_REGRESSION_EXCLUSIONS = [
+  /^__tests\//,
+  /^app\/settings\//,
+  /^create-embedding-queue\.ts$/,
+  /^workers\/embedding-worker-web\.ts$/,
+];
+
+const WEB_SRC_FULL_REGRESSION_PATTERN = {
+  test(filePath) {
+    const prefix = 'apps/web/src/';
+    if (!filePath.startsWith(prefix)) {
+      return false;
+    }
+
+    const relativePath = filePath.slice(prefix.length);
+    if (!/\.(ts|tsx|css)$/.test(relativePath)) {
+      return false;
+    }
+
+    return !WEB_SRC_FULL_REGRESSION_EXCLUSIONS.some((pattern) => pattern.test(relativePath));
+  },
+};
+
+const WEB_FULL_REGRESSION_PATTERNS = [
+  WEB_SRC_FULL_REGRESSION_PATTERN,
+  /^apps\/web\/playwright\.config\.ts$/,
+  /^apps\/web\/e2e\/(?:layout-persistence|navigation-panel-state-preservation|panel-state-preservation|theme-css-consistency)\.test\.ts$/,
+  /^packages\/app-shell\/(?!src\/assistant)/,
+  /^packages\/ui\/(?!src\/assistant-ui-panel\/)/,
+];
+
+const WEB_RISK_PATTERNS = [
+  ...WEB_SMOKE_PATTERNS,
+  ...WEB_FILE_EXPLORER_PERSISTENCE_PATTERNS,
+  ...WEB_IMPORT_INDEXING_PATTERNS,
+  ...WEB_ASSISTANT_STATE_PATTERNS,
+  ...WEB_SETTINGS_STATE_PATTERNS,
+  ...WEB_DB_STARTUP_PATTERNS,
+  ...WEB_DESTRUCTIVE_RESET_PATTERNS,
+  ...WEB_FULL_REGRESSION_PATTERNS,
+  ...WEB_UI_PATTERNS,
 ];
 
 const SHARED_FOUNDATION_PATTERNS = [
@@ -218,12 +317,7 @@ const BROWSER_PATTERNS = [
 ];
 
 const WEB_E2E_PATTERNS = [
-  /^apps\/web\//,
-  /^packages\/app-shell\//,
-  /^packages\/ui\//,
-  /^packages\/file-explorer-ui\//,
-  /^packages\/file-explorer-hooks\//,
-  /^packages\/file-explorer\//,
+  ...WEB_FULL_REGRESSION_PATTERNS,
 ];
 
 const DESKTOP_PATTERNS = [
@@ -262,6 +356,13 @@ const UNIT_TEST_ONLY_PATTERNS = [
 
 const LANE_PATTERNS = new Map([
   ['ci:browser', BROWSER_PATTERNS],
+  ['ci:web-smoke', WEB_SMOKE_PATTERNS],
+  ['ci:web-file-explorer-persistence', WEB_FILE_EXPLORER_PERSISTENCE_PATTERNS],
+  ['ci:web-import-indexing', WEB_IMPORT_INDEXING_PATTERNS],
+  ['ci:web-assistant-state', WEB_ASSISTANT_STATE_PATTERNS],
+  ['ci:web-settings-state', WEB_SETTINGS_STATE_PATTERNS],
+  ['ci:web-db-startup', WEB_DB_STARTUP_PATTERNS],
+  ['ci:web-destructive-reset', WEB_DESTRUCTIVE_RESET_PATTERNS],
   ['ci:web-e2e', WEB_E2E_PATTERNS],
   ['ci:desktop-smoke', DESKTOP_SMOKE_PATTERNS],
   ['ci:desktop-ipc-reset', DESKTOP_IPC_RESET_PATTERNS],
@@ -273,6 +374,17 @@ const LANE_PATTERNS = new Map([
 ]);
 
 const LOCAL_PROOF_COMMANDS_BY_LANE = new Map([
+  ['ci:web-smoke', ['web-smoke-tests']],
+  [
+    'ci:web-file-explorer-persistence',
+    ['file-explorer-tests', 'web-file-explorer-persistence-tests'],
+  ],
+  ['ci:web-import-indexing', ['indexing-tests', 'web-import-indexing-tests']],
+  ['ci:web-assistant-state', ['assistant-contract-tests', 'app-shell-tests', 'web-assistant-state-tests']],
+  ['ci:web-settings-state', ['web-settings-state-tests']],
+  ['ci:web-db-startup', ['web-db-startup-tests']],
+  ['ci:web-destructive-reset', ['web-destructive-reset-tests']],
+  ['ci:web-e2e', ['web-full-regression-tests']],
   ['ci:desktop-smoke', ['desktop-unit-tests', 'desktop-smoke-tests']],
   ['ci:desktop-ipc-reset', ['desktop-unit-tests', 'desktop-ipc-reset-tests']],
   ['ci:desktop-runtime-hosts', ['desktop-unit-tests', 'desktop-runtime-host-tests']],
@@ -413,7 +525,13 @@ export function selectRiskProfileForFiles(files) {
       domains: ['ci-platform'],
       e2eLanes: [
         'critical-smoke',
-        'web-functional-stateful',
+        'web-file-explorer-persistence',
+        'web-import-indexing',
+        'web-assistant-state',
+        'web-settings-state',
+        'web-db-startup',
+        'web-destructive-reset',
+        'web-full-regression',
         'desktop-smoke',
         'desktop-ipc-reset',
         'desktop-runtime-hosts',
@@ -421,7 +539,6 @@ export function selectRiskProfileForFiles(files) {
         'desktop-full-regression',
         'desktop-embedding-diagnostics',
         'desktop-llm-host-recovery',
-        'destructive-reset',
         'long-soak-release-only',
       ],
       proofCommands: ['diff-check', 'ci-script-tests', 'workflow-contracts', 'full-local-suite'],
@@ -491,10 +608,16 @@ export function selectRiskProfileForFiles(files) {
     return profile({
       category: 'db-migrations-storage',
       domains: ['data-platform'],
-      e2eLanes: ['destructive-reset'],
-      proofCommands: ['diff-check', 'db-schema-migration-tests', 'db-integration-tests'],
+      e2eLanes: ['web-db-startup', 'web-destructive-reset'],
+      proofCommands: [
+        'diff-check',
+        'db-schema-migration-tests',
+        'db-integration-tests',
+        'web-db-startup-tests',
+        'web-destructive-reset-tests',
+      ],
       riskLevel: 'high',
-      cloudLabels: ['ci:browser', 'ci:coverage'],
+      cloudLabels: ['ci:web-db-startup', 'ci:web-destructive-reset', 'ci:browser', 'ci:coverage'],
     });
   }
 
@@ -533,9 +656,90 @@ export function selectRiskProfileForFiles(files) {
     return profile({
       category: 'assistant-contract-runtime',
       domains: ['assistant'],
-      e2eLanes: ['critical-smoke'],
+      e2eLanes: ['web-assistant-state'],
       proofCommands: ['diff-check', 'assistant-contract-tests', 'app-shell-tests'],
       riskLevel: 'medium',
+      cloudLabels: ['ci:web-assistant-state', 'ci:coverage'],
+    });
+  }
+
+  if (hasAny(normalizedFiles, WEB_IMPORT_INDEXING_PATTERNS)) {
+    return profile({
+      category: 'web-import-indexing',
+      domains: ['workspace-experience', 'indexing'],
+      e2eLanes: ['web-import-indexing'],
+      proofCommands: ['diff-check', 'indexing-tests', 'web-import-indexing-tests'],
+      riskLevel: 'medium',
+      cloudLabels: ['ci:web-import-indexing', 'ci:coverage'],
+    });
+  }
+
+  if (hasAny(normalizedFiles, WEB_FILE_EXPLORER_PERSISTENCE_PATTERNS)) {
+    return profile({
+      category: 'web-ui-file-explorer',
+      domains: ['workspace-experience'],
+      e2eLanes: ['web-file-explorer-persistence'],
+      proofCommands: [
+        'diff-check',
+        'file-explorer-tests',
+        'web-file-explorer-persistence-tests',
+      ],
+      riskLevel: 'medium',
+      cloudLabels: ['ci:web-file-explorer-persistence', 'ci:coverage'],
+    });
+  }
+
+  if (hasAny(normalizedFiles, WEB_SETTINGS_STATE_PATTERNS)) {
+    return profile({
+      category: 'web-settings-state',
+      domains: ['applications'],
+      e2eLanes: ['web-settings-state'],
+      proofCommands: ['diff-check', 'web-settings-state-tests'],
+      riskLevel: 'medium',
+      cloudLabels: ['ci:web-settings-state', 'ci:coverage'],
+    });
+  }
+
+  if (hasAny(normalizedFiles, WEB_DB_STARTUP_PATTERNS)) {
+    return profile({
+      category: 'web-db-startup',
+      domains: ['applications', 'data-platform'],
+      e2eLanes: ['web-db-startup'],
+      proofCommands: ['diff-check', 'web-db-startup-tests'],
+      riskLevel: 'medium',
+      cloudLabels: ['ci:web-db-startup', 'ci:coverage'],
+    });
+  }
+
+  if (hasAny(normalizedFiles, WEB_DESTRUCTIVE_RESET_PATTERNS)) {
+    return profile({
+      category: 'web-destructive-reset',
+      domains: ['applications', 'data-platform'],
+      e2eLanes: ['web-destructive-reset'],
+      proofCommands: ['diff-check', 'web-destructive-reset-tests'],
+      riskLevel: 'high',
+      cloudLabels: ['ci:web-destructive-reset', 'ci:coverage'],
+    });
+  }
+
+  if (hasAny(normalizedFiles, WEB_SMOKE_PATTERNS)) {
+    return profile({
+      category: 'web-smoke',
+      domains: ['applications'],
+      e2eLanes: ['web-smoke'],
+      proofCommands: ['diff-check', 'web-smoke-tests'],
+      riskLevel: 'low',
+      cloudLabels: ['ci:web-smoke', 'ci:coverage'],
+    });
+  }
+
+  if (hasAny(normalizedFiles, WEB_RISK_PATTERNS)) {
+    return profile({
+      category: 'web-full-regression',
+      domains: ['applications'],
+      e2eLanes: ['web-full-regression'],
+      proofCommands: ['diff-check', 'web-full-regression-tests'],
+      riskLevel: 'high',
       cloudLabels: ['ci:web-e2e', 'ci:coverage'],
     });
   }

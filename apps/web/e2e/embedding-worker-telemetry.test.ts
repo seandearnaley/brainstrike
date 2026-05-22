@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { HomePage } from './page-objects/home-page';
 import { ensureRightPanelVisible } from './utils/layout-helpers';
 
-test.describe('Embedding Worker Telemetry @stateful', { tag: '@smoke' }, () => {
+test.describe('Embedding Worker Telemetry @stateful @web-db-startup', { tag: '@smoke' }, () => {
   /**
    * Indexing activity is now exposed through the app-shell status bar instead
    * of a Database-tab footer. This keeps queue/status visibility stable while

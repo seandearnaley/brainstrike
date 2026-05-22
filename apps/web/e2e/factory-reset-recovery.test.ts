@@ -14,7 +14,7 @@ async function openTokenCountingSettings(page: Page): Promise<void> {
   await settings.openCategory(/Token Counting/i, 'token-counting');
 }
 
-test.describe('Factory Reset recovery (web) @destructive', () => {
+test.describe('Factory Reset recovery (web) @destructive @web-destructive-reset', () => {
   async function confirmFactoryResetAndWaitForReload(page: Page): Promise<void> {
     const reloadPromise = page.waitForEvent('load');
     await Promise.all([

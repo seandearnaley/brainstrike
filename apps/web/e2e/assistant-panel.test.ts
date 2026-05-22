@@ -2,7 +2,9 @@ import { expect, test } from '@playwright/test';
 import { mockAssistantApi } from './utils/assistant-mocks';
 import { openAssistantWorkspace } from './utils/assistant-workspace';
 
-test.describe('Assistant panel (assistant-ui default) @stateful', { tag: '@smoke' }, () => {
+test.describe('Assistant panel (assistant-ui default) @stateful @web-assistant-state', {
+  tag: '@smoke',
+}, () => {
   test.beforeEach(async ({ request }, testInfo) => {
     const response = await request.get('/api/assistant/status');
     const payload = (await response.json()) as { enabled?: boolean };

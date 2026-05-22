@@ -10,6 +10,8 @@ export type AssistantAvailabilityStatus =
 export type AssistantStatusFetcher = (signal: AbortSignal) => Promise<AssistantAvailabilityStatus>;
 
 const defaultFetcher: AssistantStatusFetcher = (signal) => fetchAssistantStatusState({ signal });
+export const ASSISTANT_AVAILABILITY_OVERRIDE_EVENT =
+  'brainstrike:assistant-availability-override-changed';
 
 declare global {
   interface Window {
@@ -20,11 +22,29 @@ declare global {
 export function useAssistantAvailability(
   fetcher: AssistantStatusFetcher = defaultFetcher
 ): AssistantAvailabilityStatus {
-  const override =
-    typeof window === 'undefined' ? undefined : window.__assistantAvailabilityOverride;
+  const override = readAssistantAvailabilityOverride();
   const [status, setStatus] = useState<AssistantAvailabilityStatus>(
     override ?? { state: 'loading' }
   );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const syncOverride = (): void => {
+      const nextOverride = readAssistantAvailabilityOverride();
+      if (nextOverride) {
+        setStatus(nextOverride);
+      }
+    };
+
+    window.addEventListener(ASSISTANT_AVAILABILITY_OVERRIDE_EVENT, syncOverride);
+    syncOverride();
+    return () => {
+      window.removeEventListener(ASSISTANT_AVAILABILITY_OVERRIDE_EVENT, syncOverride);
+    };
+  }, []);
 
   useEffect(() => {
     if (override) {
@@ -61,6 +81,10 @@ export function useAssistantAvailability(
   }, [fetcher, override]);
 
   return status;
+}
+
+function readAssistantAvailabilityOverride(): AssistantAvailabilityStatus | undefined {
+  return typeof window === 'undefined' ? undefined : window.__assistantAvailabilityOverride;
 }
 
 export async function resolveAssistantStatusUrl(): Promise<string> {

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { openAssistantWorkspace } from './utils/assistant-workspace';
 
-test.describe('Assistant local availability (web) @stateful', () => {
+test.describe('Assistant local availability (web) @stateful @web-assistant-state', () => {
   test.beforeEach(async ({ page }) => {
     const tree = {
       'README.md': '# BrainStrike local assistant availability workspace',

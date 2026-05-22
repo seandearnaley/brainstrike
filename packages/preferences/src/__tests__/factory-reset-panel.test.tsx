@@ -211,7 +211,7 @@ describe('FactoryResetPanel', () => {
       expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: true });
     });
 
-    it('clears renderer storage after the desktop reset bridge succeeds', async () => {
+    it('clears renderer storage before the desktop reset bridge purges userData', async () => {
       const resetLocal = vi.fn().mockResolvedValue({ success: true });
       Object.defineProperty(window, 'electronAPI', {
         configurable: true,
@@ -235,10 +235,10 @@ describe('FactoryResetPanel', () => {
       if (clearOrder === undefined || resetOrder === undefined) {
         throw new Error('Expected clear and reset invocation order to be recorded');
       }
-      expect(resetOrder).toBeLessThan(clearOrder);
+      expect(clearOrder).toBeLessThan(resetOrder);
     });
 
-    it('does not clear renderer storage when the desktop reset bridge fails', async () => {
+    it('reloads after a desktop reset bridge failure once renderer storage has already cleared', async () => {
       const resetLocal = vi.fn().mockResolvedValue({
         success: false,
         message: 'desktop reset failed',
@@ -257,15 +257,11 @@ describe('FactoryResetPanel', () => {
       fireEvent.click(screen.getByTestId('factory-reset-button'));
 
       await waitFor(() => {
-        expect(mockToast).toHaveBeenCalledWith({
-          title: 'Factory Reset Failed',
-          description: 'Error: desktop reset failed',
-          variant: 'destructive',
-        });
+        expect(mockReload).toHaveBeenCalled();
       });
 
-      expect(mockClearPersistentUiState).not.toHaveBeenCalled();
-      expect(mockReload).not.toHaveBeenCalled();
+      expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: false });
+      expect(mockToast).not.toHaveBeenCalled();
     });
 
     it('reloads the page after successful reset', async () => {
@@ -389,7 +385,7 @@ describe('FactoryResetPanel', () => {
       });
     });
 
-    it('shows error toast when clearPersistentUiState fails', async () => {
+    it('reloads without toast when clearPersistentUiState fails after reset work starts', async () => {
       const mockDoFactoryReset = vi.fn().mockResolvedValue(undefined);
       const mockError = new Error('Failed to clear UI state');
       mockClearPersistentUiState.mockRejectedValue(mockError);
@@ -400,12 +396,9 @@ describe('FactoryResetPanel', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(mockToast).toHaveBeenCalledWith({
-          title: 'Factory Reset Failed',
-          description: 'Error: Failed to clear UI state',
-          variant: 'destructive',
-        });
+        expect(mockReload).toHaveBeenCalled();
       });
+      expect(mockToast).not.toHaveBeenCalled();
     });
 
     it('does not reload page when reset fails', async () => {

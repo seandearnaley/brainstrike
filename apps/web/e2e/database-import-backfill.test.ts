@@ -382,7 +382,7 @@ async function releaseImportedAppState(page: Page): Promise<void> {
   await page.waitForTimeout(500);
 }
 
-test.describe('Database import and backfill (web) @stateful', () => {
+test.describe('Database import and backfill (web) @stateful @web-import-indexing', () => {
   test.describe.configure({ mode: 'serial' });
 
   test('imports files, chunks them, backfills, and updates collection coverage without reload', async ({

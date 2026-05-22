@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
 
-test.describe('Agent sidebar database access @stateful', () => {
+test.describe('Agent sidebar database access @stateful @web-db-startup', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await waitForAppLoad(page, { waitForDatabase: false });

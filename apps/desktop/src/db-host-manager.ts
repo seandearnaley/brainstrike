@@ -19,6 +19,7 @@ import { DB_ROOT_PATH_ENV, SERIALIZE_PGLITE_INIT_ENV } from './db-runtime-env';
 const logger = createLogger('DbHostManager');
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_INITIALIZATION_TIMEOUT_MS = 90_000;
 const DEFAULT_CLOSE_TIMEOUT_MS = 2000;
 
 function createLiveQueryDiagnostics(payload: {
@@ -102,6 +103,7 @@ export interface DbHostManager {
 export interface DbHostManagerOptions {
   readonly closeTimeoutMs?: number;
   readonly entryPath?: string;
+  readonly initializationTimeoutMs?: number;
   readonly requestTimeoutMs?: number;
 }
 
@@ -279,6 +281,7 @@ class DefaultDbHostManager implements DbHostManager {
   readonly #liveQueries = new Map<string, RemoteLiveQuery<unknown>>();
   readonly #pending = new Map<string, PendingRequest>();
   readonly #closeTimeoutMs: number;
+  readonly #initializationTimeoutMs: number;
   readonly #requestTimeoutMs: number;
   #client: RemoteDbClient | null = null;
   #host: UtilityProcess | null = null;
@@ -288,6 +291,9 @@ class DefaultDbHostManager implements DbHostManager {
     this.#entryPath = options.entryPath ?? resolveDefaultEntryPath();
     this.#closeTimeoutMs = options.closeTimeoutMs ?? DEFAULT_CLOSE_TIMEOUT_MS;
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    this.#initializationTimeoutMs =
+      options.initializationTimeoutMs ??
+      Math.max(DEFAULT_INITIALIZATION_TIMEOUT_MS, this.#requestTimeoutMs);
   }
 
   async getDatabase(): Promise<RemoteDbClient> {
@@ -362,6 +368,7 @@ class DefaultDbHostManager implements DbHostManager {
     const id = createRequestId();
     const envelope: DbHostRequestEnvelope = { id, kind: 'request', request };
     return await new Promise<TResult>((resolve, reject) => {
+      const timeoutMs = this.#getRequestTimeoutMs(request);
       const timer = setTimeout(() => {
         const error = new Error(`DB host request timed out: ${request.kind}`);
         this.#pending.delete(id);
@@ -369,7 +376,7 @@ class DefaultDbHostManager implements DbHostManager {
         if (requiresHostTerminationOnTimeout(request)) {
           this.#terminateHost(error);
         }
-      }, this.#requestTimeoutMs);
+      }, timeoutMs);
       this.#pending.set(id, {
         reject,
         resolve: resolve as (value: unknown) => void,
@@ -377,6 +384,10 @@ class DefaultDbHostManager implements DbHostManager {
       });
       host.postMessage(envelope);
     });
+  }
+
+  #getRequestTimeoutMs(request: DbHostRequest): number {
+    return request.kind === 'init' ? this.#initializationTimeoutMs : this.#requestTimeoutMs;
   }
 
   registerLiveQuery(liveId: string, query: RemoteLiveQuery<unknown>): void {

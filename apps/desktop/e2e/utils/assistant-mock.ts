@@ -23,6 +23,7 @@ interface AssistantMockInstallPayload {
 }
 
 function installAssistantMockInPage(payload: AssistantMockInstallPayload): void {
+  const assistantAvailabilityOverrideEvent = 'brainstrike:assistant-availability-override-changed';
   const globals = globalThis as unknown as Window & {
     __assistantMockApplied?: boolean;
     __assistantMockConfig?: AssistantMockInstallPayload;
@@ -53,6 +54,7 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
   }
 
   globals.__assistantAvailabilityOverride = { state: 'enabled' };
+  globals.dispatchEvent(new Event(assistantAvailabilityOverrideEvent));
   globals.secrets = {
     ...globals.secrets,
     list: async () => [payload.provider],

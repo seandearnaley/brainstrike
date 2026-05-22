@@ -56,7 +56,7 @@ test('verifyRiskFixtures rejects unregistered expected E2E lane names', () => {
         ...riskFixtures.cases[2],
         expected: {
           ...riskFixtures.cases[2].expected,
-          e2eLanes: ['web-smoke'],
+          e2eLanes: ['web-functional-stateful'],
         },
       },
       ...riskFixtures.cases.slice(0, 2),
@@ -65,8 +65,8 @@ test('verifyRiskFixtures rejects unregistered expected E2E lane names', () => {
   };
 
   assert.deepEqual(verifyRiskFixtures(fixtureDocument), [
-    'assistant contract expected e2eLanes[0] is not registered: web-smoke',
-    'assistant contract e2eLanes[0] differs: expected web-smoke, got critical-smoke',
+    'assistant contract expected e2eLanes[0] is not registered: web-functional-stateful',
+    'assistant contract e2eLanes[0] differs: expected web-functional-stateful, got web-assistant-state',
   ]);
 });
 
@@ -93,7 +93,7 @@ test('runCli checks the committed fixture file successfully', async () => {
     const exitCode = await runCli([]);
 
     assert.equal(exitCode, 0);
-    assert.match(logs.join('\n'), /CI risk fixture check passed: 20 representative cases\./);
+    assert.match(logs.join('\n'), /CI risk fixture check passed: 25 representative cases\./);
   } finally {
     console.log = originalConsoleLog;
   }

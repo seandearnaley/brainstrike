@@ -69,14 +69,14 @@ test('buildSelection includes deterministic risk profile and local proof command
   });
 
   assert.equal(selection.riskProfile.category, 'web-ui-file-explorer');
-  assert.deepEqual(selection.riskProfile.e2eLanes, ['web-functional-stateful']);
+  assert.deepEqual(selection.riskProfile.e2eLanes, ['web-file-explorer-persistence']);
   assert.deepEqual(
     selection.commands.map((entry) => entry.name),
-    ['diff-check', 'file-explorer-tests', 'web-smoke-tests']
+    ['diff-check', 'file-explorer-tests', 'web-file-explorer-persistence-tests']
   );
   assert.deepEqual(
     selection.commands.map((entry) => entry.owner),
-    ['tooling', 'workspace-experience', 'applications']
+    ['tooling', 'workspace-experience', 'workspace-experience']
   );
   assert.deepEqual(
     selection.commands.map((entry) => typeof entry.budgetMs),
@@ -85,7 +85,7 @@ test('buildSelection includes deterministic risk profile and local proof command
   assert.deepEqual(selection.budget, {
     target: 'normal-pr-risk',
     targetMs: 15 * 60_000,
-    totalMs: 570_000,
+    totalMs: 630_000,
     status: 'within-target',
   });
 });
@@ -149,12 +149,23 @@ test('buildSelection marks full release proof as explicit release budget', () =>
     totalMs: 3_030_000,
     status: 'within-target',
   });
+  const smokeLaneCount = selection.riskProfile.e2eLanes.filter(
+    (lane) => lane === 'critical-smoke' || lane === 'web-smoke'
+  ).length;
+  assert.equal(smokeLaneCount, 1);
 });
 
 test('E2E lane command taxonomy is explicit and avoids hidden full-suite fallback', () => {
   assert.deepEqual(Object.keys(E2E_LANES), [
     'critical-smoke',
-    'web-functional-stateful',
+    'web-smoke',
+    'web-file-explorer-persistence',
+    'web-import-indexing',
+    'web-assistant-state',
+    'web-settings-state',
+    'web-db-startup',
+    'web-destructive-reset',
+    'web-full-regression',
     'desktop-smoke',
     'desktop-ipc-reset',
     'desktop-runtime-hosts',
@@ -162,9 +173,18 @@ test('E2E lane command taxonomy is explicit and avoids hidden full-suite fallbac
     'desktop-full-regression',
     'desktop-embedding-diagnostics',
     'desktop-llm-host-recovery',
-    'destructive-reset',
     'long-soak-release-only',
   ]);
+  assert.match(E2E_LANES['critical-smoke'].command, /@web-smoke/);
+  assert.match(E2E_LANES['web-smoke'].command, /@web-smoke/);
+  assert.equal(E2E_LANES['critical-smoke'], E2E_LANES['web-smoke']);
+  assert.match(E2E_LANES['web-file-explorer-persistence'].command, /@web-file-explorer-persistence/);
+  assert.match(E2E_LANES['web-import-indexing'].command, /@web-import-indexing/);
+  assert.match(E2E_LANES['web-assistant-state'].command, /@web-assistant-state/);
+  assert.match(E2E_LANES['web-settings-state'].command, /@web-settings-state/);
+  assert.match(E2E_LANES['web-db-startup'].command, /@web-db-startup/);
+  assert.match(E2E_LANES['web-destructive-reset'].command, /@web-destructive-reset/);
+  assert.match(E2E_LANES['web-full-regression'].command, /--grep-invert/);
   assert.match(E2E_LANES['desktop-ipc-reset'].command, /@desktop-ipc-reset/);
   assert.match(E2E_LANES['desktop-runtime-hosts'].command, /@desktop-runtime-hosts/);
   assert.match(E2E_LANES['desktop-db-storage'].command, /@desktop-db-storage/);
@@ -178,9 +198,6 @@ test('E2E lane command taxonomy is explicit and avoids hidden full-suite fallbac
     E2E_LANES['desktop-embedding-diagnostics'].command,
     /@desktop-embedding-crash/
   );
-  assert.match(E2E_LANES['destructive-reset'].command, /@destructive/);
-  assert.match(E2E_LANES['destructive-reset'].command, /apps\/desktop/);
-  assert.match(E2E_LANES['destructive-reset'].command, /factory-reset\.desktop\.test\.ts/);
   assert.match(E2E_LANES['desktop-llm-host-recovery'].command, /@desktop-llm-host-recovery/);
   assert.match(E2E_LANES['desktop-llm-host-recovery'].command, /llm-host-renderer\.test\.ts/);
   assert.match(E2E_LANES['long-soak-release-only'].tagContract, /release/);
@@ -287,6 +304,76 @@ test('buildSelection routes db IPC changes to db storage without desktop full re
   assert.equal(selection.labels.includes('ci:desktop'), false);
 });
 
+test('buildSelection routes file explorer UI to only file explorer persistence', () => {
+  const selection = buildSelection({
+    files: ['packages/file-explorer-ui/src/tree/optimized-file-tree.tsx'],
+    mergeBase: '1111111111111111111111111111111111111111',
+  });
+
+  assert.deepEqual(selection.lanes, ['ci:web-file-explorer-persistence', 'ci:coverage']);
+  assert.deepEqual(selection.riskProfile.e2eLanes, ['web-file-explorer-persistence']);
+  assert.deepEqual(
+    selection.commands.map((command) => command.name),
+    ['diff-check', 'file-explorer-tests', 'web-file-explorer-persistence-tests']
+  );
+  assert.equal(selection.labels.includes('ci:web-import-indexing'), false);
+  assert.equal(selection.labels.includes('ci:web-assistant-state'), false);
+  assert.equal(selection.labels.includes('ci:web-settings-state'), false);
+  assert.equal(selection.labels.includes('ci:web-destructive-reset'), false);
+  assert.equal(selection.labels.includes('ci:web-e2e'), false);
+});
+
+test('buildSelection routes import indexing UI to import lane plus indexing proof', () => {
+  const selection = buildSelection({
+    files: ['apps/web/e2e/database-import-backfill.test.ts'],
+    mergeBase: '1111111111111111111111111111111111111111',
+  });
+
+  assert.deepEqual(selection.lanes, ['ci:web-import-indexing', 'ci:coverage']);
+  assert.deepEqual(
+    selection.commands.map((command) => command.name),
+    ['diff-check', 'indexing-tests', 'web-import-indexing-tests']
+  );
+  assert.equal(selection.labels.includes('ci:web-e2e'), false);
+});
+
+test('buildSelection routes assistant UI to assistant state only', () => {
+  const selection = buildSelection({
+    files: ['packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx'],
+    mergeBase: '1111111111111111111111111111111111111111',
+  });
+
+  assert.deepEqual(selection.lanes, ['ci:web-assistant-state', 'ci:coverage']);
+  assert.deepEqual(selection.riskProfile.e2eLanes, ['web-assistant-state']);
+});
+
+test('buildSelection routes settings persistence to settings state only', () => {
+  const selection = buildSelection({
+    files: ['apps/web/e2e/settings-models-and-providers.test.ts'],
+    mergeBase: '1111111111111111111111111111111111111111',
+  });
+
+  assert.deepEqual(selection.lanes, ['ci:web-settings-state', 'ci:coverage']);
+  assert.deepEqual(
+    selection.commands.map((command) => command.name),
+    ['diff-check', 'web-settings-state-tests']
+  );
+});
+
+test('buildSelection routes broad app shell to full web regression', () => {
+  const selection = buildSelection({
+    files: ['apps/web/src/App.tsx'],
+    mergeBase: '1111111111111111111111111111111111111111',
+  });
+
+  assert.deepEqual(selection.lanes, ['ci:web-e2e', 'ci:coverage']);
+  assert.deepEqual(selection.riskProfile.e2eLanes, ['web-full-regression']);
+  assert.deepEqual(
+    selection.commands.map((command) => command.name),
+    ['diff-check', 'web-full-regression-tests']
+  );
+});
+
 test('buildSelection keeps broad preload bridge changes on full desktop regression', () => {
   const selection = buildSelection({
     files: ['apps/desktop/src/preload.ts'],
@@ -306,7 +393,7 @@ test('buildSelection only emits E2E lanes with registered commands', () => {
     'packages/agent/src/runtime.ts',
     'packages/embeddings/src/worker/embedding-worker.ts',
     'apps/desktop/src/preload.ts',
-    'apps/web/src/app.tsx',
+    'apps/web/src/App.tsx',
   ];
 
   for (const filePath of representativeFiles) {
