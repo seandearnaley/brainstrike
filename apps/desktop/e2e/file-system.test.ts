@@ -19,9 +19,7 @@ test.describe('File System Integration', () => {
       await showExplorerPanelButton.click();
     }
 
-    await explorerPanel.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {
-      console.warn('File explorer panel did not become visible within timeout.');
-    });
+    await expect(explorerPanel).toBeVisible({ timeout: 15_000 });
   }
 
   async function selectMockRoot(window: Page): Promise<void> {
