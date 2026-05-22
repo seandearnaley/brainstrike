@@ -3,11 +3,11 @@ import { resetAppState } from './utils/app-state';
 import {
   activateSidebarNavigation,
   CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR,
-  CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
   CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR,
+  CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR,
   contextExplorerActiveNavLocator,
   ensureRightPanelVisible,
-  getContextExplorerLeftResizeHandle,
+  getContextExplorerRightResizeHandle,
   getPanelElements,
   waitForAppLoad,
   waitForContextExplorerPage,
@@ -70,11 +70,13 @@ async function dragPanelWider({
   panel,
   resizeHandle,
   initialWidth,
+  isRightPanel = false,
 }: {
   readonly page: Page;
   readonly panel: Locator;
   readonly resizeHandle: Locator;
   readonly initialWidth: number;
+  readonly isRightPanel?: boolean;
 }): Promise<number> {
   const dragDeltas = [120, 180, 240] as const;
 
@@ -88,7 +90,10 @@ async function dragPanelWider({
     const startY = handleBox.y + handleBox.height / 2;
     await page.mouse.move(startX, startY);
     await page.mouse.down();
-    await page.mouse.move(startX + dragDelta, startY, { steps: 8 });
+
+    // For right panel, dragging left (decreasing X) makes it wider
+    const targetX = isRightPanel ? startX - dragDelta : startX + dragDelta;
+    await page.mouse.move(targetX, startY, { steps: 8 });
     await page.mouse.up();
 
     const deadline = Date.now() + 2000;
@@ -118,43 +123,43 @@ test.describe('IDE Layout Persistence', () => {
   });
 
   test.describe('Panel Visibility Persistence', () => {
-    test('should persist left panel (explorer) toggle state across page reloads', async ({
+    test('should persist explorer (right panel) toggle state across page reloads', async ({
       page,
     }) => {
-      // Verify left panel is visible by default
-      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
-      await expect(leftPanel).toBeVisible();
+      // Verify explorer panel is visible by default
+      const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
+      await expect(rightPanel).toBeVisible();
 
-      // Hide the left panel
-      const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
+      // Hide the explorer panel
+      const hideExplorerButton = page.locator('button[aria-label="Hide tools panel"]');
       await hideExplorerButton.click();
 
       // Wait a bit for the save operation to complete
       await page.waitForTimeout(500);
 
       // Verify panel is hidden
-      await expect(leftPanel).not.toBeVisible();
+      await expect(rightPanel).not.toBeVisible();
 
       // Verify show button appears
-      const showExplorerButton = page.locator('button[aria-label="Show explorer panel"]');
+      const showExplorerButton = page.locator('button[aria-label="Show tools panel"]');
       await expect(showExplorerButton).toBeVisible();
 
       // Reload page
       await page.reload();
       await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
 
-      // Verify left panel remains hidden after reload
-      await expect(leftPanel).not.toBeVisible();
+      // Verify explorer panel remains hidden after reload
+      await expect(rightPanel).not.toBeVisible();
       await expect(showExplorerButton).toBeVisible();
 
       // Show panel again
       await showExplorerButton.click();
-      await expect(leftPanel).toBeVisible();
+      await expect(rightPanel).toBeVisible();
 
       // Reload and verify it's visible
       await page.reload();
       await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
-      await expect(leftPanel).toBeVisible();
+      await expect(rightPanel).toBeVisible();
     });
 
     test('should keep the removed console file-editor controls absent across reloads', async ({
@@ -200,37 +205,39 @@ test.describe('IDE Layout Persistence', () => {
   });
 
   test.describe('Panel Resize Persistence', () => {
-    test('should persist left panel width across page reloads', async ({ page }) => {
-      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
-      await expect(leftPanel).toBeVisible();
+    test('should persist explorer (right panel) width across page reloads', async ({ page }) => {
+      const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
+      await expect(rightPanel).toBeVisible();
 
       // Get initial width
-      const initialWidth = await leftPanel.evaluate((el) => el.getBoundingClientRect().width);
+      const initialWidth = await rightPanel.evaluate((el) => el.getBoundingClientRect().width);
 
       // Find and drag the resize handle to make panel wider
-      // Note: react-resizable-panels v4 uses data-separator
-      const resizeHandle = getContextExplorerLeftResizeHandle(page);
+      const resizeHandle = getContextExplorerRightResizeHandle(page);
       await expect(resizeHandle).toBeVisible();
 
-      // Verify width changed
+      // Verify width changed (dragging left on right panel)
       const newWidth = await dragPanelWider({
         page,
-        panel: leftPanel,
+        panel: rightPanel,
         resizeHandle,
         initialWidth,
+        isRightPanel: true,
       });
       expect(newWidth).toBeGreaterThan(initialWidth);
-      await expectLayoutState(page, (state) => typeof state?.state?.sizes?.[0] === 'number', {
+      await expectLayoutState(page, (state) => typeof state?.state?.sizes?.[1] === 'number', {
         storageKey: CONTEXT_EXPLORER_LAYOUT_STORE_KEY,
       });
       const persistedBeforeReload = await getPersistedLayout(
         page,
         CONTEXT_EXPLORER_LAYOUT_STORE_KEY
       );
-      const leftSizeBeforeReload = persistedBeforeReload?.state?.sizes?.[0];
-      expect(leftSizeBeforeReload).toBeDefined();
-      if (typeof leftSizeBeforeReload !== 'number') {
-        throw new Error('Persisted left-panel size before reload is required and must be numeric');
+      const rightSizeBeforeReload = persistedBeforeReload?.state?.sizes?.[1];
+      expect(rightSizeBeforeReload).toBeDefined();
+      if (typeof rightSizeBeforeReload !== 'number') {
+        throw new Error(
+          'Persisted explorer-panel size before reload is required and must be numeric'
+        );
       }
 
       // Reload page
@@ -241,13 +248,15 @@ test.describe('IDE Layout Persistence', () => {
         page,
         CONTEXT_EXPLORER_LAYOUT_STORE_KEY
       );
-      const leftSizeAfterReload = persistedAfterReload?.state?.sizes?.[0];
-      expect(leftSizeAfterReload).toBeDefined();
-      if (typeof leftSizeAfterReload !== 'number') {
-        throw new Error('Persisted left-panel size after reload is required and must be numeric');
+      const rightSizeAfterReload = persistedAfterReload?.state?.sizes?.[1];
+      expect(rightSizeAfterReload).toBeDefined();
+      if (typeof rightSizeAfterReload !== 'number') {
+        throw new Error(
+          'Persisted explorer-panel size after reload is required and must be numeric'
+        );
       }
 
-      expect(Math.abs(leftSizeAfterReload - leftSizeBeforeReload)).toBeLessThan(0.5);
+      expect(Math.abs(rightSizeAfterReload - rightSizeBeforeReload)).toBeLessThan(0.5);
     });
 
     test('should persist console panel visibility across page reloads', async ({ page }) => {
@@ -300,32 +309,32 @@ test.describe('IDE Layout Persistence', () => {
       // Configure a complex layout across the nested Context Explorer and outer shell layouts.
       const elements = getPanelElements(page);
 
-      // 1. Hide left panel
-      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
-      const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
+      // 1. Hide explorer (nested right panel)
+      const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
+      const hideExplorerButton = page.locator('button[aria-label="Hide tools panel"]');
       await hideExplorerButton.click();
-      await expect(leftPanel).not.toBeVisible();
+      await expect(rightPanel).not.toBeVisible();
 
-      // 2. Hide workspace panel
+      // 2. Hide workspace panel (outer right panel)
       await expect(elements.hideRightPanelButton).toBeVisible();
       await elements.hideRightPanelButton.click();
       await expect(elements.rightPanel).not.toBeVisible();
 
-      await expectLayoutState(page, (state) => state?.state?.showLeftPanel === false, {
+      await expectLayoutState(page, (state) => state?.state?.showRightPanel === false, {
         storageKey: CONTEXT_EXPLORER_LAYOUT_STORE_KEY,
       });
       await expectLayoutState(page, (state) => state?.state?.showRightPanel === false);
 
       // 3. Reload and verify all states persisted.
       await reloadAndWait(page);
-      await expectLayoutState(page, (state) => state?.state?.showLeftPanel === false, {
+      await expectLayoutState(page, (state) => state?.state?.showRightPanel === false, {
         storageKey: CONTEXT_EXPLORER_LAYOUT_STORE_KEY,
       });
       await expectLayoutState(page, (state) => state?.state?.showRightPanel === false);
 
-      // Verify left panel remains hidden
-      await expect(leftPanel).not.toBeVisible();
-      const showExplorerButton = page.locator('button[aria-label="Show explorer panel"]');
+      // Verify explorer remains hidden
+      await expect(rightPanel).not.toBeVisible();
+      const showExplorerButton = page.locator('button[aria-label="Show tools panel"]');
       await expect(showExplorerButton).toBeVisible();
 
       // Verify workspace panel remains hidden
@@ -335,16 +344,16 @@ test.describe('IDE Layout Persistence', () => {
 
     test('should handle navigation between pages while preserving layout', async ({ page }) => {
       // Start with panel visible (default state)
-      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
-      await expect(leftPanel).toBeVisible();
+      const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
+      await expect(rightPanel).toBeVisible();
 
       // Hide the panel
-      await page.getByTestId('hide-explorer-panel').click();
-      await expect(leftPanel).not.toBeVisible();
+      await page.getByTestId('hide-tools-panel').click();
+      await expect(rightPanel).not.toBeVisible();
 
       // Show explorer before navigation to avoid UI overlap
-      await page.getByTestId('show-explorer-panel').click();
-      await expect(leftPanel).toBeVisible();
+      await page.getByTestId('show-tools-panel').click();
+      await expect(rightPanel).toBeVisible();
 
       // Navigate to Settings
       await activateSidebarNavigation(page, 'Settings');
@@ -355,15 +364,15 @@ test.describe('IDE Layout Persistence', () => {
       await waitForContextExplorerPage(page);
 
       // Verify panel is still visible (state persisted)
-      await expect(leftPanel).toBeVisible();
+      await expect(rightPanel).toBeVisible();
     });
 
     test('should preserve hidden explorer state across page navigation', async ({ page }) => {
-      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
-      await expect(leftPanel).toBeVisible();
+      const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
+      await expect(rightPanel).toBeVisible();
 
-      await page.getByTestId('hide-explorer-panel').click();
-      await expect(leftPanel).not.toBeVisible();
+      await page.getByTestId('hide-tools-panel').click();
+      await expect(rightPanel).not.toBeVisible();
 
       await activateSidebarNavigation(page, 'Settings');
       await waitForSettingsPage(page);
@@ -371,8 +380,8 @@ test.describe('IDE Layout Persistence', () => {
       await activateSidebarNavigation(page, 'Context Explorer');
       await waitForContextExplorerPage(page);
 
-      await expect(leftPanel).not.toBeVisible();
-      await expect(page.getByTestId('show-explorer-panel')).toBeVisible();
+      await expect(rightPanel).not.toBeVisible();
+      await expect(page.getByTestId('show-tools-panel')).toBeVisible();
     });
   });
 
@@ -393,16 +402,16 @@ test.describe('IDE Layout Persistence', () => {
       await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
 
       // Verify app loads with default layout and without the removed console file-editor panel.
-      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
-      await expect(leftPanel).toBeVisible();
+      const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
+      await expect(rightPanel).toBeVisible();
 
       await expect(page.locator(CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR)).toHaveCount(0);
       await expect(page.getByTestId('show-console-panel')).toHaveCount(0);
 
       // Verify layout functionality still works
-      const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
+      const hideExplorerButton = page.locator('button[aria-label="Hide tools panel"]');
       await hideExplorerButton.click();
-      await expect(leftPanel).not.toBeVisible();
+      await expect(rightPanel).not.toBeVisible();
     });
 
     test('should handle missing localStorage gracefully', async ({ page }) => {
@@ -416,63 +425,62 @@ test.describe('IDE Layout Persistence', () => {
       await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
 
       // Verify app loads with default layout
-      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
-      await expect(leftPanel).toBeVisible();
+      const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
+      await expect(rightPanel).toBeVisible();
 
       await expect(page.locator(CONTEXT_EXPLORER_CONSOLE_PANEL_SELECTOR)).toHaveCount(0);
       await expect(page.getByTestId('show-console-panel')).toHaveCount(0);
 
       // Verify new layout changes are saved
-      const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
+      const hideExplorerButton = page.locator('button[aria-label="Hide tools panel"]');
       await hideExplorerButton.click();
-      await expect(leftPanel).not.toBeVisible();
+      await expect(rightPanel).not.toBeVisible();
 
       // Reload and verify persistence works
       await page.reload();
       await expect(contextExplorerActiveNavLocator(page)).toBeVisible();
-      await expect(leftPanel).not.toBeVisible();
+      await expect(rightPanel).not.toBeVisible();
     });
   });
 
   test.describe('Panel Resize Constraints', () => {
     test('should respect minimum and maximum panel sizes', async ({ page }) => {
-      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
-      await expect(leftPanel).toBeVisible();
+      const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
+      await expect(rightPanel).toBeVisible();
 
       const middlePanelWidth = await page
         .locator(CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR)
         .evaluate((el) => el.getBoundingClientRect().width);
 
       // Try to resize panel to very small size (should be constrained to minimum)
-      // Note: react-resizable-panels v4 uses data-separator
-      const resizeHandle = getContextExplorerLeftResizeHandle(page);
+      const resizeHandle = getContextExplorerRightResizeHandle(page);
       const handleBox = await resizeHandle.boundingBox();
       if (!handleBox) {
         throw new Error('Resize handle not found');
       }
 
       // Drag to a moderately small size first (not extreme to avoid collapse)
+      // For right panel, dragging handle to the right makes the right panel smaller
       await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
       await page.mouse.down();
-      await page.mouse.move(handleBox.x - 100, handleBox.y + handleBox.height / 2); // Moderate reduction
+      await page.mouse.move(handleBox.x + 100, handleBox.y + handleBox.height / 2); // Moderate reduction
       await page.mouse.up();
 
       await page.waitForTimeout(300);
 
       // Check if panel collapsed - if so, expand it back
-      const isCollapsed = await leftPanel.evaluate((el) => el.getBoundingClientRect().width === 0);
+      const isCollapsed = await rightPanel.evaluate((el) => el.getBoundingClientRect().width === 0);
       if (isCollapsed) {
         // Panel collapsed, try to expand it back
-        const showExplorerButton = page.locator('button[aria-label="Show explorer panel"]');
+        const showExplorerButton = page.locator('button[aria-label="Show tools panel"]');
 
         // Check if the show explorer button exists within a reasonable timeout
         try {
           await expect(showExplorerButton).toBeVisible({ timeout: 2000 });
           await showExplorerButton.click();
-          await expect(leftPanel).toBeVisible();
+          await expect(rightPanel).toBeVisible();
         } catch {
           // If show explorer button is not available, we can't test constraints on collapsed panel
-          // This might happen if leftPanelContent is null. Let's skip this test scenario.
           console.warn(
             'Show explorer panel button not found, skipping constraint test for collapsed panel'
           );
@@ -480,8 +488,8 @@ test.describe('IDE Layout Persistence', () => {
         }
       }
 
-      // Verify panel respects minimum size (15% of viewport according to IdeLayout)
-      const finalWidth = await leftPanel.evaluate((el) => el.getBoundingClientRect().width);
+      // Verify panel respects minimum size (8% of viewport according to IdeLayout)
+      const finalWidth = await rightPanel.evaluate((el) => el.getBoundingClientRect().width);
       const minExpectedWidth = middlePanelWidth * 0.08;
       expect(finalWidth).toBeGreaterThan(minExpectedWidth);
 
@@ -496,17 +504,18 @@ test.describe('IDE Layout Persistence', () => {
         newHandleBox.y + newHandleBox.height / 2
       );
       await page.mouse.down();
+      // Dragging to the left (decreasing X) makes the right panel wider (larger)
       await page.mouse.move(
-        newHandleBox.x + middlePanelWidth * 0.6,
+        newHandleBox.x - middlePanelWidth * 0.6,
         newHandleBox.y + newHandleBox.height / 2
       );
       await page.mouse.up();
 
       await page.waitForTimeout(300);
 
-      // Verify panel respects maximum size (50% according to IdeLayout)
-      const maxWidth = await leftPanel.evaluate((el) => el.getBoundingClientRect().width);
-      const maxExpectedWidth = middlePanelWidth * 0.7;
+      // Verify panel respects maximum size (70% according to IdeLayout)
+      const maxWidth = await rightPanel.evaluate((el) => el.getBoundingClientRect().width);
+      const maxExpectedWidth = middlePanelWidth * 0.8;
       expect(maxWidth).toBeLessThan(maxExpectedWidth);
     });
   });
@@ -514,24 +523,24 @@ test.describe('IDE Layout Persistence', () => {
   test.describe('Accessibility and Keyboard Navigation', () => {
     test('should support keyboard navigation for panel toggles', async ({ page }) => {
       // Focus on hide explorer button and activate with keyboard
-      const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
+      const hideExplorerButton = page.locator('button[aria-label="Hide tools panel"]');
       await hideExplorerButton.focus();
       await page.keyboard.press('Enter');
 
-      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
-      await expect(leftPanel).not.toBeVisible();
+      const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
+      await expect(rightPanel).not.toBeVisible();
 
       // Focus on show explorer button and activate with keyboard
-      const showExplorerButton = page.locator('button[aria-label="Show explorer panel"]');
+      const showExplorerButton = page.locator('button[aria-label="Show tools panel"]');
       await showExplorerButton.focus();
       await page.keyboard.press('Space');
 
-      await expect(leftPanel).toBeVisible();
+      await expect(rightPanel).toBeVisible();
     });
 
     test('should have proper ARIA labels for all panel controls', async ({ page }) => {
       // Verify all panel control buttons have proper ARIA labels
-      await expect(page.locator('button[aria-label="Hide explorer panel"]')).toBeVisible();
+      await expect(page.locator('button[aria-label="Hide tools panel"]')).toBeVisible();
 
       await expect(page.getByTestId('show-console-panel')).toHaveCount(0);
       await expect(page.locator('button[aria-label="Show File Editor"]')).toHaveCount(0);

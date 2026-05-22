@@ -43,12 +43,17 @@ export const AGENT_WORKSPACE_PANEL_SELECTOR = [
 ].join(', ');
 
 export const CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR = [
-  '#context-explorer-tools-panel',
-  '[data-panel-id="context-explorer-tools-panel"]',
   '#context-explorer-explorer-panel',
   '[data-panel-id="context-explorer-explorer-panel"]',
   '#explorer-panel',
   '[data-panel-id="explorer-panel"]',
+].join(', ');
+
+export const CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR = [
+  '#context-explorer-tools-panel',
+  '[data-panel-id="context-explorer-tools-panel"]',
+  '#tools-panel',
+  '[data-panel-id="tools-panel"]',
 ].join(', ');
 
 /**
@@ -59,6 +64,12 @@ export function getContextExplorerLeftResizeHandle(page: Page) {
   return page
     .locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR)
     .locator('xpath=following-sibling::*[@data-separator][1]');
+}
+
+export function getContextExplorerRightResizeHandle(page: Page) {
+  return page
+    .locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR)
+    .locator('xpath=preceding-sibling::*[@data-separator][1]');
 }
 
 export const CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR = [

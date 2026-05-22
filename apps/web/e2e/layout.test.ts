@@ -6,9 +6,9 @@ import {
   AGENT_MIDDLE_PANEL_SELECTOR,
   AGENT_SIDEBAR_PANEL_SELECTOR,
   AGENT_WORKSPACE_PANEL_SELECTOR,
-  CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
   CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR,
   CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR,
+  CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR,
   corruptLayoutStorage,
   ensureRightPanelVisible,
   getPanelElements,
@@ -166,7 +166,7 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
       await expect(page.locator(AGENT_MIDDLE_PANEL_SELECTOR)).toBeAttached();
       await expect(page.locator(AGENT_WORKSPACE_PANEL_SELECTOR)).toBeAttached();
       await expect(page.locator(AGENT_MAIN_PANEL_SELECTOR)).toBeAttached();
-      await expect(page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR)).toBeAttached();
+      await expect(page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR)).toBeAttached();
       await expect(page.locator(CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR)).toBeAttached();
       await expect(page.locator(CONTEXT_EXPLORER_MAIN_PANEL_SELECTOR)).toBeAttached();
       await expect(page.getByTestId('workspace-app-tab-context-explorer')).toBeAttached();

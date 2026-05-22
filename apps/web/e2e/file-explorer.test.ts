@@ -7,8 +7,8 @@ import {
   reloadExplorer,
 } from './utils/file-explorer-setup';
 import {
-  CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
-  getContextExplorerLeftResizeHandle,
+  CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR,
+  getContextExplorerRightResizeHandle,
 } from './utils/layout-helpers';
 import type { FileTree } from './utils/mock-fs';
 
@@ -101,12 +101,12 @@ test.describe('File Explorer', () => {
       await page.getByTestId('hide-threads-panel').click();
       await expect(page.getByTestId('show-threads-panel')).toBeVisible();
 
-      const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
-      const initialWidth = await leftPanel.evaluate(
+      const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
+      const initialWidth = await rightPanel.evaluate(
         (element) => element.getBoundingClientRect().width
       );
 
-      const resizeHandle = getContextExplorerLeftResizeHandle(page);
+      const resizeHandle = getContextExplorerRightResizeHandle(page);
       const handleBox = await resizeHandle.boundingBox();
       if (!handleBox) {
         throw new Error('Resize handle not found');
@@ -114,12 +114,13 @@ test.describe('File Explorer', () => {
 
       await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
       await page.mouse.down();
-      await page.mouse.move(handleBox.x - 140, handleBox.y + handleBox.height / 2);
+      // Moving the right-panel's handle to the right makes the right panel narrower
+      await page.mouse.move(handleBox.x + 140, handleBox.y + handleBox.height / 2);
       await page.mouse.up();
 
       await page.waitForTimeout(300);
 
-      const narrowedWidth = await leftPanel.evaluate(
+      const narrowedWidth = await rightPanel.evaluate(
         (element) => element.getBoundingClientRect().width
       );
       expect(narrowedWidth).toBeLessThanOrEqual(initialWidth);
@@ -348,7 +349,7 @@ test.describe('File Explorer', () => {
 
     async function getPresetTrigger(page: Page) {
       const presetTrigger = page
-        .locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR)
+        .locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR)
         .locator('button')
         .filter({ hasText: /select filter|source files|documentation|typescript\/javascript/i })
         .first();
@@ -427,7 +428,7 @@ test.describe('File Explorer', () => {
         await documentationOption.click();
 
         await expect(
-          page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR).getByRole('button', {
+          page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR).getByRole('button', {
             name: /documentation/i,
           })
         ).toBeVisible({ timeout: 10_000 });
@@ -542,7 +543,7 @@ test.describe('File Explorer', () => {
       await tsPresetOption.click();
 
       await expect(
-        page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR).getByRole('button', {
+        page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR).getByRole('button', {
           name: /typescript\/javascript/i,
         })
       ).toBeVisible({ timeout: 10_000 });
