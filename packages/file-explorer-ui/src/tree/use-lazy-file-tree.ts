@@ -12,7 +12,11 @@
  */
 
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
-import type { FileTreeWorkerPort, WorkerFileNode } from '@brainstrike/file-tree-worker';
+import type {
+  FileTreePatchMessage,
+  FileTreeWorkerPort,
+  WorkerFileNode,
+} from '@brainstrike/file-tree-worker';
 import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { createLogger } from '@brainstrike/utils/logger';
@@ -28,11 +32,7 @@ import {
 import type { AddMultipleSelectedFilesChunked } from '../hooks/recursive-selection-utils';
 import type { ExpandAllExecutorArgs, ExpandAllExecutorResult } from '../hooks/use-expand-all';
 import { useFileTreeWorker } from '../hooks/use-file-tree-worker';
-import {
-  estimateTreePayloadBytes,
-  measureFileTreeOperation,
-  recordFileTreeTelemetry,
-} from '../utils/file-tree-telemetry';
+import { estimateTreePayloadBytes, recordFileTreeTelemetry } from '../utils/file-tree-telemetry';
 import { getRootFolderId } from '../utils/get-root-folder-id';
 import {
   needsLoading as checkNeedsLoading,
@@ -92,29 +92,6 @@ function countTreeNodes(nodes: readonly CountableTreeNode[]): number {
     }
   }
   return count;
-}
-
-function rehydrateTreeWithTelemetry(
-  tree: WorkerFileNode[],
-  handleMap: Map<string, FileSystemHandle>
-): IFileNode[] {
-  const snapshotEstimate = estimateTreePayloadBytes(tree);
-  recordFileTreeTelemetry({
-    bytes: snapshotEstimate.bytes,
-    event: 'file-tree.snapshot',
-    kind: 'full',
-    nodeCount: snapshotEstimate.nodeCount,
-  });
-  const { result: hydratedTree, durationMs } = measureFileTreeOperation(() =>
-    rehydrateTree(tree, handleMap)
-  );
-  recordFileTreeTelemetry({
-    durationMs,
-    event: 'file-tree.rehydrate',
-    nodeCount: snapshotEstimate.nodeCount,
-  });
-
-  return hydratedTree;
 }
 
 /**
@@ -399,8 +376,69 @@ function shouldSkipSpecificPathLoad(
   return paths.length === 0;
 }
 
+function rehydrateWorkerChildrenStrict(
+  path: string,
+  children: WorkerFileNode[],
+  handleMap: Map<string, FileSystemHandle>
+): IFileNode[] {
+  const hydratedChildren = rehydrateTree(children, handleMap);
+  const expectedNodeCount = countTreeNodes(children);
+  const actualNodeCount = countTreeNodes(hydratedChildren);
+
+  if (actualNodeCount !== expectedNodeCount) {
+    throw new Error(
+      `File-tree worker patch for ${path} included ${expectedNodeCount} nodes but only ${actualNodeCount} could be rehydrated`
+    );
+  }
+
+  return hydratedChildren;
+}
+
+function applyWorkerPatchesToNormalizedTree(args: {
+  handleMap: Map<string, FileSystemHandle>;
+  normalizedTree: NormalizedFileTreeState;
+  patches: readonly FileTreePatchMessage[];
+}): {
+  indexedNodes: IFileNode[];
+  normalizedTree: NormalizedFileTreeState;
+} {
+  const { handleMap, patches } = args;
+  let nextNormalizedTree = args.normalizedTree;
+  const indexedNodes: IFileNode[] = [];
+
+  for (const patch of patches) {
+    if (patch.type === 'childrenLoaded') {
+      const children = rehydrateWorkerChildrenStrict(
+        patch.payload.path,
+        patch.payload.children,
+        handleMap
+      );
+      nextNormalizedTree = replaceNormalizedDirectoryChildren(
+        nextNormalizedTree,
+        patch.payload.path,
+        children,
+        patch.payload.loadState
+      );
+      indexedNodes.push(...children);
+      continue;
+    }
+
+    if (patch.type === 'nodeLoadStateChanged') {
+      nextNormalizedTree = setNormalizedNodeLoadState(
+        nextNormalizedTree,
+        patch.payload.path,
+        patch.payload.loadState,
+        patch.payload.loadError
+      );
+    }
+  }
+
+  return { indexedNodes, normalizedTree: nextNormalizedTree };
+}
+
 async function loadSpecificPathsWithWorker(args: {
   handleMapRef: React.RefObject<Map<string, FileSystemHandle>>;
+  normalizedTreeRef: React.RefObject<NormalizedFileTreeState>;
   onNodesIndexedRef: React.RefObject<
     ((nodes: IFileNode[], parentPath: string | null) => void) | undefined
   >;
@@ -409,17 +447,18 @@ async function loadSpecificPathsWithWorker(args: {
   port: FileTreeWorkerPort;
   setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>;
   specificPathProgressRef: React.RefObject<SpecificPathProgressHandler | null>;
-  syncNormalizedTree: (tree: IFileNode[]) => void;
+  setNormalizedTreeVersion: React.Dispatch<React.SetStateAction<number>>;
 }): Promise<void> {
   const {
     handleMapRef,
+    normalizedTreeRef,
     onNodesIndexedRef,
     onProgress,
     paths,
     port,
     setState,
+    setNormalizedTreeVersion,
     specificPathProgressRef,
-    syncNormalizedTree,
   } = args;
   const total = paths.length;
 
@@ -427,15 +466,21 @@ async function loadSpecificPathsWithWorker(args: {
   onProgress?.(0, total, paths[0] ?? '');
 
   const result = await port.loadPaths(paths);
-  const hydratedTree = rehydrateTreeWithTelemetry(result.tree, handleMapRef.current);
-  syncNormalizedTree(hydratedTree);
+  const patchResult = applyWorkerPatchesToNormalizedTree({
+    handleMap: handleMapRef.current,
+    normalizedTree: normalizedTreeRef.current,
+    patches: result.patches,
+  });
+  normalizedTreeRef.current = patchResult.normalizedTree;
+  const hydratedTree = materializeNormalizedFileTree(patchResult.normalizedTree);
+  setNormalizedTreeVersion((version) => version + 1);
   setState((s) => ({
     ...s,
     fileTree: hydratedTree,
     loadingPaths: new Set(),
   }));
-  if (onNodesIndexedRef.current && hydratedTree.length > 0) {
-    onNodesIndexedRef.current(hydratedTree, null);
+  if (onNodesIndexedRef.current && patchResult.indexedNodes.length > 0) {
+    onNodesIndexedRef.current(patchResult.indexedNodes, null);
   }
   onProgress?.(total, total, paths.at(-1) ?? '');
 }
@@ -472,33 +517,38 @@ async function loadSpecificPathsSerial(args: {
 
 function applyWorkerExpandAllResult(args: {
   handleMapRef: React.RefObject<Map<string, FileSystemHandle>>;
+  normalizedTreeRef: React.RefObject<NormalizedFileTreeState>;
   onNodesIndexedRef: React.RefObject<
     ((nodes: IFileNode[], parentPath: string | null) => void) | undefined
   >;
   result: Awaited<ReturnType<FileTreeWorkerPort['expandAll']>>;
   setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>;
-  syncNormalizedTree: (tree: IFileNode[]) => void;
+  setNormalizedTreeVersion: React.Dispatch<React.SetStateAction<number>>;
 }): { discoveredDirectories: number; pathsToCommit: readonly string[] } {
-  const { handleMapRef, onNodesIndexedRef, result, setState, syncNormalizedTree } = args;
-  const hydratedTree = rehydrateTreeWithTelemetry(result.tree, handleMapRef.current);
-  const expectedNodeCount = countTreeNodes(result.tree);
-  const actualNodeCount = countTreeNodes(hydratedTree);
-
-  if (actualNodeCount !== expectedNodeCount) {
-    throw new Error(
-      `Expand-all worker returned ${expectedNodeCount} nodes but only ${actualNodeCount} could be rehydrated`
-    );
-  }
-
-  syncNormalizedTree(hydratedTree);
+  const {
+    handleMapRef,
+    normalizedTreeRef,
+    onNodesIndexedRef,
+    result,
+    setNormalizedTreeVersion,
+    setState,
+  } = args;
+  const patchResult = applyWorkerPatchesToNormalizedTree({
+    handleMap: handleMapRef.current,
+    normalizedTree: normalizedTreeRef.current,
+    patches: result.patches,
+  });
+  normalizedTreeRef.current = patchResult.normalizedTree;
+  const hydratedTree = materializeNormalizedFileTree(patchResult.normalizedTree);
+  setNormalizedTreeVersion((version) => version + 1);
   setState((s) => ({
     ...s,
     fileTree: hydratedTree,
     loadingPaths: new Set(),
   }));
 
-  if (onNodesIndexedRef.current && hydratedTree.length > 0) {
-    onNodesIndexedRef.current(hydratedTree, null);
+  if (onNodesIndexedRef.current && patchResult.indexedNodes.length > 0) {
+    onNodesIndexedRef.current(patchResult.indexedNodes, null);
   }
 
   return {
@@ -1164,13 +1214,21 @@ export function useLazyFileTree(
       const result = await port.expandAll(rootFolderId);
       return applyWorkerExpandAllResult({
         handleMapRef,
+        normalizedTreeRef,
         onNodesIndexedRef,
         result,
         setState,
-        syncNormalizedTree,
+        setNormalizedTreeVersion,
       });
     },
-    [handleMapRef, onNodesIndexedRef, portRef, rootDirectoryHandle, syncNormalizedTree]
+    [
+      handleMapRef,
+      normalizedTreeRef,
+      onNodesIndexedRef,
+      portRef,
+      rootDirectoryHandle,
+      setNormalizedTreeVersion,
+    ]
   );
 
   /**
@@ -1320,13 +1378,14 @@ export function useLazyFileTree(
           if (port) {
             await loadSpecificPathsWithWorker({
               handleMapRef,
+              normalizedTreeRef,
               onNodesIndexedRef,
               onProgress,
               paths,
               port,
               setState,
+              setNormalizedTreeVersion,
               specificPathProgressRef,
-              syncNormalizedTree,
             });
             return;
           }

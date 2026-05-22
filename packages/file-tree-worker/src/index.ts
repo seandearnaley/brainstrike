@@ -31,9 +31,9 @@
  *   return results;
  * });
  *
- * port.onTreeSnapshot((tree, expandedPaths) => {
- *   // Update React state with new tree
- *   setFileTree(rehydrateTree(tree, handleMap));
+ * port.onChildrenLoaded((path, children) => {
+ *   // Apply a directory-level patch to React state
+ *   updateDirectory(path, rehydrateTree(children, handleMap));
  * });
  *
  * // Initialize with root nodes
@@ -41,7 +41,7 @@
  * port.init(workerNodes, folderId);
  *
  * // Expand all
- * const { tree, expandedPaths } = await port.expandAll(folderId);
+ * const { patches, expandedPaths } = await port.expandAll(folderId);
  * ```
  */
 
@@ -59,6 +59,7 @@ export {
 export type {
   BatchLoadResult,
   DirectoryLoadState,
+  FileTreePatchMessage,
   FlattenedNode,
   MainToWorkerMessage,
   WorkerFileNode,

@@ -178,13 +178,16 @@ self.onmessage = async (event: MessageEvent<MainToWorkerMessage>) => {
         const newTree = updateNodeChildren(currentTree, path, children, loadState);
         engine.setTree(newTree, ''); // folderId preserved from init
 
-        // Send updated snapshot
+        // Send a routine patch. Full snapshots are reserved for initialization/recovery.
+        if (loadState === 'loaded') {
+          self.postMessage({
+            type: 'childrenLoaded',
+            payload: { path, children, loadState },
+          } satisfies WorkerToMainMessage);
+        }
         self.postMessage({
-          type: 'treeSnapshot',
-          payload: {
-            tree: newTree,
-            expandedPaths: collectExpandedPaths(newTree),
-          },
+          type: 'nodeLoadStateChanged',
+          payload: { path, loadState },
         } satisfies WorkerToMainMessage);
         break;
       }

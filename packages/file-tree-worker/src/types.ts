@@ -211,6 +211,41 @@ export interface TreeSnapshotMessage {
 }
 
 /**
+ * Patch for a directory whose children were loaded or replaced.
+ */
+export interface ChildrenLoadedPatchMessage {
+  payload: {
+    path: string;
+    children: WorkerFileNode[];
+    loadState: Extract<DirectoryLoadState, 'loaded'>;
+  };
+  type: 'childrenLoaded';
+}
+
+/**
+ * Patch for a directory load-state transition.
+ */
+export interface NodeLoadStateChangedPatchMessage {
+  payload: {
+    path: string;
+    loadState: DirectoryLoadState;
+    loadError?: string;
+  };
+  type: 'nodeLoadStateChanged';
+}
+
+/**
+ * Patch for expanded-path membership changes.
+ */
+export interface ExpandedPathsDeltaMessage {
+  payload: {
+    added: string[];
+    removed: string[];
+  };
+  type: 'expandedPathsDelta';
+}
+
+/**
  * Progress update during expand-all.
  */
 export interface ProgressMessage {
@@ -227,7 +262,6 @@ export interface ProgressMessage {
  */
 export interface CompleteMessage {
   payload: {
-    tree: WorkerFileNode[];
     expandedPaths: string[];
     /** Number of directories actually loaded (0 means all were cached) */
     loadedCount: number;
@@ -280,8 +314,13 @@ export interface FlattenedResultMessage {
     /** Duration of the flatten operation in ms (for perf monitoring) */
     durationMs: number;
   };
-  type: 'flattenedResult';
+  type: 'flattenedRows';
 }
+
+export type FileTreePatchMessage =
+  | ChildrenLoadedPatchMessage
+  | NodeLoadStateChangedPatchMessage
+  | ExpandedPathsDeltaMessage;
 
 /**
  * All possible messages from worker to main thread.
@@ -290,6 +329,9 @@ export type WorkerToMainMessage =
   | WorkerReadyMessage
   | RequestLoadMessage
   | TreeSnapshotMessage
+  | ChildrenLoadedPatchMessage
+  | NodeLoadStateChangedPatchMessage
+  | ExpandedPathsDeltaMessage
   | ProgressMessage
   | CompleteMessage
   | ErrorMessage

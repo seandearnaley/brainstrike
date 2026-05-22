@@ -170,7 +170,10 @@ describe('file-tree.worker', () => {
     } as MessageEvent<MainToWorkerMessage>);
     expect(updateNodeChildren).toHaveBeenCalled();
     expect(selfMock.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'treeSnapshot' })
+      expect.objectContaining({
+        type: 'childrenLoaded',
+        payload: expect.objectContaining({ path: '/root', loadState: 'loaded' }),
+      })
     );
 
     await onMessage({
