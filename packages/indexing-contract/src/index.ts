@@ -653,6 +653,40 @@ export interface EmbedWorkerProgress {
   readonly type: 'progress';
 }
 
+export interface EmbedWorkerPipelineCacheMemoryDiagnostic {
+  readonly gpuBytes: null;
+  readonly heapBytes: null;
+  readonly reason: 'browser-runtime-unavailable';
+}
+
+export interface EmbedWorkerPipelineCacheEntryDiagnostic {
+  readonly cacheKey: string;
+  readonly createdAt: number;
+  readonly device: EmbeddingDevice;
+  readonly dtype: EmbeddingDType;
+  readonly lastUsedAt: number;
+  readonly memory: EmbedWorkerPipelineCacheMemoryDiagnostic;
+  readonly model: string;
+  readonly residencyMs: number;
+}
+
+export interface EmbedWorkerPipelineCacheDiagnostic {
+  readonly cacheSize: number;
+  readonly diagnostic: 'pipeline-cache';
+  readonly emittedAt: number;
+  readonly entries: readonly EmbedWorkerPipelineCacheEntryDiagnostic[];
+  readonly entry?: EmbedWorkerPipelineCacheEntryDiagnostic;
+  readonly event: 'disposed' | 'evicted' | 'hit' | 'invalidated' | 'load-failed' | 'loaded';
+  readonly id?: string;
+  readonly reason?:
+    | 'device-lost'
+    | 'idle-timeout'
+    | 'load-failure'
+    | 'manual-dispose'
+    | 'resident-limit';
+  readonly type: 'diagnostic';
+}
+
 export interface EmbedWorkerBatch {
   readonly batchIndex: number;
   readonly endIndex: number;
@@ -693,5 +727,6 @@ export interface EmbedWorkerComplete {
 export type EmbedWorkerStreamEvent =
   | EmbedWorkerBatch
   | EmbedWorkerComplete
+  | EmbedWorkerPipelineCacheDiagnostic
   | EmbedWorkerError
   | EmbedWorkerProgress;

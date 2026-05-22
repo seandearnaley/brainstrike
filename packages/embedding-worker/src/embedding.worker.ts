@@ -13,6 +13,8 @@ import type {
   EmbedWorkerBatch,
   EmbedWorkerComplete,
   EmbedWorkerError,
+  EmbedWorkerPipelineCacheDiagnostic,
+  EmbedWorkerPipelineCacheEntryDiagnostic,
   EmbedWorkerProgress,
   EmbedWorkerRequest,
   EmbedWorkerSuccess,
@@ -151,6 +153,7 @@ interface PipelineCacheEntry {
   /** Monotonic timestamp (via `now()`) — reserved for future diagnostics. */
   readonly createdAt: number;
   readonly device: EmbeddingDevice;
+  readonly dtype: EmbeddingDType;
   lastUsedAt: number;
   readonly model: string;
   readonly pipeline: Promise<FeatureExtractor>;
@@ -309,6 +312,73 @@ let keepAliveTickCount = 0;
 let idleSweepTimer: ReturnType<typeof setInterval> | null = null;
 const batchAckWaiters = new Map<string, () => void>();
 
+type PipelineCacheDisposalReason =
+  | 'device-lost'
+  | 'idle-timeout'
+  | 'load-failure'
+  | 'manual-dispose'
+  | 'resident-limit';
+
+type PipelineCacheDiagnosticSink = (event: EmbedWorkerPipelineCacheDiagnostic) => void;
+
+interface PipelineCacheDiagnosticOptions {
+  readonly entry?: PipelineCacheEntry;
+  readonly event: EmbedWorkerPipelineCacheDiagnostic['event'];
+  readonly id?: string;
+  readonly reason?: PipelineCacheDisposalReason;
+  readonly sink?: PipelineCacheDiagnosticSink;
+}
+
+const UNAVAILABLE_PIPELINE_MEMORY = {
+  gpuBytes: null,
+  heapBytes: null,
+  reason: 'browser-runtime-unavailable',
+} as const;
+
+function toPipelineCacheEntryDiagnostic(
+  entry: PipelineCacheEntry,
+  timestamp: number
+): EmbedWorkerPipelineCacheEntryDiagnostic {
+  return {
+    cacheKey: entry.cacheKey,
+    createdAt: entry.createdAt,
+    device: entry.device,
+    dtype: entry.dtype,
+    lastUsedAt: entry.lastUsedAt,
+    memory: UNAVAILABLE_PIPELINE_MEMORY,
+    model: entry.model,
+    residencyMs: Math.max(0, timestamp - entry.createdAt),
+  };
+}
+
+function buildPipelineCacheEntryDiagnostics(
+  timestamp: number
+): EmbedWorkerPipelineCacheEntryDiagnostic[] {
+  return [...pipelines.values()].map((entry) => toPipelineCacheEntryDiagnostic(entry, timestamp));
+}
+
+function emitPipelineCacheDiagnostic(options: PipelineCacheDiagnosticOptions): void {
+  const timestamp = now();
+  const entryDiagnostic =
+    options.entry === undefined
+      ? undefined
+      : toPipelineCacheEntryDiagnostic(options.entry, timestamp);
+  const event: EmbedWorkerPipelineCacheDiagnostic = {
+    type: 'diagnostic',
+    diagnostic: 'pipeline-cache',
+    event: options.event,
+    emittedAt: timestamp,
+    cacheSize: pipelines.size,
+    entries: buildPipelineCacheEntryDiagnostics(timestamp),
+    ...(entryDiagnostic === undefined ? {} : { entry: entryDiagnostic }),
+    ...(options.id === undefined ? {} : { id: options.id }),
+    ...(options.reason === undefined ? {} : { reason: options.reason }),
+  };
+
+  workerEmit(event);
+  options.sink?.(event);
+}
+
 function buildAckKey(id: string, batchIndex: number): string {
   return `${id}:${batchIndex}`;
 }
@@ -427,13 +497,28 @@ function stopKeepAlive(): void {
  * requires workerpool to restart this worker (which it does automatically
  * when minWorkers >= 1).
  */
-async function disposePipeline(key: string): Promise<void> {
+async function disposePipeline(
+  key: string,
+  diagnostics: {
+    readonly event?: 'disposed' | 'evicted';
+    readonly id?: string;
+    readonly reason?: PipelineCacheDisposalReason;
+    readonly sink?: PipelineCacheDiagnosticSink;
+  } = {}
+): Promise<void> {
   const entry = pipelines.get(key);
   if (!entry) {
     return;
   }
   // Delete from cache FIRST to prevent concurrent access during async dispose
   pipelines.delete(key);
+  emitPipelineCacheDiagnostic({
+    entry,
+    event: diagnostics.event ?? 'disposed',
+    ...(diagnostics.id === undefined ? {} : { id: diagnostics.id }),
+    reason: diagnostics.reason ?? 'manual-dispose',
+    ...(diagnostics.sink === undefined ? {} : { sink: diagnostics.sink }),
+  });
   try {
     const p = await entry.pipeline;
     if (typeof p.dispose === 'function') {
@@ -457,12 +542,23 @@ function invalidateWebGpuPipelines(): void {
     }
   }
   for (const key of keysToDispose) {
-    void disposePipeline(key);
+    void disposePipeline(key, { event: 'evicted', reason: 'device-lost' });
   }
   debugLog('Invalidated cached WebGPU pipelines', { count: keysToDispose.length });
+  emitPipelineCacheDiagnostic({
+    event: 'invalidated',
+    reason: 'device-lost',
+  });
 }
 
-function evictLruByDevice(device: EmbeddingDevice, maxResident: number): void {
+function evictLruByDevice(
+  device: EmbeddingDevice,
+  maxResident: number,
+  diagnostics: {
+    readonly id?: string;
+    readonly sink?: PipelineCacheDiagnosticSink;
+  } = {}
+): void {
   const entries: PipelineCacheEntry[] = [];
   for (const entry of pipelines.values()) {
     if (entry.device === device) {
@@ -478,7 +574,12 @@ function evictLruByDevice(device: EmbeddingDevice, maxResident: number): void {
   for (let i = 0; i < evictCount; i++) {
     const victim = entries[i];
     if (victim) {
-      void disposePipeline(victim.cacheKey);
+      void disposePipeline(victim.cacheKey, {
+        event: 'evicted',
+        ...(diagnostics.id === undefined ? {} : { id: diagnostics.id }),
+        reason: 'resident-limit',
+        ...(diagnostics.sink === undefined ? {} : { sink: diagnostics.sink }),
+      });
     }
   }
 }
@@ -495,7 +596,7 @@ function sweepIdlePipelines(): void {
     }
   }
   for (const key of keysToEvict) {
-    void disposePipeline(key);
+    void disposePipeline(key, { event: 'evicted', reason: 'idle-timeout' });
   }
   if (keysToEvict.length > 0) {
     updateKeepAliveState();
@@ -606,15 +707,79 @@ function inferDevice(hint: EmbeddingDeviceHint | undefined): EmbeddingDevice {
   return 'wasm';
 }
 
-async function loadPipeline(
+async function createFeatureExtractor(
   model: string,
   device: EmbeddingDevice,
   dtype: EmbeddingDType
+): Promise<FeatureExtractor> {
+  const runtime = await getTransformersRuntime();
+  const result = await runtime.pipeline('feature-extraction', model, { device, dtype });
+
+  if (device !== 'webgpu') {
+    return result as FeatureExtractor;
+  }
+
+  try {
+    await initWebGpuDeviceGuard();
+  } catch (guardError) {
+    disposeFeatureExtractorBestEffort(result as FeatureExtractor);
+    throw guardError;
+  }
+
+  return result as FeatureExtractor;
+}
+
+function handlePipelineLoadFailure(
+  cacheKey: string,
+  model: string,
+  device: EmbeddingDevice,
+  dtype: EmbeddingDType,
+  diagnostics: {
+    readonly id?: string;
+    readonly sink?: PipelineCacheDiagnosticSink;
+  },
+  error: unknown
+): void {
+  const failedEntry = pipelines.get(cacheKey);
+  pipelines.delete(cacheKey);
+  emitPipelineCacheDiagnostic({
+    ...(failedEntry === undefined ? {} : { entry: failedEntry }),
+    event: 'load-failed',
+    ...(diagnostics.id === undefined ? {} : { id: diagnostics.id }),
+    reason: 'load-failure',
+    ...(diagnostics.sink === undefined ? {} : { sink: diagnostics.sink }),
+  });
+
+  const errorMsg = error instanceof Error ? error.message : String(error);
+  const errorStack = error instanceof Error ? error.stack : undefined;
+  debugLog('Pipeline load failed', {
+    model,
+    device,
+    dtype,
+    error: errorMsg,
+    stack: errorStack,
+  });
+}
+
+async function loadPipeline(
+  model: string,
+  device: EmbeddingDevice,
+  dtype: EmbeddingDType,
+  diagnostics: {
+    readonly id?: string;
+    readonly sink?: PipelineCacheDiagnosticSink;
+  } = {}
 ): Promise<FeatureExtractor> {
   const cacheKey = `${model}|${device}|${dtype}`;
   const existing = pipelines.get(cacheKey);
   if (existing !== undefined) {
     existing.lastUsedAt = now();
+    emitPipelineCacheDiagnostic({
+      entry: existing,
+      event: 'hit',
+      ...(diagnostics.id === undefined ? {} : { id: diagnostics.id }),
+      ...(diagnostics.sink === undefined ? {} : { sink: diagnostics.sink }),
+    });
     return existing.pipeline;
   }
 
@@ -622,54 +787,33 @@ async function loadPipeline(
 
   const loader = (async () => {
     try {
-      const runtime = await getTransformersRuntime();
-      const result = await runtime.pipeline('feature-extraction', model, { device, dtype });
-
-      // After the first WebGPU pipeline loads, set up keep-alive and device-loss
-      // watcher on the ONNX Runtime internal GPUDevice. This must happen after
-      // pipeline() returns because ONNX Runtime creates the device during session
-      // creation inside pipeline().
-      if (device === 'webgpu') {
-        try {
-          await initWebGpuDeviceGuard();
-        } catch (guardError) {
-          disposeFeatureExtractorBestEffort(result as FeatureExtractor);
-          throw guardError;
-        }
-      }
-
-      return result as FeatureExtractor;
+      return await createFeatureExtractor(model, device, dtype);
     } catch (error) {
-      // Remove failed entry so retries work (don't leave rejected promise cached)
-      pipelines.delete(cacheKey);
-
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      debugLog('Pipeline load failed', {
-        model,
-        device,
-        dtype,
-        error: errorMsg,
-        stack: errorStack,
-      });
-
+      handlePipelineLoadFailure(cacheKey, model, device, dtype, diagnostics, error);
       throw error;
     }
   })();
 
   const maxResident = device === 'webgpu' ? MAX_GPU_PIPELINES : MAX_WASM_PIPELINES;
-  evictLruByDevice(device, maxResident);
+  evictLruByDevice(device, maxResident, diagnostics);
 
   const timestamp = now();
   const entry: PipelineCacheEntry = {
     cacheKey,
     pipeline: loader,
     device,
+    dtype,
     model,
     lastUsedAt: timestamp,
     createdAt: timestamp,
   };
   pipelines.set(cacheKey, entry);
+  emitPipelineCacheDiagnostic({
+    entry,
+    event: 'loaded',
+    ...(diagnostics.id === undefined ? {} : { id: diagnostics.id }),
+    ...(diagnostics.sink === undefined ? {} : { sink: diagnostics.sink }),
+  });
   startIdleSweep();
 
   return loader;
@@ -855,7 +999,9 @@ async function processEmbeddings(
   context: EmbeddingContext,
   state: EmbeddingState
 ): Promise<EmbedWorkerSuccess> {
-  const extractor = await loadPipeline(context.model, state.device, context.dtype);
+  const extractor = await loadPipeline(context.model, state.device, context.dtype, {
+    id: context.id,
+  });
   const vectors = await runBatches(context, state, extractor);
   const success = buildSuccessResult(context, state, vectors);
   if (vectors.length === 0) {
@@ -866,7 +1012,12 @@ async function processEmbeddings(
 }
 
 function postStreamEvent(
-  event: EmbedWorkerBatch | EmbedWorkerComplete | EmbedWorkerError | EmbedWorkerProgress,
+  event:
+    | EmbedWorkerBatch
+    | EmbedWorkerComplete
+    | EmbedWorkerError
+    | EmbedWorkerPipelineCacheDiagnostic
+    | EmbedWorkerProgress,
   transferList?: Transferable[]
 ): void {
   if (typeof self === 'undefined' || typeof self.postMessage !== 'function') {
@@ -886,7 +1037,10 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
     phase: 'initializing',
   });
 
-  const extractor = await loadPipeline(context.model, state.device, context.dtype);
+  const extractor = await loadPipeline(context.model, state.device, context.dtype, {
+    id: context.id,
+    sink: postStreamEvent,
+  });
   const runtime = await getTransformersRuntime();
   let batchIndex = 0;
   let dimensions = context.truncateDim ?? 0;

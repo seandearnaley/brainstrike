@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { EmbedWorkerBatch, EmbedWorkerProgress, EmbedWorkerRequest } from '../src/shared';
+import type {
+  EmbedWorkerBatch,
+  EmbedWorkerPipelineCacheDiagnostic,
+  EmbedWorkerProgress,
+  EmbedWorkerRequest,
+} from '../src/shared';
 import { StreamingEmbeddingWorkerClient } from '../src/streaming-worker-client';
 
 class MockWorker {
@@ -108,10 +113,12 @@ describe('StreamingEmbeddingWorkerClient', () => {
     const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
     const onProgress = vi.fn();
     const onBatch = vi.fn();
+    const onDiagnostic = vi.fn();
 
     const streamPromise = client.stream(createRequest(), {
       onProgress,
       onBatch,
+      onDiagnostic,
     });
     await flushMicrotasks();
 
@@ -123,6 +130,30 @@ describe('StreamingEmbeddingWorkerClient', () => {
       }),
     });
 
+    worker.emitMessage({
+      type: 'diagnostic',
+      diagnostic: 'pipeline-cache',
+      event: 'loaded',
+      id: 'embed-1',
+      cacheSize: 1,
+      emittedAt: 1000,
+      entries: [
+        {
+          cacheKey: 'local:test-model|wasm|fp32',
+          createdAt: 1000,
+          device: 'wasm',
+          dtype: 'fp32',
+          lastUsedAt: 1000,
+          memory: {
+            gpuBytes: null,
+            heapBytes: null,
+            reason: 'browser-runtime-unavailable',
+          },
+          model: 'local:test-model',
+          residencyMs: 0,
+        },
+      ],
+    } satisfies EmbedWorkerPipelineCacheDiagnostic);
     worker.emitMessage({
       type: 'progress',
       id: 'embed-1',
@@ -157,6 +188,13 @@ describe('StreamingEmbeddingWorkerClient', () => {
     });
     expect(onProgress).toHaveBeenCalledTimes(1);
     expect(onBatch).toHaveBeenCalledTimes(1);
+    expect(onDiagnostic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        diagnostic: 'pipeline-cache',
+        event: 'loaded',
+        id: 'embed-1',
+      })
+    );
     expect(worker.postMessage).toHaveBeenCalledWith({
       type: 'stream-ack',
       id: 'embed-1',

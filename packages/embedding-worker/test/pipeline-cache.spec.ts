@@ -4,6 +4,7 @@ import {
   loadWorker,
   pipelineMock,
   resetMocks,
+  workerEmitMock,
 } from './helpers/pipeline-test-setup';
 
 describe('pipeline cache metadata and dispose', () => {
@@ -237,6 +238,73 @@ describe('pipeline cache metadata and dispose', () => {
 
     // Verify it was a cache hit (pipeline() called only once)
     expect(pipelineMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits pipeline cache diagnostics for cache load and hit timestamps', async () => {
+    vi.useFakeTimers({ now: 1000 });
+
+    pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
+    const runEmbedding = await loadWorker();
+
+    await runEmbedding({
+      type: 'embed',
+      id: 'cache-diagnostics-load',
+      model: 'diagnostic-model',
+      texts: ['hello'],
+      deviceHint: 'wasm',
+    });
+
+    vi.advanceTimersByTime(5000);
+
+    await runEmbedding({
+      type: 'embed',
+      id: 'cache-diagnostics-hit',
+      model: 'diagnostic-model',
+      texts: ['world'],
+      deviceHint: 'wasm',
+    });
+
+    const diagnostics = workerEmitMock.mock.calls
+      .map(([event]) => event)
+      .filter((event) => event?.type === 'diagnostic' && event.diagnostic === 'pipeline-cache');
+
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        type: 'diagnostic',
+        diagnostic: 'pipeline-cache',
+        event: 'loaded',
+        id: 'cache-diagnostics-load',
+        cacheSize: 1,
+        entries: [
+          expect.objectContaining({
+            cacheKey: 'diagnostic-model|wasm|fp16',
+            createdAt: 0,
+            device: 'wasm',
+            dtype: 'fp16',
+            lastUsedAt: 0,
+            memory: {
+              gpuBytes: null,
+              heapBytes: null,
+              reason: 'browser-runtime-unavailable',
+            },
+            model: 'diagnostic-model',
+          }),
+        ],
+      }),
+      expect.objectContaining({
+        type: 'diagnostic',
+        diagnostic: 'pipeline-cache',
+        event: 'hit',
+        id: 'cache-diagnostics-hit',
+        cacheSize: 1,
+        entry: expect.objectContaining({
+          cacheKey: 'diagnostic-model|wasm|fp16',
+          createdAt: 0,
+          lastUsedAt: 5000,
+          residencyMs: 5000,
+        }),
+      }),
+    ]);
   });
 
   it('loadPipeline removes entry on failure so retry works', async () => {
