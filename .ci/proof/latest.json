@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-22T04:26:26.108Z",
+  "generatedAt": "2026-05-22T04:30:03.205Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "f37fe5972249b7155c64fe1834407c38e8869794",
+  "testedHeadSha": "6541590eb3a49afe2b2b5c3eb68592f12b5044ca",
   "selection": {
     "base": "origin/main",
     "baseSha": "1c1fcc89021f84853c397f6301b56b8a5a35357e",
     "head": "HEAD",
-    "headSha": "f37fe5972249b7155c64fe1834407c38e8869794",
+    "headSha": "6541590eb3a49afe2b2b5c3eb68592f12b5044ca",
     "mergeBase": "1c1fcc89021f84853c397f6301b56b8a5a35357e",
     "files": [
       ".ci/proof/latest.json",
@@ -83,7 +83,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 11
+      "durationMs": 12
     },
     {
       "name": "ci-script-tests",
@@ -92,7 +92,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 422
+      "durationMs": 435
     }
   ]
 }
