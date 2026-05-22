@@ -1,20 +1,21 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-22T07:05:14.526Z",
+  "generatedAt": "2026-05-22T07:18:31.054Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "a50508fe70be22e1a453e42d64edb7bafacb362c",
+  "testedHeadSha": "1872c9085e07150c79c5fe055d2fde6917894f9f",
   "selection": {
     "base": "origin/main",
     "baseSha": "7c23da6f2a2137888e0ae5954f09fea7848f463d",
     "head": "HEAD",
-    "headSha": "a50508fe70be22e1a453e42d64edb7bafacb362c",
+    "headSha": "1872c9085e07150c79c5fe055d2fde6917894f9f",
     "mergeBase": "7c23da6f2a2137888e0ae5954f09fea7848f463d",
     "files": [
+      ".ci/proof/latest.json",
       "apps/desktop/src/__tests__/renderer/components/context-explorer-page-content.test.tsx",
       "apps/desktop/src/__tests__/renderer/components/root-layout-content.test.tsx",
       "apps/desktop/src/renderer/components/context-explorer-page-content.tsx",
@@ -34,6 +35,8 @@
       "packages/file-explorer-ui/src/shell/README.md",
       "packages/file-explorer-ui/src/shell/file-explorer-panel.tsx",
       "packages/file-explorer-ui/src/shell/index.ts",
+      "packages/file-explorer-ui/src/tree/optimized-file-tree.tsx",
+      "packages/preferences/src/__tests__/context-explorer-layout-store.test.ts",
       "packages/preferences/src/stores/context-explorer-layout-store.ts"
     ],
     "riskProfile": {
@@ -151,7 +154,7 @@
       "budgetMs": 240000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 22473
+      "durationMs": 22854
     },
     {
       "name": "web-file-explorer-persistence-tests",
@@ -160,7 +163,7 @@
       "budgetMs": 360000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 43410
+      "durationMs": 43895
     },
     {
       "name": "web-smoke-tests",
@@ -169,7 +172,7 @@
       "budgetMs": 300000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 3553
+      "durationMs": 3643
     },
     {
       "name": "web-full-regression-tests",
@@ -178,7 +181,7 @@
       "budgetMs": 900000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 175134
+      "durationMs": 177527
     }
   ]
 }
