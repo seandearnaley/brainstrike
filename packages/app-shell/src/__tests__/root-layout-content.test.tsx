@@ -18,7 +18,7 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
-  FileExplorerLeftPanel: () => <div data-testid="file-explorer-left-panel" />,
+  FileExplorerPanel: () => <div data-testid="file-explorer-panel" />,
   WorkspaceTabHost: ({ className }: { className?: string }) => (
     <div className={className} data-testid="workspace-tab-host" />
   ),
@@ -184,7 +184,7 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('indexing-activity-coordinator')).toBeInTheDocument();
     expect(screen.getByTestId('explorer-section')).not.toHaveClass('hidden');
     expect(screen.getByTestId('context-explorer-page')).toBeInTheDocument();
-    expect(screen.getByTestId('file-explorer-left-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('file-explorer-panel')).toBeInTheDocument();
     // The south/console panel is gone — file tabs now live inside the editor area
     // (the workspace tab host is rendered via contextExplorerPageContent in real apps).
     expect(screen.queryByTestId('ide-console-content')).not.toBeInTheDocument();

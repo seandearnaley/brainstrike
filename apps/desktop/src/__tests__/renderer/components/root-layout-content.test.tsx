@@ -122,9 +122,7 @@ function MockHomePage() {
 }
 vi.mock('../../../renderer/components/context-explorer-page-content', () => ({
   default: MockHomePage,
-  DesktopContextExplorerLeftPanel: () => (
-    <div data-testid="desktop-file-explorer-left-panel">Left Panel</div>
-  ),
+  DesktopContextExplorerPanel: () => <div data-testid="desktop-file-explorer-panel">Panel</div>,
 }));
 
 vi.mock('../../../renderer/components/settings/page-content', () => ({

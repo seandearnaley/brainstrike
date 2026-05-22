@@ -22,8 +22,8 @@ const DEFAULT_STATE: Omit<
   'setSizes' | 'toggleLeft' | 'toggleRight' | 'toggleConsole' | 'setState'
 > = {
   sizes: [25, 20, 20],
-  showLeftPanel: true,
-  showRightPanel: false,
+  showLeftPanel: false,
+  showRightPanel: true,
   showConsole: false,
 };
 

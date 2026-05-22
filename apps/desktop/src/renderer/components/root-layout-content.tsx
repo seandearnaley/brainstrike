@@ -50,7 +50,7 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
  *
  * TOKEN CACHE: The TokenCacheWrapper provides a shared token cache context that
  * enables background token indexing. It wraps the entire layout so both:
- * - FileExplorerLeftPanel (indexes selected files via background worker)
+ * - FileExplorerPanel (indexes selected files via background worker)
  * - PreviewPanel in ContextExplorerPageContent (displays token counts from the shared cache)
  * can share the same context and see each other's updates.
  */

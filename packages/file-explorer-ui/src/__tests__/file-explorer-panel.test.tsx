@@ -3,7 +3,7 @@ import type { FileExplorerState } from '@brainstrike/types';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { FileExplorerLeftPanel } from '../shell/file-explorer-left-panel';
+import { FileExplorerPanel } from '../shell/file-explorer-panel';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import { useFileExplorer } from '../shell/use-file-explorer-context';
 import { useSelectionManager } from '../shell/use-selection-manager-context';
@@ -140,7 +140,7 @@ let setDevInlineFixtureEnabledMock: ReturnType<typeof vi.fn>;
 let hydrateFolderStateMock: ReturnType<typeof vi.fn>;
 let fileExplorerReturnValue: ReturnType<typeof useFileExplorer>;
 
-describe('FileExplorerLeftPanel', () => {
+describe('FileExplorerPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
@@ -291,7 +291,7 @@ describe('FileExplorerLeftPanel', () => {
   });
 
   it('renders toolbar, sidebar and action buttons', async () => {
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     expect(await screen.findByTestId('toolbar')).toBeInTheDocument();
     expect(await screen.findByTestId('sidebar')).toBeInTheDocument();
@@ -299,7 +299,7 @@ describe('FileExplorerLeftPanel', () => {
   });
 
   it('passes the selection limit handler to the selection manager', () => {
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     expect(useSelectionManager).toHaveBeenCalled();
     const props = vi.mocked(useSelectionManager).mock.calls[0]?.[0] as {
@@ -312,7 +312,7 @@ describe('FileExplorerLeftPanel', () => {
   });
 
   it('rehydrates the persisted folder state when the restored root matches the current folder id', () => {
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     expect(hydrateFolderStateMock).toHaveBeenCalledWith('/root');
   });
@@ -338,7 +338,7 @@ describe('FileExplorerLeftPanel', () => {
       setAccessLoading: setAccessLoadingMock,
     });
 
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     expect(setAccessLoadingMock).toHaveBeenCalledWith(true);
   });
@@ -422,7 +422,7 @@ describe('FileExplorerLeftPanel', () => {
       isLoading: false,
     });
 
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     expect(setCurrentFolderId).not.toHaveBeenCalledWith(null);
   });
@@ -457,7 +457,7 @@ describe('FileExplorerLeftPanel', () => {
       setAccessLoading: setAccessLoadingMock,
     });
 
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     await user.click(screen.getByRole('button', { name: 'Choose different folder' }));
 
@@ -467,9 +467,9 @@ describe('FileExplorerLeftPanel', () => {
 
   it('triggers refresh and shows toast when refresh button is clicked', async () => {
     const user = userEvent.setup();
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
-    // Click the refresh button which is now rendered by FileExplorerLeftPanel itself
+    // Click the refresh button which is now rendered by FileExplorerPanel itself
     await user.click(screen.getByTestId('refresh-button-small'));
 
     expect(refreshFileExplorerMock).toHaveBeenCalledTimes(1);
@@ -480,7 +480,7 @@ describe('FileExplorerLeftPanel', () => {
     const user = userEvent.setup();
     const error = new Error('fail');
     handleRootDirectorySelectMock.mockRejectedValueOnce(error);
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     await user.click(screen.getByRole('button', { name: 'Select Directory' }));
 
@@ -496,7 +496,7 @@ describe('FileExplorerLeftPanel', () => {
       throw new Error('boom');
     });
 
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     expect(await screen.findByText('Error')).toBeInTheDocument();
     expect(screen.getByText('boom')).toBeInTheDocument();
@@ -515,7 +515,7 @@ describe('FileExplorerLeftPanel', () => {
     });
 
     const user = userEvent.setup();
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     // Cancel button is now in the inline scanning indicator with aria-label
     await user.click(screen.getByRole('button', { name: 'Cancel operation' }));
@@ -536,7 +536,7 @@ describe('FileExplorerLeftPanel', () => {
       loadingProgress: { loadingCount: 1, isInitialLoading: true },
     });
 
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     // Inline scanning indicator is now part of TreeActionButtons
     expect(await screen.findByTestId('inline-scanning-indicator')).toBeInTheDocument();
@@ -562,7 +562,7 @@ describe('FileExplorerLeftPanel', () => {
     });
 
     const user = userEvent.setup();
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     await user.click(screen.getByRole('button', { name: 'Select Directory' }));
 
@@ -590,7 +590,7 @@ describe('FileExplorerLeftPanel', () => {
     });
 
     const user = userEvent.setup();
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     await user.click(screen.getByRole('button', { name: 'Select Directory' }));
 
@@ -606,7 +606,7 @@ describe('FileExplorerLeftPanel', () => {
     handleRootDirectorySelectMock.mockResolvedValueOnce(null);
 
     const user = userEvent.setup();
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     await user.click(screen.getByRole('button', { name: 'Select Directory' }));
 
@@ -633,7 +633,7 @@ describe('FileExplorerLeftPanel', () => {
     });
 
     const user = userEvent.setup();
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     await user.click(screen.getByTestId('refresh-button-small'));
 
@@ -648,7 +648,7 @@ describe('FileExplorerLeftPanel', () => {
       loadingProgress: { loadingCount: 1, isInitialLoading: true },
     });
 
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     // When there's no root directory, neither action buttons nor inline indicator are shown
     // TreeActionButtons is only rendered when rootDirectoryHandle exists
@@ -669,7 +669,7 @@ describe('FileExplorerLeftPanel', () => {
       isRulesMode: false,
     } as unknown as ReturnType<typeof useSelectionManager>);
 
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     expect(await screen.findByTestId('selection-count')).toHaveTextContent('3');
     expect(await screen.findByTestId('selection-max')).toHaveTextContent('5');
@@ -688,7 +688,7 @@ describe('FileExplorerLeftPanel', () => {
       isRulesMode: false,
     } as unknown as ReturnType<typeof useSelectionManager>);
 
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     // Should render with zero selection count
     expect(await screen.findByTestId('toolbar')).toBeInTheDocument();
@@ -703,7 +703,7 @@ describe('FileExplorerLeftPanel', () => {
       loadingProgress: { loadingCount: 1, isInitialLoading: true },
     });
 
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     // Inline scanning indicator is now part of TreeActionButtons
     expect(await screen.findByTestId('inline-scanning-indicator')).toBeInTheDocument();
@@ -718,7 +718,7 @@ describe('FileExplorerLeftPanel', () => {
       loadingProgress: { loadingCount: 1, isInitialLoading: true },
     });
 
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     // Inline scanning indicator is now part of TreeActionButtons
     expect(await screen.findByTestId('inline-scanning-indicator')).toBeInTheDocument();
@@ -730,7 +730,7 @@ describe('FileExplorerLeftPanel', () => {
       filterError: 'Invalid filter pattern',
     });
 
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     // Error should be passed to sidebar component
     expect(FileExplorerSidebarMock).toHaveBeenCalled();
@@ -803,7 +803,7 @@ describe('FileExplorerLeftPanel', () => {
       ],
     });
 
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     await user.click(screen.getByTestId('expand-all-button-small'));
     expect(expandAllProgressivelyMock).toHaveBeenCalled();
@@ -879,7 +879,7 @@ describe('FileExplorerLeftPanel', () => {
       ],
     });
 
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     await user.click(screen.getByTestId('expand-all-button-small'));
 
@@ -970,7 +970,7 @@ describe('FileExplorerLeftPanel', () => {
       ],
     });
 
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     expect(FileExplorerSidebarMock).toHaveBeenCalled();
     const lastCall = FileExplorerSidebarMock?.mock.calls.at(-1);
@@ -1030,7 +1030,7 @@ describe('FileExplorerLeftPanel', () => {
       ],
     });
 
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     expect(ActionButtonsMock).toHaveBeenCalled();
     const lastCall = ActionButtonsMock?.mock.calls.at(-1);
@@ -1092,7 +1092,7 @@ describe('FileExplorerLeftPanel', () => {
       },
     });
 
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     expect(setCurrentFolderId).toHaveBeenCalledWith('/new-root');
   });
@@ -1101,7 +1101,7 @@ describe('FileExplorerLeftPanel', () => {
     // Inline fixture loading is now handled by setupInlineFixtureSubscription
     // in FileExplorerProvider, not in the left panel. This test verifies
     // the left panel renders without errors when devInlineFixtureEnabled is true.
-    renderWithProviders(<FileExplorerLeftPanel />);
+    renderWithProviders(<FileExplorerPanel />);
 
     // Should render the toolbar area without errors
     expect(await screen.findByTestId('toolbar')).toBeInTheDocument();
@@ -1109,7 +1109,7 @@ describe('FileExplorerLeftPanel', () => {
 
   describe('collapsible view filters', () => {
     it('renders View Filters toggle button when root directory is selected', async () => {
-      renderWithProviders(<FileExplorerLeftPanel />);
+      renderWithProviders(<FileExplorerPanel />);
 
       expect(await screen.findByRole('button', { name: /view filters/i })).toBeInTheDocument();
     });
@@ -1120,7 +1120,7 @@ describe('FileExplorerLeftPanel', () => {
         rootDirectoryHandle: null,
       });
 
-      renderWithProviders(<FileExplorerLeftPanel />);
+      renderWithProviders(<FileExplorerPanel />);
 
       expect(screen.queryByRole('button', { name: /view filters/i })).not.toBeInTheDocument();
     });
@@ -1171,7 +1171,7 @@ describe('FileExplorerLeftPanel', () => {
       );
 
       const user = userEvent.setup();
-      renderWithProviders(<FileExplorerLeftPanel />);
+      renderWithProviders(<FileExplorerPanel />);
 
       await user.click(screen.getByRole('button', { name: /view filters/i }));
 
@@ -1222,7 +1222,7 @@ describe('FileExplorerLeftPanel', () => {
         mockStore as unknown as ReturnType<typeof useFileExplorerStoreContext>
       );
 
-      renderWithProviders(<FileExplorerLeftPanel />);
+      renderWithProviders(<FileExplorerPanel />);
 
       // Content should be visible (not hidden with max-h-0)
       const collapsibleContent = screen.getByRole('button', { name: /view filters/i });
@@ -1273,7 +1273,7 @@ describe('FileExplorerLeftPanel', () => {
         mockStore as unknown as ReturnType<typeof useFileExplorerStoreContext>
       );
 
-      renderWithProviders(<FileExplorerLeftPanel />);
+      renderWithProviders(<FileExplorerPanel />);
 
       // Toggle button should indicate collapsed state
       const toggleButton = screen.getByRole('button', { name: /view filters/i });

@@ -1,5 +1,5 @@
 export * from './file-content-context';
-export * from './file-explorer-left-panel';
+export * from './file-explorer-panel';
 export * from './file-explorer-provider';
 export { default as FileExplorerSidebar } from './file-explorer-sidebar';
 export * from './file-explorer-toolbar';

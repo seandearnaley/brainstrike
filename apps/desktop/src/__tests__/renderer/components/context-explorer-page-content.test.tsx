@@ -25,7 +25,7 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
-  FileExplorerLeftPanel: () => <div data-testid="file-explorer-left-panel">Left Panel</div>,
+  FileExplorerPanel: () => <div data-testid="file-explorer-panel">Panel</div>,
   WorkspaceTabHost: () => <div data-testid="workspace-tab-host">Workspace Tab Host</div>,
 }));
 

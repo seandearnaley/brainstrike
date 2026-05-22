@@ -43,6 +43,8 @@ export const AGENT_WORKSPACE_PANEL_SELECTOR = [
 ].join(', ');
 
 export const CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR = [
+  '#context-explorer-tools-panel',
+  '[data-panel-id="context-explorer-tools-panel"]',
   '#context-explorer-explorer-panel',
   '[data-panel-id="context-explorer-explorer-panel"]',
   '#explorer-panel',
