@@ -11,12 +11,12 @@ import { expect, test } from './fixtures/electron-fixture';
 export { expect, test };
 
 import {
-  getContextExplorerLeftPanel,
+  getContextExplorerFileExplorerPanel,
   getContextExplorerMiddlePanel,
 } from './utils/context-explorer-locators';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
-export { getContextExplorerLeftPanel, getContextExplorerMiddlePanel, loadElectronHelpers };
+export { getContextExplorerFileExplorerPanel, getContextExplorerMiddlePanel, loadElectronHelpers };
 
 export interface ElectronE2eFileSystemFixture {
   directoriesByPath: Record<string, unknown[]>;
@@ -57,20 +57,20 @@ export const MIN_PLAYWRIGHT_STEP_TIMEOUT_MS = 1000;
 export const RENDERER_FRAME_SETTLE_COUNT = 2;
 export const RENDERER_FRAME_SETTLE_TIMEOUT_MS = 5000;
 
-export async function ensureLeftPanelVisible(page: Page): Promise<void> {
-  const leftPanel = getContextExplorerLeftPanel(page);
-  const showLeftPanelButton = page
+export async function ensureFileExplorerPanelVisible(page: Page): Promise<void> {
+  const explorerPanel = getContextExplorerFileExplorerPanel(page);
+  const showExplorerPanelButton = page
     .getByTestId('show-explorer-panel')
     .or(page.getByRole('button', { name: /show explorer/i }));
 
   if (
-    !(await leftPanel.isVisible().catch(() => false)) &&
-    (await showLeftPanelButton.isVisible().catch(() => false))
+    !(await explorerPanel.isVisible().catch(() => false)) &&
+    (await showExplorerPanelButton.isVisible().catch(() => false))
   ) {
-    await showLeftPanelButton.click();
+    await showExplorerPanelButton.click();
   }
 
-  await expect(leftPanel).toBeVisible({ timeout: 15_000 });
+  await expect(explorerPanel).toBeVisible({ timeout: 15_000 });
 }
 
 export async function expandDirectoryIfNeeded(args: {
@@ -148,7 +148,7 @@ export async function setFileExplorerMaxSelectionCount(
   page: Page,
   maxSelectionCount: number
 ): Promise<void> {
-  const selectionSettingsButton = getContextExplorerLeftPanel(page).getByRole('button', {
+  const selectionSettingsButton = getContextExplorerFileExplorerPanel(page).getByRole('button', {
     name: 'Selection settings',
   });
   await expect(selectionSettingsButton).toBeVisible({ timeout: 15_000 });

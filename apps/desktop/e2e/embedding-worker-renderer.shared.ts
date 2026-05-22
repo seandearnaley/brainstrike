@@ -16,7 +16,7 @@ export { DESKTOP_DEV_RENDERER_PORT, DESKTOP_DEV_RENDERER_URL } from '../src/desk
 export { expect, test } from './fixtures/electron-fixture';
 export { showDatabaseDemoPanel } from './utils/layout-helpers';
 
-import { getContextExplorerLeftPanel } from './utils/context-explorer-locators';
+import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
 import type { ElectronAppContext } from './utils/electron-helpers.mts';
 import { showDatabaseDemoPanel } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
@@ -739,20 +739,20 @@ export async function getRendererLogRecords(page: Page): Promise<BufferedLogReco
   });
 }
 
-export async function ensureLeftPanelVisible(page: Page): Promise<void> {
-  const leftPanel = getContextExplorerLeftPanel(page);
-  const showLeftPanelButton = page
+export async function ensureFileExplorerPanelVisible(page: Page): Promise<void> {
+  const explorerPanel = getContextExplorerFileExplorerPanel(page);
+  const showExplorerPanelButton = page
     .getByTestId('show-explorer-panel')
     .or(page.getByRole('button', { name: /show explorer/i }));
 
   if (
-    !(await leftPanel.isVisible().catch(() => false)) &&
-    (await showLeftPanelButton.isVisible().catch(() => false))
+    !(await explorerPanel.isVisible().catch(() => false)) &&
+    (await showExplorerPanelButton.isVisible().catch(() => false))
   ) {
-    await showLeftPanelButton.click();
+    await showExplorerPanelButton.click();
   }
 
-  await expect(leftPanel).toBeVisible({ timeout: 15_000 });
+  await expect(explorerPanel).toBeVisible({ timeout: 15_000 });
 }
 
 export async function installLargeImportFileSystemMock(
@@ -2994,7 +2994,7 @@ export async function prepareRealWorldMixedStateScenario(
     })
     .toMatchObject({ state: 'stopped' });
 
-  await ensureLeftPanelVisible(activeWindow);
+  await ensureFileExplorerPanelVisible(activeWindow);
   await installLargeImportFileSystemMock(electronApp, {
     fileCount: REAL_WORLD_MIXED_STATE_FILE_COUNT,
     rootPath: '/mock/real-world-import',

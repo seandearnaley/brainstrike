@@ -1,7 +1,7 @@
 import { FILE_EXPLORER_STORAGE_KEY } from '@brainstrike/file-explorer/testing';
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { getContextExplorerLeftPanel } from './utils/context-explorer-locators';
+import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 interface ElectronE2eFileSystemFixture {
@@ -92,20 +92,20 @@ async function clickElectronControl(locator: Locator): Promise<void> {
   });
 }
 
-async function ensureLeftPanelVisible(window: Page): Promise<void> {
-  const leftPanel = getContextExplorerLeftPanel(window);
-  const showLeftPanelButton = window
+async function ensureFileExplorerPanelVisible(window: Page): Promise<void> {
+  const explorerPanel = getContextExplorerFileExplorerPanel(window);
+  const showExplorerPanelButton = window
     .getByTestId('show-explorer-panel')
     .or(window.getByRole('button', { name: /show explorer/i }));
 
   if (
-    !(await leftPanel.isVisible().catch(() => false)) &&
-    (await showLeftPanelButton.isVisible().catch(() => false))
+    !(await explorerPanel.isVisible().catch(() => false)) &&
+    (await showExplorerPanelButton.isVisible().catch(() => false))
   ) {
-    await clickElectronControl(showLeftPanelButton);
+    await clickElectronControl(showExplorerPanelButton);
   }
 
-  await leftPanel.waitFor({ state: 'visible', timeout: 10_000 });
+  await explorerPanel.waitFor({ state: 'visible', timeout: 10_000 });
 }
 
 async function ensureViewFiltersExpanded(window: Page): Promise<void> {
@@ -359,7 +359,7 @@ async function waitForPresetSelectionPersisted(
 }
 
 async function resolvePresetTrigger(window: Page): Promise<Locator> {
-  const explorerPanel = getContextExplorerLeftPanel(window);
+  const explorerPanel = getContextExplorerFileExplorerPanel(window);
   const presetTrigger = explorerPanel
     .locator('button')
     .filter({ hasText: /select filter|source files|documentation|typescript\/javascript/i })
@@ -539,9 +539,12 @@ async function selectMockRoot(window: Page): Promise<void> {
 async function selectDocumentationPreset(window: Page): Promise<void> {
   await waitForViewFilterPresetsDatabase(window);
 
-  const selectedDocumentationTrigger = getContextExplorerLeftPanel(window).getByRole('button', {
-    name: /documentation/i,
-  });
+  const selectedDocumentationTrigger = getContextExplorerFileExplorerPanel(window).getByRole(
+    'button',
+    {
+      name: /documentation/i,
+    }
+  );
   if (await selectedDocumentationTrigger.isVisible().catch(() => false)) {
     await expect(window.getByText('Select filter...')).toBeHidden({ timeout: 10_000 });
     return;
@@ -573,7 +576,7 @@ async function selectPresetBySearch(
 
   await expect(presetSearchInput).toBeHidden({ timeout: 10_000 });
   await expect(
-    getContextExplorerLeftPanel(window).getByRole('button', { name: selectedName })
+    getContextExplorerFileExplorerPanel(window).getByRole('button', { name: selectedName })
   ).toBeVisible({
     timeout: 10_000,
   });
@@ -581,7 +584,7 @@ async function selectPresetBySearch(
 }
 
 async function switchPreset(window: Page, currentName: RegExp, nextName: RegExp): Promise<void> {
-  const presetTrigger = getContextExplorerLeftPanel(window).getByRole('button', {
+  const presetTrigger = getContextExplorerFileExplorerPanel(window).getByRole('button', {
     name: currentName,
   });
   await expect(presetTrigger).toBeVisible({ timeout: 10_000 });
@@ -597,7 +600,7 @@ test.describe('Desktop filter presets', () => {
   test('updates the toolbar label when a preset is selected', async ({ window }) => {
     test.setTimeout(FILTER_PRESET_TEST_TIMEOUT_MS);
 
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
     await selectMockRoot(window);
     await ensureViewFiltersExpanded(window);
     await selectDocumentationPreset(window);
@@ -606,7 +609,7 @@ test.describe('Desktop filter presets', () => {
   test('keeps the preset trigger enabled when view filters first appear', async ({ window }) => {
     test.setTimeout(FILTER_PRESET_TEST_TIMEOUT_MS);
 
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
     await selectMockRoot(window);
     await ensureViewFiltersExpanded(window);
 
@@ -616,7 +619,7 @@ test.describe('Desktop filter presets', () => {
   test('loads presets without getting stuck on the loading state', async ({ window }) => {
     test.setTimeout(FILTER_PRESET_TEST_TIMEOUT_MS);
 
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
     await selectMockRoot(window);
     await ensureViewFiltersExpanded(window);
 
@@ -635,7 +638,7 @@ test.describe('Desktop filter presets', () => {
   test('keeps the selected preset after app restart', async ({ electron, window }) => {
     test.setTimeout(90_000);
 
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
     await selectMockRoot(window);
     await ensureViewFiltersExpanded(window);
     await selectDocumentationPreset(window);
@@ -647,7 +650,7 @@ test.describe('Desktop filter presets', () => {
     const { mockFileSystemOperations, waitForAppReady } = await loadElectronHelpers();
     await waitForAppReady(relaunchedWindow);
     await mockFileSystemOperations(relaunchedWindow);
-    await ensureLeftPanelVisible(relaunchedWindow);
+    await ensureFileExplorerPanelVisible(relaunchedWindow);
 
     const viewFiltersButton = relaunchedWindow.getByRole('button', { name: /view filters/i });
     if (!(await viewFiltersButton.isVisible().catch(() => false))) {
@@ -657,7 +660,9 @@ test.describe('Desktop filter presets', () => {
     await ensureViewFiltersExpanded(relaunchedWindow);
     await waitForViewFilterPresetsDatabase(relaunchedWindow);
     await expect(
-      getContextExplorerLeftPanel(relaunchedWindow).getByRole('button', { name: /documentation/i })
+      getContextExplorerFileExplorerPanel(relaunchedWindow).getByRole('button', {
+        name: /documentation/i,
+      })
     ).toBeVisible({ timeout: 10_000 });
     await expect(relaunchedWindow.getByText('Select filter...')).toBeHidden({ timeout: 10_000 });
   });
@@ -667,7 +672,7 @@ test.describe('Desktop filter presets', () => {
   }) => {
     test.setTimeout(FILTER_PRESET_TEST_TIMEOUT_MS);
 
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
     await selectMockRoot(window);
     await ensureViewFiltersExpanded(window);
     await selectDocumentationPreset(window);
@@ -686,7 +691,7 @@ test.describe('Desktop filter presets', () => {
     test.setTimeout(FILTER_PRESET_TEST_TIMEOUT_MS);
 
     await installFilteredEmptyFolderFixture(electronApp.app, '/mock/filter-empty-folder-root');
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
     await selectMockRoot(window);
     await ensureViewFiltersExpanded(window);
 
@@ -722,7 +727,7 @@ test.describe('Desktop filter presets', () => {
     test.setTimeout(FILTER_PRESET_TEST_TIMEOUT_MS);
 
     await installFilteredEmptyFolderFixture(electronApp.app, '/mock/filter-empty-folder-root');
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
     await selectMockRoot(window);
     await ensureViewFiltersExpanded(window);
 
