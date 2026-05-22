@@ -1,23 +1,22 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-22T04:30:03.205Z",
+  "generatedAt": "2026-05-22T04:39:23.090Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "6541590eb3a49afe2b2b5c3eb68592f12b5044ca",
+  "testedHeadSha": "beb11ca3a3f4bd2670e2b895ba27e31a29dcc29e",
   "selection": {
     "base": "origin/main",
-    "baseSha": "1c1fcc89021f84853c397f6301b56b8a5a35357e",
+    "baseSha": "5f970f0af05c9adf6886c2314fa3bcf1c00464b8",
     "head": "HEAD",
-    "headSha": "6541590eb3a49afe2b2b5c3eb68592f12b5044ca",
-    "mergeBase": "1c1fcc89021f84853c397f6301b56b8a5a35357e",
+    "headSha": "beb11ca3a3f4bd2670e2b895ba27e31a29dcc29e",
+    "mergeBase": "5f970f0af05c9adf6886c2314fa3bcf1c00464b8",
     "files": [
-      ".ci/proof/latest.json",
-      ".jules/sentinel.md",
-      "packages/queue-telemetry-collector/src/collector.ts"
+      "packages/preferences/src/settings/tools/__tests__/token-budget-summary.test.tsx",
+      "packages/preferences/src/settings/tools/token-budget-summary.tsx"
     ],
     "riskProfile": {
       "category": "config-tooling",
@@ -83,7 +82,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 12
+      "durationMs": 10
     },
     {
       "name": "ci-script-tests",
@@ -92,7 +91,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 435
+      "durationMs": 407
     }
   ]
 }
