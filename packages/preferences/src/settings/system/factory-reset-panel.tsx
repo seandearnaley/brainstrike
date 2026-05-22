@@ -65,7 +65,9 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
       setRunning(true);
       if (desktopResetBridge) {
         // Desktop CacheStorage must be cleared while the live renderer still owns
-        // a valid backing store. Main then purges DB/userData and the renderer reloads.
+        // a valid backing store. Mark the renderer as partially reset before
+        // clearing storage because localStorage/sessionStorage are cleared first,
+        // which makes same-session toast recovery unreliable.
         rendererStorageResetStarted = true;
         await clearPersistentUiState({ skipIndexedDb: false });
         const result = await desktopResetBridge();

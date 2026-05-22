@@ -159,7 +159,7 @@ async function clearCacheStorage(): Promise<void> {
       );
     }
   } catch (error) {
-    logger.warn('Failed to clear CacheStorage', { error });
+    logger.error('Failed to clear CacheStorage', { error });
     throw error;
   }
 }

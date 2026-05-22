@@ -15,6 +15,8 @@ const execFileAsync = promisify(execFile);
 export const CI_DIFF_FILTER = 'ACDMRTUXB';
 
 export const E2E_LANES = {
+  // Full-risk proof uses the critical-smoke alias so release gates can depend on
+  // a stable lane name while the actual web smoke test set stays product-owned.
   'critical-smoke': {
     command:
       'pnpm --filter @brainstrike/web exec playwright test --project=functional --grep "@web-smoke" --workers=2',
