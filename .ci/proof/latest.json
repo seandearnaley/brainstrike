@@ -1,95 +1,67 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-23T02:36:06.502Z",
+  "generatedAt": "2026-05-22T23:34:21.441Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "4e6e459c45b2c27b472b8eec6aced9d69730c530",
+  "testedHeadSha": "07207bc96ccdf14c2d871f12749b2b8e0e8e590c",
   "selection": {
     "base": "origin/main",
     "baseSha": "660af97fc4349592a171623cb0c0dbedbfcbb58f",
     "head": "HEAD",
-    "headSha": "4e6e459c45b2c27b472b8eec6aced9d69730c530",
+    "headSha": "07207bc96ccdf14c2d871f12749b2b8e0e8e590c",
     "mergeBase": "660af97fc4349592a171623cb0c0dbedbfcbb58f",
     "files": [
-      ".github/workflows/test.yml",
-      "apps/desktop/e2e/embedding-worker-renderer.shared.ts",
-      "apps/desktop/e2e/file-explorer-selection.shared.ts",
-      "docs/architecture-reset/coverage-gate-split-2026-05-22.html",
-      "scripts/__tests__/ci-risk-rules.test.mjs",
-      "scripts/__tests__/ci-select.test.mjs",
-      "scripts/check-ci-workflow-contracts.mjs",
-      "scripts/ci-risk-fixtures.json",
-      "scripts/ci-risk-rules.mjs"
+      "docs/superpowers/plans/2026-05-22-bst-373-file-tree-patch-protocol.md",
+      "packages/file-explorer-ui/src/__tests__/use-file-tree-context.test.ts",
+      "packages/file-explorer-ui/src/tree/use-lazy-file-tree.ts",
+      "packages/file-tree-worker/src/bfs-engine.test.ts",
+      "packages/file-tree-worker/src/bfs-engine.ts",
+      "packages/file-tree-worker/src/file-tree.worker.test.ts",
+      "packages/file-tree-worker/src/file-tree.worker.ts",
+      "packages/file-tree-worker/src/index.ts",
+      "packages/file-tree-worker/src/port.test.ts",
+      "packages/file-tree-worker/src/port.ts",
+      "packages/file-tree-worker/src/types.ts"
     ],
     "riskProfile": {
-      "category": "full-release-high-risk",
+      "category": "web-ui-file-explorer",
       "domains": [
-        "ci-platform"
+        "workspace-experience"
       ],
       "e2eLanes": [
-        "critical-smoke",
-        "web-file-explorer-persistence",
-        "web-import-indexing",
-        "web-assistant-state",
-        "web-settings-state",
-        "web-db-startup",
-        "web-destructive-reset",
-        "web-full-regression",
-        "desktop-smoke",
-        "desktop-ipc-reset",
-        "desktop-runtime-hosts",
-        "desktop-db-storage",
-        "desktop-full-regression",
-        "desktop-embedding-diagnostics",
-        "desktop-llm-host-recovery",
-        "long-soak-release-only"
+        "web-file-explorer-persistence"
       ],
       "proofCommands": [
         "diff-check",
-        "ci-script-tests",
-        "workflow-contracts",
-        "full-local-suite"
+        "file-explorer-tests",
+        "web-file-explorer-persistence-tests"
       ],
-      "riskLevel": "full",
+      "riskLevel": "medium",
       "cloudLabels": [
-        "ci:full"
+        "ci:web-file-explorer-persistence",
+        "ci:coverage"
       ]
     },
     "proofCommands": [
       "diff-check",
-      "ci-script-tests",
-      "workflow-contracts",
-      "full-local-suite"
+      "file-explorer-tests",
+      "web-file-explorer-persistence-tests"
     ],
     "lanes": [
-      "ci:full"
+      "ci:web-file-explorer-persistence",
+      "ci:coverage"
     ],
     "expandedLanes": [
-      "ci:browser",
-      "ci:web-smoke",
       "ci:web-file-explorer-persistence",
-      "ci:web-import-indexing",
-      "ci:web-assistant-state",
-      "ci:web-settings-state",
-      "ci:web-db-startup",
-      "ci:web-destructive-reset",
-      "ci:web-e2e",
-      "ci:desktop-smoke",
-      "ci:desktop-ipc-reset",
-      "ci:desktop-runtime-hosts",
-      "ci:desktop-db-storage",
-      "ci:desktop",
-      "ci:embedding",
-      "ci:unit",
-      "ci:coverage-db",
-      "ci:coverage-full"
+      "ci:coverage"
     ],
     "labels": [
-      "ci:full"
+      "ci:web-file-explorer-persistence",
+      "ci:coverage"
     ],
     "commands": [
       {
@@ -102,39 +74,28 @@
         ]
       },
       {
-        "name": "ci-script-tests",
-        "command": "node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/ci-proof.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-workflow-contracts.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs scripts/__tests__/run-changed-unit-tests.test.mjs scripts/__tests__/ci-calibrate-proof-commands.test.mjs scripts/__tests__/ci-calibration-summary.test.mjs scripts/__tests__/ci-risk-audit.test.mjs && pnpm run ci:risk-fixtures",
-        "budgetMs": 120000,
-        "owner": "tooling",
+        "name": "file-explorer-tests",
+        "command": "pnpm --filter @brainstrike/file-explorer-ui test && pnpm --filter @brainstrike/file-explorer test",
+        "budgetMs": 240000,
+        "owner": "workspace-experience",
         "requiredFor": [
-          "config-tooling",
-          "full-release-high-risk"
+          "web-ui-file-explorer"
         ]
       },
       {
-        "name": "workflow-contracts",
-        "command": "node --test scripts/__tests__/check-ci-workflow-contracts.test.mjs && pnpm run lint:ci-workflow-contracts",
-        "budgetMs": 180000,
-        "owner": "ci-platform",
+        "name": "web-file-explorer-persistence-tests",
+        "command": "pnpm --filter @brainstrike/web run test:e2e:lane:file-explorer-persistence",
+        "budgetMs": 360000,
+        "owner": "workspace-experience",
         "requiredFor": [
-          "config-tooling",
-          "full-release-high-risk"
-        ]
-      },
-      {
-        "name": "full-local-suite",
-        "command": "pnpm build && pnpm lint:ci && pnpm type-check && pnpm test && pnpm test:e2e",
-        "budgetMs": 2700000,
-        "owner": "release",
-        "requiredFor": [
-          "full-release-high-risk"
+          "web-ui-file-explorer"
         ]
       }
     ],
     "budget": {
-      "target": "release-full-risk",
-      "targetMs": 3600000,
-      "totalMs": 3030000,
+      "target": "normal-pr-risk",
+      "targetMs": 900000,
+      "totalMs": 630000,
       "status": "within-target"
     }
   },
@@ -146,34 +107,25 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 19
+      "durationMs": 10
     },
     {
-      "name": "ci-script-tests",
-      "command": "node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/ci-proof.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-workflow-contracts.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs scripts/__tests__/run-changed-unit-tests.test.mjs scripts/__tests__/ci-calibrate-proof-commands.test.mjs scripts/__tests__/ci-calibration-summary.test.mjs scripts/__tests__/ci-risk-audit.test.mjs && pnpm run ci:risk-fixtures",
-      "owner": "tooling",
-      "budgetMs": 120000,
+      "name": "file-explorer-tests",
+      "command": "pnpm --filter @brainstrike/file-explorer-ui test && pnpm --filter @brainstrike/file-explorer test",
+      "owner": "workspace-experience",
+      "budgetMs": 240000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 457
+      "durationMs": 23047
     },
     {
-      "name": "workflow-contracts",
-      "command": "node --test scripts/__tests__/check-ci-workflow-contracts.test.mjs && pnpm run lint:ci-workflow-contracts",
-      "owner": "ci-platform",
-      "budgetMs": 180000,
+      "name": "web-file-explorer-persistence-tests",
+      "command": "pnpm --filter @brainstrike/web run test:e2e:lane:file-explorer-persistence",
+      "owner": "workspace-experience",
+      "budgetMs": 360000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 456
-    },
-    {
-      "name": "full-local-suite",
-      "command": "pnpm build && pnpm lint:ci && pnpm type-check && pnpm test && pnpm test:e2e",
-      "owner": "release",
-      "budgetMs": 2700000,
-      "budgetStatus": "ok",
-      "exitCode": 0,
-      "durationMs": 1053421
+      "durationMs": 46607
     }
   ]
 }
