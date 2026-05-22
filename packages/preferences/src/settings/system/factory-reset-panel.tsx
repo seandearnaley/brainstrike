@@ -1,7 +1,10 @@
 import { useFactoryReset } from '@brainstrike/db';
 import { Button, Label, useToast } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useMemo, useState } from 'react';
 import { clearPersistentUiState } from './factory-reset-helpers';
+
+const logger = createLogger('FactoryResetPanel');
 
 export interface FactoryResetPanelProps {
   doFactoryReset?: (() => Promise<void>) | null;
@@ -87,6 +90,9 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
       await requestFactoryResetReload('factory-reset');
     } catch (err) {
       if (rendererStorageResetStarted) {
+        logger.error('Factory reset failed after renderer storage was already cleared', {
+          error: err,
+        });
         await requestFactoryResetReload('factory-reset-failed-after-renderer-clear');
         return;
       }

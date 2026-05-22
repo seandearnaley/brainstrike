@@ -331,7 +331,6 @@ test('release workflow changes select full release proof explicitly', () => {
     domains: ['ci-platform'],
     e2eLanes: [
       'critical-smoke',
-      'web-smoke',
       'web-file-explorer-persistence',
       'web-import-indexing',
       'web-assistant-state',

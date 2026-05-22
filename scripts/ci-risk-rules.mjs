@@ -243,6 +243,9 @@ const WEB_SETTINGS_STATE_PATTERNS = [
   /^apps\/web\/e2e\/(?:background-indexing-settings|local-runtime-settings|settings-models-and-providers|settings-token-counting|settings-tools-and-diagnostics)\.test\.ts$/,
 ];
 
+// Migration files intentionally overlap startup/reset lane patterns, but the
+// DB migration profile below must stay first so schema changes always get both
+// startup and destructive reset coverage instead of one narrow web lane.
 const WEB_DB_STARTUP_PATTERNS = [
   ...DB_MIGRATION_PATTERNS,
   /^apps\/web\/e2e\/(?:tools-panel-persistence|web-db-worker-startup|embedding-worker-telemetry)\.test\.ts$/,
@@ -522,7 +525,6 @@ export function selectRiskProfileForFiles(files) {
       domains: ['ci-platform'],
       e2eLanes: [
         'critical-smoke',
-        'web-smoke',
         'web-file-explorer-persistence',
         'web-import-indexing',
         'web-assistant-state',

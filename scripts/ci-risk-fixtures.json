@@ -259,7 +259,6 @@
         "cloudLabels": ["ci:full"],
         "e2eLanes": [
           "critical-smoke",
-          "web-smoke",
           "web-file-explorer-persistence",
           "web-import-indexing",
           "web-assistant-state",

@@ -14,21 +14,18 @@ const execFileAsync = promisify(execFile);
 
 export const CI_DIFF_FILTER = 'ACDMRTUXB';
 
+const WEB_SMOKE_LANE = Object.freeze({
+  command:
+    'pnpm --filter @brainstrike/web exec playwright test --project=functional --grep "@web-smoke" --workers=2',
+  owner: 'applications',
+  tagContract: '@web-smoke',
+});
+
 export const E2E_LANES = {
   // Full-risk proof uses the critical-smoke alias so release gates can depend on
   // a stable lane name while the actual web smoke test set stays product-owned.
-  'critical-smoke': {
-    command:
-      'pnpm --filter @brainstrike/web exec playwright test --project=functional --grep "@web-smoke" --workers=2',
-    owner: 'applications',
-    tagContract: '@web-smoke',
-  },
-  'web-smoke': {
-    command:
-      'pnpm --filter @brainstrike/web exec playwright test --project=functional --grep "@web-smoke" --workers=2',
-    owner: 'applications',
-    tagContract: '@web-smoke',
-  },
+  'critical-smoke': WEB_SMOKE_LANE,
+  'web-smoke': WEB_SMOKE_LANE,
   'web-file-explorer-persistence': {
     command:
       'pnpm --filter @brainstrike/web exec playwright test e2e/file-explorer-persistence.test.ts --project=functional --workers=1 --grep "@web-file-explorer-persistence"',

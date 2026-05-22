@@ -149,6 +149,10 @@ test('buildSelection marks full release proof as explicit release budget', () =>
     totalMs: 3_030_000,
     status: 'within-target',
   });
+  const smokeLaneCount = selection.riskProfile.e2eLanes.filter(
+    (lane) => lane === 'critical-smoke' || lane === 'web-smoke'
+  ).length;
+  assert.equal(smokeLaneCount, 1);
 });
 
 test('E2E lane command taxonomy is explicit and avoids hidden full-suite fallback', () => {
@@ -173,6 +177,7 @@ test('E2E lane command taxonomy is explicit and avoids hidden full-suite fallbac
   ]);
   assert.match(E2E_LANES['critical-smoke'].command, /@web-smoke/);
   assert.match(E2E_LANES['web-smoke'].command, /@web-smoke/);
+  assert.equal(E2E_LANES['critical-smoke'], E2E_LANES['web-smoke']);
   assert.match(E2E_LANES['web-file-explorer-persistence'].command, /@web-file-explorer-persistence/);
   assert.match(E2E_LANES['web-import-indexing'].command, /@web-import-indexing/);
   assert.match(E2E_LANES['web-assistant-state'].command, /@web-assistant-state/);
