@@ -71,7 +71,7 @@ test.describe('Panel State Preservation', () => {
     await expect(testCheckbox).toBeChecked();
 
     // Hide the explorer panel
-    const hideExplorerButton = page.locator('button[aria-label="Hide tools panel"]');
+    const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
     await expect(hideExplorerButton).toBeVisible();
     await hideExplorerButton.click();
 
@@ -79,7 +79,7 @@ test.describe('Panel State Preservation', () => {
     await expect(rightPanel).not.toBeVisible();
 
     // Verify show button appears
-    const showExplorerShim = page.locator('button[aria-label="Show tools panel"]');
+    const showExplorerShim = page.locator('button[aria-label="Show explorer panel"]');
     await expect(showExplorerShim).toBeVisible();
 
     // Show the panel again
@@ -138,8 +138,8 @@ test.describe('Panel State Preservation', () => {
     await expect(testCheckbox).toBeChecked();
 
     // Get references to the toggle buttons
-    const hideExplorerButton = page.locator('button[aria-label="Hide tools panel"]');
-    const showExplorerShim = page.locator('button[aria-label="Show tools panel"]');
+    const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
+    const showExplorerShim = page.locator('button[aria-label="Show explorer panel"]');
     const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
 
     // Perform multiple hide/show cycles

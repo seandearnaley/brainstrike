@@ -131,7 +131,7 @@ test.describe('IDE Layout Persistence', () => {
       await expect(rightPanel).toBeVisible();
 
       // Hide the explorer panel
-      const hideExplorerButton = page.locator('button[aria-label="Hide tools panel"]');
+      const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
       await hideExplorerButton.click();
 
       // Wait a bit for the save operation to complete
@@ -141,7 +141,7 @@ test.describe('IDE Layout Persistence', () => {
       await expect(rightPanel).not.toBeVisible();
 
       // Verify show button appears
-      const showExplorerButton = page.locator('button[aria-label="Show tools panel"]');
+      const showExplorerButton = page.locator('button[aria-label="Show explorer panel"]');
       await expect(showExplorerButton).toBeVisible();
 
       // Reload page
@@ -311,7 +311,7 @@ test.describe('IDE Layout Persistence', () => {
 
       // 1. Hide explorer (nested right panel)
       const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
-      const hideExplorerButton = page.locator('button[aria-label="Hide tools panel"]');
+      const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
       await hideExplorerButton.click();
       await expect(rightPanel).not.toBeVisible();
 
@@ -334,7 +334,7 @@ test.describe('IDE Layout Persistence', () => {
 
       // Verify explorer remains hidden
       await expect(rightPanel).not.toBeVisible();
-      const showExplorerButton = page.locator('button[aria-label="Show tools panel"]');
+      const showExplorerButton = page.locator('button[aria-label="Show explorer panel"]');
       await expect(showExplorerButton).toBeVisible();
 
       // Verify workspace panel remains hidden
@@ -409,7 +409,7 @@ test.describe('IDE Layout Persistence', () => {
       await expect(page.getByTestId('show-console-panel')).toHaveCount(0);
 
       // Verify layout functionality still works
-      const hideExplorerButton = page.locator('button[aria-label="Hide tools panel"]');
+      const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
       await hideExplorerButton.click();
       await expect(rightPanel).not.toBeVisible();
     });
@@ -432,7 +432,7 @@ test.describe('IDE Layout Persistence', () => {
       await expect(page.getByTestId('show-console-panel')).toHaveCount(0);
 
       // Verify new layout changes are saved
-      const hideExplorerButton = page.locator('button[aria-label="Hide tools panel"]');
+      const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
       await hideExplorerButton.click();
       await expect(rightPanel).not.toBeVisible();
 
@@ -472,7 +472,7 @@ test.describe('IDE Layout Persistence', () => {
       const isCollapsed = await rightPanel.evaluate((el) => el.getBoundingClientRect().width === 0);
       if (isCollapsed) {
         // Panel collapsed, try to expand it back
-        const showExplorerButton = page.locator('button[aria-label="Show tools panel"]');
+        const showExplorerButton = page.locator('button[aria-label="Show explorer panel"]');
 
         // Check if the show explorer button exists within a reasonable timeout
         try {
@@ -523,7 +523,7 @@ test.describe('IDE Layout Persistence', () => {
   test.describe('Accessibility and Keyboard Navigation', () => {
     test('should support keyboard navigation for panel toggles', async ({ page }) => {
       // Focus on hide explorer button and activate with keyboard
-      const hideExplorerButton = page.locator('button[aria-label="Hide tools panel"]');
+      const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
       await hideExplorerButton.focus();
       await page.keyboard.press('Enter');
 
@@ -531,7 +531,7 @@ test.describe('IDE Layout Persistence', () => {
       await expect(rightPanel).not.toBeVisible();
 
       // Focus on show explorer button and activate with keyboard
-      const showExplorerButton = page.locator('button[aria-label="Show tools panel"]');
+      const showExplorerButton = page.locator('button[aria-label="Show explorer panel"]');
       await showExplorerButton.focus();
       await page.keyboard.press('Space');
 
@@ -540,14 +540,14 @@ test.describe('IDE Layout Persistence', () => {
 
     test('should have proper ARIA labels for all panel controls', async ({ page }) => {
       // Verify all panel control buttons have proper ARIA labels
-      await expect(page.locator('button[aria-label="Hide tools panel"]')).toBeVisible();
+      await expect(page.locator('button[aria-label="Hide explorer panel"]')).toBeVisible();
 
       await expect(page.getByTestId('show-console-panel')).toHaveCount(0);
       await expect(page.locator('button[aria-label="Show File Editor"]')).toHaveCount(0);
       await expect(page.locator('button[aria-label="Close File Editor"]')).toHaveCount(0);
 
       // Test right panel buttons if available
-      const showRightPanelButton = page.locator('button[aria-label="Show tools panel"]');
+      const showRightPanelButton = page.locator('button[aria-label="Show explorer panel"]');
       if (await showRightPanelButton.isVisible()) {
         await expect(showRightPanelButton).toBeVisible();
       }

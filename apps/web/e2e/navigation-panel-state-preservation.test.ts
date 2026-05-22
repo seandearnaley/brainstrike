@@ -130,7 +130,7 @@ test.describe('Navigation Panel State Preservation', () => {
     const fileTreeScrollTop = await fileTree.evaluate((el) => el.scrollTop);
 
     // Step 5: Hide the navigation panel
-    const hideExplorerButton = page.locator('button[aria-label="Hide tools panel"]');
+    const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
     await expect(hideExplorerButton).toBeVisible();
     await hideExplorerButton.click();
 
@@ -139,7 +139,7 @@ test.describe('Navigation Panel State Preservation', () => {
     await expect(rightPanel).not.toBeVisible();
 
     // Verify show button appears
-    const showExplorerShim = page.locator('button[aria-label="Show tools panel"]');
+    const showExplorerShim = page.locator('button[aria-label="Show explorer panel"]');
     await expect(showExplorerShim).toBeVisible();
 
     // Wait a moment to ensure any potential unmounting/remounting issues would occur
@@ -242,14 +242,14 @@ test.describe('Navigation Panel State Preservation', () => {
     await checkTreeCheckbox(buttonCheckbox);
 
     // Hide the panel
-    const hideExplorerButton = page.locator('button[aria-label="Hide tools panel"]');
+    const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
     await hideExplorerButton.click();
 
     const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
     await expect(rightPanel).not.toBeVisible();
 
     // Show the panel again
-    const showExplorerShim = page.locator('button[aria-label="Show tools panel"]');
+    const showExplorerShim = page.locator('button[aria-label="Show explorer panel"]');
     await showExplorerShim.click();
     await expect(rightPanel).toBeVisible();
 
@@ -302,8 +302,8 @@ test.describe('Navigation Panel State Preservation', () => {
 
     // Get panel and button references
     const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
-    const hideButton = page.locator('button[aria-label="Hide tools panel"]');
-    const showButton = page.locator('button[aria-label="Show tools panel"]');
+    const hideButton = page.locator('button[aria-label="Hide explorer panel"]');
+    const showButton = page.locator('button[aria-label="Show explorer panel"]');
 
     // Perform rapid toggles
     for (let i = 0; i < 5; i++) {

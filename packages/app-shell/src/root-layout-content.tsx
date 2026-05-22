@@ -144,6 +144,14 @@ function useDebouncedPanelLayoutChange(options: {
   }, []);
 }
 
+const EXPLORER_RIGHT_PANEL_CHROME = {
+  title: 'Explorer',
+  showButtonLabel: 'Show explorer panel',
+  showButtonTestId: 'show-explorer-panel',
+  hideButtonLabel: 'Hide explorer panel',
+  hideButtonTestId: 'hide-explorer-panel',
+} as const;
+
 function ContextExplorerSurface({
   contextExplorerPanelContent,
   contextExplorerPageContent,
@@ -177,7 +185,11 @@ function ContextExplorerSurface({
           editor area itself hosts the Context Explorer app and any open file tabs;
           there is no longer a south "console" panel. */}
       <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
-        <IdeLayout panelIdPrefix="context-explorer" rightPanelContent={resolvedPanelContent}>
+        <IdeLayout
+          panelIdPrefix="context-explorer"
+          rightPanelChrome={EXPLORER_RIGHT_PANEL_CHROME}
+          rightPanelContent={resolvedPanelContent}
+        >
           {contextExplorerPageContent}
         </IdeLayout>
       </PanelLayoutProvider>
