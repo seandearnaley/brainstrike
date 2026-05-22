@@ -1,23 +1,43 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-22T05:00:39.557Z",
+  "generatedAt": "2026-05-22T11:21:31.673Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "1914be597149fe690665811ea5a8ee2bec44a149",
+  "testedHeadSha": "7d80fc59df3b17c9842fc5d23d248fc0efc12b45",
   "selection": {
     "base": "origin/main",
-    "baseSha": "aaaaa44e8702201c0376f7385e161afb31ce22be",
+    "baseSha": "7c23da6f2a2137888e0ae5954f09fea7848f463d",
     "head": "HEAD",
-    "headSha": "1914be597149fe690665811ea5a8ee2bec44a149",
-    "mergeBase": "aaaaa44e8702201c0376f7385e161afb31ce22be",
+    "headSha": "7d80fc59df3b17c9842fc5d23d248fc0efc12b45",
+    "mergeBase": "7c23da6f2a2137888e0ae5954f09fea7848f463d",
     "files": [
-      "packages/file-explorer-ui/src/__tests__/background-token-indexer-handles.test.ts",
-      "packages/file-explorer-ui/src/indexing/background-token-indexer-handles.ts",
-      "packages/file-explorer-ui/src/indexing/use-background-token-indexer-integration.ts"
+      ".ci/proof/latest.json",
+      "apps/desktop/src/__tests__/renderer/components/context-explorer-page-content.test.tsx",
+      "apps/desktop/src/__tests__/renderer/components/root-layout-content.test.tsx",
+      "apps/desktop/src/renderer/components/context-explorer-page-content.tsx",
+      "apps/desktop/src/renderer/components/root-layout-content.tsx",
+      "apps/desktop/src/types/app-shell-shims.d.ts",
+      "apps/web/e2e/file-explorer.test.ts",
+      "apps/web/e2e/layout-persistence.test.ts",
+      "apps/web/e2e/layout.test.ts",
+      "apps/web/e2e/navigation-panel-state-preservation.test.ts",
+      "apps/web/e2e/panel-state-preservation.test.ts",
+      "apps/web/e2e/utils/layout-helpers.ts",
+      "apps/web/src/app/root-layout-content.tsx",
+      "packages/app-shell/src/__tests__/root-layout-content.test.tsx",
+      "packages/app-shell/src/root-layout-content.tsx",
+      "packages/file-explorer-ui/src/__tests__/file-explorer-panel.test.tsx",
+      "packages/file-explorer-ui/src/__tests__/index.test.ts",
+      "packages/file-explorer-ui/src/shell/README.md",
+      "packages/file-explorer-ui/src/shell/file-explorer-panel.tsx",
+      "packages/file-explorer-ui/src/shell/index.ts",
+      "packages/file-explorer-ui/src/tree/optimized-file-tree.tsx",
+      "packages/preferences/src/__tests__/context-explorer-layout-store.test.ts",
+      "packages/preferences/src/stores/context-explorer-layout-store.ts"
     ],
     "riskProfile": {
       "category": "web-ui-file-explorer",
@@ -41,18 +61,26 @@
     "proofCommands": [
       "diff-check",
       "file-explorer-tests",
-      "web-file-explorer-persistence-tests"
+      "web-file-explorer-persistence-tests",
+      "web-smoke-tests",
+      "web-full-regression-tests"
     ],
     "lanes": [
+      "ci:web-smoke",
       "ci:web-file-explorer-persistence",
+      "ci:web-e2e",
       "ci:coverage"
     ],
     "expandedLanes": [
+      "ci:web-smoke",
       "ci:web-file-explorer-persistence",
+      "ci:web-e2e",
       "ci:coverage"
     ],
     "labels": [
+      "ci:web-smoke",
       "ci:web-file-explorer-persistence",
+      "ci:web-e2e",
       "ci:coverage"
     ],
     "commands": [
@@ -82,13 +110,31 @@
         "requiredFor": [
           "web-ui-file-explorer"
         ]
+      },
+      {
+        "name": "web-smoke-tests",
+        "command": "pnpm --filter @brainstrike/web run test:e2e:lane:smoke",
+        "budgetMs": 300000,
+        "owner": "applications",
+        "requiredFor": [
+          "web-smoke"
+        ]
+      },
+      {
+        "name": "web-full-regression-tests",
+        "command": "pnpm --filter @brainstrike/web run test:e2e:lane:full-regression",
+        "budgetMs": 900000,
+        "owner": "applications",
+        "requiredFor": [
+          "web-full-regression"
+        ]
       }
     ],
     "budget": {
       "target": "normal-pr-risk",
       "targetMs": 900000,
-      "totalMs": 630000,
-      "status": "within-target"
+      "totalMs": 1830000,
+      "status": "over-target"
     }
   },
   "commandResults": [
@@ -108,7 +154,7 @@
       "budgetMs": 240000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 23022
+      "durationMs": 22917
     },
     {
       "name": "web-file-explorer-persistence-tests",
@@ -117,7 +163,25 @@
       "budgetMs": 360000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 46710
+      "durationMs": 43883
+    },
+    {
+      "name": "web-smoke-tests",
+      "command": "pnpm --filter @brainstrike/web run test:e2e:lane:smoke",
+      "owner": "applications",
+      "budgetMs": 300000,
+      "budgetStatus": "ok",
+      "exitCode": 0,
+      "durationMs": 3656
+    },
+    {
+      "name": "web-full-regression-tests",
+      "command": "pnpm --filter @brainstrike/web run test:e2e:lane:full-regression",
+      "owner": "applications",
+      "budgetMs": 900000,
+      "budgetStatus": "ok",
+      "exitCode": 0,
+      "durationMs": 175613
     }
   ]
 }

@@ -2,7 +2,7 @@ import { expect, type Locator, test } from '@playwright/test';
 import { FileExplorerPage } from './page-objects/file-explorer-page';
 import { resetAppState } from './utils/app-state';
 import {
-  CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
+  CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR,
   contextExplorerActiveNavLocator,
   waitForAppLoad,
 } from './utils/layout-helpers';
@@ -135,8 +135,8 @@ test.describe('Navigation Panel State Preservation', () => {
     await hideExplorerButton.click();
 
     // Verify panel is hidden
-    const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
-    await expect(leftPanel).not.toBeVisible();
+    const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
+    await expect(rightPanel).not.toBeVisible();
 
     // Verify show button appears
     const showExplorerShim = page.locator('button[aria-label="Show explorer panel"]');
@@ -149,7 +149,7 @@ test.describe('Navigation Panel State Preservation', () => {
     await showExplorerShim.click();
 
     // Verify panel is visible again
-    await expect(leftPanel).toBeVisible();
+    await expect(rightPanel).toBeVisible();
 
     // Step 7: CRITICAL VERIFICATION - All state should be preserved
 
@@ -179,7 +179,7 @@ test.describe('Navigation Panel State Preservation', () => {
     for (let i = 0; i < 3; i++) {
       // Hide panel
       await hideExplorerButton.click();
-      await expect(leftPanel).not.toBeVisible();
+      await expect(rightPanel).not.toBeVisible();
       await expect(showExplorerShim).toBeVisible();
 
       // Wait a bit
@@ -187,7 +187,7 @@ test.describe('Navigation Panel State Preservation', () => {
 
       // Show panel
       await showExplorerShim.click();
-      await expect(leftPanel).toBeVisible();
+      await expect(rightPanel).toBeVisible();
 
       // Verify critical state elements are still there
       await expect(fileTree.getByText('Button.tsx')).toBeVisible();
@@ -245,13 +245,13 @@ test.describe('Navigation Panel State Preservation', () => {
     const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
     await hideExplorerButton.click();
 
-    const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
-    await expect(leftPanel).not.toBeVisible();
+    const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
+    await expect(rightPanel).not.toBeVisible();
 
     // Show the panel again
     const showExplorerShim = page.locator('button[aria-label="Show explorer panel"]');
     await showExplorerShim.click();
-    await expect(leftPanel).toBeVisible();
+    await expect(rightPanel).toBeVisible();
 
     // Verify filter is still applied
     expect(await explorer.filterInput.inputValue()).toBe('tsx -test');
@@ -301,7 +301,7 @@ test.describe('Navigation Panel State Preservation', () => {
     await expect(page.getByText('2/10')).toBeVisible();
 
     // Get panel and button references
-    const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
+    const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
     const hideButton = page.locator('button[aria-label="Hide explorer panel"]');
     const showButton = page.locator('button[aria-label="Show explorer panel"]');
 
@@ -316,7 +316,7 @@ test.describe('Navigation Panel State Preservation', () => {
     await page.waitForTimeout(500);
 
     // Verify state is still intact
-    await expect(leftPanel).toBeVisible();
+    await expect(rightPanel).toBeVisible();
     await expect(fileTree).toBeVisible();
     await expect(fileTree.getByText('Button.tsx')).toBeVisible();
     await expect(buttonCheckbox).toBeChecked();

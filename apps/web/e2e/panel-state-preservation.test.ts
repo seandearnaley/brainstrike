@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import { getFileTree } from './utils/file-tree-locators';
 import {
-  CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR,
+  CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR,
   contextExplorerActiveNavLocator,
   resetLayoutState,
   waitForAppLoad,
@@ -36,7 +36,7 @@ test.describe('Panel State Preservation', () => {
     await resetLayoutState(page, { waitForDatabase: false });
   });
 
-  test('should preserve file explorer state when hiding and showing left panel', async ({
+  test('should preserve file explorer state when hiding and showing explorer panel', async ({
     page,
   }) => {
     // Wait for the file explorer to be ready
@@ -44,9 +44,9 @@ test.describe('Panel State Preservation', () => {
     await expect(page.getByTestId('select-root-button')).toBeVisible();
     await expect(page.getByText('No directory selected')).toBeVisible();
 
-    // Verify left panel is initially visible
-    const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
-    await expect(leftPanel).toBeVisible();
+    // Verify explorer panel is initially visible
+    const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
+    await expect(rightPanel).toBeVisible();
 
     // Select a root directory
     const selectDirectoryButton = page.getByTestId('select-root-button');
@@ -70,13 +70,13 @@ test.describe('Panel State Preservation', () => {
     await testCheckbox.click({ force: true });
     await expect(testCheckbox).toBeChecked();
 
-    // Hide the left panel
+    // Hide the explorer panel
     const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
     await expect(hideExplorerButton).toBeVisible();
     await hideExplorerButton.click();
 
     // Verify panel is hidden
-    await expect(leftPanel).not.toBeVisible();
+    await expect(rightPanel).not.toBeVisible();
 
     // Verify show button appears
     const showExplorerShim = page.locator('button[aria-label="Show explorer panel"]');
@@ -86,7 +86,7 @@ test.describe('Panel State Preservation', () => {
     await showExplorerShim.click();
 
     // Verify panel is visible again
-    await expect(leftPanel).toBeVisible();
+    await expect(rightPanel).toBeVisible();
 
     // CRITICAL: Verify that the file explorer state is preserved
     // The selected root should still be there - check for filter input and file tree
@@ -140,18 +140,18 @@ test.describe('Panel State Preservation', () => {
     // Get references to the toggle buttons
     const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
     const showExplorerShim = page.locator('button[aria-label="Show explorer panel"]');
-    const leftPanel = page.locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR);
+    const rightPanel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
 
     // Perform multiple hide/show cycles
     for (let i = 0; i < 3; i++) {
       // Hide panel
       await hideExplorerButton.dispatchEvent('click');
-      await expect(leftPanel).not.toBeVisible();
+      await expect(rightPanel).not.toBeVisible();
       await expect(showExplorerShim).toBeVisible();
 
       // Show panel
       await showExplorerShim.dispatchEvent('click');
-      await expect(leftPanel).toBeVisible();
+      await expect(rightPanel).toBeVisible();
 
       // Verify state is still preserved
       await expect(

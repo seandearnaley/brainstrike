@@ -1,5 +1,5 @@
 import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
-import { FileExplorerLeftPanel, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
+import { FileExplorerPanel, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
 import { useContextExplorerLayoutStore } from '@brainstrike/preferences/stores/context-explorer-layout-store';
@@ -51,8 +51,8 @@ function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
 }
 
 export interface RootLayoutContentProps {
-  readonly contextExplorerLeftPanelContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
+  readonly contextExplorerPanelContent?: ReactNode;
   readonly databaseTabChunkingMode?: 'host-proxy' | 'local';
   /**
    * CRITICAL: Lazy loader for the app-specific embedding queue adapter.
@@ -144,11 +144,19 @@ function useDebouncedPanelLayoutChange(options: {
   }, []);
 }
 
+const EXPLORER_RIGHT_PANEL_CHROME = {
+  title: 'Explorer',
+  showButtonLabel: 'Show explorer panel',
+  showButtonTestId: 'show-explorer-panel',
+  hideButtonLabel: 'Hide explorer panel',
+  hideButtonTestId: 'hide-explorer-panel',
+} as const;
+
 function ContextExplorerSurface({
-  contextExplorerLeftPanelContent,
+  contextExplorerPanelContent,
   contextExplorerPageContent,
 }: {
-  readonly contextExplorerLeftPanelContent?: ReactNode;
+  readonly contextExplorerPanelContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
 }): ReactElement {
   const setState = useContextExplorerLayoutStore((state) => state.setState);
@@ -165,9 +173,9 @@ function ContextExplorerSurface({
     panelState,
     setState,
   });
-  const resolvedLeftPanelContent = useMemo(
-    () => contextExplorerLeftPanelContent ?? <FileExplorerLeftPanel />,
-    [contextExplorerLeftPanelContent]
+  const resolvedPanelContent = useMemo(
+    () => contextExplorerPanelContent ?? <FileExplorerPanel />,
+    [contextExplorerPanelContent]
   );
 
   return (
@@ -177,7 +185,11 @@ function ContextExplorerSurface({
           editor area itself hosts the Context Explorer app and any open file tabs;
           there is no longer a south "console" panel. */}
       <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
-        <IdeLayout leftPanelContent={resolvedLeftPanelContent} panelIdPrefix="context-explorer">
+        <IdeLayout
+          panelIdPrefix="context-explorer"
+          rightPanelChrome={EXPLORER_RIGHT_PANEL_CHROME}
+          rightPanelContent={resolvedPanelContent}
+        >
           {contextExplorerPageContent}
         </IdeLayout>
       </PanelLayoutProvider>
@@ -186,14 +198,14 @@ function ContextExplorerSurface({
 }
 
 const ExplorerAppSurface = memo(function ExplorerAppSurface({
-  contextExplorerLeftPanelContent,
+  contextExplorerPanelContent,
   contextExplorerPageContent,
   databaseTabChunkingMode,
   loadEmbeddingQueue,
   loadLocalLlmBackend,
   preloadDatabaseTabOnMount,
 }: {
-  readonly contextExplorerLeftPanelContent?: ReactNode;
+  readonly contextExplorerPanelContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
   readonly databaseTabChunkingMode: 'host-proxy' | 'local';
   readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
@@ -220,8 +232,8 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
         }
         workspaceContent={
           <ContextExplorerSurface
-            contextExplorerLeftPanelContent={contextExplorerLeftPanelContent}
             contextExplorerPageContent={contextExplorerPageContent}
+            contextExplorerPanelContent={contextExplorerPanelContent}
           />
         }
       />
@@ -231,7 +243,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
 
 export function RootLayoutContent({
   contextExplorerPageContent,
-  contextExplorerLeftPanelContent,
+  contextExplorerPanelContent,
   settingsPageContent,
   promptsPageContent,
   navigationItems,
@@ -295,8 +307,8 @@ export function RootLayoutContent({
           >
             <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
               <ExplorerAppSurface
-                contextExplorerLeftPanelContent={contextExplorerLeftPanelContent}
                 contextExplorerPageContent={contextExplorerPageContent}
+                contextExplorerPanelContent={contextExplorerPanelContent}
                 databaseTabChunkingMode={databaseTabChunkingMode}
                 loadEmbeddingQueue={loadEmbeddingQueue}
                 {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}

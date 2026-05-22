@@ -173,7 +173,7 @@ describe('file-explorer-ui index exports', () => {
     const sourceRoot = path.resolve(process.cwd(), 'src');
     const shellImplementationMoves = [
       ['file-content-context.tsx', 'shell/file-content-context.tsx'],
-      ['file-explorer-left-panel.tsx', 'shell/file-explorer-left-panel.tsx'],
+      ['file-explorer-panel.tsx', 'shell/file-explorer-panel.tsx'],
       ['file-explorer-middle-panel-base.tsx', 'shell/file-explorer-middle-panel-base.tsx'],
       ['file-explorer-provider.tsx', 'shell/file-explorer-provider.tsx'],
       ['file-explorer-sidebar.tsx', 'shell/file-explorer-sidebar.tsx'],
@@ -233,7 +233,7 @@ describe('file-explorer-ui index exports', () => {
     );
 
     expect(shell.FileExplorerProvider).toBe(index.FileExplorerProvider);
-    expect(shell.FileExplorerLeftPanel).toBe(index.FileExplorerLeftPanel);
+    expect(shell.FileExplorerPanel).toBe(index.FileExplorerPanel);
     expect(shell.WorkspaceTabHost).toBe(index.WorkspaceTabHost);
     expect(shell.useFileExplorer).toBe(index.useFileExplorer);
     expect(shell.useFileSystem).toBe(index.useFileSystem);

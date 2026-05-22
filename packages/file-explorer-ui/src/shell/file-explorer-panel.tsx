@@ -9,7 +9,7 @@ import type { StoreApi } from 'zustand';
 import { shallow } from 'zustand/shallow';
 import type { UseBoundStoreWithEqualityFn } from 'zustand/traditional';
 
-const logger = createLogger('FileExplorerLeftPanel');
+const logger = createLogger('FileExplorerPanel');
 const FILE_EXPLORER_REFRESH_EVENT = 'brainstrike:file-explorer-refreshed';
 
 /**
@@ -136,10 +136,10 @@ const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
 const LARGE_SELECTION_RENDER_DIAGNOSTIC_THRESHOLD = 250;
 
 /**
- * FileExplorerLeftPanel - Contains the file tree and toolbar
- * This component can be used independently in the left panel of an IDE layout
+ * FileExplorerPanel - Contains the file tree and toolbar
+ * This component can be used independently in a panel of an IDE layout
  */
-export const FileExplorerLeftPanel: React.FC = React.memo(() => {
+export const FileExplorerPanel: React.FC = React.memo(() => {
   const { fileSystemAdapter, storageAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
   const [
@@ -1044,4 +1044,4 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   );
 });
 
-FileExplorerLeftPanel.displayName = 'FileExplorerLeftPanel';
+FileExplorerPanel.displayName = 'FileExplorerPanel';

@@ -22,13 +22,15 @@ const DEFAULT_STATE: Omit<
   'setSizes' | 'toggleLeft' | 'toggleRight' | 'toggleConsole' | 'setState'
 > = {
   sizes: [25, 20, 20],
-  showLeftPanel: true,
-  showRightPanel: false,
+  showLeftPanel: false,
+  showRightPanel: true,
   showConsole: false,
 };
 
+// Note: STORE_NAME is intentionally frozen at '.v1' to prevent orphaning persisted layout
+// data for existing users. The active schema version is tracked separately by STORE_VERSION.
 const STORE_NAME = 'context-explorer-layout-store.v1' as const;
-const STORE_VERSION = 1 as const;
+const STORE_VERSION = 2 as const;
 const MIN_PANEL_SIZE = 10;
 const logger = createLogger('ContextExplorerLayoutStore');
 
@@ -191,7 +193,21 @@ function persistOptions(
       showRightPanel: state.showRightPanel,
       showConsole: state.showConsole,
     }),
-    migrate: (persistedState) => persistedState as PersistedContextExplorerLayoutState,
+    migrate: (persistedState, version) => {
+      let state = persistedState as PersistedContextExplorerLayoutState;
+
+      if (version < 2) {
+        const sizes = state.sizes || [25, 20, 20];
+        state = {
+          ...state,
+          sizes: [sizes[1] ?? 20, sizes[0] ?? 25, sizes[2] ?? 20] as [number, number, number],
+          showLeftPanel: state.showRightPanel ?? false,
+          showRightPanel: state.showLeftPanel ?? true,
+        };
+      }
+
+      return state;
+    },
   };
 }
 

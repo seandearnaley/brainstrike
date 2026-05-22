@@ -312,7 +312,7 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
 }
 
 /**
- * TreeTable adapter for file explorer left panel.
+ * TreeTable adapter for file explorer panel.
  * Maintains lazy-loading and recursive selection behavior while converging on shared tree-grid UI.
  */
 const OptimizedFileTree = memo<IOptimizedFileTreeProps>(

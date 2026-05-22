@@ -42,21 +42,17 @@ export const AGENT_WORKSPACE_PANEL_SELECTOR = [
   '[data-panel-id="tools-panel"]',
 ].join(', ');
 
-export const CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR = [
-  '#context-explorer-explorer-panel',
-  '[data-panel-id="context-explorer-explorer-panel"]',
-  '#explorer-panel',
-  '[data-panel-id="explorer-panel"]',
+export const CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR = [
+  '#context-explorer-tools-panel',
+  '[data-panel-id="context-explorer-tools-panel"]',
+  '#tools-panel',
+  '[data-panel-id="tools-panel"]',
 ].join(', ');
 
-/**
- * Resolve the resize handle that sits directly between the context explorer tree
- * and the preview area. Nested layouts make global separator ordering unreliable.
- */
-export function getContextExplorerLeftResizeHandle(page: Page) {
+export function getContextExplorerRightResizeHandle(page: Page) {
   return page
-    .locator(CONTEXT_EXPLORER_LEFT_PANEL_SELECTOR)
-    .locator('xpath=following-sibling::*[@data-separator][1]');
+    .locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR)
+    .locator('xpath=preceding-sibling::*[@data-separator][1]');
 }
 
 export const CONTEXT_EXPLORER_MIDDLE_PANEL_SELECTOR = [
