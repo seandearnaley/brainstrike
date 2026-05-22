@@ -27,6 +27,8 @@ const DEFAULT_STATE: Omit<
   showConsole: false,
 };
 
+// Note: STORE_NAME is intentionally frozen at '.v1' to prevent orphaning persisted layout
+// data for existing users. The active schema version is tracked separately by STORE_VERSION.
 const STORE_NAME = 'context-explorer-layout-store.v1' as const;
 const STORE_VERSION = 2 as const;
 const MIN_PANEL_SIZE = 10;
@@ -192,16 +194,20 @@ function persistOptions(
       showConsole: state.showConsole,
     }),
     migrate: (persistedState, version) => {
-      const state = persistedState as PersistedContextExplorerLayoutState;
+      let state = persistedState as PersistedContextExplorerLayoutState;
+
       if (version < 2) {
         const sizes = state.sizes || [25, 20, 20];
-        return {
+        state = {
           ...state,
           sizes: [sizes[1] ?? 20, sizes[0] ?? 25, sizes[2] ?? 20] as [number, number, number],
           showLeftPanel: state.showRightPanel ?? false,
           showRightPanel: state.showLeftPanel ?? true,
         };
       }
+
+      // Future migrations can append sequential 'if (version < 3)' blocks here cleanly.
+
       return state;
     },
   };
