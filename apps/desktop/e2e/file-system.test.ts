@@ -1,27 +1,25 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
-import { getContextExplorerLeftPanel } from './utils/context-explorer-locators';
+import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 test.describe('File System Integration', () => {
-  async function ensureLeftPanelVisible(window: Page): Promise<void> {
+  async function ensureFileExplorerPanelVisible(window: Page): Promise<void> {
     // Use id selector for react-resizable-panels v4 compatibility
-    const leftPanel = getContextExplorerLeftPanel(window);
-    const showLeftPanelButton = window
+    const explorerPanel = getContextExplorerFileExplorerPanel(window);
+    const showExplorerPanelButton = window
       .getByTestId('show-explorer-panel')
       .or(window.getByRole('button', { name: /show explorer/i }));
 
     if (
-      !(await leftPanel.isVisible().catch(() => false)) &&
-      (await showLeftPanelButton.isVisible().catch(() => false))
+      !(await explorerPanel.isVisible().catch(() => false)) &&
+      (await showExplorerPanelButton.isVisible().catch(() => false))
     ) {
-      await showLeftPanelButton.click();
+      await showExplorerPanelButton.click();
     }
 
-    await leftPanel.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {
-      console.warn('Left panel did not become visible within timeout.');
-    });
+    await expect(explorerPanel).toBeVisible({ timeout: 15_000 });
   }
 
   async function selectMockRoot(window: Page): Promise<void> {
@@ -60,7 +58,7 @@ test.describe('File System Integration', () => {
 
   test('should handle directory operations', { tag: '@smoke' }, async ({ window }) => {
     test.setTimeout(30_000); // Increase timeout to 30s
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
 
     const directoryTree = window.getByRole('tree');
     const fileList = window.getByRole('list');
@@ -80,14 +78,14 @@ test.describe('File System Integration', () => {
   }) => {
     test.setTimeout(45_000);
 
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
     const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
 
     await selectMockRoot(window);
     await expect(window.getByRole('button', { name: /view filters/i })).toBeVisible({
       timeout: 15_000,
     });
-    await expect(getContextExplorerLeftPanel(window)).toBeVisible({ timeout: 15_000 });
+    await expect(getContextExplorerFileExplorerPanel(window)).toBeVisible({ timeout: 15_000 });
     await expect
       .poll(async () => window.evaluate(() => performance.timeOrigin), {
         timeout: 10_000,
@@ -213,7 +211,7 @@ test.describe('File System Integration', () => {
 
     const restartedHome = new HomePage(restartedWindow);
     await restartedHome.shouldBeVisible();
-    await ensureLeftPanelVisible(restartedWindow);
+    await ensureFileExplorerPanelVisible(restartedWindow);
 
     const fileTreeFallback = restartedWindow.locator(
       '[data-testid="file-tree"], [data-testid="file-tree-scroll-container"]'

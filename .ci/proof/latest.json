@@ -1,86 +1,70 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-22T11:21:31.673Z",
+  "generatedAt": "2026-05-22T15:13:39.435Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "7d80fc59df3b17c9842fc5d23d248fc0efc12b45",
+  "testedHeadSha": "275382d2964b324006ad3f2dc73a97d9ffeb22bb",
   "selection": {
     "base": "origin/main",
-    "baseSha": "7c23da6f2a2137888e0ae5954f09fea7848f463d",
+    "baseSha": "00395de691e8080fa07aa53ff6d0d3548573a013",
     "head": "HEAD",
-    "headSha": "7d80fc59df3b17c9842fc5d23d248fc0efc12b45",
-    "mergeBase": "7c23da6f2a2137888e0ae5954f09fea7848f463d",
+    "headSha": "275382d2964b324006ad3f2dc73a97d9ffeb22bb",
+    "mergeBase": "00395de691e8080fa07aa53ff6d0d3548573a013",
     "files": [
       ".ci/proof/latest.json",
-      "apps/desktop/src/__tests__/renderer/components/context-explorer-page-content.test.tsx",
-      "apps/desktop/src/__tests__/renderer/components/root-layout-content.test.tsx",
-      "apps/desktop/src/renderer/components/context-explorer-page-content.tsx",
-      "apps/desktop/src/renderer/components/root-layout-content.tsx",
-      "apps/desktop/src/types/app-shell-shims.d.ts",
-      "apps/web/e2e/file-explorer.test.ts",
-      "apps/web/e2e/layout-persistence.test.ts",
-      "apps/web/e2e/layout.test.ts",
-      "apps/web/e2e/navigation-panel-state-preservation.test.ts",
-      "apps/web/e2e/panel-state-preservation.test.ts",
-      "apps/web/e2e/utils/layout-helpers.ts",
-      "apps/web/src/app/root-layout-content.tsx",
-      "packages/app-shell/src/__tests__/root-layout-content.test.tsx",
-      "packages/app-shell/src/root-layout-content.tsx",
-      "packages/file-explorer-ui/src/__tests__/file-explorer-panel.test.tsx",
-      "packages/file-explorer-ui/src/__tests__/index.test.ts",
-      "packages/file-explorer-ui/src/shell/README.md",
-      "packages/file-explorer-ui/src/shell/file-explorer-panel.tsx",
-      "packages/file-explorer-ui/src/shell/index.ts",
-      "packages/file-explorer-ui/src/tree/optimized-file-tree.tsx",
+      "apps/desktop/e2e/embedding-worker-renderer.diagnostics.desktop.test.ts",
+      "apps/desktop/e2e/embedding-worker-renderer.shared.ts",
+      "apps/desktop/e2e/file-explorer-selection-restore.desktop.test.ts",
+      "apps/desktop/e2e/file-explorer-selection.desktop.test.ts",
+      "apps/desktop/e2e/file-explorer-selection.shared.ts",
+      "apps/desktop/e2e/file-system.test.ts",
+      "apps/desktop/e2e/filter-presets.desktop.test.ts",
+      "apps/desktop/e2e/utils/context-explorer-locators.ts",
       "packages/preferences/src/__tests__/context-explorer-layout-store.test.ts",
       "packages/preferences/src/stores/context-explorer-layout-store.ts"
     ],
     "riskProfile": {
-      "category": "web-ui-file-explorer",
+      "category": "desktop-platform-ipc-preload",
       "domains": [
-        "workspace-experience"
+        "desktop-platform"
       ],
       "e2eLanes": [
-        "web-file-explorer-persistence"
+        "desktop-full-regression"
       ],
       "proofCommands": [
         "diff-check",
-        "file-explorer-tests",
-        "web-file-explorer-persistence-tests"
+        "desktop-unit-tests",
+        "desktop-full-regression-tests"
       ],
-      "riskLevel": "medium",
+      "riskLevel": "high",
       "cloudLabels": [
-        "ci:web-file-explorer-persistence",
+        "ci:desktop",
         "ci:coverage"
       ]
     },
     "proofCommands": [
       "diff-check",
-      "file-explorer-tests",
-      "web-file-explorer-persistence-tests",
-      "web-smoke-tests",
-      "web-full-regression-tests"
+      "desktop-unit-tests",
+      "desktop-full-regression-tests",
+      "desktop-smoke-tests"
     ],
     "lanes": [
-      "ci:web-smoke",
-      "ci:web-file-explorer-persistence",
-      "ci:web-e2e",
+      "ci:desktop-smoke",
+      "ci:desktop",
       "ci:coverage"
     ],
     "expandedLanes": [
-      "ci:web-smoke",
-      "ci:web-file-explorer-persistence",
-      "ci:web-e2e",
+      "ci:desktop-smoke",
+      "ci:desktop",
       "ci:coverage"
     ],
     "labels": [
-      "ci:web-smoke",
-      "ci:web-file-explorer-persistence",
-      "ci:web-e2e",
+      "ci:desktop-smoke",
+      "ci:desktop",
       "ci:coverage"
     ],
     "commands": [
@@ -94,46 +78,37 @@
         ]
       },
       {
-        "name": "file-explorer-tests",
-        "command": "pnpm --filter @brainstrike/file-explorer-ui test && pnpm --filter @brainstrike/file-explorer test",
+        "name": "desktop-unit-tests",
+        "command": "pnpm --filter @brainstrike/desktop test",
         "budgetMs": 240000,
-        "owner": "workspace-experience",
+        "owner": "desktop-platform",
         "requiredFor": [
-          "web-ui-file-explorer"
+          "desktop-platform-ipc-preload"
         ]
       },
       {
-        "name": "web-file-explorer-persistence-tests",
-        "command": "pnpm --filter @brainstrike/web run test:e2e:lane:file-explorer-persistence",
-        "budgetMs": 360000,
-        "owner": "workspace-experience",
-        "requiredFor": [
-          "web-ui-file-explorer"
-        ]
-      },
-      {
-        "name": "web-smoke-tests",
-        "command": "pnpm --filter @brainstrike/web run test:e2e:lane:smoke",
-        "budgetMs": 300000,
-        "owner": "applications",
-        "requiredFor": [
-          "web-smoke"
-        ]
-      },
-      {
-        "name": "web-full-regression-tests",
-        "command": "pnpm --filter @brainstrike/web run test:e2e:lane:full-regression",
+        "name": "desktop-full-regression-tests",
+        "command": "pnpm --filter @brainstrike/desktop run test:e2e:lane:full-regression",
         "budgetMs": 900000,
-        "owner": "applications",
+        "owner": "desktop-platform",
         "requiredFor": [
-          "web-full-regression"
+          "desktop-platform-ipc-preload"
+        ]
+      },
+      {
+        "name": "desktop-smoke-tests",
+        "command": "pnpm --filter @brainstrike/desktop run test:e2e:lane:smoke",
+        "budgetMs": 300000,
+        "owner": "desktop-platform",
+        "requiredFor": [
+          "desktop-platform-ipc-preload"
         ]
       }
     ],
     "budget": {
       "target": "normal-pr-risk",
       "targetMs": 900000,
-      "totalMs": 1830000,
+      "totalMs": 1470000,
       "status": "over-target"
     }
   },
@@ -145,43 +120,34 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 10
+      "durationMs": 12
     },
     {
-      "name": "file-explorer-tests",
-      "command": "pnpm --filter @brainstrike/file-explorer-ui test && pnpm --filter @brainstrike/file-explorer test",
-      "owner": "workspace-experience",
+      "name": "desktop-unit-tests",
+      "command": "pnpm --filter @brainstrike/desktop test",
+      "owner": "desktop-platform",
       "budgetMs": 240000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 22917
+      "durationMs": 59809
     },
     {
-      "name": "web-file-explorer-persistence-tests",
-      "command": "pnpm --filter @brainstrike/web run test:e2e:lane:file-explorer-persistence",
-      "owner": "workspace-experience",
-      "budgetMs": 360000,
-      "budgetStatus": "ok",
-      "exitCode": 0,
-      "durationMs": 43883
-    },
-    {
-      "name": "web-smoke-tests",
-      "command": "pnpm --filter @brainstrike/web run test:e2e:lane:smoke",
-      "owner": "applications",
-      "budgetMs": 300000,
-      "budgetStatus": "ok",
-      "exitCode": 0,
-      "durationMs": 3656
-    },
-    {
-      "name": "web-full-regression-tests",
-      "command": "pnpm --filter @brainstrike/web run test:e2e:lane:full-regression",
-      "owner": "applications",
+      "name": "desktop-full-regression-tests",
+      "command": "pnpm --filter @brainstrike/desktop run test:e2e:lane:full-regression",
+      "owner": "desktop-platform",
       "budgetMs": 900000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 175613
+      "durationMs": 310218
+    },
+    {
+      "name": "desktop-smoke-tests",
+      "command": "pnpm --filter @brainstrike/desktop run test:e2e:lane:smoke",
+      "owner": "desktop-platform",
+      "budgetMs": 300000,
+      "budgetStatus": "ok",
+      "exitCode": 0,
+      "durationMs": 48066
     }
   ]
 }

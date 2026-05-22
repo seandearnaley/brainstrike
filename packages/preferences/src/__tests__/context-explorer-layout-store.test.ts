@@ -55,6 +55,28 @@ describe('context-explorer-layout-store', () => {
     expect(persistedStore.getState().showConsole).toBe(true);
   });
 
+  it('migrates incomplete v1 panel visibility to the v2 default layout', async () => {
+    const storage = createMemoryStorageAdapter();
+    await storage.setItem(
+      STORE_NAME,
+      JSON.stringify({
+        state: {
+          sizes: [30, 15, 10],
+          showConsole: true,
+        },
+        version: 1,
+      })
+    );
+
+    const persistedStore = createContextExplorerLayoutStore(storage);
+    await getPersistApi(persistedStore).rehydrate();
+
+    expect(persistedStore.getState().sizes).toEqual([15, 30, 10]);
+    expect(persistedStore.getState().showLeftPanel).toBe(false);
+    expect(persistedStore.getState().showRightPanel).toBe(true);
+    expect(persistedStore.getState().showConsole).toBe(true);
+  });
+
   it('preserves the persisted version during rehydration', async () => {
     const storage = createMemoryStorageAdapter();
     await storage.setItem(

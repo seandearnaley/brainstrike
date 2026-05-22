@@ -1,6 +1,6 @@
 import {
   clickFileTreeCheckboxAndWaitForSelection,
-  ensureLeftPanelVisible,
+  ensureFileExplorerPanelVisible,
   expandNextDirectoryIfNeeded,
   expect,
   expectContextExplorerFileVisibility,
@@ -26,7 +26,7 @@ test.describe('Desktop file explorer selection', () => {
     test.setTimeout(45_000);
 
     await installNestedFolderFixture(electronApp.app, '/mock/desktop-selection-root-full');
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
@@ -61,7 +61,7 @@ test.describe('Desktop file explorer selection', () => {
     test.setTimeout(60_000);
 
     await installWideExpandAllFixture(electronApp.app, '/mock/desktop-expand-all-progressive');
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
@@ -118,7 +118,7 @@ test.describe('Desktop file explorer selection', () => {
     test.setTimeout(45_000);
 
     await installNestedFolderFixture(electronApp.app, '/mock/desktop-context-deselect');
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
@@ -180,7 +180,7 @@ test.describe('Desktop file explorer selection', () => {
     test.setTimeout(45_000);
 
     await installNestedFolderFixture(electronApp.app, '/mock/desktop-selection-root-capped');
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
@@ -216,7 +216,7 @@ test.describe('Desktop file explorer selection', () => {
     test.setTimeout(45_000);
 
     await installNestedFolderFixture(electronApp.app, '/mock/desktop-selection-root-limit-toast');
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
@@ -256,7 +256,7 @@ test.describe('Desktop file explorer selection', () => {
     test.setTimeout(45_000);
 
     await installNestedPackagesFixture(electronApp.app, '/mock/desktop-selection-root-packages');
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
@@ -304,7 +304,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const rootPath = '/mock/desktop-selection-root-toggle';
     await installMixedHookSelectionFixture(electronApp.app, rootPath);
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
@@ -380,7 +380,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const rootPath = '/mock/desktop-selection-root-e2e';
     await installIncrementalFolderSelectionFixture(electronApp.app, rootPath);
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
@@ -437,7 +437,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const rootPath = '/mock/desktop-selection-root-e2e-deselect';
     await installIncrementalFolderSelectionFixture(electronApp.app, rootPath);
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
@@ -481,7 +481,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const rootPath = '/mock/desktop-selection-root-hooks-explicit';
     await installMixedHookSelectionFixture(electronApp.app, rootPath);
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
@@ -562,7 +562,7 @@ test.describe('Desktop file explorer selection', () => {
 
     const rootPath = '/mock/desktop-selection-root-hooks';
     await installMixedHookSelectionFixture(electronApp.app, rootPath);
-    await ensureLeftPanelVisible(window);
+    await ensureFileExplorerPanelVisible(window);
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });

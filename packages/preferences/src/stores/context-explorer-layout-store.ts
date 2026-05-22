@@ -201,6 +201,7 @@ function persistOptions(
         state = {
           ...state,
           sizes: [sizes[1] ?? 20, sizes[0] ?? 25, sizes[2] ?? 20] as [number, number, number],
+          // Missing v1 visibility flags are treated as a default layout, not as user intent.
           showLeftPanel: state.showRightPanel ?? false,
           showRightPanel: state.showLeftPanel ?? true,
         };

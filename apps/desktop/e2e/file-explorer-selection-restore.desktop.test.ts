@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  ensureLeftPanelVisible,
+  ensureFileExplorerPanelVisible,
   expandDirectoryIfNeeded,
   expect,
   expectContextExplorerFileVisibility,
@@ -50,7 +50,7 @@ test.describe('Desktop file explorer selection restore', () => {
 
       const restartedContext = await electronHarness.restart();
       const restartedWindow = restartedContext.window;
-      await ensureLeftPanelVisible(restartedWindow);
+      await ensureFileExplorerPanelVisible(restartedWindow);
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('4', {
         timeout: 15_000,
       });
@@ -151,7 +151,7 @@ test.describe('Desktop file explorer selection restore', () => {
 
       const restartedContext = await electronHarness.restart();
       const restartedWindow = restartedContext.window;
-      await ensureLeftPanelVisible(restartedWindow);
+      await ensureFileExplorerPanelVisible(restartedWindow);
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('2', {
         timeout: 15_000,
       });
@@ -378,7 +378,7 @@ test.describe('Desktop file explorer selection restore', () => {
 
       const restartedContext = await electronHarness.restart();
       const restartedWindow = restartedContext.window;
-      await ensureLeftPanelVisible(restartedWindow);
+      await ensureFileExplorerPanelVisible(restartedWindow);
 
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText(
         String(materializedPaths.length),
@@ -494,7 +494,7 @@ test.describe('Desktop file explorer selection restore', () => {
 
       const restartedContext = await electronHarness.restart();
       const restartedWindow = restartedContext.window;
-      await ensureLeftPanelVisible(restartedWindow);
+      await ensureFileExplorerPanelVisible(restartedWindow);
 
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText(
         String(materializedPaths.length),
@@ -575,7 +575,7 @@ test.describe('Desktop file explorer selection restore', () => {
 
       const restartedContext = await electronHarness.restart();
       const restartedWindow = restartedContext.window;
-      await ensureLeftPanelVisible(restartedWindow);
+      await ensureFileExplorerPanelVisible(restartedWindow);
 
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText(
         String(materializedPaths.length),
@@ -692,7 +692,7 @@ test.describe('Desktop file explorer selection restore', () => {
 
       const restartedContext = await electronHarness.restart();
       const restartedWindow = restartedContext.window;
-      await ensureLeftPanelVisible(restartedWindow);
+      await ensureFileExplorerPanelVisible(restartedWindow);
 
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('8', {
         timeout: 15_000,
@@ -805,7 +805,7 @@ test.describe('Desktop file explorer selection restore', () => {
 
       const restartedContext = await electronHarness.restart();
       const restartedWindow = restartedContext.window;
-      await ensureLeftPanelVisible(restartedWindow);
+      await ensureFileExplorerPanelVisible(restartedWindow);
 
       const fileTree = restartedWindow.getByRole('treegrid', { name: 'File tree' });
       await expect(fileTree).toBeVisible({ timeout: 15_000 });
@@ -907,7 +907,7 @@ test.describe('Desktop file explorer selection restore', () => {
 
       const restartedContext = await electronHarness.restart();
       const restartedWindow = restartedContext.window;
-      await ensureLeftPanelVisible(restartedWindow);
+      await ensureFileExplorerPanelVisible(restartedWindow);
 
       const fileTree = restartedWindow.getByRole('treegrid', { name: 'File tree' });
       await expect(fileTree).toBeVisible({ timeout: 15_000 });
@@ -944,7 +944,7 @@ test.describe('Desktop file explorer selection restore', () => {
 
       const restartedContext = await electronHarness.restart();
       const restartedWindow = restartedContext.window;
-      await ensureLeftPanelVisible(restartedWindow);
+      await ensureFileExplorerPanelVisible(restartedWindow);
 
       const fileTree = restartedWindow.getByRole('treegrid', { name: 'File tree' });
       await expect(fileTree).toBeVisible({ timeout: 15_000 });

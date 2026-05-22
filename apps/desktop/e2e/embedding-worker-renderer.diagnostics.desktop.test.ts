@@ -24,7 +24,7 @@ const {
   createCollectionViaDialog,
   createLargeBackfillCorpusFixture,
   ensureEmbeddingHostWarmed,
-  ensureLeftPanelVisible,
+  ensureFileExplorerPanelVisible,
   extractStructuredLogString,
   extractUnexpectedLifecycleLogs,
   getBridgeBackfillState,
@@ -107,7 +107,7 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
       })
       .toMatchObject({ state: 'stopped' });
 
-    await ensureLeftPanelVisible(activeWindow);
+    await ensureFileExplorerPanelVisible(activeWindow);
     await installLargeImportFileSystemMock(electronApp.app, {
       fileCount: ACTUAL_IMPORT_STRESS_FILE_COUNT,
       rootPath: '/mock/stress-import',
