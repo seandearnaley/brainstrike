@@ -114,6 +114,7 @@ function headerValue(header: string | string[] | undefined): string | null {
 
 function timingSafeDigestEqual(providedDigest: Buffer, expectedDigest: Buffer): boolean {
   const lengthsMatch = providedDigest.length === expectedDigest.length;
+  // SHA-256 HMAC digests are fixed-length today; this keeps future algorithm changes from adding a length-oracle branch.
   const comparableDigest = lengthsMatch ? providedDigest : Buffer.alloc(expectedDigest.length);
   return timingSafeEqual(comparableDigest, expectedDigest) && lengthsMatch;
 }
