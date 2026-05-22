@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-22T00:41:18.436Z",
+  "generatedAt": "2026-05-22T01:29:01.403Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "b37081307ca443068879c4575d8bae6112ba1033",
+  "testedHeadSha": "b88e443bb323b8e5416096fe002ca0d12567e295",
   "selection": {
     "base": "origin/main",
     "baseSha": "86132a2786f93779fa9e17248a90043ea1cf5b28",
     "head": "HEAD",
-    "headSha": "b37081307ca443068879c4575d8bae6112ba1033",
+    "headSha": "b88e443bb323b8e5416096fe002ca0d12567e295",
     "mergeBase": "86132a2786f93779fa9e17248a90043ea1cf5b28",
     "files": [
       ".ci/proof/latest.json",
@@ -31,6 +31,9 @@
       "apps/web/e2e/embedding-worker-telemetry.test.ts",
       "apps/web/e2e/factory-reset-recovery.test.ts",
       "apps/web/e2e/file-explorer-persistence.test.ts",
+      "apps/web/e2e/file-explorer.test.ts",
+      "apps/web/e2e/json-parse-diagnostic.test.ts",
+      "apps/web/e2e/layout.test.ts",
       "apps/web/e2e/settings-models-and-providers.test.ts",
       "apps/web/e2e/tools-panel-persistence.test.ts",
       "apps/web/e2e/web-db-worker-startup.test.ts",
@@ -43,6 +46,7 @@
       "packages/preferences/src/settings/system/factory-reset-helpers.ts",
       "packages/preferences/src/settings/system/factory-reset-panel.tsx",
       "scripts/__tests__/check-ci-risk-fixtures.test.mjs",
+      "scripts/__tests__/ci-calibration-summary.test.mjs",
       "scripts/__tests__/ci-risk-rules.test.mjs",
       "scripts/__tests__/ci-select.test.mjs",
       "scripts/check-ci-workflow-contracts.mjs",
@@ -170,7 +174,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 9
+      "durationMs": 11
     },
     {
       "name": "ci-script-tests",
@@ -179,7 +183,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 377
+      "durationMs": 421
     },
     {
       "name": "workflow-contracts",
@@ -188,7 +192,7 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 359
+      "durationMs": 405
     },
     {
       "name": "full-local-suite",
@@ -197,7 +201,7 @@
       "budgetMs": 2700000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 1151683
+      "durationMs": 1034273
     }
   ]
 }
