@@ -6,7 +6,7 @@
 
 import { cn } from '@brainstrike/ui';
 import { ChevronDown } from 'lucide-react';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { TokenBudgetSummaryProps } from './types';
 
 /**
@@ -19,6 +19,7 @@ export function TokenBudgetSummary({
   contextWindowSize: _contextWindowSize,
 }: TokenBudgetSummaryProps) {
   const [expanded, setExpanded] = useState(false);
+  const legendId = useId();
 
   const usedTokens = criticalTokens + conditionalTokens;
   const availableTokens = Math.max(0, totalBudget - usedTokens);
@@ -43,6 +44,8 @@ export function TokenBudgetSummary({
       data-testid="token-budget-summary"
     >
       <button
+        aria-controls={expanded ? legendId : undefined}
+        aria-expanded={expanded}
         className="flex w-full items-center gap-3"
         onClick={() => setExpanded(!expanded)}
         type="button"
@@ -83,7 +86,10 @@ export function TokenBudgetSummary({
 
       {/* Expanded Legend */}
       {expanded && (
-        <div className="mt-2 flex flex-wrap gap-4 border-border/50 border-t pt-2 text-xs">
+        <div
+          className="mt-2 flex flex-wrap gap-4 border-border/50 border-t pt-2 text-xs"
+          id={legendId}
+        >
           <div className="flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-primary" />
             <span>Critical ({criticalTokens.toLocaleString()})</span>

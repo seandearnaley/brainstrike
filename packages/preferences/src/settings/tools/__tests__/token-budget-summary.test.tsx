@@ -45,6 +45,22 @@ describe('TokenBudgetSummary', () => {
   });
 
   describe('expanded state', () => {
+    it('links the disclosure button to the mounted legend with ARIA state', () => {
+      render(<TokenBudgetSummary {...defaultProps} />);
+
+      const button = screen.getByRole('button', { name: /token budget/i });
+
+      expect(button).toHaveAttribute('aria-expanded', 'false');
+      expect(button).not.toHaveAttribute('aria-controls');
+
+      fireEvent.click(button);
+
+      expect(button).toHaveAttribute('aria-expanded', 'true');
+      const legendId = button.getAttribute('aria-controls');
+      expect(legendId).toBeTruthy();
+      expect(document.getElementById(legendId as string)).toHaveTextContent('Critical (1,000)');
+    });
+
     it('shows expanded details when clicked', () => {
       render(<TokenBudgetSummary {...defaultProps} />);
 
