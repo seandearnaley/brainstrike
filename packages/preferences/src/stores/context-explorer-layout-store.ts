@@ -206,8 +206,6 @@ function persistOptions(
         };
       }
 
-      // Future migrations can append sequential 'if (version < 3)' blocks here cleanly.
-
       return state;
     },
   };
