@@ -148,6 +148,8 @@ export async function setFileExplorerMaxSelectionCount(
   page: Page,
   maxSelectionCount: number
 ): Promise<void> {
+  await dismissBlockingToastNotifications(page);
+
   const selectionSettingsButton = getContextExplorerFileExplorerPanel(page).getByRole('button', {
     name: 'Selection settings',
   });
@@ -164,6 +166,30 @@ export async function setFileExplorerMaxSelectionCount(
   await expect(page.getByTestId('selection-max')).toHaveText(String(maxSelectionCount), {
     timeout: 15_000,
   });
+}
+
+async function dismissBlockingToastNotifications(page: Page): Promise<void> {
+  const notificationItems = page.locator(
+    '[role="region"][aria-label^="Notifications"] [data-radix-collection-item]'
+  );
+  const closeButtons = page.locator('[role="region"][aria-label^="Notifications"] [toast-close]');
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const notificationCount = await notificationItems.count();
+    if (notificationCount === 0) {
+      return;
+    }
+
+    const closeButtonCount = await closeButtons.count();
+    if (closeButtonCount === 0) {
+      break;
+    }
+
+    await closeButtons.first().click({ timeout: 2000 });
+    await page.waitForTimeout(150);
+  }
+
+  await expect(notificationItems).toHaveCount(0, { timeout: 5000 });
 }
 
 export async function waitForRendererFrames(page: Page, timeoutMs: number): Promise<void> {
