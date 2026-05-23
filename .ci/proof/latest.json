@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-23T10:15:06.046Z",
+  "generatedAt": "2026-05-23T10:39:19.124Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "d150ba2c507af2644633941384ff8a6b0c710bc5",
+  "testedHeadSha": "b56f4ba27d88a87545e1f2069e86f871edf5787e",
   "selection": {
     "base": "origin/main",
     "baseSha": "06280a0b8b9de6ef4f5ab37c582be2ace380a940",
     "head": "HEAD",
-    "headSha": "d150ba2c507af2644633941384ff8a6b0c710bc5",
+    "headSha": "b56f4ba27d88a87545e1f2069e86f871edf5787e",
     "mergeBase": "06280a0b8b9de6ef4f5ab37c582be2ace380a940",
     "files": [
       ".ci/proof/latest.json",
@@ -36,6 +36,7 @@
       "packages/file-tree-worker/src/resolve-file-tree-worker-url.test.ts",
       "packages/file-tree-worker/src/types.ts",
       "packages/file-tree-worker/src/types/vite-worker-url.d.ts",
+      "packages/file-tree-worker/src/vite-entry-contract.test.ts",
       "packages/file-tree-worker/src/vite.ts"
     ],
     "riskProfile": {
@@ -131,7 +132,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 19
+      "durationMs": 17
     },
     {
       "name": "file-explorer-tests",
@@ -140,7 +141,7 @@
       "budgetMs": 240000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 23085
+      "durationMs": 23378
     },
     {
       "name": "web-file-explorer-persistence-tests",
@@ -149,7 +150,7 @@
       "budgetMs": 360000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 46186
+      "durationMs": 44530
     },
     {
       "name": "web-full-regression-tests",
@@ -158,7 +159,7 @@
       "budgetMs": 900000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 179182
+      "durationMs": 178442
     }
   ]
 }
