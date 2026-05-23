@@ -550,27 +550,18 @@ export class BFSEngine {
     operationId?: number
   ): void {
     const nextPaths: string[] = [];
-    const removed: string[] = [];
     for (const expandedPath of this.expandedPaths) {
       if (expandedPath === path || isDescendantPath(expandedPath, path)) {
-        removed.push(expandedPath);
         continue;
       }
       nextPaths.push(expandedPath);
     }
 
-    const added: string[] = [];
     if (loadState === 'loaded') {
-      const loadedPaths = [path, ...collectExpandedPaths(children)];
-      for (const expandedPath of loadedPaths) {
-        nextPaths.push(expandedPath);
-        if (!this.expandedPaths.has(expandedPath)) {
-          added.push(expandedPath);
-        }
-      }
+      nextPaths.push(path, ...collectExpandedPaths(children));
     }
 
-    this.applyExpandedPathsDelta(nextPaths, added, removed, operationId);
+    this.sendExpandedPathsDelta(nextPaths, operationId);
   }
 
   private sendExpandedPathsDelta(nextPaths: string[], operationId?: number): void {

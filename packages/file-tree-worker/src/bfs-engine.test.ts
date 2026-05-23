@@ -105,6 +105,29 @@ describe('BFSEngine', () => {
       expect(messages.some((message) => message.type === 'treeSnapshot')).toBe(false);
     });
 
+    it('should not report unchanged expanded paths as both removed and added', () => {
+      const child = createDirectoryNode({
+        name: 'child',
+        path: '/root/dir/child',
+        depth: 2,
+        loadState: 'loaded',
+      });
+      const tree = [
+        createDirectoryNode({
+          path: '/root/dir',
+          loadState: 'loaded',
+          children: [child],
+        }),
+      ];
+      engine.setTree(tree, 'root');
+      messages = [];
+
+      engine.handleLoadResult('/root/dir', [child]);
+
+      const deltaMsg = messages.find((message) => message.type === 'expandedPathsDelta');
+      expect(deltaMsg).toBeUndefined();
+    });
+
     it('should resolve pending load promise when all paths complete', async () => {
       const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
       engine.setTree(tree, 'root');
