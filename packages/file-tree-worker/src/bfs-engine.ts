@@ -222,8 +222,9 @@ export class BFSEngine {
 
     if (loadState === 'loaded') {
       this.postChildrenLoaded(path, children, operationId);
+    } else {
+      this.postNodeLoadStateChanged(path, loadState, undefined, operationId);
     }
-    this.postNodeLoadStateChanged(path, loadState, undefined, operationId);
     this.sendExpandedPathsDelta(
       this.getExpandedPathsAfterDirectoryUpdate(path, children, loadState),
       operationId
@@ -276,6 +277,8 @@ export class BFSEngine {
       return this.pendingLoads.get(requestId)?.operationId;
     }
 
+    // Id-less load results come only from the legacy non-correlated path. The port keeps a
+    // single active bulk operation, so the first pending load containing this path is its owner.
     for (const pending of this.pendingLoads.values()) {
       if (pending.paths.has(path)) {
         return pending.operationId;

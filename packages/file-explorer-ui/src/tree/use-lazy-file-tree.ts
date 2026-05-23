@@ -13,7 +13,7 @@
 
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type {
-  FileTreePatchMessage,
+  AccumulatedFileTreePatchMessage,
   FileTreeWorkerPort,
   WorkerFileNode,
 } from '@brainstrike/file-tree-worker';
@@ -420,7 +420,7 @@ function rehydrateWorkerChildrenStrict(
 function applyWorkerPatchesToNormalizedTree(args: {
   handleMap: Map<string, FileSystemHandle>;
   normalizedTree: NormalizedFileTreeState;
-  patches: readonly FileTreePatchMessage[];
+  patches: readonly AccumulatedFileTreePatchMessage[];
 }): {
   indexedNodes: IFileNode[];
   normalizedTree: NormalizedFileTreeState;
@@ -453,10 +453,6 @@ function applyWorkerPatchesToNormalizedTree(args: {
         patch.payload.loadState,
         patch.payload.loadError
       );
-      continue;
-    }
-
-    if (patch.type === 'expandedPathsDelta') {
       continue;
     }
 

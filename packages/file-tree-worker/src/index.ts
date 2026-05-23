@@ -57,6 +57,7 @@ export {
 } from './tree-operations';
 // Re-export types
 export type {
+  AccumulatedFileTreePatchMessage,
   BatchLoadResult,
   DirectoryLoadState,
   FileTreePatchMessage,

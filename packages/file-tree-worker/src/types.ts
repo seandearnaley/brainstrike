@@ -265,7 +265,7 @@ export interface ExpandedPathsDeltaMessage {
  */
 export interface ProgressMessage {
   /** Owning bulk operation. */
-  operationId?: number;
+  operationId: number;
   payload: {
     loaded: number;
     total: number;
@@ -323,10 +323,10 @@ export interface FlattenedNode {
 }
 
 /**
- * Result of flattening the tree.
+ * Result of flattening the tree into visible rows.
  * Sent in response to FlattenTreeMessage.
  */
-export interface FlattenedResultMessage {
+export interface FlattenedRowsMessage {
   payload: {
     /** Flattened list of visible nodes for virtualized rendering */
     nodes: FlattenedNode[];
@@ -343,6 +343,11 @@ export type FileTreePatchMessage =
   | NodeLoadStateChangedPatchMessage
   | ExpandedPathsDeltaMessage;
 
+export type AccumulatedFileTreePatchMessage = Exclude<
+  FileTreePatchMessage,
+  ExpandedPathsDeltaMessage
+>;
+
 /**
  * All possible messages from worker to main thread.
  */
@@ -357,7 +362,7 @@ export type WorkerToMainMessage =
   | CompleteMessage
   | ErrorMessage
   | WorkerLogMessage
-  | FlattenedResultMessage;
+  | FlattenedRowsMessage;
 
 // ============================================================================
 // Batch Load Types (for coordinating main thread I/O)

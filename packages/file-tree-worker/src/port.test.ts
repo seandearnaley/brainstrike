@@ -126,7 +126,7 @@ describe('createFileTreeWorkerPort', () => {
     const onExpandedPathsDelta = vi.fn();
     const onError = vi.fn();
     const onLog = vi.fn();
-    const onFlattenedResult = vi.fn();
+    const onFlattenedRows = vi.fn();
     const flattenedNode: FlattenedNode = {
       node: createDirectoryNode('/root/a'),
       depth: 1,
@@ -139,10 +139,11 @@ describe('createFileTreeWorkerPort', () => {
     const offExpandedPathsDelta = port.onExpandedPathsDelta(onExpandedPathsDelta);
     const offError = port.onError(onError);
     const offLog = port.onLog(onLog);
-    const offFlattened = port.onFlattenedResult(onFlattenedResult);
+    const offFlattened = port.onFlattenedRows(onFlattenedRows);
 
     worker.emit({
       type: 'progress',
+      operationId: 1,
       payload: { loaded: 1, total: 3, currentPath: '/root/a' },
     });
     worker.emit({
@@ -189,7 +190,7 @@ describe('createFileTreeWorkerPort', () => {
     expect(onExpandedPathsDelta).toHaveBeenCalledWith(['/root/a'], []);
     expect(onError).toHaveBeenCalledWith('path failed', '/root/a');
     expect(onLog).toHaveBeenCalledWith('debug', 'worker log', { count: 1 });
-    expect(onFlattenedResult).toHaveBeenCalledWith([flattenedNode], 1, 8);
+    expect(onFlattenedRows).toHaveBeenCalledWith([flattenedNode], 1, 8);
 
     offProgress();
     offTreeSnapshot();
@@ -202,6 +203,7 @@ describe('createFileTreeWorkerPort', () => {
 
     worker.emit({
       type: 'progress',
+      operationId: 1,
       payload: { loaded: 2, total: 3, currentPath: '/root/b' },
     });
     worker.emit({
@@ -242,7 +244,7 @@ describe('createFileTreeWorkerPort', () => {
     expect(onExpandedPathsDelta).toHaveBeenCalledTimes(1);
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onLog).toHaveBeenCalledTimes(1);
-    expect(onFlattenedResult).toHaveBeenCalledTimes(1);
+    expect(onFlattenedRows).toHaveBeenCalledTimes(1);
   });
 
   it('handles requestLoad responses and errors', async () => {
@@ -451,6 +453,7 @@ describe('createFileTreeWorkerPort', () => {
 
     worker.emit({
       type: 'progress',
+      operationId: 1,
       payload: { loaded: 1, total: 1, currentPath: '/root/a' },
     });
     expect(onProgress).not.toHaveBeenCalled();

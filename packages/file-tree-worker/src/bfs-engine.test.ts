@@ -82,7 +82,7 @@ describe('BFSEngine', () => {
       expect(updatedTree[0]?.loadState).toBe('loaded');
     });
 
-    it('should emit load-state and children-loaded patches without a full-tree snapshot', () => {
+    it('should emit children-loaded patch without a redundant loaded-state patch', () => {
       const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'loading' })];
       engine.setTree(tree, 'root');
       messages = [];
@@ -91,13 +91,17 @@ describe('BFSEngine', () => {
       engine.handleLoadResult('/root/dir', children);
 
       expect(messages).toContainEqual({
-        type: 'nodeLoadStateChanged',
-        payload: { path: '/root/dir', loadState: 'loaded' },
-      });
-      expect(messages).toContainEqual({
         type: 'childrenLoaded',
         payload: { path: '/root/dir', children, loadState: 'loaded' },
       });
+      expect(
+        messages.some(
+          (message) =>
+            message.type === 'nodeLoadStateChanged' &&
+            message.payload.path === '/root/dir' &&
+            message.payload.loadState === 'loaded'
+        )
+      ).toBe(false);
       expect(messages.some((message) => message.type === 'treeSnapshot')).toBe(false);
     });
 

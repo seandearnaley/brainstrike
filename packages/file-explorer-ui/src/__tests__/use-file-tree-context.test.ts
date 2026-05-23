@@ -1,7 +1,7 @@
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import type {
+  AccumulatedFileTreePatchMessage,
   BatchLoadResult,
-  FileTreePatchMessage,
   WorkerFileNode,
 } from '@brainstrike/file-tree-worker';
 import { addLogListener, LogLevel, resetLogger, setLogLevel } from '@brainstrike/utils';
@@ -134,7 +134,7 @@ function createWorkerDirectoryNode(
 }
 
 async function mockWorkerExpandAllThroughLoadRequests(): Promise<{
-  patches: FileTreePatchMessage[];
+  patches: AccumulatedFileTreePatchMessage[];
   expandedPaths: string[];
   loadedCount: number;
 }> {

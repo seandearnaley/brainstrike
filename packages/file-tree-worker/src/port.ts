@@ -7,6 +7,7 @@
 
 import { createWorkerRuntimeClient } from '@brainstrike/worker-runtime';
 import type {
+  AccumulatedFileTreePatchMessage,
   BatchLoadResult,
   DirectoryLoadState,
   FileTreePatchMessage,
@@ -34,14 +35,14 @@ type LogHandler = (
   message: string,
   data?: unknown
 ) => void;
-type FlattenedResultHandler = (nodes: FlattenedNode[], count: number, durationMs: number) => void;
+type FlattenedRowsHandler = (nodes: FlattenedNode[], count: number, durationMs: number) => void;
 
 interface PendingOperation {
   operationId: number;
-  patches: FileTreePatchMessage[];
+  patches: AccumulatedFileTreePatchMessage[];
   reject: (error: Error) => void;
   resolve: (result: {
-    patches: FileTreePatchMessage[];
+    patches: AccumulatedFileTreePatchMessage[];
     expandedPaths: string[];
     loadedCount: number;
   }) => void;
@@ -131,7 +132,7 @@ export interface FileTreeWorkerPort {
 
   /** Start expand-all operation */
   expandAll(folderId: string): Promise<{
-    patches: FileTreePatchMessage[];
+    patches: AccumulatedFileTreePatchMessage[];
     expandedPaths: string[];
     loadedCount: number;
   }>;
@@ -146,14 +147,14 @@ export interface FileTreeWorkerPort {
 
   /** Load specific paths (for restoration) */
   loadPaths(paths: string[]): Promise<{
-    patches: FileTreePatchMessage[];
+    patches: AccumulatedFileTreePatchMessage[];
     expandedPaths: string[];
     loadedCount: number;
   }>;
 
   /** Load all descendants of a specific directory (for recursive folder selection) */
   loadSubtree(startPath: string): Promise<{
-    patches: FileTreePatchMessage[];
+    patches: AccumulatedFileTreePatchMessage[];
     expandedPaths: string[];
     loadedCount: number;
   }>;
@@ -168,7 +169,7 @@ export interface FileTreeWorkerPort {
   onExpandedPathsDelta(handler: (added: string[], removed: string[]) => void): () => void;
 
   /** Register handler for flattened tree results */
-  onFlattenedResult(
+  onFlattenedRows(
     handler: (nodes: FlattenedNode[], count: number, durationMs: number) => void
   ): () => void;
 
@@ -221,7 +222,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
   let expandedPathsDeltaHandler: ExpandedPathsDeltaHandler | null = null;
   let errorHandler: ErrorHandler | null = null;
   let logHandler: LogHandler | null = null;
-  let flattenedResultHandler: FlattenedResultHandler | null = null;
+  let flattenedRowsHandler: FlattenedRowsHandler | null = null;
 
   // Operation ID counter for thread-safe operation tracking
   // Must be mutable to increment for each new operation
@@ -277,6 +278,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
   const recordPatch = (patch: FileTreePatchMessage): void => {
     if (patch.type === 'expandedPathsDelta') {
+      // Operation results carry expansion state through the complete message's expandedPaths.
       return;
     }
 
@@ -348,12 +350,12 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     logHandler?.(level, message, data);
   };
 
-  const handleFlattenedResult = (payload: {
+  const handleFlattenedRows = (payload: {
     nodes: FlattenedNode[];
     count: number;
     durationMs: number;
   }): void => {
-    flattenedResultHandler?.(payload.nodes, payload.count, payload.durationMs);
+    flattenedRowsHandler?.(payload.nodes, payload.count, payload.durationMs);
   };
 
   /**
@@ -405,7 +407,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
         break;
 
       case 'flattenedRows':
-        handleFlattenedResult(msg.payload);
+        handleFlattenedRows(msg.payload);
         break;
     }
   };
@@ -596,10 +598,10 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
       };
     },
 
-    onFlattenedResult(handler) {
-      flattenedResultHandler = handler;
+    onFlattenedRows(handler) {
+      flattenedRowsHandler = handler;
       return () => {
-        flattenedResultHandler = null;
+        flattenedRowsHandler = null;
       };
     },
 
