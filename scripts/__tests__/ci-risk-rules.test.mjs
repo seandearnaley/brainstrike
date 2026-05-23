@@ -34,7 +34,7 @@ test('config and tooling changes select script contract proof without full e2e b
     e2eLanes: [],
     proofCommands: ['diff-check', 'ci-script-tests', 'workflow-contracts'],
     riskLevel: 'medium',
-    cloudLabels: ['ci:coverage'],
+    cloudLabels: ['ci:unit'],
   });
 });
 
@@ -47,7 +47,7 @@ test('assistant contract changes select assistant proof and assistant-state lane
       e2eLanes: ['web-assistant-state'],
       proofCommands: ['diff-check', 'assistant-contract-tests', 'app-shell-tests'],
       riskLevel: 'medium',
-      cloudLabels: ['ci:web-assistant-state', 'ci:coverage'],
+      cloudLabels: ['ci:web-assistant-state', 'ci:unit'],
     }
   );
 });
@@ -61,7 +61,7 @@ test('embedding runtime changes select embedding diagnostics explicitly', () => 
       e2eLanes: ['desktop-embedding-diagnostics'],
       proofCommands: ['diff-check', 'indexing-tests', 'embedding-tests'],
       riskLevel: 'high',
-      cloudLabels: ['ci:desktop', 'ci:embedding', 'ci:coverage'],
+      cloudLabels: ['ci:desktop', 'ci:embedding', 'ci:unit'],
     }
   );
 });
@@ -81,7 +81,13 @@ test('db migrations select db proof without full web functional e2e', () => {
         'web-destructive-reset-tests',
       ],
       riskLevel: 'high',
-      cloudLabels: ['ci:web-db-startup', 'ci:web-destructive-reset', 'ci:browser', 'ci:coverage'],
+      cloudLabels: [
+        'ci:web-db-startup',
+        'ci:web-destructive-reset',
+        'ci:browser',
+        'ci:unit',
+        'ci:coverage-db',
+      ],
     }
   );
 });
@@ -93,7 +99,7 @@ test('db queue changes select only the queue owner lane', () => {
     e2eLanes: [],
     proofCommands: ['diff-check', 'db-queue-tests'],
     riskLevel: 'medium',
-    cloudLabels: ['ci:browser', 'ci:coverage'],
+    cloudLabels: ['ci:browser', 'ci:unit', 'ci:coverage-db'],
   });
 });
 
@@ -106,7 +112,7 @@ test('db repository changes select only the repository owner lane', () => {
       e2eLanes: [],
       proofCommands: ['diff-check', 'db-repository-tests'],
       riskLevel: 'medium',
-      cloudLabels: ['ci:browser', 'ci:coverage'],
+      cloudLabels: ['ci:browser', 'ci:unit', 'ci:coverage-db'],
     }
   );
 });
@@ -118,7 +124,7 @@ test('db search changes select only the search owner lane', () => {
     e2eLanes: [],
     proofCommands: ['diff-check', 'db-search-tests'],
     riskLevel: 'medium',
-    cloudLabels: ['ci:browser', 'ci:coverage'],
+    cloudLabels: ['ci:browser', 'ci:unit', 'ci:coverage-db'],
   });
 });
 
@@ -136,7 +142,7 @@ test('db broad entrypoint changes select all focused db owner lanes without full
       'db-integration-tests',
     ],
     riskLevel: 'medium',
-    cloudLabels: ['ci:browser', 'ci:coverage'],
+    cloudLabels: ['ci:browser', 'ci:unit', 'ci:coverage-db'],
   });
 });
 
@@ -153,7 +159,7 @@ test('web file explorer changes select web stateful proof but not desktop embedd
         'web-file-explorer-persistence-tests',
       ],
       riskLevel: 'medium',
-      cloudLabels: ['ci:web-file-explorer-persistence', 'ci:coverage'],
+      cloudLabels: ['ci:web-file-explorer-persistence', 'ci:unit'],
     }
   );
 });
@@ -161,7 +167,7 @@ test('web file explorer changes select web stateful proof but not desktop embedd
 test('web file explorer changes do not select unrelated product lanes', () => {
   assert.deepEqual(
     selectRiskLanesForFiles(['packages/file-explorer-ui/src/tree/optimized-file-tree.tsx']),
-    ['ci:web-file-explorer-persistence', 'ci:coverage']
+    ['ci:web-file-explorer-persistence', 'ci:unit']
   );
 });
 
@@ -172,11 +178,11 @@ test('web import UI changes select import/indexing without full web regression',
     e2eLanes: ['web-import-indexing'],
     proofCommands: ['diff-check', 'indexing-tests', 'web-import-indexing-tests'],
     riskLevel: 'medium',
-    cloudLabels: ['ci:web-import-indexing', 'ci:coverage'],
+    cloudLabels: ['ci:web-import-indexing', 'ci:unit'],
   });
   assert.deepEqual(selectRiskLanesForFiles(['apps/web/e2e/database-import-backfill.test.ts']), [
     'ci:web-import-indexing',
-    'ci:coverage',
+    'ci:unit',
   ]);
 });
 
@@ -187,18 +193,18 @@ test('web assistant UI changes select assistant-state only plus coverage', () =>
     e2eLanes: ['web-assistant-state'],
     proofCommands: ['diff-check', 'assistant-contract-tests', 'app-shell-tests'],
     riskLevel: 'medium',
-    cloudLabels: ['ci:web-assistant-state', 'ci:coverage'],
+    cloudLabels: ['ci:web-assistant-state', 'ci:unit'],
   });
   assert.deepEqual(selectRiskLanesForFiles(['packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx']), [
     'ci:web-assistant-state',
-    'ci:coverage',
+    'ci:unit',
   ]);
 });
 
 test('web assistant app-shell changes do not fall through to full web e2e', () => {
   assert.deepEqual(
     selectRiskLanesForFiles(['packages/app-shell/src/assistant-ui-panel-wrapper.tsx']),
-    ['ci:web-assistant-state', 'ci:coverage']
+    ['ci:web-assistant-state', 'ci:unit']
   );
 });
 
@@ -209,11 +215,11 @@ test('web settings persistence changes select settings-state only', () => {
     e2eLanes: ['web-settings-state'],
     proofCommands: ['diff-check', 'web-settings-state-tests'],
     riskLevel: 'medium',
-    cloudLabels: ['ci:web-settings-state', 'ci:coverage'],
+    cloudLabels: ['ci:web-settings-state', 'ci:unit'],
   });
   assert.deepEqual(selectRiskLanesForFiles(['apps/web/e2e/settings-models-and-providers.test.ts']), [
     'ci:web-settings-state',
-    'ci:coverage',
+    'ci:unit',
   ]);
 });
 
@@ -224,11 +230,12 @@ test('web db startup changes select db-startup without full web regression', () 
     e2eLanes: ['web-db-startup'],
     proofCommands: ['diff-check', 'web-db-startup-tests'],
     riskLevel: 'medium',
-    cloudLabels: ['ci:web-db-startup', 'ci:coverage'],
+    cloudLabels: ['ci:web-db-startup', 'ci:unit', 'ci:coverage-db'],
   });
   assert.deepEqual(selectRiskLanesForFiles(['apps/web/e2e/web-db-worker-startup.test.ts']), [
     'ci:web-db-startup',
-    'ci:coverage',
+    'ci:unit',
+    'ci:coverage-db',
   ]);
 });
 
@@ -239,7 +246,7 @@ test('web destructive reset changes select destructive reset only', () => {
     e2eLanes: ['web-destructive-reset'],
     proofCommands: ['diff-check', 'web-destructive-reset-tests'],
     riskLevel: 'high',
-    cloudLabels: ['ci:web-destructive-reset', 'ci:coverage'],
+    cloudLabels: ['ci:web-destructive-reset', 'ci:unit', 'ci:coverage-db'],
   });
 });
 
@@ -250,7 +257,7 @@ test('broad web app shell changes still select full web regression', () => {
     e2eLanes: ['web-full-regression'],
     proofCommands: ['diff-check', 'web-full-regression-tests'],
     riskLevel: 'high',
-    cloudLabels: ['ci:web-e2e', 'ci:coverage'],
+    cloudLabels: ['ci:web-e2e', 'ci:unit'],
   });
 });
 
@@ -261,7 +268,7 @@ test('desktop preload changes select desktop smoke and regression without embedd
     e2eLanes: ['desktop-full-regression'],
     proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-full-regression-tests'],
     riskLevel: 'high',
-    cloudLabels: ['ci:desktop', 'ci:coverage'],
+    cloudLabels: ['ci:desktop', 'ci:unit'],
   });
 });
 
@@ -272,11 +279,11 @@ test('desktop factory reset changes select reset lane without full desktop regre
     e2eLanes: ['desktop-ipc-reset'],
     proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-ipc-reset-tests'],
     riskLevel: 'medium',
-    cloudLabels: ['ci:desktop-ipc-reset', 'ci:coverage'],
+    cloudLabels: ['ci:desktop-ipc-reset', 'ci:unit'],
   });
   assert.deepEqual(selectRiskLanesForFiles(['apps/desktop/src/desktop-factory-reset.ts']), [
     'ci:desktop-ipc-reset',
-    'ci:coverage',
+    'ci:unit',
   ]);
 });
 
@@ -287,11 +294,12 @@ test('desktop db IPC changes select db storage lane without embedding diagnostic
     e2eLanes: ['desktop-db-storage'],
     proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-db-storage-tests'],
     riskLevel: 'medium',
-    cloudLabels: ['ci:desktop-db-storage', 'ci:coverage'],
+    cloudLabels: ['ci:desktop-db-storage', 'ci:unit', 'ci:coverage-db'],
   });
   assert.deepEqual(selectRiskLanesForFiles(['apps/desktop/src/ipc-domains/db-ipc.ts']), [
     'ci:desktop-db-storage',
-    'ci:coverage',
+    'ci:unit',
+    'ci:coverage-db',
   ]);
 });
 
@@ -302,11 +310,11 @@ test('desktop hidden host lifecycle changes select runtime host lane only', () =
     e2eLanes: ['desktop-runtime-hosts'],
     proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-runtime-host-tests'],
     riskLevel: 'high',
-    cloudLabels: ['ci:desktop-runtime-hosts', 'ci:coverage'],
+    cloudLabels: ['ci:desktop-runtime-hosts', 'ci:unit'],
   });
   assert.deepEqual(selectRiskLanesForFiles(['apps/desktop/src/embedding-host-manager.ts']), [
     'ci:desktop-runtime-hosts',
-    'ci:coverage',
+    'ci:unit',
   ]);
 });
 
@@ -317,11 +325,11 @@ test('desktop main process changes still select full desktop regression', () => 
     e2eLanes: ['desktop-full-regression'],
     proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-full-regression-tests'],
     riskLevel: 'high',
-    cloudLabels: ['ci:desktop', 'ci:coverage'],
+    cloudLabels: ['ci:desktop', 'ci:unit'],
   });
   assert.deepEqual(selectRiskLanesForFiles(['apps/desktop/src/main.ts']), [
     'ci:desktop',
-    'ci:coverage',
+    'ci:unit',
   ]);
 });
 
@@ -365,7 +373,7 @@ test('isolated unit-test-only changes avoid product e2e lanes', () => {
       e2eLanes: [],
       proofCommands: ['diff-check', 'changed-unit-tests'],
       riskLevel: 'low',
-      cloudLabels: ['ci:coverage'],
+      cloudLabels: ['ci:unit'],
     }
   );
 });
@@ -377,7 +385,7 @@ test('e2e test-only changes stay in their product lane', () => {
     e2eLanes: ['web-full-regression'],
     proofCommands: ['diff-check', 'web-full-regression-tests'],
     riskLevel: 'high',
-    cloudLabels: ['ci:web-e2e', 'ci:coverage'],
+    cloudLabels: ['ci:web-e2e', 'ci:unit'],
   });
 });
 
@@ -405,7 +413,9 @@ test('workflow and CI script changes select the full lane', () => {
     'ci:desktop-db-storage',
     'ci:desktop',
     'ci:embedding',
-    'ci:coverage',
+    'ci:unit',
+    'ci:coverage-db',
+    'ci:coverage-full',
   ]);
 });
 
@@ -416,11 +426,12 @@ test('browser storage changes select browser and coverage lanes without full db 
     e2eLanes: [],
     proofCommands: ['diff-check', 'storage-tests'],
     riskLevel: 'medium',
-    cloudLabels: ['ci:browser', 'ci:coverage'],
+    cloudLabels: ['ci:browser', 'ci:unit', 'ci:coverage-db'],
   });
   assert.deepEqual(selectRiskLanesForFiles(['packages/storage/src/opfs.ts']), [
     'ci:browser',
-    'ci:coverage',
+    'ci:unit',
+    'ci:coverage-db',
   ]);
 });
 
@@ -431,20 +442,20 @@ test('file-system changes select file-system tests without full db tests', () =>
     e2eLanes: [],
     proofCommands: ['diff-check', 'file-system-tests'],
     riskLevel: 'medium',
-    cloudLabels: ['ci:browser', 'ci:coverage'],
+    cloudLabels: ['ci:browser', 'ci:unit', 'ci:coverage-db'],
   });
 });
 
 test('legacy desktop host selector does not route host lifecycle through embedding diagnostics', () => {
   assert.deepEqual(
     selectRiskLanesForFiles(['apps/desktop/src/embedding-host-manager.ts']),
-    ['ci:desktop-runtime-hosts', 'ci:coverage']
+    ['ci:desktop-runtime-hosts', 'ci:unit']
   );
 });
 
 test('desktop runtime host selector avoids broad incidental host filenames', () => {
   assert.deepEqual(selectRiskLanesForFiles(['apps/desktop/src/toast-host.ts']), [
-    'ci:coverage',
+    'ci:unit',
   ]);
 });
 
@@ -470,24 +481,24 @@ test('desktop llm host changes select llm recovery without embedding lanes', () 
     e2eLanes: ['desktop-runtime-hosts'],
     proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-runtime-host-tests'],
     riskLevel: 'high',
-    cloudLabels: ['ci:desktop-runtime-hosts', 'ci:coverage'],
+    cloudLabels: ['ci:desktop-runtime-hosts', 'ci:unit'],
   });
   assert.deepEqual(selectRiskLanesForFiles(['apps/desktop/src/llm-host-manager.ts']), [
     'ci:desktop-runtime-hosts',
-    'ci:coverage',
+    'ci:unit',
   ]);
 });
 
 test('web app changes select full web e2e and coverage lanes', () => {
   assert.deepEqual(selectRiskLanesForFiles(['apps/web/src/App.tsx']), [
     'ci:web-e2e',
-    'ci:coverage',
+    'ci:unit',
   ]);
 });
 
 test('new runtime app changes fall back to coverage', () => {
   assert.deepEqual(selectRiskLanesForFiles(['apps/new-app/src/index.ts']), [
-    'ci:coverage',
+    'ci:unit',
   ]);
 });
 

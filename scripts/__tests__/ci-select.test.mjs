@@ -38,15 +38,15 @@ test('buildSelection returns files, lanes, expanded lanes, labels, and commands'
 
   assert.deepEqual(selection.lanes, [
     'ci:desktop-runtime-hosts',
-    'ci:coverage',
+    'ci:unit',
   ]);
   assert.deepEqual(selection.labels, [
     'ci:desktop-runtime-hosts',
-    'ci:coverage',
+    'ci:unit',
   ]);
   assert.deepEqual(selection.expandedLanes, [
     'ci:desktop-runtime-hosts',
-    'ci:coverage',
+    'ci:unit',
   ]);
   assert.equal(
     selection.commands.some((entry) => entry.name === 'desktop-runtime-host-tests'),
@@ -254,7 +254,7 @@ test('buildSelection routes factory reset changes to the narrow desktop reset la
     mergeBase: '1111111111111111111111111111111111111111',
   });
 
-  assert.deepEqual(selection.lanes, ['ci:desktop-ipc-reset', 'ci:coverage']);
+  assert.deepEqual(selection.lanes, ['ci:desktop-ipc-reset', 'ci:unit']);
   assert.deepEqual(selection.riskProfile.e2eLanes, ['desktop-ipc-reset']);
   assert.deepEqual(
     selection.commands.map((command) => command.name),
@@ -275,7 +275,7 @@ test('buildSelection proves every selected narrow desktop lane locally', () => {
   assert.deepEqual(selection.lanes, [
     'ci:desktop-ipc-reset',
     'ci:desktop-runtime-hosts',
-    'ci:coverage',
+    'ci:unit',
   ]);
   assert.deepEqual(
     selection.commands.map((command) => command.name),
@@ -294,7 +294,7 @@ test('buildSelection routes db IPC changes to db storage without desktop full re
     mergeBase: '1111111111111111111111111111111111111111',
   });
 
-  assert.deepEqual(selection.lanes, ['ci:desktop-db-storage', 'ci:coverage']);
+  assert.deepEqual(selection.lanes, ['ci:desktop-db-storage', 'ci:unit', 'ci:coverage-db']);
   assert.deepEqual(selection.riskProfile.e2eLanes, ['desktop-db-storage']);
   assert.deepEqual(
     selection.commands.map((command) => command.name),
@@ -310,7 +310,7 @@ test('buildSelection routes file explorer UI to only file explorer persistence',
     mergeBase: '1111111111111111111111111111111111111111',
   });
 
-  assert.deepEqual(selection.lanes, ['ci:web-file-explorer-persistence', 'ci:coverage']);
+  assert.deepEqual(selection.lanes, ['ci:web-file-explorer-persistence', 'ci:unit']);
   assert.deepEqual(selection.riskProfile.e2eLanes, ['web-file-explorer-persistence']);
   assert.deepEqual(
     selection.commands.map((command) => command.name),
@@ -329,7 +329,7 @@ test('buildSelection routes import indexing UI to import lane plus indexing proo
     mergeBase: '1111111111111111111111111111111111111111',
   });
 
-  assert.deepEqual(selection.lanes, ['ci:web-import-indexing', 'ci:coverage']);
+  assert.deepEqual(selection.lanes, ['ci:web-import-indexing', 'ci:unit']);
   assert.deepEqual(
     selection.commands.map((command) => command.name),
     ['diff-check', 'indexing-tests', 'web-import-indexing-tests']
@@ -343,7 +343,7 @@ test('buildSelection routes assistant UI to assistant state only', () => {
     mergeBase: '1111111111111111111111111111111111111111',
   });
 
-  assert.deepEqual(selection.lanes, ['ci:web-assistant-state', 'ci:coverage']);
+  assert.deepEqual(selection.lanes, ['ci:web-assistant-state', 'ci:unit']);
   assert.deepEqual(selection.riskProfile.e2eLanes, ['web-assistant-state']);
 });
 
@@ -353,7 +353,7 @@ test('buildSelection routes settings persistence to settings state only', () => 
     mergeBase: '1111111111111111111111111111111111111111',
   });
 
-  assert.deepEqual(selection.lanes, ['ci:web-settings-state', 'ci:coverage']);
+  assert.deepEqual(selection.lanes, ['ci:web-settings-state', 'ci:unit']);
   assert.deepEqual(
     selection.commands.map((command) => command.name),
     ['diff-check', 'web-settings-state-tests']
@@ -366,7 +366,7 @@ test('buildSelection routes broad app shell to full web regression', () => {
     mergeBase: '1111111111111111111111111111111111111111',
   });
 
-  assert.deepEqual(selection.lanes, ['ci:web-e2e', 'ci:coverage']);
+  assert.deepEqual(selection.lanes, ['ci:web-e2e', 'ci:unit']);
   assert.deepEqual(selection.riskProfile.e2eLanes, ['web-full-regression']);
   assert.deepEqual(
     selection.commands.map((command) => command.name),
@@ -380,7 +380,7 @@ test('buildSelection keeps broad preload bridge changes on full desktop regressi
     mergeBase: '1111111111111111111111111111111111111111',
   });
 
-  assert.deepEqual(selection.lanes, ['ci:desktop', 'ci:coverage']);
+  assert.deepEqual(selection.lanes, ['ci:desktop', 'ci:unit']);
   assert.deepEqual(selection.riskProfile.e2eLanes, ['desktop-full-regression']);
   assert.deepEqual(
     selection.commands.map((command) => command.name),
@@ -504,7 +504,7 @@ test('collectGitSelection includes deleted files in risk selection', async () =>
   );
 
   assert.deepEqual(selection.files, ['apps/web/src/deleted-route.tsx']);
-  assert.deepEqual(selection.lanes, ['ci:web-e2e', 'ci:coverage']);
+  assert.deepEqual(selection.lanes, ['ci:web-e2e', 'ci:unit']);
   assert.equal(
     commands.some(
       ([command, args]) =>

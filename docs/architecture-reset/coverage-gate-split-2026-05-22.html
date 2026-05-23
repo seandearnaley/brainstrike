@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Brainstrike Coverage Gate Split</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #171a21;
+      --panel-2: #1f2430;
+      --border: #303747;
+      --text: #eef1f6;
+      --muted: #aab2c2;
+      --low: #5bd69f;
+      --warn: #f2bd5c;
+      --bad: #ff6b78;
+      --accent: #8bb4ff;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      line-height: 1.5;
+    }
+    main {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 44px 0 64px;
+    }
+    header {
+      border: 1px solid var(--border);
+      background: linear-gradient(135deg, rgba(139, 180, 255, 0.14), rgba(91, 214, 159, 0.08)), var(--panel);
+      border-radius: 12px;
+      padding: 28px;
+      margin-bottom: 20px;
+    }
+    h1 { margin: 0 0 10px; font-size: 34px; letter-spacing: -0.02em; }
+    h2 { margin: 0 0 12px; font-size: 20px; }
+    p { color: var(--muted); margin: 0 0 12px; }
+    code { font-family: var(--mono); color: var(--accent); }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin: 20px 0;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px;
+    }
+    .metric { font-family: var(--mono); font-size: 28px; font-weight: 700; }
+    .bad { color: var(--bad); }
+    .good { color: var(--low); }
+    .warn { color: var(--warn); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      margin: 12px 0 24px;
+    }
+    th, td {
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      padding: 10px 12px;
+      vertical-align: top;
+    }
+    th {
+      background: var(--panel-2);
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    tr:last-child td { border-bottom: 0; }
+    .status {
+      display: inline-block;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 3px 9px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .status.good { border-color: rgba(91, 214, 159, 0.45); }
+    .status.warn { border-color: rgba(242, 189, 92, 0.45); }
+    .note {
+      border-left: 3px solid var(--accent);
+      background: rgba(139, 180, 255, 0.08);
+      padding: 12px 14px;
+      color: var(--muted);
+      margin: 16px 0 24px;
+    }
+    ul { margin: 0 0 0 18px; padding: 0; color: var(--muted); }
+    li { margin: 6px 0; }
+    @media (max-width: 820px) {
+      .grid { grid-template-columns: 1fr; }
+      main { width: min(100% - 24px, 1180px); padding-top: 24px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Coverage Gate Split</h1>
+    <p>Corrective change for the 31 minute PR unit gate. The previous label model made ordinary source changes pay for full affected coverage plus serial DB coverage. This split makes routine PRs run affected unit tests, while DB/full coverage becomes explicit risk.</p>
+    <p><code>branch: codex/split-coverage-gate</code> · <code>date: 2026-05-22</code></p>
+  </header>
+
+  <section class="grid">
+    <div class="card">
+      <h2>Observed Failure</h2>
+      <div class="metric bad">31m16s</div>
+      <p><code>Checks (unit-coverage)</code> on PR #1031 dominated total PR wall time.</p>
+    </div>
+    <div class="card">
+      <h2>Root Cause</h2>
+      <div class="metric warn">1 label</div>
+      <p><code>ci:coverage</code> was selected for almost every non-doc source change.</p>
+    </div>
+    <div class="card">
+      <h2>Correction</h2>
+      <div class="metric good">3 lanes</div>
+      <p><code>ci:unit</code>, <code>ci:coverage-db</code>, and <code>ci:coverage-full</code> now separate routine unit risk from heavy coverage risk.</p>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>New Gate Model</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Lane</th>
+          <th>Workflow Job</th>
+          <th>Selection Rule</th>
+          <th>Expected Effect</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>ci:unit</code></td>
+          <td><code>Checks (unit-affected)</code></td>
+          <td>Normal app/package source changes, isolated unit-test changes, product lanes.</td>
+          <td>Runs Turbo affected unit tests only. No coverage and no serial DB coverage.</td>
+        </tr>
+        <tr>
+          <td><code>ci:coverage-db</code></td>
+          <td><code>Checks (coverage-db/full)</code></td>
+          <td>DB, storage, file-system, web DB startup/reset, desktop DB-storage changes.</td>
+          <td>Keeps DB coverage explicit for data-platform risk.</td>
+        </tr>
+        <tr>
+          <td><code>ci:coverage-full</code></td>
+          <td><code>Checks (coverage-db/full)</code></td>
+          <td>Coverage infrastructure changes.</td>
+          <td>Runs the heavy coverage path only when coverage tooling itself changes.</td>
+        </tr>
+        <tr>
+          <td><code>ci:full</code></td>
+          <td>All release-risk jobs</td>
+          <td>Workflow/package-manager/build-tool changes.</td>
+          <td>Preserves full release confidence.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="note">
+      There is no hidden fallback from <code>ci:unit</code> to coverage. The Required PR Gate maps selected labels directly to the owning job: <code>ci:unit → unit_affected</code>, <code>ci:coverage-db → unit_coverage</code>, <code>ci:coverage-full → unit_coverage</code>.
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Done Conditions</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Condition</th>
+          <th>Status</th>
+          <th>Evidence</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Routine product changes stop selecting the heavy coverage job.</td>
+          <td><span class="status good">Met locally</span></td>
+          <td>Selector tests expect <code>ci:unit</code> for file explorer, assistant, settings, desktop reset/runtime, and broad web product cases.</td>
+        </tr>
+        <tr>
+          <td>DB/storage changes still get data-platform coverage risk.</td>
+          <td><span class="status good">Met locally</span></td>
+          <td>DB, storage, file-system, web DB startup/reset, and desktop DB IPC cases select <code>ci:coverage-db</code>.</td>
+        </tr>
+        <tr>
+          <td>Workflow contract prevents the old broad mapping returning.</td>
+          <td><span class="status good">Met locally</span></td>
+          <td><code>pnpm lint:ci-workflow-contracts</code> passes and checks the affected unit job plus Required PR Gate label mapping.</td>
+        </tr>
+        <tr>
+          <td>Cloud wall-time improvement is proven.</td>
+          <td><span class="status warn">Pending PR evidence</span></td>
+          <td>The next PR must show <code>Checks (unit-affected)</code> replaces the 31 minute <code>Checks (unit-coverage)</code> for non-DB product changes.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>Local Verification</h2>
+    <ul>
+      <li><code>node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/check-ci-workflow-contracts.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs</code> passed.</li>
+      <li><code>pnpm lint:ci-workflow-contracts</code> passed.</li>
+      <li>No full local E2E or cloud rerun was used to validate this selector/workflow correction.</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

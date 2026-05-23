@@ -203,14 +203,86 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "_Check the step timings above for optimization opportunities._" >> $GITHUB_STEP_SUMMARY
 
+  unit_affected:
+    name: Checks (unit-affected)
+    if: >-
+      github.event_name == 'pull_request' &&
+      (contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
+      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:unit'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      TURBO_CACHE_DIR: .turbo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+        with:
+          skip-electron: 'false'
+
+      - name: Initialize timing table
+        run: |
+          echo "## CI Step Durations" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Duration |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|----------|" >> $GITHUB_STEP_SUMMARY
+
+      - name: Run affected unit tests
+        timeout-minutes: 10
+        env:
+          NODE_ENV: test
+          TURBO_TEST_MODE: unit
+        run: |
+          START=$SECONDS
+          echo "Running affected unit tests for PR against origin/${GITHUB_BASE_REF}"
+          pnpm turbo run test --filter="...[origin/${GITHUB_BASE_REF}]" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo
+          echo "| Affected unit tests | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Report Turbo unit diagnostics
+        if: ${{ !cancelled() }}
+        run: |
+          set +e
+          pnpm ci:turbo-diagnostics -- --runs-dir .turbo/runs --all --task-prefix test --output turbo-unit-diagnostics.md
+          STATUS=$?
+          set -e
+          if [ -s turbo-unit-diagnostics.md ]; then
+            cat turbo-unit-diagnostics.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No Turbo unit diagnostics were generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$STATUS"
+
+      - name: Upload unit timing diagnostics
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: unit-affected-turbo-diagnostics
+          path: |
+            turbo-unit-diagnostics.md
+            .turbo/runs/*.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Append timing table footer
+        if: ${{ !cancelled() }}
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_Check the step timings above for optimization opportunities._" >> $GITHUB_STEP_SUMMARY
+
   unit_coverage:
-    name: Checks (unit-coverage)
+    name: Checks (coverage-db/full)
     if: >-
       github.event_name == 'push' ||
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:coverage')
+      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:coverage-db') ||
+      contains(join(github.event.pull_request.labels.*.name, ','), 'ci:coverage-full')
     runs-on: ubuntu-latest
     # The split coverage phases can use up to 75 minutes of step budget on a
     # cold cache; keep job overhead bounded without letting the job kill valid
@@ -2061,6 +2133,7 @@ jobs:
     needs:
       - pr-sentinel
       - checks
+      - unit_affected
       - unit_coverage
       - browser-tests
       - prepare-web
@@ -2096,7 +2169,9 @@ jobs:
           const alwaysRequiredJobs = ['pr-sentinel', 'checks'];
 
           const jobByLabel = new Map([
-            ['ci:coverage', ['unit_coverage']],
+            ['ci:unit', ['unit_affected']],
+            ['ci:coverage-db', ['unit_coverage']],
+            ['ci:coverage-full', ['unit_coverage']],
             ['ci:browser', ['browser-tests']],
             ['ci:web-smoke', ['prepare-web', 'web-e2e-smoke-pr']],
             ['ci:web-file-explorer-persistence', ['prepare-web', 'web-e2e-file-explorer-persistence-pr']],
