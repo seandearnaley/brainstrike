@@ -27,6 +27,7 @@ export * from './stores/assistant-memory-preferences-store';
 export * from './stores/assistant-preferences-store';
 export * from './stores/background-indexing-preferences-store';
 export * from './stores/collection-browser-column-sizes-store';
+export * from './stores/context-preview-column-sizes-store';
 export * from './stores/database-status-store';
 export * from './stores/embedding-preferences-store';
 export * from './stores/import-settings-store';
