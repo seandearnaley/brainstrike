@@ -22,6 +22,47 @@ interface PromptCardProps {
   prompt: Prompt;
 }
 
+function useTooltipDropdownCoordination() {
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isTooltipOpen, setIsTooltipOpen] = useState(false);
+  const [isPointerOverTrigger, setIsPointerOverTrigger] = useState(false);
+  const [isTooltipSuppressed, setIsTooltipSuppressed] = useState(false);
+  const showTooltip = isTooltipOpen && !isDropdownOpen && !isTooltipSuppressed;
+
+  const handleDropdownOpenChange = (open: boolean) => {
+    setIsDropdownOpen(open);
+    if (open) {
+      setIsTooltipOpen(false);
+      setIsTooltipSuppressed(true);
+    }
+  };
+
+  const handlePointerEnter = () => {
+    setIsPointerOverTrigger(true);
+  };
+
+  const handlePointerLeave = () => {
+    setIsPointerOverTrigger(false);
+    setIsTooltipSuppressed(false);
+  };
+
+  const handleTriggerFocus = () => {
+    if (!isPointerOverTrigger) {
+      setIsTooltipSuppressed(false);
+    }
+  };
+
+  return {
+    handleDropdownOpenChange,
+    handlePointerEnter,
+    handlePointerLeave,
+    handleTriggerFocus,
+    isDropdownOpen,
+    setIsTooltipOpen,
+    showTooltip,
+  };
+}
+
 export function PromptCard({
   prompt,
   category,
@@ -31,21 +72,7 @@ export function PromptCard({
   onCopy,
 }: PromptCardProps) {
   const updatedAt = new Date(prompt.updatedAt);
-  const [isMoreOptionsOpen, setIsMoreOptionsOpen] = useState(false);
-  const [isMoreOptionsTooltipOpen, setIsMoreOptionsTooltipOpen] = useState(false);
-  const [isMoreOptionsPointerOver, setIsMoreOptionsPointerOver] = useState(false);
-  // Keep the tooltip suppressed after menu close until the pointer leaves the trigger.
-  const [isMoreOptionsTooltipSuppressed, setIsMoreOptionsTooltipSuppressed] = useState(false);
-  const showMoreOptionsTooltip =
-    isMoreOptionsTooltipOpen && !isMoreOptionsOpen && !isMoreOptionsTooltipSuppressed;
-
-  const handleMoreOptionsOpenChange = (open: boolean) => {
-    setIsMoreOptionsOpen(open);
-    if (open) {
-      setIsMoreOptionsTooltipOpen(false);
-      setIsMoreOptionsTooltipSuppressed(true);
-    }
-  };
+  const moreOptions = useTooltipDropdownCoordination();
 
   return (
     <Card className="group relative overflow-hidden border-border/50 bg-card/50 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5">
@@ -112,28 +139,23 @@ export function PromptCard({
               </TooltipContent>
             </Tooltip>
 
-            <Tooltip onOpenChange={setIsMoreOptionsTooltipOpen} open={showMoreOptionsTooltip}>
+            <Tooltip onOpenChange={moreOptions.setIsTooltipOpen} open={moreOptions.showTooltip}>
               <TooltipTrigger asChild>
                 <span
                   className="inline-flex"
-                  onPointerEnter={() => {
-                    setIsMoreOptionsPointerOver(true);
-                  }}
-                  onPointerLeave={() => {
-                    setIsMoreOptionsPointerOver(false);
-                    setIsMoreOptionsTooltipSuppressed(false);
-                  }}
+                  onPointerEnter={moreOptions.handlePointerEnter}
+                  onPointerLeave={moreOptions.handlePointerLeave}
                 >
-                  <DropdownMenu onOpenChange={handleMoreOptionsOpenChange} open={isMoreOptionsOpen}>
+                  {/* Keep this wrapper tight to the button so pointer state matches the tooltip trigger. */}
+                  <DropdownMenu
+                    onOpenChange={moreOptions.handleDropdownOpenChange}
+                    open={moreOptions.isDropdownOpen}
+                  >
                     <DropdownMenuTrigger asChild>
                       <Button
                         aria-label="More options"
                         className="h-8 w-8"
-                        onFocus={() => {
-                          if (!isMoreOptionsPointerOver) {
-                            setIsMoreOptionsTooltipSuppressed(false);
-                          }
-                        }}
+                        onFocus={moreOptions.handleTriggerFocus}
                         size="icon"
                         variant="ghost"
                       >
