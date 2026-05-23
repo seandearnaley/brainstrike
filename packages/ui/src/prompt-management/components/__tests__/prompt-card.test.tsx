@@ -116,11 +116,12 @@ describe('PromptCard', () => {
 
   it('closes the more options hover hint while the menu is open', async () => {
     const user = userEvent.setup();
+    const onCopy = vi.fn();
 
     renderPromptCard(
       <PromptCard
         category={category}
-        onCopy={() => {}}
+        onCopy={onCopy}
         onDelete={() => {}}
         onEdit={() => {}}
         onToggleFavorite={() => {}}
@@ -135,6 +136,11 @@ describe('PromptCard', () => {
     await user.click(moreOptions);
 
     expect(screen.getByRole('menu')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole('menuitem', { name: 'Copy Content' }));
+
+    expect(onCopy).toHaveBeenCalledWith(prompt.content);
     await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
   });
 

@@ -32,8 +32,19 @@ export function PromptCard({
 }: PromptCardProps) {
   const updatedAt = new Date(prompt.updatedAt);
   const [isMoreOptionsOpen, setIsMoreOptionsOpen] = useState(false);
-  // Force the hover tooltip closed while the dropdown menu owns focus.
-  const moreOptionsTooltipProps = isMoreOptionsOpen ? { open: false } : {};
+  const [isMoreOptionsTooltipOpen, setIsMoreOptionsTooltipOpen] = useState(false);
+  // Keep the tooltip suppressed after menu close until the pointer leaves the trigger.
+  const [isMoreOptionsTooltipSuppressed, setIsMoreOptionsTooltipSuppressed] = useState(false);
+  const showMoreOptionsTooltip =
+    isMoreOptionsTooltipOpen && !isMoreOptionsOpen && !isMoreOptionsTooltipSuppressed;
+
+  const handleMoreOptionsOpenChange = (open: boolean) => {
+    setIsMoreOptionsOpen(open);
+    if (open) {
+      setIsMoreOptionsTooltipOpen(false);
+      setIsMoreOptionsTooltipSuppressed(true);
+    }
+  };
 
   return (
     <Card className="group relative overflow-hidden border-border/50 bg-card/50 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5">
@@ -100,10 +111,15 @@ export function PromptCard({
               </TooltipContent>
             </Tooltip>
 
-            <Tooltip {...moreOptionsTooltipProps}>
+            <Tooltip onOpenChange={setIsMoreOptionsTooltipOpen} open={showMoreOptionsTooltip}>
               <TooltipTrigger asChild>
-                <span className="inline-flex">
-                  <DropdownMenu onOpenChange={setIsMoreOptionsOpen} open={isMoreOptionsOpen}>
+                <span
+                  className="inline-flex"
+                  onPointerLeave={() => {
+                    setIsMoreOptionsTooltipSuppressed(false);
+                  }}
+                >
+                  <DropdownMenu onOpenChange={handleMoreOptionsOpenChange} open={isMoreOptionsOpen}>
                     <DropdownMenuTrigger asChild>
                       <Button
                         aria-label="More options"
