@@ -109,9 +109,7 @@ describe('PromptCard', () => {
 
     await user.hover(screen.getByRole('button', { name: 'More options' }));
 
-    const tips = await screen.findAllByRole('tooltip');
-    expect(tips.length).toBeGreaterThan(0);
-    expect(tips[0]).toHaveTextContent('More options');
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('More options');
   });
 
   it('closes the more options hover hint while the menu is open', async () => {
@@ -142,6 +140,33 @@ describe('PromptCard', () => {
 
     expect(onCopy).toHaveBeenCalledWith(prompt.content);
     await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
+  });
+
+  it('restores the more options hover hint after keyboard menu close', async () => {
+    const user = userEvent.setup();
+
+    renderPromptCard(
+      <PromptCard
+        category={category}
+        onCopy={() => {}}
+        onDelete={() => {}}
+        onEdit={() => {}}
+        onToggleFavorite={() => {}}
+        prompt={prompt}
+      />
+    );
+
+    const moreOptions = screen.getByRole('button', { name: 'More options' });
+    moreOptions.focus();
+
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+
+    await user.hover(moreOptions);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('More options');
   });
 
   it('does not add focusable controls for decorative metadata', () => {

@@ -33,6 +33,7 @@ export function PromptCard({
   const updatedAt = new Date(prompt.updatedAt);
   const [isMoreOptionsOpen, setIsMoreOptionsOpen] = useState(false);
   const [isMoreOptionsTooltipOpen, setIsMoreOptionsTooltipOpen] = useState(false);
+  const [isMoreOptionsPointerOver, setIsMoreOptionsPointerOver] = useState(false);
   // Keep the tooltip suppressed after menu close until the pointer leaves the trigger.
   const [isMoreOptionsTooltipSuppressed, setIsMoreOptionsTooltipSuppressed] = useState(false);
   const showMoreOptionsTooltip =
@@ -115,7 +116,11 @@ export function PromptCard({
               <TooltipTrigger asChild>
                 <span
                   className="inline-flex"
+                  onPointerEnter={() => {
+                    setIsMoreOptionsPointerOver(true);
+                  }}
                   onPointerLeave={() => {
+                    setIsMoreOptionsPointerOver(false);
                     setIsMoreOptionsTooltipSuppressed(false);
                   }}
                 >
@@ -124,6 +129,11 @@ export function PromptCard({
                       <Button
                         aria-label="More options"
                         className="h-8 w-8"
+                        onFocus={() => {
+                          if (!isMoreOptionsPointerOver) {
+                            setIsMoreOptionsTooltipSuppressed(false);
+                          }
+                        }}
                         size="icon"
                         variant="ghost"
                       >
