@@ -123,6 +123,22 @@ test('workflow contract fails when split unit coverage job timeout is too low', 
   );
 });
 
+test('workflow contract fails when affected unit timeout cannot cover cold cache runs', () => {
+  const unitAffected = extractJob(workflowSource, 'unit_affected');
+  assert.ok(unitAffected);
+
+  const source = workflowSource.replace(
+    unitAffected,
+    unitAffected
+      .replace('    timeout-minutes: 25', '    timeout-minutes: 15')
+      .replace('        timeout-minutes: 20', '        timeout-minutes: 10')
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /Affected unit job timeout must cover setup plus the test step/);
+  assert.match(failures, /Affected unit test step timeout must cover cold cache runs/);
+});
+
 test('workflow contract fails when split unit coverage step timeouts are widened', () => {
   const unitCoverage = extractJob(workflowSource, 'unit_coverage');
   assert.ok(unitCoverage);
