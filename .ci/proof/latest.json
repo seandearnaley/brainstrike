@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-23T03:05:32.722Z",
+  "generatedAt": "2026-05-23T03:11:43.460Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "82615ae54c4a60c42ec17889c0c884421cb60d99",
+  "testedHeadSha": "b3da60903f750d0fd0e5d4a7599756c7991a447d",
   "selection": {
     "base": "origin/main",
     "baseSha": "06280a0b8b9de6ef4f5ab37c582be2ace380a940",
     "head": "HEAD",
-    "headSha": "82615ae54c4a60c42ec17889c0c884421cb60d99",
-    "mergeBase": "660af97fc4349592a171623cb0c0dbedbfcbb58f",
+    "headSha": "b3da60903f750d0fd0e5d4a7599756c7991a447d",
+    "mergeBase": "06280a0b8b9de6ef4f5ab37c582be2ace380a940",
     "files": [
       ".ci/proof/latest.json",
       "docs/superpowers/plans/2026-05-22-bst-373-file-tree-patch-protocol.md",
@@ -46,7 +46,7 @@
       "riskLevel": "medium",
       "cloudLabels": [
         "ci:web-file-explorer-persistence",
-        "ci:coverage"
+        "ci:unit"
       ]
     },
     "proofCommands": [
@@ -56,15 +56,15 @@
     ],
     "lanes": [
       "ci:web-file-explorer-persistence",
-      "ci:coverage"
+      "ci:unit"
     ],
     "expandedLanes": [
       "ci:web-file-explorer-persistence",
-      "ci:coverage"
+      "ci:unit"
     ],
     "labels": [
       "ci:web-file-explorer-persistence",
-      "ci:coverage"
+      "ci:unit"
     ],
     "commands": [
       {
@@ -110,7 +110,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 17
+      "durationMs": 12
     },
     {
       "name": "file-explorer-tests",
@@ -119,7 +119,7 @@
       "budgetMs": 240000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 25866
+      "durationMs": 24627
     },
     {
       "name": "web-file-explorer-persistence-tests",
@@ -128,7 +128,7 @@
       "budgetMs": 360000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 53415
+      "durationMs": 45751
     }
   ]
 }
