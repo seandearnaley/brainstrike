@@ -210,6 +210,7 @@ describe('BFSEngine', () => {
         >;
       };
       const noop = (): void => {};
+      const firstTimeout = setTimeout(noop, 0);
       const extraTimeout = setTimeout(noop, 0);
       mutableEngine.pendingLoads.set('request-1', {
         operationId: 1,
@@ -217,7 +218,7 @@ describe('BFSEngine', () => {
         reject: noop,
         results: new Map(),
         resolve: noop,
-        timeoutId: setTimeout(noop, 0),
+        timeoutId: firstTimeout,
       });
       mutableEngine.pendingLoads.set('request-2', {
         operationId: 2,
@@ -235,6 +236,7 @@ describe('BFSEngine', () => {
         level: 'warn',
         message: 'Legacy id-less load result resolved while 2 loads were pending',
       });
+      clearTimeout(firstTimeout);
       clearTimeout(extraTimeout);
     });
   });

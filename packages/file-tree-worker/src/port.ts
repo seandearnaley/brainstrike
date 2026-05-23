@@ -290,7 +290,8 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
   const recordPatch = (patch: FileTreePatchMessage): void => {
     if (patch.type === 'expandedPathsDelta') {
-      // Operation results carry expansion state through the complete message's expandedPaths.
+      // The complete message's expandedPaths is the canonical operation result; keeping interim
+      // expansion deltas in patches would allocate and then discard duplicate state in the UI.
       return;
     }
 
