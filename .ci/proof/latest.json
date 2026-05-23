@@ -1,20 +1,21 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-22T23:34:21.441Z",
+  "generatedAt": "2026-05-23T01:31:49.455Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "07207bc96ccdf14c2d871f12749b2b8e0e8e590c",
+  "testedHeadSha": "162f70d92a47380206729fa4fc81d913f21c37c8",
   "selection": {
     "base": "origin/main",
     "baseSha": "660af97fc4349592a171623cb0c0dbedbfcbb58f",
     "head": "HEAD",
-    "headSha": "07207bc96ccdf14c2d871f12749b2b8e0e8e590c",
+    "headSha": "162f70d92a47380206729fa4fc81d913f21c37c8",
     "mergeBase": "660af97fc4349592a171623cb0c0dbedbfcbb58f",
     "files": [
+      ".ci/proof/latest.json",
       "docs/superpowers/plans/2026-05-22-bst-373-file-tree-patch-protocol.md",
       "packages/file-explorer-ui/src/__tests__/use-file-tree-context.test.ts",
       "packages/file-explorer-ui/src/tree/use-lazy-file-tree.ts",
@@ -107,16 +108,16 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 10
+      "durationMs": 91
     },
     {
       "name": "file-explorer-tests",
       "command": "pnpm --filter @brainstrike/file-explorer-ui test && pnpm --filter @brainstrike/file-explorer test",
       "owner": "workspace-experience",
       "budgetMs": 240000,
-      "budgetStatus": "ok",
+      "budgetStatus": "over-budget",
       "exitCode": 0,
-      "durationMs": 23047
+      "durationMs": 245005
     },
     {
       "name": "web-file-explorer-persistence-tests",
@@ -125,7 +126,7 @@
       "budgetMs": 360000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 46607
+      "durationMs": 269969
     }
   ]
 }
