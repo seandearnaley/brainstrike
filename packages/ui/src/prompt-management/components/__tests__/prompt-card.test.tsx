@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { TooltipProvider } from '../../../tooltip';
 import type { Category, Prompt } from '../../types';
 import { PromptCard } from '../prompt-card';
 
@@ -30,13 +31,16 @@ const prompt: Prompt = {
 };
 
 describe('PromptCard', () => {
+  const renderPromptCard = (ui: React.ReactElement) =>
+    render(<TooltipProvider>{ui}</TooltipProvider>);
+
   it('renders prompt metadata and forwards actions', () => {
     const onEdit = vi.fn();
     const onDelete = vi.fn();
     const onToggleFavorite = vi.fn();
     const onCopy = vi.fn();
 
-    render(
+    renderPromptCard(
       <PromptCard
         category={category}
         onCopy={onCopy}
@@ -75,7 +79,7 @@ describe('PromptCard', () => {
   it('renders uncategorized fallback when category is missing', () => {
     const { site: _site, ...promptWithoutSite } = prompt;
 
-    render(
+    renderPromptCard(
       <PromptCard
         onCopy={() => {}}
         onDelete={() => {}}
@@ -86,5 +90,21 @@ describe('PromptCard', () => {
     );
 
     expect(screen.getByText('Uncategorized')).toBeInTheDocument();
+  });
+
+  it('does not add focusable controls for decorative metadata', () => {
+    renderPromptCard(
+      <PromptCard
+        category={category}
+        onCopy={() => {}}
+        onDelete={() => {}}
+        onEdit={() => {}}
+        onToggleFavorite={() => {}}
+        prompt={prompt}
+      />
+    );
+
+    expect(screen.queryByRole('img', { name: 'Coding' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button')).toHaveLength(2);
   });
 });

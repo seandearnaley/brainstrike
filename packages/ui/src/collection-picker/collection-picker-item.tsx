@@ -147,8 +147,6 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
                       ? 'text-emerald-600 dark:text-emerald-400'
                       : ''
                   )}
-                  // biome-ignore lint/a11y/noNoninteractiveTabindex: Tooltip trigger requires focusable element
-                  tabIndex={0}
                 >
                   <span className="font-medium text-foreground/60">
                     {collection.embeddingCount.toLocaleString()}/
