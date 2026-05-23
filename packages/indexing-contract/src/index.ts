@@ -654,9 +654,9 @@ export interface EmbedWorkerProgress {
 }
 
 export interface EmbedWorkerPipelineCacheMemoryDiagnostic {
-  readonly gpuBytes: null;
-  readonly heapBytes: null;
-  readonly reason: 'browser-runtime-unavailable';
+  readonly gpuBytes: number | null;
+  readonly heapBytes: number | null;
+  readonly reason: 'browser-runtime-unavailable' | 'measured';
 }
 
 export interface EmbedWorkerPipelineCacheEntryDiagnostic {
@@ -674,7 +674,7 @@ export interface EmbedWorkerPipelineCacheDiagnostic {
   readonly cacheSize: number;
   readonly diagnostic: 'pipeline-cache';
   readonly emittedAt: number;
-  readonly entries: readonly EmbedWorkerPipelineCacheEntryDiagnostic[];
+  readonly entries?: readonly EmbedWorkerPipelineCacheEntryDiagnostic[];
   readonly entry?: EmbedWorkerPipelineCacheEntryDiagnostic;
   readonly event: 'disposed' | 'evicted' | 'hit' | 'invalidated' | 'load-failed' | 'loaded';
   readonly id?: string;

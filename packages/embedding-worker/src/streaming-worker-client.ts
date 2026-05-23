@@ -129,7 +129,7 @@ export class StreamingEmbeddingWorkerClient {
     const run = async (): Promise<EmbedWorkerComplete['metadata']> =>
       await new Promise<EmbedWorkerComplete['metadata']>((resolve, reject) => {
         const cleanup = this.transport.onMessage((message) => {
-          if (!isStreamEvent(message) || message.id !== request.id) {
+          if (!isStreamEvent(message) || (message.id !== undefined && message.id !== request.id)) {
             return;
           }
 

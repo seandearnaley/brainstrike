@@ -312,12 +312,7 @@ let keepAliveTickCount = 0;
 let idleSweepTimer: ReturnType<typeof setInterval> | null = null;
 const batchAckWaiters = new Map<string, () => void>();
 
-type PipelineCacheDisposalReason =
-  | 'device-lost'
-  | 'idle-timeout'
-  | 'load-failure'
-  | 'manual-dispose'
-  | 'resident-limit';
+type PipelineCacheDisposalReason = NonNullable<EmbedWorkerPipelineCacheDiagnostic['reason']>;
 
 type PipelineCacheDiagnosticSink = (event: EmbedWorkerPipelineCacheDiagnostic) => void;
 
@@ -357,6 +352,12 @@ function buildPipelineCacheEntryDiagnostics(
   return [...pipelines.values()].map((entry) => toPipelineCacheEntryDiagnostic(entry, timestamp));
 }
 
+function shouldIncludePipelineCacheEntries(
+  event: EmbedWorkerPipelineCacheDiagnostic['event']
+): boolean {
+  return event !== 'hit';
+}
+
 function emitPipelineCacheDiagnostic(options: PipelineCacheDiagnosticOptions): void {
   const timestamp = now();
   const entryDiagnostic =
@@ -369,14 +370,19 @@ function emitPipelineCacheDiagnostic(options: PipelineCacheDiagnosticOptions): v
     event: options.event,
     emittedAt: timestamp,
     cacheSize: pipelines.size,
-    entries: buildPipelineCacheEntryDiagnostics(timestamp),
+    ...(shouldIncludePipelineCacheEntries(options.event)
+      ? { entries: buildPipelineCacheEntryDiagnostics(timestamp) }
+      : {}),
     ...(entryDiagnostic === undefined ? {} : { entry: entryDiagnostic }),
     ...(options.id === undefined ? {} : { id: options.id }),
     ...(options.reason === undefined ? {} : { reason: options.reason }),
   };
 
+  if (options.sink) {
+    options.sink(event);
+    return;
+  }
   workerEmit(event);
-  options.sink?.(event);
 }
 
 function buildAckKey(id: string, batchIndex: number): string {
@@ -785,9 +791,19 @@ async function loadPipeline(
 
   debugLog('Loading pipeline', { model, device, dtype });
 
+  let entry!: PipelineCacheEntry;
   const loader = (async () => {
     try {
-      return await createFeatureExtractor(model, device, dtype);
+      const extractor = await createFeatureExtractor(model, device, dtype);
+      if (pipelines.get(cacheKey) === entry) {
+        emitPipelineCacheDiagnostic({
+          entry,
+          event: 'loaded',
+          ...(diagnostics.id === undefined ? {} : { id: diagnostics.id }),
+          ...(diagnostics.sink === undefined ? {} : { sink: diagnostics.sink }),
+        });
+      }
+      return extractor;
     } catch (error) {
       handlePipelineLoadFailure(cacheKey, model, device, dtype, diagnostics, error);
       throw error;
@@ -798,7 +814,7 @@ async function loadPipeline(
   evictLruByDevice(device, maxResident, diagnostics);
 
   const timestamp = now();
-  const entry: PipelineCacheEntry = {
+  entry = {
     cacheKey,
     pipeline: loader,
     device,
@@ -808,12 +824,6 @@ async function loadPipeline(
     createdAt: timestamp,
   };
   pipelines.set(cacheKey, entry);
-  emitPipelineCacheDiagnostic({
-    entry,
-    event: 'loaded',
-    ...(diagnostics.id === undefined ? {} : { id: diagnostics.id }),
-    ...(diagnostics.sink === undefined ? {} : { sink: diagnostics.sink }),
-  });
   startIdleSweep();
 
   return loader;
