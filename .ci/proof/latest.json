@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-23T02:53:18.116Z",
+  "generatedAt": "2026-05-23T03:07:01.727Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "d63a981f30f2a24737cd8494f7def7fb2ccfd038",
+  "testedHeadSha": "9bd07719c06fd700317d638a2fac6f73442c31dc",
   "selection": {
     "base": "origin/main",
     "baseSha": "660af97fc4349592a171623cb0c0dbedbfcbb58f",
     "head": "HEAD",
-    "headSha": "d63a981f30f2a24737cd8494f7def7fb2ccfd038",
+    "headSha": "9bd07719c06fd700317d638a2fac6f73442c31dc",
     "mergeBase": "660af97fc4349592a171623cb0c0dbedbfcbb58f",
     "files": [
       ".ci/proof/latest.json",
@@ -130,7 +130,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 14
+      "durationMs": 12
     },
     {
       "name": "indexing-tests",
@@ -139,7 +139,7 @@
       "budgetMs": 240000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 4769
+      "durationMs": 4389
     },
     {
       "name": "embedding-tests",
@@ -148,7 +148,7 @@
       "budgetMs": 300000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 19059
+      "durationMs": 18821
     },
     {
       "name": "desktop-unit-tests",
@@ -157,7 +157,7 @@
       "budgetMs": 240000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 59833
+      "durationMs": 60250
     },
     {
       "name": "desktop-full-regression-tests",
@@ -166,7 +166,7 @@
       "budgetMs": 900000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 301528
+      "durationMs": 319868
     }
   ]
 }
