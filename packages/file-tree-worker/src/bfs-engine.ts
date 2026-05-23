@@ -280,7 +280,7 @@ export class BFSEngine {
     // Id-less load results come only from the legacy non-correlated path. The port keeps a
     // single active bulk operation, so the first pending load containing this path is its owner.
     if (this.pendingLoads.size > 1) {
-      this.logDebug(
+      this.logWarn(
         `Legacy id-less load result resolved while ${this.pendingLoads.size} loads were pending`
       );
     }
@@ -357,6 +357,10 @@ export class BFSEngine {
    */
   private logDebug(message: string): void {
     this.postMessage({ type: 'log', level: 'debug', message });
+  }
+
+  private logWarn(message: string): void {
+    this.postMessage({ type: 'log', level: 'warn', message });
   }
 
   /**

@@ -169,6 +169,51 @@ describe('BFSEngine', () => {
       expect(indexedEngine.findNode('/root/dir/stale.txt')).toBeNull();
       expect(indexedEngine.findNode('/root/dir/fresh.txt')?.name).toBe('fresh.txt');
     });
+
+    it('warns when a legacy id-less load result could match multiple pending loads', () => {
+      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'loading' })];
+      engine.setTree(tree, 'root');
+      const mutableEngine = engine as unknown as {
+        pendingLoads: Map<
+          string,
+          {
+            operationId: number;
+            paths: Set<string>;
+            reject: (error: Error) => void;
+            results: Map<string, unknown>;
+            resolve: (result: unknown) => void;
+            timeoutId: ReturnType<typeof setTimeout>;
+          }
+        >;
+      };
+      const noop = (): void => {};
+      const extraTimeout = setTimeout(noop, 0);
+      mutableEngine.pendingLoads.set('request-1', {
+        operationId: 1,
+        paths: new Set(['/root/dir']),
+        reject: noop,
+        results: new Map(),
+        resolve: noop,
+        timeoutId: setTimeout(noop, 0),
+      });
+      mutableEngine.pendingLoads.set('request-2', {
+        operationId: 2,
+        paths: new Set(['/root/other']),
+        reject: noop,
+        results: new Map(),
+        resolve: noop,
+        timeoutId: extraTimeout,
+      });
+
+      engine.handleLoadResult('/root/dir', [createFileNode({ path: '/root/dir/file.txt' })]);
+
+      expect(messages).toContainEqual({
+        type: 'log',
+        level: 'warn',
+        message: 'Legacy id-less load result resolved while 2 loads were pending',
+      });
+      clearTimeout(extraTimeout);
+    });
   });
 
   describe('handleLoadError', () => {
