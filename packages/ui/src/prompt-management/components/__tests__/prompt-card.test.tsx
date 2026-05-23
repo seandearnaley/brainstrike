@@ -33,7 +33,7 @@ const prompt: Prompt = {
 
 describe('PromptCard', () => {
   const renderPromptCard = (ui: React.ReactElement) =>
-    render(<TooltipProvider>{ui}</TooltipProvider>);
+    render(<TooltipProvider delayDuration={300}>{ui}</TooltipProvider>);
 
   it('renders prompt metadata and forwards actions', () => {
     const onEdit = vi.fn();

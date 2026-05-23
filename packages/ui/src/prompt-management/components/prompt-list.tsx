@@ -45,7 +45,7 @@ export function PromptList({
             <PromptCard
               category={categories.find((c) => c.id === prompt.categoryId) ?? categories[0]}
               key={prompt.id}
-              onCopy={onCopy} // Fallback to first category (General)
+              onCopy={onCopy}
               onDelete={onDelete}
               onEdit={onEdit}
               onToggleFavorite={onToggleFavorite}
