@@ -100,10 +100,16 @@ async function setPersistedSizesRaw(page: Page, raw: string): Promise<void> {
   );
 }
 
-test.describe('TreeTable column resize @web-collection-browser', () => {
+// `@stateful` is required because the setup creates a collection and imports
+// files into the local PGlite store; the test relies on `waitForAppLoad` to
+// gate on database readiness before interacting with the tree.
+// `@web-collection-browser` keeps this in the collection-browser CI lane.
+test.describe('TreeTable column resize @stateful @web-collection-browser', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test('pointer drag, persistence, and malformed-value sanitization', async ({ page }) => {
+  test('pointer drag, persistence, and malformed-value sanitization @stateful', async ({
+    page,
+  }) => {
     test.setTimeout(240_000);
 
     await mockBrowserApis(page, ROOT_NAME, FILE_TREE);
