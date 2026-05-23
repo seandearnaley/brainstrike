@@ -278,6 +278,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
   const recordPatch = (patch: FileTreePatchMessage): void => {
     const operation = pending.operation;
     if (!operation || operation.operationId !== patch.operationId) {
+      // Patch event handlers still run below; only operation result accumulation is scoped.
       return;
     }
     operation.patches.push(patch);
