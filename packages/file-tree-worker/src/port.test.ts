@@ -406,6 +406,52 @@ describe('createFileTreeWorkerPort', () => {
     });
   });
 
+  it('delivers standalone update patches without adding them to an active operation result', async () => {
+    const worker = new MockWorker();
+    const port = createFileTreeWorkerPort(worker as unknown as Worker);
+    const standaloneChild = createDirectoryNode('/root/standalone-child');
+    const activeChild = createDirectoryNode('/root/active-child');
+    const onChildrenLoaded = vi.fn();
+    const onExpandedPathsDelta = vi.fn();
+
+    port.onChildrenLoaded(onChildrenLoaded);
+    port.onExpandedPathsDelta(onExpandedPathsDelta);
+    const activePromise = port.loadPaths(['/root/active']);
+
+    worker.emit({
+      type: 'childrenLoaded',
+      payload: { path: '/root/standalone', children: [standaloneChild], loadState: 'loaded' },
+    } as WorkerToMainMessage);
+    worker.emit({
+      type: 'expandedPathsDelta',
+      payload: { added: ['/root/standalone'], removed: [] },
+    } as WorkerToMainMessage);
+    worker.emit({
+      operationId: 1,
+      type: 'childrenLoaded',
+      payload: { path: '/root/active', children: [activeChild], loadState: 'loaded' },
+    } as WorkerToMainMessage);
+    worker.emit({
+      operationId: 1,
+      type: 'complete',
+      payload: { expandedPaths: ['/root/active'], loadedCount: 1 },
+    } as WorkerToMainMessage);
+
+    expect(onChildrenLoaded).toHaveBeenCalledWith('/root/standalone', [standaloneChild]);
+    expect(onExpandedPathsDelta).toHaveBeenCalledWith(['/root/standalone'], []);
+    await expect(activePromise).resolves.toEqual({
+      patches: [
+        {
+          operationId: 1,
+          type: 'childrenLoaded',
+          payload: { path: '/root/active', children: [activeChild], loadState: 'loaded' },
+        },
+      ],
+      expandedPaths: ['/root/active'],
+      loadedCount: 1,
+    });
+  });
+
   it('propagates worker errors to active operations and listeners', async () => {
     const worker = new MockWorker();
     const port = createFileTreeWorkerPort(worker as unknown as Worker);

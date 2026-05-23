@@ -90,18 +90,18 @@ Run:
 pnpm --filter @brainstrike/file-explorer-ui vitest run src/tree/use-lazy-file-tree.test.ts src/__tests__/use-file-tree-context.test.ts
 ```
 
-- [ ] **Step 3: Run root gate**
+- [x] **Step 3: Run root gate**
 
 Run:
 ```bash
 pnpm lint && pnpm type-check && pnpm build && pnpm test
 ```
 
-- [ ] **Step 4: Commit source changes**
+- [x] **Step 4: Commit source changes**
 
 Commit all source, tests, and this plan before creating the proof manifest.
 
-- [ ] **Step 5: Run PR proof flow**
+- [x] **Step 5: Run PR proof flow**
 
 Run:
 ```bash
@@ -111,3 +111,7 @@ pnpm ci:verify-proof --base origin/main --head HEAD --labels '<selected ci label
 ```
 
 Commit `.ci/proof/latest.json` alone after `ci:prove`, then push and open the PR with the selected `ci:*` labels.
+
+### Follow-Up Notes
+
+- `expandedPathsDelta` remains per loaded directory so live listeners can update incrementally. If expand-all trees reach thousands of directories, consider batching or coalescing expansion deltas while keeping the final `complete.expandedPaths` as the operation result source of truth.

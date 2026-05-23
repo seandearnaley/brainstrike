@@ -493,6 +493,8 @@ async function loadSpecificPathsWithWorker(args: {
   onProgress?.(0, total, paths[0] ?? '');
 
   const result = await port.loadPaths(paths);
+  // FileTreeWorkerPort guarantees one pending bulk operation; a newer operation rejects this one
+  // before its patches can be applied to this normalized tree snapshot.
   const patchResult = applyWorkerPatchesToNormalizedTree({
     handleMap: handleMapRef.current,
     normalizedTree: normalizedTreeRef.current,

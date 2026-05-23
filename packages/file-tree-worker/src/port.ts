@@ -71,11 +71,7 @@ async function handleRequestLoadMessage(
 /**
  * Send load results back to worker
  */
-function sendLoadResults(
-  worker: Worker,
-  requestId: string | undefined,
-  results: BatchLoadResult[]
-): void {
+function sendLoadResults(worker: Worker, requestId: string, results: BatchLoadResult[]): void {
   for (const result of results) {
     if (result.error) {
       worker.postMessage({
@@ -83,7 +79,7 @@ function sendLoadResults(
         payload: {
           path: result.path,
           error: result.error,
-          ...(requestId === undefined ? {} : { requestId }),
+          requestId,
         },
       } satisfies MainToWorkerMessage);
     } else if (result.children) {
@@ -92,7 +88,7 @@ function sendLoadResults(
         payload: {
           path: result.path,
           children: result.children,
-          ...(requestId === undefined ? {} : { requestId }),
+          requestId,
         },
       } satisfies MainToWorkerMessage);
     }
@@ -102,17 +98,12 @@ function sendLoadResults(
 /**
  * Send load errors for all paths
  */
-function sendLoadErrors(
-  worker: Worker,
-  requestId: string | undefined,
-  paths: string[],
-  err: unknown
-): void {
+function sendLoadErrors(worker: Worker, requestId: string, paths: string[], err: unknown): void {
   for (const path of paths) {
     worker.postMessage({
       type: 'loadError',
       payload: {
-        ...(requestId === undefined ? {} : { requestId }),
+        requestId,
         path,
         error: err instanceof Error ? err.message : String(err),
       },
@@ -284,7 +275,8 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
     const operation = pending.operation;
     if (!operation || operation.operationId !== patch.operationId) {
-      // Patch event handlers still run below; only operation result accumulation is scoped.
+      // Standalone updateTree patches omit operationId and still notify live listeners.
+      // They must not be accumulated into any pending bulk-operation result.
       return;
     }
     operation.patches.push(patch);
