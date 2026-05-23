@@ -23,3 +23,4 @@ Expose observable pipeline cache telemetry from `packages/embedding-worker` with
 - Targeted red-green Vitest for embedding-worker pipeline cache/eviction/client tests.
 - Package type-check/build.
 - Root `pnpm lint && pnpm type-check && pnpm build && pnpm test` before proof.
+- The affected-unit CI timeout was raised to 25 minutes at the job level and 20 minutes for the test step because cold-cache affected runs for this diff include dependency builds plus embedding-worker diagnostic tests. The step timeout stays below the job timeout so diagnostics and summary reporting can still run after a slow or stuck test step.

@@ -575,6 +575,8 @@ async function disposePipeline(
   }
   // Delete from cache FIRST to prevent concurrent access during async dispose
   pipelines.delete(key);
+  // The diagnostic means the entry left the reusable cache; actual resource disposal happens
+  // after any pending pipeline load resolves below.
   if (diagnostics.event === 'evicted') {
     emitPipelineCacheDiagnostic({
       entry,
