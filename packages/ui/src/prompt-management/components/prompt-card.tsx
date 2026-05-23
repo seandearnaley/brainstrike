@@ -33,6 +33,7 @@ function useTooltipDropdownCoordination() {
     setIsDropdownOpen(open);
     if (open) {
       setIsTooltipOpen(false);
+      // Keep pointer-close and pointer-over Escape close quiet until the pointer leaves.
       setIsTooltipSuppressed(true);
     }
   };

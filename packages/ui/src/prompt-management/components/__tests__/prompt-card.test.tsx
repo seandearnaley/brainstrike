@@ -169,6 +169,33 @@ describe('PromptCard', () => {
     expect(await screen.findByRole('tooltip')).toHaveTextContent('More options');
   });
 
+  it('keeps the more options hover hint suppressed after pointer-over keyboard menu close', async () => {
+    const user = userEvent.setup();
+
+    renderPromptCard(
+      <PromptCard
+        category={category}
+        onCopy={() => {}}
+        onDelete={() => {}}
+        onEdit={() => {}}
+        onToggleFavorite={() => {}}
+        prompt={prompt}
+      />
+    );
+
+    const moreOptions = screen.getByRole('button', { name: 'More options' });
+    await user.hover(moreOptions);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('More options');
+
+    moreOptions.focus();
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
+  });
+
   it('does not add focusable controls for decorative metadata', () => {
     renderPromptCard(
       <PromptCard
