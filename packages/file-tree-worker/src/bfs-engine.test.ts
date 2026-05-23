@@ -82,6 +82,52 @@ describe('BFSEngine', () => {
       expect(updatedTree[0]?.loadState).toBe('loaded');
     });
 
+    it('should emit children-loaded patch without a redundant loaded-state patch', () => {
+      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'loading' })];
+      engine.setTree(tree, 'root');
+      messages = [];
+
+      const children = [createFileNode({ path: '/root/dir/file.txt' })];
+      engine.handleLoadResult('/root/dir', children);
+
+      expect(messages).toContainEqual({
+        type: 'childrenLoaded',
+        payload: { path: '/root/dir', children, loadState: 'loaded' },
+      });
+      expect(
+        messages.some(
+          (message) =>
+            message.type === 'nodeLoadStateChanged' &&
+            message.payload.path === '/root/dir' &&
+            message.payload.loadState === 'loaded'
+        )
+      ).toBe(false);
+      expect(messages.some((message) => message.type === 'treeSnapshot')).toBe(false);
+    });
+
+    it('should not report unchanged expanded paths as both removed and added', () => {
+      const child = createDirectoryNode({
+        name: 'child',
+        path: '/root/dir/child',
+        depth: 2,
+        loadState: 'loaded',
+      });
+      const tree = [
+        createDirectoryNode({
+          path: '/root/dir',
+          loadState: 'loaded',
+          children: [child],
+        }),
+      ];
+      engine.setTree(tree, 'root');
+      messages = [];
+
+      engine.handleLoadResult('/root/dir', [child]);
+
+      const deltaMsg = messages.find((message) => message.type === 'expandedPathsDelta');
+      expect(deltaMsg).toBeUndefined();
+    });
+
     it('should resolve pending load promise when all paths complete', async () => {
       const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
       engine.setTree(tree, 'root');
@@ -146,6 +192,53 @@ describe('BFSEngine', () => {
       expect(indexedEngine.findNode('/root/dir/stale.txt')).toBeNull();
       expect(indexedEngine.findNode('/root/dir/fresh.txt')?.name).toBe('fresh.txt');
     });
+
+    it('warns when a legacy id-less load result could match multiple pending loads', () => {
+      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'loading' })];
+      engine.setTree(tree, 'root');
+      const mutableEngine = engine as unknown as {
+        pendingLoads: Map<
+          string,
+          {
+            operationId: number;
+            paths: Set<string>;
+            reject: (error: Error) => void;
+            results: Map<string, unknown>;
+            resolve: (result: unknown) => void;
+            timeoutId: ReturnType<typeof setTimeout>;
+          }
+        >;
+      };
+      const noop = (): void => {};
+      const firstTimeout = setTimeout(noop, 0);
+      const extraTimeout = setTimeout(noop, 0);
+      mutableEngine.pendingLoads.set('request-1', {
+        operationId: 1,
+        paths: new Set(['/root/dir']),
+        reject: noop,
+        results: new Map(),
+        resolve: noop,
+        timeoutId: firstTimeout,
+      });
+      mutableEngine.pendingLoads.set('request-2', {
+        operationId: 2,
+        paths: new Set(['/root/other']),
+        reject: noop,
+        results: new Map(),
+        resolve: noop,
+        timeoutId: extraTimeout,
+      });
+
+      engine.handleLoadResult('/root/dir', [createFileNode({ path: '/root/dir/file.txt' })]);
+
+      expect(messages).toContainEqual({
+        type: 'log',
+        level: 'warn',
+        message: 'Legacy id-less load result resolved while 2 loads were pending',
+      });
+      clearTimeout(firstTimeout);
+      clearTimeout(extraTimeout);
+    });
   });
 
   describe('handleLoadError', () => {
@@ -198,16 +291,23 @@ describe('BFSEngine', () => {
       expect(updatedTree[0]?.children).toHaveLength(1);
     });
 
-    it('should send tree snapshot with empty expanded paths', () => {
-      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'loaded' })];
+    it('should send expanded-path removal patch', () => {
+      const tree = [
+        createDirectoryNode({
+          path: '/root/dir',
+          loadState: 'loaded',
+          children: [createFileNode({ path: '/root/dir/file.txt' })],
+        }),
+      ];
       engine.setTree(tree, 'root');
 
       engine.collapseAll();
 
-      const snapshotMsg = messages.find((m) => m.type === 'treeSnapshot');
-      expect(snapshotMsg).toBeDefined();
-      if (snapshotMsg?.type === 'treeSnapshot') {
-        expect(snapshotMsg.payload.expandedPaths).toEqual([]);
+      const deltaMsg = messages.find((m) => m.type === 'expandedPathsDelta');
+      expect(deltaMsg).toBeDefined();
+      if (deltaMsg?.type === 'expandedPathsDelta') {
+        expect(deltaMsg.payload.added).toEqual([]);
+        expect(deltaMsg.payload.removed).toEqual(['/root/dir']);
       }
     });
 
@@ -301,6 +401,7 @@ describe('BFSEngine', () => {
       const completeMsg = messages.find((m) => m.type === 'complete');
       expect(completeMsg).toBeDefined();
       if (completeMsg?.type === 'complete') {
+        expect(completeMsg.payload).not.toHaveProperty('tree');
         expect(completeMsg.payload.expandedPaths).toContain('/root/dir');
       }
     });
@@ -761,9 +862,9 @@ describe('BFSEngine', () => {
 
       engine.flattenTree([]);
 
-      const resultMsg = messages.find((m) => m.type === 'flattenedResult');
+      const resultMsg = messages.find((m) => m.type === 'flattenedRows');
       expect(resultMsg).toBeDefined();
-      if (resultMsg?.type === 'flattenedResult') {
+      if (resultMsg?.type === 'flattenedRows') {
         expect(resultMsg.payload.nodes).toEqual([]);
         expect(resultMsg.payload.count).toBe(0);
       }
@@ -778,9 +879,9 @@ describe('BFSEngine', () => {
 
       engine.flattenTree([]);
 
-      const resultMsg = messages.find((m) => m.type === 'flattenedResult');
+      const resultMsg = messages.find((m) => m.type === 'flattenedRows');
       expect(resultMsg).toBeDefined();
-      if (resultMsg?.type === 'flattenedResult') {
+      if (resultMsg?.type === 'flattenedRows') {
         expect(resultMsg.payload.nodes).toHaveLength(2);
         expect(resultMsg.payload.nodes[0]?.depth).toBe(0);
         expect(resultMsg.payload.nodes[1]?.depth).toBe(0);
@@ -800,9 +901,9 @@ describe('BFSEngine', () => {
 
       engine.flattenTree(['/root/dir1']);
 
-      const resultMsg = messages.find((m) => m.type === 'flattenedResult');
+      const resultMsg = messages.find((m) => m.type === 'flattenedRows');
       expect(resultMsg).toBeDefined();
-      if (resultMsg?.type === 'flattenedResult') {
+      if (resultMsg?.type === 'flattenedRows') {
         expect(resultMsg.payload.nodes).toHaveLength(2);
         expect(resultMsg.payload.nodes[0]?.node.path).toBe('/root/dir1');
         expect(resultMsg.payload.nodes[0]?.depth).toBe(0);
@@ -825,9 +926,9 @@ describe('BFSEngine', () => {
       // Not expanded - pass empty array
       engine.flattenTree([]);
 
-      const resultMsg = messages.find((m) => m.type === 'flattenedResult');
+      const resultMsg = messages.find((m) => m.type === 'flattenedRows');
       expect(resultMsg).toBeDefined();
-      if (resultMsg?.type === 'flattenedResult') {
+      if (resultMsg?.type === 'flattenedRows') {
         // Only parent, no children
         expect(resultMsg.payload.nodes).toHaveLength(1);
         expect(resultMsg.payload.nodes[0]?.node.path).toBe('/root/dir1');
@@ -846,9 +947,9 @@ describe('BFSEngine', () => {
 
       engine.flattenTree(['/root/dir1']); // Expanded but not loaded
 
-      const resultMsg = messages.find((m) => m.type === 'flattenedResult');
+      const resultMsg = messages.find((m) => m.type === 'flattenedRows');
       expect(resultMsg).toBeDefined();
-      if (resultMsg?.type === 'flattenedResult') {
+      if (resultMsg?.type === 'flattenedRows') {
         // Only parent, no children (not loaded)
         expect(resultMsg.payload.nodes).toHaveLength(1);
       }
@@ -859,9 +960,9 @@ describe('BFSEngine', () => {
 
       engine.flattenTree([]);
 
-      const resultMsg = messages.find((m) => m.type === 'flattenedResult');
+      const resultMsg = messages.find((m) => m.type === 'flattenedRows');
       expect(resultMsg).toBeDefined();
-      if (resultMsg?.type === 'flattenedResult') {
+      if (resultMsg?.type === 'flattenedRows') {
         expect(typeof resultMsg.payload.durationMs).toBe('number');
         expect(resultMsg.payload.durationMs).toBeGreaterThanOrEqual(0);
       }
@@ -894,9 +995,9 @@ describe('BFSEngine', () => {
 
       engine.flattenTree(['/root/level1', '/root/level1/level2']);
 
-      const resultMsg = messages.find((m) => m.type === 'flattenedResult');
+      const resultMsg = messages.find((m) => m.type === 'flattenedRows');
       expect(resultMsg).toBeDefined();
-      if (resultMsg?.type === 'flattenedResult') {
+      if (resultMsg?.type === 'flattenedRows') {
         expect(resultMsg.payload.nodes).toHaveLength(3);
         expect(resultMsg.payload.nodes[0]?.depth).toBe(0);
         expect(resultMsg.payload.nodes[1]?.depth).toBe(1);

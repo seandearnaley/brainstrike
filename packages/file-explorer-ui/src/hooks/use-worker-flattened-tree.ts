@@ -74,15 +74,15 @@ export function useWorkerFlattenedTree(
   // Store cleanup function ref
   const cleanupRef = useRef<(() => void) | null>(null);
 
-  // Register onFlattenedResult handler
+  // Register onFlattenedRows handler
   useEffect(() => {
     const port = portRef.current;
     if (!(port && isWorkerEnabled)) {
       return;
     }
 
-    // Register handler for flattened results
-    cleanupRef.current = port.onFlattenedResult((nodes, count, durationMs) => {
+    // Register handler for flattened rows
+    cleanupRef.current = port.onFlattenedRows((nodes, count, durationMs) => {
       setFlattenedNodes(nodes);
       setLastDurationMs(durationMs);
       recordFileTreeTelemetry({

@@ -13,7 +13,7 @@ import { shouldUseWorkerFlattening, useWorkerFlattenedTree } from '../use-worker
 describe('useWorkerFlattenedTree', () => {
   // Mock worker port
   let mockPort: {
-    onFlattenedResult: Mock;
+    onFlattenedRows: Mock;
     flattenTree: Mock;
   };
   let mockCleanup: Mock;
@@ -25,7 +25,7 @@ describe('useWorkerFlattenedTree', () => {
     mockCleanup = vi.fn();
 
     mockPort = {
-      onFlattenedResult: vi.fn((handler) => {
+      onFlattenedRows: vi.fn((handler) => {
         capturedHandler = handler;
         return mockCleanup;
       }),
@@ -48,7 +48,7 @@ describe('useWorkerFlattenedTree', () => {
 
       expect(result.current.isWorkerEnabled).toBe(false);
       expect(result.current.flattenedNodes).toBeNull();
-      expect(mockPort.onFlattenedResult).not.toHaveBeenCalled();
+      expect(mockPort.onFlattenedRows).not.toHaveBeenCalled();
     });
 
     it('enables worker flattening for large trees (above threshold)', () => {
@@ -64,7 +64,7 @@ describe('useWorkerFlattenedTree', () => {
       );
 
       expect(result.current.isWorkerEnabled).toBe(true);
-      expect(mockPort.onFlattenedResult).toHaveBeenCalledOnce();
+      expect(mockPort.onFlattenedRows).toHaveBeenCalledOnce();
     });
 
     it('enables worker flattening when forceWorker is true', () => {
@@ -81,12 +81,12 @@ describe('useWorkerFlattenedTree', () => {
       );
 
       expect(result.current.isWorkerEnabled).toBe(true);
-      expect(mockPort.onFlattenedResult).toHaveBeenCalledOnce();
+      expect(mockPort.onFlattenedRows).toHaveBeenCalledOnce();
     });
   });
 
   describe('handler registration', () => {
-    it('registers onFlattenedResult handler when enabled', () => {
+    it('registers onFlattenedRows handler when enabled', () => {
       const portRef = { current: mockPort as unknown as FileTreeWorkerPort };
       const expandedPaths = new Set<string>();
 
@@ -98,7 +98,7 @@ describe('useWorkerFlattenedTree', () => {
         })
       );
 
-      expect(mockPort.onFlattenedResult).toHaveBeenCalledWith(expect.any(Function));
+      expect(mockPort.onFlattenedRows).toHaveBeenCalledWith(expect.any(Function));
     });
 
     it('cleans up handler on unmount', () => {
@@ -132,7 +132,7 @@ describe('useWorkerFlattenedTree', () => {
         })
       );
 
-      expect(mockPort.onFlattenedResult).not.toHaveBeenCalled();
+      expect(mockPort.onFlattenedRows).not.toHaveBeenCalled();
     });
   });
 
