@@ -20,6 +20,7 @@ import { warnCycleOnce } from '../lib/cycle-warning';
 import { cn } from '../lib/utils';
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '../table';
 import { TablePagination } from '../table-pagination';
+import { ColumnResizeHandle } from './column-resize-handle';
 import { DEFAULT_ROW_HEIGHTS, TreeTableRow } from './tree-table-row';
 import {
   createChildrenGetter,
@@ -28,6 +29,7 @@ import {
   getDescendantIds,
 } from './tree-utils';
 import type { CheckboxState, TreeNode, TreeTableProps, TreeTableRowProps } from './types';
+import { computeColumnBounds, useColumnSizing } from './use-column-sizing';
 import { type UseTreeKeyboardOptions, useTreeKeyboard } from './use-tree-keyboard';
 import { useTreeTableHandlers } from './use-tree-table-handlers';
 
@@ -219,10 +221,20 @@ function buildTablePaginationProps({
 
 interface RenderTableHeaderOptions<T> {
   columns: TreeTableProps<T>['columns'];
+  getResolvedWidth: (columnId: string) => number | undefined;
+  isColumnResizable: (columnId: string) => boolean;
+  onResize: (columnId: string, nextWidth: number) => void;
   onSortChange: TreeTableProps<T>['onSortChange'];
   onSortClick: (columnId: string) => void;
   showHeader: boolean;
   sortState: TreeTableProps<T>['sortState'];
+}
+
+function resolveColumnHeaderLabel<T>(column: TreeTableProps<T>['columns'][number]): string {
+  if (typeof column.header === 'string') {
+    return column.header;
+  }
+  return column.id;
 }
 
 function renderTableHeader<T>({
@@ -231,6 +243,9 @@ function renderTableHeader<T>({
   sortState,
   onSortChange,
   onSortClick,
+  getResolvedWidth,
+  isColumnResizable,
+  onResize,
 }: RenderTableHeaderOptions<T>): React.ReactNode {
   if (!showHeader) {
     return null;
@@ -243,11 +258,14 @@ function renderTableHeader<T>({
           const ariaSortValue = column.sortable
             ? getAriaSortValue(column.id, sortState)
             : undefined;
+          const resolvedWidth = getResolvedWidth(column.id);
+          const showHandle = isColumnResizable(column.id) && resolvedWidth !== undefined;
 
           return (
             <TableHead
               aria-sort={ariaSortValue}
               className={cn(
+                'relative',
                 column.headerClassName,
                 column.sortable && onSortChange && 'cursor-pointer select-none'
               )}
@@ -255,7 +273,7 @@ function renderTableHeader<T>({
               onClick={() => column.sortable && onSortClick(column.id)}
               role="columnheader"
               style={{
-                width: column.width,
+                width: resolvedWidth ?? column.width,
                 minWidth: column.minWidth,
                 maxWidth: column.maxWidth,
               }}
@@ -272,11 +290,51 @@ function renderTableHeader<T>({
                   </span>
                 )}
               </div>
+              {showHandle && resolvedWidth !== undefined ? (
+                <ColumnResizeHandle
+                  bounds={computeColumnBounds(column)}
+                  columnId={column.id}
+                  columnLabel={resolveColumnHeaderLabel(column)}
+                  currentWidth={resolvedWidth}
+                  onResize={onResize}
+                />
+              ) : null}
             </TableHead>
           );
         })}
       </TableRow>
     </TableHeader>
+  );
+}
+
+interface TreeTableColgroupProps<T> {
+  columns: TreeTableProps<T>['columns'];
+  getResolvedWidth: (columnId: string) => number | undefined;
+}
+
+/**
+ * Propagates header widths to body cells via a colgroup. The shared
+ * `<Table>` component already sets `table-fixed`, so per-column `<col>`
+ * widths apply uniformly to every row without touching cell renderers.
+ */
+function TreeTableColgroup<T>({
+  columns,
+  getResolvedWidth,
+}: TreeTableColgroupProps<T>): React.ReactElement | null {
+  const hasAnyWidth = columns.some(
+    (column) => getResolvedWidth(column.id) !== undefined || column.width !== undefined
+  );
+  if (!hasAnyWidth) {
+    return null;
+  }
+  return (
+    <colgroup>
+      {columns.map((column) => {
+        const resolved = getResolvedWidth(column.id);
+        const width = resolved === undefined ? column.width : `${resolved}px`;
+        return <col key={column.id} style={width === undefined ? undefined : { width }} />;
+      })}
+    </colgroup>
   );
 }
 
@@ -525,12 +583,20 @@ export function TreeTable<T>({
   insetTreeControls = false,
   onRowDoubleClick,
   onRowContextMenu,
+  columnSizes,
+  onColumnSizesChange,
 }: TreeTableProps<T>) {
   const tableAriaRole = resolveTableAriaRole(ariaRole);
   const parentRef = React.useRef<HTMLDivElement>(null);
   // Diagnostic-only cycle warning cache. This is intentionally mutable and
   // excluded from memo deps because it does not affect rendered output.
   const warnedCycleNodeIdsRef = React.useRef<Set<string>>(new Set());
+
+  const columnSizing = useColumnSizing({
+    columns,
+    controlledSizes: columnSizes,
+    onSizesChange: onColumnSizesChange,
+  });
 
   const getChildren = React.useMemo(() => createChildrenGetter(nodes), [nodes]);
 
@@ -930,8 +996,20 @@ export function TreeTable<T>({
         sortState,
         onSortChange,
         onSortClick: handleSortClick,
+        getResolvedWidth: columnSizing.getWidth,
+        isColumnResizable: columnSizing.isResizable,
+        onResize: columnSizing.setWidth,
       }),
-    [showHeader, columns, sortState, onSortChange, handleSortClick]
+    [
+      showHeader,
+      columns,
+      sortState,
+      onSortChange,
+      handleSortClick,
+      columnSizing.getWidth,
+      columnSizing.isResizable,
+      columnSizing.setWidth,
+    ]
   );
 
   if (nodes.length === 0) {
@@ -964,6 +1042,7 @@ export function TreeTable<T>({
           role={tableAriaRole}
           tabIndex={0}
         >
+          <TreeTableColgroup columns={columns} getResolvedWidth={columnSizing.getWidth} />
           {tableHeader}
 
           <TableBody role="rowgroup">
