@@ -457,6 +457,43 @@ describe('TreeTable column resize', () => {
     });
   });
 
+  describe('hidden-column width preservation', () => {
+    it('preserves persisted widths for columns not currently rendered (Codex P2 regression)', () => {
+      const onColumnSizesChange = vi.fn();
+      // Simulates the collection-browser case: the user previously resized
+      // the optional `score` column (only rendered in semantic search mode),
+      // then resizes `name` while in browse mode. The hidden `score` width
+      // must survive the emit so the persistence store doesn't drop it.
+      render(
+        <TreeTable
+          columnSizes={{ name: 200, size: 120, score: 250 }}
+          columns={buildColumns()}
+          expandedIds={new Set()}
+          nodes={NODES}
+          onColumnSizesChange={onColumnSizesChange}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const handle = screen.getByRole('separator', { name: /resize name/i });
+      act(() => {
+        handle.focus();
+      });
+      fireEvent.keyDown(handle, { key: 'ArrowRight' });
+
+      const lastCall = onColumnSizesChange.mock.calls.at(-1);
+      expect(lastCall?.[0]).toEqual(
+        expect.objectContaining({
+          name: 208,
+          size: 120,
+          // The score entry is NOT a rendered column here but must round-trip
+          // back to the consumer so the persistence store keeps it.
+          score: 250,
+        })
+      );
+    });
+  });
+
   describe('listener lifecycle', () => {
     it('removes window pointer listeners after pointerup', () => {
       const addSpy = vi.spyOn(window, 'addEventListener');

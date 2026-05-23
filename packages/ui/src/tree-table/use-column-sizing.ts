@@ -144,6 +144,15 @@ export function useColumnSizing<T>({
     return buildInitialSizes(columns, controlledSizes);
   }, [columns, controlledSizes, internalSizes, isControlled]);
 
+  // ColumnResizeHandle captures `onResize` at pointer-down time and keeps
+  // calling it for every pointermove during a single drag. That means the
+  // closure below — and `resolvedSizes` in particular — is frozen at the
+  // drag-start snapshot for the lifetime of one gesture. This is safe today
+  // because (a) the delta math uses the ref-stored `startWidth`, not the
+  // closure, and (b) only one column is dragged at a time. If concurrent
+  // resizes or external mid-drag mutations are added later, this `setWidth`
+  // needs to read latest sizes via a ref to avoid silently reverting the
+  // other change.
   const setWidth = React.useCallback(
     (columnId: string, nextWidth: number) => {
       const bounds = boundsById.get(columnId);
@@ -155,13 +164,23 @@ export function useColumnSizing<T>({
       if (current === clamped) {
         return;
       }
-      const nextMap: Record<string, number> = { ...resolvedSizes, [columnId]: clamped };
+      // Preserve persisted widths for columns that are not currently rendered
+      // (e.g., the optional `score` column in collection-browser, or columns
+      // hidden by visibility toggles in preview-table). Starting from
+      // `controlledSizes` rather than `resolvedSizes` keeps those entries
+      // intact so the downstream persistence store doesn't wipe them when it
+      // sanitizes the next map back into storage. Uncontrolled mode falls
+      // back to the resolved snapshot since there is no consumer-owned map.
+      const baseMap = isControlled
+        ? { ...(controlledSizes ?? {}), ...resolvedSizes }
+        : resolvedSizes;
+      const nextMap: Record<string, number> = { ...baseMap, [columnId]: clamped };
       if (!isControlled) {
         setInternalSizes(nextMap);
       }
       onSizesChange?.(nextMap);
     },
-    [boundsById, isControlled, onSizesChange, resolvedSizes]
+    [boundsById, controlledSizes, isControlled, onSizesChange, resolvedSizes]
   );
 
   const getWidth = React.useCallback(

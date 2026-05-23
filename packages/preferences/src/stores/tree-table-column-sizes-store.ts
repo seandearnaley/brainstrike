@@ -100,7 +100,7 @@ export function sanitizeColumnSizes(
   return next;
 }
 
-interface PersistedShape {
+export interface PersistedShape {
   sizes: Record<string, number>;
 }
 
@@ -245,4 +245,51 @@ export function createTreeTableColumnSizesStore(options: CreateTreeTableColumnSi
   return create<TreeTableColumnSizesStoreState>()(
     persist(buildCreator(options.columnBounds), buildPersistOptions(options, storage))
   );
+}
+
+/**
+ * Per-process singleton wrapper for `createTreeTableColumnSizesStore`.
+ *
+ * HMR, React StrictMode double-invocation, and dynamic imports across
+ * workspace boundaries can all instantiate a module more than once in a
+ * single tab. Stashing the store on `globalThis` under a unique key (with a
+ * brand check that survives module reloads) ensures every caller resolves to
+ * the same Zustand instance so persistence + subscriptions stay coherent.
+ *
+ * Consumers pass the column bounds + persisted name/version they want; the
+ * helper handles the rest. Extracted to remove the ~30-line copy/paste pair
+ * that existed in collection-browser and context-preview singleton files.
+ */
+const SINGLETON_BRAND = '__brainstrike_store_brand__';
+const SINGLETON_BRAND_VERSION = 1 as const;
+
+type ColumnSizesStore = ReturnType<typeof createTreeTableColumnSizesStore>;
+
+function isValidColumnSizesStore(
+  candidate: unknown
+): candidate is ColumnSizesStore & { [k: string]: unknown } {
+  if (!candidate || typeof candidate !== 'function') {
+    return false;
+  }
+  const fn = candidate as unknown as {
+    getState?: unknown;
+    setState?: unknown;
+    [k: string]: unknown;
+  };
+  const ok = typeof fn.getState === 'function' && typeof fn.setState === 'function';
+  return ok && fn[SINGLETON_BRAND] === SINGLETON_BRAND_VERSION;
+}
+
+export function createSingletonColumnSizesStore(
+  globalKey: string,
+  options: CreateTreeTableColumnSizesStoreOptions
+): ColumnSizesStore {
+  const g = globalThis as unknown as Record<string, unknown>;
+  let singleton = g[globalKey] as unknown;
+  if (!isValidColumnSizesStore(singleton)) {
+    singleton = createTreeTableColumnSizesStore(options);
+    (singleton as Record<string, unknown>)[SINGLETON_BRAND] = SINGLETON_BRAND_VERSION;
+    g[globalKey] = singleton as unknown;
+  }
+  return singleton as ColumnSizesStore;
 }
