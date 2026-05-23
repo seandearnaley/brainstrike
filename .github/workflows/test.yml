@@ -210,7 +210,9 @@ jobs:
       (contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci:unit'))
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Cold-cache affected-unit runs can include Electron, embedding-worker diagnostics,
+    # and dependent package builds; the step remains capped below this job budget.
+    timeout-minutes: 25
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
@@ -233,7 +235,8 @@ jobs:
           echo "|------|----------|" >> $GITHUB_STEP_SUMMARY
 
       - name: Run affected unit tests
-        timeout-minutes: 10
+        # Kept below the job timeout so timing diagnostics and footer reporting still run.
+        timeout-minutes: 20
         env:
           NODE_ENV: test
           TURBO_TEST_MODE: unit

@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { EmbedWorkerBatch, EmbedWorkerProgress, EmbedWorkerRequest } from '../src/shared';
+import type {
+  EmbedWorkerBatch,
+  EmbedWorkerPipelineCacheDiagnostic,
+  EmbedWorkerProgress,
+  EmbedWorkerRequest,
+} from '../src/shared';
 import { StreamingEmbeddingWorkerClient } from '../src/streaming-worker-client';
 
 class MockWorker {
@@ -108,10 +113,12 @@ describe('StreamingEmbeddingWorkerClient', () => {
     const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
     const onProgress = vi.fn();
     const onBatch = vi.fn();
+    const onDiagnostic = vi.fn();
 
     const streamPromise = client.stream(createRequest(), {
       onProgress,
       onBatch,
+      onDiagnostic,
     });
     await flushMicrotasks();
 
@@ -123,6 +130,30 @@ describe('StreamingEmbeddingWorkerClient', () => {
       }),
     });
 
+    worker.emitMessage({
+      type: 'diagnostic',
+      diagnostic: 'pipeline-cache',
+      event: 'loaded',
+      id: 'embed-1',
+      cacheSize: 1,
+      emittedAt: 1000,
+      entries: [
+        {
+          cacheKey: 'local:test-model|wasm|fp32',
+          createdAt: 1000,
+          device: 'wasm',
+          dtype: 'fp32',
+          lastUsedAt: 1000,
+          memory: {
+            gpuBytes: null,
+            heapBytes: null,
+            reason: 'browser-runtime-unavailable',
+          },
+          model: 'local:test-model',
+          residencyMs: 0,
+        },
+      ],
+    } satisfies EmbedWorkerPipelineCacheDiagnostic);
     worker.emitMessage({
       type: 'progress',
       id: 'embed-1',
@@ -157,11 +188,57 @@ describe('StreamingEmbeddingWorkerClient', () => {
     });
     expect(onProgress).toHaveBeenCalledTimes(1);
     expect(onBatch).toHaveBeenCalledTimes(1);
+    expect(onDiagnostic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        diagnostic: 'pipeline-cache',
+        event: 'loaded',
+        id: 'embed-1',
+      })
+    );
     expect(worker.postMessage).toHaveBeenCalledWith({
       type: 'stream-ack',
       id: 'embed-1',
       batchIndex: 0,
     });
+  });
+
+  it('forwards id-less diagnostics emitted during an active stream', async () => {
+    const worker = new MockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+    const onDiagnostic = vi.fn();
+
+    const streamPromise = client.stream(createRequest(), { onDiagnostic });
+    await flushMicrotasks();
+
+    const diagnostic = {
+      type: 'diagnostic',
+      diagnostic: 'pipeline-cache',
+      event: 'invalidated',
+      cacheSize: 0,
+      emittedAt: 1234,
+      entries: [],
+      reason: 'device-lost',
+    } satisfies EmbedWorkerPipelineCacheDiagnostic;
+    worker.emitMessage(diagnostic);
+    worker.emitMessage({
+      type: 'complete',
+      id: 'embed-1',
+      metadata: {
+        model: 'local:test-model',
+        device: 'wasm',
+        dtype: 'fp32',
+        batchSize: 1,
+        elapsedMs: 12,
+        fallbackApplied: false,
+        dimensions: 3,
+      },
+    });
+
+    await expect(streamPromise).resolves.toMatchObject({
+      model: 'local:test-model',
+      dimensions: 3,
+    });
+    expect(onDiagnostic).toHaveBeenCalledWith(diagnostic);
   });
 
   it('ignores unrelated messages and rejects on worker error payloads', async () => {
@@ -180,6 +257,11 @@ describe('StreamingEmbeddingWorkerClient', () => {
       id: 'other-request',
       phase: 'embedding',
       progress: 0.2,
+    });
+    worker.emitMessage({
+      type: 'progress',
+      phase: 'embedding',
+      progress: 0.7,
     });
     worker.emitMessage({
       type: 'error',

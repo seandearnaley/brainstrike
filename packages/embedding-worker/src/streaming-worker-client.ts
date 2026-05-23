@@ -3,6 +3,7 @@ import type {
   EmbedWorkerBatch,
   EmbedWorkerComplete,
   EmbedWorkerError,
+  EmbedWorkerPipelineCacheDiagnostic,
   EmbedWorkerProgress,
   EmbedWorkerRequest,
   EmbedWorkerStreamEvent,
@@ -21,9 +22,13 @@ interface AckBatchMessage {
 }
 
 type StreamWorkerMessage = AckBatchMessage | StartStreamMessage;
+type StreamCleanup = () => void;
+type StreamResolve = (metadata: EmbedWorkerComplete['metadata']) => void;
+type StreamReject = (error: Error) => void;
 
 export interface StreamingEmbedOptions {
   readonly onBatch?: (event: EmbedWorkerBatch) => Promise<void> | void;
+  readonly onDiagnostic?: (event: EmbedWorkerPipelineCacheDiagnostic) => void;
   readonly onError?: (event: EmbedWorkerError) => void;
   readonly onProgress?: (event: EmbedWorkerProgress) => void;
 }
@@ -41,6 +46,7 @@ function isStreamEvent(value: unknown): value is EmbedWorkerStreamEvent {
   return (
     candidate.type === 'batch' ||
     candidate.type === 'complete' ||
+    candidate.type === 'diagnostic' ||
     candidate.type === 'error' ||
     candidate.type === 'progress'
   );
@@ -126,46 +132,18 @@ export class StreamingEmbeddingWorkerClient {
           if (!isStreamEvent(message)) {
             return;
           }
-
-          const payload = message;
-          if (payload.id !== request.id) {
+          // Stream payloads are request-scoped unless they are diagnostics. Cache/device
+          // diagnostics describe worker-global state and may intentionally omit an id.
+          if (message.id !== undefined && message.id !== request.id) {
+            return;
+          }
+          // Guard the id-less path explicitly so malformed progress/batch/complete
+          // messages cannot be delivered to the active stream by accident.
+          if (message.id === undefined && message.type !== 'diagnostic') {
             return;
           }
 
-          if (payload.type === 'progress') {
-            options.onProgress?.(payload);
-            return;
-          }
-
-          if (payload.type === 'error') {
-            options.onError?.(payload);
-            const failure = this.runtime.markFailed(new Error(payload.message));
-            this.activeStream = null;
-            cleanup();
-            reject(failure);
-            return;
-          }
-
-          if (payload.type === 'complete') {
-            this.activeStream = null;
-            cleanup();
-            resolve(payload.metadata);
-            return;
-          }
-
-          void Promise.resolve(options.onBatch?.(payload))
-            .then(() => {
-              this.postMessage({
-                type: 'stream-ack',
-                id: request.id,
-                batchIndex: payload.batchIndex,
-              });
-            })
-            .catch((error: unknown) => {
-              this.activeStream = null;
-              cleanup();
-              reject(error instanceof Error ? error : new Error(String(error)));
-            });
+          this.handleStreamEvent(message, request, options, cleanup, resolve, reject);
         });
         this.activeStream = {
           requestId: request.id,
@@ -200,6 +178,65 @@ export class StreamingEmbeddingWorkerClient {
 
   private postMessage(message: StreamWorkerMessage): void {
     this.transport.postMessage(message);
+  }
+
+  private handleStreamEvent(
+    payload: EmbedWorkerStreamEvent,
+    request: EmbedWorkerRequest,
+    options: StreamingEmbedOptions,
+    cleanup: StreamCleanup,
+    resolve: StreamResolve,
+    reject: StreamReject
+  ): void {
+    if (payload.type === 'progress') {
+      options.onProgress?.(payload);
+      return;
+    }
+
+    if (payload.type === 'diagnostic') {
+      options.onDiagnostic?.(payload);
+      return;
+    }
+
+    if (payload.type === 'error') {
+      options.onError?.(payload);
+      const failure = this.runtime.markFailed(new Error(payload.message));
+      this.activeStream = null;
+      cleanup();
+      reject(failure);
+      return;
+    }
+
+    if (payload.type === 'complete') {
+      this.activeStream = null;
+      cleanup();
+      resolve(payload.metadata);
+      return;
+    }
+
+    this.handleStreamBatch(payload, request, options, cleanup, reject);
+  }
+
+  private handleStreamBatch(
+    payload: EmbedWorkerBatch,
+    request: EmbedWorkerRequest,
+    options: StreamingEmbedOptions,
+    cleanup: StreamCleanup,
+    reject: StreamReject
+  ): void {
+    void Promise.resolve(options.onBatch?.(payload))
+      .then(() => {
+        this.postMessage({
+          type: 'stream-ack',
+          id: request.id,
+          batchIndex: payload.batchIndex,
+        });
+      })
+      .catch((error: unknown) => {
+        this.activeStream = null;
+        cleanup();
+        reject(error instanceof Error ? error : new Error(String(error)));
+      });
   }
 }
 

@@ -2,9 +2,30 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   installMockOrtWebGpuDevice,
   loadWorker,
+  makeExtractor,
   pipelineMock,
   resetMocks,
+  workerEmitMock,
 } from './helpers/pipeline-test-setup';
+
+function createDeferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly reject: (error: unknown) => void;
+  readonly resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+  return { promise, reject, resolve };
+}
+
+const flushMicrotasks = async (): Promise<void> => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
 
 describe('pipeline cache metadata and dispose', () => {
   beforeEach(() => {
@@ -239,6 +260,73 @@ describe('pipeline cache metadata and dispose', () => {
     expect(pipelineMock).toHaveBeenCalledTimes(1);
   });
 
+  it('emits pipeline cache diagnostics for cache load and hit timestamps', async () => {
+    vi.useFakeTimers({ now: 1000 });
+
+    pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
+    const runEmbedding = await loadWorker();
+
+    await runEmbedding({
+      type: 'embed',
+      id: 'cache-diagnostics-load',
+      model: 'diagnostic-model',
+      texts: ['hello'],
+      deviceHint: 'wasm',
+    });
+
+    vi.advanceTimersByTime(5000);
+
+    await runEmbedding({
+      type: 'embed',
+      id: 'cache-diagnostics-hit',
+      model: 'diagnostic-model',
+      texts: ['world'],
+      deviceHint: 'wasm',
+    });
+
+    const diagnostics = workerEmitMock.mock.calls
+      .map(([event]) => event)
+      .filter((event) => event?.type === 'diagnostic' && event.diagnostic === 'pipeline-cache');
+
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        type: 'diagnostic',
+        diagnostic: 'pipeline-cache',
+        event: 'loaded',
+        id: 'cache-diagnostics-load',
+        cacheSize: 1,
+        entries: [
+          expect.objectContaining({
+            cacheKey: 'diagnostic-model|wasm|fp16',
+            createdAt: 0,
+            device: 'wasm',
+            dtype: 'fp16',
+            lastUsedAt: 0,
+            memory: {
+              gpuBytes: null,
+              heapBytes: null,
+              reason: 'browser-runtime-unavailable',
+            },
+            model: 'diagnostic-model',
+          }),
+        ],
+      }),
+      expect.objectContaining({
+        type: 'diagnostic',
+        diagnostic: 'pipeline-cache',
+        event: 'hit',
+        id: 'cache-diagnostics-hit',
+        cacheSize: 1,
+        entry: expect.objectContaining({
+          cacheKey: 'diagnostic-model|wasm|fp16',
+          createdAt: 0,
+          lastUsedAt: 5000,
+          residencyMs: 5000,
+        }),
+      }),
+    ]);
+  });
+
   it('loadPipeline removes entry on failure so retry works', async () => {
     pipelineMock.mockRejectedValueOnce(new Error('network error'));
     const runEmbedding = await loadWorker();
@@ -265,5 +353,70 @@ describe('pipeline cache metadata and dispose', () => {
     });
     expect(result.vectors).toHaveLength(1);
     expect(pipelineMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not delete a replacement pipeline when an evicted load later fails', async () => {
+    vi.stubGlobal('navigator', { gpu: {} });
+    await installMockOrtWebGpuDevice();
+    const pendingRaceLoads: Array<
+      ReturnType<typeof createDeferred<ReturnType<typeof makeExtractor>['extractor']>>
+    > = [];
+
+    pipelineMock.mockImplementation((_task: string, model: string) => {
+      if (model === 'race-model') {
+        const deferred = createDeferred<ReturnType<typeof makeExtractor>['extractor']>();
+        pendingRaceLoads.push(deferred);
+        return deferred.promise;
+      }
+      return Promise.resolve(makeExtractor(model).extractor);
+    });
+
+    const runEmbedding = await loadWorker();
+
+    const firstRace = runEmbedding({
+      type: 'embed',
+      id: 'race-1',
+      model: 'race-model',
+      texts: ['first'],
+      deviceHint: 'webgpu',
+    });
+    const firstRaceOutcome = firstRace.catch((error: unknown) => error);
+    await flushMicrotasks();
+
+    await runEmbedding({
+      type: 'embed',
+      id: 'evictor',
+      model: 'evictor-model',
+      texts: ['evict'],
+      deviceHint: 'webgpu',
+    });
+
+    const replacementRace = runEmbedding({
+      type: 'embed',
+      id: 'race-2',
+      model: 'race-model',
+      texts: ['replacement'],
+      deviceHint: 'webgpu',
+    });
+    await flushMicrotasks();
+
+    pendingRaceLoads[0]?.reject(new Error('stale load failed'));
+    await expect(firstRaceOutcome).resolves.toMatchObject({ message: 'stale load failed' });
+
+    pendingRaceLoads[1]?.resolve(makeExtractor('race-replacement').extractor);
+    await expect(replacementRace).resolves.toMatchObject({
+      vectors: [new Float32Array([1, 0, 0])],
+    });
+
+    await runEmbedding({
+      type: 'embed',
+      id: 'race-3',
+      model: 'race-model',
+      texts: ['cached'],
+      deviceHint: 'webgpu',
+    });
+
+    const raceLoads = pipelineMock.mock.calls.filter(([, model]) => model === 'race-model');
+    expect(raceLoads).toHaveLength(2);
   });
 });

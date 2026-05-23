@@ -653,6 +653,59 @@ export interface EmbedWorkerProgress {
   readonly type: 'progress';
 }
 
+export interface EmbedWorkerPipelineCacheMemoryDiagnostic {
+  readonly gpuBytes: number | null;
+  readonly heapBytes: number | null;
+  readonly reason: 'browser-runtime-unavailable' | 'measured';
+}
+
+export interface EmbedWorkerPipelineCacheEntryDiagnostic {
+  readonly cacheKey: string;
+  readonly createdAt: number;
+  readonly device: EmbeddingDevice;
+  readonly dtype: EmbeddingDType;
+  readonly lastUsedAt: number;
+  readonly memory: EmbedWorkerPipelineCacheMemoryDiagnostic;
+  readonly model: string;
+  readonly residencyMs: number;
+}
+
+interface EmbedWorkerPipelineCacheDiagnosticBase {
+  readonly cacheSize: number;
+  readonly diagnostic: 'pipeline-cache';
+  readonly emittedAt: number;
+  /** Full cache snapshot for non-hot-path events. */
+  readonly entries?: readonly EmbedWorkerPipelineCacheEntryDiagnostic[];
+  /** Subject pipeline for this diagnostic event. */
+  readonly entry?: EmbedWorkerPipelineCacheEntryDiagnostic;
+  readonly id?: string;
+  readonly type: 'diagnostic';
+}
+
+export type EmbedWorkerPipelineCacheDiagnostic = EmbedWorkerPipelineCacheDiagnosticBase &
+  (
+    | {
+        readonly event: 'hit' | 'loaded';
+        readonly reason?: never;
+      }
+    | {
+        readonly event: 'disposed';
+        readonly reason: 'manual-dispose';
+      }
+    | {
+        readonly event: 'evicted';
+        readonly reason: 'device-lost' | 'idle-timeout' | 'resident-limit';
+      }
+    | {
+        readonly event: 'invalidated';
+        readonly reason: 'device-lost';
+      }
+    | {
+        readonly event: 'load-failed';
+        readonly reason: 'load-failure';
+      }
+  );
+
 export interface EmbedWorkerBatch {
   readonly batchIndex: number;
   readonly endIndex: number;
@@ -693,5 +746,6 @@ export interface EmbedWorkerComplete {
 export type EmbedWorkerStreamEvent =
   | EmbedWorkerBatch
   | EmbedWorkerComplete
+  | EmbedWorkerPipelineCacheDiagnostic
   | EmbedWorkerError
   | EmbedWorkerProgress;

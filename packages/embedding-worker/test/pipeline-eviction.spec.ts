@@ -5,6 +5,7 @@ import {
   makeExtractor,
   pipelineMock,
   resetMocks,
+  workerEmitMock,
 } from './helpers/pipeline-test-setup';
 
 describe('pipeline eviction policy', () => {
@@ -369,5 +370,60 @@ describe('pipeline eviction policy', () => {
     expect(extractors[0]?.disposeMock).not.toHaveBeenCalled();
     // model-2 was inserted after model-1 so still newer
     expect(extractors[2]?.disposeMock).not.toHaveBeenCalled();
+  });
+
+  it('emits eviction diagnostics with reason and residency duration', async () => {
+    vi.useFakeTimers({ now: 1000 });
+
+    const extractors = Array.from({ length: 4 }, (_, i) => makeExtractor(`evict${i}`));
+    pipelineMock
+      .mockResolvedValueOnce(extractors[0]?.extractor)
+      .mockResolvedValueOnce(extractors[1]?.extractor)
+      .mockResolvedValueOnce(extractors[2]?.extractor)
+      .mockResolvedValueOnce(extractors[3]?.extractor);
+
+    const runEmbedding = await loadWorker();
+
+    for (let i = 0; i < 3; i++) {
+      await runEmbedding({
+        type: 'embed',
+        id: `evict-${i}`,
+        model: `evict-model-${i}`,
+        texts: ['hello'],
+        deviceHint: 'wasm',
+      });
+      vi.advanceTimersByTime(1000);
+    }
+
+    await runEmbedding({
+      type: 'embed',
+      id: 'evict-3',
+      model: 'evict-model-3',
+      texts: ['new'],
+      deviceHint: 'wasm',
+    });
+    await Promise.resolve();
+
+    const eviction = workerEmitMock.mock.calls
+      .map(([event]) => event)
+      .find(
+        (event) =>
+          event?.type === 'diagnostic' &&
+          event.diagnostic === 'pipeline-cache' &&
+          event.event === 'evicted'
+      );
+
+    expect(eviction).toMatchObject({
+      type: 'diagnostic',
+      diagnostic: 'pipeline-cache',
+      event: 'evicted',
+      reason: 'resident-limit',
+      cacheSize: 2,
+      entry: expect.objectContaining({
+        cacheKey: 'evict-model-0|wasm|fp16',
+        model: 'evict-model-0',
+        residencyMs: 3000,
+      }),
+    });
   });
 });
