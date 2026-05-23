@@ -130,7 +130,13 @@ export class StreamingEmbeddingWorkerClient {
       await new Promise<EmbedWorkerComplete['metadata']>((resolve, reject) => {
         const cleanup = this.transport.onMessage((message) => {
           // Only diagnostics may omit an id; let global cache/device diagnostics through.
-          if (!isStreamEvent(message) || (message.id !== undefined && message.id !== request.id)) {
+          if (!isStreamEvent(message)) {
+            return;
+          }
+          if (message.id !== undefined && message.id !== request.id) {
+            return;
+          }
+          if (message.id === undefined && message.type !== 'diagnostic') {
             return;
           }
 

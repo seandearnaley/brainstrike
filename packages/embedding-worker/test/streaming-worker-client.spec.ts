@@ -259,6 +259,11 @@ describe('StreamingEmbeddingWorkerClient', () => {
       progress: 0.2,
     });
     worker.emitMessage({
+      type: 'progress',
+      phase: 'embedding',
+      progress: 0.7,
+    });
+    worker.emitMessage({
       type: 'error',
       id: 'embed-1',
       message: 'model exploded',

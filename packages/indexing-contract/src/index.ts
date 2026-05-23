@@ -674,7 +674,9 @@ export interface EmbedWorkerPipelineCacheDiagnostic {
   readonly cacheSize: number;
   readonly diagnostic: 'pipeline-cache';
   readonly emittedAt: number;
+  /** Full cache snapshot for non-hot-path events. */
   readonly entries?: readonly EmbedWorkerPipelineCacheEntryDiagnostic[];
+  /** Subject pipeline for this diagnostic event. */
   readonly entry?: EmbedWorkerPipelineCacheEntryDiagnostic;
   readonly event: 'disposed' | 'evicted' | 'hit' | 'invalidated' | 'load-failed' | 'loaded';
   readonly id?: string;

@@ -792,12 +792,13 @@ async function loadPipeline(
 
   debugLog('Loading pipeline', { model, device, dtype });
 
-  let entry!: PipelineCacheEntry;
+  let entry: PipelineCacheEntry | undefined;
   const loader = (async () => {
     try {
-      // createFeatureExtractor is async and yields before this continuation reads `entry`.
-      // The cache entry is assigned and registered synchronously below before that read can run.
       const extractor = await createFeatureExtractor(model, device, dtype);
+      if (entry === undefined) {
+        throw new Error('Pipeline cache entry was not initialized before load completion.');
+      }
       if (pipelines.get(cacheKey) === entry) {
         emitPipelineCacheDiagnostic({
           entry,
