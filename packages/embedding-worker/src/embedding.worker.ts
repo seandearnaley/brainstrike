@@ -312,7 +312,13 @@ let keepAliveTickCount = 0;
 let idleSweepTimer: ReturnType<typeof setInterval> | null = null;
 const batchAckWaiters = new Map<string, () => void>();
 
-type PipelineCacheDisposalReason = NonNullable<EmbedWorkerPipelineCacheDiagnostic['reason']>;
+type PipelineCacheDisposalReason =
+  | 'device-lost'
+  | 'idle-timeout'
+  | 'manual-dispose'
+  | 'resident-limit';
+
+type PipelineCacheDiagnosticReason = NonNullable<EmbedWorkerPipelineCacheDiagnostic['reason']>;
 
 type PipelineCacheDiagnosticSink = (event: EmbedWorkerPipelineCacheDiagnostic) => void;
 
@@ -320,7 +326,7 @@ interface PipelineCacheDiagnosticOptions {
   readonly entry?: PipelineCacheEntry;
   readonly event: EmbedWorkerPipelineCacheDiagnostic['event'];
   readonly id?: string;
-  readonly reason?: PipelineCacheDisposalReason;
+  readonly reason?: PipelineCacheDiagnosticReason;
   readonly sink?: PipelineCacheDiagnosticSink;
 }
 
