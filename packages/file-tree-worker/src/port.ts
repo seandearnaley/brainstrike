@@ -257,6 +257,8 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
     if (pending.operation) {
       pending.operation.reject(new Error('Operation aborted by new request'));
+      // Worker transport preserves message order for a single port; operationId guards still drop
+      // stale patches if the worker emits any before it observes this abort.
       transport.postMessage({
         type: 'abort',
       } satisfies MainToWorkerMessage);

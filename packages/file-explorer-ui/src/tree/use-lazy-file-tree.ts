@@ -504,6 +504,7 @@ async function loadSpecificPathsWithWorker(args: {
     normalizedTree: normalizedTreeRef.current,
     patches: result.patches,
   });
+  // The ref is the patch-composition source of truth; React state is the hydrated view of it.
   normalizedTreeRef.current = patchResult.normalizedTree;
   const hydratedTree = materializeNormalizedFileTree(patchResult.normalizedTree);
   setNormalizedTreeVersion((version) => version + 1);

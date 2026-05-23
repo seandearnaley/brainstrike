@@ -20,6 +20,7 @@ import {
 import type {
   BatchLoadResult,
   DirectoryLoadState,
+  FileTreePatchMessage,
   FlattenedNode,
   WorkerFileNode,
   WorkerToMainMessage,
@@ -515,11 +516,13 @@ export class BFSEngine {
     children: WorkerFileNode[],
     operationId: number | undefined
   ): void {
-    this.postMessage({
-      type: 'childrenLoaded',
-      ...(operationId === undefined ? {} : { operationId }),
-      payload: { path, children, loadState: 'loaded' },
-    });
+    this.postPatchMessage(
+      {
+        type: 'childrenLoaded',
+        payload: { path, children, loadState: 'loaded' },
+      },
+      operationId
+    );
   }
 
   private postNodeLoadStateChanged(
@@ -529,11 +532,13 @@ export class BFSEngine {
     operationId?: number
   ): void {
     const payload = loadError === undefined ? { path, loadState } : { path, loadState, loadError };
-    this.postMessage({
-      type: 'nodeLoadStateChanged',
-      ...(operationId === undefined ? {} : { operationId }),
-      payload,
-    });
+    this.postPatchMessage(
+      {
+        type: 'nodeLoadStateChanged',
+        payload,
+      },
+      operationId
+    );
   }
 
   private replaceExpandedPaths(nextPaths: string[]): void {
@@ -578,13 +583,24 @@ export class BFSEngine {
     operationId?: number
   ): void {
     if (added.length > 0 || removed.length > 0) {
-      this.postMessage({
-        type: 'expandedPathsDelta',
-        ...(operationId === undefined ? {} : { operationId }),
-        payload: { added, removed },
-      });
+      this.postPatchMessage(
+        {
+          type: 'expandedPathsDelta',
+          payload: { added, removed },
+        },
+        operationId
+      );
     }
     this.replaceExpandedPaths(nextPaths);
+  }
+
+  private postPatchMessage(message: FileTreePatchMessage, operationId: number | undefined): void {
+    if (operationId === undefined) {
+      this.postMessage(message);
+      return;
+    }
+
+    this.postMessage({ ...message, operationId });
   }
 
   /**
