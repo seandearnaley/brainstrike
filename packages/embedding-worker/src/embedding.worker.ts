@@ -312,23 +312,56 @@ let keepAliveTickCount = 0;
 let idleSweepTimer: ReturnType<typeof setInterval> | null = null;
 const batchAckWaiters = new Map<string, () => void>();
 
-type PipelineCacheDisposalReason =
-  | 'device-lost'
-  | 'idle-timeout'
-  | 'manual-dispose'
-  | 'resident-limit';
-
 type PipelineCacheDiagnosticReason = NonNullable<EmbedWorkerPipelineCacheDiagnostic['reason']>;
+type PipelineCacheDisposedReason = Extract<PipelineCacheDiagnosticReason, 'manual-dispose'>;
+type PipelineCacheEvictedReason = Extract<
+  PipelineCacheDiagnosticReason,
+  'device-lost' | 'idle-timeout' | 'resident-limit'
+>;
 
 type PipelineCacheDiagnosticSink = (event: EmbedWorkerPipelineCacheDiagnostic) => void;
 
-interface PipelineCacheDiagnosticOptions {
+interface PipelineCacheDiagnosticOptionsBase {
   readonly entry?: PipelineCacheEntry;
-  readonly event: EmbedWorkerPipelineCacheDiagnostic['event'];
   readonly id?: string;
-  readonly reason?: PipelineCacheDiagnosticReason;
   readonly sink?: PipelineCacheDiagnosticSink;
 }
+
+type PipelineCacheDiagnosticOptions = PipelineCacheDiagnosticOptionsBase &
+  (
+    | {
+        readonly event: 'hit' | 'loaded';
+        readonly reason?: never;
+      }
+    | {
+        readonly event: 'disposed';
+        readonly reason: 'manual-dispose';
+      }
+    | {
+        readonly event: 'evicted';
+        readonly reason: 'device-lost' | 'idle-timeout' | 'resident-limit';
+      }
+    | {
+        readonly event: 'invalidated';
+        readonly reason: 'device-lost';
+      }
+    | {
+        readonly event: 'load-failed';
+        readonly reason: 'load-failure';
+      }
+  );
+
+type PipelineCacheDisposalDiagnosticOptions = PipelineCacheDiagnosticOptionsBase &
+  (
+    | {
+        readonly event?: 'disposed';
+        readonly reason?: PipelineCacheDisposedReason;
+      }
+    | {
+        readonly event: 'evicted';
+        readonly reason: PipelineCacheEvictedReason;
+      }
+  );
 
 const UNAVAILABLE_PIPELINE_MEMORY = {
   gpuBytes: null,
@@ -370,10 +403,9 @@ function emitPipelineCacheDiagnostic(options: PipelineCacheDiagnosticOptions): v
     options.entry === undefined
       ? undefined
       : toPipelineCacheEntryDiagnostic(options.entry, timestamp);
-  const event: EmbedWorkerPipelineCacheDiagnostic = {
-    type: 'diagnostic',
-    diagnostic: 'pipeline-cache',
-    event: options.event,
+  const baseEvent = {
+    type: 'diagnostic' as const,
+    diagnostic: 'pipeline-cache' as const,
     emittedAt: timestamp,
     cacheSize: pipelines.size,
     ...(shouldIncludePipelineCacheEntries(options.event)
@@ -381,8 +413,28 @@ function emitPipelineCacheDiagnostic(options: PipelineCacheDiagnosticOptions): v
       : {}),
     ...(entryDiagnostic === undefined ? {} : { entry: entryDiagnostic }),
     ...(options.id === undefined ? {} : { id: options.id }),
-    ...(options.reason === undefined ? {} : { reason: options.reason }),
   };
+  let event: EmbedWorkerPipelineCacheDiagnostic;
+  switch (options.event) {
+    case 'hit':
+      event = { ...baseEvent, event: 'hit' };
+      break;
+    case 'loaded':
+      event = { ...baseEvent, event: 'loaded' };
+      break;
+    case 'disposed':
+      event = { ...baseEvent, event: 'disposed', reason: options.reason };
+      break;
+    case 'evicted':
+      event = { ...baseEvent, event: 'evicted', reason: options.reason };
+      break;
+    case 'invalidated':
+      event = { ...baseEvent, event: 'invalidated', reason: options.reason };
+      break;
+    case 'load-failed':
+      event = { ...baseEvent, event: 'load-failed', reason: options.reason };
+      break;
+  }
 
   if (options.sink) {
     options.sink(event);
@@ -511,12 +563,7 @@ function stopKeepAlive(): void {
  */
 async function disposePipeline(
   key: string,
-  diagnostics: {
-    readonly event?: 'disposed' | 'evicted';
-    readonly id?: string;
-    readonly reason?: PipelineCacheDisposalReason;
-    readonly sink?: PipelineCacheDiagnosticSink;
-  } = {}
+  diagnostics: PipelineCacheDisposalDiagnosticOptions = {}
 ): Promise<void> {
   const entry = pipelines.get(key);
   if (!entry) {
@@ -524,13 +571,23 @@ async function disposePipeline(
   }
   // Delete from cache FIRST to prevent concurrent access during async dispose
   pipelines.delete(key);
-  emitPipelineCacheDiagnostic({
-    entry,
-    event: diagnostics.event ?? 'disposed',
-    ...(diagnostics.id === undefined ? {} : { id: diagnostics.id }),
-    reason: diagnostics.reason ?? 'manual-dispose',
-    ...(diagnostics.sink === undefined ? {} : { sink: diagnostics.sink }),
-  });
+  if (diagnostics.event === 'evicted') {
+    emitPipelineCacheDiagnostic({
+      entry,
+      event: 'evicted',
+      ...(diagnostics.id === undefined ? {} : { id: diagnostics.id }),
+      reason: diagnostics.reason,
+      ...(diagnostics.sink === undefined ? {} : { sink: diagnostics.sink }),
+    });
+  } else {
+    emitPipelineCacheDiagnostic({
+      entry,
+      event: 'disposed',
+      ...(diagnostics.id === undefined ? {} : { id: diagnostics.id }),
+      reason: diagnostics.reason ?? 'manual-dispose',
+      ...(diagnostics.sink === undefined ? {} : { sink: diagnostics.sink }),
+    });
+  }
   try {
     const p = await entry.pipeline;
     if (typeof p.dispose === 'function') {

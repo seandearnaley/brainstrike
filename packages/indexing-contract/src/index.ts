@@ -670,7 +670,7 @@ export interface EmbedWorkerPipelineCacheEntryDiagnostic {
   readonly residencyMs: number;
 }
 
-export interface EmbedWorkerPipelineCacheDiagnostic {
+interface EmbedWorkerPipelineCacheDiagnosticBase {
   readonly cacheSize: number;
   readonly diagnostic: 'pipeline-cache';
   readonly emittedAt: number;
@@ -678,17 +678,33 @@ export interface EmbedWorkerPipelineCacheDiagnostic {
   readonly entries?: readonly EmbedWorkerPipelineCacheEntryDiagnostic[];
   /** Subject pipeline for this diagnostic event. */
   readonly entry?: EmbedWorkerPipelineCacheEntryDiagnostic;
-  readonly event: 'disposed' | 'evicted' | 'hit' | 'invalidated' | 'load-failed' | 'loaded';
   readonly id?: string;
-  /** Event-specific reason emitted by the worker; invalid pairs are rejected at emit call sites. */
-  readonly reason?:
-    | 'device-lost'
-    | 'idle-timeout'
-    | 'load-failure'
-    | 'manual-dispose'
-    | 'resident-limit';
   readonly type: 'diagnostic';
 }
+
+export type EmbedWorkerPipelineCacheDiagnostic = EmbedWorkerPipelineCacheDiagnosticBase &
+  (
+    | {
+        readonly event: 'hit' | 'loaded';
+        readonly reason?: never;
+      }
+    | {
+        readonly event: 'disposed';
+        readonly reason: 'manual-dispose';
+      }
+    | {
+        readonly event: 'evicted';
+        readonly reason: 'device-lost' | 'idle-timeout' | 'resident-limit';
+      }
+    | {
+        readonly event: 'invalidated';
+        readonly reason: 'device-lost';
+      }
+    | {
+        readonly event: 'load-failed';
+        readonly reason: 'load-failure';
+      }
+  );
 
 export interface EmbedWorkerBatch {
   readonly batchIndex: number;

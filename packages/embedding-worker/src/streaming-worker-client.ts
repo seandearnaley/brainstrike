@@ -129,13 +129,16 @@ export class StreamingEmbeddingWorkerClient {
     const run = async (): Promise<EmbedWorkerComplete['metadata']> =>
       await new Promise<EmbedWorkerComplete['metadata']>((resolve, reject) => {
         const cleanup = this.transport.onMessage((message) => {
-          // Only diagnostics may omit an id; let global cache/device diagnostics through.
           if (!isStreamEvent(message)) {
             return;
           }
+          // Stream payloads are request-scoped unless they are diagnostics. Cache/device
+          // diagnostics describe worker-global state and may intentionally omit an id.
           if (message.id !== undefined && message.id !== request.id) {
             return;
           }
+          // Guard the id-less path explicitly so malformed progress/batch/complete
+          // messages cannot be delivered to the active stream by accident.
           if (message.id === undefined && message.type !== 'diagnostic') {
             return;
           }
