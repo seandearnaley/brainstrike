@@ -29,6 +29,7 @@ const createEngineMock = () => ({
   getTree: vi.fn(() => [{ path: '/root', type: 'directory' }]),
   handleLoadResult: vi.fn(),
   handleLoadError: vi.fn(),
+  applyDirectoryChildrenUpdate: vi.fn(),
   expandAll: vi.fn(async () => {}),
   loadPaths: vi.fn(async () => {}),
   loadSubtree: vi.fn(async () => {}),
@@ -42,7 +43,6 @@ const bootstrapWorkerModule = async () => {
   const selfMock = createMockSelf();
   const engine = createEngineMock();
   const collectExpandedPaths = vi.fn(() => ['/root']);
-  const updateNodeChildren = vi.fn(() => [{ path: '/root/updated', type: 'directory' }]);
   const BFSEngine = vi.fn().mockImplementation(function MockBFSEngine() {
     return engine;
   });
@@ -50,7 +50,6 @@ const bootstrapWorkerModule = async () => {
   vi.doMock('./bfs-engine', () => ({ BFSEngine }));
   vi.doMock('./tree-operations', () => ({
     collectExpandedPaths,
-    updateNodeChildren,
   }));
 
   Object.defineProperty(globalThis, 'self', {
@@ -65,7 +64,6 @@ const bootstrapWorkerModule = async () => {
     selfMock,
     engine,
     collectExpandedPaths,
-    updateNodeChildren,
     BFSEngine,
   };
 };
@@ -94,8 +92,7 @@ describe('file-tree.worker', () => {
   });
 
   it('handles init/update/message routes and delegates to engine', async () => {
-    const { selfMock, engine, collectExpandedPaths, updateNodeChildren } =
-      await bootstrapWorkerModule();
+    const { selfMock, engine, collectExpandedPaths } = await bootstrapWorkerModule();
     const onMessage = selfMock.onmessage;
 
     if (!onMessage) {
@@ -121,32 +118,41 @@ describe('file-tree.worker', () => {
     await onMessage({
       data: {
         type: 'loadResult',
-        payload: { path: '/root', children: [{ path: '/root/a', type: 'directory' }] },
+        payload: {
+          requestId: 'request-1',
+          path: '/root',
+          children: [{ path: '/root/a', type: 'directory' }],
+        },
       },
     } as MessageEvent<MainToWorkerMessage>);
-    expect(engine.handleLoadResult).toHaveBeenCalledWith('/root', [
-      { path: '/root/a', type: 'directory' },
-    ]);
+    expect(engine.handleLoadResult).toHaveBeenCalledWith(
+      '/root',
+      [{ path: '/root/a', type: 'directory' }],
+      'request-1'
+    );
 
     await onMessage({
-      data: { type: 'loadError', payload: { path: '/root', error: 'permission denied' } },
+      data: {
+        type: 'loadError',
+        payload: { requestId: 'request-2', path: '/root', error: 'permission denied' },
+      },
     } as MessageEvent<MainToWorkerMessage>);
-    expect(engine.handleLoadError).toHaveBeenCalledWith('/root', 'permission denied');
+    expect(engine.handleLoadError).toHaveBeenCalledWith('/root', 'permission denied', 'request-2');
 
     await onMessage({
-      data: { type: 'expandAll', payload: { folderId: 'folder-1' } },
+      data: { type: 'expandAll', operationId: 1, payload: { folderId: 'folder-1' } },
     } as MessageEvent<MainToWorkerMessage>);
-    expect(engine.expandAll).toHaveBeenCalledTimes(1);
+    expect(engine.expandAll).toHaveBeenCalledWith(1);
 
     await onMessage({
-      data: { type: 'loadPaths', payload: { paths: ['/root/a'] } },
+      data: { type: 'loadPaths', operationId: 2, payload: { paths: ['/root/a'] } },
     } as MessageEvent<MainToWorkerMessage>);
-    expect(engine.loadPaths).toHaveBeenCalledWith(['/root/a']);
+    expect(engine.loadPaths).toHaveBeenCalledWith(['/root/a'], 2);
 
     await onMessage({
-      data: { type: 'loadSubtree', payload: { startPath: '/root/a' } },
+      data: { type: 'loadSubtree', operationId: 3, payload: { startPath: '/root/a' } },
     } as MessageEvent<MainToWorkerMessage>);
-    expect(engine.loadSubtree).toHaveBeenCalledWith('/root/a');
+    expect(engine.loadSubtree).toHaveBeenCalledWith('/root/a', 3);
 
     await onMessage({
       data: { type: 'collapseAll' },
@@ -168,12 +174,10 @@ describe('file-tree.worker', () => {
         },
       },
     } as MessageEvent<MainToWorkerMessage>);
-    expect(updateNodeChildren).toHaveBeenCalled();
-    expect(selfMock.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'childrenLoaded',
-        payload: expect.objectContaining({ path: '/root', loadState: 'loaded' }),
-      })
+    expect(engine.applyDirectoryChildrenUpdate).toHaveBeenCalledWith(
+      '/root',
+      [{ path: '/root/new', type: 'directory' }],
+      'loaded'
     );
 
     await onMessage({
@@ -209,7 +213,7 @@ describe('file-tree.worker', () => {
     engine.expandAll.mockRejectedValueOnce(new Error('expand failed'));
 
     await onMessage({
-      data: { type: 'expandAll', payload: { folderId: 'folder-1' } },
+      data: { type: 'expandAll', operationId: 1, payload: { folderId: 'folder-1' } },
     } as MessageEvent<MainToWorkerMessage>);
 
     expect(selfMock.postMessage).toHaveBeenCalledWith(

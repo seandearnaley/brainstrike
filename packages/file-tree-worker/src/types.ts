@@ -59,6 +59,8 @@ export interface InitMessage {
  */
 export interface LoadResultMessage {
   payload: {
+    /** Worker request ID this result answers. Required for worker-managed bulk operations. */
+    requestId?: string;
     path: string;
     children: WorkerFileNode[];
   };
@@ -70,6 +72,8 @@ export interface LoadResultMessage {
  */
 export interface LoadErrorMessage {
   payload: {
+    /** Worker request ID this error answers. Required for worker-managed bulk operations. */
+    requestId?: string;
     path: string;
     error: string;
   };
@@ -80,6 +84,7 @@ export interface LoadErrorMessage {
  * Start expand-all operation.
  */
 export interface ExpandAllMessage {
+  operationId: number;
   payload: {
     folderId: string;
   };
@@ -115,6 +120,7 @@ export interface AbortMessage {
  * Unlike expandAll which does BFS discovery, this loads only the requested paths.
  */
 export interface LoadPathsMessage {
+  operationId: number;
   payload: {
     /** Directory paths to load (should be sorted by depth, shallowest first) */
     paths: string[];
@@ -127,6 +133,7 @@ export interface LoadPathsMessage {
  * Like expandAll but scoped to a subtree starting from the given path.
  */
 export interface LoadSubtreeMessage {
+  operationId: number;
   payload: {
     /** Root path of the subtree to load */
     startPath: string;
@@ -190,6 +197,8 @@ export interface WorkerReadyMessage {
  * Request main thread to load directories (I/O needs FileSystemHandle).
  */
 export interface RequestLoadMessage {
+  /** Main-thread operation that owns this load request. */
+  operationId: number;
   payload: {
     /** Request ID for correlation */
     requestId: string;
@@ -214,6 +223,8 @@ export interface TreeSnapshotMessage {
  * Patch for a directory whose children were loaded or replaced.
  */
 export interface ChildrenLoadedPatchMessage {
+  /** Owning bulk operation. Omitted for standalone updateTree patches. */
+  operationId?: number;
   payload: {
     path: string;
     children: WorkerFileNode[];
@@ -226,6 +237,8 @@ export interface ChildrenLoadedPatchMessage {
  * Patch for a directory load-state transition.
  */
 export interface NodeLoadStateChangedPatchMessage {
+  /** Owning bulk operation. Omitted for standalone updateTree patches. */
+  operationId?: number;
   payload: {
     path: string;
     loadState: DirectoryLoadState;
@@ -238,6 +251,8 @@ export interface NodeLoadStateChangedPatchMessage {
  * Patch for expanded-path membership changes.
  */
 export interface ExpandedPathsDeltaMessage {
+  /** Owning bulk operation. Omitted for standalone expansion updates. */
+  operationId?: number;
   payload: {
     added: string[];
     removed: string[];
@@ -249,6 +264,8 @@ export interface ExpandedPathsDeltaMessage {
  * Progress update during expand-all.
  */
 export interface ProgressMessage {
+  /** Owning bulk operation. */
+  operationId?: number;
   payload: {
     loaded: number;
     total: number;
@@ -261,6 +278,8 @@ export interface ProgressMessage {
  * Expand-all operation completed.
  */
 export interface CompleteMessage {
+  /** Owning bulk operation. */
+  operationId: number;
   payload: {
     expandedPaths: string[];
     /** Number of directories actually loaded (0 means all were cached) */
@@ -273,6 +292,8 @@ export interface CompleteMessage {
  * Error occurred in worker.
  */
 export interface ErrorMessage {
+  /** Owning bulk operation, when the error belongs to one. */
+  operationId?: number;
   payload: {
     message: string;
     path?: string;

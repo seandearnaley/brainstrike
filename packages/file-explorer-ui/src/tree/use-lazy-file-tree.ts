@@ -32,7 +32,11 @@ import {
 import type { AddMultipleSelectedFilesChunked } from '../hooks/recursive-selection-utils';
 import type { ExpandAllExecutorArgs, ExpandAllExecutorResult } from '../hooks/use-expand-all';
 import { useFileTreeWorker } from '../hooks/use-file-tree-worker';
-import { estimateTreePayloadBytes, recordFileTreeTelemetry } from '../utils/file-tree-telemetry';
+import {
+  estimateTreePayloadBytes,
+  measureFileTreeOperation,
+  recordFileTreeTelemetry,
+} from '../utils/file-tree-telemetry';
 import { getRootFolderId } from '../utils/get-root-folder-id';
 import {
   needsLoading as checkNeedsLoading,
@@ -381,7 +385,26 @@ function rehydrateWorkerChildrenStrict(
   children: WorkerFileNode[],
   handleMap: Map<string, FileSystemHandle>
 ): IFileNode[] {
-  const hydratedChildren = rehydrateTree(children, handleMap);
+  const patchEstimate = estimateTreePayloadBytes(children);
+  recordFileTreeTelemetry({
+    bytes: patchEstimate.bytes,
+    event: 'file-tree.patch',
+    kind: 'patch',
+    nodeCount: patchEstimate.nodeCount,
+    source: 'worker',
+  });
+
+  const { durationMs, result: hydratedChildren } = measureFileTreeOperation(() =>
+    rehydrateTree(children, handleMap)
+  );
+  recordFileTreeTelemetry({
+    durationMs,
+    event: 'file-tree.rehydrate',
+    kind: 'patch',
+    nodeCount: patchEstimate.nodeCount,
+    source: 'worker',
+  });
+
   const expectedNodeCount = countTreeNodes(children);
   const actualNodeCount = countTreeNodes(hydratedChildren);
 
@@ -430,7 +453,15 @@ function applyWorkerPatchesToNormalizedTree(args: {
         patch.payload.loadState,
         patch.payload.loadError
       );
+      continue;
     }
+
+    if (patch.type === 'expandedPathsDelta') {
+      continue;
+    }
+
+    const _exhaustive: never = patch;
+    throw new Error(`Unhandled file tree worker patch: ${JSON.stringify(_exhaustive)}`);
   }
 
   return { indexedNodes, normalizedTree: nextNormalizedTree };

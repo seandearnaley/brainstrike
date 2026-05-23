@@ -61,26 +61,38 @@ async function handleRequestLoadMessage(
 
   try {
     const results = await requestLoadHandler(msg.payload.requestId, msg.payload.paths);
-    sendLoadResults(worker, results);
+    sendLoadResults(worker, msg.payload.requestId, results);
   } catch (err) {
-    sendLoadErrors(worker, msg.payload.paths, err);
+    sendLoadErrors(worker, msg.payload.requestId, msg.payload.paths, err);
   }
 }
 
 /**
  * Send load results back to worker
  */
-function sendLoadResults(worker: Worker, results: BatchLoadResult[]): void {
+function sendLoadResults(
+  worker: Worker,
+  requestId: string | undefined,
+  results: BatchLoadResult[]
+): void {
   for (const result of results) {
     if (result.error) {
       worker.postMessage({
         type: 'loadError',
-        payload: { path: result.path, error: result.error },
+        payload: {
+          path: result.path,
+          error: result.error,
+          ...(requestId === undefined ? {} : { requestId }),
+        },
       } satisfies MainToWorkerMessage);
     } else if (result.children) {
       worker.postMessage({
         type: 'loadResult',
-        payload: { path: result.path, children: result.children },
+        payload: {
+          path: result.path,
+          children: result.children,
+          ...(requestId === undefined ? {} : { requestId }),
+        },
       } satisfies MainToWorkerMessage);
     }
   }
@@ -89,11 +101,17 @@ function sendLoadResults(worker: Worker, results: BatchLoadResult[]): void {
 /**
  * Send load errors for all paths
  */
-function sendLoadErrors(worker: Worker, paths: string[], err: unknown): void {
+function sendLoadErrors(
+  worker: Worker,
+  requestId: string | undefined,
+  paths: string[],
+  err: unknown
+): void {
   for (const path of paths) {
     worker.postMessage({
       type: 'loadError',
       payload: {
+        ...(requestId === undefined ? {} : { requestId }),
         path,
         error: err instanceof Error ? err.message : String(err),
       },
@@ -258,7 +276,11 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
   };
 
   const recordPatch = (patch: FileTreePatchMessage): void => {
-    pending.operation?.patches.push(patch);
+    const operation = pending.operation;
+    if (!operation || operation.operationId !== patch.operationId) {
+      return;
+    }
+    operation.patches.push(patch);
   };
 
   const handleChildrenLoaded = (
@@ -286,24 +308,28 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     expandedPathsDeltaHandler?.(patch.payload.added, patch.payload.removed);
   };
 
-  const handleComplete = (payload: { expandedPaths: string[]; loadedCount: number }): void => {
+  const handleComplete = (message: Extract<WorkerToMainMessage, { type: 'complete' }>): void => {
     // Only resolve if this completion matches the current operation
     // Prevents stale completions from racing with new operations
-    if (pending.operation && pending.operation.operationId === operationIdCounter) {
+    if (pending.operation && pending.operation.operationId === message.operationId) {
       pending.operation.resolve({
         patches: pending.operation.patches,
-        expandedPaths: payload.expandedPaths,
-        loadedCount: payload.loadedCount,
+        expandedPaths: message.payload.expandedPaths,
+        loadedCount: message.payload.loadedCount,
       });
       pending.operation = null;
     }
   };
 
-  const handleError = (payload: { message: string; path?: string }): void => {
-    errorHandler?.(payload.message, payload.path);
+  const handleError = (message: Extract<WorkerToMainMessage, { type: 'error' }>): void => {
+    errorHandler?.(message.payload.message, message.payload.path);
     // Only reject if this error matches the current operation
-    if (pending.operation && pending.operation.operationId === operationIdCounter) {
-      pending.operation.reject(new Error(payload.message));
+    if (
+      pending.operation &&
+      message.operationId !== undefined &&
+      pending.operation.operationId === message.operationId
+    ) {
+      pending.operation.reject(new Error(message.payload.message));
       pending.operation = null;
     }
   };
@@ -361,11 +387,11 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
         break;
 
       case 'complete':
-        handleComplete(msg.payload);
+        handleComplete(msg);
         break;
 
       case 'error':
-        handleError(msg.payload);
+        handleError(msg);
         break;
 
       case 'log':
@@ -416,6 +442,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
         transport.postMessage({
           type: 'expandAll',
+          operationId: thisOperationId,
           payload: { folderId },
         } satisfies MainToWorkerMessage);
       });
@@ -437,6 +464,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
         transport.postMessage({
           type: 'loadPaths',
+          operationId: thisOperationId,
           payload: { paths },
         } satisfies MainToWorkerMessage);
       });
@@ -458,6 +486,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
         transport.postMessage({
           type: 'loadSubtree',
+          operationId: thisOperationId,
           payload: { startPath },
         } satisfies MainToWorkerMessage);
       });
