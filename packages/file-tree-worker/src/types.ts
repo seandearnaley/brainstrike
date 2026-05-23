@@ -59,6 +59,8 @@ export interface InitMessage {
  */
 export interface LoadResultMessage {
   payload: {
+    /** Worker request ID this result answers. Required for worker-managed bulk operations. */
+    requestId?: string;
     path: string;
     children: WorkerFileNode[];
   };
@@ -70,6 +72,8 @@ export interface LoadResultMessage {
  */
 export interface LoadErrorMessage {
   payload: {
+    /** Worker request ID this error answers. Required for worker-managed bulk operations. */
+    requestId?: string;
     path: string;
     error: string;
   };
@@ -80,6 +84,7 @@ export interface LoadErrorMessage {
  * Start expand-all operation.
  */
 export interface ExpandAllMessage {
+  operationId: number;
   payload: {
     folderId: string;
   };
@@ -115,6 +120,7 @@ export interface AbortMessage {
  * Unlike expandAll which does BFS discovery, this loads only the requested paths.
  */
 export interface LoadPathsMessage {
+  operationId: number;
   payload: {
     /** Directory paths to load (should be sorted by depth, shallowest first) */
     paths: string[];
@@ -127,6 +133,7 @@ export interface LoadPathsMessage {
  * Like expandAll but scoped to a subtree starting from the given path.
  */
 export interface LoadSubtreeMessage {
+  operationId: number;
   payload: {
     /** Root path of the subtree to load */
     startPath: string;
@@ -190,6 +197,8 @@ export interface WorkerReadyMessage {
  * Request main thread to load directories (I/O needs FileSystemHandle).
  */
 export interface RequestLoadMessage {
+  /** Main-thread operation that owns this load request. */
+  operationId: number;
   payload: {
     /** Request ID for correlation */
     requestId: string;
@@ -211,9 +220,52 @@ export interface TreeSnapshotMessage {
 }
 
 /**
+ * Patch for a directory whose children were loaded or replaced.
+ */
+export interface ChildrenLoadedPatchMessage {
+  /** Owning bulk operation. Omitted for standalone updateTree patches. */
+  operationId?: number;
+  payload: {
+    path: string;
+    children: WorkerFileNode[];
+    loadState: Extract<DirectoryLoadState, 'loaded'>;
+  };
+  type: 'childrenLoaded';
+}
+
+/**
+ * Patch for a directory load-state transition.
+ */
+export interface NodeLoadStateChangedPatchMessage {
+  /** Owning bulk operation. Omitted for standalone updateTree patches. */
+  operationId?: number;
+  payload: {
+    path: string;
+    loadState: DirectoryLoadState;
+    loadError?: string;
+  };
+  type: 'nodeLoadStateChanged';
+}
+
+/**
+ * Patch for expanded-path membership changes.
+ */
+export interface ExpandedPathsDeltaMessage {
+  /** Owning bulk operation. Omitted for standalone expansion updates. */
+  operationId?: number;
+  payload: {
+    added: string[];
+    removed: string[];
+  };
+  type: 'expandedPathsDelta';
+}
+
+/**
  * Progress update during expand-all.
  */
 export interface ProgressMessage {
+  /** Owning bulk operation. */
+  operationId: number;
   payload: {
     loaded: number;
     total: number;
@@ -226,8 +278,9 @@ export interface ProgressMessage {
  * Expand-all operation completed.
  */
 export interface CompleteMessage {
+  /** Owning bulk operation. */
+  operationId: number;
   payload: {
-    tree: WorkerFileNode[];
     expandedPaths: string[];
     /** Number of directories actually loaded (0 means all were cached) */
     loadedCount: number;
@@ -239,6 +292,8 @@ export interface CompleteMessage {
  * Error occurred in worker.
  */
 export interface ErrorMessage {
+  /** Owning bulk operation, when the error belongs to one. */
+  operationId?: number;
   payload: {
     message: string;
     path?: string;
@@ -268,10 +323,10 @@ export interface FlattenedNode {
 }
 
 /**
- * Result of flattening the tree.
+ * Result of flattening the tree into visible rows.
  * Sent in response to FlattenTreeMessage.
  */
-export interface FlattenedResultMessage {
+export interface FlattenedRowsMessage {
   payload: {
     /** Flattened list of visible nodes for virtualized rendering */
     nodes: FlattenedNode[];
@@ -280,8 +335,18 @@ export interface FlattenedResultMessage {
     /** Duration of the flatten operation in ms (for perf monitoring) */
     durationMs: number;
   };
-  type: 'flattenedResult';
+  type: 'flattenedRows';
 }
+
+export type FileTreePatchMessage =
+  | ChildrenLoadedPatchMessage
+  | NodeLoadStateChangedPatchMessage
+  | ExpandedPathsDeltaMessage;
+
+export type AccumulatedFileTreePatchMessage = Exclude<
+  FileTreePatchMessage,
+  ExpandedPathsDeltaMessage
+>;
 
 /**
  * All possible messages from worker to main thread.
@@ -290,11 +355,14 @@ export type WorkerToMainMessage =
   | WorkerReadyMessage
   | RequestLoadMessage
   | TreeSnapshotMessage
+  | ChildrenLoadedPatchMessage
+  | NodeLoadStateChangedPatchMessage
+  | ExpandedPathsDeltaMessage
   | ProgressMessage
   | CompleteMessage
   | ErrorMessage
   | WorkerLogMessage
-  | FlattenedResultMessage;
+  | FlattenedRowsMessage;
 
 // ============================================================================
 // Batch Load Types (for coordinating main thread I/O)

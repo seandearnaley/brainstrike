@@ -20,6 +20,7 @@ import {
 import type {
   BatchLoadResult,
   DirectoryLoadState,
+  FileTreePatchMessage,
   FlattenedNode,
   WorkerFileNode,
   WorkerToMainMessage,
@@ -74,6 +75,26 @@ async function yieldControl(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function getAncestorPaths(path: string): string[] {
+  const ancestors: string[] = [];
+  let currentPath = path;
+
+  while (true) {
+    const separatorIndex = currentPath.lastIndexOf('/');
+    if (separatorIndex < 0) {
+      break;
+    }
+    if (separatorIndex === 0) {
+      break;
+    }
+
+    currentPath = currentPath.slice(0, separatorIndex);
+    ancestors.push(currentPath);
+  }
+
+  return ancestors;
+}
+
 /**
  * Generate a unique request ID.
  */
@@ -113,6 +134,8 @@ interface IndexedTreeUpdate {
 export class BFSEngine {
   private tree: WorkerFileNode[] = [];
   private aborted = false;
+  private readonly expandedPaths = new Set<string>();
+  private readonly expandedDescendantsByPath = new Map<string, Set<string>>();
   /**
    * Path index for O(1) node lookups.
    * Maps path strings to their corresponding nodes in the tree.
@@ -123,6 +146,7 @@ export class BFSEngine {
   private readonly pendingLoads = new Map<
     string,
     {
+      operationId: number;
       paths: Set<string>; // Original paths (immutable)
       results: Map<string, BatchLoadResult>; // Collected results
       resolve: (results: BatchLoadResult[]) => void;
@@ -150,6 +174,7 @@ export class BFSEngine {
     this.tree = nodes;
     // Rebuild path index for O(1) lookups
     this.buildPathIndex(nodes);
+    this.replaceExpandedPaths(collectExpandedPaths(nodes));
     const newNodeCount = this.countTreeNodes(this.tree);
     const newLoadedDirs = this.countLoadedDirectories(this.tree);
     this.logInfo(
@@ -168,11 +193,15 @@ export class BFSEngine {
   /**
    * Handle load result from main thread.
    */
-  handleLoadResult(path: string, children: WorkerFileNode[]): void {
-    this.updateIndexedNode(path, (node) => this.createNodeWithChildren(node, children, 'loaded'));
+  handleLoadResult(path: string, children: WorkerFileNode[], requestId?: string): void {
+    const operationId = this.resolveLoadOperationId(path, requestId);
+    this.applyDirectoryChildrenUpdate(path, children, 'loaded', operationId);
 
     // Check all pending loads to see if any batch is complete
-    for (const [requestId, pending] of this.pendingLoads) {
+    for (const [pendingRequestId, pending] of this.pendingLoads) {
+      if (requestId !== undefined && pendingRequestId !== requestId) {
+        continue;
+      }
       if (!pending.paths.has(path)) {
         continue;
       }
@@ -187,19 +216,58 @@ export class BFSEngine {
           (p) => pending.results.get(p) ?? { path: p, children: [] }
         );
         pending.resolve(results);
-        this.pendingLoads.delete(requestId);
+        this.pendingLoads.delete(pendingRequestId);
       }
     }
   }
 
   /**
+   * Apply an externally supplied directory update and emit the same patch protocol as load results.
+   *
+   * `operationId` is present for bulk-operation load results. The `updateTree` worker message calls
+   * this without an operation id so listeners receive live patches without attaching them to a
+   * pending bulk-operation result.
+   */
+  applyDirectoryChildrenUpdate(
+    path: string,
+    children: WorkerFileNode[],
+    loadState: DirectoryLoadState,
+    operationId?: number
+  ): void {
+    const updatedNode = this.updateIndexedNode(path, (node) =>
+      this.createNodeWithChildren(node, children, loadState)
+    );
+
+    if (!updatedNode) {
+      return;
+    }
+
+    if (loadState === 'loaded') {
+      this.postChildrenLoaded(path, children, operationId);
+    } else {
+      this.postNodeLoadStateChanged(path, loadState, undefined, operationId);
+    }
+    this.sendExpandedPathsForDirectoryUpdate(path, children, loadState, operationId);
+  }
+
+  /**
    * Handle load error from main thread.
    */
-  handleLoadError(path: string, error: string): void {
-    this.updateIndexedNode(path, (node) => this.createNodeWithLoadState(node, 'error', error));
+  handleLoadError(path: string, error: string, requestId?: string): void {
+    const operationId = this.resolveLoadOperationId(path, requestId);
+    const updatedNode = this.updateIndexedNode(path, (node) =>
+      this.createNodeWithLoadState(node, 'error', error)
+    );
+
+    if (updatedNode) {
+      this.postNodeLoadStateChanged(path, 'error', error, operationId);
+    }
 
     // Check all pending loads
-    for (const [requestId, pending] of this.pendingLoads) {
+    for (const [pendingRequestId, pending] of this.pendingLoads) {
+      if (requestId !== undefined && pendingRequestId !== requestId) {
+        continue;
+      }
       if (!pending.paths.has(path)) {
         continue;
       }
@@ -214,7 +282,7 @@ export class BFSEngine {
           (p) => pending.results.get(p) ?? { path: p, children: [] }
         );
         pending.resolve(results);
-        this.pendingLoads.delete(requestId);
+        this.pendingLoads.delete(pendingRequestId);
       }
     }
   }
@@ -223,7 +291,28 @@ export class BFSEngine {
    * Request main thread to load directories.
    * Returns a promise that resolves when all paths are loaded.
    */
-  private requestLoads(paths: string[]): Promise<BatchLoadResult[]> {
+  private resolveLoadOperationId(path: string, requestId: string | undefined): number | undefined {
+    if (requestId !== undefined) {
+      return this.pendingLoads.get(requestId)?.operationId;
+    }
+
+    // Id-less load results come only from the legacy non-correlated path. The port keeps a
+    // single active bulk operation, so the first pending load containing this path is its owner.
+    if (this.pendingLoads.size > 1) {
+      this.logWarn(
+        `Legacy id-less load result resolved while ${this.pendingLoads.size} loads were pending`
+      );
+    }
+    for (const pending of this.pendingLoads.values()) {
+      if (pending.paths.has(path)) {
+        return pending.operationId;
+      }
+    }
+
+    return;
+  }
+
+  private requestLoads(paths: string[], operationId: number): Promise<BatchLoadResult[]> {
     return new Promise((resolve, reject) => {
       // Check abort before starting
       if (this.aborted) {
@@ -242,6 +331,7 @@ export class BFSEngine {
 
       // Store pending request with Set for paths and Map for results
       this.pendingLoads.set(requestId, {
+        operationId,
         paths: new Set(paths),
         results: new Map(),
         resolve: (results) => {
@@ -253,6 +343,7 @@ export class BFSEngine {
       // Request load from main thread
       this.postMessage({
         type: 'requestLoad',
+        operationId,
         payload: {
           requestId,
           paths,
@@ -287,6 +378,10 @@ export class BFSEngine {
     this.postMessage({ type: 'log', level: 'debug', message });
   }
 
+  private logWarn(message: string): void {
+    this.postMessage({ type: 'log', level: 'warn', message });
+  }
+
   /**
    * Log an info message via the worker protocol.
    */
@@ -297,24 +392,29 @@ export class BFSEngine {
   /**
    * Mark directories as loading in tree.
    */
-  private markBatchAsLoading(batch: string[]): void {
+  private markBatchAsLoading(batch: string[], operationId: number): void {
     for (const path of batch) {
-      this.updateIndexedNode(path, (node) => this.createNodeWithLoadState(node, 'loading'));
+      const updatedNode = this.updateIndexedNode(path, (node) =>
+        this.createNodeWithLoadState(node, 'loading')
+      );
+      if (updatedNode) {
+        this.postNodeLoadStateChanged(path, 'loading', undefined, operationId);
+      }
     }
   }
 
   private updateIndexedNode(
     targetPath: string,
     createNextNode: (node: WorkerFileNode) => WorkerFileNode
-  ): void {
+  ): WorkerFileNode | null {
     const previousSubtree = this.pathIndex.get(targetPath) ?? null;
     if (!previousSubtree) {
-      return;
+      return null;
     }
 
     const update = this.replaceIndexedNode(this.tree, targetPath, createNextNode);
     if (!(update.found && update.updatedSubtree)) {
-      return;
+      return null;
     }
 
     this.removeSubtreeFromPathIndex(previousSubtree);
@@ -323,6 +423,7 @@ export class BFSEngine {
       this.pathIndex.set(node.path, node);
     }
     this.addNodeSubtreeToPathIndex(update.updatedSubtree);
+    return update.updatedSubtree;
   }
 
   private replaceIndexedNode(
@@ -431,34 +532,194 @@ export class BFSEngine {
     }
   }
 
+  private postChildrenLoaded(
+    path: string,
+    children: WorkerFileNode[],
+    operationId: number | undefined
+  ): void {
+    this.postPatchMessage(
+      {
+        type: 'childrenLoaded',
+        payload: { path, children, loadState: 'loaded' },
+      },
+      operationId
+    );
+  }
+
+  private postNodeLoadStateChanged(
+    path: string,
+    loadState: DirectoryLoadState,
+    loadError?: string,
+    operationId?: number
+  ): void {
+    const payload = loadError === undefined ? { path, loadState } : { path, loadState, loadError };
+    this.postPatchMessage(
+      {
+        type: 'nodeLoadStateChanged',
+        payload,
+      },
+      operationId
+    );
+  }
+
+  private replaceExpandedPaths(nextPaths: string[]): void {
+    this.expandedPaths.clear();
+    this.expandedDescendantsByPath.clear();
+    for (const path of nextPaths) {
+      this.addExpandedPath(path);
+    }
+  }
+
+  private sendExpandedPathsForDirectoryUpdate(
+    path: string,
+    children: WorkerFileNode[],
+    loadState: DirectoryLoadState,
+    operationId?: number
+  ): void {
+    const nextSubtreePaths =
+      loadState === 'loaded' ? [path, ...collectExpandedPaths(children)] : [];
+    const nextSubtreeSet = new Set(nextSubtreePaths);
+    const currentSubtreePaths = this.getExpandedPathsForSubtree(path);
+    const added = nextSubtreePaths.filter((expandedPath) => !this.expandedPaths.has(expandedPath));
+    const removed = currentSubtreePaths.filter((expandedPath) => !nextSubtreeSet.has(expandedPath));
+    this.applyExpandedPathsPatch(added, removed, operationId);
+  }
+
+  private sendExpandedPathsDelta(nextPaths: string[], operationId?: number): void {
+    const nextSet = new Set(nextPaths);
+    const added = nextPaths.filter((path) => !this.expandedPaths.has(path));
+    const removed = [...this.expandedPaths].filter((path) => !nextSet.has(path));
+    this.applyExpandedPathsDelta(nextPaths, added, removed, operationId);
+  }
+
+  private applyExpandedPathsDelta(
+    nextPaths: string[],
+    added: string[],
+    removed: string[],
+    operationId?: number
+  ): void {
+    if (added.length > 0 || removed.length > 0) {
+      this.postPatchMessage(
+        {
+          type: 'expandedPathsDelta',
+          payload: { added, removed },
+        },
+        operationId
+      );
+    }
+    this.replaceExpandedPaths(nextPaths);
+  }
+
+  private applyExpandedPathsPatch(added: string[], removed: string[], operationId?: number): void {
+    if (added.length > 0 || removed.length > 0) {
+      this.postPatchMessage(
+        {
+          type: 'expandedPathsDelta',
+          payload: { added, removed },
+        },
+        operationId
+      );
+    }
+
+    for (const path of removed) {
+      this.removeExpandedPath(path);
+    }
+    for (const path of added) {
+      this.addExpandedPath(path);
+    }
+  }
+
+  private addExpandedPath(path: string): void {
+    if (this.expandedPaths.has(path)) {
+      return;
+    }
+
+    this.expandedPaths.add(path);
+    for (const ancestorPath of getAncestorPaths(path)) {
+      const descendants = this.expandedDescendantsByPath.get(ancestorPath) ?? new Set<string>();
+      descendants.add(path);
+      this.expandedDescendantsByPath.set(ancestorPath, descendants);
+    }
+  }
+
+  private removeExpandedPath(path: string): void {
+    if (!this.expandedPaths.delete(path)) {
+      return;
+    }
+
+    for (const ancestorPath of getAncestorPaths(path)) {
+      const descendants = this.expandedDescendantsByPath.get(ancestorPath);
+      if (!descendants) {
+        continue;
+      }
+      descendants.delete(path);
+      if (descendants.size === 0) {
+        this.expandedDescendantsByPath.delete(ancestorPath);
+      }
+    }
+  }
+
+  private getExpandedPathsForSubtree(path: string): string[] {
+    const expandedPaths: string[] = [];
+    if (this.expandedPaths.has(path)) {
+      expandedPaths.push(path);
+    }
+
+    const descendants = this.expandedDescendantsByPath.get(path);
+    if (!descendants) {
+      return expandedPaths;
+    }
+
+    for (const descendantPath of descendants) {
+      if (this.expandedPaths.has(descendantPath)) {
+        expandedPaths.push(descendantPath);
+      }
+    }
+
+    return expandedPaths;
+  }
+
+  private postPatchMessage(message: FileTreePatchMessage, operationId: number | undefined): void {
+    if (operationId === undefined) {
+      this.postMessage(message);
+      return;
+    }
+
+    this.postMessage({ ...message, operationId });
+  }
+
   /**
    * Send progress update message.
    */
-  private sendProgress(loaded: number, total: number, currentPath: string): void {
+  private sendProgress(
+    loaded: number,
+    total: number,
+    currentPath: string,
+    operationId: number
+  ): void {
     this.postMessage({
       type: 'progress',
+      operationId,
       payload: { loaded, total, currentPath },
     });
   }
 
   /**
-   * Send tree snapshot message.
+   * Emit an expanded-path delta for the current tree without sending a full-tree snapshot.
    */
-  private sendTreeSnapshot(): void {
-    this.postMessage({
-      type: 'treeSnapshot',
-      payload: { tree: this.tree, expandedPaths: collectExpandedPaths(this.tree) },
-    });
+  private syncExpandedPaths(operationId: number): void {
+    this.sendExpandedPathsDelta(collectExpandedPaths(this.tree), operationId);
   }
 
   /**
    * Send completion message.
    * @param loadedCount - Number of directories actually loaded (0 means all were cached)
    */
-  private sendComplete(loadedCount: number): void {
+  private sendComplete(loadedCount: number, operationId: number): void {
     this.postMessage({
       type: 'complete',
-      payload: { tree: this.tree, expandedPaths: collectExpandedPaths(this.tree), loadedCount },
+      operationId,
+      payload: { expandedPaths: [...this.expandedPaths], loadedCount },
     });
   }
 
@@ -469,7 +730,7 @@ export class BFSEngine {
    * - MAX_EXPAND_DEPTH: Stops at maximum depth to prevent runaway expansion
    * - MAX_EXPAND_DIRECTORIES: Limits total directories to prevent memory exhaustion
    */
-  async expandAll(): Promise<void> {
+  async expandAll(operationId: number): Promise<void> {
     this.resetAbort();
 
     const processed = new Set<string>();
@@ -494,7 +755,7 @@ export class BFSEngine {
     this.logDebug(`[expand-all] Starting with ${currentWave.size} root directories`);
 
     // Send initial progress immediately so UI shows "0 of X" right away
-    this.sendProgress(0, totalDiscovered, '');
+    this.sendProgress(0, totalDiscovered, '', operationId);
 
     // Throttling for tree snapshots
     let lastSnapshotTime = Date.now();
@@ -536,7 +797,8 @@ export class BFSEngine {
         toLoad,
         loadedCount,
         totalDiscovered,
-        lastSnapshotTime
+        lastSnapshotTime,
+        operationId
       );
 
       if (this.aborted) {
@@ -568,7 +830,7 @@ export class BFSEngine {
     this.logInfo(
       `[expand-all] Complete. Loaded ${loadedCount} directories, max depth ${maxDepthReached}${limitMsg}`
     );
-    this.sendComplete(loadedCount);
+    this.sendComplete(loadedCount, operationId);
   }
 
   /**
@@ -579,7 +841,8 @@ export class BFSEngine {
     toLoad: string[],
     loadedCount: number,
     totalDiscovered: number,
-    lastSnapshotTime: number
+    lastSnapshotTime: number,
+    operationId: number
   ): Promise<{ loadedCount: number; lastSnapshotTime: number }> {
     let currentLoadedCount = loadedCount;
     let currentSnapshotTime = lastSnapshotTime;
@@ -588,12 +851,12 @@ export class BFSEngine {
     for (let i = 0; i < toLoad.length && !this.aborted; i += BATCH_SIZE) {
       const batch = toLoad.slice(i, i + BATCH_SIZE);
 
-      this.markBatchAsLoading(batch);
+      this.markBatchAsLoading(batch, operationId);
 
       // Time the batch load operation against expandBatch budget
       const results = await timeBatchLoad(
         batch.length,
-        () => this.requestLoads(batch),
+        () => this.requestLoads(batch, operationId),
         (durationMs, exceededBudget) => {
           if (exceededBudget) {
             slowBatchCount++;
@@ -609,7 +872,7 @@ export class BFSEngine {
       }
 
       currentLoadedCount += results.filter((r) => r.children).length;
-      this.sendProgress(currentLoadedCount, totalDiscovered, batch[0] ?? '');
+      this.sendProgress(currentLoadedCount, totalDiscovered, batch[0] ?? '', operationId);
 
       // Check abort before expensive tree snapshot
       if (this.aborted) {
@@ -620,7 +883,7 @@ export class BFSEngine {
       const now = Date.now();
       if (now - currentSnapshotTime >= SNAPSHOT_INTERVAL_MS) {
         currentSnapshotTime = now;
-        this.sendTreeSnapshot();
+        this.syncExpandedPaths(operationId);
       }
 
       await yieldControl();
@@ -644,13 +907,7 @@ export class BFSEngine {
   collapseAll(): void {
     // Tree stays the same - we keep the loaded data cached
     // Only the expandedPaths are cleared to collapse the UI
-    this.postMessage({
-      type: 'treeSnapshot',
-      payload: {
-        tree: this.tree,
-        expandedPaths: [], // Collapsed - no paths expanded
-      },
-    });
+    this.sendExpandedPathsDelta([]);
   }
 
   /**
@@ -675,7 +932,7 @@ export class BFSEngine {
     checkBudget('worker-flattenTree', durationMs, 'flattenTree');
 
     this.postMessage({
-      type: 'flattenedResult',
+      type: 'flattenedRows',
       payload: {
         nodes: result,
         count: result.length,
@@ -788,14 +1045,15 @@ export class BFSEngine {
   private async processLoadPathsBatch(
     batch: string[],
     counters: { loadedCount: number; skippedCount: number },
-    total: number
+    total: number,
+    operationId: number
   ): Promise<{ notFound: string[]; aborted: boolean }> {
     const { toLoad, skipped, notFound } = this.filterPathsForLoading(batch);
     counters.skippedCount += skipped;
 
     if (toLoad.length > 0) {
-      this.markBatchAsLoading(toLoad);
-      const results = await this.requestLoads(toLoad);
+      this.markBatchAsLoading(toLoad, operationId);
+      const results = await this.requestLoads(toLoad, operationId);
 
       if (this.aborted) {
         return { notFound: [], aborted: true };
@@ -804,7 +1062,12 @@ export class BFSEngine {
       counters.loadedCount += results.filter((r) => r.children).length;
     }
 
-    this.sendProgress(counters.loadedCount + counters.skippedCount, total, batch[0] ?? '');
+    this.sendProgress(
+      counters.loadedCount + counters.skippedCount,
+      total,
+      batch[0] ?? '',
+      operationId
+    );
     await yieldControl();
     return { notFound, aborted: false };
   }
@@ -816,7 +1079,8 @@ export class BFSEngine {
   private async processPathsByDepth(
     paths: string[],
     counters: { loadedCount: number; skippedCount: number },
-    total: number
+    total: number,
+    operationId: number
   ): Promise<string[]> {
     const notFoundPaths: string[] = [];
     const depthGroups = this.groupPathsByDepth(paths);
@@ -831,7 +1095,7 @@ export class BFSEngine {
 
       for (let i = 0; i < pathsAtDepth.length && !this.aborted; i += BATCH_SIZE) {
         const batch = pathsAtDepth.slice(i, i + BATCH_SIZE);
-        const result = await this.processLoadPathsBatch(batch, counters, total);
+        const result = await this.processLoadPathsBatch(batch, counters, total, operationId);
         if (result.aborted) {
           return notFoundPaths;
         }
@@ -853,11 +1117,11 @@ export class BFSEngine {
    * Paths that aren't found in the tree are collected and retried after all depths are processed,
    * since they may become available after their parent directories are loaded.
    */
-  async loadPaths(paths: string[]): Promise<void> {
+  async loadPaths(paths: string[], operationId: number): Promise<void> {
     this.resetAbort();
 
     if (paths.length === 0) {
-      this.sendComplete(0);
+      this.sendComplete(0, operationId);
       return;
     }
 
@@ -867,7 +1131,7 @@ export class BFSEngine {
     this.logInfo(`[loadPaths] Starting restoration of ${total} directories`);
 
     // Initial pass - process all paths by depth
-    let pathsToRetry = await this.processPathsByDepth(paths, counters, total);
+    let pathsToRetry = await this.processPathsByDepth(paths, counters, total, operationId);
 
     // Retry paths that weren't found initially (they may exist now after parents loaded)
     // Use multiple retry rounds since deeper children may need multiple parent loads
@@ -876,7 +1140,7 @@ export class BFSEngine {
       this.logInfo(
         `[loadPaths] Retry ${retry + 1}/${maxRetries}: ${pathsToRetry.length} paths not found initially`
       );
-      pathsToRetry = await this.processPathsByDepth(pathsToRetry, counters, total);
+      pathsToRetry = await this.processPathsByDepth(pathsToRetry, counters, total, operationId);
     }
 
     // Count remaining not found paths as skipped
@@ -897,7 +1161,7 @@ export class BFSEngine {
     this.logInfo(
       `[loadPaths] Complete. Loaded ${counters.loadedCount}, skipped ${counters.skippedCount}`
     );
-    this.sendComplete(counters.loadedCount);
+    this.sendComplete(counters.loadedCount, operationId);
   }
 
   /**
@@ -911,12 +1175,12 @@ export class BFSEngine {
    * - MAX_EXPAND_DEPTH: Relative depth from startPath is capped
    * - MAX_EXPAND_DIRECTORIES: Limits total directories to prevent memory exhaustion
    */
-  async loadSubtree(startPath: string): Promise<void> {
+  async loadSubtree(startPath: string, operationId: number): Promise<void> {
     this.resetAbort();
 
     // Find and validate the start node
     const startNode = this.findNode(startPath);
-    if (!this.validateSubtreeStart(startNode, startPath)) {
+    if (!this.validateSubtreeStart(startNode, startPath, operationId)) {
       return;
     }
 
@@ -927,29 +1191,33 @@ export class BFSEngine {
     const state = this.initializeSubtreeState(startNode as WorkerFileNode, startPath);
 
     // Send initial progress
-    this.sendProgress(0, Math.max(state.totalDiscovered, 1), startPath);
+    this.sendProgress(0, Math.max(state.totalDiscovered, 1), startPath, operationId);
 
     // Process waves until complete or aborted
-    await this.processSubtreeWaves(state, baseDepth);
+    await this.processSubtreeWaves(state, baseDepth, operationId);
 
     // Log completion
     this.logSubtreeCompletion(state);
-    this.sendComplete(state.loadedCount);
+    this.sendComplete(state.loadedCount, operationId);
   }
 
   /**
    * Validate the start node for subtree loading.
    */
-  private validateSubtreeStart(startNode: WorkerFileNode | null, startPath: string): boolean {
+  private validateSubtreeStart(
+    startNode: WorkerFileNode | null,
+    startPath: string,
+    operationId: number
+  ): boolean {
     if (!startNode) {
       this.logInfo(`[loadSubtree] Start path not found in tree: ${startPath}`);
-      this.sendComplete(0);
+      this.sendComplete(0, operationId);
       return false;
     }
 
     if (startNode.type !== 'directory') {
       this.logInfo(`[loadSubtree] Start path is not a directory: ${startPath}`);
-      this.sendComplete(0);
+      this.sendComplete(0, operationId);
       return false;
     }
 
@@ -1014,7 +1282,11 @@ export class BFSEngine {
   /**
    * Process BFS waves for subtree loading.
    */
-  private async processSubtreeWaves(state: SubtreeLoadState, baseDepth: number): Promise<void> {
+  private async processSubtreeWaves(
+    state: SubtreeLoadState,
+    baseDepth: number,
+    operationId: number
+  ): Promise<void> {
     while (state.currentWave.size > 0 && !this.aborted) {
       // Safety check: directory limit
       if (state.loadedCount >= MAX_EXPAND_DIRECTORIES) {
@@ -1036,7 +1308,7 @@ export class BFSEngine {
       }
 
       // Process batches
-      const aborted = await this.processSubtreeBatches(toLoad, state);
+      const aborted = await this.processSubtreeBatches(toLoad, state, operationId);
       if (aborted) {
         break;
       }
@@ -1114,19 +1386,23 @@ export class BFSEngine {
    * Process directory batches for subtree loading.
    * Returns true if aborted.
    */
-  private async processSubtreeBatches(toLoad: string[], state: SubtreeLoadState): Promise<boolean> {
+  private async processSubtreeBatches(
+    toLoad: string[],
+    state: SubtreeLoadState,
+    operationId: number
+  ): Promise<boolean> {
     for (let i = 0; i < toLoad.length && !this.aborted; i += BATCH_SIZE) {
       const batch = toLoad.slice(i, i + BATCH_SIZE);
 
-      this.markBatchAsLoading(batch);
-      const results = await this.requestLoads(batch);
+      this.markBatchAsLoading(batch, operationId);
+      const results = await this.requestLoads(batch, operationId);
 
       if (this.aborted) {
         return true;
       }
 
       state.loadedCount += results.filter((r) => r.children).length;
-      this.sendProgress(state.loadedCount, state.totalDiscovered, batch[0] ?? '');
+      this.sendProgress(state.loadedCount, state.totalDiscovered, batch[0] ?? '', operationId);
 
       // Mark processed
       for (const path of batch) {

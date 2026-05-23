@@ -131,6 +131,10 @@ export default defineConfig({
       },
       // Resolve dev/runtime imports from source so Vite never depends on workspace dist churn.
       {
+        find: '@brainstrike/file-tree-worker',
+        replacement: path.resolve(__dirname, '../../packages/file-tree-worker/src/vite.ts'),
+      },
+      {
         find: '@brainstrike/token-cache/cache-runtime',
         replacement: path.resolve(__dirname, '../../packages/token-cache/src/cache-runtime.ts'),
       },
@@ -332,6 +336,7 @@ export default defineConfig({
       '@brainstrike/file-explorer',
       '@brainstrike/file-explorer-hooks',
       '@brainstrike/file-explorer-ui',
+      '@brainstrike/file-tree-worker',
       '@brainstrike/file-system',
       '@brainstrike/storage',
       '@brainstrike/app-shell',

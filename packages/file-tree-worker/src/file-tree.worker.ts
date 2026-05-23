@@ -14,7 +14,7 @@
 /// <reference lib="webworker" />
 
 import { BFSEngine } from './bfs-engine';
-import { collectExpandedPaths, updateNodeChildren } from './tree-operations';
+import { collectExpandedPaths } from './tree-operations';
 import type { MainToWorkerMessage, WorkerToMainMessage } from './types';
 
 // ============================================================================
@@ -127,36 +127,36 @@ self.onmessage = async (event: MessageEvent<MainToWorkerMessage>) => {
       }
 
       case 'loadResult': {
-        const { path, children } = message.payload;
-        engine.handleLoadResult(path, children);
+        const { path, children, requestId } = message.payload;
+        engine.handleLoadResult(path, children, requestId);
         // Removed per-result debug log to reduce console spam during expand-all
         break;
       }
 
       case 'loadError': {
-        const { path, error } = message.payload;
-        engine.handleLoadError(path, error);
+        const { path, error, requestId } = message.payload;
+        engine.handleLoadError(path, error, requestId);
         log('warn', 'load error processed', { path, error });
         break;
       }
 
       case 'expandAll': {
         log('info', 'starting expand-all', { folderId: message.payload.folderId });
-        await engine.expandAll();
+        await engine.expandAll(message.operationId);
         break;
       }
 
       case 'loadPaths': {
         const { paths } = message.payload;
         log('info', 'starting loadPaths', { pathCount: paths.length });
-        await engine.loadPaths(paths);
+        await engine.loadPaths(paths, message.operationId);
         break;
       }
 
       case 'loadSubtree': {
         const { startPath } = message.payload;
         log('info', 'starting loadSubtree', { startPath });
-        await engine.loadSubtree(startPath);
+        await engine.loadSubtree(startPath, message.operationId);
         break;
       }
 
@@ -174,18 +174,7 @@ self.onmessage = async (event: MessageEvent<MainToWorkerMessage>) => {
 
       case 'updateTree': {
         const { path, children, loadState } = message.payload;
-        const currentTree = engine.getTree();
-        const newTree = updateNodeChildren(currentTree, path, children, loadState);
-        engine.setTree(newTree, ''); // folderId preserved from init
-
-        // Send updated snapshot
-        self.postMessage({
-          type: 'treeSnapshot',
-          payload: {
-            tree: newTree,
-            expandedPaths: collectExpandedPaths(newTree),
-          },
-        } satisfies WorkerToMainMessage);
+        engine.applyDirectoryChildrenUpdate(path, children, loadState);
         break;
       }
 

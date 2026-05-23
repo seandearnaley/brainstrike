@@ -121,9 +121,12 @@ describe('createFileTreeWorkerPort', () => {
     const port = createFileTreeWorkerPort(worker as unknown as Worker);
     const onProgress = vi.fn();
     const onTreeSnapshot = vi.fn();
+    const onChildrenLoaded = vi.fn();
+    const onNodeLoadStateChanged = vi.fn();
+    const onExpandedPathsDelta = vi.fn();
     const onError = vi.fn();
     const onLog = vi.fn();
-    const onFlattenedResult = vi.fn();
+    const onFlattenedRows = vi.fn();
     const flattenedNode: FlattenedNode = {
       node: createDirectoryNode('/root/a'),
       depth: 1,
@@ -131,17 +134,37 @@ describe('createFileTreeWorkerPort', () => {
 
     const offProgress = port.onProgress(onProgress);
     const offTreeSnapshot = port.onTreeSnapshot(onTreeSnapshot);
+    const offChildrenLoaded = port.onChildrenLoaded(onChildrenLoaded);
+    const offNodeLoadStateChanged = port.onNodeLoadStateChanged(onNodeLoadStateChanged);
+    const offExpandedPathsDelta = port.onExpandedPathsDelta(onExpandedPathsDelta);
     const offError = port.onError(onError);
     const offLog = port.onLog(onLog);
-    const offFlattened = port.onFlattenedResult(onFlattenedResult);
+    const offFlattened = port.onFlattenedRows(onFlattenedRows);
 
     worker.emit({
       type: 'progress',
+      operationId: 1,
       payload: { loaded: 1, total: 3, currentPath: '/root/a' },
     });
     worker.emit({
       type: 'treeSnapshot',
       payload: { tree: [createDirectoryNode('/root/a')], expandedPaths: ['/root/a'] },
+    });
+    worker.emit({
+      type: 'childrenLoaded',
+      payload: {
+        path: '/root/a',
+        children: [createDirectoryNode('/root/a/child')],
+        loadState: 'loaded',
+      },
+    });
+    worker.emit({
+      type: 'nodeLoadStateChanged',
+      payload: { path: '/root/a', loadState: 'loading' },
+    });
+    worker.emit({
+      type: 'expandedPathsDelta',
+      payload: { added: ['/root/a'], removed: [] },
     });
     worker.emit({
       type: 'error',
@@ -154,29 +177,50 @@ describe('createFileTreeWorkerPort', () => {
       data: { count: 1 },
     });
     worker.emit({
-      type: 'flattenedResult',
+      type: 'flattenedRows',
       payload: { nodes: [flattenedNode], count: 1, durationMs: 8 },
     });
 
     expect(onProgress).toHaveBeenCalledWith(1, 3, '/root/a');
     expect(onTreeSnapshot).toHaveBeenCalledWith([createDirectoryNode('/root/a')], ['/root/a']);
+    expect(onChildrenLoaded).toHaveBeenCalledWith('/root/a', [
+      createDirectoryNode('/root/a/child'),
+    ]);
+    expect(onNodeLoadStateChanged).toHaveBeenCalledWith('/root/a', 'loading', undefined);
+    expect(onExpandedPathsDelta).toHaveBeenCalledWith(['/root/a'], []);
     expect(onError).toHaveBeenCalledWith('path failed', '/root/a');
     expect(onLog).toHaveBeenCalledWith('debug', 'worker log', { count: 1 });
-    expect(onFlattenedResult).toHaveBeenCalledWith([flattenedNode], 1, 8);
+    expect(onFlattenedRows).toHaveBeenCalledWith([flattenedNode], 1, 8);
 
     offProgress();
     offTreeSnapshot();
+    offChildrenLoaded();
+    offNodeLoadStateChanged();
+    offExpandedPathsDelta();
     offError();
     offLog();
     offFlattened();
 
     worker.emit({
       type: 'progress',
+      operationId: 1,
       payload: { loaded: 2, total: 3, currentPath: '/root/b' },
     });
     worker.emit({
       type: 'treeSnapshot',
       payload: { tree: [createDirectoryNode('/root/b')], expandedPaths: ['/root/b'] },
+    });
+    worker.emit({
+      type: 'childrenLoaded',
+      payload: { path: '/root/b', children: [], loadState: 'loaded' },
+    });
+    worker.emit({
+      type: 'nodeLoadStateChanged',
+      payload: { path: '/root/b', loadState: 'loaded' },
+    });
+    worker.emit({
+      type: 'expandedPathsDelta',
+      payload: { added: [], removed: ['/root/a'] },
     });
     worker.emit({
       type: 'error',
@@ -189,15 +233,18 @@ describe('createFileTreeWorkerPort', () => {
       data: { count: 2 },
     });
     worker.emit({
-      type: 'flattenedResult',
+      type: 'flattenedRows',
       payload: { nodes: [], count: 0, durationMs: 1 },
     });
 
     expect(onProgress).toHaveBeenCalledTimes(1);
     expect(onTreeSnapshot).toHaveBeenCalledTimes(1);
+    expect(onChildrenLoaded).toHaveBeenCalledTimes(1);
+    expect(onNodeLoadStateChanged).toHaveBeenCalledTimes(1);
+    expect(onExpandedPathsDelta).toHaveBeenCalledTimes(1);
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onLog).toHaveBeenCalledTimes(1);
-    expect(onFlattenedResult).toHaveBeenCalledTimes(1);
+    expect(onFlattenedRows).toHaveBeenCalledTimes(1);
   });
 
   it('handles requestLoad responses and errors', async () => {
@@ -216,17 +263,18 @@ describe('createFileTreeWorkerPort', () => {
 
     worker.emit({
       type: 'requestLoad',
+      operationId: 1,
       payload: { requestId: 'req-1', paths: ['/root/a', '/root/b'] },
     });
     await flushMicrotasks();
 
     expect(worker.postedMessages).toContainEqual({
       type: 'loadResult',
-      payload: { path: '/root/a', children: [child] },
+      payload: { requestId: 'req-1', path: '/root/a', children: [child] },
     });
     expect(worker.postedMessages).toContainEqual({
       type: 'loadError',
-      payload: { path: '/root/b', error: 'permission denied' },
+      payload: { requestId: 'req-1', path: '/root/b', error: 'permission denied' },
     });
 
     offRequestLoad();
@@ -234,6 +282,7 @@ describe('createFileTreeWorkerPort', () => {
 
     worker.emit({
       type: 'requestLoad',
+      operationId: 1,
       payload: { requestId: 'req-2', paths: ['/root/c'] },
     });
     await flushMicrotasks();
@@ -244,37 +293,39 @@ describe('createFileTreeWorkerPort', () => {
     });
     worker.emit({
       type: 'requestLoad',
+      operationId: 1,
       payload: { requestId: 'req-3', paths: ['/root/d', '/root/e'] },
     });
     await flushMicrotasks();
 
     expect(worker.postedMessages).toContainEqual({
       type: 'loadError',
-      payload: { path: '/root/d', error: 'handler crashed' },
+      payload: { requestId: 'req-3', path: '/root/d', error: 'handler crashed' },
     });
     expect(worker.postedMessages).toContainEqual({
       type: 'loadError',
-      payload: { path: '/root/e', error: 'handler crashed' },
+      payload: { requestId: 'req-3', path: '/root/e', error: 'handler crashed' },
     });
   });
 
   it('resolves and rejects long-running operations correctly', async () => {
     const worker = new MockWorker();
     const port = createFileTreeWorkerPort(worker as unknown as Worker);
-    const tree = [createDirectoryNode('/root/a')];
 
     const expandAllPromise = port.expandAll('folder-1');
     expect(worker.postedMessages.at(-1)).toEqual({
       type: 'expandAll',
+      operationId: 1,
       payload: { folderId: 'folder-1' },
     });
 
     worker.emit({
+      operationId: 1,
       type: 'complete',
-      payload: { tree, expandedPaths: ['/root/a'], loadedCount: 1 },
+      payload: { expandedPaths: ['/root/a'], loadedCount: 1 },
     });
     await expect(expandAllPromise).resolves.toEqual({
-      tree,
+      patches: [],
       expandedPaths: ['/root/a'],
       loadedCount: 1,
     });
@@ -284,19 +335,23 @@ describe('createFileTreeWorkerPort', () => {
     await expect(loadPathsPromise).rejects.toThrow('Operation aborted by new request');
     expect(worker.postedMessages).toContainEqual({
       type: 'loadPaths',
+      operationId: 2,
       payload: { paths: ['/root/a'] },
     });
+    expect(worker.postedMessages).toContainEqual({ type: 'abort' });
     expect(worker.postedMessages).toContainEqual({
       type: 'loadSubtree',
+      operationId: 3,
       payload: { startPath: '/root/b' },
     });
 
     worker.emit({
+      operationId: 3,
       type: 'complete',
-      payload: { tree, expandedPaths: ['/root/b'], loadedCount: 2 },
+      payload: { expandedPaths: ['/root/b'], loadedCount: 2 },
     });
     await expect(loadSubtreePromise).resolves.toEqual({
-      tree,
+      patches: [],
       expandedPaths: ['/root/b'],
       loadedCount: 2,
     });
@@ -307,6 +362,97 @@ describe('createFileTreeWorkerPort', () => {
     expect(worker.postedMessages.at(-1)).toEqual({ type: 'abort' });
   });
 
+  it('does not attach stale patches from a superseded operation to the active result', async () => {
+    const worker = new MockWorker();
+    const port = createFileTreeWorkerPort(worker as unknown as Worker);
+    const staleChild = createDirectoryNode('/root/stale-child');
+    const activeChild = createDirectoryNode('/root/active-child');
+
+    const stalePromise = port.loadPaths(['/root/stale']);
+    const activePromise = port.loadPaths(['/root/active']);
+
+    await expect(stalePromise).rejects.toThrow('Operation aborted by new request');
+
+    worker.emit({
+      operationId: 1,
+      type: 'childrenLoaded',
+      payload: { path: '/root/stale', children: [staleChild], loadState: 'loaded' },
+    } as WorkerToMainMessage);
+    worker.emit({
+      operationId: 2,
+      type: 'childrenLoaded',
+      payload: { path: '/root/active', children: [activeChild], loadState: 'loaded' },
+    } as WorkerToMainMessage);
+    worker.emit({
+      operationId: 2,
+      type: 'expandedPathsDelta',
+      payload: { added: ['/root/active'], removed: [] },
+    } as WorkerToMainMessage);
+    worker.emit({
+      operationId: 2,
+      type: 'complete',
+      payload: { expandedPaths: ['/root/active'], loadedCount: 1 },
+    } as WorkerToMainMessage);
+
+    await expect(activePromise).resolves.toEqual({
+      patches: [
+        {
+          operationId: 2,
+          type: 'childrenLoaded',
+          payload: { path: '/root/active', children: [activeChild], loadState: 'loaded' },
+        },
+      ],
+      expandedPaths: ['/root/active'],
+      loadedCount: 1,
+    });
+  });
+
+  it('delivers standalone update patches without adding them to an active operation result', async () => {
+    const worker = new MockWorker();
+    const port = createFileTreeWorkerPort(worker as unknown as Worker);
+    const standaloneChild = createDirectoryNode('/root/standalone-child');
+    const activeChild = createDirectoryNode('/root/active-child');
+    const onChildrenLoaded = vi.fn();
+    const onExpandedPathsDelta = vi.fn();
+
+    port.onChildrenLoaded(onChildrenLoaded);
+    port.onExpandedPathsDelta(onExpandedPathsDelta);
+    const activePromise = port.loadPaths(['/root/active']);
+
+    worker.emit({
+      type: 'childrenLoaded',
+      payload: { path: '/root/standalone', children: [standaloneChild], loadState: 'loaded' },
+    } as WorkerToMainMessage);
+    worker.emit({
+      type: 'expandedPathsDelta',
+      payload: { added: ['/root/standalone'], removed: [] },
+    } as WorkerToMainMessage);
+    worker.emit({
+      operationId: 1,
+      type: 'childrenLoaded',
+      payload: { path: '/root/active', children: [activeChild], loadState: 'loaded' },
+    } as WorkerToMainMessage);
+    worker.emit({
+      operationId: 1,
+      type: 'complete',
+      payload: { expandedPaths: ['/root/active'], loadedCount: 1 },
+    } as WorkerToMainMessage);
+
+    expect(onChildrenLoaded).toHaveBeenCalledWith('/root/standalone', [standaloneChild]);
+    expect(onExpandedPathsDelta).toHaveBeenCalledWith(['/root/standalone'], []);
+    await expect(activePromise).resolves.toEqual({
+      patches: [
+        {
+          operationId: 1,
+          type: 'childrenLoaded',
+          payload: { path: '/root/active', children: [activeChild], loadState: 'loaded' },
+        },
+      ],
+      expandedPaths: ['/root/active'],
+      loadedCount: 1,
+    });
+  });
+
   it('propagates worker errors to active operations and listeners', async () => {
     const worker = new MockWorker();
     const port = createFileTreeWorkerPort(worker as unknown as Worker);
@@ -315,6 +461,7 @@ describe('createFileTreeWorkerPort', () => {
 
     const pending = port.expandAll('folder-1');
     worker.emit({
+      operationId: 1,
       type: 'error',
       payload: { message: 'load failed', path: '/root/a' },
     });
@@ -329,6 +476,19 @@ describe('createFileTreeWorkerPort', () => {
     expect(onError).toHaveBeenCalledWith('standalone error', '/root/b');
   });
 
+  it('rejects the active operation on id-less global worker errors', async () => {
+    const worker = new MockWorker();
+    const port = createFileTreeWorkerPort(worker as unknown as Worker);
+
+    const pending = port.expandAll('folder-1');
+    worker.emit({
+      type: 'error',
+      payload: { message: 'global worker failure' },
+    });
+
+    await expect(pending).rejects.toThrow('global worker failure');
+  });
+
   it('removes listeners and terminates the worker', () => {
     const worker = new MockWorker();
     const port = createFileTreeWorkerPort(worker as unknown as Worker);
@@ -340,6 +500,7 @@ describe('createFileTreeWorkerPort', () => {
 
     worker.emit({
       type: 'progress',
+      operationId: 1,
       payload: { loaded: 1, total: 1, currentPath: '/root/a' },
     });
     expect(onProgress).not.toHaveBeenCalled();
