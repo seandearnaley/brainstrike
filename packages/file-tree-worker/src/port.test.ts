@@ -382,6 +382,11 @@ describe('createFileTreeWorkerPort', () => {
     } as WorkerToMainMessage);
     worker.emit({
       operationId: 2,
+      type: 'expandedPathsDelta',
+      payload: { added: ['/root/active'], removed: [] },
+    } as WorkerToMainMessage);
+    worker.emit({
+      operationId: 2,
       type: 'complete',
       payload: { expandedPaths: ['/root/active'], loadedCount: 1 },
     } as WorkerToMainMessage);
