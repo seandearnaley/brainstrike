@@ -1,4 +1,5 @@
 import { Calendar, Copy, Edit2, Globe, MoreVertical, Star, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 import { Card, CardContent, CardFooter, CardHeader } from '../..';
 import { Badge } from '../../badge';
 import { Button } from '../../button';
@@ -30,6 +31,8 @@ export function PromptCard({
   onCopy,
 }: PromptCardProps) {
   const updatedAt = new Date(prompt.updatedAt);
+  const [isMoreOptionsOpen, setIsMoreOptionsOpen] = useState(false);
+  const moreOptionsTooltipProps = isMoreOptionsOpen ? { open: false as const } : {};
 
   return (
     <Card className="group relative overflow-hidden border-border/50 bg-card/50 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5">
@@ -96,10 +99,10 @@ export function PromptCard({
               </TooltipContent>
             </Tooltip>
 
-            <Tooltip>
+            <Tooltip {...moreOptionsTooltipProps}>
               <TooltipTrigger asChild>
                 <span className="inline-flex">
-                  <DropdownMenu>
+                  <DropdownMenu onOpenChange={setIsMoreOptionsOpen} open={isMoreOptionsOpen}>
                     <DropdownMenuTrigger asChild>
                       <Button
                         aria-label="More options"

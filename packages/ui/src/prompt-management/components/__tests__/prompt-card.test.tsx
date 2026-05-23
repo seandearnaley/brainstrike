@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { TooltipProvider } from '../../../tooltip';
@@ -109,8 +109,33 @@ describe('PromptCard', () => {
 
     await user.hover(screen.getByRole('button', { name: 'More options' }));
 
-    const tips = await screen.findAllByText('More options');
+    const tips = await screen.findAllByRole('tooltip');
     expect(tips.length).toBeGreaterThan(0);
+    expect(tips[0]).toHaveTextContent('More options');
+  });
+
+  it('closes the more options hover hint while the menu is open', async () => {
+    const user = userEvent.setup();
+
+    renderPromptCard(
+      <PromptCard
+        category={category}
+        onCopy={() => {}}
+        onDelete={() => {}}
+        onEdit={() => {}}
+        onToggleFavorite={() => {}}
+        prompt={prompt}
+      />
+    );
+
+    const moreOptions = screen.getByRole('button', { name: 'More options' });
+    await user.hover(moreOptions);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('More options');
+
+    await user.click(moreOptions);
+
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
   });
 
   it('does not add focusable controls for decorative metadata', () => {
