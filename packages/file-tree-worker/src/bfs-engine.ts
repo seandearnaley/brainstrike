@@ -199,6 +199,13 @@ export class BFSEngine {
     }
   }
 
+  /**
+   * Apply an externally supplied directory update and emit the same patch protocol as load results.
+   *
+   * `operationId` is present for bulk-operation load results. The `updateTree` worker message calls
+   * this without an operation id so listeners receive live patches without attaching them to a
+   * pending bulk-operation result.
+   */
   applyDirectoryChildrenUpdate(
     path: string,
     children: WorkerFileNode[],
@@ -217,7 +224,10 @@ export class BFSEngine {
       this.postChildrenLoaded(path, children, operationId);
     }
     this.postNodeLoadStateChanged(path, loadState, undefined, operationId);
-    this.sendExpandedPathsDelta(collectExpandedPaths(this.tree), operationId);
+    this.sendExpandedPathsDelta(
+      this.getExpandedPathsAfterDirectoryUpdate(path, children, loadState),
+      operationId
+    );
   }
 
   /**
@@ -524,6 +534,20 @@ export class BFSEngine {
     }
   }
 
+  private getExpandedPathsAfterDirectoryUpdate(
+    path: string,
+    children: WorkerFileNode[],
+    loadState: DirectoryLoadState
+  ): string[] {
+    const nextPaths = [...this.expandedPaths].filter(
+      (expandedPath) => expandedPath !== path && !isDescendantPath(expandedPath, path)
+    );
+    if (loadState === 'loaded') {
+      nextPaths.push(path, ...collectExpandedPaths(children));
+    }
+    return nextPaths;
+  }
+
   private sendExpandedPathsDelta(nextPaths: string[], operationId?: number): string[] {
     const nextSet = new Set(nextPaths);
     const added = nextPaths.filter((path) => !this.expandedPaths.has(path));
@@ -567,11 +591,10 @@ export class BFSEngine {
    * @param loadedCount - Number of directories actually loaded (0 means all were cached)
    */
   private sendComplete(loadedCount: number, operationId: number): void {
-    const expandedPaths = this.sendExpandedPathsDelta(collectExpandedPaths(this.tree), operationId);
     this.postMessage({
       type: 'complete',
       operationId,
-      payload: { expandedPaths, loadedCount },
+      payload: { expandedPaths: [...this.expandedPaths], loadedCount },
     });
   }
 

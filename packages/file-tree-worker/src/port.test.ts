@@ -422,6 +422,19 @@ describe('createFileTreeWorkerPort', () => {
     expect(onError).toHaveBeenCalledWith('standalone error', '/root/b');
   });
 
+  it('rejects the active operation on id-less global worker errors', async () => {
+    const worker = new MockWorker();
+    const port = createFileTreeWorkerPort(worker as unknown as Worker);
+
+    const pending = port.expandAll('folder-1');
+    worker.emit({
+      type: 'error',
+      payload: { message: 'global worker failure' },
+    });
+
+    await expect(pending).rejects.toThrow('global worker failure');
+  });
+
   it('removes listeners and terminates the worker', () => {
     const worker = new MockWorker();
     const port = createFileTreeWorkerPort(worker as unknown as Worker);

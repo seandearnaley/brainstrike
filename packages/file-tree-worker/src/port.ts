@@ -324,13 +324,14 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
   const handleError = (message: Extract<WorkerToMainMessage, { type: 'error' }>): void => {
     errorHandler?.(message.payload.message, message.payload.path);
-    // Only reject if this error matches the current operation
-    if (
-      pending.operation &&
-      message.operationId !== undefined &&
-      pending.operation.operationId === message.operationId
-    ) {
-      pending.operation.reject(new Error(message.payload.message));
+    const operation = pending.operation;
+    if (!operation) {
+      return;
+    }
+
+    // Id-less worker errors are global failures; reject the active operation so it cannot hang.
+    if (message.operationId === undefined || operation.operationId === message.operationId) {
+      operation.reject(new Error(message.payload.message));
       pending.operation = null;
     }
   };
