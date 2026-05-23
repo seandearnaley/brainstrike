@@ -1,21 +1,25 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-23T04:08:33.983Z",
+  "generatedAt": "2026-05-23T09:31:00.458Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "cb37168e923f7a8b735bca6c6a8ed660fc70ee3d",
+  "testedHeadSha": "5a4c1a8bc2d9bca2351c788ce52ba3981162b6ce",
   "selection": {
     "base": "origin/main",
     "baseSha": "06280a0b8b9de6ef4f5ab37c582be2ace380a940",
     "head": "HEAD",
-    "headSha": "cb37168e923f7a8b735bca6c6a8ed660fc70ee3d",
+    "headSha": "5a4c1a8bc2d9bca2351c788ce52ba3981162b6ce",
     "mergeBase": "06280a0b8b9de6ef4f5ab37c582be2ace380a940",
     "files": [
       ".ci/proof/latest.json",
+      "apps/desktop/src/__tests__/vite-config.test.ts",
+      "apps/desktop/vite.config.mts",
+      "apps/web/src/__tests__/vite-config.test.ts",
+      "apps/web/vite.config.mts",
       "docs/superpowers/plans/2026-05-22-bst-373-file-tree-patch-protocol.md",
       "packages/file-explorer-ui/src/__tests__/use-file-tree-context.test.ts",
       "packages/file-explorer-ui/src/hooks/__tests__/use-worker-flattened-tree.test.ts",
@@ -28,7 +32,10 @@
       "packages/file-tree-worker/src/index.ts",
       "packages/file-tree-worker/src/port.test.ts",
       "packages/file-tree-worker/src/port.ts",
-      "packages/file-tree-worker/src/types.ts"
+      "packages/file-tree-worker/src/resolve-file-tree-worker-url.test.ts",
+      "packages/file-tree-worker/src/types.ts",
+      "packages/file-tree-worker/src/types/vite-worker-url.d.ts",
+      "packages/file-tree-worker/src/vite.ts"
     ],
     "riskProfile": {
       "category": "web-ui-file-explorer",
@@ -52,18 +59,22 @@
     "proofCommands": [
       "diff-check",
       "file-explorer-tests",
-      "web-file-explorer-persistence-tests"
+      "web-file-explorer-persistence-tests",
+      "web-full-regression-tests"
     ],
     "lanes": [
       "ci:web-file-explorer-persistence",
+      "ci:web-e2e",
       "ci:unit"
     ],
     "expandedLanes": [
       "ci:web-file-explorer-persistence",
+      "ci:web-e2e",
       "ci:unit"
     ],
     "labels": [
       "ci:web-file-explorer-persistence",
+      "ci:web-e2e",
       "ci:unit"
     ],
     "commands": [
@@ -93,13 +104,22 @@
         "requiredFor": [
           "web-ui-file-explorer"
         ]
+      },
+      {
+        "name": "web-full-regression-tests",
+        "command": "pnpm --filter @brainstrike/web run test:e2e:lane:full-regression",
+        "budgetMs": 900000,
+        "owner": "applications",
+        "requiredFor": [
+          "web-full-regression"
+        ]
       }
     ],
     "budget": {
       "target": "normal-pr-risk",
       "targetMs": 900000,
-      "totalMs": 630000,
-      "status": "within-target"
+      "totalMs": 1530000,
+      "status": "over-target"
     }
   },
   "commandResults": [
@@ -110,7 +130,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 17
+      "durationMs": 23
     },
     {
       "name": "file-explorer-tests",
@@ -119,7 +139,7 @@
       "budgetMs": 240000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 23440
+      "durationMs": 23271
     },
     {
       "name": "web-file-explorer-persistence-tests",
@@ -128,7 +148,16 @@
       "budgetMs": 360000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 46968
+      "durationMs": 44913
+    },
+    {
+      "name": "web-full-regression-tests",
+      "command": "pnpm --filter @brainstrike/web run test:e2e:lane:full-regression",
+      "owner": "applications",
+      "budgetMs": 900000,
+      "budgetStatus": "ok",
+      "exitCode": 0,
+      "durationMs": 178037
     }
   ]
 }
