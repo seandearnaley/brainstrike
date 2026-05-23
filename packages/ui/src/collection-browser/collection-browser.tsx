@@ -36,6 +36,8 @@ export interface CollectionBrowserProps {
   bulkActions?: BulkAction[];
   /** Custom class name */
   className?: string;
+  /** Controlled column widths (px) keyed by column id. Forwarded to TreeTable. */
+  columnSizes?: Record<string, number>;
   /** Set of node IDs that are in the active context (e.g., selected in file explorer) */
   contextNodeIds?: Set<string>;
   /** Input data for the tree */
@@ -58,6 +60,8 @@ export interface CollectionBrowserProps {
   isSearching?: boolean;
   /** Whether to enable multi-select mode */
   multiSelectEnabled?: boolean;
+  /** Called when the user resizes a column. Receives the next full widths map. */
+  onColumnSizesChange?: (next: Record<string, number>) => void;
   /** Called when context menu is requested */
   onContextMenu?: (
     nodeId: string,
@@ -151,6 +155,8 @@ export function CollectionBrowser({
   treeWindowingStrategy = DEFAULT_TREE_WINDOWING_STRATEGY,
   treeAutoPagedRowThreshold = DEFAULT_AUTO_PAGED_ROW_THRESHOLD,
   treePagination,
+  columnSizes,
+  onColumnSizesChange,
 }: CollectionBrowserProps) {
   const {
     nodes,
@@ -276,6 +282,8 @@ export function CollectionBrowser({
           {...(resolvedTreePagination ? { pagination: resolvedTreePagination } : {})}
           {...(treeTableSortState ? { sortState: treeTableSortState } : {})}
           {...(onSortChange ? { onSortChange: handleTreeTableSortChange } : {})}
+          {...(columnSizes ? { columnSizes } : {})}
+          {...(onColumnSizesChange ? { onColumnSizesChange } : {})}
         />
       </div>
 

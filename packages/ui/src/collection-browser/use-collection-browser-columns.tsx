@@ -113,13 +113,18 @@ export function useCollectionBrowserColumns({
   similarityScores,
   semanticMatchIds,
 }: UseCollectionBrowserColumnsOptions): TreeTableColumn<BrowserNodeData>[] {
+  // Widths are now declared via defaultWidth + min/max bounds and resolved by
+  // TreeTable's column-sizing layer. Column definitions no longer depend on
+  // `showScoreColumn` for sizing — only the inclusion of the score column
+  // itself, which is handled in the merged useMemo below.
   const baseColumns: TreeTableColumn<BrowserNodeData>[] = React.useMemo(
     () => [
       {
         id: 'name',
         header: 'Name',
-        width: showScoreColumn ? '34%' : '48%',
+        defaultWidth: 320,
         minWidth: 150,
+        maxWidth: 800,
         sortable: true,
         accessorFn: (node) => getNodeDisplayInfo(node.type, node.data).displayName.toLowerCase(),
         cell: ({ node }) => {
@@ -198,8 +203,9 @@ export function useCollectionBrowserColumns({
       {
         id: 'size',
         header: 'Size',
-        width: showScoreColumn ? '5.5rem' : '6rem',
+        defaultWidth: 120,
         minWidth: 72,
+        maxWidth: 240,
         sortable: true,
         accessorFn: (node) => {
           const { data: nodeData, type } = node;
@@ -253,7 +259,9 @@ export function useCollectionBrowserColumns({
       {
         id: 'meta',
         header: 'Info',
-        width: showScoreColumn ? '16%' : 'auto',
+        defaultWidth: 220,
+        minWidth: 100,
+        maxWidth: 600,
         sortable: false,
         cell: ({ node }) => {
           const { data: nodeData, type } = node;
@@ -291,8 +299,9 @@ export function useCollectionBrowserColumns({
     () => ({
       id: 'score',
       header: 'Score',
-      width: '20%',
+      defaultWidth: 160,
       minWidth: 100,
+      maxWidth: 320,
       sortable: true,
       accessorFn: (node) => similarityScores.get(node.id) ?? 0,
       cell: ({ node }) => {
