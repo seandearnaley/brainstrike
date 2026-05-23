@@ -96,30 +96,42 @@ export function PromptCard({
               </TooltipContent>
             </Tooltip>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button aria-label="More options" className="h-8 w-8" size="icon" variant="ghost">
-                  <MoreVertical aria-hidden="true" className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => onCopy(prompt.content)}>
-                  <Copy aria-hidden="true" className="mr-2 h-4 w-4" />
-                  Copy Content
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onEdit(prompt.id)}>
-                  <Edit2 aria-hidden="true" className="mr-2 h-4 w-4" />
-                  Edit
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="text-destructive focus:text-destructive"
-                  onClick={() => onDelete(prompt.id)}
-                >
-                  <Trash2 aria-hidden="true" className="mr-2 h-4 w-4" />
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        aria-label="More options"
+                        className="h-8 w-8"
+                        size="icon"
+                        variant="ghost"
+                      >
+                        <MoreVertical aria-hidden="true" className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => onCopy(prompt.content)}>
+                        <Copy aria-hidden="true" className="mr-2 h-4 w-4" />
+                        Copy Content
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onEdit(prompt.id)}>
+                        <Edit2 aria-hidden="true" className="mr-2 h-4 w-4" />
+                        Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onClick={() => onDelete(prompt.id)}
+                      >
+                        <Trash2 aria-hidden="true" className="mr-2 h-4 w-4" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>More options</TooltipContent>
+            </Tooltip>
           </div>
         </div>
       </CardHeader>
@@ -145,19 +157,14 @@ export function PromptCard({
           )}
         </div>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div
-              className="ml-2 flex shrink-0 cursor-help items-center gap-1 rounded-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-              // biome-ignore lint/a11y/noNoninteractiveTabindex: Tooltip trigger requires focusable element
-              tabIndex={0}
-            >
-              <Calendar aria-hidden="true" className="h-3 w-3" />
-              {updatedAt.toLocaleDateString()}
-            </div>
-          </TooltipTrigger>
-          <TooltipContent>Updated {updatedAt.toLocaleString()}</TooltipContent>
-        </Tooltip>
+        <time
+          className="ml-2 flex shrink-0 cursor-help items-center gap-1"
+          dateTime={updatedAt.toISOString()}
+          title={`Updated ${updatedAt.toLocaleString()}`}
+        >
+          <Calendar aria-hidden="true" className="h-3 w-3" />
+          {updatedAt.toLocaleDateString()}
+        </time>
       </CardFooter>
     </Card>
   );

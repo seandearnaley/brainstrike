@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { TooltipProvider } from '../../../tooltip';
 import type { Category, Prompt } from '../../types';
@@ -92,6 +93,26 @@ describe('PromptCard', () => {
     expect(screen.getByText('Uncategorized')).toBeInTheDocument();
   });
 
+  it('shows a hover hint for the more options control', async () => {
+    const user = userEvent.setup();
+
+    renderPromptCard(
+      <PromptCard
+        category={category}
+        onCopy={() => {}}
+        onDelete={() => {}}
+        onEdit={() => {}}
+        onToggleFavorite={() => {}}
+        prompt={prompt}
+      />
+    );
+
+    await user.hover(screen.getByRole('button', { name: 'More options' }));
+
+    const tips = await screen.findAllByText('More options');
+    expect(tips.length).toBeGreaterThan(0);
+  });
+
   it('does not add focusable controls for decorative metadata', () => {
     renderPromptCard(
       <PromptCard
@@ -105,6 +126,7 @@ describe('PromptCard', () => {
     );
 
     expect(screen.queryByRole('img', { name: 'Coding' })).not.toBeInTheDocument();
-    expect(screen.getAllByRole('button')).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: 'Coding' })).not.toBeInTheDocument();
+    expect(screen.getByText('11/14/2023')).not.toHaveAttribute('tabindex');
   });
 });
