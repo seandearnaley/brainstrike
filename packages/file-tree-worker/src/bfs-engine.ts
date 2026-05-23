@@ -75,6 +75,26 @@ async function yieldControl(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function getAncestorPaths(path: string): string[] {
+  const ancestors: string[] = [];
+  let currentPath = path;
+
+  while (true) {
+    const separatorIndex = currentPath.lastIndexOf('/');
+    if (separatorIndex < 0) {
+      break;
+    }
+    if (separatorIndex === 0) {
+      break;
+    }
+
+    currentPath = currentPath.slice(0, separatorIndex);
+    ancestors.push(currentPath);
+  }
+
+  return ancestors;
+}
+
 /**
  * Generate a unique request ID.
  */
@@ -115,6 +135,7 @@ export class BFSEngine {
   private tree: WorkerFileNode[] = [];
   private aborted = false;
   private readonly expandedPaths = new Set<string>();
+  private readonly expandedDescendantsByPath = new Map<string, Set<string>>();
   /**
    * Path index for O(1) node lookups.
    * Maps path strings to their corresponding nodes in the tree.
@@ -543,8 +564,9 @@ export class BFSEngine {
 
   private replaceExpandedPaths(nextPaths: string[]): void {
     this.expandedPaths.clear();
+    this.expandedDescendantsByPath.clear();
     for (const path of nextPaths) {
-      this.expandedPaths.add(path);
+      this.addExpandedPath(path);
     }
   }
 
@@ -554,19 +576,13 @@ export class BFSEngine {
     loadState: DirectoryLoadState,
     operationId?: number
   ): void {
-    const nextPaths: string[] = [];
-    for (const expandedPath of this.expandedPaths) {
-      if (expandedPath === path || isDescendantPath(expandedPath, path)) {
-        continue;
-      }
-      nextPaths.push(expandedPath);
-    }
-
-    if (loadState === 'loaded') {
-      nextPaths.push(path, ...collectExpandedPaths(children));
-    }
-
-    this.sendExpandedPathsDelta(nextPaths, operationId);
+    const nextSubtreePaths =
+      loadState === 'loaded' ? [path, ...collectExpandedPaths(children)] : [];
+    const nextSubtreeSet = new Set(nextSubtreePaths);
+    const currentSubtreePaths = this.getExpandedPathsForSubtree(path);
+    const added = nextSubtreePaths.filter((expandedPath) => !this.expandedPaths.has(expandedPath));
+    const removed = currentSubtreePaths.filter((expandedPath) => !nextSubtreeSet.has(expandedPath));
+    this.applyExpandedPathsPatch(added, removed, operationId);
   }
 
   private sendExpandedPathsDelta(nextPaths: string[], operationId?: number): void {
@@ -592,6 +608,75 @@ export class BFSEngine {
       );
     }
     this.replaceExpandedPaths(nextPaths);
+  }
+
+  private applyExpandedPathsPatch(added: string[], removed: string[], operationId?: number): void {
+    if (added.length > 0 || removed.length > 0) {
+      this.postPatchMessage(
+        {
+          type: 'expandedPathsDelta',
+          payload: { added, removed },
+        },
+        operationId
+      );
+    }
+
+    for (const path of removed) {
+      this.removeExpandedPath(path);
+    }
+    for (const path of added) {
+      this.addExpandedPath(path);
+    }
+  }
+
+  private addExpandedPath(path: string): void {
+    if (this.expandedPaths.has(path)) {
+      return;
+    }
+
+    this.expandedPaths.add(path);
+    for (const ancestorPath of getAncestorPaths(path)) {
+      const descendants = this.expandedDescendantsByPath.get(ancestorPath) ?? new Set<string>();
+      descendants.add(path);
+      this.expandedDescendantsByPath.set(ancestorPath, descendants);
+    }
+  }
+
+  private removeExpandedPath(path: string): void {
+    if (!this.expandedPaths.delete(path)) {
+      return;
+    }
+
+    for (const ancestorPath of getAncestorPaths(path)) {
+      const descendants = this.expandedDescendantsByPath.get(ancestorPath);
+      if (!descendants) {
+        continue;
+      }
+      descendants.delete(path);
+      if (descendants.size === 0) {
+        this.expandedDescendantsByPath.delete(ancestorPath);
+      }
+    }
+  }
+
+  private getExpandedPathsForSubtree(path: string): string[] {
+    const expandedPaths: string[] = [];
+    if (this.expandedPaths.has(path)) {
+      expandedPaths.push(path);
+    }
+
+    const descendants = this.expandedDescendantsByPath.get(path);
+    if (!descendants) {
+      return expandedPaths;
+    }
+
+    for (const descendantPath of descendants) {
+      if (this.expandedPaths.has(descendantPath)) {
+        expandedPaths.push(descendantPath);
+      }
+    }
+
+    return expandedPaths;
   }
 
   private postPatchMessage(message: FileTreePatchMessage, operationId: number | undefined): void {
