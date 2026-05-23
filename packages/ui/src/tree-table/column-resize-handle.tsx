@@ -64,7 +64,23 @@ export function ColumnResizeHandle({
   onResize,
 }: ColumnResizeHandleProps): React.ReactElement | null {
   const dragStateRef = React.useRef<DragState | null>(null);
+  // Holds a teardown function for any in-flight pointer drag. Stored in a ref
+  // (not state) so the unmount-cleanup effect can call it without re-rendering
+  // and without restarting the drag if React reconciles mid-gesture.
+  const dragCleanupRef = React.useRef<(() => void) | null>(null);
   const [isResizing, setIsResizing] = React.useState(false);
+
+  // Failsafe: if the component unmounts while a drag is still in flight, the
+  // window-level pointer listeners we installed on pointerdown would never be
+  // removed and would leak across remounts. This effect calls the stored
+  // cleanup on unmount only — the deps array is intentionally empty.
+  React.useEffect(
+    () => () => {
+      dragCleanupRef.current?.();
+      dragCleanupRef.current = null;
+    },
+    []
+  );
 
   const handlePointerDown = React.useCallback(
     (event: React.PointerEvent<HTMLSpanElement>) => {
@@ -102,6 +118,12 @@ export function ColumnResizeHandle({
         onResize(columnId, next);
       };
 
+      const detachListeners = (): void => {
+        window.removeEventListener('pointermove', handleMove);
+        window.removeEventListener('pointerup', handleEnd);
+        window.removeEventListener('pointercancel', handleEnd);
+      };
+
       const handleEnd = (endEvent: PointerEvent): void => {
         const state = dragStateRef.current;
         if (!state || state.pointerId !== endEvent.pointerId) {
@@ -111,15 +133,21 @@ export function ColumnResizeHandle({
         const final = clampWidth(state.startWidth + delta, bounds);
         onResize(columnId, final);
         dragStateRef.current = null;
+        dragCleanupRef.current = null;
         setIsResizing(false);
-        window.removeEventListener('pointermove', handleMove);
-        window.removeEventListener('pointerup', handleEnd);
-        window.removeEventListener('pointercancel', handleEnd);
+        detachListeners();
       };
 
       window.addEventListener('pointermove', handleMove);
       window.addEventListener('pointerup', handleEnd);
       window.addEventListener('pointercancel', handleEnd);
+      // Stash a tear-down so the unmount-cleanup effect can sever listeners
+      // even if pointerup/pointercancel never fire (e.g., component unmounts
+      // while the user is mid-drag).
+      dragCleanupRef.current = () => {
+        dragStateRef.current = null;
+        detachListeners();
+      };
     },
     [bounds, columnId, currentWidth, onResize]
   );
@@ -156,6 +184,20 @@ export function ColumnResizeHandle({
     stopAllPropagation(event);
   }, []);
 
+  // Double-click resets the column to its declared defaultWidth — a standard
+  // affordance for users who have dragged a column into an unusable size and
+  // want a one-gesture escape hatch. Falls back to minWidth when no default
+  // is declared so the column never collapses to zero.
+  const handleDoubleClick = React.useCallback(
+    (event: React.MouseEvent<HTMLSpanElement>) => {
+      stopAllPropagation(event);
+      event.preventDefault();
+      const target = bounds.defaultWidth ?? bounds.minWidth;
+      onResize(columnId, clampWidth(target, bounds));
+    },
+    [bounds, columnId, onResize]
+  );
+
   return (
     /* biome-ignore lint/a11y/useSemanticElements: <hr> cannot host focus, tabIndex, or pointer/keyboard handlers; the WAI-ARIA pattern for an interactive column resize affordance is span[role="separator"]. */
     <span
@@ -168,11 +210,13 @@ export function ColumnResizeHandle({
       data-resizing={isResizing || undefined}
       data-testid={`tree-table-resize-handle-${columnId}`}
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
       onKeyDown={handleKeyDown}
       onMouseDown={(event) => event.stopPropagation()}
       onPointerDown={handlePointerDown}
       role="separator"
       tabIndex={0}
+      title={'Drag to resize • Double-click to reset • Arrow keys to nudge'}
     />
   );
 }

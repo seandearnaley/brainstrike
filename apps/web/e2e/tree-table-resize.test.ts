@@ -287,5 +287,17 @@ test.describe('TreeTable column resize @web-collection-browser', () => {
     await expect
       .poll(async () => await widthOf(headerAfterCorruption), { timeout: 2000 })
       .toBeGreaterThanOrEqual(796);
+
+    // ── Double-click resets to the column's declared defaultWidth ──────────
+    // After End the column is at max (800). Double-click the handle and the
+    // Name column should snap back to its defaultWidth of 320 (±4 for layout
+    // rounding).
+    await handleAfterCorruption.dispatchEvent('dblclick', { bubbles: true, cancelable: true });
+    await expect
+      .poll(async () => await widthOf(headerAfterCorruption), { timeout: 2000 })
+      .toBeLessThanOrEqual(324);
+    await expect
+      .poll(async () => await widthOf(headerAfterCorruption), { timeout: 2000 })
+      .toBeGreaterThanOrEqual(316);
   });
 });

@@ -410,4 +410,126 @@ describe('TreeTable column resize', () => {
       expect(screen.getAllByRole('columnheader')).toHaveLength(2);
     });
   });
+
+  describe('double-click reset', () => {
+    it('resets the column to defaultWidth on handle double-click', () => {
+      const onColumnSizesChange = vi.fn();
+      render(
+        <TreeTable
+          columnSizes={{ name: 350, size: 120 }}
+          columns={buildColumns()}
+          expandedIds={new Set()}
+          nodes={NODES}
+          onColumnSizesChange={onColumnSizesChange}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const handle = screen.getByRole('separator', { name: /resize name/i });
+      fireEvent.doubleClick(handle);
+
+      const lastCall = onColumnSizesChange.mock.calls.at(-1);
+      // Name column declares defaultWidth: 200 in buildColumns().
+      expect(lastCall?.[0]).toEqual(expect.objectContaining({ name: 200 }));
+    });
+
+    it('does not bubble a sort click when the handle is double-clicked', () => {
+      const onSortChange = vi.fn();
+      const onColumnSizesChange = vi.fn();
+      render(
+        <TreeTable
+          columnSizes={{ name: 350, size: 120 }}
+          columns={buildColumns([{ sortable: true }, { sortable: true }])}
+          expandedIds={new Set()}
+          nodes={NODES}
+          onColumnSizesChange={onColumnSizesChange}
+          onSortChange={onSortChange}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const handle = screen.getByRole('separator', { name: /resize name/i });
+      fireEvent.doubleClick(handle);
+
+      // Resize fired, but sort did not.
+      expect(onColumnSizesChange).toHaveBeenCalled();
+      expect(onSortChange).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('listener lifecycle', () => {
+    it('removes window pointer listeners after pointerup', () => {
+      const addSpy = vi.spyOn(window, 'addEventListener');
+      const removeSpy = vi.spyOn(window, 'removeEventListener');
+
+      render(
+        <TreeTable
+          columnSizes={{ name: 200, size: 120 }}
+          columns={buildColumns()}
+          expandedIds={new Set()}
+          nodes={NODES}
+          onColumnSizesChange={() => {}}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const handle = screen.getByRole('separator', { name: /resize name/i });
+      stubHeaderRect(handle, 0, 200);
+
+      const initialPointerMoveAdds = addSpy.mock.calls.filter(
+        (call) => String(call[0]) === 'pointermove'
+      ).length;
+      fireEvent.pointerDown(handle, { clientX: 200, pointerId: 1, button: 0 });
+      fireEvent.pointerUp(window, { clientX: 210, pointerId: 1 });
+
+      const finalPointerMoveAdds = addSpy.mock.calls.filter(
+        (call) => String(call[0]) === 'pointermove'
+      ).length;
+      const finalPointerMoveRemoves = removeSpy.mock.calls.filter(
+        (call) => String(call[0]) === 'pointermove'
+      ).length;
+
+      // Exactly one add → exactly one remove during the drag lifecycle.
+      expect(finalPointerMoveAdds - initialPointerMoveAdds).toBe(1);
+      expect(finalPointerMoveRemoves).toBeGreaterThanOrEqual(1);
+
+      addSpy.mockRestore();
+      removeSpy.mockRestore();
+    });
+
+    it('detaches in-flight pointer listeners when the component unmounts mid-drag', () => {
+      const removeSpy = vi.spyOn(window, 'removeEventListener');
+
+      const { unmount } = render(
+        <TreeTable
+          columnSizes={{ name: 200, size: 120 }}
+          columns={buildColumns()}
+          expandedIds={new Set()}
+          nodes={NODES}
+          onColumnSizesChange={() => {}}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const handle = screen.getByRole('separator', { name: /resize name/i });
+      stubHeaderRect(handle, 0, 200);
+
+      // Start drag but do NOT release.
+      fireEvent.pointerDown(handle, { clientX: 200, pointerId: 1, button: 0 });
+      fireEvent.pointerMove(window, { clientX: 220, pointerId: 1 });
+
+      const removesBeforeUnmount = removeSpy.mock.calls.filter(
+        (call) => String(call[0]) === 'pointermove'
+      ).length;
+      unmount();
+      const removesAfterUnmount = removeSpy.mock.calls.filter(
+        (call) => String(call[0]) === 'pointermove'
+      ).length;
+
+      // Unmount must have torn down the in-flight pointermove listener.
+      expect(removesAfterUnmount).toBeGreaterThan(removesBeforeUnmount);
+
+      removeSpy.mockRestore();
+    });
+  });
 });

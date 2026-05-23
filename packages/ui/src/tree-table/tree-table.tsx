@@ -316,8 +316,11 @@ interface TreeTableColgroupProps<T> {
  * Propagates header widths to body cells via a colgroup. The shared
  * `<Table>` component already sets `table-fixed`, so per-column `<col>`
  * widths apply uniformly to every row without touching cell renderers.
+ *
+ * Memoized over (columns, resolved sizes) so the colgroup does not rebuild
+ * on unrelated tree-state changes (selection, expand/collapse, focus).
  */
-function TreeTableColgroup<T>({
+function TreeTableColgroupInner<T>({
   columns,
   getResolvedWidth,
 }: TreeTableColgroupProps<T>): React.ReactElement | null {
@@ -337,6 +340,7 @@ function TreeTableColgroup<T>({
     </colgroup>
   );
 }
+const TreeTableColgroup = React.memo(TreeTableColgroupInner) as typeof TreeTableColgroupInner;
 
 function resolveRowIndexOffset(showHeader: boolean): number {
   return showHeader ? 2 : 1;
