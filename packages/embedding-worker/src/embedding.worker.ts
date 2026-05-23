@@ -548,6 +548,7 @@ function invalidateWebGpuPipelines(): void {
     }
   }
   for (const key of keysToDispose) {
+    // Device-loss invalidation is global worker telemetry, not scoped to any active stream sink.
     void disposePipeline(key, { event: 'evicted', reason: 'device-lost' });
   }
   debugLog('Invalidated cached WebGPU pipelines', { count: keysToDispose.length });
@@ -794,6 +795,8 @@ async function loadPipeline(
   let entry!: PipelineCacheEntry;
   const loader = (async () => {
     try {
+      // createFeatureExtractor is async and yields before this continuation reads `entry`.
+      // The cache entry is assigned and registered synchronously below before that read can run.
       const extractor = await createFeatureExtractor(model, device, dtype);
       if (pipelines.get(cacheKey) === entry) {
         emitPipelineCacheDiagnostic({
