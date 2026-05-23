@@ -142,11 +142,13 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
               <TooltipTrigger asChild>
                 <span
                   className={cn(
-                    'flex cursor-default items-center gap-1 rounded-sm border-0 bg-transparent p-0 text-left',
+                    'flex cursor-default items-center gap-1 rounded-sm border-0 bg-transparent p-0 text-left outline-hidden focus-visible:ring-[3px] focus-visible:ring-ring/50',
                     collection.embeddingCount >= collection.chunkCount && collection.chunkCount > 0
                       ? 'text-emerald-600 dark:text-emerald-400'
                       : ''
                   )}
+                  // biome-ignore lint/a11y/noNoninteractiveTabindex: Tooltip trigger requires focusable element
+                  tabIndex={0}
                 >
                   <span className="font-medium text-foreground/60">
                     {collection.embeddingCount.toLocaleString()}/
