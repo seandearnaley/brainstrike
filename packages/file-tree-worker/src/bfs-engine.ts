@@ -551,7 +551,7 @@ export class BFSEngine {
     return nextPaths;
   }
 
-  private sendExpandedPathsDelta(nextPaths: string[], operationId?: number): string[] {
+  private sendExpandedPathsDelta(nextPaths: string[], operationId?: number): void {
     const nextSet = new Set(nextPaths);
     const added = nextPaths.filter((path) => !this.expandedPaths.has(path));
     const removed = [...this.expandedPaths].filter((path) => !nextSet.has(path));
@@ -563,7 +563,6 @@ export class BFSEngine {
       });
     }
     this.replaceExpandedPaths(nextPaths);
-    return nextPaths;
   }
 
   /**

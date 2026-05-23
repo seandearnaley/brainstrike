@@ -1010,5 +1010,54 @@ describe('useFileTree (lazy loading version)', () => {
         'loaded',
       ]);
     });
+
+    it('applies worker load-state patches from bulk expand-all results', async () => {
+      const mockFS = createExpandAllMockFileSystem();
+      mockAdapter.setMockFileSystem(mockFS);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+      mockWorkerPort.expandAll.mockResolvedValueOnce({
+        patches: [
+          {
+            type: 'childrenLoaded',
+            payload: { path: 'mock-root/alpha', children: [], loadState: 'loaded' },
+          },
+          {
+            type: 'nodeLoadStateChanged',
+            payload: {
+              path: 'mock-root/beta',
+              loadState: 'error',
+              loadError: 'Permission denied',
+            },
+          },
+        ],
+        expandedPaths: ['mock-root/alpha'],
+        loadedCount: 1,
+      });
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      await act(async () => {
+        await result.current.expandAllProgressively(() => new Set(['mock-root/alpha']));
+      });
+
+      const alphaDirectory = result.current.fileTree.find(
+        (node) => node.path === 'mock-root/alpha'
+      );
+      expect(alphaDirectory?.type).toBe('directory');
+      expect(alphaDirectory?.loadState).toBe('loaded');
+
+      const betaDirectory = result.current.fileTree.find((node) => node.path === 'mock-root/beta');
+      expect(betaDirectory?.type).toBe('directory');
+      expect(betaDirectory?.loadState).toBe('error');
+      expect(betaDirectory?.loadError).toBe('Permission denied');
+    });
   });
 });
