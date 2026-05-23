@@ -738,6 +738,7 @@ async function createFeatureExtractor(
 
 function handlePipelineLoadFailure(
   cacheKey: string,
+  entry: PipelineCacheEntry | undefined,
   model: string,
   device: EmbeddingDevice,
   dtype: EmbeddingDType,
@@ -747,10 +748,11 @@ function handlePipelineLoadFailure(
   },
   error: unknown
 ): void {
-  const failedEntry = pipelines.get(cacheKey);
-  pipelines.delete(cacheKey);
+  if (entry !== undefined && pipelines.get(cacheKey) === entry) {
+    pipelines.delete(cacheKey);
+  }
   emitPipelineCacheDiagnostic({
-    ...(failedEntry === undefined ? {} : { entry: failedEntry }),
+    ...(entry === undefined ? {} : { entry }),
     event: 'load-failed',
     ...(diagnostics.id === undefined ? {} : { id: diagnostics.id }),
     reason: 'load-failure',
@@ -809,7 +811,7 @@ async function loadPipeline(
       }
       return extractor;
     } catch (error) {
-      handlePipelineLoadFailure(cacheKey, model, device, dtype, diagnostics, error);
+      handlePipelineLoadFailure(cacheKey, entry, model, device, dtype, diagnostics, error);
       throw error;
     }
   })();

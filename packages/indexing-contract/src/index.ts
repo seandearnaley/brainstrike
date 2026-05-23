@@ -680,6 +680,7 @@ export interface EmbedWorkerPipelineCacheDiagnostic {
   readonly entry?: EmbedWorkerPipelineCacheEntryDiagnostic;
   readonly event: 'disposed' | 'evicted' | 'hit' | 'invalidated' | 'load-failed' | 'loaded';
   readonly id?: string;
+  /** Event-specific reason emitted by the worker; invalid pairs are rejected at emit call sites. */
   readonly reason?:
     | 'device-lost'
     | 'idle-timeout'
