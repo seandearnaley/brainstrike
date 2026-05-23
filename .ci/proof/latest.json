@@ -1,20 +1,21 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-22T23:55:28.702Z",
+  "generatedAt": "2026-05-23T01:57:25.570Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "3fedbc1255d549f8aa802d6bc0973fa88c31ae0f",
+  "testedHeadSha": "f917d1149815eb11785c8b9a49688752c7d88296",
   "selection": {
     "base": "origin/main",
     "baseSha": "660af97fc4349592a171623cb0c0dbedbfcbb58f",
     "head": "HEAD",
-    "headSha": "3fedbc1255d549f8aa802d6bc0973fa88c31ae0f",
+    "headSha": "f917d1149815eb11785c8b9a49688752c7d88296",
     "mergeBase": "660af97fc4349592a171623cb0c0dbedbfcbb58f",
     "files": [
+      ".ci/proof/latest.json",
       "docs/superpowers/plans/2026-05-22-bst-368-pipeline-cache-diagnostics.md",
       "packages/embedding-worker/src/embedding.worker.ts",
       "packages/embedding-worker/src/index.ts",
@@ -129,7 +130,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 8
+      "durationMs": 16
     },
     {
       "name": "indexing-tests",
@@ -138,7 +139,7 @@
       "budgetMs": 240000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 4611
+      "durationMs": 4932
     },
     {
       "name": "embedding-tests",
@@ -147,7 +148,7 @@
       "budgetMs": 300000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 20088
+      "durationMs": 21287
     },
     {
       "name": "desktop-unit-tests",
@@ -156,7 +157,7 @@
       "budgetMs": 240000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 60987
+      "durationMs": 70141
     },
     {
       "name": "desktop-full-regression-tests",
@@ -165,7 +166,7 @@
       "budgetMs": 900000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 308730
+      "durationMs": 327319
     }
   ]
 }
