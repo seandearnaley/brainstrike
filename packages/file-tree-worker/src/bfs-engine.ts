@@ -225,10 +225,7 @@ export class BFSEngine {
     } else {
       this.postNodeLoadStateChanged(path, loadState, undefined, operationId);
     }
-    this.sendExpandedPathsDelta(
-      this.getExpandedPathsAfterDirectoryUpdate(path, children, loadState),
-      operationId
-    );
+    this.sendExpandedPathsForDirectoryUpdate(path, children, loadState, operationId);
   }
 
   /**
@@ -546,18 +543,41 @@ export class BFSEngine {
     }
   }
 
-  private getExpandedPathsAfterDirectoryUpdate(
+  private sendExpandedPathsForDirectoryUpdate(
     path: string,
     children: WorkerFileNode[],
-    loadState: DirectoryLoadState
-  ): string[] {
-    const nextPaths = [...this.expandedPaths].filter(
-      (expandedPath) => expandedPath !== path && !isDescendantPath(expandedPath, path)
-    );
-    if (loadState === 'loaded') {
-      nextPaths.push(path, ...collectExpandedPaths(children));
+    loadState: DirectoryLoadState,
+    operationId?: number
+  ): void {
+    const nextPaths: string[] = [];
+    const removed: string[] = [];
+    for (const expandedPath of this.expandedPaths) {
+      if (expandedPath === path || isDescendantPath(expandedPath, path)) {
+        removed.push(expandedPath);
+        continue;
+      }
+      nextPaths.push(expandedPath);
     }
-    return nextPaths;
+
+    const added: string[] = [];
+    if (loadState === 'loaded') {
+      const loadedPaths = [path, ...collectExpandedPaths(children)];
+      for (const expandedPath of loadedPaths) {
+        nextPaths.push(expandedPath);
+        if (!this.expandedPaths.has(expandedPath)) {
+          added.push(expandedPath);
+        }
+      }
+    }
+
+    if (added.length > 0 || removed.length > 0) {
+      this.postMessage({
+        type: 'expandedPathsDelta',
+        ...(operationId === undefined ? {} : { operationId }),
+        payload: { added, removed },
+      });
+    }
+    this.replaceExpandedPaths(nextPaths);
   }
 
   private sendExpandedPathsDelta(nextPaths: string[], operationId?: number): void {

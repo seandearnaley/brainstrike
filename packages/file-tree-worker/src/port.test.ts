@@ -338,6 +338,7 @@ describe('createFileTreeWorkerPort', () => {
       operationId: 2,
       payload: { paths: ['/root/a'] },
     });
+    expect(worker.postedMessages).toContainEqual({ type: 'abort' });
     expect(worker.postedMessages).toContainEqual({
       type: 'loadSubtree',
       operationId: 3,

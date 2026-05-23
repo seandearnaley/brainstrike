@@ -36,16 +36,17 @@ type LogHandler = (
   data?: unknown
 ) => void;
 type FlattenedRowsHandler = (nodes: FlattenedNode[], count: number, durationMs: number) => void;
+interface LoadOperationResult {
+  expandedPaths: string[];
+  loadedCount: number;
+  patches: AccumulatedFileTreePatchMessage[];
+}
 
 interface PendingOperation {
   operationId: number;
   patches: AccumulatedFileTreePatchMessage[];
   reject: (error: Error) => void;
-  resolve: (result: {
-    patches: AccumulatedFileTreePatchMessage[];
-    expandedPaths: string[];
-    loadedCount: number;
-  }) => void;
+  resolve: (result: LoadOperationResult) => void;
 }
 
 /**
@@ -247,6 +248,24 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
   });
   const transport = runtime.transport;
 
+  const startOperation = (
+    resolve: (result: LoadOperationResult) => void,
+    reject: (error: Error) => void
+  ): number => {
+    operationIdCounter++;
+    const operationId = operationIdCounter;
+
+    if (pending.operation) {
+      pending.operation.reject(new Error('Operation aborted by new request'));
+      transport.postMessage({
+        type: 'abort',
+      } satisfies MainToWorkerMessage);
+    }
+
+    pending.operation = { resolve, reject, operationId, patches: [] };
+    return operationId;
+  };
+
   // Handler functions for each message type (extracted to reduce complexity)
   const handleReady = (): void => {
     runtime.markReady();
@@ -429,16 +448,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     expandAll(folderId) {
       runtime.throwIfFailed();
       return new Promise((resolve, reject) => {
-        // Increment operation ID to invalidate any stale responses
-        operationIdCounter++;
-        const thisOperationId = operationIdCounter;
-
-        // Abort any existing operation
-        if (pending.operation) {
-          pending.operation.reject(new Error('Operation aborted by new request'));
-        }
-
-        pending.operation = { resolve, reject, operationId: thisOperationId, patches: [] };
+        const thisOperationId = startOperation(resolve, reject);
 
         transport.postMessage({
           type: 'expandAll',
@@ -451,16 +461,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     loadPaths(paths) {
       runtime.throwIfFailed();
       return new Promise((resolve, reject) => {
-        // Increment operation ID to invalidate any stale responses
-        operationIdCounter++;
-        const thisOperationId = operationIdCounter;
-
-        // Abort any existing operation
-        if (pending.operation) {
-          pending.operation.reject(new Error('Operation aborted by new request'));
-        }
-
-        pending.operation = { resolve, reject, operationId: thisOperationId, patches: [] };
+        const thisOperationId = startOperation(resolve, reject);
 
         transport.postMessage({
           type: 'loadPaths',
@@ -473,16 +474,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     loadSubtree(startPath) {
       runtime.throwIfFailed();
       return new Promise((resolve, reject) => {
-        // Increment operation ID to invalidate any stale responses
-        operationIdCounter++;
-        const thisOperationId = operationIdCounter;
-
-        // Abort any existing operation
-        if (pending.operation) {
-          pending.operation.reject(new Error('Operation aborted by new request'));
-        }
-
-        pending.operation = { resolve, reject, operationId: thisOperationId, patches: [] };
+        const thisOperationId = startOperation(resolve, reject);
 
         transport.postMessage({
           type: 'loadSubtree',
