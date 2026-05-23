@@ -27,7 +27,7 @@ describe('desktop vite config alias contract', () => {
     const config = readDesktopViteConfig();
 
     expect(config).toContain("find: '@brainstrike/file-tree-worker'");
-    expect(config).toContain('../../packages/file-tree-worker/src');
+    expect(config).toContain('../../packages/file-tree-worker/src/vite.ts');
     expect(config).toContain("'@brainstrike/file-tree-worker'");
   });
 

@@ -183,7 +183,7 @@ export default defineConfig({
       // Resolve dev/runtime imports from source so Vite never depends on workspace dist churn.
       '@brainstrike/file-tree-worker': path.resolve(
         __dirname,
-        '../../packages/file-tree-worker/src'
+        '../../packages/file-tree-worker/src/vite.ts'
       ),
       '@brainstrike/token-cache/cache-runtime': path.resolve(
         __dirname,

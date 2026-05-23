@@ -27,7 +27,7 @@ describe('web vite config alias contract', () => {
     const config = readWebViteConfig();
 
     expect(config).toContain("'@brainstrike/file-tree-worker': path.resolve(");
-    expect(config).toContain('../../packages/file-tree-worker/src');
+    expect(config).toContain('../../packages/file-tree-worker/src/vite.ts');
     expect(config).toContain("'@brainstrike/file-tree-worker'");
   });
 });
