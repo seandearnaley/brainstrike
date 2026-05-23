@@ -434,6 +434,10 @@ function emitPipelineCacheDiagnostic(options: PipelineCacheDiagnosticOptions): v
     case 'load-failed':
       event = { ...baseEvent, event: 'load-failed', reason: options.reason };
       break;
+    default: {
+      const exhaustive: never = options;
+      throw new Error(`Unhandled pipeline cache diagnostic event: ${String(exhaustive)}`);
+    }
   }
 
   if (options.sink) {
@@ -857,35 +861,31 @@ async function loadPipeline(
 
   debugLog('Loading pipeline', { model, device, dtype });
 
-  let entry: PipelineCacheEntry | undefined;
-  const loader = (async () => {
-    try {
-      const extractor = await createFeatureExtractor(model, device, dtype);
-      if (entry === undefined) {
-        throw new Error('Pipeline cache entry was not initialized before load completion.');
-      }
-      if (pipelines.get(cacheKey) === entry) {
-        emitPipelineCacheDiagnostic({
-          entry,
-          event: 'loaded',
-          ...(diagnostics.id === undefined ? {} : { id: diagnostics.id }),
-          ...(diagnostics.sink === undefined ? {} : { sink: diagnostics.sink }),
-        });
-      }
-      return extractor;
-    } catch (error) {
-      handlePipelineLoadFailure(cacheKey, entry, model, device, dtype, diagnostics, error);
-      throw error;
-    }
-  })();
+  const rawLoader = createFeatureExtractor(model, device, dtype);
 
   const maxResident = device === 'webgpu' ? MAX_GPU_PIPELINES : MAX_WASM_PIPELINES;
   evictLruByDevice(device, maxResident, diagnostics);
 
   const timestamp = now();
-  entry = {
+  const entry: PipelineCacheEntry = {
     cacheKey,
-    pipeline: loader,
+    pipeline: rawLoader.then(
+      (extractor) => {
+        if (pipelines.get(cacheKey) === entry) {
+          emitPipelineCacheDiagnostic({
+            entry,
+            event: 'loaded',
+            ...(diagnostics.id === undefined ? {} : { id: diagnostics.id }),
+            ...(diagnostics.sink === undefined ? {} : { sink: diagnostics.sink }),
+          });
+        }
+        return extractor;
+      },
+      (error: unknown) => {
+        handlePipelineLoadFailure(cacheKey, entry, model, device, dtype, diagnostics, error);
+        throw error;
+      }
+    ),
     device,
     dtype,
     model,
@@ -895,7 +895,7 @@ async function loadPipeline(
   pipelines.set(cacheKey, entry);
   startIdleSweep();
 
-  return loader;
+  return entry.pipeline;
 }
 
 function assertValidDimension(payload: EmbedWorkerRequest, requestedDimension: number): void {
