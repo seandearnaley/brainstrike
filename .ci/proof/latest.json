@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-23T03:07:01.727Z",
+  "generatedAt": "2026-05-23T03:17:19.812Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "9bd07719c06fd700317d638a2fac6f73442c31dc",
+  "testedHeadSha": "2902b48d65a3a59b525372b340039966d3ee32e0",
   "selection": {
     "base": "origin/main",
-    "baseSha": "660af97fc4349592a171623cb0c0dbedbfcbb58f",
+    "baseSha": "06280a0b8b9de6ef4f5ab37c582be2ace380a940",
     "head": "HEAD",
-    "headSha": "9bd07719c06fd700317d638a2fac6f73442c31dc",
-    "mergeBase": "660af97fc4349592a171623cb0c0dbedbfcbb58f",
+    "headSha": "2902b48d65a3a59b525372b340039966d3ee32e0",
+    "mergeBase": "06280a0b8b9de6ef4f5ab37c582be2ace380a940",
     "files": [
       ".ci/proof/latest.json",
       "docs/superpowers/plans/2026-05-22-bst-368-pipeline-cache-diagnostics.md",
@@ -43,7 +43,7 @@
       "cloudLabels": [
         "ci:desktop",
         "ci:embedding",
-        "ci:coverage"
+        "ci:unit"
       ]
     },
     "proofCommands": [
@@ -56,17 +56,17 @@
     "lanes": [
       "ci:desktop",
       "ci:embedding",
-      "ci:coverage"
+      "ci:unit"
     ],
     "expandedLanes": [
       "ci:desktop",
       "ci:embedding",
-      "ci:coverage"
+      "ci:unit"
     ],
     "labels": [
       "ci:desktop",
       "ci:embedding",
-      "ci:coverage"
+      "ci:unit"
     ],
     "commands": [
       {
@@ -139,7 +139,7 @@
       "budgetMs": 240000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 4389
+      "durationMs": 4847
     },
     {
       "name": "embedding-tests",
@@ -148,7 +148,7 @@
       "budgetMs": 300000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 18821
+      "durationMs": 20313
     },
     {
       "name": "desktop-unit-tests",
@@ -157,7 +157,7 @@
       "budgetMs": 240000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 60250
+      "durationMs": 66034
     },
     {
       "name": "desktop-full-regression-tests",
@@ -166,7 +166,7 @@
       "budgetMs": 900000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 319868
+      "durationMs": 315532
     }
   ]
 }
