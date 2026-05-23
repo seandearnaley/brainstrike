@@ -36,6 +36,7 @@ export * from './stores/native-tool-preferences-store';
 export * from './stores/panel-layout-store';
 export * from './stores/secrets-store';
 export * from './stores/token-preferences-store';
+export * from './stores/tree-table-column-sizes-store';
 export * from './stores/vector-preferences-store';
 export * from './stores/vector-status-ui-store';
 export * from './stores/workspace-collection-sync-status-store';
