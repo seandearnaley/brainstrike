@@ -32,6 +32,21 @@ interface DragState {
   startWidth: number;
 }
 
+const HANDLE_CLASS_NAME = [
+  // Position the handle as a thin overlay on the right edge with a wider hit
+  // target than the visible affordance for easier mouse targeting.
+  'absolute top-0 right-[-3px] z-10 h-full w-2.5 cursor-col-resize',
+  'select-none touch-none',
+  // Inner 1px indicator (drawn via ::after) keeps the resting state
+  // ultra-subtle while the wider hit zone stays mouse-friendly.
+  "after:absolute after:top-1.5 after:bottom-1.5 after:right-[3px] after:w-px after:bg-border/40 after:content-[''] after:transition-colors",
+  // Hover/focus elevate the indicator into a clear primary color stripe.
+  'hover:after:bg-primary/70 hover:after:w-0.5',
+  'focus-visible:outline-none focus-visible:after:bg-primary focus-visible:after:w-0.5',
+  // Active-drag emphasis via data attribute set on pointer down.
+  'data-[resizing=true]:after:bg-primary data-[resizing=true]:after:w-0.5',
+].join(' ');
+
 function stopAllPropagation(event: React.SyntheticEvent): void {
   event.stopPropagation();
   // The Radix/RTL `closest('th')[onClick]` sort path also triggers on native
@@ -49,6 +64,7 @@ export function ColumnResizeHandle({
   onResize,
 }: ColumnResizeHandleProps): React.ReactElement | null {
   const dragStateRef = React.useRef<DragState | null>(null);
+  const [isResizing, setIsResizing] = React.useState(false);
 
   const handlePointerDown = React.useCallback(
     (event: React.PointerEvent<HTMLSpanElement>) => {
@@ -57,6 +73,7 @@ export function ColumnResizeHandle({
       }
       stopAllPropagation(event);
       event.preventDefault();
+      setIsResizing(true);
 
       const target = event.currentTarget;
       // Use setPointerCapture so pointer move/up events keep firing on the
@@ -94,6 +111,7 @@ export function ColumnResizeHandle({
         const final = clampWidth(state.startWidth + delta, bounds);
         onResize(columnId, final);
         dragStateRef.current = null;
+        setIsResizing(false);
         window.removeEventListener('pointermove', handleMove);
         window.removeEventListener('pointerup', handleEnd);
         window.removeEventListener('pointercancel', handleEnd);
@@ -146,13 +164,8 @@ export function ColumnResizeHandle({
       aria-valuemax={bounds.maxWidth}
       aria-valuemin={bounds.minWidth}
       aria-valuenow={currentWidth}
-      className={cn(
-        'absolute top-0 right-0 z-10 h-full w-1.5 cursor-col-resize',
-        'touch-none select-none',
-        'bg-transparent hover:bg-primary/40',
-        'focus:outline-none focus-visible:bg-primary/60',
-        'transition-colors'
-      )}
+      className={cn(HANDLE_CLASS_NAME)}
+      data-resizing={isResizing || undefined}
       data-testid={`tree-table-resize-handle-${columnId}`}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
