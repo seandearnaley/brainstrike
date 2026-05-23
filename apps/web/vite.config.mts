@@ -181,6 +181,10 @@ export default defineConfig({
       // full package which has Node.js dependencies. Only the /client subpath is browser-safe.
       // '@brainstrike/agent': path.resolve(__dirname, '../../packages/agent/src'),
       // Resolve dev/runtime imports from source so Vite never depends on workspace dist churn.
+      '@brainstrike/file-tree-worker': path.resolve(
+        __dirname,
+        '../../packages/file-tree-worker/src'
+      ),
       '@brainstrike/token-cache/cache-runtime': path.resolve(
         __dirname,
         '../../packages/token-cache/src/cache-runtime.ts'
@@ -295,6 +299,7 @@ export default defineConfig({
       '@brainstrike/file-explorer',
       '@brainstrike/file-explorer-hooks',
       '@brainstrike/file-explorer-ui',
+      '@brainstrike/file-tree-worker',
       '@brainstrike/file-system',
       '@brainstrike/storage',
       '@brainstrike/app-shell',

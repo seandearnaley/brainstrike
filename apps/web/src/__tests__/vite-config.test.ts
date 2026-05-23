@@ -22,4 +22,12 @@ describe('web vite config alias contract', () => {
     expect(config).toContain("'@brainstrike/selection-rules': path.resolve(");
     expect(config).toContain('../../packages/selection-rules/src/index.ts');
   });
+
+  it('pins file-tree-worker to source so renderer dev does not load stale dist workers', () => {
+    const config = readWebViteConfig();
+
+    expect(config).toContain("'@brainstrike/file-tree-worker': path.resolve(");
+    expect(config).toContain('../../packages/file-tree-worker/src');
+    expect(config).toContain("'@brainstrike/file-tree-worker'");
+  });
 });

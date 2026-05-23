@@ -23,6 +23,14 @@ describe('desktop vite config alias contract', () => {
     expect(config).toContain('../../packages/selection-rules/src/index.ts');
   });
 
+  it('pins file-tree-worker to source so renderer dev does not load stale dist workers', () => {
+    const config = readDesktopViteConfig();
+
+    expect(config).toContain("find: '@brainstrike/file-tree-worker'");
+    expect(config).toContain('../../packages/file-tree-worker/src');
+    expect(config).toContain("'@brainstrike/file-tree-worker'");
+  });
+
   it('uses a dedicated strict dev-server port for the desktop renderer', () => {
     const config = readDesktopViteConfig();
 
