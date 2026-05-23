@@ -570,20 +570,22 @@ export class BFSEngine {
       }
     }
 
-    if (added.length > 0 || removed.length > 0) {
-      this.postMessage({
-        type: 'expandedPathsDelta',
-        ...(operationId === undefined ? {} : { operationId }),
-        payload: { added, removed },
-      });
-    }
-    this.replaceExpandedPaths(nextPaths);
+    this.applyExpandedPathsDelta(nextPaths, added, removed, operationId);
   }
 
   private sendExpandedPathsDelta(nextPaths: string[], operationId?: number): void {
     const nextSet = new Set(nextPaths);
     const added = nextPaths.filter((path) => !this.expandedPaths.has(path));
     const removed = [...this.expandedPaths].filter((path) => !nextSet.has(path));
+    this.applyExpandedPathsDelta(nextPaths, added, removed, operationId);
+  }
+
+  private applyExpandedPathsDelta(
+    nextPaths: string[],
+    added: string[],
+    removed: string[],
+    operationId?: number
+  ): void {
     if (added.length > 0 || removed.length > 0) {
       this.postMessage({
         type: 'expandedPathsDelta',
