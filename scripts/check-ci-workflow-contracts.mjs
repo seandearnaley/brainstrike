@@ -1122,11 +1122,48 @@ export function validateWorkflowContracts(source) {
     );
   }
 
+  const unitAffected = extractJob(source, 'unit_affected');
+  if (!unitAffected) {
+    failures.push('Missing unit_affected job.');
+  } else {
+    requirePrRiskLabelGate(unitAffected, 'Checks (unit-affected)', ['ci:unit'], failures);
+    requireNumericMatchAtMost(
+      extractJobHeader(unitAffected),
+      /^    timeout-minutes:\s*(\d+)\s*$/m,
+      15,
+      'Affected unit job timeout must stay bounded for PR feedback.',
+      failures
+    );
+    requireIncludes(
+      unitAffected,
+      '- name: Run affected unit tests',
+      'Affected unit job must run a separate timed affected test step.',
+      failures
+    );
+    requireIncludes(
+      unitAffected,
+      'turbo run test --filter="...[origin/${GITHUB_BASE_REF}]"',
+      'Affected unit job must use Turbo affected filtering against the PR base.',
+      failures
+    );
+    requireNotIncludes(
+      unitAffected,
+      'test:coverage',
+      'Affected unit job must not run coverage tasks.',
+      failures
+    );
+  }
+
   const unitCoverage = extractJob(source, 'unit_coverage');
   if (!unitCoverage) {
     failures.push('Missing unit_coverage job.');
   } else {
-    requireRiskLabelGate(unitCoverage, 'Checks (unit-coverage)', ['ci:coverage'], failures);
+    requireRiskLabelGate(
+      unitCoverage,
+      'Checks (coverage-db/full)',
+      ['ci:coverage-db', 'ci:coverage-full'],
+      failures
+    );
     requireNumericMatchAtLeast(
       extractJobHeader(unitCoverage),
       /^    timeout-minutes:\s*(\d+)\s*$/m,
@@ -1392,6 +1429,7 @@ export function validateWorkflowContracts(source) {
     for (const jobName of [
       'pr-sentinel',
       'checks',
+      'unit_affected',
       'unit_coverage',
       'browser-tests',
       'prepare-web',
@@ -1445,7 +1483,9 @@ export function validateWorkflowContracts(source) {
       failures
     );
     for (const [label, jobs] of [
-      ['ci:coverage', ['unit_coverage']],
+      ['ci:unit', ['unit_affected']],
+      ['ci:coverage-db', ['unit_coverage']],
+      ['ci:coverage-full', ['unit_coverage']],
       ['ci:browser', ['browser-tests']],
       ['ci:web-smoke', ['prepare-web', 'web-e2e-smoke-pr']],
       ['ci:web-file-explorer-persistence', ['prepare-web', 'web-e2e-file-explorer-persistence-pr']],

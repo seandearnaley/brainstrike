@@ -16,7 +16,7 @@
       "files": ["scripts/ci-select.mjs"],
       "expected": {
         "category": "config-tooling",
-        "cloudLabels": ["ci:coverage"],
+        "cloudLabels": ["ci:unit"],
         "e2eLanes": [],
         "proofCommands": ["diff-check", "ci-script-tests", "workflow-contracts"]
       }
@@ -26,7 +26,7 @@
       "files": ["packages/assistant-contract/src/runtime-data.ts"],
       "expected": {
         "category": "assistant-contract-runtime",
-        "cloudLabels": ["ci:web-assistant-state", "ci:coverage"],
+        "cloudLabels": ["ci:web-assistant-state", "ci:unit"],
         "e2eLanes": ["web-assistant-state"],
         "proofCommands": ["diff-check", "assistant-contract-tests", "app-shell-tests"]
       }
@@ -36,7 +36,7 @@
       "files": ["packages/embeddings/src/worker/embedding-worker.ts"],
       "expected": {
         "category": "indexing-import-embedding",
-        "cloudLabels": ["ci:desktop", "ci:embedding", "ci:coverage"],
+        "cloudLabels": ["ci:desktop", "ci:embedding", "ci:unit"],
         "e2eLanes": ["desktop-embedding-diagnostics"],
         "proofCommands": ["diff-check", "indexing-tests", "embedding-tests"]
       }
@@ -46,7 +46,13 @@
       "files": ["packages/db/src/migrations/012-add-index.sql.ts"],
       "expected": {
         "category": "db-migrations-storage",
-        "cloudLabels": ["ci:web-db-startup", "ci:web-destructive-reset", "ci:browser", "ci:coverage"],
+        "cloudLabels": [
+          "ci:web-db-startup",
+          "ci:web-destructive-reset",
+          "ci:browser",
+          "ci:unit",
+          "ci:coverage-db"
+        ],
         "e2eLanes": ["web-db-startup", "web-destructive-reset"],
         "proofCommands": [
           "diff-check",
@@ -62,7 +68,7 @@
       "files": ["packages/db/src/queue/job-queue.ts"],
       "expected": {
         "category": "db-migrations-storage",
-        "cloudLabels": ["ci:browser", "ci:coverage"],
+        "cloudLabels": ["ci:browser", "ci:unit", "ci:coverage-db"],
         "e2eLanes": [],
         "proofCommands": ["diff-check", "db-queue-tests"]
       }
@@ -72,7 +78,7 @@
       "files": ["packages/db/src/repositories/drizzle/file-record-repository.ts"],
       "expected": {
         "category": "db-migrations-storage",
-        "cloudLabels": ["ci:browser", "ci:coverage"],
+        "cloudLabels": ["ci:browser", "ci:unit", "ci:coverage-db"],
         "e2eLanes": [],
         "proofCommands": ["diff-check", "db-repository-tests"]
       }
@@ -82,7 +88,7 @@
       "files": ["packages/db/src/search/hybrid-search-service.ts"],
       "expected": {
         "category": "db-migrations-storage",
-        "cloudLabels": ["ci:browser", "ci:coverage"],
+        "cloudLabels": ["ci:browser", "ci:unit", "ci:coverage-db"],
         "e2eLanes": [],
         "proofCommands": ["diff-check", "db-search-tests"]
       }
@@ -92,7 +98,7 @@
       "files": ["packages/file-explorer-ui/src/tree/optimized-file-tree.tsx"],
       "expected": {
         "category": "web-ui-file-explorer",
-        "cloudLabels": ["ci:web-file-explorer-persistence", "ci:coverage"],
+        "cloudLabels": ["ci:web-file-explorer-persistence", "ci:unit"],
         "e2eLanes": ["web-file-explorer-persistence"],
         "proofCommands": [
           "diff-check",
@@ -106,7 +112,7 @@
       "files": ["apps/web/e2e/database-import-backfill.test.ts"],
       "expected": {
         "category": "web-import-indexing",
-        "cloudLabels": ["ci:web-import-indexing", "ci:coverage"],
+        "cloudLabels": ["ci:web-import-indexing", "ci:unit"],
         "e2eLanes": ["web-import-indexing"],
         "proofCommands": ["diff-check", "indexing-tests", "web-import-indexing-tests"]
       }
@@ -116,7 +122,7 @@
       "files": ["packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx"],
       "expected": {
         "category": "assistant-contract-runtime",
-        "cloudLabels": ["ci:web-assistant-state", "ci:coverage"],
+        "cloudLabels": ["ci:web-assistant-state", "ci:unit"],
         "e2eLanes": ["web-assistant-state"],
         "proofCommands": ["diff-check", "assistant-contract-tests", "app-shell-tests"]
       }
@@ -126,7 +132,7 @@
       "files": ["apps/web/src/app/settings/model-provider-section.tsx"],
       "expected": {
         "category": "web-settings-state",
-        "cloudLabels": ["ci:web-settings-state", "ci:coverage"],
+        "cloudLabels": ["ci:web-settings-state", "ci:unit"],
         "e2eLanes": ["web-settings-state"],
         "proofCommands": ["diff-check", "web-settings-state-tests"]
       }
@@ -136,7 +142,7 @@
       "files": ["apps/web/e2e/web-db-worker-startup.test.ts"],
       "expected": {
         "category": "web-db-startup",
-        "cloudLabels": ["ci:web-db-startup", "ci:coverage"],
+        "cloudLabels": ["ci:web-db-startup", "ci:unit", "ci:coverage-db"],
         "e2eLanes": ["web-db-startup"],
         "proofCommands": ["diff-check", "web-db-startup-tests"]
       }
@@ -146,7 +152,7 @@
       "files": ["apps/web/e2e/factory-reset-recovery.test.ts"],
       "expected": {
         "category": "web-destructive-reset",
-        "cloudLabels": ["ci:web-destructive-reset", "ci:coverage"],
+        "cloudLabels": ["ci:web-destructive-reset", "ci:unit", "ci:coverage-db"],
         "e2eLanes": ["web-destructive-reset"],
         "proofCommands": ["diff-check", "web-destructive-reset-tests"]
       }
@@ -156,7 +162,7 @@
       "files": ["apps/desktop/src/preload.ts"],
       "expected": {
         "category": "desktop-platform-ipc-preload",
-        "cloudLabels": ["ci:desktop", "ci:coverage"],
+        "cloudLabels": ["ci:desktop", "ci:unit"],
         "e2eLanes": ["desktop-full-regression"],
         "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-full-regression-tests"]
       }
@@ -166,7 +172,7 @@
       "files": ["apps/desktop/src/desktop-factory-reset.ts"],
       "expected": {
         "category": "desktop-ipc-reset",
-        "cloudLabels": ["ci:desktop-ipc-reset", "ci:coverage"],
+        "cloudLabels": ["ci:desktop-ipc-reset", "ci:unit"],
         "e2eLanes": ["desktop-ipc-reset"],
         "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-ipc-reset-tests"]
       }
@@ -176,7 +182,7 @@
       "files": ["apps/desktop/src/ipc-domains/db-ipc.ts"],
       "expected": {
         "category": "desktop-db-storage",
-        "cloudLabels": ["ci:desktop-db-storage", "ci:coverage"],
+        "cloudLabels": ["ci:desktop-db-storage", "ci:unit", "ci:coverage-db"],
         "e2eLanes": ["desktop-db-storage"],
         "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-db-storage-tests"]
       }
@@ -186,7 +192,7 @@
       "files": ["apps/desktop/src/embedding-host-manager.ts"],
       "expected": {
         "category": "desktop-runtime-hosts",
-        "cloudLabels": ["ci:desktop-runtime-hosts", "ci:coverage"],
+        "cloudLabels": ["ci:desktop-runtime-hosts", "ci:unit"],
         "e2eLanes": ["desktop-runtime-hosts"],
         "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-runtime-host-tests"]
       }
@@ -196,7 +202,7 @@
       "files": ["apps/desktop/src/llm-host-manager.ts"],
       "expected": {
         "category": "desktop-runtime-hosts",
-        "cloudLabels": ["ci:desktop-runtime-hosts", "ci:coverage"],
+        "cloudLabels": ["ci:desktop-runtime-hosts", "ci:unit"],
         "e2eLanes": ["desktop-runtime-hosts"],
         "proofCommands": ["diff-check", "desktop-unit-tests", "desktop-runtime-host-tests"]
       }
@@ -206,7 +212,7 @@
       "files": ["packages/storage/src/opfs.ts"],
       "expected": {
         "category": "db-migrations-storage",
-        "cloudLabels": ["ci:browser", "ci:coverage"],
+        "cloudLabels": ["ci:browser", "ci:unit", "ci:coverage-db"],
         "e2eLanes": [],
         "proofCommands": ["diff-check", "storage-tests"]
       }
@@ -216,7 +222,7 @@
       "files": ["packages/file-system/src/utils.ts"],
       "expected": {
         "category": "db-migrations-storage",
-        "cloudLabels": ["ci:browser", "ci:coverage"],
+        "cloudLabels": ["ci:browser", "ci:unit", "ci:coverage-db"],
         "e2eLanes": [],
         "proofCommands": ["diff-check", "file-system-tests"]
       }
@@ -226,7 +232,7 @@
       "files": ["packages/utils/src/token-counting-runtime.ts"],
       "expected": {
         "category": "shared-foundation",
-        "cloudLabels": ["ci:browser", "ci:coverage"],
+        "cloudLabels": ["ci:browser", "ci:unit"],
         "e2eLanes": ["critical-smoke"],
         "proofCommands": ["diff-check", "shared-foundation-tests"]
       }
@@ -236,7 +242,7 @@
       "files": ["packages/utils/src/__tests__/token-counting-boundary.test.ts"],
       "expected": {
         "category": "isolated-unit-test-only",
-        "cloudLabels": ["ci:coverage"],
+        "cloudLabels": ["ci:unit"],
         "e2eLanes": [],
         "proofCommands": ["diff-check", "changed-unit-tests"]
       }
@@ -246,7 +252,7 @@
       "files": ["apps/web/src/app/root-layout-content.tsx"],
       "expected": {
         "category": "web-full-regression",
-        "cloudLabels": ["ci:web-e2e", "ci:coverage"],
+        "cloudLabels": ["ci:web-e2e", "ci:unit"],
         "e2eLanes": ["web-full-regression"],
         "proofCommands": ["diff-check", "web-full-regression-tests"]
       }

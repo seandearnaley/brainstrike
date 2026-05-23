@@ -14,6 +14,9 @@ export const RISK_LANES = [
   'ci:desktop-db-storage',
   'ci:desktop',
   'ci:embedding',
+  'ci:unit',
+  'ci:coverage-db',
+  'ci:coverage-full',
   'ci:coverage',
   'ci:full',
 ];
@@ -34,7 +37,9 @@ export const EXPANDED_FULL_LANES = [
   'ci:desktop-db-storage',
   'ci:desktop',
   'ci:embedding',
-  'ci:coverage',
+  'ci:unit',
+  'ci:coverage-db',
+  'ci:coverage-full',
 ];
 
 const FULL_PATTERNS = [
@@ -340,15 +345,24 @@ const LLM_HOST_PATTERNS = [
   /^apps\/desktop\/src\/renderer\/components\/llm-host-/,
 ];
 
-const COVERAGE_PATTERNS = [
+const UNIT_PATTERNS = [
   /^apps\/(web|desktop)\//,
   /^packages\//,
+];
+
+const COVERAGE_DB_PATTERNS = [
+  /^packages\/db\//,
+  /^packages\/storage\//,
+  /^packages\/file-system\//,
+];
+
+const COVERAGE_FULL_PATTERNS = [
   /^scripts\/enforce-coverage\.mjs$/,
   /^scripts\/prepare-workspace-coverage\.mjs$/,
   /^scripts\/merge-coverage\.js$/,
 ];
 
-const RUNTIME_FALLBACK_COVERAGE_PATTERNS = [/^apps\/(?!docs\/)/, /^packages\//];
+const RUNTIME_FALLBACK_UNIT_PATTERNS = [/^apps\/(?!docs\/)/, /^packages\//];
 
 const UNIT_TEST_ONLY_PATTERNS = [
   /^(apps|packages)\/.+\.(test|integration\.test)\.(ts|tsx|mts|mjs)$/,
@@ -370,7 +384,9 @@ const LANE_PATTERNS = new Map([
   ['ci:desktop-db-storage', DESKTOP_DB_STORAGE_PATTERNS],
   ['ci:desktop', DESKTOP_FULL_REGRESSION_PATTERNS],
   ['ci:embedding', EMBEDDING_PATTERNS],
-  ['ci:coverage', COVERAGE_PATTERNS],
+  ['ci:unit', UNIT_PATTERNS],
+  ['ci:coverage-db', COVERAGE_DB_PATTERNS],
+  ['ci:coverage-full', COVERAGE_FULL_PATTERNS],
 ]);
 
 const LOCAL_PROOF_COMMANDS_BY_LANE = new Map([
@@ -554,7 +570,7 @@ export function selectRiskProfileForFiles(files) {
       e2eLanes: [],
       proofCommands: ['diff-check', 'changed-unit-tests'],
       riskLevel: 'low',
-      cloudLabels: ['ci:coverage'],
+      cloudLabels: ['ci:unit'],
     });
   }
 
@@ -566,7 +582,7 @@ export function selectRiskProfileForFiles(files) {
         e2eLanes: ['desktop-ipc-reset'],
         proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-ipc-reset-tests'],
         riskLevel: 'medium',
-        cloudLabels: ['ci:desktop-ipc-reset', 'ci:coverage'],
+        cloudLabels: ['ci:desktop-ipc-reset', 'ci:unit'],
       });
     }
 
@@ -577,7 +593,7 @@ export function selectRiskProfileForFiles(files) {
         e2eLanes: ['desktop-db-storage'],
         proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-db-storage-tests'],
         riskLevel: 'medium',
-        cloudLabels: ['ci:desktop-db-storage', 'ci:coverage'],
+        cloudLabels: ['ci:desktop-db-storage', 'ci:unit', 'ci:coverage-db'],
       });
     }
 
@@ -590,7 +606,7 @@ export function selectRiskProfileForFiles(files) {
         e2eLanes: ['desktop-runtime-hosts'],
         proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-runtime-host-tests'],
         riskLevel: 'high',
-        cloudLabels: ['ci:desktop-runtime-hosts', 'ci:coverage'],
+        cloudLabels: ['ci:desktop-runtime-hosts', 'ci:unit'],
       });
     }
 
@@ -600,7 +616,7 @@ export function selectRiskProfileForFiles(files) {
       e2eLanes: ['desktop-full-regression'],
       proofCommands: ['diff-check', 'desktop-unit-tests', 'desktop-full-regression-tests'],
       riskLevel: 'high',
-      cloudLabels: ['ci:desktop', 'ci:coverage'],
+      cloudLabels: ['ci:desktop', 'ci:unit'],
     });
   }
 
@@ -617,7 +633,13 @@ export function selectRiskProfileForFiles(files) {
         'web-destructive-reset-tests',
       ],
       riskLevel: 'high',
-      cloudLabels: ['ci:web-db-startup', 'ci:web-destructive-reset', 'ci:browser', 'ci:coverage'],
+      cloudLabels: [
+        'ci:web-db-startup',
+        'ci:web-destructive-reset',
+        'ci:browser',
+        'ci:unit',
+        'ci:coverage-db',
+      ],
     });
   }
 
@@ -631,7 +653,7 @@ export function selectRiskProfileForFiles(files) {
       e2eLanes: [],
       proofCommands: dataPlatformPackageCommands(normalizedFiles),
       riskLevel: 'medium',
-      cloudLabels: ['ci:browser', 'ci:coverage'],
+      cloudLabels: ['ci:browser', 'ci:unit', 'ci:coverage-db'],
     });
   }
 
@@ -647,8 +669,8 @@ export function selectRiskProfileForFiles(files) {
         : ['diff-check', 'indexing-tests'],
       riskLevel: hasAny(normalizedFiles, EMBEDDING_PATTERNS) ? 'high' : 'medium',
       cloudLabels: hasAny(normalizedFiles, EMBEDDING_PATTERNS)
-        ? ['ci:desktop', 'ci:embedding', 'ci:coverage']
-        : ['ci:coverage'],
+        ? ['ci:desktop', 'ci:embedding', 'ci:unit']
+        : ['ci:unit'],
     });
   }
 
@@ -659,7 +681,7 @@ export function selectRiskProfileForFiles(files) {
       e2eLanes: ['web-assistant-state'],
       proofCommands: ['diff-check', 'assistant-contract-tests', 'app-shell-tests'],
       riskLevel: 'medium',
-      cloudLabels: ['ci:web-assistant-state', 'ci:coverage'],
+      cloudLabels: ['ci:web-assistant-state', 'ci:unit'],
     });
   }
 
@@ -670,7 +692,7 @@ export function selectRiskProfileForFiles(files) {
       e2eLanes: ['web-import-indexing'],
       proofCommands: ['diff-check', 'indexing-tests', 'web-import-indexing-tests'],
       riskLevel: 'medium',
-      cloudLabels: ['ci:web-import-indexing', 'ci:coverage'],
+      cloudLabels: ['ci:web-import-indexing', 'ci:unit'],
     });
   }
 
@@ -685,7 +707,7 @@ export function selectRiskProfileForFiles(files) {
         'web-file-explorer-persistence-tests',
       ],
       riskLevel: 'medium',
-      cloudLabels: ['ci:web-file-explorer-persistence', 'ci:coverage'],
+      cloudLabels: ['ci:web-file-explorer-persistence', 'ci:unit'],
     });
   }
 
@@ -696,7 +718,7 @@ export function selectRiskProfileForFiles(files) {
       e2eLanes: ['web-settings-state'],
       proofCommands: ['diff-check', 'web-settings-state-tests'],
       riskLevel: 'medium',
-      cloudLabels: ['ci:web-settings-state', 'ci:coverage'],
+      cloudLabels: ['ci:web-settings-state', 'ci:unit'],
     });
   }
 
@@ -707,7 +729,7 @@ export function selectRiskProfileForFiles(files) {
       e2eLanes: ['web-db-startup'],
       proofCommands: ['diff-check', 'web-db-startup-tests'],
       riskLevel: 'medium',
-      cloudLabels: ['ci:web-db-startup', 'ci:coverage'],
+      cloudLabels: ['ci:web-db-startup', 'ci:unit', 'ci:coverage-db'],
     });
   }
 
@@ -718,7 +740,7 @@ export function selectRiskProfileForFiles(files) {
       e2eLanes: ['web-destructive-reset'],
       proofCommands: ['diff-check', 'web-destructive-reset-tests'],
       riskLevel: 'high',
-      cloudLabels: ['ci:web-destructive-reset', 'ci:coverage'],
+      cloudLabels: ['ci:web-destructive-reset', 'ci:unit', 'ci:coverage-db'],
     });
   }
 
@@ -729,7 +751,7 @@ export function selectRiskProfileForFiles(files) {
       e2eLanes: ['web-smoke'],
       proofCommands: ['diff-check', 'web-smoke-tests'],
       riskLevel: 'low',
-      cloudLabels: ['ci:web-smoke', 'ci:coverage'],
+      cloudLabels: ['ci:web-smoke', 'ci:unit'],
     });
   }
 
@@ -740,7 +762,7 @@ export function selectRiskProfileForFiles(files) {
       e2eLanes: ['web-full-regression'],
       proofCommands: ['diff-check', 'web-full-regression-tests'],
       riskLevel: 'high',
-      cloudLabels: ['ci:web-e2e', 'ci:coverage'],
+      cloudLabels: ['ci:web-e2e', 'ci:unit'],
     });
   }
 
@@ -751,7 +773,7 @@ export function selectRiskProfileForFiles(files) {
       e2eLanes: [],
       proofCommands: dbPackageCommands(normalizedFiles),
       riskLevel: 'medium',
-      cloudLabels: ['ci:browser', 'ci:coverage'],
+      cloudLabels: ['ci:browser', 'ci:unit', 'ci:coverage-db'],
     });
   }
 
@@ -762,7 +784,7 @@ export function selectRiskProfileForFiles(files) {
       e2eLanes: ['web-functional-stateful'],
       proofCommands: ['diff-check', 'file-explorer-tests', 'web-smoke-tests'],
       riskLevel: 'medium',
-      cloudLabels: ['ci:web-e2e', 'ci:coverage'],
+      cloudLabels: ['ci:web-e2e', 'ci:unit'],
     });
   }
 
@@ -773,7 +795,7 @@ export function selectRiskProfileForFiles(files) {
       e2eLanes: ['critical-smoke'],
       proofCommands: ['diff-check', 'shared-foundation-tests'],
       riskLevel: 'medium',
-      cloudLabels: ['ci:browser', 'ci:coverage'],
+      cloudLabels: ['ci:browser', 'ci:unit'],
     });
   }
 
@@ -784,7 +806,7 @@ export function selectRiskProfileForFiles(files) {
       e2eLanes: [],
       proofCommands: ['diff-check', 'ci-script-tests', 'workflow-contracts'],
       riskLevel: 'medium',
-      cloudLabels: ['ci:coverage'],
+      cloudLabels: ['ci:unit'],
     });
   }
 
@@ -794,7 +816,7 @@ export function selectRiskProfileForFiles(files) {
     e2eLanes: [],
     proofCommands: ['diff-check', 'ci-script-tests'],
     riskLevel: 'medium',
-    cloudLabels: ['ci:coverage'],
+    cloudLabels: ['ci:unit'],
   });
 }
 
@@ -817,10 +839,10 @@ export function selectRiskLanesForFiles(files) {
       }
     }
     if (
-      !selected.has('ci:coverage') &&
-      matchesAny(filePath, RUNTIME_FALLBACK_COVERAGE_PATTERNS)
+      !selected.has('ci:unit') &&
+      matchesAny(filePath, RUNTIME_FALLBACK_UNIT_PATTERNS)
     ) {
-      selected.add('ci:coverage');
+      selected.add('ci:unit');
     }
   }
 
