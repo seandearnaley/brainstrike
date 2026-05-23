@@ -1,23 +1,25 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-23T01:40:15.493Z",
+  "generatedAt": "2026-05-23T02:03:48.641Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "986c6c7a91c191ad1c90803fd288c144d5891f44",
+  "testedHeadSha": "266de2ee37361bdde2aac0daa9fa612605e43e17",
   "selection": {
     "base": "origin/main",
     "baseSha": "660af97fc4349592a171623cb0c0dbedbfcbb58f",
     "head": "HEAD",
-    "headSha": "986c6c7a91c191ad1c90803fd288c144d5891f44",
+    "headSha": "266de2ee37361bdde2aac0daa9fa612605e43e17",
     "mergeBase": "660af97fc4349592a171623cb0c0dbedbfcbb58f",
     "files": [
       ".ci/proof/latest.json",
       "docs/superpowers/plans/2026-05-22-bst-373-file-tree-patch-protocol.md",
       "packages/file-explorer-ui/src/__tests__/use-file-tree-context.test.ts",
+      "packages/file-explorer-ui/src/hooks/__tests__/use-worker-flattened-tree.test.ts",
+      "packages/file-explorer-ui/src/hooks/use-worker-flattened-tree.ts",
       "packages/file-explorer-ui/src/tree/use-lazy-file-tree.ts",
       "packages/file-tree-worker/src/bfs-engine.test.ts",
       "packages/file-tree-worker/src/bfs-engine.ts",
@@ -108,7 +110,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 16
+      "durationMs": 19
     },
     {
       "name": "file-explorer-tests",
@@ -117,7 +119,7 @@
       "budgetMs": 240000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 23459
+      "durationMs": 23577
     },
     {
       "name": "web-file-explorer-persistence-tests",
@@ -126,7 +128,7 @@
       "budgetMs": 360000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 43964
+      "durationMs": 45550
     }
   ]
 }
