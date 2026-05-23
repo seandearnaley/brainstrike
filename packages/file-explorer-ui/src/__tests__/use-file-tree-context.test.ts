@@ -133,6 +133,20 @@ function createWorkerDirectoryNode(
   };
 }
 
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  reject: (error: unknown) => void;
+  resolve: (value: T) => void;
+} {
+  let resolve: (value: T) => void = () => {};
+  let reject: (error: unknown) => void = () => {};
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, reject, resolve };
+}
+
 async function mockWorkerExpandAllThroughLoadRequests(): Promise<{
   patches: AccumulatedFileTreePatchMessage[];
   expandedPaths: string[];
@@ -789,6 +803,86 @@ describe('useFileTree (lazy loading version)', () => {
       });
 
       expect(readDirectoryStreamingSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('applies worker restoration patches on top of concurrent direct child loads', async () => {
+      const nestedFS = createNestedMockFileSystem();
+      mockAdapter.setMockFileSystem(nestedFS);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const loadPathsDeferred = createDeferred<{
+        expandedPaths: string[];
+        loadedCount: number;
+        patches: AccumulatedFileTreePatchMessage[];
+      }>();
+      mockWorkerPort.loadPaths.mockReturnValueOnce(loadPathsDeferred.promise);
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      const parentDir = result.current.fileTree.find(
+        (node) => node.type === 'directory' && node.name === 'parent'
+      );
+      expect(parentDir?.type).toBe('directory');
+      if (!parentDir || parentDir.type !== 'directory') {
+        throw new Error('Expected parent directory to be present before restoration');
+      }
+
+      const childPath = `${parentDir.path}/child`;
+      const restorationPromise = result.current.loadSpecificPaths([parentDir.path, childPath]);
+      await waitFor(() =>
+        expect(mockWorkerPort.loadPaths).toHaveBeenCalledWith([parentDir.path, childPath])
+      );
+
+      await act(async () => {
+        await result.current.loadChildren(parentDir.path);
+      });
+
+      const parentAfterDirectLoad = result.current.fileTree.find(
+        (node) => node.path === parentDir.path
+      );
+      expect(parentAfterDirectLoad?.type).toBe('directory');
+      if (!parentAfterDirectLoad || parentAfterDirectLoad.type !== 'directory') {
+        throw new Error('Expected parent directory after direct load');
+      }
+      expect(parentAfterDirectLoad.children?.some((child) => child.path === childPath)).toBe(true);
+
+      await act(async () => {
+        loadPathsDeferred.resolve({
+          expandedPaths: [parentDir.path, childPath],
+          loadedCount: 1,
+          patches: [
+            {
+              type: 'childrenLoaded',
+              payload: {
+                children: [],
+                loadState: 'loaded',
+                path: childPath,
+              },
+            },
+          ],
+        });
+        await restorationPromise;
+      });
+
+      const parentAfterRestoration = result.current.fileTree.find(
+        (node) => node.path === parentDir.path
+      );
+      expect(parentAfterRestoration?.type).toBe('directory');
+      if (!parentAfterRestoration || parentAfterRestoration.type !== 'directory') {
+        throw new Error('Expected parent directory after restoration');
+      }
+      const childAfterRestoration = parentAfterRestoration.children?.find(
+        (node) => node.path === childPath
+      );
+      expect(childAfterRestoration?.type).toBe('directory');
+      expect(childAfterRestoration?.loadState).toBe('loaded');
     });
 
     it('resets a directory back to unloaded when child loading is cancelled', async () => {
