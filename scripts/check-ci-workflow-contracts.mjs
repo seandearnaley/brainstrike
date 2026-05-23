@@ -1143,6 +1143,9 @@ export function validateWorkflowContracts(source) {
     failures.push('Missing unit_affected job.');
   } else {
     requirePrRiskLabelGate(unitAffected, 'Checks (unit-affected)', ['ci:unit'], failures);
+    // The affected-unit timeout is intentionally pinned: cold-cache full-risk runs have included
+    // Electron, embedding-worker diagnostics, and dependent package builds. Change the workflow and
+    // this contract together when measured runtimes justify tightening or widening it.
     requireNumericMatchAtMost(
       extractJobHeader(unitAffected),
       /^    timeout-minutes:\s*(\d+)\s*$/m,
