@@ -32,6 +32,7 @@ export function PromptCard({
 }: PromptCardProps) {
   const updatedAt = new Date(prompt.updatedAt);
   const [isMoreOptionsOpen, setIsMoreOptionsOpen] = useState(false);
+  // Force the hover tooltip closed while the dropdown menu owns focus.
   const moreOptionsTooltipProps = isMoreOptionsOpen ? { open: false as const } : {};
 
   return (
