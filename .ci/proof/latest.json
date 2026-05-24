@@ -1,21 +1,22 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-24T18:17:54.545Z",
+  "generatedAt": "2026-05-24T18:34:09.608Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "dcc51db8ea923e53bcfd6e4253f9bf4b61aa7eab",
+  "testedHeadSha": "7dadece38fbc601c7ba2ea487ea9bdd3144d4bcf",
   "selection": {
     "base": "origin/main",
     "baseSha": "e57209e2d43d08069b96874d582efcbf6c3f2654",
     "head": "HEAD",
-    "headSha": "dcc51db8ea923e53bcfd6e4253f9bf4b61aa7eab",
+    "headSha": "7dadece38fbc601c7ba2ea487ea9bdd3144d4bcf",
     "mergeBase": "e57209e2d43d08069b96874d582efcbf6c3f2654",
     "files": [
       ".ci/proof/latest.json",
+      ".github/workflows/test.yml",
       "AGENTS.md",
       "README.md",
       "apps/desktop/README.md",
@@ -25,8 +26,10 @@
       "packages/agent/README.md",
       "packages/app-shell/README.md",
       "scripts/__tests__/check-ci-risk-fixtures.test.mjs",
+      "scripts/__tests__/check-ci-workflow-contracts.test.mjs",
       "scripts/__tests__/ci-risk-rules.test.mjs",
       "scripts/__tests__/ci-selector-guard.test.mjs",
+      "scripts/check-ci-workflow-contracts.mjs",
       "scripts/ci-risk-fixtures.json",
       "scripts/ci-risk-rules.mjs",
       "scripts/ci-selector-guard.mjs"
@@ -107,7 +110,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 18
+      "durationMs": 20
     },
     {
       "name": "ci-script-tests",
@@ -116,7 +119,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 381
+      "durationMs": 379
     },
     {
       "name": "workflow-contracts",
@@ -125,7 +128,7 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 339
+      "durationMs": 341
     }
   ]
 }
