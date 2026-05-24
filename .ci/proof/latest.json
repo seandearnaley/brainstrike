@@ -1,69 +1,42 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-24T18:34:09.608Z",
+  "generatedAt": "2026-05-24T18:35:04.366Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
-  "baseRef": "origin/main",
+  "baseRef": "origin/claude/thirsty-kepler-e3b23f",
   "headRef": "HEAD",
-  "testedHeadSha": "7dadece38fbc601c7ba2ea487ea9bdd3144d4bcf",
+  "testedHeadSha": "2c2eb9b968941aced604e25d0476180b16ad8ec8",
   "selection": {
-    "base": "origin/main",
-    "baseSha": "e57209e2d43d08069b96874d582efcbf6c3f2654",
+    "base": "origin/claude/thirsty-kepler-e3b23f",
+    "baseSha": "0f8393f4e1f5d7304f107cfc5f7b8ad3ced3f2ae",
     "head": "HEAD",
-    "headSha": "7dadece38fbc601c7ba2ea487ea9bdd3144d4bcf",
-    "mergeBase": "e57209e2d43d08069b96874d582efcbf6c3f2654",
+    "headSha": "2c2eb9b968941aced604e25d0476180b16ad8ec8",
+    "mergeBase": "0f8393f4e1f5d7304f107cfc5f7b8ad3ced3f2ae",
     "files": [
-      ".ci/proof/latest.json",
-      ".github/workflows/test.yml",
-      "AGENTS.md",
-      "README.md",
-      "apps/desktop/README.md",
-      "apps/web/README.md",
-      "lefthook.yml",
-      "package.json",
-      "packages/agent/README.md",
-      "packages/app-shell/README.md",
-      "scripts/__tests__/check-ci-risk-fixtures.test.mjs",
-      "scripts/__tests__/check-ci-workflow-contracts.test.mjs",
-      "scripts/__tests__/ci-risk-rules.test.mjs",
-      "scripts/__tests__/ci-selector-guard.test.mjs",
-      "scripts/check-ci-workflow-contracts.mjs",
-      "scripts/ci-risk-fixtures.json",
-      "scripts/ci-risk-rules.mjs",
-      "scripts/ci-selector-guard.mjs"
+      "docs/architecture-reset/selector-smoke-docs-only.md"
     ],
     "riskProfile": {
-      "category": "config-tooling",
+      "category": "docs-only",
       "domains": [
-        "tooling"
+        "documentation"
       ],
       "e2eLanes": [],
       "proofCommands": [
         "diff-check",
-        "ci-script-tests",
-        "workflow-contracts"
+        "docs-static"
       ],
-      "riskLevel": "medium",
-      "cloudLabels": [
-        "ci:unit"
-      ]
+      "riskLevel": "low",
+      "cloudLabels": []
     },
     "proofCommands": [
       "diff-check",
-      "ci-script-tests",
-      "workflow-contracts"
+      "docs-static"
     ],
-    "lanes": [
-      "ci:unit"
-    ],
-    "expandedLanes": [
-      "ci:unit"
-    ],
-    "labels": [
-      "ci:unit"
-    ],
+    "lanes": [],
+    "expandedLanes": [],
+    "labels": [],
     "commands": [
       {
         "name": "diff-check",
@@ -75,30 +48,19 @@
         ]
       },
       {
-        "name": "ci-script-tests",
-        "command": "node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-doctor.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/ci-proof.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-workflow-contracts.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs scripts/__tests__/run-changed-unit-tests.test.mjs scripts/__tests__/ci-calibrate-proof-commands.test.mjs scripts/__tests__/ci-calibration-summary.test.mjs scripts/__tests__/ci-risk-audit.test.mjs && pnpm run ci:risk-fixtures",
-        "budgetMs": 120000,
-        "owner": "tooling",
+        "name": "docs-static",
+        "command": "git diff --check -- docs apps/docs README.md AGENTS.md CLAUDE.md",
+        "budgetMs": 30000,
+        "owner": "documentation",
         "requiredFor": [
-          "config-tooling",
-          "full-release-high-risk"
-        ]
-      },
-      {
-        "name": "workflow-contracts",
-        "command": "node --test scripts/__tests__/check-ci-workflow-contracts.test.mjs && pnpm run lint:ci-workflow-contracts",
-        "budgetMs": 180000,
-        "owner": "ci-platform",
-        "requiredFor": [
-          "config-tooling",
-          "full-release-high-risk"
+          "docs-only"
         ]
       }
     ],
     "budget": {
-      "target": "local-pr-risk",
-      "targetMs": 480000,
-      "totalMs": 330000,
+      "target": "fast-local",
+      "targetMs": 120000,
+      "totalMs": 60000,
       "status": "within-target"
     }
   },
@@ -113,22 +75,13 @@
       "durationMs": 20
     },
     {
-      "name": "ci-script-tests",
-      "command": "node --test scripts/__tests__/ci-risk-rules.test.mjs scripts/__tests__/ci-select.test.mjs scripts/__tests__/ci-doctor.test.mjs scripts/__tests__/ci-timing-summary.test.mjs scripts/__tests__/ci-proof-timing-summary.test.mjs scripts/__tests__/ci-proof.test.mjs scripts/__tests__/turbo-run-diagnostics.test.mjs scripts/__tests__/check-ci-workflow-contracts.test.mjs scripts/__tests__/check-ci-risk-fixtures.test.mjs scripts/__tests__/run-changed-unit-tests.test.mjs scripts/__tests__/ci-calibrate-proof-commands.test.mjs scripts/__tests__/ci-calibration-summary.test.mjs scripts/__tests__/ci-risk-audit.test.mjs && pnpm run ci:risk-fixtures",
-      "owner": "tooling",
-      "budgetMs": 120000,
+      "name": "docs-static",
+      "command": "git diff --check -- docs apps/docs README.md AGENTS.md CLAUDE.md",
+      "owner": "documentation",
+      "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 379
-    },
-    {
-      "name": "workflow-contracts",
-      "command": "node --test scripts/__tests__/check-ci-workflow-contracts.test.mjs && pnpm run lint:ci-workflow-contracts",
-      "owner": "ci-platform",
-      "budgetMs": 180000,
-      "budgetStatus": "ok",
-      "exitCode": 0,
-      "durationMs": 341
+      "durationMs": 18
     }
   ]
 }
