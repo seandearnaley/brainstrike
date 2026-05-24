@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-24T07:51:25.931Z",
+  "generatedAt": "2026-05-24T08:00:00.624Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "e388ffbaf3d63e385e7e87f75d7fd6c1fdd546fd",
+  "testedHeadSha": "b8092162a6cb39c4068310a470f6bcd9d0aa8690",
   "selection": {
     "base": "origin/main",
     "baseSha": "4a2a720fe4795cca4d1538e50bdec5bc56da582a",
     "head": "HEAD",
-    "headSha": "e388ffbaf3d63e385e7e87f75d7fd6c1fdd546fd",
+    "headSha": "b8092162a6cb39c4068310a470f6bcd9d0aa8690",
     "mergeBase": "4a2a720fe4795cca4d1538e50bdec5bc56da582a",
     "files": [
       ".ci/proof/latest.json",
@@ -113,7 +113,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 22
+      "durationMs": 18
     },
     {
       "name": "web-destructive-reset-tests",
@@ -122,7 +122,7 @@
       "budgetMs": 360000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 10100
+      "durationMs": 8997
     },
     {
       "name": "web-full-regression-tests",
@@ -131,7 +131,7 @@
       "budgetMs": 900000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 214496
+      "durationMs": 208677
     }
   ]
 }
