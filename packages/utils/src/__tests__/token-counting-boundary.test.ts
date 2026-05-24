@@ -23,6 +23,7 @@ function collectSourceFiles(directory: string): string[] {
 
 describe('utils token counting boundary', () => {
   it('does not import indexing-owned text splitter code', () => {
+    // Selector smoke PR fixture: unit-test-only changes must not select E2E lanes.
     const forbiddenImportPattern =
       /(?:from\s+['"]|import\s*\(\s*['"])@brainstrike\/text-splitter(?:\/|['"])/;
     const violatingFiles = collectSourceFiles(UTILS_SRC_ROOT)
