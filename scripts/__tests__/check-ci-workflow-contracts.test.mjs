@@ -52,6 +52,25 @@ test('current workflow satisfies CI cost and E2E routing contracts', () => {
   assert.deepEqual(validateWorkflowContracts(workflowSource), []);
 });
 
+test('workflow contract fails when test workflow permissions are widened', () => {
+  const source = workflowSource.replace('  contents: read', '  contents: write');
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /must keep contents: read permission/);
+  assert.match(failures, /must not widen permissions with contents: write/);
+});
+
+test('workflow contract fails when test workflow inherits all secrets', () => {
+  const checks = extractJob(workflowSource, 'checks');
+  assert.ok(checks);
+  const source = workflowSource.replace(checks, checks.replace('    runs-on:', '    secrets: inherit\n    runs-on:'));
+
+  assert.match(
+    validateWorkflowContracts(source).join('\n'),
+    /must not inherit all secrets/
+  );
+});
+
 test('Claude auto-review workflow keeps large PR review budget fail-closed', () => {
   assert.deepEqual(validateClaudeReviewWorkflowContracts(claudeReviewWorkflowSource), []);
 });

@@ -29,6 +29,11 @@ export function verifySelectorSelection(selection) {
   const labels = selection.labels ?? [];
   const lanes = selection.lanes ?? [];
   const profileLabels = selection.riskProfile?.cloudLabels ?? [];
+  const commands = Array.isArray(selection.commands) ? selection.commands : [];
+
+  if (!Array.isArray(selection.commands)) {
+    failures.push('selection.commands must be an array.');
+  }
 
   if (!sameStringArray(labels, lanes)) {
     failures.push(
@@ -47,7 +52,7 @@ export function verifySelectorSelection(selection) {
     if (labels.length > 0) {
       failures.push(`docs-only selection must not request cloud labels: ${formatLabels(labels)}`);
     }
-    const commandNames = selection.commands.map((command) => command.name);
+    const commandNames = commands.map((command) => command.name);
     if (!sameStringArray(commandNames, ['diff-check', 'docs-static'])) {
       failures.push(`docs-only proof must stay diff-check/docs-static: ${commandNames.join(',')}`);
     }
@@ -58,7 +63,7 @@ export function verifySelectorSelection(selection) {
     failures.push(`ci:full must be the only selected label: ${formatLabels(labels)}`);
   }
 
-  for (const command of selection.commands) {
+  for (const command of commands) {
     const requiredLabel = E2E_PROOF_COMMAND_LABELS.get(command.name);
     if (!requiredLabel) {
       continue;
@@ -102,10 +107,13 @@ export async function runCli(args = process.argv.slice(2)) {
     return 1;
   }
 
+  const commandSummary = Array.isArray(selection.commands)
+    ? selection.commands.map((command) => command.name).join(',')
+    : '<invalid>';
   console.log(
     `CI selector guard passed: ${selection.riskProfile.category}; labels=${formatLabels(
       selection.labels
-    )}; commands=${selection.commands.map((command) => command.name).join(',')}`
+    )}; commands=${commandSummary}`
   );
   return 0;
 }

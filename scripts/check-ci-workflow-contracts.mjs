@@ -75,6 +75,25 @@ function extractJobHeader(source) {
   return stepsStart === -1 ? source : source.slice(0, stepsStart);
 }
 
+function extractTopLevelBlock(source, key) {
+  const lines = source.split('\n');
+  const startIndex = lines.findIndex((line) => line === `${key}:`);
+  if (startIndex === -1) {
+    return null;
+  }
+
+  const block = [lines[startIndex]];
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (/^\S/.test(line)) {
+      break;
+    }
+    block.push(line);
+  }
+
+  return block.join('\n');
+}
+
 function extractWorkflowStep(source, stepName) {
   return extractBlock(
     source,
@@ -602,6 +621,65 @@ function requirePreprovisionedPlaywrightJobContracts(source, prefix, failures) {
   }
 }
 
+function requireWorkflowSecurityContracts(source, failures) {
+  const permissions = extractTopLevelBlock(source, 'permissions');
+  if (!permissions) {
+    failures.push('Test workflow must define explicit top-level permissions.');
+    return;
+  }
+
+  for (const [permission, value] of [
+    ['contents', 'read'],
+    ['pull-requests', 'write'],
+    ['security-events', 'write'],
+  ]) {
+    requireMatch(
+      permissions,
+      new RegExp(`^  ${escapeRegExp(permission)}:\\s*${escapeRegExp(value)}\\s*$`, 'm'),
+      `Test workflow must keep ${permission}: ${value} permission.`,
+      failures
+    );
+  }
+
+  for (const widenedPermission of [
+    'actions: write',
+    'checks: write',
+    'contents: write',
+    'deployments: write',
+    'id-token: write',
+    'issues: write',
+    'packages: write',
+    'pages: write',
+    'statuses: write',
+  ]) {
+    requireNotIncludes(
+      permissions,
+      widenedPermission,
+      `Test workflow must not widen permissions with ${widenedPermission}.`,
+      failures
+    );
+  }
+
+  requireNotIncludes(
+    source,
+    'permissions: write-all',
+    'Test workflow must not use write-all permissions.',
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'permissions: read-all',
+    'Test workflow must not hide explicit permission scopes behind read-all.',
+    failures
+  );
+  requireNotIncludes(
+    source,
+    'secrets: inherit',
+    'Test workflow must not inherit all secrets into jobs or reusable workflows.',
+    failures
+  );
+}
+
 function extractNamedStepBlocks(source, namePattern) {
   const lines = source.split('\n');
   const blocks = [];
@@ -668,6 +746,7 @@ export function validateWorkflowContracts(source) {
     'Turbo commands in the Test workflow must keep grouped logs for readable failure triage.',
     failures
   );
+  requireWorkflowSecurityContracts(source, failures);
 
   // Shard count is intentionally enforced in the workflow and this lint so CI
   // wall-time/cost changes are reviewed as explicit contract changes.

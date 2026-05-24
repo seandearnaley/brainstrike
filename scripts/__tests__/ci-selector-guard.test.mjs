@@ -58,6 +58,17 @@ test('verifySelectorSelection rejects e2e proof commands without their cloud lab
   );
 });
 
+test('verifySelectorSelection reports malformed command lists without throwing', () => {
+  assert.deepEqual(
+    verifySelectorSelection(
+      selection({
+        commands: undefined,
+      })
+    ),
+    ['selection.commands must be an array.']
+  );
+});
+
 test('verifySelectorSelection rejects docs-only cloud labels', () => {
   assert.deepEqual(
     verifySelectorSelection(
