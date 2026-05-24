@@ -795,6 +795,35 @@ export function validateWorkflowContracts(source) {
     'Manual workflow_dispatch must include a cheap release proof policy summary job.',
     failures
   );
+  const releaseProofPolicy = extractJob(source, 'release-proof-dispatch-policy');
+  if (!releaseProofPolicy) {
+    failures.push('Missing release-proof-dispatch-policy job.');
+  } else {
+    requireIncludes(
+      releaseProofPolicy,
+      'RELEASE_PROOF_MODE: ${{ inputs.release_proof }}',
+      'Manual release proof policy must pass release_proof through env, not direct shell interpolation.',
+      failures
+    );
+    requireIncludes(
+      releaseProofPolicy,
+      'RELEASE_PROOF_REASON: ${{ inputs.reason }}',
+      'Manual release proof policy must pass reason through env, not direct shell interpolation.',
+      failures
+    );
+    requireNotIncludes(
+      releaseProofPolicy,
+      'Selected mode: `${{ inputs.release_proof }}`',
+      'Manual release proof policy must not interpolate release_proof directly into the run script.',
+      failures
+    );
+    requireNotIncludes(
+      releaseProofPolicy,
+      'Reason: `${{ inputs.reason }}`',
+      'Manual release proof policy must not interpolate free-text reason directly into the run script.',
+      failures
+    );
+  }
   requireEveryTurboCommandHas(
     source,
     '--cache-dir=.turbo',

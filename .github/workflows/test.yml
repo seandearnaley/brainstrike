@@ -52,18 +52,23 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Explain selected manual proof mode
+        env:
+          RELEASE_PROOF_MODE: ${{ inputs.release_proof }}
+          RELEASE_PROOF_REASON: ${{ inputs.reason }}
         run: |
           cat <<'EOF' >> "$GITHUB_STEP_SUMMARY"
           ## Manual release proof policy
 
-          Selected mode: `${{ inputs.release_proof }}`
+          EOF
+          printf 'Selected mode: `%s`\n\n' "$RELEASE_PROOF_MODE" >> "$GITHUB_STEP_SUMMARY"
 
+          cat <<'EOF' >> "$GITHUB_STEP_SUMMARY"
           - `skip`: do not run the expensive matrix.
           - `full-release`: run the scheduled release matrix now.
           - `desktop-backgrounding`: run only the manual desktop backgrounding diagnostic.
 
-          Reason: `${{ inputs.reason }}`
           EOF
+          printf '\nReason: `%s`\n' "$RELEASE_PROOF_REASON" >> "$GITHUB_STEP_SUMMARY"
 
   pr-sentinel:
     name: PR Sentinel

@@ -555,6 +555,26 @@ test('workflow contract requires explicit manual release proof inputs', () => {
   assert.match(failures, /Manual workflow_dispatch must include a cheap release proof policy summary job/);
 });
 
+test('workflow contract fails when manual release proof inputs are interpolated into shell', () => {
+  const policy = extractJob(workflowSource, 'release-proof-dispatch-policy');
+  assert.ok(policy);
+
+  const source = workflowSource.replace(
+    policy,
+    policy
+      .replace('RELEASE_PROOF_MODE: ${{ inputs.release_proof }}\n', '')
+      .replace('RELEASE_PROOF_REASON: ${{ inputs.reason }}\n', '')
+      .replace("printf 'Selected mode: `%s`\\n\\n' \"$RELEASE_PROOF_MODE\"", 'echo \'Selected mode: `${{ inputs.release_proof }}`\'')
+      .replace("printf '\\nReason: `%s`\\n' \"$RELEASE_PROOF_REASON\"", 'echo \'Reason: `${{ inputs.reason }}`\'')
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /Manual release proof policy must pass release_proof through env/);
+  assert.match(failures, /Manual release proof policy must pass reason through env/);
+  assert.match(failures, /Manual release proof policy must not interpolate release_proof directly into the run script/);
+  assert.match(failures, /Manual release proof policy must not interpolate free-text reason directly into the run script/);
+});
+
 test('workflow contract fails when release matrix runs on unconfirmed manual dispatch', () => {
   const e2e = extractJob(workflowSource, 'e2e');
   assert.ok(e2e);
