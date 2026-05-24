@@ -229,6 +229,16 @@ test('verifyLabels requires every selected risk label', () => {
   ]);
 });
 
+test('verifyLabels rejects extra risk labels that would over-select CI', () => {
+  assert.deepEqual(verifyLabels(['ci:unit'], ['ci:unit', 'ci:web-e2e']), [
+    'unexpected PR label ci:web-e2e; selected labels are ci:unit',
+  ]);
+});
+
+test('verifyLabels ignores non-risk PR labels', () => {
+  assert.deepEqual(verifyLabels(['ci:unit'], ['ci:unit', 'bug', 'ready']), []);
+});
+
 test('verifyProofTipDiff only allows the proof manifest after tested head', () => {
   assert.deepEqual(verifyProofTipDiff(['.ci/proof/latest.json']), []);
   assert.deepEqual(

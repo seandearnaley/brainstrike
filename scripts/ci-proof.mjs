@@ -243,11 +243,23 @@ export function validateProofManifest(manifest) {
 }
 
 export function verifyLabels(requiredLabels, actualLabels) {
-  // Extra PR labels are allowed; every selected risk label must be present.
+  // Only non-ci labels are allowed to be extra. Extra ci:* labels over-select
+  // cloud lanes and can turn a small change into an expensive proof path.
   const actual = new Set(actualLabels);
-  return requiredLabels
+  const required = new Set(requiredLabels);
+  const failures = requiredLabels
     .filter((label) => !actual.has(label))
     .map((label) => `missing required PR label ${label}`);
+  for (const label of actualLabels) {
+    if (label.startsWith('ci:') && !required.has(label)) {
+      failures.push(
+        `unexpected PR label ${label}; selected labels are ${
+          requiredLabels.length > 0 ? requiredLabels.join(',') : '<none>'
+        }`
+      );
+    }
+  }
+  return failures;
 }
 
 function proofPathCandidates(proofPath) {
