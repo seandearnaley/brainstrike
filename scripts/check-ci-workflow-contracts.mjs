@@ -1734,14 +1734,6 @@ export function validateWorkflowContracts(source) {
     for (const jobName of [
       'pr-sentinel',
       'checks',
-      'unit_affected',
-      'unit_coverage',
-      'browser-tests',
-      'prepare-web',
-      'prepare-desktop',
-      'e2e',
-      'e2e-stateful',
-      'e2e-destructive',
       'merge-reports',
       ...new Set([...JOBS_BY_LANE.values()].flat()),
     ]) {

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { pathToFileURL } from 'node:url';
+
 export const ALWAYS_REQUIRED_JOBS = ['pr-sentinel', 'checks'];
 
 export const JOBS_BY_LANE = new Map([
@@ -103,7 +105,7 @@ export function runRequiredPrGate(env = process.env) {
   return 0;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     process.exitCode = runRequiredPrGate();
   } catch (error) {
