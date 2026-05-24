@@ -61,8 +61,16 @@ test('embedding runtime changes select embedding diagnostics explicitly', () => 
       e2eLanes: ['desktop-embedding-diagnostics'],
       proofCommands: ['diff-check', 'indexing-tests', 'embedding-tests'],
       riskLevel: 'high',
-      cloudLabels: ['ci:desktop', 'ci:embedding', 'ci:unit'],
+      cloudLabels: ['ci:embedding', 'ci:unit'],
     }
+  );
+  assert.deepEqual(
+    selectRiskLanesForFiles(['packages/embeddings/src/worker/embedding-worker.ts']),
+    ['ci:embedding', 'ci:unit']
+  );
+  assert.deepEqual(
+    selectProofCommandsForFiles(['packages/embeddings/src/worker/embedding-worker.ts']),
+    ['diff-check', 'indexing-tests', 'embedding-tests']
   );
 });
 
@@ -248,6 +256,11 @@ test('web destructive reset changes select destructive reset only', () => {
     riskLevel: 'high',
     cloudLabels: ['ci:web-destructive-reset', 'ci:unit', 'ci:coverage-db'],
   });
+  assert.deepEqual(selectRiskLanesForFiles(['apps/web/e2e/factory-reset-recovery.test.ts']), [
+    'ci:web-destructive-reset',
+    'ci:unit',
+    'ci:coverage-db',
+  ]);
 });
 
 test('broad web app shell changes still select full web regression', () => {
@@ -259,6 +272,67 @@ test('broad web app shell changes still select full web regression', () => {
     riskLevel: 'high',
     cloudLabels: ['ci:web-e2e', 'ci:unit'],
   });
+});
+
+test('generic shared UI changes select browser and unit without full web e2e', () => {
+  assert.deepEqual(selectRiskProfileForFiles(['packages/ui/src/prompt-management/components/prompt-card.tsx']), {
+    category: 'shared-foundation',
+    domains: ['shared-foundation'],
+    e2eLanes: ['critical-smoke'],
+    proofCommands: ['diff-check', 'ui-tests'],
+    riskLevel: 'medium',
+    cloudLabels: ['ci:browser', 'ci:unit'],
+  });
+  assert.deepEqual(
+    selectRiskLanesForFiles(['packages/ui/src/prompt-management/components/prompt-card.tsx']),
+    ['ci:browser', 'ci:unit']
+  );
+  assert.deepEqual(
+    selectProofCommandsForFiles(['packages/ui/src/prompt-management/components/prompt-card.tsx']),
+    ['diff-check', 'ui-tests']
+  );
+});
+
+test('mixed palette tooltip and destructive reset PR does not hide full web regression in narrow proof', () => {
+  const files = [
+    '.jules/palette.md',
+    'apps/web/e2e/factory-reset-recovery.test.ts',
+    'packages/preferences/src/components/global-download-indicator.tsx',
+    'packages/preferences/src/settings/models/__tests__/model-registry-settings-section.test.tsx',
+    'packages/preferences/src/settings/models/model-registry-settings-section.tsx',
+    'packages/ui/src/collection-picker/__tests__/collection-picker.test.tsx',
+    'packages/ui/src/prompt-management/components/__tests__/prompt-card.test.tsx',
+    'packages/ui/src/prompt-management/components/prompt-card.tsx',
+    'packages/ui/src/prompt-management/components/prompt-list.tsx',
+  ];
+
+  assert.deepEqual(selectRiskLanesForFiles(files), [
+    'ci:web-destructive-reset',
+    'ci:unit',
+    'ci:coverage-db',
+  ]);
+  assert.deepEqual(selectProofCommandsForFiles(files), [
+    'diff-check',
+    'web-destructive-reset-tests',
+    'ui-tests',
+  ]);
+});
+
+test('mixed broad web bootstrap and narrow reset still escalates to full web regression', () => {
+  assert.deepEqual(
+    selectRiskLanesForFiles([
+      'apps/web/e2e/factory-reset-recovery.test.ts',
+      'apps/web/src/App.tsx',
+    ]),
+    ['ci:web-destructive-reset', 'ci:web-e2e', 'ci:unit', 'ci:coverage-db']
+  );
+  assert.deepEqual(
+    selectProofCommandsForFiles([
+      'apps/web/e2e/factory-reset-recovery.test.ts',
+      'apps/web/src/App.tsx',
+    ]),
+    ['diff-check', 'web-destructive-reset-tests', 'web-full-regression-tests']
+  );
 });
 
 test('desktop preload changes select desktop smoke and regression without embedding diagnostics', () => {

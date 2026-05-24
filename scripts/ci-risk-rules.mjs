@@ -218,6 +218,8 @@ const WEB_UI_PATTERNS = [
   /^packages\/db-explorer\//,
 ];
 
+const SHARED_UI_PATTERNS = [/^packages\/ui\/(?!src\/assistant-ui-panel\/)/];
+
 const WEB_SMOKE_PATTERNS = [
   /^apps\/web\/e2e\/(?:complete-workflow|file-explorer|file-preview|json-parse-diagnostic|layout|quick-filter|refresh|theme-switching)\.test\.ts$/,
 ];
@@ -289,7 +291,6 @@ const WEB_FULL_REGRESSION_PATTERNS = [
   /^apps\/web\/playwright\.config\.ts$/,
   /^apps\/web\/e2e\/(?:layout-persistence|navigation-panel-state-preservation|panel-state-preservation|theme-css-consistency)\.test\.ts$/,
   /^packages\/app-shell\/(?!src\/assistant)/,
-  /^packages\/ui\/(?!src\/assistant-ui-panel\/)/,
 ];
 
 const WEB_RISK_PATTERNS = [
@@ -306,6 +307,7 @@ const WEB_RISK_PATTERNS = [
 
 const SHARED_FOUNDATION_PATTERNS = [
   /^packages\/types\//,
+  ...SHARED_UI_PATTERNS,
   /^packages\/utils\//,
   /^packages\/worker-runtime\//,
   /^packages\/platform-utils\//,
@@ -503,6 +505,34 @@ function dbPackageCommands(normalizedFiles) {
   return ['diff-check', ...laneCommands];
 }
 
+function sharedFoundationCommands(normalizedFiles) {
+  const commands = ['diff-check'];
+
+  if (hasAny(normalizedFiles, SHARED_UI_PATTERNS)) {
+    commands.push('ui-tests');
+  }
+
+  if (
+    hasAny(normalizedFiles, [
+      /^packages\/types\//,
+      /^packages\/utils\//,
+      /^packages\/worker-runtime\//,
+      /^packages\/platform-utils\//,
+      /^packages\/config\//,
+      /^packages\/server-config\//,
+      /^packages\/test-utils\//,
+    ])
+  ) {
+    commands.push('shared-foundation-tests');
+  }
+
+  if (commands.length === 1) {
+    commands.push('shared-foundation-tests');
+  }
+
+  return commands;
+}
+
 function profile({
   category,
   domains,
@@ -669,7 +699,7 @@ export function selectRiskProfileForFiles(files) {
         : ['diff-check', 'indexing-tests'],
       riskLevel: hasAny(normalizedFiles, EMBEDDING_PATTERNS) ? 'high' : 'medium',
       cloudLabels: hasAny(normalizedFiles, EMBEDDING_PATTERNS)
-        ? ['ci:desktop', 'ci:embedding', 'ci:unit']
+        ? ['ci:embedding', 'ci:unit']
         : ['ci:unit'],
     });
   }
@@ -793,7 +823,7 @@ export function selectRiskProfileForFiles(files) {
       category: 'shared-foundation',
       domains: ['shared-foundation'],
       e2eLanes: ['critical-smoke'],
-      proofCommands: ['diff-check', 'shared-foundation-tests'],
+      proofCommands: sharedFoundationCommands(normalizedFiles),
       riskLevel: 'medium',
       cloudLabels: ['ci:browser', 'ci:unit'],
     });
@@ -851,6 +881,7 @@ export function selectRiskLanesForFiles(files) {
 
 export function selectProofCommandsForFiles(files) {
   const profileForFiles = selectRiskProfileForFiles(files);
+  const normalizedFiles = [...files].map((filePath) => normalizePath(filePath));
 
   if (profileForFiles.cloudLabels.includes('ci:full')) {
     return [...profileForFiles.proofCommands];
@@ -859,6 +890,14 @@ export function selectProofCommandsForFiles(files) {
   const commands = new Set(profileForFiles.proofCommands);
   for (const lane of selectRiskLanesForFiles(files)) {
     for (const commandName of LOCAL_PROOF_COMMANDS_BY_LANE.get(lane) ?? []) {
+      commands.add(commandName);
+    }
+  }
+  if (
+    profileForFiles.category !== 'isolated-unit-test-only' &&
+    hasAny(normalizedFiles, SHARED_FOUNDATION_PATTERNS)
+  ) {
+    for (const commandName of sharedFoundationCommands(normalizedFiles)) {
       commands.add(commandName);
     }
   }
