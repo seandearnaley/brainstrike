@@ -35,6 +35,8 @@ function useTooltipDropdownCoordination() {
       setIsTooltipOpen(false);
       // Keep pointer-close and pointer-over Escape close quiet until the pointer leaves.
       setIsTooltipSuppressed(true);
+    } else if (!isPointerOverTrigger) {
+      setIsTooltipSuppressed(false);
     }
   };
 

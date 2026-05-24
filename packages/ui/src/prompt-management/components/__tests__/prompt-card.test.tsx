@@ -169,6 +169,39 @@ describe('PromptCard', () => {
     expect(await screen.findByRole('tooltip')).toHaveTextContent('More options');
   });
 
+  it('restores the more options hover hint after keyboard menu click-away close', async () => {
+    const user = userEvent.setup();
+
+    renderPromptCard(
+      <>
+        <button type="button">Outside target</button>
+        <PromptCard
+          category={category}
+          onCopy={() => {}}
+          onDelete={() => {}}
+          onEdit={() => {}}
+          onToggleFavorite={() => {}}
+          prompt={prompt}
+        />
+      </>
+    );
+
+    const outsideTarget = screen.getByRole('button', { name: 'Outside target' });
+    const moreOptions = screen.getByRole('button', { name: 'More options' });
+    moreOptions.focus();
+
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    fireEvent.pointerDown(outsideTarget);
+    outsideTarget.focus();
+    fireEvent.click(outsideTarget);
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+
+    await user.hover(moreOptions);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('More options');
+  });
+
   it('keeps the more options hover hint suppressed after pointer-over keyboard menu close', async () => {
     const user = userEvent.setup();
 
