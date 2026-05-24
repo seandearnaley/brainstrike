@@ -156,4 +156,23 @@ describe('ModelRegistrySettingsSection', () => {
     // However, we can check that no error toast was shown.
     expect(mockToast).not.toHaveBeenCalled();
   });
+
+  it('labels active model download progress with the model name', async () => {
+    setupStore();
+    useModelRegistryStore.setState({
+      downloadProgress: {
+        'test-model': 42,
+      },
+      isDownloading: {
+        'test-model': true,
+      },
+    });
+
+    render(<ModelRegistrySettingsSection />);
+
+    const expandBtn = screen.getByRole('button', { name: /Expand Local Provider/i });
+    await userEvent.click(expandBtn);
+
+    expect(screen.getByLabelText('Test Model download progress').getAttribute('value')).toBe('42');
+  });
 });

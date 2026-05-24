@@ -215,7 +215,7 @@ export function ModelRegistrySettingsSection() {
                                   <span>{downloadProgress[model.id] || 0}%</span>
                                 </div>
                                 <Progress
-                                  aria-label="Model download progress"
+                                  aria-label={`${model.name ?? model.id} download progress`}
                                   className="h-1"
                                   value={downloadProgress[model.id] || 0}
                                 />
