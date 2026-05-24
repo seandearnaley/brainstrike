@@ -542,8 +542,10 @@ test('workflow contract keeps full release matrix available outside pull request
 test('workflow contract fails when release matrix runs on every main push', () => {
   const e2e = extractJob(workflowSource, 'e2e');
   const unitCoverage = extractJob(workflowSource, 'unit_coverage');
+  const mergeReports = extractJob(workflowSource, 'merge-reports');
   assert.ok(e2e);
   assert.ok(unitCoverage);
+  assert.ok(mergeReports);
 
   const source = workflowSource
     .replace(
@@ -559,11 +561,19 @@ test('workflow contract fails when release matrix runs on every main push', () =
         "github.event_name == 'schedule' ||",
         "github.event_name == 'push' ||\n      github.event_name == 'schedule' ||"
       )
+    )
+    .replace(
+      mergeReports,
+      mergeReports.replace(
+        "github.event_name == 'schedule' ||",
+        "github.event_name == 'push' ||\n        github.event_name == 'schedule' ||"
+      )
     );
 
   const failures = validateWorkflowContracts(source).join('\n');
   assert.match(failures, /Functional E2E must not run the release matrix on plain main pushes/);
   assert.match(failures, /Checks \(coverage-db\/full\) must not run the release matrix on plain main pushes/);
+  assert.match(failures, /Merge Test Reports must not run the release matrix on plain main pushes/);
 });
 
 test('workflow contract fails when main smoke jobs do not run on push', () => {
@@ -613,12 +623,16 @@ test('workflow contract fails when main gate requires release-only jobs', () => 
 
   const source = workflowSource.replace(
     mainGate,
-    mainGate.replace('\n      - web-e2e-smoke-pr\n', '\n      - web-e2e-smoke-pr\n      - unit_coverage\n      - e2e\n')
+    mainGate.replace(
+      '\n      - web-e2e-smoke-pr\n',
+      '\n      - web-e2e-smoke-pr\n      - unit_coverage\n      - e2e\n      - merge-reports\n'
+    )
   );
 
   const failures = validateWorkflowContracts(source).join('\n');
   assert.match(failures, /Required Main Gate must not depend on release-only job unit_coverage/);
   assert.match(failures, /Required Main Gate must not depend on release-only job e2e/);
+  assert.match(failures, /Required Main Gate must not depend on release-only job merge-reports/);
 });
 
 test('workflow contract requires a full scheduled/manual release gate', () => {

@@ -913,7 +913,7 @@ export function validateWorkflowContracts(source) {
   if (!mergeReports) {
     failures.push('Missing merge-reports job.');
   } else {
-    requireMainPushAndRiskLabelGate(
+    requireRiskLabelGate(
       mergeReports,
       'Merge Test Reports',
       [
@@ -934,6 +934,7 @@ export function validateWorkflowContracts(source) {
       ],
       failures
     );
+    requireNoMainPushEvent(mergeReports, 'Merge Test Reports', failures);
     requireIncludes(
       mergeReports,
       'find all-blob-reports -type f -name "*.tar" -print0',
@@ -1717,7 +1718,6 @@ export function validateWorkflowContracts(source) {
       'prepare-desktop',
       'web-e2e-smoke-pr',
       'desktop-e2e-smoke-pr',
-      'merge-reports',
     ]) {
       requireYamlListItem(
         requiredMainGate,
@@ -1734,6 +1734,7 @@ export function validateWorkflowContracts(source) {
       'e2e-destructive',
       'desktop-e2e-main',
       'desktop-e2e-embedding-main',
+      'merge-reports',
     ]) {
       requireNotIncludes(
         requiredMainGate,

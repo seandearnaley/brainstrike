@@ -2023,14 +2023,13 @@ jobs:
           if-no-files-found: warn
 
   # Merge E2E test reports
-  # Note: exactly one of the PR/main desktop job sets is always skipped.
+  # Note: exactly one of the PR/release desktop job sets is always skipped.
   # The OR condition handles this correctly.
   merge-reports:
     name: Merge Test Reports
     if: >-
       always() &&
       (
-        github.event_name == 'push' ||
         github.event_name == 'schedule' ||
         github.event_name == 'workflow_dispatch' ||
         contains(join(github.event.pull_request.labels.*.name, ','), 'ci:full') ||
@@ -2240,7 +2239,6 @@ jobs:
       - prepare-desktop
       - web-e2e-smoke-pr
       - desktop-e2e-smoke-pr
-      - merge-reports
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
