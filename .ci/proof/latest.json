@@ -1,20 +1,21 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-24T23:12:18.896Z",
+  "generatedAt": "2026-05-24T23:18:25.745Z",
   "repository": "seandearnaley/brainstrike",
   "packageManager": "pnpm@10.33.0",
   "pnpmVersion": "10.33.0",
   "nodeVersion": "v22.19.0",
   "baseRef": "origin/main",
   "headRef": "HEAD",
-  "testedHeadSha": "cd181c383c332f18805e0e53c6db8bba29081b98",
+  "testedHeadSha": "e2296990f0af6a68f333cacc3d8c04333463ba68",
   "selection": {
     "base": "origin/main",
     "baseSha": "590cd43adfe3e687b20061b300f00b2254aab741",
     "head": "HEAD",
-    "headSha": "cd181c383c332f18805e0e53c6db8bba29081b98",
+    "headSha": "e2296990f0af6a68f333cacc3d8c04333463ba68",
     "mergeBase": "590cd43adfe3e687b20061b300f00b2254aab741",
     "files": [
+      ".ci/proof/latest.json",
       ".github/workflows/test.yml",
       "scripts/__tests__/check-ci-workflow-contracts.test.mjs",
       "scripts/__tests__/ci-required-pr-gate.test.mjs",
@@ -97,7 +98,7 @@
       "budgetMs": 30000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 11
+      "durationMs": 12
     },
     {
       "name": "ci-script-tests",
@@ -106,7 +107,7 @@
       "budgetMs": 120000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 455
+      "durationMs": 474
     },
     {
       "name": "workflow-contracts",
@@ -115,7 +116,7 @@
       "budgetMs": 180000,
       "budgetStatus": "ok",
       "exitCode": 0,
-      "durationMs": 445
+      "durationMs": 452
     }
   ]
 }
