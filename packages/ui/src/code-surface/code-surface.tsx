@@ -40,6 +40,9 @@ interface CodeSurfaceCallbacks {
   readonly onSelectionChange: ((selection: CodeSurfaceSelection) => void) | undefined;
 }
 
+const MONO_FONT_FAMILY =
+  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace';
+
 const BASE_EXTENSIONS: Extension[] = [
   highlightSpecialChars(),
   lineNumbers(),
@@ -57,8 +60,7 @@ const BASE_EXTENSIONS: Extension[] = [
     },
     '.cm-content': {
       caretColor: 'hsl(var(--foreground))',
-      fontFamily:
-        'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+      fontFamily: MONO_FONT_FAMILY,
       fontSize: '0.8125rem',
       lineHeight: '1.55',
       minHeight: '100%',
@@ -86,8 +88,7 @@ const BASE_EXTENSIONS: Extension[] = [
       padding: '0 0.75rem 0 0.5rem',
     },
     '.cm-scroller': {
-      fontFamily:
-        'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+      fontFamily: MONO_FONT_FAMILY,
       overflow: 'auto',
     },
     '.cm-selectionBackground': {
@@ -129,11 +130,13 @@ export function CodeSurface({
     [language, path]
   );
 
-  callbacksRef.current = {
-    onChange,
-    onScrollTopChange,
-    onSelectionChange,
-  };
+  useEffect(() => {
+    callbacksRef.current = {
+      onChange,
+      onScrollTopChange,
+      onSelectionChange,
+    };
+  }, [onChange, onScrollTopChange, onSelectionChange]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -253,14 +256,19 @@ export function CodeSurface({
       return;
     }
 
-    void resolvedLanguage.description.load().then((support) => {
-      if (cancelled || viewRef.current !== view) {
-        return;
-      }
-      view.dispatch({
-        effects: languageCompartmentRef.current.reconfigure(support),
+    void resolvedLanguage.description
+      .load()
+      .then((support) => {
+        if (cancelled || viewRef.current !== view) {
+          return;
+        }
+        view.dispatch({
+          effects: languageCompartmentRef.current.reconfigure(support),
+        });
+      })
+      .catch(() => {
+        // CodeMirror language packages are optional at runtime; keep plaintext fallback.
       });
-    });
 
     return () => {
       cancelled = true;
