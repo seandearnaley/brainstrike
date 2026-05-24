@@ -137,6 +137,18 @@ function renderUngroupedPreviewTable(overrides: Partial<PreviewTableTestOverride
 }
 
 describe('PreviewTable grouped mode', () => {
+  it('does not carry dead Tailwind width classes on grouped cells/headers (BST-549)', () => {
+    // After PR #1034 the TreeTable `<colgroup>` + `table-fixed` layout owns
+    // column widths. Per-cell `w-24` / `w-44` classes are inert and
+    // misleading. This test fails until the dead classes are removed from
+    // the grouped column builders in preview-table.tsx.
+    renderGroupedPreviewTable();
+
+    const grid = screen.getByRole('treegrid', { name: 'Context explorer table' });
+    const cellsWithDeadWidth = grid.querySelectorAll('[class*="w-24"], [class*="w-44"]');
+    expect(cellsWithDeadWidth).toHaveLength(0);
+  });
+
   it('renders grouped rows with tree hierarchy semantics', () => {
     renderGroupedPreviewTable();
 
