@@ -361,6 +361,55 @@ describe('WorkspaceTabHost', () => {
     });
   });
 
+  it('renders active file content through the shared CodeSurface viewer', async () => {
+    useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/index.ts');
+
+    const tabModule = await import('../hooks/use-tab-manager');
+    vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      tabs: [
+        {
+          id: 'folderA|@|src/index.ts',
+          path: 'src/index.ts',
+          compositeKey: 'folderA|@|src/index.ts',
+          content: null,
+          isLoading: false,
+        },
+      ],
+      activeTabId: 'folderA|@|src/index.ts',
+      openTab: vi.fn(),
+      closeTab: vi.fn(),
+      setActiveTab: vi.fn(),
+      updateTabContent: vi.fn(),
+      setTabLoading: vi.fn(),
+      setTabError: vi.fn(),
+      clearTabs: vi.fn(),
+    });
+
+    const fileExplorerModule = await import('../shell/use-file-explorer-context');
+    vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
+      fileTree: [],
+      fileContents: { 'folderA|@|src/index.ts': 'export const file = "content";' },
+      loadingFiles: new Set<string>(),
+      loadFileContent: vi.fn(),
+      loadMultipleFileContents: vi.fn(),
+      rootDirectoryHandle: null,
+      canLoadWithoutTree: false,
+    } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
+
+    render(
+      <FileExplorerTestWrapper>
+        <WorkspaceTabHost />
+      </FileExplorerTestWrapper>
+    );
+
+    const surface = await screen.findByTestId('file-code-surface');
+    expect(surface).toHaveAttribute('data-language', 'TypeScript');
+    expect(surface).toHaveAttribute('data-editable', 'false');
+    expect(surface).toHaveTextContent('export const file = "content";');
+    expect(surface.querySelector('.cm-lineNumbers')).toBeInTheDocument();
+    expect(screen.queryByText('export const file = "content";', { selector: 'pre' })).toBeNull();
+  });
+
   it('shows "Restoring..." for a persisted tab while restoration is pending — not "File not found"', async () => {
     const tabModule = await import('../hooks/use-tab-manager');
     vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
