@@ -295,8 +295,7 @@ function requireRiskLabelGate(job, jobName, labels, failures) {
 
 function requireMainPushAndRiskLabelGate(job, jobName, labels, failures) {
   requireMainPushEvent(job, jobName, failures);
-  requireReleaseMatrixEvents(job, jobName, failures);
-  requireRiskLabelIncludes(job, jobName, labels, failures);
+  requireRiskLabelGate(job, jobName, labels, failures);
 }
 
 function requirePrRiskLabelGate(job, jobName, labels, failures) {
