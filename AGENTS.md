@@ -122,7 +122,7 @@ after the proof commit invalidates the proof unless the only changed file is
 
 ---
 
-## 5. EMBEDDING ARCHITECTURE (CRITICAL)
+## EMBEDDING ARCHITECTURE (CRITICAL)
 
 Renderer-only execution is mandatory.
 
@@ -180,11 +180,11 @@ Do not move or reintroduce workers in Electron main. Desktop local embeddings mu
   - Managed via Settings.
   - Desktop: encrypted keychain.
 - Config:
-  - packages/agent/src/providers/models.ts
+  - packages/agent/src/providers/registry.ts
   - packages/agent/src/providers/key-resolver.ts
   - packages/agent/src/providers/provider-factory.ts
 - State:
-  - packages/app-shell/src/stores/assistant-preferences-store.ts
+  - packages/preferences/src/stores/assistant-preferences-store.ts
   - Persists via localStorage.
 
 Assistant status endpoint resolution (in order):
@@ -257,7 +257,7 @@ Constraints:
 
 ---
 
-## 6. TREEGRID CONVERGENCE CONTRACT
+## TREEGRID CONVERGENCE CONTRACT
 
 File-tree and context preview tree behavior is converging on shared TreeTable primitives.
 
@@ -367,7 +367,7 @@ Testing:
 
 ---
 
-## 10. FACTORY RESET CONTRACT
+## FACTORY RESET CONTRACT
 
 “Factory Reset Brainstrike” = true fresh start.
 
@@ -377,7 +377,7 @@ Rules:
 
 Implementation:
 - Update:
-  - packages/preferences/src/factory-reset/factory-reset-helpers.ts
+  - packages/preferences/src/settings/system/factory-reset-helpers.ts
   - Ensure clearPersistentUiState() includes:
     - All new persistent UI store keys.
     - Electron renderer storage bridge.

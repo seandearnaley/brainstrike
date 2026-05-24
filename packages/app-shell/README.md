@@ -469,9 +469,9 @@ ISC © BrainStrike
 
 ## Support
 
-- 📖 [Documentation](https://brainstrike.dev/docs/app-shell)
-- 🐛 [Issue Tracker](https://github.com/brainstrike/brainstrike/issues)
-- 💬 [Discussions](https://github.com/brainstrike/brainstrike/discussions)
+- 🐛 [Issue Tracker](https://github.com/seandearnaley/brainstrike/issues)
+- 💬 [Discussions](https://github.com/seandearnaley/brainstrike/discussions)
+- 📖 Internal docs: see `apps/docs/docs/` (run `pnpm docs:dev` to browse locally).
 
 ---
 

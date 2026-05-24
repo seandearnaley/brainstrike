@@ -12,8 +12,8 @@
 
 ### Key Features
 
-- **🤖 Multi-Provider Support**: OpenAI, Anthropic, and custom providers via Mastra
-- **📚 Provider Registry**: Central metadata (`providers/types`) for display names, runtime capabilities, and embedding dimension support
+- **🤖 Multi-Provider Support**: OpenAI, Anthropic, Google, OpenRouter, plus a renderer-only local provider, all routed through Mastra
+- **📚 Provider Registry**: Central metadata (`@brainstrike/assistant-contract/provider-registry`, re-exported as `packages/agent/src/providers/registry.ts`) for display names, runtime capabilities, and embedding dimension support
 - **🔧 MCP Integration**: Native support for Model Context Protocol servers and tools
 - **📡 Streaming First**: Efficient real-time streaming with backpressure handling
 - **🛠️ Tool Orchestration**: Extensible tool system with progress tracking
@@ -518,9 +518,8 @@ MIT © BrainStrike Team
 
 ## Support
 
-- [Documentation](https://brainstrike.dev/docs/agent)
-- [GitHub Issues](https://github.com/brainstrike/brainstrike/issues)
-- [Discord Community](https://discord.gg/brainstrike)
+- [GitHub Issues](https://github.com/seandearnaley/brainstrike/issues)
+- Internal docs: see `apps/docs/docs/` (run `pnpm docs:dev` to browse locally).
 
 ## Related Packages
 

@@ -20,7 +20,8 @@ This directory contains the Vite-powered React application for BrainStrike, a su
 
 -   **File Exploration and Analysis**: Interactive file tree, content preview, and analysis tools.
 -   **Report Generation**: Create and export reports based on selected files and project structure.
--   **AI-Powered Insights**: (Future capability) Leverage AI models to provide insights on your codebase.
+-   **AI-Powered Insights**: Built-in assistant panel with multi-provider support (OpenAI, Anthropic, Google, OpenRouter) and an optional in-browser local model (WebGPU-only).
+-   **Vector Search**: Local PGlite + pgvector with embedding sets, model switching, and tunable HNSW/IVFFlat indexes.
 -   **Theming**: Light and dark mode support.
 -   **Responsive Design**: Adapts to various screen sizes.
 
@@ -79,16 +80,16 @@ The output files will be located in `apps/web/dist/`.
 
 ## Project Structure (`apps/web/src`)
 
-A brief overview of the main directories within `apps/web/src/`:
+A brief overview of the main entries within `apps/web/src/`:
 
--   **`app/`**: Core application setup, layouts, routing, and global styles.
--   **`components/`**: Web application-specific UI components. Reusable components are typically sourced from `packages/ui` or `packages/file-explorer-ui`.
--   **`hooks/`**: Custom React hooks specific to the web app. Reusable hooks are sourced from `packages/hooks` or `packages/file-explorer-hooks`.
--   **`lib/`**: Client-side libraries, API integrations, or major standalone features.
--   **`stores/`**: Global state management stores (e.g., Zustand).
--   **`utils/`**: Utility functions specific to the web app.
+-   **`app/`**: Page content, layouts, API route stubs, and global CSS. Most user-facing components live here (e.g., `root-layout-content.tsx`, `context-explorer-page-content.tsx`, `settings/`).
+-   **`server/`**: Server-side request handlers used by the dev/preview server.
+-   **`workers/`**: Web Worker entrypoints owned by the web app.
+-   **`types/`**: Web-specific TypeScript type definitions.
 -   **`main.tsx`**: The main entry point for the React application.
 -   **`vite-env.d.ts`**: TypeScript definitions for Vite environment variables.
+
+Reusable UI components, hooks, and stores are sourced from shared packages (`@brainstrike/ui`, `@brainstrike/hooks`, `@brainstrike/app-shell`, `@brainstrike/preferences`, etc.) rather than living under `apps/web/src/`.
 
 ## Environment Variables
 
