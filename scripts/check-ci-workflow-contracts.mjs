@@ -765,6 +765,21 @@ export function validateWorkflowContracts(source) {
     'Test workflow must keep scheduled full-matrix validation.',
     failures
   );
+  for (const eventType of [
+    'opened',
+    'synchronize',
+    'reopened',
+    'ready_for_review',
+    'labeled',
+    'unlabeled',
+  ]) {
+    requireIncludes(
+      source,
+      `      - ${eventType}`,
+      `Test workflow pull_request trigger must include ${eventType}.`,
+      failures
+    );
+  }
   requireIncludes(
     source,
     'release_proof:',
@@ -1736,77 +1751,20 @@ export function validateWorkflowContracts(source) {
     }
     requireIncludes(
       requiredPrGate,
-      "const alwaysRequiredJobs = ['pr-sentinel', 'checks'];",
-      'Required PR Gate must define always-required PR jobs.',
-      failures
-    );
-    requireIncludes(
-      requiredPrGate,
-      "if (needs[jobName]?.result !== 'success')",
-      'Required PR Gate must require PR Sentinel success.',
-      failures
-    );
-    requireIncludes(
-      requiredPrGate,
-      "'checks'",
-      'Required PR Gate must require static checks success.',
-      failures
-    );
-    requireIncludes(
-      requiredPrGate,
       'REQUIRED_LABELS: ${{ needs.pr-sentinel.outputs.required-labels }}',
       'Required PR Gate must read selected labels from PR Sentinel outputs.',
       failures
     );
     requireIncludes(
       requiredPrGate,
-      "jobByLabel.get(label)",
-      'Required PR Gate must map selected risk labels to matching cloud jobs.',
-      failures
-    );
-    for (const [label, jobs] of [
-      ['ci:unit', ['unit_affected']],
-      ['ci:coverage-db', ['unit_coverage']],
-      ['ci:coverage-full', ['unit_coverage']],
-      ['ci:browser', ['browser-tests']],
-      ['ci:web-smoke', ['prepare-web', 'web-e2e-smoke-pr']],
-      ['ci:web-file-explorer-persistence', ['prepare-web', 'web-e2e-file-explorer-persistence-pr']],
-      ['ci:web-import-indexing', ['prepare-web', 'web-e2e-import-indexing-pr']],
-      ['ci:web-assistant-state', ['prepare-web', 'web-e2e-assistant-state-pr']],
-      ['ci:web-settings-state', ['prepare-web', 'web-e2e-settings-state-pr']],
-      ['ci:web-db-startup', ['prepare-web', 'web-e2e-db-startup-pr']],
-      ['ci:web-destructive-reset', ['prepare-web', 'web-e2e-destructive-reset-pr']],
-      ['ci:web-e2e', ['prepare-web', 'e2e', 'e2e-stateful', 'e2e-destructive']],
-      ['ci:desktop-smoke', ['prepare-desktop', 'desktop-e2e-smoke-pr']],
-      ['ci:desktop-ipc-reset', ['prepare-desktop', 'desktop-e2e-ipc-reset-pr']],
-      ['ci:desktop-runtime-hosts', ['prepare-desktop', 'desktop-e2e-runtime-hosts-pr']],
-      ['ci:desktop-db-storage', ['prepare-desktop', 'desktop-e2e-db-storage-pr']],
-      ['ci:desktop', ['prepare-desktop', 'desktop-e2e-pr']],
-      ['ci:embedding', ['prepare-desktop', 'desktop-e2e-embedding-pr']],
-    ]) {
-      requireIncludes(
-        requiredPrGate,
-        `['${label}', [${jobs.map((job) => `'${job}'`).join(', ')}]]`,
-        `Required PR Gate must map ${label} to ${jobs.join(', ')}.`,
-        failures
-      );
-    }
-    requireIncludes(
-      requiredPrGate,
-      "if (needs[jobName]?.result !== 'success') {\n                failures.push(`${label} requires ${jobName}, got ${needs[jobName]?.result ?? 'missing'}`);",
-      'Required PR Gate must fail when a selected risk lane is skipped, failed, or cancelled.',
+      'REQUIRED_EXPANDED_LANES: ${{ needs.pr-sentinel.outputs.expanded-lanes }}',
+      'Required PR Gate must read expanded lanes from PR Sentinel outputs.',
       failures
     );
     requireIncludes(
       requiredPrGate,
-      "job.result === 'failure' || job.result === 'cancelled' || job.result === 'timed_out'",
-      'Required PR Gate must fail failed, cancelled, and timed out optional jobs.',
-      failures
-    );
-    requireNotIncludes(
-      requiredPrGate,
-      "job.result !== 'success'",
-      'Required PR Gate must not require unselected skipped jobs to succeed.',
+      'node scripts/ci-required-pr-gate.mjs',
+      'Required PR Gate must use the tested gate script.',
       failures
     );
   }

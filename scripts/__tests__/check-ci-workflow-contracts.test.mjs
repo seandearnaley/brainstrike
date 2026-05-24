@@ -527,6 +527,35 @@ test('workflow contract requires selected risk labels to gate matching cloud job
   );
 });
 
+test('workflow contract reruns pull request checks when CI labels change', () => {
+  const source = workflowSource
+    .replace('      - labeled\n', '')
+    .replace('      - unlabeled\n', '');
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /pull_request trigger must include labeled/);
+  assert.match(failures, /pull_request trigger must include unlabeled/);
+});
+
+test('workflow contract requires Required PR Gate to use expanded lanes', () => {
+  const requiredPrGate = extractJob(workflowSource, 'required-pr-gate');
+  assert.ok(requiredPrGate);
+
+  const source = workflowSource.replace(
+    requiredPrGate,
+    requiredPrGate
+      .replace(
+        '          REQUIRED_EXPANDED_LANES: ${{ needs.pr-sentinel.outputs.expanded-lanes }}\n',
+        ''
+      )
+      .replace('        run: node scripts/ci-required-pr-gate.mjs', "        run: echo 'Required PR gate passed.'")
+  );
+
+  const failures = validateWorkflowContracts(source).join('\n');
+  assert.match(failures, /must read expanded lanes/);
+  assert.match(failures, /must use the tested gate script/);
+});
+
 test('workflow contract keeps full release matrix available outside pull requests', () => {
   const e2e = extractJob(workflowSource, 'e2e');
   assert.ok(e2e);
@@ -752,78 +781,6 @@ test('workflow contract fails when optional code quality runs on every main push
   );
 });
 
-test('workflow contract fails when the PR gate accepts skipped selected lanes', () => {
-  const prGate = extractJob(workflowSource, 'required-pr-gate');
-  assert.ok(prGate);
-
-  const source = workflowSource.replace(
-    prGate,
-    prGate.replace(
-      "              if (needs[jobName]?.result !== 'success') {",
-      "              if (needs[jobName]?.result === 'failure') {"
-    )
-  );
-
-  assert.match(
-    validateWorkflowContracts(source).join('\n'),
-    /Required PR Gate must fail when a selected risk lane is skipped, failed, or cancelled/
-  );
-});
-
-test('workflow contract fails when the PR gate allows skipped static checks', () => {
-  const prGate = extractJob(workflowSource, 'required-pr-gate');
-  assert.ok(prGate);
-
-  const source = workflowSource.replace(
-    prGate,
-    prGate.replace(
-      "const alwaysRequiredJobs = ['pr-sentinel', 'checks'];",
-      "const alwaysRequiredJobs = ['pr-sentinel'];"
-    )
-  );
-
-  assert.match(
-    validateWorkflowContracts(source).join('\n'),
-    /Required PR Gate must define always-required PR jobs/
-  );
-});
-
-test('workflow contract fails when the PR gate rejects unselected skipped lanes', () => {
-  const prGate = extractJob(workflowSource, 'required-pr-gate');
-  assert.ok(prGate);
-
-  const source = workflowSource.replace(
-    prGate,
-    prGate.replace(
-      "job.result === 'failure' || job.result === 'cancelled' || job.result === 'timed_out'",
-      "job.result !== 'success'"
-    )
-  );
-
-  assert.match(
-    validateWorkflowContracts(source).join('\n'),
-    /Required PR Gate must not require unselected skipped jobs to succeed/
-  );
-});
-
-test('workflow contract fails when the PR gate label job map drifts', () => {
-  const prGate = extractJob(workflowSource, 'required-pr-gate');
-  assert.ok(prGate);
-
-  const source = workflowSource.replace(
-    prGate,
-    prGate.replace(
-      "['ci:web-e2e', ['prepare-web', 'e2e', 'e2e-stateful', 'e2e-destructive']]",
-      "['ci:web-e2e', ['prepare-web', 'e2e']]"
-    )
-  );
-
-  assert.match(
-    validateWorkflowContracts(source).join('\n'),
-    /Required PR Gate must map ci:web-e2e to prepare-web, e2e, e2e-stateful, e2e-destructive/
-  );
-});
-
 test('workflow contract fails when a narrow desktop lane job drops its label gate', () => {
   const ipcReset = extractJob(workflowSource, 'desktop-e2e-ipc-reset-pr');
   assert.ok(ipcReset);
@@ -839,24 +796,6 @@ test('workflow contract fails when a narrow desktop lane job drops its label gat
   assert.match(
     validateWorkflowContracts(source).join('\n'),
     /PR desktop IPC reset must run on PRs labeled ci:desktop-ipc-reset/
-  );
-});
-
-test('workflow contract fails when the PR gate forgets a narrow desktop lane', () => {
-  const prGate = extractJob(workflowSource, 'required-pr-gate');
-  assert.ok(prGate);
-
-  const source = workflowSource.replace(
-    prGate,
-    prGate.replace(
-      "['ci:desktop-ipc-reset', ['prepare-desktop', 'desktop-e2e-ipc-reset-pr']],",
-      ''
-    )
-  );
-
-  assert.match(
-    validateWorkflowContracts(source).join('\n'),
-    /Required PR Gate must map ci:desktop-ipc-reset to prepare-desktop, desktop-e2e-ipc-reset-pr/
   );
 });
 
